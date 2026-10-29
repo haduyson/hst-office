@@ -9,7 +9,7 @@ found" (scp2 module_systemint.scp derives the name as lc(PRODUCTNAME), spaces
    hst-office26.8, launcher text prefix "HST", HST icon dir.
  - CustomTarget_share.mk: quote -p arguments (product name contains a space);
    pass the HST icon dir to create_tree.sh.
- - CustomTarget_deb.mk: Debian package name uses DEBNAME (no "_").
+ - CustomTarget_deb.mk: Debian package name uses DEBNAME (no "_"); symlinks go to /usr/bin.
  - create_tree.sh: install the HST application icons (no LibreOffice icons),
    add /usr/bin/hst-office, name the mime file after the product, and skip the
    LibreOffice-named compat symlinks and appstream metainfo that would collide
@@ -85,7 +85,15 @@ License: modified upstream files keep their license (MPL-2.0).
  	$(call gb_Trace_EndRange,$(subst $(WORKDIR)/,,$@),PRL)
 --- a/sysui/CustomTarget_deb.mk
 +++ b/sysui/CustomTarget_deb.mk
-@@ -52,7 +52,7 @@
+@@ -44,6 +44,7 @@
+ 	cd $(gb_CustomTarget_workdir)/sysui/share/$* \
+ 		&& DESTDIR=$(deb_WORKDIR)/$* \
+ 		ICON_PREFIX=$(UNIXFILENAME.$*) \
++		BINDIR=/usr/bin \
+ 		KDEMAINDIR=/usr \
+ 		PREFIXDIR=/usr \
+ 		./create_tree.sh
+@@ -52,7 +53,7 @@
  		-e 's/%PREFIX/$(UNIXFILENAME.$*)/' \
  		-e 's/%ICONPREFIX/$(UNIXFILENAME.$*)/' \
  		> $(deb_WORKDIR)/$*/usr/lib/menu/$*$(PKGVERSIONSHORT)

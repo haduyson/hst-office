@@ -1,0 +1,21 @@
+HST Office packaging: LibreLogo packaging with --enable-python=system.
+
+ENABLE_LIBRELOGO is only passed to the scp2 preprocessor in the bundled-Python
+branch of InstallModule_python.mk. With a system Python, gid_Module_Pyuno
+therefore picks packinfo_librelogo_disabled.txt (the pyuno .deb Conflicts/
+Replaces <prefix>-librelogo) while the librelogo module is still packaged,
+so pyuno and librelogo cannot be installed together and the .deb set is
+uninstallable. Pass the define in the system-Python branch too.
+
+License: modified upstream file keeps its license (MPL-2.0).
+---
+--- a/scp2/InstallModule_python.mk
++++ b/scp2/InstallModule_python.mk
+@@ -22,6 +22,7 @@
+ else ifneq ($(SYSTEM_PYTHON),)
+ $(eval $(call gb_InstallModule_add_defs,scp2/python,\
+ 	-DSYSTEM_PYTHON \
++	$(call gb_Helper_optional,LIBRELOGO,-DENABLE_LIBRELOGO=1) \
+ ))
+ 
+ else
