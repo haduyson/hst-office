@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "valid": [
+    {"name": "plain", "text": "a,b,c\n1,2,3\n", "delimiter": ",", "rows": [["a","b","c"],["1","2","3"]]},
+    {"name": "leading zeros kept", "text": "ma;ten\n00123;Nguyễn\n", "delimiter": ";", "rows": [["ma","ten"],["00123","Nguyễn"]]},
+    {"name": "formula-like", "text": "=1+1,+84912,-5,@SUM(A1)\n", "delimiter": ",", "rows": [["=1+1","+84912","-5","@SUM(A1)"]]},
+    {"name": "quoted multiline and quotes", "text": "a,\"x\ny\",\"say \"\"hi\"\"\"\n", "delimiter": ",", "rows": [["a","x\ny","say \"hi\""]]},
+    {"name": "tab with empty fields", "text": "a\t\tc\n\t\t\n", "delimiter": "\t", "rows": [["a","","c"],["","",""]]},
+    {"name": "ragged rows padded", "text": "a,b,c\nd\n", "delimiter": ",", "rows": [["a","b","c"],["d","",""]]},
+    {"name": "crlf", "text": "a,b\r\nc,d\r\n", "delimiter": ",", "rows": [["a","b"],["c","d"]]},
+    {"name": "quote inside unquoted field is literal", "text": "a,b\"c\n", "delimiter": ",", "rows": [["a","b\"c"]]},
+    {"name": "embedded tab in comma file", "text": "a\tb,c\n", "delimiter": ",", "rows": [["a\tb","c"]]}
+  ],
+  "invalidBytes": [
+    {"name": "latin1 byte", "hex": "61 2c e9 0a", "code": "invalid-utf8"},
+    {"name": "truncated sequence", "hex": "61 2c e1 bb", "code": "invalid-utf8"},
+    {"name": "utf16 bom", "hex": "ff fe 61 00", "code": "unsupported-encoding"},
+    {"name": "nul", "hex": "61 00 62", "code": "nul-byte"}
+  ],
+  "malformed": [
+    {"name": "text after closing quote", "text": "a,\"b\"c\n", "delimiter": ",", "code": "malformed"},
+    {"name": "unterminated", "text": "a,\"b\n", "delimiter": ",", "code": "malformed"}
+  ],
+  "typed": [
+    ["00123", "text", "s", "00123"], ["00123", "general", "s", "00123"], ["123", "general", "n", 123.0],
+    ["-4.5", "general", "n", -4.5], ["=1+1", "general", "s", "=1+1"], ["+84912345678", "general", "s", "+84912345678"],
+    ["1,5", "general", "s", "1,5"], ["1e5", "general", "s", "1e5"], ["", "general", "s", ""], ["12", "text", "s", "12"]
+  ]
+}

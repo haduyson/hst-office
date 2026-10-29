@@ -1,0 +1,53 @@
+{
+ "schemaVersion": 1,
+ "retrievedAt": "2026-10-29",
+ "generator": "tests/fixtures/vietnamese/derive-encoding-data.py",
+ "sources": {
+  "vietunicode": {
+   "url": "https://vietunicode.sourceforge.net/charset/",
+   "sha256": "056924b1f835db5578572e9a5b4989b306e8b68ff5bae71505c059fb6e913902"
+  },
+  "wikipedia-vni": {
+   "url": "https://en.wikipedia.org/w/index.php?title=VNI&action=raw",
+   "sha256": "742f4ad41326f0cad638ab354ab4c7e6c6614154c431096d8967f834ed9a4f0a",
+   "revisions": {
+    "batchcomplete": "",
+    "query": {
+     "pages": {
+      "6912505": {
+       "pageid": 6912505,
+       "ns": 0,
+       "title": "VNI",
+       "revisions": [
+        {
+         "revid": 1361729601,
+         "parentid": 1340823363
+        }
+       ]
+      }
+     }
+    }
+   }
+  },
+  "glibc-charmap": {
+   "path": "/usr/share/i18n/charmaps/TCVN5712-1.gz",
+   "sha256": "a53e4e6bc953479d36fe88f1a9c693a25f5d64356801979f9f2425c13e245655",
+   "package": "locales 2.39-0ubuntu8.9"
+  }
+ },
+ "roles": {
+  "vietunicode": "runtime tables: TCVN3 single bytes and all 134 VNI sequences (Unicode/VNI/TCVN3 columns)",
+  "wikipedia-vni": "independent cross-check of VNI (combining-mark model of the VNI ANSI table); validates every VNI golden-vector sequence",
+  "glibc-charmap": "independent cross-check of TCVN3 single bytes (iconv TCVN5712-1) and source of TCVN3 golden vectors"
+ },
+ "crossChecks": {
+  "vni": "every vietunicode sequence composes (NFC) to the same letter in the Wikipedia table; 134/134 letters, case-matched marks",
+  "tcvn3": "all 74 vietunicode single bytes equal glibc TCVN5712-1; uppercase accented letters exist only via .Vn*H fonts"
+ },
+ "excluded": [
+  "vietunicode TCVN3 uppercase accented letters (base letter + lowercase code): a display convention, not bytes",
+  "TCVN 5712 VN1 codes 0x80-0x9F and other uppercase slots: ambiguous with cp1252 punctuation",
+  "VNI Mac and DOS tables"
+ ],
+ "licenseNote": "factual character-code correspondences; sources are credited, no source text is copied. Review before redistribution if a stricter reading applies."
+}

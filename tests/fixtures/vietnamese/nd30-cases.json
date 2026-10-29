@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "note": "Expected strings are written by hand from docs/VIETNAMESE_OFFICE_SPEC.md (II.3c number/symbol, II.4c date), not produced by the code under test.",
+  "numbers": [["5", "05"], ["9", "09"], ["10", "10"], ["123", "123"], ["", ""], [" 7 ", "07"]],
+  "dates": [
+    ["2026-02-05", "ngày 05 tháng 02 năm 2026"],
+    ["2026-01-31", "ngày 31 tháng 01 năm 2026"],
+    ["2026-03-09", "ngày 09 tháng 3 năm 2026"],
+    ["2026-12-10", "ngày 10 tháng 12 năm 2026"],
+    ["5/2/2026", "ngày 05 tháng 02 năm 2026"],
+    ["29/02/2028", "ngày 29 tháng 02 năm 2028"],
+    ["2026-02-30", null], ["31/04/2026", null], ["hôm nay", null], ["", null]
+  ],
+  "layouts": [
+    {
+      "typeId": "quyet-dinh",
+      "fields": {"agency": "[Cơ quan thử nghiệm]", "number": "5", "symbol": "qđ-ubnd", "place": "[Địa danh]", "date": "2026-02-05",
+                 "summary": "Về việc ban hành quy chế", "body": "Điều 1. Nội dung một.\nĐiều 2. Nội dung hai.",
+                 "signerAuthority": "TM. [Cơ quan]", "signerName": "[Họ và tên]", "recipients": "- Như Điều 2;\n- Lưu: VT, TCCB."},
+      "expectLines": ["[CƠ QUAN THỬ NGHIỆM]", "Số: 05/QĐ-UBND", "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM", "Độc lập - Tự do - Hạnh phúc",
+                      "[Địa danh], ngày 05 tháng 02 năm 2026", "QUYẾT ĐỊNH", "Về việc ban hành quy chế",
+                      "Điều 1. Nội dung một.", "Điều 2. Nội dung hai.", "Nơi nhận:", "- Như Điều 2;", "- Lưu: VT, TCCB.", "TM. [CƠ QUAN]", "[Họ và tên]"],
+      "forbidLines": ["Kính gửi"]
+    },
+    {
+      "typeId": "cong-van",
+      "fields": {},
+      "expectLines": ["[TÊN CƠ QUAN BAN HÀNH]", "Số: [số]/[KÝ HIỆU]", "V/v [Trích yếu nội dung văn bản]", "[Địa danh], [ngày] tháng [tháng] năm [năm]",
+                      "Kính gửi: [Cơ quan, tổ chức nhận văn bản].", "[Nội dung văn bản]", "- Lưu: VT, [đơn vị soạn thảo].",
+                      "[QUYỀN HẠN, CHỨC VỤ NGƯỜI KÝ]", "[Họ và tên]"],
+      "forbidLines": ["CÔNG VĂN"]
+    },
+    {
+      "typeId": "to-trinh",
+      "fields": {"kinhGui": "A\nB\nC", "parentAgency": "[cơ quan chủ quản]", "signerTitle": "phó giám đốc"},
+      "expectLines": ["[CƠ QUAN CHỦ QUẢN]", "TỜ TRÌNH", "Kính gửi:", "- A;", "- B;", "- C.", "PHÓ GIÁM ĐỐC"],
+      "forbidLines": ["V/v"]
+    }
+  ]
+}
