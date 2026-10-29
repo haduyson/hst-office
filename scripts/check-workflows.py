@@ -133,6 +133,11 @@ def check_workflow(path, root=ROOT):
         require("fetch-sources.py" in text_runs, "trial must download and verify pinned tarballs")
         require(all(re.search(rf'trial-build\.sh"? --{stage}\b', text_runs) for stage in ("extract", "patch", "configure", "build")),
                 "trial must extract, patch, configure and build")
+        modes = events.get("workflow_dispatch", {}).get("inputs", {}).get("mode", {}) if isinstance(events, dict) else {}
+        require(modes.get("options") == ["preflight", "full"] and modes.get("default") == "preflight",
+                "mode input must offer preflight (default) and full")
+        build = [step for step in all_steps if "trial-build.sh" in step.get("run", "") and "--build" in step["run"]]
+        require(len(build) == 1 and "full" in str(build[0].get("if", "")), "build step must run only in full mode")
         require("HST_BUILD_DEADLINE" in text_runs, "build step must carry a time budget")
         uploads = [step for step in all_steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
         require(len(uploads) == 1 and "always()" in str(uploads[0].get("if", "")),

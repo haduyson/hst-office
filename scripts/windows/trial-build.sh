@@ -1,22 +1,29 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # HST Office Windows trial build, run inside Cygwin bash (see .github/workflows/desktop-windows.yml).
-#   trial-build.sh --extract | --patch | --configure | --build
+#   trial-build.sh --extract | --tools | --options | --patch | --configure | --build
 # Env: HST_WORK (Cygwin path, default /cygdrive/d/hst), HST_REPO (checkout), HST_BUILD_DEADLINE
 # (epoch seconds; --build stops make cleanly then and returns 0 with status budget-stop).
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "FAILED line $LINENO: $BASH_COMMAND" >&2' ERR
+PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
+set -x
+CYGPATH="${HST_CYGPATH:-cygpath}"
 WORK="${HST_WORK:-/cygdrive/d/hst}"
 REPO="${HST_REPO:?HST_REPO must point at the repository checkout}"
-SRC="$WORK/lo"; LOGS="$WORK/logs"; METRICS="$WORK/metrics"; DL="$WORK/dl"
+SRC="$WORK/lo"; LOGS="$WORK/logs"; METRICS="$WORK/metrics"; DL="${HST_DL:-$WORK/dl}"
 CONF="$REPO/build-config/windows-x86_64.conf"
 mkdir -p "$LOGS" "$METRICS"
 # Minimal PATH: Cygwin first, native make, NASM, Windows system. Avoids Strawberry perl / Git usr/bin shadowing.
-export PATH="/usr/local/bin:/usr/bin:$WORK/bin:/cygdrive/c/Program Files/NASM:/cygdrive/c/Windows/system32:/cygdrive/c/Windows"
+if [ -z "${HST_KEEP_PATH:-}" ]; then
+  export PATH="/usr/local/bin:/usr/bin:$WORK/bin:/cygdrive/c/Program Files/NASM:/cygdrive/c/Windows/system32:/cygdrive/c/Windows"
+fi
 export HOME="$WORK/home"; mkdir -p "$HOME"
 
 phase() { # phase <name> <command...>: run, time and record in phases.jsonl; propagate failure
   local name="$1" start rc=0 status; shift; start=$(date +%s)
   "$@" || rc=$?
+  [ "$rc" -eq 0 ] || echo "FAILED phase $name: exit $rc" >&2
   status=ok; [ "$rc" -eq 0 ] || status="failed($rc)"
   [ "$rc" -ne 0 ] || [ "${BUDGET_STOPPED:-0}" -eq 0 ] || status=budget-stop
   printf '{"phase":"%s","seconds":%d,"status":"%s","free_gib":%s}\n' "$name" $(( $(date +%s) - start )) "$status" \
@@ -24,7 +31,7 @@ phase() { # phase <name> <command...>: run, time and record in phases.jsonl; pro
   return "$rc"
 }
 
-extract_one() { # extract_one <tarball> <dest>; strips the single top-level directory
+extract_one() { # extract_one <tarball> <dest>; all three tarballs share one top-level libreoffice-<ver>/ root
   mkdir -p "$2"; tar --force-local -xf "$DL/$1" -C "$2" --strip-components=1
 }
 
@@ -32,11 +39,20 @@ do_extract() {
   # errexit is suppressed inside phase(), so every step returns explicitly on failure.
   echo "extract: main source"; extract_one libreoffice-26.8.1.1.tar.xz "$SRC" || return 1
   rm -rf "$SRC/translations" "$SRC/dictionaries"
-  echo "extract: translations"; extract_one libreoffice-translations-26.8.1.1.tar.xz "$SRC/translations" || return 1
-  echo "extract: dictionaries"; extract_one libreoffice-dictionaries-26.8.1.1.tar.xz "$SRC/dictionaries" || return 1
+  echo "extract: translations"; extract_one libreoffice-translations-26.8.1.1.tar.xz "$SRC" || return 1
+  echo "extract: dictionaries"; extract_one libreoffice-dictionaries-26.8.1.1.tar.xz "$SRC" || return 1
   [ -f "$SRC/configure.ac" ] || { echo "extract: configure.ac missing"; return 1; }
-  [ -d "$SRC/translations/source/vi" ] || { echo "extract: vi translations missing"; ls "$SRC/translations" | head; return 1; }
+  [ -d "$SRC/translations/source/vi" ] || { echo "extract: vi translations missing"; find "$SRC/translations" -maxdepth 1 | head; return 1; }
   echo "extract: ok"
+}
+
+do_tools() { # report tool versions so a missing prerequisite is visible before configure
+  local tool bad=0
+  for tool in make nasm perl python3 autoconf automake bison flex gperf patch tar zip unzip git curl; do
+    if command -v "$tool" >/dev/null; then "$tool" --version 2>&1 | head -1 || true; else echo "MISSING tool: $tool"; bad=1; fi
+  done
+  command -v cl.exe >/dev/null && echo "cl.exe on PATH (configure still locates VS itself)" || echo "cl.exe not on PATH (expected; configure uses vswhere/registry)"
+  return "$bad"
 }
 
 do_patch() {
@@ -44,19 +60,22 @@ do_patch() {
 }
 
 options() { # configure options with the branding placeholder resolved
-  grep -v '^\s*#' "$CONF" | sed '/^\s*$/d' | sed "s|@BRANDING@|$(cygpath -m "$WORK/branding")|"
+  grep -v '^\s*#' "$CONF" | sed '/^\s*$/d' | sed "s|@BRANDING@|$("$CYGPATH" -m "$WORK/branding")|"
 }
 
-do_configure() {
-  test -f "$WORK/branding/staging-manifest.json" || { echo "branding not staged"; return 2; }
-  # Every option must exist in the pinned configure.ac (same rule as build-linux.sh).
+do_options() { # validate every option against the pinned configure.ac, then write autogen.input
   options | while IFS= read -r opt; do
     base="${opt%%=*}"; base="${base#--}"; base="${base#with-}"; base="${base#without-}"; base="${base#enable-}"; base="${base#disable-}"
     case "$base" in host) continue ;; esac
     grep -qE "(AC_ARG_(WITH|ENABLE)|libo_FUZZ_ARG_(WITH|ENABLE))\($base," "$SRC/configure.ac" || { echo "unknown configure option: $opt"; exit 3; }
   done || return 3
-  options > "$SRC/autogen.input"
+  options > "$SRC/autogen.input" || return 1
   cat "$SRC/autogen.input"
+}
+
+do_configure() {
+  test -f "$WORK/branding/staging-manifest.json" || { echo "branding not staged"; return 2; }
+  do_options || return $?
   (cd "$SRC" && ./autogen.sh) 2>&1 | tee "$LOGS/configure.log"
   test "${PIPESTATUS[0]}" -eq 0
 }
@@ -92,8 +111,10 @@ do_build() {
 
 case "${1:-}" in
   --extract) phase extract do_extract 2>&1 | tee "$LOGS/extract.log"; exit "${PIPESTATUS[0]}" ;;
+  --tools) phase tools do_tools ;;
+  --options) phase options do_options ;;
   --patch) phase patch do_patch ;;
   --configure) phase configure do_configure ;;
   --build) phase build do_build ;;
-  *) echo "usage: $0 --extract|--patch|--configure|--build"; exit 64 ;;
+  *) echo "usage: $0 --extract|--tools|--options|--patch|--configure|--build"; exit 64 ;;
 esac

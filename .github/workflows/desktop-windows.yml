@@ -2,6 +2,12 @@
 name: Desktop Windows trial
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight = setup through configure only (cheap); full = also build within the time budget'
+        type: choice
+        options: [preflight, full]
+        default: preflight
 permissions:
   contents: read
 concurrency:
@@ -61,26 +67,37 @@ jobs:
           set -eu
           python -m pip install "pillow==10.4.0"
           python -I scripts/stage-branding.py --out 'D:/hst/branding'
+      - name: Check build tools
+        shell: bash
+        run: |
+          set -eu
+          # shellcheck disable=SC2016  # single quotes: expansion must happen inside Cygwin bash
+          C:/cygwin64/bin/bash.exe --login -o igncr -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash -o igncr scripts/windows/trial-build.sh --tools'
       - name: Extract source
         shell: bash
         run: |
           set -eu
+          # shellcheck disable=SC2016  # single quotes: expansion must happen inside Cygwin bash
           C:/cygwin64/bin/bash.exe --login -o igncr -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash -o igncr scripts/windows/trial-build.sh --extract'
       - name: Apply HST patches
         shell: bash
         run: |
           set -eu
+          # shellcheck disable=SC2016  # single quotes: expansion must happen inside Cygwin bash
           C:/cygwin64/bin/bash.exe --login -o igncr -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash -o igncr scripts/windows/trial-build.sh --patch'
       - name: Configure
         shell: bash
         run: |
           set -eu
+          # shellcheck disable=SC2016  # single quotes: expansion must happen inside Cygwin bash
           C:/cygwin64/bin/bash.exe --login -o igncr -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash -o igncr scripts/windows/trial-build.sh --configure'
       - name: Build within time budget
+        if: ${{ inputs.mode == 'full' }}
         shell: bash
         run: |
           set -eu
           export HST_BUILD_DEADLINE=$(( HST_JOB_START + 330 * 60 ))
+          # shellcheck disable=SC2016  # single quotes: expansion must happen inside Cygwin bash
           C:/cygwin64/bin/bash.exe --login -o igncr -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash -o igncr scripts/windows/trial-build.sh --build'
       - name: Summarize metrics
         if: ${{ always() }}
