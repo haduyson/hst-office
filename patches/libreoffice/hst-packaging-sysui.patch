@@ -1,0 +1,410 @@
+HST Office packaging: sysui desktop integration for the "HST Office" product.
+
+Upstream sysui/productlist.mk only knows libreoffice/libreofficedev, so no
+<product>-desktop-integration.tar.gz exists for PRODUCTNAME "HST Office" and the
+installer aborts with "Source for hst_office-desktop-integration.tar.gz not
+found" (scp2 module_systemint.scp derives the name as lc(PRODUCTNAME), spaces
+-> "_"). Changes:
+ - productlist.mk/Package_share.mk: product id hst_office, UNIXFILENAME
+   hst-office26.8, launcher text prefix "HST", HST icon dir.
+ - CustomTarget_share.mk: quote -p arguments (product name contains a space);
+   pass the HST icon dir to create_tree.sh.
+ - CustomTarget_deb.mk: Debian package name uses DEBNAME (no "_").
+ - create_tree.sh: install the HST application icons (no LibreOffice icons),
+   add /usr/bin/hst-office, name the mime file after the product, and skip the
+   LibreOffice-named compat symlinks and appstream metainfo that would collide
+   with a distribution LibreOffice.
+ - menus/*.desktop: Calc -> Sheets, Impress -> Slides, start center "Office",
+   plus Name[vi]; brand.pl turns %PRODUCTNAME into "HST".
+ - debian/control: Maintainer HASON TECH. debian/postinst,prerm: do not rewrite
+   /etc/mime.types or /etc/mailcap (upstream deletes other applications' entries).
+
+License: modified upstream files keep their license (MPL-2.0).
+---
+--- a/sysui/productlist.mk
++++ b/sysui/productlist.mk
+@@ -7,12 +7,20 @@
+ # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ #
+ 
+-PRODUCTLIST := libreoffice libreofficedev
++# HST Office: product id "hst_office" must equal lc(PRODUCTNAME with spaces -> _) because
++# the installer (scp2 module_systemint.scp) asks for <that>-desktop-integration.tar.gz.
++# The LibreOffice products are dropped so no LibreOffice-named integration is built.
++PRODUCTLIST := hst_office
+ PKGVERSION := $(LIBO_VERSION_MAJOR).$(LIBO_VERSION_MINOR).$(LIBO_VERSION_MICRO)
+ PKGVERSIONSHORT := $(LIBO_VERSION_MAJOR).$(LIBO_VERSION_MINOR)
+-PRODUCTNAME.libreoffice := LibreOffice
+-PRODUCTNAME.libreofficedev := LibreOfficeDev
+-UNIXFILENAME.libreoffice := libreoffice$(PKGVERSIONSHORT)
+-UNIXFILENAME.libreofficedev := libreofficedev$(PKGVERSIONSHORT)
++PRODUCTNAME.hst_office := HST Office
++UNIXFILENAME.hst_office := hst-office$(PKGVERSIONSHORT)
++# Debian package name of the integration package (underscore is invalid there).
++DEBNAME.hst_office := hst-office
++# Text substituted for %PRODUCTNAME in launcher names: "HST Writer", "HST Sheets", ...
++DESKTOPNAME.hst_office := HST
++
++# HST brand icon set installed as the application icons (see desktop/share/create_tree.sh).
++HST_ICON_DIR ?= $(abspath $(SRCDIR)/../../assets/brand/icons)
+ 
+ # vim: set noet sw=4 ts=4:
+--- a/sysui/Package_share.mk
++++ b/sysui/Package_share.mk
+@@ -7,7 +7,7 @@
+ # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ #
+ 
+-$(eval $(call gb_Package_Package,sysui_share,$(share_WORKDIR)/libreoffice))
++$(eval $(call gb_Package_Package,sysui_share,$(share_WORKDIR)/hst_office))
+ 
+ $(eval $(call gb_Package_add_files,sysui_share,share/xdg,\
+ 	$(addsuffix .desktop,$(LAUNCHERLIST)) \
+--- a/sysui/CustomTarget_share.mk
++++ b/sysui/CustomTarget_share.mk
+@@ -149,6 +149,7 @@
+ 	echo "PREFIX=$(UNIXFILENAME.$*)" >> $@
+ 	echo "ICON_PREFIX=$(UNIXFILENAME.$*)" >> $@
+ 	echo "ICON_SOURCE_DIR=$(SRCDIR)/sysui/desktop/icons" >> $@
++	echo "HST_ICON_DIR='$(HST_ICON_DIR)'" >> $@
+ 	echo "APPDATA_SOURCE_DIR=$(SRCDIR)/sysui/desktop/appstream-appdata" >> $@
+ 	echo "PRODUCTVERSION=$(PRODUCTVERSION)" >> $@
+ 	cat $< >> $@
+@@ -205,10 +206,10 @@
+ 	mkdir -p $(dir $@)
+ 	$(call gb_Output_announce,$(subst $(WORKDIR)/,,$@),$(true),PRL,1)
+ 	$(call gb_Trace_StartRange,$(subst $(WORKDIR)/,,$@),PRL)
+-	$(PERL) $(share_SRCDIR)/share/brand.pl -p '$${PRODUCTNAME} $${PRODUCTVERSION}' -u $(UNIXFILENAME.$*) \
++	$(PERL) $(share_SRCDIR)/share/brand.pl -p '$(DESKTOPNAME.$*)' -u $(UNIXFILENAME.$*) \
+ 		$(brand_URIPARAM) \
+ 		--iconprefix '$${UNIXBASISROOTNAME}-' $(LAUNCHERS) $(share_WORKDIR)/$*
+-	$(call gb_ExternalExecutable_get_command,python) $(share_TRANSLATE) -p $(PRODUCTNAME.$*)$(PRODUCTVERSION) -d $(share_WORKDIR)/$* \
++	$(call gb_ExternalExecutable_get_command,python) $(share_TRANSLATE) -p '$(PRODUCTNAME.$*)$(PRODUCTVERSION)' -d $(share_WORKDIR)/$* \
+ 		--ext "desktop" $(share_WORKDIR)/launcher.ulf
+ 	touch $@
+ 	$(call gb_Trace_EndRange,$(subst $(WORKDIR)/,,$@),PRL)
+--- a/sysui/CustomTarget_deb.mk
++++ b/sysui/CustomTarget_deb.mk
+@@ -52,7 +52,7 @@
+ 		-e 's/%PREFIX/$(UNIXFILENAME.$*)/' \
+ 		-e 's/%ICONPREFIX/$(UNIXFILENAME.$*)/' \
+ 		> $(deb_WORKDIR)/$*/usr/lib/menu/$*$(PKGVERSIONSHORT)
+-	echo "Package: $*$(PKGVERSIONSHORT)-debian-menus" >$@
++	echo "Package: $(DEBNAME.$*)$(PKGVERSIONSHORT)-debian-menus" >$@
+ 	cat $< | tr -d "\015" | \
+ 		sed 's/%productname/$(PRODUCTNAME.$*) $(PRODUCTVERSION)/' \
+ 		>> $@
+--- a/sysui/desktop/share/create_tree.sh
++++ b/sysui/desktop/share/create_tree.sh
+@@ -18,8 +18,15 @@
+ 
+ umask 022
+ 
++# HST Office: when HST_ICON_DIR is set the application icons come from the HST brand
++# set (hst-<app>-<size>.png) instead of the upstream LibreOffice ones.
+ if [ "${KDEMAINDIR}" ]; then
+-  for i in `cd "${ICON_SOURCE_DIR}"; find ${ICON_THEMES:-hicolor/???x??? hicolor/??x??} -name "*.png"; find hicolor/scalable/apps -name "*.svg"`
++  if test -n "${HST_ICON_DIR}"; then
++    icon_list=`cd "${ICON_SOURCE_DIR}"; find ${ICON_THEMES:-hicolor/???x??? hicolor/??x??} -name "*.png" | grep -v '/apps/'`
++  else
++    icon_list=`cd "${ICON_SOURCE_DIR}"; find ${ICON_THEMES:-hicolor/???x??? hicolor/??x??} -name "*.png"; find hicolor/scalable/apps -name "*.svg"`
++  fi
++  for i in ${icon_list}
+   do
+     targetdir=${DESTDIR}/${KDEMAINDIR}/share/icons/`dirname ${i}`
+     mkdir -p "${targetdir}"
+@@ -29,6 +36,20 @@
+   done
+   unset targetdir destfile
+ 
++  if test -n "${HST_ICON_DIR}"; then
++    for map in writer:writer calc:sheets impress:slides draw:office base:office math:office startcenter:office main:office chart:office; do
++      app=${map%%:*}; brand=${map##*:}
++      for size in 16 24 32 48 64 128 256 512; do
++        src="${HST_ICON_DIR}/hst-${brand}-${size}.png"
++        test -f "${src}" || { echo "missing HST icon ${src}" >&2; exit 1; }
++        targetdir=${DESTDIR}/${KDEMAINDIR}/share/icons/hicolor/${size}x${size}/apps
++        mkdir -p "${targetdir}"
++        cp "${src}" "${targetdir}/${ICON_PREFIX:-}${ICON_PREFIX:+-}${app}.png"
++        chmod 0644 "${targetdir}/${ICON_PREFIX:-}${ICON_PREFIX:+-}${app}.png"
++      done
++    done
++    unset map app brand size src targetdir
++  fi
+ fi
+ 
+ mkdir -p "${DESTDIR}/${BINDIR}"
+@@ -39,6 +60,14 @@
+ #this symlink is needed to have the API bootstrap functions running right
+ ln -sf "${office_root}/program/soffice" "${DESTDIR}/${BINDIR}/${PREFIX}"
+ 
++case "${PREFIX}" in
++hst-office*)
++    # HST Office: own command name, no LibreOffice-named compat links or mime file,
++    # so nothing collides with a distribution LibreOffice package.
++    ln -sf ${PREFIX} "${DESTDIR}/${BINDIR}/hst-office"
++    mime_def_file="${PREFIX}.xml"
++    ;;
++*)
+ if test "${PREFIX}" != libreoffice${PRODUCTVERSION} -a "${PREFIX}" != libreofficedev${PRODUCTVERSION}  ; then
+     # compat symlinks
+     mkdir -p "${DESTDIR}${office_prefix}"
+@@ -47,6 +76,8 @@
+ fi
+ 
+ test "${PREFIX}" = libreofficedev${PRODUCTVERSION} && mime_def_file="libreofficedev${PRODUCTVERSION}.xml" || mime_def_file="libreoffice${PRODUCTVERSION}.xml"
++    ;;
++esac
+ mkdir -p "${DESTDIR}/${PREFIXDIR}/share/mime/packages"
+ cp openoffice.org.xml "${DESTDIR}/${PREFIXDIR}/share/mime/packages/$mime_def_file"
+ chmod 0644 "${DESTDIR}/${PREFIXDIR}/share/mime/packages/$mime_def_file"
+@@ -56,9 +87,15 @@
+   ln -sf "${office_root}/share/xdg/${i}" "${DESTDIR}/${PREFIXDIR}/share/applications/${PREFIX}-${i}"
+ done
+ 
++# HST Office ships no appstream metainfo: the upstream files carry the LibreOffice
++# component ids and names, which would clash with a distribution LibreOffice.
++case "${PREFIX}" in
++hst-office*) ;;
++*)
+ mkdir -p "${DESTDIR}/${PREFIXDIR}/share/metainfo"
+ for i in base calc draw impress writer; do
+     cp "${APPDATA_SOURCE_DIR}/libreoffice-${i}.appdata.xml" "${DESTDIR}/${PREFIXDIR}/share/metainfo/${PREFIX}-${i}.appdata.xml"
+ done
+ cp "${APPDATA_SOURCE_DIR}/org.libreoffice.kde.metainfo.xml" "${DESTDIR}/${PREFIXDIR}/share/metainfo/org.${PREFIX}.kde.metainfo.xml"
+-
++    ;;
++esac
+--- a/sysui/desktop/menus/calc.desktop
++++ b/sysui/desktop/menus/calc.desktop
+@@ -23,7 +23,8 @@
+ Categories=Office;Spreadsheet;X-Red-Hat-Base;
+ Exec=${UNIXBASISROOTNAME} --calc %%FILE%%
+ MimeType=application/clarisworks;application/csv;application/excel;application/msexcel;application/tab-separated-values;application/vnd.apache.parquet;application/vnd.apple.numbers;application/vnd.lotus-1-2-3;application/vnd.ms-excel;application/vnd.ms-excel.sheet.binary.macroEnabled.12;application/vnd.ms-excel.sheet.macroEnabled.12;application/vnd.ms-excel.template.macroEnabled.12;application/vnd.ms-works;application/vnd.oasis.opendocument.chart;application/vnd.oasis.opendocument.chart-template;application/vnd.oasis.opendocument.spreadsheet;application/vnd.oasis.opendocument.spreadsheet-flat-xml;application/vnd.oasis.opendocument.spreadsheet-template;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.openxmlformats-officedocument.spreadsheetml.template;application/vnd.stardivision.calc;application/vnd.stardivision.chart;application/vnd.sun.xml.calc;application/vnd.sun.xml.calc.template;application/x-123;application/x-dbase;application/x-dbf;application/x-dos_ms_excel;application/x-excel;application/x-gnumeric;application/x-iwork-numbers-sffnumbers;application/x-ms-excel;application/x-msexcel;application/x-quattropro;application/x-starcalc;application/x-starchart;text/comma-separated-values;text/csv;text/spreadsheet;text/tab-separated-values;text/x-comma-separated-values;text/x-csv;
+-Name=%PRODUCTNAME Calc
++Name=%PRODUCTNAME Sheets
++Name[vi]=%PRODUCTNAME Sheets
+ GenericName=Spreadsheet
+ Comment=Perform calculations, analyze information and manage lists in spreadsheets.
+ StartupNotify=true
+--- a/sysui/desktop/menus/impress.desktop
++++ b/sysui/desktop/menus/impress.desktop
+@@ -23,7 +23,8 @@
+ Categories=Office;Presentation;X-Red-Hat-Base;
+ Exec=${UNIXBASISROOTNAME} --impress %%FILE%%
+ MimeType=application/mspowerpoint;application/vnd.apple.keynote;application/vnd.ms-powerpoint;application/vnd.ms-powerpoint.presentation.macroEnabled.12;application/vnd.ms-powerpoint.slideshow.macroEnabled.12;application/vnd.ms-powerpoint.template.macroEnabled.12;application/vnd.oasis.opendocument.presentation;application/vnd.oasis.opendocument.presentation-flat-xml;application/vnd.oasis.opendocument.presentation-template;application/vnd.openxmlformats-officedocument.presentationml.presentation;application/vnd.openxmlformats-officedocument.presentationml.slide;application/vnd.openxmlformats-officedocument.presentationml.slideshow;application/vnd.openxmlformats-officedocument.presentationml.template;application/vnd.stardivision.impress;application/vnd.sun.xml.impress;application/vnd.sun.xml.impress.template;application/x-iwork-keynote-sffkey;application/x-starimpress;
+-Name=%PRODUCTNAME Impress
++Name=%PRODUCTNAME Slides
++Name[vi]=%PRODUCTNAME Slides
+ GenericName=Presentation
+ Comment=Create and edit presentations for slideshows, meetings and Web pages.
+ StartupNotify=true
+--- a/sysui/desktop/menus/writer.desktop
++++ b/sysui/desktop/menus/writer.desktop
+@@ -24,6 +24,7 @@
+ Exec=${UNIXBASISROOTNAME} --writer %%FILE%%
+ MimeType=application/clarisworks;application/docbook+xml;application/macwriteii;application/msword;application/prs.plucker;application/rtf;application/vnd.apple.pages;application/vnd.lotus-wordpro;application/vnd.ms-word;application/vnd.ms-word.document.macroEnabled.12;application/vnd.ms-word.template.macroEnabled.12;application/vnd.ms-works;application/vnd.oasis.opendocument.text;application/vnd.oasis.opendocument.text-flat-xml;application/vnd.oasis.opendocument.text-master;application/vnd.oasis.opendocument.text-master-template;application/vnd.oasis.opendocument.text-template;application/vnd.oasis.opendocument.text-web;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.openxmlformats-officedocument.wordprocessingml.template;application/vnd.palm;application/vnd.stardivision.writer-global;application/vnd.sun.xml.writer;application/vnd.sun.xml.writer.global;application/vnd.sun.xml.writer.template;application/vnd.wordperfect;application/wordperfect;application/x-abiword;application/x-aportisdoc;application/x-doc;application/x-extension-txt;application/x-fictionbook+xml;application/x-hwp;application/x-iwork-pages-sffpages;application/x-mswrite;application/x-pocket-word;application/x-sony-bbeb;application/x-starwriter;application/x-starwriter-global;application/x-t602;text/plain;text/rtf;
+ Name=%PRODUCTNAME Writer
++Name[vi]=%PRODUCTNAME Writer
+ GenericName=Word Processor
+ Comment=Create and edit text and graphics in letters, reports, documents and Web pages.
+ StartupNotify=true
+--- a/sysui/desktop/menus/startcenter.desktop
++++ b/sysui/desktop/menus/startcenter.desktop
+@@ -24,7 +24,8 @@
+ Categories=Office;X-Red-Hat-Base;X-SuSE-Core-Office;
+ Exec=${UNIXBASISROOTNAME} %%FILE%%
+ MimeType=application/vnd.openofficeorg.extension;x-scheme-handler/vnd.libreoffice.cmis;x-scheme-handler/vnd.sun.star.webdav;x-scheme-handler/vnd.sun.star.webdavs;x-scheme-handler/vnd.libreoffice.command;x-scheme-handler/ms-word;x-scheme-handler/ms-powerpoint;x-scheme-handler/ms-excel;x-scheme-handler/ms-visio;x-scheme-handler/ms-access;
+-Name=%PRODUCTNAME
++Name=%PRODUCTNAME Office
++Name[vi]=%PRODUCTNAME Office
+ GenericName=Office
+ Comment=Launch applications to create text documents, spreadsheets, presentations, drawings, formulas, and databases, or open recently used documents.
+ StartupNotify=true
+@@ -40,11 +41,11 @@
+ Exec=${UNIXBASISROOTNAME} --writer
+ 
+ [Desktop Action Calc]
+-Name=Calc
++Name=Sheets
+ Exec=${UNIXBASISROOTNAME} --calc
+ 
+ [Desktop Action Impress]
+-Name=Impress
++Name=Slides
+ Exec=${UNIXBASISROOTNAME} --impress
+ 
+ [Desktop Action Draw]
+--- a/sysui/desktop/debian/control
++++ b/sysui/desktop/debian/control
+@@ -1,3 +1,3 @@
+ Description: %productname desktop integration
+-Maintainer: LibreOffice
++Maintainer: HASON TECH
+ Architecture: all
+--- a/sysui/desktop/debian/postinst
++++ b/sysui/desktop/debian/postinst
+@@ -42,144 +42,7 @@
+   fi
+ fi
+ 
+-# update /etc/mime.types
+-# backing out existing entries to avoid duplicates
+-sed '
+-/application\/vnd\.oasis\.opendocument/d
+-/application\/vnd\.sun/d
+-/application\/vnd\.stardivision/d
+-/application\/vnd\.openofficeorg/d
+-' /etc/mime.types 2>/dev/null >> /etc/mime.types.tmp$$
+-
+-# now append our stuff to the temporary file
+-cat >> /etc/mime.types.tmp$$ << END
+-application/vnd.oasis.opendocument.text odt
+-application/vnd.oasis.opendocument.text-flat-xml fodt
+-application/vnd.oasis.opendocument.text-template ott
+-application/vnd.oasis.opendocument.text-web oth
+-application/vnd.oasis.opendocument.text-master odm
+-application/vnd.oasis.opendocument.text-master-template otm
+-application/vnd.oasis.opendocument.graphics odg
+-application/vnd.oasis.opendocument.graphics-flat-xml fodg
+-application/vnd.oasis.opendocument.graphics-template otg
+-application/vnd.oasis.opendocument.presentation odp
+-application/vnd.oasis.opendocument.presentation-flat-xml fodp
+-application/vnd.oasis.opendocument.presentation-template otp
+-application/vnd.oasis.opendocument.spreadsheet ods
+-application/vnd.oasis.opendocument.spreadsheet-flat-xml fods
+-application/vnd.oasis.opendocument.spreadsheet-template ots
+-application/vnd.oasis.opendocument.chart odc
+-application/vnd.oasis.opendocument.formula odf
+-application/vnd.oasis.opendocument.image odi
+-application/vnd.sun.xml.writer sxw
+-application/vnd.sun.xml.writer.template stw
+-application/vnd.sun.xml.writer.global sxg
+-application/vnd.stardivision.writer sdw vor
+-application/vnd.stardivision.writer-global sgl
+-application/vnd.sun.xml.calc sxc
+-application/vnd.sun.xml.calc.template stc
+-application/vnd.stardivision.calc sdc
+-application/vnd.stardivision.chart sds
+-application/vnd.sun.xml.impress sxi
+-application/vnd.sun.xml.impress.template sti
+-application/vnd.stardivision.impress sdd sdp
+-application/vnd.sun.xml.draw sxd
+-application/vnd.sun.xml.draw.template std
+-application/vnd.stardivision.draw sda
+-application/vnd.sun.xml.math sxm
+-application/vnd.stardivision.math smf
+-application/vnd.sun.xml.base odb
+-application/vnd.openofficeorg.extension oxt
+-END
+-
+-# and replace the original file
+-mv -f /etc/mime.types.tmp$$ /etc/mime.types 2>/dev/null
+-
+-# update /etc/mailcap only at initial install
+-if [ "$1" = "configure" ]
+-then
+-  # backing out existing entries to avoid duplicates
+-  sed '
+-/^# LibreOffice/d
+-/^application\/vnd\.oasis\.opendocument/d
+-/^application\/vnd\.openofficeorg/d
+-/^application\/vnd\.sun/d
+-/^application\/vnd\.stardivision/d
+-/^application\/vnd\.ms-word/d
+-/^application\/vnd\.ms-excel/d
+-/^application\/vnd\.ms-powerpoint/d
+-/^application\/x-star/d
+-/excel/d
+-/ms[-]*word/d
+-/powerpoint/d
+-' /etc/mailcap 2>/dev/null >> /etc/mailcap.tmp$$
+-
+-  # now append our stuff to the temporary file
+-  cat >> /etc/mailcap.tmp$$ << END
+-# LibreOffice
+-application/vnd.oasis.opendocument.text; %PREFIX -view %s
+-application/vnd.oasis.opendocument.text-flat-xml; %PREFIX -view %s
+-application/vnd.oasis.opendocument.text-template; %PREFIX -view %s
+-application/vnd.oasis.opendocument.text-web; %PREFIX -view %s
+-application/vnd.oasis.opendocument.text-master; %PREFIX -view %s
+-application/vnd.oasis.opendocument.text-master-template; %PREFIX -view %s
+-application/vnd.sun.xml.writer; %PREFIX -view %s
+-application/vnd.sun.xml.writer.template; %PREFIX -view %s
+-application/vnd.sun.xml.writer.global; %PREFIX -view %s
+-application/vnd.stardivision.writer; %PREFIX -view %s
+-application/vnd.stardivision.writer-global; %PREFIX -view %s
+-application/x-hwp; %PREFIX -view %s
+-application/x-starwriter; %PREFIX -view %s
+-application/vnd.oasis.opendocument.formula; %PREFIX -view %s
+-application/vnd.sun.xml.math; %PREFIX -view %s
+-application/vnd.stardivision.math; %PREFIX -view %s
+-application/x-starmath; %PREFIX -view %s
+-application/msword; %PREFIX -view %s
+-application/vnd.oasis.opendocument.spreadsheet; %PREFIX -view %s
+-application/vnd.oasis.opendocument.spreadsheet-flat-xml; %PREFIX -view %s
+-application/vnd.oasis.opendocument.spreadsheet-template; %PREFIX -view %s
+-application/vnd.sun.xml.calc; %PREFIX -view %s
+-application/vnd.sun.xml.calc.template; %PREFIX -view %s
+-application/vnd.stardivision.calc; %PREFIX -view %s
+-application/x-starcalc; %PREFIX -view %s
+-application/vnd.stardivision.chart; %PREFIX -view %s
+-application/x-starchart; %PREFIX -view %s
+-application/excel; %PREFIX -view %s
+-application/msexcel; %PREFIX -view %s
+-application/vnd.ms-excel; %PREFIX -view %s
+-application/x-msexcel; %PREFIX -view %s
+-application/vnd.oasis.opendocument.presentation; %PREFIX -view %s
+-application/vnd.oasis.opendocument.presentation-flat-xml; %PREFIX -view %s
+-application/vnd.oasis.opendocument.presentation-template; %PREFIX -view %s
+-application/vnd.sun.xml.impress; %PREFIX -view %s
+-application/vnd.sun.xml.impress.template; %PREFIX -view %s
+-application/vnd.stardivision.impress; %PREFIX -view %s
+-application/x-starimpress; %PREFIX -view %s
+-application/powerpoint; %PREFIX -view %s
+-application/mspowerpoint; %PREFIX -view %s
+-application/vnd.ms-powerpoint; %PREFIX -view %s
+-application/x-mspowerpoint; %PREFIX -view %s
+-application/vnd.oasis.opendocument.graphics; %PREFIX -view %s
+-application/vnd.oasis.opendocument.graphics-flat-xml; %PREFIX -view %s
+-application/vnd.oasis.opendocument.graphics-template; %PREFIX -view %s
+-application/vnd.sun.xml.draw; %PREFIX -view %s
+-application/vnd.sun.xml.draw.template; %PREFIX -view %s
+-application/vnd.stardivision.draw; %PREFIX -view %s
+-application/x-stardraw; %PREFIX -view %s
+-application/vnd.oasis.opendocument.base; %PREFIX -view %s
+-application/vnd.sun.xml.base; %PREFIX -view %s
+-application/vnd.writerperfect; %PREFIX -view %s
+-application/wordperfect5.1; %PREFIX -view %s
+-application/x-wordperfect; %PREFIX -view %s
+-application/wordperfect; %PREFIX -view %s
+-application/vnd.lotus-wordpro; %PREFIX -view %s
+-application/wpwin; %PREFIX -view %s
+-application/x-mswrite; %PREFIX -view %s
+-application/vnd.openofficeorg.extension; %PREFIX %s
+-END
+-
+-  # and replace the original file
+-  mv -f /etc/mailcap.tmp$$ /etc/mailcap
+-fi
+-
++# HST Office: the upstream script rewrote /etc/mime.types and /etc/mailcap, deleting
++# entries other applications own (e.g. Excel/Word viewers). Shared-mime-info and the
++# desktop file database above are sufficient, so no global file is modified.
+ exit 0
+--- a/sysui/desktop/debian/prerm
++++ b/sysui/desktop/debian/prerm
+@@ -1,10 +1,4 @@
+ #!/bin/sh
+ 
+-if [ "$1" = "remove" ]
+-then
+-  # backing all entries pointing to our binary
+-  sed '/%PREFIX/d' /etc/mailcap 2>/dev/null >> /etc/mailcap.tmp$$
+-
+-  # and replace the original file
+-  mv -f /etc/mailcap.tmp$$ /etc/mailcap
+-fi
+\ No newline at end of file
++# HST Office: no /etc/mailcap entries are written by postinst, so none are removed.
++exit 0

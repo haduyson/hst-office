@@ -45,8 +45,23 @@ def render_banner(spec, mark):
     if x - 8 > 992:
         raise ValueError("Solution labels exceed the banner content area")
 
-    rounded((1024, 52, 1248, 108), 12, blue)
-    text((1136, 80), cfg["callToAction"], font("bold", 24), palette["card"], "mm")
+    if cfg.get("callToAction"):
+        rounded((1024, 52, 1248, 108), 12, blue)
+        text((1136, 80), cfg["callToAction"], font("bold", 24), palette["card"], "mm")
+    else:
+        # Owner decision: no fake button inside the image (the Start Center shows a real
+        # link next to it); shrink the card to its content plus the same right margin.
+        content_right = max(x - 8, 156 + draw.textlength(cfg["leadText"], font=headline) / scale)
+        width = int(content_right) + 40
+        canvas = canvas.crop((0, 0, width * scale, height * scale))
+        # Re-round the card's right corners: the crop cut through the straight middle part.
+        mask = Image.new("L", canvas.size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle((2 * scale, 2 * scale, (width - 3) * scale, (height - 3) * scale),
+                                               24 * scale, fill=255)
+        canvas.putalpha(Image.composite(canvas.getchannel("A"), mask, mask))
+        ImageDraw.Draw(canvas).rounded_rectangle(
+            (2 * scale, 2 * scale, (width - 3) * scale, (height - 3) * scale), 24 * scale,
+            outline=palette["border"], width=2 * scale)
     banner = canvas.resize((width, height), Image.Resampling.LANCZOS)
     mark_width = 90
     mark_height = round(mark.height * mark_width / mark.width)

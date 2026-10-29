@@ -22,7 +22,8 @@ EXPECTED = {
     "org.openoffice.Office.UI.ToolbarMode/Applications/Writer/Active": "notebookbar.ui",
     "org.openoffice.Office.UI.ToolbarMode/Applications/Calc/Active": "notebookbar.ui",
     "org.openoffice.Office.UI.ToolbarMode/Applications/Impress/Active": "notebookbar.ui",
-    "org.openoffice.Office.Common/Misc/ShowDonation": False,
+    # Enables the HASON TECH Start Center banner (hst-start-center-banner.patch); no donation UI exists.
+    "org.openoffice.Office.Common/Misc/ShowDonation": True,
     "org.openoffice.Setup/Product/WhatsNew": False,
     "org.openoffice.Office.Writer/DefaultFont/Standard": "Times New Roman",
     "org.openoffice.Office.Common/Menus/DonationURL": "https://hasontech.vn",
@@ -41,14 +42,16 @@ def read_config(ctx, path):
 
 
 def connect(pipe, timeout=90):
+    """Connect over the UNO pipe (profile is pre-initialised, so no first-start restart)."""
     import uno
     local = uno.getComponentContext()
-    resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
     deadline = time.time() + timeout
+    time.sleep(6)  # the pipe opens early in startup; calls made before startup settles get disposed
     while True:
         try:
+            resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
             return resolver.resolve(f"uno:pipe,name={pipe};urp;StarOffice.ComponentContext")
-        except Exception:  # NoConnectException until soffice is ready
+        except Exception:  # NoConnectException until soffice listens
             if time.time() > deadline:
                 raise
             time.sleep(1)
@@ -60,7 +63,7 @@ def main():
     parser.add_argument("--out", default=os.path.join(ROOT, "tests/output/defaults"))
     args = parser.parse_args()
     args.out = os.path.abspath(args.out)  # profile must be an absolute file:// URL
-    program = os.path.join(args.instdir, "program")
+    program = os.path.join(os.path.abspath(args.instdir), "program")  # URE bootstrap needs an absolute path
     # Use the tested build's own Python-UNO bridge when it ships one (HST builds
     # with --enable-python=system do); otherwise fall back to the system bridge.
     # URE_BOOTSTRAP is for this Python process only; soffice must not inherit it.
@@ -72,6 +75,13 @@ def main():
     shutil.rmtree(args.out, ignore_errors=True)
     os.makedirs(profile)
     pipe = f"hstdefaults{os.getpid()}"
+    # A fresh profile makes soffice restart itself once; initialise it first so the
+    # listening process below is the one that stays up.
+    for _ in range(3):  # exit code 81 = "restart requested" while the profile is created
+        warm = subprocess.run([os.path.join(program, "soffice.bin"), "--headless", "--norestore",
+                               "--terminate_after_init", f"-env:UserInstallation=file://{profile}"], env=child_env, timeout=120, check=False)
+        if warm.returncode == 0:
+            break
     proc = subprocess.Popen([os.path.join(program, "soffice"), "--headless", "--norestore", "--nologo",
                              f"-env:UserInstallation=file://{profile}", f"--accept=pipe,name={pipe};urp;"], env=child_env)
     results, failed = {}, 0

@@ -93,10 +93,12 @@ class BrandAssetTests(unittest.TestCase):
 
     def test_banner_size_and_opaque_card(self):
         with Image.open(path(SPEC["startCenterBanner"]["path"])) as banner:
-            self.assertEqual((banner.size, banner.mode), ((1280, 160), "RGBA"))
+            width, height = banner.size
+            self.assertEqual((height, banner.mode), (160, "RGBA"))
+            self.assertLessEqual(width, 1280)  # shrinks to content when there is no CTA
             self.assertEqual(banner.getpixel((0, 0))[3], 0)
-            self.assertEqual(banner.getpixel((1279, 159))[3], 0)
-            self.assertEqual(banner.crop((32, 8, 1248, 152)).getchannel("A").getextrema(),
+            self.assertEqual(banner.getpixel((width - 1, height - 1))[3], 0)
+            self.assertEqual(banner.crop((32, 8, width - 32, 152)).getchannel("A").getextrema(),
                              (255, 255), "the card must protect every text region")
 
     def test_banner_previews_are_composited_at_display_size(self):
@@ -126,8 +128,8 @@ class BrandAssetTests(unittest.TestCase):
         with open(path("data/hst/solutions.json"), encoding="utf-8") as fh:
             approved = [item["name"] for item in json.load(fh)["solutions"]]
         self.assertEqual(cfg["solutions"], approved)
-        self.assertEqual(cfg["callToAction"], "hasontech.vn →")
-        copy = " ".join([cfg["leadText"], *cfg["solutions"], cfg["callToAction"]])
+        self.assertIsNone(cfg["callToAction"], "no non-clickable button inside the banner image")
+        copy = " ".join([cfg["leadText"], *cfg["solutions"]])
         self.assertEqual(copy, unicodedata.normalize("NFC", copy))
         for face in cfg["fonts"].values():
             charset = subprocess.check_output(

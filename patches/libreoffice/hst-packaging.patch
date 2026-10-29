@@ -4,14 +4,20 @@ The EPM/MSI installer looks up the product by PRODUCTNAME without spaces
 ("HSTOffice"), which upstream's openoffice.lst.in does not define, so
 `make` failed with "Product HSTOffice not defined". Adds an HSTOffice
 section (copy of the LibreOffice one) without the TDF update URL and with
-HSTOffice_* download names. Profile dir stays product-specific
-(~/.config/hst office/4 from instsetoo_native/CustomTarget_setup.mk).
+HSTOffice_* download names.
+
+It also overrides the package/install-root names that the Globals section
+sets to LibreOffice values (libobasis*, libreoffice*-ure, /opt/libreoffice26.8),
+so the HST .deb set installs under /opt/hst-office26.8 with hst-officebasis26.8-*
+and hst-office26.8-* package names and cannot conflict with an official
+LibreOffice install. Profile dir stays product-specific
+(from instsetoo_native/CustomTarget_setup.mk).
 
 License: modified upstream file keeps its license (MPL-2.0).
 ---
 --- a/instsetoo_native/util/openoffice.lst.in
 +++ b/instsetoo_native/util/openoffice.lst.in
-@@ -73,6 +73,41 @@
+@@ -73,6 +73,46 @@
      }
  }
  
@@ -21,6 +27,11 @@ License: modified upstream file keeps its license (MPL-2.0).
 +    {
 +        variables
 +        {
++            WINDOWSBASISROOTNAME HSTOffice
++            UNIXBASISROOTNAME hst-office@LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@
++            BASISPACKAGEPREFIX hst-officebasis
++            UREPACKAGEPREFIX hst-office
++            SOLSUREPACKAGEPREFIX hst-office
 +            PRODUCTNAME @PRODUCTNAME@
 +            PRODUCTVERSION @LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@
 +            PRODUCTEXTENSION .@LIBO_VERSION_MICRO@.@LIBO_VERSION_PATCH@@LIBO_VERSION_SUFFIX@
