@@ -2,13 +2,13 @@
 
 Các workflow phục vụ bản HST Office độc lập dựa trên LibreOffice 26.8.1.1.
 Kiểm tra cấu trúc hoặc tài nguyên đạt không phải bằng chứng bộ cài chạy đúng.
-Hiện chưa có URL chạy GitHub Actions hay kết quả build Windows/macOS đã xác minh.
+Có số đo thật cho build Windows thử nghiệm (xem dòng Windows và `plans/reports/opus-win-261029-1700-windows-trial.md`); chưa có bộ cài Windows/macOS được xác minh.
 
 | Workflow | Khi chạy | Phạm vi và giới hạn |
 |---|---|---|
 | [Quality](../.github/workflows/quality.yml) | Push vào `main`, mọi pull request | Python 3.12, Node 22, kiểm tra mã và dữ liệu; tối đa 20 phút. |
 | [Linux](../.github/workflows/desktop-linux.yml) | `workflow_dispatch` | Đo tài nguyên trên chính máy sẽ build, sau đó gọi các bước của `build-linux.sh`; tối đa 350 phút. |
-| [Windows](../.github/workflows/desktop-windows.yml) | `workflow_dispatch` | Máy hosted chạy guard, báo `BLOCKED/TODO` và thoát 1; tối đa 5 phút. |
+| [Windows](../.github/workflows/desktop-windows.yml) | `workflow_dispatch`, input `mode` = `preflight` (mặc định) hoặc `full` | `windows-2022` (4 vCPU AMD EPYC, 16 GiB RAM, ổ D: ~220 GiB trống; build ở `D:\hst`). Preflight ~11 phút: Cygwin, make native, NASM, pkgconf, tải+sha256, giải nén, vá, cấu hình đến hết `autogen.sh`. Full: thêm `make` trong ngân sách 330 phút rồi dừng sạch và tải log/số đo; tối đa 355 phút. Kiểm tra cục bộ: `scripts/windows/preflight-local.sh`. |
 | [macOS](../.github/workflows/desktop-macos.yml) | `workflow_dispatch` | Guard tương tự Windows; chưa dùng nhãn self-hosted chưa được cấp. |
 
 Mọi workflow chỉ có quyền `contents: read`, action ghim bằng SHA đầy đủ và có
@@ -83,11 +83,15 @@ bước và log được lưu cùng artifact. Thay ngưỡng dự trữ trong c�
 
 ## Entrypoint Windows và macOS
 
-[build-windows.ps1](../scripts/build-windows.ps1) in nguyên lệnh `./autogen.sh`
-từ [cấu hình Windows](../build-config/windows-x86_64.conf), kiểm tra Windows
-x86_64, VS 2022 từ 17.0, SDK 10.0, Cygwin, công cụ build, RAM, đĩa, source và
-branding. Cần chạy trong VS x64 Native Tools với Cygwin trên PATH. PowerShell
-và các điều kiện Windows chưa được chạy trên máy bản địa: **UNVERIFIED**.
+[build-windows.ps1](../scripts/build-windows.ps1) chỉ chuẩn bị runner (probe, giải phóng đĩa,
+Cygwin, make native, NASM, pkgconf). Các bước build nằm trong
+[trial-build.sh](../scripts/windows/trial-build.sh) chạy bằng bash của Cygwin
+(`--extract|--tools|--options|--patch|--configure|--build`), tải/kiểm sha256 bằng
+[fetch-sources.py](../scripts/windows/fetch-sources.py), tổng hợp số đo bằng
+[summarize-trial.py](../scripts/windows/summarize-trial.py). Cấu hình ở
+[windows-x86_64.conf](../build-config/windows-x86_64.conf). Phần Cygwin/MSVC chỉ
+xác minh được trên runner Windows; [preflight-local.sh](../scripts/windows/preflight-local.sh)
+chạy trong `ci-quality.sh` (shellcheck, actionlint, CRLF, mô phỏng giải nén/vá/tùy chọn trên Linux).
 
 [build-macos.sh](../scripts/build-macos.sh) nhận `--arch arm64|x86_64`, in lệnh từ
 [arm64](../build-config/macos-arm64.conf) hoặc [x86_64](../build-config/macos-x86_64.conf).
