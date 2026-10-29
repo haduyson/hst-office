@@ -25,16 +25,18 @@ phase() { # phase <name> <command...>: run, time and record in phases.jsonl; pro
 }
 
 extract_one() { # extract_one <tarball> <dest>; strips the single top-level directory
-  mkdir -p "$2"; tar -xf "$DL/$1" -C "$2" --strip-components=1
+  mkdir -p "$2"; tar --force-local -xf "$DL/$1" -C "$2" --strip-components=1
 }
 
 do_extract() {
   # errexit is suppressed inside phase(), so every step returns explicitly on failure.
-  extract_one libreoffice-26.8.1.1.tar.xz "$SRC" || return 1
+  echo "extract: main source"; extract_one libreoffice-26.8.1.1.tar.xz "$SRC" || return 1
   rm -rf "$SRC/translations" "$SRC/dictionaries"
-  extract_one libreoffice-translations-26.8.1.1.tar.xz "$SRC/translations" || return 1
-  extract_one libreoffice-dictionaries-26.8.1.1.tar.xz "$SRC/dictionaries" || return 1
-  test -f "$SRC/configure.ac" && test -d "$SRC/translations/source/vi" && ls "$SRC/dictionaries" | head -3
+  echo "extract: translations"; extract_one libreoffice-translations-26.8.1.1.tar.xz "$SRC/translations" || return 1
+  echo "extract: dictionaries"; extract_one libreoffice-dictionaries-26.8.1.1.tar.xz "$SRC/dictionaries" || return 1
+  [ -f "$SRC/configure.ac" ] || { echo "extract: configure.ac missing"; return 1; }
+  [ -d "$SRC/translations/source/vi" ] || { echo "extract: vi translations missing"; ls "$SRC/translations" | head; return 1; }
+  echo "extract: ok"
 }
 
 do_patch() {

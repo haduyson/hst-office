@@ -65,23 +65,23 @@ jobs:
         shell: bash
         run: |
           set -eu
-          C:/cygwin64/bin/bash.exe -l -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash scripts/windows/trial-build.sh --extract'
+          C:/cygwin64/bin/bash.exe --login -o igncr -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash -o igncr scripts/windows/trial-build.sh --extract'
       - name: Apply HST patches
         shell: bash
         run: |
           set -eu
-          C:/cygwin64/bin/bash.exe -l -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash scripts/windows/trial-build.sh --patch'
+          C:/cygwin64/bin/bash.exe --login -o igncr -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash -o igncr scripts/windows/trial-build.sh --patch'
       - name: Configure
         shell: bash
         run: |
           set -eu
-          C:/cygwin64/bin/bash.exe -l -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash scripts/windows/trial-build.sh --configure'
+          C:/cygwin64/bin/bash.exe --login -o igncr -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash -o igncr scripts/windows/trial-build.sh --configure'
       - name: Build within time budget
         shell: bash
         run: |
           set -eu
           export HST_BUILD_DEADLINE=$(( HST_JOB_START + 330 * 60 ))
-          C:/cygwin64/bin/bash.exe -l -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash scripts/windows/trial-build.sh --build'
+          C:/cygwin64/bin/bash.exe --login -o igncr -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash -o igncr scripts/windows/trial-build.sh --build'
       - name: Summarize metrics
         if: ${{ always() }}
         shell: bash
