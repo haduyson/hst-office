@@ -1,6 +1,6 @@
 # Thử nghiệm build Windows x64 trên GitHub-hosted runner (2026-10-29)
 
-Trạng thái: configure đã chạy xong trên runner; lượt full-build đang chạy lúc viết (mục "Lượt full" sẽ được cập nhật khi có số đo).
+Trạng thái: lượt full 40897969466 biên dịch xong, hỏng ở đóng gói MSI (thiếu perl IO::String, đã sửa); lượt kế tiếp đang chạy.
 
 ## Runner đo được (windows-2022, image win22 20261026.347.1)
 - CPU: AMD EPYC 9V45, 4 vCPU logic; RAM 16 GiB (còn trống ~13.6).
@@ -27,10 +27,14 @@ Trạng thái: configure đã chạy xong trên runner; lượt full-build đang
 6. Make native `make-4.2.1-msvc.exe` cần đặt đầu PATH (trước `/usr/bin/make`); configure xác nhận dùng `D:/hst/bin/make.exe 4.2.1`.
 Quy trình chặn lỗi lặp: `scripts/windows/preflight-local.sh` (shellcheck, actionlint pin sha256, CRLF, tùy chọn configure, mô phỏng giải nén/vá trên Linux) và `mode=preflight|full`.
 
-## Lượt full (run 40868444852)
-CẦN CẬP NHẬT: kết quả biên dịch (số bước `[build ...]`, module cuối, đĩa thấp nhất, RAM đỉnh, có MSI hay không) nằm trong artifact `windows-trial-<run_id>` (`metrics.json`, `build-tail.log`, `progress.jsonl`).
+## Lượt full (run 40897969466, 2026-10-29)
+- Biên dịch xong toàn bộ trên runner chuẩn 4 vCPU/16 GB: 20.653 bước `[build ...]`, 1.109 module (11.865 CXX, 296 LNK). Pha build 9.299 s (~2 giờ 35 phút); cả lượt ~3 giờ. Đĩa D: thấp nhất 113 GiB trống; RAM đỉnh 16 GiB (chạm trần).
+- Hỏng ở bước cuối `instsetoo_native` (đóng gói MSI `en-US,vi`): `Can't locate IO/String.pm` (Font::TTF cần IO::String; Cygwin thiếu gói `perl-IO-String`). Chưa có `.msi`.
+- Sửa: thêm `perl-IO-String` vào danh sách gói Cygwin (`scripts/build-windows.ps1`); pha `--tools` nạp thử Archive::Zip, Font::TTF::Font, IO::String, Digest::MD5 nên thiếu module sẽ hỏng ngay đầu lượt.
+- Lỗi header Skia các lượt trước đã hết sau khi bỏ thư mục đánh dấu `src/` ở gốc cây nguồn.
 
-## Khuyến nghị (dự kiến, chưa kèm số đo build)
-- Runner chuẩn 4 vCPU thường không đủ trong 6 giờ cho build LibreOffice đầy đủ trên Windows (cộng thêm tải ~100 tarball ngoài và đóng gói MSI); xác nhận bằng tiến độ ở lượt full.
-- Hướng khả thi: runner lớn (Windows 16-32 vCPU, trả phí) hoặc self-hosted; build dài cần ccache tương thích MSVC (sccache) hoặc cache `workdir` giữa các lượt vì artifact/cache GitHub bị giới hạn.
+## Khuyến nghị
+- Runner chuẩn miễn phí (repo public) đủ trong giới hạn 6 giờ: ~3 giờ/lượt, chưa cần runner lớn để ra MSI thử nghiệm.
+- RAM chạm 16 GiB: nếu link hỏng do thiếu bộ nhớ thì giảm song song (`--with-parallelism=3`) hoặc dùng self-hosted ≥32 GB.
+- Muốn nhanh hơn: self-hosted Windows ≥16 vCPU/32 GB, giữ `workdir` giữa các lượt (build tăng dần).
 - Cần: ký MSI (SIGN-01), kiểm GUI/cài đặt (QA-01).

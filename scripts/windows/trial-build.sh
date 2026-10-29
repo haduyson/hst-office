@@ -68,6 +68,11 @@ do_tools() { # report tool versions so a missing prerequisite is visible before 
   for tool in make nasm perl python3 autoconf automake bison flex gperf patch tar zip unzip git curl; do
     if command -v "$tool" >/dev/null; then "$tool" --version 2>&1 | head -1 || true; else echo "MISSING tool: $tool"; bad=1; fi
   done
+  # Perl modules the MSI packaging step loads (installer/*.pm, Font::TTF); missing ones fail only at the very end.
+  local mod
+  for mod in Archive::Zip Font::TTF::Font IO::String Digest::MD5; do
+    if perl -M"$mod" -e1 2>/dev/null; then echo "perl module ok: $mod"; else echo "MISSING perl module: $mod"; bad=1; fi
+  done
   command -v cl.exe >/dev/null && echo "cl.exe on PATH (configure still locates VS itself)" || echo "cl.exe not on PATH (expected; configure uses vswhere/registry)"
   return "$bad"
 }
