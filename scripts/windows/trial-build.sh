@@ -70,7 +70,10 @@ do_tools() { # report tool versions so a missing prerequisite is visible before 
 }
 
 do_patch() {
-  HST_LO_SRC="$SRC" bash "$REPO/scripts/apply-patches.sh"
+  HST_LO_SRC="$SRC" bash "$REPO/scripts/apply-patches.sh" || return 1
+  # Same Vietnamese overlay + overrides as scripts/build-linux.sh (both idempotent).
+  python3 -B "$REPO/scripts/l10n/merge-vi.py" --apply --tree "$SRC" || return 1
+  python3 -B "$REPO/scripts/l10n/apply-overrides.py" --tree "$SRC" || return 1
 }
 
 options() { # configure options with the branding placeholder resolved
