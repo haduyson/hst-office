@@ -19,6 +19,10 @@ if [ -z "${HST_KEEP_PATH:-}" ]; then
   export PATH="$WORK/bin:/usr/local/bin:/usr/bin:/cygdrive/c/Program Files/NASM:/cygdrive/c/Windows/system32:/cygdrive/c/Windows"
 fi
 export HOME="$WORK/home"; mkdir -p "$HOME"
+# The job starts from Git Bash, whose MSYSTEM/MSYS* variables leak into Cygwin.
+# gbuild reads a non-empty MSYSTEM as "WSL helper build" and maps every path
+# through wslpath, which breaks all source paths on a Cygwin build.
+unset MSYSTEM MSYSTEM_PREFIX MSYSTEM_CHOST MSYSTEM_CARCH MINGW_PREFIX MINGW_CHOST MINGW_PACKAGE_PREFIX MSYS2_ARG_CONV_EXCL
 
 phase() { # phase <name> <command...>: run, time and record in phases.jsonl; propagate failure
   local name="$1" start rc=0 status; shift; start=$(date +%s)
@@ -93,6 +97,14 @@ do_fetch() { # download every external tarball (sha256-checked by gbuild) so pre
     "$SRC/external/tarballs/" || return 1
   (cd "$SRC" && make fetch) 2>&1 | tee "$LOGS/fetch.log"
   local rc=${PIPESTATUS[0]}
+  [ "$rc" -eq 0 ] || return "$rc"
+  # `make showmodules` parses all of gbuild, running its path helpers; a wrong
+  # environment shows up here as failed helper processes before any compiler runs.
+  (cd "$SRC" && make showmodules) 2>&1 | tee -a "$LOGS/fetch.log"
+  rc=${PIPESTATUS[0]}
+  if grep -qE 'process_begin: CreateProcess|wslpath|Bad file descriptor' "$LOGS/fetch.log"; then
+    echo "fetch: gbuild path helpers failed (environment leak?)"; return 1
+  fi
   # Any re-download of the core source tarballs means the tree layout is wrong.
   if grep -q 'Saving to: .*libreoffice-\(translations\|dictionaries\)-' "$LOGS/fetch.log"; then
     echo "fetch: make tried to re-download translations/dictionaries tarballs"; return 1
