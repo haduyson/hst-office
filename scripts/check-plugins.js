@@ -21,7 +21,7 @@ export function uiStrings(html, js) {
   const found = new Set();
   const decode = (s) => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"');
   for (const m of html.matchAll(/data-i18n(?:-placeholder|-title)?="([^"]+)"/g)) found.add(decode(m[1]));
-  for (const m of js.matchAll(/\bt\(\s*(['"])((?:\\.|(?!\1).)+)\1\s*\)/g)) found.add(m[2].replace(/\\(.)/g, '$1'));
+  for (const m of js.matchAll(/(?<![.\w$])t\(\s*(['"])((?:\\.|(?!\1).)+)\1\s*\)/g)) found.add(m[2].replace(/\\(.)/g, '$1'));
   return [...found];
 }
 
