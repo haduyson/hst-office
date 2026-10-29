@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # HST Office Windows trial build, run inside Cygwin bash (see .github/workflows/desktop-windows.yml).
 #   trial-build.sh --extract | --patch | --configure | --build
-# Env: HST_WORK (Cygwin path, default /cygdrive/c/hst), HST_REPO (checkout), HST_BUILD_DEADLINE
+# Env: HST_WORK (Cygwin path, default /cygdrive/d/hst), HST_REPO (checkout), HST_BUILD_DEADLINE
 # (epoch seconds; --build stops make cleanly then and returns 0 with status budget-stop).
 set -euo pipefail
-WORK="${HST_WORK:-/cygdrive/c/hst}"
+WORK="${HST_WORK:-/cygdrive/d/hst}"
 REPO="${HST_REPO:?HST_REPO must point at the repository checkout}"
 SRC="$WORK/lo"; LOGS="$WORK/logs"; METRICS="$WORK/metrics"; DL="$WORK/dl"
 CONF="$REPO/build-config/windows-x86_64.conf"
@@ -20,7 +20,7 @@ phase() { # phase <name> <command...>: run, time and record in phases.jsonl; pro
   status=ok; [ "$rc" -eq 0 ] || status="failed($rc)"
   [ "$rc" -ne 0 ] || [ "${BUDGET_STOPPED:-0}" -eq 0 ] || status=budget-stop
   printf '{"phase":"%s","seconds":%d,"status":"%s","free_gib":%s}\n' "$name" $(( $(date +%s) - start )) "$status" \
-    "$(df -BG --output=avail /cygdrive/c | tail -1 | tr -dc 0-9)" >> "$METRICS/phases.jsonl"
+    "$(df -BG --output=avail "$WORK" | tail -1 | tr -dc 0-9)" >> "$METRICS/phases.jsonl"
   return "$rc"
 }
 
@@ -62,7 +62,7 @@ do_configure() {
 sample() { # one progress sample: steps compiled, free disk, memory used
   local steps free used
   steps=$(grep -c '^\[build ' "$LOGS/build.log" 2>/dev/null || true)
-  free=$(df -BG --output=avail /cygdrive/c | tail -1 | tr -dc 0-9)
+  free=$(df -BG --output=avail "$WORK" | tail -1 | tr -dc 0-9)
   used=$(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{printf "%.1f",(t-a)/1048576}' /proc/meminfo)
   printf '{"t":%d,"steps":%s,"free_gib":%s,"mem_used_gib":%s}\n' "$(date +%s)" "${steps:-0}" "$free" "$used" >> "$METRICS/progress.jsonl"
 }

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Runner setup helpers for the Windows trial build (windows-2022). Build steps live in scripts/windows/trial-build.sh.
-#   pwsh -File scripts/build-windows.ps1 -Task Probe|FreeDisk|Cygwin|Tools [-Work C:\hst]
+#   pwsh -File scripts/build-windows.ps1 -Task Probe|FreeDisk|Cygwin|Tools [-Work D:\hst]
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('Probe', 'FreeDisk', 'Cygwin', 'Tools')][string]$Task,
-    [string]$Work = 'C:\hst'
+    [string]$Work = 'D:\hst'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'

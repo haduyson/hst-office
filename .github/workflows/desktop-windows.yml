@@ -13,8 +13,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 355
     env:
-      HST_WORK_WIN: C:\hst
-      HST_WORK: /cygdrive/c/hst
+      HST_WORK: /cygdrive/d/hst
+      MSYS2_ARG_CONV_EXCL: '*'
       CHERE_INVOKING: '1'
     steps:
       - name: Record job start
@@ -39,60 +39,56 @@ jobs:
         shell: bash
         run: |
           set -eu
-          mkdir -p /c/hst/logs /c/hst/metrics
+          mkdir -p /d/hst/logs /d/hst/metrics
           start=$(date +%s)
-          pwsh -NoProfile -File scripts/build-windows.ps1 -Task Cygwin
-          pwsh -NoProfile -File scripts/build-windows.ps1 -Task Tools
-          printf '{"phase":"setup-tools","seconds":%d,"status":"ok"}\n' $(( $(date +%s) - start )) >> /c/hst/metrics/phases.jsonl
+          pwsh -NoProfile -File scripts/build-windows.ps1 -Task Cygwin -Work D:\hst
+          pwsh -NoProfile -File scripts/build-windows.ps1 -Task Tools -Work D:\hst
+          printf '{"phase":"setup-tools","seconds":%d,"status":"ok"}\n' $(( $(date +%s) - start )) >> /d/hst/metrics/phases.jsonl
       - name: Fetch and verify pinned source tarballs
         shell: bash
         run: |
           set -eu
           start=$(date +%s)
-          python -I scripts/windows/fetch-sources.py --dest 'C:/hst/dl'
-          printf '{"phase":"fetch","seconds":%d,"status":"ok"}\n' $(( $(date +%s) - start )) >> /c/hst/metrics/phases.jsonl
+          python -I scripts/windows/fetch-sources.py --dest 'D:/hst/dl'
+          printf '{"phase":"fetch","seconds":%d,"status":"ok"}\n' $(( $(date +%s) - start )) >> /d/hst/metrics/phases.jsonl
       - name: Stage branding
         shell: bash
         run: |
           set -eu
           python -m pip install "pillow==10.4.0"
-          python -I scripts/stage-branding.py --out 'C:/hst/branding'
+          python -I scripts/stage-branding.py --out 'D:/hst/branding'
       - name: Extract source
         shell: bash
         run: |
           set -eu
-          export HST_REPO="$(C:/cygwin64/bin/cygpath.exe -u "$GITHUB_WORKSPACE")"
-          C:/cygwin64/bin/bash.exe -l "$HST_REPO/scripts/windows/trial-build.sh" --extract
+          C:/cygwin64/bin/bash.exe -l -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash scripts/windows/trial-build.sh --extract'
       - name: Apply HST patches
         shell: bash
         run: |
           set -eu
-          export HST_REPO="$(C:/cygwin64/bin/cygpath.exe -u "$GITHUB_WORKSPACE")"
-          C:/cygwin64/bin/bash.exe -l "$HST_REPO/scripts/windows/trial-build.sh" --patch
+          C:/cygwin64/bin/bash.exe -l -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash scripts/windows/trial-build.sh --patch'
       - name: Configure
         shell: bash
         run: |
           set -eu
-          export HST_REPO="$(C:/cygwin64/bin/cygpath.exe -u "$GITHUB_WORKSPACE")"
-          C:/cygwin64/bin/bash.exe -l "$HST_REPO/scripts/windows/trial-build.sh" --configure
+          C:/cygwin64/bin/bash.exe -l -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash scripts/windows/trial-build.sh --configure'
       - name: Build within time budget
         shell: bash
         run: |
           set -eu
-          export HST_REPO="$(C:/cygwin64/bin/cygpath.exe -u "$GITHUB_WORKSPACE")"
           export HST_BUILD_DEADLINE=$(( HST_JOB_START + 330 * 60 ))
-          C:/cygwin64/bin/bash.exe -l "$HST_REPO/scripts/windows/trial-build.sh" --build
+          C:/cygwin64/bin/bash.exe -l -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && HST_REPO="$PWD" bash scripts/windows/trial-build.sh --build'
       - name: Summarize metrics
         if: ${{ always() }}
         shell: bash
         run: |
           set -eu
-          python -I scripts/windows/summarize-trial.py --work 'C:/hst' --out 'C:/hst/artifacts' | tee -a "$GITHUB_STEP_SUMMARY"
+          python -I scripts/windows/summarize-trial.py --work 'D:/hst' --out 'D:/hst/artifacts' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload trial evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-trial-${{ github.run_id }}
-          path: C:\hst\artifacts\
+          path: D:\hst\artifacts\
           if-no-files-found: error
           retention-days: 7
