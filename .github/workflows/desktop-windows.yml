@@ -23,6 +23,11 @@ jobs:
           set -eu
           started=$(date +%s)
           echo "HST_JOB_START=$started" >> "$GITHUB_ENV"
+      - name: Keep LF line endings (shell scripts and patches must not become CRLF)
+        shell: bash
+        run: |
+          set -eu
+          git config --global core.autocrlf false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
