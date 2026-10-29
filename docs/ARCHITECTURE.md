@@ -1,43 +1,36 @@
-# Kiến trúc HST Office (vòng plugin-first)
+# Kiến trúc HST Office
 
-Quyết định nền: [ADR 0001](ADR/0001-plugin-first-unmodified-upstream.md). Contract chi tiết: [PLUGIN_CONTRACT](PLUGIN_CONTRACT.md).
+Quyết định nền: [ADR 0002](ADR/0002-libreoffice-standalone.md). Plan: [plans/261029-1234-hst-office-libreoffice-standalone](../plans/261029-1234-hst-office-libreoffice-standalone/plan.md).
 
 ```text
-┌──────────────── ONLYOFFICE Desktop Editors v10.0.0 (nguyên bản, không sửa) ────────────────┐
-│  Writer (word)            Sheets (cell)             Slides (slide)                           │
-│     │ iframe plugin          │ iframe plugin           │ iframe plugin                         │
-│  ┌──▼─────────────────┐  ┌───▼──────────────────┐  ┌───▼──────────────┐                      │
-│  │ vn-admin-documents │  │ vn-spreadsheet-formats│  │ vn-templates     │ (cũng chạy ở word/cell)│
-│  │ vn-encoding-tools  │  └──────────────────────┘  └──────────────────┘                      │
-│  └────────────────────┘                                                                      │
-│        ▲ Asc.plugin.callCommand / executeMethod (Office JS API, sandbox)                    │
-└────────┼─────────────────────────────────────────────────────────────────────────────────────┘
-         │ cài offline: Plugin Manager → .plugin (ZIP) hoặc thư mục user sdkjs-plugins/{GUID}
-┌────────┴──────────────────────────── repo hst-office ───────────────────────────────────────┐
-│ extensions/<plugin>/logic/*.js  ← logic thuần, test bằng node:test, không phụ thuộc Asc/DOM  │
-│ extensions/<plugin>/*.js        ← UI + adapter gọi API editor                                 │
-│ extensions/shared/              ← bridge UI chung, About/attribution                           │
-│ vendor/onlyoffice/              ← SDK bridge v1 (nguyên văn từ binary v10, header AGPL)        │
-│ templates/*.json → scripts/generate-*.py → dist/templates/*.docx|xlsx|pptx (tái tạo được)    │
-│ scripts/build-plugins.js → dist/plugins/*.plugin (ZIP xác định, byte-identical)              │
-│ scripts/runtime/ ← điều khiển Desktop thật qua CDP (Xvfb, user không phải root)              │
-└──────────────────────────────────────────────────────────────────────────────────────────────┘
+                    repo hst-office (git)                                   máy build Linux
+┌──────────────────────────────────────────────────────────┐      ┌───────────────────────────────────────────┐
+│ upstream/libreoffice-lock.json  (tarball + GPG + commit) │ ───► │ upstream/libreoffice/  (LibreOffice 26.8.1.1)│
+│ build-config/linux-x86_64.conf  (configure options)      │ ───► │   + patches/libreoffice/series (MPL-2.0)    │
+│ patches/libreoffice/*.patch     (About, defaults, menu)  │ ───► │   + --with-branding=build/branding-staging   │
+│ branding/ + assets/brand/       (splash, About, icons)   │ ───► │   make build → instdir/ (HST Office)         │
+│ config/*.xcu                    (Tabbed UI, vi, A4…)     │ ───► │   make → workdir/installation/*.deb          │
+│ extensions/hst-vietnamese-tools (Python-UNO .oxt)        │ ───► │ bundled extension + templates + dict vi      │
+│ templates/*.json → scripts/generate-templates.py → .ott/.ots/.otp                                   │
+└──────────────────────────────────────────────────────────┘      └───────────────────────────────────────────┘
+                                                                              │
+                                    dist/linux/*.deb ── QA runtime (Xvfb, headless UNO) ── docs/qa-evidence/
 ```
+
+## Lớp
+
+| Lớp | Nội dung | Giấy phép |
+|---|---|---|
+| Engine | LibreOffice 26.8.1.1 không fork lịch sử; chỉ áp patch tối thiểu có ghi lý do | MPL-2.0 (file gốc) |
+| Nhận diện | Tên `HST Office`, vendor `HASON TECH`, splash/About/Start Center/icon/desktop file | Asset HST (thương hiệu) |
+| Cấu hình mặc định | Tabbed UI, giao diện vi-VN khi OS tiếng Việt, A4, Times New Roman, tắt update/donate TDF, không telemetry | HST |
+| Tính năng Việt | Extension `hst-vietnamese-tools` (NĐ30, TCVN3/VNI→Unicode, VND/ngày/%, CSV UTF-8), 18 mẫu, từ điển `vi` | AGPL-3.0 / CC BY 4.0 / GPLv2 |
+| Đóng gói | `.deb` từ hệ thống EPM upstream; Windows `.msi`/macOS `.dmg` sau (blocked) | — |
 
 ## Nguyên tắc
 
-1. **Không sửa engine/binary upstream.** Mọi tính năng đi qua Plugin SDK; tính năng cần fs/DOM nội bộ → blocker, không hack.
-2. **Logic tách khỏi editor.** Bảng mã TCVN3/VNI, parser CSV, dữ liệu NĐ30, định dạng VND/ngày là module ESM thuần, test được bằng `node --test`. Adapter editor mỏng.
-3. **Một nguồn sự thật.** Dữ liệu NĐ30 và định dạng số dùng chung giữa plugin và generator mẫu (exporter JSON), không chép lại.
-4. **Offline.** Plugin không tải gì từ mạng lúc chạy; bridge SDK, icon, About đóng gói trong từng `.plugin`.
-5. **An toàn dữ liệu.** Preview trước khi ghi; Cancel không sửa; mỗi thao tác ghi là một bước Undo; lỗi/timeout báo trạng thái chưa xác định, không retry mù.
-6. **Tái tạo được.** Build plugin và mẫu cho cùng SHA-256 khi chạy lại cùng toolchain.
-
-## Lớp kiểm thử
-
-| Lớp | Công cụ | Chứng minh |
-|---|---|---|
-| Unit | `node --test`, Python `unittest` | Logic thuần, cấu trúc OOXML |
-| Package | `scripts/check-plugins.js` | ZIP root, GUID, translations, notices, offline |
-| Runtime Linux | `scripts/runtime/*` + Desktop v10 thật qua CDP | Cài plugin, chèn/chuyển đổi, Undo, lưu, mở lại |
-| Windows/macOS/MS Office | máy thật | **Chưa có máy** → NOT RUN/BLOCKED trong [COMPATIBILITY_MATRIX](COMPATIBILITY_MATRIX.md) |
+1. **Patch tối thiểu, có lý do.** Mỗi patch trong `patches/libreoffice/series` có header mô tả vấn đề, file upstream bị sửa và cách kiểm thử; ưu tiên tuỳ chọn configure và cấu hình `.xcu` trước khi sửa mã.
+2. **Logic Việt tách khỏi UNO.** Module Python thuần test bằng `unittest`; lớp UNO mỏng.
+3. **Một nguồn sự thật.** `data/vietnamese/*.json` dùng chung cho extension và generator mẫu.
+4. **Bằng chứng trước khẳng định.** Mọi tuyên bố về hiệu năng/tương thích có số đo hoặc file evidence; macOS chưa có máy → BLOCKED.
+5. **Tài nguyên có giới hạn.** Build chạy dưới `scripts/measure-job.py` (giữ ≥10 GiB trống, tự dừng ở 12 GiB).

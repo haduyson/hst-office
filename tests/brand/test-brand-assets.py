@@ -50,6 +50,36 @@ class BrandAssetTests(unittest.TestCase):
             self.assertEqual(icon.size, (size, size))
             self.assertEqual(icon.mode, "RGBA")
 
+    def test_app_icons_all_sizes_and_transparent(self):
+        cfg = SPEC["appIcons"]
+        names = [cfg["productName"]] + [m["name"] for m in cfg["modules"]]
+        for name in names:
+            for size in cfg["sizes"]:
+                icon = Image.open(path(cfg["pattern"].format(name=name, size=size)))
+                self.assertEqual((icon.size, icon.mode), ((size, size), "RGBA"))
+                self.assertEqual(icon.getpixel((0, size - 1))[3], 0, "corner must stay transparent")
+
+    def test_module_icons_differ_from_each_other(self):
+        cfg = SPEC["appIcons"]
+        raw = {m["name"]: Image.open(path(cfg["pattern"].format(name=m["name"], size=128))).tobytes()
+               for m in cfg["modules"]}
+        self.assertEqual(len(set(raw.values())), len(raw))
+
+    def test_lockup_embeds_native_mark_pixels(self):
+        import base64, io, re
+        svg = open(path("branding/libreoffice/logo.svg"), encoding="utf-8").read()
+        png = Image.open(io.BytesIO(base64.b64decode(re.search(r"base64,([A-Za-z0-9+/=]+)", svg).group(1))))
+        pad = SPEC["libreofficeBranding"]["lockupPad"]
+        mark = Image.open(path(SPEC["outputs"]["mark"])).convert("RGBA")
+        crop = png.convert("RGBA").crop((pad, pad, pad + mark.width, pad + mark.height))
+        self.assertEqual(crop.tobytes(), mark.tobytes())
+
+    def test_platform_icon_containers(self):
+        plat = SPEC["platformIcons"]
+        ico = Image.open(path(plat["ico"]))
+        self.assertEqual(set(ico.info["sizes"]), {(s, s) for s in plat["icoSizes"]})
+        self.assertEqual(open(path(plat["icns"]), "rb").read(4), b"icns")
+
     def test_generator_reproducible(self):
         script = path("scripts/generate-brand-assets.py")
         result = subprocess.run([sys.executable, script, "--check"], capture_output=True, text=True)

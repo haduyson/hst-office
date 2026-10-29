@@ -1,13 +1,15 @@
 # Blockers
 
-| ID | Mô tả | Bằng chứng | Chặn | Owner | Điều kiện mở |
-|---|---|---|---|---|---|
-| LEG-01 | Header nguồn ONLYOFFICE: *“Pursuant to Section 7(b) … you must retain the original Product logo when distributing the program”* + Additional Terms 4 (no trademark license) | `LICENSES/upstream/*/LICENSE`, header `vendor/onlyoffice/plugins.js` | Fork/rebrand shell, installer HST (đường B) | Chủ dự án + tư vấn pháp lý | Ý kiến pháp lý bằng văn bản về phạm vi đổi tên/logo |
-| LEG-02 | Trademark Policy ONLYOFFICE không trích được tự động (trang render JS) | `WebFetch` 2026-10-29 trả về trang không có nội dung policy | Mọi cách gọi tên dùng “ONLYOFFICE” ngoài mô tả tương thích | Chủ dự án | Người đọc, lưu bản PDF/text policy có ngày vào `LICENSES/` |
-| LEG-03 | Duyệt phát hành công khai plugin/mẫu (đường A) | [LICENSE_AUDIT §4](LICENSE_AUDIT.md) | GitHub Release public của artifact | Chủ dự án | Ký duyệt checklist [RELEASE_CHECKLIST](RELEASE_CHECKLIST.md) |
-| LEG-04 | Chưa audit license `desktop-sdk`, `dictionaries` (gitlink) và `3DPARTYLICENSE` binary | `upstream/upstream-lock.json` | Đường B | Kỹ thuật | Lưu LICENSE nguyên văn + review |
-| LEG-05 | Hiệu lực hiện hành NĐ 30/2020/NĐ-CP năm 2026 chưa xác minh từ nguồn chính thức (Cổng chỉ có PDF ký 2020, không có trạng thái) | [VIETNAMESE_OFFICE_SPEC](VIETNAMESE_OFFICE_SPEC.md) | Gắn nhãn “đúng thể thức NĐ30” khi phát hành | Chủ dự án / pháp chế | Xác nhận trạng thái hiệu lực trên Cơ sở dữ liệu quốc gia về VBPL |
-| QA-01 | Không có máy Windows/macOS và Microsoft Office hợp lệ | — | Hàng Win/mac/MS Office trong compatibility matrix | Chủ dự án | Cấp máy kiểm thử |
-| OPS-01 | Chưa có runner ≥100 GB SSD cho full build | brief §9, build_tools | Workflow `desktop-*.yml` | Chủ dự án | Self-hosted/larger runner + quota |
-| OPS-02 | Quota/billing GitHub Actions cho repo public chưa xác minh trên tài khoản; tài nguyên job chưa đo | brief §9 | Cam kết CI miễn phí | Kỹ thuật | Ghi số đo `measure-job.py` + trang billing tài khoản vào [CI](CI.md) |
-| SIGN-01 | Chưa có chứng chỉ code signing Windows / Apple notarization | — | Installer | Chủ dự án | Có chứng chỉ, lưu trong GitHub Secrets |
+| ID | Mô tả | Chặn | Owner | Điều kiện mở |
+|---|---|---|---|---|
+| LEG-03 | Duyệt phát hành công khai `.deb` HST Office | GitHub Release public | Chủ dự án | Ký duyệt [RELEASE_CHECKLIST](RELEASE_CHECKLIST.md) |
+| LEG-05 | Hiệu lực hiện hành NĐ 30/2020/NĐ-CP năm 2026 chưa xác minh từ nguồn chính thức | Nhãn "đúng thể thức NĐ30" khi phát hành | Chủ dự án / pháp chế | Xác nhận trên CSDL quốc gia về VBPL |
+| LEG-06 | Kết hợp mã HST AGPL-3.0 (file riêng) với LibreOffice MPL-2.0 trong cùng gói cài — cần xác nhận pháp lý | Phát hành công khai | Chủ dự án + tư vấn | Ý kiến pháp lý hoặc đổi giấy phép mã HST |
+| LEG-07 | Chưa lưu nguyên văn trademark policy của TDF | Phát hành công khai | Kỹ thuật | Lưu bản policy có ngày vào `LICENSES/` và đối chiếu kết quả `check-branding` |
+| MAC-01 | Không có Mac để tái hiện/đo độ trễ chuột phải; bản sửa macOS chỉ được xác nhận khi có số đo trước/sau trên Mac của chủ dự án | Đóng yêu cầu "sửa delay macOS" | Chủ dự án chạy script đo | Kết quả `scripts/perf` từ Mac Apple Silicon |
+| QA-01 | Không có máy Windows/macOS và Microsoft Office hợp lệ | Hàng Win/mac/MS Office trong compatibility matrix | Chủ dự án | Cấp máy kiểm thử |
+| OPS-01 | Build Windows/macOS cần máy ≥100 GB SSD (runner GitHub miễn phí không đủ) | `desktop-windows.yml`, `desktop-macos.yml` | Chủ dự án | Self-hosted runner / máy build |
+| OPS-02 | Quota/billing GitHub Actions chưa xác minh trên tài khoản | Cam kết CI miễn phí | Kỹ thuật | Ghi số đo + trang billing vào [CI](CI.md) |
+| SIGN-01 | Chưa có chứng chỉ ký mã Windows / Apple notarization | Installer Windows/macOS | Chủ dự án | Chứng chỉ trong GitHub Secrets |
+
+Blockers của đường ONLYOFFICE (LEG-01, LEG-02, LEG-04) đã đóng do đổi engine — xem lịch sử git.

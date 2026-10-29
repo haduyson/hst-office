@@ -1,37 +1,31 @@
 # HST Office
 
-Bộ công cụ văn phòng miễn phí, offline cho người Việt — **HST Writer**, **HST Sheets**, **HST Slides** — do Công ty TNHH Công nghệ Hà Sơn (**HASON TECH**) phát triển/tùy biến.
+Bộ ứng dụng văn phòng miễn phí, offline cho người Việt — **HST Writer** (văn bản), **HST Sheets** (bảng tính), **HST Slides** (trình chiếu) — do Công ty TNHH Công nghệ Hà Sơn (**HASON TECH**) phát triển, **dựa trên LibreOffice**.
 
-> **Trạng thái: đang phát triển — chưa có bản phát hành.** Vòng plugin-first: HST Office xây dựng **plugin và bộ mẫu tiếng Việt** chạy trên **ONLYOFFICE Desktop Editors v10.0.0 nguyên bản** (phần mềm gốc của Ascensio System SIA). Chưa có bộ cài “HST Office” riêng — việc fork/đổi thương hiệu đang chờ duyệt pháp lý (xem [docs/BLOCKERS.md](docs/BLOCKERS.md)).
+> **Trạng thái: đang phát triển — chưa có bản phát hành.** Bản đầu tiên nhắm Ubuntu/Debian x86_64 (`.deb`). Windows/macOS chờ máy build (xem [docs/BLOCKERS.md](docs/BLOCKERS.md)).
 
-## Thành phần (đang triển khai)
+## Điểm khác so với LibreOffice gốc
 
-| Plugin | Ứng dụng | Chức năng |
-|---|---|---|
-| Văn bản hành chính (NĐ30) | Writer | Chèn công văn, quyết định, tờ trình… theo thể thức Phụ lục I NĐ 30/2020; áp lề A4 |
-| Chuyển mã tiếng Việt | Writer | TCVN3 (ABC) / VNI → Unicode có xem trước và Undo |
-| Định dạng & CSV Việt | Sheets | Định dạng VND, `dd/mm/yyyy`, %; nhập CSV UTF-8 an toàn |
-| Mẫu tiếng Việt | Writer/Sheets/Slides | Thư viện 18 mẫu văn phòng offline |
+- Nhận diện HST Office (splash, About, icon, launcher), giao diện **Tabbed** (giống Ribbon) mặc định.
+- Tiếng Việt: giao diện tiếng Việt khi hệ điều hành dùng tiếng Việt; từ điển chính tả `vi`; khổ A4 và Times New Roman mặc định.
+- Công cụ tích hợp: soạn văn bản hành chính theo **NĐ 30/2020/NĐ-CP**, chuyển mã **TCVN3/VNI → Unicode**, định dạng **VND / dd/mm/yyyy**, nhập **CSV UTF-8** an toàn, 18 mẫu văn phòng.
+- Không telemetry, không cần tài khoản hay Internet.
+- Điều tra và xử lý độ trễ menu chuột phải trên macOS ([docs/CONTEXT_MENU_PERFORMANCE.md](docs/CONTEXT_MENU_PERFORMANCE.md)).
 
-## Cài đặt nhanh
-
-1. Cài ONLYOFFICE Desktop Editors từ <https://github.com/ONLYOFFICE/DesktopEditors/releases>.
-2. Tải các file `.plugin` của HST Office, mở trình biên tập → **Plugins → Plugin Manager → Install plugin manually** → chọn file.
-
-Chi tiết: [docs/PLUGIN_INSTALLATION.md](docs/PLUGIN_INSTALLATION.md). Tài liệu đầy đủ: [docs/README.md](docs/README.md).
-
-## Phát triển
+## Build (Linux)
 
 ```bash
-npm ci && npm test && npm run build:plugins
+python3 scripts/stage-branding.py
+sudo scripts/build-linux.sh --configure
+sudo python3 scripts/measure-job.py --json build/metrics/linux-build.json -- scripts/build-linux.sh --build
+sudo scripts/build-linux.sh --package
 ```
 
-Xem [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+Chi tiết: [docs/UPSTREAM_BASELINE.md](docs/UPSTREAM_BASELINE.md), [docs/BUILD_MATRIX.md](docs/BUILD_MATRIX.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Giấy phép & ghi nhận
 
-- Mã nguồn HST Office: [GNU AGPL-3.0](LICENSE). Nội dung mẫu văn bản: CC BY 4.0.
-- HST Office **không** sở hữu engine. ONLYOFFICE là thương hiệu và phần mềm gốc của Ascensio System SIA. Xem [NOTICE.md](NOTICE.md) và [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+HST Office dựa trên LibreOffice (MPL-2.0) của The Document Foundation; mã HST mới theo [AGPL-3.0](LICENSE); mẫu văn bản CC BY 4.0. Xem [NOTICE.md](NOTICE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [docs/LICENSE_AUDIT.md](docs/LICENSE_AUDIT.md).
 
 ## Liên hệ
 

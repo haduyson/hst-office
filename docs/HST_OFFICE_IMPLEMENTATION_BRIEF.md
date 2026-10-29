@@ -1,5 +1,7 @@
 # HST Office — Đặc tả sản phẩm & kế hoạch triển khai dành cho Codex / Claude
 
+> **Cập nhật 2026-10-29 (chủ dự án):** engine đổi từ ONLYOFFICE sang **LibreOffice build từ source** để HST Office là bộ office độc lập mang thương hiệu riêng — xem [ADR 0002](ADR/0002-libreoffice-standalone.md). Các mục nhắc ONLYOFFICE trong brief dưới đây được hiểu theo LibreOffice; nguyên tắc license/trademark/QA vẫn giữ nguyên. Thêm yêu cầu: điều tra và sửa độ trễ menu chuột phải trên macOS.
+
 > **Phiên bản:** 1.0 — 29/10/2026  
 > **Trạng thái:** Tài liệu chỉ đạo triển khai; chưa khẳng định việc fork, đổi thương hiệu hoặc phát hành đã được cấp phép.  
 > **Ngôn ngữ làm việc:** Tiếng Việt. Code, tên biến, commit và chú thích kỹ thuật có thể dùng tiếng Anh.

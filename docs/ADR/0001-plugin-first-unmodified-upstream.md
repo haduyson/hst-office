@@ -1,5 +1,7 @@
 # ADR 0001 — Plugin-first trên ONLYOFFICE Desktop Editors nguyên bản
 
+> **SUPERSEDED** ngày 2026-10-29 bởi [ADR 0002](0002-libreoffice-standalone.md): chủ dự án chọn bộ office độc lập dựa trên LibreOffice. Công việc ONLYOFFICE lưu ở nhánh `archive/onlyoffice-plugin-first`.
+
 - Trạng thái: **Accepted** (chủ dự án chọn ngày 2026-10-29)
 - Bối cảnh: [brief §3, §13.3](../HST_OFFICE_IMPLEMENTATION_BRIEF.md), [LICENSE_AUDIT](../LICENSE_AUDIT.md), [BUILD_MATRIX](../BUILD_MATRIX.md)
 

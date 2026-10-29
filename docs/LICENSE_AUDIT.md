@@ -1,54 +1,43 @@
-# License & trademark audit
+# License & trademark audit — HST Office trên LibreOffice
 
-> Trạng thái: **bằng chứng kỹ thuật đã thu thập; CHƯA được người có thẩm quyền pháp lý duyệt.** Tài liệu này không phải ý kiến pháp lý.
-> Ngày: 2026-10-29. Commit: xem [UPSTREAM_BASELINE](UPSTREAM_BASELINE.md).
+> Trạng thái: **bằng chứng kỹ thuật đã thu thập; CHƯA được người có thẩm quyền pháp lý duyệt.** Không phải ý kiến pháp lý.
+> Ngày: 2026-10-29. Nguồn: LibreOffice 26.8.1.1 — [lock](../upstream/libreoffice-lock.json). Audit ONLYOFFICE trước đó: git `577f620` và nhánh `archive/onlyoffice-plugin-first` (không còn áp dụng, [ADR 0002](ADR/0002-libreoffice-standalone.md)).
 
 ## 1. Văn bản đã lưu nguyên văn
 
-| Repo @ commit | File lưu | SHA-256 |
+| File | Nguồn trong tarball | Ghi chú |
 |---|---|---|
-| DesktopEditors, desktop-apps, core, sdkjs, web-apps-pro, build_tools | `LICENSES/upstream/<id>/LICENSE` | `3a9b4b6ab698d668dcedcda1c2da598f4ca9789a0d8b4aefb90e00e2cb425040` (6 file **giống hệt**) |
-| sdkjs-plugins, document-templates | `LICENSES/upstream/<id>/LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` (Apache-2.0, giống hệt) |
-| Binary v10.0.0 Linux | `opt/onlyoffice/desktopeditors/LICENSE.txt`, `3DPARTYLICENSE` trong tarball | không phân phối lại |
+| `LICENSES/upstream/libreoffice/COPYING.MPL` | `COPYING.MPL` | Mozilla Public License 2.0 — giấy phép chính của LibreOffice |
+| `LICENSES/upstream/libreoffice/COPYING.LGPL` | `COPYING.LGPL` | LGPLv3 (mã thừa hưởng từ OpenOffice.org theo Apache/LGPL) |
+| `LICENSES/upstream/libreoffice/COPYING` | `COPYING` | GPLv3 (một số thành phần) |
+| `LICENSES/upstream/libreoffice/license.xml`, `NOTICE` | `readlicense_oo/license/` | Danh sách giấy phép bên thứ ba được ship trong sản phẩm |
+| `LICENSES/upstream/libreoffice-dictionary-vi/LICENSES-{en,vi}.txt` | `dictionaries/vi/` | Từ điển chính tả tiếng Việt v1.0.45 — **GPLv2** (Ivan Garcia, Nguyễn Xuân Minh, dựa trên danh sách của GS. Hồ Ngọc Đức) |
 
-Không repo nào trong 8 repo có file NOTICE/TERMS tách riêng tại commit pin (kiểm bằng liệt kê thư mục gốc).
+Hash từng file: `LICENSES/upstream/libreoffice/provenance.json`. Tarball nguồn kiểm chữ ký GPG khóa `C2839ECA…AEA3` ("LibreOffice Build Team (CODE SIGNING KEY)") — "Good signature"; khóa chưa được xác thực qua web of trust.
 
-## 2. Nội dung chính — AGPLv3 + Additional Terms (Section 7)
+> Lưu ý: GitHub hiển thị `LibreOffice/core` là "GPL-3.0" vì file `COPYING`; giấy phép thực tế của phần lớn mã là MPL-2.0 (xem header từng file và `license.xml`).
 
-File AGPL của 6 repo gồm toàn văn GNU AGPLv3 và phần **Additional Terms** (trích nguyên văn ý chính):
+## 2. Phân chia giấy phép cho HST Office
 
-1. **Retention of Notices and Attribution** — giữ mọi copyright/license/disclaimer/attribution notice.
-2. **Modification Notice Requirement** — bản sửa đổi phải có thông báo rõ đã sửa đổi, **kèm ngày sửa đổi**, và ghi rõ dựa trên phần mềm ONLYOFFICE gốc của Ascensio System SIA.
-3. **Appropriate Legal Notices in UI** — UI phải cho người dùng (i) biết ONLYOFFICE là nhà phát triển gốc, (ii) biết bản đang dùng có thể đã sửa đổi, (iii) truy cập thông tin license.
-4. **No Trademark License** — không cấp quyền dùng trademark/logo/branding; theo Trademark Policy <https://www.onlyoffice.com/trademark-policy>.
-5. **Non-Code Content** — minh họa, icon set, tài liệu kỹ thuật theo **CC BY-SA 4.0**.
-
-Header file nguồn (vd. `plugins.js`) còn ghi: *“Pursuant to Section 7(b) … you must retain the original Product logo when distributing the program.”* — điều khoản này **xung đột tiềm năng** với rebrand shell (đường B) → blocker `LEG-01`.
-
-## 3. Phát hiện quan trọng
-
-| ID | Phát hiện | Hệ quả |
+| Thành phần | Giấy phép | Nghĩa vụ |
 |---|---|---|
-| F1 | Metadata GitHub `sdkjs-plugins` = Apache-2.0, nhưng bridge `v1/plugins.js` thực ship trong binary mang **header AGPL** (build từ `sdkjs/common/plugins/plugin_base*.js`, ánh xạ build chưa tái tạo — UNVERIFIED). | Plugin HST vendor **chỉ** `plugins.js` → mỗi package kèm `LICENSE-ONLYOFFICE.txt` (AGPL + Additional Terms nguyên văn) và giữ header. |
-| F1b | `v1/plugins-ui.js` nhúng **PerfectScrollbar**; `v1/plugins.css` nhúng **ảnh UI ONLYOFFICE** (Additional Terms 5: CC BY-SA 4.0). | **Không** phân phối lại hai file này; plugin HST dùng CSS/UI tự viết. |
-| F2 | 6 repo AGPL dùng cùng một file license (hash trùng). | Áp dụng đồng nhất Additional Terms 1–5. |
-| F3 | Trademark Policy chỉ render bằng JavaScript, không trích được nội dung qua fetch tự động. | Blocker `LEG-02`: cần người đọc và lưu bản chính sách. |
-| F4 | Mã mới HST: chủ dự án chọn **AGPL-3.0** (2026-10-29); nội dung mẫu văn bản **CC BY 4.0**. | `LICENSE` gốc repo = AGPLv3 nguyên văn từ gnu.org (SHA-256 `0d96a4ff…abcb0`). |
+| File LibreOffice HST sửa (patch trong `patches/libreoffice/`) | Giữ nguyên giấy phép của file (MPL-2.0, hoặc dual MPL/LGPL theo header) | Công bố source file đã sửa (repo public + tarball source tương ứng) |
+| Mã HST mới, file riêng (extension, script build, generator) | AGPL-3.0 (quyết định chủ dự án) | MPL-2.0 §3.3 cho phép kết hợp với GNU licenses khi file không đánh dấu "Incompatible With Secondary Licenses" — **cần legal xác nhận** (LEG-06) |
+| Mẫu văn bản (`templates/`) | CC BY 4.0 | Ghi công |
+| Asset thương hiệu HST | Không cấp phép (thương hiệu HASON TECH) | — |
+| Từ điển `vi` | GPLv2 (tác giả gốc) | Kèm license, source = file `.dic/.aff` |
+| Thư viện bên ngoài do LibreOffice bundle | theo `license.xml` | Giữ `license.xml`/`NOTICE` trong gói cài |
 
-## 4. Kết luận theo phạm vi
+## 3. Thương hiệu
 
-| Phạm vi | Trạng thái | Điều kiện |
-|---|---|---|
-| Spike nội bộ: chạy binary upstream nguyên trạng, cài plugin HST vào profile thử | **Cho phép** | Không phân phối lại binary. |
-| Phát hành plugin `.plugin` + gói mẫu HST (đường A) | **Có thể, chờ duyệt** | Giữ header AGPL của bridge, kèm `LICENSE`, NOTICE, link source; plugin không dùng logo/tên ONLYOFFICE làm nhãn; About plugin ghi rõ chạy trên ONLYOFFICE gốc (chưa sửa đổi). Cần owner/legal ký duyệt `LEG-03`. |
-| Fork/rebrand shell, installer “HST Office” (đường B) | **BLOCKED** | `LEG-01`, `LEG-02`, `LEG-04`; cần ý kiến pháp lý về điều 7(b) logo + trademark, và notice sửa đổi có ngày trong UI. |
+- "LibreOffice" và logo thuộc The Document Foundation (TDF). Bản phái sinh **phải đổi tên và gỡ logo** khỏi nhận diện sản phẩm; được phép ghi trung thực "dựa trên LibreOffice". Chính sách: <https://www.libreoffice.org/about-us/trademark-policy/> — **nội dung chưa được lưu nguyên văn** (LEG-07).
+- HST gỡ: tên sản phẩm (configure `--with-product-name`), splash/About/Start Center (`--with-branding`), icon/desktop file, URL trỏ về libreoffice.org cho update/donate/get-involved (patch + cấu hình). Kiểm tra bằng `scripts/check-branding.py` trên `instdir`.
+- Giữ: văn bản giấy phép, credits, thông báo bản quyền trong mã nguồn.
 
-## 5. Fonts & assets
+## 4. Kết luận
 
-- HST **không đóng gói font**. Mẫu khai báo Times New Roman/Arial; dùng font có sẵn trên máy, thiếu thì engine thay thế và tài liệu ghi rõ.
-- Logo HASON TECH: asset do chủ dự án cung cấp trực tiếp (không lấy từ web), SHA-256 `2f77a5fc…d2ef`; dẫn xuất xem [BRAND](BRAND.md).
-- Không dùng icon/illustration ONLYOFFICE (CC BY-SA 4.0 + trademark) trong plugin HST.
-
-## 6. Nghĩa vụ source tương ứng (đường A)
-
-Dự kiến: repo public `github.com/haduyson/hst-office` chứa toàn bộ mã nguồn plugin/script/mẫu; mỗi artifact ghi commit SHA trong `build-info.json`/manifest (thực hiện ở Phase 02/06). Bridge vendor có provenance tại `third_party/onlyoffice-plugin-sdk/provenance.json`; ánh xạ minified → source chưa tái tạo, giữ trong release gate `LEG-03`.
+| Phạm vi | Trạng thái |
+|---|---|
+| Build nội bộ, kiểm thử | Cho phép |
+| Phát hành công khai `.deb` HST Office | **Chờ duyệt** LEG-03/06/07 + QA |
+| Windows/macOS installer | BLOCKED (OPS-01, SIGN-01) |

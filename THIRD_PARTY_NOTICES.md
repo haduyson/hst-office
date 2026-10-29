@@ -1,10 +1,11 @@
 # Third-party notices
 
-| Thành phần | Phiên bản / commit | Giấy phép | Dùng ở đâu | Văn bản license |
+| Thành phần | Phiên bản | Giấy phép | Dùng ở đâu | Văn bản |
 |---|---|---|---|---|
-| ONLYOFFICE plugin SDK bridge (`plugins.js` — chỉ file này) | Desktop Editors v10.0.0 (10.0.0.169) binary; source `sdkjs@9d213886` | AGPL-3.0 + Additional Terms (Ascensio System SIA) | Đóng gói trong mỗi `.plugin` (`vendor/plugins.js`) | `third_party/onlyoffice-plugin-sdk/LICENSE.txt` → `LICENSE-ONLYOFFICE.txt` trong package |
-| ONLYOFFICE Desktop Editors (runtime, không phân phối lại) | v10.0.0 | AGPL-3.0 + Additional Terms | Người dùng tự cài từ upstream | `LICENSES/upstream/desktopeditors/LICENSE` |
-| esbuild (build-time) | xem `package-lock.json` | MIT | Bundle plugin, không đóng gói | npm package |
-| python-docx, openpyxl, python-pptx, lxml (build-time) | xem `requirements-templates.lock` | MIT / MIT / MIT / BSD-3-Clause | Sinh mẫu, không đóng gói | PyPI |
+| LibreOffice | 26.8.1.1 | MPL-2.0 (+ LGPLv3/GPLv3 cho một số phần, theo header) | Engine của HST Office (build từ source, có patch HST) | `LICENSES/upstream/libreoffice/` |
+| Thư viện bên ngoài LibreOffice bundle (ICU, Skia, harfbuzz, …) | theo `download.lst` tại commit pin | nhiều loại | Trong gói cài | `license.xml` / `NOTICE` trong gói cài (`LICENSES/upstream/libreoffice/license.xml`) |
+| Từ điển chính tả tiếng Việt | 1.0.45 | GPLv2 | Kiểm tra chính tả `vi` | `LICENSES/upstream/libreoffice-dictionary-vi/` |
+| python-docx, openpyxl, python-pptx, lxml, Pillow, PyYAML (build-time) | `requirements-templates.lock` | MIT / MIT / MIT / BSD-3-Clause / HPND / MIT | Sinh asset/kiểm thử, không đóng gói | PyPI |
+| Liberation Sans Bold Italic (build-time) | fonts-liberation 2.1.5 | SIL OFL 1.1 | Raster hoá chữ "HST OFFICE" trong logo; font không đóng gói | gói Ubuntu |
 
-Mẫu DOCX/XLSX/PPTX của HST không chứa font, ảnh hay nội dung của bên thứ ba.
+Mẫu HST không nhúng font, ảnh hay nội dung của bên thứ ba.

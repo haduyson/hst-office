@@ -1,0 +1,156 @@
+HST Office default configuration for the LibreOffice 26.8.1.1 based suite.
+
+- Tabbed (NotebookBar, ribbon-like) UI active by default in Writer, Calc and
+  Impress (ToolbarMode Applications/<app>/Active = notebookbar.ui, the value
+  sfx2/source/notebookbar/SfxNotebookBar.cxx compares with each mode's
+  CommandArg). Users can still switch via View > User Interface.
+- Product-facing help/feedback/donation/release-notes/credits URLs point to
+  HST (hasontech.vn, github.com/haduyson/hst-office) instead of TDF services.
+- No Start Center donation banner (Misc/ShowDonation=false) and no upstream
+  "What's New" infobar/dialog (Setup/Product WhatsNew*=false).
+- Writer default fonts Times New Roman (Decree 30/2020 Phụ lục I, I.4); when
+  the font is absent fontconfig substitutes metric-compatible Liberation Serif.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-defaults.py on a fresh profile.
+---
+diff -ruN pristine/officecfg/registry/data/org/openoffice/Office/Common.xcu patched/officecfg/registry/data/org/openoffice/Office/Common.xcu
+--- a/officecfg/registry/data/org/openoffice/Office/Common.xcu	2026-09-17 05:11:38.000000000 +0700
++++ b/officecfg/registry/data/org/openoffice/Office/Common.xcu	2026-10-29 14:00:22.181342100 +0700
+@@ -337,25 +337,25 @@
+       </node>
+     </node>
+     <prop oor:name="SendFeedbackURL" oor:type="xs:string">
+-      <value>https://hub.libreoffice.org/send-feedback/</value>
++      <value>https://github.com/haduyson/hst-office/issues</value>
+     </prop>
+     <prop oor:name="QA_URL" oor:type="xs:string">
+-      <value>https://hub.libreoffice.org/forum/</value>
++      <value>https://hasontech.vn</value>
+     </prop>
+     <prop oor:name="DocumentationURL" oor:type="xs:string">
+-      <value>https://hub.libreoffice.org/documentation/</value>
++      <value>https://hasontech.vn</value>
+     </prop>
+     <prop oor:name="GetInvolvedURL" oor:type="xs:string">
+-      <value>https://hub.libreoffice.org/joinus/</value>
++      <value>https://github.com/haduyson/hst-office</value>
+     </prop>
+     <prop oor:name="DonationURL" oor:type="xs:string">
+-      <value>https://hub.libreoffice.org/donation/</value>
++      <value>https://hasontech.vn</value>
+     </prop>
+     <prop oor:name="ReleaseNotesURL" oor:type="xs:string">
+-      <value>https://hub.libreoffice.org/ReleaseNotes/</value>
++      <value>https://github.com/haduyson/hst-office/releases</value>
+     </prop>
+     <prop oor:name="CreditsURL" oor:type="xs:string">
+-      <value>https://hub.libreoffice.org/credits/</value>
++      <value>https://github.com/haduyson/hst-office/blob/main/NOTICE.md</value>
+     </prop>
+     <prop oor:name="HyphenationMissingURL" oor:type="xs:string">
+       <value>https://hub.libreoffice.org/HyphenationMissing/</value>
+diff -ruN pristine/officecfg/registry/data/org/openoffice/Office/UI/ToolbarMode.xcu patched/officecfg/registry/data/org/openoffice/Office/UI/ToolbarMode.xcu
+--- a/officecfg/registry/data/org/openoffice/Office/UI/ToolbarMode.xcu	2026-09-17 05:11:38.000000000 +0700
++++ b/officecfg/registry/data/org/openoffice/Office/UI/ToolbarMode.xcu	2026-10-29 14:00:22.179341989 +0700
+@@ -16,7 +16,7 @@
+   <node oor:name="Applications">
+     <node oor:name="Writer" oor:op="replace">
+       <prop oor:name="Active">
+-        <value>Default</value>
++        <value>notebookbar.ui</value>
+       </prop>
+       <node oor:name="Modes">
+         <node oor:name="Default" oor:op="replace">
+@@ -296,7 +296,7 @@
+     </node>
+     <node oor:name="Calc" oor:op="replace">
+       <prop oor:name="Active">
+-        <value>Default</value>
++        <value>notebookbar.ui</value>
+       </prop>
+       <node oor:name="Modes">
+         <node oor:name="Default" oor:op="replace">
+@@ -545,7 +545,7 @@
+     </node>
+     <node oor:name="Impress" oor:op="replace">
+       <prop oor:name="Active">
+-        <value>Default</value>
++        <value>notebookbar.ui</value>
+       </prop>
+       <node oor:name="Modes">
+         <node oor:name="Default" oor:op="replace">
+diff -ruN pristine/officecfg/registry/schema/org/openoffice/Office/Common.xcs patched/officecfg/registry/schema/org/openoffice/Office/Common.xcs
+--- a/officecfg/registry/schema/org/openoffice/Office/Common.xcs	2026-09-17 05:11:38.000000000 +0700
++++ b/officecfg/registry/schema/org/openoffice/Office/Common.xcs	2026-10-29 14:00:22.185342323 +0700
+@@ -5127,7 +5127,7 @@
+         <info>
+           <desc>Determines whether to show a donation button in the start center or extension.</desc>
+         </info>
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="UseOpenCL" oor:type="xs:boolean" oor:nillable="false">
+         <info>
+diff -ruN pristine/officecfg/registry/schema/org/openoffice/Office/Writer.xcs patched/officecfg/registry/schema/org/openoffice/Office/Writer.xcs
+--- a/officecfg/registry/schema/org/openoffice/Office/Writer.xcs	2026-09-17 05:11:38.000000000 +0700
++++ b/officecfg/registry/schema/org/openoffice/Office/Writer.xcs	2026-10-29 14:00:22.192342713 +0700
+@@ -1595,6 +1595,7 @@
+           <desc>Specifies the font type to be used for the Standard paragraph style.</desc>
+           <label>Standard</label>
+         </info>
++        <value>Times New Roman</value>
+       </prop>
+       <prop oor:name="StandardHeight" oor:type="xs:int">
+         <!-- UIHints: Tools - Options - Text document  Default Fonts (Western) -->
+@@ -1609,6 +1610,7 @@
+           <desc>Specifies the font type to be used for the paragraph's headings.</desc>
+           <label>Heading</label>
+         </info>
++        <value>Times New Roman</value>
+       </prop>
+       <prop oor:name="HeadingHeight" oor:type="xs:int">
+         <!-- UIHints: Tools - Options - Text document  Default Fonts (Western) -->
+@@ -1623,6 +1625,7 @@
+           <desc>Specifies the font to be used in the paragraph styles for lists and numbering.</desc>
+           <label>List</label>
+         </info>
++        <value>Times New Roman</value>
+       </prop>
+       <prop oor:name="ListHeight" oor:type="xs:int">
+         <!-- UIHints: Tools - Options - Text document  Default Fonts (Western) -->
+@@ -1637,6 +1640,7 @@
+           <desc>Specifies the font to be used for the labels of images and tables.</desc>
+           <label>Caption</label>
+         </info>
++        <value>Times New Roman</value>
+       </prop>
+       <prop oor:name="CaptionHeight" oor:type="xs:int">
+         <!-- UIHints: Tools - Options - Text document  Default Fonts (Western) -->
+@@ -1651,6 +1655,7 @@
+           <desc>Specifies the fonts to be applied to the paragraph styles for user-defined indexes, alphabetical indexes, tables of contents and to all of the paragraph styles derived from this.</desc>
+           <label>Index</label>
+         </info>
++        <value>Times New Roman</value>
+       </prop>
+       <prop oor:name="IndexHeight" oor:type="xs:int">
+         <!-- UIHints: Tools - Options - Text document  Default Fonts (Western) -->
+diff -ruN pristine/officecfg/registry/schema/org/openoffice/Setup.xcs patched/officecfg/registry/schema/org/openoffice/Setup.xcs
+--- a/officecfg/registry/schema/org/openoffice/Setup.xcs	2026-09-17 05:11:38.000000000 +0700
++++ b/officecfg/registry/schema/org/openoffice/Setup.xcs	2026-10-29 14:00:22.186342379 +0700
+@@ -305,13 +305,13 @@
+         <info>
+             <desc>Set to false to not show the WhatsNew infobar on major updates.</desc>
+         </info>
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="WhatsNewDialog" oor:type="xs:boolean" oor:nillable="false">
+         <info>
+             <desc>Set to false to not show the WhatsNew dialog but the infobar.</desc>
+         </info>
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+     </group>
+     <group oor:name="Office">

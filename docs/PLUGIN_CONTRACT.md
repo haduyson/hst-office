@@ -1,5 +1,7 @@
 # Plugin contract
 
+> **Lịch sử (không còn áp dụng).** Contract plugin ONLYOFFICE, thay bởi [EXTENSION_CONTRACT](EXTENSION_CONTRACT.md) theo [ADR 0002](ADR/0002-libreoffice-standalone.md). Mã nguồn ở nhánh `archive/onlyoffice-plugin-first`.
+
 ## 1. Danh sách plugin (GUID cố định — không đổi giữa các phiên bản)
 
 | Thư mục | GUID | Editor | Mục đích |

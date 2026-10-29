@@ -1,88 +1,41 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Generate HST Office brand assets from the owner-provided HASON TECH logo.
 
 The blue "HS" triangle mark is copied pixel-for-pixel from the source; only the
-"HASON TECH" wordmark is replaced by "HST OFFICE". Icons are downscaled from the
-mark. Output PNGs carry no timestamps so runs are byte-identical.
+"HASON TECH" wordmark is replaced by "HST OFFICE". Outputs: logo/mark/plugin icons,
+desktop app icons, LibreOffice --with-branding inputs, Windows .ico, macOS .icns.
+All outputs are deterministic (no timestamps) so --check can compare bytes.
 
 Usage:
   python3 scripts/generate-brand-assets.py          # write outputs
-  python3 scripts/generate-brand-assets.py --check  # render to temp, compare, exit 1 on drift
+  python3 scripts/generate-brand-assets.py --check  # render, compare, exit 1 on drift
 """
 import argparse
 import hashlib
-import io
 import json
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SPEC_PATH = os.path.join(ROOT, "assets", "brand", "brand-spec.json")
-
-
-def sha256_file(path):
-    with open(path, "rb") as handle:
-        return hashlib.sha256(handle.read()).hexdigest()
-
-
-def png_bytes(image):
-    """Encode PNG deterministically (Pillow writes no time chunk by default)."""
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=False, compress_level=9)
-    return buffer.getvalue()
-
-
-def find_font(spec):
-    """Return the pinned font file; refuse a different build of the font."""
-    for path in spec["fontCandidates"]:
-        if os.path.exists(path):
-            if sha256_file(path) != spec["fontSha256"]:
-                raise SystemExit(f"Font {path} does not match pinned sha256 ({spec['fontPackage']})")
-            return path
-    raise SystemExit(f"Pinned font not found; install {spec['fontPackage']}")
-
-
-def render_wordmark(spec, size):
-    """Draw the new text so it fills the old wordmark box (same width/height)."""
-    left, top, right, bottom = spec["fitBox"]
-    box_w, box_h = right - left, bottom - top
-    font = ImageFont.truetype(find_font(spec), 200)
-    probe = Image.new("L", (4000, 400), 0)
-    ImageDraw.Draw(probe).text((50, 50), spec["text"], font=font, fill=255)
-    text_img = probe.crop(probe.getbbox()).resize((box_w, box_h), Image.LANCZOS)
-    layer = Image.new("RGBA", size, (0, 0, 0, 0))
-    color = Image.new("RGBA", (box_w, box_h), spec["color"])
-    layer.paste(color, (left, top), text_img)
-    return layer
+from brand.app_icons import build_app_icons  # noqa: E402
+from brand.common import ROOT, SPEC_PATH  # noqa: E402
+from brand.legacy import build_core, load_source  # noqa: E402
+from brand.lo_branding import build_lo_branding  # noqa: E402
+from brand.platform_icons import build_platform_icons  # noqa: E402
 
 
 def build_assets(spec):
-    source_path = os.path.join(ROOT, spec["source"]["path"])
-    actual = sha256_file(source_path)
-    if actual != spec["source"]["sha256"]:
-        raise SystemExit(f"Source logo hash mismatch: {actual}")
-    source = Image.open(source_path).convert("RGBA")
-    mark_box = tuple(spec["mark"]["box"])
-
-    # Full logo: start transparent, paste the untouched mark, then the new text.
-    logo = Image.new("RGBA", source.size, (0, 0, 0, 0))
-    logo.paste(source.crop(mark_box), mark_box[:2])
-    logo.alpha_composite(render_wordmark(spec["newText"], source.size))
-
-    mark = source.crop(mark_box)
-    outputs = {spec["outputs"]["logo"]: png_bytes(logo), spec["outputs"]["mark"]: png_bytes(mark)}
-
-    side = max(mark.size)
-    square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
-    square.paste(mark, ((side - mark.width) // 2, (side - mark.height) // 2))
-    for size in spec["outputs"]["iconSizes"]:
-        inner = max(1, round(size * (1 - 2 * spec["outputs"]["iconPadding"])))
-        icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        scaled = square.resize((inner, inner), Image.LANCZOS)
-        icon.paste(scaled, ((size - inner) // 2, (size - inner) // 2))
-        outputs[spec["outputs"]["iconPattern"].format(size=size)] = png_bytes(icon)
+    outputs, logo, mark, square = build_core(spec, load_source(spec))
+    outputs.update(build_app_icons(spec, square))
+    outputs.update(build_lo_branding(spec, mark, logo))
+    outputs.update(build_platform_icons(spec, square))
     return outputs
+
+
+def _same(path, data):
+    with open(path, "rb") as handle:
+        return handle.read() == data
 
 
 def main():
@@ -97,7 +50,7 @@ def main():
     for rel_path, data in sorted(outputs.items()):
         path = os.path.join(ROOT, rel_path)
         if args.check:
-            if not os.path.exists(path) or open(path, "rb").read() != data:
+            if not os.path.exists(path) or _same(path, data) is False:
                 drift.append(rel_path)
             continue
         os.makedirs(os.path.dirname(path), exist_ok=True)
