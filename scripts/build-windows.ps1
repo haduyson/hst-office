@@ -1,60 +1,80 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Inventory prerequisites and print the exact Cygwin configure command. No build is executed.
+# Runner setup helpers for the Windows trial build (windows-2022). Build steps live in scripts/windows/trial-build.sh.
+#   pwsh -File scripts/build-windows.ps1 -Task Probe|FreeDisk|Cygwin|Tools [-Work C:\hst]
 [CmdletBinding()]
-param()
+param(
+    [Parameter(Mandatory)][ValidateSet('Probe', 'FreeDisk', 'Cygwin', 'Tools')][string]$Task,
+    [string]$Work = 'C:\hst'
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$RepoRoot = Split-Path -Parent $PSScriptRoot
-$ConfigPath = Join-Path $RepoRoot 'build-config/windows-x86_64.conf'
-$SourcePath = Join-Path $RepoRoot 'upstream/libreoffice'
-function Stop-Blocked([string]$Reason) {
-    [Console]::Error.WriteLine("BLOCKED: $Reason")
-    exit 1
+$CygwinMirror = 'https://mirrors.kernel.org/sourceware/cygwin/'
+$CygwinRoot = 'C:\cygwin64'
+# Package set for the LibreOffice Windows build (wiki Development/BuildingOnWindows).
+$CygwinPackages = 'autoconf,automake,bison,flex,gawk,gettext,gettext-devel,git,gperf,libtool,m4,make,patch,perl,pkg-config,python3,rsync,unzip,zip,curl,wget,cabextract,diffutils,findutils,grep,sed,tar,xz,ccache'
+$MakeUrl = 'https://dev-www.libreoffice.org/bin/cygwin/make-4.2.1-msvc.exe'
+
+function Write-Summary([string]$Text) {
+    Write-Output $Text
+    if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $Text }
 }
-function Quote-Shell([string]$Value) {
-    return "'" + $Value.Replace("'", "'`"'`"'") + "'"
-}
-if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) { Stop-Blocked "missing $ConfigPath" }
-$ConfigureOptions = @(Get-Content -LiteralPath $ConfigPath | Where-Object { $_ -and -not $_.StartsWith('#') })
-foreach ($Option in $ConfigureOptions) {
-    if (-not $Option.StartsWith('--')) { Stop-Blocked 'invalid configure argument' }
-}
-$Invocation = './autogen.sh ' + (($ConfigureOptions | ForEach-Object { Quote-Shell $_ }) -join ' ')
-Write-Output "UNVERIFIED configure invocation (not executed; working directory: $SourcePath in Cygwin):"
-Write-Output $Invocation
-if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
-    Stop-Blocked 'requires Windows x86_64, Visual Studio 2022, Windows SDK 10.0 and Cygwin; native execution UNVERIFIED'
-}
-if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
-    Stop-Blocked 'requires a native Windows x86_64 host and 64-bit PowerShell'
-}
-foreach ($Tool in @('cl.exe', 'link.exe', 'rc.exe', 'mt.exe', 'signtool.exe', 'bash.exe', 'cygpath.exe')) {
-    if (-not (Get-Command $Tool -ErrorAction SilentlyContinue)) { Stop-Blocked "missing $Tool; use VS 2022 x64 Native Tools with Cygwin" }
-}
-if (-not $env:VisualStudioVersion -or [version]$env:VisualStudioVersion -lt [version]'17.0') {
-    Stop-Blocked 'Visual Studio 2022 >=17.0 is required'
-}
-if (-not $env:WindowsSDKVersion -or $env:WindowsSDKVersion -notmatch '^10\.0\.') {
-    Stop-Blocked 'Windows SDK 10.0 is required'
-}
-$CompilerVersion = (Get-Item (Get-Command cl.exe).Source).VersionInfo.FileVersion
-Write-Output "Compiler: $CompilerVersion; VS: $env:VisualStudioVersion; SDK: $env:WindowsSDKVersion"
-$ShellPlatform = & bash.exe -lc 'uname -s'
-if ($LASTEXITCODE -ne 0 -or $ShellPlatform -notmatch '^CYGWIN_NT') { Stop-Blocked 'bash.exe must be Cygwin, not WSL/Git Bash' }
-& bash.exe -lc 'set -eu; for tool in autoconf automake make perl python3 pkg-config bison flex gperf zip; do command -v "$tool" >/dev/null; done; uname -a'
-if ($LASTEXITCODE -ne 0) { Stop-Blocked 'missing required Cygwin configure/build tools' }
-$DriveRoot = [IO.Path]::GetPathRoot($RepoRoot)
-$Disk = [IO.DriveInfo]::new($DriveRoot)
-if ($Disk.AvailableFreeSpace -lt 100000000000) { Stop-Blocked 'OPS-01: at least 100 GB free disk required' }
-$Machine = Get-CimInstance Win32_ComputerSystem
-if ($Machine.TotalPhysicalMemory -lt 16GB) { Stop-Blocked 'OPS-01: at least 16 GiB RAM required' }
-foreach ($File in @('configure.ac', 'autogen.sh')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $SourcePath $File) -PathType Leaf)) { Stop-Blocked 'missing pinned LibreOffice source checkout' }
-}
-foreach ($Asset in @('intro.png', 'about.svg', 'logo.svg')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot "branding/libreoffice/$Asset") -PathType Leaf)) {
-        Stop-Blocked "missing branding asset: $Asset"
+
+function Invoke-Probe {
+    $cs = Get-CimInstance Win32_ComputerSystem
+    $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+    $os = Get-CimInstance Win32_OperatingSystem
+    $lines = @('### Runner probe', "- image: $env:ImageOS $env:ImageVersion; OS: $($os.Caption) $($os.Version)",
+        "- CPU: $($cpu.Name); logical processors: $($cs.NumberOfLogicalProcessors)",
+        ('- RAM total/free GiB: {0:N1} / {1:N1}' -f ($cs.TotalPhysicalMemory / 1GB), ($os.FreePhysicalMemory / 1MB)))
+    foreach ($d in Get-PSDrive -PSProvider FileSystem | Where-Object { $null -ne $_.Used }) {
+        $lines += ('- drive {0}: free {1:N1} GiB, used {2:N1} GiB' -f $d.Name, ($d.Free / 1GB), ($d.Used / 1GB))
     }
+    $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -all -prerelease -format json | ConvertFrom-Json
+    foreach ($v in $vs) { $lines += "- Visual Studio: $($v.displayName) $($v.installationVersion) at $($v.installationPath)" }
+    $sdk = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Include" -Directory -ErrorAction SilentlyContinue).Name -join ', '
+    $lines += "- Windows SDKs: $sdk"
+    Write-Summary ($lines -join "`n")
 }
-Write-Output 'Prerequisite inventory complete; configure was not executed.'
-Stop-Blocked 'TODO: needs validated HST patch integration, signing credentials, MSI lifecycle tests and platform QA (SIGN-01, QA-01)'
+
+function Invoke-FreeDisk {
+    # Not needed by the LibreOffice build: Android SDK/NDK, Julia, Haskell, Strawberry Perl (shadows Cygwin perl).
+    $before = (Get-PSDrive C).Free / 1GB
+    foreach ($p in 'C:\Android', 'C:\Program Files\Android', 'C:\Program Files (x86)\Android', 'C:\Julia', 'C:\Strawberry', 'C:\ghcup', 'C:\Rust', 'C:\Users\runneradmin\.rustup', 'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk') {
+        if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    Write-Summary ('### Free disk' + "`n" + ('- C: free before/after: {0:N1} / {1:N1} GiB; removed Android SDK, Julia, Strawberry Perl, ghcup, Rust, Temurin cache' -f $before, ((Get-PSDrive C).Free / 1GB)))
+}
+
+function Invoke-Cygwin {
+    New-Item -ItemType Directory -Force -Path $Work, "$Work\logs", "$Work\bin" | Out-Null
+    $setup = "$Work\setup-x86_64.exe"
+    Invoke-WebRequest -UseBasicParsing -Uri 'https://www.cygwin.com/setup-x86_64.exe' -OutFile $setup
+    $sig = Get-AuthenticodeSignature $setup
+    Write-Summary ("- Cygwin setup sha256 $((Get-FileHash $setup).Hash), signature $($sig.Status) $($sig.SignerCertificate.Subject)")
+    if ($sig.Status -ne 'Valid') { throw "Cygwin setup signature invalid: $($sig.Status)" }
+    $setupArgs = @('--quiet-mode', '--no-shortcuts', '--no-startmenu', '--no-desktop', '--only-site', '--site', $CygwinMirror,
+        '--local-package-dir', "$Work\cygpkgs", '--root', $CygwinRoot, '--packages', $CygwinPackages)
+    $p = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru -NoNewWindow
+    if ($p.ExitCode -ne 0) { throw "Cygwin setup failed: $($p.ExitCode)" }
+    & "$CygwinRoot\bin\cygcheck.exe" -c | Set-Content -LiteralPath "$Work\logs\cygwin-packages.txt"
+    if ($LASTEXITCODE -ne 0) { throw 'cygcheck failed' }
+}
+
+function Invoke-Tools {
+    New-Item -ItemType Directory -Force -Path "$Work\bin" | Out-Null
+    # Native GNU make (avoids Cygwin fork cost); configure detects it first in PATH. Fall back to Cygwin make on failure.
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri $MakeUrl -OutFile "$Work\bin\make.exe"
+        Write-Summary "- native make sha256 $((Get-FileHash "$Work\bin\make.exe").Hash)"
+    } catch { Write-Summary "- native make download failed ($($_.Exception.Message)); using Cygwin make" }
+    choco install nasm --no-progress -y
+    if ($LASTEXITCODE -ne 0) { throw 'nasm install failed' }
+    if (-not (Test-Path 'C:\Program Files\NASM\nasm.exe')) { throw 'nasm.exe not found in C:\Program Files\NASM' }
+}
+
+switch ($Task) {
+    'Probe' { Invoke-Probe }
+    'FreeDisk' { Invoke-FreeDisk }
+    'Cygwin' { Invoke-Cygwin }
+    'Tools' { Invoke-Tools }
+}

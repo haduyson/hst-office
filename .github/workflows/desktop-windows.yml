@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-name: Desktop Windows (BLOCKED)
+name: Desktop Windows trial
 on:
   workflow_dispatch:
 permissions:
@@ -8,16 +8,91 @@ concurrency:
   group: desktop-windows
   cancel-in-progress: false
 jobs:
-  blocked:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  windows-trial:
+    # Trial: measures what a standard hosted runner can do; a full build is expected to exceed the job limit.
+    runs-on: windows-2022
+    timeout-minutes: 355
+    env:
+      HST_WORK_WIN: C:\hst
+      HST_WORK: /cygdrive/c/hst
+      CHERE_INVOKING: '1'
     steps:
-      - name: Require native builder and release prerequisites
+      - name: Record job start
         shell: bash
         run: |
-          echo 'BLOCKED/TODO: needs self-hosted runner with >=100 GB disk, signing credentials, platform QA' >&2
-          exit 1
-    # Future on a provisioned Windows x86_64 runner: checkout the tested SHA;
-    # run pwsh -File scripts/build-windows.ps1 to inventory VS 2022/SDK/Cygwin;
-    # validate configure, compile, MSI install/upgrade/uninstall, and GUI QA;
-    # sign only validated artifacts with protected credentials (SIGN-01).
+          set -eu
+          started=$(date +%s)
+          echo "HST_JOB_START=$started" >> "$GITHUB_ENV"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Probe runner and free disk
+        shell: bash
+        run: |
+          set -eu
+          pwsh -NoProfile -File scripts/build-windows.ps1 -Task Probe
+          pwsh -NoProfile -File scripts/build-windows.ps1 -Task FreeDisk
+      - name: Install Cygwin and build tools
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p /c/hst/logs /c/hst/metrics
+          start=$(date +%s)
+          pwsh -NoProfile -File scripts/build-windows.ps1 -Task Cygwin
+          pwsh -NoProfile -File scripts/build-windows.ps1 -Task Tools
+          printf '{"phase":"setup-tools","seconds":%d,"status":"ok"}\n' $(( $(date +%s) - start )) >> /c/hst/metrics/phases.jsonl
+      - name: Fetch and verify pinned source tarballs
+        shell: bash
+        run: |
+          set -eu
+          start=$(date +%s)
+          python -I scripts/windows/fetch-sources.py --dest 'C:/hst/dl'
+          printf '{"phase":"fetch","seconds":%d,"status":"ok"}\n' $(( $(date +%s) - start )) >> /c/hst/metrics/phases.jsonl
+      - name: Stage branding
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install "pillow==10.4.0"
+          python -I scripts/stage-branding.py --out 'C:/hst/branding'
+      - name: Extract source
+        shell: bash
+        run: |
+          set -eu
+          export HST_REPO="$(C:/cygwin64/bin/cygpath.exe -u "$GITHUB_WORKSPACE")"
+          C:/cygwin64/bin/bash.exe -l "$HST_REPO/scripts/windows/trial-build.sh" --extract
+      - name: Apply HST patches
+        shell: bash
+        run: |
+          set -eu
+          export HST_REPO="$(C:/cygwin64/bin/cygpath.exe -u "$GITHUB_WORKSPACE")"
+          C:/cygwin64/bin/bash.exe -l "$HST_REPO/scripts/windows/trial-build.sh" --patch
+      - name: Configure
+        shell: bash
+        run: |
+          set -eu
+          export HST_REPO="$(C:/cygwin64/bin/cygpath.exe -u "$GITHUB_WORKSPACE")"
+          C:/cygwin64/bin/bash.exe -l "$HST_REPO/scripts/windows/trial-build.sh" --configure
+      - name: Build within time budget
+        shell: bash
+        run: |
+          set -eu
+          export HST_REPO="$(C:/cygwin64/bin/cygpath.exe -u "$GITHUB_WORKSPACE")"
+          export HST_BUILD_DEADLINE=$(( HST_JOB_START + 330 * 60 ))
+          C:/cygwin64/bin/bash.exe -l "$HST_REPO/scripts/windows/trial-build.sh" --build
+      - name: Summarize metrics
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -eu
+          python -I scripts/windows/summarize-trial.py --work 'C:/hst' --out 'C:/hst/artifacts' | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload trial evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-trial-${{ github.run_id }}
+          path: C:\hst\artifacts\
+          if-no-files-found: error
+          retention-days: 7

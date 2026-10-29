@@ -116,7 +116,7 @@ class WorkflowTests(unittest.TestCase):
             del self.quality["jobs"]["quality"]["steps"][4][key]
 
     def test_native_guards_are_unconditional_failures_on_hosted_runners(self):
-        for name in ("desktop-windows.yml", "desktop-macos.yml"):
+        for name in ("desktop-macos.yml",):
             original = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
             mutations = (("exit", 0), ("conditional", True), ("runner", "self-hosted"), ("trigger", "push"))
             for mutation, value in mutations:
@@ -132,6 +132,29 @@ class WorkflowTests(unittest.TestCase):
                     else:
                         workflow["on"][value] = None
                     self.assertTrue(self.check(workflow, name))
+
+    def test_windows_trial_needs_budget_verification_and_unconditional_upload(self):
+        name = "desktop-windows.yml"
+        original = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
+        self.assertEqual([], self.check(original, name))
+        job = original["jobs"]["windows-trial"]
+        mutations = {
+            "short timeout": lambda w: w["jobs"]["windows-trial"].update({"timeout-minutes": 20}),
+            "linux runner": lambda w: w["jobs"]["windows-trial"].update({"runs-on": "ubuntu-latest"}),
+            "no upload": lambda w: w["jobs"]["windows-trial"]["steps"].pop(),
+            "upload not always": lambda w: w["jobs"]["windows-trial"]["steps"][-1].pop("if"),
+            "no checksum fetch": lambda w: [s.update({"run": s["run"].replace("fetch-sources.py", "true")})
+                                            for s in w["jobs"]["windows-trial"]["steps"] if "run" in s],
+            "no budget": lambda w: [s.update({"run": s["run"].replace("HST_BUILD_DEADLINE", "X")})
+                                    for s in w["jobs"]["windows-trial"]["steps"] if "run" in s],
+            "trigger": lambda w: w["on"].update({"push": None}),
+        }
+        self.assertTrue(job["steps"])
+        for label, mutate in mutations.items():
+            with self.subTest(mutation=label):
+                workflow = copy.deepcopy(original)
+                mutate(workflow)
+                self.assertTrue(self.check(workflow, name))
 
     def test_linux_probe_precedes_build_and_missing_linux_script_is_allowlisted(self):
         name = "desktop-linux.yml"

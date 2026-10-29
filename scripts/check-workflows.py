@@ -17,6 +17,7 @@ PINS = {
 }
 REQUIRED = {"quality.yml", "desktop-linux.yml", "desktop-windows.yml", "desktop-macos.yml"}
 BLOCKER = "BLOCKED/TODO: needs self-hosted runner with >=100 GB disk, signing credentials, platform QA"
+CYGWIN_SHELL = "C:/cygwin64/bin/bash.exe"
 SCRIPT = re.compile(r"\bscripts/[\w./-]+\.(?:py|sh|ps1|mjs|js)\b")
 
 
@@ -116,12 +117,26 @@ def check_workflow(path, root=ROOT):
                     re.search(r"^\s*bash scripts/ci-quality\.sh\b", step["run"], re.M) for step in runs),
                 "quality must execute scripts/ci-quality.sh")
         require(all("if" not in step for step in runs), "quality commands must not be skipped")
-    elif path.name in {"desktop-windows.yml", "desktop-macos.yml"}:
+    elif path.name == "desktop-macos.yml":
         require(len(jobs) == 1 and len(all_steps) == 1, "desktop blocker must be the sole executable step")
         require(all(job.get("runs-on") == "ubuntu-latest" for job in jobs.values()), "blocker must use a hosted runner")
         guard_lines = active_lines(runs[0]["run"]) if runs else []
         guarded = guard_lines == [f"echo '{BLOCKER}' >&2", "exit 1"]
         require(guarded and "if" not in runs[0], "desktop guard must unconditionally exit 1 with BLOCKED/TODO")
+    elif path.name == "desktop-windows.yml":
+        require(len(jobs) == 1, "Windows trial must be a single job on one runner")
+        job = next(iter(jobs.values()))
+        require(str(job.get("runs-on", "")).startswith("windows-"), "Windows trial must run on a hosted windows runner")
+        require(type(job.get("timeout-minutes")) is int and job["timeout-minutes"] >= 300,
+                "Windows trial needs a long timeout to measure the build")
+        text_runs = "\n".join(step["run"] for step in runs)
+        require("fetch-sources.py" in text_runs, "trial must download and verify pinned tarballs")
+        require(all(re.search(rf'trial-build\.sh"? --{stage}\b', text_runs) for stage in ("extract", "patch", "configure", "build")),
+                "trial must extract, patch, configure and build")
+        require("HST_BUILD_DEADLINE" in text_runs, "build step must carry a time budget")
+        uploads = [step for step in all_steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
+        require(len(uploads) == 1 and "always()" in str(uploads[0].get("if", "")),
+                "trial must upload artifacts even when earlier steps fail")
     elif path.name == "desktop-linux.yml":
         require(len(jobs) == 1, "resource probe and build must share one runner")
         require(bool(runs) and runs[0]["run"].strip().startswith("python3 scripts/probe-runner.py"),
