@@ -1,0 +1,388 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HST Vietnamese template sources and generated catalog",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/catalog"
+    },
+    {
+      "$ref": "#/$defs/writer"
+    },
+    {
+      "$ref": "#/$defs/sheets"
+    },
+    {
+      "$ref": "#/$defs/slides"
+    }
+  ],
+  "$defs": {
+    "catalog": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "license": {
+          "const": "CC-BY-4.0"
+        },
+        "locale": {
+          "const": "vi-VN"
+        },
+        "templates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+              },
+              "module": {
+                "enum": [
+                  "writer",
+                  "sheets",
+                  "slides"
+                ]
+              },
+              "title": {
+                "type": "object",
+                "properties": {
+                  "vi": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "en": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "vi",
+                  "en"
+                ],
+                "additionalProperties": false
+              },
+              "description": {
+                "type": "object",
+                "properties": {
+                  "vi": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "en": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "vi",
+                  "en"
+                ],
+                "additionalProperties": false
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "output": {
+                "type": "string",
+                "minLength": 1
+              },
+              "preview": {
+                "type": "string",
+                "minLength": 1
+              },
+              "license": {
+                "const": "CC-BY-4.0"
+              },
+              "sourceSha256": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "outputSha256": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "previewSha256": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "id",
+              "module",
+              "title",
+              "description",
+              "source",
+              "output",
+              "preview",
+              "license"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 18,
+          "maxItems": 18
+        },
+        "sourceDateEpoch": {
+          "type": "integer"
+        },
+        "nd30Sha256": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "numberFormatsSha256": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "generator": {
+          "const": "HST Office template generator"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "license",
+        "locale",
+        "templates"
+      ],
+      "additionalProperties": false
+    },
+    "writer": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "license": {
+          "const": "CC-BY-4.0"
+        },
+        "module": {
+          "const": "writer"
+        },
+        "documentType": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "paragraphs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "license",
+        "module",
+        "documentType",
+        "paragraphs"
+      ],
+      "additionalProperties": false
+    },
+    "sheets": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "license": {
+          "const": "CC-BY-4.0"
+        },
+        "module": {
+          "const": "sheets"
+        },
+        "sheetName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 31
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "period": {
+          "type": "string",
+          "minLength": 1
+        },
+        "guidance": {
+          "type": "string",
+          "minLength": 1
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "enum": [
+                  "text",
+                  "integer",
+                  "date",
+                  "vnd",
+                  "percent"
+                ]
+              },
+              "placeholder": {
+                "type": "string",
+                "minLength": 1
+              },
+              "formula": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "title",
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 2,
+          "maxItems": 12
+        },
+        "rows": {
+          "const": 5
+        },
+        "totals": {
+          "type": "object",
+          "patternProperties": {
+            "^[A-L]$": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "license",
+        "module",
+        "sheetName",
+        "title",
+        "period",
+        "guidance",
+        "columns",
+        "rows",
+        "totals"
+      ],
+      "additionalProperties": false
+    },
+    "slides": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "license": {
+          "const": "CC-BY-4.0"
+        },
+        "module": {
+          "const": "slides"
+        },
+        "theme": {
+          "type": "object",
+          "properties": {
+            "accent": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^#[0-9a-f]{6}$"
+            },
+            "tint": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^#[0-9a-f]{6}$"
+            }
+          },
+          "required": [
+            "accent",
+            "tint"
+          ],
+          "additionalProperties": false
+        },
+        "slides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "layout": {
+                "enum": [
+                  "title",
+                  "content",
+                  "section",
+                  "table",
+                  "chart"
+                ]
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1,
+                "maxItems": 5
+              },
+              "notes": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "layout",
+              "title",
+              "lines",
+              "notes"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 5,
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "license",
+        "module",
+        "theme",
+        "slides"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
