@@ -27,11 +27,12 @@ export HOME="$WORK/home"; mkdir -p "$HOME"
 # The job starts from Git Bash, whose MSYSTEM/MSYS* variables leak into Cygwin.
 # gbuild reads a non-empty MSYSTEM as "WSL helper build" and maps every path
 # through wslpath, which breaks all source paths on a Cygwin build.
-# Symlinks created by Cygwin tools (tar, ln) default to Cygwin-only reparse files that
-# native compilers cannot open ("The file cannot be accessed by the system"); make them
-# real Windows symlinks (the runner account may create them).
-export CYGWIN="${CYGWIN:+$CYGWIN }winsymlinks:nativestrict"
 unset MSYSTEM MSYSTEM_PREFIX MSYSTEM_CHOST MSYSTEM_CARCH MINGW_PREFIX MINGW_CHOST MINGW_PACKAGE_PREFIX MSYS2_ARG_CONV_EXCL
+
+# In a tarball tree `make get-submodules` re-downloads (unchecked) and re-unpacks the
+# translations/dictionaries tarballs into src/ unless GIT_NEEDED_SUBMODULES is empty.
+# The lock-verified copies are already merged into the tree by --extract, so skip it.
+LO_MAKE=(make GIT_NEEDED_SUBMODULES=)
 
 phase() { # phase <name> <command...>: run, time and record in phases.jsonl; propagate failure
   local name="$1" start rc=0 status; shift; start=$(date +%s)
@@ -56,11 +57,9 @@ do_extract() {
   echo "extract: dictionaries"; extract_one libreoffice-dictionaries-26.8.1.1.tar.xz "$SRC" || return 1
   [ -f "$SRC/configure.ac" ] || { echo "extract: configure.ac missing"; return 1; }
   [ -d "$SRC/translations/source/vi" ] || { echo "extract: vi translations missing"; find "$SRC/translations" -maxdepth 1 | head; return 1; }
-  # A tarball tree's `make get-submodules` re-downloads (unchecked) and re-unpacks
-  # translations/dictionaries unless src/libreoffice-<module>-<ver>/ exists; its
-  # unpack-sources then calls tar on a D:/ path, which Cygwin tar rejects. The
-  # verified copies are already merged above, so mark them as unpacked.
-  mkdir -p "$SRC/src/libreoffice-translations-26.8.1.1" "$SRC/src/libreoffice-dictionaries-26.8.1.1" || return 1
+  # No src/ at the top of the tree: skia force-includes "src/utils/win/...", and clang-cl
+  # looks that up relative to the build directory first (see LO_MAKE).
+  rm -rf "$SRC/src" || return 1
   echo "extract: ok"
 }
 
@@ -112,12 +111,12 @@ do_fetch() { # download every external tarball (sha256-checked by gbuild) so pre
   mkdir -p "$SRC/external/tarballs" || return 1
   cp -n "$DL"/libreoffice-translations-26.8.1.1.tar.xz "$DL"/libreoffice-dictionaries-26.8.1.1.tar.xz \
     "$SRC/external/tarballs/" || return 1
-  (cd "$SRC" && make fetch) 2>&1 | tee "$LOGS/fetch.log"
+  (cd "$SRC" && "${LO_MAKE[@]}" fetch) 2>&1 | tee "$LOGS/fetch.log"
   local rc=${PIPESTATUS[0]}
   [ "$rc" -eq 0 ] || return "$rc"
   # `make showmodules` parses all of gbuild, running its path helpers; a wrong
   # environment shows up here as failed helper processes before any compiler runs.
-  (cd "$SRC" && make showmodules) 2>&1 | tee -a "$LOGS/fetch.log"
+  (cd "$SRC" && "${LO_MAKE[@]}" showmodules) 2>&1 | tee -a "$LOGS/fetch.log"
   rc=${PIPESTATUS[0]}
   if grep -qE 'process_begin: CreateProcess|wslpath|Bad file descriptor' "$LOGS/fetch.log"; then
     echo "fetch: gbuild path helpers failed (environment leak?)"; return 1
@@ -142,7 +141,7 @@ sample() { # one progress sample: steps compiled, free disk, memory used
 do_build() {
   local deadline="${HST_BUILD_DEADLINE:?HST_BUILD_DEADLINE required}" pid rc=0
   BUDGET_STOPPED=0; : > "$LOGS/build.log"
-  (cd "$SRC" && exec make) > "$LOGS/build.log" 2>&1 &
+  (cd "$SRC" && exec "${LO_MAKE[@]}") > "$LOGS/build.log" 2>&1 &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     sleep 60; sample
