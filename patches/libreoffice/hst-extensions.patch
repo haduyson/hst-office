@@ -1,0 +1,315 @@
+HST Office extensions: no route to an online extension catalogue; install only from a file.
+
+Owner decision (2026-10-29): users install extensions only by choosing an .oxt file
+themselves and accept responsibility for it.
+- Extension Manager: the "Get more extensions online" link and the "Check for
+  Updates" button/menu item are hidden; the update check is never queued, so no server
+  named in an extension description is contacted. ExtensionRepositories/WebsiteLink is
+  empty. Office.Common Menus/ExtensionsURL is empty (hst-defaults.patch).
+- The Start Center Extensions button opens the Extension Manager (hst-start-center-banner.patch).
+- Installing an extension (Extension Manager "Add...", double-clicking an .oxt,
+  "soffice file.oxt") always shows a confirmation dialog first, with the third-party
+  notice (string RID_STR_WARNING_INSTALL_EXTENSION, Vietnamese in l10n/vi-overrides.jsonl) and
+  "Continue" / "Cancel" buttons; Cancel is the default response.
+- The online catalogue dialog behind "Get more templates / dictionaries / themes /
+  icons / colour palettes / galleries" is not opened (AdditionsDialogHelper) and the
+  buttons and links that led to it are hidden.
+- The English dictionary extension no longer names the upstream extension site as
+  publisher link, and the Extension Manager shows no publisher link that points to a
+  repository host or to the upstream sites (the publisher name stays as plain text).
+
+License: modified upstream files keep their license (MPL-2.0).
+---
+--- a/cui/source/options/optlingu.cxx
++++ b/cui/source/options/optlingu.cxx
+@@ -1533,12 +1533,7 @@
+ void SvxLinguTabPage::HideModulesGroup()
+ {
+     m_xLinguModulesFrame->hide();
+-
+-    if (officecfg::Office::Security::Hyperlinks::Open::get() != SvtExtendedSecurityOptions::OPEN_NEVER &&
+-        !comphelper::LibreOfficeKit::isActive())
+-    {
+-        m_xMoreDictsBox->show();
+-    }
++    // HST Office: the "Get more dictionaries online" box stays hidden.
+ }
+ 
+ IMPL_LINK_NOARG(SvxLinguTabPage, OnLinkClick, weld::LinkButton&, bool)
+--- a/cui/uiconfig/ui/appearance.ui
++++ b/cui/uiconfig/ui/appearance.ui
+@@ -67,7 +67,7 @@
+                 </child>
+                 <child>
+                   <object class="GtkButton" id="moreicons">
+-                    <property name="visible">True</property>
++                    <property name="visible">False</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">True</property>
+                     <property name="tooltip-text" translatable="yes" context="optappearancepage|moreicons">Add more icons.</property>
+@@ -288,7 +288,7 @@
+                 </child>
+                 <child>
+                   <object class="GtkButton" id="morethemesbtn">
+-                    <property name="visible">True</property>
++                    <property name="visible">False</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">True</property>
+                     <property name="tooltip-text" translatable="yes" context="optappearancepage|morethemes">Add more themes.</property>
+--- a/cui/uiconfig/ui/colorpage.ui
++++ b/cui/uiconfig/ui/colorpage.ui
+@@ -127,7 +127,7 @@
+                 </child>
+                 <child>
+                   <object class="GtkButton" id="btnMoreColors">
+-                    <property name="visible">True</property>
++                    <property name="visible">False</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">True</property>
+                     <property name="tooltip-text" translatable="yes" context="colorpage|btnMoreColors">Add color palettes via extension</property>
+--- a/cui/uiconfig/ui/editmodulesdialog.ui
++++ b/cui/uiconfig/ui/editmodulesdialog.ui
+@@ -111,12 +111,11 @@
+                 <child>
+                   <object class="GtkLinkButton" id="moredictslink">
+                     <property name="label" translatable="yes" context="editmodulesdialog|moredictslink">Get more dictionaries online...</property>
+-                    <property name="visible">True</property>
++                    <property name="visible">False</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">True</property>
+                     <property name="relief">none</property>
+                     <property name="xalign">0</property>
+-                    <property name="uri">https://extensions.libreoffice.org/dictionaries/</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+--- a/cui/uiconfig/ui/optlingupage.ui
++++ b/cui/uiconfig/ui/optlingupage.ui
+@@ -459,7 +459,7 @@
+             </child>
+             <child>
+               <object class="GtkBox" id="moredictsbox">
+-                <property name="visible">True</property>
++                <property name="visible">False</property>
+                 <property name="can-focus">False</property>
+                 <child>
+                   <object class="GtkImage">
+--- a/desktop/source/deployment/gui/dp_gui_dialog2.cxx
++++ b/desktop/source/deployment/gui/dp_gui_dialog2.cxx
+@@ -38,6 +38,10 @@
+ #include <utility>
+ #include <vcl/commandevent.hxx>
+ #include <vcl/svapp.hxx>
++#include <i18nlangtag/languagetag.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/stdtext.hxx>
++#include <vcl/wintypes.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/MessageDialog.hxx>
+ 
+@@ -142,13 +146,24 @@
+         return false;
+     }
+ 
++    // HST Office: every installation from a file the user chose is confirmed first; the
++    // third-party notice and the "Continue" / "Cancel" buttons are part of this dialog.
+     incBusy();
+     std::unique_ptr<weld::MessageDialog> xInfoBox(Application::CreateMessageDialog(
+-        getDialog(), VclMessageType::Warning, VclButtonsType::OkCancel,
++        getDialog(), VclMessageType::Warning, VclButtonsType::NONE,
+         DpResId(RID_STR_WARNING_INSTALL_EXTENSION)));
++    xInfoBox->set_title(DpResId(RID_STR_ADD_PACKAGES));
+     OUString sText(xInfoBox->get_primary_text());
+     sText = sText.replaceAll("%NAME", rExtensionName);
+     xInfoBox->set_primary_text(sText);
++    const bool bVietnamese = Application::GetSettings().GetUILanguageTag().getLanguage() == "vi";
++    xInfoBox->add_button(bVietnamese ? u"_Ti\u1EBFp t\u1EE5c"_ustr
++                                     : GetStandardText(StandardButtonType::OK),
++                         RET_OK);
++    xInfoBox->add_button(bVietnamese ? u"_H\u1EE7y"_ustr
++                                     : GetStandardText(StandardButtonType::Cancel),
++                         RET_CANCEL);
++    xInfoBox->set_default_response(RET_CANCEL);
+ 
+     bool bRet = RET_OK == xInfoBox->run();
+     xInfoBox.reset();
+@@ -236,12 +251,8 @@
+ 
+     m_xProgressBar->hide();
+ 
+-#if ENABLE_EXTENSION_UPDATE
+-    m_xUpdateBtn->connect_clicked( LINK( this, ExtMgrDialog, HandleUpdateBtn ) );
+-    m_xUpdateBtn->set_sensitive(false);
+-#else
++    // HST Office: no online update check of extensions.
+     m_xUpdateBtn->hide();
+-#endif
+ 
+     if (officecfg::Office::ExtensionManager::ExtensionSecurity::DisableExtensionInstallation::get())
+     {
+@@ -263,9 +274,11 @@
+     m_aIdle.Stop();
+ }
+ 
+-void ExtMgrDialog::setGetExtensionsURL( const OUString &rURL )
++void ExtMgrDialog::setGetExtensionsURL( const OUString & )
+ {
+-    m_xGetExtensions->set_uri( rURL );
++    // HST Office: no link to an online extension catalogue; extensions are installed from
++    // a file the user chooses ("Add...").
++    m_xGetExtensions->hide();
+ }
+ 
+ void ExtMgrDialog::addPackageToList( const uno::Reference< deployment::XPackage > &xPackage,
+--- a/desktop/source/deployment/gui/dp_gui_extensionboxwithbuttons.cxx
++++ b/desktop/source/deployment/gui/dp_gui_extensionboxwithbuttons.cxx
+@@ -175,10 +175,7 @@
+     std::unique_ptr<weld::Builder> xBuilder(Application::CreateBuilder(nullptr, u"desktop/ui/extensionmenu.ui"_ustr));
+     std::unique_ptr<weld::Menu> xPopup(xBuilder->weld_menu(u"menu"_ustr));
+ 
+-#if ENABLE_EXTENSION_UPDATE
+-    xPopup->append(u"CMD_UPDATE"_ustr, DpResId( RID_CTX_ITEM_CHECK_UPDATE ) );
+-#endif
+-
++    // HST Office: no "Update..." item (no online update check of extensions)
+     if ( ! GetEntryData( nPos )->m_bLocked )
+     {
+         if ( GetEntryData( nPos )->m_bUser )
+--- a/desktop/source/deployment/gui/dp_gui_extensioncmdqueue.cxx
++++ b/desktop/source/deployment/gui/dp_gui_extensioncmdqueue.cxx
+@@ -838,7 +838,7 @@
+ void ExtensionCmdQueue::Thread::_addExtension( ::rtl::Reference< ProgressCmdEnv > const &rCmdEnv,
+                                                const OUString &rPackageURL,
+                                                const OUString &rRepository,
+-                                               const bool bWarnUser )
++                                               const bool /*bWarnUser*/ )
+ {
+     //check if we have a string in anyTitle. For example "unopkg gui \" caused anyTitle to be void
+     //and anyTitle.get<OUString> throws as RuntimeException.
+@@ -859,7 +859,8 @@
+         return;
+     }
+ 
+-    rCmdEnv->setWarnUser( bWarnUser );
++    // HST Office: always ask before installing an extension (see installExtensionWarn)
++    rCmdEnv->setWarnUser( true );
+     uno::Reference<deployment::XExtensionManager> xExtMgr = m_rManager.getExtensionManager();
+     uno::Reference< task::XAbortChannel > xAbortChannel( xExtMgr->createAbortChannel() );
+     OUString sTitle(
+@@ -1079,9 +1080,10 @@
+     m_thread->enableExtension( rPackage, bEnable );
+ }
+ 
+-void ExtensionCmdQueue::checkForUpdates( std::vector<uno::Reference<deployment::XPackage > > && vExtensionList )
++void ExtensionCmdQueue::checkForUpdates( std::vector<uno::Reference<deployment::XPackage > > && )
+ {
+-    m_thread->checkForUpdates( std::move(vExtensionList) );
++    // HST Office: extensions are never updated online (the check would contact the servers
++    // named in the extension descriptions). Every caller ends here, so nothing is queued.
+ }
+ 
+ void ExtensionCmdQueue::acceptLicense( const uno::Reference< deployment::XPackage > &rPackage )
+--- a/desktop/source/deployment/gui/dp_gui_extlistbox.cxx
++++ b/desktop/source/deployment/gui/dp_gui_extlistbox.cxx
+@@ -98,6 +98,12 @@
+         beans::StringPair aInfo( m_xPackage->getPublisherInfo() );
+         m_sPublisher = aInfo.First;
+         m_sPublisherURL = aInfo.Second;
++        // HST Office: no publisher link to a repository host or to the upstream extension
++        // site; the publisher name stays as plain text.
++        const OUString sLowerURL(m_sPublisherURL.toAsciiLowerCase());
++        if (sLowerURL.indexOf(u"github") >= 0 || sLowerURL.indexOf(u"libreoffice.org") >= 0
++            || sLowerURL.indexOf(u"documentfoundation.org") >= 0)
++            m_sPublisherURL.clear();
+ 
+         // get the icons for the package if there are any
+         uno::Reference< graphic::XGraphic > xGraphic = xPackage->getIcon( false );
+@@ -489,14 +495,19 @@
+         aPos = rRect.TopLeft() + Point( ICON_OFFSET + nMaxTitleWidth + (2*SPACE_BETWEEN), TOP_OFFSET );
+ 
+         auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::FONT | vcl::PushFlags::TEXTCOLOR | vcl::PushFlags::TEXTFILLCOLOR);
+-        rRenderContext.SetTextColor(rStyleSettings.GetLinkColor());
+-        rRenderContext.SetTextFillColor(rStyleSettings.GetFieldColor());
+-        vcl::Font aFont = rRenderContext.GetFont();
+-        // to underline
+-        aFont.SetUnderline(LINESTYLE_SINGLE);
+-        rRenderContext.SetFont(aFont);
++        const bool bLink = !rEntry->m_sPublisherURL.isEmpty();
++        if (bLink)
++        {
++            rRenderContext.SetTextColor(rStyleSettings.GetLinkColor());
++            rRenderContext.SetTextFillColor(rStyleSettings.GetFieldColor());
++            vcl::Font aFont = rRenderContext.GetFont();
++            // to underline
++            aFont.SetUnderline(LINESTYLE_SINGLE);
++            rRenderContext.SetFont(aFont);
++        }
+         rRenderContext.DrawText(aPos, rEntry->m_sPublisher);
+-        rEntry->m_aLinkRect = tools::Rectangle(aPos, Size(nLinkWidth, aTextHeight));
++        if (bLink)
++            rEntry->m_aLinkRect = tools::Rectangle(aPos, Size(nLinkWidth, aTextHeight));
+     }
+ 
+     // Draw status icons
+--- a/dictionaries/en/description.xml
++++ b/dictionaries/en/description.xml
+@@ -13,6 +13,6 @@
+         <default xlink:href="English.png" />
+     </icon>
+     <publisher>
+-        <name xlink:href="https://extensions.libreoffice.org/extensions/english-dictionaries" lang="en">Marco A.G.Pinto</name>
++        <name lang="en">Marco A.G.Pinto</name>
+     </publisher>
+ </description>
+--- a/officecfg/registry/data/org/openoffice/Office/ExtensionManager.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/ExtensionManager.xcu
+@@ -20,7 +20,7 @@
+ <oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:install="http://openoffice.org/2004/installation" oor:name="ExtensionManager" oor:package="org.openoffice.Office">
+   <node oor:name="ExtensionRepositories">
+     <prop oor:name="WebsiteLink">
+-      <value>https://extensions.libreoffice.org/</value>
++      <value></value>
+     </prop>
+   </node>
+ </oor:component-data>
+--- a/sfx2/source/dialog/AdditionsDialogHelper.cxx
++++ b/sfx2/source/dialog/AdditionsDialogHelper.cxx
+@@ -12,10 +12,11 @@
+ 
+ void AdditionsDialogHelper::RunAdditionsDialog(weld::Window* pParent, const OUString& rAdditionsTag)
+ {
+-    VclAbstractDialogFactory* pFact = VclAbstractDialogFactory::Create();
+-    VclPtr<AbstractAdditionsDialog> pDialog = pFact->CreateAdditionsDialog(pParent, rAdditionsTag);
+-    pDialog->StartExecuteAsync(
+-        [pDialog](sal_Int32 /*nResult*/) -> void { pDialog->disposeOnce(); });
++    // HST Office: the online catalogues of extensions, templates, dictionaries, themes and
++    // palettes are not offered; extensions are installed only from a file the user chooses
++    // (Extension Manager). Callers keep their (hidden) buttons, nothing is opened here.
++    (void)pParent;
++    (void)rAdditionsTag;
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab cinoptions=b1,g0,N-s cinkeys+=0=break: */
+--- a/sfx2/source/doc/templatedlg.cxx
++++ b/sfx2/source/doc/templatedlg.cxx
+@@ -229,7 +229,8 @@
+     mxCBApp->set_active(0);
+     fillFolderComboBox();
+ 
+-    mxActionBar->set_item_visible(MNI_ACTION_EXTENSIONS, true);
++    // HST Office: no online template catalogue
++    mxActionBar->set_item_visible(MNI_ACTION_EXTENSIONS, false);
+     mxActionBar->set_item_visible(MNI_ACTION_IMPORT, true);
+     mxActionBar->set_item_visible(MNI_ACTION_NEW_FOLDER, true);
+ 
+--- a/svx/uiconfig/ui/sidebargallery.ui
++++ b/svx/uiconfig/ui/sidebargallery.ui
+@@ -370,7 +370,7 @@
+                     </child>
+                     <child>
+                       <object class="GtkButton" id="btnMoreGalleries">
+-                        <property name="visible">True</property>
++                        <property name="visible">False</property>
+                         <property name="can-focus">True</property>
+                         <property name="receives-default">True</property>
+                         <property name="tooltip-text" translatable="yes" context="sidebargallery|btnMoreGalleries">Add more galleries via extension</property>

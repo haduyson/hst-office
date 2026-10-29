@@ -3,8 +3,8 @@ HST Office: show LibreOffice / The Document Foundation only where legally requir
 Owner decision (2026-10-29), see docs/LICENSE_AUDIT.md section 3.2.
 - About: no upstream copyright line, no "derived from" line, no Credits link, no
   EXTRA_BUILDID in the Misc line, no link from the build id to the upstream
-  repository. Instead the MPL-2.0 notice and the source code location
-  (https://github.com/haduyson/hst-office), then the HASON TECH contact block.
+  repository. Instead a one-line open-source notice without any URL (the licence document
+  tells how to obtain the source), then the HASON TECH contact block.
 - Help: F1, the Help menu and the Help buttons of dialogs open the single URL in
   Office.Common/Help/HelpRootURL (officecfg Common.xcs; temporary target is the HST
   page on hasontech.vn, replace the value to point at a dedicated guide page). No
@@ -13,10 +13,15 @@ Owner decision (2026-10-29), see docs/LICENSE_AUDIT.md section 3.2.
 - Help menu items (Get Help Online, User Guides, Send Feedback, Get Involved,
   What's New, Hyphenation, Start Center logo): the configured URL is opened as is,
   without LOversion/LOlocale query parameters; Common.xcu points them at HST pages.
+  Send Feedback, Get Involved, What's New and Credits are hidden (hst-remove-donation,
+  hst-about); their handlers do nothing when the configured URL is empty.
 - Tip of the day: tips about donations, the community, certification, portable
-  versions and upstream documentation are removed; links to help.libreoffice.org
-  open the help page above; other upstream topic links are hidden. The extension
-  site stays.
+  versions, upstream documentation and the online extension catalogue are removed; links to help.libreoffice.org
+  open the help page above; other upstream topic links are hidden, including links to
+  the extension site (see hst-extensions.patch).
+- Help > License Information: the dialog text and LICENSE.html start with a Vietnamese and
+  English section saying how to obtain the corresponding source code (contact e-mail, no
+  URL); this is the only place the source-code notice lives.
 - Slide Show settings: the "Download App ..." link to the upstream Impress Remote
   page is hidden.
 - Colour palette list: the "libreoffice" palette is shown as "HST Office" (file name
@@ -26,7 +31,7 @@ License: modified upstream files keep their license (MPL-2.0).
 ---
 --- a/cui/inc/tipoftheday.hrc
 +++ b/cui/inc/tipoftheday.hrc
-@@ -94,7 +94,6 @@
+@@ -94,12 +94,10 @@
       { NC_("RID_CUI_TIPOFTHEDAY", "Insert images and photos into shapes in Draw and Impress. Right-click on a shape, choose Area ▸ Image ▸ Add / Import, and use Options to adjust appearance."), "", "", sdraw},
       { NC_("RID_CUI_TIPOFTHEDAY", "Need to insert the date in a spreadsheet cell? Type %MOD1+; or %SHIFT+%MOD1+; to insert the time."), "", "", scalc},
       { NC_("RID_CUI_TIPOFTHEDAY", "Insert your metadata in your document with Insert ▸ Fields ▸ More Fields… ▸ Document or DocInformation."), "", "", swriter},
@@ -34,7 +39,12 @@ License: modified upstream files keep their license (MPL-2.0).
       { NC_("RID_CUI_TIPOFTHEDAY", "Use %SHIFT+Space to select the current row and %MOD3+Space to select the current column."), "", "", scalc},
       { NC_("RID_CUI_TIPOFTHEDAY", "You can move an object to another layer by holding it until its edges flash, then drag it to the tab of the layer you want to move it to."), "", "", sdraw},
       { NC_("RID_CUI_TIPOFTHEDAY", "Data ▸ Validity allows you to create drop-down lists where the user selects a value instead of typing."), "https://help.libreoffice.org/%PRODUCTVERSION/%LANGUAGENAME/text/scalc/guide/validity.html", "", scalc}, //local help missing
-@@ -134,14 +133,12 @@
+      { NC_("RID_CUI_TIPOFTHEDAY", "Hold down %MOD1 and turn the mouse wheel to change the zoom factor."), "", "", soffice},
+-     { NC_("RID_CUI_TIPOFTHEDAY", "%PRODUCTNAME has great extensions to increase your productivity—check them out."), "https://extensions.libreoffice.org", "", soffice},
+      { NC_("RID_CUI_TIPOFTHEDAY", "Want to count words for just one particular paragraph style? Use Edit ▸ Find and Replace, click Paragraph Styles, select the style in Find, and click Find All. Read the result in the status bar."), "", "", swriter},
+      { NC_("RID_CUI_TIPOFTHEDAY", "Generate fully customized PDF documents with the exact format, image compression, comments, access rights, password, etc., you specify via File ▸ Export as PDF."), "", "", soffice},
+ #if ENABLE_LIBRELOGO
+@@ -134,14 +132,12 @@
       { NC_("RID_CUI_TIPOFTHEDAY", "You can change the look of %PRODUCTNAME via View ▸ User Interface."), "", "", soffice},
       { NC_("RID_CUI_TIPOFTHEDAY", "In %PRODUCTNAME Impress, use Insert ▸ Media ▸ Photo Album to create a slideshow from a series of pictures with the “Photo Album” feature."), "", "", simpress},
       { NC_("RID_CUI_TIPOFTHEDAY", "You can show formulas instead of results with View ▸ Show Formulas (or Tools ▸ Options ▸ %PRODUCTNAME Calc ▸ View ▸ Display ▸ Formulas)."), "", "", scalc},
@@ -49,15 +59,16 @@ License: modified upstream files keep their license (MPL-2.0).
       { NC_("RID_CUI_TIPOFTHEDAY", "Mix portrait and landscape orientations in a Calc spreadsheet by applying different page styles on sheets."), "", "", scalc},
       { NC_("RID_CUI_TIPOFTHEDAY", "Click on the special character icon in the toolbar to get quick access to favorite and recent characters to insert."), "", "", swriter},
       { NC_("RID_CUI_TIPOFTHEDAY", "Choose “Hierarchical View” in the Styles sidebar to see the relation between styles."), "", "", swriter},
-@@ -155,7 +152,6 @@
+@@ -154,8 +150,6 @@
+      { NC_("RID_CUI_TIPOFTHEDAY", "To remove the page number from your table of contents go to Insert ▸ Table of Contents and Index (or right-click and Edit Index to edit a previously inserted index). In the Entries tab delete the page number (#) from Structure line."), "", "", swriter},
       { NC_("RID_CUI_TIPOFTHEDAY", "With the Navigator you can select & move up/down headings and the text below the heading, in the Navigator and in the document."), "", "", swriter},
       { NC_("RID_CUI_TIPOFTHEDAY", "Want to get a math object into Writer quickly? Type your formula, select it, and use Insert ▸ OLE Object ▸ Formula to convert the text."), "", "", swriter},
-      { NC_("RID_CUI_TIPOFTHEDAY", "With %PRODUCTNAME it is very easy to install a new dictionary: they are supplied as extensions."), "https://extensions.libreoffice.org/?q=&Tags[]=50", "", soffice},
+-     { NC_("RID_CUI_TIPOFTHEDAY", "With %PRODUCTNAME it is very easy to install a new dictionary: they are supplied as extensions."), "https://extensions.libreoffice.org/?q=&Tags[]=50", "", soffice},
 -     { NC_("RID_CUI_TIPOFTHEDAY", "%PRODUCTNAME has a portable version which gives you mobility. Even without administrator rights on your computer you can install %PRODUCTNAME Portable to your hard drive too."), "https://www.libreoffice.org/download/portable-versions/", "", soffice},
       { NC_("RID_CUI_TIPOFTHEDAY", "Writer lets you number your footnotes per page, chapter, document: Tools ▸ Footnote/Endnote Settings ▸ Footnotes tab ▸ Counting."), ".uno:FootnoteDialog", "", swriter},
       { NC_("RID_CUI_TIPOFTHEDAY", "Your Writer document does not reopen with the text cursor at the same editing position it was when you saved it? Add First or Last name in Tools ▸ Options ▸ %PRODUCTNAME ▸ User Data ▸ First/last name."), "", "", swriter},
       { NC_("RID_CUI_TIPOFTHEDAY", "Need to do citation? You can use third-party citation managers such as Zotero."), "https://wiki.documentfoundation.org/Referencing_Systems_in_LibreOffice", "", swriter},
-@@ -168,7 +164,6 @@
+@@ -168,7 +162,6 @@
       { NC_("RID_CUI_TIPOFTHEDAY", "Define texts that you often use as AutoText. You will be able to insert them by their name, shortcut or toolbar in any Writer document."), "modules/swriter/ui/autotext/AutoTextDialog", "", swriter}, //https://help.libreoffice.org/%PRODUCTVERSION/%LANGUAGENAME/text/swriter/guide/autotext.html
       { NC_("RID_CUI_TIPOFTHEDAY", "Play music throughout a slideshow by assigning the sound to the first slide transition without clicking the “Apply to All Slides” button."), "", "", simpress},
       { NC_("RID_CUI_TIPOFTHEDAY", "%PRODUCTNAME Calc does not calculate from left to right but respects the order Parentheses – Exponents – Multiplication – Division – Addition – Subtraction."), "", "", scalc},
@@ -65,7 +76,7 @@ License: modified upstream files keep their license (MPL-2.0).
       { NC_("RID_CUI_TIPOFTHEDAY", "Want to remove all <> at once and keep the text inside? Edit ▸ Find and Replace: Search = [<>], Replace = blank and check “Regular expressions” under Other options."), "https://help.libreoffice.org/%PRODUCTVERSION/%LANGUAGENAME/text/shared/01/02100001.html", "", soffice}, //local help missing
       { NC_("RID_CUI_TIPOFTHEDAY", "Need to present a report written with Writer? File ▸ Send ▸ Outline to Presentation automatically creates a slideshow from the outline."), "", "", swriter},
       { NC_("RID_CUI_TIPOFTHEDAY", "Want to manage the presentation of hyperlinks in a spreadsheet? Insert them with the HYPERLINK function."), "https://help.libreoffice.org/%PRODUCTVERSION/%LANGUAGENAME/text/scalc/01/04060109.html", "", scalc}, //local help missing
-@@ -182,7 +177,6 @@
+@@ -182,7 +175,6 @@
       { NC_("RID_CUI_TIPOFTHEDAY", "Your numbers are displayed as ### in your spreadsheet? The column is too narrow to display all digits."), "", "", scalc},
       { NC_("RID_CUI_TIPOFTHEDAY", "Enable massive parallel calculations of formula cells via Tools ▸ Options ▸ %PRODUCTNAME Calc ▸ Calculate ▸ CPU Threading Settings."), "cui/ui/optcalculatepage/OptOpenCLPage", "", scalc}, //https://help.libreoffice.org/%PRODUCTVERSION/%LANGUAGENAME/text/shared/optionen/opencl.html
       { NC_("RID_CUI_TIPOFTHEDAY", "Use the Connector tool from the Drawing toolbar in Draw/Impress to create nice flow charts and optionally copy/paste the object into Writer."), "", "", sdraw},
@@ -73,19 +84,25 @@ License: modified upstream files keep their license (MPL-2.0).
       { NC_("RID_CUI_TIPOFTHEDAY", "You want to add x months to a date? Use =EDATE(date;months)."), "https://help.libreoffice.org/%PRODUCTVERSION/%LANGUAGENAME/text/scalc/01/func_edate.html", "", scalc}, //local help missing
       { NC_("RID_CUI_TIPOFTHEDAY", "To select a contiguous range of cells containing data and bounded by empty row and columns use %MOD1+* (numeric key pad)."), "", "", scalc},
       { NC_("RID_CUI_TIPOFTHEDAY", "Your date acceptance pattern is inappropriate? Use Tools ▸ Options ▸ Languages and Locales ▸ General ▸ Date acceptance patterns to tweak the pattern."), "", "", soffice},
+@@ -251,7 +243,6 @@
+      { NC_("RID_CUI_TIPOFTHEDAY", "Want to find the words in bold in a Writer document? Edit ▸ Find and Replace ▸ Other options ▸ Attributes ▸ Font weight."), "https://help.libreoffice.org/%PRODUCTVERSION/%LANGUAGENAME/text/swriter/guide/finding.html", "", swriter}, //local help missing
+      { NC_("RID_CUI_TIPOFTHEDAY", "You can sort paragraphs or table rows alphabetically or numerically per Tools ▸ Sort."), "modules/swriter/ui/sortdialog/SortDialog", "", swriter}, //https://help.libreoffice.org/%PRODUCTVERSION/%LANGUAGENAME/text/swriter/01/06100000.html
+      { NC_("RID_CUI_TIPOFTHEDAY", "To insert a paragraph before (after) a section, press %MOD2+Enter at the beginning (end) of the section."), "", "", swriter},
+-     { NC_("RID_CUI_TIPOFTHEDAY", "%PRODUCTNAME has a template center to create good looking documents—check it out."), "https://extensions.libreoffice.org/?q=&Tags[]=118", "", soffice},
+      { NC_("RID_CUI_TIPOFTHEDAY", "Calculate loan repayments with Calc: eg. PMT(2%/12;36;2500) interest rate per payment period 2%/12, 36 months, loan amount 2500."), "https://help.libreoffice.org/%PRODUCTVERSION/%LANGUAGENAME/text/scalc/01/04060119.html?DbPAR=CALC#bm_id3149577", "", scalc}, //local help missing
+      { NC_("RID_CUI_TIPOFTHEDAY", "Cannot find what you want with the VLOOKUP function in Calc? With INDEX and MATCH you can do anything!"), "https://help.libreoffice.org/%PRODUCTVERSION/%LANGUAGENAME/text/scalc/01/04060109.html", "", scalc}, //local help missing
+      { NC_("RID_CUI_TIPOFTHEDAY", "Want to show hidden column A? Click a cell in column B, press the left mouse button, move the mouse to the left, release. Then switch it on via Format ▸ Columns ▸ Show."), "", "", scalc},
 --- a/cui/source/dialogs/tipofthedaydlg.cxx
 +++ b/cui/source/dialogs/tipofthedaydlg.cxx
-@@ -220,6 +220,23 @@
+@@ -220,6 +220,21 @@
              }
          }
      }
 +    else if (sLink.startsWith("http")
-+             && (sLink.indexOf("libreoffice.org") >= 0 || sLink.indexOf("documentfoundation.org") >= 0)
-+             && !sLink.startsWith("https://extensions.libreoffice.org"))
++             && (sLink.indexOf("libreoffice.org") >= 0 || sLink.indexOf("documentfoundation.org") >= 0))
 +    {
-+        // HST Office: topic links on upstream sites are not shown. Help pages open the
-+        // single configured online help page; the extension site is the only upstream
-+        // link kept.
++        // HST Office: topic links on upstream sites are not shown (that includes the
++        // extension site). Help pages open the single configured online help page.
 +        if (sLink.startsWith("https://help.libreoffice.org"))
 +        {
 +            m_pLink->set_uri(officecfg::Office::Common::Help::HelpRootURL::get());
@@ -138,7 +155,34 @@ License: modified upstream files keep their license (MPL-2.0).
          <info>
 --- a/sfx2/source/appl/appserv.cxx
 +++ b/sfx2/source/appl/appserv.cxx
-@@ -618,11 +618,8 @@
+@@ -62,6 +62,7 @@
+ #include <comphelper/diagnose_ex.hxx>
+ #include <vcl/weld/DialogController.hxx>
+ #include <vcl/weld/MessageDialog.hxx>
++#include <vcl/weld/Label.hxx>
+ #include <svl/intitem.hxx>
+ #include <svl/eitem.hxx>
+ #include <svl/stritem.hxx>
+@@ -310,6 +311,18 @@
+         LicenseDialog(weld::Window* pParent)
+             : GenericDialogController(pParent, u"sfx/ui/licensedialog.ui"_ustr,  u"LicenseDialog"_ustr)
+         {
++            // HST Office: how to obtain the source code (MPL-2.0 s3.2), Vietnamese and English
++            // in every UI language; the same section opens LICENSE.html.
++            std::unique_ptr<weld::Label> xLabel(m_xBuilder->weld_label(u"label"_ustr));
++            xLabel->set_label(
++                u"HST Office l\u00E0 ph\u1EA7n m\u1EC1m ngu\u1ED3n m\u1EDF; m\u1ED9t ph\u1EA7n m\u00E3 theo Mozilla Public License 2.0"
++                u" v\u00E0 c\u00E1c gi\u1EA5y ph\u00E9p k\u00E8m theo d\u01B0\u1EDBi \u0111\u00E2y. \u0110\u1EC3 nh\u1EADn b\u1EA3n sao m\u00E3"
++                u" ngu\u1ED3n t\u01B0\u01A1ng \u1EE9ng c\u1EE7a b\u1EA3n ph\u00E1t h\u00E0nh n\u00E0y, li\u00EAn h\u1EC7 HASON TECH:"
++                u" lienhe@hasontech.vn.\n\n"
++                u"HST Office is open-source software; part of its code is under the Mozilla Public License 2.0"
++                u" and the licences below. To obtain a copy of the source code corresponding to this"
++                u" release, contact HASON TECH: lienhe@hasontech.vn.\n\n"
++                + xLabel->get_label());
+         }
+ 
+         virtual short run() override
+@@ -618,12 +631,11 @@
  
          case SID_SEND_FEEDBACK:
          {
@@ -147,12 +191,16 @@ License: modified upstream files keep their license (MPL-2.0).
 -                "?LOversion=" + utl::ConfigManager::getAboutBoxProductVersion() +
 -                "&LOlocale=" + utl::ConfigManager::getUILocale() +
 -                "&LOmodule=" + module.subView(module.lastIndexOf('.') + 1 )  );
+-            sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
 +            // HST Office: the configured URL is opened as is (no engine version/locale query)
 +            OUString sURL(officecfg::Office::Common::Menus::SendFeedbackURL::get());
-             sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
++            // HST Office: these items are hidden and their URL is empty; never open an empty URL
++            if (!sURL.isEmpty())
++                sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
              break;
          }
-@@ -632,16 +629,14 @@
+ 
+@@ -632,16 +644,14 @@
              // Askbot has URL's normalized to languages, not locales
              // Get language from locale: ll or lll or ll-CC or lll-CC
  
@@ -171,14 +219,17 @@ License: modified upstream files keep their license (MPL-2.0).
              sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
              break;
          }
-@@ -649,27 +644,20 @@
+@@ -649,42 +659,40 @@
          case SID_GETINVOLVED:
          {
              // Open get involved/join us page based on locales
 -            OUString sURL(officecfg::Office::Common::Menus::GetInvolvedURL::get() + //https://hub.libreoffice.org/joinus/
 -                "?LOlocale=" + utl::ConfigManager::getUILocale());
+-            sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
 +            OUString sURL(officecfg::Office::Common::Menus::GetInvolvedURL::get());
-             sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
++            // HST Office: these items are hidden and their URL is empty; never open an empty URL
++            if (!sURL.isEmpty())
++                sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
              break;
          }
          case SID_DONATION:
@@ -198,11 +249,23 @@ License: modified upstream files keep their license (MPL-2.0).
 -            OUString sURL(officecfg::Office::Common::Menus::ReleaseNotesURL::get() + //https://hub.libreoffice.org/ReleaseNotes/
 -                "?LOvers=" + utl::ConfigManager::getProductVersion() +
 -                "&LOlocale=" + LanguageTag(utl::ConfigManager::getUILocale()).getBcp47() );
+-            sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
 +            OUString sURL(officecfg::Office::Common::Menus::ReleaseNotesURL::get());
-             sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
++            // HST Office: these items are hidden and their URL is empty; never open an empty URL
++            if (!sURL.isEmpty())
++                sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
              break;
          }
-@@ -683,8 +671,7 @@
+         case SID_CREDITS:
+         {
+             OUString sURL(officecfg::Office::Common::Menus::CreditsURL::get());
+-            sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
++            // HST Office: these items are hidden and their URL is empty; never open an empty URL
++            if (!sURL.isEmpty())
++                sfx2::openUriExternally(sURL, false, rReq.GetFrameWeld());
+             break;
+         }
+         break;
          case SID_HYPHENATIONMISSING:
          {
              // Open wiki page about hyphenation
@@ -266,3 +329,17 @@ License: modified upstream files keep their license (MPL-2.0).
                          <property name="can-focus">True</property>
                          <property name="receives-default">True</property>
                          <property name="tooltip-text" translatable="yes" context="presentationdialog|learnmore|tooltip_text">Download LibreOffice Impress Remote to remotely control the presentation from your smartphone or smartwatch.</property>
+--- a/readlicense_oo/license/license.xml
++++ b/readlicense_oo/license/license.xml
+@@ -7,6 +7,11 @@
+ </head>
+ <body>
+     <h1 style="text-align: center;">Licensing and Legal information</h1>
++    <h2>HST Office</h2>
++    <p>HST Office là phần mềm nguồn mở; một phần mã theo Mozilla Public License 2.0 và các giấy phép kèm theo dưới đây.
++    Để nhận bản sao mã nguồn tương ứng của bản phát hành này, liên hệ HASON TECH: lienhe@hasontech.vn.</p>
++    <p>HST Office is open-source software; part of its code is under the Mozilla Public License 2.0 and the licences
++    below. To obtain a copy of the source code corresponding to this release, contact HASON TECH: lienhe@hasontech.vn.</p>
+     <p>This product is made available subject to the terms of the Mozilla Public License, v. 2.0. A copy of the MPL
+     Version 2 license can be found below.</p>
+     <p><a href="#a__MPL_version_2">Jump to MPL Version 2</a></p>

@@ -1,10 +1,11 @@
 HST Office About dialog: publisher contact, website, open-source notice.
 
 - Removes the upstream "%PRODUCTNAME is derived from LibreOffice..." statement and
-  the LibreOffice contributors copyright line, the Credits link, EXTRA_BUILDID in
-  the Misc line and the build id link to the upstream repository (the build id
-  stays in "Copy version info"). Adds the MPL-2.0 notice and the source code
-  location (https://github.com/haduyson/hst-office); see hst-debrand.patch.
+  the LibreOffice contributors copyright line, the Credits and Release Notes links,
+  EXTRA_BUILDID in the Misc line and the build id link to the upstream repository
+  (the build id stays in "Copy version info"). Adds a one-line open-source notice
+  without any URL pointing to Help > License Information, where the licence document
+  tells how to obtain the source; see hst-debrand.patch.
 - Adds the publisher contact block (HASON TECH name, address, phone, e-mail,
   website), the same text in every UI language.
 - Website button: Help/StartCenter/InfoURL now https://hasontech.vn/ (was a
@@ -58,12 +59,13 @@ License: modified upstream files keep their license (MPL-2.0).
 +                  + "?utm_source=hst-office&utm_medium=about&utm_campaign=hst-office-1-0");
      m_pWebsiteButton->set_uri(sURL);
  
-     // See also SID_WHATSNEW in sfx2/source/appl/appserv.cxx
+-    // See also SID_WHATSNEW in sfx2/source/appl/appserv.cxx
 -    sURL = officecfg::Office::Common::Menus::ReleaseNotesURL::get()
 -           + "?LOvers=" + utl::ConfigManager::getProductVersion()
 -           + "&LOlocale=" + LanguageTag(utl::ConfigManager::getUILocale()).getBcp47();
 -    m_pReleaseNotesButton->set_uri(sURL);
-+    m_pReleaseNotesButton->set_uri(officecfg::Office::Common::Menus::ReleaseNotesURL::get());
++    // HST Office: no Release Notes link (it would lead to a website outside the product).
++    m_pReleaseNotesButton->hide();
  
      // Handler
      m_pCopyButton->connect_clicked(LINK(this, AboutDialog, HandleClick));
@@ -82,7 +84,7 @@ License: modified upstream files keep their license (MPL-2.0).
      OUString aCalcMode; // Calc calculation mode
  
  #if HAVE_FEATURE_OPENCL
-@@ -248,12 +230,18 @@
+@@ -248,12 +230,17 @@
  OUString AboutDialog::GetCopyrightString()
  {
      OUString sVendorTextStr(CuiResId(RID_CUISTR_ABOUT_VENDOR));
@@ -93,11 +95,10 @@ License: modified upstream files keep their license (MPL-2.0).
 -        aCopyrightString += CuiResId(RID_CUISTR_ABOUT_BASED_ON);
 -    else
 -        aCopyrightString += CuiResId(RID_CUISTR_ABOUT_DERIVED);
-+    // HST Office: open-source notice (MPL-2.0 s3.2: how to obtain the source), same text
-+    // in every UI language. Third-party and upstream notices are in the licence dialog.
-+    aCopyrightString += u"Ph\u1EA7n m\u1EC1m ngu\u1ED3n m\u1EDF theo Mozilla Public License 2.0 v\u00E0 c\u00E1c gi\u1EA5y ph\u00E9p k\u00E8m theo"
-+                        u" (Tr\u1EE3 gi\u00FAp \u2192 Th\u00F4ng tin gi\u1EA5y ph\u00E9p)."
-+                        u"\nM\u00E3 ngu\u1ED3n: https://github.com/haduyson/hst-office"_ustr;
++    // HST Office: short open-source notice, same text in every UI language, without any
++    // URL. How to obtain the source (MPL-2.0 s3.2) and the upstream and third-party
++    // notices are in the licence document (Help > License Information).
++    aCopyrightString += u"Ph\u1EA7n m\u1EC1m ngu\u1ED3n m\u1EDF \u2014 xem Tr\u1EE3 gi\u00FAp \u2192 Th\u00F4ng tin gi\u1EA5y ph\u00E9p."_ustr;
 +
 +    // HST Office: publisher contact (same text in every UI language).
 +    aCopyrightString += u"\n\nC\u00F4ng ty TNHH C\u00F4ng ngh\u1EC7 H\u00E0 S\u01A1n (HASON TECH)"

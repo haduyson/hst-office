@@ -72,5 +72,5 @@ Module [start_center_banner.py](../scripts/brand/start_center_banner.py) đượ
 ## Phạm vi sử dụng
 
 - Dùng cho splash/About/Start Center, icon ứng dụng, launcher, mẫu tài liệu (khi phù hợp), tài liệu và README của HST Office (engine LibreOffice).
-- About chỉ nêu giấy phép nguồn mở (MPL-2.0) và vị trí mã nguồn, không nêu tên/bản quyền LibreOffice (tên chỉ nằm trong văn bản pháp lý: Trợ giúp → Thông tin giấy phép; xem [LICENSE_AUDIT](LICENSE_AUDIT.md) §3); không dùng logo TDF/LibreOffice hay ONLYOFFICE trong asset HST.
+- About chỉ có một câu "Phần mềm nguồn mở — xem Trợ giúp → Thông tin giấy phép." (không URL nào trỏ tới kho mã/GitHub/kho extension: kho có thể đổi chỗ; cách nhận mã nguồn nằm ở đầu tài liệu giấy phép, liên hệ lienhe@hasontech.vn), không nêu tên/bản quyền LibreOffice (tên chỉ nằm trong văn bản pháp lý: Trợ giúp → Thông tin giấy phép; xem [LICENSE_AUDIT](LICENSE_AUDIT.md) §3); không dùng logo TDF/LibreOffice hay ONLYOFFICE trong asset HST.
 - Giấy phép AGPL của mã nguồn **không** cấp quyền dùng thương hiệu HASON TECH.

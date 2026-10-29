@@ -31,6 +31,13 @@ EXPECTED = {
     "org.openoffice.Office.Common/Help/HelpRootURL":
         "https://hasontech.vn/?utm_source=hst-office&utm_medium=help&utm_campaign=hst-office-1-0",
     "org.openoffice.Office.Common/Help/BuiltInHelpNotInstalledPopUp": False,
+    # Hidden items and online catalogues: no URL (and no repository or extension-site URL) ships.
+    "org.openoffice.Office.Common/Menus/SendFeedbackURL": "",
+    "org.openoffice.Office.Common/Menus/GetInvolvedURL": "",
+    "org.openoffice.Office.Common/Menus/ReleaseNotesURL": "",
+    "org.openoffice.Office.Common/Menus/CreditsURL": "",
+    "org.openoffice.Office.Common/Menus/ExtensionsURL": "",
+    "org.openoffice.Office.ExtensionManager/ExtensionRepositories/WebsiteLink": "",
 }
 
 
