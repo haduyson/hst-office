@@ -27,6 +27,10 @@ export HOME="$WORK/home"; mkdir -p "$HOME"
 # The job starts from Git Bash, whose MSYSTEM/MSYS* variables leak into Cygwin.
 # gbuild reads a non-empty MSYSTEM as "WSL helper build" and maps every path
 # through wslpath, which breaks all source paths on a Cygwin build.
+# Symlinks created by Cygwin tools (tar, ln) default to Cygwin-only reparse files that
+# native compilers cannot open ("The file cannot be accessed by the system"); make them
+# real Windows symlinks (the runner account may create them).
+export CYGWIN="${CYGWIN:+$CYGWIN }winsymlinks:nativestrict"
 unset MSYSTEM MSYSTEM_PREFIX MSYSTEM_CHOST MSYSTEM_CARCH MINGW_PREFIX MINGW_CHOST MINGW_PACKAGE_PREFIX MSYS2_ARG_CONV_EXCL
 
 phase() { # phase <name> <command...>: run, time and record in phases.jsonl; propagate failure
@@ -152,6 +156,11 @@ do_build() {
   done
   wait "$pid" || rc=$?
   sample
+  if [ "$rc" -ne 0 ] && [ "$BUDGET_STOPPED" -eq 0 ]; then
+    # Diagnostics for native-tool file access failures: Cygwin symlinks in the build tree.
+    echo "== symlinks under workdir/UnpackedTarball (first 40)" >> "$LOGS/build.log"
+    find "$SRC/workdir/UnpackedTarball" -type l 2>/dev/null | head -40 >> "$LOGS/build.log" || true
+  fi
   if [ "$BUDGET_STOPPED" -eq 1 ]; then return 0; fi
   return "$rc"
 }
