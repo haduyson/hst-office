@@ -41,7 +41,7 @@ def collect(done_dir):
             continue
         with open(os.path.join(OVERLAY, name), "w", encoding="utf-8") as handle:
             for row in rows:
-                keep = {k: row[k] for k in ("file", "msgctxt", "msgid", "msgstr")}
+                keep = {k: row[k] for k in ("file", "msgctxt", "msgid", "msgid_plural", "msgstr") if k in row}
                 handle.write(json.dumps(keep, ensure_ascii=False) + "\n")
         print(f"{name}: {len(rows)} rows collected")
     return 1 if failures else 0

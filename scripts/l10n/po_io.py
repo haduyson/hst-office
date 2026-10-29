@@ -1,14 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Minimal gettext .po reader/writer helpers for the LibreOffice translations tree.
 
-LibreOffice UI .po files key entries by msgctxt + msgid, have no plural forms
-and carry "#." extracted comments describing the context. Strings are kept in
+LibreOffice UI .po files key entries by msgctxt + msgid and carry "#." extracted
+comments describing the context. A few entries are plural (msgid_plural +
+msgstr[N]); Vietnamese has nplurals=1, so msgstr[0] is their only translation. Strings are kept in
 their escaped .po form (e.g. "\\n", '\\"') so they round-trip byte-exactly.
 """
 import re
 
 _STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
-_FIELD = ("msgctxt ", "msgid ", "msgstr ")
+_FIELD = ("msgctxt ", "msgid ", "msgid_plural ", "msgstr ", "msgstr[0] ")
 
 
 def _unquote(lines):
@@ -22,8 +23,8 @@ def parse_block(block):
         if line.startswith("#."):
             comments.append(line[2:].strip())
         elif line.startswith(_FIELD):
-            field = line.split(" ", 1)[0]
-            values[field].append(line)
+            field = line.split(" ", 1)[0].replace("[0]", "")
+            values.setdefault(field, []).append(line)
         elif line.startswith('"') and field:
             values[field].append(line)
     if not values["msgid"]:
@@ -60,10 +61,22 @@ def fill_po(path, translations, overwrite=False):
         key = (entry["msgctxt"], entry["msgid"])
         if key not in translations or (entry["msgstr"] and not overwrite):
             continue
-        head = re.split(r"\nmsgstr ", block, maxsplit=1)[0]
         tail = "\n" if block.endswith("\n") else ""
-        blocks[index] = head + '\nmsgstr "' + translations[key] + '"' + tail
+        if "\nmsgid_plural " in block:
+            # vi has nplurals=1: msgstr[0] is the only form, so drop the
+            # template's extra empty msgstr[1..] that msgfmt would reject.
+            head = re.split(r"\nmsgstr\[0\] ", block, maxsplit=1)[0]
+            blocks[index] = head + '\nmsgstr[0] "' + translations[key] + '"' + tail
+        else:
+            head = re.split(r"\nmsgstr ", block, maxsplit=1)[0]
+            blocks[index] = head + '\nmsgstr "' + translations[key] + '"' + tail
         filled += 1
+    plural = any("\nmsgid_plural " in block for block in blocks)
+    if filled and plural and "Plural-Forms:" not in blocks[0]:
+        # Untranslated upstream templates ship without Plural-Forms; msgfmt then
+        # rejects msgstr[0]. Declare the single Vietnamese form.
+        blocks[0] = blocks[0].rstrip("\n") + '\n"Plural-Forms: nplurals=1; plural=0;\\n"' + (
+            "\n" if blocks[0].endswith("\n") else "")
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n\n".join(blocks))
     return filled

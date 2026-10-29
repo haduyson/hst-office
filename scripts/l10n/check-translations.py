@@ -29,9 +29,11 @@ def accelerators(text):
 
 def check_row(row):
     errors, warnings = [], []
-    src, dst = row.get("msgid", ""), row.get("msgstr", "")
+    # Plural entries: the single vi form (nplurals=1) must match the plural source.
+    src, dst = row.get("msgid_plural") or row.get("msgid", ""), row.get("msgstr", "")
     if not dst.strip():
-        return ["empty msgstr"], []
+        # A whitespace-only label (e.g. msgid " ") is translated by itself.
+        return ([] if (not src.strip() and dst == src) else ["empty msgstr"]), []
     if tokens(src) != tokens(dst):
         errors.append(f"placeholders {tokens(src)} != {tokens(dst)}")
     if accelerators(src) != accelerators(dst) and accelerators(src) <= 1:
