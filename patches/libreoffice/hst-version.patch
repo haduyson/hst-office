@@ -1,0 +1,153 @@
+HST Office release version (1.0.0) independent of the LibreOffice engine version.
+
+The engine version (26.8.1.1) stays what configure/postprocess define: it feeds
+extension compatibility checks, document generator metadata, first-run detection
+and the PDF producer. Only what the user sees and what is installed carries the
+HST version, which comes from /VERSION via scripts/write-hst-version.py:
+
+- include/hst_version.h (generated, not part of this patch) defines HST_VERSION.
+- About dialog: "<HST version> (<arch>)"; "Copy version info" adds an "Engine:"
+  line with the LibreOffice engine version (read at run time) for support tickets.
+- soffice --version: "<product> <HST version> <build id>".
+- Installer and launcher naming use the same HST version (hst-packaging*.patch).
+- Bundled extension "HST Vietnamese tools": built from the HST repository by
+  dictionaries/ExtensionPackage_hst-vietnamese-tools.mk, unpacked into
+  share/extensions and listed for the brand package in scp2.
+
+License: modified upstream files keep their license (MPL-2.0).
+---
+--- a/cui/source/dialogs/about.cxx
++++ b/cui/source/dialogs/about.cxx
+@@ -35,6 +35,7 @@
+ #include <unotools/resmgr.hxx> //Translate
+ 
+ #include <config_buildid.h> //EXTRA_BUILDID
++#include <hst_version.h> //HST_VERSION (generated from /VERSION)
+ #include <config_features.h>
+ #include <dialmgr.hxx> //CuiResId
+ #include <i18nlangtag/languagetag.hxx>
+@@ -152,14 +153,21 @@
+                        [](auto& rSymbol) { return std::isxdigit(rSymbol); });
+ }
+ 
++// Engine (LibreOffice) version, kept for support tickets.
++static OUString GetEngineVersion()
++{
++    return CuiResId(TranslateId(nullptr, "%ABOUTBOXPRODUCTVERSION%ABOUTBOXPRODUCTVERSIONSUFFIX"));
++}
++
+ OUString AboutDialog::GetVersionString()
+ {
+     OUString arch;
+     auto const ok = rtl::Bootstrap::get(u"_ARCH"_ustr, arch);
+     assert(ok);
+     (void)ok;
+-    return CuiResId(TranslateId(nullptr, "%ABOUTBOXPRODUCTVERSION%ABOUTBOXPRODUCTVERSIONSUFFIX"))
+-           + " (" + arch + ")";
++    // HST Office: show the HST release version; the LibreOffice engine version is
++    // internal and only added to "Copy version info" (see HandleClick).
++    return u"" HST_VERSION " (" + arch + u")";
+ }
+ 
+ OUString AboutDialog::GetBuildString()
+@@ -273,6 +281,7 @@
+         = m_pVersionLabel->get_clipboard();
+ 
+     OUString sInfo = "Version: " + m_pVersionLabel->get_label()
++                     + "\nEngine: " + GetEngineVersion()
+                      + "\n" // version
+                        "Build ID: "
+                      + GetBuildString() + "\n" + // build id
+--- a/desktop/source/app/cmdlinehelp.cxx
++++ b/desktop/source/app/cmdlinehelp.cxx
+@@ -23,6 +23,7 @@
+ #include <app.hxx>
+ 
+ #include "cmdlinehelp.hxx"
++#include <hst_version.h> // HST_VERSION (generated from /VERSION)
+ 
+ #ifdef _WIN32
+ #if !defined WIN32_LEAN_AND_MEAN
+@@ -36,7 +37,7 @@
+ namespace desktop
+ {
+     constexpr OUString aCmdLineHelp_version =
+-        u"%PRODUCTNAME %PRODUCTVERSION%PRODUCTEXTENSION %BUILDID\n"
++        u"%PRODUCTNAME " HST_VERSION " %BUILDID\n"
+         "\n"_ustr;
+     constexpr OUStringLiteral aCmdLineHelp =
+         u"Usage: %CMDNAME [argument...]\n"
+--- a/scp2/source/ooo/common_brand.scp
++++ b/scp2/source/ooo/common_brand.scp
+@@ -32,6 +32,15 @@
+ #include "config_dconf.h"
+ #include "config_folders.h"
+ 
++// HST Office: bundled extension (unpacked under share/extensions, see
++// dictionaries/ExtensionPackage_hst-vietnamese-tools.mk).
++File gid_Brand_File_Extension_HstVietnameseTools
++    TXT_FILE_BODY;
++    Styles = (PACKED, FILELIST);
++    Dir = FILELIST_DIR;
++    Name = "hst-vietnamese-tools.filelist";
++End
++
+ Module gid_Module_Root_Brand
+     ParentID = gid_Module_Root;
+     InstallOrder = "150";
+@@ -61,7 +70,8 @@
+              gid_Brand_File_Share_Xdg_QStart,
+              gid_Brand_File_Share_Xdg_StartCenter,
+              gid_Brand_File_Share_Xdg_Writer,
+-             gid_Brand_File_Share_Xdg_XsltFilter);
++             gid_Brand_File_Share_Xdg_XsltFilter,
++             gid_Brand_File_Extension_HstVietnameseTools);
+ End
+ 
+ // Language specific brand module
+--- a/dictionaries/Module_dictionaries.mk
++++ b/dictionaries/Module_dictionaries.mk
+@@ -14,6 +14,7 @@
+ 	Configuration_hu \
+ 	Configuration_pt_BR \
+ 	Configuration_ru \
++	ExtensionPackage_hst-vietnamese-tools \
+ ))
+ 
+ $(eval $(call gb_Module_add_l10n_targets,dictionaries,\
+--- /dev/null
++++ b/dictionaries/ExtensionPackage_hst-vietnamese-tools.mk
+@@ -0,0 +1,33 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# This file is part of the LibreOffice project.
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++
++# HST Office: bundled extension "HST Vietnamese tools" (ND30 wizard, TCVN3/VNI converter,
++# welcome dialog, HASON TECH menu). The .oxt is built from the HST Office repository
++# (scripts/build-extensions.py; the repository root is two levels above the source tree,
++# like the other HST build inputs), unpacked into instdir/share/extensions/ and listed in
++# workdir/ExtensionPackage/hst-vietnamese-tools.filelist for the installer. Extensions
++# under share/extensions are registered for every user on first start (bundled layer).
++
++hst_ext_REPO := $(abspath $(SRCDIR)/../..)
++hst_ext_OXT := $(WORKDIR)/CustomTarget/dictionaries/hst-vietnamese-tools.oxt
++
++$(hst_ext_OXT) : $(shell find $(hst_ext_REPO)/extensions/hst-vietnamese-tools \
++		$(hst_ext_REPO)/data/vietnamese $(hst_ext_REPO)/data/hst -type f 2>/dev/null) \
++		$(hst_ext_REPO)/scripts/build-extensions.py $(hst_ext_REPO)/LICENSE
++	$(call gb_Output_announce,hst-vietnamese-tools.oxt,$(true),OXT,3)
++	mkdir -p $(dir $@) \
++		&& python3 $(hst_ext_REPO)/scripts/build-extensions.py --output $(dir $@) >/dev/null
++
++# Not gb_ExtensionPackage_ExtensionPackage: that macro also declares a recipe for the
++# .oxt (touching a prebuilt file), which would replace the build rule above.
++$(eval $(call gb_ExtensionPackage_ExtensionPackage_internal,hst-vietnamese-tools,$(hst_ext_OXT)))
++$(eval $(call gb_Module_register_target,$(call gb_ExtensionPackage_get_target,hst-vietnamese-tools),$(call gb_ExtensionPackage_get_clean_target,hst-vietnamese-tools)))
++$(eval $(call gb_Helper_make_userfriendly_targets,hst-vietnamese-tools,ExtensionPackage))
++
++# vim: set noet sw=4 ts=4:

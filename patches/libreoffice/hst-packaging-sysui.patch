@@ -6,7 +6,7 @@ installer aborts with "Source for hst_office-desktop-integration.tar.gz not
 found" (scp2 module_systemint.scp derives the name as lc(PRODUCTNAME), spaces
 -> "_"). Changes:
  - productlist.mk/Package_share.mk: product id hst_office, UNIXFILENAME
-   hst-office26.8, launcher text prefix "HST", HST icon dir.
+   hst-office<MAJOR>.<MINOR>, launcher text prefix "HST", HST icon dir.
  - CustomTarget_share.mk: quote -p arguments (product name contains a space);
    pass the HST icon dir to create_tree.sh.
  - CustomTarget_deb.mk: Debian package name uses DEBNAME (no "_"); symlinks go to /usr/bin.
@@ -19,25 +19,37 @@ found" (scp2 module_systemint.scp derives the name as lc(PRODUCTNAME), spaces
  - debian/control: Maintainer HASON TECH. debian/postinst,prerm: do not rewrite
    /etc/mime.types or /etc/mailcap (upstream deletes other applications' entries).
 
+The HST release version comes from the HST_VERSION_MAJOR/MINOR/MICRO environment
+variables set by scripts/build-linux.sh (productlist.mk fails when they are unset);
+PKGREVISION replaces the LibreOffice patch level in the Debian menu package version.
+
 License: modified upstream files keep their license (MPL-2.0).
 ---
 --- a/sysui/productlist.mk
 +++ b/sysui/productlist.mk
-@@ -7,12 +7,20 @@
+@@ -7,12 +7,26 @@
  # file, You can obtain one at http://mozilla.org/MPL/2.0/.
  #
  
 -PRODUCTLIST := libreoffice libreofficedev
-+# HST Office: product id "hst_office" must equal lc(PRODUCTNAME with spaces -> _) because
-+# the installer (scp2 module_systemint.scp) asks for <that>-desktop-integration.tar.gz.
-+# The LibreOffice products are dropped so no LibreOffice-named integration is built.
-+PRODUCTLIST := hst_office
- PKGVERSION := $(LIBO_VERSION_MAJOR).$(LIBO_VERSION_MINOR).$(LIBO_VERSION_MICRO)
- PKGVERSIONSHORT := $(LIBO_VERSION_MAJOR).$(LIBO_VERSION_MINOR)
+-PKGVERSION := $(LIBO_VERSION_MAJOR).$(LIBO_VERSION_MINOR).$(LIBO_VERSION_MICRO)
+-PKGVERSIONSHORT := $(LIBO_VERSION_MAJOR).$(LIBO_VERSION_MINOR)
 -PRODUCTNAME.libreoffice := LibreOffice
 -PRODUCTNAME.libreofficedev := LibreOfficeDev
 -UNIXFILENAME.libreoffice := libreoffice$(PKGVERSIONSHORT)
 -UNIXFILENAME.libreofficedev := libreofficedev$(PKGVERSIONSHORT)
++# HST Office: product id "hst_office" must equal lc(PRODUCTNAME with spaces -> _) because
++# the installer (scp2 module_systemint.scp) asks for <that>-desktop-integration.tar.gz.
++# The LibreOffice products are dropped so no LibreOffice-named integration is built.
++PRODUCTLIST := hst_office
++# The HST Office release version (from /VERSION) is exported by scripts/build-linux.sh;
++# it is independent of the LibreOffice engine version.
++ifeq ($(HST_VERSION_MAJOR)$(HST_VERSION_MINOR)$(HST_VERSION_MICRO),)
++$(error HST_VERSION_MAJOR/MINOR/MICRO are not set: build through scripts/build-linux.sh)
++endif
++PKGVERSION := $(HST_VERSION_MAJOR).$(HST_VERSION_MINOR).$(HST_VERSION_MICRO)
++PKGVERSIONSHORT := $(HST_VERSION_MAJOR).$(HST_VERSION_MINOR)
++PKGREVISION := 1
 +PRODUCTNAME.hst_office := HST Office
 +UNIXFILENAME.hst_office := hst-office$(PKGVERSIONSHORT)
 +# Debian package name of the integration package (underscore is invalid there).
@@ -62,14 +74,17 @@ License: modified upstream files keep their license (MPL-2.0).
  	$(addsuffix .desktop,$(LAUNCHERLIST)) \
 --- a/sysui/CustomTarget_share.mk
 +++ b/sysui/CustomTarget_share.mk
-@@ -149,6 +149,7 @@
+@@ -149,8 +149,9 @@
  	echo "PREFIX=$(UNIXFILENAME.$*)" >> $@
  	echo "ICON_PREFIX=$(UNIXFILENAME.$*)" >> $@
  	echo "ICON_SOURCE_DIR=$(SRCDIR)/sysui/desktop/icons" >> $@
 +	echo "HST_ICON_DIR='$(HST_ICON_DIR)'" >> $@
  	echo "APPDATA_SOURCE_DIR=$(SRCDIR)/sysui/desktop/appstream-appdata" >> $@
- 	echo "PRODUCTVERSION=$(PRODUCTVERSION)" >> $@
+-	echo "PRODUCTVERSION=$(PRODUCTVERSION)" >> $@
++	echo "PRODUCTVERSION=$(PKGVERSIONSHORT)" >> $@
  	cat $< >> $@
+ 	chmod 774 $@
+ 	$(call gb_Trace_EndRange,$(subst $(WORKDIR)/,,$@),CAT)
 @@ -205,10 +206,10 @@
  	mkdir -p $(dir $@)
  	$(call gb_Output_announce,$(subst $(WORKDIR)/,,$@),$(true),PRL,1)
@@ -79,13 +94,26 @@ License: modified upstream files keep their license (MPL-2.0).
  		$(brand_URIPARAM) \
  		--iconprefix '$${UNIXBASISROOTNAME}-' $(LAUNCHERS) $(share_WORKDIR)/$*
 -	$(call gb_ExternalExecutable_get_command,python) $(share_TRANSLATE) -p $(PRODUCTNAME.$*)$(PRODUCTVERSION) -d $(share_WORKDIR)/$* \
-+	$(call gb_ExternalExecutable_get_command,python) $(share_TRANSLATE) -p '$(PRODUCTNAME.$*)$(PRODUCTVERSION)' -d $(share_WORKDIR)/$* \
++	$(call gb_ExternalExecutable_get_command,python) $(share_TRANSLATE) -p '$(PRODUCTNAME.$*)$(PKGVERSIONSHORT)' -d $(share_WORKDIR)/$* \
  		--ext "desktop" $(share_WORKDIR)/launcher.ulf
  	touch $@
  	$(call gb_Trace_EndRange,$(subst $(WORKDIR)/,,$@),PRL)
 --- a/sysui/CustomTarget_deb.mk
 +++ b/sysui/CustomTarget_deb.mk
-@@ -44,6 +44,7 @@
+@@ -21,10 +21,10 @@
+ 	$(product)/DEBIAN/postinst \
+ 	$(product)/DEBIAN/postrm \
+ 	$(product)/DEBIAN/prerm \
+-	$(product)$(PKGVERSIONSHORT)-debian-menus_$(PKGVERSION)-$(LIBO_VERSION_PATCH)_all.deb) \
++	$(product)$(PKGVERSIONSHORT)-debian-menus_$(PKGVERSION)-$(PKGREVISION)_all.deb) \
+ ))
+ 
+-$(deb_WORKDIR)/%-desktop-integration.tar.gz: $(deb_WORKDIR)/%$(PKGVERSIONSHORT)-debian-menus_$(PKGVERSION)-$(LIBO_VERSION_PATCH)_all.deb
++$(deb_WORKDIR)/%-desktop-integration.tar.gz: $(deb_WORKDIR)/%$(PKGVERSIONSHORT)-debian-menus_$(PKGVERSION)-$(PKGREVISION)_all.deb
+ 	$(FAKEROOT) $(GNUTAR) -C $(deb_WORKDIR) -cf - $(notdir $<) | gzip > $@
+ 
+ $(deb_WORKDIR)/%/DEBIAN/postrm: $(deb_SRCDIR)/postrm
+@@ -44,22 +44,23 @@
  	cd $(gb_CustomTarget_workdir)/sysui/share/$* \
  		&& DESTDIR=$(deb_WORKDIR)/$* \
  		ICON_PREFIX=$(UNIXFILENAME.$*) \
@@ -93,15 +121,27 @@ License: modified upstream files keep their license (MPL-2.0).
  		KDEMAINDIR=/usr \
  		PREFIXDIR=/usr \
  		./create_tree.sh
-@@ -52,7 +53,7 @@
+ 	sed $(deb_SRCDIR)/openoffice.org-debian-menus \
+-		-e 's/%PRODUCTNAME/$(PRODUCTNAME.$*) $(PRODUCTVERSION)/' \
++		-e 's/%PRODUCTNAME/$(PRODUCTNAME.$*) $(PKGVERSIONSHORT)/' \
  		-e 's/%PREFIX/$(UNIXFILENAME.$*)/' \
  		-e 's/%ICONPREFIX/$(UNIXFILENAME.$*)/' \
  		> $(deb_WORKDIR)/$*/usr/lib/menu/$*$(PKGVERSIONSHORT)
 -	echo "Package: $*$(PKGVERSIONSHORT)-debian-menus" >$@
 +	echo "Package: $(DEBNAME.$*)$(PKGVERSIONSHORT)-debian-menus" >$@
  	cat $< | tr -d "\015" | \
- 		sed 's/%productname/$(PRODUCTNAME.$*) $(PRODUCTVERSION)/' \
+-		sed 's/%productname/$(PRODUCTNAME.$*) $(PRODUCTVERSION)/' \
++		sed 's/%productname/$(PRODUCTNAME.$*) $(PKGVERSIONSHORT)/' \
  		>> $@
+-	echo "Version: $(PKGVERSION)-$(LIBO_VERSION_PATCH)" >>$@
++	echo "Version: $(PKGVERSION)-$(PKGREVISION)" >>$@
+ 	du -k -s $(deb_WORKDIR)/$* | $(gb_AWK) -F ' ' '{ printf "Installed-Size: %s\n", $$1 ; }' >>$@
+ 
+-$(deb_WORKDIR)/%$(PKGVERSIONSHORT)-debian-menus_$(PKGVERSION)-$(LIBO_VERSION_PATCH)_all.deb: $(deb_WORKDIR)/%/DEBIAN/postrm $(deb_WORKDIR)/%/DEBIAN/postinst $(deb_WORKDIR)/%/DEBIAN/prerm $(deb_WORKDIR)/%/DEBIAN/control
++$(deb_WORKDIR)/%$(PKGVERSIONSHORT)-debian-menus_$(PKGVERSION)-$(PKGREVISION)_all.deb: $(deb_WORKDIR)/%/DEBIAN/postrm $(deb_WORKDIR)/%/DEBIAN/postinst $(deb_WORKDIR)/%/DEBIAN/prerm $(deb_WORKDIR)/%/DEBIAN/control
+ 
+ 	chmod -R g-w $(deb_WORKDIR)/$*
+ 	chmod a+rx $(deb_WORKDIR)/$*/DEBIAN \
 --- a/sysui/desktop/share/create_tree.sh
 +++ b/sysui/desktop/share/create_tree.sh
 @@ -18,8 +18,15 @@

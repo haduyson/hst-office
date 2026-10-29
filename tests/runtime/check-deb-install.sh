@@ -15,6 +15,7 @@ NAME="hst-deb-qa-$$"
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 ls "$DEBS"/*.deb >/dev/null 2>&1 || { echo "BLOCKED: no .deb files in $DEBS"; exit 2; }
 
+HSTV="$(python3 "$ROOT/scripts/write-hst-version.py" --print | cut -d. -f1,2)"
 cat > "$OUT/inside.sh" <<'INSIDE'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -39,30 +40,36 @@ OWNED="$(dpkg -L $PKGS | sort -u)"
 echo "$OWNED" | grep -qE '^/opt/libreoffice' && { echo "FAIL /opt/libreoffice* owned"; exit 22; } || echo "PASS install-root-hst-only"
 CONF="$(dpkg-query -W -f='${Conflicts}${Replaces}${Provides}\n' $PKGS | tr ',' '\n' | sed 's/ *(.*//;s/^ *//' | grep -E 'libreoffice|libobasis|openoffice' || true)"
 [ -z "$CONF" ] && echo "PASS no-conflicts-with-libreoffice" || { echo "FAIL conflicts/replaces/provides: $CONF"; exit 23; }
-dpkg-query -W -f='${Package} ${Maintainer}\n' hst-office26.8 | sed 's/^/INFO maintainer /'
+dpkg-query -W -f='${Package} ${Maintainer}\n' hst-office@HSTV@ | sed 's/^/INFO maintainer /'
 step desktop
 DESK="$(echo "$OWNED" | grep -E '^/usr/share/applications/.*\.desktop$')"
-ICONS="$(echo "$OWNED" | grep -cE '^/usr/share/icons/hicolor/.*/apps/hst-office26\.8-(writer|calc|impress)\.png$')"
+ICONS="$(echo "$OWNED" | grep -cE '^/usr/share/icons/hicolor/.*/apps/hst-office@HSTV_RE@-(writer|calc|impress)\.png$')"
 echo "INFO desktop-files $(echo "$DESK" | wc -l) app-icon-files $ICONS"
 [ "$ICONS" -ge 9 ] && echo "PASS app-icons-installed" || { echo "FAIL app icons missing ($ICONS)"; exit 24; }
 for want in "Name=HST Writer" "Name=HST Sheets" "Name=HST Slides" "Name=HST Office"; do
   grep -lq "^$want\$" $DESK 2>/dev/null && echo "PASS launcher '$want'" || { echo "FAIL launcher '$want' missing"; exit 25; }
 done
 for w in writer calc impress; do
-  grep -q "^Icon=hst-office26.8-$w\$" /usr/share/applications/hst-office26.8-$w.desktop || { echo "FAIL icon name $w"; exit 26; }
-  cmp -s /usr/share/icons/hicolor/48x48/apps/hst-office26.8-$w.png /usr/share/icons/hicolor/48x48/apps/hst-office26.8-writer.png && [ "$w" != writer ] && { echo "FAIL $w icon identical to writer"; exit 26; }
+  grep -q "^Icon=hst-office@HSTV@-$w\$" /usr/share/applications/hst-office@HSTV@-$w.desktop || { echo "FAIL icon name $w"; exit 26; }
+  cmp -s /usr/share/icons/hicolor/48x48/apps/hst-office@HSTV@-$w.png /usr/share/icons/hicolor/48x48/apps/hst-office@HSTV@-writer.png && [ "$w" != writer ] && { echo "FAIL $w icon identical to writer"; exit 26; }
 done
 echo "PASS icon-names"
-command -v hst-office >/dev/null && command -v hst-office26.8 >/dev/null && echo "PASS commands-on-path ($(command -v hst-office))" || { echo "FAIL hst-office not on PATH"; exit 27; }
-WEXEC="$(sed -n 's/^Exec=//p' /usr/share/applications/hst-office26.8-writer.desktop | head -1)"
+command -v hst-office >/dev/null && command -v hst-office@HSTV@ >/dev/null && echo "PASS commands-on-path ($(command -v hst-office))" || { echo "FAIL hst-office not on PATH"; exit 27; }
+WEXEC="$(sed -n 's/^Exec=//p' /usr/share/applications/hst-office@HSTV@-writer.desktop | head -1)"
 echo "INFO writer-exec $WEXEC"
-case "$WEXEC" in hst-office26.8\ --writer*) echo "PASS writer-exec-name" ;; *) echo "FAIL unexpected Exec $WEXEC"; exit 28 ;; esac
+case "$WEXEC" in hst-office@HSTV@\ --writer*) echo "PASS writer-exec-name" ;; *) echo "FAIL unexpected Exec $WEXEC"; exit 28 ;; esac
 "$BIN" --version | sed -n 's/^\(.\+\)$/INFO version \1/p'
 useradd -m tester
+step bundled-extension
+EXT="/opt/hst-office@HSTV@/share/extensions/hst-vietnamese-tools"
+[ -f "$EXT/description.xml" ] && echo "PASS bundled-extension-files ($EXT/description.xml)" || { echo "FAIL $EXT/description.xml missing"; exit 30; }
+UNOPKG="$(dirname "$BIN")/unopkg"
+BUNDLED="$(su tester -c "$UNOPKG list --bundled 2>&1" || true)"
+grep -q 'Identifier: vn\.hasontech' <<<"$BUNDLED" && echo "PASS unopkg-list-bundled ($(grep -o 'Identifier: vn\.hasontech[^ ]*' <<<"$BUNDLED" | head -1))" || { echo "FAIL unopkg list --bundled:"; echo "$BUNDLED" | tail -8; exit 31; }
 su tester -c "mkdir -p ~/Documents && printf 'Văn bản kiểm thử HST Office\n' > ~/Documents/keep.txt"
 step convert
 # Launch through the PATH command that the .desktop Exec uses (headless equivalent).
-su tester -c "cd ~/Documents && hst-office26.8 --headless --convert-to odt keep.txt >/dev/null 2>&1 && hst-office --headless --convert-to docx keep.odt >/dev/null 2>&1"
+su tester -c "cd ~/Documents && hst-office@HSTV@ --headless --convert-to odt keep.txt >/dev/null 2>&1 && hst-office --headless --convert-to docx keep.odt >/dev/null 2>&1"
 su tester -c "test -s ~/Documents/keep.odt && test -s ~/Documents/keep.docx" && echo "PASS convert" || { echo "FAIL convert"; exit 12; }
 su tester -c "find ~/.config -maxdepth 1 -mindepth 1 -printf 'INFO profile-dir %f\n'"
 PROFILE_COUNT="$(su tester -c 'find ~/.config -maxdepth 2 -type d | wc -l')"
@@ -87,6 +94,7 @@ test ! -e "$BIN" && echo "PASS binaries-removed" || { echo "FAIL binaries left a
 step reinstall; apt-get install -y -qq /debs/*.deb >/dev/null 2>&1 && "$BIN" --version >/dev/null && echo "PASS reinstall"
 su tester -c "cd ~/Documents && hst-office --headless --convert-to pdf keep.odt >/dev/null 2>&1 && test -s keep.pdf" && echo "PASS convert-after-reinstall" || { echo "FAIL convert after reinstall"; exit 17; }
 INSIDE
+sed -i -e "s/@HSTV_RE@/${HSTV//./\\.}/g" -e "s/@HSTV@/$HSTV/g" "$OUT/inside.sh"
 
 docker run --rm --name "$NAME" -v "$DEBS:/debs:ro" -v "$OUT/inside.sh:/inside.sh:ro" ubuntu:24.04 \
   bash /inside.sh 2>&1 | tee "$OUT/install-lifecycle.log"

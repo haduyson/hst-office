@@ -8,19 +8,24 @@ HSTOffice_* download names.
 
 It also overrides the package/install-root names that the Globals section
 sets to LibreOffice values (libobasis*, libreoffice*-ure, /opt/libreoffice26.8),
-so the HST .deb set installs under /opt/hst-office26.8 with hst-officebasis26.8-*
-and hst-office26.8-* package names and cannot conflict with an official
+so the HST .deb set installs under /opt/hst-office<MAJOR>.<MINOR> with hst-officebasis<MAJOR>.<MINOR>-*
+and hst-office<MAJOR>.<MINOR>-* package names and cannot conflict with an official
 LibreOffice install. Profile dir stays product-specific
 (from instsetoo_native/CustomTarget_setup.mk).
+
+The version is the HST Office release version (/VERSION), not the engine version:
+@HST_VERSION_MAJOR/MINOR/MICRO@ are filled by scripts/build-linux.sh after config.status
+(configure does not know them). Package version is MAJOR.MINOR.MICRO.
 
 License: modified upstream file keeps its license (MPL-2.0).
 ---
 --- a/instsetoo_native/util/openoffice.lst.in
 +++ b/instsetoo_native/util/openoffice.lst.in
-@@ -73,6 +73,46 @@
+@@ -73,6 +73,48 @@
      }
  }
  
++# The HST_VERSION placeholders are filled from /VERSION by scripts/build-linux.sh (not by configure).
 +HSTOffice
 +{
 +    Settings
@@ -28,21 +33,22 @@ License: modified upstream file keeps its license (MPL-2.0).
 +        variables
 +        {
 +            WINDOWSBASISROOTNAME HSTOffice
-+            UNIXBASISROOTNAME hst-office@LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@
++            UNIXBASISROOTNAME hst-office@HST_VERSION_MAJOR@.@HST_VERSION_MINOR@
 +            BASISPACKAGEPREFIX hst-officebasis
 +            UREPACKAGEPREFIX hst-office
 +            SOLSUREPACKAGEPREFIX hst-office
 +            PRODUCTNAME @PRODUCTNAME@
-+            PRODUCTVERSION @LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@
-+            PRODUCTEXTENSION .@LIBO_VERSION_MICRO@.@LIBO_VERSION_PATCH@@LIBO_VERSION_SUFFIX@
++            PRODUCTVERSION @HST_VERSION_MAJOR@.@HST_VERSION_MINOR@
++            PRODUCTEXTENSION .@HST_VERSION_MICRO@
 +            POSTVERSIONEXTENSION
 +            BUNDLEIDENTIFIER @MACOSX_BUNDLE_IDENTIFIER@
-+            BRANDPACKAGEVERSION @LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@
++            BRANDPACKAGEVERSION @HST_VERSION_MAJOR@.@HST_VERSION_MINOR@
 +            USERDIRPRODUCTVERSION 4
-+            BASEPRODUCTVERSION @LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@
++            BASEPRODUCTVERSION @HST_VERSION_MAJOR@.@HST_VERSION_MINOR@
 +            ADD_INCLUDE_FILES cli_ure/version/version.txt,unoil/climaker/version.txt
 +            ADDSYSTEMINTEGRATION 1
-+            PACKAGEVERSION @LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@.@LIBO_VERSION_MICRO@.@LIBO_VERSION_PATCH@@LIBO_VERSION_SUFFIX@
++            PACKAGEVERSION @HST_VERSION_MAJOR@.@HST_VERSION_MINOR@.@HST_VERSION_MICRO@
++            UREPACKAGEVERSION @HST_VERSION_MAJOR@.@HST_VERSION_MINOR@.@HST_VERSION_MICRO@
 +            PACKAGEREVISION {buildid}
 +            LICENSENAME @LICENSE@
 +            ROOTMODULEGID gid_Module_Root
