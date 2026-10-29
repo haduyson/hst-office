@@ -16,7 +16,7 @@ CONF="$REPO/build-config/windows-x86_64.conf"
 mkdir -p "$LOGS" "$METRICS"
 # Minimal PATH: Cygwin first, native make, NASM, Windows system. Avoids Strawberry perl / Git usr/bin shadowing.
 if [ -z "${HST_KEEP_PATH:-}" ]; then
-  export PATH="/usr/local/bin:/usr/bin:$WORK/bin:/cygdrive/c/Program Files/NASM:/cygdrive/c/Windows/system32:/cygdrive/c/Windows"
+  export PATH="$WORK/bin:/usr/local/bin:/usr/bin:/cygdrive/c/Program Files/NASM:/cygdrive/c/Windows/system32:/cygdrive/c/Windows"
 fi
 export HOME="$WORK/home"; mkdir -p "$HOME"
 

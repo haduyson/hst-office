@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $CygwinMirror = 'https://mirrors.kernel.org/sourceware/cygwin/'
 $CygwinRoot = 'C:\cygwin64'
 # Package set for the LibreOffice Windows build (wiki Development/BuildingOnWindows).
-$CygwinPackages = 'autoconf,automake,bison,flex,gawk,gettext,gettext-devel,git,gperf,libtool,m4,make,patch,perl,pkg-config,python3,rsync,unzip,zip,curl,wget,cabextract,diffutils,findutils,grep,sed,tar,xz,ccache'
+$CygwinPackages = 'autoconf,automake,bison,flex,gawk,gettext,gettext-devel,git,gperf,libtool,m4,make,patch,perl,pkg-config,python3,rsync,unzip,zip,libxml2,libxslt,perl-Archive-Zip,curl,wget,cabextract,diffutils,findutils,grep,sed,tar,xz,ccache'
 $MakeUrl = 'https://dev-www.libreoffice.org/bin/cygwin/make-4.2.1-msvc.exe'
 
 function Write-Summary([string]$Text) {
@@ -67,6 +67,13 @@ function Invoke-Tools {
         Invoke-WebRequest -UseBasicParsing -Uri $MakeUrl -OutFile "$Work\bin\make.exe"
         Write-Summary "- native make sha256 $((Get-FileHash "$Work\bin\make.exe").Hash)"
     } catch { Write-Summary "- native make download failed ($($_.Exception.Message)); using Cygwin make" }
+    # configure demands a Windows-path pkgconf named pkgconf-2.4.3.exe (harfbuzz/meson); pkgconfiglite emits Windows paths.
+    choco install pkgconfiglite --no-progress -y
+    if ($LASTEXITCODE -ne 0) { throw 'pkgconfiglite install failed' }
+    $pkg = Get-ChildItem 'C:\ProgramData\chocolatey\lib\pkgconfiglite' -Recurse -Filter pkg-config.exe | Select-Object -First 1
+    if (-not $pkg) { throw 'pkg-config.exe not found in pkgconfiglite package' }
+    Copy-Item -LiteralPath $pkg.FullName -Destination "$Work\bin\pkgconf-2.4.3.exe"
+    Write-Summary "- pkgconf shim from $($pkg.FullName)"
     choco install nasm --no-progress -y
     if ($LASTEXITCODE -ne 0) { throw 'nasm install failed' }
     if (-not (Test-Path 'C:\Program Files\NASM\nasm.exe')) { throw 'nasm.exe not found in C:\Program Files\NASM' }
