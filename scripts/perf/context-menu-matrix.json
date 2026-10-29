@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "description": "Context-menu latency test matrix: modules x profile x autospell x skia x start. Cells expand per preset; unspecified axes use their default (first value, start=warm).",
+  "axes": {
+    "module": ["writer", "calc", "impress"],
+    "profile": ["clean", "user"],
+    "autospell": ["on", "off"],
+    "skia": ["default", "raster"],
+    "start": ["warm", "cold"]
+  },
+  "defaults": {"cold": 5, "warm": 20, "timeout_ms": 5000, "settle_s": 5, "cold_settle_s": 3},
+  "right_click_fraction": {
+    "writer": [0.5, 0.40],
+    "calc": [0.5, 0.45],
+    "impress": [0.5, 0.45]
+  },
+  "notes": {
+    "skia": "default = no SAL_SKIA variable (26.8 default is raster; gerrit 208182 makes GPU opt-in); raster = SAL_SKIA=raster forced.",
+    "autospell": "Writes Linguistic/General/IsSpellAuto into the (copied) profile; A/B diagnostic only, never a shipped default.",
+    "profile": "clean = fresh profile directory; user = a COPY of an existing profile (--user-profile), the original is never touched.",
+    "start": "cold = fresh process per trial, first menu only; warm = one process, repeated menus."
+  },
+  "presets": {
+    "owner-quick": {
+      "description": "Owner Mac run: 3 modules, baseline plus one-axis-at-a-time toggles (~12 cells).",
+      "cells": [
+        {"module": ["writer", "calc", "impress"]},
+        {"module": ["writer", "calc", "impress"], "start": ["cold"]},
+        {"module": ["writer", "calc", "impress"], "autospell": ["off"]},
+        {"module": ["writer", "calc", "impress"], "skia": ["raster"]},
+        {"module": ["writer", "calc", "impress"], "profile": ["user"]}
+      ]
+    },
+    "linux-parity": {
+      "description": "Linux regression parity: baseline warm and cold for each module.",
+      "cells": [
+        {"module": ["writer", "calc", "impress"]},
+        {"module": ["writer", "calc", "impress"], "start": ["cold"]}
+      ]
+    },
+    "full": {
+      "description": "Full cartesian product of all axes.",
+      "cells": [
+        {"module": ["writer", "calc", "impress"], "profile": ["clean", "user"], "autospell": ["on", "off"],
+         "skia": ["default", "raster"], "start": ["warm", "cold"]}
+      ]
+    }
+  }
+}
