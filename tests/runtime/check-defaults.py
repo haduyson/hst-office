@@ -59,15 +59,21 @@ def main():
     parser.add_argument("--instdir", default=os.path.join(ROOT, "upstream/libreoffice/instdir"))
     parser.add_argument("--out", default=os.path.join(ROOT, "tests/output/defaults"))
     args = parser.parse_args()
+    args.out = os.path.abspath(args.out)  # profile must be an absolute file:// URL
     program = os.path.join(args.instdir, "program")
-    sys.path.insert(0, program)
-    os.environ.setdefault("URE_BOOTSTRAP", "vnd.sun.star.pathname:" + os.path.join(program, "fundamentalrc"))
+    # Use the tested build's own Python-UNO bridge when it ships one (HST builds
+    # with --enable-python=system do); otherwise fall back to the system bridge.
+    # URE_BOOTSTRAP is for this Python process only; soffice must not inherit it.
+    child_env = {k: v for k, v in os.environ.items() if k != "URE_BOOTSTRAP"}
+    if os.path.exists(os.path.join(program, "uno.py")):
+        sys.path.insert(0, program)
+        os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, "fundamentalrc")
     profile = os.path.join(args.out, "profile")
     shutil.rmtree(args.out, ignore_errors=True)
     os.makedirs(profile)
     pipe = f"hstdefaults{os.getpid()}"
     proc = subprocess.Popen([os.path.join(program, "soffice"), "--headless", "--norestore", "--nologo",
-                             f"-env:UserInstallation=file://{profile}", f"--accept=pipe,name={pipe};urp;"])
+                             f"-env:UserInstallation=file://{profile}", f"--accept=pipe,name={pipe};urp;"], env=child_env)
     results, failed = {}, 0
     try:
         ctx = connect(pipe)
