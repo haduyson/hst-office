@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $CygwinMirror = 'https://mirrors.kernel.org/sourceware/cygwin/'
 $CygwinRoot = 'C:\cygwin64'
 # Package set for the LibreOffice Windows build (wiki Development/BuildingOnWindows).
-$CygwinPackages = 'autoconf,automake,bison,flex,gawk,gettext,gettext-devel,git,gperf,libtool,m4,make,patch,perl,pkg-config,python3,rsync,unzip,zip,libxml2,libxslt,perl-Archive-Zip,curl,wget,cabextract,diffutils,findutils,grep,sed,tar,xz,ccache'
+$CygwinPackages = 'autoconf,automake,bison,flex,gawk,gettext,gettext-devel,git,gperf,libtool,m4,make,patch,perl,pkg-config,python3,rsync,unzip,zip,libxml2,libxslt,perl-Archive-Zip,perl-Font-TTF,curl,wget,cabextract,diffutils,findutils,grep,sed,tar,xz,ccache'
 $MakeUrl = 'https://dev-www.libreoffice.org/bin/cygwin/make-4.2.1-msvc.exe'
 
 function Write-Summary([string]$Text) {
