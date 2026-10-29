@@ -86,10 +86,15 @@ do_configure() {
 }
 
 do_fetch() { # download every external tarball (sha256-checked by gbuild) so preflight covers make's fetch stage
+  # get-submodules re-fetches the core source tarballs without a checksum unless
+  # they are already in TARFILE_LOCATION; reuse the copies verified against the lock.
+  mkdir -p "$SRC/external/tarballs" || return 1
+  cp -n "$DL"/libreoffice-translations-26.8.1.1.tar.xz "$DL"/libreoffice-dictionaries-26.8.1.1.tar.xz \
+    "$SRC/external/tarballs/" || return 1
   (cd "$SRC" && make fetch) 2>&1 | tee "$LOGS/fetch.log"
   local rc=${PIPESTATUS[0]}
   # Any re-download of the core source tarballs means the tree layout is wrong.
-  if grep -q 'libreoffice-\(translations\|dictionaries\)-.*tar\.xz' "$LOGS/fetch.log"; then
+  if grep -q 'Saving to: .*libreoffice-\(translations\|dictionaries\)-' "$LOGS/fetch.log"; then
     echo "fetch: make tried to re-download translations/dictionaries tarballs"; return 1
   fi
   return "$rc"
