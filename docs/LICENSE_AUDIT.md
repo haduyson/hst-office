@@ -30,9 +30,35 @@ Hash từng file: `LICENSES/upstream/libreoffice/provenance.json`. Tarball ngu�
 
 ## 3. Thương hiệu
 
-- "LibreOffice" và logo thuộc The Document Foundation (TDF). Bản phái sinh **phải đổi tên và gỡ logo** khỏi nhận diện sản phẩm; được phép ghi trung thực "dựa trên LibreOffice". Chính sách: <https://www.libreoffice.org/about-us/trademark-policy/> — **nội dung chưa được lưu nguyên văn** (LEG-07).
-- HST gỡ: tên sản phẩm (configure `--with-product-name`), splash/About/Start Center (`--with-branding`), icon/desktop file, URL trỏ về libreoffice.org cho update/donate/get-involved (patch + cấu hình). Kiểm tra bằng `scripts/check-branding.py` trên `instdir`.
-- Giữ: văn bản giấy phép, credits, thông báo bản quyền trong mã nguồn.
+- Nhãn hiệu TDF: tên "The Document Foundation", "LibreOffice", logo kẹp giấy, tên miền libreoffice.org/documentfoundation.org. Văn bản chính sách lưu tại [`LICENSES/upstream/libreoffice/TDF-trademark-policy.txt`](../LICENSES/upstream/libreoffice/TDF-trademark-policy.txt) (bản lưu trữ, sửa lần cuối 2020-05-14; wiki trực tiếp chặn truy cập tự động).
+- Chính sách yêu cầu dùng nhãn hiệu **không gây nhầm lẫn**: phần mềm không do TDF làm thì không được ngụ ý là của TDF. Ghi "derivative of"/"based on LibreOffice" là **được phép (Permitted Use 4), không bắt buộc**. Không có điều khoản nào buộc hiển thị LibreOffice trong giao diện, About, splash hay bộ cài.
+- Hệ quả: càng ít hiển thị LibreOffice trong nhận diện sản phẩm, rủi ro nhãn hiệu càng thấp. Tên nhãn hiệu chỉ cần xuất hiện ở văn bản pháp lý (giấy phép, bản quyền, thông báo bên thứ ba).
+
+### 3.1 Bắt buộc giữ (giấy phép)
+
+| Nghĩa vụ | Căn cứ | Cách HST đáp ứng |
+|---|---|---|
+| Văn bản giấy phép MPL-2.0 đi kèm bản phân phối | MPL-2.0 §3.1/§3.2 | `license.html`/`LICENSE` trong thư mục cài (Trợ giúp → Thông tin giấy phép) |
+| Báo người nhận bản thực thi cách lấy mã nguồn | MPL-2.0 §3.2(a) | Câu "Mã nguồn: github.com/haduyson/hst-office" trong About và tệp giấy phép |
+| Không xóa/sửa thông báo giấy phép, bản quyền trong file nguồn | MPL-2.0 §3.4 | Patch không đụng header; repo công bố file đã sửa |
+| Giấy phép + thông báo của thư viện bên thứ ba (LGPL, BSD, MIT, Apache NOTICE…) | Từng giấy phép trong `license.xml` | Giữ nguyên danh sách thông báo bên thứ ba trong tệp giấy phép |
+| Từ điển `vi` GPLv2: kèm giấy phép, cung cấp nguồn | GPLv2 §1, §3 | `LICENSES-vi.txt` trong extension từ điển (bản thân `.dic/.aff` là nguồn) |
+
+Trong các văn bản trên, chữ "LibreOffice"/"The Document Foundation" xuất hiện vì là **chủ thể bản quyền**; giữ nguyên.
+
+### 3.2 Không bắt buộc — HST gỡ hoặc thay
+
+| Vị trí | Hiện trạng 26.8.1.1 | Xử lý |
+|---|---|---|
+| About: "%PRODUCTNAME có nguồn gốc từ LibreOffice…", dòng "Bản quyền © … cộng tác viên LibreOffice", nút Credits, "dựa trên LibreOffice 26.8.1.1" cạnh số phiên bản | Đang hiện | Gỡ; thay bằng "Mã nguồn mở theo MPL-2.0 — xem Thông tin giấy phép" + link mã nguồn |
+| `soffice --version` | "HST Office 1.0.0 (LibreOffice 26.8.1.1)" | Chỉ "HST Office 1.0.0" + build id |
+| Chuỗi giao diện nhắc LibreOffice (Cộng đồng LibreOffice, Quyên góp, Impress Remote, LibreOffice Basic…) | 17 chuỗi vi | Thay bằng %PRODUCTNAME hoặc tên trung tính; menu/hộp thoại "tham gia/quyên góp" ẩn |
+| Liên kết tới libreoffice.org / documentfoundation.org (get-involved, FAQ, portable, accessibility, volunteer support, chứng nhận) | Hardcode trong mã + officecfg | Trỏ về hasontech.vn hoặc ẩn mục |
+| Trợ giúp F1 (build `--without-help` → mở help.libreoffice.org) | Mở site LibreOffice | Chủ dự án chọn (2026-10-29): trỏ trang hướng dẫn HST trên hasontech.vn |
+| Trang extension (extensions.libreoffice.org) | Mở site LibreOffice | Chủ dự án chọn (2026-10-29): giữ kho LibreOffice (chỉ mở khi người dùng bấm) |
+| Tên tệp/gói nội bộ (`libreofficekit`, `libreoffice.soc`, `Libreoffice.theme`) | Không hiện tên công ty, một số hiện tên bảng màu/chủ đề | Đổi tên hiển thị bảng màu/chủ đề; tên tệp kỹ thuật giữ |
+
+Phiên bản engine 26.8.1.1 vẫn dùng **nội bộ** cho kiểm tra tương thích extension, không hiển thị.
 
 ## 4. Kết luận
 
