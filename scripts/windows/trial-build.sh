@@ -13,6 +13,11 @@ WORK="${HST_WORK:-/cygdrive/d/hst}"
 REPO="${HST_REPO:?HST_REPO must point at the repository checkout}"
 SRC="$WORK/lo"; LOGS="$WORK/logs"; METRICS="$WORK/metrics"; DL="${HST_DL:-$WORK/dl}"
 CONF="$REPO/build-config/windows-x86_64.conf"
+# HST release version (/VERSION) for the generated header, installer list and make;
+# the repository root in Windows form for HST rules inside the native make.
+eval "$(python3 "$REPO/scripts/write-hst-version.py" --env)"
+export HST_VERSION_MAJOR HST_VERSION_MINOR HST_VERSION_MICRO
+HST_REPO_ROOT="$("$CYGPATH" -m "$REPO")"; export HST_REPO_ROOT
 mkdir -p "$LOGS" "$METRICS"
 # Minimal PATH: Cygwin first, native make, NASM, Windows system. Avoids Strawberry perl / Git usr/bin shadowing.
 if [ -z "${HST_KEEP_PATH:-}" ]; then
@@ -86,7 +91,12 @@ do_configure() {
   test -f "$WORK/branding/staging-manifest.json" || { echo "branding not staged"; return 2; }
   do_options || return $?
   (cd "$SRC" && ./autogen.sh) 2>&1 | tee "$LOGS/configure.log"
-  test "${PIPESTATUS[0]}" -eq 0
+  test "${PIPESTATUS[0]}" -eq 0 || return 1
+  # Same HST version wiring as scripts/build-linux.sh prepare_version.
+  python3 "$REPO/scripts/write-hst-version.py" --header "$SRC/include/hst_version.h" || return 1
+  sed -i -e "s/@HST_VERSION_MAJOR@/$HST_VERSION_MAJOR/g" -e "s/@HST_VERSION_MINOR@/$HST_VERSION_MINOR/g" \
+    -e "s/@HST_VERSION_MICRO@/$HST_VERSION_MICRO/g" "$SRC/instsetoo_native/util/openoffice.lst" || return 1
+  if grep -q '@HST_VERSION' "$SRC/instsetoo_native/util/openoffice.lst"; then echo "configure: HST version placeholders left"; return 1; fi
 }
 
 do_fetch() { # download every external tarball (sha256-checked by gbuild) so preflight covers make's fetch stage
@@ -105,6 +115,8 @@ do_fetch() { # download every external tarball (sha256-checked by gbuild) so pre
   if grep -qE 'process_begin: CreateProcess|wslpath|Bad file descriptor' "$LOGS/fetch.log"; then
     echo "fetch: gbuild path helpers failed (environment leak?)"; return 1
   fi
+  # HST rules read the repository through HST_REPO_ROOT (native make path form).
+  [ -f "$HST_REPO_ROOT/scripts/build-extensions.py" ] || { echo "fetch: HST_REPO_ROOT unusable: $HST_REPO_ROOT"; return 1; }
   # Any re-download of the core source tarballs means the tree layout is wrong.
   if grep -q 'Saving to: .*libreoffice-\(translations\|dictionaries\)-' "$LOGS/fetch.log"; then
     echo "fetch: make tried to re-download translations/dictionaries tarballs"; return 1
