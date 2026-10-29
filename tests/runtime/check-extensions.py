@@ -22,6 +22,7 @@ from recorder import Recorder  # noqa: E402
 import scenarios_calc  # noqa: E402
 import scenarios_encoding  # noqa: E402
 import scenarios_registration  # noqa: E402
+import scenarios_welcome  # noqa: E402
 import scenarios_writer  # noqa: E402
 
 
@@ -45,6 +46,7 @@ def main():
                     help="user: unopkg add into an isolated profile; bundled: unpack into <install>/share/extensions (modifies the tree)")
     ap.add_argument("--allow-modify-install", action="store_true", help="required for --mode bundled; use only on a disposable copy")
     ap.add_argument("--display", default=None, help="X display for non-headless runs (default: headless)")
+    ap.add_argument("--only", choices=("welcome",), help="run just one scenario group (faster while developing)")
     args = ap.parse_args()
     for label, path in (("soffice", args.soffice), ("extension", args.extension), ("fixtures", args.fixtures)):
         if not os.path.exists(path):
@@ -69,10 +71,12 @@ def main():
         print("office:", version)
         deployed = session.deployed_identifiers()
         rec.check("office reports the extension deployed (%s)" % args.mode, any(n == "vn.hasontech.hst.vietnamese-tools" for _, n in deployed), deployed)
-        rec.run("registration", scenarios_registration.run, session, os.path.abspath(args.extension))
-        rec.run("writer", scenarios_writer.run, session, fixtures, out)
-        rec.run("encoding", scenarios_encoding.run, session, fixtures, out)
-        rec.run("calc", scenarios_calc.run, session, fixtures, out)
+        if args.only != "welcome":
+            rec.run("registration", scenarios_registration.run, session, os.path.abspath(args.extension))
+            rec.run("writer", scenarios_writer.run, session, fixtures, out)
+            rec.run("encoding", scenarios_encoding.run, session, fixtures, out)
+            rec.run("calc", scenarios_calc.run, session, fixtures, out)
+        rec.run("welcome", scenarios_welcome.run, session, os.path.abspath(args.extension), out)
     finally:
         session.stop()
         rec.check("extension removed again", session.uninstall_bundled())

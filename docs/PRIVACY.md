@@ -1,0 +1,7 @@
+# Quyền riêng tư của HST Office
+
+- **HST Office không gửi dữ liệu nào đi.** Không có telemetry, không đếm lượt dùng, không tải quảng cáo hay nội dung từ máy chủ. Nội dung giới thiệu HASON TECH (hộp thoại chào mừng, mục “Giải pháp HASON TECH…”) nằm sẵn trong bộ cài và chạy offline.
+- **Liên kết chỉ mở khi bạn bấm.** Khi bấm một liên kết, trình duyệt mặc định của hệ thống mở trang đó. Không có yêu cầu mạng nào được gửi trước khi bạn bấm.
+- **Tham số UTM.** Liên kết tới website HASON TECH kèm `utm_source=hst-office`, `utm_medium=<nơi bấm>` (`welcome`: hộp thoại chào mừng; `menu`: mục menu HST; về sau có thể có `start-center`, `about`) và `utm_campaign=hst-office-1-0`. Chúng chỉ cho website biết lượt bấm đến từ vị trí nào trong ứng dụng; không chứa tên, tài liệu hay thông tin máy của bạn. Khi bạn vào trang, website có thể ghi nhận như mọi lượt truy cập web thông thường theo chính sách của website đó.
+- **Tắt hộp thoại chào mừng.** Hộp thoại chỉ hiện ở lần khởi động đầu tiên của mỗi người dùng. Để ô **Không hiển thị lại** được chọn (mặc định) rồi bấm **Đóng** thì sẽ không hiện nữa. Trạng thái lưu cục bộ tại `/org.hasontech.hstoffice.Welcome/Shown` trong hồ sơ người dùng (Công cụ ▸ Tuỳ chọn ▸ Nâng cao ▸ Trình soạn cấu hình chuyên gia). Muốn xem lại bất kỳ lúc nào: menu **HST ▸ Giải pháp HASON TECH…**.
+- **Banner.** Các banner/lời giới thiệu khác (nếu có trong bản phát hành) cũng là nội dung tĩnh trong bộ cài, theo cùng nguyên tắc: chỉ là liên kết, mở khi bấm, không theo dõi. Mỗi banner có cách tắt riêng được ghi trong tài liệu của banner đó.

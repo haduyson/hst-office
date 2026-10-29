@@ -1,0 +1,358 @@
+<title>Điểm chạm HST Office</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; the user's journey runs down a vertical spine, each stop pairs a mock screen with the decision. */
+:root {
+  --bg: #f4f7fa; --surface: #ffffff; --ink: #14212d; --muted: #566676; --line: #d6dee6;
+  --brand: #0072bb; --brand-ink: #ffffff; --brand-soft: #e3f0f9;
+  --ok: #1d7a43; --ok-soft: #e2f3e8; --warn: #8a5a00; --warn-soft: #fbefd6; --off: #6b7785; --off-soft: #e9edf1;
+  --screen: #e9eef3; --screen-bar: #cfd8e1;
+  --font-body: "Be Vietnam Pro", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1820; --surface: #16222c; --ink: #e6edf3; --muted: #9aabba; --line: #2a3a48;
+  --brand: #4aa8e6; --brand-ink: #06121b; --brand-soft: #14304a;
+  --ok: #7fd3a0; --ok-soft: #173426; --warn: #f0c46a; --warn-soft: #3a2d10; --off: #9aa7b4; --off-soft: #232f3a;
+  --screen: #1d2b37; --screen-bar: #2c3d4c; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f1820; --surface: #16222c; --ink: #e6edf3; --muted: #9aabba; --line: #2a3a48;
+  --brand: #4aa8e6; --brand-ink: #06121b; --brand-soft: #14304a;
+  --ok: #7fd3a0; --ok-soft: #173426; --warn: #f0c46a; --warn-soft: #3a2d10; --off: #9aa7b4; --off-soft: #232f3a;
+  --screen: #1d2b37; --screen-bar: #2c3d4c; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 56px; }
+.wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 44px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; line-height: 1.25; }
+h1 { font-size: clamp(26px, 4vw, 38px); font-weight: 800; letter-spacing: -0.01em; }
+h2 { font-size: 22px; font-weight: 700; }
+h3 { font-size: 16px; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+a { color: var(--brand); text-underline-offset: 3px; }
+a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.label { font: 500 11px/1.4 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.head { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; }
+.head img { width: 72px; height: auto; }
+.lede { color: var(--muted); font-size: 16px; margin-top: 6px; }
+.callout { background: var(--brand-soft); border-left: 4px solid var(--brand); padding: 14px 18px; border-radius: 0 8px 8px 0; display: grid; gap: 6px; }
+.callout strong { color: var(--ink); }
+.section { display: grid; gap: 18px; }
+.section > p { color: var(--muted); }
+/* journey */
+.journey { display: grid; gap: 0; }
+.stop { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 16px; }
+.spine { display: flex; flex-direction: column; align-items: center; }
+.dot { width: 34px; height: 34px; border-radius: 50%; background: var(--brand); color: var(--brand-ink); display: grid; place-items: center; font: 600 14px var(--font-mono); flex: none; }
+.rail { width: 2px; flex: 1; background: var(--line); margin-block: 4px; }
+.stop:last-child .rail { display: none; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 18px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 20px; }
+.card .info { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 12px/1 var(--font-body); padding: 5px 9px; border-radius: 999px; background: var(--off-soft); color: var(--off); white-space: nowrap; }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.chip.brand { background: var(--brand-soft); color: var(--brand); }
+.vis { display: inline-flex; gap: 3px; vertical-align: middle; margin-left: 4px; }
+.vis i { width: 14px; height: 6px; border-radius: 2px; background: var(--line); }
+.vis i.on { background: var(--brand); }
+.info ul { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 4px; }
+/* mock screens */
+.mock { background: var(--screen); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; min-width: 0; font-size: 12px; }
+.bar { background: var(--screen-bar); padding: 6px 10px; display: flex; align-items: center; gap: 6px; font: 500 11px var(--font-mono); color: var(--muted); }
+.bar b { width: 8px; height: 8px; border-radius: 50%; background: var(--line); display: inline-block; }
+.pane { padding: 14px; display: grid; gap: 8px; }
+.term { background: #0d1620; color: #cfe3f2; font: 12px/1.6 var(--font-mono); padding: 12px; overflow-x: auto; white-space: pre; }
+.term em { color: #7fd3a0; font-style: normal; }
+.splash { background: #ffffff; color: #322e2e; display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; padding: 18px; }
+.splash img { width: 56px; }
+.splash .pb { grid-column: 1 / -1; height: 6px; background: #e1e6eb; border-radius: 3px; overflow: hidden; }
+.splash .pb span { display: block; width: 62%; height: 100%; background: #0072bb; }
+.dialog { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 8px; }
+.sol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.sol div { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; display: grid; gap: 2px; min-width: 0; }
+.sol b { font-size: 12px; }
+.sol span { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.btn { font: 600 11px var(--font-body); padding: 5px 10px; border-radius: 5px; background: var(--brand); color: var(--brand-ink); }
+.btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.start { display: grid; grid-template-columns: 34% 1fr; min-height: 168px; }
+.start nav { background: var(--surface); border-right: 1px solid var(--line); padding: 10px; display: grid; gap: 6px; align-content: start; }
+.start nav span { padding: 4px 6px; border-radius: 4px; }
+.start nav span:first-child { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+.start main { padding: 10px; display: grid; gap: 8px; align-content: space-between; }
+.thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.thumbs i { aspect-ratio: 3 / 4; background: var(--surface); border: 1px solid var(--line); border-radius: 3px; }
+.banner { border: 1px dashed var(--brand); background: var(--brand-soft); color: var(--ink); border-radius: 6px; padding: 7px 9px; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.menu { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; width: min(240px, 100%); padding: 4px 0; box-shadow: 0 6px 18px rgba(0,0,0,.12); }
+.menu div { padding: 5px 12px; }
+.menu .hl { background: var(--brand); color: var(--brand-ink); }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.menus { display: flex; gap: 0; padding: 0 10px; font-size: 12px; }
+.menus span { padding: 5px 9px; }
+.menus .open { background: var(--surface); border: 1px solid var(--line); border-bottom: 0; border-radius: 4px 4px 0 0; }
+.store { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; }
+.store img { width: 48px; }
+/* catalog */
+.catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+.prod { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 8px; align-content: start; }
+.prod .tag { color: var(--brand); font-weight: 600; font-size: 13px; }
+.prod p { color: var(--muted); font-size: 14px; }
+.prod .fit { font-size: 13px; border-top: 1px solid var(--line); padding-top: 8px; }
+.prod .fit b { color: var(--ink); }
+.small { font-size: 13px; color: var(--muted); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 11px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 12px; }
+.rules div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 4px; }
+.rules p { color: var(--muted); font-size: 14px; }
+.asks { display: grid; gap: 8px; padding-left: 20px; margin: 0; }
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 4px; }
+@media (max-width: 760px) { .card { grid-template-columns: minmax(0, 1fr); } .stop { grid-template-columns: 34px minmax(0, 1fr); gap: 10px; } .dot { width: 28px; height: 28px; font-size: 12px; } }
+@media (prefers-reduced-motion: no-preference) { .card { transition: border-color .2s; } .card:hover { border-color: var(--brand); } }
+</style>
+
+<div class="wrap">
+  <header class="head">
+    <img src="data:image/png;base64,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" alt="Biểu tượng HST Office">
+    <div>
+      <div class="label">HST Office · đề xuất cho chủ dự án · 29/10/2026</div>
+      <h1>Giới thiệu HASON TECH đặt ở đâu trong HST Office</h1>
+      <p class="lede">Hành trình của người dùng từ lúc cài đến lúc dùng hằng ngày, những chỗ có thể giới thiệu công ty và các giải pháp chuyển đổi số, cùng mức độ người dùng thực sự nhìn thấy.</p>
+    </div>
+  </header>
+
+  <div class="callout">
+    <strong>Điểm mấu chốt</strong>
+    <p>Bộ cài <code>.deb</code> trên Linux không có màn hình nào; cài xong trong vài giây. Chỗ người dùng thực sự nhìn thấy nằm <strong>bên trong ứng dụng</strong>: trang chào mừng lần đầu, Start Center và menu HST. Mọi nội dung được đóng gói sẵn, chạy offline, không tải quảng cáo từ máy chủ và không theo dõi người dùng.</p>
+  </div>
+
+  <section class="section">
+    <div class="label">Hành trình người dùng</div>
+    <h2>Sáu điểm chạm, theo thứ tự người dùng gặp</h2>
+    <div class="journey">
+
+      <div class="stop"><div class="spine"><span class="dot">1</span><span class="rail"></span></div>
+        <div class="card">
+          <div class="info">
+            <h3>Cài đặt</h3>
+            <div class="meta"><span class="chip">Linux: không có màn hình</span><span class="chip warn">Windows .msi: chờ máy build</span></div>
+            <p class="small">Mức hiển thị <span class="vis" aria-label="1 trên 4"><i class="on"></i><i></i><i></i><i></i></span></p>
+            <ul>
+              <li>Linux: chỉ có dòng mô tả gói. Thêm mô tả HST Office và link <code>hasontech.vn</code>.</li>
+              <li>Ubuntu App Center: file AppStream hiển thị mô tả, ảnh chụp, website.</li>
+              <li>Windows (sau này): trang Welcome và Finish của bộ cài có banner HST và một dòng giới thiệu công ty.</li>
+            </ul>
+          </div>
+          <div class="mock" aria-hidden="true">
+            <div class="bar"><b></b><b></b><b></b> Terminal</div>
+            <div class="term">$ sudo apt install ./hst-office_26.8.1.1_amd64.deb
+Đang cài hstoffice-writer, hstoffice-calc…
+<em>✓ Xong trong 9 giây — không có màn hình giới thiệu</em></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stop"><div class="spine"><span class="dot">2</span><span class="rail"></span></div>
+        <div class="card">
+          <div class="info">
+            <h3>Splash khi mở ứng dụng</h3>
+            <div class="meta"><span class="chip ok">Đã làm</span></div>
+            <p class="small">Mức hiển thị <span class="vis" aria-label="2 trên 4"><i class="on"></i><i class="on"></i><i></i><i></i></span></p>
+            <ul>
+              <li>Hiện 1–2 giây mỗi lần mở. Chỉ đủ cho logo và dòng "by HASON TECH".</li>
+              <li>Không đặt danh mục sản phẩm ở đây: người dùng không kịp đọc.</li>
+            </ul>
+          </div>
+          <div class="mock" aria-hidden="true">
+            <div class="splash"><img src="data:image/png;base64,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" alt=""><div><b style="font-size:18px;font-style:italic">HST OFFICE</b><div style="color:#6b6666;font-size:11px">by HASON TECH</div></div><div class="pb"><span></span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stop"><div class="spine"><span class="dot">3</span><span class="rail"></span></div>
+        <div class="card">
+          <div class="info">
+            <h3>Trang chào mừng lần đầu</h3>
+            <div class="meta"><span class="chip brand">Đề xuất chính</span><span class="chip">Không cần sửa mã LibreOffice</span></div>
+            <p class="small">Mức hiển thị <span class="vis" aria-label="4 trên 4"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span></p>
+            <ul>
+              <li>Hiện <b>một lần</b> sau khi cài, có nút "Không hiển thị lại".</li>
+              <li>Nội dung: HST Office là gì, giới thiệu HASON TECH, 4–6 giải pháp nổi bật, liên hệ.</li>
+              <li>Làm bằng extension HST có sẵn. Link chỉ mở trình duyệt khi người dùng bấm.</li>
+            </ul>
+          </div>
+          <div class="mock" aria-hidden="true">
+            <div class="bar"><b></b><b></b><b></b> Chào mừng đến HST Office</div>
+            <div class="pane">
+              <div class="dialog">
+                <b style="font-size:13px">HST Office — miễn phí, offline cho người Việt</b>
+                <span class="small" style="font-size:11px">Phát triển bởi HASON TECH · Công nghệ tạo giá trị — Chuyển đổi số dẫn tương lai</span>
+                <div class="sol">
+                  <div><b>AIOS</b><span>Trợ lý số cá nhân của người Việt</span></div>
+                  <div><b>eChatbot</b><span>Trợ lý số AI cho chính quyền và doanh nghiệp</span></div>
+                  <div><b>Zalo Mini App</b><span>Mỗi tổ chức một Mini App riêng</span></div>
+                  <div><b>HST SEO</b><span>Vận hành SEO thông minh cùng AI</span></div>
+                </div>
+                <div class="row"><span class="small" style="font-size:11px">hasontech.vn · (0236) 3.507.507</span><span><span class="btn ghost">Không hiển thị lại</span> <span class="btn">Bắt đầu</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stop"><div class="spine"><span class="dot">4</span><span class="rail"></span></div>
+        <div class="card">
+          <div class="info">
+            <h3>Start Center (màn hình chính)</h3>
+            <div class="meta"><span class="chip ok">Đã chốt</span><span class="chip brand">Banner ảnh do Codex thiết kế</span></div>
+            <p class="small">Mức hiển thị <span class="vis" aria-label="4 trên 4"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span></p>
+            <ul>
+              <li>Xuất hiện mỗi lần mở HST Office (bản gốc LibreOffice chỉ hiện 30 ngày một lần). Thay khung "Donate" bằng một ảnh banner ngang + link hasontech.vn.</li>
+              <li>Chỉ một dòng, không ảnh động, có thể tắt trong Tùy chọn.</li>
+              <li>Không có nút hay mục "Donate" nào (đã loại khỏi Start Center và menu Trợ giúp).</li>
+              <li>Cột trái chỉ ghi: Văn bản, Bảng tính, Trình chiếu.</li>
+            </ul>
+          </div>
+          <div class="mock" aria-hidden="true">
+            <div class="bar"><b></b><b></b><b></b> HST Office</div>
+            <div class="start">
+              <nav><span>Tệp gần đây</span><span>Mẫu</span><span>Văn bản</span><span>Bảng tính</span><span>Trình chiếu</span></nav>
+              <main><div class="thumbs"><i></i><i></i><i></i></div>
+                <div class="banner"><span>Giải pháp chuyển đổi số từ HASON TECH</span><b style="color:var(--brand)">Xem →</b></div></main>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stop"><div class="spine"><span class="dot">5</span><span class="rail"></span></div>
+        <div class="card">
+          <div class="info">
+            <h3>Menu HST</h3>
+            <div class="meta"><span class="chip ok">Menu HST đã có</span><span class="chip brand">Thêm mục giải pháp</span></div>
+            <p class="small">Mức hiển thị <span class="vis" aria-label="2 trên 4"><i class="on"></i><i class="on"></i><i></i><i></i></span></p>
+            <ul>
+              <li>Thêm mục "Giải pháp HASON TECH" mở lại trang chào mừng bất kỳ lúc nào.</li>
+            </ul>
+          </div>
+          <div class="mock" aria-hidden="true">
+            <div class="bar"><b></b><b></b><b></b> Văn bản 1 — HST Writer</div>
+            <div class="menus"><span>Tệp</span><span>Sửa</span><span>Chèn</span><span class="open">HST</span><span>Trợ giúp</span></div>
+            <div class="pane" style="padding-top:0">
+              <div class="menu"><div>Văn bản hành chính NĐ30…</div><div>Chuyển mã TCVN3/VNI → Unicode…</div><hr><div class="hl">Giải pháp HASON TECH…</div><div>Giới thiệu HST Office</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stop"><div class="spine"><span class="dot">6</span><span class="rail"></span></div>
+        <div class="card">
+          <div class="info">
+            <h3>Hộp About và ghi nhận nguồn mở</h3>
+            <div class="meta"><span class="chip ok">Đã làm</span></div>
+            <p class="small">Mức hiển thị <span class="vis" aria-label="1 trên 4"><i class="on"></i><i></i><i></i><i></i></span></p>
+            <ul>
+              <li>"Bản phát hành do HASON TECH cung cấp", logo, link trang ghi nhận.</li>
+              <li>Giữ dòng "HST Office được phát triển từ LibreOffice" (chờ tư vấn pháp lý xác nhận có thể bỏ hay không).</li>
+              <li>Thêm khối liên hệ: tên công ty, địa chỉ, điện thoại, email, website.</li>
+            </ul>
+          </div>
+          <div class="mock" aria-hidden="true">
+            <div class="bar"><b></b><b></b><b></b> Giới thiệu HST Office</div>
+            <div class="pane store">
+              <img src="data:image/png;base64,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" alt="">
+              <div><b>HST Office</b> 26.8.1.1<br><span class="small">Bản phát hành do HASON TECH cung cấp.<br>HST Office được phát triển từ LibreOffice, vốn dựa trên OpenOffice.org.<br><br>Công ty TNHH Công nghệ Hà Sơn (HASON TECH)<br>300 Xô Viết Nghệ Tĩnh, phường Cẩm Lệ, TP. Đà Nẵng<br>Điện thoại: (0236) 3.507.507 · lienhe@hasontech.vn · hasontech.vn</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="label">Nội dung · nguồn hasontech.vn và website từng giải pháp, đọc ngày 29/10/2026</div>
+    <h2>Danh mục giải pháp đưa vào trang chào mừng</h2>
+    <p>Mô tả lấy nguyên văn từ website chính thức. Danh mục và câu giới thiệu đã cập nhật theo góp ý ngày 29/10. Link có gắn mã UTM (bảng bên dưới).</p>
+    <div class="catalog">
+      <article class="prod"><div class="label">Ưu tiên 1</div><h3>AIOS</h3><div class="tag">Trợ lý số cá nhân của người Việt</div>
+        <p>Không gian làm việc số tích hợp Trợ lý AI: giao mục tiêu, AI tự chia bước và làm qua email, lịch, tài liệu; việc rủi ro chờ người dùng duyệt.</p>
+        <p class="fit"><b>Phù hợp:</b> cán bộ công chức, nhân viên văn phòng. Có tính năng "Đúng thể thức, đúng mẫu đơn vị" — trùng nhu cầu NĐ30.</p>
+        <a href="https://aios.hasontech.vn?utm_source=hst-office&amp;utm_medium=welcome&amp;utm_campaign=hst-office-1-0" target="_blank" rel="noopener">aios.hasontech.vn</a></article>
+      <article class="prod"><div class="label">Ưu tiên 1</div><h3>eChatbot</h3><div class="tag">Trợ lý số AI cho chính quyền và doanh nghiệp</div>
+        <p>Trợ lý AI trả lời dựa trên tài liệu PDF, Word, Excel của đơn vị, dẫn nguồn, chuyển người phụ trách khi cần; phân quyền, xác thực hai yếu tố, nhật ký kiểm toán.</p>
+        <p class="fit"><b>Phù hợp:</b> chính quyền, doanh nghiệp, giáo dục — chính là nơi đang dùng Word/Excel hằng ngày.</p>
+        <a href="https://echatbot.vn?utm_source=hst-office&amp;utm_medium=welcome&amp;utm_campaign=hst-office-1-0" target="_blank" rel="noopener">echatbot.vn</a></article>
+      <article class="prod"><div class="label">Ưu tiên 2</div><h3>Zalo Mini App (eSpace)</h3><div class="tag">Mỗi tổ chức một Zalo Mini App riêng — gần người dùng ngay trên Zalo</div>
+        <p>Đăng tin, nhận phản ánh, đặt lịch, khảo sát, bán hàng, mời họp và check-in QR ngay trong Zalo, người dùng không cần cài thêm ứng dụng.</p>
+        <p class="fit"><b>Phù hợp:</b> cơ quan nhà nước, công đoàn, cửa hàng, phòng khám, trường học.</p>
+        <a href="https://espace.vn/zaloapp?utm_source=hst-office&amp;utm_medium=welcome&amp;utm_campaign=hst-office-1-0" target="_blank" rel="noopener">espace.vn/zaloapp</a></article>
+      <article class="prod"><div class="label">Ưu tiên 2</div><h3>HST SEO</h3><div class="tag">Vận hành SEO thông minh cùng AI.</div>
+        <p>Kết nối Search Console và GA4, tìm cơ hội từ khóa, lên lịch chủ đề, viết và tối ưu nội dung; mọi thay đổi có nhật ký và có thể hoàn tác.</p>
+        <p class="fit"><b>Phù hợp:</b> chủ doanh nghiệp, đội marketing, freelancer và agency SEO.</p>
+        <a href="https://seo.hasontech.vn?utm_source=hst-office&amp;utm_medium=welcome&amp;utm_campaign=hst-office-1-0" target="_blank" rel="noopener">seo.hasontech.vn</a></article>
+      <article class="prod"><div class="label">Ưu tiên 3</div><h3>HST Content</h3><div class="tag">Đăng bài đa nền tảng</div>
+        <p>Tự động đăng bài đa nền tảng, quản lý tập trung nhiều kênh chỉ trong một cửa sổ điều hành.</p>
+        <p class="fit"><b>Phù hợp:</b> bộ phận truyền thông, doanh nghiệp nhỏ.</p>
+        <a href="https://content.hasontech.vn?utm_source=hst-office&amp;utm_medium=welcome&amp;utm_campaign=hst-office-1-0" target="_blank" rel="noopener">content.hasontech.vn</a></article>
+      <article class="prod"><div class="label">Ưu tiên 3</div><h3>AI Dễ Lắm</h3><div class="tag">AI dễ lắm — AI dễ làm</div>
+        <p>Công cụ hỗ trợ người mới bắt đầu tiếp cận và sử dụng AI theo cách đơn giản, trực quan và dễ hiểu.</p>
+        <p class="fit"><b>Phù hợp:</b> cán bộ, công chức mới làm quen AI.</p>
+        <a href="https://aidelam.com?utm_source=hst-office&amp;utm_medium=welcome&amp;utm_campaign=hst-office-1-0" target="_blank" rel="noopener">aidelam.com</a></article>
+    </div>
+    <p class="small">Dịch vụ (một dòng ở cuối trang chào mừng): Digital Marketing · Thiết kế Website · Lập trình ứng dụng, phần mềm theo yêu cầu — <a href="https://hasontech.vn" target="_blank" rel="noopener">hasontech.vn</a>.</p>
+  </section>
+
+  <section class="section">
+    <div class="label">Giới thiệu công ty · bản ngắn dùng trong ứng dụng</div>
+    <h2>Khung giới thiệu HASON TECH</h2>
+    <div class="scroll"><table>
+      <tr><th>Mục</th><th>Nội dung (theo hasontech.vn và brief)</th></tr>
+      <tr><td>Tên</td><td>Công ty TNHH Công nghệ Hà Sơn — HASON TECH</td></tr>
+      <tr><td>Thông điệp</td><td>Công nghệ tạo giá trị · Chuyển đổi số — dẫn tương lai</td></tr>
+      <tr><td>Giới thiệu</td><td>Hệ sinh thái giải pháp AI "Make in Vietnam", đồng hành từ tư vấn, xây dựng nền tảng, kết nối dữ liệu đến vận hành; phục vụ cơ quan nhà nước, giáo dục, doanh nghiệp và cộng đồng.</td></tr>
+      <tr><td>Con số (website tự công bố)</td><td>1000+ dự án · 300+ khách hàng · 10+ sản phẩm và giải pháp · hỗ trợ 24/7</td></tr>
+      <tr><td>Liên hệ</td><td>300 Xô Viết Nghệ Tĩnh, P. Cẩm Lệ, TP. Đà Nẵng · (0236) 3.507.507 · lienhe@hasontech.vn · hasontech.vn</td></tr>
+    </table></div>
+  </section>
+
+  <section class="section">
+    <div class="label">Nguyên tắc</div>
+    <h2>Giới thiệu mà không làm mất lòng tin</h2>
+    <div class="rules">
+      <div><h3>Offline</h3><p>Nội dung đóng gói trong bộ cài. Ứng dụng không tải banner hay dữ liệu từ máy chủ.</p></div>
+      <div><h3>Không theo dõi</h3><p>Không đếm lượt xem, không gửi dữ liệu. Link chỉ mở khi người dùng bấm.</p></div>
+      <div><h3>Một lần, tắt được</h3><p>Trang chào mừng hiện một lần; banner Start Center tắt được trong Tùy chọn.</p></div>
+      <div><h3>Không chạm tài liệu</h3><p>Không chèn quảng cáo vào văn bản, mẫu hay bản in của người dùng.</p></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="label">Quyết định của chủ dự án · 29/10/2026</div>
+    <h2>Đã chốt</h2>
+    <div class="scroll"><table>
+      <tr><th>Câu hỏi</th><th>Quyết định</th></tr>
+      <tr><td>Danh mục</td><td>6 giải pháp: AIOS, eChatbot, Zalo Mini App, HST SEO, HST Content, AI Dễ Lắm (bỏ Text to Speech, Hason AI). Chờ anh/chị xem lại thứ tự.</td></tr>
+      <tr><td>Banner Start Center</td><td>Dùng, một dòng, banner ảnh do Codex thiết kế.</td></tr>
+      <tr><td>Gợi ý theo ngữ cảnh trong NĐ30</td><td>Không dùng.</td></tr>
+      <tr><td>Mã UTM</td><td>Gắn vào mọi link; ghi rõ trong chính sách quyền riêng tư.</td></tr>
+    </table></div>
+    <div class="scroll"><table>
+      <tr><th>Tham số UTM</th><th>Giá trị</th></tr>
+      <tr><td><code>utm_source</code></td><td><code>hst-office</code></td></tr>
+      <tr><td><code>utm_medium</code></td><td><code>welcome</code> · <code>start-center</code> · <code>menu</code> · <code>about</code> (vị trí người dùng bấm)</td></tr>
+      <tr><td><code>utm_campaign</code></td><td><code>hst-office-1-0</code> (theo phiên bản phát hành)</td></tr>
+    </table></div>
+    <p class="small">Mã UTM chỉ đi kèm khi người dùng bấm link để mở trình duyệt; HST Office không tự gửi dữ liệu nào.</p>
+  </section>
+
+  <footer>
+    <span>Nguồn: hasontech.vn, aios.hasontech.vn, echatbot.vn, espace.vn/zaloapp, seo.hasontech.vn (đọc 29/10/2026); repo trên máy dev: hstseo, zaloapp, aidelam, autopost.</span>
+    <span>Mockup minh hoạ bố cục, không phải ảnh chụp ứng dụng thật.</span>
+  </footer>
+</div>

@@ -1,0 +1,50 @@
+HST Office About dialog: publisher contact and website.
+
+- Keeps the upstream "%PRODUCTNAME is derived from LibreOffice which was based
+  on OpenOffice.org" statement and the LibreOffice contributors copyright line.
+- Adds the publisher contact block (HASON TECH name, address, phone, e-mail,
+  website), the same text in every UI language.
+- Website button: Help/StartCenter/InfoURL now https://hasontech.vn/ (was a
+  hard-coded https://www.libreoffice.org/ in postprocess/CustomTarget_registry.mk);
+  no libreoffice.org language path is appended; UTM utm_medium=about.
+
+License: modified upstream files keep their license (MPL-2.0).
+---
+--- a/cui/source/dialogs/about.cxx
++++ b/cui/source/dialogs/about.cxx
+@@ -127,8 +127,10 @@
+     // Links
+     m_pCreditsButton->set_uri(officecfg::Office::Common::Menus::CreditsURL::get());
+ 
+-    OUString sURL(officecfg::Office::Common::Help::StartCenter::InfoURL::get());
+-    localizeWebserviceURI(sURL);
++    // HST Office: the website is hasontech.vn; no language path is appended (that
++    // scheme is libreoffice.org-specific). UTM only marks clicks from this dialog.
++    OUString sURL(officecfg::Office::Common::Help::StartCenter::InfoURL::get()
++                  + "?utm_source=hst-office&utm_medium=about&utm_campaign=hst-office-1-0");
+     m_pWebsiteButton->set_uri(sURL);
+ 
+     // See also SID_WHATSNEW in sfx2/source/appl/appserv.cxx
+@@ -255,6 +257,11 @@
+     else
+         aCopyrightString += CuiResId(RID_CUISTR_ABOUT_DERIVED);
+ 
++    // HST Office: publisher contact (same text in every UI language).
++    aCopyrightString += u"\n\nC\u00F4ng ty TNHH C\u00F4ng ngh\u1EC7 H\u00E0 S\u01A1n (HASON TECH)"
++                        u"\n300 X\u00F4 Vi\u1EBFt Ngh\u1EC7 T\u0129nh, ph\u01B0\u1EDDng C\u1EA9m L\u1EC7, TP. \u0110\u00E0 N\u1EB5ng"
++                        u"\n\u0110i\u1EC7n tho\u1EA1i: (0236) 3.507.507 \u00B7 lienhe@hasontech.vn \u00B7 hasontech.vn"_ustr;
++
+     return aCopyrightString;
+ }
+ 
+--- a/postprocess/CustomTarget_registry.mk
++++ b/postprocess/CustomTarget_registry.mk
+@@ -580,7 +580,7 @@
+ 	-e 's,$${PRODUCTNAME},$(PRODUCTNAME),g' \
+ 	-e 's,$${PRODUCTVERSION},$(PRODUCTVERSION),g' \
+ 	-e 's,$${PRODUCTEXTENSION},.$(LIBO_VERSION_MICRO).$(LIBO_VERSION_PATCH)$(LIBO_VERSION_SUFFIX),g' \
+-	-e 's,$${STARTCENTER_INFO_URL},https://www.libreoffice.org/,g' \
++	-e 's,$${STARTCENTER_INFO_URL},https://hasontech.vn/,g' \
+ 	-e 's,$${SYSTEM_LIBEXTTEXTCAT_DATA},$(SYSTEM_LIBEXTTEXTCAT_DATA),g' \
+ 	-e 's,$${SYSTEM_LIBNUMBERTEXT_DATA},$(SYSTEM_LIBNUMBERTEXT_DATA),g' \
+ 	-e 's,$${PRIVACY_POLICY_URL},$(PRIVACY_POLICY_URL),g' \

@@ -123,3 +123,40 @@ def run_convert_dialog(doc, py_dir, lang, choose):
     _press_ok_later(lambda: wiz.d.end(0), 25.0)  # watchdog
     key = wiz.run(doc.getCurrentController().getFrame().getContainerWindow())
     return json.dumps({"key": key, "suggestion": suggestion}, ensure_ascii=False)
+
+
+def welcome_hook(py_dir):
+    """Replace the browser launcher of the welcome dialog by a recorder (no browser is ever started by the test)."""
+    _load(py_dir)
+    from hst_office import welcome_dialog
+    welcome_dialog.open_url = lambda ctx, url: None
+    welcome_dialog.OPENED[:] = []
+    return "hooked"
+
+
+def welcome_state(py_dir):
+    """What the currently displayed welcome dialog contains and which URLs clicks have produced so far."""
+    _load(py_dir)
+    from hst_office import welcome_dialog
+    cur = welcome_dialog.CURRENT
+    out = {"open": cur is not None, "opened": list(welcome_dialog.OPENED)}
+    if cur:
+        model = cur.d.model
+        out.update(title=model.Title, size=[model.Width, model.Height], links=[(n, u) for n, u in cur.links],
+                   labels={n: getattr(model.getByName(n), "Label", None) for n in model.getElementNames()},
+                   dontShow=bool(model.getByName("dontShow").State))
+    return json.dumps(out, ensure_ascii=False)
+
+
+def welcome_click(py_dir, index):
+    _load(py_dir)
+    from hst_office import welcome_dialog
+    welcome_dialog.CURRENT.click_link(int(index))
+    return "clicked"
+
+
+def welcome_close(py_dir, dont_show):
+    _load(py_dir)
+    from hst_office import welcome_dialog
+    welcome_dialog.CURRENT.close(bool(dont_show))
+    return "closed"

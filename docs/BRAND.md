@@ -55,6 +55,20 @@ Quét chuỗi chỉ xem file văn bản/cấu hình/`.mo`; **không phát hiện
 
 Chữ “HST OFFICE” được raster hóa bằng **Liberation Sans Bold Italic** (SIL OFL 1.1, gói `fonts-liberation`). Font không được phân phối kèm. Font gốc của chữ “HASON TECH” không xác định được, nên chữ mới không trùng font gốc; khi có font chính thức của HASON TECH, cập nhật `brand-spec.json` rồi sinh lại.
 
+## Banner Start Center
+
+[`branding/libreoffice/hst-banner.png`](../branding/libreoffice/hst-banner.png) giới thiệu các giải pháp chuyển đổi số của HASON TECH: AIOS, eChatbot, Zalo Mini App, HST SEO, AI Dễ Lắm và HST Content. Ảnh RGBA **1280×160 px** dành cho hiển thị **640×80 px** (HiDPI 2×), có nền thẻ trắng đục bo góc để giữ độ tương phản trên cả giao diện sáng và tối. Biểu tượng HS gốc chỉ được thu nhỏ; nút bên phải mang chữ “hasontech.vn →”. Đăng ký ảnh và xử lý nhấp thuộc mã Start Center.
+
+Xem trước đúng kích thước hiển thị: [nền trắng](../branding/libreoffice/hst-banner-preview-light.png) và [nền tối](../branding/libreoffice/hst-banner-preview-dark.png). Font **Liberation Sans Regular/Bold** (SIL OFL 1.1) bao phủ toàn bộ chữ tiếng Việt và ký tự mũi tên. Đường dẫn và SHA-256 được khóa trong mục `startCenterBanner` của [brand-spec.json](../assets/brand/brand-spec.json); generator từ chối font sai hash. Không phân phối file font.
+
+Module [start_center_banner.py](../scripts/brand/start_center_banner.py) được gọi từ generator chung; PNG không có timestamp, `--check` so sánh chính xác từng byte:
+
+```bash
+.venv/bin/python scripts/generate-brand-assets.py
+.venv/bin/python scripts/generate-brand-assets.py --check
+.venv/bin/python tests/brand/test-brand-assets.py
+```
+
 ## Phạm vi sử dụng
 
 - Dùng cho splash/About/Start Center, icon ứng dụng, launcher, mẫu tài liệu (khi phù hợp), tài liệu và README của HST Office (engine LibreOffice).

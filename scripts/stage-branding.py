@@ -28,6 +28,8 @@ PNG_SIZES = {"intro.png": (644, 199), "intro-highres.png": (990, 254), "donate1.
 SVG_SIZES = {"logo.svg": (345.611, 71.5), "logo_inverted.svg": (345.611, 71.5), "logo-sc.svg": (345.611, 71.5),
              "logo-sc_inverted.svg": (345.611, 71.5), "about.svg": (372.724, 354.728)}
 OPTIONAL_FILES = ["progress.conf"]
+BANNER = "hst-banner.png"  # 1280x160 artwork, drawn at half size
+BANNER = "hst-banner.png"  # 1280x160 artwork, drawn at half size
 
 
 def fit(image, size, background):
@@ -70,6 +72,12 @@ def main():
     manifest = {}
     for name in list(PNG_SIZES) + list(SVG_SIZES):
         final = os.path.join(FINAL_DIR, name)
+        # hst-start-center-banner.patch reads the Start Center banner from donate1.png.
+        if name == "donate1.png" and os.path.exists(os.path.join(FINAL_DIR, BANNER)):
+            final = os.path.join(FINAL_DIR, BANNER)
+        # hst-start-center-banner.patch reads the Start Center banner from donate1.png.
+        if name == "donate1.png" and os.path.exists(os.path.join(FINAL_DIR, BANNER)):
+            final = os.path.join(FINAL_DIR, BANNER)
         target = os.path.join(args.out, name)
         if os.path.exists(final):
             shutil.copyfile(final, target)

@@ -23,6 +23,7 @@ from brand.common import ROOT, SPEC_PATH  # noqa: E402
 from brand.legacy import build_core, load_source  # noqa: E402
 from brand.lo_branding import build_lo_branding  # noqa: E402
 from brand.platform_icons import build_platform_icons  # noqa: E402
+from brand.start_center_banner import build_start_center_banner  # noqa: E402
 
 
 def build_assets(spec):
@@ -30,6 +31,7 @@ def build_assets(spec):
     outputs.update(build_app_icons(spec, square))
     outputs.update(build_lo_branding(spec, mark, logo))
     outputs.update(build_platform_icons(spec, square))
+    outputs.update(build_start_center_banner(spec, mark))
     return outputs
 
 

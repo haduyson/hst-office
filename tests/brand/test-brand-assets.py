@@ -1,14 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Brand asset tests: source untouched, mark pixel-identical, sizes, reproducibility."""
+from copy import deepcopy
 import hashlib
 import json
 import os
 import subprocess
 import sys
 import unittest
+import unicodedata
 
 from PIL import Image, ImageChops
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+from brand.start_center_banner import build_start_center_banner  # noqa: E402
+
 with open(os.path.join(ROOT, "assets", "brand", "brand-spec.json"), encoding="utf-8") as fh:
     SPEC = json.load(fh)
 
@@ -84,6 +90,68 @@ class BrandAssetTests(unittest.TestCase):
         script = path("scripts/generate-brand-assets.py")
         result = subprocess.run([sys.executable, script, "--check"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_banner_size_and_opaque_card(self):
+        with Image.open(path(SPEC["startCenterBanner"]["path"])) as banner:
+            self.assertEqual((banner.size, banner.mode), ((1280, 160), "RGBA"))
+            self.assertEqual(banner.getpixel((0, 0))[3], 0)
+            self.assertEqual(banner.getpixel((1279, 159))[3], 0)
+            self.assertEqual(banner.crop((32, 8, 1248, 152)).getchannel("A").getextrema(),
+                             (255, 255), "the card must protect every text region")
+
+    def test_banner_previews_are_composited_at_display_size(self):
+        cfg = SPEC["startCenterBanner"]
+        with Image.open(path(cfg["path"])) as banner:
+            displayed = banner.resize((640, 80), Image.Resampling.LANCZOS)
+        for theme, color in (("light", "#FFFFFF"), ("dark", "#1E1E1E")):
+            expected = Image.new("RGBA", (640, 80), color)
+            expected.alpha_composite(displayed)
+            with Image.open(path(cfg["previewPattern"].format(theme=theme))) as preview:
+                self.assertEqual((preview.size, preview.mode), ((640, 80), "RGBA"))
+                self.assertEqual(preview.getchannel("A").getextrema(), (255, 255))
+                self.assertEqual(preview.tobytes(), expected.tobytes())
+
+    def test_banner_preserves_the_original_mark(self):
+        with Image.open(path(SPEC["outputs"]["mark"])) as mark:
+            scaled = mark.resize((90, 78), Image.Resampling.LANCZOS)
+        expected = Image.new("RGBA", scaled.size, "white")
+        expected.alpha_composite(scaled)
+        with Image.open(path(SPEC["startCenterBanner"]["path"])) as banner:
+            self.assertEqual(banner.crop((34, 41, 124, 119)).tobytes(), expected.tobytes())
+
+    def test_banner_exact_copy_nfc_and_font_coverage(self):
+        cfg = SPEC["startCenterBanner"]
+        self.assertEqual(cfg["leadText"], "Giải pháp chuyển đổi số từ HASON TECH")
+        # Banner chips follow the owner-approved order in data/hst/solutions.json.
+        with open(path("data/hst/solutions.json"), encoding="utf-8") as fh:
+            approved = [item["name"] for item in json.load(fh)["solutions"]]
+        self.assertEqual(cfg["solutions"], approved)
+        self.assertEqual(cfg["callToAction"], "hasontech.vn →")
+        copy = " ".join([cfg["leadText"], *cfg["solutions"], cfg["callToAction"]])
+        self.assertEqual(copy, unicodedata.normalize("NFC", copy))
+        for face in cfg["fonts"].values():
+            charset = subprocess.check_output(
+                ["fc-query", "--format=%{charset}", face["fontCandidates"][0]], text=True)
+            ranges = [(int(r.split("-")[0], 16), int(r.split("-")[-1], 16))
+                      for r in charset.split()]
+            missing = {c for c in copy if not any(lo <= ord(c) <= hi for lo, hi in ranges)}
+            self.assertEqual(missing, set(), face["font"])
+
+    def test_banner_reproducible_bytes(self):
+        with Image.open(path(SPEC["outputs"]["mark"])) as mark:
+            first = build_start_center_banner(SPEC, mark)
+            self.assertEqual(first, build_start_center_banner(SPEC, mark))
+        for name, data in first.items():
+            with open(path(name), "rb") as handle:
+                self.assertEqual(data, handle.read(), name)
+
+    def test_banner_rejects_unpinned_fonts(self):
+        for face in SPEC["startCenterBanner"]["fonts"]:
+            spec = deepcopy(SPEC)
+            spec["startCenterBanner"]["fonts"][face]["fontSha256"] = "0" * 64
+            with Image.open(path(SPEC["outputs"]["mark"])) as mark:
+                with self.assertRaisesRegex(SystemExit, "does not match pinned sha256"):
+                    build_start_center_banner(spec, mark)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,8 @@ if _HERE not in sys.path:
 import unohelper  # noqa: E402
 
 from hst_office.dispatch import IMPLEMENTATION_NAME, Handler  # noqa: E402
+from hst_office.welcome_job import JOB_NAME, WelcomeJob  # noqa: E402
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(Handler, IMPLEMENTATION_NAME, ("com.sun.star.frame.ProtocolHandler",))
+g_ImplementationHelper.addImplementation(WelcomeJob, JOB_NAME, ("com.sun.star.task.Job",))

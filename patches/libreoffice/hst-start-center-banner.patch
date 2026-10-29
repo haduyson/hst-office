@@ -1,0 +1,211 @@
+HST Office Start Center: HASON TECH solutions banner, three editors, no donation UI.
+
+- The donation banner area shows a one-line HASON TECH solutions banner on
+  every start while Misc/ShowDonation is enabled (upstream: every 30 days).
+  The artwork ships as the custom brand image donate1.png (2x pixels, drawn at
+  half size); donation texts and the right image are hidden; link "hasontech.vn".
+- The Start Center donation button is never shown; the Extensions button keeps
+  opening the extensions site.
+- Banner link opens Menus/DonationURL (https://hasontech.vn, hst-defaults.patch)
+  with utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0.
+  The application sends no data; UTM only describes the user's click.
+- "Create" buttons: only "_Text Document" / "_Spreadsheet" / "_Presentation"
+  (vi: "_Văn bản" / "_Bảng tính" / "_Trình chiếu"); Draw, Math and Base buttons
+  are hidden (those components stay installed for use inside the three editors).
+
+License: modified upstream files keep their license (MPL-2.0; translations
+under their upstream license). Test: Start Center screenshot under Xvfb.
+---
+--- a/sfx2/source/dialog/backingwindow.cxx
++++ b/sfx2/source/dialog/backingwindow.cxx
+@@ -211,9 +211,9 @@
+     // draw the donation image/text
+     const bool bShowDonation(officecfg::Office::Common::Misc::ShowDonation::get());
+ 
+-    const auto t0 = std::chrono::system_clock::now().time_since_epoch();
+-    const sal_Int32 nDay = std::chrono::duration_cast<std::chrono::hours>(t0).count()/24; // days since 1970-01-01
+-    if (bShowDonation && (nDay % 30 == 0))  // show the donation banner every 30 days
++    // HST Office: the donation banner area shows the HASON TECH solutions banner on
++    // every start while Misc/ShowDonation is enabled (users can switch it off).
++    if (bShowDonation)
+         initDonationBanner();
+     else
+         mxDonationBox->set_visible(false);
+@@ -226,20 +226,8 @@
+     mxHelpButton->set_label(mxAltHelpLabel->get_label());
+     mxHelpButton->connect_clicked(LINK(this, BackingWindow, ClickHelpHdl));
+ 
+-    // tdf#161796 replace the extension button with a donate button
+-    if (bShowDonation)
+-    {
+-        mxExtensionsButton->hide();
+-        mxDonateButton->show();
+-        mxDonateButton->set_from_icon_name(BMP_DONATE);
+-        OUString sDonate(SfxResId(STR_DONATE_BUTTON));
+-        if (sDonate.getLength() > 8)
+-        {
+-            mxDonateButton->set_tooltip_text(sDonate);
+-            sDonate = OUString::Concat(sDonate.subView(0, 7)) + "...";
+-        }
+-        mxDonateButton->set_label(sDonate);
+-    }
++    // HST Office: no donation button; the Extensions button keeps its place.
++    mxDonateButton->hide();
+ 
+     mxDropTarget = mxAllRecentThumbnails->GetDropTarget();
+ 
+@@ -264,44 +252,43 @@
+ {
+     mxDonationLink->connect_activate_link(LINK(this, BackingWindow, OnDonateLinkClick));
+ 
+-    mxDonationBox->set_background(COL_WHITE);
+-    mxDonationBoxTitle->set_font_color(COL_BLACK);
+-    mxDonationBoxText->set_font_color(COL_BLACK);
++    // HST Office: one-line banner. The brand image slot donate1.png carries the HST
++    // banner artwork (2x pixels, drawn at half size); no donation text or image is shown.
++    mxDonationBoxTitle->hide();
++    mxDonationBoxText->hide();
++    mxDonationRight->hide();
++    mxDonationLink->set_label(u"hasontech.vn"_ustr);
+ 
+     ScopedVclPtr<VirtualDevice> m_pVirDevLeft = mxDonationLeft->create_virtual_device();
+     Graphic aGraphic;
+-    Size aGraphicSize;
+     OUString aURL = "$BRAND_BASE_DIR/" LIBO_ETC_FOLDER + u"/shell/donate1.png"_ustr;
+     rtl::Bootstrap::expandMacros( aURL );
+     if (GraphicFilter::LoadGraphic(aURL, OUString(), aGraphic) == ERRCODE_NONE)
+     {
+-        aGraphicSize = Size(200, 200);
++        const Size aPixels(aGraphic.GetSizePixel());
++        const Size aGraphicSize(aPixels.Width() / 2, aPixels.Height() / 2);
+         m_pVirDevLeft->SetOutputSizePixel(aGraphicSize);
+-        m_pVirDevLeft->DrawBitmap(Point(0, 0), aGraphicSize, aGraphic.GetBitmap());
++        m_pVirDevLeft->DrawBitmap(Point(0, 0), aGraphicSize, Point(), aPixels,
++                                  aGraphic.GetBitmap(), MetaActionType::BMPEX);
+     }
+     mxDonationLeft->set_image(m_pVirDevLeft.get());
+     m_pVirDevLeft.disposeAndClear();
+-
+-    ScopedVclPtr<VirtualDevice> m_pVirDevRight = mxDonationRight->create_virtual_device();
+-    aURL = "$BRAND_BASE_DIR/" LIBO_ETC_FOLDER + u"/shell/donate2.png"_ustr;
+-    rtl::Bootstrap::expandMacros( aURL );
+-    if (GraphicFilter::LoadGraphic(aURL, OUString(), aGraphic) == ERRCODE_NONE)
+-    {
+-        aGraphicSize = Size(150, 150);
+-        m_pVirDevRight->SetOutputSizePixel(aGraphicSize);
+-        // image has a transparent background and needs to be drawn with the advanced function
+-        m_pVirDevRight->DrawBitmap(Point(0, 0), aGraphicSize, Point(), aGraphicSize,
+-                                   aGraphic.GetBitmap(), MetaActionType::BMPEX);
+-    }
+-    mxDonationRight->set_image(m_pVirDevRight.get());
+-    m_pVirDevRight.disposeAndClear();
+ }
+ 
+ IMPL_STATIC_LINK_NOARG(BackingWindow, OnDonateLinkClick, weld::LinkButton&, bool)
+ {
+-    SfxDispatcher &rDispatcher = *SfxGetpApp()->GetDispatcher_Impl();
+-    rDispatcher.Execute(SID_DONATION, SfxCallMode::ASYNCHRON);
+-
++    // HST Office: open the HASON TECH page; UTM only tells the site where the click came from.
++    try
++    {
++        css::system::SystemShellExecute::create(::comphelper::getProcessComponentContext())->execute(
++            officecfg::Office::Common::Menus::DonationURL::get()
++                + "?utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0",
++            OUString(), css::system::SystemShellExecuteFlags::URIS_ONLY);
++    }
++    catch (const Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "opening the HASON TECH page failed");
++    }
+     return true;
+ }
+ 
+@@ -529,6 +516,13 @@
+     mxDrawAllButton->set_sensitive(aModuleOpt.IsDrawInstalled());
+     mxMathAllButton->set_sensitive(aModuleOpt.IsMathInstalled());
+     mxDBAllButton->set_sensitive(aModuleOpt.IsDataBaseInstalled());
++
++    // HST Office offers exactly three editors in the Start Center: text documents,
++    // spreadsheets and presentations. Draw/Math/Base stay installed as internal
++    // components used by those editors but get no "create" button.
++    mxDrawAllButton->set_visible(false);
++    mxMathAllButton->set_visible(false);
++    mxDBAllButton->set_visible(false);
+ }
+ 
+ bool BackingWindow::PreNotify(NotifyEvent& rNEvt)
+@@ -642,13 +636,8 @@
+ {
+     try
+     {
+-        OUString sURL;
+-        if (officecfg::Office::Common::Misc::ShowDonation::get())
+-            sURL = officecfg::Office::Common::Menus::DonationURL::get() +
+-                "?BCP47=" + LanguageTag(utl::ConfigManager::getUILocale()).getBcp47() +
+-                "&LOlang=" + LanguageTag(utl::ConfigManager::getUILocale()).getLanguage();
+-        else
+-            sURL = officecfg::Office::Common::Menus::ExtensionsURL::get() +
++        // HST Office: this button always opens the extensions site (no donation button).
++        OUString sURL = officecfg::Office::Common::Menus::ExtensionsURL::get() +
+                 "?LOvers=" + utl::ConfigManager::getProductVersion() +
+                 "&LOlocale=" + LanguageTag(utl::ConfigManager::getUILocale()).getBcp47();
+ 
+--- a/sfx2/uiconfig/ui/startcenter.ui
++++ b/sfx2/uiconfig/ui/startcenter.ui
+@@ -234,7 +234,7 @@
+                     </child>
+                     <child>
+                       <object class="GtkButton" id="writer_all">
+-                        <property name="label" translatable="yes" context="startcenter|writer_all">_Writer Document</property>
++                        <property name="label" translatable="yes" context="startcenter|writer_all">_Text Document</property>
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="receives-default">True</property>
+@@ -254,7 +254,7 @@
+                     </child>
+                     <child>
+                       <object class="GtkButton" id="calc_all">
+-                        <property name="label" translatable="yes" context="startcenter|calc_all">_Calc Spreadsheet</property>
++                        <property name="label" translatable="yes" context="startcenter|calc_all">_Spreadsheet</property>
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="receives-default">True</property>
+@@ -274,7 +274,7 @@
+                     </child>
+                     <child>
+                       <object class="GtkButton" id="impress_all">
+-                        <property name="label" translatable="yes" context="startcenter|impress_all">_Impress Presentation</property>
++                        <property name="label" translatable="yes" context="startcenter|impress_all">_Presentation</property>
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="receives-default">True</property>
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -5177,20 +5177,20 @@
+ #: sfx2/uiconfig/ui/startcenter.ui:237
+ #, fuzzy
+ msgctxt "startcenter|writer_all"
+-msgid "_Writer Document"
+-msgstr "Tài liệu chủ"
++msgid "_Text Document"
++msgstr "_Văn bản"
+ 
+ #. Bvz5c
+ #: sfx2/uiconfig/ui/startcenter.ui:257
+ msgctxt "startcenter|calc_all"
+-msgid "_Calc Spreadsheet"
+-msgstr ""
++msgid "_Spreadsheet"
++msgstr "_Bảng tính"
+ 
+ #. RxGP6
+ #: sfx2/uiconfig/ui/startcenter.ui:277
+ msgctxt "startcenter|impress_all"
+-msgid "_Impress Presentation"
+-msgstr ""
++msgid "_Presentation"
++msgstr "_Trình chiếu"
+ 
+ #. 7fE2M
+ #: sfx2/uiconfig/ui/startcenter.ui:297

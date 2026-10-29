@@ -6,17 +6,44 @@ HST Office default configuration for the LibreOffice 26.8.1.1 based suite.
   CommandArg). Users can still switch via View > User Interface.
 - Product-facing help/feedback/donation/release-notes/credits URLs point to
   HST (hasontech.vn, github.com/haduyson/hst-office) instead of TDF services.
-- No Start Center donation banner (Misc/ShowDonation=false) and no upstream
-  "What's New" infobar/dialog (Setup/Product WhatsNew*=false).
+- No upstream "What's New" infobar/dialog (Setup/Product WhatsNew*=false).
 - Writer default fonts Times New Roman (Decree 30/2020 Phụ lục I, I.4); when
   the font is absent fontconfig substitutes metric-compatible Liberation Serif.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: tests/runtime/check-defaults.py on a fresh profile.
 ---
-diff -ruN pristine/officecfg/registry/data/org/openoffice/Office/Common.xcu patched/officecfg/registry/data/org/openoffice/Office/Common.xcu
---- a/officecfg/registry/data/org/openoffice/Office/Common.xcu	2026-09-17 05:11:38.000000000 +0700
-+++ b/officecfg/registry/data/org/openoffice/Office/Common.xcu	2026-10-29 14:00:22.181342100 +0700
+--- a/officecfg/registry/data/org/openoffice/Office/UI/ToolbarMode.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/ToolbarMode.xcu
+@@ -16,7 +16,7 @@
+   <node oor:name="Applications">
+     <node oor:name="Writer" oor:op="replace">
+       <prop oor:name="Active">
+-        <value>Default</value>
++        <value>notebookbar.ui</value>
+       </prop>
+       <node oor:name="Modes">
+         <node oor:name="Default" oor:op="replace">
+@@ -296,7 +296,7 @@
+     </node>
+     <node oor:name="Calc" oor:op="replace">
+       <prop oor:name="Active">
+-        <value>Default</value>
++        <value>notebookbar.ui</value>
+       </prop>
+       <node oor:name="Modes">
+         <node oor:name="Default" oor:op="replace">
+@@ -545,7 +545,7 @@
+     </node>
+     <node oor:name="Impress" oor:op="replace">
+       <prop oor:name="Active">
+-        <value>Default</value>
++        <value>notebookbar.ui</value>
+       </prop>
+       <node oor:name="Modes">
+         <node oor:name="Default" oor:op="replace">
+--- a/officecfg/registry/data/org/openoffice/Office/Common.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Common.xcu
 @@ -337,25 +337,25 @@
        </node>
      </node>
@@ -50,51 +77,26 @@ diff -ruN pristine/officecfg/registry/data/org/openoffice/Office/Common.xcu patc
      </prop>
      <prop oor:name="HyphenationMissingURL" oor:type="xs:string">
        <value>https://hub.libreoffice.org/HyphenationMissing/</value>
-diff -ruN pristine/officecfg/registry/data/org/openoffice/Office/UI/ToolbarMode.xcu patched/officecfg/registry/data/org/openoffice/Office/UI/ToolbarMode.xcu
---- a/officecfg/registry/data/org/openoffice/Office/UI/ToolbarMode.xcu	2026-09-17 05:11:38.000000000 +0700
-+++ b/officecfg/registry/data/org/openoffice/Office/UI/ToolbarMode.xcu	2026-10-29 14:00:22.179341989 +0700
-@@ -16,7 +16,7 @@
-   <node oor:name="Applications">
-     <node oor:name="Writer" oor:op="replace">
-       <prop oor:name="Active">
--        <value>Default</value>
-+        <value>notebookbar.ui</value>
-       </prop>
-       <node oor:name="Modes">
-         <node oor:name="Default" oor:op="replace">
-@@ -296,7 +296,7 @@
-     </node>
-     <node oor:name="Calc" oor:op="replace">
-       <prop oor:name="Active">
--        <value>Default</value>
-+        <value>notebookbar.ui</value>
-       </prop>
-       <node oor:name="Modes">
-         <node oor:name="Default" oor:op="replace">
-@@ -545,7 +545,7 @@
-     </node>
-     <node oor:name="Impress" oor:op="replace">
-       <prop oor:name="Active">
--        <value>Default</value>
-+        <value>notebookbar.ui</value>
-       </prop>
-       <node oor:name="Modes">
-         <node oor:name="Default" oor:op="replace">
-diff -ruN pristine/officecfg/registry/schema/org/openoffice/Office/Common.xcs patched/officecfg/registry/schema/org/openoffice/Office/Common.xcs
---- a/officecfg/registry/schema/org/openoffice/Office/Common.xcs	2026-09-17 05:11:38.000000000 +0700
-+++ b/officecfg/registry/schema/org/openoffice/Office/Common.xcs	2026-10-29 14:00:22.185342323 +0700
-@@ -5127,7 +5127,7 @@
+--- a/officecfg/registry/schema/org/openoffice/Setup.xcs
++++ b/officecfg/registry/schema/org/openoffice/Setup.xcs
+@@ -305,13 +305,13 @@
          <info>
-           <desc>Determines whether to show a donation button in the start center or extension.</desc>
+             <desc>Set to false to not show the WhatsNew infobar on major updates.</desc>
          </info>
 -        <value>true</value>
 +        <value>false</value>
        </prop>
-       <prop oor:name="UseOpenCL" oor:type="xs:boolean" oor:nillable="false">
+       <prop oor:name="WhatsNewDialog" oor:type="xs:boolean" oor:nillable="false">
          <info>
-diff -ruN pristine/officecfg/registry/schema/org/openoffice/Office/Writer.xcs patched/officecfg/registry/schema/org/openoffice/Office/Writer.xcs
---- a/officecfg/registry/schema/org/openoffice/Office/Writer.xcs	2026-09-17 05:11:38.000000000 +0700
-+++ b/officecfg/registry/schema/org/openoffice/Office/Writer.xcs	2026-10-29 14:00:22.192342713 +0700
+             <desc>Set to false to not show the WhatsNew dialog but the infobar.</desc>
+         </info>
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+     </group>
+     <group oor:name="Office">
+--- a/officecfg/registry/schema/org/openoffice/Office/Writer.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Writer.xcs
 @@ -1595,6 +1595,7 @@
            <desc>Specifies the font type to be used for the Standard paragraph style.</desc>
            <label>Standard</label>
@@ -135,22 +137,3 @@ diff -ruN pristine/officecfg/registry/schema/org/openoffice/Office/Writer.xcs pa
        </prop>
        <prop oor:name="IndexHeight" oor:type="xs:int">
          <!-- UIHints: Tools - Options - Text document  Default Fonts (Western) -->
-diff -ruN pristine/officecfg/registry/schema/org/openoffice/Setup.xcs patched/officecfg/registry/schema/org/openoffice/Setup.xcs
---- a/officecfg/registry/schema/org/openoffice/Setup.xcs	2026-09-17 05:11:38.000000000 +0700
-+++ b/officecfg/registry/schema/org/openoffice/Setup.xcs	2026-10-29 14:00:22.186342379 +0700
-@@ -305,13 +305,13 @@
-         <info>
-             <desc>Set to false to not show the WhatsNew infobar on major updates.</desc>
-         </info>
--        <value>true</value>
-+        <value>false</value>
-       </prop>
-       <prop oor:name="WhatsNewDialog" oor:type="xs:boolean" oor:nillable="false">
-         <info>
-             <desc>Set to false to not show the WhatsNew dialog but the infobar.</desc>
-         </info>
--        <value>true</value>
-+        <value>false</value>
-       </prop>
-     </group>
-     <group oor:name="Office">

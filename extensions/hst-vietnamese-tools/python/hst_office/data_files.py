@@ -15,6 +15,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(EXT_ROOT))
 def _candidates(name):
     yield os.path.join(EXT_ROOT, "data", name)
     yield os.path.join(REPO_ROOT, "data", "vietnamese", name)
+    yield os.path.join(REPO_ROOT, "data", "hst", name)
 
 
 def load_data(name):

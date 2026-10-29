@@ -4,7 +4,7 @@
 
 Usage: python3 scripts/build-extensions.py --output dist/extensions [--verify-reproducible]
 
-Each extensions/<name>/ directory becomes <name>.oxt. Shared data from data/vietnamese/ is copied into the
+Each extensions/<name>/ directory becomes <name>.oxt. Shared data from data/vietnamese/ (and data/hst/solutions.json for the welcome dialog) is copied into the
 package (data/), the AGPL licence and a generated notice file go into license/. ZIP entries are sorted, use a
 fixed timestamp and permissions, so two builds of the same tree are byte-identical.
 """
@@ -47,6 +47,7 @@ def collect(ext_root):
             files[os.path.relpath(path, ext_root).replace(os.sep, "/")] = open(path, "rb").read()
     for name in SHARED_DATA:
         files["data/" + name] = open(os.path.join(ROOT, "data", "vietnamese", name), "rb").read()
+    files["data/solutions.json"] = open(os.path.join(ROOT, "data", "hst", "solutions.json"), "rb").read()  # welcome dialog content
     files["license/LICENSE.txt"] = open(os.path.join(ROOT, "LICENSE"), "rb").read()
     files["license/NOTICES.txt"] = notices_text().encode("utf-8")
     return files

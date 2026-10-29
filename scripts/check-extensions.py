@@ -17,11 +17,11 @@ import zipfile
 from xml.dom import minidom
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REQUIRED = ("description.xml", "META-INF/manifest.xml", "license/LICENSE.txt", "license/NOTICES.txt", "data/provenance.json")
+REQUIRED = ("description.xml", "META-INF/manifest.xml", "license/LICENSE.txt", "license/NOTICES.txt", "data/provenance.json", "data/solutions.json")
 SHARED_DATA = ("nd30.json", "number-formats.json", "encoding-maps.json", "provenance.json")
 HOST_ALLOW = ("openoffice.org", "libreoffice.org", "w3.org", "hasontech.vn", "sun.com")
 NETWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess|ctypes)\b", re.M)
-MEDIA = ("application/vnd.sun.star.uno-component;type=Python", "application/vnd.sun.star.configuration-data")
+MEDIA = ("application/vnd.sun.star.uno-component;type=Python", "application/vnd.sun.star.configuration-data", "application/vnd.sun.star.configuration-schema")
 MAX_LINES = 199
 
 
@@ -103,6 +103,9 @@ def check_content(zf, names, errors):
                 errors.append("data/%s is stale compared with data/vietnamese/%s" % (name, name))
         elif "data/" + name not in names:
             errors.append("missing data/%s" % name)
+    src = os.path.join(ROOT, "data", "hst", "solutions.json")
+    if "data/solutions.json" in names and os.path.exists(src) and zf.read("data/solutions.json") != open(src, "rb").read():
+        errors.append("data/solutions.json is stale compared with data/hst/solutions.json")
 
 
 def check_labels(zf, names, errors):
@@ -139,7 +142,7 @@ def check_oxt(path):
 
 
 def self_test():
-    """Build deliberately broken packages from the real one and require every defect to be reported."""
+    """Build deliberately broken packages from the real one; every defect must be reported."""
     source = os.path.join(ROOT, "dist", "extensions", "hst-vietnamese-tools.oxt")
     if not os.path.exists(source):
         print("BLOCKED: build the extension first (scripts/build-extensions.py)")
@@ -152,7 +155,7 @@ def self_test():
         "bad xml": lambda d: d.update({"ProtocolHandler.xcu": b"<oor:component-data"}),
         "missing registered file": lambda d: d.pop("python/hst_office_component.py"),
         "network import": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: AGPL-3.0-only\nimport socket\n"}),
-        "stale data": lambda d: d.update({"data/nd30.json": b"{}"}),
+        "stale data": lambda d: d.update({"data/nd30.json": b"{}"}), "stale solutions": lambda d: d.update({"data/solutions.json": b"{}"}),
     }
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:
@@ -185,9 +188,7 @@ def main():
     status = 0
     for name in packages:
         errors = check_oxt(os.path.join(args.directory, name))
-        print("%s %s" % ("FAIL" if errors else "PASS", name))
-        for e in errors:
-            print("   -", e)
+        print("%s %s" % ("FAIL" if errors else "PASS", name), *["\n   - " + e for e in errors], sep="")
         status |= 1 if errors else 0
     return status
 

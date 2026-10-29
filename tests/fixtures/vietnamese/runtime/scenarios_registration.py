@@ -42,6 +42,6 @@ def run(rec, session, oxt_path):
     menu = config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeMenuBar")
     rec.check("HST menu registered", menu.hasByName("org.hst.office.vi"), list(menu.getElementNames())[:5])
     sub = menu.getByName("org.hst.office.vi").getByName("Submenu")
-    rec.check("HST submenu has 6 commands", len(sub.getElementNames()) == 6, sub.getElementNames())
+    rec.check("HST submenu has 7 commands (6 tools + solutions)", len(sub.getElementNames()) == 7, sub.getElementNames())
     rec.check("HST toolbar registered", config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeToolBar").hasByName("org.hst.office.vi.toolbar"))
     sys.path.insert(0, py)

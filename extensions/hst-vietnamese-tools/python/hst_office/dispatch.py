@@ -11,6 +11,7 @@ from .data_files import load_locale
 
 IMPLEMENTATION_NAME = "org.hst.office.vi.DispatchProvider"
 PROTOCOL = "org.hst.office.vi:"
+SHOW_SOLUTIONS = "ShowSolutions"  # needs no document, so it also works in the Start Center
 
 
 def ui_language(ctx):
@@ -44,12 +45,14 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
         return ("com.sun.star.frame.ProtocolHandler",)
 
     def queryDispatch(self, url, target_frame_name, search_flags):
-        return self if url.Protocol == PROTOCOL and url.Path in COMMANDS else None
+        return self if url.Protocol == PROTOCOL and (url.Path in COMMANDS or url.Path == SHOW_SOLUTIONS) else None
 
     def queryDispatches(self, requests):
         return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in requests)
 
     def dispatch(self, url, arguments):
+        if url.Path == SHOW_SOLUTIONS:
+            return self._show_solutions()
         try:
             COMMANDS[url.Path](Host(self.ctx, self.frame, load_locale(ui_language(self.ctx))))
         except Exception as exc:  # noqa: BLE001 - never fail silently inside the office UI thread
@@ -58,6 +61,14 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
                 Host(self.ctx, self.frame, load_locale("en")).say("%s: %s" % (type(exc).__name__, exc), error=True)
             except Exception:  # noqa: BLE001
                 pass
+
+    def _show_solutions(self):
+        try:
+            from .welcome_job import show_welcome
+            peer = self.frame.getContainerWindow() if self.frame else None
+            show_welcome(self.ctx, "menu", peer, load_locale(ui_language(self.ctx)))
+        except Exception:  # noqa: BLE001 - report instead of failing silently inside the UI thread
+            traceback.print_exc()
 
     def addStatusListener(self, control, url):
         pass
