@@ -27,7 +27,7 @@ sudo scripts/build-linux.sh --package
 
 ### Phiên bản
 
-Phiên bản sản phẩm HST Office nằm ở **một tệp duy nhất**: [`VERSION`](VERSION) (hiện `1.0.0`). Muốn phát hành `1.0.1` chỉ sửa tệp này rồi build lại: `scripts/write-hst-version.py` sinh `include/hst_version.h` (About, `soffice --version`), `scripts/build-linux.sh` truyền `HST_VERSION_*` cho tên gói/thư mục cài (`hst-office1.0*`, `/opt/hst-office1.0`) và tên tệp tải `HSTOffice_1.0.0_*`. Phiên bản lõi LibreOffice (26.8.1.1) **giữ nguyên bên trong** (tương thích extension, metadata tài liệu, PDF) và hiện trong About dưới dạng "dựa trên LibreOffice 26.8.1.1".
+Phiên bản sản phẩm HST Office nằm ở **một tệp duy nhất**: [`VERSION`](VERSION) (hiện `1.0.0`). Muốn phát hành `1.0.1` chỉ sửa tệp này rồi build lại: `scripts/write-hst-version.py` sinh `include/hst_version.h` (About, `soffice --version`), `scripts/build-linux.sh` truyền `HST_VERSION_*` cho tên gói/thư mục cài (`hst-office1.0*`, `/opt/hst-office1.0`) và tên tệp tải `HSTOffice_1.0.0_*`. Phiên bản lõi LibreOffice (26.8.1.1) **giữ nguyên bên trong** (tương thích extension, metadata tài liệu, PDF) và chỉ hiện trong "Sao chép thông tin phiên bản" (dòng `Engine:`), không hiện trên mặt About.
 
 Chi tiết: [docs/UPSTREAM_BASELINE.md](docs/UPSTREAM_BASELINE.md), [docs/BUILD_MATRIX.md](docs/BUILD_MATRIX.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

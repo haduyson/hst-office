@@ -61,6 +61,9 @@ prepare_version() {
 
 build() {
   prepare_version
+  # Vietnamese strings that must not name the upstream project; overwrites specific keys
+  # of the (already merged) translations, so it runs last. Idempotent.
+  as_builder "python3 -B '$ROOT/scripts/l10n/apply-overrides.py'"
   as_builder "make build" 2>&1 | tee "$LOGS/build.log" | grep -E '^\[|error|Error' | tail -5
   test -x "$SRC/instdir/program/soffice" || { echo "build did not produce instdir/program/soffice"; exit 1; }
 }

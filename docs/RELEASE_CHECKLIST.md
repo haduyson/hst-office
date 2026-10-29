@@ -4,7 +4,7 @@ Một bản phát hành chỉ được đánh dấu sẵn sàng khi **mọi mụ
 
 ## A. Nguồn & giấy phép
 
-- [ ] Phiên bản: sửa duy nhất tệp [`VERSION`](../VERSION) (`MAJOR.MINOR.MICRO`), build lại; About hiển thị đúng và "dựa trên LibreOffice 26.8.1.1", `soffice --version` và tên gói/`/opt/hst-office<MAJOR>.<MINOR>` khớp. Không đổi phiên bản lõi LibreOffice.
+- [ ] Phiên bản: sửa duy nhất tệp [`VERSION`](../VERSION) (`MAJOR.MINOR.MICRO`), build lại; About hiển thị đúng số phiên bản HST (không nêu tên LibreOffice; "Sao chép thông tin phiên bản" có dòng Engine), `soffice --version` và tên gói/`/opt/hst-office<MAJOR>.<MINOR>` khớp. Không đổi phiên bản lõi LibreOffice.
 
 - [ ] `upstream/libreoffice-lock.json` khớp tarball đã build (SHA-256 + chữ ký GPG "Good signature").
 - [ ] `scripts/apply-patches.sh --check` sạch; mỗi patch có header lý do + giấy phép file gốc (MPL-2.0).

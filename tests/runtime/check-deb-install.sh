@@ -66,6 +66,24 @@ EXT="/opt/hst-office@HSTV@/share/extensions/hst-vietnamese-tools"
 UNOPKG="$(dirname "$BIN")/unopkg"
 BUNDLED="$(su tester -c "$UNOPKG list --bundled 2>&1" || true)"
 grep -q 'Identifier: vn\.hasontech' <<<"$BUNDLED" && echo "PASS unopkg-list-bundled ($(grep -o 'Identifier: vn\.hasontech[^ ]*' <<<"$BUNDLED" | head -1))" || { echo "FAIL unopkg list --bundled:"; echo "$BUNDLED" | tail -8; exit 31; }
+step no-libreoffice-ui
+# Installed Vietnamese UI strings must not name the upstream project (same allow-list as
+# tests/runtime/check-no-libreoffice-ui.py: licence dialog, safe-mode zip file name).
+python3 - "/opt/hst-office@HSTV@/program/resource/vi/LC_MESSAGES" <<'PY' || { echo "FAIL no-libreoffice-ui"; exit 32; }
+import glob, gettext, re, sys
+names = re.compile(r"libreoffice|document\s*foundation", re.I)
+bad = []
+for path in sorted(glob.glob(sys.argv[1] + "/*.mo")):
+    for key, text in gettext.GNUTranslations(open(path, "rb"))._catalog.items():
+        if not key or not isinstance(text, str) or not names.search(text):
+            continue
+        if str(key).startswith("licensedialog|") or "libreoffice-profile.zip" in text:
+            continue
+        bad.append((path.rsplit("/", 1)[-1], str(key)[:60]))
+print("\n".join(map(str, bad)))
+sys.exit(1 if bad else 0)
+PY
+echo "PASS no-libreoffice-ui"
 su tester -c "mkdir -p ~/Documents && printf 'Văn bản kiểm thử HST Office\n' > ~/Documents/keep.txt"
 step convert
 # Launch through the PATH command that the .desktop Exec uses (headless equivalent).

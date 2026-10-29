@@ -27,6 +27,10 @@ EXPECTED = {
     "org.openoffice.Setup/Product/WhatsNew": False,
     "org.openoffice.Office.Writer/DefaultFont/Standard": "Times New Roman",
     "org.openoffice.Office.Common/Menus/DonationURL": "https://hasontech.vn",
+    # Single online help target for F1 / Help menu / dialog Help buttons (hst-debrand.patch).
+    "org.openoffice.Office.Common/Help/HelpRootURL":
+        "https://hasontech.vn/?utm_source=hst-office&utm_medium=help&utm_campaign=hst-office-1-0",
+    "org.openoffice.Office.Common/Help/BuiltInHelpNotInstalledPopUp": False,
 }
 
 
