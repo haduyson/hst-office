@@ -119,3 +119,28 @@ jobs:
           path: D:\hst\artifacts\
           if-no-files-found: error
           retention-days: 7
+      - name: Collect installer
+        id: installer
+        if: ${{ inputs.mode == 'full' && success() }}
+        shell: pwsh
+        run: |
+          $dir = 'D:\hst\lo\workdir\installation\HSTOffice\msi\install\en-US_vi'
+          $out = 'D:\hst\installer'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $msi = @(Get-ChildItem -Path $dir -Filter '*.msi' -File)
+          if ($msi.Count -eq 0) { throw "no .msi under $dir" }
+          foreach ($f in $msi) {
+            $name = $f.Name -replace ' ', ''
+            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $out $name)
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $out $name)).Hash.ToLower()
+            Add-Content -Path (Join-Path $out 'SHA256SUMS') -Value "$hash  $name"
+            "- $name ($([math]::Round($f.Length / 1MB, 1)) MiB) sha256 $hash" | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+      - name: Upload installer
+        if: ${{ steps.installer.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hst-office-windows-msi-${{ github.run_id }}
+          path: D:\hst\installer\
+          if-no-files-found: error
+          retention-days: 14

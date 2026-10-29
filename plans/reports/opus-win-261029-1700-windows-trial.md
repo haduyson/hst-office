@@ -1,6 +1,6 @@
 # Thử nghiệm build Windows x64 trên GitHub-hosted runner (2026-10-29)
 
-Trạng thái: lượt full 40897969466 biên dịch xong, hỏng ở đóng gói MSI (thiếu perl IO::String, đã sửa); lượt kế tiếp đang chạy.
+Trạng thái: lượt full 40897969466 biên dịch xong, hỏng ở đóng gói MSI (thiếu perl IO::String, đã sửa); lượt 40928592995 xanh, tạo được MSI (chưa upload: đã thêm bước tải bộ cài).
 
 ## Runner đo được (windows-2022, image win22 20261026.347.1)
 - CPU: AMD EPYC 9V45, 4 vCPU logic; RAM 16 GiB (còn trống ~13.6).
@@ -33,8 +33,12 @@ Quy trình chặn lỗi lặp: `scripts/windows/preflight-local.sh` (shellcheck,
 - Sửa: thêm `perl-IO-String` vào danh sách gói Cygwin (`scripts/build-windows.ps1`); pha `--tools` nạp thử Archive::Zip, Font::TTF::Font, IO::String, Digest::MD5 nên thiếu module sẽ hỏng ngay đầu lượt.
 - Lỗi header Skia các lượt trước đã hết sau khi bỏ thư mục đánh dấu `src/` ở gốc cây nguồn.
 
+## Lượt full (run 40928592995, 2026-10-29): thành công
+- Toàn bộ xanh: build 6.050 s (~1 giờ 41 phút), cả lượt ~1 giờ 55 phút; RAM đỉnh 16 GiB.
+- MSI tạo được: `HST Office_1.0.0_Win_x86-64_en-US_vi.msi` (en-US + vi). Workflow lúc đó chỉ upload log nên MSI mất cùng runner; đã thêm bước "Collect installer"/"Upload installer" (artifact `hst-office-windows-msi-<run_id>`, kèm SHA256SUMS, tên không dấu cách).
+
 ## Khuyến nghị
-- Runner chuẩn miễn phí (repo public) đủ trong giới hạn 6 giờ: ~3 giờ/lượt, chưa cần runner lớn để ra MSI thử nghiệm.
+- Runner chuẩn miễn phí (repo public) đủ trong giới hạn 6 giờ: ~2-3 giờ/lượt, chưa cần runner lớn để ra MSI thử nghiệm.
 - RAM chạm 16 GiB: nếu link hỏng do thiếu bộ nhớ thì giảm song song (`--with-parallelism=3`) hoặc dùng self-hosted ≥32 GB.
 - Muốn nhanh hơn: self-hosted Windows ≥16 vCPU/32 GB, giữ `workdir` giữa các lượt (build tăng dần).
 - Cần: ký MSI (SIGN-01), kiểm GUI/cài đặt (QA-01).
