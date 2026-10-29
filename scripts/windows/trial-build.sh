@@ -43,6 +43,11 @@ do_extract() {
   echo "extract: dictionaries"; extract_one libreoffice-dictionaries-26.8.1.1.tar.xz "$SRC" || return 1
   [ -f "$SRC/configure.ac" ] || { echo "extract: configure.ac missing"; return 1; }
   [ -d "$SRC/translations/source/vi" ] || { echo "extract: vi translations missing"; find "$SRC/translations" -maxdepth 1 | head; return 1; }
+  # A tarball tree's `make get-submodules` re-downloads (unchecked) and re-unpacks
+  # translations/dictionaries unless src/libreoffice-<module>-<ver>/ exists; its
+  # unpack-sources then calls tar on a D:/ path, which Cygwin tar rejects. The
+  # verified copies are already merged above, so mark them as unpacked.
+  mkdir -p "$SRC/src/libreoffice-translations-26.8.1.1" "$SRC/src/libreoffice-dictionaries-26.8.1.1" || return 1
   echo "extract: ok"
 }
 
@@ -80,6 +85,16 @@ do_configure() {
   test "${PIPESTATUS[0]}" -eq 0
 }
 
+do_fetch() { # download every external tarball (sha256-checked by gbuild) so preflight covers make's fetch stage
+  (cd "$SRC" && make fetch) 2>&1 | tee "$LOGS/fetch.log"
+  local rc=${PIPESTATUS[0]}
+  # Any re-download of the core source tarballs means the tree layout is wrong.
+  if grep -q 'libreoffice-\(translations\|dictionaries\)-.*tar\.xz' "$LOGS/fetch.log"; then
+    echo "fetch: make tried to re-download translations/dictionaries tarballs"; return 1
+  fi
+  return "$rc"
+}
+
 sample() { # one progress sample: steps compiled, free disk, memory used
   local steps free used
   steps=$(grep -c '^\[build ' "$LOGS/build.log" 2>/dev/null || true)
@@ -115,6 +130,7 @@ case "${1:-}" in
   --options) phase options do_options ;;
   --patch) phase patch do_patch ;;
   --configure) phase configure do_configure ;;
+  --fetch) phase fetch do_fetch ;;
   --build) phase build do_build ;;
-  *) echo "usage: $0 --extract|--tools|--options|--patch|--configure|--build"; exit 64 ;;
+  *) echo "usage: $0 --extract|--tools|--options|--patch|--configure|--fetch|--build"; exit 64 ;;
 esac
