@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: Desktop Linux resource experiment
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-linux
+  cancel-in-progress: false
+jobs:
+  probe-and-build:
+    # Keep the probe and build on the same runner/filesystem.
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Measure resources before any source download or build
+        shell: bash
+        run: python3 scripts/probe-runner.py --output build/metrics/runner-probe.json
+      - name: Verify coordinator build prerequisites
+        shell: bash
+        run: bash scripts/build-linux.sh --preflight
+      - name: Configure source build
+        shell: bash
+        run: python3 scripts/measure-job.py --path "$GITHUB_WORKSPACE" --min-free-gib 12 --stop-free-gib 12 --json build/metrics/configure.json -- bash scripts/build-linux.sh --configure
+      - name: Build source
+        shell: bash
+        run: python3 scripts/measure-job.py --path "$GITHUB_WORKSPACE" --min-free-gib 12 --stop-free-gib 12 --json build/metrics/build.json -- bash scripts/build-linux.sh --build
+      - name: Package source build
+        shell: bash
+        run: python3 scripts/measure-job.py --path "$GITHUB_WORKSPACE" --min-free-gib 12 --stop-free-gib 12 --json build/metrics/package.json -- bash scripts/build-linux.sh --package
+      - name: Preserve measured evidence even when blocked
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux-evidence-${{ github.sha }}
+          path: |
+            build/metrics/
+            build/logs/
+          if-no-files-found: error
+          retention-days: 7

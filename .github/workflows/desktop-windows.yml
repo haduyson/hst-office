@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: Desktop Windows (BLOCKED)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-windows
+  cancel-in-progress: false
+jobs:
+  blocked:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require native builder and release prerequisites
+        shell: bash
+        run: |
+          echo 'BLOCKED/TODO: needs self-hosted runner with >=100 GB disk, signing credentials, platform QA' >&2
+          exit 1
+    # Future on a provisioned Windows x86_64 runner: checkout the tested SHA;
+    # run pwsh -File scripts/build-windows.ps1 to inventory VS 2022/SDK/Cygwin;
+    # validate configure, compile, MSI install/upgrade/uninstall, and GUI QA;
+    # sign only validated artifacts with protected credentials (SIGN-01).

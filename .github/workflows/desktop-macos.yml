@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: Desktop macOS (BLOCKED)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-macos
+  cancel-in-progress: false
+jobs:
+  blocked:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require native builder and release prerequisites
+        shell: bash
+        run: |
+          echo 'BLOCKED/TODO: needs self-hosted runner with >=100 GB disk, signing credentials, platform QA' >&2
+          exit 1
+    # Future on separate native arm64/x86_64 runners: checkout the tested SHA;
+    # run bash scripts/build-macos.sh --arch arm64 (or --arch x86_64);
+    # validate configure, .app identity, .dmg/.pkg lifecycle and GUI latency;
+    # sign/notarize only QA-validated artifacts using protected credentials.
