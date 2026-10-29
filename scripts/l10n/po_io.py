@@ -19,8 +19,11 @@ def _unquote(lines):
 def parse_block(block):
     """Return {msgctxt, msgid, msgstr, comments} for one blank-line separated block, or None."""
     comments, field, values = [], None, {"msgctxt": [], "msgid": [], "msgstr": []}
+    fuzzy = False
     for line in block.strip("\n").split("\n"):
-        if line.startswith("#."):
+        if line.startswith("#,") and "fuzzy" in line:
+            fuzzy = True
+        elif line.startswith("#."):
             comments.append(line[2:].strip())
         elif line.startswith(_FIELD):
             field = line.split(" ", 1)[0].replace("[0]", "")
@@ -30,7 +33,8 @@ def parse_block(block):
     if not values["msgid"]:
         return None
     return {"msgctxt": _unquote(values["msgctxt"]), "msgid": _unquote(values["msgid"]),
-            "msgstr": _unquote(values["msgstr"]), "comments": " ".join(comments)}
+            "msgstr": _unquote(values["msgstr"]), "comments": " ".join(comments), "fuzzy": fuzzy,
+            "msgid_plural": _unquote(values.get("msgid_plural", []))}
 
 
 def read_blocks(path):
@@ -46,11 +50,26 @@ def parse_po(path):
             yield entry
 
 
+def _unfuzzy(block):
+    """Drop the fuzzy flag and the "#|" previous-msgid lines of a reviewed entry."""
+    lines = []
+    for line in block.split("\n"):
+        if line.startswith("#|"):
+            continue
+        if line.startswith("#,"):
+            flags = [f.strip() for f in line[2:].split(",") if f.strip() and f.strip() != "fuzzy"]
+            if not flags:
+                continue
+            line = "#, " + ", ".join(flags)
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def fill_po(path, translations, overwrite=False):
     """Set msgstr for (msgctxt, msgid) keys in `translations` (escaped text); return count.
 
-    Only empty msgstr values are filled unless `overwrite` is True, so upstream
-    translations are never replaced by accident.
+    Only empty or fuzzy msgstr values are filled unless `overwrite` is True, so
+    reviewed upstream translations are never replaced by accident.
     """
     blocks = read_blocks(path)
     filled = 0
@@ -59,8 +78,11 @@ def fill_po(path, translations, overwrite=False):
         if not entry:
             continue
         key = (entry["msgctxt"], entry["msgid"])
-        if key not in translations or (entry["msgstr"] and not overwrite):
+        # Fuzzy entries are dropped by msgfmt, so they count as untranslated.
+        if key not in translations or (entry["msgstr"] and not entry["fuzzy"] and not overwrite):
             continue
+        if entry["fuzzy"]:
+            block = _unfuzzy(block)
         tail = "\n" if block.endswith("\n") else ""
         if "\nmsgid_plural " in block:
             # vi has nplurals=1: msgstr[0] is the only form, so drop the

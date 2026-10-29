@@ -15,7 +15,7 @@ import re
 import sys
 
 PLACEHOLDER = re.compile(r"%PRODUCTNAME|%[A-Z][A-Z0-9_]+%?|\$\([A-Z0-9_]+\)|%\d+|%[sdiu]|\{[A-Za-z0-9_]+\}|"
-                         r"</?[A-Za-z][^>]*>|\\n|\\t|\$[A-Z][A-Z0-9_]+\$?|#[0-9]")
+                         r"</?(?!(?:None|All|Default|Unknown)>)[A-Za-z][A-Za-z0-9:_-]*(?:\s[^>]*)?/?>|\\n|\\t|\$[A-Z][A-Z0-9_]+\$?|#[0-9]")
 ACCEL = re.compile(r"(?<![~_])[~_](?=[^\s~_])")
 
 
