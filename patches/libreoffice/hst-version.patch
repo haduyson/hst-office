@@ -117,7 +117,7 @@ License: modified upstream files keep their license (MPL-2.0).
  $(eval $(call gb_Module_add_l10n_targets,dictionaries,\
 --- /dev/null
 +++ b/dictionaries/ExtensionPackage_hst-vietnamese-tools.mk
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,35 @@
 +# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
 +#
 +# This file is part of the LibreOffice project.
@@ -136,13 +136,15 @@ License: modified upstream files keep their license (MPL-2.0).
 +
 +hst_ext_REPO := $(if $(HST_REPO_ROOT),$(HST_REPO_ROOT),$(abspath $(SRCDIR)/../..))
 +hst_ext_OXT := $(WORKDIR)/CustomTarget/dictionaries/hst-vietnamese-tools.oxt
++# Recipe commands run in the build shell (Cygwin on Windows), which needs POSIX paths.
++hst_ext_REPO_SH := $(if $(filter WNT,$(OS)),$(shell cygpath -u $(hst_ext_REPO)),$(hst_ext_REPO))
 +
 +$(hst_ext_OXT) : $(shell find $(hst_ext_REPO)/extensions/hst-vietnamese-tools \
 +		$(hst_ext_REPO)/data/vietnamese $(hst_ext_REPO)/data/hst -type f 2>/dev/null) \
 +		$(hst_ext_REPO)/scripts/build-extensions.py $(hst_ext_REPO)/LICENSE
 +	$(call gb_Output_announce,hst-vietnamese-tools.oxt,$(true),OXT,3)
 +	mkdir -p $(dir $@) \
-+		&& python3 $(hst_ext_REPO)/scripts/build-extensions.py --output $(dir $@) >/dev/null
++		&& python3 $(hst_ext_REPO_SH)/scripts/build-extensions.py --output $(call gb_Helper_cyg_path,$(dir $@)) >/dev/null
 +
 +# Not gb_ExtensionPackage_ExtensionPackage: that macro also declares a recipe for the
 +# .oxt (touching a prebuilt file), which would replace the build rule above.
