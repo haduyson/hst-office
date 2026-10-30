@@ -3,10 +3,11 @@ HST Office Start Center: HASON TECH solutions banner with clickable solution but
 - The donation banner area shows the HASON TECH solutions banner on every start while
   Misc/ShowDonation is enabled (upstream: every 30 days). The artwork (HS mark and headline,
   no solution names) ships as the custom brand image donate1.png (2x pixels, drawn at half
-  size). Next to it, each solution (AIOS, eChatbot, Zalo Mini App, HST SEO, HST Content,
+  size). Next to it, each solution (AIOS, eChatbot, Zalo Mini App, HST SEO, HST Post,
   AI Dễ Lắm) is its own GtkButton: keyboard focusable, accessible name = solution name,
   tooltip = tagline, opening its own URL. Names, taglines and URLs mirror
-  data/hst/solutions.json. Donation texts, right image and the single banner link are gone.
+  data/hst/solutions.json. Donation texts and the right image are gone. Below the grid a
+  flat text link "Xem thêm các giải pháp khác →" opens https://hasontech.vn (same UTM).
   Window narrower than 1100 px: the artwork is hidden, the buttons stay (3x2 grid).
 - The hint in the empty recent-documents area ("Chào mừng đến với HST Office! Thả tài
   liệu vào đây...") is introductory text: Vietnamese in every UI language.
@@ -82,14 +83,12 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  
      mxDropTarget = mxAllRecentThumbnails->GetDropTarget();
  
-@@ -260,49 +244,101 @@
+@@ -260,49 +244,108 @@
  
  }
  
--void BackingWindow::initDonationBanner()
 +namespace
- {
--    mxDonationLink->connect_activate_link(LINK(this, BackingWindow, OnDonateLinkClick));
++{
 +// HST Office: the HASON TECH solutions shown in the Start Center banner, in display order.
 +// Name, tooltip (tagline) and URL mirror data/hst/solutions.json (checked by tests/runtime).
 +struct HstSolution
@@ -112,9 +111,9 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +    { u"HST SEO"_ustr,
 +      u"V\u1EADn h\u00E0nh SEO th\u00F4ng minh c\u00F9ng AI"_ustr,
 +      u"https://seo.hasontech.vn"_ustr },
-+    { u"HST Content"_ustr,
++    { u"HST Post"_ustr,
 +      u"\u0110\u0103ng b\u00E0i \u0111a n\u1EC1n t\u1EA3ng"_ustr,
-+      u"https://content.hasontech.vn"_ustr },
++      u"https://post.hasontech.vn"_ustr },
 +    { u"AI D\u1EC5 L\u1EAFm"_ustr,
 +      u"AI d\u1EC5 l\u1EAFm \u2014 AI d\u1EC5 l\u00E0m"_ustr,
 +      u"https://aidelam.com"_ustr },
@@ -127,12 +126,10 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +// Below this window width the banner artwork is hidden and only the buttons remain.
 +constexpr sal_Int32 nHstBannerArtMinWidth = 1100;
 +}
- 
--    mxDonationBox->set_background(COL_WHITE);
--    mxDonationBoxTitle->set_font_color(COL_BLACK);
--    mxDonationBoxText->set_font_color(COL_BLACK);
-+void BackingWindow::initDonationBanner()
-+{
++
+ void BackingWindow::initDonationBanner()
+ {
+-    mxDonationLink->connect_activate_link(LINK(this, BackingWindow, OnDonateLinkClick));
 +    // HST Office: the brand image slot donate1.png carries the banner artwork (2x pixels,
 +    // drawn at half size) without any solution name; every solution is its own real button
 +    // (keyboard focusable, accessible name = solution name, tooltip = tagline).
@@ -143,6 +140,14 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +        mxSolutionButtons[i]->set_tooltip_text(aHstSolutions[i].aTagline);
 +        mxSolutionButtons[i]->connect_clicked(LINK(this, BackingWindow, OnSolutionClick));
 +    }
+ 
+-    mxDonationBox->set_background(COL_WHITE);
+-    mxDonationBoxTitle->set_font_color(COL_BLACK);
+-    mxDonationBoxText->set_font_color(COL_BLACK);
++    // text link after the solutions: the HASON TECH home page (always Vietnamese)
++    mxMoreSolutions = m_xBuilder->weld_button(u"btnMoreSolutions"_ustr);
++    mxMoreSolutions->set_label(u"Xem th\u00EAm c\u00E1c gi\u1EA3i ph\u00E1p kh\u00E1c \u2192"_ustr);
++    mxMoreSolutions->connect_clicked(LINK(this, BackingWindow, OnSolutionClick));
  
      ScopedVclPtr<VirtualDevice> m_pVirDevLeft = mxDonationLeft->create_virtual_device();
      Graphic aGraphic;
@@ -182,35 +187,38 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  {
 -    SfxDispatcher &rDispatcher = *SfxGetpApp()->GetDispatcher_Impl();
 -    rDispatcher.Execute(SID_DONATION, SfxCallMode::ASYNCHRON);
+-
+-    return true;
 +    InterimItemWindow::Resize();
 +    // narrow window: drop the artwork so the six buttons always fit
 +    if (mxDonationLeft)
 +        mxDonationLeft->set_visible(GetSizePixel().Width() >= nHstBannerArtMinWidth);
 +}
- 
--    return true;
++
 +IMPL_LINK(BackingWindow, OnSolutionClick, weld::Button&, rButton, void)
 +{
-+    for (int i = 0; i < HST_SOLUTION_COUNT; ++i)
-+    {
-+        if (mxSolutionButtons[i].get() != &rButton)
-+            continue;
-+        try
-+        {
-+            css::system::SystemShellExecute::create(::comphelper::getProcessComponentContext())
-+                ->execute(aHstSolutions[i].aURL + "?" + sHstSolutionUtm, OUString(),
-+                          css::system::SystemShellExecuteFlags::URIS_ONLY);
-+        }
-+        catch (const Exception&)
-+        {
-+            TOOLS_WARN_EXCEPTION("fwk", "opening the HASON TECH solution page failed");
-+        }
++    OUString sURL;
++    if (mxMoreSolutions.get() == &rButton)
++        sURL = u"https://hasontech.vn"_ustr;
++    for (int i = 0; sURL.isEmpty() && i < HST_SOLUTION_COUNT; ++i)
++        if (mxSolutionButtons[i].get() == &rButton)
++            sURL = aHstSolutions[i].aURL;
++    if (sURL.isEmpty())
 +        return;
++    try
++    {
++        css::system::SystemShellExecute::create(::comphelper::getProcessComponentContext())
++            ->execute(sURL + "?" + sHstSolutionUtm, OUString(),
++                      css::system::SystemShellExecuteFlags::URIS_ONLY);
++    }
++    catch (const Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "opening the HASON TECH page failed");
 +    }
  }
  
  IMPL_LINK(BackingWindow, ClickHelpHdl, weld::Button&, rButton, void)
-@@ -401,8 +437,9 @@
+@@ -401,8 +444,9 @@
  
      checkInstalledModules();
  
@@ -222,7 +230,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  
      mxOpenButton->connect_clicked(LINK(this, BackingWindow, ClickHdl));
  
-@@ -529,6 +566,13 @@
+@@ -529,6 +573,13 @@
      mxDrawAllButton->set_sensitive(aModuleOpt.IsDrawInstalled());
      mxMathAllButton->set_sensitive(aModuleOpt.IsMathInstalled());
      mxDBAllButton->set_sensitive(aModuleOpt.IsDataBaseInstalled());
@@ -236,7 +244,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  }
  
  bool BackingWindow::PreNotify(NotifyEvent& rNEvt)
-@@ -638,32 +682,6 @@
+@@ -638,32 +689,6 @@
          xFramesSupplier->setActiveFrame(mxFrame);
  }
  
@@ -269,7 +277,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  void BackingWindow::applyFilter()
  {
      const int nFilter = mxFilter->get_active();
-@@ -738,6 +756,12 @@
+@@ -738,6 +763,12 @@
  
          dispatchURL( u".uno:OpenRemote"_ustr, OUString(), xFrame, {} );
      }
@@ -296,7 +304,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
      css::uno::Reference<css::uno::XComponentContext> mxContext;
      css::uno::Reference<css::frame::XDispatchProvider> mxDesktopDispatchProvider;
      css::uno::Reference<css::frame::XFrame> mxFrame;
-@@ -88,11 +93,8 @@
+@@ -88,11 +93,9 @@
      std::unique_ptr<TemplateDefaultView> mxLocalView;
      std::unique_ptr<weld::CustomWeld> mxLocalViewWin;
      std::unique_ptr<weld::Image> mxDonationLeft;
@@ -306,10 +314,11 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 -    std::unique_ptr<weld::Label> mxDonationBoxTitle;
 -    std::unique_ptr<weld::Label> mxDonationBoxText;
 +    std::unique_ptr<weld::Button> mxSolutionButtons[HST_SOLUTION_COUNT];
++    std::unique_ptr<weld::Button> mxMoreSolutions;
  
      bool mbLocalViewInitialized;
  
-@@ -112,11 +114,10 @@
+@@ -112,11 +115,10 @@
      DECL_LINK(ClickHdl, weld::Button&, void);
      DECL_LINK(ClickHelpHdl, weld::Button&, void);
      DECL_LINK(MenuSelectHdl, const OUString&, void);
@@ -322,7 +331,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  
      void initControls();
      void initDonationBanner();
-@@ -139,6 +140,7 @@
+@@ -139,6 +141,7 @@
      virtual void dispose() override;
  
      virtual bool PreNotify(NotifyEvent& rNEvt) override;
@@ -359,7 +368,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
                          <property name="visible">True</property>
                          <property name="can-focus">True</property>
                          <property name="receives-default">True</property>
-@@ -677,89 +677,119 @@
+@@ -677,89 +677,134 @@
                </packing>
              </child>
              <child>
@@ -410,7 +419,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
                  </child>
                  <child>
 -                  <object class="GtkLabel" id="lbDonateText">
-+                  <!-- n-columns=3 n-rows=2 -->
++                  <!-- n-columns=3 n-rows=3 -->
 +                  <object class="GtkGrid" id="gdSolutions">
                      <property name="visible">True</property>
                      <property name="can-focus">False</property>
@@ -492,7 +501,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +                    </child>
 +                    <child>
 +                      <object class="GtkButton" id="btnSolution4">
-+                        <property name="label" translatable="no">HST Content</property>
++                        <property name="label" translatable="no">HST Post</property>
 +                        <property name="visible">True</property>
 +                        <property name="can-focus">True</property>
 +                        <property name="receives-default">True</property>
@@ -514,6 +523,21 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +                      <packing>
 +                        <property name="left-attach">2</property>
 +                        <property name="top-attach">1</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkButton" id="btnMoreSolutions">
++                        <property name="label" translatable="no">Xem thêm các giải pháp khác →</property>
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">True</property>
++                        <property name="halign">start</property>
++                        <property name="relief">none</property>
++                      </object>
++                      <packing>
++                        <property name="left-attach">0</property>
++                        <property name="top-attach">2</property>
++                        <property name="width">3</property>
 +                      </packing>
 +                    </child>
                    </object>

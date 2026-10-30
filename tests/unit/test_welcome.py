@@ -47,7 +47,7 @@ class Model(unittest.TestCase):
         self.assertEqual(model["services"], "Digital Marketing · Thiết kế Website · Lập trình ứng dụng, phần mềm theo yêu cầu")
         self.assertEqual(model["contact"]["website"], "https://hasontech.vn?" + TAIL % "welcome")
         self.assertEqual(model["contact"]["phone"], "(0236) 3.507.507")
-        # Owner decision 2026-10-29: every solution, HST Content included, links its live site.
+        # Owner decision 2026-10-29: every solution, HST Post included, links its live site.
         self.assertTrue(all(not s.get("note") for s in model["solutions"]))
 
     def test_menu_medium(self):

@@ -12,7 +12,7 @@ GUI part (unless --no-gui, needs a running X display; the test never starts or s
 Center under an en-US and a vi UI with a fake xdg-open that logs the opened URL. Every button is
 clicked and must open url + "?utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0";
 Tab moves the focus through the six buttons; in a narrow window the artwork is hidden and the six
-buttons are still clickable. Screenshots are kept. Exit 1 when a check fails.
+buttons and the text link are still clickable. Screenshots are kept. Exit 1 when a check fails.
 """
 import argparse
 import glob
@@ -29,6 +29,7 @@ import hst_gui  # noqa: E402
 
 ROOT = hst_gui.ROOT
 UTM = "utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0"
+MORE = "https://hasontech.vn?" + UTM
 PATCH = os.path.join(ROOT, "patches/libreoffice/hst-start-center-banner.patch")
 NARROW = (800, 620)
 
@@ -68,8 +69,10 @@ def static_checks(instdir, check):
             check(f"program carries solution {what}: {text[:40]}", found)
     check("program carries the start-center UTM tail",
           any(UTM.encode("utf-16-le") in blob for blob in blobs))
-    check("program no longer carries the single banner link text",
-          not any("Xem các giải pháp tại hasontech.vn".encode("utf-16-le") in blob for blob in blobs))
+    check("program carries the more-solutions link text and the old link text is gone",
+          any("Xem thêm các giải pháp khác →".encode("utf-16-le") in blob for blob in blobs)
+          and not any("Xem các giải pháp tại hasontech.vn".encode("utf-16-le") in blob for blob in blobs))
+    check("startcenter.ui has btnMoreSolutions", 'id="btnMoreSolutions"' in ui)
     banner = os.path.join(ROOT, "branding/libreoffice/hst-banner.png")
     installed = os.path.join(instdir, "program/shell/donate1.png")
     check("installed donate1.png is the HST banner",
@@ -94,20 +97,30 @@ def start_center_window(display, pid):
     return max(windows, key=lambda w: geometry(display, w[0])[2] * geometry(display, w[0])[3])[0]
 
 
-def banner_buttons(image_path, display, wid):
-    """Screen centers of the six solution buttons and the number of artwork runs, from a screenshot.
+def differs_at(shot, background, x, y):
+    return sum(abs(a - b) for a, b in zip(shot.getpixel((x, y)), background)) > 24
 
-    The banner strip is the bottom of the Start Center window. Non-background column runs are
-    separated by gaps; the last run is the 3x2 button grid, any run before it is the artwork."""
+
+def banner_buttons(image_path, display, wid):
+    """Screen centers of the six solution buttons plus the "more" link (7 points) and the number
+    of artwork runs, from a screenshot.
+
+    The banner strip is the bottom of the Start Center window, above the recent-documents pane.
+    Non-background column runs are separated by gaps; the last run is the button grid (3x2
+    buttons, the text link below), any run before it is the artwork."""
     from PIL import Image
     x0, y0, width, height = geometry(display, wid)
     hst_gui.screenshot(image_path, display)
     shot = Image.open(image_path).convert("RGB")
     background = shot.getpixel((x0 + width - 3, y0 + height - 3))
-    top, bottom, left = y0 + height - 98, y0 + height - 2, x0 + 265
+    bottom, left = y0 + height - 2, x0 + 265
+    top = bottom
+    while top > y0 + 100 and not differs_at(shot, background, x0 + width - 40, top):
+        top -= 1
+    top += 3
 
     def differs(x, y):
-        return sum(abs(a - b) for a, b in zip(shot.getpixel((x, y)), background)) > 24
+        return differs_at(shot, background, x, y)
 
     columns = [x for x in range(left, x0 + width - 4) if any(differs(x, y) for y in range(top, bottom))]
     runs, start = [], None
@@ -122,9 +135,20 @@ def banner_buttons(image_path, display, wid):
         return [], 0
     gx0, gx1 = runs[-1]
     rows = [y for y in range(top, bottom) if any(differs(x, y) for x in range(gx0, gx1 + 1))]
-    gy0, gy1 = rows[0], rows[-1]
-    cell_w, cell_h = (gx1 - gx0 + 1) / 3, (gy1 - gy0 + 1) / 2
-    centers = [(round(gx0 + cell_w * (i % 3 + 0.5)), round(gy0 + cell_h * (i // 3 + 0.5))) for i in range(6)]
+    bands, begin = [], rows[0]
+    for previous, y in zip(rows, rows[1:]):
+        if y - previous > 3:
+            bands.append((begin, previous))
+            begin = y
+    bands.append((begin, rows[-1]))
+    if len(bands) != 3:
+        return [], len(runs) - 1
+    # button columns from the two button bands only (the link text is narrower than the grid)
+    cell_w = (gx1 - gx0 + 1) / 3
+    centers = [(round(gx0 + cell_w * (i % 3 + 0.5)), (bands[i // 3][0] + bands[i // 3][1]) // 2) for i in range(6)]
+    link = bands[2]
+    link_x = [x for x in range(gx0, gx1 + 1) if any(differs(x, y) for y in range(link[0], link[1] + 1))]
+    centers.append(((link_x[0] + link_x[-1]) // 2, (link[0] + link[1]) // 2))
     return centers, len(runs) - 1
 
 
@@ -144,7 +168,7 @@ class Opener:
     def opened(self):
         return [line.strip() for line in open(self.log, encoding="utf-8") if line.strip()]
 
-    def wait_for(self, count, timeout=8):
+    def wait_for(self, count, timeout=15):
         deadline = time.time() + timeout
         while time.time() < deadline and len(self.opened()) < count:
             time.sleep(0.3)
@@ -163,32 +187,41 @@ def gui_run(args, lang, tag, check):
                             nodefault=False, env={"PATH": opener.directory + ":" + os.environ["PATH"]})
     office.start()
     try:
-        time.sleep(4)
+        time.sleep(8)
         wid = start_center_window(args.display, office.pid)
         x0, y0, width, height = geometry(args.display, wid)
         office.raise_windows()
         shot = lambda name: os.path.join(args.shots, f"{tag}-{name}.png")  # noqa: E731
         centers, art = banner_buttons(shot("01-start-center"), args.display, wid)
-        check(f"[{tag}] wide window ({width}x{height}): six buttons found, artwork shown", len(centers) == 6 and art == 1,
+        check(f"[{tag}] wide window ({width}x{height}): six buttons and the more link found, artwork shown", len(centers) == 7 and art == 1,
               f"art={art}")
-        if len(centers) != 6:
+        if len(centers) != 7:
             return
-        for index, center in enumerate(centers):
+        for index, center in enumerate(centers[:6]):
             click(args.display, center)
             opened = opener.wait_for(index + 1)
             got = opened[index] if len(opened) > index else None
             check(f"[{tag}] click {solutions()[index]['name']} opens its URL with UTM", got == expected[index], repr(got))
+        click(args.display, centers[6])
+        opened = opener.wait_for(7)
+        got = opened[6] if len(opened) > 6 else None
+        check(f"[{tag}] click \"Xem thêm các giải pháp khác\" opens hasontech.vn with UTM", got == MORE, repr(got))
         # keyboard: a click focuses the button; Tab then Space activates the next ones
         before = len(opener.opened())
         click(args.display, centers[0])
         opener.wait_for(before + 1)
         for step in (1, 2, 3, 4, 5):
             xdo(args.display, "key", "Tab")
-            time.sleep(0.5)
+            time.sleep(0.3)
             xdo(args.display, "key", "space")
             opened = opener.wait_for(before + 1 + step)
             got = opened[-1] if len(opened) == before + 1 + step else None
             check(f"[{tag}] Tab+Space reaches {solutions()[step]['name']}", got == expected[step], repr(got))
+        xdo(args.display, "key", "Tab")
+        time.sleep(0.3)
+        xdo(args.display, "key", "space")
+        opened = opener.wait_for(before + 7)
+        check(f"[{tag}] Tab+Space reaches the more link", opened[-1:] == [MORE], repr(opened[-1:]))
         # tooltip: hover a button, the tagline appears in a tooltip window or the screenshot
         xdo(args.display, "mousemove", str(centers[2][0]), str(centers[2][1] - 3))
         time.sleep(0.4)
@@ -200,18 +233,20 @@ def gui_run(args, lang, tag, check):
         time.sleep(3)
         office.screenshot(shot("03-narrow-raw"))
         centers, art = banner_buttons(shot("03-narrow"), args.display, wid)
-        check(f"[{tag}] narrow window {NARROW[0]}x{NARROW[1]}: artwork hidden, six buttons found",
-              len(centers) == 6 and art == 0, f"buttons={len(centers)} art={art}")
-        if len(centers) == 6:
+        check(f"[{tag}] narrow window {NARROW[0]}x{NARROW[1]}: artwork hidden, six buttons and the more link found",
+              len(centers) == 7 and art == 0, f"points={len(centers)} art={art}")
+        if len(centers) == 7:
             before = len(opener.opened())
             click(args.display, centers[5])
-            opened = opener.wait_for(before + 1)
-            check(f"[{tag}] narrow: last button opens its URL", opened[-1:] == [expected[5]], repr(opened[-1:]))
+            click(args.display, centers[6])
+            opened = opener.wait_for(before + 2)
+            check(f"[{tag}] narrow: last button and the more link open their URLs",
+                  opened[-2:] == [expected[5], MORE], repr(opened[-2:]))
         # wide again: artwork returns
         xdo(args.display, "windowsize", wid, str(width), str(height))
         time.sleep(3)
         centers, art = banner_buttons(shot("04-wide-again"), args.display, wid)
-        check(f"[{tag}] widened again: artwork shown", len(centers) == 6 and art == 1, f"art={art}")
+        check(f"[{tag}] widened again: artwork shown", len(centers) == 7 and art == 1, f"art={art}")
     finally:
         office.stop()
 
