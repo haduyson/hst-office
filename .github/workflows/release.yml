@@ -37,6 +37,11 @@ on:
         required: true
         type: boolean
         default: true
+      append:
+        description: "Add platforms to an existing release (same commit), e.g. macOS after Windows/Linux"
+        required: true
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -55,6 +60,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ inputs.tag }}
       PRERELEASE: ${{ inputs.prerelease }}
+      APPEND: ${{ inputs.append }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -65,7 +71,11 @@ jobs:
           set -euo pipefail
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "bad tag: $TAG" >&2; exit 1; }
           [ -f "docs/releases/$TAG.md" ] || { echo "missing release notes: docs/releases/$TAG.md" >&2; exit 1; }
-          if gh release view "$TAG" >/dev/null 2>&1; then echo "release $TAG already exists" >&2; exit 1; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            [ "$APPEND" = "true" ] || { echo "release $TAG already exists (use append=true to add platforms)" >&2; exit 1; }
+          else
+            [ "$APPEND" != "true" ] || { echo "append=true but release $TAG does not exist" >&2; exit 1; }
+          fi
       - name: Collect and verify installers from one commit
         id: collect
         shell: bash
@@ -77,16 +87,37 @@ jobs:
           MACOS_RUN_ID: ${{ inputs.macos_run_id }}
         run: |
           set -euo pipefail
+          if [ "$APPEND" = "true" ]; then
+            # Appended installers must come from the commit the release is tagged at.
+            COMMIT="$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)"
+            export COMMIT
+          fi
           bash scripts/release/collect-release-assets.sh dist/release
           cat dist/release/.release-commit >> "$GITHUB_OUTPUT"
-      - name: Create release and attach installers
+      - name: Create or extend the release
         shell: bash
         env:
           TARGET: ${{ steps.collect.outputs.commit }}
         run: |
           set -euo pipefail
-          flags=()
-          [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
-          gh release create "$TAG" --target "$TARGET" --title "HST Office $TAG" \
-            --notes-file "docs/releases/$TAG.md" "${flags[@]}" dist/release/*
+          if [ "$APPEND" = "true" ]; then
+            # Never replace an installer already published; merge SHA256SUMS by file name.
+            existing="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+            for f in dist/release/*; do
+              name="$(basename "$f")"
+              [ "$name" = SHA256SUMS ] && continue
+              if grep -qx "$name" <<<"$existing"; then echo "$name is already in $TAG" >&2; exit 1; fi
+            done
+            gh release download "$TAG" -p SHA256SUMS -O old-sums
+            sort -u -k2,2 dist/release/SHA256SUMS old-sums > merged-sums
+            mv merged-sums dist/release/SHA256SUMS
+            (cd dist/release && sha256sum -c --ignore-missing SHA256SUMS)
+            find dist/release -maxdepth 1 -type f ! -name SHA256SUMS -print0 | xargs -0 gh release upload "$TAG"
+            gh release upload "$TAG" dist/release/SHA256SUMS --clobber
+          else
+            flags=()
+            [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+            gh release create "$TAG" --target "$TARGET" --title "HST Office $TAG" \
+              --notes-file "docs/releases/$TAG.md" "${flags[@]}" dist/release/*
+          fi
           gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | "\(.name) \(.size)")' | tee -a "$GITHUB_STEP_SUMMARY"

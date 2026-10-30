@@ -194,6 +194,10 @@ gh workflow run release.yml -f tag=v1.0.0-beta.2 -f prerelease=true
 # tùy chọn: -f platforms="windows linux" -f commit=<sha> -f windows_run_id=<id> ...
 ```
 
+Phát hành từng phần: tạo bản phát hành với `-f platforms="windows linux"`, rồi khi macOS build
+xong (cùng commit) chạy lại với `-f platforms=macos -f append=true` — workflow lấy commit của tag,
+không ghi đè bộ cài đã có, gộp `SHA256SUMS` theo tên tệp.
+
 Chỉ job `publish` của workflow này có quyền ghi (`contents: write`, `actions: read`);
 `scripts/check-workflows.py` từ chối quyền ghi ở mọi nơi khác. Artifact hết hạn sau 14 ngày nên
 phải phát hành trong thời hạn đó. Liên kết `releases/latest` không trỏ tới bản pre-release.
