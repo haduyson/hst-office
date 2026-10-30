@@ -31,6 +31,13 @@ else
   echo "SKIP actionlint: $TOOLS/actionlint missing (scripts/windows/preflight-local.sh installs it)"
 fi
 
+echo "== dmg background up to date"
+if fc-list 2>/dev/null | grep -q LiberationSans-Bold && "$PY" -c 'import PIL' 2>/dev/null; then
+  "$PY" -I scripts/macos/make-dmg-background.py --check || bad "dmg background"
+else
+  echo "SKIP dmg background: needs Pillow and fonts-liberation"
+fi
+
 echo "== signing gate without secrets"
 gate="$(env -i PATH="$PATH" bash scripts/macos/sign-notarize.sh --enabled 2>/dev/null)" || bad "sign-notarize --enabled failed"
 [ "$gate" = "enabled=false" ] || bad "signing gate must report enabled=false without secrets, got: $gate"
@@ -49,12 +56,14 @@ if [ -f "$LO/configure.ac" ]; then
   done
   echo "== HST patch series"
   HST_LO_SRC="$LO" bash scripts/apply-patches.sh --check >"$tmp/patches.log" 2>&1 || { tail -5 "$tmp/patches.log" >&2; bad "apply-patches --check"; }
-  echo "== app icon staging"
-  iconset=sysui/desktop/icons/macos/app-launcher/main.iconset
+  echo "== app and document icon staging"
+  icons=sysui/desktop/icons/macos
   if "$PY" -c 'import PIL' 2>/dev/null; then
-    mkdir -p "$tmp/tree/$iconset"; cp "$LO/$iconset"/*.png "$tmp/tree/$iconset/"
-    "$PY" -I scripts/macos/stage-app-icon.py --tree "$tmp/tree" >/dev/null || bad "stage-app-icon"
-    if cmp -s "$LO/$iconset/icon_512x512@2x.png" "$tmp/tree/$iconset/icon_512x512@2x.png"; then bad "app icon unchanged"; fi
+    mkdir -p "$tmp/tree/sysui/desktop/icons"; cp -R "$LO/$icons" "$tmp/tree/sysui/desktop/icons/"
+    "$PY" -I scripts/macos/stage-macos-icons.py --tree "$tmp/tree" >/dev/null || bad "stage-macos-icons"
+    for png in app-launcher/main.iconset/icon_512x512@2x.png mime-oasis/text.iconset/icon_256x256.png mime-generic/spreadsheet.iconset/icon_32x32.png; do
+      if cmp -s "$LO/$icons/$png" "$tmp/tree/$icons/$png"; then bad "icon unchanged: $png"; fi
+    done
   else
     echo "SKIP icon staging: Pillow not installed for $PY"
   fi

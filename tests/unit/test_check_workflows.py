@@ -159,7 +159,7 @@ class WorkflowTests(unittest.TestCase):
             "no budget": lambda w: named(w, "build", "Build within time budget").update(
                 {"run": named(w, "build", "Build within time budget")["run"].replace("HST_BUILD_DEADLINE", "X")}),
             "no verify": lambda w: w["jobs"]["build"]["steps"].remove(
-                named(w, "build", "Verify dmg (app name, bundle id, architecture, Vietnamese resources)")),
+                named(w, "build", "Verify dmg (app name, bundle id, architecture, icons, layout, Vietnamese resources)")),
             "evidence not always": lambda w: named(w, "build", "Upload build evidence").pop("if"),
             "dmg unconditional": lambda w: named(w, "build", "Upload unsigned dmg").update({"if": "${{ always() }}"}),
             "dmg renamed": lambda w: named(w, "build", "Upload unsigned dmg")["with"].update({"name": "dmg"}),

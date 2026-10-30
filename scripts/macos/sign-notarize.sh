@@ -50,14 +50,12 @@ do_import() {
 }
 
 do_sign() {
-  local dmg="$1" kit="$2" out="$3" mnt="$TMP/mnt" stage="$TMP/stage" name app signed volname
+  local dmg="$1" kit="$2" out="$3" mnt="$TMP/mnt" stage="$TMP/stage" name app signed
   name="$(basename "$dmg")"; signed="$out/$name"
   rm -rf "$mnt" "$stage"; mkdir -p "$mnt" "$stage" "$out"
   hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$dmg" >/dev/null
-  volname="$(diskutil info "$mnt" | awk -F': *' '/Volume Name/ { print $2; exit }')"
-  ditto "$mnt" "$stage"   # keeps the Applications link, .DS_Store and background of upstream's layout
+  ditto "$mnt/HST Office.app" "$stage/HST Office.app"
   hdiutil detach "$mnt" >/dev/null
-  rm -rf "$stage/.fseventsd" "$stage/.Trashes"
   app="$stage/HST Office.app"
   [ -d "$app" ] || { echo "HST Office.app not in $name" >&2; return 1; }
   # Upstream's own signing pass (what --enable-macosx-code-signing runs at packaging time):
@@ -67,7 +65,8 @@ do_sign() {
     bash "$kit/macosx-codesign-app-bundle" "$app"
   codesign --verify --deep --strict --verbose=2 "$app"
   rm -f "$signed"
-  hdiutil create -srcfolder "$stage" -volname "${volname:-HST Office}" -fs HFS+ -format ULFO -ov "$signed" >/dev/null
+  # Same HST layout (background, volume icon, icon positions) as the unsigned image.
+  bash "$(dirname "${BASH_SOURCE[0]}")/build-dmg.sh" "$app" "$signed"
   codesign --force --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$signed"
   echo "notarizing $name (waits for Apple)"
   xcrun notarytool submit "$signed" --key "$TMP/api-key.p8" --key-id "$APPLE_API_KEY_ID" \
