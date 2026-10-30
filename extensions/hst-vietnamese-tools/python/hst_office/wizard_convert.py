@@ -18,7 +18,8 @@ class ConvertWizard:
         joined = "".join(i["text"] + "\n" for i in items)[:PREVIEW_CHARS]
         sug = encoding_detect.suggest(joined)
         best = sug["best"]
-        note = (self.s_cv["suggest"] % (labels[best], sug["candidates"][0]["confidence"])) if best else self.s_cv["noSuggest"]
+        level = sug["candidates"][0]["confidence"] if best else ""
+        note = (self.s_cv["suggest"] % (labels[best], self.s_cv["confidence"].get(level, level))) if best else self.s_cv["noSuggest"]
         d.label("suggestion", note, 6, 24, 408, 12, wrap=True)
         d.label("l_orig", self.s_cv["original"], 6, 40, 150)
         d.edit("original", 6, 52, 200, 150, text=joined.replace("\n", "\r\n"), multiline=True, readonly=True, help_text=self.s_cv["original"])
