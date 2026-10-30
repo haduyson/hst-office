@@ -66,7 +66,7 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
         try:
             from .welcome_job import show_welcome
             peer = self.frame.getContainerWindow() if self.frame else None
-            show_welcome(self.ctx, "menu", peer, load_locale(ui_language(self.ctx)))
+            show_welcome(self.ctx, "menu", peer)  # introductory content: always Vietnamese
         except Exception:  # noqa: BLE001 - report instead of failing silently inside the UI thread
             traceback.print_exc()
 

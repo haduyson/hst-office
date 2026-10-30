@@ -5,7 +5,7 @@
 Usage: python3 scripts/build-extensions.py --output dist/extensions [--verify-reproducible]
 
 Each extensions/<name>/ directory becomes <name>.oxt. Shared data from data/vietnamese/ (and data/hst/solutions.json for the welcome dialog) is copied into the
-package (data/), the AGPL licence and a generated notice file go into license/. ZIP entries are sorted, use a
+package (data/), the brand images of the welcome dialog and user guide into icons/, the AGPL licence and a generated notice file go into license/. ZIP entries are sorted, use a
 fixed timestamp and permissions, so two builds of the same tree are byte-identical.
 """
 import argparse
@@ -18,6 +18,14 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXT_DIR = os.path.join(ROOT, "extensions")
 SHARED_DATA = ("nd30.json", "number-formats.json", "encoding-maps.json", "provenance.json")
+# Brand images shown by the welcome dialog and the offline user guide (help/index.html): copied from
+# assets/brand at build time so the package always carries the current HST artwork.
+BRAND_IMAGES = {
+    "icons/hst-office-logo.png": "assets/brand/hst-office-logo.png",
+    "icons/hst-writer-64.png": "assets/brand/icons/hst-writer-64.png",
+    "icons/hst-sheets-64.png": "assets/brand/icons/hst-sheets-64.png",
+    "icons/hst-slides-64.png": "assets/brand/icons/hst-slides-64.png",
+}
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
 SKIP_DIRS = {"__pycache__", ".git"}
 SKIP_SUFFIX = (".pyc", ".pyo", "~")
@@ -48,6 +56,8 @@ def collect(ext_root):
     for name in SHARED_DATA:
         files["data/" + name] = open(os.path.join(ROOT, "data", "vietnamese", name), "rb").read()
     files["data/solutions.json"] = open(os.path.join(ROOT, "data", "hst", "solutions.json"), "rb").read()  # welcome dialog content
+    for name, src in BRAND_IMAGES.items():
+        files[name] = open(os.path.join(ROOT, *src.split("/")), "rb").read()
     files["license/LICENSE.txt"] = open(os.path.join(ROOT, "LICENSE"), "rb").read()
     files["license/NOTICES.txt"] = notices_text().encode("utf-8")
     return files

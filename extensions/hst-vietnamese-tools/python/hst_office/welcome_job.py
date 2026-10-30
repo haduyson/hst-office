@@ -38,9 +38,11 @@ def set_shown(ctx, value):
 
 
 def show_welcome(ctx, medium, parent_peer=None, strings=None):
-    """Open the dialog; marks the flag once displayed and clears it again if the user unticked "do not show again"."""
-    from .dispatch import ui_language
-    strings = strings or load_locale(ui_language(ctx))
+    """Open the dialog; marks the flag once displayed and clears it again if the user unticked "do not show again".
+
+    The welcome dialog is introductory content: it is Vietnamese in every UI language (menus and features follow
+    the UI language)."""
+    strings = strings or load_locale("vi")
     dialog = Welcome(ctx, strings, medium, on_shown=lambda: _safe(set_shown, ctx, True))
     if not dialog.run(parent_peer):
         _safe(set_shown, ctx, False)

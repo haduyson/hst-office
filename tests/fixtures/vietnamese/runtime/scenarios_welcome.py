@@ -99,11 +99,12 @@ def run(rec, base, oxt_path, out):
         if not st:
             return
         labels = st["labels"]
-        rec.check("title and one-liner", st["title"] == "Chào mừng đến HST Office" and labels["oneLiner"] == "HST Office — bộ ứng dụng văn phòng miễn phí, chạy offline cho người Việt", (st["title"], labels["oneLiner"]))
-        rec.check("company, slogan, intro", labels["company"] == data["company"]["name"] + "\n" + data["company"]["slogan"] and labels["intro"] == data["company"]["intro"])
-        rec.check("six solutions in the given order", [labels["link%d" % i] for i in range(6)] == ["%s — %s" % (x["name"], x["tagline"]) for x in sols] and
-                  all(labels["desc%d" % i].startswith(x["description"]) for i, x in enumerate(sols)))
-        rec.check("services and contact", labels["services"].endswith(" · ".join(data["services"])) and all(data["company"][k] in labels["contactLine"] for k in ("address", "phone", "email")), labels["contactLine"])
+        vi = json.load(open(os.path.join(REPO, "extensions", "hst-vietnamese-tools", "locales", "vi.json"), encoding="utf-8"))["welcome"]
+        rec.check("title, greeting and free-forever badge", st["title"] == "Chào mừng đến HST Office" and labels["heading"] == vi["heading"] and labels["freeBadge"] == "MIỄN PHÍ VĨNH VIỄN", (st["title"], labels.get("heading")))
+        rec.check("three applications and four key features", [labels[k] for k in ("appWriter", "appSheets", "appSlides")] == [vi[k] for k in ("appWriter", "appSheets", "appSlides")] and
+                  [labels["feature%d" % i] for i in range(4)] == ["\u2022  " + f for f in vi["features"]], [labels.get("feature%d" % i) for i in range(4)])
+        rec.check("six solutions in the given order", [labels["link%d" % i] for i in range(6)] == [x["name"] for x in sols])
+        rec.check("contact line and F1 tip", all(data["company"][k] in labels["contactLine"] for k in ("phone", "email")) and "F1" in labels["helpTip"], labels["contactLine"])
         rec.check("flag set once displayed", flag() is True)
         rec.check("no link opened before a click", st["opened"] == [])
         rec.check("shot", _shot(s, os.path.join(out, "welcome-dialog.png")), os.path.join(out, "welcome-dialog.png"))
@@ -131,7 +132,7 @@ def run(rec, base, oxt_path, out):
         rec.check("menu command ShowSolutions handled", dispatch is not None)
         threading.Thread(target=lambda: dispatch.dispatch(url, ())).start()
         st = _wait(lambda: (lambda x: x if x["open"] else None)(_state(s, py)))
-        rec.check("menu command opens the dialog (English fallback)", bool(st) and st["title"] == "Welcome to HST Office", st and st["title"])
+        rec.check("menu command opens the dialog, Vietnamese under an English UI", bool(st) and st["title"] == "Chào mừng đến HST Office", st and st["title"])
         if st:
             _shot(s, os.path.join(out, "welcome-dialog-en.png"))
             s.macro("welcome_click", py, 0)
