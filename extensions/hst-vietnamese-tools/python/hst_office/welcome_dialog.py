@@ -18,7 +18,7 @@ from .dialogs import Dialog
 
 WIDTH, PAD = 340, 10
 TEXT_W = WIDTH - 2 * PAD
-LINK_COLOR, BADGE_TEXT, BADGE_BACK, MUTED = 0x0B57D0, 0xC8102E, 0xFFD60A, 0x5F6368
+LINK_COLOR, BADGE_TEXT, BADGE_BACK, MUTED = 0x0B57D0, 0xFFFFFF, 0x0E7A36, 0x5F6368  # badge: owner's dark green, white text
 APPS = (("appWriter", "hst-writer-64.png"), ("appSheets", "hst-sheets-64.png"), ("appSlides", "hst-slides-64.png"))
 OPENED = []   # URLs handed to open_url (kept so the runtime check can see what a click produced)
 CURRENT = None  # the dialog being shown (runtime check hook)
