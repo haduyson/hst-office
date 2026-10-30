@@ -2,9 +2,10 @@
 """Generate HST Office brand assets from the owner-provided HASON TECH logo.
 
 The blue "HS" triangle mark is copied pixel-for-pixel from the source; only the
-"HASON TECH" wordmark is replaced by "HST OFFICE". Outputs: logo/mark/plugin icons,
-desktop app icons, LibreOffice --with-branding inputs, Windows .ico, macOS .icns,
-per-module Windows app icons and the icon-theme window icon (mainapp).
+"HASON TECH" wordmark is replaced by "HST OFFICE". Application icons are derived from the
+tile masters in branding/icons/app. Outputs: logo/mark/plugin icons, desktop app icons,
+LibreOffice --with-branding inputs, Windows .ico, macOS .icns, per-module Windows app icons
+and the icon-theme window icon (mainapp).
 All outputs are deterministic (no timestamps) so --check can compare bytes.
 
 Usage:
@@ -19,7 +20,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from brand.app_icons import build_app_icons  # noqa: E402
+from brand.app_icons import build_app_icons, load_masters  # noqa: E402
 from brand.common import ROOT, SPEC_PATH  # noqa: E402
 from brand.legacy import build_core, load_source  # noqa: E402
 from brand.lo_branding import build_lo_branding  # noqa: E402
@@ -29,12 +30,13 @@ from brand.windows_icons import build_windows_icons  # noqa: E402
 
 
 def build_assets(spec):
-    outputs, logo, mark, square = build_core(spec, load_source(spec))
-    outputs.update(build_app_icons(spec, square))
+    outputs, logo, mark, _square = build_core(spec, load_source(spec))
+    masters = load_masters(spec)
+    outputs.update(build_app_icons(spec, masters))
     outputs.update(build_lo_branding(spec, mark, logo))
-    outputs.update(build_platform_icons(spec, square))
+    outputs.update(build_platform_icons(spec, masters))
     outputs.update(build_start_center_banner(spec, mark))
-    outputs.update(build_windows_icons(spec, square))
+    outputs.update(build_windows_icons(spec, masters))
     return outputs
 
 

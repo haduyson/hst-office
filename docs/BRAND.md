@@ -14,10 +14,11 @@
 | `assets/brand/hst-office-logo.png` | 476×393; biểu tượng copy nguyên pixel (vùng `[94,38,363,271]`), chữ mới vẽ vừa đúng khung chữ cũ `[26,304,431,353]`, màu `#322E2E` |
 | `assets/brand/hst-office-mark.png` | Chỉ biểu tượng, 269×233 |
 | `assets/brand/icons/hst-office-icon-{28,35,42,49,56}.png` | Icon plugin cũ (5 mức scale); giữ để tương thích |
-| `assets/brand/icons/hst-office-{16,24,32,48,64,128,256,512}.png` | Icon ứng dụng (biểu tượng, nền trong suốt, đệm 8%) |
-| `assets/brand/icons/hst-{writer,sheets,slides}-{16…512}.png` | Icon module: biểu tượng + huy hiệu tròn viền trắng. Writer `#2F4FC4` (dòng chữ), Sheets `#1E8E3E` (lưới), Slides `#E8710A` (màn hình) |
+| `branding/icons/app/hst-{office,writer,sheets,slides,draw,math,base}.{svg,png}` | **Bản gốc icon ứng dụng** (thiết kế Tile, SVG + PNG 1024). Nguồn gốc, bảng màu, cách sinh lại: [README](../branding/icons/app/README.md) |
+| `assets/brand/icons/hst-{office,writer,sheets,slides,draw,math,base}-{16…1024}.png`, `….svg` | Icon ứng dụng sinh từ bản gốc. Hicolor Linux (PNG + scalable) và iconset macOS |
 | `branding/libreoffice/` | Đầu vào cho `configure --with-branding` (bảng dưới) |
-| `branding/windows/hst-office.ico`, `branding/macos/hst-office.icns` | Container 16–256 px / 16–512 px do Pillow ghi; **chưa kiểm thử trên Windows/macOS** |
+| `branding/windows/hst-office.ico`, `branding/macos/hst-{office,writer,sheets,slides,draw,math,base}.icns` | Container 16–256 px / 16–1024 px do Pillow ghi; `hst-office.icns` là icon volume dmg |
+| `branding/windows/app-icons/{soffice,*_app}.ico`, `branding/icon-themes/mainapp-*` | `.ico` 16–256 cho từng module và icon cửa sổ/Start Center. `scripts/brand/apply-icon-overrides.py` chép vào cây nguồn |
 | `branding/linux/hst-{office,writer,sheets,slides}.desktop` | Launcher Linux (viết tay, `desktop-file-validate` đạt) |
 | `branding/credits.html`, `branding/help/index.html` | Trang ghi nhận nguồn mở & trợ giúp ngoại tuyến (viết tay) |
 | `branding/brand-audit-allowlist.json` | Ngoại lệ cho quét chuỗi “LibreOffice/Document Foundation” (chỉ văn bản pháp lý) |

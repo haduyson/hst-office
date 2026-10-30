@@ -86,6 +86,26 @@ class BrandAssetTests(unittest.TestCase):
         self.assertEqual(set(ico.info["sizes"]), {(s, s) for s in plat["icoSizes"]})
         self.assertEqual(open(path(plat["icns"]), "rb").read(4), b"icns")
 
+    def test_app_icons_come_from_tile_masters(self):
+        cfg = SPEC["appIcons"]
+        for name in [cfg["productName"]] + [m["name"] for m in cfg["modules"]]:
+            master = Image.open(path(f"{cfg['masters']['dir']}/{name}.png"))
+            self.assertEqual((master.size, master.mode), ((1024, 1024), "RGBA"))
+            big = Image.open(path(cfg["pattern"].format(name=name, size=1024)))
+            self.assertEqual(big.tobytes(), master.tobytes())
+            small = Image.open(path(cfg["pattern"].format(name=name, size=16)))
+            self.assertEqual(small.getpixel((8, 8))[3], 255, "small icons are cut so the tile fills them")
+            self.assertTrue(open(path(cfg["scalablePattern"].format(name=name)), "rb").read().startswith(b"<?xml"))
+
+    def test_windows_and_macos_containers_per_module(self):
+        win = SPEC["windowsAppIcons"]
+        for name in win["icons"]:
+            ico = Image.open(path(f"{win['dir']}/{name}"))
+            self.assertEqual(set(ico.info["sizes"]), {(s, s) for s in win["sizes"]})
+        for module in SPEC["appIcons"]["modules"]:
+            icns = path(SPEC["platformIcons"]["icnsPattern"].format(name=module["name"]))
+            self.assertEqual(open(icns, "rb").read(4), b"icns")
+
     def test_generator_reproducible(self):
         script = path("scripts/generate-brand-assets.py")
         result = subprocess.run([sys.executable, script, "--check"], capture_output=True, text=True)

@@ -10,7 +10,8 @@ found" (scp2 module_systemint.scp derives the name as lc(PRODUCTNAME), spaces
  - CustomTarget_share.mk: quote -p arguments (product name contains a space);
    pass the HST icon dir to create_tree.sh.
  - CustomTarget_deb.mk: Debian package name uses DEBNAME (no "_"); symlinks go to /usr/bin.
- - create_tree.sh: install the HST application icons (no LibreOffice icons),
+ - create_tree.sh: install the HST application icons, per-module PNG sizes plus
+   scalable SVG (no LibreOffice icons),
    add /usr/bin/hst-office, name the mime file after the product, and skip the
    LibreOffice-named compat symlinks and appstream metainfo that would collide
    with a distribution LibreOffice.
@@ -161,12 +162,12 @@ License: modified upstream files keep their license (MPL-2.0).
    do
      targetdir=${DESTDIR}/${KDEMAINDIR}/share/icons/`dirname ${i}`
      mkdir -p "${targetdir}"
-@@ -29,6 +36,20 @@
+@@ -29,6 +36,26 @@
    done
    unset targetdir destfile
  
 +  if test -n "${HST_ICON_DIR}"; then
-+    for map in writer:writer calc:sheets impress:slides draw:office base:office math:office startcenter:office main:office chart:office; do
++    for map in writer:writer calc:sheets impress:slides draw:draw base:base math:math startcenter:office main:office chart:office; do
 +      app=${map%%:*}; brand=${map##*:}
 +      for size in 16 24 32 48 64 128 256 512; do
 +        src="${HST_ICON_DIR}/hst-${brand}-${size}.png"
@@ -176,13 +177,19 @@ License: modified upstream files keep their license (MPL-2.0).
 +        cp "${src}" "${targetdir}/${ICON_PREFIX:-}${ICON_PREFIX:+-}${app}.png"
 +        chmod 0644 "${targetdir}/${ICON_PREFIX:-}${ICON_PREFIX:+-}${app}.png"
 +      done
++      src="${HST_ICON_DIR}/hst-${brand}.svg"
++      test -f "${src}" || { echo "missing HST icon ${src}" >&2; exit 1; }
++      targetdir=${DESTDIR}/${KDEMAINDIR}/share/icons/hicolor/scalable/apps
++      mkdir -p "${targetdir}"
++      cp "${src}" "${targetdir}/${ICON_PREFIX:-}${ICON_PREFIX:+-}${app}.svg"
++      chmod 0644 "${targetdir}/${ICON_PREFIX:-}${ICON_PREFIX:+-}${app}.svg"
 +    done
 +    unset map app brand size src targetdir
 +  fi
  fi
  
  mkdir -p "${DESTDIR}/${BINDIR}"
-@@ -39,6 +60,14 @@
+@@ -39,6 +66,14 @@
  #this symlink is needed to have the API bootstrap functions running right
  ln -sf "${office_root}/program/soffice" "${DESTDIR}/${BINDIR}/${PREFIX}"
  
@@ -197,7 +204,7 @@ License: modified upstream files keep their license (MPL-2.0).
  if test "${PREFIX}" != libreoffice${PRODUCTVERSION} -a "${PREFIX}" != libreofficedev${PRODUCTVERSION}  ; then
      # compat symlinks
      mkdir -p "${DESTDIR}${office_prefix}"
-@@ -47,6 +76,8 @@
+@@ -47,6 +82,8 @@
  fi
  
  test "${PREFIX}" = libreofficedev${PRODUCTVERSION} && mime_def_file="libreofficedev${PRODUCTVERSION}.xml" || mime_def_file="libreoffice${PRODUCTVERSION}.xml"
@@ -206,7 +213,7 @@ License: modified upstream files keep their license (MPL-2.0).
  mkdir -p "${DESTDIR}/${PREFIXDIR}/share/mime/packages"
  cp openoffice.org.xml "${DESTDIR}/${PREFIXDIR}/share/mime/packages/$mime_def_file"
  chmod 0644 "${DESTDIR}/${PREFIXDIR}/share/mime/packages/$mime_def_file"
-@@ -56,9 +87,15 @@
+@@ -56,9 +93,15 @@
    ln -sf "${office_root}/share/xdg/${i}" "${DESTDIR}/${PREFIXDIR}/share/applications/${PREFIX}-${i}"
  done
  

@@ -56,11 +56,19 @@ def check_assets(spec, root):
             path = os.path.join(root, icons["pattern"].format(name=name, size=size))
             if not os.path.isfile(path) or _png_size(path) != ("PNG", (size, size)):
                 errors.append(f"icon {name}-{size}.png missing or wrong size")
+        for rel in (icons["scalablePattern"].format(name=name), f"{icons['masters']['dir']}/{name}.svg"):
+            path = os.path.join(root, rel)
+            if not os.path.isfile(path) or not _read(path, "rb", 200).lstrip().startswith(b"<"):
+                errors.append(f"{rel} missing or not SVG")
     plat = spec["platformIcons"]
-    for key, magic in (("ico", b"\x00\x00\x01\x00"), ("icns", b"icns")):
-        path = os.path.join(root, plat[key])
+    containers = [(plat["ico"], b"\x00\x00\x01\x00"), (plat["icns"], b"icns")]
+    containers += [(plat["icnsPattern"].format(name=m["name"]), b"icns") for m in icons["modules"]]
+    win = spec["windowsAppIcons"]
+    containers += [(f"{win['dir']}/{name}", b"\x00\x00\x01\x00") for name in win["icons"]]
+    for rel, magic in containers:
+        path = os.path.join(root, rel)
         if not os.path.isfile(path) or _read(path, "rb", 4) != magic:
-            errors.append(f"{plat[key]} missing or not a valid container")
+            errors.append(f"{rel} missing or not a valid container")
     return errors
 
 
