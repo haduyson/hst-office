@@ -20,7 +20,7 @@
 | `branding/windows/hst-office.ico`, `branding/macos/hst-{office,writer,sheets,slides,draw,math,base}.icns` | Container 16–256 px / 16–1024 px do Pillow ghi; `hst-office.icns` là icon volume dmg |
 | `branding/windows/app-icons/{soffice,*_app}.ico`, `branding/icon-themes/mainapp-*` | `.ico` 16–256 cho từng module và icon cửa sổ/Start Center. `scripts/brand/apply-icon-overrides.py` chép vào cây nguồn |
 | `branding/linux/hst-{office,writer,sheets,slides}.desktop` | Launcher Linux (viết tay, `desktop-file-validate` đạt) |
-| `branding/credits.html`, `branding/help/index.html` | Trang ghi nhận nguồn mở & trợ giúp ngoại tuyến (viết tay) |
+| `branding/credits.html` | Trang ghi nhận nguồn mở (viết tay); trợ giúp ngoại tuyến: `docs/user-guide/` |
 | `branding/brand-audit-allowlist.json` | Ngoại lệ cho quét chuỗi “LibreOffice/Document Foundation” (chỉ văn bản pháp lý) |
 
 `branding/libreoffice/` (tên file do `configure.ac:15571` bắt buộc; thiếu file → configure chỉ cảnh báo và dùng ảnh upstream):
