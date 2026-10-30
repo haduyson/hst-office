@@ -30,6 +30,7 @@ if [ -z "${HST_KEEP_PATH:-}" ]; then
   export PATH="$WORK/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 fi
 unset PKG_CONFIG_PATH CPATH LIBRARY_PATH
+export PKG_CONFIG_LIBDIR="$WORK/pkgconfig-empty"; mkdir -p "$PKG_CONFIG_LIBDIR"
 export CCACHE_DIR="$WORK/ccache" CCACHE_BASEDIR="$WORK" CCACHE_MAXSIZE="${HST_CCACHE_MAXSIZE:-5G}"
 export CCACHE_COMPRESS=1 CCACHE_SLOPPINESS="include_file_mtime,include_file_ctime,time_macros"
 # Only gb_ variables of a tarball tree: no git submodules to fetch (see the Windows trial).
@@ -78,7 +79,7 @@ do_free_disk() { # drop unused toolchains from the ephemeral runner image (not t
   echo "free disk: ${before} GiB -> $(free_gib) GiB (kept $keep)"
 }
 
-BREW_TOOLS=(autoconf automake bison gperf nasm gpatch make ccache gettext ninja)
+BREW_TOOLS=(autoconf automake bison gperf nasm gpatch make ccache gettext ninja pkgconf libtool)
 
 do_brew() { # install the build tools; retried because the Homebrew CDN has transient failures
   local attempt
@@ -112,8 +113,12 @@ do_tools() { # link the Homebrew tools configure needs, then report versions
   for tool in msgfmt msguniq; do  # scripts/l10n checks .po files; configure needs both with --with-lang
     link_tool "$tool" "$("$BREW" --prefix gettext)/bin/$tool" || bad=1
   done
+  # Bundled externals (liblangtag) require pkg-config; PKG_CONFIG_LIBDIR keeps Homebrew's .pc files out.
+  link_tool pkg-config "$("$BREW" --prefix pkgconf)/bin/pkg-config" || bad=1
+  # autoreconf of xmlsec, libassuan and gpgmepp runs libtoolize (Homebrew names it glibtoolize).
+  link_tool libtoolize "$("$BREW" --prefix libtool)/bin/glibtoolize" || bad=1
   link_tool python3 "$PY" || bad=1
-  for tool in make bison gperf nasm patch autoconf automake ccache ninja msgfmt msguniq flex perl python3; do
+  for tool in make bison gperf nasm patch autoconf automake ccache ninja msgfmt msguniq pkg-config libtoolize flex perl python3; do
     if command -v "$tool" >/dev/null; then echo "$tool: $(command -v "$tool") $("$tool" --version 2>&1 | head -1)"; else echo "MISSING tool: $tool"; bad=1; fi
   done
   for tool in xcodebuild xcrun clang hdiutil iconutil plutil zip unzip curl; do
@@ -180,8 +185,6 @@ do_configure() {
   local plist="$SRC/sysui/desktop/macosx/Info.plist"
   plutil -replace CFBundleShortVersionString -string "$HST_VERSION" "$plist" || return 1
   plutil -replace CFBundleVersion -string "$HST_VERSION" "$plist" || return 1
-  # Finder "Get Info" copyright line: HST, not upstream (Info.plist.in has none).
-  plutil -replace NSHumanReadableCopyright -string "© $(date +%Y) HASON TECH" "$plist" || return 1
   plutil -lint "$plist" || return 1
   grep -q 'vn.hasontech.hstoffice' "$plist" || { echo "configure: bundle identifier not in Info.plist"; return 1; }
   grep -E '^export (ENABLE_RELEASE_BUILD|MACOSX_BUNDLE_IDENTIFIER|MACOSX_DEPLOYMENT_TARGET|MACOSX_SDK_VERSION|PRODUCTNAME|CCACHE|PARALLELISM)=' "$SRC/config_host.mk" || true

@@ -9,7 +9,7 @@ CFBundleIconFile) and generic-*.icns / oasis-*.icns (document icons named in Inf
 with iconutil from sysui/desktop/icons/macos/{app-launcher,mime-generic,mime-oasis}/*.iconset.
 Those hold PNGs, which a text patch cannot carry, so they are rendered here from the HST
 artwork in assets/brand/icons: the app icon as is, document icons as a white page with the
-matching HST module icon (Writer, Sheets, Slides; HST Office for the other kinds).
+matching HST module icon (Writer, Sheets, Slides, Draw, Math, Base; HST Office for extensions).
 Idempotent; fails if the upstream iconset layout changed.
 """
 import argparse
@@ -29,8 +29,8 @@ MEMBERS = {
 }
 # Document kind (iconset name without -template) -> HST icon family.
 DOCUMENT_FAMILY = {"text": "hst-writer", "master-document": "hst-writer", "spreadsheet": "hst-sheets",
-                   "presentation": "hst-slides", "drawing": "hst-office", "formula": "hst-office",
-                   "database": "hst-office", "extension": "hst-office"}
+                   "presentation": "hst-slides", "drawing": "hst-draw", "formula": "hst-math",
+                   "database": "hst-base", "extension": "hst-office"}
 
 
 def master(family, size):
