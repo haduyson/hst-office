@@ -15,13 +15,14 @@
   # Bản hiện hành: v1.0.0-beta.1. Dùng 302 để link chia sẻ không bị ghim bản cũ.
   RewriteRule ^tai/windows/?$ https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.1/HSTOffice_1.0.0_Win_x86-64_en-US_vi.msi [R=302,L,QSD]
   RewriteRule ^tai/linux/?$ https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.1/HSTOffice_1.0.0_Linux_x86-64_deb.tar.gz [R=302,L,QSD]
-  RewriteRule ^tai/sha256/?$ https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.1/SHA256SUMS [R=302,L,QSD]
+  # SHA256SUMS phục vụ ngay trên domain (tai/SHA256SUMS, bản sao từ release) để mọi trình duyệt tải thẳng, không hiện GitHub.
+  RewriteRule ^tai/sha256/?$ /tai/SHA256SUMS [L]
   RewriteRule ^tai/macos-(arm|intel)/?$ /#tai-ve [R=302,L,NE,QSD]
 
   # Beta.2: thay các dòng hiện hành ở trên, KHÔNG bật đồng thời hai bộ quy tắc.
   # RewriteRule ^tai/windows/?$ https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.2/HSTOffice_1.0.0_Win_x86-64_en-US_vi.msi [R=302,L,QSD]
   # RewriteRule ^tai/linux/?$ https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.2/HSTOffice_1.0.0_Linux_x86-64_deb.tar.gz [R=302,L,QSD]
-  # RewriteRule ^tai/sha256/?$ https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.2/SHA256SUMS [R=302,L,QSD]
+  # SHA256SUMS: thay tệp tai/SHA256SUMS bằng bản của release v1.0.0-beta.2 (giữ nguyên quy tắc /tai/sha256).
   # RewriteRule ^tai/macos-arm/?$ https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.2/HSTOffice_1.0.0_macOS_arm64.dmg [R=302,L,QSD]
   # RewriteRule ^tai/macos-intel/?$ https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.2/HSTOffice_1.0.0_macOS_x86_64.dmg [R=302,L,QSD]
 </IfModule>
@@ -63,3 +64,12 @@
   AddType text/plain .sig
   AddType image/svg+xml .svg
 </IfModule>
+
+# Tải thẳng SHA256SUMS (tệp không có đuôi) như một tệp văn bản.
+<Files "SHA256SUMS">
+  ForceType text/plain
+  <IfModule mod_headers.c>
+    Header set Content-Disposition "attachment; filename=SHA256SUMS"
+    Header set Cache-Control "no-cache, must-revalidate"
+  </IfModule>
+</Files>
