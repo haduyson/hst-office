@@ -20,7 +20,7 @@ if command -v shellcheck >/dev/null; then shellcheck "${scripts[@]}" || bad shel
 for f in "${scripts[@]}"; do bash -n "$f" || bad "bash -n $f"; done
 
 echo "== line endings"
-runner_files=("${scripts[@]}" scripts/windows/*.py scripts/stage-branding.py scripts/build-windows.ps1 build-config/windows-x86_64.conf patches/libreoffice/*)
+runner_files=("${scripts[@]}" scripts/windows/*.py scripts/brand/apply-icon-overrides.py scripts/stage-branding.py scripts/build-windows.ps1 build-config/windows-x86_64.conf patches/libreoffice/*)
 for f in "${runner_files[@]}"; do
   if grep -q $'\r' "$f"; then bad "CRLF in $f"; fi
 done
@@ -56,6 +56,13 @@ if [ -f "$TARBALLS/libreoffice-26.8.1.1.tar.xz" ]; then
      || grep -nE '^msgstr ".*(libreoffice\.org|documentfoundation|LibreOffice Community)' "$vipo"; then
     bad "installer strings still reference upstream"
   fi
+  # Vietnamese installer base strings, HST icons and wizard artwork applied by --patch.
+  python3 -B scripts/windows/msi-vietnamese-base.py --tree "$tmp/w/lo" --check >/dev/null || bad "installer strings not Vietnamese"
+  if grep -nE '^en-US = "(Cancel|&Next >|< &Back|&Finish)"' "$msi/Control.ulf"; then bad "English installer buttons left"; fi
+  python3 -B scripts/brand/apply-icon-overrides.py --tree "$tmp/w/lo" --check >/dev/null || bad "upstream app/window icons left"
+  bin="$tmp/w/lo/instsetoo_native/inc_common/windows/msi_templates/Binary"
+  for bmp in Image.bmp Banner.bmp; do cmp -s "$bin/$bmp" "branding/windows/installer/$bmp" || bad "installer $bmp not HST"; done
+  [ ! -e "$bin/Image_2.bmp" ] || bad "upstream Image_2.bmp left"
 else
   echo "SKIP simulation: pinned tarballs not in upstream/cache/libreoffice"
 fi
