@@ -65,7 +65,9 @@ def _header(t, fields, d, text_mm):
     symbol = _value(fields, "symbol", ph).upper()
     left.append(_para([_run("Số: %s/%s" % (format_number(fields.get("number")) or ph["number"], symbol), T["number"])]))
     if t["officialLetter"]:
-        left.append(_para([_run("V/v " + _value(fields, "summary", ph), T["summaryOfficialLetter"])], spacing_before_pt=6))
+        # "V/v" already means "về việc": drop a typed "Về việc"/"V/v" so it is not doubled.
+        summary = re.sub(r"^\s*(?:v/v|về việc)\s*:?\s*", "", _value(fields, "summary", ph), flags=re.I)
+        left.append(_para([_run("V/v " + summary, T["summaryOfficialLetter"])], spacing_before_pt=6))
     date = format_issue_date(fields.get("date")) or ph["date"]
     motto = d["motto"]
     right = [_para([_run(d["nationalTitle"], T["nationalTitle"], bold=True)]),
@@ -86,8 +88,13 @@ def _title_and_addressee(t, fields, d, text_mm):
         if len(targets) <= 1:
             blocks.append(_para([_run("Kính gửi: %s." % (targets[0] if targets else ph["kinhGui"]), T["kinhGui"])], spacing_before_pt=12))
         else:
-            blocks.append(_para([_run("Kính gửi:", T["kinhGui"])], spacing_before_pt=12))
-            blocks += [_para([_run("- %s%s" % (x, "." if i == len(targets) - 1 else ";"), T["kinhGui"])]) for i, x in enumerate(targets)]
+            # Phu luc I, II.9b: one recipient per line, the dashes aligned under the colon of "Kinh gui:".
+            items = ["- %s%s" % (x, "." if i == len(targets) - 1 else ";") for i, x in enumerate(targets)]
+            label_mm = estimate_text_width_mm("Kính gửi", T["kinhGui"])
+            widest = max(estimate_text_width_mm(x, T["kinhGui"]) for x in items)
+            left_mm = round(max(0.0, min((text_mm - label_mm - widest) / 2, text_mm / 3)), 1)
+            blocks.append(_para([_run("Kính gửi:", T["kinhGui"])], "left", spacing_before_pt=12, indent_left_mm=left_mm))
+            blocks += [_para([_run(x, T["kinhGui"])], "left", indent_left_mm=round(left_mm + label_mm, 1)) for x in items]
     return blocks
 
 

@@ -1,10 +1,23 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""ND30 administrative-document wizard dialog for Writer (fields, preview, validation). Writes nothing itself."""
-from . import nd30, nd30_layout
+"""ND30 administrative-document wizard dialog for Writer (fields, live preview, validation). Writes nothing itself.
+
+Layout (Map AppFont units): a form column on the left, labels in their own 96-unit column (long hints wrap onto
+a second line instead of being cut off), and on the right a monospace page preview that is redrawn on every
+change of a field or of the document type (nd30_preview).
+"""
+import datetime
+
+from . import nd30, nd30_layout, nd30_preview
 from .dialogs import Dialog
 
-SINGLE = ("parentAgency", "agency", "summary", "signerAuthority", "signerTitle", "signerName")
-MULTI = {"kinhGui": 26, "body": 50, "recipients": 26}
+WIDTH, HEIGHT = 600, 362
+LABEL_X, LABEL_W = 8, 84
+FIELD_X, FIELD_W = 96, 200
+PREVIEW_X = FIELD_X + FIELD_W + 10
+PREVIEW_W = WIDTH - PREVIEW_X - 8
+PREVIEW_CHARS = 70
+MONO = "Liberation Mono;Consolas;Menlo;DejaVu Sans Mono;Courier New"  # all carry precomposed Vietnamese
+ERROR_COLOR = 0xC5221F
 
 
 class Nd30Wizard:
@@ -12,39 +25,53 @@ class Nd30Wizard:
         self.s, self.s_nd = strings, strings["nd30"]
         self.data = nd30.rules()
         self.types = [t["id"] for t in self.data["documentTypes"]]
-        self.d = Dialog(ctx, self.s_nd["title"], 520, 340)
+        self.d = Dialog(ctx, self.s_nd["title"], WIDTH, HEIGHT)
         self._build()
+        self.refresh()
 
-    def _row(self, key, y, h=12, multiline=False, x=78, w=170, label_w=70):
-        self.d.label("l_" + key, self.s_nd[key], 6, y + 2, label_w)
-        return self.d.edit(key, x, y, w, h, multiline=multiline, help_text=self.s_nd[key])
+    def _label(self, key, y, h=10):
+        self.d.label("l_" + key, self.s_nd[key], LABEL_X, y + 2, LABEL_W, h, wrap=h > 10)
+
+    def _row(self, key, y, h=12, multiline=False, label_h=10):
+        self._label(key, y, label_h)
+        return self.d.edit(key, FIELD_X, y, FIELD_W, h, multiline=multiline, help_text=self.s_nd.get(key + "Help", self.s_nd[key]))
 
     def _build(self):
-        d = self.d
-        d.label("l_type", self.s_nd["type"], 6, 8, 70)
-        d.listbox("type", 78, 6, 170, [self.s_nd["types"][t] for t in self.types], help_text=self.s_nd["type"])
+        d, s = self.d, self.s_nd
+        self._label("type", 8)
+        d.listbox("type", FIELD_X, 6, FIELD_W, [s["types"][t] for t in self.types], help_text=s["type"])
         self._row("parentAgency", 22)
         self._row("agency", 38)
-        self._row("number", 54, x=78, w=40)
-        d.label("l_symbol", self.s_nd["symbol"], 124, 56, 30)
-        d.edit("symbol", 156, 54, 92, help_text=self.s_nd["symbol"])
-        self._row("place", 70, x=78, w=70)
-        d.label("l_date", self.s_nd["date"], 152, 72, 54)
-        d.edit("date", 208, 70, 40, help_text=self.s_nd["date"])
-        self._row("summary", 86)
-        self._row("kinhGui", 102, 26, True)
-        self._row("body", 132, 50, True)
-        self._row("signerAuthority", 186)
-        self._row("signerTitle", 202)
-        self._row("signerName", 218)
-        self._row("recipients", 234, 26, True)
-        d.check("applyPage", self.s_nd["applyPage"], 6, 266, 244)
-        d.check("pageNumbers", self.s_nd["pageNumbers"], 16, 278, 234)
-        d.label("legal", self.s_nd["legal"], 6, 292, 244, 22, wrap=True)
-        d.edit("preview", 256, 6, 258, 308, multiline=True, readonly=True, help_text=self.s["common"]["preview"])
-        d.button("btnPreview", self.s["common"]["preview"], 6, 320, 60, callback=self.refresh)
-        d.button("btnOk", self.s["common"]["ok"], 392, 320, 60, callback=self._accept, default=True)
-        d.button("btnCancel", self.s["common"]["cancel"], 454, 320, 60, kind=2)
+        self._label("number", 54)
+        d.edit("number", FIELD_X, 54, 40, help_text=s["numberHelp"])
+        d.label("l_symbol", s["symbol"], FIELD_X + 46, 56, 38)
+        d.edit("symbol", FIELD_X + 86, 54, FIELD_W - 86, help_text=s["symbolHelp"])
+        self._label("place", 70)
+        d.edit("place", FIELD_X, 70, 90, help_text=s["place"])
+        d.label("l_date", s["date"], FIELD_X + 96, 72, 22)
+        d.edit("date", FIELD_X + 120, 70, FIELD_W - 120, text=datetime.date.today().strftime("%d/%m/%Y"), help_text=s["dateHelp"])
+        self._row("summary", 86, 22, True)
+        self._row("kinhGui", 112, 26, True, label_h=20)
+        self._row("body", 142, 52, True, label_h=20)
+        self._row("signerAuthority", 198, label_h=20)
+        self._row("signerTitle", 220)
+        self._row("signerName", 236)
+        self._row("recipients", 252, 30, True, label_h=20)
+        check = d.check("applyPage", s["applyPage"], LABEL_X, 288, FIELD_X + FIELD_W - LABEL_X, h=12)
+        check.MultiLine = True  # wraps instead of being cut off when a translation is longer
+        d.check("pageNumbers", s["pageNumbers"], LABEL_X + 10, 302, FIELD_X + FIELD_W - LABEL_X - 10)
+        d.label("legal", s["legal"], LABEL_X, 318, FIELD_X + FIELD_W - LABEL_X, 20, wrap=True)
+        heading = d.label("l_preview", s["previewHeading"], PREVIEW_X, 8, PREVIEW_W, 10)
+        heading.FontWeight = 150
+        preview = d.edit("preview", PREVIEW_X, 20, PREVIEW_W, 300, multiline=True, readonly=True, help_text=self.s["common"]["preview"])
+        font = preview.FontDescriptor
+        font.Name, font.Height = MONO, 8
+        preview.FontDescriptor = font
+        status = d.label("status", "", PREVIEW_X, 324, PREVIEW_W, 14, wrap=True)
+        status.TextColor = ERROR_COLOR
+        d.button("btnOk", s["insert"], WIDTH - 8 - 64 - 4 - 64, HEIGHT - 22, 64, callback=self._accept, default=True)
+        d.button("btnCancel", self.s["common"]["cancel"], WIDTH - 8 - 64, HEIGHT - 22, 64, kind=2)
+        d.on_change(("type",) + nd30.FIELD_KEYS, self.refresh)
 
     def read(self):
         """(type_id, fields) from the form; date is normalised later by nd30.format_issue_date."""
@@ -56,6 +83,7 @@ class Nd30Wizard:
             self.d.select("type", self.types.index(type_id))
         for key, value in (fields or {}).items():
             self.d.set_text(key, value)
+        self.refresh()
 
     def errors(self):
         type_id, fields = self.read()
@@ -63,13 +91,23 @@ class Nd30Wizard:
         codes = self.s_nd["codes"]
         return ["%s (%s)" % (e["field"], codes.get(e["code"], e["code"])) for e in result["errors"]]
 
+    def _error_text(self):
+        """Errors for the user: field labels instead of internal keys."""
+        type_id, fields = self.read()
+        codes, s = self.s_nd["codes"], self.s_nd
+        return ["%s: %s" % (s.get(e["field"], e["field"]).split("\n")[0], codes.get(e["code"], e["code"]))
+                for e in nd30.validate_fields(type_id, fields, self.data)["errors"]]
+
     def refresh(self):
-        errs = self.errors()
+        """Redraw the preview; on invalid input keep the last good preview and show what to fix. True if valid."""
+        errs = self._error_text()
+        self.d.model.getByName("status").Label = (self.s_nd["errors"] % "; ".join(errs)) if errs else ""
+        self.d.model.getByName("btnOk").Enabled = not errs
         if errs:
-            self.d.set_text("preview", self.s_nd["errors"] % ", ".join(errs))
             return False
         type_id, fields = self.read()
-        self.d.set_text("preview", nd30_layout.layout_to_text(nd30_layout.build_layout(type_id, fields, data=self.data)).replace("\n", "\r\n"))
+        layout = nd30_layout.build_layout(type_id, fields, data=self.data)
+        self.d.set_text("preview", nd30_preview.layout_to_preview(layout, PREVIEW_CHARS).replace("\n", "\r\n"))
         return True
 
     def outcome(self):

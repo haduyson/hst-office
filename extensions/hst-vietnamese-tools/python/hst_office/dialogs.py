@@ -6,7 +6,7 @@ gets a HelpText for screen readers. All positions are in Map AppFont units.
 """
 import uno
 import unohelper
-from com.sun.star.awt import XActionListener
+from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
 OK, CANCEL = 1, 2
 
@@ -22,6 +22,22 @@ class _Action(unohelper.Base, XActionListener):
         pass
 
 
+class _Changed(unohelper.Base, XTextListener, XItemListener):
+    """Calls `callback` whenever an edit's text or a list box's selection changes (live preview)."""
+
+    def __init__(self, callback):
+        self.callback = callback
+
+    def textChanged(self, event):
+        self.callback()
+
+    def itemStateChanged(self, event):
+        self.callback()
+
+    def disposing(self, event):
+        pass
+
+
 class Dialog:
     def __init__(self, ctx, title, width, height):
         self.ctx, self.smgr = ctx, ctx.ServiceManager
@@ -30,6 +46,7 @@ class Dialog:
         self.dialog = self.smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
         self.dialog.setModel(self.model)
         self._listeners = []
+        self._watchers = []  # (control name, _Changed)
         self.result = 0
 
     def _add(self, kind, name, x, y, w, h, **props):
@@ -61,6 +78,11 @@ class Dialog:
             self._listeners.append((name, _Action(callback)))
         return model
 
+    def on_change(self, names, callback):
+        """Run `callback` after any text/selection change of the named edits and list boxes (added at execute)."""
+        listener = _Changed(callback)
+        self._watchers += [(name, listener) for name in names]
+
     def get(self, name):
         model = self.model.getByName(name)
         if hasattr(model, "SelectedItems") and model.supportsService("com.sun.star.awt.UnoControlListBoxModel"):
@@ -87,6 +109,12 @@ class Dialog:
         self.dialog.createPeer(toolkit, parent_peer)
         for name, listener in self._listeners:
             self.dialog.getControl(name).addActionListener(listener)
+        for name, listener in self._watchers:
+            control = self.dialog.getControl(name)
+            if self.model.getByName(name).supportsService("com.sun.star.awt.UnoControlListBoxModel"):
+                control.addItemListener(listener)
+            else:
+                control.addTextListener(listener)
         try:
             self.dialog.execute()
             return self.result

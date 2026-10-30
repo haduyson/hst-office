@@ -32,10 +32,10 @@ def format_paragraph(cur, block, cell_mm, bottom_rule=False):
     cur.ParaFirstLineIndent = mm(block.get("indent_first_mm", 0))
     cur.ParaTopMargin = pt_to_mm100(block.get("spacing_before_pt", 0))
     cur.ParaBottomMargin = pt_to_mm100(block.get("spacing_after_pt", 0))
-    side = 0
+    side = mm(block.get("indent_left_mm", 0))
     if bottom_rule:
         side = max(0, mm((cell_mm - block["rule_mm"]) / 2.0))
-    cur.ParaLeftMargin, cur.ParaRightMargin = side, side
+    cur.ParaLeftMargin, cur.ParaRightMargin = side, side if bottom_rule else 0
     spacing = uno.createUnoStruct("com.sun.star.style.LineSpacing")
     spacing.Mode, spacing.Height = 1, int(round(block.get("line_spacing", 1.0) * 100))  # PROP, percent
     cur.ParaLineSpacing = spacing
