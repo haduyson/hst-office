@@ -1,0 +1,35 @@
+HST Office packaging: macOS dmg for a product name with a space.
+
+PRODUCTNAME "HST Office" made the dmg step of the installer fail on macOS:
+ - the hdiutil command line passed the package folder and the archive path
+   ("HST Office_<version>_MacOS_<arch>") unquoted;
+ - the language pack step looked for "<PRODUCTNAME>.app", but the bundle in the
+   installation set is "<PRODUCTNAME_WITHOUT_SPACES>.app" (HSTOffice.app), so its
+   tar of Contents/ failed.
+Both are behaviour-neutral for names without spaces (LibreOffice, LibreOfficeDev).
+Only the macOS dmg path of simplepackage.pm is touched; deb/msi/archive are unchanged.
+
+License: modified upstream file keeps its license (MPL-2.0).
+---
+--- a/solenv/bin/modules/installer/simplepackage.pm
++++ b/solenv/bin/modules/installer/simplepackage.pm
+@@ -295,7 +295,9 @@
+             # LanguagePack and HelpPack files are collected in $srcfolder, packaged into
+             # tarball.tar.bz2 and finally the Language Pack.app is assembled in $appfolder
+             $localtempdir = "$tempdir/$packagename";
+-            my $srcfolder = $localtempdir . "/" . $volume_name_classic_app . "\.app";
++            # The bundle directory is named PRODUCTNAME_WITHOUT_SPACES.app (configure INSTROOTBASESUFFIX).
++            (my $bundle_name = $volume_name_classic_app) =~ s/ //g;
++            my $srcfolder = $localtempdir . "/" . $bundle_name . "\.app";
+ 
+             $volume_name             .= " " . $$languagestringref . " Language Pack";
+             $volume_name_classic     .= " Language Pack";
+@@ -477,7 +479,7 @@
+         # bzip2 should be smaller than with lzfse. A .dmg built from a debug
+         # build was 262M with bzip2 and 273MB for lzfse. So it appears that
+         # lzfse creates .dmg files that are only 4% or 5% larger than bzip2.
+-        $systemcall = "cd $localtempdir && hdiutil create -megabytes $megabytes -srcfolder $folder $archive -ov -fs HFS+ -volname \"$volume_name\" -format ULFO";
++        $systemcall = "cd \"$localtempdir\" && hdiutil create -megabytes $megabytes -srcfolder \"$folder\" \"$archive\" -ov -fs HFS+ -volname \"$volume_name\" -format ULFO";
+         if (( $ref ne "" ) && ( $$ref ne "" ) && system("hdiutil 2>&1 | grep unflatten") == 0) {
+             $systemcall .= " && hdiutil unflatten $archive && Rez -a $$ref -o $archive && hdiutil flatten $archive &&";
+         }
