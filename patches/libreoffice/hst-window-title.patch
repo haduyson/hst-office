@@ -1,0 +1,90 @@
+HST Office: no engine version in window and dialog titles.
+
+The application display name (title of the Start Center and of dialogs without own title,
+e.g. message boxes) was "%PRODUCTNAME %PRODUCTVERSION" = "HST Office 26.8" (engine
+version). It is now the product name only, like the document windows ("... — HST Office
+Writer"). %PRODUCTVERSION in UI texts (e.g. "HST Office 1.0 Document Recovery") is the HST
+release major.minor from /VERSION (include/hst_version.h). utl::ConfigManager::
+getProductVersion() stays the engine version (extension compatibility, help paths).
+On X11/GTK the application name (hidden leader windows, desktop app name) came from
+bootstraprc ProductKey "HST Office 26.8": the trailing engine version is dropped there too
+(vcl/unx X11Helper; the installer still writes ProductKey unchanged).
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/runtime/check-window-title.py under Xvfb.
+---
+--- a/desktop/source/app/app.cxx
++++ b/desktop/source/app/app.cxx
+@@ -164,6 +164,7 @@
+ #endif
+ 
+ #include <strings.hxx>
++#include <hst_version.h> // HST_VERSION_* (generated from /VERSION)
+ 
+ using namespace ::com::sun::star::awt;
+ using namespace ::com::sun::star::uno;
+@@ -419,7 +420,10 @@
+ {
+     const static OUString sBuildId(utl::Bootstrap::getBuildIdData(u"development"_ustr)),
+         sBrandName(utl::ConfigManager::getProductName()),
+-        sVersion(utl::ConfigManager::getProductVersion()),
++        // HST Office: "%PRODUCTVERSION" in UI texts (dialog titles such as Document
++        // Recovery) is the HST release (major.minor from /VERSION), not the engine version;
++        // utl::ConfigManager::getProductVersion() stays the engine version (extensions, help).
++        sVersion(OUString::number(HST_VERSION_MAJOR) + "." + OUString::number(HST_VERSION_MINOR)),
+         sAboutBoxVersion(utl::ConfigManager::getAboutBoxProductVersion()),
+         sAboutBoxVersionSuffix(utl::ConfigManager::getAboutBoxProductVersionSuffix()),
+         sExtension(utl::ConfigManager::getProductExtension());
+@@ -1422,7 +1426,9 @@
+     recordTime(startT, "SetSplashScreenProgress(30): time = ");
+ 
+     // create title string
+-    OUString aTitle(ReplaceStringHookProc(RID_APPTITLE));
++    // HST Office: window/dialog titles show the product name only, never the engine version
++    // (26.8); the HST release version is shown in About and "soffice --version".
++    OUString aTitle(utl::ConfigManager::getProductName());
+ #ifdef DBG_UTIL
+     //include buildid in non product builds
+     aTitle += " [" + utl::Bootstrap::getBuildIdData(u"development"_ustr) + "]";
+--- a/desktop/source/deployment/gui/dp_gui_service.cxx
++++ b/desktop/source/deployment/gui/dp_gui_service.cxx
+@@ -218,10 +218,8 @@
+             if (! InitVCL() )
+                 throw RuntimeException( u"Cannot initialize VCL!"_ustr,
+                                         static_cast<OWeakObject *>(this) );
+-            Application::SetDisplayName(
+-                utl::ConfigManager::getProductName() +
+-                " " +
+-                utl::ConfigManager::getProductVersion());
++            // HST Office: product name only, no engine version in window titles.
++            Application::SetDisplayName(utl::ConfigManager::getProductName());
+             ExtensionCmdQueue::syncRepositories( m_xComponentContext );
+         }
+     }
+--- a/vcl/unx/generic/app/X11Helper.cxx
++++ b/vcl/unx/generic/app/X11Helper.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <algorithm>
+ #include <config_folders.h>
+ 
+ #include <unx/X11Helper.hxx>
+@@ -79,6 +80,16 @@
+         rtl::Bootstrap aBootstrap( aIni );
+         aBootstrap.getFrom( u"ProductKey"_ustr, aProduct );
+ 
++        // HST Office: ProductKey is "<product> <engine version>" ("HST Office 26.8"); the
++        // application name shown by the desktop is the product name only.
++        sal_Int32 nSpace = aProduct.lastIndexOf(' ');
++        if (nSpace > 0)
++        {
++            std::u16string_view aLast = aProduct.subView(nSpace + 1);
++            if (!aLast.empty() && std::all_of(aLast.begin(), aLast.end(),
++                                              [](sal_Unicode c) { return (c >= '0' && c <= '9') || c == '.'; }))
++                aProduct = aProduct.copy(0, nSpace);
++        }
+         if( !aProduct.isEmpty() )
+             aClassName.append( OUStringToOString( aProduct, osl_getThreadTextEncoding() ) );
+         else

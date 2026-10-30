@@ -4,7 +4,11 @@ HST Office Start Center: HASON TECH solutions banner, three editors, no donation
   every start while Misc/ShowDonation is enabled (upstream: every 30 days).
   The artwork ships as the custom brand image donate1.png (2x pixels, drawn at
   half size); donation texts and the right image are hidden; the clickable link next to the
-  image reads "Xem các giải pháp tại hasontech.vn →" (no fake button in the image).
+  image reads "Xem các giải pháp tại hasontech.vn →" (no fake button in the image). It is
+  a flat button, not a hyperlink: a link underline runs through Vietnamese marks below the
+  baseline (the dot of "tại").
+- The hint in the empty recent-documents area ("Chào mừng đến với HST Office! Thả tài
+  liệu vào đây...") is introductory text: Vietnamese in every UI language.
 - The Start Center donation button is never shown; the Extensions button opens the
   Extension Manager (.uno:ExtensionManager), never a website.
 - Banner link opens Menus/DonationURL (https://hasontech.vn, hst-defaults.patch)
@@ -29,6 +33,15 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  
              Reference<css::system::XSystemShellExecute> const xSystemShellExecute(
                  css::system::SystemShellExecute::create(
+@@ -198,7 +198,7 @@
+     , mxLocalViewWin(new weld::CustomWeld(*m_xBuilder, u"local_view"_ustr, *mxLocalView))
+     , mxDonationLeft(m_xBuilder->weld_image(u"imgDonationLeft"_ustr))
+     , mxDonationRight(m_xBuilder->weld_image(u"imgDonationRight"_ustr))
+-    , mxDonationLink(m_xBuilder->weld_link_button(u"btnDonateLink"_ustr))
++    , mxDonationLink(m_xBuilder->weld_button(u"btnDonateLink"_ustr))
+     , mxDonationBox(m_xBuilder->weld_container(u"gdDonation"_ustr))
+     , mxDonationBoxTitle(m_xBuilder->weld_label(u"lbDonateTitle"_ustr))
+     , mxDonationBoxText(m_xBuilder->weld_label(u"lbDonateText"_ustr))
 @@ -211,9 +211,9 @@
      // draw the donation image/text
      const bool bShowDonation(officecfg::Office::Common::Misc::ShowDonation::get());
@@ -65,9 +78,12 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  
      mxDropTarget = mxAllRecentThumbnails->GetDropTarget();
  
-@@ -264,44 +252,43 @@
+@@ -262,47 +250,45 @@
+ 
+ void BackingWindow::initDonationBanner()
  {
-     mxDonationLink->connect_activate_link(LINK(this, BackingWindow, OnDonateLinkClick));
+-    mxDonationLink->connect_activate_link(LINK(this, BackingWindow, OnDonateLinkClick));
++    mxDonationLink->connect_clicked(LINK(this, BackingWindow, OnDonateLinkClick));
  
 -    mxDonationBox->set_background(COL_WHITE);
 -    mxDonationBoxTitle->set_font_color(COL_BLACK);
@@ -112,11 +128,13 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 -    m_pVirDevRight.disposeAndClear();
  }
  
- IMPL_STATIC_LINK_NOARG(BackingWindow, OnDonateLinkClick, weld::LinkButton&, bool)
+-IMPL_STATIC_LINK_NOARG(BackingWindow, OnDonateLinkClick, weld::LinkButton&, bool)
++IMPL_STATIC_LINK_NOARG(BackingWindow, OnDonateLinkClick, weld::Button&, void)
  {
 -    SfxDispatcher &rDispatcher = *SfxGetpApp()->GetDispatcher_Impl();
 -    rDispatcher.Execute(SID_DONATION, SfxCallMode::ASYNCHRON);
 -
+-    return true;
 +    // HST Office: open the HASON TECH page; UTM only tells the site where the click came from.
 +    try
 +    {
@@ -129,10 +147,10 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +    {
 +        TOOLS_WARN_EXCEPTION("fwk", "opening the HASON TECH page failed");
 +    }
-     return true;
  }
  
-@@ -401,8 +388,9 @@
+ IMPL_LINK(BackingWindow, ClickHelpHdl, weld::Button&, rButton, void)
+@@ -401,8 +387,9 @@
  
      checkInstalledModules();
  
@@ -144,7 +162,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  
      mxOpenButton->connect_clicked(LINK(this, BackingWindow, ClickHdl));
  
-@@ -529,6 +517,13 @@
+@@ -529,6 +516,13 @@
      mxDrawAllButton->set_sensitive(aModuleOpt.IsDrawInstalled());
      mxMathAllButton->set_sensitive(aModuleOpt.IsMathInstalled());
      mxDBAllButton->set_sensitive(aModuleOpt.IsDataBaseInstalled());
@@ -158,7 +176,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  }
  
  bool BackingWindow::PreNotify(NotifyEvent& rNEvt)
-@@ -638,32 +633,6 @@
+@@ -638,32 +632,6 @@
          xFramesSupplier->setActiveFrame(mxFrame);
  }
  
@@ -191,7 +209,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  void BackingWindow::applyFilter()
  {
      const int nFilter = mxFilter->get_active();
-@@ -738,6 +707,12 @@
+@@ -738,6 +706,12 @@
  
          dispatchURL( u".uno:OpenRemote"_ustr, OUString(), xFrame, {} );
      }
@@ -206,7 +224,16 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  IMPL_LINK (BackingWindow, MenuSelectHdl, const OUString&, rId, void)
 --- a/sfx2/source/dialog/backingwindow.hxx
 +++ b/sfx2/source/dialog/backingwindow.hxx
-@@ -112,7 +112,6 @@
+@@ -89,7 +89,7 @@
+     std::unique_ptr<weld::CustomWeld> mxLocalViewWin;
+     std::unique_ptr<weld::Image> mxDonationLeft;
+     std::unique_ptr<weld::Image> mxDonationRight;
+-    std::unique_ptr<weld::LinkButton> mxDonationLink;
++    std::unique_ptr<weld::Button> mxDonationLink;
+     std::unique_ptr<weld::Container> mxDonationBox;
+     std::unique_ptr<weld::Label> mxDonationBoxTitle;
+     std::unique_ptr<weld::Label> mxDonationBoxText;
+@@ -112,11 +112,10 @@
      DECL_LINK(ClickHdl, weld::Button&, void);
      DECL_LINK(ClickHelpHdl, weld::Button&, void);
      DECL_LINK(MenuSelectHdl, const OUString&, void);
@@ -214,6 +241,11 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
      DECL_LINK(CreateContextMenuHdl, TemplateViewItem*, void);
      DECL_LINK(OpenTemplateHdl, const OUString&, void);
      DECL_LINK(EditTemplateHdl, const OUString&, void);
+-    DECL_STATIC_LINK(BackingWindow, OnDonateLinkClick, weld::LinkButton&, bool);
++    DECL_STATIC_LINK(BackingWindow, OnDonateLinkClick, weld::Button&, void);
+ 
+     void initControls();
+     void initDonationBanner();
 --- a/sfx2/uiconfig/ui/startcenter.ui
 +++ b/sfx2/uiconfig/ui/startcenter.ui
 @@ -234,7 +234,7 @@
@@ -243,6 +275,40 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
                          <property name="visible">True</property>
                          <property name="can-focus">True</property>
                          <property name="receives-default">True</property>
+@@ -732,7 +732,9 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkLinkButton" id="btnDonateLink">
++                  <!-- HST Office: a flat button, not a hyperlink: a link underline hides
++                       Vietnamese marks below the baseline (the dot of "tại") -->
++                  <object class="GtkButton" id="btnDonateLink">
+                     <property name="label" translatable="yes" context="startcenter|donatelink">Click here to donate</property>
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+--- a/sfx2/source/control/recentdocsview.cxx
++++ b/sfx2/source/control/recentdocsview.cxx
+@@ -20,6 +20,7 @@
+ #include <sal/log.hxx>
+ #include <comphelper/DirectoryHelper.hxx>
+ #include <recentdocsview.hxx>
++#include <unotools/configmgr.hxx>
+ #include <sfx2/sfxresid.hxx>
+ #include <unotools/historyoptions.hxx>
+ #include <vcl/event.hxx>
+@@ -62,8 +63,10 @@
+     : ThumbnailView(std::move(xWindow))
+     , mnFileTypes(ApplicationType::TYPE_NONE)
+     , mnLastMouseDownItem(THUMBNAILVIEW_ITEM_NOTFOUND)
+-    , maWelcomeLine1(SfxResId(STR_WELCOME_LINE1))
+-    , maWelcomeLine2(SfxResId(STR_WELCOME_LINE2))
++    // HST Office: introductory text, Vietnamese in every UI language (owner decision).
++    , maWelcomeLine1(u"Ch\u00E0o m\u1EEBng \u0111\u1EBFn v\u1EDBi "_ustr + utl::ConfigManager::getProductName() + u"!"_ustr)
++    , maWelcomeLine2(u"Th\u1EA3 t\u00E0i li\u1EC7u v\u00E0o \u0111\u00E2y ho\u1EB7c ch\u1ECDn m\u1ED9t \u1EE9ng d\u1EE5ng"
++                     u" \u0111\u1EC3 t\u1EA1o t\u00E0i li\u1EC7u m\u1EDBi."_ustr)
+     , mpLoadRecentFile(nullptr)
+     , m_nExecuteHdlId(nullptr)
+ {
 --- a/translations/source/vi/sfx2/messages.po
 +++ b/translations/source/vi/sfx2/messages.po
 @@ -5177,20 +5177,19 @@

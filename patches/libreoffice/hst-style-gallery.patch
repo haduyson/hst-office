@@ -1,0 +1,349 @@
+HST Office: Writer style gallery on the Tabbed ribbon shows whole rows only.
+
+Upstream the gallery was a 65 px high scrolled icon view with 36 px rows: a second row cut
+off at the bottom and a vertical scrollbar. Now it shows exactly one row of taller previews
+(100x52, row 58 px, frame 60 px = the ribbon slot), no scrollbar and no wheel-scroll to a
+half row: the view holds one "page" (as many previews as fit the width) and buttons on the
+right page through the styles (previous / next) or open all styles in the Styles deck of
+the sidebar. Only Writer's Tabbed notebookbar uses this control (Calc has none).
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/runtime/check-style-gallery.py (screenshot analysis) under Xvfb.
+---
+--- a/svx/uiconfig/ui/stylespreview.ui
++++ b/svx/uiconfig/ui/stylespreview.ui
+@@ -22,25 +22,28 @@
+     <child>
+       <object class="GtkBox">
+         <property name="can-focus">False</property>
+-        <property name="spacing">3</property>
++        <property name="spacing">0</property>
+         <property name="visible">True</property>
++        <!-- HST Office: one row of style previews, exactly as tall as the row (no clipped
++             second row, no scrollbar); the buttons on the right page through the styles
++             and open the Styles deck. Rows/pages are filled by StylesPreviewWindow.cxx. -->
+         <child>
+-          <object class="GtkScrolledWindow">
++          <object class="GtkScrolledWindow" id="stylesscroll">
+             <property name="can-focus">True</property>
+-            <property name="height-request">65</property>
+-            <property name="hscrollbar-policy">never</property>
+-            <property name="min-content-width">70</property>
++            <property name="height-request">60</property>
++            <property name="hscrollbar-policy">external</property>
++            <property name="min-content-width">212</property>
+             <property name="shadow-type">in</property>
+             <property name="valign">center</property>
+             <property name="visible">True</property>
+-            <property name="vscrollbar-policy">always</property>
+-            <property name="width-request">70</property>
++            <property name="vscrollbar-policy">external</property>
++            <property name="width-request">212</property>
+             <child>
+               <object class="GtkIconView" id="stylesview">
+                 <property name="can-focus">True</property>
+                 <property name="column-spacing">0</property>
+                 <property name="item-padding">3</property>
+-                <property name="item-width">70</property>
++                <property name="item-width">100</property>
+                 <property name="margin">0</property>
+                 <property name="model">liststore1</property>
+                 <property name="pixbuf-column">0</property>
+@@ -56,6 +59,57 @@
+             <property name="position">0</property>
+           </packing>
+         </child>
++        <child>
++          <object class="GtkButton" id="prevstyles">
++            <property name="label">◂</property>
++            <property name="can-focus">False</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="tooltip-text" translatable="yes" context="stylespreview|prevstyles">Previous Styles</property>
++            <property name="valign">center</property>
++            <property name="height-request">60</property>
++            <property name="visible">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="nextstyles">
++            <property name="label">▸</property>
++            <property name="can-focus">False</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="tooltip-text" translatable="yes" context="stylespreview|nextstyles">Next Styles</property>
++            <property name="valign">center</property>
++            <property name="height-request">60</property>
++            <property name="visible">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="morestyles">
++            <property name="label">▾</property>
++            <property name="can-focus">False</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="tooltip-text" translatable="yes" context="stylespreview|morestyles">All Styles</property>
++            <property name="valign">center</property>
++            <property name="height-request">60</property>
++            <property name="visible">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">3</property>
++          </packing>
++        </child>
+       </object>
+       <packing>
+         <property name="expand">True</property>
+--- a/svx/source/inc/StylesPreviewWindow.hxx
++++ b/svx/source/inc/StylesPreviewWindow.hxx
+@@ -25,6 +25,7 @@
+ #include <com/sun/star/frame/XDispatchProvider.hpp>
+ #include <com/sun/star/frame/XFrame.hpp>
+ #include <sfx2/sfxstatuslistener.hxx>
++#include <vcl/weld/Button.hxx>
+ #include <vcl/weld/IconView.hxx>
+ 
+ // pair of id and name, name can be translated to other language
+@@ -106,6 +107,14 @@
+     css::uno::Reference<css::frame::XFrame> m_xFrame;
+ 
+     std::unique_ptr<weld::IconView> m_xStylesView;
++    // HST Office: the gallery shows one row (a "page") of styles; these buttons page
++    // through the list and open the Styles deck.
++    std::unique_ptr<weld::Button> m_xPrevButton;
++    std::unique_ptr<weld::Button> m_xNextButton;
++    std::unique_ptr<weld::Button> m_xMoreButton;
++    size_t m_nFirstVisible = 0;
++    size_t m_nPageSize = 0;
++    tools::Long m_nViewWidth = 0;
+ 
+     StylesListUpdateTask m_aUpdateTask;
+ 
+@@ -120,6 +129,9 @@
+     DECL_LINK(Selected, weld::ItemView&, void);
+     DECL_LINK(DoubleClick, const weld::TreeIter&, bool);
+     DECL_LINK(DoCommand, const CommandEvent&, bool);
++    DECL_LINK(PageHdl, weld::Button&, void);
++    DECL_LINK(MoreHdl, weld::Button&, void);
++    DECL_LINK(ViewSizeHdl, const Size&, void);
+ 
+ public:
+     StylesPreviewWindow_Base(weld::Builder& xBuilder, const StylePreviewList& rDefaultStyles,
+@@ -133,6 +145,8 @@
+ private:
+     void UpdateStylesList();
+     void UpdateSelection();
++    void ShowPage();
++    size_t CalcPageSize() const;
+     bool Command(const CommandEvent& rEvent);
+ };
+ 
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -19,6 +19,8 @@
+ 
+ #include <StylesPreviewWindow.hxx>
+ 
++#include <algorithm>
++
+ #include <comphelper/base64.hxx>
+ #include <comphelper/lok.hxx>
+ #include <comphelper/propertyvalue.hxx>
+@@ -432,6 +434,9 @@
+     const css::uno::Reference<css::frame::XFrame>& xFrame)
+     : m_xFrame(xFrame)
+     , m_xStylesView(xBuilder.weld_icon_view(u"stylesview"_ustr))
++    , m_xPrevButton(xBuilder.weld_button(u"prevstyles"_ustr))
++    , m_xNextButton(xBuilder.weld_button(u"nextstyles"_ustr))
++    , m_xMoreButton(xBuilder.weld_button(u"morestyles"_ustr))
+     , m_aUpdateTask(*this)
+     , m_aDefaultStyles(rDefaultStyles)
+ {
+@@ -440,6 +445,10 @@
+     m_xStylesView->connect_selection_changed(LINK(this, StylesPreviewWindow_Base, Selected));
+     m_xStylesView->connect_item_activated(LINK(this, StylesPreviewWindow_Base, DoubleClick));
+     m_xStylesView->connect_command(LINK(this, StylesPreviewWindow_Base, DoCommand));
++    m_xStylesView->connect_size_allocate(LINK(this, StylesPreviewWindow_Base, ViewSizeHdl));
++    m_xPrevButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, PageHdl));
++    m_xNextButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, PageHdl));
++    m_xMoreButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, MoreHdl));
+ 
+     const css::uno::Reference<css::frame::XDispatchProvider> xProvider(m_xFrame,
+                                                                        css::uno::UNO_QUERY);
+@@ -483,6 +492,75 @@
+     return Command(rPos);
+ }
+ 
++// HST Office: one row per page, sized from the view width, so no row is ever cut off.
++size_t StylesPreviewWindow_Base::CalcPageSize() const
++{
++    // An item is the preview plus the icon view's item padding on both sides.
++    constexpr tools::Long nItemWidth = 100 + 2 * 3;
++    if (m_nViewWidth <= 0)
++        return 1;
++    return std::max<size_t>(1, m_nViewWidth / nItemWidth);
++}
++
++IMPL_LINK(StylesPreviewWindow_Base, ViewSizeHdl, const Size&, rSize, void)
++{
++    if (rSize.Width() == m_nViewWidth)
++        return;
++    m_nViewWidth = rSize.Width();
++    if (CalcPageSize() != m_nPageSize)
++        ShowPage();
++}
++
++IMPL_LINK(StylesPreviewWindow_Base, PageHdl, weld::Button&, rButton, void)
++{
++    if (!m_nPageSize)
++        return;
++    if (&rButton == m_xNextButton.get())
++    {
++        if (m_nFirstVisible + m_nPageSize < m_aAllStyles.size())
++            m_nFirstVisible += m_nPageSize;
++    }
++    else
++        m_nFirstVisible = m_nFirstVisible > m_nPageSize ? m_nFirstVisible - m_nPageSize : 0;
++    ShowPage();
++}
++
++IMPL_LINK_NOARG(StylesPreviewWindow_Base, MoreHdl, weld::Button&, void)
++{
++    // All styles, with search and filters: the Styles deck of the sidebar.
++    const css::uno::Reference<css::frame::XDispatchProvider> xProvider(m_xFrame,
++                                                                       css::uno::UNO_QUERY);
++    SfxToolBoxControl::Dispatch(xProvider, u".uno:SidebarDeck.StyleListDeck"_ustr, {});
++}
++
++void StylesPreviewWindow_Base::ShowPage()
++{
++    m_nPageSize = CalcPageSize();
++    if (m_nFirstVisible >= m_aAllStyles.size())
++        m_nFirstVisible = 0;
++    // pages start at multiples of the page size, so paging back and forth is stable
++    m_nFirstVisible -= m_nFirstVisible % m_nPageSize;
++    const size_t nEnd = std::min(m_aAllStyles.size(), m_nFirstVisible + m_nPageSize);
++
++    m_xStylesView->freeze();
++    m_xStylesView->clear();
++    int nIndex = 0;
++    for (size_t i = m_nFirstVisible; i < nEnd; ++i)
++    {
++        const StylePreviewDescriptor& rStyle = m_aAllStyles[i];
++        Bitmap aPreview = GetCachedPreview(rStyle);
++        m_xStylesView->insert(nIndex, nullptr, &rStyle.translatedName, &aPreview, nullptr);
++        m_xStylesView->set_item_tooltip_text(nIndex, rStyle.translatedName);
++        m_xStylesView->set_item_accessible_name(nIndex, rStyle.translatedName);
++        nIndex++;
++    }
++    m_xStylesView->thaw();
++
++    m_xPrevButton->set_sensitive(m_nFirstVisible > 0);
++    m_xNextButton->set_sensitive(nEnd < m_aAllStyles.size());
++    UpdateSelection();
++}
++
+ StylesPreviewWindow_Base::~StylesPreviewWindow_Base()
+ {
+     m_xStatusListener->UnBind();
+@@ -514,15 +592,19 @@
+     if (!m_xStylesView || !m_xStylesView->n_children())
+         return;
+ 
+-    for (StylePreviewList::size_type i = 0; i < m_aAllStyles.size(); ++i)
++    // HST Office: the view holds the current page only; the paging buttons don't jump to
++    // the page of the current style (the gallery stays where the user put it).
++    const size_t nEnd = std::min(m_aAllStyles.size(), m_nFirstVisible + m_nPageSize);
++    for (StylePreviewList::size_type i = m_nFirstVisible; i < nEnd; ++i)
+     {
+         if (m_aAllStyles[i].commonName == m_sSelectedStyle
+             || m_aAllStyles[i].translatedName == m_sSelectedStyle)
+         {
+-            m_xStylesView->select(i);
+-            break;
++            m_xStylesView->select(i - m_nFirstVisible);
++            return;
+         }
+     }
++    m_xStylesView->unselect_all();
+ }
+ 
+ void StylesPreviewWindow_Base::RequestStylesListUpdate() { m_aUpdateTask.Start(); }
+@@ -541,7 +623,9 @@
+     else
+     {
+         ScopedVclPtrInstance<VirtualDevice> pImg;
+-        const Size aSize(100, 30);
++        // HST Office: taller previews, one row fills the Tabbed ribbon (see stylespreview.ui:
++        // row = 52 + 2 x item-padding 3 = 58, plus the 1px frame = height-request 60).
++        const Size aSize(100, 52);
+         pImg->SetOutputSizePixel(aSize);
+ 
+         StyleItemController aStyleController(rStyle);
+@@ -677,18 +761,7 @@
+                                  SfxStyleSearchBits::Favourite | SfxStyleSearchBits::UserDefined);
+     }
+ 
+-    m_xStylesView->freeze();
+-    m_xStylesView->clear();
+-    int nIndex = 0;
+-    for (const auto& rStyle : m_aAllStyles)
+-    {
+-        Bitmap aPreview = GetCachedPreview(rStyle);
+-        m_xStylesView->insert(nIndex, nullptr, &rStyle.translatedName, &aPreview, nullptr);
+-        m_xStylesView->set_item_tooltip_text(nIndex, rStyle.translatedName);
+-        m_xStylesView->set_item_accessible_name(nIndex, rStyle.translatedName);
+-        nIndex++;
+-    }
+-    m_xStylesView->thaw();
++    ShowPage();
+ }
+ 
+ StylesPreviewWindow_Impl::StylesPreviewWindow_Impl(
+@@ -705,6 +778,9 @@
+ void StylesPreviewWindow_Impl::dispose()
+ {
+     m_xStylesView.reset();
++    m_xPrevButton.reset();
++    m_xNextButton.reset();
++    m_xMoreButton.reset();
+ 
+     InterimItemWindow::dispose();
+ }
+--- a/translations/source/vi/svx/messages.po
++++ b/translations/source/vi/svx/messages.po
+@@ -22178,3 +22178,21 @@
+ msgctxt "zoommenu|200"
+ msgid "200%"
+ msgstr "200%"
++
++#. hstDT
++#: svx/uiconfig/ui/stylespreview.ui
++msgctxt "stylespreview|prevstyles"
++msgid "Previous Styles"
++msgstr "Kiểu dáng trước"
++
++#. hstDT
++#: svx/uiconfig/ui/stylespreview.ui
++msgctxt "stylespreview|nextstyles"
++msgid "Next Styles"
++msgstr "Kiểu dáng tiếp theo"
++
++#. hstDT
++#: svx/uiconfig/ui/stylespreview.ui
++msgctxt "stylespreview|morestyles"
++msgid "All Styles"
++msgstr "Tất cả kiểu dáng"

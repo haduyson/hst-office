@@ -60,7 +60,9 @@ def check_about(instdir, src, failures):
         failures.append("About copyright text contains a URL or github")
     if "Th\u00F4ng tin gi\u1EA5y ph\u00E9p" not in text:
         failures.append("About copyright text does not point to Help > License Information")
-    needle = text.split("\n")[0].encode("utf-16-le")  # notice line
+    # the notice line (the publisher line before it is assembled from several literals)
+    notice = next((line for line in text.split("\n") if "Th\u00F4ng tin gi\u1EA5y ph\u00E9p" in line), "")
+    needle = notice[notice.find("Ph\u1EA7n m\u1EC1m"):].encode("utf-16-le")
     libs = glob.glob(os.path.join(instdir, "program", "lib*.so"))
     if not any(needle in open(lib, "rb").read() for lib in libs):
         failures.append("About notice text is not compiled into any installed library (stale build?)")
