@@ -5,7 +5,8 @@
 Each row {file, msgctxt, msgid, msgstr, reason} replaces the msgstr of exactly that
 (file, msgctxt, msgid) entry, overwriting an existing translation. Values use the
 escaped .po form (\\n, \\") like the rows merged by merge-vi.py. Run it after merge-vi.py
-so the overrides win. Idempotent; every changed file must pass `msgfmt --check`; a key that
+so the overrides win. It also copies the Vietnamese tip-of-the-day images of l10n/vi-tipoftheday/
+(scripts/l10n/build-tip-images.py) over extras/source/tipoftheday and icon-themes/*/res. Idempotent; every changed file must pass `msgfmt --check`; a key that
 no longer exists in the tree is an error (the upstream string changed).
 
   scripts/l10n/apply-overrides.py [--tree DIR] [--overrides FILE]
@@ -74,12 +75,38 @@ def apply(tree, overrides):
     return 1 if errors else 0
 
 
+def apply_tip_images(tree, images):
+    """Copy the Vietnamese/HST tip-of-the-day images (scripts/l10n/build-tip-images.py) into the tree."""
+    import filecmp
+    import shutil
+    if not os.path.isdir(images):
+        print(f"tip images: {images} missing")
+        return 1
+    copies = [(os.path.join(images, n), os.path.join(tree, "extras", "source", "tipoftheday", n))
+              for n in sorted(os.listdir(images)) if n.endswith((".png", ".svg"))]
+    themes = os.path.join(images, "icon-themes")
+    for theme in sorted(os.listdir(themes)) if os.path.isdir(themes) else []:
+        for n in sorted(os.listdir(os.path.join(themes, theme))):
+            copies.append((os.path.join(themes, theme, n), os.path.join(tree, "icon-themes", theme, "res", n)))
+    changed = errors = 0
+    for src, dst in copies:
+        if not os.path.isfile(dst):
+            print(f"error: tip image target missing: {os.path.relpath(dst, tree)}")
+            errors += 1
+        elif not filecmp.cmp(src, dst, shallow=False):
+            shutil.copyfile(src, dst)
+            changed += 1
+    print(f"tip images: {len(copies)} files, {changed} replaced, {errors} errors")
+    return 1 if errors else 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tree", default=os.path.join(ROOT, "upstream", "libreoffice"))
     parser.add_argument("--overrides", default=os.path.join(ROOT, "l10n", "vi-overrides.jsonl"))
+    parser.add_argument("--tip-images", default=os.path.join(ROOT, "l10n", "vi-tipoftheday"))
     args = parser.parse_args()
-    return apply(args.tree, args.overrides)
+    return apply(args.tree, args.overrides) | apply_tip_images(args.tree, args.tip_images)
 
 
 if __name__ == "__main__":
