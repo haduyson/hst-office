@@ -3,7 +3,8 @@
 
 The blue "HS" triangle mark is copied pixel-for-pixel from the source; only the
 "HASON TECH" wordmark is replaced by "HST OFFICE". Outputs: logo/mark/plugin icons,
-desktop app icons, LibreOffice --with-branding inputs, Windows .ico, macOS .icns.
+desktop app icons, LibreOffice --with-branding inputs, Windows .ico, macOS .icns,
+per-module Windows app icons and the icon-theme window icon (mainapp).
 All outputs are deterministic (no timestamps) so --check can compare bytes.
 
 Usage:
@@ -24,6 +25,7 @@ from brand.legacy import build_core, load_source  # noqa: E402
 from brand.lo_branding import build_lo_branding  # noqa: E402
 from brand.platform_icons import build_platform_icons  # noqa: E402
 from brand.start_center_banner import build_start_center_banner  # noqa: E402
+from brand.windows_icons import build_windows_icons  # noqa: E402
 
 
 def build_assets(spec):
@@ -32,6 +34,7 @@ def build_assets(spec):
     outputs.update(build_lo_branding(spec, mark, logo))
     outputs.update(build_platform_icons(spec, square))
     outputs.update(build_start_center_banner(spec, mark))
+    outputs.update(build_windows_icons(spec, square))
     return outputs
 
 

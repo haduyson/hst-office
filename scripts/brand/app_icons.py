@@ -26,6 +26,18 @@ def _glyph(draw, kind, box, white, fill):
             for c in range(2):
                 cx, cy = x0 + c * (cell + gap), y0 + r * (cell + gap)
                 draw.rectangle((cx, cy, cx + cell, cy + cell), fill=white)
+    elif kind == "draw":  # circle overlapping a square
+        draw.rectangle((x0, y0 + h * 0.38, x0 + w * 0.62, y1), fill=white)
+        draw.ellipse((x0 + w * 0.34, y0, x1, y0 + h * 0.66), outline=white, width=max(1, round(w * 0.14)))
+    elif kind == "math":  # square-root sign
+        t = max(1, round(w * 0.16))
+        draw.line([(x0, y0 + h * 0.6), (x0 + w * 0.2, y0 + h * 0.5), (x0 + w * 0.42, y1),
+                   (x0 + w * 0.7, y0 + h * 0.04), (x1, y0 + h * 0.04)], fill=white, width=t, joint="curve")
+    elif kind == "base":  # database cylinder
+        cap = h * 0.28
+        draw.rectangle((x0, y0 + cap / 2, x1, y1 - cap / 2), fill=white)
+        draw.ellipse((x0, y1 - cap, x1, y1), fill=white)
+        draw.ellipse((x0, y0, x1, y0 + cap), fill=fill, outline=white, width=max(1, round(w * 0.1)))
     else:  # slides: screen with play triangle
         draw.rounded_rectangle((x0, y0 + h * 0.08, x1, y1 - h * 0.08), radius=h * 0.1, fill=white)
         tx, ty, tw, th = x0 + w * 0.36, y0 + h * 0.3, w * 0.3, h * 0.4
