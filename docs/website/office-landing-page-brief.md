@@ -46,7 +46,13 @@ Một landing page tiếng Việt, một trang, đẹp, nhanh, chuẩn SEO, gi�
    - **Link tải cố định trên domain:** các nút trỏ tới `https://office.hasontech.vn/tai/windows`, `/tai/macos-arm`, `/tai/macos-intel`, `/tai/linux`, `/tai/sha256` — chuyển hướng 302 (cấu hình ở một file duy nhất, ví dụ `.htaccess` nếu web server là Apache/LiteSpeed, hoặc cấu hình tương đương) sang link GitHub hiện hành. Khi ra bản mới chỉ sửa file chuyển hướng; link chia sẻ ra ngoài không bao giờ đổi. Link chưa có thì chuyển về mục "Tải về" của trang.
    - Ghi chú ngắn: bản thử nghiệm chưa ký số → Windows SmartScreen chọn "More info → Run anyway"; macOS chuột phải → Open; kiểm tra SHA256.
 5. **Câu hỏi thường gặp:** có thật sự miễn phí? (có, vĩnh viễn, nguồn mở); dùng cho doanh nghiệp/cơ quan được không?; mở được tệp Word/Excel cũ không?; có cần Internet không?; dữ liệu có gửi đi đâu không? (không); cài tiện ích thế nào? (tự tải tệp .oxt, tự chịu trách nhiệm); hỗ trợ ở đâu?
-6. **Chân trang:** "Sản phẩm của HASON TECH", Công ty TNHH Công nghệ Hà Sơn (HASON TECH), 300 Xô Viết Nghệ Tĩnh, phường Cẩm Lệ, TP. Đà Nẵng · Điện thoại (0236) 3.507.507 · lienhe@hasontech.vn · hasontech.vn; dòng "© 2026 HASON TECH · © 2000–2026 The Document Foundation và các tác giả LibreOffice"; "Phần mềm nguồn mở theo giấy phép MPL-2.0". Danh sách giải pháp HASON TECH đúng thứ tự: AIOS, eChatbot, Zalo Mini App, HST SEO, HST Content, AI Dễ Lắm (link hasontech.vn có UTM `utm_source=office-hasontech-vn&utm_medium=landing&utm_campaign=hst-office-1-0`).
+6. **Chân trang:** "Sản phẩm của HASON TECH", Công ty TNHH Công nghệ Hà Sơn (HASON TECH), 300 Xô Viết Nghệ Tĩnh, phường Cẩm Lệ, TP. Đà Nẵng · Điện thoại (0236) 3.507.507 · lienhe@hasontech.vn · hasontech.vn; dòng "© 2026 HASON TECH · © 2000–2026 The Document Foundation và các tác giả LibreOffice"; "Phần mềm nguồn mở theo giấy phép MPL-2.0". Danh sách giải pháp HASON TECH đúng thứ tự, mỗi mục một link riêng (cập nhật theo chủ dự án), tất cả `rel="nofollow"` và cùng UTM `?utm_source=office-hasontech-vn&utm_medium=landing&utm_campaign=hst-office-1-0`:
+   - AIOS → https://aios.hasontech.vn/
+   - eChatbot → https://echatbot.vn/
+   - Zalo Mini App → https://espace.vn/zaloapp
+   - HST SEO → https://seo.hasontech.vn/
+   - HST Content → https://content.hasontech.vn/ (lưu ý: tên miền chưa có DNS tại thời điểm cập nhật)
+   - AI Dễ Lắm → https://aidelam.com/
 
 ## Quy định thương hiệu/pháp lý
 - **Không** ghi "© HASON TECH. All rights reserved" cho toàn bộ sản phẩm. Chỉ dùng dòng bản quyền ở mục 6.
