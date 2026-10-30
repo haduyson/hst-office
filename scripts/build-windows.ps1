@@ -14,6 +14,17 @@ $CygwinRoot = 'C:\cygwin64'
 $CygwinPackages = 'autoconf,automake,bison,flex,gawk,gettext,gettext-devel,git,gperf,libtool,m4,make,patch,perl,pkg-config,python3,rsync,unzip,zip,libxml2,libxslt,perl-Archive-Zip,perl-Font-TTF,perl-IO-String,curl,wget,cabextract,diffutils,findutils,grep,sed,tar,xz'
 $MakeUrl = 'https://dev-www.libreoffice.org/bin/cygwin/make-4.2.1-msvc.exe'
 
+function Install-ChocoPackage([string]$Name) {
+    # The community feed has transient outages; retry before failing the job.
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        choco install $Name --no-progress -y
+        if ($LASTEXITCODE -eq 0) { return }
+        Write-Host "choco install $Name failed (attempt $attempt), retrying"
+        Start-Sleep -Seconds (30 * $attempt)
+    }
+    throw "$Name install failed"
+}
+
 function Write-Summary([string]$Text) {
     Write-Output $Text
     if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $Text }
@@ -68,14 +79,12 @@ function Invoke-Tools {
         Write-Summary "- native make sha256 $((Get-FileHash "$Work\bin\make.exe").Hash)"
     } catch { Write-Summary "- native make download failed ($($_.Exception.Message)); using Cygwin make" }
     # configure demands a Windows-path pkgconf named pkgconf-2.4.3.exe (harfbuzz/meson); pkgconfiglite emits Windows paths.
-    choco install pkgconfiglite --no-progress -y
-    if ($LASTEXITCODE -ne 0) { throw 'pkgconfiglite install failed' }
+    Install-ChocoPackage 'pkgconfiglite'
     $pkg = Get-ChildItem 'C:\ProgramData\chocolatey\lib\pkgconfiglite' -Recurse -Filter pkg-config.exe | Select-Object -First 1
     if (-not $pkg) { throw 'pkg-config.exe not found in pkgconfiglite package' }
     Copy-Item -LiteralPath $pkg.FullName -Destination "$Work\bin\pkgconf-2.4.3.exe"
     Write-Summary "- pkgconf shim from $($pkg.FullName)"
-    choco install nasm --no-progress -y
-    if ($LASTEXITCODE -ne 0) { throw 'nasm install failed' }
+    Install-ChocoPackage 'nasm'
     if (-not (Test-Path 'C:\Program Files\NASM\nasm.exe')) { throw 'nasm.exe not found in C:\Program Files\NASM' }
 }
 
