@@ -35,7 +35,7 @@ Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`
 
 ## Đợt rà soát 2026-10-30 (đã sửa)
 
-72 dòng trong `l10n/vi-overrides.jsonl` (mỗi dòng có `reason`) cho menu, thẻ ribbon và hộp thoại hay dùng:
+86 dòng trong `l10n/vi-overrides.jsonl` (mỗi dòng có `reason`) cho menu, thẻ ribbon và hộp thoại hay dùng:
 
 - "Save As" → **Lưu thành…** (trước là "Lưu mới…") ở menu Tập tin, sfx2, uui, Writer; "Luôn lưu thành:" trong Tùy chọn → Tải/Lưu (khôi phục phím tắt).
 - "Save" → **Lưu** thay cho "Cất" (Tùy chọn, hộp thoại tệp đang mở).
@@ -43,6 +43,7 @@ Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`
 - Bảng tính: "Pivot Table" từng dịch là "Bộ lọc" → **Bảng tổng hợp**; "Insert Columns" dịch nhầm "Chèn dòng" → **Chèn cột**; "Insert Rows" → **Chèn hàng**; các lệnh chuyển trang tính.
 - Chú thích (Comment) thống nhất; Hoàn tác (Undo) thống nhất, sửa một chú giải bị trộn câu.
 - Lỗi chính tả/dấu: "Tranh tính", "Vản bản cuối trang", "Định đạng"; chú giải hộp thoại In ghi nhầm "Tạo một tài liệu chủ mới."
+- Lỗi viết hoa "GIãn cách…", "GIá" (11 chuỗi); hộp thoại Đoạn văn: dấu hai chấm và phím tắt nhãn khoảng cách đoạn; Trang bắt đầu: "…để tạo mới một cái" → "…để tạo tài liệu mới".
 - Lớp AI (`l10n/vi/`): 3 chuỗi "Lưu dưới dạng …" → "Lưu thành …".
 
 ## Cần người duyệt (chưa sửa, cần quyết định)
