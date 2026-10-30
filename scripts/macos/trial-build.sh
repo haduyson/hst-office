@@ -20,6 +20,9 @@ PY="${HST_PYTHON:-$(command -v python3)}"
 BREW="${HST_BREW:-$(command -v brew || true)}"
 eval "$("$PY" "$REPO/scripts/write-hst-version.py" --env)"
 export HST_VERSION HST_VERSION_MAJOR HST_VERSION_MINOR HST_VERSION_MICRO
+# HST make rules (bundled extension) read the repository through HST_REPO_ROOT; without it they
+# assume the Linux layout two levels above the source tree.
+export HST_REPO_ROOT="$REPO"
 mkdir -p "$LOGS" "$METRICS" "$WORK/bin"
 # Minimal PATH: only the tools linked into $WORK/bin plus the base system. Keeps Homebrew's
 # libraries, pkg-config and headers out of configure and the bundled external builds.
@@ -194,7 +197,8 @@ do_fetch() { # download every external tarball (sha256-checked by gbuild) so pre
   if grep -q 'Saving to: .*libreoffice-\(translations\|dictionaries\)-' "$LOGS/fetch.log"; then
     echo "fetch: make tried to re-download translations/dictionaries tarballs"; return 1
   fi
-  (cd "$SRC" && "${LO_MAKE[@]}" showmodules) > "$LOGS/showmodules.log" 2>&1
+  (cd "$SRC" && "${LO_MAKE[@]}" showmodules) > "$LOGS/showmodules.log" 2>&1 || return 1
+  [ -f "$HST_REPO_ROOT/scripts/build-extensions.py" ] || { echo "fetch: HST_REPO_ROOT unusable: $HST_REPO_ROOT"; return 1; }
 }
 
 sample() { # one progress sample: steps compiled, free disk, memory used, swap used
@@ -235,12 +239,12 @@ do_build() {
 dmg_name() { printf 'HSTOffice_%s_macOS_%s.dmg' "$HST_VERSION" "$ARCH"; }
 
 do_collect() { # the single HST Office dmg -> $WORK/dmg with SHA256SUMS; signing inputs -> evidence
-  local inst="$SRC/workdir/installation/HSTOffice/dmg/install" out="$WORK/dmg" kit="$WORK/artifacts/signing-kit"
+  local inst="$SRC/workdir/installation" out="$WORK/dmg" kit="$WORK/artifacts/signing-kit"
   if find "$SRC/workdir/installation" -maxdepth 4 -name '*_witherror' | grep -q .; then
     echo "collect: installer reported errors"; return 1
   fi
   local found=()
-  while IFS= read -r f; do found+=("$f"); done < <(find "$inst" -name '*.dmg' -not -iname '*languagepack*' -not -iname '*helppack*')
+  while IFS= read -r f; do found+=("$f"); done < <(find "$inst" -name '*.dmg' -not -iname '*languagepack*' -not -iname '*helppack*' -not -path '*_temp*')
   [ "${#found[@]}" -eq 1 ] || { echo "collect: expected one dmg under $inst, found ${#found[@]}: ${found[*]-}"; return 1; }
   rm -rf "$out"; mkdir -p "$out"
   echo "upstream installer: ${found[0]} ($(wc -c < "${found[0]}") bytes)"
