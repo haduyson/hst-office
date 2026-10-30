@@ -31,7 +31,7 @@
 | `logo.svg`, `logo_inverted.svg` | lockup ngang (mark nguyên pixel + chữ) | About (`cui/source/dialogs/about.cxx:106`), nền sáng/tối |
 | `logo-sc.svg`, `logo-sc_inverted.svg` | như trên | Start Center (`sfx2/source/dialog/backingwindow.cxx:119`) |
 | `about.svg` | logo dọc trên nền trắng bo góc | Nền About (`about.cxx:117`), What's New, `appmisc.cxx:216` |
-| `donate1.png`, `donate2.png` | 200×200 / 150×150 | Banner quyên góp (`backingwindow.cxx:274,286`); nên tắt `Misc/ShowDonation` |
+| `donate1.png`, `donate2.png` | 200×200 / 150×150 | `donate1.png` là ảnh nền banner Start Center (xem mục Banner Start Center); `donate2.png` không còn được dùng |
 | `progress.conf` | shell, được `source` | `PROGRESS*` → `ProgressBarColor/Size/Position/FrameColor/TextColor/TextBaseline` (`common_brand.scp:368-422`), tọa độ theo `intro.png` |
 
 SVG chỉ nhúng PNG do chính generator sinh (data URI); không có artwork LibreOffice/TDF. LibreOffice 24.2 hệ thống đọc được các SVG này (đã kiểm tra bằng GraphicProvider).
@@ -58,7 +58,7 @@ Chữ “HST OFFICE” được raster hóa bằng **Liberation Sans Bold Italic
 
 ## Banner Start Center
 
-[`branding/libreoffice/hst-banner.png`](../branding/libreoffice/hst-banner.png) giới thiệu các giải pháp chuyển đổi số của HASON TECH: AIOS, eChatbot, Zalo Mini App, HST SEO, AI Dễ Lắm và HST Content. Ảnh RGBA **1280×160 px** dành cho hiển thị **640×80 px** (HiDPI 2×), có nền thẻ trắng đục bo góc để giữ độ tương phản trên cả giao diện sáng và tối. Biểu tượng HS gốc chỉ được thu nhỏ; nút bên phải mang chữ “hasontech.vn →”. Đăng ký ảnh và xử lý nhấp thuộc mã Start Center.
+[`branding/libreoffice/hst-banner.png`](../branding/libreoffice/hst-banner.png) là nền thẻ của banner Start Center: biểu tượng HS gốc (chỉ thu nhỏ) và dòng “Giải pháp chuyển đổi số từ HASON TECH”. Ảnh RGBA cao **160 px**, hiển thị ở nửa kích thước (HiDPI 2×), rộng vừa nội dung, có nền thẻ trắng đục bo góc để giữ độ tương phản trên cả giao diện sáng và tối. **Tên giải pháp không nằm trong ảnh**: AIOS, eChatbot, Zalo Mini App, HST SEO, HST Content và AI Dễ Lắm là sáu nút thật (xếp lưới 3×2 bên phải ảnh, focus được bằng Tab, tooltip là khẩu hiệu), mỗi nút mở URL riêng trong [solutions.json](../data/hst/solutions.json) kèm `utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0`. Cửa sổ rộng dưới 1100 px: ẩn ảnh, giữ sáu nút. Bảng giải pháp trong mã C++ phản chiếu `solutions.json`; `tests/runtime/check-start-center-banner.py` kiểm tra khớp và bấm thử từng nút.
 
 Xem trước đúng kích thước hiển thị: [nền trắng](../branding/libreoffice/hst-banner-preview-light.png) và [nền tối](../branding/libreoffice/hst-banner-preview-dark.png). Font **Liberation Sans Regular/Bold** (SIL OFL 1.1) bao phủ toàn bộ chữ tiếng Việt và ký tự mũi tên. Đường dẫn và SHA-256 được khóa trong mục `startCenterBanner` của [brand-spec.json](../assets/brand/brand-spec.json); generator từ chối font sai hash. Không phân phối file font.
 

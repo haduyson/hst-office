@@ -124,12 +124,12 @@ class BrandAssetTests(unittest.TestCase):
     def test_banner_previews_are_composited_at_display_size(self):
         cfg = SPEC["startCenterBanner"]
         with Image.open(path(cfg["path"])) as banner:
-            displayed = banner.resize((640, 80), Image.Resampling.LANCZOS)
+            displayed = banner.resize((banner.width // 2, 80), Image.Resampling.LANCZOS)
         for theme, color in (("light", "#FFFFFF"), ("dark", "#1E1E1E")):
-            expected = Image.new("RGBA", (640, 80), color)
+            expected = Image.new("RGBA", displayed.size, color)
             expected.alpha_composite(displayed)
             with Image.open(path(cfg["previewPattern"].format(theme=theme))) as preview:
-                self.assertEqual((preview.size, preview.mode), ((640, 80), "RGBA"))
+                self.assertEqual((preview.size, preview.mode), (displayed.size, "RGBA"))
                 self.assertEqual(preview.getchannel("A").getextrema(), (255, 255))
                 self.assertEqual(preview.tobytes(), expected.tobytes())
 
@@ -144,12 +144,10 @@ class BrandAssetTests(unittest.TestCase):
     def test_banner_exact_copy_nfc_and_font_coverage(self):
         cfg = SPEC["startCenterBanner"]
         self.assertEqual(cfg["leadText"], "Giải pháp chuyển đổi số từ HASON TECH")
-        # Banner chips follow the owner-approved order in data/hst/solutions.json.
-        with open(path("data/hst/solutions.json"), encoding="utf-8") as fh:
-            approved = [item["name"] for item in json.load(fh)["solutions"]]
-        self.assertEqual(cfg["solutions"], approved)
+        # Solution names are separate Start Center buttons, not artwork.
+        self.assertNotIn("solutions", cfg)
         self.assertIsNone(cfg["callToAction"], "no non-clickable button inside the banner image")
-        copy = " ".join([cfg["leadText"], *cfg["solutions"]])
+        copy = cfg["leadText"]
         self.assertEqual(copy, unicodedata.normalize("NFC", copy))
         for face in cfg["fonts"].values():
             charset = subprocess.check_output(

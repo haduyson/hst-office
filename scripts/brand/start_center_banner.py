@@ -31,27 +31,20 @@ def render_banner(spec, mark):
     rounded((2, 2, width - 3, height - 3), 24, palette["card"], palette["border"])
     headline = font("bold", 32)
     prefix, brand = cfg["leadText"].rsplit("HASON TECH", 1)
-    text((156, 64), prefix, headline, ink)
-    text((156 + draw.textlength(prefix, font=headline) / scale, 64),
+    # Solution names are real Start Center buttons, never baked into the artwork.
+    text((156, 90), prefix, headline, ink)
+    text((156 + draw.textlength(prefix, font=headline) / scale, 90),
          "HASON TECH" + brand, headline, blue)
-
-    label = font("regular", 24)
-    x = 156
-    for solution in cfg["solutions"]:
-        chip_width = round(draw.textlength(solution, font=label) / scale) + 20
-        rounded((x, 88, x + chip_width, 128), 10, palette["chip"])
-        text((x + 10, 116), solution, label, ink)
-        x += chip_width + 8
-    if x - 8 > 992:
-        raise ValueError("Solution labels exceed the banner content area")
+    content_right = 156 + draw.textlength(cfg["leadText"], font=headline) / scale
+    if content_right > 992:
+        raise ValueError("Headline exceeds the banner content area")
 
     if cfg.get("callToAction"):
         rounded((1024, 52, 1248, 108), 12, blue)
         text((1136, 80), cfg["callToAction"], font("bold", 24), palette["card"], "mm")
     else:
-        # Owner decision: no fake button inside the image (the Start Center shows a real
-        # link next to it); shrink the card to its content plus the same right margin.
-        content_right = max(x - 8, 156 + draw.textlength(cfg["leadText"], font=headline) / scale)
+        # Owner decision: no fake button inside the image (the Start Center shows real
+        # buttons next to it); shrink the card to its content plus the same right margin.
         width = int(content_right) + 40
         canvas = canvas.crop((0, 0, width * scale, height * scale))
         # Re-round the card's right corners: the crop cut through the straight middle part.
@@ -77,7 +70,8 @@ def build_start_center_banner(spec, mark):
     cfg = spec["startCenterBanner"]
     banner = render_banner(spec, mark)
     outputs = {cfg["path"]: png_bytes(banner)}
-    displayed = banner.resize(tuple(cfg["logicalSize"]), Image.Resampling.LANCZOS)
+    # Logical size: half the pixels, keeping the aspect ratio (the card shrinks to its content).
+    displayed = banner.resize((banner.width // 2, cfg["logicalSize"][1]), Image.Resampling.LANCZOS)
     for name, color in cfg["previewBackgrounds"].items():
         preview = Image.new("RGBA", displayed.size, color)
         preview.alpha_composite(displayed)
