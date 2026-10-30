@@ -140,8 +140,12 @@ def check_workflow(path, root=ROOT):
         require(len(build) == 1 and "full" in str(build[0].get("if", "")), "build step must run only in full mode")
         require("HST_BUILD_DEADLINE" in text_runs, "build step must carry a time budget")
         uploads = [step for step in all_steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
-        require(len(uploads) == 1 and "always()" in str(uploads[0].get("if", "")),
+        evidence = [step for step in uploads if "artifacts" in str(step.get("with", {}).get("path", ""))]
+        require(len(evidence) == 1 and "always()" in str(evidence[0].get("if", "")),
                 "trial must upload artifacts even when earlier steps fail")
+        # Other uploads (the built installer) only publish output of a successful build.
+        require(all("success" in str(step.get("if", "")) for step in uploads if step not in evidence),
+                "installer upload must depend on a successful build")
     elif path.name == "desktop-linux.yml":
         require(len(jobs) == 1, "resource probe and build must share one runner")
         require(bool(runs) and runs[0]["run"].strip().startswith("python3 scripts/probe-runner.py"),

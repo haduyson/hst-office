@@ -49,6 +49,13 @@ if [ -f "$TARBALLS/libreoffice-26.8.1.1.tar.xz" ]; then
   for stage in extract options patch; do
     bash scripts/windows/trial-build.sh "--$stage" >"$tmp/$stage.log" 2>&1 || { tail -20 "$tmp/$stage.log" >&2; bad "trial-build --$stage"; }
   done
+  # MSI strings shown in the installer and in Windows "Programs and Features" must not point upstream.
+  msi="$tmp/w/lo/instsetoo_native/inc_openoffice/windows/msi_languages"
+  vipo="$tmp/w/lo/translations/source/vi/instsetoo_native/inc_openoffice/windows/msi_languages.po"
+  if grep -nE '^en-US = ".*(libreoffice\.org|documentfoundation|LibreOffice Community)' "$msi/Property.ulf" "$msi/Control.ulf" \
+     || grep -nE '^msgstr ".*(libreoffice\.org|documentfoundation|LibreOffice Community)' "$vipo"; then
+    bad "installer strings still reference upstream"
+  fi
 else
   echo "SKIP simulation: pinned tarballs not in upstream/cache/libreoffice"
 fi

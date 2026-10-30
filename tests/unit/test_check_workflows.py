@@ -138,11 +138,18 @@ class WorkflowTests(unittest.TestCase):
         original = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
         self.assertEqual([], self.check(original, name))
         job = original["jobs"]["windows-trial"]
+
+        def evidence(w):
+            return next(s for s in w["jobs"]["windows-trial"]["steps"] if s.get("name") == "Upload trial evidence")
+
         mutations = {
             "short timeout": lambda w: w["jobs"]["windows-trial"].update({"timeout-minutes": 20}),
             "linux runner": lambda w: w["jobs"]["windows-trial"].update({"runs-on": "ubuntu-latest"}),
-            "no upload": lambda w: w["jobs"]["windows-trial"]["steps"].pop(),
-            "upload not always": lambda w: w["jobs"]["windows-trial"]["steps"][-1].pop("if"),
+            "no upload": lambda w: w["jobs"]["windows-trial"]["steps"].remove(evidence(w)),
+            "upload not always": lambda w: evidence(w).pop("if"),
+            "installer unconditional": lambda w: [s.update({"if": "${{ always() }}"})
+                                                  for s in w["jobs"]["windows-trial"]["steps"]
+                                                  if s.get("name") == "Upload installer"],
             "no checksum fetch": lambda w: [s.update({"run": s["run"].replace("fetch-sources.py", "true")})
                                             for s in w["jobs"]["windows-trial"]["steps"] if "run" in s],
             "no budget": lambda w: [s.update({"run": s["run"].replace("HST_BUILD_DEADLINE", "X")})

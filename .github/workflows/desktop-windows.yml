@@ -122,20 +122,21 @@ jobs:
       - name: Collect installer
         id: installer
         if: ${{ inputs.mode == 'full' && success() }}
-        shell: pwsh
+        shell: bash
         run: |
-          $dir = 'D:\hst\lo\workdir\installation\HSTOffice\msi\install\en-US_vi'
-          $out = 'D:\hst\installer'
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-          $msi = @(Get-ChildItem -Path $dir -Filter '*.msi' -File)
-          if ($msi.Count -eq 0) { throw "no .msi under $dir" }
-          foreach ($f in $msi) {
-            $name = $f.Name -replace ' ', ''
-            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $out $name)
-            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $out $name)).Hash.ToLower()
-            Add-Content -Path (Join-Path $out 'SHA256SUMS') -Value "$hash  $name"
-            "- $name ($([math]::Round($f.Length / 1MB, 1)) MiB) sha256 $hash" | Add-Content $env:GITHUB_STEP_SUMMARY
-          }
+          set -euo pipefail
+          src='D:/hst/lo/workdir/installation/HSTOffice/msi/install/en-US_vi'
+          out='D:/hst/installer'
+          mkdir -p "$out"
+          shopt -s nullglob
+          files=("$src"/*.msi)
+          [ "${#files[@]}" -gt 0 ] || { echo "no .msi under $src" >&2; exit 1; }
+          for f in "${files[@]}"; do
+            name="$(basename "$f" | tr -d ' ')"
+            cp "$f" "$out/$name"
+            (cd "$out" && sha256sum "$name" >> SHA256SUMS)
+            echo "- $name ($(( $(stat -c %s "$out/$name") / 1048576 )) MiB) sha256 $(cut -d' ' -f1 < <(sha256sum "$out/$name"))" >> "$GITHUB_STEP_SUMMARY"
+          done
       - name: Upload installer
         if: ${{ steps.installer.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
