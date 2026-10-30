@@ -156,26 +156,23 @@ do_build() {
   test -x "$SRC/instdir/program/soffice" || { echo "build did not produce instdir/program/soffice"; return 1; }
 }
 
-do_package() { # HSTOffice_<ver>_Linux_x86-64_deb.tar.gz (folder of .deb + inner SHA256SUMS) + outer SHA256SUMS
-  local inst="$SRC/workdir/installation" out="$WORK/installer" ver name d n
-  ver="$(python3 "$REPO/scripts/write-hst-version.py" --print)" || return 1
-  name="HSTOffice_${ver}_Linux_x86-64_deb"
+do_package() { # HSTOffice_<ver>_Linux_x86-64.deb (ONE installable package) + SHA256SUMS
+  local inst="$SRC/workdir/installation" out="$WORK/installer" split="$WORK/pkg-split" d n
   # An installer run that logged errors leaves "<name>_deb_witherror": never ship that.
   if find "$inst" -maxdepth 4 -name '*_witherror' | grep -q .; then
     echo "package: installer reported errors:"; find "$inst" -maxdepth 4 -name '*_witherror'; return 1
   fi
-  rm -rf "$out" "$WORK/pkg"; mkdir -p "$out" "$WORK/pkg/$name" || return 1
+  rm -rf "$out" "$split"; mkdir -p "$out" "$split" || return 1
   for d in HSTOffice HSTOffice_languagepack; do
     [ -d "$inst/$d/deb/install" ] || { echo "package: missing $inst/$d/deb/install"; return 1; }
-    find "$inst/$d/deb/install" -path '*/DEBS/*.deb' -exec cp -p {} "$WORK/pkg/$name/" \; || return 1
+    find "$inst/$d/deb/install" -path '*/DEBS/*.deb' -exec cp -p {} "$split/" \; || return 1
   done
-  n=$(find "$WORK/pkg/$name" -name '*.deb' | wc -l)
+  n=$(find "$split" -name '*.deb' | wc -l)
   [ "$n" -gt 0 ] || { echo "package: no .deb produced"; return 1; }
-  (cd "$WORK/pkg/$name" && sha256sum -- *.deb > SHA256SUMS) || return 1
-  tar -C "$WORK/pkg" -czf "$out/$name.tar.gz" "$name" || return 1
-  (cd "$out" && sha256sum -- "$name.tar.gz" > SHA256SUMS) || return 1
-  echo "package: $n .deb, $(du -sm "$WORK/pkg/$name" | cut -f1) MiB unpacked -> $out/$name.tar.gz ($(du -m "$out/$name.tar.gz" | cut -f1) MiB)"
-  cat "$out/SHA256SUMS"
+  # Graphical installers open one file: merge the split set (see make-single-deb.py).
+  TMPDIR="$WORK" python3 -I "$REPO/scripts/linux/make-single-deb.py" "$split" "$out" || return 1
+  rm -rf "$split"
+  (cd "$out" && sha256sum -c SHA256SUMS) || return 1
 }
 
 case "${1:-}" in

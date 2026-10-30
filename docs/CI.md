@@ -93,12 +93,22 @@ gh workflow run desktop-linux.yml -f mode=preflight   # chỉ đến hết fetch
 Kết quả lượt xanh (run 41009617263): build 1 giờ 55 phút, cả lượt ~2 giờ 04 phút; đĩa trống ≥ 108 GiB,
 RAM đỉnh ~4,4 GiB (lấy mẫu 30 giây). Artifact:
 
-- `hst-office-linux-deb-<run_id>` (14 ngày): `HSTOffice_<version>_Linux_x86-64_deb.tar.gz` (thư mục
-  38 gói `.deb` + `SHA256SUMS` bên trong) và `SHA256SUMS` ngoài, chỉ tải lên khi build thành công.
+- `hst-office-linux-deb-<run_id>` (14 ngày): **một** tệp `HSTOffice_<version>_Linux_x86-64.deb` và
+  `SHA256SUMS`, chỉ tải lên khi build thành công. `--package` gộp bộ 38 gói `.deb` do EPM sinh ra thành
+  một gói `hst-office` bằng [make-single-deb.py](../scripts/linux/make-single-deb.py): App Center, GNOME
+  Software, gdebi chỉ mở được một tệp và không tự tìm các gói anh em. Gói gộp: `Depends` = hợp các phụ thuộc
+  ngoài (bỏ phụ thuộc nội bộ), `Conflicts`/`Replaces` mọi tên gói tách (nâng cấp từ bản beta 2 gỡ sạch bản
+  tách, giữ nguyên hồ sơ người dùng), cùng script postinst/postrm cập nhật cơ sở dữ liệu desktop/MIME/icon,
+  tệp `copyright`, AppStream metainfo; bỏ tệp menu Debian cũ `usr/lib/menu` và không đánh dấu conffile
+  ngoài `/etc`. Không còn `.tar.gz` bộ tách. Lintian có override cho `dir-or-file-in-opt`,
+  `embedded-library`, `shared-library-is-executable` (bộ cài nằm ở `/opt`, mang theo thư viện riêng).
 - `linux-evidence-<run_id>` (7 ngày, luôn tải lên): thời gian từng pha, mẫu đĩa/RAM, log.
 
 Phụ thuộc của gói `.deb` theo glibc/thư viện của Ubuntu 24.04 (runner). Kiểm cài đặt sạch:
-`tests/runtime/check-deb-install.sh <thư-mục-deb>`. Kiểm cục bộ trước khi đẩy:
+`tests/runtime/check-deb-install.sh [tệp.deb]` (mặc định `INSTALL_MODE=apt`: `apt-get install ./tệp.deb`,
+cùng đường với trình cài đồ họa; `INSTALL_MODE=pkcon`: PackageKit `pkcon install-local`;
+`INSTALL_MODE=upgrade OLD_SPLIT_DIR=<thư-mục-bản-tách>`: nâng cấp đè lên bản tách của beta 2;
+`IMAGE=debian:13` đổi bản phân phối). Kiểm cục bộ trước khi đẩy:
 `scripts/linux/preflight-local.sh` (shellcheck, actionlint; chạy trong `ci-quality.sh`).
 
 ## Entrypoint Windows và macOS
@@ -184,7 +194,7 @@ job này, ở bước `gate` hoặc bước có điều kiện `steps.gate.outpu
 ## Phát hành (Release)
 
 Workflow `release.yml` (chạy tay) tạo **một** GitHub Release chứa bộ cài Windows (`.msi`),
-Linux (`.deb` gói trong `.tar.gz`) và macOS (`.dmg` arm64 + x86_64) của **cùng một commit** trên
+Linux (một tệp `.deb`) và macOS (`.dmg` arm64 + x86_64) của **cùng một commit** trên
 `main`; người dùng tải không cần đăng nhập. Không build lại: `scripts/release/collect-release-assets.sh`
 tìm lượt build thành công mới nhất của từng nền tảng tại commit đó (hoặc dùng run id được ghim),
 kiểm `SHA256SUMS` từng artifact, ưu tiên `.dmg` đã ký + notarize nếu có, gộp một `SHA256SUMS`,

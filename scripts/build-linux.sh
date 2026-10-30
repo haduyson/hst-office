@@ -83,13 +83,16 @@ package() {
   if find "$inst" -maxdepth 4 -name '*_witherror' | grep -q .; then
     echo "package: installer reported errors (see $inst/*/deb/logging):"; find "$inst" -maxdepth 4 -name '*_witherror'; exit 1
   fi
-  mkdir -p "$dist"; rm -f "$dist"/*.deb "$dist"/SHA256SUMS
+  # Graphical installers open one file: merge the split set into a single .deb.
+  local split="$ROOT/build/pkg-split"
+  rm -rf "$split"; mkdir -p "$dist" "$split"; rm -f "$dist"/*.deb "$dist"/SHA256SUMS
   for d in HSTOffice HSTOffice_languagepack; do
-    find "$inst/$d/deb/install" -path '*/DEBS/*.deb' -exec cp -p {} "$dist/" \;
+    find "$inst/$d/deb/install" -path '*/DEBS/*.deb' -exec cp -p {} "$split/" \;
   done
-  ls "$dist"/*.deb >/dev/null 2>&1 || { echo "package: no .deb produced"; exit 1; }
-  (cd "$dist" && sha256sum -- *.deb > SHA256SUMS)
-  ls -l "$dist"; echo "package: $(ls "$dist"/*.deb | wc -l) .deb -> $dist"
+  ls "$split"/*.deb >/dev/null 2>&1 || { echo "package: no .deb produced"; exit 1; }
+  python3 -I "$ROOT/scripts/linux/make-single-deb.py" "$split" "$dist"
+  rm -rf "$split"
+  ls -l "$dist"
 }
 
 case "${1:-}" in
