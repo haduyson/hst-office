@@ -108,6 +108,15 @@ jobs:
           set -eu
           export HST_BUILD_DEADLINE=$(( HST_JOB_START + 315 * 60 ))
           HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --build
+      - name: Stop leftover build processes
+        # After a cancel or timeout, compilers of this tree may still write into the cache dir.
+        if: ${{ always() && inputs.mode == 'full' && steps.build.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          set -eu
+          if pgrep -f "$HST_WORK/lo/" > /dev/null; then pkill -TERM -f "$HST_WORK/lo/"; sleep 20; fi
+          if pgrep -f "$HST_WORK/lo/" > /dev/null; then pkill -KILL -f "$HST_WORK/lo/"; sleep 5; fi
+          pgrep -fl ccache || echo "no ccache process left"
       - name: Save compiler cache
         # Also after a budget stop or a failure, so the next run resumes from the compiled objects.
         if: ${{ always() && inputs.mode == 'full' && steps.build.outcome != 'skipped' }}
