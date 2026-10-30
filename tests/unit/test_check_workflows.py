@@ -74,6 +74,23 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(self.check(self.quality))
             target["permissions"] = {"contents": "read"}
 
+    def test_release_write_is_limited_to_the_publish_job(self):
+        name = "release.yml"
+        original = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
+        self.assertEqual([], self.check(original, name))
+        mutations = {
+            "workflow-level write": lambda w: w.update({"permissions": {"contents": "write"}}),
+            "extra scope": lambda w: w["jobs"]["publish"]["permissions"].update({"packages": "write"}),
+            "second writing job": lambda w: w["jobs"].update({"other": copy.deepcopy(w["jobs"]["publish"])}),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(mutation=label):
+                workflow = copy.deepcopy(original)
+                mutate(workflow)
+                self.assertTrue(self.check(workflow, name))
+        # The same job name in another workflow gets no write access.
+        self.assertTrue(self.check(copy.deepcopy(original), "desktop-windows.yml"))
+
     def test_missing_concurrency_and_wrong_cancellation(self):
         for concurrency in ({}, {"group": "ci", "cancel-in-progress": False}):
             self.quality["concurrency"] = concurrency

@@ -106,6 +106,24 @@ Chúng không chỉnh source, gọi configure, tạo bộ cài hay tuyên bố b
 Khi có máy thật, coordinator phải thay guard bằng build và kiểm thử bản địa thực,
 phân biệt bản thử nội bộ không ký với bản phát hành công khai đã ký.
 
+## Phát hành (Release)
+
+Workflow `release.yml` (chạy tay, `workflow_dispatch`) đưa bộ cài lên GitHub Release để
+người dùng tải không cần đăng nhập. Không build lại: lấy artifact
+`hst-office-windows-msi-<run_id>` của một lượt `desktop-windows.yml` (`mode=full`) **thành
+công trên `main`**, kiểm `SHA256SUMS`, tạo tag tại đúng commit đã build, đính kèm `.msi` và
+`SHA256SUMS`. Ghi chú phát hành lấy từ `docs/releases/<tag>.md` (thiếu thì dừng).
+
+```bash
+gh workflow run release.yml -f tag=v1.0.0-beta.1 -f windows_run_id=<run_id> -f prerelease=true
+```
+
+Chỉ job `publish` của workflow này có quyền ghi (`contents: write`, `actions: read`);
+`scripts/check-workflows.py` từ chối quyền ghi ở mọi nơi khác. Artifact Windows hết hạn sau
+14 ngày nên phải phát hành trong thời hạn đó. Liên kết `releases/latest` không trỏ tới bản
+pre-release. Gói Linux chưa được build trên CI: tệp `.tar.gz` các gói `.deb` được đính kèm
+từ máy build (`gh release upload`) và `SHA256SUMS` được cập nhật tương ứng.
+
 ## Chạy cục bộ
 
 Từ gốc repo, dùng Python 3.12 có dependency theo lock và font đã ghim:

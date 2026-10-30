@@ -15,7 +15,8 @@ PINS = {
     "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",
     "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
 }
-REQUIRED = {"quality.yml", "desktop-linux.yml", "desktop-windows.yml", "desktop-macos.yml"}
+REQUIRED = {"quality.yml", "desktop-linux.yml", "desktop-windows.yml", "desktop-macos.yml", "release.yml"}
+RELEASE_PERMISSIONS = {"contents": "write", "actions": "read"}
 BLOCKER = "BLOCKED/TODO: needs self-hosted runner with >=100 GB disk, signing credentials, platform QA"
 CYGWIN_SHELL = "C:/cygwin64/bin/bash.exe"
 SCRIPT = re.compile(r"\bscripts/[\w./-]+\.(?:py|sh|ps1|mjs|js)\b")
@@ -81,7 +82,9 @@ def check_workflow(path, root=ROOT):
     for name, job in jobs.items():
         timeout = job.get("timeout-minutes")
         require(type(timeout) is int and 1 <= timeout <= 360, f"{name}: timeout must be 1..360 minutes")
-        require(job.get("permissions", {"contents": "read"}) == {"contents": "read"}, f"{name}: permissions escalation")
+        # Only the manually dispatched release job may write, and only releases plus reading run artifacts.
+        allowed = RELEASE_PERMISSIONS if (path.name == "release.yml" and name == "publish") else {"contents": "read"}
+        require(job.get("permissions", {"contents": "read"}) == allowed, f"{name}: permissions escalation")
         require(not job.get("continue-on-error"), f"{name}: continue-on-error masks failures")
         require("if" not in job, f"{name}: required job must not be conditional")
         steps = job.get("steps", [])
