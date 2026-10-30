@@ -9,7 +9,7 @@ Có số đo thật cho build Windows thử nghiệm (xem dòng Windows và `pla
 | [Quality](../.github/workflows/quality.yml) | Push vào `main`, mọi pull request | Python 3.12, Node 22, kiểm tra mã và dữ liệu; tối đa 20 phút. |
 | [Linux](../.github/workflows/desktop-linux.yml) | `workflow_dispatch` | Đo tài nguyên trên chính máy sẽ build, sau đó gọi các bước của `build-linux.sh`; tối đa 350 phút. |
 | [Windows](../.github/workflows/desktop-windows.yml) | `workflow_dispatch`, input `mode` = `preflight` (mặc định) hoặc `full` | `windows-2022` (4 vCPU AMD EPYC, 16 GiB RAM, ổ D: ~220 GiB trống; build ở `D:\hst`). Preflight ~11 phút: Cygwin, make native, NASM, pkgconf, tải+sha256, giải nén, vá, cấu hình đến hết `autogen.sh`. Full: thêm `make` trong ngân sách 330 phút rồi dừng sạch và tải log/số đo; tối đa 355 phút. Kiểm tra cục bộ: `scripts/windows/preflight-local.sh`. |
-| [macOS](../.github/workflows/desktop-macos.yml) | `workflow_dispatch` | Guard tương tự Windows; chưa dùng nhãn self-hosted chưa được cấp. |
+| [macOS](../.github/workflows/desktop-macos.yml) | `workflow_dispatch`, input `mode` = `preflight` (mặc định) hoặc `full` | Ma trận `macos-15` (arm64) và `macos-15-intel` (x86_64), dmg **chưa ký**; job ký/notarize tùy chọn. Xem mục [macOS](#macos). |
 
 Mọi workflow chỉ có quyền `contents: read`, action ghim bằng SHA đầy đủ và có
 concurrency. Quality hủy lượt cũ cùng ref; desktop tuần tự, không hủy build đang
@@ -93,7 +93,7 @@ Cygwin, make native, NASM, pkgconf). Các bước build nằm trong
 xác minh được trên runner Windows; [preflight-local.sh](../scripts/windows/preflight-local.sh)
 chạy trong `ci-quality.sh` (shellcheck, actionlint, CRLF, mô phỏng giải nén/vá/tùy chọn trên Linux).
 
-[build-macos.sh](../scripts/build-macos.sh) nhận `--arch arm64|x86_64`, in lệnh từ
+[build-macos.sh](../scripts/build-macos.sh) (chỉ kiểm kê, không dùng trong CI; CI dùng `scripts/macos/`, xem mục [macOS](#macos)) nhận `--arch arm64|x86_64`, in lệnh từ
 [arm64](../build-config/macos-arm64.conf) hoặc [x86_64](../build-config/macos-x86_64.conf).
 Script kiểm tra host đúng kiến trúc, Xcode từ 14.3, SDK từ 13.3 và công cụ đóng
 gói; từ chối Xcode 15.0 với target macOS 11 theo `configure.ac` đã ghim. Cấu hình
@@ -105,6 +105,56 @@ toolchain bị chặn sớm; đủ công cụ vẫn báo thiếu tích hợp pat
 Chúng không chỉnh source, gọi configure, tạo bộ cài hay tuyên bố build thành công.
 Khi có máy thật, coordinator phải thay guard bằng build và kiểm thử bản địa thực,
 phân biệt bản thử nội bộ không ký với bản phát hành công khai đã ký.
+
+## macOS
+
+[desktop-macos.yml](../.github/workflows/desktop-macos.yml) build bản địa trên runner GitHub, mỗi kiến
+trúc một job (`macos-15`: Apple M1 ảo 3 vCPU/7 GiB; `macos-15-intel`: i7-8700B 4 vCPU/14 GiB; Xcode 16.4,
+SDK 15.5, target tối thiểu macOS 11.0). Các bước nằm trong [trial-build.sh](../scripts/macos/trial-build.sh)
+(`--probe|--free-disk|--tools|--extract|--patch|--configure|--fetch|--build|--collect|--verify`), cấu hình ở
+[macos-arm64.conf](../build-config/macos-arm64.conf) / [macos-x86_64.conf](../build-config/macos-x86_64.conf).
+Công cụ lấy từ Homebrew nhưng chỉ symlink từng công cụ vào `~/hst/bin` (PATH tối thiểu, không lộ thư viện
+Homebrew). Phiên bản HST lấy từ `/VERSION` (header, `openoffice.lst`, `CFBundleShortVersionString`).
+
+- `preflight`: probe runner, giải phóng đĩa nếu còn dưới 80 GiB, tải+sha256, giải nén, vá, cấu hình, `make fetch`.
+- `full`: thêm `make` với ngân sách 315 phút (dừng sạch), ccache lưu qua `actions/cache` kể cả khi dừng
+  giữa chừng để lượt sau chạy tiếp, rồi đóng gói lại dmg bằng [build-dmg.sh](../scripts/macos/build-dmg.sh)
+  (dmgbuild, [dmg-settings.py](../scripts/macos/dmg-settings.py)): nền HST tiếng Việt
+  ([make-dmg-background.py](../scripts/macos/make-dmg-background.py)), biểu tượng volume HST, không có hộp
+  thoại giấy phép. Icon ứng dụng và tài liệu (`main.icns`, `generic-*`, `oasis-*`) do
+  [stage-macos-icons.py](../scripts/macos/stage-macos-icons.py) dựng từ ảnh HST. Bước `--verify` gắn dmg,
+  kiểm tên `HST Office.app`, bundle ID `vn.hasontech.hstoffice`, kiến trúc, icon, bố cục, chuỗi Info.plist
+  và catalog `.mo` tiếng Việt.
+- Artifact: `macos-build-<arch>-<run_id>` (log/số đo, luôn tải, 7 ngày) và
+  `hst-office-macos-<arch>-dmg-<run_id>` (`HSTOffice_<version>_macOS_<arch>.dmg` + `SHA256SUMS`, chỉ khi
+  thành công, 14 ngày). Kiểm tra cục bộ: [preflight-local.sh](../scripts/macos/preflight-local.sh) (trong `ci-quality.sh`).
+
+**Bản chưa ký bị Gatekeeper chặn** ("bị hỏng" trên Apple Silicon, "nhà phát triển không xác định" trên
+Intel). Người thử: kéo app vào Applications rồi chuột phải → Open (macOS 15: System Settings → Privacy &
+Security → Open Anyway), hoặc `xattr -dr com.apple.quarantine "/Applications/HST Office.app"`.
+
+### Ký và notarize (tùy chọn)
+
+Job `sign` chạy sau `build` ở chế độ `full`, trong environment `macos-signing` (chủ dự án có thể đặt người
+duyệt). Bước `gate` kiểm tra đủ secret; thiếu bất kỳ secret nào thì mọi bước sau bị bỏ qua và job vẫn xanh.
+Secret (repository hoặc environment `macos-signing`):
+
+| Secret | Nội dung |
+|---|---|
+| `MACOS_DEVELOPER_ID_P12_BASE64` | Chứng chỉ "Developer ID Application" xuất `.p12`, mã hóa base64 (`base64 -i cert.p12`) |
+| `MACOS_DEVELOPER_ID_P12_PASSWORD` | Mật khẩu của `.p12` |
+| `MACOS_SIGNING_IDENTITY` | Ví dụ `Developer ID Application: HASON TECH (TEAMID)` |
+| `APPLE_TEAM_ID` | Team ID 10 ký tự |
+| `APPLE_API_KEY_P8_BASE64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID` | Khóa App Store Connect API (`.p8` base64, Key ID, Issuer ID) cho `xcrun notarytool` |
+
+[sign-notarize.sh](../scripts/macos/sign-notarize.sh) nhập chứng chỉ vào keychain tạm (luôn xóa ở bước
+cuối, kể cả khi lỗi), ký app bằng chính script upstream `solenv/bin/macosx-codesign-app-bundle` với
+hardened runtime và entitlement do configure sinh (`hardened_runtime.xcent`, launch constraint) — đúng
+những gì `--enable-macosx-code-signing` chạy lúc đóng gói, nhưng tách khỏi job build để secret không vào
+build. Sau đó dựng lại dmg cùng bố cục, ký dmg, `notarytool submit --wait`, `stapler staple`, kiểm tra
+`spctl -a -t open --context context:primary-signature -v` và `codesign --verify --deep --strict`.
+Artifact: `hst-office-macos-<arch>-dmg-signed-<run_id>`. `check-workflows.py` chỉ cho phép secret trong
+job này, ở bước `gate` hoặc bước có điều kiện `steps.gate.outputs.enabled == 'true'`.
 
 ## Phát hành (Release)
 
