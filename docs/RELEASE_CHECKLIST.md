@@ -23,7 +23,8 @@ Một bản phát hành chỉ được đánh dấu sẵn sàng khi **mọi mụ
 - [ ] Tabbed UI mặc định, A4, Times New Roman; giao diện tiếng Việt khi `LANG=vi_VN.UTF-8` (`tests/runtime/check-defaults.py`).
 - [ ] Extension tiếng Việt: NĐ30, chuyển mã, định dạng VND/ngày, CSV — `tests/runtime/check-extensions.py`.
 - [ ] 18 mẫu: `tests/runtime/check-templates.py` PASS cả round-trip lưu/in.
-- [ ] Không kết nối mạng khi dùng (chạy trong network namespace) và không có telemetry.
+- [ ] Không kết nối mạng khi dùng (chạy trong network namespace) ngoài kiểm tra cập nhật tới `office.hasontech.vn` ([UPDATE_CHECK](UPDATE_CHECK.md)), và không có telemetry.
+- [ ] `data/hst/release.json` đúng mã bản phát hành; manifest cập nhật đã sửa, ký (`scripts/release/sign-update-manifest.py`) và tải lên sau khi tệp cài đặt đã công bố.
 - [ ] Độ trễ menu chuột phải Linux trong ngưỡng ([CONTEXT_MENU_PERFORMANCE](CONTEXT_MENU_PERFORMANCE.md)).
 
 ## D. Đóng gói

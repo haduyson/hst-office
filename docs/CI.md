@@ -178,6 +178,17 @@ Chỉ job `publish` của workflow này có quyền ghi (`contents: write`, `act
 `scripts/check-workflows.py` từ chối quyền ghi ở mọi nơi khác. Artifact hết hạn sau 14 ngày nên
 phải phát hành trong thời hạn đó. Liên kết `releases/latest` không trỏ tới bản pre-release.
 
+### Báo bản mới cho người dùng (manifest cập nhật)
+
+Sau khi Release đã công bố và `/tai/*` của trang đã trỏ tới bản mới:
+
+1. Sửa `website/office.hasontech.vn/update/latest.json` (kênh `beta` hoặc `stable`: `version`, `date`, `notes`, `downloads`).
+2. Ký: `python3 scripts/release/sign-update-manifest.py` (khóa ngoài kho mã, quyền 600); kiểm: `--verify`.
+3. Commit, rồi tải `latest.json` và `latest.json.sig` lên `public_html/update/` của office.hasontech.vn.
+
+Các bản đã cài sẽ thấy thông báo trong vòng 24 giờ. Chi tiết, khóa ký và chính sách quản trị:
+[UPDATE_CHECK](UPDATE_CHECK.md); ghi chú phát hành: [docs/releases](releases/), workflow: [release.yml](../.github/workflows/release.yml).
+
 ## Chạy cục bộ
 
 Từ gốc repo, dùng Python 3.12 có dependency theo lock và font đã ghim:
