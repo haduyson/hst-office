@@ -27,9 +27,10 @@ EXPECTED = {
     "org.openoffice.Setup/Product/WhatsNew": False,
     "org.openoffice.Office.Writer/DefaultFont/Standard": "Times New Roman",
     "org.openoffice.Office.Common/Menus/DonationURL": "https://hasontech.vn",
-    # Single online help target for F1 / Help menu / dialog Help buttons (hst-debrand.patch).
+    # Single help target for F1 / Help menu / dialog Help buttons (hst-debrand.patch): the offline
+    # Vietnamese guide in the bundled HST extension, expanded to a file URL (hst-offline-help.patch).
     "org.openoffice.Office.Common/Help/HelpRootURL":
-        "https://hasontech.vn/?utm_source=hst-office&utm_medium=help&utm_campaign=hst-office-1-0",
+        "vnd.sun.star.expand:$BUNDLED_EXTENSIONS/hst-vietnamese-tools/help/index.html",
     "org.openoffice.Office.Common/Help/BuiltInHelpNotInstalledPopUp": False,
     # Hidden items and online catalogues: no URL (and no repository or extension-site URL) ships.
     "org.openoffice.Office.Common/Menus/SendFeedbackURL": "",
@@ -107,6 +108,15 @@ def main():
             failed += not ok
             results[path] = {"expected": expected, "actual": actual, "status": "PASS" if ok else "FAIL"}
             print(f"{'PASS' if ok else 'FAIL'}  {path} = {actual!r}")
+        # The help URL must expand to the installed guide (what F1 hands to the browser).
+        import uno
+        help_url = read_config(ctx, "org.openoffice.Office.Common/Help/HelpRootURL")
+        expander = ctx.getValueByName("/singletons/com.sun.star.util.theMacroExpander")
+        expanded = expander.expandMacros(help_url[len("vnd.sun.star.expand:"):]) if help_url.startswith("vnd.sun.star.expand:") else help_url
+        ok = expanded.startswith("file://") and os.path.isfile(uno.fileUrlToSystemPath(expanded))
+        failed += not ok
+        results["HelpRootURL expands to an installed file"] = {"actual": expanded, "status": "PASS" if ok else "FAIL"}
+        print(f"{'PASS' if ok else 'FAIL'}  HelpRootURL expands to an installed file: {expanded}")
     finally:
         proc.terminate()
         try:

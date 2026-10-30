@@ -17,10 +17,14 @@ import zipfile
 from xml.dom import minidom
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REQUIRED = ("description.xml", "META-INF/manifest.xml", "license/LICENSE.txt", "license/NOTICES.txt", "data/provenance.json", "data/solutions.json")
+REQUIRED = ("description.xml", "META-INF/manifest.xml", "license/LICENSE.txt", "license/NOTICES.txt", "data/provenance.json", "data/solutions.json",
+            "data/release.json")
 SHARED_DATA = ("nd30.json", "number-formats.json", "encoding-maps.json", "provenance.json")
 HOST_ALLOW = ("openoffice.org", "libreoffice.org", "w3.org", "hasontech.vn", "sun.com")
-NETWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess|ctypes)\b", re.M)
+NETWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess|ctypes)\b", re.M)
+# The update check (docs/UPDATE_CHECK.md) is the one module that may use HTTPS (urllib/ssl/http); never sockets or processes.
+UPDATE_FETCH = "python/hst_office/update_fetch.py"
+UPDATE_FETCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|ftplib|smtplib|requests|xmlrpc|subprocess|ctypes)\b", re.M)
 MEDIA = ("application/vnd.sun.star.uno-component;type=Python", "application/vnd.sun.star.configuration-data", "application/vnd.sun.star.configuration-schema")
 MAX_LINES = 199
 
@@ -86,9 +90,20 @@ def check_content(zf, names, errors):
             for host in re.findall(r"https?://([^/\s\"'<>)]+)", text):
                 if not host.endswith(HOST_ALLOW):
                     errors.append("remote resource in %s: %s" % (name, host))
+        if name.endswith(".html"):  # bundled user guide: no remote resource, no upstream/GitHub naming
+            text = data.decode("utf-8")
+            for host in re.findall(r"(?:https?:)?//([^/\s\"'<>)]+)", text):
+                if not host.endswith("hasontech.vn"):
+                    errors.append("remote link in %s: %s" % (name, host))
+            if re.search(r"github|libreoffice|document foundation", text, re.I):
+                errors.append("%s names GitHub or the upstream project" % name)
+            for ref in re.findall(r"""src=["']([^"':]+)["']""", text):
+                target = os.path.normpath(os.path.join(os.path.dirname(name), ref)).replace(os.sep, "/")
+                if target not in names:
+                    errors.append("%s references missing %s" % (name, target))
         if name.endswith(".py"):
             text = data.decode("utf-8")
-            if NETWORK_IMPORT.search(text):
+            if (UPDATE_FETCH_IMPORT if name == UPDATE_FETCH else NETWORK_IMPORT).search(text):
                 errors.append("network/process module imported in %s" % name)
             if text.count("\n") + 1 > MAX_LINES:
                 errors.append("%s exceeds %d lines" % (name, MAX_LINES))
@@ -96,6 +111,8 @@ def check_content(zf, names, errors):
                 errors.append("%s lacks the SPDX header" % name)
         if name.endswith(".json"):
             json.loads(data.decode("utf-8"))
+        if name == "data/release.json" and json.loads(data.decode("utf-8")).get("update_test_mode"):
+            errors.append("data/release.json is a test build (--update-test-mode): not for release")
     for name in SHARED_DATA:
         src = os.path.join(ROOT, "data", "vietnamese", name)
         if "data/" + name in names and os.path.exists(src):
@@ -155,6 +172,10 @@ def self_test():
         "bad xml": lambda d: d.update({"ProtocolHandler.xcu": b"<oor:component-data"}),
         "missing registered file": lambda d: d.pop("python/hst_office_component.py"),
         "network import": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: AGPL-3.0-only\nimport socket\n"}),
+        "urllib outside update_fetch": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: AGPL-3.0-only\nimport urllib.request\n"}),
+        "socket in update_fetch": lambda d: d.update({UPDATE_FETCH: d[UPDATE_FETCH] + b"\nimport socket\n"}),
+        "update test mode": lambda d: d.update({"data/release.json": b'{"release": "1.0.0", "update_test_mode": true}'}),
+        "remote link in guide": lambda d: d.update({"help/index.html": d["help/index.html"] + b'<a href="https://evil.example/">x</a>'}),
         "stale data": lambda d: d.update({"data/nd30.json": b"{}"}), "stale solutions": lambda d: d.update({"data/solutions.json": b"{}"}),
     }
     failures = 0

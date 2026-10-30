@@ -1,0 +1,91 @@
+HST Office: F1, the Help menu and the Help buttons of dialogs open the offline Vietnamese
+user guide instead of a web page.
+
+The guide (help/index.html) ships inside the bundled HST extension hst-vietnamese-tools,
+which is unpacked into <install>/share/extensions on every platform. Office.Common/Help/
+HelpRootURL defaults to vnd.sun.star.expand:$BUNDLED_EXTENSIONS/hst-vietnamese-tools/help/
+index.html; impl_showOnlineHelp (and the tip-of-the-day "more" link, see hst-debrand.patch)
+expand that macro URL to a file URL before handing it to the system browser. Any other value,
+for example an https page, is used unchanged, so pointing HelpRootURL at a web page later
+needs only a configuration change. Applies after hst-debrand.patch.
+
+License: modified upstream files keep their license (MPL-2.0).
+--- a/cui/source/dialogs/tipofthedaydlg.cxx
++++ b/cui/source/dialogs/tipofthedaydlg.cxx
+@@ -39,6 +39,8 @@
+ #include <com/sun/star/util/URLTransformer.hpp>
+ 
+ #include <comphelper/dispatchcommand.hxx>
++#include <comphelper/getexpandeduri.hxx>
++#include <comphelper/processfactory.hxx>
+ #include <dialmgr.hxx>
+ #include <i18nlangtag/languagetag.hxx>
+ #include <officecfg/Office/Common.hxx>
+@@ -227,7 +229,9 @@
+         // extension site). Help pages open the single configured online help page.
+         if (sLink.startsWith("https://help.libreoffice.org"))
+         {
+-            m_pLink->set_uri(officecfg::Office::Common::Help::HelpRootURL::get());
++            // The help page may be a vnd.sun.star.expand: URL (offline guide in the HST extension).
++            m_pLink->set_uri(comphelper::getExpandedUri(comphelper::getProcessComponentContext(),
++                                                        officecfg::Office::Common::Help::HelpRootURL::get()));
+             m_pLink->set_label(CuiResId(STR_MORE_LINK));
+             m_pLink->set_visible(true);
+             m_pLink->connect_activate_link(Link<weld::LinkButton&, bool>());
+--- a/officecfg/registry/schema/org/openoffice/Office/Common.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Common.xcs
+@@ -3097,11 +3097,13 @@
+       </prop>
+       <prop oor:name="HelpRootURL" oor:type="xs:string" oor:nillable="false">
+         <info>
+-          <desc>Specifies the single online help page opened by F1, the Help menu
++          <desc>Specifies the single help page opened by F1, the Help menu
+           and the Help buttons of dialogs (HST Office: no topic, version or language
+-          path is appended). Blank disables Help buttons on dialogs.</desc>
++          path is appended). A vnd.sun.star.expand: URL is expanded first; the default
++          is the offline Vietnamese user guide shipped in the bundled HST extension.
++          Blank disables Help buttons on dialogs.</desc>
+         </info>
+-        <value>https://hasontech.vn/?utm_source=hst-office&amp;utm_medium=help&amp;utm_campaign=hst-office-1-0</value>
++        <value>vnd.sun.star.expand:$BUNDLED_EXTENSIONS/hst-vietnamese-tools/help/index.html</value>
+       </prop>
+       <group oor:name="StartCenter">
+         <info>
+--- a/sfx2/source/appl/sfxhelp.cxx
++++ b/sfx2/source/appl/sfxhelp.cxx
+@@ -39,6 +39,7 @@
+ #include <com/sun/star/frame/UnknownModuleException.hpp>
+ #include <com/sun/star/frame/XFrame2.hpp>
+ #include <comphelper/processfactory.hxx>
++#include <comphelper/getexpandeduri.hxx>
+ #include <com/sun/star/awt/XWindow.hpp>
+ #include <com/sun/star/awt/XTopWindow.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+@@ -644,15 +645,25 @@
+     return bRet;
+ }
+ 
+-/// Redirect the vnd.sun.star.help:// urls to the single online help page configured in
++/// Redirect the vnd.sun.star.help:// urls to the single help page configured in
+ /// Office.Common/Help/HelpRootURL (HST Office: one page, no topic/version/language path).
++/// A vnd.sun.star.expand: value (the offline guide in the bundled HST extension) is
++/// expanded to a file URL, which the system browser then opens.
+ static bool impl_showOnlineHelp(const OUString& rURL, weld::Widget* pDialogParent)
+ {
+     static constexpr OUString aInternal(u"vnd.sun.star.help://"_ustr);
+     if ( rURL.getLength() <= aInternal.getLength() || !rURL.startsWith(aInternal) )
+         return false;
+ 
+-    const OUString aHelpLink = officecfg::Office::Common::Help::HelpRootURL::get();
++    OUString aHelpLink = officecfg::Office::Common::Help::HelpRootURL::get();
++    try
++    {
++        aHelpLink = comphelper::getExpandedUri(comphelper::getProcessComponentContext(), aHelpLink);
++    }
++    catch (const Exception&)
++    {
++        return false;
++    }
+ 
+     if (comphelper::LibreOfficeKit::isActive())
+     {
