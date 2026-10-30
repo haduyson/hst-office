@@ -81,6 +81,12 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
 | LEG-05, CI-05, REL-04 | carried forward theo phạm vi release mới | Inventory/notices/source/checksums hiện tại; public tag và đa nền tảng cần release gates |
 | WRT-11, SHT-09/10, UX-03, REL-03 | later | Kiểm thể thức nâng cao, cảnh báo tương thích nâng cao, UX sâu, RPM/AppImage; không tự mở scope |
 
+## Kế hoạch theo phiên bản (chủ dự án, 2026-10-30)
+
+- **v1.0.0-beta.2:** khóa phạm vi — chỉ hoàn tất và build các phần đang làm (tab tài liệu, nút × đóng tất cả tab, 18 mẫu HST, sách F1 offline, kiểm tra cập nhật, trình cài tiếng Việt, icon mới, bản dịch). Không thêm việc mới.
+- **v1.0.0-beta.3:** banner Start Center — mỗi nhãn giải pháp (AIOS, eChatbot, Zalo Mini App, HST SEO, HST Content, AI Dễ Lắm) bấm được riêng, mở URL trong `data/hst/solutions.json` kèm UTM `utm_medium=start-center` (chuyển nhãn từ chữ trong ảnh sang nút thật).
+- **v1.0.0:** khóa cấu hình kiểm tra cập nhật qua `.xcd`/registry (đưa schema vào lõi); thử build `.deb` trên Ubuntu 22.04 cho tương thích rộng hơn; trang "điểm mới" riêng cho nút "Xem điểm mới"; ký số Windows/macOS khi có chứng chỉ; chuyển repo sang tổ chức `hasontech` trước bản chính thức.
+
 ## Blockers và câu hỏi còn mở
 
 - Môi trường: cấp Git/network/apt/Docker cho Claude; phiên lập kế hoạch có 53.5 GiB free, 18 GiB RAM available, Docker socket denied, `gh api` lỗi kết nối. Chỉ dọn cache ONLYOFFICE do dự án sở hữu khi cần; giữ ≥10 GiB.
