@@ -158,21 +158,25 @@ job này, ở bước `gate` hoặc bước có điều kiện `steps.gate.outpu
 
 ## Phát hành (Release)
 
-Workflow `release.yml` (chạy tay, `workflow_dispatch`) đưa bộ cài lên GitHub Release để
-người dùng tải không cần đăng nhập. Không build lại: lấy artifact
-`hst-office-windows-msi-<run_id>` của một lượt `desktop-windows.yml` (`mode=full`) **thành
-công trên `main`**, kiểm `SHA256SUMS`, tạo tag tại đúng commit đã build, đính kèm `.msi` và
-`SHA256SUMS`. Ghi chú phát hành lấy từ `docs/releases/<tag>.md` (thiếu thì dừng).
+Workflow `release.yml` (chạy tay) tạo **một** GitHub Release chứa bộ cài Windows (`.msi`),
+Linux (`.deb` gói trong `.tar.gz`) và macOS (`.dmg` arm64 + x86_64) của **cùng một commit** trên
+`main`; người dùng tải không cần đăng nhập. Không build lại: `scripts/release/collect-release-assets.sh`
+tìm lượt build thành công mới nhất của từng nền tảng tại commit đó (hoặc dùng run id được ghim),
+kiểm `SHA256SUMS` từng artifact, ưu tiên `.dmg` đã ký + notarize nếu có, gộp một `SHA256SUMS`,
+rồi tạo tag tại commit đó. Thiếu bản build của nền tảng nào thì dừng với hướng dẫn. Ghi chú phát
+hành lấy từ `docs/releases/<tag>.md` (thiếu thì dừng).
+
+Quy trình: chạy `desktop-windows.yml`, `desktop-linux.yml`, `desktop-macos.yml` (`mode=full`)
+trên cùng commit; khi cả ba xanh:
 
 ```bash
-gh workflow run release.yml -f tag=v1.0.0-beta.1 -f windows_run_id=<run_id> -f prerelease=true
+gh workflow run release.yml -f tag=v1.0.0-beta.2 -f prerelease=true
+# tùy chọn: -f platforms="windows linux" -f commit=<sha> -f windows_run_id=<id> ...
 ```
 
 Chỉ job `publish` của workflow này có quyền ghi (`contents: write`, `actions: read`);
-`scripts/check-workflows.py` từ chối quyền ghi ở mọi nơi khác. Artifact Windows hết hạn sau
-14 ngày nên phải phát hành trong thời hạn đó. Liên kết `releases/latest` không trỏ tới bản
-pre-release. Gói Linux chưa được build trên CI: tệp `.tar.gz` các gói `.deb` được đính kèm
-từ máy build (`gh release upload`) và `SHA256SUMS` được cập nhật tương ứng.
+`scripts/check-workflows.py` từ chối quyền ghi ở mọi nơi khác. Artifact hết hạn sau 14 ngày nên
+phải phát hành trong thời hạn đó. Liên kết `releases/latest` không trỏ tới bản pre-release.
 
 ## Chạy cục bộ
 
