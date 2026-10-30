@@ -239,6 +239,8 @@ do_build() {
   return "$rc"
 }
 
+HST_COPYRIGHT="© 2026 HASON TECH · © 2000–2026 The Document Foundation và các tác giả LibreOffice"
+
 dmg_name() { printf 'HSTOffice_%s_macOS_%s.dmg' "$HST_VERSION" "$ARCH"; }
 
 do_collect() { # the single HST Office dmg -> $WORK/dmg with SHA256SUMS; signing inputs -> evidence
@@ -294,9 +296,14 @@ do_verify() { # mount the dmg read-only and check product identity and Vietnames
     echo "vi resources:"; find "$app/Contents/Resources" -maxdepth 3 \( -path '*/resource/vi' -o -name 'vi.lproj' \) | head -20
     find "$app/Contents/Resources/resource/vi/LC_MESSAGES" -name '*.mo' 2>/dev/null | wc -l | sed 's/^ */vi .mo catalogs: /'
     find "$app/Contents/Resources" -path '*/resource/vi/LC_MESSAGES/*.mo' | grep -q . || { echo "FAIL: no Vietnamese UI catalogs"; bad=1; }
-    echo "NSHumanReadableCopyright=$(/usr/libexec/PlistBuddy -c 'Print :NSHumanReadableCopyright' "$plist" 2>&1)"
-    # User-visible Info.plist strings must not name upstream (identifiers like org.libreoffice.* are not shown).
-    if grep -i 'libreoffice\|document foundation' "$plist" | grep -viE 'org\.libreoffice\.|vnd\.libreoffice\.'; then
+    # The one copyright line set centrally by patches/libreoffice/hst-copyright.patch (no override here).
+    local copyright
+    copyright="$(/usr/libexec/PlistBuddy -c 'Print :NSHumanReadableCopyright' "$plist" 2>&1)"
+    echo "NSHumanReadableCopyright=$copyright"
+    [ "$copyright" = "$HST_COPYRIGHT" ] || { echo "FAIL: copyright line differs from the HST line"; bad=1; }
+    if grep -qi 'all rights reserved' "$plist"; then echo "FAIL: Info.plist says All rights reserved"; bad=1; fi
+    # Other user-visible strings must not name upstream (identifiers like org.libreoffice.* are not shown).
+    if grep -i 'libreoffice\|document foundation' "$plist" | grep -vF "$HST_COPYRIGHT" | grep -viE 'org\.libreoffice\.|vnd\.libreoffice\.'; then
       echo "FAIL: Info.plist shows upstream names"; bad=1
     fi
     # Icons: the bundle must carry the icns built from the HST iconsets staged by --patch.
