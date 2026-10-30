@@ -27,7 +27,7 @@ Một landing page tiếng Việt, một trang, đẹp, nhanh, chuẩn SEO, gi�
 ## Nội dung trang (tiếng Việt, đúng chính tả, có dấu)
 1. **Hero:** logo, "Bộ ứng dụng văn phòng dành cho người Việt", badge **MIỄN PHÍ VĨNH VIỄN** + "Dùng trọn đời · Không thu phí bản quyền", nút tải chính (tự nhận hệ điều hành: Windows/macOS/Linux) + link "Các phiên bản khác", ảnh giao diện.
 2. **Ba ứng dụng:** Văn bản · Bảng tính · Trình chiếu (dùng icon bộ Ô vuông).
-3. **Tính năng nổi bật:** giao diện tiếng Việt; mẫu văn bản hành chính theo Nghị định 30 (có trình hướng dẫn); chuyển mã TCVN3/VNI sang Unicode; mở và lưu tệp Word, Excel, PowerPoint (DOCX/XLSX/PPTX); giao diện ribbon quen thuộc; mở nhiều tài liệu dạng tab trong một cửa sổ; chạy trên Windows, macOS, Linux; dùng offline, không cần tài khoản. Chỉ nêu tính năng có thật — không bịa (không AI, không đám mây, không đồng bộ).
+3. **Tính năng nổi bật:** giao diện tiếng Việt; mẫu văn bản hành chính theo Nghị định 30 (có trình hướng dẫn); chuyển mã TCVN3/VNI sang Unicode; mở và lưu tệp Word, Excel, PowerPoint (DOCX/XLSX/PPTX); giao diện thân thiện, dễ dàng sử dụng (không dùng chữ "ribbon" trên trang — chủ dự án); mở nhiều tài liệu dạng tab trong một cửa sổ; chạy trên Windows, macOS, Linux; dùng offline, không cần tài khoản. Chỉ nêu tính năng có thật — không bịa (không AI, không đám mây, không đồng bộ).
 4. **Tải về:** 3 khối Windows / macOS / Linux:
    - Windows 10/11 64-bit: `.msi`
    - macOS (Apple Silicon / Intel): `.dmg` — **đang chuẩn bị**, hiển thị "Sắp có" nếu chưa có file.
