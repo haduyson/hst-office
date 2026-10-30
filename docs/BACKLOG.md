@@ -84,7 +84,7 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
 ## Kế hoạch theo phiên bản (chủ dự án, 2026-10-30)
 
 - **v1.0.0-beta.2:** khóa phạm vi — chỉ hoàn tất và build các phần đang làm (tab tài liệu, nút × đóng tất cả tab, 18 mẫu HST, sách F1 offline, kiểm tra cập nhật, trình cài tiếng Việt, icon mới, bản dịch). Không thêm việc mới.
-- **v1.0.0-beta.3:** banner Start Center — mỗi nhãn giải pháp (AIOS, eChatbot, Zalo Mini App, HST SEO, HST Content, AI Dễ Lắm) bấm được riêng, mở URL trong `data/hst/solutions.json` kèm UTM `utm_medium=start-center` (chuyển nhãn từ chữ trong ảnh sang nút thật). Sửa tồn đọng từ beta.2:
+- **v1.0.0-beta.3:** banner Start Center — mỗi nhãn giải pháp (AIOS, eChatbot, Zalo Mini App, HST SEO, HST Post, AI Dễ Lắm) bấm được riêng, mở URL trong `data/hst/solutions.json` kèm UTM `utm_medium=start-center` (chuyển nhãn từ chữ trong ảnh sang nút thật). Sửa tồn đọng từ beta.2:
   - `ProductName` trong version resource Windows (`include/default.rc`, hiện ở Properties → Details của `soffice.exe`) vẫn là "LibreOffice" → "HST Office".
   - Menubar cổ điển đôi khi hiện lại khi chuyển tab giữa Calc/Impress trên GTK3 (cosmetic; sửa trong vcl GTK menubar/sfx2), xác minh trên desktop thật và Windows.
   - Crash GTK3 hiếm (menubar/clipboard) khi mở tài liệu ngay sau khi đóng tài liệu ẩn dưới Xvfb, xảy ra cả khi tắt tab; xác minh trên desktop thật.

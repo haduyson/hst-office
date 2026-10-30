@@ -51,7 +51,7 @@ Một landing page tiếng Việt, một trang, đẹp, nhanh, chuẩn SEO, gi�
    - eChatbot → https://echatbot.vn/
    - Zalo Mini App → https://espace.vn/zaloapp
    - HST SEO → https://seo.hasontech.vn/
-   - HST Content → https://content.hasontech.vn/ (lưu ý: tên miền chưa có DNS tại thời điểm cập nhật)
+   - HST Post → https://post.hasontech.vn/ (đổi tên từ HST Content / content.hasontech.vn theo quyết định chủ dự án 2026-10-31)
    - AI Dễ Lắm → https://aidelam.com/
 
 ## Quy định thương hiệu/pháp lý
