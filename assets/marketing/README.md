@@ -2,7 +2,7 @@
 
 ## Thiết kế
 
-- **Quảng bá:** nền trắng và xanh sáng; logo gốc ở đầu; tiêu đề nhấn “dành cho người Việt”; ba thẻ module với icon riêng; bốn tính năng và nút tải về. Minh họa cửa sổ Văn bản, Bảng tính, Trình chiếu đặt bên phải.
+- **Quảng bá:** nền trắng và xanh sáng; logo gốc ở đầu; tiêu đề nhấn “dành cho người Việt”; nhãn miễn phí màu cam; ba thẻ module với icon riêng; ba tính năng và nút tải miễn phí. Minh họa cửa sổ Văn bản, Bảng tính, Trình chiếu đặt bên phải.
 - **Sắp ra mắt:** nền xanh đậm, ánh sáng hắt và ba tấm kính ứng dụng chìm một phần vào bóng tối; “SẮP RA MẮT” chiếm ưu thế. Logo gốc nằm trên nền trắng để giữ nguyên màu và dễ đọc.
 - Giữ nguyên logo từ `hst-logo.svg`, không vẽ lại, không đổi màu, không làm méo. Tất cả nội dung tiếng Việt được dàn bằng phần tử `text`/`tspan` trong SVG, font **Noto Sans**, trọng lượng 400 và 700.
 - Màu chủ đạo: **#0B6FC1**; chữ đậm **#322E2E**. Icon module lần lượt **#2F4FC4**, **#1E8E3E**, **#E8710A**. Chữ thẻ xanh lá/cam được dùng sắc đậm hơn để dễ đọc trên nền sáng.
@@ -32,6 +32,14 @@ rsvg-convert -w 1910 -h 1000 banner-sapramat.svg -o banner-sapramat.png
 ```
 
 Đã kiểm tra trực quan bản 1910×1000 và bản xem thử 1200×628; kiểm tra nội dung tiếng Việt, dấu, đường dẫn ảnh, tỷ lệ logo và kích thước đầu ra. Bản xem thử là file tạm và đã được dọn sau kiểm tra.
+
+## Sửa lần 1
+
+- Thêm **“MIỄN PHÍ VĨNH VIỄN”** ngay dưới tiêu đề chính trên cả hai banner, bằng nhãn lớn với chữ Noto Sans đậm 54 px. Bản quảng bá dùng cam **#E8710A**; bản sắp ra mắt dùng vàng ấm **#FFC76A**, đặt sát dưới cụm “SẮP RA MẮT”. Chữ xanh đậm **#05162C** tạo tương phản rõ trên cả hai nhãn.
+- Đặt dòng **“Dùng trọn đời · Không thu phí bản quyền”** ngay dưới nhãn, cỡ 30 px. Giữ tiêu đề chính lớn nhất và nhãn miễn phí là điểm nhấn thứ hai.
+- Đổi nút quảng bá thành **“Tải miễn phí tại hasontech.vn”**, mở rộng nút và căn lại icon. Giữ đủ ba thẻ Văn bản, Bảng tính, Trình chiếu; bỏ dòng “Giao diện tiếng Việt thân thiện” để bố cục thoáng hơn, giữ ba điểm nổi bật còn lại.
+- Giữ phong cách sáng của banner quảng bá và xanh đậm của banner sắp ra mắt. Không thay đổi ảnh nền, logo, màu hoặc tỷ lệ logo; đã đối chiếu SHA-256 của các tài sản gốc. Không tạo thêm ảnh nền hay prompt mới.
+- Đã render lại hai PNG **1910×1000** bằng `rsvg-convert` và tự xem cả bản gốc lẫn bản thu nhỏ **1200×628**. Nhãn và dòng phụ đọc rõ, dấu tiếng Việt đầy đủ, không có chữ bị cắt hoặc chồng lên nhau, không có dấu “—” treo cuối dòng. Đã kiểm tra cấu trúc SVG, nội dung chữ, đường dẫn tương đối và kích thước PNG.
 
 ## Prompt ảnh quảng bá — nguyên văn
 
