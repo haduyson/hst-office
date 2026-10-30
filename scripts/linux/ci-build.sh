@@ -27,6 +27,8 @@ if [ "${1:-}" != --deps ]; then
   export HST_VERSION_MAJOR HST_VERSION_MINOR HST_VERSION_MICRO
 fi
 export HST_REPO_ROOT="$REPO"
+# The sysui packaging rule otherwise looks for the HST icons two levels above the tree.
+export HST_ICON_DIR="$REPO/assets/brand/icons"
 mkdir -p "$LOGS" "$METRICS"
 # Tarball tree: the lock-verified translations/dictionaries are merged by --extract,
 # so `make get-submodules` must not re-download (unchecked) and re-unpack them.
@@ -78,12 +80,7 @@ do_patch() {
   python3 -B "$REPO/scripts/l10n/merge-vi.py" --apply --tree "$SRC" || return 1
   python3 -B "$REPO/scripts/l10n/apply-overrides.py" --tree "$SRC" || return 1
   # HST icons in place of LibreOffice-shaped ones (same step as scripts/build-linux.sh).
-  # TODO: drop this existence check once scripts/brand/apply-icon-overrides.py is on main.
-  if [ -f "$REPO/scripts/brand/apply-icon-overrides.py" ]; then
-    python3 -B "$REPO/scripts/brand/apply-icon-overrides.py" --tree "$SRC" || return 1
-  else
-    echo "::warning::scripts/brand/apply-icon-overrides.py not in this commit: icon overrides NOT applied"
-  fi
+  python3 -B "$REPO/scripts/brand/apply-icon-overrides.py" --tree "$SRC" || return 1
 }
 
 options() { # linux-x86_64.conf with this runner's branding dir and CPU count
