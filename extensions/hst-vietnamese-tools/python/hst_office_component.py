@@ -12,7 +12,10 @@ import unohelper  # noqa: E402
 
 from hst_office.dispatch import IMPLEMENTATION_NAME, Handler  # noqa: E402
 from hst_office.welcome_job import JOB_NAME, WelcomeJob  # noqa: E402
+from hst_office.update_job import HANDLER_NAME, JOB_NAME as UPDATE_JOB_NAME, UpdateCheckJob, UpdateHandler  # noqa: E402
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(Handler, IMPLEMENTATION_NAME, ("com.sun.star.frame.ProtocolHandler",))
 g_ImplementationHelper.addImplementation(WelcomeJob, JOB_NAME, ("com.sun.star.task.Job",))
+g_ImplementationHelper.addImplementation(UpdateCheckJob, UPDATE_JOB_NAME, ("com.sun.star.task.Job",))
+g_ImplementationHelper.addImplementation(UpdateHandler, HANDLER_NAME, ("com.sun.star.frame.ProtocolHandler",))
