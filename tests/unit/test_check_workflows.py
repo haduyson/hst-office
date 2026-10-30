@@ -220,15 +220,43 @@ class WorkflowTests(unittest.TestCase):
                 mutate(workflow)
                 self.assertTrue(self.check(workflow, name))
 
-    def test_linux_probe_precedes_build_and_missing_linux_script_is_allowlisted(self):
+    def test_linux_deb_build_needs_order_budget_and_guarded_uploads(self):
         name = "desktop-linux.yml"
-        workflow = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
-        errors = self.check(workflow, name, root=self.directory)
-        self.assertTrue(any("probe-runner.py" in error for error in errors))
-        self.assertFalse(any("referenced script missing: scripts/build-linux.sh" in error for error in errors))
-        steps = workflow["jobs"]["probe-and-build"]["steps"]
-        steps[1], steps[2] = steps[2], steps[1]
-        self.assertTrue(any("first command" in error for error in self.check(workflow, name)))
+        original = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
+        self.assertEqual([], self.check(original, name))
+
+        def steps(w):
+            return w["jobs"]["linux-deb"]["steps"]
+
+        def named(w, label):
+            return next(s for s in steps(w) if s.get("name") == label)
+
+        def swap_patch_and_configure(w):
+            patch, configure = named(w, "Apply HST patches"), named(w, "Configure")
+            patch["run"], configure["run"] = configure["run"], patch["run"]
+
+        mutations = {
+            "short timeout": lambda w: w["jobs"]["linux-deb"].update({"timeout-minutes": 60}),
+            "windows runner": lambda w: w["jobs"]["linux-deb"].update({"runs-on": "windows-2022"}),
+            "stage order": swap_patch_and_configure,
+            "no package stage": lambda w: steps(w).remove(named(w, "Collect .deb packages")),
+            "no evidence": lambda w: steps(w).remove(named(w, "Upload build evidence")),
+            "evidence not always": lambda w: named(w, "Upload build evidence").pop("if"),
+            "debs unconditional": lambda w: named(w, "Upload .deb packages").update({"if": "${{ always() }}"}),
+            "deb artifact renamed": lambda w: named(w, "Upload .deb packages")["with"].update({"name": "debs"}),
+            "build in preflight": lambda w: named(w, "Build within time budget").pop("if"),
+            "no budget": lambda w: named(w, "Build within time budget").update(
+                {"run": named(w, "Build within time budget")["run"].replace("HST_BUILD_DEADLINE", "X")}),
+            "no checksum fetch": lambda w: [s.update({"run": s["run"].replace("fetch-sources.py", "true")})
+                                            for s in steps(w) if "run" in s],
+            "no shell": lambda w: named(w, "Configure").pop("shell"),
+            "trigger": lambda w: w["on"].update({"push": None}),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(mutation=label):
+                workflow = copy.deepcopy(original)
+                mutate(workflow)
+                self.assertTrue(self.check(workflow, name))
 
     def test_resource_floors_cannot_be_lowered(self):
         config = self.directory / "linux.conf"

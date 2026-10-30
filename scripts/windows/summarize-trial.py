@@ -3,7 +3,8 @@
 """Collect trial-build metrics: phase timings, compile progress, disk, log tails.
 
 Usage: python -I scripts/windows/summarize-trial.py --work C:/hst --out C:/hst/artifacts
-Writes metrics.json, build-tail.log, config.log copy and a markdown summary (stdout).
+       [--title "Windows trial metrics"] [--installer-glob "*.msi"]
+Also used by the Linux .deb build (--title/--installer-glob). Writes metrics.json, build-tail.log, config.log copy and a markdown summary (stdout).
 Never fails because a phase did not run; missing inputs are reported as null.
 """
 import argparse
@@ -35,6 +36,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--title", default="Windows trial metrics")
+    parser.add_argument("--installer-glob", default="*.msi")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     work = args.work
@@ -52,7 +55,7 @@ def main():
     config_log = work / "lo" / "config.log"
     if config_log.is_file():
         shutil.copyfile(config_log, args.out / "config.log")
-    for name in ("configure.log", "extract.log", "cygwin-packages.txt"):
+    for name in ("configure.log", "extract.log", "cygwin-packages.txt", "deps.log", "patch.log", "fetch.log", "package.log", "runner-disk.txt"):
         source = work / "logs" / name
         if source.is_file():
             shutil.copyfile(source, args.out / name)
@@ -66,18 +69,19 @@ def main():
         "progress_samples": len(samples),
         "min_free_gib": min(free) if free else None,
         "max_mem_used_gib": max((s.get("mem_used_gib", 0) for s in samples), default=None),
-        "msi_found": [str(p) for p in (work / "lo" / "workdir").rglob("*.msi")] if (work / "lo" / "workdir").is_dir() else [],
+        "installers_found": sorted(str(p) for p in (work / "lo" / "workdir" / "installation").rglob(args.installer_glob))
+        if (work / "lo" / "workdir" / "installation").is_dir() else [],
     }
     (args.out / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     (args.out / "progress.jsonl").write_text("\n".join(json.dumps(s) for s in samples) + "\n", encoding="utf-8")
-    print("### Windows trial metrics")
+    print(f"### {args.title}")
     print("| phase | seconds | status |\n|---|---|---|")
     for row in phases:
         print(f"| {row.get('phase')} | {row.get('seconds')} | {row.get('status')} |")
     print(f"\n- build steps: {metrics['build_steps_total']} {kinds}")
     print(f"- last target: `{last_target}`; modules touched: {len(modules)}")
     print(f"- min free disk (GiB): {metrics['min_free_gib']}; peak memory used (GiB): {metrics['max_mem_used_gib']}")
-    print(f"- msi: {metrics['msi_found'] or 'none'}")
+    print(f"- installers ({args.installer_glob}): {len(metrics['installers_found'])}")
 
 
 if __name__ == "__main__":

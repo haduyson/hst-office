@@ -50,6 +50,7 @@ script scripts/check-doc-links.py
 script scripts/check-workflows.py
 script scripts/windows/preflight-local.sh
 script scripts/macos/preflight-local.sh
+script scripts/linux/preflight-local.sh
 # Producers precede structural checks; their absence is explicitly reported.
 shopt -s nullglob
 for name in build-extensions generate-templates; do

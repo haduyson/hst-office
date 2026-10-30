@@ -1,43 +1,113 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-name: Desktop Linux resource experiment
+name: Desktop Linux deb
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'full = build the .deb packages within the time budget; preflight = setup through fetch only (cheap)'
+        type: choice
+        options: [full, preflight]
+        default: full
 permissions:
   contents: read
 concurrency:
   group: desktop-linux
   cancel-in-progress: false
 jobs:
-  probe-and-build:
-    # Keep the probe and build on the same runner/filesystem.
-    runs-on: ubuntu-latest
-    timeout-minutes: 350
+  linux-deb:
+    # ubuntu-latest: 4 vCPU / 16 GiB; the .deb dependencies follow this runner's glibc.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
     steps:
+      - name: Record job start
+        shell: bash
+        run: |
+          set -eu
+          started=$(date +%s)
+          echo "HST_JOB_START=$started" >> "$GITHUB_ENV"
+          # The runner's second disk (/mnt) has more free space than / and keeps the build off the OS disk.
+          echo "HST_WORK=/mnt/hst" >> "$GITHUB_ENV"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Measure resources before any source download or build
+      - name: Free disk and create the build directory
         shell: bash
-        run: python3 scripts/probe-runner.py --output build/metrics/runner-probe.json
-      - name: Verify coordinator build prerequisites
+        run: |
+          set -eu
+          bash scripts/linux/free-runner-disk.sh
+      - name: Install build dependencies
         shell: bash
-        run: bash scripts/build-linux.sh --preflight
-      - name: Configure source build
+        run: |
+          set -eu
+          bash scripts/linux/ci-build.sh --deps
+      - name: Fetch and verify pinned source tarballs
         shell: bash
-        run: python3 scripts/measure-job.py --path "$GITHUB_WORKSPACE" --min-free-gib 12 --stop-free-gib 12 --json build/metrics/configure.json -- bash scripts/build-linux.sh --configure
-      - name: Build source
+        run: |
+          set -eu
+          start=$(date +%s)
+          python3 -I scripts/windows/fetch-sources.py --dest "$HST_WORK/dl"
+          printf '{"phase":"fetch-sources","seconds":%d,"status":"ok"}\n' $(( $(date +%s) - start )) >> "$HST_WORK/metrics/phases.jsonl"
+      - name: Stage branding
         shell: bash
-        run: python3 scripts/measure-job.py --path "$GITHUB_WORKSPACE" --min-free-gib 12 --stop-free-gib 12 --json build/metrics/build.json -- bash scripts/build-linux.sh --build
-      - name: Package source build
+        run: |
+          set -eu
+          /usr/bin/python3 -I scripts/stage-branding.py --out "$HST_WORK/branding"
+      - name: Extract source
         shell: bash
-        run: python3 scripts/measure-job.py --path "$GITHUB_WORKSPACE" --min-free-gib 12 --stop-free-gib 12 --json build/metrics/package.json -- bash scripts/build-linux.sh --package
-      - name: Preserve measured evidence even when blocked
+        run: |
+          set -eu
+          bash scripts/linux/ci-build.sh --extract
+      - name: Apply HST patches
+        shell: bash
+        run: |
+          set -eu
+          bash scripts/linux/ci-build.sh --patch
+      - name: Configure
+        shell: bash
+        run: |
+          set -eu
+          bash scripts/linux/ci-build.sh --configure
+      - name: Fetch external sources
+        shell: bash
+        run: |
+          set -eu
+          bash scripts/linux/ci-build.sh --fetch
+      - name: Build within time budget
+        if: ${{ inputs.mode == 'full' }}
+        shell: bash
+        run: |
+          set -eu
+          export HST_BUILD_DEADLINE=$(( HST_JOB_START + 330 * 60 ))
+          bash scripts/linux/ci-build.sh --build
+      - name: Collect .deb packages
+        id: package
+        if: ${{ inputs.mode == 'full' && success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/linux/ci-build.sh --package | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Summarize metrics
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -eu
+          python3 -I scripts/windows/summarize-trial.py --work "$HST_WORK" --out "$HST_WORK/artifacts" \
+            --title 'Linux deb build metrics' --installer-glob '*.deb' | tee -a "$GITHUB_STEP_SUMMARY"
+          df -h / "$HST_WORK" > "$HST_WORK/artifacts/df-end.txt"
+      - name: Upload build evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: linux-evidence-${{ github.sha }}
-          path: |
-            build/metrics/
-            build/logs/
+          name: linux-evidence-${{ github.run_id }}
+          path: ${{ env.HST_WORK }}/artifacts/
           if-no-files-found: error
           retention-days: 7
+      - name: Upload .deb packages
+        if: ${{ steps.package.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hst-office-linux-deb-${{ github.run_id }}
+          path: ${{ env.HST_WORK }}/installer/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

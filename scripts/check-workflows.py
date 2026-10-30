@@ -200,20 +200,29 @@ def check_workflow(path, root=ROOT):
         require(all("success" in str(step.get("if", "")) for step in uploads if step not in evidence),
                 "installer upload must depend on a successful build")
     elif path.name == "desktop-linux.yml":
-        require(len(jobs) == 1, "resource probe and build must share one runner")
-        require(bool(runs) and runs[0]["run"].strip().startswith("python3 scripts/probe-runner.py"),
-                "resource probe must be the first command")
-        stages = []
-        for step in runs[1:]:
-            command = step["run"].strip()
-            match = re.search(r"\bbash scripts/build-linux\.sh --(\w+)$", command)
-            stages.append(match[1] if match else None)
-            if match and match[1] != "preflight":
-                require(command.startswith("python3 scripts/measure-job.py ") and "--stop-free-gib 12" in command,
-                        "heavy build stages must retain the 10 GiB reserve with the coordinator monitor")
-        require(stages == ["preflight", "configure", "build", "package"],
-                "Linux build stages must follow preflight/configure/build/package order")
-        require(all("if" not in step for step in runs), "probe/build steps must not bypass resource failure")
+        require(len(jobs) == 1, "Linux deb build must be a single job on one runner")
+        job = next(iter(jobs.values()))
+        require(str(job.get("runs-on", "")).startswith("ubuntu-"), "Linux deb build must run on a hosted ubuntu runner")
+        require(type(job.get("timeout-minutes")) is int and job["timeout-minutes"] >= 300,
+                "Linux deb build needs a long timeout to finish the build")
+        text_runs = "\n".join(step["run"] for step in runs)
+        require("fetch-sources.py" in text_runs, "Linux build must download and verify pinned tarballs")
+        order = re.findall(r"ci-build\.sh --(\w+)", text_runs)
+        require(order == ["deps", "extract", "patch", "configure", "fetch", "build", "package"],
+                "Linux build stages must follow deps/extract/patch/configure/fetch/build/package order")
+        modes = events.get("workflow_dispatch", {}).get("inputs", {}).get("mode", {}) if isinstance(events, dict) else {}
+        require(sorted(modes.get("options") or []) == ["full", "preflight"], "mode input must offer full and preflight")
+        build = [step for step in runs if "ci-build.sh --build" in step["run"]]
+        require(len(build) == 1 and "full" in str(build[0].get("if", "")), "build step must run only in full mode")
+        require(len(build) == 1 and "HST_BUILD_DEADLINE" in build[0]["run"], "build step must carry a time budget")
+        uploads = [step for step in all_steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
+        evidence = [step for step in uploads if "artifacts" in str(step.get("with", {}).get("path", ""))]
+        require(len(evidence) == 1 and "always()" in str(evidence[0].get("if", "")),
+                "Linux build must upload evidence even when earlier steps fail")
+        debs = [step for step in uploads if step not in evidence]
+        require(len(debs) == 1 and "success" in str(debs[0].get("if", ""))
+                and str(debs[0].get("with", {}).get("name", "")).startswith("hst-office-linux-deb-"),
+                "the .deb artifact must be uploaded once, only after a successful build")
     return errors
 
 
