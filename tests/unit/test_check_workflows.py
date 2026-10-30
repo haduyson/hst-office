@@ -132,23 +132,63 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(self.check(self.quality))
             del self.quality["jobs"]["quality"]["steps"][4][key]
 
-    def test_native_guards_are_unconditional_failures_on_hosted_runners(self):
-        for name in ("desktop-macos.yml",):
-            original = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
-            mutations = (("exit", 0), ("conditional", True), ("runner", "self-hosted"), ("trigger", "push"))
-            for mutation, value in mutations:
-                with self.subTest(name=name, mutation=mutation):
-                    workflow = copy.deepcopy(original)
-                    job = workflow["jobs"]["blocked"]
-                    if mutation == "exit":
-                        job["steps"][0]["run"] = job["steps"][0]["run"].replace("exit 1", f"exit {value}")
-                    elif mutation == "conditional":
-                        job["steps"][0]["if"] = "false"
-                    elif mutation == "runner":
-                        job["runs-on"] = value
-                    else:
-                        workflow["on"][value] = None
-                    self.assertTrue(self.check(workflow, name))
+    def test_macos_build_matrix_budget_uploads_and_gated_signing(self):
+        name = "desktop-macos.yml"
+        original = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
+        self.assertEqual([], self.check(original, name))
+
+        def named(w, job, label):
+            return next(s for s in w["jobs"][job]["steps"] if s.get("name") == label)
+
+        def gate(w):
+            return next(s for s in w["jobs"]["sign"]["steps"] if s.get("id") == "gate")
+
+        def secret_in_build(w):
+            named(w, "build", "Configure")["env"] = {"TOKEN": "${{ secrets.APPLE_API_KEY_ID }}"}
+
+        def ungated_secret(w):
+            named(w, "sign", "Sign, notarize, staple and verify").pop("if")
+
+        mutations = {
+            "single arch": lambda w: w["jobs"]["build"]["strategy"]["matrix"]["include"].pop(),
+            "linux runner": lambda w: w["jobs"]["build"]["strategy"]["matrix"]["include"][0].update(
+                {"runner": "ubuntu-latest"}),
+            "short timeout": lambda w: w["jobs"]["build"].update({"timeout-minutes": 60}),
+            "timeout over limit": lambda w: w["jobs"]["build"].update({"timeout-minutes": 400}),
+            "build in preflight": lambda w: named(w, "build", "Build within time budget").pop("if"),
+            "no budget": lambda w: named(w, "build", "Build within time budget").update(
+                {"run": named(w, "build", "Build within time budget")["run"].replace("HST_BUILD_DEADLINE", "X")}),
+            "no verify": lambda w: w["jobs"]["build"]["steps"].remove(
+                named(w, "build", "Verify dmg (app name, bundle id, architecture, Vietnamese resources)")),
+            "evidence not always": lambda w: named(w, "build", "Upload build evidence").pop("if"),
+            "dmg unconditional": lambda w: named(w, "build", "Upload unsigned dmg").update({"if": "${{ always() }}"}),
+            "dmg renamed": lambda w: named(w, "build", "Upload unsigned dmg")["with"].update({"name": "dmg"}),
+            "no checksum fetch": lambda w: [s.update({"run": s["run"].replace("fetch-sources.py", "true")})
+                                            for s in w["jobs"]["build"]["steps"] if "run" in s],
+            "masked failure": lambda w: named(w, "build", "Configure").update(
+                {"run": named(w, "build", "Configure")["run"] + "|| true\n"}),
+            "unpinned cache": lambda w: named(w, "build", "Restore compiler cache").update(
+                {"uses": "actions/cache/restore@v4"}),
+            "secret in build": secret_in_build,
+            "ungated secret": ungated_secret,
+            "no environment": lambda w: w["jobs"]["sign"].pop("environment"),
+            "other environment": lambda w: w["jobs"]["build"].update({"environment": "macos-signing"}),
+            "conditional build job": lambda w: w["jobs"]["build"].update({"if": "false"}),
+            "gate skipped": lambda w: gate(w).update({"if": "false"}),
+            "keychain kept on failure": lambda w: named(w, "sign", "Delete temporary keychain").pop("if"),
+            "signed upload ungated": lambda w: named(w, "sign", "Upload signed dmg").update({"if": "${{ success() }}"}),
+            "write permission": lambda w: w["jobs"]["sign"].update({"permissions": {"contents": "write"}}),
+            "trigger": lambda w: w["on"].update({"push": None}),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(mutation=label):
+                workflow = copy.deepcopy(original)
+                mutate(workflow)
+                self.assertTrue(self.check(workflow, name))
+
+    def test_secrets_are_rejected_outside_the_macos_signing_job(self):
+        self.quality["jobs"]["quality"]["steps"][4]["env"] = {"KEY": "${{ secrets.APPLE_API_KEY_ID }}"}
+        self.assertTrue(any("secrets only" in error for error in self.check(self.quality)))
 
     def test_windows_trial_needs_budget_verification_and_unconditional_upload(self):
         name = "desktop-windows.yml"
@@ -200,13 +240,6 @@ class WorkflowTests(unittest.TestCase):
     def test_shell_must_preserve_pipeline_failures(self):
         self.quality["jobs"]["quality"]["steps"][4]["shell"] = "sh"
         self.assertTrue(any("explicit bash" in error for error in self.check(self.quality)))
-
-    def test_conditional_inside_native_guard_is_rejected(self):
-        name = "desktop-macos.yml"
-        workflow = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
-        step = workflow["jobs"]["blocked"]["steps"][0]
-        step["run"] = "if false; then\n" + step["run"] + "fi\n"
-        self.assertTrue(any("unconditionally" in error for error in self.check(workflow, name)))
 
     def test_resource_config_can_raise_requirements_and_reject_nan(self):
         config = self.directory / "linux.conf"

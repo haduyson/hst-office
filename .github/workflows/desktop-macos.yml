@@ -1,23 +1,233 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-name: Desktop macOS (BLOCKED)
+name: Desktop macOS
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight = probe runner, setup through configure + external fetch (cheap); full = also build, package and verify the dmg'
+        type: choice
+        options: [preflight, full]
+        default: preflight
 permissions:
   contents: read
 concurrency:
   group: desktop-macos
   cancel-in-progress: false
 jobs:
-  blocked:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  build:
+    # Native build per chip on GitHub-hosted runners; the dmg is unsigned (see the sign job).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 355
+    env:
+      HST_ARCH: ${{ matrix.arch }}
+      HST_WORK: /Users/runner/hst
+      HST_DL: /Users/runner/hst/dl
     steps:
-      - name: Require native builder and release prerequisites
+      - name: Record job start
         shell: bash
         run: |
-          echo 'BLOCKED/TODO: needs self-hosted runner with >=100 GB disk, signing credentials, platform QA' >&2
-          exit 1
-    # Future on separate native arm64/x86_64 runners: checkout the tested SHA;
-    # run bash scripts/build-macos.sh --arch arm64 (or --arch x86_64);
-    # validate configure, .app identity, .dmg/.pkg lifecycle and GUI latency;
-    # sign/notarize only QA-validated artifacts using protected credentials.
+          set -eu
+          started=$(date +%s)
+          echo "HST_JOB_START=$started" >> "$GITHUB_ENV"
+          mkdir -p "$HST_WORK/artifacts"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Probe runner
+        shell: bash
+        run: |
+          set -eu
+          echo "HST_PYTHON=$(command -v python3)" >> "$GITHUB_ENV"
+          HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --probe
+      - name: Free disk
+        shell: bash
+        run: |
+          set -eu
+          HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --free-disk
+      - name: Install and check build tools
+        shell: bash
+        run: |
+          set -eu
+          HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --tools
+      - name: Fetch and verify pinned source tarballs
+        shell: bash
+        run: |
+          set -eu
+          start=$(date +%s)
+          python -I scripts/windows/fetch-sources.py --dest "$HST_DL"
+          printf '{"phase":"fetch-sources","seconds":%d,"status":"ok"}\n' $(( $(date +%s) - start )) >> "$HST_WORK/metrics/phases.jsonl"
+      - name: Stage branding
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install "pillow==10.4.0"
+          python -I scripts/stage-branding.py --out "$HST_WORK/branding"
+      - name: Extract source
+        shell: bash
+        run: |
+          set -eu
+          HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --extract
+      - name: Apply HST patches, Vietnamese overlay and app icon
+        shell: bash
+        run: |
+          set -eu
+          HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --patch
+      - name: Configure
+        shell: bash
+        run: |
+          set -eu
+          HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --configure
+      - name: Fetch external sources
+        shell: bash
+        run: |
+          set -eu
+          HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --fetch
+      - name: Restore compiler cache
+        if: ${{ inputs.mode == 'full' }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: /Users/runner/hst/ccache
+          key: ccache-macos-${{ matrix.arch }}-${{ github.run_id }}
+          restore-keys: ccache-macos-${{ matrix.arch }}-
+      - name: Build within time budget
+        id: build
+        if: ${{ inputs.mode == 'full' }}
+        shell: bash
+        run: |
+          set -eu
+          export HST_BUILD_DEADLINE=$(( HST_JOB_START + 315 * 60 ))
+          HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --build
+      - name: Save compiler cache
+        # Also after a budget stop or a failure, so the next run resumes from the compiled objects.
+        if: ${{ always() && inputs.mode == 'full' && steps.build.outcome != 'skipped' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: /Users/runner/hst/ccache
+          key: ccache-macos-${{ matrix.arch }}-${{ github.run_id }}
+      - name: Collect dmg
+        if: ${{ inputs.mode == 'full' && success() }}
+        shell: bash
+        run: |
+          set -eu
+          HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --collect
+      - name: Verify dmg (app name, bundle id, architecture, Vietnamese resources)
+        if: ${{ inputs.mode == 'full' && success() }}
+        shell: bash
+        run: |
+          set -eu
+          HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --verify
+          { echo '```'; cat "$HST_WORK/artifacts/dmg-verify.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Summarize metrics
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -eu
+          python -I scripts/macos/summarize-build.py --work "$HST_WORK" --out "$HST_WORK/artifacts" --arch "$HST_ARCH" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload build evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-build-${{ matrix.arch }}-${{ github.run_id }}
+          path: /Users/runner/hst/artifacts/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload unsigned dmg
+        if: ${{ inputs.mode == 'full' && success() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hst-office-macos-${{ matrix.arch }}-dmg-${{ github.run_id }}
+          path: /Users/runner/hst/dmg/
+          if-no-files-found: error
+          retention-days: 14
+  sign:
+    # Optional Developer ID signing + notarization. Secrets live only here, behind the
+    # "macos-signing" environment (the owner can require reviewers). Without the secrets the
+    # gate step reports it and every later step is skipped, so the job stays green.
+    needs: build
+    if: ${{ inputs.mode == 'full' }}
+    environment: macos-signing
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check signing secrets
+        id: gate
+        shell: bash
+        env:
+          MACOS_DEVELOPER_ID_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -eu
+          bash scripts/macos/sign-notarize.sh --enabled >> "$GITHUB_OUTPUT"
+      - name: Download unsigned dmg
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: hst-office-macos-${{ matrix.arch }}-dmg-${{ github.run_id }}
+          path: ${{ runner.temp }}/unsigned
+      - name: Download signing kit (upstream script + entitlements from the build)
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: macos-build-${{ matrix.arch }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence
+      - name: Import Developer ID certificate into a temporary keychain
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        env:
+          MACOS_DEVELOPER_ID_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          set -eu
+          bash scripts/macos/sign-notarize.sh --import
+      - name: Sign, notarize, staple and verify
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -eu
+          dmg=$(find "$RUNNER_TEMP/unsigned" -name '*.dmg' -print -quit)
+          (cd "$RUNNER_TEMP/unsigned" && shasum -a 256 -c SHA256SUMS)
+          bash scripts/macos/sign-notarize.sh --sign "$dmg" "$RUNNER_TEMP/evidence/signing-kit" "$RUNNER_TEMP/signed"
+      - name: Delete temporary keychain
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -eu
+          bash scripts/macos/sign-notarize.sh --cleanup
+      - name: Upload signed dmg
+        if: ${{ steps.gate.outputs.enabled == 'true' && success() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hst-office-macos-${{ matrix.arch }}-dmg-signed-${{ github.run_id }}
+          path: ${{ runner.temp }}/signed/
+          if-no-files-found: error
+          retention-days: 14

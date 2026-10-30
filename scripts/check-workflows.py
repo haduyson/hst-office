@@ -14,10 +14,16 @@ PINS = {
     "actions/setup-python": "a26af69be951a213d495a4c3e4e4022e16d87065",
     "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",
     "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+    "actions/download-artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093",  # v4.3.0
+    "actions/cache/restore": "0057852bfaa89a56745cba8c7296529d2fc39830",  # v4.3.0
+    "actions/cache/save": "0057852bfaa89a56745cba8c7296529d2fc39830",  # v4.3.0
 }
 REQUIRED = {"quality.yml", "desktop-linux.yml", "desktop-windows.yml", "desktop-macos.yml", "release.yml"}
 RELEASE_PERMISSIONS = {"contents": "write", "actions": "read"}
-BLOCKER = "BLOCKED/TODO: needs self-hosted runner with >=100 GB disk, signing credentials, platform QA"
+# The only job that may read secrets: optional macOS signing behind a reviewable environment.
+SIGNING_WORKFLOW, SIGNING_JOB, SIGNING_ENVIRONMENT = "desktop-macos.yml", "sign", "macos-signing"
+SIGNING_GATE = "steps.gate.outputs.enabled == 'true'"
+MACOS_STAGES = ["probe", "free-disk", "tools", "extract", "patch", "configure", "fetch", "build", "collect", "verify"]
 CYGWIN_SHELL = "C:/cygwin64/bin/bash.exe"
 SCRIPT = re.compile(r"\bscripts/[\w./-]+\.(?:py|sh|ps1|mjs|js)\b")
 
@@ -86,12 +92,21 @@ def check_workflow(path, root=ROOT):
         allowed = RELEASE_PERMISSIONS if (path.name == "release.yml" and name == "publish") else {"contents": "read"}
         require(job.get("permissions", {"contents": "read"}) == allowed, f"{name}: permissions escalation")
         require(not job.get("continue-on-error"), f"{name}: continue-on-error masks failures")
-        require("if" not in job, f"{name}: required job must not be conditional")
+        signing = path.name == SIGNING_WORKFLOW and name == SIGNING_JOB
+        # The signing job alone may be limited to full builds; every other job always runs.
+        require("if" not in job or (signing and job["if"] == "${{ inputs.mode == 'full' }}"),
+                f"{name}: required job must not be conditional")
+        require("environment" not in job or (signing and job["environment"] == SIGNING_ENVIRONMENT),
+                f"{name}: only the macOS signing job may use a deployment environment")
         steps = job.get("steps", [])
         require(isinstance(steps, list) and bool(steps), f"{name}: executable steps required")
         for step in steps:
             all_steps.append(step)
             require(not step.get("continue-on-error"), f"{name}: continue-on-error masks failures")
+            if "secrets." in yaml.safe_dump(step):
+                # Secrets only in the signing job: its gate step, or steps that run after the gate passed.
+                gated = step.get("id") == "gate" or SIGNING_GATE in str(step.get("if", ""))
+                require(signing and gated, f"{name}: secrets only in the gated signing steps")
             if "uses" in step:
                 action, _, pin = step["uses"].partition("@")
                 require(bool(re.fullmatch(r"[0-9a-f]{40}", pin)), f"{name}: action must use a full SHA")
@@ -121,11 +136,46 @@ def check_workflow(path, root=ROOT):
                 "quality must execute scripts/ci-quality.sh")
         require(all("if" not in step for step in runs), "quality commands must not be skipped")
     elif path.name == "desktop-macos.yml":
-        require(len(jobs) == 1 and len(all_steps) == 1, "desktop blocker must be the sole executable step")
-        require(all(job.get("runs-on") == "ubuntu-latest" for job in jobs.values()), "blocker must use a hosted runner")
-        guard_lines = active_lines(runs[0]["run"]) if runs else []
-        guarded = guard_lines == [f"echo '{BLOCKER}' >&2", "exit 1"]
-        require(guarded and "if" not in runs[0], "desktop guard must unconditionally exit 1 with BLOCKED/TODO")
+        require(set(jobs) == {"build", SIGNING_JOB}, "macOS needs exactly a build job and a signing job")
+        build_job, sign_job = jobs.get("build", {}), jobs.get(SIGNING_JOB, {})
+        matrix = build_job.get("strategy", {}).get("matrix", {}).get("include", [])
+        require(sorted(entry.get("arch", "") for entry in matrix) == ["arm64", "x86_64"]
+                and all(str(entry.get("runner", "")).startswith("macos-") for entry in matrix)
+                and build_job.get("runs-on") == "${{ matrix.runner }}",
+                "macOS build must run natively on hosted macos-* runners for arm64 and x86_64")
+        require(type(build_job.get("timeout-minutes")) is int and build_job["timeout-minutes"] >= 300,
+                "macOS build needs a long timeout to finish the build")
+        build_steps = build_job.get("steps", [])
+        text_runs = "\n".join(step["run"] for step in build_steps if "run" in step)
+        require("fetch-sources.py" in text_runs, "macOS build must download and verify pinned tarballs")
+        require(re.findall(r"trial-build\.sh --([\w-]+)", text_runs) == MACOS_STAGES,
+                "macOS build stages must follow " + "/".join(MACOS_STAGES))
+        modes = events.get("workflow_dispatch", {}).get("inputs", {}).get("mode", {}) if isinstance(events, dict) else {}
+        require(modes.get("options") == ["preflight", "full"] and modes.get("default") == "preflight",
+                "mode input must offer preflight (default) and full")
+        build = [step for step in build_steps if "trial-build.sh --build" in step.get("run", "")]
+        require(len(build) == 1 and "full" in str(build[0].get("if", "")) and "HST_BUILD_DEADLINE" in build[0]["run"],
+                "build step must run only in full mode with a time budget")
+        uploads = [step for step in build_steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
+        evidence = [step for step in uploads if "artifacts" in str(step.get("with", {}).get("path", ""))]
+        require(len(evidence) == 1 and "always()" in str(evidence[0].get("if", "")),
+                "macOS build must upload evidence even when earlier steps fail")
+        dmgs = [step for step in uploads if step not in evidence]
+        require(len(dmgs) == 1 and "success()" in str(dmgs[0].get("if", ""))
+                and str(dmgs[0].get("with", {}).get("name", "")).startswith("hst-office-macos-${{ matrix.arch }}-dmg-"),
+                "the unsigned dmg must be uploaded once, only after a successful build")
+        require(sign_job.get("needs") == "build" and sign_job.get("environment") == SIGNING_ENVIRONMENT,
+                "signing must follow the build behind the macos-signing environment")
+        sign_steps = sign_job.get("steps", [])
+        gate = [step for step in sign_steps if step.get("id") == "gate"]
+        require(len(gate) == 1 and "sign-notarize.sh --enabled" in gate[0].get("run", "") and "if" not in gate[0],
+                "signing needs one unconditional gate that skips cleanly without secrets")
+        cleanup = [step for step in sign_steps if "sign-notarize.sh --cleanup" in step.get("run", "")]
+        require(len(cleanup) == 1 and "always()" in str(cleanup[0].get("if", "")),
+                "the temporary keychain must be deleted even when signing fails")
+        signed_uploads = [step for step in sign_steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
+        require(all(SIGNING_GATE in str(step.get("if", "")) and "success()" in str(step.get("if", ""))
+                    for step in signed_uploads), "signed dmg upload must depend on the gate and success")
     elif path.name == "desktop-windows.yml":
         require(len(jobs) == 1, "Windows trial must be a single job on one runner")
         job = next(iter(jobs.values()))
