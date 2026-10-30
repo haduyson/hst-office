@@ -12,8 +12,8 @@ Do Công ty TNHH Công nghệ Hà Sơn (**HASON TECH**) phát triển.
 
 - Nhận diện HST Office (splash, About, icon, launcher).
 - Tiếng Việt: giao diện tiếng Việt khi hệ điều hành dùng tiếng Việt; từ điển chính tả `vi`; khổ A4 và Times New Roman mặc định.
-- Công cụ tích hợp: soạn văn bản hành chính theo **NĐ 30/2020/NĐ-CP**, chuyển mã **TCVN3/VNI → Unicode**, định dạng **VND / dd/mm/yyyy**, nhập **CSV UTF-8** an toàn, 18 mẫu văn phòng.
-- Mở nhiều tài liệu dạng **thẻ** trong một cửa sổ (Văn bản, Bảng tính, Trình chiếu lẫn nhau): nút đóng trên từng thẻ, nút "+" mở tài liệu mới, chuyển thẻ bằng Ctrl+Alt+. / Ctrl+Alt+, ; tắt tại Công cụ → Tùy chọn → HST Office → Chung → "Thẻ tài liệu".
+- Công cụ tích hợp: soạn văn bản hành chính theo **NĐ 30/2020/NĐ-CP**, chuyển mã **TCVN3/VNI → Unicode**, định dạng **VND / dd/mm/yyyy**, nhập **CSV UTF-8** an toàn, 18 mẫu văn phòng (Tập tin → Mẫu, nhóm "HST — Văn bản hành chính / Bảng tính / Trình chiếu").
+- Mở nhiều tài liệu dạng **thẻ** trong một cửa sổ (Văn bản, Bảng tính, Trình chiếu lẫn nhau): nút đóng trên từng thẻ, nút "+" mở tài liệu mới, chuyển thẻ bằng Ctrl+Alt+. / Ctrl+Alt+, ; nút đóng cửa sổ đóng mọi thẻ (hỏi lưu từng tài liệu đã sửa); tắt tại Công cụ → Tùy chọn → HST Office → Chung → "Thẻ tài liệu".
 - Không telemetry, không cần tài khoản hay Internet.
 - Extension chỉ cài từ tệp `.oxt` do người dùng tự chọn (có hộp thoại xác nhận, người dùng tự chịu trách nhiệm); không có đường dẫn tới kho extension trực tuyến, không kiểm tra cập nhật extension qua mạng.
 - Điều tra và xử lý độ trễ menu chuột phải trên macOS ([docs/CONTEXT_MENU_PERFORMANCE.md](docs/CONTEXT_MENU_PERFORMANCE.md)).

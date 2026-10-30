@@ -15,7 +15,9 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
+import tempfile
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,6 +32,15 @@ BRAND_IMAGES = {
     "icons/hst-slides-64.png": "assets/brand/icons/hst-slides-64.png",
 }
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
+# The 18 HST templates (templates/*.json -> scripts/generate-templates.py) ship in the
+# extension: Paths.xcu adds %origin%/template to the template paths, so the Template
+# Manager lists them on every OS without installer changes. Folder -> group shown in the UI.
+TEMPLATE_EXTENSION = "hst-vietnamese-tools"
+TEMPLATE_GROUPS = (
+    ("writer", "hst-van-ban", "HST \u2014 V\u0103n b\u1ea3n h\u00e0nh ch\u00ednh"),
+    ("sheets", "hst-bang-tinh", "HST \u2014 B\u1ea3ng t\u00ednh"),
+    ("slides", "hst-trinh-chieu", "HST \u2014 Tr\u00ecnh chi\u1ebfu"),
+)
 SKIP_DIRS = {"__pycache__", ".git"}
 SKIP_SUFFIX = (".pyc", ".pyo", "~")
 
@@ -59,6 +70,27 @@ def release_json(test_mode=False):
     return (json.dumps(stamp, sort_keys=True, indent=1) + "\n").encode("utf-8")
 
 
+def template_files():
+    """{archive_name: bytes}: generated templates under template/<group>/ and groupuinames.xml."""
+    files = {}
+    with tempfile.TemporaryDirectory() as out:
+        env = dict(os.environ, SOURCE_DATE_EPOCH="1767225600")  # reproducible ODF packages
+        subprocess.run([sys.executable, "-B", os.path.join(ROOT, "scripts", "generate-templates.py"), "--out", out],
+                       check=True, env=env, stdout=subprocess.DEVNULL)
+        groups = []
+        for module, folder, ui_name in TEMPLATE_GROUPS:
+            for name in sorted(os.listdir(os.path.join(out, module))):
+                if name.endswith((".ott", ".ots", ".otp")):
+                    files["template/%s/%s" % (folder, name)] = open(os.path.join(out, module, name), "rb").read()
+            groups.append(' <groupuinames:template-group groupuinames:name="%s" groupuinames:default-ui-name="%s"/>'
+                          % (folder, ui_name))
+    files["template/groupuinames.xml"] = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<groupuinames:template-group-list xmlns:groupuinames="http://openoffice.org/2006/groupuinames">\n'
+        + "\n".join(groups) + "\n</groupuinames:template-group-list>\n").encode("utf-8")
+    return files
+
+
 def collect(ext_root, test_mode=False):
     """{archive_name: bytes} for one extension directory."""
     files = {}
@@ -77,6 +109,8 @@ def collect(ext_root, test_mode=False):
         files[name] = open(os.path.join(ROOT, *src.split("/")), "rb").read()
     files["license/LICENSE.txt"] = open(os.path.join(ROOT, "LICENSE"), "rb").read()
     files["license/NOTICES.txt"] = notices_text().encode("utf-8")
+    if os.path.basename(os.path.normpath(ext_root)) == TEMPLATE_EXTENSION:
+        files.update(template_files())
     return files
 
 

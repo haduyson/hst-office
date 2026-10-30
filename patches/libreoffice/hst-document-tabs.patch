@@ -14,6 +14,14 @@ tab, and a "+" button (new text document / spreadsheet / presentation / open fil
   them as open documents: closing the shown tab closes only that frame and the group shows
   a neighbour (no Start Center, no termination). Tab close dispatches .uno:CloseWin (save
   query on the then shown window); Desktop::terminate suppresses neighbour re-showing.
+- Title-bar close of a tab window closes the whole group like a browser window: the other
+  tabs first (each modified one shown, then its save query), the clicked tab last; Cancel on
+  any query keeps that tab and the remaining ones open. The tab's own close button closes
+  only that tab.
+- Full-screen slide shows (their own frame in a presentation-mode window) never join a group.
+- Menubar with the Tabbed UI: a parked tab keeps its menubar attached (LayoutManager), the
+  notebookbar applies its menubar mode to the frame it sets up and CloseMethod only restores
+  the menubar of its own window (not of SfxViewFrame::Current(), possibly another tab).
 - Keys: .uno:NextDocumentTab / .uno:PrevDocumentTab on Ctrl+Alt+. / Ctrl+Alt+, (Global
   accelerators; Ctrl+Tab, Ctrl+PgUp/PgDn and Ctrl+Alt+PgUp/PgDn are taken by Writer and Calc).
 - Option Office.Common/Misc/DocumentTabs (default true), Tools > Options > HST Office >
@@ -168,7 +176,7 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/framework/inc/documenttabgroup.hxx
 +++ b/framework/inc/documenttabgroup.hxx
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,154 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -260,6 +268,11 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
 +    static bool isTabCommand(std::u16string_view rCommand);
 +    static css::uno::Reference<css::frame::XDispatch> createCommandDispatch();
 +
++    /** Title-bar close of a member window: close the whole group like a browser window,
++        asking to save each modified document in turn (Cancel stops and keeps the rest).
++        Returns false when xFrame is no member of a group with several tabs. */
++    bool requestCloseWindow(const css::uno::Reference<css::frame::XFrame>& xFrame);
++
 +    /// Desktop::terminate: frames are about to be closed one by one, don't re-show neighbours.
 +    void setClosingAll(bool bClosingAll);
 +
@@ -301,12 +314,15 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
 +    DECL_LINK(WindowEventHdl, VclSimpleEvent&, void);
 +    DECL_LINK(ParkPreviousHdl, void*, void);
 +    DECL_LINK(DispatchHdl, void*, void);
++    DECL_LINK(CloseWindowHdl, void*, void);
++
 +
 +    std::vector<Member> m_aMembers;
 +    css::uno::WeakReference<css::frame::XFrame> m_xActive;
 +    css::uno::WeakReference<css::frame::XFrame> m_xPrepared; ///< geometry already applied
 +    css::uno::WeakReference<css::frame::XFrame> m_xToPark;
 +    std::vector<OUString> m_aPendingURLs;
++    css::uno::WeakReference<css::frame::XFrame> m_xCloseWindowFrom;
 +    rtl::Reference<DocumentTabGroupListener> m_xListener;
 +    sal_Int32 m_nInternal = 0; ///< >0 while we show/hide windows ourselves
 +    bool m_bClosingAll = false;
@@ -382,7 +398,7 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/framework/source/services/documenttabgroup.cxx
 +++ b/framework/source/services/documenttabgroup.cxx
-@@ -0,0 +1,803 @@
+@@ -0,0 +1,955 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -416,7 +432,9 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
 +#include <com/sun/star/frame/theGlobalEventBroadcaster.hpp>
 +#include <com/sun/star/beans/XPropertySet.hpp>
 +#include <com/sun/star/util/URLTransformer.hpp>
++#include <com/sun/star/util/CloseVetoException.hpp>
 +#include <com/sun/star/util/XCloseBroadcaster.hpp>
++#include <com/sun/star/util/XCloseable.hpp>
 +#include <com/sun/star/util/XCloseListener.hpp>
 +#include <com/sun/star/util/XModifiable.hpp>
 +
@@ -518,16 +536,33 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
 +    return uno::Reference<frame::XFrame>(rWeak);
 +}
 +
++// Frames can be disposed at any time (closing documents): every UNO call on a member
++// is guarded, nothing may escape into the VCL event loop.
 +uno::Reference<frame::XModel> lcl_model(const uno::Reference<frame::XFrame>& xFrame)
 +{
-+    uno::Reference<frame::XController> xController = xFrame->getController();
-+    return xController.is() ? xController->getModel() : uno::Reference<frame::XModel>();
++    try
++    {
++        uno::Reference<frame::XController> xController = xFrame.is() ? xFrame->getController() : nullptr;
++        if (xController.is())
++            return xController->getModel();
++    }
++    catch (const uno::Exception&)
++    {
++    }
++    return {};
 +}
 +
 +bool lcl_isModified(const uno::Reference<frame::XFrame>& xFrame)
 +{
-+    uno::Reference<util::XModifiable> xModifiable(lcl_model(xFrame), uno::UNO_QUERY);
-+    return xModifiable.is() && xModifiable->isModified();
++    try
++    {
++        uno::Reference<util::XModifiable> xModifiable(lcl_model(xFrame), uno::UNO_QUERY);
++        return xModifiable.is() && xModifiable->isModified();
++    }
++    catch (const uno::Exception&)
++    {
++        return false;
++    }
 +}
 +
 +/// Writer blue, Calc green, Impress orange, Draw purple, other grey.
@@ -644,13 +679,25 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
 +{
 +    if (!xFrame.is() || !isEnabled())
 +        return false;
-+    // Only task frames of the desktop (not sub-frames, previews, in-place frames) with a
-+    // top-level WorkWindow (not frames embedded in foreign windows); never the Help task.
-+    uno::Reference<frame::XDesktop> xDesktop(xFrame->getCreator(), uno::UNO_QUERY);
-+    if (!xDesktop.is() || xFrame->getName() == "OFFICE_HELP_TASK")
++    try
++    {
++        // Only task frames of the desktop (not sub-frames, previews, in-place frames) with a
++        // top-level WorkWindow (not frames embedded in foreign windows); never the Help task.
++        uno::Reference<frame::XDesktop> xDesktop(xFrame->getCreator(), uno::UNO_QUERY);
++        if (!xDesktop.is() || xFrame->getName() == "OFFICE_HELP_TASK")
++            return false;
++        VclPtr<vcl::Window> pWindow = VCLUnoHelper::GetWindow(xFrame->getContainerWindow());
++        if (!pWindow || pWindow->isDisposed() || pWindow->GetType() != WindowType::WORKWINDOW
++            || !pWindow->IsSystemWindow())
++            return false;
++        // Never the full-screen slide show (its own frame in a presentation-mode window).
++        auto* pWorkWindow = static_cast<WorkWindow*>(pWindow.get());
++        return !pWorkWindow->IsPresentationMode() && !pWorkWindow->IsFullScreenMode();
++    }
++    catch (const uno::Exception&)
++    {
 +        return false;
-+    VclPtr<vcl::Window> pWindow = VCLUnoHelper::GetWindow(xFrame->getContainerWindow());
-+    return pWindow && pWindow->GetType() == WindowType::WORKWINDOW && pWindow->IsSystemWindow();
++    }
 +}
 +
 +uno::Reference<frame::XFrame> DocumentTabGroup::findTaskFrame(const vcl::Window* pWindow) const
@@ -773,110 +820,138 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
 +
 +void DocumentTabGroup::prepareShow(const uno::Reference<frame::XFrame>& xFrame)
 +{
-+    if (!isCandidate(xFrame))
-+        return;
-+    Member& rMember = join(xFrame);
-+    Member* pPrevious = activeMember(); // after join(): it may move members
-+    if (!pPrevious || pPrevious == &rMember || !rMember.pWindow || rMember.pWindow->IsVisible())
-+        return;
-+    if (pPrevious->pWindow && pPrevious->pWindow->IsVisible())
++    try
 +    {
-+        copyGeometry(pPrevious->pWindow, rMember.pWindow);
-+        m_xPrepared = xFrame;
++        if (!isCandidate(xFrame))
++            return;
++        Member& rMember = join(xFrame);
++        Member* pPrevious = activeMember(); // after join(): it may move members
++        if (!pPrevious || pPrevious == &rMember || !rMember.pWindow || rMember.pWindow->IsVisible())
++            return;
++        if (pPrevious->pWindow && pPrevious->pWindow->IsVisible())
++        {
++            copyGeometry(pPrevious->pWindow, rMember.pWindow);
++            m_xPrepared = xFrame;
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: prepare show");
 +    }
 +}
 +
 +IMPL_LINK(DocumentTabGroup, WindowEventHdl, VclSimpleEvent&, rEvent, void)
 +{
-+    const VclEventId nId = rEvent.GetId();
-+    if (nId != VclEventId::WindowShow && nId != VclEventId::WindowHide)
-+        return;
-+    vcl::Window* pWindow = static_cast<VclWindowEvent&>(rEvent).GetWindow();
-+    if (m_nInternal || !pWindow || pWindow->GetType() != WindowType::WORKWINDOW)
-+        return;
-+
-+    if (nId == VclEventId::WindowHide)
++    try
 +    {
-+        // Hidden by someone else (macro, frame being closed, autorecovery): leave the group,
-+        // and if that was the shown tab show a neighbour so the documents stay reachable.
-+        if (Member* pMember = findByWindow(pWindow))
-+            if (!pMember->bParked)
-+                removeMember(lcl_get(pMember->xFrame), true);
-+        return;
++        const VclEventId nId = rEvent.GetId();
++        if (nId != VclEventId::WindowShow && nId != VclEventId::WindowHide)
++            return;
++        vcl::Window* pWindow = static_cast<VclWindowEvent&>(rEvent).GetWindow();
++        if (m_nInternal || !pWindow || pWindow->GetType() != WindowType::WORKWINDOW)
++            return;
++    
++        if (nId == VclEventId::WindowHide)
++        {
++            // Hidden by someone else (macro, frame being closed, autorecovery): leave the group,
++            // and if that was the shown tab show a neighbour so the documents stay reachable.
++            if (Member* pMember = findByWindow(pWindow))
++                if (!pMember->bParked)
++                    removeMember(lcl_get(pMember->xFrame), true);
++            return;
++        }
++    
++        if (!isEnabled())
++            return;
++        uno::Reference<frame::XFrame> xFrame = findTaskFrame(pWindow);
++        if (!isCandidate(xFrame))
++            return;
++        const bool bPrepared = lcl_get(m_xPrepared) == xFrame;
++        m_xPrepared.clear();
++        Member* pPrevious = activeMember();
++        if (pPrevious && lcl_get(pPrevious->xFrame) == xFrame && !pPrevious->bParked)
++            return;
++        uno::Reference<frame::XFrame> xPrevious;
++        VclPtr<vcl::Window> pPreviousWindow;
++        if (pPrevious)
++        {
++            xPrevious = lcl_get(pPrevious->xFrame);
++            pPreviousWindow = pPrevious->pWindow;
++        }
++    
++        Member& rMember = join(xFrame);
++        rMember.bParked = false;
++        m_xActive = xFrame;
++        if (xPrevious.is() && xPrevious != xFrame && pPreviousWindow && pPreviousWindow->IsVisible())
++        {
++            // Shown without prepareShow(): take over the group geometry now.
++            if (!bPrepared)
++                copyGeometry(pPreviousWindow, pWindow);
++            // Park the previous tab once the new window is up (never leave zero windows).
++            m_xToPark = xPrevious;
++            Application::PostUserEvent(LINK(this, DocumentTabGroup, ParkPreviousHdl));
++        }
++        update();
 +    }
-+
-+    if (!isEnabled())
-+        return;
-+    uno::Reference<frame::XFrame> xFrame = findTaskFrame(pWindow);
-+    if (!isCandidate(xFrame))
-+        return;
-+    const bool bPrepared = lcl_get(m_xPrepared) == xFrame;
-+    m_xPrepared.clear();
-+    Member* pPrevious = activeMember();
-+    if (pPrevious && lcl_get(pPrevious->xFrame) == xFrame && !pPrevious->bParked)
-+        return;
-+    uno::Reference<frame::XFrame> xPrevious;
-+    VclPtr<vcl::Window> pPreviousWindow;
-+    if (pPrevious)
++    catch (const uno::Exception&)
 +    {
-+        xPrevious = lcl_get(pPrevious->xFrame);
-+        pPreviousWindow = pPrevious->pWindow;
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: window event");
 +    }
-+
-+    Member& rMember = join(xFrame);
-+    rMember.bParked = false;
-+    m_xActive = xFrame;
-+    if (xPrevious.is() && xPrevious != xFrame && pPreviousWindow && pPreviousWindow->IsVisible())
-+    {
-+        // Shown without prepareShow(): take over the group geometry now.
-+        if (!bPrepared)
-+            copyGeometry(pPreviousWindow, pWindow);
-+        // Park the previous tab once the new window is up (never leave zero windows).
-+        m_xToPark = xPrevious;
-+        Application::PostUserEvent(LINK(this, DocumentTabGroup, ParkPreviousHdl));
-+    }
-+    update();
 +}
 +
 +IMPL_LINK_NOARG(DocumentTabGroup, ParkPreviousHdl, void*, void)
 +{
-+    uno::Reference<frame::XFrame> xToPark = lcl_get(m_xToPark);
-+    m_xToPark.clear();
-+    Member* pMember = find(xToPark);
-+    if (pMember && xToPark != lcl_get(m_xActive) && !pMember->bParked)
++    try
 +    {
-+        park(*pMember);
-+        focus(lcl_get(m_xActive));
-+        update();
++        uno::Reference<frame::XFrame> xToPark = lcl_get(m_xToPark);
++        m_xToPark.clear();
++        Member* pMember = find(xToPark);
++        if (pMember && xToPark != lcl_get(m_xActive) && !pMember->bParked)
++        {
++            park(*pMember);
++            focus(lcl_get(m_xActive));
++            update();
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: park");
 +    }
 +}
 +
 +void DocumentTabGroup::activate(const uno::Reference<frame::XFrame>& xFrame)
 +{
-+    Member* pTarget = find(xFrame);
-+    if (!pTarget || !pTarget->pWindow || pTarget->pWindow->isDisposed())
-+        return;
-+    Member* pPrevious = activeMember();
-+    if (pPrevious == pTarget && pTarget->pWindow->IsVisible())
++    try
 +    {
++        Member* pTarget = find(xFrame);
++        if (!pTarget || !pTarget->pWindow || pTarget->pWindow->isDisposed())
++            return;
++        Member* pPrevious = activeMember();
++        if (pPrevious == pTarget && pTarget->pWindow->IsVisible())
++        {
++            focus(xFrame);
++            return;
++        }
++        const uno::Reference<frame::XFrame> xPrevious
++            = pPrevious ? lcl_get(pPrevious->xFrame) : uno::Reference<frame::XFrame>();
++        if (pPrevious && pPrevious->pWindow && pPrevious->pWindow->IsVisible())
++            copyGeometry(pPrevious->pWindow, pTarget->pWindow);
++        pTarget->bParked = false;
++        VclPtr<vcl::Window> pTargetWindow = pTarget->pWindow;
++        ++m_nInternal;
++        pTargetWindow->Show(true, ShowFlags::ForegroundTask);
++        --m_nInternal;
++        m_xActive = xFrame;
++        // find() again: Show() can run events that change the member list
++        if (Member* pOld = find(xPrevious); pOld && xPrevious != xFrame)
++            park(*pOld);
 +        focus(xFrame);
-+        return;
++        update();
 +    }
-+    const uno::Reference<frame::XFrame> xPrevious
-+        = pPrevious ? lcl_get(pPrevious->xFrame) : uno::Reference<frame::XFrame>();
-+    if (pPrevious && pPrevious->pWindow && pPrevious->pWindow->IsVisible())
-+        copyGeometry(pPrevious->pWindow, pTarget->pWindow);
-+    pTarget->bParked = false;
-+    VclPtr<vcl::Window> pTargetWindow = pTarget->pWindow;
-+    ++m_nInternal;
-+    pTargetWindow->Show(true, ShowFlags::ForegroundTask);
-+    --m_nInternal;
-+    m_xActive = xFrame;
-+    // find() again: Show() can run events that change the member list
-+    if (Member* pOld = find(xPrevious); pOld && xPrevious != xFrame)
-+        park(*pOld);
-+    focus(xFrame);
-+    update();
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: activate");
++    }
 +}
 +
 +void DocumentTabGroup::activateRelative(sal_Int32 nDelta)
@@ -893,15 +968,86 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
 +
 +void DocumentTabGroup::closeTab(const uno::Reference<frame::XFrame>& xFrame)
 +{
-+    Member* pMember = find(xFrame);
-+    if (!pMember)
++    try
++    {
++        Member* pMember = find(xFrame);
++        if (!pMember)
++            return;
++        // The save query is parented to the frame's window: show it first when it has one.
++        if (pMember->bParked && lcl_isModified(xFrame))
++            activate(xFrame);
++        // .uno:CloseWin closes this view only (not other views of the document), asks to save
++        // when it is the last view, and turns the last tab into the Start Center.
++        lcl_dispatch(xFrame, u".uno:CloseWin"_ustr, u"_self"_ustr);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: close tab");
++    }
++}
++
++bool DocumentTabGroup::requestCloseWindow(const uno::Reference<frame::XFrame>& xFrame)
++{
++    cleanUp();
++    if (!isEnabled() || !find(xFrame) || m_aMembers.size() < 2)
++        return false;
++    if (!lcl_get(m_xCloseWindowFrom).is())
++    {
++        m_xCloseWindowFrom = xFrame;
++        Application::PostUserEvent(LINK(this, DocumentTabGroup, CloseWindowHdl));
++    }
++    return true;
++}
++
++IMPL_LINK_NOARG(DocumentTabGroup, CloseWindowHdl, void*, void)
++{
++    uno::Reference<frame::XFrame> xClicked = lcl_get(m_xCloseWindowFrom);
++    m_xCloseWindowFrom.clear();
++    if (!xClicked.is())
 +        return;
-+    // The save query is parented to the frame's window: show it first when it has one.
-+    if (pMember->bParked && lcl_isModified(xFrame))
-+        activate(xFrame);
-+    // .uno:CloseWin closes this view only (not other views of the document), asks to save
-+    // when it is the last view, and turns the last tab into the Start Center.
-+    lcl_dispatch(xFrame, u".uno:CloseWin"_ustr, u"_self"_ustr);
++    // The other tabs first, each shown before its save query; Cancel ends the whole action.
++    std::vector<uno::Reference<frame::XFrame>> aOthers;
++    for (const Member& rMember : m_aMembers)
++        if (uno::Reference<frame::XFrame> xFrame = lcl_get(rMember.xFrame); xFrame.is() && xFrame != xClicked)
++            aOthers.push_back(xFrame);
++    for (const uno::Reference<frame::XFrame>& xFrame : aOthers)
++    {
++        if (!find(xFrame))
++            continue;
++        try
++        {
++            if (lcl_isModified(xFrame))
++                activate(xFrame);
++            uno::Reference<frame::XController> xController = xFrame->getController();
++            if (xController.is() && !xController->suspend(true))
++                return; // Cancel: this tab stays shown, the remaining tabs stay open
++            uno::Reference<util::XCloseable> xCloseable(xFrame, uno::UNO_QUERY);
++            if (xCloseable.is())
++            {
++                try
++                {
++                    xCloseable->close(true);
++                }
++                catch (const util::CloseVetoException&)
++                {
++                    if (xController.is())
++                        xController->suspend(false);
++                    return;
++                }
++            }
++        }
++        catch (const uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: closing a tab failed");
++            return;
++        }
++    }
++    // Finally the tab whose window was closed: the upstream title-bar close of a window.
++    if (find(xClicked))
++    {
++        activate(xClicked);
++        lcl_dispatch(xClicked, u".uno:CloseFrame"_ustr, u"_self"_ustr);
++    }
 +}
 +
 +void DocumentTabGroup::newTab(const OUString& rURL)
@@ -912,49 +1058,63 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
 +
 +IMPL_LINK_NOARG(DocumentTabGroup, DispatchHdl, void*, void)
 +{
-+    std::vector<OUString> aURLs;
-+    aURLs.swap(m_aPendingURLs);
-+    uno::Reference<frame::XFrame> xActive = lcl_get(m_xActive);
-+    if (!xActive.is())
-+        return;
-+    for (const OUString& rURL : aURLs)
-+        lcl_dispatch(xActive, rURL, rURL.startsWith(".uno:") ? u"_self"_ustr : u"_blank"_ustr);
++    try
++    {
++        std::vector<OUString> aURLs;
++        aURLs.swap(m_aPendingURLs);
++        uno::Reference<frame::XFrame> xActive = lcl_get(m_xActive);
++        if (!xActive.is())
++            return;
++        for (const OUString& rURL : aURLs)
++            lcl_dispatch(xActive, rURL, rURL.startsWith(".uno:") ? u"_self"_ustr : u"_blank"_ustr);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: dispatch");
++    }
 +}
 +
 +void DocumentTabGroup::removeMember(const uno::Reference<frame::XFrame>& xFrame,
 +                                    bool bShowNeighbour)
 +{
-+    Member* pMember = find(xFrame);
-+    if (!pMember)
-+        return;
-+    const bool bWasActive = lcl_get(m_xActive) == xFrame;
-+    VclPtr<vcl::Window> pGeometry = pMember->pWindow;
-+    size_t nIndex = pMember - m_aMembers.data();
-+    pMember->pBar.disposeAndClear();
-+    uno::Reference<util::XCloseBroadcaster> xClose(xFrame, uno::UNO_QUERY);
-+    if (xClose.is() && m_xListener.is())
-+        xClose->removeCloseListener(m_xListener);
-+    m_aMembers.erase(m_aMembers.begin() + nIndex);
-+    cleanUp();
-+    if (bWasActive)
-+        m_xActive.clear();
-+
-+    if (bWasActive && bShowNeighbour && !m_bClosingAll && !m_aMembers.empty())
++    try
 +    {
-+        Member& rNext = m_aMembers[std::min(nIndex, m_aMembers.size() - 1)];
-+        if (pGeometry && !pGeometry->isDisposed() && pGeometry->IsVisible())
-+            copyGeometry(pGeometry, rNext.pWindow);
-+        uno::Reference<frame::XFrame> xNext = lcl_get(rNext.xFrame);
-+        rNext.bParked = false;
-+        ++m_nInternal;
-+        rNext.pWindow->Show(true, ShowFlags::ForegroundTask);
-+        --m_nInternal;
-+        m_xActive = xNext;
-+        focus(xNext);
++        Member* pMember = find(xFrame);
++        if (!pMember)
++            return;
++        const bool bWasActive = lcl_get(m_xActive) == xFrame;
++        VclPtr<vcl::Window> pGeometry = pMember->pWindow;
++        size_t nIndex = pMember - m_aMembers.data();
++        pMember->pBar.disposeAndClear();
++        uno::Reference<util::XCloseBroadcaster> xClose(xFrame, uno::UNO_QUERY);
++        if (xClose.is() && m_xListener.is())
++            xClose->removeCloseListener(m_xListener);
++        m_aMembers.erase(m_aMembers.begin() + nIndex);
++        cleanUp();
++        if (bWasActive)
++            m_xActive.clear();
++    
++        if (bWasActive && bShowNeighbour && !m_bClosingAll && !m_aMembers.empty())
++        {
++            Member& rNext = m_aMembers[std::min(nIndex, m_aMembers.size() - 1)];
++            if (pGeometry && !pGeometry->isDisposed() && pGeometry->IsVisible())
++                copyGeometry(pGeometry, rNext.pWindow);
++            uno::Reference<frame::XFrame> xNext = lcl_get(rNext.xFrame);
++            rNext.bParked = false;
++            ++m_nInternal;
++            rNext.pWindow->Show(true, ShowFlags::ForegroundTask);
++            --m_nInternal;
++            m_xActive = xNext;
++            focus(xNext);
++        }
++        else if (bWasActive && !m_aMembers.empty() && !m_bClosingAll)
++            m_xActive = m_aMembers.front().xFrame;
++        update();
 +    }
-+    else if (bWasActive && !m_aMembers.empty() && !m_bClosingAll)
-+        m_xActive = m_aMembers.front().xFrame;
-+    update();
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: remove");
++    }
 +}
 +
 +void DocumentTabGroup::frameClosing(const uno::Reference<frame::XFrame>& xFrame)
@@ -1076,22 +1236,30 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
 +
 +std::vector<DocumentTabInfo> DocumentTabGroup::getTabs() const
 +{
-+    std::vector<DocumentTabInfo> aTabs;
-+    const uno::Reference<frame::XFrame> xActive = lcl_get(m_xActive);
-+    for (const Member& rMember : m_aMembers)
++    try
 +    {
-+        uno::Reference<frame::XFrame> xFrame = lcl_get(rMember.xFrame);
-+        if (!xFrame.is())
-+            continue;
-+        DocumentTabInfo aInfo;
-+        aInfo.xFrame = xFrame;
-+        aInfo.aTitle = lcl_title(xFrame);
-+        aInfo.bModified = lcl_isModified(xFrame);
-+        aInfo.bActive = xFrame == xActive;
-+        aInfo.aModuleColor = lcl_moduleColor(xFrame);
-+        aTabs.push_back(aInfo);
++        std::vector<DocumentTabInfo> aTabs;
++        const uno::Reference<frame::XFrame> xActive = lcl_get(m_xActive);
++        for (const Member& rMember : m_aMembers)
++        {
++            uno::Reference<frame::XFrame> xFrame = lcl_get(rMember.xFrame);
++            if (!xFrame.is())
++                continue;
++            DocumentTabInfo aInfo;
++            aInfo.xFrame = xFrame;
++            aInfo.aTitle = lcl_title(xFrame);
++            aInfo.bModified = lcl_isModified(xFrame);
++            aInfo.bActive = xFrame == xActive;
++            aInfo.aModuleColor = lcl_moduleColor(xFrame);
++            aTabs.push_back(aInfo);
++        }
++        return aTabs;
 +    }
-+    return aTabs;
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: tabs");
++    }
++    return {};
 +}
 +
 +void DocumentTabGroup::update()
@@ -1590,7 +1758,19 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
  #include <comphelper/diagnose_ex.hxx>
  #include <unotools/cmdoptions.hxx>
  #include <vcl/threadex.hxx>
-@@ -2620,7 +2621,11 @@
+@@ -2536,6 +2537,11 @@
+ {
+     checkDisposed();
+ 
++    // HST Office: the title-bar close of a document tab window closes the whole tab group
++    // (like a browser window), asking to save each modified document in turn.
++    if (DocumentTabGroup::get().requestCloseWindow(css::uno::Reference<css::frame::XFrame>(this)))
++        return;
++
+     // deactivate this frame ...
+     deactivate();
+ 
+@@ -2620,7 +2626,11 @@
      /* SAFE { */
      {
          SolarMutexGuard aReadLock;
@@ -1684,7 +1864,31 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
  #include <comphelper/lok.hxx>
  #include <comphelper/propertyvalue.hxx>
  #include <framework/layoutmanager.hxx>
-@@ -2245,6 +2246,7 @@
+@@ -766,7 +767,11 @@
+     rtl::Reference< MenuBarManager > xInplaceMenuBar( m_xInplaceMenuBar );
+     aWriteLock.clear();
+ 
+-    if (( xMenuBar.is() || xInplaceMenuBar.is() ) && xContainerWindow.is() )
++    // HST Office: a document tab parked (hidden) by the tab group keeps its menubar attached;
++    // detaching and re-attaching it on every tab switch churns the native (GTK) menubar.
++    const bool bParkedTab = !bSetVisible && DocumentTabGroup::get().isParked(m_xFrame);
++
++    if (( xMenuBar.is() || xInplaceMenuBar.is() ) && xContainerWindow.is() && !bParkedTab )
+     {
+         SolarMutexGuard aGuard;
+ 
+@@ -784,6 +789,10 @@
+             if ( bSetVisible )
+             {
+                 pSysWindow->SetMenuBar(pMenuBar);
++                // HST Office: a window shown again (document tabs park and show windows) keeps
++                // a hidden menubar hidden (Tabbed UI), as attaching the menubar does elsewhere.
++                if ( pMenuBar && !xInplaceMenuBar.is() )
++                    pMenuBar->SetDisplayable( m_bMenuVisible );
+             }
+ #ifdef MACOSX
+             // Related: tdf#161623 don't set the menubar to null on macOS
+@@ -2245,6 +2254,7 @@
  
      bool bPreserveContentSize( m_bPreserveContentSize );
      bool bMustDoLayout( m_bMustDoLayout );
@@ -1692,7 +1896,7 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
      bool bNoLock = ( m_nLockCount == 0 );
      awt::Rectangle aCurrBorderSpace( m_aDockingArea );
      Reference< awt::XWindow > xContainerWindow( m_xContainerWindow );
-@@ -2279,6 +2281,11 @@
+@@ -2279,6 +2289,11 @@
          // We have to add the height of a possible status bar
          aBorderSpace.Height += implts_getStatusBarSize().Height();
  
@@ -1704,7 +1908,7 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
          if ( !equalRectangles( aBorderSpace, aCurrBorderSpace ) || bForceRequestBorderSpace || bMustDoLayout )
          {
              // we always resize the content window (instead of the complete container window) if we're not set up
-@@ -2349,6 +2356,14 @@
+@@ -2349,6 +2364,14 @@
              }
  
              xDockingAreaAcceptor->setDockingAreaSpace( aBorderSpace );
@@ -1758,6 +1962,40 @@ Test: tests/runtime/check-document-tabs.py under Xvfb.
          m_pImpl->xFrame->getContainerWindow()->setVisible( true );
          Reference < css::awt::XTopWindow > xTopWindow( m_pImpl->xFrame->getContainerWindow(), UNO_QUERY );
          if ( xTopWindow.is() )
+--- a/sfx2/source/notebookbar/SfxNotebookBar.cxx
++++ b/sfx2/source/notebookbar/SfxNotebookBar.cxx
+@@ -207,7 +207,10 @@
+     {
+         if(pSysWindow->GetNotebookBar())
+             pSysWindow->CloseNotebookBar();
+-        if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
++        // HST Office: only the window whose notebookbar was closed gets its menubar back; with
++        // document tabs the current view frame can belong to another window (another tab).
++        if (SfxViewFrame* pViewFrm = SfxViewFrame::Current();
++            pViewFrm && pViewFrm->GetWindow().GetSystemWindow() == pSysWindow)
+             SfxNotebookBar::ShowMenubar(pViewFrm, true);
+     }
+ }
+@@ -385,7 +388,18 @@
+ 
+             utl::OConfigurationTreeRoot aRoot(lcl_getCurrentImplConfigRoot());
+             const utl::OConfigurationNode aModeNode(lcl_getCurrentImplConfigNode(xFrame, aRoot));
+-            SfxNotebookBar::ShowMenubar( comphelper::getBOOL( aModeNode.getNodeValue( u"HasMenubar"_ustr ) ) );
++            const bool bHasMenubar = comphelper::getBOOL( aModeNode.getNodeValue( u"HasMenubar"_ustr ) );
++            SfxNotebookBar::ShowMenubar( bHasMenubar );
++            // HST Office: the frame set up here need not be SfxViewFrame::Current() (document
++            // tabs show a parked window before it becomes current), so apply the mode to it too.
++            if (const Reference<frame::XLayoutManager> xLayoutManager = lcl_getLayoutManager(xFrame);
++                xLayoutManager.is() && xLayoutManager->getElement(MENUBAR_STR).is())
++            {
++                if (bHasMenubar)
++                    xLayoutManager->showElement(MENUBAR_STR);
++                else
++                    xLayoutManager->hideElement(MENUBAR_STR);
++            }
+ 
+             SfxViewFrame* pView = SfxViewFrame::Current();
+ 
 --- a/cui/source/options/optgdlg.cxx
 +++ b/cui/source/options/optgdlg.cxx
 @@ -163,6 +163,8 @@

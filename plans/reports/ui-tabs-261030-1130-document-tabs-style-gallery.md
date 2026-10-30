@@ -173,3 +173,83 @@ variants don't.
    like a browser?
 2. Should the installer write `ProductKey` without the engine version (installer agent's area)?
 3. Fix for the vendor/vi-descriptions patch overlap (installer agent).
+
+## Integration round (evening 2026-10-30)
+
+Build: main at ffa4f9d, plus the changes below. Includes `hst-offline-help`, `hst-copyright`,
+`hst-packaging-macos-dmg`, the update check (c5e03b4, 69c35a2), the backlog work (NĐ 30 wizard,
+welcome dialog, tip images, 86 translation fixes) and the icon overrides.
+`apply-patches.sh --check`: every patch already applied. The whole series also applies cleanly to
+pristine sources.
+
+**Owner decisions implemented**
+- **Title-bar X closes all tabs.** Order:
+  1. The other tabs first; each modified one is shown, then its save query appears.
+  2. The clicked tab last (upstream `.uno:CloseFrame`).
+  3. Cancel on any query keeps that tab and the remaining ones.
+  - The × on a tab still closes only that tab.
+- **18 HST templates ship in the HST extension**, which works the same on every OS with no
+  installer change.
+  - Location: `template/hst-van-ban|hst-bang-tinh|hst-trinh-chieu`.
+  - Group names come from `groupuinames.xml`: "HST — Văn bản hành chính / Bảng tính / Trình chiếu".
+  - `Paths.xcu` adds `%origin%/template`.
+  - Size: the `.oxt` grows by about 54 KB; about 350 KB more when installed.
+
+**Defects found and fixed**
+- A full-screen slide show runs in its own frame, and that frame joined the tab group and parked the
+  Impress tab. Presentation and full-screen windows are now excluded.
+- UNO exceptions from frames being disposed could escape the tab group's VCL callbacks. All of them
+  are now guarded.
+- After tab switches, the classic menubar appeared above the Tabbed ribbon. Fixes:
+  - a parked tab keeps its menubar attached;
+  - the notebookbar applies its menubar mode to the frame it sets up;
+  - `SfxNotebookBar::CloseMethod` only restores the menubar of its own window.
+  - Result: switching between Writer tabs, opening a new tab, and Writer→Calc→Impress loads show no
+    menubar.
+  - Residual: a classic menubar can still appear on some Calc/Impress tabs after cross-module
+    switches (GTK3 native menubar). Re-hiding it by toggling the menubar worked visually but raised
+    crashes to 3 of 10 runs, so it was removed. See the open questions below.
+
+**Upstream GTK3 crash (not caused by tabs)**
+- Trigger: under Xvfb, loading a document right after closing a hidden one crashes in
+  `GtkSalMenu::CreateMenuBarWidget` / `SwView::IsPasteAllowed`, inside a nested
+  `gtk_clipboard_wait_for_targets` loop.
+- It also crashes with tabs disabled (2 of 8 runs) and with the final build (1 of 6 runs).
+- The tabs test now writes its ODT fixture directly instead of saving a hidden document.
+
+**QA (final build, fresh profiles, Xvfb :97)**
+
+| Check | Result |
+|---|---|
+| check-defaults | 18/18; F1 and Help → Trợ giúp open `…/hst-vietnamese-tools/help/index.html` (seen through a logging `xdg-open`) |
+| check-office-roundtrip | 9/9 |
+| check-no-libreoffice-ui | PASS (includes the guide) |
+| check-vi-intro | PASS (12 checks); one earlier run, made while packaging ran in parallel, missed the About window |
+| check-window-title | 9/9 |
+| check-document-tabs | 29/29, run twice |
+| check-style-gallery | 4/4 |
+| check-template-manager (new) | 7/7 |
+| check-update-notify | 11/11 |
+| NĐ 30 wizard, welcome dialog, Vietnamese tip-of-the-day image | open; screenshots `tests/output/screenshots-integration/01–03` |
+| Translation spot checks (UI labels) | 5/5: Lưu thành…, Giãn cách bộ khung, Cập nhật bảng tổng hợp (checked in `registry_vi.xcd`), Bảng tổng hợp, Chèn trang chiếu |
+| `ci-quality.sh` | 24 commands, 0 failures |
+| `--package` | 38 .deb; the menus deb is a fresh `hst_office1.0-debian-menus` (stale libreoffice-named outputs removed) |
+| `check-deb-install.sh dist/linux` (docker) | PASS |
+
+`check-document-tabs` details:
+- Original 16 checks.
+- Title-bar X with 2 modified documents: 2 queries; Cancel on the second keeps that tab.
+- Mixed Writer/Calc/Impress group: each tab shows its window and ribbon, with distinct ribbon colours.
+- Slide show from the Impress tab: Esc returns to the intact group, and no presenter console opens on
+  one display.
+- Title-bar X with 3 modified documents: 3 queries, all closed.
+- Option off.
+- Screenshots: `tests/output/screenshots-tabs/01–14`.
+
+**Open questions**
+1. Residual classic menubar on some cross-module tab switches under GTK3. This needs a fix in vcl's
+   GTK native menubar or sfx2's menubar bookkeeping (`SfxNotebookBar::ShowMenubar` uses
+   `SfxViewFrame::Current()`). Please check it on a real desktop and on Windows.
+2. The upstream GTK3 clipboard/menubar crash. Worth a check on a real desktop, where a clipboard
+   manager answers quickly.
+3. The bootstraprc product key question is unchanged (owner).

@@ -142,3 +142,14 @@ kiểm duyệt hình ảnh. Times New Roman thiếu, được fontconfig thay b�
 Liberation Serif; chưa thể xác nhận kết xuất đúng phông NĐ30. Cần chạy lại trên
 host cho phép LibreOffice IPC và sau đó trên HST 26.8.1.1. Kết quả LibreOffice
 không chứng minh tương thích với Microsoft Office.
+
+## Phát hành trong sản phẩm
+
+Bộ mẫu đi kèm extension `hst-vietnamese-tools` (mọi hệ điều hành, không cần sửa bộ cài):
+`scripts/build-extensions.py` chạy bộ sinh với `SOURCE_DATE_EPOCH=1767225600` và đặt các
+tệp vào `template/hst-van-ban/`, `template/hst-bang-tinh/`, `template/hst-trinh-chieu/`
+của gói, cùng `template/groupuinames.xml` (tên nhóm hiển thị "HST — Văn bản hành chính",
+"HST — Bảng tính", "HST — Trình chiếu"). `Paths.xcu` của extension thêm `%origin%/template`
+vào đường dẫn mẫu, nên Trình quản lý mẫu (Trang bắt đầu → Mẫu, Tập tin → Mẫu) liệt kê
+18 mẫu. Dung lượng: gói `.oxt` thêm khoảng 54 KB, khi cài thêm khoảng 350 KB.
+Kiểm tra khi chạy: `tests/runtime/check-template-manager.py`.

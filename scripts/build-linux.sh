@@ -18,7 +18,9 @@ eval "$(python3 "$ROOT/scripts/write-hst-version.py" --env)"
 as_builder() {
   # Log the exact upstream command, then run it as the build user in the source tree.
   echo "+ (cd $SRC && $*)" | tee -a "$LOGS/commands.log"
-  runuser -u "$BUILD_USER" -- env CCACHE_DIR="$CCACHE_DIR" HOME="$ROOT/build/home-$BUILD_USER" \
+  # HST_REPO_ROOT: the bundled extension is built from this checkout (also when the
+  # script runs from a separate worktree that links upstream/ to the configured tree).
+  runuser -u "$BUILD_USER" -- env CCACHE_DIR="$CCACHE_DIR" HOME="$ROOT/build/home-$BUILD_USER" HST_REPO_ROOT="$ROOT" \
     HST_VERSION_MAJOR="$HST_VERSION_MAJOR" HST_VERSION_MINOR="$HST_VERSION_MINOR" HST_VERSION_MICRO="$HST_VERSION_MICRO" \
     bash -c "cd '$SRC' && $*"
 }

@@ -38,7 +38,7 @@ class Office:
     """One soffice process with its own profile under `workdir`."""
 
     def __init__(self, instdir, workdir, port, display=":97", lang="vi_VN.UTF-8", extra_args=(), config=(), nodefault=True,
-                 welcome=False):
+                 welcome=False, env=None):
         self.program = os.path.join(os.path.abspath(instdir), "program")
         self.workdir = os.path.abspath(workdir)
         self.port = port
@@ -50,6 +50,7 @@ class Office:
         self.config = [("/org.hasontech.hstoffice.Welcome", "Shown", "true"),
                        ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false")] + list(config)
         self.welcome = welcome  # True: leave the welcome dialog up (the caller closes it)
+        self.extra_env = dict(env or {})
         self.proc = None
         self.ctx = None
 
@@ -80,7 +81,9 @@ class Office:
                 if warm.returncode == 0:
                     break
             self._seed_profile(profile)
-        self.proc = subprocess.Popen(_as_user_prefix() + [os.path.join(self.program, "soffice")] + args, env=env)
+        # extra variables go to soffice only (runuser resets PATH; our own lookups need it)
+        extra = ["env"] + [f"{k}={v}" for k, v in self.extra_env.items()] if self.extra_env else []
+        self.proc = subprocess.Popen(_as_user_prefix() + extra + [os.path.join(self.program, "soffice")] + args, env=env)
         self._stop_watch = threading.Event()
         if not self.welcome:
             threading.Thread(target=self._dismiss_welcome, daemon=True).start()
@@ -262,3 +265,36 @@ def toplevels(display=":97", pid=None, mapped=True):
 def mapped_toplevels(display=":97", name_filter=None, pid=None):
     """Names of the mapped (viewable) top-level windows, i.e. what a taskbar would list."""
     return [name for _wid, name in toplevels(display, pid) if name_filter is None or name_filter(name)]
+
+
+def send_close_request(wid, display=":97"):
+    """Ask a top-level window to close as its title-bar X would (WM_DELETE_WINDOW client
+    message); the test display has no window manager to do it."""
+    import ctypes
+    import ctypes.util
+    xlib = ctypes.cdll.LoadLibrary(ctypes.util.find_library("X11"))
+    xlib.XOpenDisplay.restype = ctypes.c_void_p
+    xlib.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    xlib.XInternAtom.restype = ctypes.c_ulong
+    xlib.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+    xlib.XSendEvent.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long, ctypes.c_void_p]
+    xlib.XFlush.argtypes = [ctypes.c_void_p]
+    xlib.XCloseDisplay.argtypes = [ctypes.c_void_p]
+
+    class ClientMessage(ctypes.Structure):
+        _fields_ = [("type", ctypes.c_int), ("serial", ctypes.c_ulong), ("send_event", ctypes.c_int),
+                    ("display", ctypes.c_void_p), ("window", ctypes.c_ulong), ("message_type", ctypes.c_ulong),
+                    ("format", ctypes.c_int), ("data", ctypes.c_long * 5), ("pad", ctypes.c_long * 19)]
+
+    dpy = xlib.XOpenDisplay(display.encode())
+    window = int(wid, 16) if isinstance(wid, str) else wid
+    event = ClientMessage()
+    event.type = 33  # ClientMessage
+    event.window = window
+    event.message_type = xlib.XInternAtom(dpy, b"WM_PROTOCOLS", 0)
+    event.format = 32
+    event.data[0] = xlib.XInternAtom(dpy, b"WM_DELETE_WINDOW", 0)
+    event.data[1] = 0  # CurrentTime
+    xlib.XSendEvent(dpy, window, 0, 0, ctypes.byref(event))
+    xlib.XFlush(dpy)
+    xlib.XCloseDisplay(dpy)
