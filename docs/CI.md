@@ -148,6 +148,11 @@ Homebrew). Phiên bản HST lấy từ `/VERSION` (header, `openoffice.lst`, `CF
 - Artifact: `macos-build-<arch>-<run_id>` (log/số đo, luôn tải, 7 ngày) và
   `hst-office-macos-<arch>-dmg-<run_id>` (`HSTOffice_<version>_macOS_<arch>.dmg` + `SHA256SUMS`, chỉ khi
   thành công, 14 ngày). Kiểm tra cục bộ: [preflight-local.sh](../scripts/macos/preflight-local.sh) (trong `ci-quality.sh`).
+- Số đo (2026-10-30, run 41026070593): arm64 xanh trong 3 giờ 01 phút (make 9934 giây, 17 830 bước,
+  RAM tối đa 4,7 GiB, đĩa trống thấp nhất 82 GiB), dmg 279,6 MB. Intel chậm hơn khoảng 3,3 lần: hết ngân sách
+  315 phút ở 12 677/≈17 830 bước (71 %), RAM tối đa 8,0 GiB; **một job không đủ**. ccache được lưu khi dừng
+  ngân sách, nên lượt `full` kế tiếp **cùng commit** chạy tiếp; cần 2 (có thể 3) lượt cho x86_64. Đổi file
+  dùng chung (ví dụ `officecfg/.../Common.xcs`) làm phần lớn cache mất hiệu lực.
 
 **Bản chưa ký bị Gatekeeper chặn** ("bị hỏng" trên Apple Silicon, "nhà phát triển không xác định" trên
 Intel). Người thử: kéo app vào Applications rồi chuột phải → Open (macOS 15: System Settings → Privacy &
