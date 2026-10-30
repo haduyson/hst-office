@@ -63,6 +63,10 @@ if [ -f "$TARBALLS/libreoffice-26.8.1.1.tar.xz" ]; then
   bin="$tmp/w/lo/instsetoo_native/inc_common/windows/msi_templates/Binary"
   for bmp in Image.bmp Banner.bmp; do cmp -s "$bin/$bmp" "branding/windows/installer/$bmp" || bad "installer $bmp not HST"; done
   [ ! -e "$bin/Image_2.bmp" ] || bad "upstream Image_2.bmp left"
+  # One copyright line on every OS: HST additions plus upstream authors; never "All rights reserved".
+  rc="$tmp/w/lo/include/default.rc"
+  grep -q 'LegalCopyright", *"© 2026 HASON TECH · © 2000–2026 The Document Foundation' "$rc" || bad "exe copyright line not the shared HST/TDF text"
+  if grep -qi 'all rights reserved' "$rc"; then bad "\"All rights reserved\" in exe version info"; fi
 else
   echo "SKIP simulation: pinned tarballs not in upstream/cache/libreoffice"
 fi
