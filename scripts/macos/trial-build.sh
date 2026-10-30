@@ -63,6 +63,8 @@ do_probe() { # runner facts for the evidence artifact: CPU, RAM, disk, OS, Xcode
 do_free_disk() { # drop unused toolchains from the ephemeral runner image (not the selected Xcode)
   local before keep x
   before=$(free_gib)
+  # Removing toolchains takes minutes (7 on Intel); skip when the image already has room.
+  if [ "$before" -ge "${HST_MIN_FREE_GIB:-80}" ]; then echo "free disk: ${before} GiB, nothing removed"; return 0; fi
   keep="$(xcode-select -p)"; keep="$(cd "${keep%/Contents/Developer}" && pwd -P)"
   for x in /Applications/Xcode*.app; do
     [ -L "$x" ] && continue
@@ -73,7 +75,7 @@ do_free_disk() { # drop unused toolchains from the ephemeral runner image (not t
   echo "free disk: ${before} GiB -> $(free_gib) GiB (kept $keep)"
 }
 
-BREW_TOOLS=(autoconf automake bison gperf nasm gpatch make ccache gettext)
+BREW_TOOLS=(autoconf automake bison gperf nasm gpatch make ccache gettext ninja)
 
 do_brew() { # install the build tools; retried because the Homebrew CDN has transient failures
   local attempt
@@ -97,7 +99,8 @@ do_tools() { # link the Homebrew tools configure needs, then report versions
   do_brew || return 1
   local bad=0 tool prefix
   prefix="$("$BREW" --prefix)"
-  for tool in autoconf autoheader autom4te autoreconf aclocal automake gperf nasm ccache; do
+  # No meson: configure then uses its internal copy with the build python (Homebrew meson needs Homebrew python).
+  for tool in autoconf autoheader autom4te autoreconf aclocal automake gperf nasm ccache ninja; do
     link_tool "$tool" "$prefix/bin/$tool" || bad=1
   done
   link_tool bison "$("$BREW" --prefix bison)/bin/bison" || bad=1  # system bison 2.3 is too old
@@ -105,7 +108,7 @@ do_tools() { # link the Homebrew tools configure needs, then report versions
   link_tool patch "$("$BREW" --prefix gpatch)/bin/gpatch" || bad=1  # Apple patch is rejected
   link_tool msgfmt "$("$BREW" --prefix gettext)/bin/msgfmt" || bad=1  # scripts/l10n checks .po files
   link_tool python3 "$PY" || bad=1
-  for tool in make bison gperf nasm patch autoconf automake ccache msgfmt flex perl python3; do
+  for tool in make bison gperf nasm patch autoconf automake ccache ninja msgfmt flex perl python3; do
     if command -v "$tool" >/dev/null; then echo "$tool: $(command -v "$tool") $("$tool" --version 2>&1 | head -1)"; else echo "MISSING tool: $tool"; bad=1; fi
   done
   for tool in xcodebuild xcrun clang hdiutil iconutil plutil zip unzip curl; do
