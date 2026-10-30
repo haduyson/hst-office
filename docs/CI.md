@@ -7,7 +7,7 @@ Có số đo thật cho build Windows thử nghiệm (xem dòng Windows và `pla
 | Workflow | Khi chạy | Phạm vi và giới hạn |
 |---|---|---|
 | [Quality](../.github/workflows/quality.yml) | Push vào `main`, mọi pull request | Python 3.12, Node 22, kiểm tra mã và dữ liệu; tối đa 20 phút. |
-| [Linux](../.github/workflows/desktop-linux.yml) | `workflow_dispatch` | Đo tài nguyên trên chính máy sẽ build, sau đó gọi các bước của `build-linux.sh`; tối đa 350 phút. |
+| [Linux](../.github/workflows/desktop-linux.yml) | `workflow_dispatch`, input `mode` = `full` (mặc định) hoặc `preflight` | `ubuntu-24.04` (4 vCPU, 16 GiB). Build các gói `.deb`, ~2 giờ; tối đa 355 phút. Xem mục [Linux (.deb)](#linux-deb). |
 | [Windows](../.github/workflows/desktop-windows.yml) | `workflow_dispatch`, input `mode` = `preflight` (mặc định) hoặc `full` | `windows-2022` (4 vCPU AMD EPYC, 16 GiB RAM, ổ D: ~220 GiB trống; build ở `D:\hst`). Preflight ~11 phút: Cygwin, make native, NASM, pkgconf, tải+sha256, giải nén, vá, cấu hình đến hết `autogen.sh`. Full: thêm `make` trong ngân sách 330 phút rồi dừng sạch và tải log/số đo; tối đa 355 phút. Kiểm tra cục bộ: `scripts/windows/preflight-local.sh`. |
 | [macOS](../.github/workflows/desktop-macos.yml) | `workflow_dispatch`, input `mode` = `preflight` (mặc định) hoặc `full` | Ma trận `macos-15` (arm64) và `macos-15-intel` (x86_64), dmg **chưa ký**; job ký/notarize tùy chọn. Xem mục [macOS](#macos). |
 
@@ -64,22 +64,42 @@ CPU. Coordinator có thể bổ sung comment `# min_free_gib=...`, `# min_ram_gi
 `--min-free-gib` không thể hạ sàn 40 GiB. Khi chưa có metadata, sàn là giả định
 thận trọng của nhiệm vụ, **không phải peak đã đo của một build hoàn chỉnh**.
 
-Runner hosted có thể chỉ còn khoảng 14 GiB đĩa; phải đo từng lượt. Thiếu tài
-nguyên trả `BLOCKED (OPS-01)` và mã 1, vẫn giữ JSON. Probe và build cùng một job
-để số đo không bị chuyển sang máy khác. Sau preflight tài nguyên còn cần source
-đúng pin, dependency, staging thương hiệu, quyền build và kiểm soát dự trữ của
-script coordinator. Workflow hiện không tự cấp những đầu vào đó. Build/package
-đạt cũng chưa chứng minh cài đặt sạch, GUI, độ trễ hoặc tương thích Office.
-Các bước configure/build/package gọi `scripts/measure-job.py` của coordinator
-với filesystem workspace, ngưỡng dừng 12 GiB để bảo vệ dự trữ 10 GiB; JSON từng
-bước và log được lưu cùng artifact. Thay ngưỡng dự trữ trong cấu hình cũng cần
-đồng bộ ngưỡng giám sát trước khi chạy build.
+Probe và `scripts/measure-job.py` dành cho máy build cục bộ (`scripts/build-linux.sh`); workflow
+Linux trên GitHub dùng ngưỡng riêng (mục [Linux (.deb)](#linux-deb)). Thiếu tài nguyên trả
+`BLOCKED (OPS-01)` và mã 1, vẫn giữ JSON. Build/package đạt chưa chứng minh GUI, độ trễ hoặc
+tương thích Office.
 
 | Mã | Điều kiện mở | Chủ sở hữu |
 |---|---|---|
 | OPS-01 | Cấp runner phù hợp; Linux đo đủ dung lượng/RAM; Windows/macOS ít nhất 100 GB đĩa trống và toolchain bản địa. | Quản trị môi trường + coordinator |
 | SIGN-01 | Cấp chứng chỉ Windows, Apple signing/notarization qua kho bí mật được bảo vệ; xác định luồng phát hành đã duyệt. | Chủ dự án / người phụ trách phát hành |
 | QA-01 | Có máy Windows, Mac arm64/x86_64, phiên GUI và quy trình cài đặt, nâng cấp, gỡ, mở/lưu tài liệu, đo độ trễ. | Chủ dự án + QA |
+
+## Linux (.deb)
+
+[desktop-linux.yml](../.github/workflows/desktop-linux.yml) build trên `ubuntu-24.04` bằng
+[ci-build.sh](../scripts/linux/ci-build.sh): `--deps` (`apt-get build-dep libreoffice` + ninja, Pillow),
+tải tarball đã ghim và kiểm sha256 (`fetch-sources.py`), `--extract`, `--patch` (patch HST, lớp dịch
+tiếng Việt, icon HST), `--configure` (`linux-x86_64.conf`, thay branding và `--with-parallelism` theo
+runner), `--fetch`, `--build` (một `make`, gồm cả bộ cài `.deb`), `--package`.
+[free-runner-disk.sh](../scripts/linux/free-runner-disk.sh) xóa toolchain không dùng trước khi build
+ở `/mnt/hst`. `--build` dừng make và báo lỗi khi tới hạn 330 phút kể từ đầu job hoặc đĩa trống dưới 3 GiB.
+
+```bash
+gh workflow run desktop-linux.yml                 # full: build + gói .deb
+gh workflow run desktop-linux.yml -f mode=preflight   # chỉ đến hết fetch, ~10 phút
+```
+
+Kết quả lượt xanh (run 41009617263): build 1 giờ 55 phút, cả lượt ~2 giờ 04 phút; đĩa trống ≥ 108 GiB,
+RAM đỉnh ~4,4 GiB (lấy mẫu 30 giây). Artifact:
+
+- `hst-office-linux-deb-<run_id>` (14 ngày): `HSTOffice_<version>_Linux_x86-64_deb.tar.gz` (thư mục
+  38 gói `.deb` + `SHA256SUMS` bên trong) và `SHA256SUMS` ngoài, chỉ tải lên khi build thành công.
+- `linux-evidence-<run_id>` (7 ngày, luôn tải lên): thời gian từng pha, mẫu đĩa/RAM, log.
+
+Phụ thuộc của gói `.deb` theo glibc/thư viện của Ubuntu 24.04 (runner). Kiểm cài đặt sạch:
+`tests/runtime/check-deb-install.sh <thư-mục-deb>`. Kiểm cục bộ trước khi đẩy:
+`scripts/linux/preflight-local.sh` (shellcheck, actionlint; chạy trong `ci-quality.sh`).
 
 ## Entrypoint Windows và macOS
 
