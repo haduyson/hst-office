@@ -19,7 +19,8 @@ USER_CN = "Nguyễn Văn Thử"
 MODULE_NAME = "HST Test Token"
 TOOLS = ("softhsm2-util", "pkcs11-tool", "certutil", "modutil", "openssl")
 SOFTHSM_CANDIDATES = ("/usr/lib/softhsm/libsofthsm2.so", "/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so",
-                      "/usr/lib64/pkcs11/libsofthsm2.so", "/usr/local/lib/softhsm/libsofthsm2.so")
+                      "/usr/lib64/pkcs11/libsofthsm2.so", "/usr/local/lib/softhsm/libsofthsm2.so",
+                      "/opt/homebrew/lib/softhsm/libsofthsm2.so", "/opt/homebrew/lib/softhsm/libsofthsm2.dylib")
 
 
 def missing_tools():
@@ -58,7 +59,7 @@ class TokenPki:
     def env(self):
         return dict(os.environ, SOFTHSM2_CONF=self.conf)
 
-    def create(self):
+    def create(self, register_module=True):
         if os.path.exists(os.path.join(self.nssdb, "cert9.db")):
             return self
         os.makedirs(os.path.join(self.base, "tokens"), exist_ok=True)
@@ -81,7 +82,8 @@ class TokenPki:
         os.makedirs(self.nssdb, exist_ok=True)
         db = "sql:" + self.nssdb
         _run(["certutil", "-N", "-d", db, "--empty-password"])
-        _run(["modutil", "-dbdir", db, "-add", MODULE_NAME, "-libfile", self.module, "-force"], env=self.env)
+        if register_module:
+            _run(["modutil", "-dbdir", db, "-add", MODULE_NAME, "-libfile", self.module, "-force"], env=self.env)
         _run(["certutil", "-A", "-d", db, "-n", "HST Test Root CA", "-t", "CT,C,C", "-a", "-i", self.ca_pem])
         return self
 

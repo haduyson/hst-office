@@ -18,15 +18,18 @@ from xml.dom import minidom
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REQUIRED = ("description.xml", "META-INF/manifest.xml", "license/LICENSE.txt", "license/NOTICES.txt", "data/provenance.json", "data/solutions.json",
-            "data/release.json")
+            "data/release.json", "data/pkcs11-modules.json")
 SHARED_DATA = ("nd30.json", "number-formats.json", "encoding-maps.json", "provenance.json")
 HOST_ALLOW = ("openoffice.org", "libreoffice.org", "w3.org", "hasontech.vn", "sun.com")
 NETWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess|ctypes)\b", re.M)
 # The update check (docs/UPDATE_CHECK.md) is the one module that may use HTTPS (urllib/ssl/http); never sockets or processes.
 UPDATE_FETCH = "python/hst_office/update_fetch.py"
 UPDATE_DOWNLOAD = "python/hst_office/update_download.py"  # installer download after the user's click
-UPDATE_LAUNCH = "python/hst_office/update_launch.py"  # starts the external update helper: the only module with subprocess
+UPDATE_LAUNCH = "python/hst_office/update_launch.py"  # starts the external update helper
+USB_TOKEN_WORKER = "python/hst_office/usb_token_worker.py"
+USB_TOKEN_NSS = "python/hst_office/usb_token_nss.py"  # local NSS tools only; no shell, elevation or credentials
 UPDATE_LAUNCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|ctypes)\b", re.M)
+USB_WORKER_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess)\b", re.M)
 UPDATE_FETCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|ftplib|smtplib|requests|xmlrpc|subprocess|ctypes)\b", re.M)
 MEDIA = ("application/vnd.sun.star.uno-component;type=Python", "application/vnd.sun.star.configuration-data", "application/vnd.sun.star.configuration-schema")
 MAX_LINES = 199
@@ -106,7 +109,8 @@ def check_content(zf, names, errors):
                     errors.append("%s references missing %s" % (name, target))
         if name.endswith(".py"):
             text = data.decode("utf-8")
-            if (UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD) else UPDATE_LAUNCH_IMPORT if name == UPDATE_LAUNCH else NETWORK_IMPORT).search(text):
+            if (USB_WORKER_IMPORT if name == USB_TOKEN_WORKER else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD) else UPDATE_LAUNCH_IMPORT
+                    if name in (UPDATE_LAUNCH, USB_TOKEN_NSS) else NETWORK_IMPORT).search(text):
                 errors.append("network/process module imported in %s" % name)
             if text.count("\n") + 1 > MAX_LINES:
                 errors.append("%s exceeds %d lines" % (name, MAX_LINES))
@@ -126,6 +130,9 @@ def check_content(zf, names, errors):
     src = os.path.join(ROOT, "data", "hst", "solutions.json")
     if "data/solutions.json" in names and os.path.exists(src) and zf.read("data/solutions.json") != open(src, "rb").read():
         errors.append("data/solutions.json is stale compared with data/hst/solutions.json")
+    src = os.path.join(ROOT, "data", "hst", "pkcs11-modules.json")
+    if "data/pkcs11-modules.json" in names and zf.read("data/pkcs11-modules.json") != open(src, "rb").read():
+        errors.append("data/pkcs11-modules.json is stale compared with data/hst/pkcs11-modules.json")
 
 
 def check_labels(zf, names, errors):
@@ -179,9 +186,12 @@ def self_test():
         "socket in update_fetch": lambda d: d.update({UPDATE_FETCH: d[UPDATE_FETCH] + b"\nimport socket\n"}),
         "subprocess in update_download": lambda d: d.update({UPDATE_DOWNLOAD: d.get(UPDATE_DOWNLOAD, b"") + b"\nimport subprocess\n"}),
         "urllib in update_launch": lambda d: d.update({UPDATE_LAUNCH: d.get(UPDATE_LAUNCH, b"") + b"\nimport urllib.request\n"}),
+        "network in USB worker": lambda d: d.update({USB_TOKEN_WORKER: d[USB_TOKEN_WORKER] + b"\nimport socket\n"}),
+        "network in USB setup": lambda d: d.update({USB_TOKEN_NSS: d[USB_TOKEN_NSS] + b"\nimport urllib.request\n"}),
         "update test mode": lambda d: d.update({"data/release.json": b'{"release": "1.0.0", "update_test_mode": true}'}),
         "remote link in guide": lambda d: d.update({"help/index.html": d["help/index.html"] + b'<a href="https://evil.example/">x</a>'}),
         "stale data": lambda d: d.update({"data/nd30.json": b"{}"}), "stale solutions": lambda d: d.update({"data/solutions.json": b"{}"}),
+        "stale PKCS11 catalog": lambda d: d.update({"data/pkcs11-modules.json": b"{}"}),
     }
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:
