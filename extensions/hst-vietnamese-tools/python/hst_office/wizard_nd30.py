@@ -10,7 +10,7 @@ import datetime
 from . import nd30, nd30_layout, nd30_preview
 from .dialogs import Dialog
 
-WIDTH, HEIGHT = 600, 362
+WIDTH, HEIGHT = 600, 300  # about 675 px high with common Linux fonts: fits a 1366x768 screen
 LABEL_X, LABEL_W = 8, 84
 FIELD_X, FIELD_W = 96, 200
 PREVIEW_X = FIELD_X + FIELD_W + 10
@@ -50,24 +50,24 @@ class Nd30Wizard:
         d.edit("place", FIELD_X, 70, 90, help_text=s["place"])
         d.label("l_date", s["date"], FIELD_X + 96, 72, 22)
         d.edit("date", FIELD_X + 120, 70, FIELD_W - 120, text=datetime.date.today().strftime("%d/%m/%Y"), help_text=s["dateHelp"])
-        self._row("summary", 86, 22, True)
-        self._row("kinhGui", 112, 26, True, label_h=20)
-        self._row("body", 142, 52, True, label_h=20)
-        self._row("signerAuthority", 198, label_h=20)
-        self._row("signerTitle", 220)
-        self._row("signerName", 236)
-        self._row("recipients", 252, 30, True, label_h=20)
-        check = d.check("applyPage", s["applyPage"], LABEL_X, 288, FIELD_X + FIELD_W - LABEL_X, h=12)
+        self._row("summary", 86, 18, True)
+        self._row("kinhGui", 108, 22, True, label_h=20)
+        self._row("body", 134, 34, True, label_h=20)
+        self._row("signerAuthority", 172, label_h=20)
+        self._row("signerTitle", 194)
+        self._row("signerName", 210)
+        self._row("recipients", 226, 22, True, label_h=20)
+        check = d.check("applyPage", s["applyPage"], LABEL_X, 252, FIELD_X + FIELD_W - LABEL_X, h=12)
         check.MultiLine = True  # wraps instead of being cut off when a translation is longer
-        d.check("pageNumbers", s["pageNumbers"], LABEL_X + 10, 302, FIELD_X + FIELD_W - LABEL_X - 10)
-        d.label("legal", s["legal"], LABEL_X, 318, FIELD_X + FIELD_W - LABEL_X, 20, wrap=True)
+        d.check("pageNumbers", s["pageNumbers"], LABEL_X + 10, 266, FIELD_X + FIELD_W - LABEL_X - 10)
+        d.label("legal", s["legal"], LABEL_X, 280, FIELD_X + FIELD_W - LABEL_X, 16, wrap=True)
         heading = d.label("l_preview", s["previewHeading"], PREVIEW_X, 8, PREVIEW_W, 10)
         heading.FontWeight = 150
-        preview = d.edit("preview", PREVIEW_X, 20, PREVIEW_W, 300, multiline=True, readonly=True, help_text=self.s["common"]["preview"])
+        preview = d.edit("preview", PREVIEW_X, 20, PREVIEW_W, 228, multiline=True, readonly=True, help_text=self.s["common"]["preview"])
         font = preview.FontDescriptor
         font.Name, font.Height = MONO, 8
         preview.FontDescriptor = font
-        status = d.label("status", "", PREVIEW_X, 324, PREVIEW_W, 14, wrap=True)
+        status = d.label("status", "", PREVIEW_X, 250, PREVIEW_W, 24, wrap=True)  # room for several errors
         status.TextColor = ERROR_COLOR
         d.button("btnOk", s["insert"], WIDTH - 8 - 64 - 4 - 64, HEIGHT - 22, 64, callback=self._accept, default=True)
         d.button("btnCancel", self.s["common"]["cancel"], WIDTH - 8 - 64, HEIGHT - 22, 64, kind=2)

@@ -67,7 +67,8 @@ def _write_table(doc, text, cur, block, text_mm):
         _write_paragraphs(cell_text, cell_text.createTextCursor(), block[key], text_mm * pct / 100.0)
 
 
-def insert_layout(doc, view_cursor, layout, margins_mm=None, apply_page=False, page_numbers=True):
+def insert_layout(doc, view_cursor, layout, margins_mm=None, apply_page=False, page_numbers=True,
+                  undo_title="Insert ND30 document"):
     """Insert `layout` after the cursor's paragraph (or into its empty paragraph) as one undo step.
     Returns {'blockers': [...]} without writing if the insertion point is not acceptable."""
     blockers = check_insertion_point(doc, view_cursor)
@@ -77,7 +78,7 @@ def insert_layout(doc, view_cursor, layout, margins_mm=None, apply_page=False, p
     result = {"blockers": [], "page": None}
     if apply_page:  # before the undo step: page styles are not undoable (see nd30_page)
         result["page"] = nd30_page.apply_page_layout(doc, view_cursor, margins_mm, page_numbers)
-    with undo_step(doc, "Insert ND30 document"):
+    with undo_step(doc, undo_title):
         cur = text.createTextCursorByRange(view_cursor.getStart())
         probe = text.createTextCursorByRange(cur)
         probe.gotoStartOfParagraph(False)

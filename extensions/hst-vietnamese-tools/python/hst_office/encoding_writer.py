@@ -76,7 +76,7 @@ def snapshot(items):
     return [(i["text"], i["font"]) for i in items]
 
 
-def apply(doc, rng, encoding_key, expected_snapshot):
+def apply(doc, rng, encoding_key, expected_snapshot, undo_title=None):
     """Re-collect, verify the selection still matches the previewed snapshot, then convert in one undo step."""
     items, _, protected = collect(rng)
     if protected:
@@ -85,7 +85,7 @@ def apply(doc, rng, encoding_key, expected_snapshot):
         return {"blockers": ["content-changed"]}
     rows, totals = plan(items, encoding_key)
     changed = [r for r in rows if r["new"] != r["text"] or r["new_font"]]
-    with undo_step(doc, "Convert %s to Unicode" % encoding_key):
+    with undo_step(doc, undo_title or "Convert %s to Unicode" % encoding_key):
         for row in reversed(changed):  # back to front: earlier ranges are unaffected by later replacements
             text = row["range"].getText()
             if row["new"] == row["text"]:  # same text: only swap the legacy font for a Unicode one

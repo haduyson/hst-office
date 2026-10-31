@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """CSV import dialog for Calc: file, strict-UTF-8 decode, delimiter choice, cell-type choice, preview."""
+import re
+
 from . import csv_import
 from .dialogs import Dialog
 
@@ -51,11 +53,20 @@ class CsvWizard:
         try:
             rows = csv_import.parse(self.text, self.delims[max(0, self.d.get("delim"))])
         except csv_import.CsvError as exc:
-            self.d.set_text("preview", self.s["csvErrors"].get(exc.code, exc.code) + " " + exc.detail)
+            self.d.set_text("preview", self._error_text(exc))
             return None
         shown = csv_import.preview(rows)
         self.d.set_text("preview", "\r\n".join(" | ".join(c.replace("\n", "↵").replace("\t", "→") for c in r[:12]) for r in shown))
         return rows
+
+    def _error_text(self, exc):
+        """Localized message; for malformed files only the row number of the parser detail is shown
+        (Python's csv message is English)."""
+        text = self.s["csvErrors"].get(exc.code, exc.code)
+        row = re.match(r"row (\d+):", exc.detail or "")
+        if exc.code == "malformed":
+            return text + (" " + self.s["csvErrors"]["malformedRow"] % int(row.group(1)) if row else "")
+        return (text + " " + exc.detail).strip()
 
     def _accept(self):
         rows = self.load()

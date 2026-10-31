@@ -46,7 +46,7 @@ def write_cells(sheet, column, row, rows, mode):
             cell.setString(typed) if kind == "s" else cell.setValue(typed)
 
 
-def write_rows(doc, sheet, column, row, rows, mode="text", overwrite_ok=False):
+def write_rows(doc, sheet, column, row, rows, mode="text", overwrite_ok=False, undo_title="Import CSV"):
     """Write `rows` at (column,row). Returns {'blockers': [...]} (nothing written) or {'blockers': [], 'cells': n}."""
     n_rows, n_cols = len(rows), len(rows[0])
     rng, reasons = check_destination(doc, sheet, column, row, n_rows, n_cols, overwrite_ok)
@@ -55,7 +55,7 @@ def write_rows(doc, sheet, column, row, rows, mode="text", overwrite_ok=False):
     import uno
     doc.lockControllers()  # no repaint per cell
     try:
-        with undo_step(doc, "Import CSV"):
+        with undo_step(doc, undo_title):
             if mode == "text":
                 locale = uno.createUnoStruct("com.sun.star.lang.Locale")
                 rng.NumberFormat = doc.getNumberFormats().getStandardFormat(TEXT_FORMAT, locale)

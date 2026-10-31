@@ -42,7 +42,8 @@ def nd30_wizard(host):
     if choice is None:
         return  # Cancel: nothing was written
     layout = nd30_layout.build_layout(choice["type"], choice["fields"])
-    result = nd30_writer.insert_layout(host.doc, cursor, layout, apply_page=choice["apply_page"], page_numbers=choice["page_numbers"])
+    result = nd30_writer.insert_layout(host.doc, cursor, layout, apply_page=choice["apply_page"], page_numbers=choice["page_numbers"],
+                                       undo_title=host.s["undo"]["nd30"])
     if result["blockers"]:
         return host.refuse(result["blockers"])
     note = host.s["nd30"]["inserted"]
@@ -67,7 +68,8 @@ def convert_encoding(host):
     key = ConvertWizard(host.ctx, host.s, items).run(host.peer)
     if key is None:
         return
-    result = encoding_writer.apply(host.doc, rng, key, encoding_writer.snapshot(items))
+    result = encoding_writer.apply(host.doc, rng, key, encoding_writer.snapshot(items),
+                                   undo_title=host.s["undo"]["convert"] % key.upper())
     if result["blockers"]:
         return host.refuse(result["blockers"])
     host.say(host.s["convert"]["done"] % result["changed_portions"])
@@ -118,11 +120,13 @@ def import_csv(host):
     if choice is None:
         return
     column, row = address.StartColumn, address.StartRow
-    result = csv_calc.write_rows(host.doc, sheet, column, row, choice["rows"], choice["mode"])
+    result = csv_calc.write_rows(host.doc, sheet, column, row, choice["rows"], choice["mode"],
+                                 undo_title=host.s["undo"]["csv"])
     if result["blockers"] == ["overwrite-needed"]:
         if not message_box(host.ctx, host.peer, host.s["common"]["error"], host.s["csv"]["overwrite"], ask=True):
             return
-        result = csv_calc.write_rows(host.doc, sheet, column, row, choice["rows"], choice["mode"], overwrite_ok=True)
+        result = csv_calc.write_rows(host.doc, sheet, column, row, choice["rows"], choice["mode"], overwrite_ok=True,
+                                     undo_title=host.s["undo"]["csv"])
     if result["blockers"]:
         return host.refuse(result["blockers"])
     host.say(host.s["csv"]["imported"] % (result["cells"], result["range"]))
