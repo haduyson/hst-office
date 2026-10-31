@@ -104,6 +104,7 @@ def collect(ext_root, test_mode=False):
     for name in SHARED_DATA:
         files["data/" + name] = open(os.path.join(ROOT, "data", "vietnamese", name), "rb").read()
     files["data/solutions.json"] = open(os.path.join(ROOT, "data", "hst", "solutions.json"), "rb").read()  # welcome dialog content
+    files["data/pkcs11-modules.json"] = open(os.path.join(ROOT, "data", "hst", "pkcs11-modules.json"), "rb").read()
     files["data/release.json"] = release_json(test_mode)  # update check: installed release id
     for name, src in BRAND_IMAGES.items():
         files[name] = open(os.path.join(ROOT, *src.split("/")), "rb").read()

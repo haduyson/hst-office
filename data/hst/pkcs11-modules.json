@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "researched_on": "2026-10-31",
+  "official_ca_domains": [
+    "vnpt-ca.vn",
+    "viettel-ca.vn",
+    "bkavca.vn",
+    "ca.fpt.com.vn",
+    "easyca.vn",
+    "misa.vn",
+    "helpesign.misa.vn"
+  ],
+  "driver_guidance": [
+    "Cài trình điều khiển Linux/macOS phù hợp với token từ nhà cung cấp chữ ký số của bạn.",
+    "VNPT-CA: cài VNPT-CA Token Manager từ trang của VNPT-CA (vnpt-ca.vn); trên macOS chọn đúng bản Intel hoặc Apple Silicon.",
+    "Viettel-CA, BKAV-CA, FPT-CA, EasyCA, MISA: hỏi nhà cung cấp về driver tương thích với hệ điều hành và loại token.",
+    "Token Feitian ePass2003, SafeNet eToken hoặc Bit4id: dùng driver do nhà cung cấp token hướng dẫn. Chỉ dùng OpenSC nếu token được hỗ trợ; ePass2003Auto của VNPT có thể cần driver VNPT riêng.",
+    "Cài xong, chạy lại HST ▸ Thiết lập USB Token…"
+  ],
+  "modules": [
+    {
+      "vendor": "VNPT-CA",
+      "label": "VNPT-CA Token Manager",
+      "platform": "macos",
+      "paths": [
+        "/usr/local/lib/libvnptca_p11_v8.dylib",
+        "/Applications/VNPT-CA Token Manager.app/Contents/Resources/libvnptca_p11_v8.dylib"
+      ],
+      "source": "https://vnpt-ca.vn/download-page — VNPT-CA Token Manager 1.0.1; owner inspected Apple Silicon/Intel packages 31122025145306.pkg / 31122025145204.pkg, 2026-10-31. Universal arm64+x86_64 library; primary choice for VNPT ePass2003Auto, which OpenSC could not read."
+    },
+    {
+      "vendor": "Feitian",
+      "label": "Feitian ePass2003",
+      "platform": "linux",
+      "paths": [
+        "/usr/lib/libcastle.so.1.0.0",
+        "/usr/lib/x86_64-linux-gnu/libcastle.so.1.0.0",
+        "/usr/local/lib/libcastle.so.1.0.0"
+      ],
+      "source": "https://github.com/PeculiarVentures/webcrypto-local/blob/master/packages/cards/lib/card.json — Feitian ePass2003 library mapping; https://www.certdigital.ro/wp-content/uploads/2025/02/Instructiuni-pentru-instalare-dispozitive-Criptografice-CertDigital-v3.pdf — CA instructions confirm /usr/local/lib/libcastle.1.0.0.dylib. Search conventional library directories on Linux; no compatibility claim for CA-customized tokens."
+    },
+    {
+      "vendor": "Feitian",
+      "label": "Feitian ePass2003",
+      "platform": "macos",
+      "paths": [
+        "/usr/local/lib/libcastle*.dylib"
+      ],
+      "source": "https://github.com/PeculiarVentures/webcrypto-local/blob/master/packages/cards/lib/card.json — Feitian ePass2003 library mapping; https://www.certdigital.ro/wp-content/uploads/2025/02/Instructiuni-pentru-instalare-dispozitive-Criptografice-CertDigital-v3.pdf — CA instructions confirm /usr/local/lib/libcastle.1.0.0.dylib. Search conventional library directories on Linux; no compatibility claim for CA-customized tokens."
+    },
+    {
+      "vendor": "Thales SafeNet",
+      "label": "SafeNet eToken",
+      "platform": "linux",
+      "paths": [
+        "/usr/lib/libeTPkcs11.so",
+        "/usr/lib64/libeTPkcs11.so",
+        "/usr/lib/x86_64-linux-gnu/libeTPkcs11.so",
+        "/usr/local/lib/libeTPkcs11.so"
+      ],
+      "source": "https://github.com/PeculiarVentures/webcrypto-local/blob/master/packages/cards/lib/card.json — SafeNet library mapping; https://knowledge.digicert.com/solution/safenet-hardware-token-not-detected-in-adobe-reader-on-mac-os — CA instructions for SafeNet Authentication Client. Linux conventional library directories are searched."
+    },
+    {
+      "vendor": "Thales SafeNet",
+      "label": "SafeNet eToken",
+      "platform": "macos",
+      "paths": [
+        "/usr/local/lib/libeTPkcs11.dylib"
+      ],
+      "source": "https://github.com/PeculiarVentures/webcrypto-local/blob/master/packages/cards/lib/card.json — SafeNet library mapping; https://knowledge.digicert.com/solution/safenet-hardware-token-not-detected-in-adobe-reader-on-mac-os — CA instructions for SafeNet Authentication Client. Linux conventional library directories are searched."
+    },
+    {
+      "vendor": "Bit4id",
+      "label": "Bit4id",
+      "platform": "linux",
+      "paths": [
+        "/usr/lib/bit4id/libbit4xpki.so",
+        "/usr/share/bit4id/libbit4xpki.so",
+        "/usr/lib/libbit4xpki.so",
+        "/usr/local/lib/libbit4xpki.so"
+      ],
+      "source": "https://cdn.bit4id.com/es/middleware/Linux/Linux.html — vendor documents libbit4xpki.so under /usr/lib/bit4id and /usr/share/bit4id; also search conventional library directories."
+    },
+    {
+      "vendor": "Bit4id",
+      "label": "Bit4id",
+      "platform": "macos",
+      "paths": [
+        "/System/Library/bit4id/libbit4xpki.dylib",
+        "/usr/local/lib/libbit4xpki.dylib"
+      ],
+      "source": "https://github.com/PeculiarVentures/webcrypto-local/blob/master/packages/cards/lib/card.json — Bit4id Universal Middleware mapping /System/Library/bit4id/libbit4xpki.dylib; also search conventional /usr/local/lib for current installers."
+    },
+    {
+      "vendor": "OpenSC",
+      "label": "OpenSC",
+      "platform": "linux",
+      "paths": [
+        "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so",
+        "/usr/lib/x86_64-linux-gnu/pkcs11/opensc-pkcs11.so",
+        "/usr/lib/opensc-pkcs11.so",
+        "/usr/lib/pkcs11/opensc-pkcs11.so",
+        "/usr/lib64/pkcs11/opensc-pkcs11.so"
+      ],
+      "source": "https://github.com/OpenSC/OpenSC/wiki/Using-OpenSC — opensc-pkcs11.so; distro and multiarch locations. OpenSC does not support every CA-customized token."
+    },
+    {
+      "vendor": "OpenSC",
+      "label": "OpenSC",
+      "platform": "macos",
+      "paths": [
+        "/Library/OpenSC/lib/opensc-pkcs11.so",
+        "/opt/homebrew/lib/opensc-pkcs11.so",
+        "/usr/local/lib/opensc-pkcs11.so"
+      ],
+      "source": "https://github.com/OpenSC/OpenSC/wiki/macOS-Quick-Start — /Library/OpenSC/lib/opensc-pkcs11.so; Homebrew prefixes also checked. Not a substitute for VNPT-CA Token Manager on the owner's ePass2003Auto."
+    },
+    {
+      "vendor": "MISA",
+      "label": "MISA-CA Token Manager V2",
+      "platform": "macos",
+      "paths": [
+        "/usr/local/lib/misaca_csp11_v2.dylib"
+      ],
+      "source": "https://helpesign.misa.vn/knowledge-base/ky-file-pdf-tren-macbook/ — official PKCS#11 Attach Module instructions give this exact path. MISA installation guide currently describes Intel support; architecture compatibility remains the driver vendor's responsibility."
+    },
+    {
+      "vendor": "EasyCA",
+      "label": "EasyCA",
+      "platform": "macos",
+      "paths": [
+        "/usr/local/lib/easyca_csp11_v1.dylib"
+      ],
+      "source": "https://easyca.vn/tai-ve/ links https://easyca.vn/download/Update_260605.zip. Inspected 2026-10-31 without executing: EASYCA_installer.dmg → Easyca_csp11_v1.pkg → PKCS11.pkg/Payload contains easyca_csp11_v1.dylib; PackageInfo install-location=/usr/local/lib."
+    },
+    {
+      "vendor": "Viettel-CA",
+      "label": "Viettel-CA",
+      "platform": "linux",
+      "paths": [],
+      "source": "https://viettel-ca.vn/tai-ve/viettel-ca-download — Official page publishes Token Manager V6 for macOS via an external archive. No verified Linux/macOS PKCS#11 filename obtained; do not invent one. May still be discovered through p11-kit on Linux or a documented token-vendor library."
+    },
+    {
+      "vendor": "Viettel-CA",
+      "label": "Viettel-CA",
+      "platform": "macos",
+      "paths": [],
+      "source": "https://viettel-ca.vn/tai-ve/viettel-ca-download — Official page publishes Token Manager V6 for macOS via an external archive. No verified Linux/macOS PKCS#11 filename obtained; do not invent one. May still be discovered through p11-kit on Linux or a documented token-vendor library."
+    },
+    {
+      "vendor": "BKAV-CA",
+      "label": "BKAV-CA",
+      "platform": "linux",
+      "paths": [],
+      "source": "https://bkavca.vn/tai-ve — Official Token Manager download is Windows; no verified Linux/macOS PKCS#11 filename obtained. May still be discovered through p11-kit on Linux or a documented token-vendor library."
+    },
+    {
+      "vendor": "BKAV-CA",
+      "label": "BKAV-CA",
+      "platform": "macos",
+      "paths": [],
+      "source": "https://bkavca.vn/tai-ve — Official Token Manager download is Windows; no verified Linux/macOS PKCS#11 filename obtained. May still be discovered through p11-kit on Linux or a documented token-vendor library."
+    },
+    {
+      "vendor": "FPT-CA",
+      "label": "FPT-CA",
+      "platform": "linux",
+      "paths": [],
+      "source": "https://ca.fpt.com.vn — Official CA site did not provide a retrievable Linux/macOS library manifest during research; no verified PKCS#11 filename obtained. May still be discovered through p11-kit on Linux or a documented token-vendor library."
+    },
+    {
+      "vendor": "FPT-CA",
+      "label": "FPT-CA",
+      "platform": "macos",
+      "paths": [],
+      "source": "https://ca.fpt.com.vn — Official CA site did not provide a retrievable Linux/macOS library manifest during research; no verified PKCS#11 filename obtained. May still be discovered through p11-kit on Linux or a documented token-vendor library."
+    },
+    {
+      "vendor": "VNPT-CA",
+      "label": "VNPT-CA",
+      "platform": "linux",
+      "paths": [],
+      "source": "https://vnpt-ca.vn/download-page — No verified CA-specific Linux PKCS#11 filename obtained. Use token-vendor candidates or p11-kit registrations, without guessing filenames."
+    },
+    {
+      "vendor": "MISA",
+      "label": "MISA",
+      "platform": "linux",
+      "paths": [],
+      "source": "https://helpesign.misa.vn/knowledge-base/cai-dat-usb-token-tren-macos-doi-voi-usb-duoc-cap-sau-4-2021/ — No verified CA-specific Linux PKCS#11 filename obtained. Use token-vendor candidates or p11-kit registrations, without guessing filenames."
+    },
+    {
+      "vendor": "EasyCA",
+      "label": "EasyCA",
+      "platform": "linux",
+      "paths": [],
+      "source": "https://easyca.vn/tai-ve/ — No verified CA-specific Linux PKCS#11 filename obtained. Use token-vendor candidates or p11-kit registrations, without guessing filenames."
+    }
+  ]
+}

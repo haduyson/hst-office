@@ -9,7 +9,7 @@ import unohelper
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from . import ui_language
+from . import ui_language, usb_token
 from .actions import COMMANDS, Host
 from .data_files import load_locale
 
@@ -19,6 +19,7 @@ PROTOCOL = "org.hst.office.vi:"
 NEW_DOCUMENT = {"Nd30Wizard": ("com.sun.star.text.TextDocument", "private:factory/swriter"),
                 "ImportCsv": ("com.sun.star.sheet.SpreadsheetDocument", "private:factory/scalc")}
 SHOW_SOLUTIONS = "ShowSolutions"  # needs no document, so it also works in the Start Center
+USB_TOKEN = "SetupUsbToken"
 
 
 def log_error(command):
@@ -49,12 +50,15 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
         return ("com.sun.star.frame.ProtocolHandler",)
 
     def queryDispatch(self, url, target_frame_name, search_flags):
-        return self if url.Protocol == PROTOCOL and (url.Path in COMMANDS or url.Path in ui_language.COMMANDS or url.Path == SHOW_SOLUTIONS) else None
+        return self if url.Protocol == PROTOCOL and (url.Path in COMMANDS or url.Path in ui_language.COMMANDS
+                                                    or url.Path in (SHOW_SOLUTIONS, USB_TOKEN)) else None
 
     def queryDispatches(self, requests):
         return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in requests)
 
     def dispatch(self, url, arguments):
+        if url.Path == USB_TOKEN:
+            return usb_token.run(self.ctx, self.frame)
         if url.Path == SHOW_SOLUTIONS:
             return self._show_solutions()
         if url.Path in ui_language.COMMANDS:
