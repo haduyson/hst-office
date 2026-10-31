@@ -85,7 +85,9 @@ class Channels(unittest.TestCase):
     def test_published_manifest_is_valid_and_signed(self):
         data = read(os.path.join(SITE, "latest.json"), "rb")
         ch = fetch.verify_manifest(data, read(os.path.join(SITE, "latest.json.sig")))
-        self.assertEqual(ch["beta"]["version"], "1.0.0-beta.2")
+        # The published version changes with every release; it must be a beta of the current line.
+        self.assertEqual(logic.channel_of(ch["beta"]["version"]), "beta")
+        self.assertTrue(ch["beta"]["version"].startswith("1.0.0-beta."), ch["beta"]["version"])
         for url in list(ch["beta"]["downloads"].values()) + [ch["beta"]["notes"]]:
             self.assertTrue(url.startswith("https://office.hasontech.vn/"), url)
         self.assertNotRegex(data.decode("utf-8").lower(), "github|libreoffice")
