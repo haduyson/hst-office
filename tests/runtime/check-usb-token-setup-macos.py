@@ -80,15 +80,19 @@ def mac_dialogs(signing):
     class Dialogs(signing.Dialogs):
         log = []
 
-        def nudge(self):
+        def nudge(self, front=True):
             self.office.service("com.sun.star.awt.AsyncCallback").addCallback(Wake(), None)
-            self.office.front()
+            if front:
+                self.office.front()
             if shutil.which("cliclick"):
                 subprocess.run(["cliclick", "m:+1,+0", "m:-1,+0"], check=False, capture_output=True, timeout=10)
 
         def top(self):
             # An ended but not yet returned PIN dialog stays the executing dialog while hidden:
             # it is not a new prompt. Wake the loop instead of answering it again.
+            # Every poll also wakes the main loop: after a PIN answer the token login and certificate
+            # listing continue there and otherwise may wait for the next native event.
+            self.nudge(front=False)
             win, kids = super().top()
             if "newpassEntry" in kids and {p.Name: p.Value for p in win.getState()}.get("Visible") == "false":
                 self.nudge()
@@ -245,10 +249,14 @@ def run_case(args, scenario, signing):
             # what it loads (as check_private does) rather than the bytes the setup wrote.
             assert snapshot(source) == before, changed(source, before)
             assert db.stat().st_mode & 0o777 == 0o700 and (db / ".hst-office-nssdb").is_file()
-            for name in ("NSS Internal PKCS #11 Module", "Builtin Roots", "Another vendor", "HST " + LABEL):
+            # Setup carried every record over (checked before restart). LibreOffice core's own NSS start
+            # then drops a "Builtin Roots" record from whatever store it opens and supplies its bundled
+            # roots itself (also seen on the Firefox store in firefox-warm), so that one is only recorded.
+            result["builtin_roots_record_after_core_start"] = "Builtin Roots" in listing
+            for name in ("NSS Internal PKCS #11 Module", "Another vendor", "HST " + LABEL):
                 assert name in listing, listing
             assert "Not loaded" not in listing, listing
-            checks["inherited_roots_and_vendor_loaded_after_restart"] = True
+            checks["inherited_vendor_module_loaded_after_restart"] = True
         else:
             assert "HST " + LABEL in listing and "Not loaded" not in listing, listing
             checks["vendor_module_loaded_after_restart"] = True
