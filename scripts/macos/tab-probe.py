@@ -22,16 +22,17 @@ def now_ms():
     return int(time.time() * 1000)
 
 
-def front_pid():
-    out = subprocess.run(
-        ["osascript", "-e", 'tell application "System Events" to unix id of first process whose frontmost is true'],
-        capture_output=True, text=True, check=False).stdout.strip()
-    return int(out) if out.isdigit() else -1
-
-
 def osa(script):
-    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
+    try:
+        r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False, timeout=10)
+    except subprocess.TimeoutExpired:
+        return 124, "osascript timed out (automation permission prompt?)"
     return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def front_pid():
+    rc, out = osa('tell application "System Events" to unix id of first process whose frontmost is true')
+    return int(out) if rc == 0 and out.isdigit() else -1
 
 
 class Probe:
@@ -53,6 +54,8 @@ class Probe:
 
     def mark(self, name, **extra):
         self.events.append({"t": now_ms(), "event": name, **extra})
+        print(self.events[-1], flush=True)
+        self.save()
 
     def frames(self):
         a = self.desktop.getFrames()

@@ -22,6 +22,14 @@ screencapture -x "$out/desktop-before.png" || true
 : > "$out/summary.md"
 for mode in windowed fullscreen; do
   profile="$work/profile-$mode"
+  mkdir -p "$profile/user"
+  # no welcome dialog (modal, blocks UNO)
+  cat >"$profile/user/registrymodifications.xcu" <<'XCU'
+<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<item oor:path="/org.hasontech.hstoffice.Welcome"><prop oor:name="Shown" oor:op="fuse"><value>true</value></prop></item>
+</oor:items>
+XCU
   "$app/Contents/MacOS/soffice" --norestore --nologo --nodefault --accept="socket,host=localhost,port=2002;urp;" \
     "-env:UserInstallation=file://$profile" >"$out/soffice-$mode.log" 2>&1 &
   pid=$!
