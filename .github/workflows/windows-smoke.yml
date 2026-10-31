@@ -15,6 +15,10 @@ on:
         description: 'Replace the bundled HST extension with one built from this commit (tests a fix without a full build)'
         type: boolean
         default: false
+      update_policy_only:
+        description: 'Only check the update-lock .reg templates of the user guide (skip the command smoke and Update now)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -85,7 +89,29 @@ jobs:
           mkdir -p "$target"
           python -I -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$RUNNER_TEMP/oxt/hst-vietnamese-tools.oxt" "$target"
           echo "overlaid $target"
+      - name: Update-lock templates - import each .reg of the user guide and check the lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          install="$(cygpath -u "$HST_INSTALL")"
+          export PATH="$install/program:$PATH"
+          export UNO_PATH="$HST_INSTALL\\program"
+          files=extensions/hst-vietnamese-tools/help/files
+          out="$(cygpath -w "$RUNNER_TEMP/out/update-policy")"
+          key='HKLM\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate'
+          probe() { timeout 600 "$install/program/python.exe" tests/runtime/check-update-policy.py --soffice "$HST_INSTALL\\program\\soffice.exe" --profile "$1" --source core --out "$out"; }
+          probe none
+          # one template after the other: each .reg replaces the previous lock ("nothing else locked" checks it)
+          for name in tat-kiem-tra chi-tai-ve kenh-chinh-thuc; do
+            MSYS2_ARG_CONV_EXCL='*' reg.exe import "$(cygpath -w "$files/hst-office-$name.reg")"
+            MSYS2_ARG_CONV_EXCL='*' reg.exe query "$key" /s
+            probe "$name"
+          done
+          MSYS2_ARG_CONV_EXCL='*' reg.exe import "$(cygpath -w "$files/hst-office-go-khoa.reg")"
+          if MSYS2_ARG_CONV_EXCL='*' reg.exe query "$key" >/dev/null 2>&1; then echo "hst-office-go-khoa.reg left the lock in place" >&2; exit 1; fi
+          probe none
       - name: Smoke-test every HST command in the installed office
+        if: ${{ !inputs.update_policy_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -94,6 +120,7 @@ jobs:
           export UNO_PATH="$HST_INSTALL\\program"
           timeout 900 "$install/program/python.exe" tests/runtime/check-windows-smoke.py --install "$HST_INSTALL" --out "$RUNNER_TEMP/out/smoke" --screenshots "$RUNNER_TEMP/out/screens"
       - name: Update now - download, verify and dry-run the msiexec helper
+        if: ${{ !inputs.update_policy_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -108,7 +135,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out/smoke"
           cp -r "$(cygpath -u "$HST_INSTALL")/share/extensions/hst-vietnamese-tools" "$RUNNER_TEMP/out/extension-as-installed" || echo "extension directory missing"
           find "$RUNNER_TEMP/out" -type f | head -n 100
-          python -I -X utf8 -c "import json,sys; r=json.load(open(sys.argv[1], encoding='utf-8')); print('\n'.join('%s %s' % (x['status'], x['check']) for x in r['results']))" "$RUNNER_TEMP/out/smoke/smoke-results.json" >> "$GITHUB_STEP_SUMMARY"
+          for results in "$RUNNER_TEMP"/out/smoke/smoke-results.json "$RUNNER_TEMP"/out/update-policy/*.json; do
+            [ -f "$results" ] || continue
+            python -I -X utf8 -c "import json,sys; r=json.load(open(sys.argv[1], encoding='utf-8')); print('\n'.join('%s %s %s' % (x['status'], r.get('profile', 'smoke'), x['check']) for x in r['results']))" "$results" >> "$GITHUB_STEP_SUMMARY"
+          done
       - name: Upload smoke evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
