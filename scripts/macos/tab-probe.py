@@ -127,8 +127,8 @@ def popup_open_file(p, pid, out, mode, label):
     time.sleep(1.5)
     before = len(p.frames())
     # "+" sits after the last tab; tabs are about 99 px wide in the 1024x768 probe display
-    x = 22 + 99 * before
-    y = 151 if mode == "fullscreen" else 204
+    x = 30 + 99 * before
+    y = 180 if mode == "fullscreen" else 204
     osa('tell application "System Events" to tell (first process whose unix id is %d) to set frontmost to true' % pid)
     time.sleep(1)
     p.mark(f"{label}:start", x=x, y=y)
