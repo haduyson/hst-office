@@ -16,6 +16,7 @@ import argparse
 import http.server
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -97,6 +98,39 @@ def extension_tab_shot(office, path):
         subprocess.run(["xdotool", "key", "Escape"], env=env, check=False, timeout=10)
 
 
+def ribbon_last_item_enabled(office, shot):
+    """Whether the last text item of the visible ribbon tab ("Kiểm tra cập nhật…" on "Phần mở rộng") is drawn as
+    enabled, judged from `shot`: the darkest ink of each item in the ribbon's text row is compared with the other
+    items (a disabled item is drawn in a much lighter grey). The window and ribbon layout are fixed on the test
+    display; the screenshot is kept for review. None when the row cannot be read."""
+    from PIL import Image
+    windows = [w for w in hst_gui.toplevels(office.display, office.pid) if "HST" in w[1]]
+    if not windows:
+        return None
+    info = subprocess.run(["xwininfo", "-display", office.display, "-id", windows[0][0]], capture_output=True, text=True).stdout
+    x0, y0 = (int(re.search(k + r":\s+(-?\d+)", info).group(1)) for k in ("Absolute upper-left X", "Absolute upper-left Y"))
+    img = Image.open(shot).convert("L")
+    columns = []
+    for x in range(max(x0, 0) + 5, min(x0 + 900, img.width)):
+        columns.append(min(img.getpixel((x, y)) for y in range(y0 + 88, y0 + 108)))
+    items, current, gap = [], [], 0
+    for value in columns:
+        if value < 200:
+            current.append(value)
+            gap = 0
+        elif current:
+            gap += 1
+            if gap > 9:
+                items.append(min(current))
+                current, gap = [], 0
+    if current:
+        items.append(min(current))
+    if len(items) < 2:
+        return None
+    others = sorted(items[:-1])[len(items[:-1]) // 2]
+    return items[-1] - others < 50
+
+
 def record(results, label, ok, detail=""):
     results.append((label, bool(ok)))
     print("%-4s %s%s" % ("PASS" if ok else "FAIL", label, (" (%s)" % detail) if detail else ""), flush=True)
@@ -148,6 +182,8 @@ def phase_all_off(instdir, args, srv, results):
         dialog = [w for w in hst_gui.toplevels(office.display, office.pid) if w[1] == "Kiểm tra cập nhật"]
         record(results, "xcd: menu command shows no dialog", not dialog)
         extension_tab_shot(office, os.path.join(args.shots, "01-ribbon-check-disabled.png"))
+        state = ribbon_last_item_enabled(office, os.path.join(args.shots, "01-ribbon-check-disabled.png"))
+        record(results, "xcd: ribbon button Kiểm tra cập nhật… greyed out", state is False, "enabled=%r" % state)
         record(results, "xcd: no request to the update server", not notify.REQUESTS, ", ".join(notify.REQUESTS))
     finally:
         office.stop()
@@ -165,6 +201,9 @@ def phase_checkbox(instdir, args, srv, results):
         record(results, "AutoCheck locked off: no request at start-up", not notify.REQUESTS, ", ".join(notify.REQUESTS))
         frame = doc.getCurrentController().getFrame()
         record(results, "ManualCheck allowed: menu command enabled", command_enabled(office, frame, "org.hst.office.update:Check") is True)
+        extension_tab_shot(office, os.path.join(args.shots, "04-ribbon-check-enabled.png"))
+        state = ribbon_last_item_enabled(office, os.path.join(args.shots, "04-ribbon-check-enabled.png"))
+        record(results, "ManualCheck allowed: ribbon button enabled", state is True, "enabled=%r" % state)
         office.dispatch(frame, "org.hst.office.update:Check")
         notify.dialog_shot(office, args.shots, "03-menu-check-autocheck-locked.png", results,
                            "menu check works, AutoCheck box disabled (see screenshot)", "phiên bản mới nhất")

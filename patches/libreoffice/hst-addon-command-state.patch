@@ -1,0 +1,26 @@
+HST Office: sidebar/notebookbar toolbox items (also extension addon items on the ribbon) follow the
+enabled state their dispatch reports: the item is enabled before the controller's first update
+instead of after it, which overrode a state delivered synchronously from addStatusListener.
+
+--- a/sfx2/source/sidebar/ControllerFactory.cxx
++++ b/sfx2/source/sidebar/ControllerFactory.cxx
+@@ -128,6 +128,11 @@
+             }
+         }
+ 
++        // HST: enable the item before the first update, not after it: a dispatch that reports its
++        // state synchronously from addStatusListener (e.g. a Python extension's protocol handler
++        // reporting IsEnabled=false) was overridden by the unconditional EnableItem below update().
++        pToolBox->EnableItem(nItemId);
++
+         Reference<util::XUpdatable> xUpdatable (xController, UNO_QUERY);
+         if (xUpdatable.is())
+             xUpdatable->update();
+@@ -141,7 +146,6 @@
+                     rsCommandName, aProperties, rxFrame));
+             if (pToolBox->GetQuickHelpText(nItemId).isEmpty())
+                 pToolBox->SetQuickHelpText(nItemId, sTooltip);
+-            pToolBox->EnableItem(nItemId);
+         }
+     }
+ 

@@ -170,5 +170,5 @@ người dùng ghi đè hồ sơ cả máy). `defaults write` vào `/Library/Pre
 - Công cụ ▸ Tùy chọn ▸ HST Office/Nâng cao ▸ Trình soạn cấu hình chuyên gia, tìm `HSTUpdate`: thuộc tính bị khóa
   không sửa được.
 - Hộp kiểm "Tự động kiểm tra cập nhật khi khởi động" trong hộp thoại kiểm tra cập nhật bị làm mờ khi `AutoCheck` bị
-  khóa; mục menu "Kiểm tra cập nhật…" bị làm mờ khi `ManualCheck` = `false`.
+  khóa; mục menu "Kiểm tra cập nhật…" và nút cùng tên trên tab ribbon "Phần mở rộng" bị làm mờ khi `ManualCheck` = `false`.
 - Kiểm thử tự động trên Linux: `tests/runtime/check-update-lock.py`.
