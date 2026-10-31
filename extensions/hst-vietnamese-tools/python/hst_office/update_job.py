@@ -16,12 +16,13 @@ from com.sun.star.lang import XInitialization, XServiceInfo
 from com.sun.star.task import XJob
 
 from . import update_logic as logic
+from . import update_result as result
 from . import update_ui as ui
 from .update_fetch import UpdateError, fetch_channels, release_info
 
 JOB_NAME = "org.hst.office.vi.UpdateCheckJob"
 HANDLER_NAME = "org.hst.office.vi.UpdateDispatchProvider"
-COMMANDS = ("Check", "Download", "Notes", "Skip")
+COMMANDS = ("Check", "Download", "Install", "Notes", "Skip")
 
 
 def _log(message):
@@ -86,7 +87,7 @@ class UpdateCheckJob(unohelper.Base, XServiceInfo, XJob):
 
 
 class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, XDispatch):
-    """org.hst.office.update:Check | Download | Notes | Skip."""
+    """org.hst.office.update:Check | Download | Install | Notes | Skip."""
 
     def __init__(self, ctx):
         self.ctx, self.frame = ctx, None
@@ -123,12 +124,17 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
             info = release_info()
         except Exception:  # noqa: BLE001 - no release stamp: report "could not check"
             traceback.print_exc()
-            return ui.show_result(self.ctx, peer, None, "", True)
-        start_background(self.ctx, info, lambda release, failed: ui.show_result(self.ctx, peer, release, info["release"], failed))
+            return result.show_result(self.ctx, peer, None, "", True)
+        start_background(self.ctx, info, lambda release, failed: result.show_result(self.ctx, peer, release, info["release"], failed))
 
     def _download(self):
         if ui.STATE["release"]:
             ui.open_url(self.ctx, ui.release_download(ui.STATE["release"]))
+
+    def _install(self):
+        from .update_install import start  # imported on use: start-up never loads the installer flow
+        frame = self.frame
+        start(self.ctx, frame.getContainerWindow() if frame else None)
 
     def _notes(self):
         if ui.STATE["release"]:

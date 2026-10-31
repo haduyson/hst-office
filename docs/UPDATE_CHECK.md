@@ -1,6 +1,6 @@
 # Kiểm tra phiên bản mới
 
-HST Office tự biết khi có bản mới và báo cho người dùng kèm liên kết tải. Không tự tải, không tự cài.
+HST Office tự biết khi có bản mới và báo cho người dùng kèm liên kết tải. Chỉ khi người dùng bấm "Cập nhật ngay" mới tải và (sau khi hỏi lại) cài: xem [UPDATE_INSTALL.md](UPDATE_INSTALL.md).
 
 ## Cách hoạt động
 

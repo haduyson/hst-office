@@ -1,18 +1,21 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Pure logic of the update check (no uno, no network): versions, manifest, channels, URLs, throttle.
 
-Manifest (website/office.hasontech.vn/update/latest.json, detached Ed25519 signature in latest.json.sig):
-  {"schema": 1, "channels": {"stable": <release>|null, "beta": <release>|null}}
+Manifests: latest-2.json (schema 2) and latest.json (legacy schema 1), with detached Ed25519 signatures.
+  {"schema": 1|2, "channels": {"stable": <release>|null, "beta": <release>|null}}
   <release> = {"version": "1.0.0-beta.2", "date": "YYYY-MM-DD", "notes": "https://office.hasontech.vn/...",
                "downloads": {"windows"|"macos-arm"|"macos-intel"|"linux": "https://office.hasontech.vn/tai/..."},
-               "critical": false}   # optional; critical releases ignore "skip this version"
+               "critical": false, "installers": {platform: {url, sha256, size}}}   # optional; installers in schema 2
 Beta installs are offered the newest of beta and stable; stable installs only stable.
 """
 import json
 import re
 import urllib.parse
 
-MANIFEST_URL = "https://office.hasontech.vn/update/latest.json"
+from .update_installer import parse_installers
+
+MANIFEST_URL = "https://office.hasontech.vn/update/latest-2.json"
+LEGACY_MANIFEST_URL = "https://office.hasontech.vn/update/latest.json"
 SIGNATURE_SUFFIX = ".sig"
 # Ed25519 public key of the manifest signer; the private key never enters the repository (docs/UPDATE_CHECK.md).
 PUBLIC_KEY = bytes.fromhex("d0f221c93fa61b12b57815046e3bce720006fb4b0b2ce57e67bed7c250a6c1e7")
@@ -21,7 +24,8 @@ LINK_HOSTS = ("hasontech.vn",)  # links in the manifest: hasontech.vn and its su
 CHECK_INTERVAL = 24 * 60 * 60
 TIMEOUT = 5
 MAX_BYTES = 64 * 1024
-SCHEMA = 1
+SCHEMAS = (1, 2)
+SCHEMA = SCHEMAS[0]  # compatibility for callers generating legacy manifests
 CHANNELS = ("stable", "beta")
 PLATFORMS = ("windows", "macos-arm", "macos-intel", "linux")
 TEST_HOST = "127.0.0.1"  # local test server, accepted only by packages built with --update-test-mode
@@ -69,9 +73,12 @@ def is_safe_link(url):
     """https link to hasontech.vn (or a subdomain), no credentials, no odd port: opened in the browser."""
     if not isinstance(url, str) or any(c.isspace() for c in url):
         return False
-    parts = urllib.parse.urlsplit(url)
-    return (parts.scheme == "https" and parts.hostname is not None and parts.username is None
-            and parts.port is None and _host_ok(parts.hostname, LINK_HOSTS))
+    try:
+        parts = urllib.parse.urlsplit(url)
+        return (parts.scheme == "https" and parts.hostname is not None and parts.username is None
+                and parts.port is None and _host_ok(parts.hostname, LINK_HOSTS))
+    except ValueError:
+        return False
 
 
 def is_fetch_url(url, allow_test=False):
@@ -96,7 +103,7 @@ def same_origin(old, new):
     return (a.scheme, a.hostname, a.port) == (b.scheme, b.hostname, b.port)
 
 
-def _release(name, entry):
+def _release(name, entry, allow_test=False, schema=2):
     if entry is None:
         return None
     if not isinstance(entry, dict):
@@ -116,19 +123,24 @@ def _release(name, entry):
             raise ManifestError("channel %s: bad download %r" % (name, key))
     if not isinstance(critical, bool):
         raise ManifestError("channel %s: critical must be boolean" % name)
+    try:
+        installers = parse_installers(entry.get("installers", {}), PLATFORMS, allow_test) if schema == 2 else {}
+    except ValueError as exc:
+        raise ManifestError("channel %s: %s" % (name, exc)) from exc
     return {"channel": name, "version": version, "date": date, "notes": notes, "downloads": dict(downloads),
-            "critical": critical}
+            "critical": critical, "installers": installers}
 
 
-def parse_manifest(data):
+def parse_manifest(data, allow_test=False):
     """Validated {"stable": release|None, "beta": release|None} from the manifest bytes."""
     try:
         doc = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise ManifestError("not JSON: %s" % exc)
-    if not isinstance(doc, dict) or doc.get("schema") != SCHEMA or not isinstance(doc.get("channels"), dict):
+    if (not isinstance(doc, dict) or type(doc.get("schema")) is not int or doc["schema"] not in SCHEMAS
+            or not isinstance(doc.get("channels"), dict)):
         raise ManifestError("unsupported schema")
-    return {name: _release(name, doc["channels"].get(name)) for name in CHANNELS}
+    return {name: _release(name, doc["channels"].get(name), allow_test, doc["schema"]) for name in CHANNELS}
 
 
 def select_update(channels, installed, channel):

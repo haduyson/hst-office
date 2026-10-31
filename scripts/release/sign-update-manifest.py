@@ -45,7 +45,7 @@ def load_seed(path):
     return seed
 
 
-def check(manifest_path):
+def check(manifest_path, allow_test=False):
     """Exit status 0 when MANIFEST.sig verifies with the extension's public key and the manifest parses."""
     data = open(manifest_path, "rb").read()
     try:
@@ -57,7 +57,7 @@ def check(manifest_path):
         print("FAIL %s: signature does not verify with %s" % (manifest_path, fingerprint(logic.PUBLIC_KEY)))
         return 1
     try:
-        channels = logic.parse_manifest(data)
+        channels = logic.parse_manifest(data, allow_test=allow_test)
     except logic.ManifestError as exc:
         print("FAIL %s: %s" % (manifest_path, exc))
         return 1
@@ -66,9 +66,9 @@ def check(manifest_path):
     return 0
 
 
-def sign(manifest_path, key_path):
+def sign(manifest_path, key_path, allow_test=False):
     data = open(manifest_path, "rb").read()
-    logic.parse_manifest(data)  # refuse to sign a manifest the office would reject
+    logic.parse_manifest(data, allow_test=allow_test)  # refuse to sign a manifest the office would reject
     seed = load_seed(key_path)
     public = ed25519.secret_to_public(seed)
     if public != logic.PUBLIC_KEY:
@@ -77,7 +77,7 @@ def sign(manifest_path, key_path):
     signature = ed25519.sign(seed, data)
     with open(manifest_path + logic.SIGNATURE_SUFFIX, "w", encoding="ascii", newline="\n") as handle:
         handle.write(base64.b64encode(signature).decode("ascii") + "\n")
-    return check(manifest_path)
+    return check(manifest_path, allow_test)
 
 
 def main():
@@ -85,10 +85,11 @@ def main():
     ap.add_argument("manifest", nargs="?", default=DEFAULT_MANIFEST)
     ap.add_argument("--verify", action="store_true", help="only verify the existing signature")
     ap.add_argument("--key", default=os.environ.get("HST_UPDATE_SIGNING_KEY_FILE", DEFAULT_KEY))
+    ap.add_argument("--allow-test-urls", action="store_true", help="accept http://127.0.0.1 installer URLs (runtime tests only)")
     args = ap.parse_args()
     if args.verify:
-        return check(args.manifest)
-    return sign(args.manifest, args.key)
+        return check(args.manifest, args.allow_test_urls)
+    return sign(args.manifest, args.key, args.allow_test_urls)
 
 
 if __name__ == "__main__":

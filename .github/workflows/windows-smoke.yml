@@ -74,6 +74,11 @@ jobs:
           export PATH="$install/program:$PATH"
           export UNO_PATH="$HST_INSTALL\\program"
           timeout 900 "$install/program/python.exe" tests/runtime/check-windows-smoke.py --install "$HST_INSTALL" --out "$RUNNER_TEMP/out/smoke" --screenshots "$RUNNER_TEMP/out/screens"
+      - name: Update now - download, verify and dry-run the msiexec helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I tests/runtime/check-update-install-smoke.py
       - name: Collect diagnostics
         if: ${{ always() }}
         shell: bash

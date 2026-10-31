@@ -24,6 +24,9 @@ HOST_ALLOW = ("openoffice.org", "libreoffice.org", "w3.org", "hasontech.vn", "su
 NETWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess|ctypes)\b", re.M)
 # The update check (docs/UPDATE_CHECK.md) is the one module that may use HTTPS (urllib/ssl/http); never sockets or processes.
 UPDATE_FETCH = "python/hst_office/update_fetch.py"
+UPDATE_DOWNLOAD = "python/hst_office/update_download.py"  # installer download after the user's click
+UPDATE_LAUNCH = "python/hst_office/update_launch.py"  # starts the external update helper: the only module with subprocess
+UPDATE_LAUNCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|ctypes)\b", re.M)
 UPDATE_FETCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|ftplib|smtplib|requests|xmlrpc|subprocess|ctypes)\b", re.M)
 MEDIA = ("application/vnd.sun.star.uno-component;type=Python", "application/vnd.sun.star.configuration-data", "application/vnd.sun.star.configuration-schema")
 MAX_LINES = 199
@@ -103,7 +106,7 @@ def check_content(zf, names, errors):
                     errors.append("%s references missing %s" % (name, target))
         if name.endswith(".py"):
             text = data.decode("utf-8")
-            if (UPDATE_FETCH_IMPORT if name == UPDATE_FETCH else NETWORK_IMPORT).search(text):
+            if (UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD) else UPDATE_LAUNCH_IMPORT if name == UPDATE_LAUNCH else NETWORK_IMPORT).search(text):
                 errors.append("network/process module imported in %s" % name)
             if text.count("\n") + 1 > MAX_LINES:
                 errors.append("%s exceeds %d lines" % (name, MAX_LINES))
@@ -174,6 +177,8 @@ def self_test():
         "network import": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: AGPL-3.0-only\nimport socket\n"}),
         "urllib outside update_fetch": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: AGPL-3.0-only\nimport urllib.request\n"}),
         "socket in update_fetch": lambda d: d.update({UPDATE_FETCH: d[UPDATE_FETCH] + b"\nimport socket\n"}),
+        "subprocess in update_download": lambda d: d.update({UPDATE_DOWNLOAD: d.get(UPDATE_DOWNLOAD, b"") + b"\nimport subprocess\n"}),
+        "urllib in update_launch": lambda d: d.update({UPDATE_LAUNCH: d.get(UPDATE_LAUNCH, b"") + b"\nimport urllib.request\n"}),
         "update test mode": lambda d: d.update({"data/release.json": b'{"release": "1.0.0", "update_test_mode": true}'}),
         "remote link in guide": lambda d: d.update({"help/index.html": d["help/index.html"] + b'<a href="https://evil.example/">x</a>'}),
         "stale data": lambda d: d.update({"data/nd30.json": b"{}"}), "stale solutions": lambda d: d.update({"data/solutions.json": b"{}"}),

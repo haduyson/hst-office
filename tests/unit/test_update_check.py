@@ -94,7 +94,7 @@ class Channels(unittest.TestCase):
 class ManifestRules(unittest.TestCase):
     def test_rejects_malformed(self):
         bad_links = dict(release("1.0.0"), notes="http://office.hasontech.vn/")
-        cases = [b"not json", b"[]", json.dumps({"schema": 2, "channels": {}}).encode(),
+        cases = [b"not json", b"[]", json.dumps({"schema": 3, "channels": {}}).encode(),
                  manifest(stable=dict(release("1.0.0"), version="1.0")), manifest(stable=bad_links),
                  manifest(stable=dict(release("1.0.0"), downloads={"windows": "https://evil.example/x"})),
                  manifest(stable=dict(release("1.0.0"), downloads={"amiga": "https://office.hasontech.vn/x"})),

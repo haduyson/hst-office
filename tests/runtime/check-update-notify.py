@@ -138,12 +138,12 @@ def dialog_shot(office, shots, name, results, label, pattern):
     time.sleep(1.0)
     office.screenshot(os.path.join(shots, name))
     results.append((label, ok))
-    if found:  # click "Đóng" (AppFont box 202..242 x 48..62 of a 250 x 70 dialog); Xvfb has no WM to focus for keys
+    if found:  # click "Đóng" (AppFont box 252..292 x 48..62 of a 300 x 70 dialog); Xvfb has no WM to focus for keys
         wid = found[0][0]
         info = subprocess.run(["xwininfo", "-display", office.display, "-id", wid], capture_output=True, text=True).stdout
         width, height = (int(re.search(r"%s: (\d+)" % k, info).group(1)) for k in ("Width", "Height"))
         env = dict(os.environ, DISPLAY=office.display)
-        subprocess.run(["xdotool", "mousemove", "--window", wid, str(int(width * 222 / 250)), str(int(height * 55 / 70)),
+        subprocess.run(["xdotool", "mousemove", "--window", wid, str(int(width * 272 / 300)), str(int(height * 55 / 70)),
                         "click", "1"], env=env, check=False, timeout=10)
         closed = wait(lambda: not [w for w in hst_gui.toplevels(office.display, office.pid) if w[1] == "Kiểm tra cập nhật"], 10)
         results.append((label + ": closes with Đóng", closed))

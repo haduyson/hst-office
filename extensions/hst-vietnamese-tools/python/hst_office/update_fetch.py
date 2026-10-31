@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Network side of the update check: the only module of the extension allowed to use the network.
 
-One GET for the manifest and one for its detached signature, HTTPS to office.hasontech.vn only, 5 s timeout,
+One GET for the manifest and one for its detached signature (legacy fallback on fetch errors only), 5 s timeout,
 at most 64 KiB each, redirects only within the same origin, no cookies, no personal data: the User-Agent
 ("HSTOffice/<release> (<OS>)") is the only information sent. The manifest is used only when its Ed25519
 signature verifies with the public key built into the extension; anything else raises UpdateError, which
@@ -12,6 +12,7 @@ variable HST_UPDATE_TEST_URL may point at a plain-HTTP server on 127.0.0.1 (any 
 the stamp (scripts/check-extensions.py rejects it), so they ignore the variable.
 """
 import base64
+import http.client
 import os
 import platform
 import ssl
@@ -28,6 +29,10 @@ CA_BUNDLES = ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt", "/etc/p
 
 class UpdateError(Exception):
     """The check could not be completed (offline, bad TLS, bad or unsigned manifest...)."""
+
+
+class FetchError(UpdateError):
+    """Transport failed; the legacy manifest may still be available."""
 
 
 def release_info():
@@ -49,7 +54,7 @@ def manifest_url(info, environ=None):
 class _SameOriginRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not logic.same_origin(req.full_url, newurl):
-            raise urllib.error.HTTPError(newurl, code, "redirect to another origin refused", headers, fp)
+            raise UpdateError("redirect to another origin refused")
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -82,14 +87,14 @@ def _get(opener, url, agent, allow_test):
             data = response.read(logic.MAX_BYTES + 1)
     except UpdateError:
         raise
-    except Exception as exc:  # noqa: BLE001 - offline, DNS, TLS, HTTP status, timeout: all "could not check"
-        raise UpdateError("%s: %s" % (type(exc).__name__, exc))
+    except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
+        raise FetchError("%s: %s" % (type(exc).__name__, exc)) from exc
     if len(data) > logic.MAX_BYTES:
         raise UpdateError("response too large")
     return data
 
 
-def verify_manifest(data, signature_text, public_key=None):
+def verify_manifest(data, signature_text, public_key=None, allow_test=False):
     """Parsed channels when `signature_text` (base64 Ed25519 over the exact manifest bytes) verifies."""
     try:
         signature = base64.b64decode(signature_text.strip(), validate=True)
@@ -98,21 +103,30 @@ def verify_manifest(data, signature_text, public_key=None):
     if not ed25519.verify(public_key or logic.PUBLIC_KEY, bytes(data), signature):
         raise UpdateError("bad manifest signature")
     try:
-        return logic.parse_manifest(data)
+        return logic.parse_manifest(data, allow_test=allow_test)
     except logic.ManifestError as exc:
         raise UpdateError("manifest rejected: %s" % exc)
 
 
 def fetch_channels(info, proxy=None, environ=None):
-    """Download, verify and parse the manifest; raises UpdateError on any failure."""
+    """Fetch authenticated channels, falling back only on transport errors without a test override."""
+    environ = os.environ if environ is None else environ
     url = manifest_url(info, environ)
-    allow_test = url != logic.MANIFEST_URL
+    allow_test = bool(info.get("test_mode"))
+    override = allow_test and environ.get(TEST_URL_ENV) == url
+    urls = (url,) if override else (url, logic.LEGACY_MANIFEST_URL)
     agent = logic.user_agent(info["release"], platform.system())
     opener = _opener(proxy)
-    data = _get(opener, url, agent, allow_test)
-    signature = _get(opener, url + logic.SIGNATURE_SUFFIX, agent, allow_test)
-    try:
-        text = signature.decode("ascii")
-    except UnicodeDecodeError:
-        raise UpdateError("signature is not text")
-    return verify_manifest(data, text)
+    for url in urls:
+        try:
+            data = _get(opener, url, agent, allow_test)
+            signature = _get(opener, url + logic.SIGNATURE_SUFFIX, agent, allow_test)
+        except FetchError:
+            if url == urls[-1]:
+                raise
+            continue
+        try:
+            text = signature.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise UpdateError("signature is not text") from exc
+        return verify_manifest(data, text, allow_test=allow_test)

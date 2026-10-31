@@ -15,6 +15,8 @@ import unohelper
 from com.sun.star.awt import XCallback
 from com.sun.star.document import XDocumentEventListener
 
+from . import update_config
+from . import update_installer as installer
 from . import update_logic as logic
 from .update_texts import texts
 
@@ -90,6 +92,14 @@ def release_download(release):
     return logic.download_url(release, logic.platform_key(platform.system(), platform.machine()))
 
 
+def can_install(ctx, release):
+    """"Cập nhật ngay" is offered when the administrator allows it and the signed manifest has an installer for this OS."""
+    try:
+        return bool(update_config.settings(ctx)["AllowInstall"] and installer.choose_installer(release, logic.platform_key(platform.system(), platform.machine())))
+    except Exception:  # noqa: BLE001 - unreadable settings: manual download only
+        return False
+
+
 def show_infobar(frame, release, installed):
     """Infobar on a Writer/Calc/Impress view; False when the frame has none (e.g. the Start Center)."""
     try:
@@ -100,7 +110,8 @@ def show_infobar(frame, release, installed):
         if controller.hasInfobar(INFOBAR_ID):
             controller.removeInfobar(INFOBAR_ID)
         buttons = []
-        for key, cmd in (("download", "Download"), ("notes", "Notes"), ("skip", "Skip")):
+        actions = (("install", "Install"),) if can_install(uno.getComponentContext(), release) else ()
+        for key, cmd in actions + (("download", "Download"), ("notes", "Notes"), ("skip", "Skip")):
             pair = uno.createUnoStruct("com.sun.star.beans.StringPair")
             pair.First, pair.Second = TEXT[key], PROTOCOL + cmd
             buttons.append(pair)
@@ -157,29 +168,3 @@ def notify(ctx, release, installed):
     if STATE["listener"] is None:
         STATE["listener"] = _FirstView(ctx)
         _broadcaster(ctx).addDocumentEventListener(STATE["listener"])
-
-
-def show_result(ctx, parent_peer, release, installed, failed):
-    """Menu check result: up to date / new version (with the three actions) / could not check."""
-    from .dialogs import CANCEL, Dialog
-    TEXT = texts(ctx)
-    if failed:
-        text = TEXT["failed"]
-    elif release is None:
-        text = TEXT["uptodate"] % installed
-    else:
-        text = "%s\n%s" % (TEXT["new"] % release["version"], TEXT["current"] % installed)
-    dialog = Dialog(ctx, TEXT["title"], 250, 70)
-    dialog.label("message", text, 8, 8, 234, 30, wrap=True)
-    x = 8
-    if release is not None and not failed:
-        STATE["release"] = release
-        for name, width, fn in (("download", 40, lambda: open_url(ctx, release_download(release))),
-                                ("notes", 52, lambda: open_url(ctx, release["notes"])),
-                                ("skip", 76, lambda: save(ctx, "SkippedVersion", release["version"]))):
-            dialog.button(name, TEXT[name], x, 48, width, callback=(lambda f=fn: (f(), dialog.end(1))),
-                          default=(name == "download"))
-            x += width + 4
-    dialog.button("close", TEXT["close"], 202, 48, 40, kind=CANCEL, default=release is None or failed)
-    dialog.execute(parent_peer)
-
