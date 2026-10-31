@@ -257,7 +257,9 @@ class ManifestGenerator(unittest.TestCase):
         self.assertEqual(beta["downloads"], release("1.0.0")["downloads"])
         self.assertEqual(set(beta["installers"]), set(logic.PLATFORMS))
         for platform, name in NAMES.items():
-            self.assertEqual(beta["installers"][platform], metadata(platform, self.contents[name]))
+            # The generator publishes the site copy (tai/<version>/), not the GitHub asset.
+            site = "https://office.hasontech.vn/tai/1.0.0-beta.4/" + name
+            self.assertEqual(beta["installers"][platform], dict(metadata(platform, self.contents[name]), url=site))
         self.assertIn("sign-update-manifest.py", output)
         self.assertIn("latest-2.json", output)
         self.assertIn("latest.json", output)

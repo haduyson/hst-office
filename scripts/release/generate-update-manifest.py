@@ -85,7 +85,8 @@ def build_installers(args):
         size = assets[name].get("size")
         if type(size) is not int or not 1 <= size <= 4294967296:
             raise ValueError("invalid installer size for %s" % name)
-        entry = {"url": "https://github.com/haduyson/hst-office/releases/download/%s/%s" % (args.tag, name),
+        # Installers are served from the project site (tai/<version>/), so downloads show office.hasontech.vn.
+        entry = {"url": "%s/%s" % (args.download_base.format(version=args.tag.lstrip("v")), name),
                  "sha256": hashes[name], "size": size}
         if args.assets_dir is not None:
             verify_file(args.assets_dir / name, entry)
@@ -151,6 +152,8 @@ def main(argv=None):
     parser.add_argument("--notes", default=NOTES)
     parser.add_argument("--critical", action="store_true")
     parser.add_argument("--site-dir", type=Path, default=DEFAULT_SITE)
+    parser.add_argument("--download-base", default="https://office.hasontech.vn/tai/{version}",
+                        help="installer URL prefix; {version} is the tag without the leading v")
     args = parser.parse_args(argv)
     try:
         generate(args)
