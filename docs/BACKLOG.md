@@ -106,6 +106,12 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
   - Ribbon sáng trắng cho Writer/Sheets/Slides (chữ tối dễ đọc; màu riêng của ứng dụng chỉ còn ở đường nhấn dưới thẻ đang chọn và icon) trên cả 3 hệ điều hành.
   - **"Cập nhật ngay"** (đã làm, xem [UPDATE_INSTALL.md](UPDATE_INSTALL.md); chưa thử trên máy Windows/macOS thật) (chủ dự án 2026-10-31): nút trên thanh báo phiên bản mới thay cho "Tải về" — HST Office tự tải bộ cài cho đúng hệ điều hành, kiểm tra SHA256 (và chữ ký manifest Ed25519), **hỏi người dùng** "Đóng HST Office để cập nhật?", lưu/hỏi lưu tài liệu, chạy bộ cài (Windows msiexec — UAC; Linux cài `.deb` qua pkexec/PackageKit; macOS thay `HST Office.app` đã ký Developer ID, kiểm tra chữ ký trước khi thay) rồi mở lại. Không bao giờ cài ngầm; luôn còn lựa chọn "Tải về" thủ công; quản trị viên tắt được.
   - Chuyển tab tài liệu mượt như trình duyệt trên cả 3 hệ điều hành (chủ dự án 2026-10-31): trên macOS mỗi lần chuyển tab trông như chuyển sang màn hình khác; tìm nguyên nhân (mỗi tab là một cửa sổ riêng bị ẩn/hiện) và sửa cho chuyển tab tức thì, không hiệu ứng, cùng vị trí/kích thước.
+- **v1.0.0-beta.4.1 (sửa lỗi sau beta.4, chủ dự án 2026-10-31):**
+  - macOS: nút "+" → "Mở tệp…" → chọn tệp làm ứng dụng treo lâu rồi màn hình trắng; phải dùng Tập tin ▸ Mở trên thanh menu mới mở được. Kiểm tra cùng đường đi trên Windows/Linux và thêm vào bài kiểm tra tab.
+  - Ribbon: nền trắng + viền mảnh màu nhạt theo ứng dụng (giống hình writer-home.png trên Linux) trên cả 3 hệ điều hành.
+  - Kiểm tra chính tả tắt sẵn khi mới cài; sửa gạch đỏ sai chữ tiếng Việt (NFD + hai cách bỏ dấu); trang F1 "Kiểm tra chính tả" và "Làm việc với PDF".
+  - Menu "+" dùng nhãn "HST Writer — Văn bản / Document"… như cột Tạo ở Start Center.
+  - Số phiên bản đầy đủ trong tên tệp tải về và trong Get Info (macOS) / Properties (Windows) / thông tin gói (Linux).
 - **v1.0.0:** chuyển repo sang tổ chức `hasontech` trước bản chính thức.
 
 ## Blockers và câu hỏi còn mở
