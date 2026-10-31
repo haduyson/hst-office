@@ -45,6 +45,12 @@ def main(run, label):
     print(f"\n#### {label}\n\n| event | ms after launch |\n|---|---|")
     for name, stamp in events:
         print(f"| {name} | {stamp - launch if stamp and launch else 'n/a'} |")
+    print("\nwindow set changes (ms after launch: on-screen windows):\n")
+    previous = None
+    for stamp, windows in rows:
+        if windows != previous:
+            print(f"- {stamp - launch if launch else stamp}: {' | '.join(f'{w}x{h}' for w, h in windows) or 'none'}")
+            previous = windows
 
 
 main(sys.argv[1], sys.argv[2])

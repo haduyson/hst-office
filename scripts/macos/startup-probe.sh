@@ -57,6 +57,8 @@ run_case() { # run_case <variant> <case> <profile> <close: yes|no> <seconds>
   kill "$shots" 2>/dev/null || true
   kill "$pid" 2>/dev/null || true; sleep 2; kill -9 "$pid" 2>/dev/null || true
   pkill -f "UserInstallation=file://$profile" 2>/dev/null || true
+  # keep the artifact small: thumbnails of the screenshots (the full-size one before the close stays)
+  for f in "$dir"/shot-*.jpg; do sips -Z 420 -s formatOptions 45 "$f" >/dev/null 2>&1 || true; done
   python3 -I "$here/startup-probe-summary.py" "$dir" "$variant / $name" >>"$out/summary.md" 2>>"$out/summary-errors.log" || true
 }
 

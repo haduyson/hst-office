@@ -8,6 +8,8 @@
 set -Eeuo pipefail
 [ $# -ge 2 ] || { echo "usage: $0 <dmg> <out-dir> [transparency]" >&2; exit 64; }
 dmg="$1"; out="$2"; override="${3:-255}"; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/macos/probe-lib.sh
+. "$here/probe-lib.sh"
 mkdir -p "$out"; work="$(mktemp -d)"; mnt="$work/mnt"; mkdir -p "$mnt"
 hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$dmg" >/dev/null
 ditto "$mnt/HST Office.app" "$work/HST Office.app"; hdiutil detach "$mnt" >/dev/null
@@ -15,17 +17,14 @@ app="$work/HST Office.app"
 bash "$here/adhoc-sign.sh" "$app" >"$out/adhoc-sign.log" 2>&1 || { echo "ad-hoc sign failed" >&2; exit 1; }
 
 seed_profile() { # seed_profile <profile> <transparency|default>: initialise the profile, then adjust its registry
-  for _ in 1 2 3; do
-    "$app/Contents/MacOS/soffice" --headless --norestore --terminate_after_init "-env:UserInstallation=file://$1" >/dev/null 2>&1 || true
-    [ -f "$1/user/registrymodifications.xcu" ] && break
-  done
+  init_profile "$app" "$1"
   python3 -I "$here/probe-profile.py" "$1" --shown true --no-tip
-  [ "$2" = default ] || python3 -I "$here/probe-profile.py" "$1" --transparency "$2"
+  if [ "$2" != default ]; then python3 -I "$here/probe-profile.py" "$1" --transparency "$2"; fi
 }
 
 shoot() { # shoot <appearance light|dark> <variant> <module>
   local appearance="$1" variant="$2" module="$3" profile="$work/profile-$2-$1"
-  [ -d "$profile" ] || seed_profile "$profile" "$([ "$variant" = default ] && echo default || echo "$override")"
+  if [ ! -d "$profile" ]; then seed_profile "$profile" "$([ "$variant" = default ] && echo default || echo "$override")"; fi
   "$app/Contents/MacOS/soffice" --norestore --nologo "--$module" "-env:UserInstallation=file://$profile" >"$out/soffice-$variant-$appearance-$module.log" 2>&1 &
   local pid=$!
   sleep 25
