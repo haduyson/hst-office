@@ -48,6 +48,7 @@ script scripts/generate-brand-assets.py --check
 # These are required even before extensions/templates have been integrated.
 script scripts/check-doc-links.py
 script scripts/check-workflows.py
+script scripts/l10n/check-access-keys.py --strict
 script scripts/windows/preflight-local.sh
 script scripts/macos/preflight-local.sh
 script scripts/linux/preflight-local.sh

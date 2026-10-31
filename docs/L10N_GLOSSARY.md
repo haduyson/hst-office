@@ -46,6 +46,33 @@ Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`
 - Lỗi viết hoa "GIãn cách…", "GIá" (11 chuỗi); hộp thoại Đoạn văn: dấu hai chấm và phím tắt nhãn khoảng cách đoạn; Trang bắt đầu: "…để tạo mới một cái" → "…để tạo tài liệu mới".
 - Lớp AI (`l10n/vi/`): 3 chuỗi "Lưu dưới dạng …" → "Lưu thành …".
 
+## Phím truy cập (Alt+chữ) trong menu và ribbon
+
+Trong mỗi cấp menu (Writer, Calc, Impress, Draw, Trang bắt đầu, kể cả menu HST) và mỗi thanh thẻ ribbon,
+không hai mục nào dùng chung một chữ sau `~`/`_`. Chữ đó phải là chữ ASCII (hoặc số) có trong nhãn,
+ưu tiên chữ đầu của một từ có nghĩa; không dùng chữ có dấu (Đ, Ư, Ơ, Ô, Ê, Â, Ă…) vì Alt+ư/ơ không gõ
+ổn định. Chỉ dời vị trí `~`, không đổi chữ của nhãn. Thẻ ngữ cảnh (Bảng, Ảnh, Vẽ, Đối tượng, Đa phương tiện,
+In, Biểu mẫu…) chỉ cần khác các thẻ luôn hiện; hai thẻ ngữ cảnh không cùng lúc hiện được phép trùng.
+Mục không có `~` (menu HST trong `Addons.xcu`) do VCL tự gán chữ còn trống.
+
+| Menu chính (cả 4 ứng dụng) | Phím | | Thẻ ribbon (Writer/Calc/Impress) | Phím |
+|---|---|---|---|---|
+| Tập tin | T | | Tập tin | T |
+| Chỉnh sửa | S | | Trang đầu | R |
+| Xem | X | | Chèn | C |
+| Chèn | C | | Bố trí / Bố cục | B |
+| Định dạng | D | | Xem lại | L |
+| Công cụ | G | | Xem | X |
+| Cửa sổ | A | | Công cụ | N |
+| Trợ giúp | I | | Phần mở rộng | P |
+
+Kiểm tra: `python3 scripts/l10n/check-access-keys.py --strict` (chạy trong `scripts/ci-quality.sh`). Script
+dựng menu/ribbon từ cây nguồn (hoặc từ [`l10n/access-keys-snapshot.json`](../l10n/access-keys-snapshot.json)
+khi không có cây, như trên CI; tạo lại bằng `--write-snapshot`) rồi áp `vi-overrides.jsonl`. Các trùng lặp
+không tránh được nếu không đổi chữ nằm trong [`l10n/access-keys-exceptions.json`](../l10n/access-keys-exceptions.json)
+(22 mục, ví dụ Tập tin: "Mở từ xa"/"Xuất" cùng X; Calc → Trang tính 5 cặp; Bảng → Chọn → "Ô" không có chữ
+ASCII), chờ người bản ngữ quyết định. Phím ít quen cần duyệt: Hoàn tác=O, Sao chép=P, In=N, Thoát=O, Tìm=M (Calc/Impress/Draw).
+
 ## Cần người duyệt (chưa sửa, cần quyết định)
 
 1. **Bookmark**: lõi dùng "Liên kết lưu" khắp nơi, bảng thuật ngữ ghi "Dấu trang". Đổi toàn bộ (~30 chuỗi) hay giữ?
