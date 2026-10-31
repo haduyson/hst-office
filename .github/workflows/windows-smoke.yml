@@ -54,7 +54,7 @@ jobs:
           install_dir="$(dirname "$(dirname "$soffice")")"
           echo "HST_INSTALL=$(cygpath -w "$install_dir")" >> "$GITHUB_ENV"
           echo "installed at $install_dir"
-          ls "$install_dir/program" | grep -i -E 'python|pyuno'
+          find "$install_dir/program" -maxdepth 1 \( -iname 'python*' -o -iname 'pyuno*' \) | head -n 20
       - name: Overlay the extension built from this commit
         if: ${{ inputs.overlay_extension }}
         shell: bash

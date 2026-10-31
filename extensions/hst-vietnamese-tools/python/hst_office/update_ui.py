@@ -16,41 +16,11 @@ from com.sun.star.awt import XCallback
 from com.sun.star.document import XDocumentEventListener
 
 from . import update_logic as logic
+from .update_texts import texts
 
 CONFIG_PATH = "/org.hasontech.hstoffice.UpdateCheck"
 PROTOCOL = "org.hst.office.update:"
 INFOBAR_ID = "hst-update-available"
-TEXTS = {
-    "vi": {
-        "title": "Kiểm tra cập nhật",
-        "new": "Đã có HST Office %s — bản mới.",
-        "current": "Bạn đang dùng %s.",
-        "download": "Tải về", "notes": "Xem điểm mới", "skip": "Bỏ qua phiên bản này", "close": "Đóng",
-        "uptodate": "Bạn đang dùng phiên bản mới nhất (%s).",
-        "failed": "Không kiểm tra được cập nhật. Hãy kiểm tra kết nối mạng rồi thử lại sau.",
-    },
-    "en": {
-        "title": "Check for Updates",
-        "new": "HST Office %s is available — a new version.",
-        "current": "You are using %s.",
-        "download": "Download", "notes": "What's new", "skip": "Skip this version", "close": "Close",
-        "uptodate": "You are using the latest version (%s).",
-        "failed": "Could not check for updates. Check your network connection and try again later.",
-    },
-}
-
-
-def ui_language(ctx):
-    """'vi' when the office UI language is Vietnamese, else 'en'."""
-    try:
-        node = _node(ctx, "/org.openoffice.Setup/L10N")
-        return "vi" if str(node.getByName("ooLocale")).lower().startswith("vi") else "en"
-    except Exception:  # noqa: BLE001 - cosmetic; English is the safe fallback for non-Vietnamese systems
-        return "en"
-
-
-def texts(ctx=None):
-    return TEXTS[ui_language(ctx or uno.getComponentContext())]
 STATE = {"release": None, "pending": None, "listener": None}  # last release found (used by the infobar buttons)
 
 
