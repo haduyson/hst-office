@@ -1,0 +1,121 @@
+HST Office: core schema org.openoffice.Office.HSTUpdate for the update check, so administrators can
+lock it with a finalized share/registry .xcd or the Windows registry policy layer.
+
+--- a/officecfg/files.mk
++++ b/officecfg/files.mk
+@@ -29,6 +29,7 @@
+     Office/ExtensionDependencies \
+     Office/ExtensionManager \
+     Office/FormWizard \
++    Office/HSTUpdate \
+     Office/Histories \
+     Office/Impress \
+     Office/Java \
+--- a/postprocess/CustomTarget_registry.mk
++++ b/postprocess/CustomTarget_registry.mk
+@@ -147,6 +147,7 @@
+ 	$(postprocess_XCS)/Office/ExtensionDependencies.xcs \
+ 	$(postprocess_XCS)/Office/ExtensionManager.xcs \
+ 	$(postprocess_XCS)/Office/FormWizard.xcs \
++	$(postprocess_XCS)/Office/HSTUpdate.xcs \
+ 	$(postprocess_XCS)/Office/Histories.xcs \
+ 	$(postprocess_XCS)/Office/Impress.xcs \
+ 	$(postprocess_XCS)/Office/Java.xcs \
+--- /dev/null
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTUpdate.xcs
+@@ -0,0 +1,95 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" oor:name="HSTUpdate" oor:package="org.openoffice.Office" xml:lang="en-US">
++  <info>
++    <desc>HST Office update check (the bundled HST extension reads these settings). Every property can be
++      locked by an administrator with oor:finalized="true" in a share/registry .xcd file, in the Windows
++      registry (HKLM\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate\...) or in a shared
++      extension. Only the product version and the OS name are sent to office.hasontech.vn.</desc>
++  </info>
++  <component>
++    <prop oor:name="AutoCheck" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Check for a new HST Office version at start-up, at most once per CheckIntervalHours.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="ManualCheck" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Allow the "Check for Updates" menu commands. When false they are disabled and HST Office never
++          contacts the update server.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="CheckIntervalHours" oor:type="xs:int" oor:nillable="false">
++      <info>
++        <desc>Minimum time between two automatic checks, in hours (1 to 8760).</desc>
++      </info>
++      <constraints>
++        <minInclusive oor:value="1"/>
++        <maxInclusive oor:value="8760"/>
++      </constraints>
++      <value>24</value>
++    </prop>
++    <prop oor:name="AllowInstall" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Offer "Update now" (download, verify and install after the user agrees). When false only the
++          manual download link is offered.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="Channel" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Release channel: empty = follow the installed version (a beta install sees beta and stable
++          releases, a stable install only stable ones), "stable" = only stable releases, "beta" = beta and
++          stable releases.</desc>
++      </info>
++      <constraints>
++        <enumeration oor:value="">
++          <info>
++            <desc>Follow the installed version</desc>
++          </info>
++        </enumeration>
++        <enumeration oor:value="stable">
++          <info>
++            <desc>Stable releases only</desc>
++          </info>
++        </enumeration>
++        <enumeration oor:value="beta">
++          <info>
++            <desc>Beta and stable releases</desc>
++          </info>
++        </enumeration>
++      </constraints>
++      <value/>
++    </prop>
++    <prop oor:name="LastCheck" oor:type="xs:long" oor:nillable="false">
++      <info>
++        <desc>Unix time (seconds) of the last automatic check attempt (per user state).</desc>
++      </info>
++      <value>0</value>
++    </prop>
++    <prop oor:name="SkippedVersion" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Version the user chose to skip; it is not announced again unless it is critical (per user
++          state).</desc>
++      </info>
++      <value/>
++    </prop>
++    <prop oor:name="LegacyMigrated" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>True once the per-user values of the old extension schema
++          (/org.hasontech.hstoffice.UpdateCheck) were copied here (internal).</desc>
++      </info>
++      <value>false</value>
++    </prop>
++  </component>
++</oor:component-schema>
