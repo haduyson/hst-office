@@ -186,6 +186,9 @@ def main():
   <link rel="icon" href="/assets/img/favicon.svg?v=1" type="image/svg+xml">
   <link rel="icon" href="/assets/img/favicon-32.png?v=1" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png?v=1" sizes="180x180">
+  <link rel="preload" href="/assets/fonts/be-vietnam-pro-latin-800-normal.woff2?v=1" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/be-vietnam-pro-vietnamese-800-normal.woff2?v=1" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/be-vietnam-pro-vietnamese-400-normal.woff2?v=1" as="font" type="font/woff2" crossorigin>
   <script>document.documentElement.classList.add('nav-enhanced')</script>
   <link rel="stylesheet" href="/assets/css/style.css?v={css_v}">
   <script src="/assets/js/main.js?v={js_v}" defer></script>
