@@ -135,6 +135,14 @@ def main():
         p.timed(f"switch-{i + 1}", lambda: p.dispatch(".uno:NextDocumentTab"), 1.5)
     if mode == "fullscreen":
         p.timed("plus-new-writer-fullscreen", lambda: p.load("private:factory/swriter"), 3)
+        # Leave native full screen with several tabs open (green button / Ctrl+Cmd+F do the same).
+        setfs = ('tell application "System Events" to tell (first process whose unix id is %d) '
+                 'to set value of attribute "AXFullScreen" of window 1 to %s')
+        p.timed("exit-fullscreen", lambda: p.mark("exit-rc", rc=osa(setfs % (pid, "false"))[0]), 4)
+        p.timed("switch-after-exit-1", lambda: p.dispatch(".uno:NextDocumentTab"), 1.5)
+        p.timed("switch-after-exit-2", lambda: p.dispatch(".uno:NextDocumentTab"), 1.5)
+        p.mark("reenter-rc", rc=osa(setfs % (pid, "true"))[0])
+        time.sleep(4)
     # Close the shown tab twice: once by the command, once by Cmd+W like the owner.
     p.timed("close-command", lambda: p.dispatch(".uno:CloseWin"), 2)
     p.mark("cmdw:start")
