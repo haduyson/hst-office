@@ -12,6 +12,12 @@ def snapshot(path):
             for p in path.rglob('*')}
 
 
+def preserved_records(saved, original):
+    # Internal parameters must be rebound. Retain every other original byte.
+    strip = lambda data: b'\n'.join(line for line in data.split(b'\n') if not line.startswith(b'parameters='))
+    assert strip(saved).startswith(strip(original))
+
+
 def browser_profile(office):
     home = Path(office.workdir) / 'home'
     source = home / '.mozilla/firefox/default'
@@ -28,7 +34,7 @@ def browser_profile(office):
 
 def check_private(db, source, before, env):
     assert snapshot(source) == before, 'The original Firefox store changed'
-    assert (db / 'pkcs11.txt').read_bytes().startswith(before['pkcs11.txt'][1])
+    preserved_records((db / 'pkcs11.txt').read_bytes(), before['pkcs11.txt'][1])
     assert db.stat().st_mode & 0o777 == 0o700
     assert (db / '.hst-office-nssdb').is_file()
     listing = subprocess.run(['modutil', '-list', '-dbdir', 'sql:' + str(db)], check=True,

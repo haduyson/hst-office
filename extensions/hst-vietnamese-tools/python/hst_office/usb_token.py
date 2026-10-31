@@ -18,12 +18,13 @@ def setup(ctx):
     db, fallback = select_db(Path.home(), configured, platform, core_path=current)
     # CertDir may already point to our new store while core still caches the old
     # path. Repeated setup must use that store and keep the restart requirement.
-    if configured and owned(configured):
+    if (not os.environ.get("MOZILLA_CERTIFICATE_FOLDER") and configured
+            and str(Path(configured)) in _pending_restart and owned(configured)):
         db, fallback = Path(configured), False
     modules = detect(platform, os.environ.get("HST_USB_TOKEN_TEST_ROOT", "/"), Path.home())
     if not modules:
         return db, [], False
-    user_database(db)
+    user_database(db, create=False)
     db, rows, moved = register(db, modules, Path.home(), platform, configured)
     added = any(row["status"] == "added" for row in rows)
     # NSS caches loaded modules and its path at first use (including PDF export).

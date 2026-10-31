@@ -20,7 +20,7 @@ os.environ.setdefault("HST_VCLPLUGIN", "gen")
 import hst_gui
 import signature_pki
 from usb_token_harness import certificate_with_pin, install, setup_dialog, signing_helpers
-from usb_token_private_harness import browser_profile, check_private, snapshot
+from usb_token_private_harness import browser_profile, check_private, preserved_records, snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -75,7 +75,7 @@ def run_mode(args, mode, signing):
         if args.darwin:
             assert "HST Office hiện dùng kho chứng thư riêng" in text and "Kho cũ được giữ nguyên" in text, text
             assert snapshot(source) == before
-            assert saved.startswith(before['pkcs11.txt'][1])
+            preserved_records(saved, before['pkcs11.txt'][1])
             assert not (db / 'cert9.db').exists() and not (db / 'key4.db').exists()
             checks["private_store_preserves_profile_and_all_records"] = True
         text = setup_dialog(office, frame, signing)

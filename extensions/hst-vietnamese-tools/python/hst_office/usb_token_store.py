@@ -6,6 +6,7 @@ import shutil
 import tempfile
 
 from . import usb_token_nss as nss
+from .usb_token_binding import relocate
 from .usb_token_errors import SetupError, vietnamese_error
 from .usb_token_transaction import create_new
 
@@ -77,6 +78,11 @@ def publish(source, target, original, text):
 
 
 def register_private(db, modules, home, platform, configured):
+    if os.environ.get("MOZILLA_CERTIFICATE_FOLDER"):
+        raise SetupError("MOZILLA_CERTIFICATE_FOLDER đang cố định kho chứng thư; chưa thay đổi tệp hay chọn kho mới. "
+                         "Trên Linux, hãy đóng ứng dụng đang dùng kho rồi đăng ký vào kho đã cố định khi có thể khóa an toàn. "
+                         "Nếu không, hãy bỏ thiết lập biến MOZILLA_CERTIFICATE_FOLDER trong môi trường khởi chạy "
+                         "rồi khởi động lại HST Office và thử lại.")
     original = nss.read_text(db / "pkcs11.txt")
     rows = nss.register(db, modules, probe=True)
     if not any(row["status"] == "added" for row in rows):
@@ -92,8 +98,9 @@ def register_private(db, modules, home, platform, configured):
                     duplicates.append(row)
         if nss.read_text(db / "pkcs11.txt") != original:
             raise SetupError("Kho chứng thư vừa thay đổi; chưa chọn kho mới. Hãy thử lại.")
+        relocate(text, db)  # Validate every binding/policy before allocating anything.
         target = directory(home, platform, configured)
-        publish(db, target, original, text)
+        publish(db, target, original, relocate(text, target))
     except Exception as exc:  # noqa: BLE001 - no native or OS text in the dialog
         for row in rows:
             if row["status"] == "added":

@@ -118,8 +118,18 @@ class ActionTest(unittest.TestCase):
     def test_repeat_before_restart_uses_owned_certdir_despite_cached_core_path(self):
         path, register = self.environment(True, [dict(status='existing')])
         target = store.directory(path, 'macos')
+        action._pending_restart.add(str(target))
         with patch.object(db, 'office_state', return_value=(str(target), str(path), True, Mock())):
             selected, rows, restart = action.setup(self.ctx)
         self.assertEqual(selected, target)
         self.assertTrue(restart)
         self.assertEqual(register.call_args.args[0], target)
+
+    def test_owned_certdir_without_pending_switch_does_not_mask_core_path(self):
+        path, register = self.environment(True, [dict(status='existing')])
+        target = store.directory(path, 'macos')
+        with patch.object(db, 'office_state', return_value=(str(target), str(path), True, Mock())):
+            selected, _, restart = action.setup(self.ctx)
+        self.assertEqual(selected, path)
+        self.assertFalse(restart)
+        self.assertEqual(register.call_args.args[0], path)

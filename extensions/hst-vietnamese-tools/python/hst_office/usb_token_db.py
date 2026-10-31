@@ -70,7 +70,7 @@ def select_db(home, configured="", platform="linux", env=None, core_path=""):
     return home / ".pki/nssdb", True
 
 
-def user_database(path):
+def user_database(path, create=True):
     """Only a SQL DB owned by this user; never migrate or modify another user's DB."""
     if os.geteuid() == 0:
         raise SetupError("Hãy chạy HST Office bằng tài khoản người dùng thông thường.")
@@ -85,7 +85,8 @@ def user_database(path):
         item = path / name
         if item.is_symlink() or (item.exists() and item.stat().st_uid != os.geteuid()):
             raise SetupError("Tệp trong kho chứng thư không thuộc tài khoản đang sử dụng hoặc là liên kết.")
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if create:
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
 
 def office_state(ctx):

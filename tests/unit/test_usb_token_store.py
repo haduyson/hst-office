@@ -39,7 +39,10 @@ class PrivateStoreTest(NativeNssFixture):
             self.assertEqual(rows[0]['status'], 'added')
             self.assertEqual(self.tree(self.db), before)
             self.assertTrue(store.owned(target))
-            self.assertTrue((target / 'pkcs11.txt').read_bytes().startswith(original))
+            # Only the internal DB binding changes in the copy; all other bytes survive.
+            without_params = lambda data: b'\n'.join(line for line in data.split(b'\n')
+                                                     if not line.startswith(b'parameters='))
+            self.assertTrue(without_params((target / 'pkcs11.txt').read_bytes()).startswith(without_params(original)))
             self.assertEqual({r['library'] for r in nss.parse(nss.read_text(target / 'pkcs11.txt'))},
                              {'', str(ROOTS), str(vendor), str(SOFT)})
             for name in ('cert9.db', 'key4.db'):
