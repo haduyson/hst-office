@@ -123,3 +123,49 @@ class DetectionTest(unittest.TestCase):
         self.touch("etc/pkcs11/modules/token.module", "module: /usr/lib/libcastle.so.1.0.0\n")
         self.touch("home/.config/pkcs11/modules/token.module", "module:\n")
         self.assertEqual(detect("linux", self.root, self.home), [])
+
+    def test_alias_override_keeps_enabled_canonical_driver(self):
+        primary = self.touch("usr/lib/libcastle.so.1.0.0")
+        alias = self.root / "active.so"
+        alias.symlink_to(primary)
+        self.touch("usr/share/p11-kit/modules/token.module", "module: /usr/lib/libcastle.so.1.0.0\n")
+        self.touch("home/.config/pkcs11/modules/token.module", "module: /active.so\n")
+        for entries in (None, []):
+            with self.subTest(catalog=entries is None):
+                rows = detect("linux", self.root, self.home, entries)
+                self.assertEqual([Path(row["path"]).resolve() for row in rows], [primary])
+
+    def test_final_override_restores_vendor_after_admin_disable_or_replacement(self):
+        primary = self.touch("usr/lib/libcastle.so.1.0.0")
+        self.touch("usr/lib/libeTPkcs11.so")
+        self.touch("usr/share/p11-kit/modules/token.module", "module: /usr/lib/libcastle.so.1.0.0\n")
+        self.touch("home/.config/pkcs11/modules/token.module", "module: /usr/lib/libcastle.so.1.0.0\n")
+        for intermediate in ("module: /usr/lib/libeTPkcs11.so\n", "module:\n",
+                             "module: /usr/lib/libcastle.so.1.0.0\ndisable-in: soffice.bin\n"):
+            with self.subTest(intermediate=intermediate):
+                self.touch("etc/pkcs11/modules/token.module", intermediate)
+                rows = detect("linux", self.root, self.home, entries=[])
+                self.assertEqual([Path(row["path"]).resolve() for row in rows], [primary])
+        # A displaced administrator driver cannot re-enter through the catalog.
+        self.touch("etc/pkcs11/modules/token.module", "module: /usr/lib/libeTPkcs11.so\n")
+        self.assertEqual([row["path"] for row in detect("linux", self.root, self.home)], [str(primary)])
+
+    def test_final_alias_disable_or_empty_override_excludes_all_paths(self):
+        primary = self.touch("usr/lib/libcastle.so.1.0.0")
+        (self.root / "active.so").symlink_to(primary)
+        self.touch("usr/share/p11-kit/modules/token.module", "module: /usr/lib/libcastle.so.1.0.0\n")
+        self.touch("etc/pkcs11/modules/token.module", "module: /active.so\n")
+        for final in ("module:\n", "", "module: /active.so\ndisable-in: soffice.bin\n",
+                      "module: /active.so\nenable-in: another-app\n", "module: /active.so\ntrust-policy: yes\n"):
+            with self.subTest(final=final):
+                self.touch("home/.config/pkcs11/modules/token.module", final)
+                self.assertEqual(detect("linux", self.root, self.home), [])
+
+    def test_separate_explicit_exclusion_wins_over_enabled_alias_override(self):
+        primary = self.touch("usr/lib/libcastle.so.1.0.0")
+        (self.root / "active.so").symlink_to(primary)
+        self.touch("usr/share/p11-kit/modules/token.module", "module: /usr/lib/libcastle.so.1.0.0\n")
+        self.touch("home/.config/pkcs11/modules/token.module", "module: /active.so\n")
+        self.touch("etc/pkcs11/modules/disabled.module",
+                   "module: /usr/lib/libcastle.so.1.0.0\ndisable-in: soffice.bin\n")
+        self.assertEqual(detect("linux", self.root, self.home), [])

@@ -50,17 +50,20 @@ def p11_policy(root, home):
     dirs = [] if policy == "only" else [Path(root) / "usr/share/p11-kit/modules", admin / "modules"]
     if policy != "none":
         dirs.append(user / "modules")
-    configs, excluded = {}, set()
+    configs, history, excluded = {}, {}, set()
     for directory in dirs:
         for path in sorted(directory.glob("*.module")):
             fields = _fields(path)
-            old = configs.get(path.name, {})
-            if old.get("module") != fields.get("module"):
-                excluded.update(str(p.resolve()) for p in _module_paths(root, old.get("module", "")))
+            history.setdefault(path.name, set()).update(
+                str(p.resolve()) for p in _module_paths(root, fields.get("module", "")))
             configs[path.name] = fields
     found = []
     for name, fields in configs.items():
         paths = _module_paths(root, fields.get("module", ""))
+        # Reconcile each override chain with its final canonical identities.
+        # An alias or a restored vendor path must not exclude itself. Explicit
+        # exclusions from other registrations still win across all aliases.
+        excluded.update(history[name] - {str(path.resolve()) for path in paths})
         programs = {"soffice", "soffice.bin"}
         enabled = set(fields.get("enable-in", "").replace(",", " ").split())
         disabled = set(fields.get("disable-in", "").replace(",", " ").split())

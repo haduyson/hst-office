@@ -95,8 +95,26 @@ def tool(name):
     return shutil.which(name)
 
 
+def macos_contents():
+    """Find the enclosing app, also from a versioned Python framework prefix."""
+    if sys.platform == "darwin":
+        for location in (sys.executable, sys.base_prefix):
+            path = Path(location).resolve()
+            for parent in (path, *path.parents):
+                if (parent.name == "Contents" and parent.parent.suffix == ".app"
+                        and (parent / "MacOS").is_dir() and (parent / "Frameworks").is_dir()):
+                    return parent
+    return None
+
+
 def helper_python():
-    candidates = [sys.executable, str(Path(sys.base_prefix) / "bin/python3"), shutil.which("python3")]
+    candidates = [sys.executable, str(Path(sys.base_prefix) / "bin/python3")]
+    contents = macos_contents()
+    if contents:
+        framework = contents / "Frameworks/LibreOfficePython.framework"
+        candidates.extend([str(framework / "bin/python3"), str(framework / "Versions/Current/bin/python3")])
+        candidates.extend(str(path) for path in sorted(framework.glob("Versions/*/bin/python3")))
+    candidates.append(shutil.which("python3"))
     for value in candidates:
         if value and Path(value).name.startswith("python") and os.access(value, os.X_OK):
             return value
@@ -111,8 +129,11 @@ def nss_library():
             if path.startswith("/") and Path(path).name == "libnss3.so":
                 return path
         return "libnss3.so"
-    for parent in (Path(sys.executable).parent, Path(sys.base_prefix), Path(sys.base_prefix).parent / "Frameworks"):
-        for name in ("libnss3.dylib", "libnss3.so"):
+    contents = macos_contents()
+    parents = [contents / "Frameworks", contents / "MacOS"] if contents else []
+    parents.extend([Path(sys.executable).resolve().parent, Path(sys.base_prefix)])
+    for parent in parents:
+        for name in (("libnss3.dylib",) if sys.platform == "darwin" else ("libnss3.so",)):
             if (parent / name).is_file():
                 return str(parent / name)
     raise SetupError("Không tìm thấy thư viện NSS của HST Office; chưa thay đổi kho chứng thư.")

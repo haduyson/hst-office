@@ -108,3 +108,49 @@ Exported `87e4abd` locally with `git archive` and ran seven selected finding reg
 Current logs: `/tmp/usb-unit-final.log`, `/tmp/usb-all-unit-final.log`, `/tmp/usb-quality-final.log`, `/tmp/usb-signing.log`, `/tmp/usb-signing-modutil.log`, `/tmp/usb-signing-pkcs11.log`. Native review results: `/tmp/usb-fix-runtime/review-final/results.json`. Earlier equivalent selection/fallback runs are in `/tmp/usb-fix-runtime/selection-final/results.json` and `/tmp/usb-fix-runtime/fallback-final/results.json`.
 
 The fixes and focused regressions pass, but **full release validation is not green** in this offline container. Rerun the exact full unit, both-method signing and quality commands in an environment with PyYAML, Pillow, shellcheck, cryptography and lxml already available. No signing success or native macOS acceptance is claimed for this revision.
+
+
+## Round-2 fixes
+
+2026-10-31. Addressed all **1 major and 3 minor** findings in the second independent review. The counts below supersede the earlier environment-blocked validation in “Review fixes”. Production still preserves existing module bytes and names, uses the same private backup/rollback transaction, and displays Vietnamese errors. No production PIN/login/key operation was added. No external network, sudo, push, or write to the read-only `/opt/hst` installation was used; GUI tests ran as uid 2000 with private HOME/profile/SQL directories and Xvfb `:99`.
+
+| Finding | Fix | Test / verification |
+|---|---|---|
+| **R2-M1 — macOS NSS bundle locator** | Resolve the enclosing `.app/Contents` from the executable or Python prefix, including symlinks and nested framework/version directories. Prefer `Contents/Frameworks/libnss3.dylib`, with `Contents/MacOS/libnss3.dylib` as a fallback. Resolve bundled `LibreOfficePython.framework/bin/python3` and versioned helpers before the PATH fallback. | **7 bundle tests** in `test_usb_token_macos.py`: `HST.app` and `HST Office.app`, framework-root/version/Current prefixes, external Python, symlinked office launcher, missing helper aliases, library precedence and safe missing-library refusal. The standard layout test covers **6 app/prefix combinations** and executes the fixture helper in each. A worker-transport fixture verifies the actual resolved NSS and helper paths passed by `register()`. These are filesystem/transport tests on Linux, not Mach-O execution. |
+| **R2-m1 — enabled p11-kit alias excluded** | Track canonical library identities per configuration name and reconcile each complete vendor/admin/user override chain with its effective final configuration. Same-library aliases and restored vendor paths stay enabled; displaced paths and explicit disable/empty/trust/restricted configurations remain excluded, including catalog aliases. | **4 detection regressions** cover enabled alias replacement, restoration after intermediate replacement/disable/empty entries, final exclusions, and an independent explicit exclusion winning over an enabled alias. `test_enabled_alias_override_registers_real_driver_both_methods` additionally detects the SoftHSM alias and registers it through both methods, independently lists both loaded modules with native NSS, and checks preservation of existing bytes and SQL files. |
+| **R2-m2 — permanent macOS refusal absent from help** | The shipped Vietnamese macOS help now explains refusal to add to an existing `pkcs11.txt`, including browser profiles and a second driver. It states that retry/restart cannot remove this restriction, forbids deleting/renaming the existing file as a workaround, and gives steps for selecting a separate empty store while preserving the old one. Manual NSS instructions now target a new separate directory and explicitly lack the backend's preservation/recovery guarantees. | Extended `test_unsupported_exclusive_lock_refuses_existing_file` verifies repeat refusal and unchanged native SQL/module snapshots. New `test_macos_new_file_creation_then_second_driver_refusal` checks atomic first creation, private permissions, second-driver refusal, and independent native NSS loading after SQL initialization. Help structure/link checks pass in the full unit/quality suites; the restriction and alternative were also reviewed against the transaction and core-selection code. |
+| **R2-m3 — oversized native-NSS test module** | Extract `usb_token_nss_fixtures.py`; split native validation/policy, preservation/recovery, and concurrency tests into three focused modules. | **All 16 original native tests retained**, checked by method-name comparison and executed; **18 native tests now pass** including the two new regressions. By the checker convention (`newline count + 1`), fixture/validation/preservation/concurrency modules are **51 / 124 / 111 / 104 lines**. Every USB test/helper module is at most **172 lines**. |
+
+### macOS layout evidence and limits
+
+Inspected local `scripts/macos/startup-probe.sh`, `spell-probe.sh`, `probe-lib.sh` and `signature-probe.sh`: the office executable is `Contents/MacOS/soffice`, and native libraries/frameworks are under `Contents/Frameworks`. `trial-build.sh` fills the generated `instsetoo_native/util/openoffice.lst` and `sysui/desktop/macosx/Info.plist` before packaging. The local `hst-packaging.patch` contains the instsetoo HST product/include list (PackageSet/GeneratedPackage/Package/ExtensionPackage); the `hst-copyright.patch` sysui plist hunk retains executable `soffice`. The local postprocess patch hunks concern registry generation, not a different library location. The round-2 review records `libnss3.dylib` and `LibreOfficePython.framework` from upstream NSS packaging/Python bootstrap sources; those exact filenames are used by the fixtures.
+
+The complete upstream `instsetoo_native`/`postprocess` packaging lists and `sysui` source tree, reviewer `/tmp` source copies, and a native macOS artifact are **absent in this container**. They were searched for but could not be independently reread without network access. No files were downloaded. Native macOS loading, architecture/quarantine acceptance and a macOS fresh-store GUI smoke test remain unverified; successful Linux layout fixtures and no-tools signing are not presented as macOS runtime acceptance. Existing macOS module files continue to be refused safely.
+
+### Commands and results for these fixes
+
+```sh
+python3 -m unittest discover -s tests/unit
+python3 scripts/build-extensions.py --verify-reproducible
+runuser -u codex -- env HOME=/tmp/usb-round2-home python3 tests/runtime/check-usb-token-setup.py --instdir /opt/hst --workdir /tmp/usb-round2-runtime --display :99 --mode both
+bash scripts/ci-quality.sh
+python3 scripts/check-extensions.py --self-test
+python3 -I scripts/macos/make-dmg-background.py --check
+```
+
+| Check | Actual result |
+|---|---|
+| Required `python3 -m unittest discover -s tests/unit` | **371 run: 370 passed, 0 failures, 0 errors, 1 skipped** |
+| USB subset (also executed by quality) | **81/81 passed**, 0 failures/errors/skips, including **18/18 real-NSS tests** |
+| Required runtime, `--mode both`: modutil | **9/9 checks passed**, 0 skipped |
+| Required runtime, `--mode both`: pkcs11 (both NSS CLI tools disabled in setup) | **10/10 checks passed**, 0 skipped |
+| Actual SoftHSM signing | **2/2 signed ODTs** reopened with HST signature state `OK`; independent signature and issuer verification valid, **10/10 reference digests each**, **20/20 total**, 0 unchecked references. Certificate listing, test PIN dialogs and UI signing all executed. Test credentials remain confined to the existing harness. |
+| Required `bash scripts/ci-quality.sh` | **44 commands executed, 44 passed, 0 failed**; its **32 unittest invocations run 398 tests**, with the same one upstream skip |
+| Extension checker self-tests | **18/18 passed** |
+| Reproducible OXT build | **2 identical builds**, SHA-256 `19da5d73fb207363055572df6f6319f7988d3821235cfdfa28ffdcb811d2df1e` |
+| Packaged Python bound | **53 modules**, maximum **199 lines**; modified detection/NSS modules **102 / 163 lines** |
+| Standalone DMG background check; `git diff --check` | Passed |
+
+The sole unit skip is the unchanged `test_shipped_dictionary_is_complete_after_merge` because the upstream tree is absent. Windows preflight skips its pinned-tarball simulation, and macOS preflight skips upstream configure/patch/icon checks for the same missing inputs. Its existing font/Pillow guard also reports a DMG-background skip; the separate exact background check above passed. **No runtime/signing check was skipped, no dependency was downloaded, and no failing check was waived.**
+
+Logs are `/tmp/usb-round2-{unit,build,runtime,quality,extension-check,dmg}.log`; native runtime results are `/tmp/usb-round2-runtime/results.json`. Copies of those logs and the result JSON are in ignored `tests/output/usb-token-setup/round2/`; PKI/key files were not copied or committed. `/opt/hst` remained mounted read-only. The transaction/worker implementation is unchanged by these fixes, and all earlier preservation, backup, rollback, concurrency and invalid-library regressions passed.
