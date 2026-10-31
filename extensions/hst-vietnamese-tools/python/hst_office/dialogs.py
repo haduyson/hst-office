@@ -48,6 +48,7 @@ class Dialog:
         self._listeners = []
         self._watchers = []  # (control name, _Changed)
         self.result = 0
+        self.on_oversize = None  # called with no arguments when the peer is larger than the screen work area
 
     def _add(self, kind, name, x, y, w, h, **props):
         model = self.model.createInstance("com.sun.star.awt.UnoControl%sModel" % kind)
@@ -102,11 +103,21 @@ class Dialog:
         self.dialog.endExecute()
         self.result = code
 
+    def _exceeds_screen(self, toolkit):
+        """True when the created dialog (pixels) does not fit the work area, e.g. Windows display scaling on a small screen."""
+        try:
+            size, area = self.dialog.getPeer().getPosSize(), toolkit.getWorkArea()
+            return size.Width > area.Width or size.Height > area.Height
+        except Exception:  # noqa: BLE001 - unknown geometry: keep the full layout
+            return False
+
     def execute(self, parent_peer=None):
         """Show modally; returns 1 only if end(1) was called (OK), else 0. Always disposes the dialog."""
         toolkit = self.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", self.ctx)
         self.dialog.setVisible(False)
         self.dialog.createPeer(toolkit, parent_peer)
+        if self.on_oversize and self._exceeds_screen(toolkit):
+            self.on_oversize()
         for name, listener in self._listeners:
             self.dialog.getControl(name).addActionListener(listener)
         for name, listener in self._watchers:

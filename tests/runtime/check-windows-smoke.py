@@ -119,9 +119,16 @@ def close_dialog(window):
                        timeout=30, check=False)
 
 
+def is_new(window, known):
+    return all(window != other for other in known)  # pyuno proxies compare by UNO object identity
+
+
 def pump(toolkit, work, wait_for_window):
-    """Run `work` in a thread; close (endExecute) every window that opens meanwhile. Returns (titles, error text)."""
-    before = {id(w) for w in top_windows(toolkit)}
+    """Run `work` in a thread; close every window that opens meanwhile. Returns (descriptions, error text).
+
+    A description is "title WxH" (pixels); a window larger than the screen work area is reported as OVERSIZE.
+    """
+    known = top_windows(toolkit)
     state = {"error": ""}
 
     def target():
@@ -132,22 +139,28 @@ def pump(toolkit, work, wait_for_window):
 
     thread = threading.Thread(target=target, daemon=True)
     thread.start()
-    titles, deadline = [], time.time() + 40
-    while time.time() < deadline and (thread.is_alive() or (wait_for_window and not titles)):
+    found, deadline = [], time.time() + 40
+    area = toolkit.getWorkArea()
+    while time.time() < deadline and (thread.is_alive() or (wait_for_window and not found)):
         for window in top_windows(toolkit):
-            if id(window) not in before:
-                title = window_title(window)
-                titles.append(title)
-                before.add(id(window))
-                time.sleep(1.5)  # let it paint before the screenshot
-                shot(title or "window")
-                if title:  # untitled top windows are document frames: never close those
-                    close_dialog(window)
+            if is_new(window, known):
+                known.append(window)
+                time.sleep(1.5)  # let it paint, and let the title appear
+                try:
+                    size = window.getPosSize()
+                except Exception:  # noqa: BLE001
+                    size = area.__class__(0, 0, 0, 0)
+                label = "%s %dx%d" % (window_title(window), size.Width, size.Height)
+                if size.Width > area.Width or size.Height > area.Height:
+                    label += " OVERSIZE(work area %dx%d)" % (area.Width, area.Height)
+                found.append(label)
+                shot(label)
+                close_dialog(window)
         time.sleep(0.3)
     thread.join(10)
     if thread.is_alive():
         state["error"] += "still blocked after 50 s\n"
-    return titles, state["error"]
+    return found, state["error"]
 
 
 def open_document(ctx, desktop, kind):
@@ -237,9 +250,12 @@ def main():
                     titles, error = None, traceback.format_exc()
                 dialog_commands = ("Nd30Wizard", "ShowSolutions", "ImportCsv", "ConvertEncoding")
                 wants = any(url.endswith(c) for c in dialog_commands)
-                ok = titles is not None and not error and (bool(titles) or not wants)
+                ok = titles is not None and not error and (bool(titles) or not wants) and not any("OVERSIZE" in t for t in titles)
                 record("dispatch %s (%s)" % (url, kind), ok, "windows=%s %s" % (titles, error))
-            doc.close(True)
+            try:
+                doc.close(True)
+            except Exception:  # noqa: BLE001 - a leftover dialog may veto closing; the next step restarts nothing
+                pass
         try:  # F1 help: the configured root must resolve to an existing file inside the install
             provider = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
             arg = PropertyValue()

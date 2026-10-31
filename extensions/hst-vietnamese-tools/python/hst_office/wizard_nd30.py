@@ -72,6 +72,20 @@ class Nd30Wizard:
         d.button("btnOk", s["insert"], WIDTH - 8 - 64 - 4 - 64, HEIGHT - 22, 64, callback=self._accept, default=True)
         d.button("btnCancel", self.s["common"]["cancel"], WIDTH - 8 - 64, HEIGHT - 22, 64, kind=2)
         d.on_change(("type",) + nd30.FIELD_KEYS, self.refresh)
+        d.on_oversize = self._compact
+
+    def _compact(self):
+        """Screen too small for the side-by-side layout (about 1200 px wide at 100% on Windows): drop the preview column."""
+        m, width = self.d.model, FIELD_X + FIELD_W + 8
+        for name in ("l_preview", "preview"):
+            m.getByName(name).EnableVisible = False
+        extra = 46  # the error line and the buttons move below the form
+        m.Width, m.Height = width, HEIGHT + extra
+        status = m.getByName("status")
+        status.PositionX, status.PositionY, status.Width = LABEL_X, HEIGHT + 2, width - 2 * LABEL_X
+        for name, x in (("btnOk", width - 8 - 64 - 4 - 64), ("btnCancel", width - 8 - 64)):
+            button = m.getByName(name)
+            button.PositionX, button.PositionY = x, HEIGHT + extra - 20
 
     def read(self):
         """(type_id, fields) from the form; date is normalised later by nd30.format_issue_date."""
