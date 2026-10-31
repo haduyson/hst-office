@@ -156,9 +156,9 @@ def png_pixels(path):
     return width, height, rows, bpp
 
 
-def find_plus_y(path, x, lo=130, hi=220):
-    """Row of the "+" button centre: the plus glyph is dark on its cross (+-5 px) and light in the
-    four corners of its 11x11 box; pick the row with the best cross-versus-corner score."""
+def find_plus(path, x_guess, lo=130, hi=220):
+    """(x, y, score) of the "+" button centre: the plus glyph is dark on its cross (+-5 px) and light in
+    the four corners of its 11x11 box; pick the best cross-versus-corner score near x_guess."""
     width, height, rows, bpp = png_pixels(path)
 
     def dark(xx, yy):
@@ -166,14 +166,17 @@ def find_plus_y(path, x, lo=130, hi=220):
         line = rows[yy]
         return (line[i] + line[i + 1] + line[i + 2]) // 3 < 120
 
-    best, best_y = 0, None
+    best, best_xy = 0, (None, None)
     for y in range(lo, min(hi, height - 7)):
-        cross = sum(dark(x + d, y) for d in range(-5, 6)) + sum(dark(x, y + d) for d in range(-5, 6))
-        corners = sum(dark(x + dx, y + dy) for dx in (-4, 4) for dy in (-4, 4))
-        score = cross - 3 * corners
-        if score > best:
-            best, best_y = score, y
-    return best_y, best
+        for x in range(max(x_guess - 80, 8), min(x_guess + 200, width - 8)):
+            cross = sum(dark(x + d, y) for d in range(-5, 6)) + sum(dark(x, y + d) for d in range(-5, 6))
+            if cross < 14:
+                continue
+            corners = sum(dark(x + dx, y + dy) for dx in (-4, 4) for dy in (-4, 4))
+            score = cross - 3 * corners
+            if score > best:
+                best, best_xy = score, (x, y)
+    return best_xy[0], best_xy[1], best
 
 
 def popup_open_file(p, pid, out, mode, label, ext="odt"):
@@ -200,10 +203,10 @@ def popup_open_file(p, pid, out, mode, label, ext="odt"):
     shot = f"{out}/{label}-locate-{mode}.png"
     subprocess.run(["screencapture", "-x", shot], check=False)
     try:
-        found, dark = find_plus_y(shot, x)
-        if found and dark >= 8:
-            y = found
-        p.mark(f"{label}:locate", x=x, found=found, dark=dark)
+        fx, fy, score = find_plus(shot, x)
+        if fx and score >= 8:
+            x, y = fx, fy
+        p.mark(f"{label}:locate", x=x, y=y, score=score)
     except Exception as error:  # noqa: BLE001 - keep the fixed guess
         p.mark(f"{label}:locate-failed", error=repr(error))
     osa('tell application "System Events" to tell (first process whose unix id is %d) to set frontmost to true' % pid)
