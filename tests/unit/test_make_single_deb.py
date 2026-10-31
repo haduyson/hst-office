@@ -64,7 +64,7 @@ class MakeSingleDeb(unittest.TestCase):
             self.assertIn("HSTOffice_1.0.0_Linux_x86-64.deb", (out / "SHA256SUMS").read_text())
             field = lambda f: subprocess.run(["dpkg-deb", "-f", str(deb), f], capture_output=True, text=True, check=True).stdout.strip()
             self.assertEqual(field("Package"), "hst-office")
-            self.assertEqual(field("Version"), "1.0.0-1")
+            self.assertEqual(field("Version"), "1.0.0-2")
             self.assertEqual(field("Architecture"), "amd64")
             depends = [c.strip() for c in field("Depends").split(",")]
             self.assertIn("libssl3t64", depends)
@@ -116,6 +116,13 @@ class MakeSingleDeb(unittest.TestCase):
             empty = base / "empty"
             empty.mkdir()
             self.assertNotEqual(self.run_tool(base, empty, expect_ok=False)[0].returncode, 0)
+
+    def test_t64_alternatives(self):
+        f = MOD.with_t64_alternative
+        self.assertEqual(f("libglib2.0-0 (>= 2.70)"), "libglib2.0-0 (>= 2.70) | libglib2.0-0t64 (>= 2.70)")
+        self.assertEqual(f("libcups2t64"), "libcups2t64")
+        self.assertEqual(f("libc6 (>= 2.35)"), "libc6 (>= 2.35)")
+        self.assertEqual(f("libx | python3"), "libx | libxt64 | python3")
 
     def test_clause_helpers(self):
         self.assertEqual(MOD.clause_name("libfoo (>= 1) | libbar"), "libfoo")

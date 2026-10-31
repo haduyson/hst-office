@@ -10,7 +10,8 @@
 #                 use), pkcon (PackageKit `pkcon install-local`, what App Center and
 #                 GNOME Software call) or upgrade (install a split set from OLD_SPLIT_DIR,
 #                 as shipped before the single package, then install the .deb over it)
-#   OLD_SPLIT_DIR directory of the old split .deb files (INSTALL_MODE=upgrade)
+#   OLD_SPLIT_DIR directory of the old split .deb files (INSTALL_MODE=upgrade), or
+#   OLD_DEB       an earlier single hst-office .deb to upgrade from
 # Uses only a uniquely named, auto-removed container; never touches others.
 # Needs network inside the container (apt resolves runtime library dependencies).
 set -euo pipefail
@@ -28,8 +29,13 @@ MOUNT_OLD=()
 case "$MODE" in
   apt|pkcon) ;;
   upgrade)
-    ls "${OLD_SPLIT_DIR:-/nonexistent}"/*.deb >/dev/null 2>&1 || { echo "BLOCKED: set OLD_SPLIT_DIR to the old split .deb files"; exit 2; }
-    MOUNT_OLD=(-v "$(cd "$OLD_SPLIT_DIR" && pwd):/old:ro") ;;
+    if [ -n "${OLD_DEB:-}" ]; then
+      [ -f "$OLD_DEB" ] || { echo "BLOCKED: OLD_DEB $OLD_DEB not found"; exit 2; }
+      MOUNT_OLD=(-v "$(cd "$(dirname "$OLD_DEB")" && pwd)/$(basename "$OLD_DEB"):/old/old.deb:ro")
+    else
+      ls "${OLD_SPLIT_DIR:-/nonexistent}"/*.deb >/dev/null 2>&1 || { echo "BLOCKED: set OLD_DEB (earlier single package) or OLD_SPLIT_DIR (split .deb files)"; exit 2; }
+      MOUNT_OLD=(-v "$(cd "$OLD_SPLIT_DIR" && pwd):/old:ro")
+    fi ;;
   *) echo "unknown INSTALL_MODE: $MODE"; exit 64 ;;
 esac
 
@@ -55,7 +61,7 @@ install_deb() {
 if [ "$MODE" = upgrade ]; then
   step old-split-install; apt-get install -y -qq /old/*.deb >/tmp/old-install.log 2>&1 || { tail -30 /tmp/old-install.log; exit 40; }
   OLD_COUNT="$(dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'hst-office*' | grep -c '^ii ')"
-  [ "$OLD_COUNT" -ge 30 ] && echo "PASS old-split-installed ($OLD_COUNT packages)" || { echo "FAIL old split set not installed ($OLD_COUNT)"; exit 41; }
+  [ "$OLD_COUNT" -ge 1 ] && echo "PASS old-split-installed ($OLD_COUNT packages)" || { echo "FAIL old split set not installed ($OLD_COUNT)"; exit 41; }
   useradd -m tester
   su tester -c "mkdir -p ~/Documents && printf 'Văn bản kiểm thử HST Office\n' > ~/Documents/keep.txt && cd ~/Documents && hst-office --headless --convert-to odt keep.txt >/dev/null 2>&1 && test -s keep.odt" \
     && echo "PASS old-split-works" || { echo "FAIL old split install does not convert"; exit 42; }
@@ -105,16 +111,50 @@ echo "INFO writer-exec $WEXEC"
 case "$WEXEC" in hst-office@HSTV@\ --writer*) echo "PASS writer-exec-name" ;; *) echo "FAIL unexpected Exec $WEXEC"; exit 28 ;; esac
 "$BIN" --version | sed -n 's/^\(.\+\)$/INFO version \1/p'
 id tester >/dev/null 2>&1 || useradd -m tester
-step bundled-extension
 EXT="/opt/hst-office@HSTV@/share/extensions/hst-vietnamese-tools"
+step bundled-extension
 [ -f "$EXT/description.xml" ] && echo "PASS bundled-extension-files ($EXT/description.xml)" || { echo "FAIL $EXT/description.xml missing"; exit 30; }
 UNOPKG="$(dirname "$BIN")/unopkg"
 BUNDLED="$(su tester -c "$UNOPKG list --bundled 2>&1" || true)"
 grep -q 'Identifier: vn\.hasontech' <<<"$BUNDLED" && echo "PASS unopkg-list-bundled ($(grep -o 'Identifier: vn\.hasontech[^ ]*' <<<"$BUNDLED" | head -1))" || { echo "FAIL unopkg list --bundled:"; echo "$BUNDLED" | tail -8; exit 31; }
+step bundled-python
+# The package must not need the distribution's Python: the bundled one runs pyuno, the HST
+# extension component, and a live UNO connection to a headless office.
+PY="$(dirname "$BIN")/python"
+[ -x "$PY" ] || { echo "FAIL bundled python missing: $PY"; exit 33; }
+su tester -c "$PY -c 'import sys, uno, unohelper; print(\"INFO bundled-python\", sys.version.split()[0])'" || { echo "FAIL import uno"; exit 33; }
+su tester -c "PYTHONPATH=$EXT/python $PY -c 'import hst_office_component'" && echo "PASS hst-extension-python-import" || { echo "FAIL hst extension python import"; exit 34; }
+su tester -c "$BIN --headless --invisible --norestore --accept='socket,host=127.0.0.1,port=2002;urp;' >/dev/null 2>&1 &"
+cat > /tmp/uno-check.py <<'PYC'
+import time, uno
+local = uno.getComponentContext()
+resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
+for _ in range(60):
+    try:
+        ctx = resolver.resolve("uno:socket,host=127.0.0.1,port=2002;urp;StarOffice.ComponentContext")
+        break
+    except Exception:
+        time.sleep(1)
+else:
+    raise SystemExit("no office connection")
+desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (uno.createUnoStruct("com.sun.star.beans.PropertyValue", "Hidden", 0, True, 0),))
+doc.Text.setString("Xin chào HST")
+assert doc.Text.getString() == "Xin chào HST"
+doc.close(True)
+try:
+    desktop.terminate()
+except Exception:
+    pass
+print("uno-ok")
+PYC
+chmod 644 /tmp/uno-check.py
+su tester -c "$PY /tmp/uno-check.py" | grep -q uno-ok && echo "PASS bundled-python-uno-session" || { echo "FAIL uno session"; exit 35; }
+pkill -x soffice.bin || true
 step no-libreoffice-ui
 # Installed Vietnamese UI strings must not name the upstream project (same allow-list as
 # tests/runtime/check-no-libreoffice-ui.py: licence dialog, safe-mode zip file name).
-python3 - "/opt/hst-office@HSTV@/program/resource/vi/LC_MESSAGES" <<'PY' || { echo "FAIL no-libreoffice-ui"; exit 32; }
+"$PY" - "/opt/hst-office@HSTV@/program/resource/vi/LC_MESSAGES" <<'PY' || { echo "FAIL no-libreoffice-ui"; exit 32; }
 import glob, gettext, re, sys
 names = re.compile(r"libreoffice|document\s*foundation", re.I)
 bad = []

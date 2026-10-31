@@ -7,7 +7,7 @@ Có số đo thật cho build Windows thử nghiệm (xem dòng Windows và `pla
 | Workflow | Khi chạy | Phạm vi và giới hạn |
 |---|---|---|
 | [Quality](../.github/workflows/quality.yml) | Push vào `main`, mọi pull request | Python 3.12, Node 22, kiểm tra mã và dữ liệu; tối đa 20 phút. |
-| [Linux](../.github/workflows/desktop-linux.yml) | `workflow_dispatch`, input `mode` = `full` (mặc định) hoặc `preflight` | `ubuntu-24.04` (4 vCPU, 16 GiB). Build các gói `.deb`, ~2 giờ; tối đa 355 phút. Xem mục [Linux (.deb)](#linux-deb). |
+| [Linux](../.github/workflows/desktop-linux.yml) | `workflow_dispatch`, input `mode` = `full` (mặc định) hoặc `preflight` | `ubuntu-24.04` (4 vCPU, 16 GiB), build trong container Ubuntu 22.04. Build một gói `.deb`, ~2 giờ; tối đa 355 phút. Xem mục [Linux (.deb)](#linux-deb). |
 | [Windows](../.github/workflows/desktop-windows.yml) | `workflow_dispatch`, input `mode` = `preflight` (mặc định) hoặc `full` | `windows-2022` (4 vCPU AMD EPYC, 16 GiB RAM, ổ D: ~220 GiB trống; build ở `D:\hst`). Preflight ~11 phút: Cygwin, make native, NASM, pkgconf, tải+sha256, giải nén, vá, cấu hình đến hết `autogen.sh`. Full: thêm `make` trong ngân sách 330 phút rồi dừng sạch và tải log/số đo; tối đa 355 phút. Kiểm tra cục bộ: `scripts/windows/preflight-local.sh`. |
 | [Windows smoke](../.github/workflows/windows-smoke.yml) | `workflow_dispatch`; inputs `release_tag` (mặc định bản phát hành mới nhất đã ghi), `overlay_extension` | `windows-2022`. Tải MSI của bản phát hành, kiểm tra sha256 theo `SHA256SUMS`, cài `msiexec /qn`, rồi `tests/runtime/check-windows-smoke.py` chạy bằng `python.exe` đóng gói: nạp mọi mô-đun phần mở rộng HST, gửi từng lệnh HST (NĐ 30, chuyển mã, giải pháp, cập nhật, CSV, định dạng), chụp màn hình các hộp thoại, đo kích thước so với màn hình. `overlay_extension` thay phần mở rộng đóng gói bằng bản dựng từ commit để thử bản sửa mà không build 2 giờ. Nhật ký/ảnh tải lên artifact. Tối đa 40 phút. |
 | [macOS](../.github/workflows/desktop-macos.yml) | `workflow_dispatch`, input `mode` = `preflight` (mặc định) hoặc `full` | Ma trận `macos-15` (arm64) và `macos-15-intel` (x86_64), dmg **chưa ký**; job ký/notarize tùy chọn. Xem mục [macOS](#macos). |
@@ -105,7 +105,22 @@ RAM đỉnh ~4,4 GiB (lấy mẫu 30 giây). Artifact:
   `embedded-library`, `shared-library-is-executable` (bộ cài nằm ở `/opt`, mang theo thư viện riêng).
 - `linux-evidence-<run_id>` (7 ngày, luôn tải lên): thời gian từng pha, mẫu đĩa/RAM, log.
 
-Phụ thuộc của gói `.deb` theo glibc/thư viện của Ubuntu 24.04 (runner). Kiểm cài đặt sạch:
+**Một gói cho nhiều bản phân phối.** Job chạy trên `ubuntu-24.04` nhưng mọi pha của
+[ci-build.sh](../scripts/linux/ci-build.sh) chạy trong container `ubuntu:22.04` (ghim digest, biến
+`HST_CONTAINER`; [run-in-container.sh](../scripts/linux/run-in-container.sh)). Gói liên kết với
+glibc 2.35 nên cài được trên Ubuntu 22.04 (Mint 21) và mọi bản mới hơn: Ubuntu 24.04, 26.04, Debian 13.
+Ba điểm khác với bản trước:
+
+- **Trình biên dịch:** LibreOffice 26.8 cần GCC 13 hoặc Clang 18; Ubuntu 22.04 không có. Dùng
+  Clang 20 từ `apt.llvm.org` (`HST_CLANG=20`, vân tay khóa được kiểm), biên dịch với header
+  libstdc++ 12 của chính Ubuntu 22.04 nên gói không đòi libstdc++ mới hơn khi chạy.
+- **Python:** `--enable-python=internal` (Python 3.13 đi kèm trong `/opt/hst-office1.0`), nên không còn phụ thuộc
+  `libpython3.12t64`; macro Python, pyuno và phần mở rộng HST chạy bằng Python đóng gói.
+- **Phụ thuộc thư viện:** `make-single-deb.py` thêm phương án `libX | libXt64` cho mọi thư viện (Ubuntu 24.04+/Debian 13
+  đổi tên `libglib2.0-0t64`, `libcups2t64`, ...).
+
+Bản phân phối hỗ trợ (đã kiểm bằng `check-deb-install.sh` trong Docker): Ubuntu 22.04, 24.04, 26.04, Debian 13 (và dẫn xuất:
+Mint 21/22). Phiên bản gói `1.0.0-2` (> `1.0.0-1` của beta 3, nên nâng cấp được); tăng `HST_DEB_REVISION` khi dựng lại cùng `VERSION`. Kiểm cài đặt sạch:
 `tests/runtime/check-deb-install.sh [tệp.deb]` (mặc định `INSTALL_MODE=apt`: `apt-get install ./tệp.deb`,
 cùng đường với trình cài đồ họa; `INSTALL_MODE=pkcon`: PackageKit `pkcon install-local`;
 `INSTALL_MODE=upgrade OLD_SPLIT_DIR=<thư-mục-bản-tách>`: nâng cấp đè lên bản tách của beta 2;

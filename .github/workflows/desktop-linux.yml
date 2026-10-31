@@ -15,9 +15,14 @@ concurrency:
   cancel-in-progress: false
 jobs:
   linux-deb:
-    # ubuntu-latest: 4 vCPU / 16 GiB; the .deb dependencies follow this runner's glibc.
+    # ubuntu-latest: 4 vCPU / 16 GiB. The build itself runs in an Ubuntu 22.04 container
+    # (scripts/linux/run-in-container.sh): the .deb is linked against glibc 2.35, so it
+    # installs on Ubuntu 22.04 and every newer supported distribution.
     runs-on: ubuntu-24.04
     timeout-minutes: 355
+    env:
+      HST_CONTAINER: ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11
+      HST_CLANG: '20'
     steps:
       - name: Record job start
         shell: bash
@@ -35,6 +40,12 @@ jobs:
         run: |
           set -eu
           bash scripts/linux/free-runner-disk.sh
+      - name: Install Pillow for branding staging
+        shell: bash
+        run: |
+          set -eu
+          sudo apt-get update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3-pil
       - name: Install build dependencies
         shell: bash
         run: |

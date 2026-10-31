@@ -6,10 +6,16 @@
 # HST_BUILD_DEADLINE (epoch seconds; --build stops make there and fails with status budget-stop),
 # HST_MIN_FREE_GIB (default 3; --build stops make and fails below this much free disk),
 # HST_SUDO (default sudo; empty when already root, e.g. in a local container check).
+# HST_CONTAINER (image) re-runs every phase in a build container; HST_CLANG (major) builds with
+# clang from apt.llvm.org instead of the distribution's gcc (needed on Ubuntu 22.04).
 # Same steps as scripts/build-linux.sh, minus the local build user: the runner user is not root.
 set -Eeuo pipefail
 trap 'echo "FAILED line $LINENO: $BASH_COMMAND" >&2' ERR
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# HST_CONTAINER=<image>: run this phase inside the build container (see run-in-container.sh).
+if [ -n "${HST_CONTAINER:-}" ] && [ -z "${HST_IN_CONTAINER:-}" ]; then
+  exec bash "$REPO/scripts/linux/run-in-container.sh" "$@"
+fi
 WORK="${HST_WORK:-/mnt/hst}"
 SRC="$WORK/lo"; LOGS="$WORK/logs"; METRICS="$WORK/metrics"; DL="${HST_DL:-$WORK/dl}"
 CONF="$REPO/build-config/linux-x86_64.conf"
@@ -48,14 +54,40 @@ phase() { # phase <name> <command...>: run, time and record in phases.jsonl; pro
 do_deps() {
   # LibreOffice build dependencies from the distribution's own source package (same as the
   # local build host, docs/UPSTREAM_BASELINE.md), plus Pillow for scripts/stage-branding.py and ninja (the bundled harfbuzz/meson build needs it).
+  # HST_CLANG=<major>: also install that clang from apt.llvm.org (key fingerprint pinned) and
+  # build with it. Ubuntu 22.04 (the glibc floor of the .deb) has no compiler new enough for
+  # LibreOffice 26.8 (GCC 13 / Clang 18), and clang uses the distribution's own libstdc++ 12
+  # headers, so the result needs no newer libstdc++ at run time.
   local sources=/etc/apt/sources.list.d/ubuntu.sources
-  [ -f "$sources" ] || { echo "deps: $sources missing (expected Ubuntu 24.04 deb822 sources)"; return 1; }
-  $SUDO sed -i 's/^Types: deb$/Types: deb deb-src/' "$sources" || return 1
+  if [ -f "$sources" ]; then
+    $SUDO sed -i 's/^Types: deb$/Types: deb deb-src/' "$sources" || return 1
+  elif [ -f /etc/apt/sources.list ]; then
+    $SUDO sed -i 's/^# *deb-src /deb-src /' /etc/apt/sources.list || return 1
+  else
+    echo "deps: no apt sources file found"; return 1
+  fi
   $SUDO apt-get update -qq || return 1
-  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get build-dep -y -qq libreoffice || return 1
   $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-    python3 python3-pil zip unzip xz-utils patch fakeroot ninja-build curl ca-certificates || return 1
-  gcc --version | head -1; python3 --version; make --version | head -1
+    python3 python3-pil zip unzip xz-utils patch fakeroot ninja-build curl ca-certificates gnupg lsb-release || return 1
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get build-dep -y -qq libreoffice || return 1
+  if [ -n "${HST_CLANG:-}" ]; then
+    local key="$WORK/llvm.gpg.key" codename fpr
+    codename="$(lsb_release -cs)" || return 1
+    curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o "$key" || return 1
+    fpr="$(gpg --show-keys --with-colons "$key" | awk -F: '$1=="fpr"{print $10; exit}')"
+    [ "$fpr" = 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421 ] || { echo "deps: unexpected llvm key fingerprint $fpr"; return 1; }
+    $SUDO mkdir -p /etc/apt/keyrings || return 1
+    gpg --dearmor < "$key" | $SUDO tee /etc/apt/keyrings/apt.llvm.org.gpg >/dev/null || return 1
+    echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/$codename/ llvm-toolchain-$codename-$HST_CLANG main" \
+      | $SUDO tee /etc/apt/sources.list.d/llvm.list >/dev/null || return 1
+    $SUDO apt-get update -qq || return 1
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+      "clang-$HST_CLANG" "lld-$HST_CLANG" "libclang-rt-$HST_CLANG-dev" "libomp-$HST_CLANG-dev" || return 1
+    "clang-$HST_CLANG" --version | head -1
+  else
+    gcc --version | head -1
+  fi
+  python3 --version; make --version | head -1
 }
 
 extract_one() { # extract_one <tarball> <dest>; all three tarballs share one libreoffice-<ver>/ root
@@ -100,6 +132,7 @@ do_options() { # validate every option against the pinned configure.ac, then wri
 do_configure() {
   test -f "$WORK/branding/staging-manifest.json" || { echo "branding not staged"; return 2; }
   do_options || return $?
+  if [ -n "${HST_CLANG:-}" ]; then export CC="clang-$HST_CLANG" CXX="clang++-$HST_CLANG"; fi
   (cd "$SRC" && ./autogen.sh) 2>&1 | tee "$LOGS/configure.log"
   test "${PIPESTATUS[0]}" -eq 0 || return 1
   # Same HST version wiring as scripts/build-linux.sh prepare_version.

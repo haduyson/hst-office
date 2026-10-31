@@ -130,6 +130,15 @@ def run(*cmd, **kw):
         die(f"{' '.join(map(str, cmd[:3]))} failed: {exc}")
 
 
+def file_hexdigest(path, algorithm):
+    """Chunked digest (hashlib.file_digest needs Python 3.11; the build container has 3.10)."""
+    digest = hashlib.new(algorithm)
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def parse_control(text):
     """Control paragraph -> {Field: value}; continuation lines are joined with \\n."""
     fields, key = {}, None
@@ -148,6 +157,27 @@ def clauses(value):
 
 def clause_name(clause):
     return re.split(r"[\s(:|]", clause, maxsplit=1)[0]
+
+
+# Libraries whose package name never changed in the 64-bit time_t transition.
+NO_T64 = {"libc6", "libgcc-s1", "libstdc++6", "libm6"}
+
+
+def with_t64_alternative(clause):
+    """`libfoo (>= 1)` -> `libfoo (>= 1) | libfoot64 (>= 1)`.
+
+    The packages are built against an old distribution (glibc floor) whose library
+    packages carry the pre-transition names; Ubuntu 24.04+ and Debian 13 renamed the
+    ones whose ABI changed (libglib2.0-0t64, libcups2t64, ...). Naming both lets one
+    .deb resolve everywhere; an alternative that does not exist is ignored by apt.
+    """
+    out = []
+    for alt in (a.strip() for a in clause.split("|")):
+        out.append(alt)
+        m = re.fullmatch(r"(lib[^\s(:]*)(.*)", alt)
+        if m and not m.group(1).endswith("t64") and m.group(1) not in NO_T64:
+            out.append(f"{m.group(1)}t64{m.group(2)}")
+    return " | ".join(dict.fromkeys(out))
 
 
 def merge_packages(debs, work):
@@ -197,6 +227,7 @@ def build_control(infos, stage, version):
     # Version-bounded clauses on the same library are redundant with the unbounded one.
     unbounded = {clause_name(c) for c in depends if "(" not in c and "|" not in c}
     depends = [c for c in depends if "(" not in c or clause_name(c) not in unbounded]
+    depends = [with_t64_alternative(c) for c in depends]
     archs = {i.get("Architecture") for i in infos} - {"all"}
     if archs != {"amd64"}:
         die(f"expected only amd64/all packages, got {sorted(archs)}")
@@ -281,7 +312,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("deb_dir", type=pathlib.Path)
     ap.add_argument("out_dir", type=pathlib.Path)
-    ap.add_argument("--revision", default=os.environ.get("HST_DEB_REVISION", "1"), help="Debian revision (default 1)")
+    ap.add_argument("--revision", default=os.environ.get("HST_DEB_REVISION", "2"), help="Debian revision (default 2: above the 1.0.0-1 of the first single-package release)")
     ap.add_argument("--compression", default=os.environ.get("HST_DEB_COMPRESSION", "xz"), help="dpkg-deb -Z type (default xz)")
     args = ap.parse_args()
     if not re.fullmatch(r"[0-9][0-9A-Za-z.+~]*", args.revision):
@@ -305,13 +336,11 @@ def main():
         sums = []
         for p in sorted(stage.rglob("*")):
             if p.is_file() and not p.is_symlink() and "DEBIAN" not in p.relative_to(stage).parts[:1]:
-                with open(p, "rb") as fh:
-                    sums.append(f"{hashlib.file_digest(fh, 'md5').hexdigest()}  {p.relative_to(stage).as_posix()}")
+                sums.append(f"{file_hexdigest(p, 'md5')}  {p.relative_to(stage).as_posix()}")
         (stage / "DEBIAN/md5sums").write_text("\n".join(sums) + "\n", encoding="utf-8")
         out.unlink(missing_ok=True)
         run("dpkg-deb", "--root-owner-group", f"-Z{args.compression}", "-b", stage, out, stdout=subprocess.DEVNULL)
-    with open(out, "rb") as fh:
-        digest = hashlib.file_digest(fh, "sha256").hexdigest()
+    digest = file_hexdigest(out, "sha256")
     (args.out_dir / "SHA256SUMS").write_text(f"{digest}  {out.name}\n", encoding="utf-8")
     print(f"single deb: {len(debs)} packages -> {out} ({out.stat().st_size // 2**20} MiB, {version})")
     print(f"{digest}  {out.name}")
