@@ -358,3 +358,16 @@ Runtime confirms LS-02 (aliases cleared; on a vi OS an `en-GB` hand-edit ends up
 - Verified against source: `langselect.cxx:80-117` (clear-on-mismatch, fallback chain), `langhelp.cxx:106-160` (PackageKit request only for build langs `en-US vi`, so fr/ja never trigger an install prompt; fallback en-US), `hst-windows-fileassoc-vi.patch:17,45` (forced `vi-VN` `Translate::Create`), `hst-digital-signature.patch:223-226` (PIN uses UI `rResLocale`, not forced → no change needed), `update_ui.py:43` (reads resolved ooLocale), `dispatch.py:62,66` (hardcoded `load_locale("vi")`), `comphelper/configuration.cxx:51` (`['*<locale>']` localized-path selector exists), `addonsoptions.cxx:1273` (`ReadMenuItem` central Title read).
 - `locales/en.json`: my count is 46 Vietnamese leaves (menu, nd30, undo), Codex says 49; same categories, count differs by regex. The `Addons.xcu` header requires labels to equal both catalogs' `menu` (checked by `scripts/check-extensions.py`), which is why en.json carries vi menu text today; that check must change with Phase 2.
 - Scope beyond the owner list: Codex's inventory adds the offline guide (19 vi HTML pages + screenshots), tip-of-the-day images, HST template category names and static PE/Finder copyright. These are not in the owner's switch list (About, Start Center intro/banner, licence notice, HST menu + dialogs incl. NĐ 30, file-association notice, PIN). Treat them as owner decisions, not Phase 2 defaults. Core Phase 2 without them: ~7–11 person-days (Codex total 11–19 includes them plus a heavyweight checkpoint/reopen coordinator).
+
+## Owner decisions (after review)
+
+1. Explicit-English rule **dropped**. Forced-Vietnamese parts (About, welcome, Start Center intro/banner, licence notice, HST menu and its dialogs, Windows file-association notice) stay Vietnamese in every UI language. Superseded design parts: explicit-English predicate, site-inventory changes, Addons title approach (no AddonsOptions patch), en.json rewrite. Update check keeps following the UI language.
+2. Restart after a language change must reopen **all** open documents, including unsaved and unnamed ones, via the session-recovery approach (see "Restart semantics" transaction). Never `doSessionQuietQuit`.
+
+Phase 2 scope (beta.4, starts on owner "go" after beta.3 is cut):
+- HST ▸ Ngôn ngữ giao diện shortcut (Tiếng Việt / English / Theo máy; label always Vietnamese) + restart that reopens everything; respects admin lock like Options.
+- LS-02: map `en*`/`en-GB` to installed en-US in `langselect.cxx` without clearing the stored value; Options shows the matching entry.
+- LS-07: lock greys out the Options selector (and shortcut items); failed write shows feedback, no restart offered.
+- LS-03: partial vi pack → sensible fallback without permanently clearing the user's choice.
+- Tests: `tests/runtime/check-language-selection.py` (matrix, aliases, partial pack, lock, restart/reopen) without English-override parts.
+Unresolved questions 1–3 and 5 no longer apply; question 4 is answered by decision 2.
