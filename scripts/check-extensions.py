@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import plistlib
 import re
 import sys
 import tempfile
@@ -33,6 +34,8 @@ USB_WORKER_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\
 UPDATE_FETCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|ftplib|smtplib|requests|xmlrpc|subprocess|ctypes)\b", re.M)
 MEDIA = ("application/vnd.sun.star.uno-component;type=Python", "application/vnd.sun.star.configuration-data", "application/vnd.sun.star.configuration-schema")
 MAX_LINES = 199
+# Downloadable update-lock templates of the user guide (help/cap-nhat.html), made by build-update-policy-oxt.py.
+HELP_FILES = ("help/files/", (".reg", ".xcd", ".mobileconfig"))
 
 
 def parse_xml(data, errors, name):
@@ -107,6 +110,21 @@ def check_content(zf, names, errors):
                 target = os.path.normpath(os.path.join(os.path.dirname(name), ref)).replace(os.sep, "/")
                 if target not in names:
                     errors.append("%s references missing %s" % (name, target))
+            for ref in re.findall(r"""href=["'](files/[^"'#:]+)["']""", text):  # template downloads
+                if "help/" + ref not in names:
+                    errors.append("%s links missing help/%s" % (name, ref))
+        if name.startswith(HELP_FILES[0]):
+            if not name.endswith(HELP_FILES[1]):
+                errors.append("unexpected file in the guide downloads: %s" % name)
+            elif name.endswith(".xcd"):
+                parse_xml(data, errors, name)
+            elif name.endswith(".mobileconfig"):
+                try:
+                    plistlib.loads(data)
+                except Exception as exc:  # noqa: BLE001 - any parse failure is a validation error
+                    errors.append("%s: not a property list (%s)" % (name, exc))
+            elif not data.startswith(b"Windows Registry Editor Version 5.00\r\n") or not data.isascii():
+                errors.append("%s: not an ASCII Windows .reg file" % name)
         if name.endswith(".py"):
             text = data.decode("utf-8")
             if (USB_WORKER_IMPORT if name == USB_TOKEN_WORKER else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD) else UPDATE_LAUNCH_IMPORT
@@ -190,6 +208,9 @@ def self_test():
         "network in USB setup": lambda d: d.update({USB_TOKEN_NSS: d[USB_TOKEN_NSS] + b"\nimport urllib.request\n"}),
         "update test mode": lambda d: d.update({"data/release.json": b'{"release": "1.0.0", "update_test_mode": true}'}),
         "remote link in guide": lambda d: d.update({"help/index.html": d["help/index.html"] + b'<a href="https://evil.example/">x</a>'}),
+        "broken guide download": lambda d: d.update({"help/index.html": d["help/index.html"] + b'<a href="files/missing.reg">x</a>'}),
+        "unexpected guide download": lambda d: d.update({"help/files/tool.exe": b"MZ"}),
+        "broken mobileconfig": lambda d: d.update({"help/files/x.mobileconfig": b"<plist"}),
         "stale data": lambda d: d.update({"data/nd30.json": b"{}"}), "stale solutions": lambda d: d.update({"data/solutions.json": b"{}"}),
         "stale PKCS11 catalog": lambda d: d.update({"data/pkcs11-modules.json": b"{}"}),
     }

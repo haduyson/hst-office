@@ -23,6 +23,17 @@ Cách kiểm tra cập nhật hoạt động: [UPDATE_CHECK](UPDATE_CHECK.md). C
 
 Muốn tắt hẳn mọi kết nối tới máy chủ cập nhật, khóa cả `AutoCheck = false` và `ManualCheck = false`.
 
+## Tệp mẫu tải sẵn
+
+Trang hướng dẫn F1 [Cập nhật HST Office](../extensions/hst-vietnamese-tools/help/cap-nhat.html) (mục "Dành cho phòng
+CNTT") cho tải ba bộ tệp mẫu trong [help/files](../extensions/hst-vietnamese-tools/help/files/), mỗi bộ có `.reg`
+(Windows), `.xcd` (Linux) và `.mobileconfig` (macOS): `tat-kiem-tra` (AutoCheck, ManualCheck, AllowInstall = false),
+`chi-tai-ve` (AllowInstall = false) và `kenh-chinh-thuc` (Channel = stable), cùng `hst-office-go-khoa.reg` để gỡ khóa.
+Mỗi `.reg` xóa cả khóa `HSTUpdate` trước khi ghi nên thay cho mẫu trước; các `.mobileconfig` dùng chung
+`PayloadIdentifier` nên cài mẫu khác sẽ thay mẫu cũ. Sinh lại bằng
+`python3 scripts/release/build-update-policy-oxt.py --templates extensions/hst-vietnamese-tools/help/files`
+(`tests/unit/test_update_policy_templates.py` báo khi tệp đã commit lệch với bộ sinh).
+
 Thứ tự ưu tiên khi nhiều nơi cùng đặt một giá trị: giá trị bị khóa trong lõi (`.xcd`, registry Windows, extension dùng
 chung) > hồ sơ macOS > giá trị bị khóa bằng gói chính sách cũ `hst-update-policy.oxt` > giá trị người dùng/mặc định.
 
@@ -172,3 +183,9 @@ người dùng ghi đè hồ sơ cả máy). `defaults write` vào `/Library/Pre
 - Hộp kiểm "Tự động kiểm tra cập nhật khi khởi động" trong hộp thoại kiểm tra cập nhật bị làm mờ khi `AutoCheck` bị
   khóa; mục menu "Kiểm tra cập nhật…" và nút cùng tên trên tab ribbon "Phần mở rộng" bị làm mờ khi `ManualCheck` = `false`.
 - Kiểm thử tự động trên Linux: `tests/runtime/check-update-lock.py`.
+- Tệp mẫu: `tests/runtime/check-update-policy.py` (Linux: `--instdir`, chép từng `.xcd` vào bản sao instdir), bước
+  "Update-lock templates" của [windows-smoke.yml](../.github/workflows/windows-smoke.yml) (`reg import` từng `.reg` trên
+  bản MSI phát hành, đầu vào `update_policy_only`) và [macos-policy-probe.yml](../.github/workflows/macos-policy-probe.yml).
+  macOS: runner không cài được hồ sơ không cần người dùng (`profiles install` bị từ chối từ macOS 11; cần duyệt trong
+  Cài đặt hệ thống hoặc MDM), nên probe ghi payload của từng `.mobileconfig` thẳng vào
+  `/Library/Managed Preferences/vn.hasontech.hstoffice.plist` (và một lần theo người dùng), đúng tệp HST Office đọc.
