@@ -261,6 +261,8 @@ def main():
     p = Probe(pid, out, mode)
     time.sleep(3)
     p.timed("first-writer", lambda: p.load("private:factory/swriter", "_default"), 1)
+    # A: the only tab is the former Start Center frame, "+" then Open File...
+    popup_open_file(p, pid, out, mode, "popup-first")
     p.timed("plus-new-writer", lambda: p.load("private:factory/swriter"), 1)  # what the "+" menu dispatches
     p.timed("new-calc", lambda: p.load("private:factory/scalc"), 1)
     p.timed("new-impress", lambda: p.load("private:factory/simpress"), 1)
