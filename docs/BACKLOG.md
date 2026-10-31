@@ -99,7 +99,8 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
   - Khóa cấu hình kiểm tra cập nhật qua `.xcd`/registry (đưa schema vào lõi).
   - Gói Linux cho Ubuntu 22.04, Debian 13 và Ubuntu 26.04 (build riêng hoặc gói Python kèm theo).
   - Trang "Điểm mới" riêng cho nút "Xem điểm mới".
-  - Ký số bộ cài Windows (cần chứng chỉ ký mã; macOS đã ký Developer ID + notarize từ beta.3 nếu chạy thử thành công).
+  - ~~Ký số bộ cài Windows~~ — hoãn vô thời hạn (chủ dự án 2026-10-31). macOS đã ký Developer ID + notarize (chạy thử được chấp nhận, chủ dự án mở được trên M2).
+  - Chuyển tab tài liệu mượt như trình duyệt trên cả 3 hệ điều hành (chủ dự án 2026-10-31): trên macOS mỗi lần chuyển tab trông như chuyển sang màn hình khác; tìm nguyên nhân (mỗi tab là một cửa sổ riêng bị ẩn/hiện) và sửa cho chuyển tab tức thì, không hiệu ứng, cùng vị trí/kích thước.
 - **v1.0.0:** chuyển repo sang tổ chức `hasontech` trước bản chính thức.
 
 ## Blockers và câu hỏi còn mở
