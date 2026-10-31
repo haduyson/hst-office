@@ -30,7 +30,7 @@ for mode in windowed fullscreen; do
   echo "$origin" >"$out/sampler-start-$mode.txt"
   "$work/sampler" "$pid" 140 >"$out/samples-$mode.csv" 2>"$out/sampler-$mode.log" &
   sampler=$!
-  PYTHONPATH="$app/Contents/Resources" timeout 300 "$py" "$here/tab-probe.py" "$pid" "$out" "$mode" \
+  PYTHONPATH="$app/Contents/Resources" perl -e 'alarm 300; exec @ARGV' "$py" "$here/tab-probe.py" "$pid" "$out" "$mode" \
     >"$out/driver-$mode.log" 2>&1 || echo "driver $mode exit $?" >>"$out/driver-$mode.log"
   screencapture -x "$out/desktop-after-$mode.png" || true
   kill "$sampler" 2>/dev/null || true; wait "$sampler" 2>/dev/null || true

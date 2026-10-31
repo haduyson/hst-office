@@ -32,5 +32,6 @@ while Date().timeIntervalSince(start) < seconds {
         if displays.contains(where: { abs($0.width - rect.width) < 2 && rect.height >= $0.height - 1 }) { full += 1 }
     }
     print("\(t),\(front),\(parts.count),\(full),\(parts.joined(separator: "|"))")
+    fflush(stdout)
     usleep(20_000)
 }
