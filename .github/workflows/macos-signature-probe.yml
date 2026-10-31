@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: macOS signature probe
+# Diagnoses the code signature of a released macOS dmg and checks the ad-hoc re-sign fix
+# (scripts/macos/adhoc-sign.sh) without a full build. Evidence only; nothing is published.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag whose arm64 dmg is probed'
+        type: string
+        default: v1.0.0-beta.2
+permissions:
+  contents: read
+concurrency:
+  group: macos-signature-probe
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Download the released arm64 dmg
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/release" "$RUNNER_TEMP/probe"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --pattern SHA256SUMS --dir "$RUNNER_TEMP/release"
+          cd "$RUNNER_TEMP/release"
+          grep '_macOS_arm64.dmg' SHA256SUMS | shasum -a 256 -c -
+      - name: Probe shipped signature, re-sign ad hoc, verify and convert headless
+        shell: bash
+        run: |
+          set -eu
+          dmg=$(find "$RUNNER_TEMP/release" -name 'HSTOffice_*_macOS_arm64.dmg' -print -quit)
+          bash scripts/macos/signature-probe.sh "$dmg" "$RUNNER_TEMP/probe"
+      - name: Summarize
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -eu
+          { echo '```'; grep -vE '^(Executable|Info.plist|TeamIdentifier|Runtime Version|Hash|CandidateCDHash|CDHash|Authority|Timestamp|Internal)' "$RUNNER_TEMP/probe/signature-probe.txt" | head -300; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload probe evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-signature-probe-${{ github.run_id }}
+          path: ${{ runner.temp }}/probe/
+          if-no-files-found: error
+          retention-days: 7
