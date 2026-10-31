@@ -125,7 +125,7 @@ jobs:
             sort -u -k2,2 dist/release/SHA256SUMS old-sums > merged-sums
             mv merged-sums dist/release/SHA256SUMS
             (cd dist/release && sha256sum -c --ignore-missing SHA256SUMS)
-            find dist/release -maxdepth 1 -type f ! -name SHA256SUMS -print0 | xargs -0 gh release upload "$TAG"
+            find dist/release -maxdepth 1 -type f ! -name SHA256SUMS ! -name '.*' -print0 | xargs -0 gh release upload "$TAG"
             gh release upload "$TAG" dist/release/SHA256SUMS --clobber
             if [ -n "$note" ]; then
               gh release view "$TAG" --json body --jq .body > notes.md
