@@ -176,16 +176,21 @@ def find_plus_y(path, x, lo=130, hi=220):
     return best_y, best
 
 
-def popup_open_file(p, pid, out, mode, label):
+def popup_open_file(p, pid, out, mode, label, ext="odt"):
     """The real "+" popup: click the "+" button right of the last tab, choose the last entry
     ("Open File...", reached with Up then Return), drive the native open panel with System Events
     and require the document as the shown, active, frontmost tab. A hang is sampled."""
-    target = f"{out}/popup-{label}.odt"
+    target = f"{out}/popup-{label}.{ext}"
     hidden = PropertyValue()
     hidden.Name, hidden.Value = "Hidden", True
     doc = p.desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden,))
     doc.getText().setString("opened from the popup")
-    doc.storeToURL("file://" + target, ())
+    if ext == "docx":
+        flt = PropertyValue()
+        flt.Name, flt.Value = "FilterName", "MS Word 2007 XML"
+        doc.storeToURL("file://" + target, (flt,))
+    else:
+        doc.storeToURL("file://" + target, ())
     doc.close(True)
     time.sleep(1.5)
     before = len(p.frames())
@@ -228,7 +233,7 @@ def popup_open_file(p, pid, out, mode, label):
         try:
             shown = p.shown()
             if len(p.frames()) >= before and shown and shown[0].isActive() and front_pid() == pid \
-                    and "popup-" in (shown[0].getTitle() or ""):
+                    and f"popup-{label}" in (shown[0].getTitle() or ""):
                 ok = True
                 break
         except Exception:  # noqa: BLE001
@@ -268,6 +273,9 @@ def main():
         p.mark("enter-fullscreen", rc=rc, msg=msg)
         time.sleep(4)
     popup_open_file(p, pid, out, mode, "popup-open-file")
+    # B: the shown tab is an unmodified empty document (Open reuses its frame), a Word file
+    p.timed("empty-tab", lambda: p.load("private:factory/swriter"), 1)
+    popup_open_file(p, pid, out, mode, "popup-docx-in-empty", ext="docx")
     for i in range(6):
         p.timed(f"switch-{i + 1}", lambda: p.dispatch(".uno:NextDocumentTab"), 1.5)
     if mode == "fullscreen":
