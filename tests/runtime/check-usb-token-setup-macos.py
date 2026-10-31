@@ -60,6 +60,39 @@ def firefox_profile(home):
     return source, snapshot(source)
 
 
+def mac_dialogs(signing):
+    """signing.Dialogs whose PIN answers also wake the Aqua event loop.
+
+    A UITest click ends the modal PIN dialog from a UNO thread; on macOS the main thread can stay
+    asleep in its modal loop until some native event arrives. AsyncCallback posts a VCL user event,
+    which wakes it, as a real key press would. Prompts and their labels are kept for the report."""
+    import unohelper
+    from com.sun.star.awt import XCallback
+
+    class Wake(unohelper.Base, XCallback):
+        def notify(self, _data):
+            pass
+
+    class Dialogs(signing.Dialogs):
+        log = []
+
+        def _answer_pin(self, win):
+            super()._answer_pin(win)
+            Dialogs.log.append(self.prompts[-1])
+            callback = self.office.service("com.sun.star.awt.AsyncCallback")
+            for _ in range(3):
+                callback.addCallback(Wake(), None)
+                time.sleep(0.3)
+
+    return Dialogs
+
+
+def changed(path, before):
+    from usb_token_private_harness import snapshot
+    after = snapshot(path)
+    return sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
+
+
 def addon_urls(office):
     """Every URL of the HST add-on menus as merged into the configuration."""
     from com.sun.star.beans import PropertyValue
@@ -84,6 +117,7 @@ def run_case(args, scenario, signing):
     from usb_token_harness import certificate_with_pin, setup_dialog
     from usb_token_private_harness import check_private, preserved_records, snapshot
     mode = "tools" if args.tools else "no-tools"
+    signing.Dialogs.log = []
     base = (args.workdir / ("%s-%s" % (scenario, mode))).resolve()
     base.mkdir(parents=True)
     pki = signature_pki.TokenPki(str(base / "pki")).create(register_module=False)
@@ -102,11 +136,11 @@ def run_case(args, scenario, signing):
     db = home / "Library/Application Support/HST Office/nssdb"
     result = {"scenario": scenario, "mode": mode, "soffice_path": soffice_path, "checks": {}, "ca_pem": pki.ca_pem}
     checks = result["checks"]
+    source = before = None
     try:
         found = {tool: shutil.which(tool, path=soffice_path) for tool in TOOLS}
         assert all(found.values()) if args.tools else not any(found.values()), found
         checks["nss_tools_on_soffice_path_" + ("present" if args.tools else "absent")] = True
-        source = before = None
         if scenario == "firefox":
             source, before = firefox_profile(home)
         print("%s/%s: starting office" % (scenario, mode), flush=True)
@@ -121,8 +155,11 @@ def run_case(args, scenario, signing):
         result["nss_before"] = {"path": nss.NSSPath, "initialized": bool(nss.IsNSSinitialized)}
         if scenario == "firefox":
             assert Path(nss.NSSPath.removeprefix("sql:")) == source, result["nss_before"]
-            assert snapshot(source) == before
             checks["core_uses_firefox_profile_before_setup"] = True
+            # Core's own NSS session on the browser store (before any setup) may touch it; record that,
+            # then require that setup, restart and signing leave the store exactly as core left it.
+            result["firefox_files_changed_by_core_before_setup"] = changed(source, before)
+            before = snapshot(source)
         text = setup_dialog(office, frame, signing)
         print("%s/%s: setup dialog checked" % (scenario, mode), flush=True)
         result["first_dialog"] = text
@@ -197,9 +234,13 @@ def run_case(args, scenario, signing):
         checks["rerun_after_restart_reports_existing_without_restart"] = True
         doc.close(True)
         result["passed"] = True
+        result["pin_prompts"] = list(signing.Dialogs.log)
     except Exception as exc:  # noqa: BLE001 - keep the partial evidence of this scenario
         import traceback
         result["error"] = traceback.format_exc()
+        result["pin_prompts"] = list(signing.Dialogs.log)
+        if source:
+            result["firefox_files_changed"] = changed(source, before)
         print("%s/%s: %r" % (scenario, mode, exc), flush=True)
         try:
             office.screenshot(str(base / "shots/failure.png"))
@@ -257,6 +298,7 @@ def main():
         sys.modules["signature_verify"] = types.ModuleType("signature_verify")
     from usb_token_harness import signing_helpers
     signing = signing_helpers()
+    signing.Dialogs = mac_dialogs(signing)
     args.workdir = args.workdir.resolve()
     args.workdir.mkdir(parents=True, exist_ok=True)
     results, status = [], 0

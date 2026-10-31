@@ -38,7 +38,7 @@ for mode in no-tools tools; do
   rm -rf "$dir"
   URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" \
     PYTHONPATH="$app/Contents/Resources:$(dirname "$pyuno"):$tests" \
-    perl -e 'alarm 1800; exec @ARGV' "$py" "$tests/check-usb-token-setup-macos.py" --app "$app" --oxt "$oxt" \
+    perl -e 'alarm 1500; exec @ARGV' "$py" "$tests/check-usb-token-setup-macos.py" --app "$app" --oxt "$oxt" \
       --workdir "$dir" --port "$port" "--$mode" 2>&1 | tee "$out/driver-$mode.log" || status=1
   port=$((port + 1))
   if [ -f "$dir/results.json" ]; then
