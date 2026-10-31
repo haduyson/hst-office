@@ -9,6 +9,7 @@ import unohelper
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
+from . import ui_language
 from .actions import COMMANDS, Host
 from .data_files import load_locale
 
@@ -48,7 +49,7 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
         return ("com.sun.star.frame.ProtocolHandler",)
 
     def queryDispatch(self, url, target_frame_name, search_flags):
-        return self if url.Protocol == PROTOCOL and (url.Path in COMMANDS or url.Path == SHOW_SOLUTIONS) else None
+        return self if url.Protocol == PROTOCOL and (url.Path in COMMANDS or url.Path in ui_language.COMMANDS or url.Path == SHOW_SOLUTIONS) else None
 
     def queryDispatches(self, requests):
         return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in requests)
@@ -56,6 +57,12 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
     def dispatch(self, url, arguments):
         if url.Path == SHOW_SOLUTIONS:
             return self._show_solutions()
+        if url.Path in ui_language.COMMANDS:
+            try:
+                ui_language.run(self.ctx, self.frame, url.Path)
+            except Exception:  # noqa: BLE001 - never raise into the office UI thread
+                log_error(url.Path)
+            return
         frame = self.frame
         try:
             frame = self._frame_for(url.Path)
@@ -87,7 +94,11 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
             traceback.print_exc()
 
     def addStatusListener(self, control, url):
-        pass
+        if url.Protocol == PROTOCOL and url.Path in ui_language.COMMANDS:
+            from com.sun.star.frame import FeatureStateEvent
+            enabled, checked = ui_language.status(self.ctx, url.Path)
+            control.statusChanged(FeatureStateEvent(FeatureURL=url, IsEnabled=enabled, State=bool(checked),
+                                                    Requery=False, Source=self))
 
     def removeStatusListener(self, control, url):
-        pass
+        pass  # Status is a fresh snapshot on add; no listener is retained.

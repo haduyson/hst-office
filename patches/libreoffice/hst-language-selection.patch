@@ -1,0 +1,620 @@
+HST Office: safe user interface language selection.
+
+- A stored UI language written in another form of an installed language (en, en-GB,
+  EN-us, vi-VN, vi_VN; hand-edited or set by an administrator) resolves to that
+  installed language (svtools langhelp) instead of being treated as "not installed".
+- Startup no longer erases a selected language that is not (or no longer) installed:
+  the session falls back like "Default" and the choice applies again once the
+  language pack is back. A registered language whose translations (vcl.mo) are
+  missing uses the built-in English UI for the session instead of a half-translated
+  one (desktop langselect).
+- Tools > Options > Languages and Locales > General: the user interface list shows
+  the language such a value resolves to, writes only when the user picks another
+  entry, is disabled when an administrator finalized UILocale, and reports a failed
+  write instead of offering a restart that would change nothing (cui optgdlg,
+  RID_CUISTR_UI_LANGUAGE_NOT_SAVED + Vietnamese translation).
+- Restart after a UI language change keeps every open document: the restart dialog
+  dispatches the new AutoRecovery job vnd.sun.star.autorecovery:/doSessionRestart
+  (also used by the HST > Ngôn ngữ giao diện menu). It stores every document to its
+  recovery file (never to the original, even with "always save the original") and
+  checks that each changed document has a current, complete, non-empty one, that no
+  changed document is untracked or password-protected; only then are the documents
+  closed (no modified flag is reset, unlike doSessionQuietQuit), the session is
+  marked for restore and the restart requested. On the next start the session
+  restore reopens them, changed ones still modified. Otherwise nothing is closed and
+  the ordinary restart (with save prompts) runs; likewise without AutoRecovery
+  (--norestore) or while another AutoRecovery job runs.
+- The primary-language fallback never crosses scripts (zh, sr-Latn, ...), and the
+  translations check skips tags whose folder name it does not derive (sr@latin).
+
+--- a/svtools/source/misc/langhelp.cxx
++++ b/svtools/source/misc/langhelp.cxx
+@@ -59,6 +59,22 @@
+         [&installed](const OUString& rf) { return comphelper::findValue(installed, rf) != -1; });
+     if (pf != fallbacks.end())
+         return *pf;
++
++    // HST Office: a preference written in another form of an installed language (en, en-GB,
++    // EN-us, vi-VN, vi_VN, typed by hand or set by an administrator) resolves to the installed
++    // locale of the same primary language instead of being treated as "not installed".
++    // Languages written in several scripts (zh, sr, ...) are never matched across tags.
++    std::u16string_view aWanted(o3tl::getToken(o3tl::getToken(locale, 0, '-'), 0, '_'));
++    if (!aWanted.empty() && !o3tl::equalsIgnoreAsciiCase(aWanted, u"zh")
++        && !LanguageTag(locale.replace('_', '-')).hasScript())
++    {
++        for (const OUString& rInstalled : installed)
++        {
++            std::u16string_view aHave(o3tl::getToken(o3tl::getToken(rInstalled, 0, '-'), 0, '_'));
++            if (o3tl::equalsIgnoreAsciiCase(aHave, aWanted) && !LanguageTag(rInstalled).hasScript())
++                return rInstalled;
++        }
++    }
+     return OUString();
+ }
+ 
+--- a/desktop/source/app/langselect.cxx
++++ b/desktop/source/app/langselect.cxx
+@@ -33,7 +33,10 @@
+ #include <officecfg/Office/Linguistic.hxx>
+ #include <officecfg/Setup.hxx>
+ #include <officecfg/System.hxx>
++#include <osl/file.hxx>
++#include <rtl/bootstrap.hxx>
+ #include <rtl/ustring.hxx>
++#include <sal/log.hxx>
+ #include <svl/languageoptions.hxx>
+ #include <svtools/langhelp.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+@@ -47,6 +50,32 @@
+ 
+ namespace {
+ 
++// HST Office: whether the gettext translations of an installed UI locale are present
++// (en-US is built in). Checked through the "vcl" domain every UI uses; the folder
++// name follows solenv/bin/localestr (pt-BR -> pt_BR).
++bool hasUiTranslations(OUString const & locale) {
++#if defined ANDROID || defined IOS || defined EMSCRIPTEN
++    (void) locale;
++    return true;
++#else
++    LanguageTag tag(locale);
++    if (tag.getLanguage() == "en" || tag.hasScript() || !tag.getVariants().isEmpty()) {
++        return true; // built in, or a folder name this simple check does not derive (sr@latin)
++    }
++    OUString base(u"$BRAND_BASE_DIR/$BRAND_SHARE_RESOURCE_SUBDIR/"_ustr);
++    rtl::Bootstrap::expandMacros(base);
++    for (OUString const & folder : { locale.replace('-', '_'), tag.getLanguage() }) {
++        osl::DirectoryItem item;
++        if (osl::DirectoryItem::get(base + folder + "/LC_MESSAGES/vcl.mo", item)
++            == osl::FileBase::E_None)
++        {
++            return true;
++        }
++    }
++    return false;
++#endif
++}
++
+ void setMsLangIdFallback(OUString const & locale) {
+     // #i32939# setting of default document language
+     // See #i42730# for rules for determining source of settings
+@@ -79,19 +108,10 @@
+         officecfg::Setup::Office::InstalledLocales::get()->getElementNames());
+     OUString locale(officecfg::Office::Linguistic::General::UILocale::get());
+     if (!locale.isEmpty()) {
++        // HST Office: a selected language that is not (or no longer) installed is
++        // not erased from the user's settings any more; this session falls back
++        // like "Default" and the choice applies again once the language pack is back.
+         locale = getInstalledLocaleForLanguage(inst, locale);
+-        if (locale.isEmpty()) {
+-            // Selected language is not/no longer installed:
+-            try {
+-                std::shared_ptr<comphelper::ConfigurationChanges> batch(
+-                    comphelper::ConfigurationChanges::create());
+-                officecfg::Office::Linguistic::General::UILocale::set(
+-                    u""_ustr, batch);
+-                batch->commit();
+-            } catch (const css::uno::Exception &) {
+-                TOOLS_WARN_EXCEPTION("desktop.app", "ignoring");
+-            }
+-        }
+     }
+     if (locale.isEmpty()) {
+         locale = getInstalledLocaleForLanguage(
+@@ -103,6 +123,16 @@
+     if (locale.isEmpty()) {
+         return false;
+     }
++    if (!hasUiTranslations(locale)) {
++        // HST Office: a registered language whose translations are missing would
++        // give a half-translated UI (translated menus, English dialogs): use the
++        // built-in English UI for this session instead.
++        OUString english(getInstalledLocaleForLanguage(inst, u"en-US"_ustr));
++        if (!english.isEmpty()) {
++            SAL_WARN("desktop.app", "UI translations for " << locale << " missing, using " << english);
++            locale = english;
++        }
++    }
+     LanguageTag tag(locale);
+     // Prepare default config provider by localizing it to the selected
+     // locale this will ensure localized configuration settings to be
+--- a/svtools/source/dialogs/restartdialog.cxx
++++ b/svtools/source/dialogs/restartdialog.cxx
+@@ -11,10 +11,14 @@
+ 
+ #include <cassert>
+ 
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/frame/theAutoRecovery.hpp>
+ #include <com/sun/star/task/OfficeRestartManager.hpp>
+ #include <com/sun/star/task/XInteractionHandler.hpp>
+ #include <com/sun/star/uno/Reference.hxx>
+ #include <com/sun/star/uno/XComponentContext.hpp>
++#include <com/sun/star/util/URLTransformer.hpp>
++#include <comphelper/diagnose_ex.hxx>
+ #include <svtools/restartdialog.hxx>
+ #include <tools/link.hxx>
+ #include <vcl/vclenum.hxx>
+@@ -95,6 +99,28 @@
+     m_xDialog->response(RET_CANCEL);
+ }
+ 
++// HST Office: asks AutoRecovery to restart the office keeping every open document.
++bool requestSessionRestart(
++    css::uno::Reference< css::uno::XComponentContext > const & context)
++{
++    try
++    {
++        css::util::URL aURL;
++        aURL.Complete = u"vnd.sun.star.autorecovery:/doSessionRestart"_ustr;
++        css::util::URLTransformer::create(context)->parseStrict(aURL);
++        css::uno::Sequence< css::beans::PropertyValue > aArgs{
++            css::beans::PropertyValue(u"DispatchAsynchron"_ustr, -1, css::uno::Any(true),
++                                      css::beans::PropertyState_DIRECT_VALUE) };
++        css::frame::theAutoRecovery::get(context)->dispatch(aURL, aArgs);
++        return true;
++    }
++    catch (const css::uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("svtools", "session-preserving restart not available");
++        return false;
++    }
++}
++
+ }
+ 
+ bool svtools::executeRestartDialog(
+@@ -106,6 +132,12 @@
+         return true; // don't try to show another dialog when restart is already in progress
+     RestartDialog aDlg(parent, reason);
+     if (aDlg.run()) {
++        // HST Office: after a UI language change every open document, unsaved and
++        // untitled ones included, is reopened after the restart (AutoRecovery backs
++        // them up, closes them and requests the restart itself; if that is not
++        // possible it falls back to the ordinary restart with save prompts).
++        if (reason == RESTART_REASON_LANGUAGE_CHANGE && requestSessionRestart(context))
++            return true;
+         xRestartManager->requestRestart(
+             css::uno::Reference< css::task::XInteractionHandler >());
+         return true;
+--- a/framework/source/services/autorecovery.cxx
++++ b/framework/source/services/autorecovery.cxx
+@@ -56,6 +56,7 @@
+ #include <com/sun/star/awt/XWindow2.hpp>
+ #include <com/sun/star/task/XStatusIndicatorFactory.hpp>
+ #include <com/sun/star/task/ErrorCodeIOException.hpp>
++#include <com/sun/star/task/OfficeRestartManager.hpp>
+ #include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
+ #include <com/sun/star/lang/XTypeProvider.hpp>
+ #include <com/sun/star/lang/XServiceInfo.hpp>
+@@ -82,6 +83,8 @@
+ #include <comphelper/multiinterfacecontainer3.hxx>
+ #include <comphelper/namedvaluecollection.hxx>
+ #include <comphelper/sequence.hxx>
++#include <algorithm>
++#include <tuple>
+ #include <utility>
+ #include <vcl/evntpost.hxx>
+ #include <vcl/svapp.hxx>
+@@ -262,12 +265,14 @@
+     DisableAutorecovery       = 256,
+     SetAutosaveState          = 512,
+     SessionQuietQuit          = 1024,
+-    UserAutoSave              = 2048
++    UserAutoSave              = 2048,
++    // HST Office: restart the office and reopen every open document (see implts_doSessionRestart)
++    SessionRestart            = 4096
+ };
+ 
+ }
+ 
+-template<> struct o3tl::typed_flags<Job>: o3tl::is_typed_flags<Job, 0xFFF> {};
++template<> struct o3tl::typed_flags<Job>: o3tl::is_typed_flags<Job, 0x1FFF> {};
+ 
+ namespace {
+ 
+@@ -936,6 +941,17 @@
+     // TODO document me
+     void implts_doSessionQuietQuit();
+ 
++    /** HST Office: restart the office (e.g. after a UI language change) and reopen every
++        open document afterwards, unsaved and untitled ones included.
++
++        @return true if all documents were backed up, closed and the restart requested;
++                false if nothing was closed (the caller then requests the ordinary restart).
++     */
++    bool implts_doSessionRestart(const DispatchParams& aParams);
++
++    /// HST Office: every changed open document has a current, complete recovery file.
++    bool implts_sessionRestartBackupsComplete();
++
+     // TODO document me
+     void implts_doSessionRestore(const DispatchParams& aParams);
+ 
+@@ -1105,6 +1121,7 @@
+ constexpr OUString CMD_DO_SESSION_SAVE = u"/doSessionSave"_ustr;    // save all open documents if e.g. a window manager closes an user session
+ constexpr OUString CMD_DO_SESSION_QUIET_QUIT = u"/doSessionQuietQuit"_ustr;    // let the current session be quietly closed ( the saving should be done using doSessionSave previously ) if e.g. a window manager closes an user session
+ constexpr OUString CMD_DO_SESSION_RESTORE = u"/doSessionRestore"_ustr;    // restore a saved user session from disc
++constexpr OUString CMD_DO_SESSION_RESTART = u"/doSessionRestart"_ustr;    // HST Office: restart the office, reopening every open document
+ constexpr OUString CMD_DO_DISABLE_RECOVERY = u"/disableRecovery"_ustr;    // disable recovery and auto save (!) temp. for this office session
+ constexpr OUString CMD_DO_SET_AUTOSAVE_STATE = u"/setAutoSaveState"_ustr;    // disable/enable auto save (not crash save) for this office session
+ 
+@@ -1339,6 +1356,18 @@
+     /* SAFE */ {
+     osl::ClearableMutexGuard g(cppu::WeakComponentImplHelperBase::rBHelper.rMutex);
+ 
++    // HST Office: a restart request is never dropped. Without AutoRecovery (--norestore) or
++    // while another job runs, the ordinary restart (with save prompts) is requested instead.
++    if (eNewJob == Job::SessionRestart
++        && ((m_eJob & Job::DisableAutorecovery)
++            || (m_eJob != Job::NoJob && !(m_eJob & Job::AutoSave))))
++    {
++        g.clear();
++        css::task::OfficeRestartManager::get(m_xContext)->requestRestart(
++            css::uno::Reference< css::task::XInteractionHandler >());
++        return;
++    }
++
+     // still running operation ... ignoring Job::AutoSave.
+     // All other requests has higher prio!
+     if (
+@@ -1500,6 +1529,19 @@
+             implts_doSessionQuietQuit();
+         }
+         else
++        if ((eJob & Job::SessionRestart) == Job::SessionRestart)
++        {
++            // HST Office: without AutoRecovery (--norestore) or if a document cannot be
++            // backed up, fall back to the ordinary restart, which asks about unsaved changes.
++            SAL_INFO("fwk.autorecovery", "... do session restart ...");
++            bool bRestarting = false;
++            if ((eJob & Job::DisableAutorecovery) != Job::DisableAutorecovery)
++                bRestarting = implts_doSessionRestart(aParams);
++            bAllowAutoSaveReactivation = !bRestarting;
++            css::task::OfficeRestartManager::get(m_xContext)->requestRestart(
++                css::uno::Reference< css::task::XInteractionHandler >());
++        }
++        else
+         if (
+             ((eJob & Job::SessionRestore ) == Job::SessionRestore ) &&
+             ((eJob & Job::DisableAutorecovery) != Job::DisableAutorecovery)
+@@ -3646,6 +3688,8 @@
+         sFeature.append(CMD_DO_EMERGENCY_SAVE);
+     else if ((eJob & Job::Recovery) == Job::Recovery)
+         sFeature.append(CMD_DO_RECOVERY);
++    else if ((eJob & Job::SessionRestart) == Job::SessionRestart)
++        sFeature.append(CMD_DO_SESSION_RESTART);
+     else if ((eJob & Job::SessionSave) == Job::SessionSave)
+         sFeature.append(CMD_DO_SESSION_SAVE);
+     else if ((eJob & Job::SessionQuietQuit) == Job::SessionQuietQuit)
+@@ -3684,6 +3728,8 @@
+             return Job::SessionQuietQuit;
+         else if ( aURL.Path == CMD_DO_SESSION_RESTORE )
+             return Job::SessionRestore;
++        else if ( aURL.Path == CMD_DO_SESSION_RESTART )
++            return Job::SessionRestart;
+         else if ( aURL.Path == CMD_DO_DISABLE_RECOVERY )
+             return Job::DisableAutorecovery;
+         else if ( aURL.Path == CMD_DO_SET_AUTOSAVE_STATE )
+@@ -3887,6 +3933,192 @@
+     impl_flushALLConfigChanges();
+ }
+ 
++bool AutoRecovery::implts_sessionRestartBackupsComplete()
++{
++    // Snapshot of the cache; the documents themselves are queried without our mutex.
++    std::vector< std::tuple< css::uno::Reference< css::frame::XModel >, OUString, DocState > > lEntries;
++    {
++        CacheLockGuard aCacheLock(this, cppu::WeakComponentImplHelperBase::rBHelper.rMutex, m_nDocCacheLock, LOCK_FOR_CACHE_USE);
++        osl::MutexGuard g(cppu::WeakComponentImplHelperBase::rBHelper.rMutex);
++        for (auto const & info : m_lDocCache)
++            if (info.Document.is())
++                lEntries.emplace_back(info.Document, info.OldTempURL, info.DocumentState);
++    }
++
++    auto isModified = [](css::uno::Reference< css::uno::XInterface > const & xDocument)
++    {
++        css::uno::Reference< css::util::XModifiable > xModify(xDocument, css::uno::UNO_QUERY);
++        return xModify.is() && xModify->isModified();
++    };
++    for (auto const & [xDocument, sBackupURL, eState] : lEntries)
++    {
++        if (!isModified(xDocument))
++            continue; // reopened from its file
++        // a complete, non-empty recovery file holding the current state (Succeeded was cleared
++        // for documents changed since their last one; wasModifiedSinceLastSave() cannot be
++        // checked afterwards: storing may mark a Writer document dirty again)
++        osl::DirectoryItem aItem;
++        osl::FileStatus aStatus(osl_FileStatus_Mask_FileSize);
++        bool bBackup = !sBackupURL.isEmpty() && (eState & DocState::Succeeded)
++            && !(eState & DocState::Incomplete) && !(eState & DocState::Damaged)
++            && osl::DirectoryItem::get(sBackupURL, aItem) == osl::FileBase::E_None
++            && aItem.getFileStatus(aStatus) == osl::FileBase::E_None && aStatus.getFileSize() > 0;
++        // a password-protected document would ask for its password while being reopened
++        // (cancelling that discards the recovery file): keep such sessions on the prompting restart
++        comphelper::SequenceAsHashMap lArgs(xDocument->getArgs());
++        if (lArgs.find(utl::MediaDescriptor::PROP_ENCRYPTIONDATA) != lArgs.end()
++            || lArgs.find(utl::MediaDescriptor::PROP_PASSWORD) != lArgs.end())
++            bBackup = false;
++        if (!bBackup)
++        {
++            SAL_WARN("fwk.autorecovery", "session restart: no usable recovery file for " << xDocument->getURL());
++            return false;
++        }
++    }
++
++    // Documents AutoRecovery does not track (NoAutoSave, no XDocumentRecovery, ...) must
++    // not hold unsaved changes either.
++    css::uno::Reference< css::container::XEnumeration > xComponents(
++        css::frame::Desktop::create(m_xContext)->getComponents()->createEnumeration());
++    while (xComponents->hasMoreElements())
++    {
++        css::uno::Reference< css::frame::XModel > xModel(xComponents->nextElement(), css::uno::UNO_QUERY);
++        if (!xModel.is() || !isModified(xModel))
++            continue;
++        if (std::none_of(lEntries.begin(), lEntries.end(),
++                         [&xModel](auto const & rEntry) { return std::get<0>(rEntry) == xModel; }))
++        {
++            SAL_WARN("fwk.autorecovery", "session restart: untracked modified document " << xModel->getURL());
++            return false;
++        }
++    }
++    return true;
++}
++
++bool AutoRecovery::implts_doSessionRestart(const DispatchParams& aParams)
++{
++    SAL_INFO("fwk.autorecovery", "AutoRecovery::implts_doSessionRestart()");
++
++    // Unlike doSessionQuietQuit, no modified flag is ever reset: every document is stored to
++    // its recovery file first and only when all changed ones are safely on disk are they
++    // closed (closing a model asks nothing). The recovery entries keep the modified state, so
++    // the reopened documents are still marked as modified and can still be saved or discarded.
++    // Store as a session save (no idle wait; the entries survive the closing of their
++    // documents), but never store the original files ("always save the original" option).
++    bool bUserAutoSave;
++    {
++        osl::MutexGuard g(cppu::WeakComponentImplHelperBase::rBHelper.rMutex);
++        bUserAutoSave = bool(m_eJob & Job::UserAutoSave);
++        m_eJob &= ~Job::UserAutoSave;
++        m_eJob |= Job::SessionSave;
++    }
++    bool bAllSaved = false;
++    try
++    {
++        implts_verifyCacheAgainstDesktopDocumentList();
++        {
++            // The result flags of earlier AutoSave runs count only for documents unchanged since
++            // their last recovery file; all others must be stored successfully now.
++            std::vector< css::uno::Reference< css::frame::XModel > > lChanged;
++            {
++                CacheLockGuard aCacheLock(this, cppu::WeakComponentImplHelperBase::rBHelper.rMutex, m_nDocCacheLock, LOCK_FOR_CACHE_USE);
++                osl::MutexGuard g(cppu::WeakComponentImplHelperBase::rBHelper.rMutex);
++                for (auto const & info : m_lDocCache)
++                    if (info.Document.is())
++                        lChanged.push_back(info.Document);
++            }
++            std::erase_if(lChanged, [](css::uno::Reference< css::frame::XModel > const & xDocument)
++            {
++                css::uno::Reference< css::document::XDocumentRecovery > xRecovery(xDocument, css::uno::UNO_QUERY);
++                return xRecovery.is() && !xRecovery->wasModifiedSinceLastSave();
++            });
++            CacheLockGuard aCacheLock(this, cppu::WeakComponentImplHelperBase::rBHelper.rMutex, m_nDocCacheLock, LOCK_FOR_CACHE_USE);
++            osl::MutexGuard g(cppu::WeakComponentImplHelperBase::rBHelper.rMutex);
++            for (auto & info : m_lDocCache)
++            {
++                if (std::find(lChanged.begin(), lChanged.end(), info.Document) == lChanged.end())
++                    continue;
++                info.DocumentState &= ~DocState::Succeeded;
++                info.DocumentState &= ~DocState::Incomplete;
++            }
++        }
++        implts_doSessionSave(aParams);
++        bAllSaved = implts_sessionRestartBackupsComplete();
++    }
++    catch (const css::uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk.autorecovery", "session restart: backup failed");
++    }
++    {
++        osl::MutexGuard g(cppu::WeakComponentImplHelperBase::rBHelper.rMutex);
++        m_eJob &= ~Job::SessionSave;
++        if (bUserAutoSave)
++            m_eJob |= Job::UserAutoSave;
++    }
++    {
++        CacheLockGuard aCacheLock(this, cppu::WeakComponentImplHelperBase::rBHelper.rMutex, m_nDocCacheLock, LOCK_FOR_CACHE_USE);
++        osl::MutexGuard g(cppu::WeakComponentImplHelperBase::rBHelper.rMutex);
++        // nothing is closed on failure: the documents stay open and are tracked normally;
++        // otherwise closing them below must not remove their recovery entries
++        for (auto & info : m_lDocCache)
++            info.IgnoreClosing = bAllSaved;
++    }
++    if (!bAllSaved)
++        return false;
++
++    // From here on the next start restores the session, even if closing fails half way or
++    // the termination is vetoed later (then the closed documents come back on the next start).
++    {
++        std::shared_ptr< comphelper::ConfigurationChanges > batch(comphelper::ConfigurationChanges::create());
++        officecfg::Office::Recovery::RecoveryInfo::SessionData::set(true, batch);
++        batch->commit();
++    }
++    impl_flushALLConfigChanges();
++
++    std::vector< css::uno::Reference< css::frame::XModel > > lDocuments;
++    {
++        // no mutex while calling into the documents (as in implts_prepareSessionShutdown)
++        CacheLockGuard aCacheLock(this, cppu::WeakComponentImplHelperBase::rBHelper.rMutex, m_nDocCacheLock, LOCK_FOR_CACHE_USE);
++        for (auto & info : m_lDocCache)
++        {
++            implts_stopModifyListeningOnDoc(info);
++            if (info.Document.is())
++                lDocuments.push_back(info.Document);
++        }
++    }
++    std::vector< css::uno::Reference< css::frame::XModel > > lStillOpen;
++    for (auto const & xDocument : lDocuments)
++    {
++        css::uno::Reference< css::util::XCloseable > xClose(xDocument, css::uno::UNO_QUERY);
++        try
++        {
++            if (xClose.is())
++                xClose->close(false);
++        }
++        catch (const css::uno::Exception&)
++        {
++            // A document that refuses to close stays open with its modified state intact and is
++            // tracked normally again; the termination then asks about it as usual.
++            TOOLS_WARN_EXCEPTION("fwk.autorecovery", "session restart: document not closed");
++            lStillOpen.push_back(xDocument);
++        }
++    }
++    {
++        CacheLockGuard aCacheLock(this, cppu::WeakComponentImplHelperBase::rBHelper.rMutex, m_nDocCacheLock, LOCK_FOR_CACHE_USE);
++        for (auto & info : m_lDocCache)
++        {
++            if (std::find(lStillOpen.begin(), lStillOpen.end(), info.Document) != lStillOpen.end())
++            {
++                info.IgnoreClosing = false;
++                implts_startModifyListeningOnDoc(info);
++            }
++            else
++                info.Document.clear();
++        }
++    }
++    return true;
++}
++
+ void AutoRecovery::implts_doSessionRestore(const DispatchParams& aParams)
+ {
+     SAL_INFO("fwk.autorecovery", "AutoRecovery::implts_doSessionRestore() ...");
+--- a/cui/source/options/optgdlg.cxx
++++ b/cui/source/options/optgdlg.cxx
+@@ -54,6 +54,7 @@
+ #include <sal/log.hxx>
+ #include <officecfg/Office/Canvas.hxx>
+ #include <officecfg/Office/Common.hxx>
++#include <officecfg/Office/Linguistic.hxx>
+ #include <officecfg/Setup.hxx>
+ #include <comphelper/configuration.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+@@ -81,12 +82,15 @@
+ #include <vcl/skia/SkiaHelper.hxx>
+ #include <bitmaps.hlst>
+ 
++#include <dialmgr.hxx>
++#include <strings.hrc>
+ #include "optgdlg.hxx"
+ #include <svtools/apearcfg.hxx>
+ #include <svtools/optionsdrawinglayer.hxx>
+ #include <svtools/restartdialog.hxx>
+ #include <vcl/unohelp2.hxx>
+ #include <vcl/weld/weldutils.hxx>
++#include <vcl/weld/MessageDialog.hxx>
+ 
+ #if defined(_WIN32)
+ #include <systools/win32/winstoreutil.hxx>
+@@ -1013,10 +1017,13 @@
+         // select the user specified locale in the listbox
+         if (!m_sUserLocaleValue.isEmpty())
+         {
++            // HST Office: show the installed language a preference such as "en-GB" or
++            // "vi-VN" resolves to (the same resolution as at startup), not "Default".
++            const OUString aResolvedLocale(getInstalledLocaleForLanguage(seqInstalledLanguages, m_sUserLocaleValue));
+             for (sal_Int32 i = 0, nEntryCount = m_xUserInterfaceLB->get_count(); i < nEntryCount; ++i)
+             {
+                 sal_Int32 d = m_xUserInterfaceLB->get_id(i).toInt32();
+-                if ( d > 0 && seqInstalledLanguages.getLength() > d-1 && seqInstalledLanguages[d-1] == m_sUserLocaleValue)
++                if ( d > 0 && seqInstalledLanguages.getLength() > d-1 && seqInstalledLanguages[d-1] == aResolvedLocale)
+                     m_xUserInterfaceLB->set_active(i);
+             }
+         }
+@@ -1028,6 +1035,10 @@
+         // even give it event handler...
+         TOOLS_WARN_EXCEPTION("cui.options", "ignoring" );
+     }
++    // HST Office: the stored preference is written only when the user picks another
++    // entry; an administrator lock (finalized UILocale) disables the choice.
++    m_xUserInterfaceLB->save_value();
++    m_xUserInterfaceLB->set_sensitive(!officecfg::Office::Linguistic::General::UILocale::isReadOnly());
+ 
+     m_xWesternLanguageLB->SetLanguageList(
+         SvxLanguageListFlags::WESTERN | SvxLanguageListFlags::ONLY_KNOWN, true, false, true, true,
+@@ -1160,12 +1171,27 @@
+         Sequence< Any > theArgs{ Any(NamedValue(u"nodepath"_ustr, Any(sUserLocalePath))) };
+         Reference< XPropertySet >xProp(
+             theConfigProvider->createInstanceWithArguments(sAccessUpdSrvc, theArgs ), UNO_QUERY_THROW );
+-        if ( m_sUserLocaleValue != aLangString)
++        if (m_xUserInterfaceLB->get_value_changed_from_saved())
+         {
+             // OSL_FAIL("UserInterface language was changed, restart.");
+             // write new value
+-            xProp->setPropertyValue(sUserLocaleKey, Any(aLangString));
+-            Reference< XChangesBatch >(xProp, UNO_QUERY_THROW)->commitChanges();
++            try
++            {
++                xProp->setPropertyValue(sUserLocaleKey, Any(aLangString));
++                Reference< XChangesBatch >(xProp, UNO_QUERY_THROW)->commitChanges();
++            }
++            catch (const Exception&)
++            {
++                // HST Office: tell the user instead of offering a restart that changes nothing
++                TOOLS_WARN_EXCEPTION("cui.options", "UI language not saved");
++                std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
++                    GetFrameWeld(), VclMessageType::Warning, VclButtonsType::Ok,
++                    CuiResId(RID_CUISTR_UI_LANGUAGE_NOT_SAVED)));
++                xBox->run();
++                throw;
++            }
++            m_sUserLocaleValue = aLangString;
++            m_xUserInterfaceLB->save_value();
+             // display info
+             SolarMutexGuard aGuard;
+             if (svtools::executeRestartDialog(
+--- a/cui/inc/strings.hrc
++++ b/cui/inc/strings.hrc
+@@ -404,6 +404,8 @@
+ #define RID_LANGUAGETOOL_REST_LEAVE_EMPTY           NC_("RID_LANGUAGETOOL_REST_LEAVE_EMPTY", "Leave this field empty to use LanguageTool protocol")
+ 
+ #define RID_CUISTR_A11Y_DESC_BACKUP                 NC_("RID_CUISTR_A11Y_DESC_BACKUP", "Specifies if the backup copy should be stored in the same folder as the original document. If not selected, the backup copy is stored in the folder specified in Tools - Options - %PRODUCTNAME - Paths - Backups.")
++// HST Office: Tools - Options - Languages and Locales - General, writing the user interface language failed
++#define RID_CUISTR_UI_LANGUAGE_NOT_SAVED            NC_("RID_CUISTR_UI_LANGUAGE_NOT_SAVED", "The user interface language could not be changed. The setting may be managed by your administrator.")
+ 
+ // Translatable names of color schemes
+ #define RID_COLOR_SCHEME_LIBREOFFICE_AUTOMATIC      NC_("RID_COLOR_SCHEME_LIBREOFFICE_AUTOMATIC", "Automatic")
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -2159,6 +2159,12 @@
+ msgid "Specifies if the backup copy should be stored in the same folder as the original document. If not selected, the backup copy is stored in the folder specified in Tools - Options - %PRODUCTNAME - Paths - Backups."
+ msgstr "Chỉ định xem bản sao lưu có được lưu trữ trong cùng thư mục với tài liệu gốc hay không. Nếu không được chọn, bản sao lưu sẽ được lưu trong thư mục được chỉ định trong Công cụ - Tùy chọn - %PRODUCTNAME - Đường dẫn - Sao lưu."
+ 
++#. hstLS
++#: cui/inc/strings.hrc
++msgctxt "RID_CUISTR_UI_LANGUAGE_NOT_SAVED"
++msgid "The user interface language could not be changed. The setting may be managed by your administrator."
++msgstr "Không đổi được ngôn ngữ giao diện. Thiết lập này có thể do quản trị viên quản lý."
++
+ #. FoBUc
+ #. Translatable names of color schemes
+ #: cui/inc/strings.hrc:409
