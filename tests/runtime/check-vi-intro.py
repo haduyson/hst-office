@@ -9,7 +9,8 @@ Menus and functions follow the UI language; these texts do not (owner decision):
   - About: description, "Bản phát hành này do HASON TECH cung cấp.", open-source line, contact;
   - the first-start welcome dialog (extension hst-vietnamese-tools);
   - the Start Center banner artwork and the solution buttons' names and tooltips;
-  - the source-code notice at the top of Help > License Information (bilingual, kept).
+  - the source-code notice at the top of Help > License Information (bilingual, kept) and the
+    licence summary below it with the HST copyright line.
 Static part: the installed program/resources carry the Vietnamese texts and no translatable
 English source for them. GUI part (unless --no-gui): screenshots of About, welcome, Start
 Center and License dialog under an en-US and a vi UI, with an assertion on window titles that
@@ -40,6 +41,8 @@ STATIC = (
     ("Start Center welcome hint is Vietnamese in code", "program/lib*.so", "Chào mừng đến với ", "utf-16-le"),
     ("Start Center solution tooltip is Vietnamese in code", "program/lib*.so", "Trợ lý số cá nhân của người Việt", "utf-16-le"),
     ("License notice is bilingual (Vietnamese first)", "program/lib*.so", "HST Office là phần mềm nguồn mở", "utf-16-le"),
+    ("License summary carries the HST copyright line", "program/lib*.so",
+     "© 2026 HASON TECH · © 2000–2026 The Document Foundation và các tác giả LibreOffice", "utf-16-le"),
     ("Welcome dialog always loads Vietnamese texts",
      "share/extensions/hst-vietnamese-tools/python/hst_office/welcome_job.py", 'load_locale("vi")', "utf-8"),
 )

@@ -1,0 +1,67 @@
+HST Office: UX fixes found in the beta.3 usability review.
+
+- Help > License Information: the summary under the source-code notice is a fixed
+  Vietnamese text in every UI language. It carries the HST copyright line
+  ("© 2026 HASON TECH · © 2000–2026 The Document Foundation và các tác giả LibreOffice"),
+  keeps the MPL-2.0, third-party and OpenOffice.org attributions, and drops the upstream
+  "All rights reserved" line and the upstream website URL.
+- Tools > Options > Load/Save > HTML Compatibility: the Basic export checkbox reads
+  "%PRODUCTNAME Basic" (it said "LibreOffice Basic" in the English UI; the Vietnamese
+  translation already used %PRODUCTNAME).
+- Extension Manager > Add: in UI languages other than Vietnamese the install confirmation shows
+  the HST third-party notice in English (the generic upstream text had no notice; the
+  Vietnamese translation already carries it).
+
+License: modified upstream files keep their license (MPL-2.0).
+---
+--- a/cui/uiconfig/ui/opthtmlpage.ui
++++ b/cui/uiconfig/ui/opthtmlpage.ui
+@@ -626,7 +626,7 @@
+                 </child>
+                 <child>
+                   <object class="GtkCheckButton" id="starbasic">
+-                    <property name="label" translatable="yes" context="opthtmlpage|starbasic">LibreOffice _Basic</property>
++                    <property name="label" translatable="yes" context="opthtmlpage|starbasic">%PRODUCTNAME _Basic</property>
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">False</property>
+--- a/desktop/source/deployment/gui/dp_gui_dialog2.cxx
++++ b/desktop/source/deployment/gui/dp_gui_dialog2.cxx
+@@ -153,10 +153,17 @@
+         getDialog(), VclMessageType::Warning, VclButtonsType::NONE,
+         DpResId(RID_STR_WARNING_INSTALL_EXTENSION)));
+     xInfoBox->set_title(DpResId(RID_STR_ADD_PACKAGES));
+-    OUString sText(xInfoBox->get_primary_text());
++    const bool bVietnamese = Application::GetSettings().GetUILanguageTag().getLanguage() == "vi";
++    // The Vietnamese translation carries the HST third-party notice; other UI languages get the
++    // same notice in English instead of the generic upstream text.
++    OUString sText(bVietnamese
++                       ? xInfoBox->get_primary_text()
++                       : u"You are about to install the extension '%NAME' from a file you chose. HASON TECH"
++                         u" does not review third-party extensions; an extension can access your documents"
++                         u" and the data on this computer. You are responsible for the extensions you"
++                         u" install. Continue?"_ustr);
+     sText = sText.replaceAll("%NAME", rExtensionName);
+     xInfoBox->set_primary_text(sText);
+-    const bool bVietnamese = Application::GetSettings().GetUILanguageTag().getLanguage() == "vi";
+     xInfoBox->add_button(bVietnamese ? u"_Ti\u1EBFp t\u1EE5c"_ustr
+                                      : GetStandardText(StandardButtonType::OK),
+                          RET_OK);
+--- a/sfx2/source/appl/appserv.cxx
++++ b/sfx2/source/appl/appserv.cxx
+@@ -322,7 +322,14 @@
+                 u"HST Office is open-source software; part of its code is under the Mozilla Public License 2.0"
+                 u" and the licences below. To obtain a copy of the source code corresponding to this"
+                 u" release, contact HASON TECH: lienhe@hasontech.vn.\n\n"
+-                + xLabel->get_label());
++                // HST Office: fixed Vietnamese summary in every UI language (owner decision: legal
++                // texts are Vietnamese; the upstream label carried "All rights reserved" and an
++                // upstream URL).
++                u"HST Office \u0111\u01B0\u1EE3c cung c\u1EA5p theo c\u00E1c \u0111i\u1EC1u kho\u1EA3n c\u1EE7a Mozilla Public License, phi\u00EAn b\u1EA3n 2.0. B\u1EA3n sao MPL c\u00F3 trong t\u1EC7p LICENSE.html v\u00E0 t\u1EA1i http://mozilla.org/MPL/2.0/.\n\n"
++                u"M\u00E3 c\u1EE7a b\u00EAn th\u1EE9 ba: c\u00E1c th\u00F4ng b\u00E1o b\u1EA3n quy\u1EC1n v\u00E0 \u0111i\u1EC1u kho\u1EA3n gi\u1EA5y ph\u00E9p b\u1ED5 sung cho t\u1EEBng ph\u1EA7n c\u1EE7a ph\u1EA7n m\u1EC1m n\u1EB1m trong t\u1EC7p LICENSE.html; ch\u1ECDn \u201CHi\u1EC3n th\u1ECB gi\u1EA5y ph\u00E9p\u201D \u0111\u1EC3 xem nguy\u00EAn v\u0103n (ti\u1EBFng Anh).\n\n"
++                u"M\u1ECDi nh\u00E3n hi\u1EC7u v\u00E0 nh\u00E3n hi\u1EC7u \u0111\u00E3 \u0111\u0103ng k\u00FD \u0111\u01B0\u1EE3c nh\u1EAFc \u0111\u1EBFn \u1EDF \u0111\u00E2y thu\u1ED9c v\u1EC1 ch\u1EE7 s\u1EDF h\u1EEFu t\u01B0\u01A1ng \u1EE9ng.\n\n"
++                u"\u00A9 2026 HASON TECH \u00B7 \u00A9 2000\u20132026 The Document Foundation v\u00E0 c\u00E1c t\u00E1c gi\u1EA3 LibreOffice\n\n"
++                u"HST Office do HASON TECH ph\u00E1t tri\u1EC3n, d\u1EF1a tr\u00EAn LibreOffice v\u00E0 OpenOffice.org (b\u1EA3n quy\u1EC1n 2000, 2011 thu\u1ED9c Oracle v\u00E0/ho\u1EB7c c\u00E1c c\u00F4ng ty li\u00EAn k\u1EBFt)."_ustr);
+         }
+ 
+         virtual short run() override
