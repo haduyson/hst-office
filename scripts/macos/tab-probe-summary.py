@@ -37,4 +37,4 @@ for e in events:
 for e in events:
     if e["event"].startswith("popup-open") and e["event"].endswith(":end"):
         print(f"\n{e['event']}: ok={e.get('ok')} usable={e.get('usable')} s frames={e.get('frames')} "
-              f"frontmost={e.get('frontmost')} dispatch_returned={e.get('dispatch_returned')}")
+              f"frontmost={e.get('frontmost')} title={e.get('title')}")

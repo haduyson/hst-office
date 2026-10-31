@@ -19,7 +19,7 @@ case "$ARCH" in arm64|x86_64) ;; *) echo "unsupported HST_ARCH $ARCH"; exit 64 ;
 PY="${HST_PYTHON:-$(command -v python3)}"
 BREW="${HST_BREW:-$(command -v brew || true)}"
 eval "$("$PY" "$REPO/scripts/write-hst-version.py" --env)"
-export HST_VERSION HST_VERSION_MAJOR HST_VERSION_MINOR HST_VERSION_MICRO
+export HST_VERSION HST_VERSION_MAJOR HST_VERSION_MINOR HST_VERSION_MICRO HST_RELEASE HST_VERSION_BUILD
 # HST make rules (bundled extension) read the repository through HST_REPO_ROOT; without it they
 # assume the Linux layout two levels above the source tree.
 export HST_REPO_ROOT="$REPO"
@@ -183,10 +183,15 @@ do_configure() {
   # Same HST version wiring as scripts/build-linux.sh prepare_version.
   "$PY" "$REPO/scripts/write-hst-version.py" --header "$SRC/include/hst_version.h" || return 1
   fill_version "$SRC/instsetoo_native/util/openoffice.lst" || return 1
-  # Finder "Get Info" shows CFBundleShortVersionString: the HST release, not the engine version.
+  # Finder "Get Info" shows the HST release, not the engine version. Apple wants numeric version
+  # fields: CFBundleShortVersionString is MAJOR.MINOR.MICRO, CFBundleVersion the monotonic build
+  # number (Finder prints "1.0.0 (401)"), and the human-readable release id goes into
+  # CFBundleGetInfoString. This file is what the build packages into the bundle, so the values
+  # are in place before the app is signed.
   local plist="$SRC/sysui/desktop/macosx/Info.plist"
   plutil -replace CFBundleShortVersionString -string "$HST_VERSION" "$plist" || return 1
-  plutil -replace CFBundleVersion -string "$HST_VERSION" "$plist" || return 1
+  plutil -replace CFBundleVersion -string "$HST_VERSION_BUILD" "$plist" || return 1
+  plutil -replace CFBundleGetInfoString -string "HST Office $HST_RELEASE" "$plist" || return 1
   plutil -lint "$plist" || return 1
   grep -q 'vn.hasontech.hstoffice' "$plist" || { echo "configure: bundle identifier not in Info.plist"; return 1; }
   grep -E '^export (ENABLE_RELEASE_BUILD|MACOSX_BUNDLE_IDENTIFIER|MACOSX_DEPLOYMENT_TARGET|MACOSX_SDK_VERSION|PRODUCTNAME|CCACHE|PARALLELISM)=' "$SRC/config_host.mk" || true
@@ -243,7 +248,7 @@ do_build() {
 
 HST_COPYRIGHT="© 2026 HASON TECH · © 2000–2026 The Document Foundation và các tác giả LibreOffice"
 
-dmg_name() { printf 'HSTOffice_%s_macOS_%s.dmg' "$HST_VERSION" "$ARCH"; }
+dmg_name() { printf 'HSTOffice_%s_macOS_%s.dmg' "$HST_RELEASE" "$ARCH"; }
 
 do_collect() { # the single HST Office dmg -> $WORK/dmg with SHA256SUMS; signing inputs -> evidence
   local inst="$SRC/workdir/installation" out="$WORK/dmg" kit="$WORK/artifacts/signing-kit"
@@ -303,9 +308,12 @@ do_verify() { # mount the dmg read-only and check product identity and Vietnames
     echo "volume:"; ls -la "$mnt"
     app="$mnt/HST Office.app"; plist="$app/Contents/Info.plist"
     if [ -d "$app" ]; then echo "app: HST Office.app"; else echo "FAIL: HST Office.app missing"; bad=1; fi
-    for key in CFBundleName CFBundleIdentifier CFBundleShortVersionString CFBundleVersion LSMinimumSystemVersion CFBundleIconFile; do
+    for key in CFBundleName CFBundleIdentifier CFBundleShortVersionString CFBundleVersion CFBundleGetInfoString LSMinimumSystemVersion CFBundleIconFile; do
       echo "$key=$(/usr/libexec/PlistBuddy -c "Print :$key" "$plist" 2>&1)"
     done
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" = "$HST_VERSION" ] || { echo "FAIL: CFBundleShortVersionString is not $HST_VERSION"; bad=1; }
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" = "$HST_VERSION_BUILD" ] || { echo "FAIL: CFBundleVersion is not the build number $HST_VERSION_BUILD"; bad=1; }
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleGetInfoString' "$plist")" = "HST Office $HST_RELEASE" ] || { echo "FAIL: CFBundleGetInfoString is not the release id"; bad=1; }
     [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = vn.hasontech.hstoffice ] || { echo "FAIL: bundle id"; bad=1; }
     [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = "HST Office" ] || { echo "FAIL: bundle name"; bad=1; }
     echo "architectures: $(lipo -archs "$app/Contents/MacOS/soffice")"

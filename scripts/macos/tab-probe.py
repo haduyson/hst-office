@@ -111,28 +111,38 @@ def dismiss_welcome(pid):
         time.sleep(2)
 
 
+def click_keys(*args):
+    return subprocess.run(["cliclick", *args], capture_output=True, text=True, check=False, timeout=20)
+
+
 def popup_open_file(p, pid, out, mode, label):
-    """The "+" popup entry "Open File...": the same dispatch (.uno:Open on the shown frame, target
-    _self) shows the native open panel; the panel is driven with System Events (go to folder, Return)
-    and the document must appear as the shown, active, frontmost tab. A hang is sampled."""
-    sample = f"{out}/sample.odt"
+    """The real "+" popup: click the "+" button right of the last tab, choose the last entry
+    ("Open File...", reached with Up then Return), drive the native open panel with System Events
+    and require the document as the shown, active, frontmost tab. A hang is sampled."""
+    target = f"{out}/popup-{label}.odt"
+    doc = p.load("private:factory/swriter")
+    doc.getText().setString("opened from the popup")
+    doc.storeToURL("file://" + target, ())
+    doc.close(True)
+    time.sleep(1.5)
     before = len(p.frames())
-    box = {}
-
-    def run():
-        try:
-            p.dispatch(".uno:Open")
-            box["done"] = time.time()
-        except Exception as error:  # noqa: BLE001
-            box["error"] = repr(error)
-
-    p.mark(f"{label}:start")
+    # "+" sits after the last tab; tabs are about 99 px wide in the 1024x768 probe display
+    x = 22 + 99 * before
+    y = 151 if mode == "fullscreen" else 204
+    osa('tell application "System Events" to tell (first process whose unix id is %d) to set frontmost to true' % pid)
+    time.sleep(1)
+    p.mark(f"{label}:start", x=x, y=y)
     began = time.time()
-    threading.Thread(target=run, daemon=True).start()
-    time.sleep(4)
+    click_keys(f"c:{x},{y}")
+    time.sleep(1.2)
+    subprocess.run(["screencapture", "-x", f"{out}/{label}-popup-{mode}.png"], check=False)
+    click_keys("kp:arrow-up")
+    time.sleep(0.4)
+    subprocess.run(["screencapture", "-x", f"{out}/{label}-popup-item-{mode}.png"], check=False)
+    click_keys("kp:return")
+    time.sleep(3)
     subprocess.run(["screencapture", "-x", f"{out}/{label}-panel-{mode}.png"], check=False)
     rc, msg = osa('tell application "System Events" to tell (first process whose unix id is %d)\n'
-                  'set frontmost to true\n'
                   'keystroke "g" using {command down, shift down}\n'
                   'delay 1\n'
                   'keystroke "%s"\n'
@@ -140,24 +150,30 @@ def popup_open_file(p, pid, out, mode, label):
                   'key code 36\n'
                   'delay 1\n'
                   'key code 36\n'
-                  'end tell' % (pid, sample))
+                  'end tell' % (pid, target))
     p.mark(f"{label}:panel-driven", rc=rc, msg=msg)
-    ok = False
+    ok, sampled = False, False
     while time.time() - began < 40:
         try:
             shown = p.shown()
-            if len(p.frames()) > before and shown and shown[0].isActive() and front_pid() == pid:
+            if len(p.frames()) >= before and shown and shown[0].isActive() and front_pid() == pid \
+                    and "popup-" in (shown[0].getTitle() or ""):
                 ok = True
                 break
         except Exception:  # noqa: BLE001
             pass
-        if time.time() - began > 20 and "sampled" not in box:
-            box["sampled"] = True
+        if time.time() - began > 20 and not sampled:
+            sampled = True
             subprocess.run(["sample", str(pid), "5", "-file", f"{out}/{label}-hang-{mode}.txt"], check=False)
         time.sleep(0.3)
     subprocess.run(["screencapture", "-x", f"{out}/{label}-after-{mode}.png"], check=False)
+    title = ""
+    try:
+        title = p.shown()[0].getTitle()
+    except Exception:  # noqa: BLE001
+        pass
     p.mark(f"{label}:end", ok=ok, usable=round(time.time() - began, 2), frames=len(p.frames()),
-           frontmost=front_pid() == pid, dispatch_returned="done" in box)
+           frontmost=front_pid() == pid, title=title)
 
 
 def main():
