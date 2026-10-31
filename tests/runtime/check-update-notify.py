@@ -92,12 +92,12 @@ def install_policy(instdir, out):
                    check=True, timeout=180)
 
 
-def policy_phase(instdir, out, results):
+def policy_phase(instdir, out, results, display=":97"):
     """With the policy installed: AutoCheck reads false, user writes are refused, no request reaches the server."""
     install_policy(instdir, out)
     SERVED.clear()
     REQUESTS.clear()
-    office = hst_gui.Office(instdir, os.path.join(out, "gui-policy"), UNO_PORT, nodefault=False)
+    office = hst_gui.Office(instdir, os.path.join(out, "gui-policy"), UNO_PORT, display=display, nodefault=False)
     try:
         office.start()
         office.load("private:factory/swriter")
@@ -216,7 +216,7 @@ def main():
     finally:
         office.stop()
     try:
-        policy_phase(instdir, args.out, results)
+        policy_phase(instdir, args.out, results, display=args.display)
     finally:
         server.shutdown()
         server.server_close()
