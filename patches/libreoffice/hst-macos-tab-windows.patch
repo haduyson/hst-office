@@ -308,7 +308,7 @@ next to the second window.
  using namespace css;
  
  namespace framework
-@@ -358,6 +361,7 @@
+@@ -358,11 +361,17 @@
      Member aMember;
      aMember.xFrame = xFrame;
      aMember.pWindow = VCLUnoHelper::GetWindow(xFrame->getContainerWindow());
@@ -316,7 +316,17 @@ next to the second window.
      // New tabs open to the right of the active one, like a browser.
      auto it = m_aMembers.end();
      if (Member* pActive = activeMember())
-@@ -467,6 +471,28 @@
+         it = m_aMembers.begin() + (pActive - m_aMembers.data()) + 1;
+     it = m_aMembers.insert(it, aMember);
++    // A tab that is already shown when the group first learns of it (the Start Center frame
++    // that becomes the first document is joined by prepareShow() and never gets a show event)
++    // is the active one; without this the next window would not find a tab to park.
++    if (!activeMember() && it->pWindow && !it->pWindow->isDisposed() && it->pWindow->IsVisible())
++        m_xActive = xFrame;
+     uno::Reference<util::XCloseBroadcaster> xClose(xFrame, uno::UNO_QUERY);
+     if (xClose.is() && m_xListener.is())
+         xClose->addCloseListener(m_xListener);
+@@ -467,6 +476,28 @@
              return;
          const bool bPrepared = lcl_get(m_xPrepared) == xFrame;
          m_xPrepared.clear();
@@ -345,7 +355,7 @@ next to the second window.
          Member* pPrevious = activeMember();
          if (pPrevious && lcl_get(pPrevious->xFrame) == xFrame && !pPrevious->bParked)
              return;
-@@ -481,6 +507,21 @@
+@@ -481,6 +512,21 @@
          Member& rMember = join(xFrame);
          rMember.bParked = false;
          m_xActive = xFrame;
@@ -367,7 +377,7 @@ next to the second window.
          if (xPrevious.is() && xPrevious != xFrame && pPreviousWindow && pPreviousWindow->IsVisible())
          {
              // Shown without prepareShow(): take over the group geometry now.
-@@ -685,6 +726,8 @@
+@@ -685,6 +731,8 @@
          VclPtr<vcl::Window> pGeometry = pMember->pWindow;
          size_t nIndex = pMember - m_aMembers.data();
          pMember->pBar.disposeAndClear();
@@ -376,7 +386,7 @@ next to the second window.
          uno::Reference<util::XCloseBroadcaster> xClose(xFrame, uno::UNO_QUERY);
          if (xClose.is() && m_xListener.is())
              xClose->removeCloseListener(m_xListener);
-@@ -771,6 +814,8 @@
+@@ -771,6 +819,8 @@
      {
          aFrames.push_back(lcl_get(rMember.xFrame));
          rMember.pBar.disposeAndClear();
