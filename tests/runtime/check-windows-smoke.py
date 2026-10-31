@@ -22,6 +22,9 @@ import threading
 import time
 import traceback
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # the Windows console is cp1252
+
 ROWS = []
 OUT = None
 EN_TITLES = ("Administrative document (ND30)", "Welcome to HST Office", "Import CSV", "Convert legacy Vietnamese text to Unicode")
@@ -106,6 +109,16 @@ def shot(label):
                    timeout=60, check=False)
 
 
+def close_dialog(window):
+    """End a modal dialog: endExecute when the peer offers XDialog, otherwise press Escape in the foreground window."""
+    try:
+        window.endExecute()
+    except Exception:  # noqa: BLE001
+        subprocess.run(["powershell", "-NoProfile", "-Command",
+                        "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ESC}')"],
+                       timeout=30, check=False)
+
+
 def pump(toolkit, work, wait_for_window):
     """Run `work` in a thread; close (endExecute) every window that opens meanwhile. Returns (titles, error text)."""
     before = {id(w) for w in top_windows(toolkit)}
@@ -128,10 +141,8 @@ def pump(toolkit, work, wait_for_window):
                 before.add(id(window))
                 time.sleep(1.5)  # let it paint before the screenshot
                 shot(title or "window")
-                try:
-                    window.endExecute()
-                except Exception as exc:  # noqa: BLE001
-                    state["error"] += "endExecute failed: %s\n" % exc
+                if title:  # untitled top windows are document frames: never close those
+                    close_dialog(window)
         time.sleep(0.3)
     thread.join(10)
     if thread.is_alive():
