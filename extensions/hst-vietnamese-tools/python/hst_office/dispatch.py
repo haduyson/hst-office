@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""ProtocolHandler for the org.hst.office.vi: command URLs used by the HST menu and toolbar."""
+"""ProtocolHandler (Vietnamese in every UI language: product policy) for the org.hst.office.vi: command URLs used by the HST menu and toolbar."""
+import os
+import tempfile
+import time
 import traceback
 
 import unohelper
@@ -11,20 +14,20 @@ from .data_files import load_locale
 
 IMPLEMENTATION_NAME = "org.hst.office.vi.DispatchProvider"
 PROTOCOL = "org.hst.office.vi:"
+# command -> (service of the document it works in, URL of a new blank document of that kind)
+NEW_DOCUMENT = {"Nd30Wizard": ("com.sun.star.text.TextDocument", "private:factory/swriter"),
+                "ImportCsv": ("com.sun.star.sheet.SpreadsheetDocument", "private:factory/scalc")}
 SHOW_SOLUTIONS = "ShowSolutions"  # needs no document, so it also works in the Start Center
 
 
-def ui_language(ctx):
-    """UI language code from the office configuration (falls back to English)."""
+def log_error(command):
+    """Print the traceback and append it to hst-office-errors.log in the temp directory (the Windows office has no console)."""
+    traceback.print_exc()
     try:
-        provider = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
-        import uno
-        arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-        arg.Name, arg.Value = "nodepath", "/org.openoffice.Setup/L10N"
-        node = provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess", (arg,))
-        return node.getByName("ooLocale")
-    except Exception:  # noqa: BLE001 - language is cosmetic; English is a safe default
-        return "en"
+        with open(os.path.join(tempfile.gettempdir(), "hst-office-errors.log"), "a", encoding="utf-8") as handle:
+            handle.write("%s %s\n%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), command, traceback.format_exc()))
+    except OSError:
+        pass
 
 
 class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, XDispatch):
@@ -53,14 +56,27 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
     def dispatch(self, url, arguments):
         if url.Path == SHOW_SOLUTIONS:
             return self._show_solutions()
+        frame = self.frame
         try:
-            COMMANDS[url.Path](Host(self.ctx, self.frame, load_locale(ui_language(self.ctx))))
+            frame = self._frame_for(url.Path)
+            COMMANDS[url.Path](Host(self.ctx, frame, load_locale("vi")))
         except Exception as exc:  # noqa: BLE001 - never fail silently inside the office UI thread
-            traceback.print_exc()
+            log_error(url.Path)
             try:
-                Host(self.ctx, self.frame, load_locale("en")).say("%s: %s" % (type(exc).__name__, exc), error=True)
+                Host(self.ctx, frame, load_locale("vi")).say("%s: %s" % (type(exc).__name__, exc), error=True)
             except Exception:  # noqa: BLE001
                 pass
+
+    def _frame_for(self, command):
+        """Frame of a document of the kind the command works on; opens a blank one from the Start Center or another module."""
+        kind = NEW_DOCUMENT.get(command)
+        controller = self.frame.getController() if self.frame else None
+        model = controller.getModel() if controller else None
+        if kind is None or (model is not None and model.supportsService(kind[0])):
+            return self.frame
+        desktop = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", self.ctx)
+        document = desktop.loadComponentFromURL(kind[1], "_blank", 0, ())
+        return document.getCurrentController().getFrame()
 
     def _show_solutions(self):
         try:

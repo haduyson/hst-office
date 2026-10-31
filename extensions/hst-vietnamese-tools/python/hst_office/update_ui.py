@@ -5,7 +5,7 @@ Settings (schema update.xcs, per user, each property finalizable by an administr
   /org.hasontech.hstoffice.UpdateCheck/AutoCheck       boolean, default true: check at start-up (max. once / 24 h)
   /org.hasontech.hstoffice.UpdateCheck/LastCheck       long, unix seconds of the last automatic attempt
   /org.hasontech.hstoffice.UpdateCheck/SkippedVersion  string, version the user chose to skip
-All texts are Vietnamese in every UI language (system/intro content, product policy).
+Texts follow the UI language (Vietnamese or English); the other HST commands are always Vietnamese.
 """
 import platform
 import traceback
@@ -20,14 +20,37 @@ from . import update_logic as logic
 CONFIG_PATH = "/org.hasontech.hstoffice.UpdateCheck"
 PROTOCOL = "org.hst.office.update:"
 INFOBAR_ID = "hst-update-available"
-TITLE = "Kiểm tra cập nhật"
-TEXT = {
-    "new": "Đã có HST Office %s — bản mới.",
-    "current": "Bạn đang dùng %s.",
-    "download": "Tải về", "notes": "Xem điểm mới", "skip": "Bỏ qua phiên bản này", "close": "Đóng",
-    "uptodate": "Bạn đang dùng phiên bản mới nhất (%s).",
-    "failed": "Không kiểm tra được cập nhật. Hãy kiểm tra kết nối mạng rồi thử lại sau.",
+TEXTS = {
+    "vi": {
+        "title": "Kiểm tra cập nhật",
+        "new": "Đã có HST Office %s — bản mới.",
+        "current": "Bạn đang dùng %s.",
+        "download": "Tải về", "notes": "Xem điểm mới", "skip": "Bỏ qua phiên bản này", "close": "Đóng",
+        "uptodate": "Bạn đang dùng phiên bản mới nhất (%s).",
+        "failed": "Không kiểm tra được cập nhật. Hãy kiểm tra kết nối mạng rồi thử lại sau.",
+    },
+    "en": {
+        "title": "Check for Updates",
+        "new": "HST Office %s is available — a new version.",
+        "current": "You are using %s.",
+        "download": "Download", "notes": "What's new", "skip": "Skip this version", "close": "Close",
+        "uptodate": "You are using the latest version (%s).",
+        "failed": "Could not check for updates. Check your network connection and try again later.",
+    },
 }
+
+
+def ui_language(ctx):
+    """'vi' when the office UI language is Vietnamese, else 'en'."""
+    try:
+        node = _node(ctx, "/org.openoffice.Setup/L10N")
+        return "vi" if str(node.getByName("ooLocale")).lower().startswith("vi") else "en"
+    except Exception:  # noqa: BLE001 - cosmetic; English is the safe fallback for non-Vietnamese systems
+        return "en"
+
+
+def texts(ctx=None):
+    return TEXTS[ui_language(ctx or uno.getComponentContext())]
 STATE = {"release": None, "pending": None, "listener": None}  # last release found (used by the infobar buttons)
 
 
@@ -100,6 +123,7 @@ def release_download(release):
 def show_infobar(frame, release, installed):
     """Infobar on a Writer/Calc/Impress view; False when the frame has none (e.g. the Start Center)."""
     try:
+        TEXT = texts()
         controller = frame.getController() if frame else None
         if controller is None or not hasattr(controller, "appendInfobar"):
             return False
@@ -168,13 +192,14 @@ def notify(ctx, release, installed):
 def show_result(ctx, parent_peer, release, installed, failed):
     """Menu check result: up to date / new version (with the three actions) / could not check."""
     from .dialogs import CANCEL, Dialog
+    TEXT = texts(ctx)
     if failed:
         text = TEXT["failed"]
     elif release is None:
         text = TEXT["uptodate"] % installed
     else:
         text = "%s\n%s" % (TEXT["new"] % release["version"], TEXT["current"] % installed)
-    dialog = Dialog(ctx, TITLE, 250, 70)
+    dialog = Dialog(ctx, TEXT["title"], 250, 70)
     dialog.label("message", text, 8, 8, 234, 30, wrap=True)
     x = 8
     if release is not None and not failed:
