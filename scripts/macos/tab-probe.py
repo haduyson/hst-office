@@ -111,6 +111,55 @@ def dismiss_welcome(pid):
         time.sleep(2)
 
 
+def popup_open_file(p, pid, out, mode, label):
+    """The "+" popup entry "Open File...": the same dispatch (.uno:Open on the shown frame, target
+    _self) shows the native open panel; the panel is driven with System Events (go to folder, Return)
+    and the document must appear as the shown, active, frontmost tab. A hang is sampled."""
+    sample = f"{out}/sample.odt"
+    before = len(p.frames())
+    box = {}
+
+    def run():
+        try:
+            p.dispatch(".uno:Open")
+            box["done"] = time.time()
+        except Exception as error:  # noqa: BLE001
+            box["error"] = repr(error)
+
+    p.mark(f"{label}:start")
+    began = time.time()
+    threading.Thread(target=run, daemon=True).start()
+    time.sleep(4)
+    subprocess.run(["screencapture", "-x", f"{out}/{label}-panel-{mode}.png"], check=False)
+    rc, msg = osa('tell application "System Events" to tell (first process whose unix id is %d)\n'
+                  'set frontmost to true\n'
+                  'keystroke "g" using {command down, shift down}\n'
+                  'delay 1\n'
+                  'keystroke "%s"\n'
+                  'delay 1\n'
+                  'key code 36\n'
+                  'delay 1\n'
+                  'key code 36\n'
+                  'end tell' % (pid, sample))
+    p.mark(f"{label}:panel-driven", rc=rc, msg=msg)
+    ok = False
+    while time.time() - began < 40:
+        try:
+            shown = p.shown()
+            if len(p.frames()) > before and shown and shown[0].isActive() and front_pid() == pid:
+                ok = True
+                break
+        except Exception:  # noqa: BLE001
+            pass
+        if time.time() - began > 20 and "sampled" not in box:
+            box["sampled"] = True
+            subprocess.run(["sample", str(pid), "5", "-file", f"{out}/{label}-hang-{mode}.txt"], check=False)
+        time.sleep(0.3)
+    subprocess.run(["screencapture", "-x", f"{out}/{label}-after-{mode}.png"], check=False)
+    p.mark(f"{label}:end", ok=ok, usable=round(time.time() - began, 2), frames=len(p.frames()),
+           frontmost=front_pid() == pid, dispatch_returned="done" in box)
+
+
 def main():
     pid, out, mode = int(sys.argv[1]), sys.argv[2], sys.argv[3]
     threading.Thread(target=dismiss_welcome, args=(pid,), daemon=True).start()
@@ -131,9 +180,11 @@ def main():
                       'to set value of attribute "AXFullScreen" of window 1 to true' % pid)
         p.mark("enter-fullscreen", rc=rc, msg=msg)
         time.sleep(4)
+    popup_open_file(p, pid, out, mode, "popup-open-file")
     for i in range(6):
         p.timed(f"switch-{i + 1}", lambda: p.dispatch(".uno:NextDocumentTab"), 1.5)
     if mode == "fullscreen":
+        popup_open_file(p, pid, out, mode, "popup-open-file-fs")
         p.timed("plus-new-writer-fullscreen", lambda: p.load("private:factory/swriter"), 3)
         # Leave native full screen with several tabs open (green button / Ctrl+Cmd+F do the same).
         setfs = ('tell application "System Events" to tell (first process whose unix id is %d) '
