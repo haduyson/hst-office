@@ -15,6 +15,9 @@ members (hst_vcl_set_tab_group_member, vcl/source/window/syswin.cxx; no public h
 - Windows (vcl/win/window/salframe.cxx): DWMWA_TRANSITIONS_FORCEDISABLED for member windows, so the
   DWM fade/zoom of ShowWindow does not play on a switch.
 - GTK3: no change (switching measured at 0.1-0.4 s, no gap between hide and show).
+- macOS Command-w (vcl/osx/vclnsapp.mm): for a tab it no longer calls performClose: (the title-bar
+  close, which closes every tab and ended the application); the .uno:CloseWin accelerator closes
+  the shown tab only and the neighbour (or the Start Center) takes over.
 
 --- a/vcl/source/window/syswin.cxx
 +++ b/vcl/source/window/syswin.cxx
@@ -229,6 +232,21 @@ members (hst_vcl_set_tab_group_member, vcl/source/window/syswin.cxx; no public h
      }
  }
  
+--- a/vcl/osx/vclnsapp.mm
++++ b/vcl/osx/vclnsapp.mm
+@@ -151,7 +151,11 @@
+             // TODO: Command-Option-w should attempt to close all windows.
+             else if( [pCharacters isEqualToString: @"w"] || [pCharactersIgnoringModifiers isEqualToString: @"w"] )
+             {
+-                if ( nModMask == NSEventModifierFlagCommand && ([pFrame->getNSWindow() styleMask] & NSWindowStyleMaskClosable ) )
++                // HST Office: Command-w on a document tab closes that tab only (the .uno:CloseWin
++                // accelerator below). performClose: is the title-bar close button: it closes every
++                // tab of the group, and the application with it.
++                if ( nModMask == NSEventModifierFlagCommand && ([pFrame->getNSWindow() styleMask] & NSWindowStyleMaskClosable )
++                     && !pFrame->mbTabGroupMember )
+                 {
+                     [pFrame->getNSWindow() performClose: nil];
+                     return;
 --- a/vcl/inc/osx/salframe.h
 +++ b/vcl/inc/osx/salframe.h
 @@ -108,6 +108,9 @@
