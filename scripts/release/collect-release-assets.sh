@@ -51,7 +51,8 @@ fetch() { # <run id> <artifact name> -> verified copy of its installer files int
   gh run download "$1" -n "$2" -D "$dir"
   [ -f "$dir/SHA256SUMS" ] || die "$2 has no SHA256SUMS"
   (cd "$dir" && sha256sum -c SHA256SUMS)
-  find "$dir" -maxdepth 1 -type f ! -name SHA256SUMS -exec cp {} "$out/" \;
+  # Only installers are published; build evidence (e.g. notarytool logs) stays in the artifact.
+  find "$dir" -maxdepth 1 -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.dmg' -o -name '*.tar.gz' \) -exec cp {} "$out/" \;
 }
 
 commit="${COMMIT:-}"
