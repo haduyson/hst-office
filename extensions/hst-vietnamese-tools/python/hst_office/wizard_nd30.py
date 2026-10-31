@@ -8,7 +8,7 @@ change of a field or of the document type (nd30_preview).
 import datetime
 
 from . import nd30, nd30_layout, nd30_preview
-from .dialogs import Dialog
+from .dialogs import Dialog, palette
 
 TOP = 14  # height of the description line above the form
 WIDTH, HEIGHT = 600, 300 + TOP  # about 700 px high with common Linux fonts: fits a 1366x768 screen
@@ -18,8 +18,6 @@ PREVIEW_X = FIELD_X + FIELD_W + 10
 PREVIEW_W = WIDTH - PREVIEW_X - 8
 PREVIEW_CHARS = 70
 MONO = "Liberation Mono;Consolas;Menlo;DejaVu Sans Mono;Courier New"  # all carry precomposed Vietnamese
-ERROR_COLOR = 0xC5221F
-DESCRIPTION_COLOR = 0x555555  # slightly muted
 
 
 class Nd30Wizard:
@@ -28,6 +26,7 @@ class Nd30Wizard:
         self.data = nd30.rules()
         self.types = [t["id"] for t in self.data["documentTypes"]]
         self.compact = False
+        self.colours = palette(ctx)  # muted/error text readable on light and dark dialogs
         self.d = Dialog(ctx, self.s_nd["title"], WIDTH, HEIGHT)
         self._build()
         self.refresh()
@@ -41,7 +40,7 @@ class Nd30Wizard:
 
     def _build(self):
         d, s = self.d, self.s_nd
-        self.d.label("description", s["description"], LABEL_X, 4, WIDTH - 2 * LABEL_X, 10, wrap=True).TextColor = DESCRIPTION_COLOR
+        self.d.label("description", s["description"], LABEL_X, 4, WIDTH - 2 * LABEL_X, 10, wrap=True).TextColor = self.colours["muted"]
         self._label("type", 8)
         d.listbox("type", FIELD_X, 6 + TOP, FIELD_W, [s["types"][t] for t in self.types], help_text=s["type"])
         self._row("parentAgency", 22)
@@ -72,7 +71,7 @@ class Nd30Wizard:
         font.Name, font.Height = MONO, 8
         preview.FontDescriptor = font
         status = d.label("status", "", PREVIEW_X, 250 + TOP, PREVIEW_W, 24, wrap=True)  # room for several errors
-        status.TextColor = ERROR_COLOR
+        status.TextColor = self.colours["error"]
         d.button("btnOk", s["insert"], WIDTH - 8 - 64 - 4 - 64, HEIGHT - 22, 64, callback=self._accept, default=True)
         d.button("btnCancel", self.s["common"]["cancel"], WIDTH - 8 - 64, HEIGHT - 22, 64, kind=2)
         d.on_change(("type",) + nd30.FIELD_KEYS, self.refresh)

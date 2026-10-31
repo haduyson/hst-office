@@ -9,6 +9,29 @@ import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
 OK, CANCEL = 1, 2
+# Accent text colours that stay readable (contrast >= 4.5:1) on the light and on the dark dialog background.
+PALETTES = {False: {"link": 0x0B57D0, "muted": 0x5F6368, "error": 0xC5221F},
+            True: {"link": 0x8AB4F8, "muted": 0xBDC1C6, "error": 0xF28B82}}
+
+
+def is_dark(ctx):
+    """True when the office draws dialogs dark (dark GTK theme, macOS/Windows dark appearance or Tools ▸ Options ▸
+    Appearance): judged from the dialog colour of the active window, the same colour our dialogs get."""
+    try:
+        smgr = ctx.ServiceManager
+        window = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx).getActiveTopWindow()
+        if window is None:
+            frame = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).getCurrentFrame()
+            window = frame.getContainerWindow() if frame else None
+        colour = window.StyleSettings.DialogColor  # XStyleSettingsSupplier; the attribute form also works over a bridge
+        red, green, blue = (colour >> 16) & 0xFF, (colour >> 8) & 0xFF, colour & 0xFF
+        return 0.299 * red + 0.587 * green + 0.114 * blue < 128
+    except Exception:  # noqa: BLE001 - no window yet or no style settings: keep the light palette
+        return False
+
+
+def palette(ctx):
+    return PALETTES[is_dark(ctx)]
 
 
 class _Action(unohelper.Base, XActionListener):

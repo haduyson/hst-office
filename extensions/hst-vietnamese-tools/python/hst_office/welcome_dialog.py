@@ -15,11 +15,11 @@ from com.sun.star.style.VerticalAlignment import MIDDLE
 
 from . import welcome_content
 from .data_files import EXT_ROOT, load_data
-from .dialogs import Dialog
+from .dialogs import Dialog, is_dark, PALETTES
 
 WIDTH, PAD = 340, 10
 TEXT_W = WIDTH - 2 * PAD
-LINK_COLOR, BADGE_TEXT, BADGE_BACK, MUTED = 0x0B57D0, 0xFFFFFF, 0x0E7A36, 0x5F6368  # badge: owner's dark green, white text
+BADGE_TEXT, BADGE_BACK = 0xFFFFFF, 0x0E7A36  # badge: owner's dark green, white text (readable in light and dark mode)
 APPS = (("appWriter", "hst-writer-64.png"), ("appSheets", "hst-sheets-64.png"), ("appSlides", "hst-slides-64.png"))
 OPENED = []   # URLs handed to open_url (kept so the runtime check can see what a click produced)
 CURRENT = None  # the dialog being shown (runtime check hook)
@@ -84,8 +84,8 @@ class Welcome:
     def __init__(self, ctx, strings, medium, on_shown=None):
         self.ctx, self.s = ctx, strings["welcome"]
         self.model = welcome_content.build_model(load_data("solutions.json"), medium)
-        self.links = []  # (control name, url)
-        self.on_shown = on_shown
+        self.links, self.on_shown = [], on_shown  # links: (control name, url)
+        self.colours = PALETTES[is_dark(ctx)]  # link/muted colours readable in light and dark mode
         self.d = Dialog(ctx, self.s["title"], WIDTH, 100)
         self._build()
 
@@ -97,13 +97,13 @@ class Welcome:
             self.d.model.getByName("status").Label = self.s["openError"] % exc
 
     def _link(self, name, text, url, x, y, w, help_text):
-        model = self.d._add("FixedHyperlink", name, x, y, w, 10, Label=text, HelpText=help_text, TextColor=LINK_COLOR)
+        model = self.d._add("FixedHyperlink", name, x, y, w, 10, Label=text, HelpText=help_text, TextColor=self.colours["link"])
         self.links.append((name, url))
         return model
 
-    def _image(self, name, file_name, x, y, w, h):
+    def _image(self, name, file_name, x, y, w, h, **props):
         return self.d._add("ImageControl", name, x, y, w, h, ImageURL=icon_url(file_name), ScaleImage=True,
-                           ScaleMode=1, Border=0, Tabstop=False)  # ScaleMode 1 = ANISOTROPIC: keep the aspect ratio
+                           ScaleMode=1, Border=0, Tabstop=False, **props)  # ScaleMode 1 = ANISOTROPIC: keep the aspect ratio
 
     def _heading(self, name, text, y):
         self.d.label(name, text, PAD, y, TEXT_W, 10).FontWeight = 150
@@ -116,7 +116,8 @@ class Welcome:
     def _build(self):
         d, m, s = self.d, self.model, self.s
         # Greeting: logo, heading, one-liner, badge.
-        self._image("logo", "hst-office-logo.png", PAD, PAD, 56, 48)
+        card = {"BackgroundColor": 0xFFFFFF} if self.colours is PALETTES[True] else {}  # dark: logo on a white card
+        self._image("logo", "hst-office-logo.png", PAD, PAD, 56, 48, **card)
         x = PAD + 64
         heading = d.label("heading", s["heading"], x, PAD + 2, WIDTH - PAD - x, 14)
         heading.FontWeight, heading.FontHeight = 150, 13
@@ -142,7 +143,7 @@ class Welcome:
             d.label("feature%d" % i, text, PAD + 4, y, TEXT_W - 4, h, wrap=True)
             y += h + 1
         tip = d.label("helpTip", s["helpTip"], PAD, y + 2, TEXT_W, 10)
-        tip.TextColor = MUTED
+        tip.TextColor = self.colours["muted"]
         y = self._rule("rule2", y + 15)
         # Other HASON TECH solutions, two columns of names (tagline and description as tooltip).
         y = self._heading("solutionsHeading", s["solutions"], y)
