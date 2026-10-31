@@ -15,7 +15,7 @@ PY="${PYTHON:-python3}"; [ -x "$ROOT/.venv/bin/python" ] && PY="$ROOT/.venv/bin/
 
 echo "== shellcheck + bash -n"
 scripts=(scripts/macos/*.sh)
-if command -v shellcheck >/dev/null; then shellcheck "${scripts[@]}" || bad shellcheck; else bad "shellcheck not installed"; fi
+if command -v shellcheck >/dev/null; then shellcheck -x "${scripts[@]}" || bad shellcheck; else bad "shellcheck not installed"; fi
 for f in "${scripts[@]}"; do bash -n "$f" || bad "bash -n $f"; done
 for f in scripts/macos/*.py; do "$PY" -m py_compile "$f" || bad "py_compile $f"; done
 

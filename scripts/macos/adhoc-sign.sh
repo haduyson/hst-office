@@ -18,13 +18,13 @@ id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info
 sign() { # codesign failures propagate (pipefail); only the "replacing existing signature" notes are dropped
   codesign --force --sign - "$@" 2>&1 | { grep -v 'replacing existing signature' >&2 || :; }
 }
-deepest_first() { awk -F/ '{ print NF "\t" $0 }' | sort -rn | cut -f2-; }  # bundle paths contain no newlines
+# shellcheck source=scripts/macos/macho-lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/macho-lib.sh"
 
 # 1. Every Mach-O file (dylibs, Python extension modules, helper executables), deepest path first.
+#    Bundle main executables (soffice, nested apps) are signed with their bundle in steps 2 and 3.
 count=0
-while IFS= read -r file; do
-  if file -b "$file" | grep -q 'Mach-O'; then sign "$file"; count=$((count + 1)); fi
-done < <(find "$app/Contents" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.dylib.*' -o -name '*.so' \) | deepest_first)
+while IFS= read -r file; do sign "$file"; count=$((count + 1)); done < <(macho_files "$app")
 echo "ad-hoc signed $count Mach-O files"
 
 # 2. Nested bundles, deepest first; a framework is signed per real Versions/<v> directory.

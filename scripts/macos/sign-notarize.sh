@@ -76,12 +76,8 @@ check_notary_auth() { # fail before signing when Apple rejects the API key; repo
   fi
 }
 
-deepest_first() { awk -F/ '{ print NF "\t" $0 }' | sort -rn | cut -f2-; }  # bundle paths contain no newlines
-macho_files() { # macho_files <app>: every Mach-O file in the bundle, deepest first
-  local f
-  while IFS= read -r f; do file -b "$f" | grep -q 'Mach-O' && printf '%s\n' "$f"; done \
-    < <(find "$1/Contents" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.dylib.*' -o -name '*.so' \) | deepest_first)
-}
+# shellcheck source=scripts/macos/macho-lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/macho-lib.sh"
 
 prepare_kit() { # prepare_kit <kit> <dir>: fill the upstream templates for this identity (BUILDDIR/SRCDIR layout)
   local kit="$1" dir="$2"
@@ -105,7 +101,7 @@ check_signatures() { # check_signatures <app>: every Mach-O has a timestamped De
     info="$(codesign -dvv "$f" 2>&1)" || { echo "unsigned: ${f#"$1"/}"; bad=$((bad + 1)); continue; }
     grep -q '^Authority=Developer ID Application' <<<"$info" || { echo "not Developer ID: ${f#"$1"/}"; bad=$((bad + 1)); continue; }
     grep -q '^Timestamp=' <<<"$info" || { echo "no secure timestamp: ${f#"$1"/}"; bad=$((bad + 1)); }
-  done < <(macho_files "$1")
+  done < <(macho_files "$1" all)
   echo "Developer ID check: $total Mach-O files, $bad problems"
   [ "$bad" -eq 0 ]
 }
@@ -140,8 +136,9 @@ do_sign() {
   hdiutil detach "$mnt" >/dev/null
   app="$stage/HSTOffice.app"
   [ -d "$app/Contents/MacOS" ] || { echo "HST Office.app not in $name" >&2; return 1; }
-  # 1. Every Mach-O, deepest first: Developer ID, hardened runtime, secure timestamp. Covers files
-  #    outside the patterns of upstream's script, which then re-signs the ones it knows.
+  # 1. Every Mach-O except bundle main executables, deepest first: Developer ID, hardened runtime,
+  #    secure timestamp. Covers files outside the patterns of upstream's script, which then re-signs
+  #    the ones it knows and signs the bundles (and with them their main executables).
   local f n=0
   while IFS= read -r f; do
     codesign --force --timestamp --options=runtime --sign "$MACOS_SIGNING_IDENTITY" "$f" 2>&1 | { grep -v 'replacing existing signature' || :; }
