@@ -91,7 +91,7 @@ class AccessKeysTest(unittest.TestCase):
         self.write(WRITER + "ui/notebookbar.ui", f'<interface>{menus}<object class="sfxlo-NotebookbarTabControl" id="tabs">{tabs}</object></interface>')
 
     def model(self):
-        return MOD.build_model(self.tree, self.addons)
+        return MOD.merge_addons(MOD.build_model(self.tree), self.addons)
 
     def check(self):
         return MOD.check(self.model(), MOD.load_overrides(self.overrides))
@@ -322,7 +322,7 @@ class AccessKeysTest(unittest.TestCase):
         before = self.snapshot.read_bytes()
         MOD.load_model(self.tree, self.snapshot, True, self.addons)
         self.assertEqual(before, self.snapshot.read_bytes())
-        offline = MOD.load_model(self.base / "absent", self.snapshot)
+        offline = MOD.load_model(self.base / "absent", self.snapshot, addons=self.addons)
         self.assertEqual(model, offline)
         packed = json.loads(before)
         self.assertTrue(all(isinstance(index, int) for c in packed["containers"]
@@ -343,7 +343,7 @@ class AccessKeysTest(unittest.TestCase):
                 path = self.tree / (WRITER + "menubar/menubar.xml")
                 path.write_text(path.read_text().replace('<menu:menuseparator/>', '<menu:menuitem menu:id=".uno:New"/>'), encoding="utf-8")
             self.write(self.config, xcu(self.commands.replace("~Save", replacement), self.popups))
-            with self.assertRaisesRegex(ValueError, "snapshot stale, rerun --write-snapshot"):
+            with self.assertRaisesRegex(ValueError, r"snapshot stale \(.*Writer.*--write-snapshot"):
                 MOD.load_model(self.tree, self.snapshot, addons=self.addons)
 
     def test_cli_offline_exit_status_json_and_verbose(self):
@@ -351,7 +351,7 @@ class AccessKeysTest(unittest.TestCase):
         output = self.base / "result.json"
         args = ["--tree", str(self.base / "absent"), "--snapshot", str(self.snapshot),
                 "--overrides", str(self.overrides), "--exceptions", str(self.exceptions),
-                "--json", str(output), "--verbose"]
+                "--addons", str(self.addons), "--json", str(output), "--verbose"]
         with contextlib.redirect_stdout(io.StringIO()) as stdout:
             self.assertEqual(MOD.main(args), 0)
             self.assertEqual(MOD.main(args + ["--strict"]), 1)
@@ -362,8 +362,18 @@ class AccessKeysTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(MOD.main(args + ["--strict"]), 0)
 
+    def test_addons_are_read_live_and_never_stale_the_snapshot(self):
+        MOD.load_model(self.tree, self.snapshot, True, self.addons)
+        self.assertNotIn("HST", self.snapshot.read_text(encoding="utf-8"))
+        self.addons.write_text(self.addons.read_text(encoding="utf-8").replace("HST", "HSX"), encoding="utf-8")
+        model = MOD.load_model(self.tree, self.snapshot, addons=self.addons)
+        offline = MOD.load_model(self.base / "absent", self.snapshot, addons=self.addons)
+        self.assertEqual(model, offline)
+        labels = [MOD.resolve(i, {})[0] for c in model["containers"] for i in c["items"]]
+        self.assertTrue(any("HSX" in label for label in labels))
+
     def test_snapshot_missing_or_generation_without_tree_fails(self):
-        with self.assertRaisesRegex(ValueError, "snapshot stale"):
+        with self.assertRaisesRegex(ValueError, "snapshot .* missing; regenerate it with .*--write-snapshot"):
             MOD.load_model(self.tree, self.snapshot, addons=self.addons)
         with self.assertRaisesRegex(ValueError, "requires an upstream tree"):
             MOD.load_model(self.base / "absent", self.snapshot, True)

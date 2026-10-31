@@ -68,10 +68,21 @@ Mục không có `~` (menu HST trong `Addons.xcu`) do VCL tự gán chữ còn t
 
 Kiểm tra: `python3 scripts/l10n/check-access-keys.py --strict` (chạy trong `scripts/ci-quality.sh`). Script
 dựng menu/ribbon từ cây nguồn (hoặc từ [`l10n/access-keys-snapshot.json`](../l10n/access-keys-snapshot.json)
-khi không có cây, như trên CI; tạo lại bằng `--write-snapshot`) rồi áp `vi-overrides.jsonl`. Các trùng lặp
+khi không có cây, như trên CI), thêm menu HST đọc trực tiếp từ `Addons.xcu` (không nằm trong snapshot), rồi áp
+`vi-overrides.jsonl`. Các trùng lặp
 không tránh được nếu không đổi chữ nằm trong [`l10n/access-keys-exceptions.json`](../l10n/access-keys-exceptions.json)
 (22 mục, ví dụ Tập tin: "Mở từ xa"/"Xuất" cùng X; Calc → Trang tính 5 cặp; Bảng → Chọn → "Ô" không có chữ
 ASCII), chờ người bản ngữ quyết định. Phím ít quen cần duyệt: Hoàn tác=O, Sao chép=P, In=N, Thoát=O, Tìm=M (Calc/Impress/Draw).
+
+**Khi báo "snapshot stale"** (đã đổi menubar `.xml`, `notebookbar.ui`, `*Commands.xcu` hoặc nhãn tiếng Anh trong
+cây nguồn đã vá, lỗi liệt kê các mục bị đổi):
+
+1. `python3 scripts/l10n/check-access-keys.py --write-snapshot` (cần cây `upstream/libreoffice` đã áp các patch);
+2. `python3 scripts/l10n/check-access-keys.py --strict`: nếu có trùng mới, chỉ dời `~` bằng dòng trong
+   `vi-overrides.jsonl` (không đổi chữ); chỉ thêm vào `access-keys-exceptions.json` khi nhãn thật sự hết chữ;
+3. commit `l10n/access-keys-snapshot.json` cùng commit với thay đổi menu/ribbon và các dòng override.
+
+Đổi bản dịch (`msgstr`) hay sửa menu HST không làm snapshot cũ.
 
 ## Cần người duyệt (chưa sửa, cần quyết định)
 

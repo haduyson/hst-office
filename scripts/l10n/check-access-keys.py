@@ -240,25 +240,43 @@ class ModelBuilder:
                     container["items"].append(ui_item(obj, menu=True))
 
 
-def build_model(tree, addons=ROOT / "extensions/hst-vietnamese-tools/Addons.xcu"):
+def build_model(tree):
+    """Menus and notebookbars from the source tree (what the snapshot stores; no add-on menus)."""
     builder = ModelBuilder(tree)
-    addon_root = ET.parse(addons).getroot()
     for app, prefix, module, service in APPS:
         path = Path(tree) / prefix / "menubar/menubar.xml"
         if not path.exists():
             continue  # Also permits small, partial source fixtures.
-        bar = builder.menus(ET.parse(path).getroot(), app, app, module)
-        help_menu = next((c for c in builder.containers if c["app"] == app
-                          and c.get("owner") == ".uno:HelpMenu"), None)
-        builder.addons(addon_root, app, "com.sun.star." + service, bar, help_menu)
+        builder.menus(ET.parse(path).getroot(), app, app, module)
         path = Path(tree) / prefix / "ui/notebookbar.ui"
         if app in ("Writer", "Calc", "Impress") and path.exists():
             builder.notebook(path, app, module, prefix.split("/")[0] + "/messages.po")
     if not builder.containers:
         raise ValueError("no menubars found in tree")
-    for container in builder.containers:
+    return finish(builder.containers)
+
+
+def finish(containers):
+    for container in containers:
         container["items"].sort(key=lambda item: (item["id"], item["command"]))
-    return dict(version=2, containers=sorted(builder.containers, key=lambda c: (c["type"], c["path"])))
+    return dict(version=2, containers=sorted(containers, key=lambda c: (c["type"], c["path"])))
+
+
+def merge_addons(model, addons):
+    """Add the HST menu (Addons.xcu, a repository file) to the model. It is read live in every
+    mode and never stored in the snapshot, so editing the HST menu cannot make the snapshot stale."""
+    if not Path(addons).exists():
+        return model
+    builder = ModelBuilder(".")
+    builder.containers = model["containers"]
+    root = ET.parse(addons).getroot()
+    for app, _prefix, _module, service in APPS:
+        bar = next((c for c in builder.containers if c["type"] == "menus" and c["path"] == app), None)
+        help_menu = next((c for c in builder.containers if c["app"] == app
+                          and c.get("owner") == ".uno:HelpMenu"), None)
+        if bar is not None:
+            builder.addons(root, app, "com.sun.star." + service, bar, help_menu)
+    return finish(builder.containers)
 
 
 def structure(value):
@@ -268,6 +286,21 @@ def structure(value):
         return {k: structure(v) for k, v in value.items()
                 if not (value.get("file") and k in ("vi", "fuzzy"))}
     return value
+
+
+REGENERATE = ("regenerate it with `python3 scripts/l10n/check-access-keys.py --write-snapshot` "
+              "(needs the patched upstream/libreoffice tree), rerun with --strict, and commit "
+              "l10n/access-keys-snapshot.json together with any vi-overrides.jsonl fixes")
+
+
+def stale_containers(model, snapshot):
+    """Names of containers whose structure differs between the tree model and the snapshot."""
+    new = {c["path"]: structure(c) for c in model["containers"]}
+    old = {c["path"]: structure(c) for c in snapshot["containers"]}
+    changed = sorted(k for k in new.keys() | old.keys() if new.get(k) != old.get(k))
+    if not changed and structure(model) != structure(snapshot):
+        changed = ["(snapshot metadata)"]
+    return changed
 
 
 def write_json(path, value):
@@ -300,12 +333,23 @@ def read_snapshot(path):
 
 
 def load_model(tree, snapshot, write=False, addons=ROOT / "extensions/hst-vietnamese-tools/Addons.xcu"):
+    model = load_tree_model(tree, snapshot, write)
+    return merge_addons(model, addons)
+
+
+def load_tree_model(tree, snapshot, write=False):
     if Path(tree).exists():
-        model = build_model(tree, addons)
+        model = build_model(tree)
         if write:
             write_snapshot(snapshot, model)
-        elif not Path(snapshot).exists() or structure(model) != structure(read_snapshot(snapshot)):
-            raise ValueError("snapshot stale, rerun --write-snapshot")
+        elif not Path(snapshot).exists():
+            raise ValueError(f"snapshot {snapshot} missing; {REGENERATE}")
+        else:
+            changed = stale_containers(model, read_snapshot(snapshot))
+            if changed:
+                raise ValueError("snapshot stale (menus/ribbon/labels in the tree changed: "
+                                 + ", ".join(changed[:5]) + (", ..." if len(changed) > 5 else "")
+                                 + f"); {REGENERATE}")
     elif write:
         raise ValueError("--write-snapshot requires an upstream tree")
     else:
@@ -385,12 +429,13 @@ def main(argv=None):
     parser.add_argument("--overrides", type=Path, default=ROOT / "l10n/vi-overrides.jsonl")
     parser.add_argument("--snapshot", type=Path, default=ROOT / "l10n/access-keys-snapshot.json")
     parser.add_argument("--exceptions", type=Path, default=ROOT / "l10n/access-keys-exceptions.json")
+    parser.add_argument("--addons", type=Path, default=ROOT / "extensions/hst-vietnamese-tools/Addons.xcu")
     parser.add_argument("--json", type=Path)
     for flag in ("strict", "write-snapshot", "verbose"):
         parser.add_argument("--" + flag, action="store_true")
     args = parser.parse_args(argv)
     try:
-        model = load_model(args.tree, args.snapshot, args.write_snapshot)
+        model = load_model(args.tree, args.snapshot, args.write_snapshot, args.addons)
         result = check(model, load_overrides(args.overrides), load_exceptions(args.exceptions))
         if args.json:
             write_json(args.json, result)
