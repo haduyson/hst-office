@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Native modal "Chào mừng đến HST Office" dialog. Links open the system browser only when the user clicks them.
+"""Native modal "HST Office chào đón bạn" dialog. Links open the system browser only when the user clicks them.
 
 Introductory content: always Vietnamese (welcome_job loads the "vi" strings in every UI language). Sections:
 logo and greeting with the "Miễn phí vĩnh viễn" badge, the three applications with their icons, the key HST
@@ -11,6 +11,7 @@ import os
 
 import unohelper
 from com.sun.star.awt import XActionListener, XWindowListener
+from com.sun.star.style.VerticalAlignment import MIDDLE
 
 from . import welcome_content
 from .data_files import EXT_ROOT, load_data
@@ -120,8 +121,9 @@ class Welcome:
         heading = d.label("heading", s["heading"], x, PAD + 2, WIDTH - PAD - x, 14)
         heading.FontWeight, heading.FontHeight = 150, 13
         d.label("oneLiner", s["oneLiner"], x, PAD + 18, WIDTH - PAD - x, 18, wrap=True)
-        badge = d.label("freeBadge", s["freeBadge"], x, PAD + 38, 80, 11)
+        badge = d.label("freeBadge", s["freeBadge"], x, PAD + 38, 80, 12)
         badge.FontWeight, badge.TextColor, badge.BackgroundColor, badge.Align = 150, BADGE_TEXT, BADGE_BACK, 1
+        badge.VerticalAlign = MIDDLE  # FixedText draws at the top by default; centre the text in the green pill
         y = self._rule("rule1", PAD + 54)
         # The three applications.
         y = self._heading("appsHeading", s["appsHeading"], y)

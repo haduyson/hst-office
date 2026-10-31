@@ -69,7 +69,7 @@ class Locales(unittest.TestCase):
         base = os.path.join(_paths.ROOT, "extensions", "hst-vietnamese-tools", "locales")
         vi, en = (json.load(open(os.path.join(base, c + ".json"), encoding="utf-8")) for c in ("vi", "en"))
         self.assertEqual(set(vi["welcome"]), set(en["welcome"]))
-        self.assertEqual(vi["welcome"]["title"], "Chào mừng đến HST Office")
+        self.assertEqual(vi["welcome"]["title"], "HST Office chào đón bạn")
         self.assertEqual(vi["menu"]["solutions"], "Giải pháp HASON TECH...")
 
 

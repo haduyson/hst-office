@@ -100,7 +100,7 @@ def run(rec, base, oxt_path, out):
             return
         labels = st["labels"]
         vi = json.load(open(os.path.join(REPO, "extensions", "hst-vietnamese-tools", "locales", "vi.json"), encoding="utf-8"))["welcome"]
-        rec.check("title, greeting and free-forever badge", st["title"] == "Chào mừng đến HST Office" and labels["heading"] == vi["heading"] and labels["freeBadge"] == "MIỄN PHÍ VĨNH VIỄN", (st["title"], labels.get("heading")))
+        rec.check("title, greeting and free-forever badge", st["title"] == "HST Office chào đón bạn" and labels["heading"] == vi["heading"] and labels["freeBadge"] == "MIỄN PHÍ VĨNH VIỄN", (st["title"], labels.get("heading")))
         rec.check("three applications and four key features", [labels[k] for k in ("appWriter", "appSheets", "appSlides")] == [vi[k] for k in ("appWriter", "appSheets", "appSlides")] and
                   [labels["feature%d" % i] for i in range(4)] == ["\u2022  " + f for f in vi["features"]], [labels.get("feature%d" % i) for i in range(4)])
         rec.check("six solutions in the given order", [labels["link%d" % i] for i in range(6)] == [x["name"] for x in sols])
@@ -132,7 +132,7 @@ def run(rec, base, oxt_path, out):
         rec.check("menu command ShowSolutions handled", dispatch is not None)
         threading.Thread(target=lambda: dispatch.dispatch(url, ())).start()
         st = _wait(lambda: (lambda x: x if x["open"] else None)(_state(s, py)))
-        rec.check("menu command opens the dialog, Vietnamese under an English UI", bool(st) and st["title"] == "Chào mừng đến HST Office", st and st["title"])
+        rec.check("menu command opens the dialog, Vietnamese under an English UI", bool(st) and st["title"] == "HST Office chào đón bạn", st and st["title"])
         if st:
             _shot(s, os.path.join(out, "welcome-dialog-en.png"))
             s.macro("welcome_click", py, 0)
