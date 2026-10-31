@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import zipfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import signature_pki
