@@ -1,0 +1,261 @@
+HST Office: digital signatures with USB tokens (PKCS#11) for Vietnamese CA users.
+
+- Token certificates vanished after any PDF export in the session (Linux, macOS): comphelper
+  (document hashes, package crypto) initialised NSS without a database when it ran first, so
+  the signing code's later NSS_InitReadWrite() was a no-op. comphelper now initialises NSS
+  through the NSSInitializer service (the same profile database as the signing code) and uses
+  NSS_NoDB_Init() only without a component context. Loading the profile into a running
+  database-less NSS was tried: tokens appear but NSS cannot map their keys to certificates, and
+  NSS_Shutdown() fails (busy) inside soffice.
+- Linux: also find the NSS database of the Snap (Ubuntu default) and Flatpak Firefox and
+  Thunderbird, and fall back to the per-user shared NSS database ~/.pki/nssdb before a
+  throw-away temporary one, so a token registered with modutil is found.
+- The token PIN prompt said "The file “<last path segment>” is password-protected"; it now
+  asks for the PIN of the named signing device, and a wrong PIN warns that the device may lock.
+  NSS names the request "pkcs11:token=<name>" (RFC 7512 form); uui recognises that prefix.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/runtime/check-digital-signature.py (SoftHSM2 virtual token).
+---
+--- a/comphelper/source/crypto/Crypto_NSS.cxx
++++ b/comphelper/source/crypto/Crypto_NSS.cxx
+@@ -17,6 +17,8 @@
+ 
+ namespace comphelper
+ {
++void initNSSWithProfile(); // HST Office: hash.cxx
++
+ namespace
+ {
+ #define MAX_WRAPPED_KEY_LEN 128
+@@ -41,6 +43,8 @@
+     {
+         // Initialize NSS, database functions are not needed
+         if (!NSS_IsInitialized())
++            initNSSWithProfile(); // HST Office: see hash.cxx
++        if (!NSS_IsInitialized())
+         {
+             auto const e = NSS_NoDB_Init(nullptr);
+             if (e != SECSuccess)
+--- a/comphelper/source/misc/hash.cxx
++++ b/comphelper/source/misc/hash.cxx
+@@ -10,7 +10,10 @@
+ #include <sal/config.h>
+ 
+ #include <com/sun/star/uno/RuntimeException.hpp>
++#include <com/sun/star/xml/crypto/DigestID.hpp>
++#include <com/sun/star/xml/crypto/NSSInitializer.hpp>
+ #include <comphelper/hash.hxx>
++#include <comphelper/processfactory.hxx>
+ #include <rtl/ustring.hxx>
+ #include <rtl/alloc.h>
+ #include <osl/endian.h>
+@@ -40,6 +43,31 @@
+     return aStringStream.str();
+ }
+ 
++#if USE_TLS_NSS
++// HST Office: initialise NSS the way the signing code does (the user's certificate database and
++// its PKCS#11 modules, e.g. USB signing tokens). A database-less NSS_NoDB_Init() here, e.g. on
++// the first PDF export, made the signing code's later NSS_InitReadWrite() a no-op, so
++// certificates and tokens stayed invisible for the rest of the session. Not on Windows, where
++// signing uses the system certificate store.
++void initNSSWithProfile()
++{
++#if !defined(_WIN32)
++    try
++    {
++        css::uno::Reference<css::uno::XComponentContext> xContext
++            = comphelper::getProcessComponentContext();
++        if (xContext.is())
++            css::xml::crypto::NSSInitializer::create(xContext)->getDigestContext(
++                css::xml::crypto::DigestID::SHA256, {});
++    }
++    catch (const css::uno::Exception&)
++    {
++        // no component context or xmlsecurity: the caller falls back to NSS_NoDB_Init()
++    }
++#endif
++}
++#endif
++
+ struct HashImpl
+ {
+ 
+@@ -95,6 +123,8 @@
+ 
+ #if USE_TLS_NSS
+         if (!NSS_IsInitialized())
++            initNSSWithProfile();
++        if (!NSS_IsInitialized())
+         {
+             auto const e = NSS_NoDB_Init(nullptr);
+             if (e != SECSuccess)
+--- a/connectivity/source/drivers/mozab/bootstrap/MNSFolders.cxx
++++ b/connectivity/source/drivers/mozab/bootstrap/MNSFolders.cxx
+@@ -60,7 +60,7 @@
+ 
+ 
+     const size_t NB_PRODUCTS = 3;
+-    const size_t NB_CANDIDATES = 4;
++    const size_t NB_CANDIDATES = 6;
+ 
+     // The order (index) of entries in DefaultProductDir and
+     // ProductRootEnvironmentVariable *must* match the constants
+@@ -77,9 +77,13 @@
+         { "Firefox/", nullptr, nullptr, nullptr },
+         { "../Thunderbird/", nullptr, nullptr, nullptr }
+     #else
+-        { ".mozilla/seamonkey/", nullptr, nullptr, nullptr },
+-        { ".mozilla/firefox/", nullptr, nullptr, nullptr },
+-        { ".thunderbird/", ".mozilla-thunderbird/", ".mozilla/thunderbird/", ".icedove/" }
++        // HST Office: also the Snap (Ubuntu default) and Flatpak packages of Firefox and
++        // Thunderbird, whose NSS databases hold the PKCS#11 modules of USB signing tokens.
++        { ".mozilla/seamonkey/", nullptr, nullptr, nullptr, nullptr, nullptr },
++        { ".mozilla/firefox/", "snap/firefox/common/.mozilla/firefox/",
++          ".var/app/org.mozilla.firefox/.mozilla/firefox/", nullptr, nullptr, nullptr },
++        { ".thunderbird/", ".mozilla-thunderbird/", ".mozilla/thunderbird/", ".icedove/",
++          "snap/thunderbird/common/.thunderbird/", ".var/app/org.mozilla.Thunderbird/.thunderbird/" }
+     #endif
+     };
+ 
+--- a/xmlsecurity/source/xmlsec/nss/nssinitializer.cxx
++++ b/xmlsecurity/source/xmlsec/nss/nssinitializer.cxx
+@@ -31,6 +31,7 @@
+ #include <o3tl/environment.hxx>
+ #include <osl/file.hxx>
+ #include <osl/process.h>
++#include <osl/security.hxx>
+ #include <osl/thread.h>
+ #include <sal/log.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+@@ -240,6 +241,26 @@
+         }
+     }
+ 
++#if !defined(_WIN32) && !defined(MACOSX)
++    // HST Office: without a Firefox/Thunderbird profile, use the per-user shared NSS database
++    // (~/.pki/nssdb, also used by Chromium and PKCS#11 token tools) when it exists, so a USB
++    // signing token registered there with modutil is found instead of a throw-away temporary
++    // database.
++    if (m_sNSSPath.isEmpty())
++    {
++        OUString sHomeURL;
++        OUString sShared;
++        if (osl::Security().getHomeDir(sHomeURL)
++            && osl::FileBase::getSystemPathFromFileURL(sHomeURL + "/.pki/nssdb", sShared)
++                   == osl::FileBase::E_None
++            && lcl_pathExists(sShared + "/cert9.db"))
++        {
++            SAL_INFO("xmlsecurity.xmlsec", "Using the shared NSS database " << sShared);
++            m_sNSSPath = sShared;
++        }
++    }
++#endif
++
+     SAL_INFO_IF(m_sNSSPath.isEmpty(), "xmlsecurity.xmlsec", "No Mozilla profile found");
+     return m_sNSSPath;
+ }
+--- a/xmlsecurity/source/xmlsec/nss/securityenvironment_nssimpl.cxx
++++ b/xmlsecurity/source/xmlsec/nss/securityenvironment_nssimpl.cxx
+@@ -53,7 +53,6 @@
+ #include <com/sun/star/security/NoPasswordException.hpp>
+ #include <com/sun/star/security/CertificateCharacters.hpp>
+ #include <com/sun/star/security/CertificateValidity.hpp>
+-#include <com/sun/star/xml/crypto/NSSInitializer.hpp>
+ 
+ namespace csss = ::com::sun::star::security;
+ using namespace ::com::sun::star::security;
+@@ -101,10 +100,11 @@
+         task::InteractionHandler::createWithParent(xContext, nullptr) );
+ 
+     task::PasswordRequestMode eMode = bRetry ? task::PasswordRequestMode_PASSWORD_REENTER : task::PasswordRequestMode_PASSWORD_ENTER;
+-    OUString passwordLabel = xml::crypto::NSSInitializer::create(xContext)->getNSSPath();
+-    if (!passwordLabel.isEmpty())
+-        passwordLabel = ": " + passwordLabel;
+-    passwordLabel = OUString::createFromAscii(PK11_GetTokenName(pSlot)) + passwordLabel;
++    // HST Office: name the request "pkcs11:token=<token name>" (the RFC 7512 form) so the
++    // password dialog asks for the PIN of that USB token or smart card; "<token>: <NSS path>"
++    // was shown as "The file “<last path segment>” is password-protected".
++    OUString passwordLabel
++        = "pkcs11:token=" + OUString::fromUtf8(PK11_GetTokenName(pSlot)).trim();
+     rtl::Reference<::comphelper::DocPasswordRequest> pPasswordRequest = new ::comphelper::DocPasswordRequest(
+         ::comphelper::DocPasswordRequestType::Standard, eMode, passwordLabel);
+ 
+--- a/uui/inc/strings.hrc
++++ b/uui/inc/strings.hrc
+@@ -28,6 +28,11 @@
+ #define STR_TITLE_ENTER_PASSWORD                NC_("STR_TITLE_ENTER_PASSWORD", "Enter Password")
+ //: %TITLE is the base dialog title, %FILENAME is the document's filename, %PRODUCTNAME is the application name (e.g. "LibreOfficeDev")
+ #define STR_TITLE_FULL_FORMAT                   NC_("STR_TITLE_FULL_FORMAT", "%TITLE - %FILENAME - %PRODUCTNAME")
++// HST Office: PIN of a PKCS#11 security token (USB token, smart card) used for digital signatures
++#define STR_TITLE_ENTER_TOKEN_PIN               NC_("STR_TITLE_ENTER_TOKEN_PIN", "Enter PIN")
++#define STR_ENTER_TOKEN_PIN                     NC_("STR_ENTER_TOKEN_PIN", "Enter the PIN of the signing device (USB token or smart card) “%s”.")
++#define STR_TOKEN_PIN_LABEL                     NC_("STR_TOKEN_PIN_LABEL", "_PIN:")
++#define STR_ERROR_TOKEN_PIN_WRONG               NC_("STR_ERROR_TOKEN_PIN_WRONG", "The PIN is incorrect. Enter it again. The device may lock itself after several incorrect attempts.")
+ #define STR_PASSWORD_MISMATCH                   NC_("STR_PASSWORD_MISMATCH", "The confirmation password did not match the password. Set the password again by entering the same password in both boxes.")
+ 
+ #define STR_ALREADYOPEN_TITLE                   NC_("STR_ALREADYOPEN_TITLE", "Document in Use")
+--- a/uui/source/iahndl-authentication.cxx
++++ b/uui/source/iahndl-authentication.cxx
+@@ -553,6 +553,9 @@
+                                                     : STR_ERROR_PASSWORD_TO_OPEN_WRONG;
+             TranslateId pErrStrId = bIsSimplePasswordRequest ? STR_ERROR_SIMPLE_PASSWORD_WRONG
+                                                              : pOpenToModifyErrStrId;
++            // HST Office: wrong PIN of a USB token or smart card (see PasswordDialog)
++            if (aDocName.startsWith("pkcs11:token="))
++                pErrStrId = STR_ERROR_TOKEN_PIN_WRONG;
+             OUString aErrorMsg(Translate::get(pErrStrId, aResLocale));
+             std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
+                 pParent, VclMessageType::Warning, VclButtonsType::Ok, aErrorMsg));
+--- a/uui/source/passworddlg.cxx
++++ b/uui/source/passworddlg.cxx
+@@ -126,6 +126,18 @@
+         m_xFTPassword->set_tooltip_text({});
+     }
+ 
++    // HST Office: the NSS signing code asks for the PIN of a USB token or smart card as
++    // "pkcs11:token=<name>" (xmlsecurity GetPasswordFunction): say so, not "the file … is
++    // password-protected".
++    OUString aTokenName;
++    if (aDocURL.startsWith(u"pkcs11:token=", &aTokenName))
++    {
++        m_xDialog->set_title(Translate::get(STR_TITLE_ENTER_TOKEN_PIN, rResLocale));
++        m_xFTPassword->set_label(Translate::get(STR_ENTER_TOKEN_PIN, rResLocale).replaceAll("%s", aTokenName));
++        m_xFTPassword->set_tooltip_text({});
++        xOpenLabel->set_label(Translate::get(STR_TOKEN_PIN_LABEL, rResLocale));
++    }
++
+     // This signal handler enables/disables the OK button based on whether the password entry is empty
+     m_xEDPassword->connect_changed(LINK(this, PasswordDialog, EnableOKBtn_Impl));
+ 
+--- a/translations/source/vi/uui/messages.po
++++ b/translations/source/vi/uui/messages.po
+@@ -1360,3 +1360,27 @@
+ msgctxt "unknownauthdialog|examine"
+ msgid "Examine Certificate…"
+ msgstr "Nghiên cứu chứng chỉ…"
++
++#. hstDS
++#: uui/inc/strings.hrc
++msgctxt "STR_TITLE_ENTER_TOKEN_PIN"
++msgid "Enter PIN"
++msgstr "Nhập mã PIN"
++
++#. hstDS
++#: uui/inc/strings.hrc
++msgctxt "STR_ENTER_TOKEN_PIN"
++msgid "Enter the PIN of the signing device (USB token or smart card) “%s”."
++msgstr "Nhập mã PIN của thiết bị ký số (USB Token hoặc thẻ thông minh) “%s”."
++
++#. hstDS
++#: uui/inc/strings.hrc
++msgctxt "STR_TOKEN_PIN_LABEL"
++msgid "_PIN:"
++msgstr "Mã _PIN:"
++
++#. hstDS
++#: uui/inc/strings.hrc
++msgctxt "STR_ERROR_TOKEN_PIN_WRONG"
++msgid "The PIN is incorrect. Enter it again. The device may lock itself after several incorrect attempts."
++msgstr "Mã PIN không đúng. Hãy nhập lại. Thiết bị có thể tự khóa nếu nhập sai nhiều lần."
