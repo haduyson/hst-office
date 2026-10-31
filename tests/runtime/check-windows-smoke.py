@@ -23,12 +23,16 @@ import time
 import traceback
 
 ROWS = []
+OUT = None
 EN_TITLES = ("Administrative document (ND30)", "Welcome to HST Office", "Import CSV", "Convert legacy Vietnamese text to Unicode")
 
 
 def record(name, ok, detail=""):
     ROWS.append({"check": name, "status": "PASS" if ok else "FAIL", "detail": str(detail)[:1500]})
     print("%s  %s  %s" % ("PASS" if ok else "FAIL", name, str(detail)[:300]), flush=True)
+    if OUT:  # written after every check so a hang still leaves evidence
+        with open(os.path.join(OUT, "smoke-results.json"), "w", encoding="utf-8") as handle:
+            json.dump({"results": ROWS, "failed": sum(r["status"] == "FAIL" for r in ROWS)}, handle, ensure_ascii=False, indent=1)
     return ok
 
 
@@ -157,7 +161,8 @@ def main():
     install, out = os.path.abspath(args.install), os.path.abspath(args.out)
     program = os.path.join(install, "program")
     os.makedirs(out, exist_ok=True)
-    global SHOT_DIR
+    global SHOT_DIR, OUT
+    OUT = out
     SHOT_DIR = os.path.abspath(args.screenshots) if args.screenshots else None
     if SHOT_DIR:
         os.makedirs(SHOT_DIR, exist_ok=True)

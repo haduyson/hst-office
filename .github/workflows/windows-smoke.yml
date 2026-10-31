@@ -73,12 +73,14 @@ jobs:
           install="$(cygpath -u "$HST_INSTALL")"
           export PATH="$install/program:$PATH"
           export UNO_PATH="$HST_INSTALL\\program"
-          "$install/program/python.exe" tests/runtime/check-windows-smoke.py --install "$HST_INSTALL" --out "$RUNNER_TEMP/out/smoke" --screenshots "$RUNNER_TEMP/out/screens"
+          timeout 900 "$install/program/python.exe" tests/runtime/check-windows-smoke.py --install "$HST_INSTALL" --out "$RUNNER_TEMP/out/smoke" --screenshots "$RUNNER_TEMP/out/screens"
       - name: Collect diagnostics
         if: ${{ always() }}
         shell: bash
         run: |
           set -eu
+          # the office may still hold a modal dialog after a timeout; stop it so its logs can be read
+          MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe /IM oosplash.exe 2>&1 | head -n 5
           mkdir -p "$RUNNER_TEMP/out/smoke"
           cp -r "$(cygpath -u "$HST_INSTALL")/share/extensions/hst-vietnamese-tools" "$RUNNER_TEMP/out/extension-as-installed" || echo "extension directory missing"
           find "$RUNNER_TEMP/out" -type f | head -n 100
