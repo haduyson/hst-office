@@ -5,7 +5,7 @@
 window.HST_OFFICE_CONFIG = {
   version: "1.0.0",
   releaseLabel: "Bản thử nghiệm (beta)",
-  tag: "v1.0.0-beta.3",
+  tag: "v1.0.0-beta.4",
   platforms: {
     windows: { available: true, path: "/tai/windows", label: "Windows" },
     "macos-arm": { available: true, path: "/tai/macos-arm", label: "macOS Apple Silicon" },
