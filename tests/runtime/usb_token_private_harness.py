@@ -32,13 +32,13 @@ def browser_profile(office):
     return source, snapshot(source)
 
 
-def check_private(db, source, before, env):
+def check_private(db, source, before, env, label='HST Feitian ePass2003'):
     assert snapshot(source) == before, 'The original Firefox store changed'
     preserved_records((db / 'pkcs11.txt').read_bytes(), before['pkcs11.txt'][1])
     assert db.stat().st_mode & 0o777 == 0o700
     assert (db / '.hst-office-nssdb').is_file()
     listing = subprocess.run(['modutil', '-list', '-dbdir', 'sql:' + str(db)], check=True,
                              capture_output=True, text=True, env=env).stdout
-    for name in ('NSS Internal PKCS #11 Module', 'Builtin Roots', 'Another vendor', 'HST Feitian ePass2003'):
+    for name in ('NSS Internal PKCS #11 Module', 'Builtin Roots', 'Another vendor', label):
         assert name in listing, listing
     assert 'Not loaded' not in listing, listing

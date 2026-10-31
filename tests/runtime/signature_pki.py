@@ -19,7 +19,8 @@ USER_CN = "Nguyễn Văn Thử"
 MODULE_NAME = "HST Test Token"
 TOOLS = ("softhsm2-util", "pkcs11-tool", "certutil", "modutil", "openssl")
 SOFTHSM_CANDIDATES = ("/usr/lib/softhsm/libsofthsm2.so", "/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so",
-                      "/usr/lib64/pkcs11/libsofthsm2.so", "/usr/local/lib/softhsm/libsofthsm2.so")
+                      "/usr/lib64/pkcs11/libsofthsm2.so", "/usr/local/lib/softhsm/libsofthsm2.so",
+                      "/opt/homebrew/lib/softhsm/libsofthsm2.so", "/opt/homebrew/lib/softhsm/libsofthsm2.dylib")
 
 
 def missing_tools():
