@@ -106,6 +106,51 @@ def shot(label):
                    timeout=60, check=False)
 
 
+def pump(toolkit, work, wait_for_window):
+    """Run `work` in a thread; close (endExecute) every window that opens meanwhile. Returns (titles, error text)."""
+    before = {id(w) for w in top_windows(toolkit)}
+    state = {"error": ""}
+
+    def target():
+        try:
+            work()
+        except Exception:  # noqa: BLE001
+            state["error"] += traceback.format_exc()
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    titles, deadline = [], time.time() + 40
+    while time.time() < deadline and (thread.is_alive() or (wait_for_window and not titles)):
+        for window in top_windows(toolkit):
+            if id(window) not in before:
+                title = window_title(window)
+                titles.append(title)
+                before.add(id(window))
+                time.sleep(1.5)  # let it paint before the screenshot
+                shot(title or "window")
+                try:
+                    window.endExecute()
+                except Exception as exc:  # noqa: BLE001
+                    state["error"] += "endExecute failed: %s\n" % exc
+        time.sleep(0.3)
+    thread.join(10)
+    if thread.is_alive():
+        state["error"] += "still blocked after 50 s\n"
+    return titles, state["error"]
+
+
+def open_document(ctx, desktop, kind):
+    """Open a visible document from a thread: the first-start welcome dialog blocks the load until it is closed."""
+    from com.sun.star.beans import PropertyValue
+    toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    box = {}
+    flag = PropertyValue()
+    flag.Name, flag.Value = "Hidden", False
+    titles, error = pump(toolkit, lambda: box.update(doc=desktop.loadComponentFromURL("private:factory/" + kind, "_blank", 0, (flag,))), False)
+    record("open %s (windows during load: %s)" % (kind, titles), "doc" in box and not error, error)
+    return box.get("doc")
+
+
 def run_command(ctx, frame, url_text, expect_dialog):
     """Dispatch in a thread; return (new window titles, thread exception text or '')."""
     import uno
@@ -118,7 +163,6 @@ def run_command(ctx, frame, url_text, expect_dialog):
     dispatch = frame.queryDispatch(url, "_self", 0)
     if dispatch is None:
         return None, "queryDispatch returned None: no handler claims " + url_text
-    before = {id(w) for w in top_windows(toolkit)}
     state = {"error": ""}
 
     def work():
@@ -127,27 +171,8 @@ def run_command(ctx, frame, url_text, expect_dialog):
         except Exception:  # noqa: BLE001
             state["error"] = traceback.format_exc()
 
-    thread = threading.Thread(target=work, daemon=True)
-    thread.start()
-    titles, deadline = [], time.time() + 30
-    while time.time() < deadline and (thread.is_alive() or not titles):
-        for window in top_windows(toolkit):
-            if id(window) not in before:
-                title = window_title(window)
-                titles.append(title)
-                before.add(id(window))
-                time.sleep(1.5)  # let it paint before the screenshot
-                shot(title or "window")
-                try:
-                    window.endExecute()
-                except Exception as exc:  # noqa: BLE001
-                    state["error"] += "endExecute failed: %s\n" % exc
-        if not thread.is_alive():
-            break
-        time.sleep(0.3)
-    thread.join(10)
-    if thread.is_alive():
-        state["error"] += "dispatch still blocked after 40 s\n"
+    titles, error = pump(toolkit, work, wait_for_window=True)
+    state["error"] += error
     return titles, state["error"]
 
 
@@ -181,18 +206,18 @@ def main():
         proc, ctx = start_office(program, profile, args.port, os.path.join(out, "soffice.err"), env)
         desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
         record("office started", True, ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx) is not None)
-        for service in ("org.hst.office.vi.DispatchProvider", "org.hst.office.update.UpdateDispatchProvider"):
+        for service in ("org.hst.office.vi.DispatchProvider", "org.hst.office.vi.UpdateDispatchProvider"):
             try:
                 record("service registered " + service, ctx.ServiceManager.createInstanceWithContext(service, ctx) is not None)
             except Exception:  # noqa: BLE001
                 record("service registered " + service, False, traceback.format_exc())
-        hidden = PropertyValue()
-        hidden.Name, hidden.Value = "Hidden", False
         for kind, urls in (("swriter", ["org.hst.office.vi:Nd30Wizard", "org.hst.office.vi:ConvertEncoding", "org.hst.office.vi:ShowSolutions",
                                         "org.hst.office.update:Check"]),
                            ("scalc", ["org.hst.office.vi:ImportCsv", "org.hst.office.vi:FormatDate", "org.hst.office.vi:FormatVnd",
                                       "org.hst.office.vi:FormatPercent"])):
-            doc = desktop.loadComponentFromURL("private:factory/" + kind, "_blank", 0, (hidden,))
+            doc = open_document(ctx, desktop, kind)
+            if doc is None:
+                continue
             frame = doc.getCurrentController().getFrame()
             for url in urls:
                 try:
