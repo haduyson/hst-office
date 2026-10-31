@@ -1,0 +1,56 @@
+HST Office: light ribbon with the module colour only as a thin frame, the same on every backend.
+
+- NotebookBar::UpdateBackground() (upstream) tints the whole notebookbar window with the module colour
+  (Writer blue, Calc green, Impress orange; Misc/NotebookbarColorTransparency, upstream default 150).
+  GTK (and Qt) draw the tab pane themselves with the theme's window colour, so the tint shows only as a thin
+  frame around the ribbon. On macOS, Windows and the generic backend the pane is transparent, so the tint
+  filled the whole ribbon (blue labels on blue, hard to read).
+- vcl/source/control/tabctrl.cxx: for the Tabbed notebookbar's tab control on those backends, TabControl::Paint
+  fills the tab strip with the dialog colour and the panel area with the window colour before the tabs are
+  drawn. The tint stays visible only in the margin around the tab control, as on GTK. Colours come from the
+  theme, so dark mode gives a dark panel with a subtle frame.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-defaults.py (tint value), tests/runtime/check-ribbon-panel.py (frame and panel colours).
+---
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -1085,6 +1085,18 @@
+     return !aClipRgn.IsEmpty();
+ }
+ 
++namespace
++{
++// HST Office: the ribbon (Tabbed notebookbar) has a tinted background that must show only as a thin frame.
++// The GTK and Qt backends draw the tab pane themselves with the theme's window colour; on the other backends
++// (macOS, Windows, generic) the pane is transparent, so the tint would fill the whole ribbon.
++bool lcl_ribbonNeedsOwnPanel()
++{
++    const OUString aToolkit = Application::GetToolkitName();
++    return !aToolkit.startsWith("gtk") && !aToolkit.startsWith("qt") && !aToolkit.startsWith("kf");
++}
++}
++
+ void TabControl::Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
+ {
+     if (GetStyle() & WB_NOBORDER)
+@@ -1224,6 +1236,19 @@
+         }
+     }
+ 
++    if (dynamic_cast<NotebookbarTabControlBase*>(this) && lcl_ribbonNeedsOwnPanel())
++    {
++        // tab strip in the dialog colour, panel area (with the groups) in the window colour; the module
++        // tint of NotebookBar::UpdateBackground() stays visible only around the tab control
++        const Size aCtrlSize(GetSizePixel());
++        const tools::Long nPanelTop = std::max<tools::Long>(aRect.Top(), 0);
++        rRenderContext.SetLineColor();
++        rRenderContext.SetFillColor(rStyleSettings.GetDialogColor());
++        rRenderContext.DrawRect(tools::Rectangle(0, 0, aCtrlSize.Width(), nPanelTop));
++        rRenderContext.SetFillColor(rStyleSettings.GetWindowColor());
++        rRenderContext.DrawRect(tools::Rectangle(0, nPanelTop, aCtrlSize.Width(), aCtrlSize.Height()));
++    }
++
+     const size_t nItemListSize = mpTabCtrlData->maItemList.size();
+     if (mbShowTabs && nItemListSize > 0 && mpTabCtrlData->mpListBox == nullptr)
+     {

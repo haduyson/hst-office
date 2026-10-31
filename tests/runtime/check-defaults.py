@@ -25,8 +25,8 @@ EXPECTED = {
     # Enables the HASON TECH Start Center banner (hst-start-center-banner.patch); no donation UI exists.
     "org.openoffice.Office.Common/Misc/ShowDonation": True,
     "org.openoffice.Setup/Product/WhatsNew": False,
-    # Light ribbon: no module colour tint on the notebookbar (NotebookBar::UpdateBackground), 255 = dialog colour only.
-    "org.openoffice.Office.Common/Misc/NotebookbarColorTransparency": 255,
+    # Ribbon frame tint stays the upstream value: hst-ribbon-panel.patch keeps the tint to a thin frame.
+    "org.openoffice.Office.Common/Misc/NotebookbarColorTransparency": 150,
     "org.openoffice.Office.Writer/DefaultFont/Standard": "Times New Roman",
     # Fresh installs do not underline while typing (hst-spell-auto-off.patch); Shift+F7 turns it on.
     "org.openoffice.Office.Linguistic/SpellChecking/IsSpellAuto": False,
