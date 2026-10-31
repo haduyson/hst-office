@@ -26,7 +26,7 @@ next to the second window.
 
 --- a/vcl/source/window/syswin.cxx
 +++ b/vcl/source/window/syswin.cxx
-@@ -323,6 +323,37 @@
+@@ -323,6 +323,32 @@
      }
  }
  
@@ -44,17 +44,12 @@ next to the second window.
 +#if defined MACOSX || defined _WIN32
 +    if (!pWindow)
 +        return;
-+    const vcl::Window* pFrameWindow = pWindow;
-+    while (pFrameWindow->mpWindowImpl->mpBorderWindow)
-+        pFrameWindow = pFrameWindow->mpWindowImpl->mpBorderWindow;
-+    if (pFrameWindow->mpWindowImpl->mbFrame)
-+    {
++    SalFrame* pFrame = pWindow->ImplGetFrame();
 +#if defined MACOSX
-+        hst_osx_set_tab_group_member(pFrameWindow->mpWindowImpl->mpFrame, bMember);
++    hst_osx_set_tab_group_member(pFrame, bMember);
 +#else
-+        hst_win_set_tab_group_member(pFrameWindow->mpWindowImpl->mpFrame, bMember);
++    hst_win_set_tab_group_member(pFrame, bMember);
 +#endif
-+    }
 +#else
 +    (void)pWindow;
 +    (void)bMember;
