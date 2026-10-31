@@ -139,23 +139,27 @@ def nss_library():
     raise SetupError("Không tìm thấy thư viện NSS của HST Office; chưa thay đổi kho chứng thư.")
 
 
-def register(db, modules):
+def worker(db, **values):
+    with tempfile.TemporaryDirectory(prefix="hst-token-check-") as temporary:
+        request = Path(temporary) / "request.json"
+        response = Path(temporary) / "response.json"
+        request.write_text(json.dumps(dict(db=str(db), modutil=tool("modutil"),
+            certutil=tool("certutil"), machine=platform.machine(), bits=struct.calcsize("P"),
+            nss=nss_library(), response=str(response), **values)))
+        code = run_tool([helper_python(), str(Path(__file__).with_name("usb_token_worker.py")), str(request)])
+        if code or not response.exists():
+            raise SetupError("Không thể kiểm tra thư viện USB Token. Kiểm tra kiến trúc, thư viện phụ thuộc và quyền chạy.")
+        return json.loads(response.read_text())
+
+
+def register(db, modules, probe=False):
     from .usb_token_db import user_database
     user_database(db)
     results = []
     for module in modules:
         row = dict(module, status="error")
         try:
-            with tempfile.TemporaryDirectory(prefix="hst-token-check-") as temporary:
-                request = Path(temporary) / "request.json"
-                response = Path(temporary) / "response.json"
-                request.write_text(json.dumps(dict(db=str(db), module=module, modutil=tool("modutil"),
-                    certutil=tool("certutil"), machine=platform.machine(), bits=struct.calcsize("P"),
-                    nss=nss_library(), response=str(response))))
-                code = run_tool([helper_python(), str(Path(__file__).with_name("usb_token_worker.py")), str(request)])
-                if code or not response.exists():
-                    raise SetupError("Không thể kiểm tra thư viện USB Token. Kiểm tra kiến trúc, thư viện phụ thuộc và quyền chạy.")
-                row.update(json.loads(response.read_text()))
+            row.update(worker(db, module=module, probe=probe))
         except Exception as exc:  # noqa: BLE001 - vendor crashes and OS messages must stay out of the UI
             row.update(status="error", error=vietnamese_error(exc))
         results.append(row)

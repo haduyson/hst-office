@@ -3,8 +3,8 @@
 
 NSS does not honor advisory module-file locks. Linux leases instead block its
 open-before-rewrite operation, even in an already initialized NSS process.
-On other systems an existing file is refused. Never replace a live module DB.
-This module runs only in the disposable worker, so signals cannot affect UNO.
+The caller uses a separate HST store when leases are unavailable.
+Lease/append operations run only in the disposable worker, away from UNO signals.
 """
 from contextlib import contextmanager, ExitStack
 import fcntl
@@ -109,6 +109,21 @@ def append_leased(path, original, payload):
         os.close(fd)
 
 
+def create_new(path, payload, backup):
+    # link() is an atomic create-if-absent, never a compare/replace.
+    staged = backup / "addition"
+    staged.write_bytes(payload)
+    staged.chmod(0o600)
+    with staged.open("rb") as handle:
+        os.fsync(handle.fileno())
+    os.link(staged, path)
+    # Nothing fallible may turn successful publication into a reported failure.
+    try:
+        staged.unlink()
+    except OSError:
+        pass
+
+
 def commit_addition(db, original, extra):
     path = db / "pkcs11.txt"
     raw = original.encode("utf-8", "surrogateescape")
@@ -124,21 +139,7 @@ def commit_addition(db, original, extra):
             if saved.exists():
                 append_leased(path, raw, payload)
             else:
-                # link() is an atomic create-if-absent, never a compare/replace.
-                # A competing NSS writer wins or loses this creation, never loses
-                # its existing registration to an HST replacement or rollback.
-                staged = backup / "addition"
-                staged.write_bytes(payload)
-                staged.chmod(0o600)
-                with staged.open("rb") as handle:
-                    os.fsync(handle.fileno())
-                os.link(staged, path)
-                # No fallible operation may turn a successful publication into
-                # a reported failure. The extra recovery hard link is harmless.
-                try:
-                    staged.unlink()
-                except OSError:
-                    pass
+                create_new(path, payload, backup)
             success = True
         except RecoveryError as exc:
             success = True  # Preserve recovery data on a storage failure.

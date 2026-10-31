@@ -154,3 +154,56 @@ python3 -I scripts/macos/make-dmg-background.py --check
 The sole unit skip is the unchanged `test_shipped_dictionary_is_complete_after_merge` because the upstream tree is absent. Windows preflight skips its pinned-tarball simulation, and macOS preflight skips upstream configure/patch/icon checks for the same missing inputs. Its existing font/Pillow guard also reports a DMG-background skip; the separate exact background check above passed. **No runtime/signing check was skipped, no dependency was downloaded, and no failing check was waived.**
 
 Logs are `/tmp/usb-round2-{unit,build,runtime,quality,extension-check,dmg}.log`; native runtime results are `/tmp/usb-round2-runtime/results.json`. Copies of those logs and the result JSON are in ignored `tests/output/usb-token-setup/round2/`; PKI/key files were not copied or committed. `/opt/hst` remained mounted read-only. The transaction/worker implementation is unchanged by these fixes, and all earlier preservation, backup, rollback, concurrency and invalid-library regressions passed.
+
+## Maintainer review fix
+
+2026-10-31. Replaced the macOS existing-store refusal with automatic selection of an HST-owned certificate store. This section supersedes the macOS restriction described in the earlier review sections. No downloads, sudo, pushes, or writes to the read-only `/opt/hst` installation were used.
+
+### Behaviour and preservation
+
+- macOS setup validates every detected driver in the disposable worker, then publishes all successful additions together. The new store is `~/Library/Application Support/HST Office/nssdb`; subsequent stores use `nssdb-2`, `nssdb-3`, and so on. A fresh macOS setup also uses this location and accepts multiple drivers in one invocation.
+- On Linux, a disposable worker checks lease availability through a read-only descriptor before any recovery files or SQL locks are created. An unavailable lease selects the same private-store flow at `~/.local/share/hst-office/nssdb`. The normal Linux append, SQL locking, backup and rollback transaction remains intact, including its final concurrency checks.
+- Directories are user-owned, mode 0700, with a mode-0600 `.hst-office-nssdb` marker. Only an owned current CertDir can be reused. Its existing module file is treated as potentially in use even before NSS initializes: an idempotent run reads it without changes, while another driver requires a new numbered directory. Unmarked directories, including empty ones, are never claimed. Symlink targets/parents and invalid ownership are refused or skipped.
+- The old store is opened only for reading on the private-store path. The original `pkcs11.txt` is preserved verbatim, including internal-module parameters, Builtin Roots, other vendor records and comments. Validated additions are combined with those bytes and published with **one atomic no-clobber `link()`**, using the existing creation helper. A changed source snapshot or competing destination causes safe failure; no existing registration is replaced or removed.
+- Recovery data is stored only in the new directory: a private `.hst-token-backup-*` contains the original module-file snapshot. Failure before publication removes only that attempt's recovery directory; a competing destination remains intact. The complete old store is also retained for recovery by selecting its original path.
+- **Neither `cert9.db` nor `key4.db` is copied or opened by migration.** Real NSS and the HST runtime both create these files in the new directory after restart, despite the copied internal record retaining its original `configdir` text. The runtime verifies the new NSSPath and checks that the original store is still byte-identical after signing. No opaque SQL copy is required.
+- `set_fallback` selects the new CertDir, and `_pending_restart` requires a restart. Repeating setup before restarting uses the marked configured store even while core caches the old NSSPath. The Vietnamese result explicitly says HST Office now uses its own certificate store and the old store was kept unchanged. No production PIN, login or key operation was introduced.
+
+The help's macOS limitation note and four-step workaround are replaced by a short explanation of this automatic behaviour, retained registrations, restart, and Linux fallback. The advanced manual NSS section remains. It also explains that separately imported certificates are not copied.
+
+### Verification
+
+New regression coverage uses real NSS, Builtin Roots and SoftHSM where applicable: an internal + roots + other-vendor Firefox-like store; unchanged source bytes, permissions and directory contents; validation by both methods; second-driver registration after SQL initialization; idempotence; one-link multi-driver publication; unavailable Linux leases; the normal Linux transaction; fresh macOS multi-driver setup; invalid/mixed drivers; backup, failed fsync and competing-publication recovery; source changes; directory ownership, numbering and foreign-directory preservation; and CertDir/restart/dialog handling.
+
+The runtime `--darwin` option sets `HST_USB_TOKEN_TEST_PLATFORM=darwin`, forcing the macOS store policy and destination while retaining the native Linux NSS and driver binaries. It seeds a real Firefox profile with internal, roots and another vendor module, invokes the actual Vietnamese command, repeats it before restart, restarts HST, lists all inherited modules independently, and signs through the new store. Both modutil and the mode with both NSS CLI tools disabled in production setup are exercised. Test PINs and temporary keys remain confined to the existing signing harness.
+
+| Final check | Result |
+|---|---|
+| `python3 -m unittest discover -s tests/unit` | **392 run: 391 passed, 1 skipped, 0 failures/errors** |
+| USB subset, included in full discovery and quality | **102/102 passed**, including **29 real-NSS tests** |
+| New migration tests repeated as uid 2000 | **11/11 passed**, including the source directory at 0500 and module file at 0400 |
+| Normal runtime, `--mode both` | modutil **9/9**, pkcs11 **10/10**; **19/19 checks**, 0 skipped |
+| Forced Darwin runtime, `--mode both --darwin` | modutil **12/12**, pkcs11 **13/13**; **25/25 checks**, 0 skipped |
+| Signing across those four mode/policy combinations | **4/4 ODTs** reopened with HST signature state `OK`; independent signature/issuer verification valid and **40/40 reference digests**, 0 unchecked |
+| `bash scripts/ci-quality.sh` | **46 commands, 46 passed, 0 failures**; **34 unittest invocations / 419 tests**, with the same one upstream skip |
+| Extension checker self-tests; standalone DMG background check | **18/18 passed**; passed |
+| Reproducible extension build | **2 identical builds**, SHA-256 `3526a672ce16c6ab14f5c7a06ab1dbb281f4ea4867fd80385851de4416298eca` |
+| Python bounds; whitespace | **54 packaged modules**, maximum **199 lines**; all touched USB test/harness modules also below 199; `git diff --check` passed |
+
+Runtime commands were executed as uid 2000 with private HOME/profile directories and Xvfb `:99`:
+
+```sh
+python3 -m unittest discover -s tests/unit
+python3 scripts/build-extensions.py --verify-reproducible
+python3 tests/runtime/check-usb-token-setup.py --instdir /opt/hst --workdir /tmp/usb-maint-linux --display :99 --mode both
+python3 tests/runtime/check-usb-token-setup.py --instdir /opt/hst --workdir /tmp/usb-maint-darwin-release --oxt /tmp/usb-maint-final.oxt --display :99 --mode both --darwin
+bash scripts/ci-quality.sh
+python3 scripts/check-extensions.py --self-test
+python3 -I scripts/macos/make-dmg-background.py --check
+```
+
+Final logs: `/tmp/usb-maint-unit-release.log`, `/tmp/usb-maint-quality-release.log`, `/tmp/usb-maint-linux.log`, `/tmp/usb-maint-darwin-release.log`, `/tmp/usb-maint-store-unprivileged.log`, `/tmp/usb-maint-build-final.log`, `/tmp/usb-maint-extension.log`, and `/tmp/usb-maint-dmg.log`. Runtime results are `/tmp/usb-maint-{linux,darwin-release}/results.json`. Copies of these logs and result JSONs are under ignored `tests/output/usb-token-setup/maintainer/`; no PKI/key files were copied or committed.
+
+The sole unittest skip remains the absent upstream dictionary tree. Preflight also skips the absent pinned-tarball simulation and upstream macOS configure/patch/icon inputs. Its existing DMG dependency guard reports a skip, while the separate exact background check passes. The first runtime attempt exposed a test-harness-only missing SoftHSM environment for the independent `modutil` listing; this was corrected and both modes rerun successfully. Isolated quality execution also exposed a test mock/module-import lifetime issue; that fixture was corrected and the complete suite rerun green.
+
+Native macOS/Mach-O execution and the physical VNPT-CA ePass2003 on a Mac M2 remain unavailable in this Linux container. The forced Darwin results demonstrate the automatic store policy, preserved module loading, core SQL creation, and real signing through the new store; they do not claim native Mac hardware acceptance.

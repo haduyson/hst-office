@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 import _paths
 from hst_office import usb_token as action, usb_token_db as db, usb_token_nss as nss
+from hst_office import usb_token_store as store
 from hst_office.data_files import load_locale
 
 
@@ -101,3 +102,24 @@ class ActionTest(unittest.TestCase):
     def test_only_errors_do_not_offer_signing_instruction(self):
         text = action.result_text(self.strings, "/db", [dict(label="A", path="/a", status="error", error="Lỗi")], False)
         self.assertNotIn(self.strings["next"], text)
+
+    def test_private_store_selected_and_restart_required_with_cached_old_path(self):
+        path, _ = self.environment(False, [])
+        target = path / 'new-store'
+        rows = [dict(label='VNPT-CA', path='/vnpt.so', status='added', private_store=True)]
+        with patch.object(store, 'register', return_value=(target, rows, True)), patch.object(db, 'set_fallback') as select:
+            result = action.setup(self.ctx)
+        select.assert_called_once_with(self.ctx, target)
+        self.assertEqual(result, (target, rows, True))
+        text = action.result_text(self.strings, *result)
+        self.assertIn('HST Office hiện dùng kho chứng thư riêng', text)
+        self.assertIn('Kho cũ được giữ nguyên, không thay đổi', text)
+
+    def test_repeat_before_restart_uses_owned_certdir_despite_cached_core_path(self):
+        path, register = self.environment(True, [dict(status='existing')])
+        target = store.directory(path, 'macos')
+        with patch.object(db, 'office_state', return_value=(str(target), str(path), True, Mock())):
+            selected, rows, restart = action.setup(self.ctx)
+        self.assertEqual(selected, target)
+        self.assertTrue(restart)
+        self.assertEqual(register.call_args.args[0], target)

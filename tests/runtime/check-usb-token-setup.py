@@ -20,6 +20,7 @@ os.environ.setdefault("HST_VCLPLUGIN", "gen")
 import hst_gui
 import signature_pki
 from usb_token_harness import certificate_with_pin, install, setup_dialog, signing_helpers
+from usb_token_private_harness import browser_profile, check_private, snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -38,9 +39,14 @@ def run_mode(args, mode, signing):
     extra = {"SOFTHSM2_CONF": pki.conf, "HST_USB_TOKEN_TEST_ROOT": str(root), "TZ": "Asia/Ho_Chi_Minh"}
     if mode == "pkcs11":
         extra["HST_USB_TOKEN_TEST_NO_TOOLS"] = "1"
+    if args.darwin:
+        extra["HST_USB_TOKEN_TEST_PLATFORM"] = "darwin"
     office = hst_gui.Office(args.instdir, str(base / "office"), args.port, display=args.display,
                             config=signing.TABS + [("/org.openoffice.Office.Linguistic/General", "UILocale", "en-US")], env=extra)
     db = Path(office.workdir) / "home/.pki/nssdb"
+    if args.darwin:
+        source, before = browser_profile(office)
+        db = Path(office.workdir) / "home/Library/Application Support/HST Office/nssdb"
     result = {"backend": mode, "checks": {}}
     checks = result["checks"]
     try:
@@ -54,6 +60,9 @@ def run_mode(args, mode, signing):
         nss = office.service("com.sun.star.xml.crypto.NSSInitializer")
         assert nss.IsNSSinitialized == (not args.cold)
         checks["nss_initial_state_verified"] = True
+        if args.darwin:
+            assert Path(nss.NSSPath) == source
+            assert snapshot(source) == before
         text = setup_dialog(office, frame, signing)
         print(mode + ": setup dialog checked", flush=True)
         result["first_dialog"] = text
@@ -63,6 +72,12 @@ def run_mode(args, mode, signing):
         saved = module_file.read_bytes()
         assert str(library).encode() in saved, saved
         checks["vietnamese_command_registered_module"] = True
+        if args.darwin:
+            assert "HST Office hiện dùng kho chứng thư riêng" in text and "Kho cũ được giữ nguyên" in text, text
+            assert snapshot(source) == before
+            assert saved.startswith(before['pkcs11.txt'][1])
+            assert not (db / 'cert9.db').exists() and not (db / 'key4.db').exists()
+            checks["private_store_preserves_profile_and_all_records"] = True
         text = setup_dialog(office, frame, signing)
         assert "Đã đăng ký từ trước" in text and "Khởi động lại HST Office rồi" in text, text
         assert saved == module_file.read_bytes()
@@ -83,6 +98,9 @@ def run_mode(args, mode, signing):
         assert (db / "cert9.db").is_file() and (db / "key4.db").is_file()
         assert Path(office.service("com.sun.star.xml.crypto.NSSInitializer").NSSPath) == db
         checks["core_uses_selected_sql_db_after_restart"] = True
+        if args.darwin:
+            check_private(db, source, before, pki.env)
+            checks["inherited_roots_and_vendor_loaded_after_restart"] = True
         subprocess.run(["certutil", "-A", "-d", "sql:" + str(db), "-n", "HST Test Root CA", "-t", "CT,C,C",
                         "-a", "-i", pki.ca_pem], env=pki.env, check=True, capture_output=True)
         subject, prompts = certificate_with_pin(office, signing, base / "shots")
@@ -100,6 +118,9 @@ def run_mode(args, mode, signing):
         state = signing.signature_state(office, doc.getCurrentController().getFrame())
         assert state == "OK", state
         checks["office_validates_signature"] = True
+        if args.darwin:
+            assert snapshot(source) == before
+            checks["old_profile_unchanged_after_signing"] = True
         with zipfile.ZipFile(target) as archive:
             assert "META-INF/documentsignatures.xml" in archive.namelist()
         verified = signing.signature_verify.verify_package(str(target), pki.ca_pem)
@@ -124,6 +145,7 @@ def main():
     ap.add_argument("--port", type=int, default=2083)
     ap.add_argument("--mode", choices=("both", "modutil", "pkcs11"), default="both")
     ap.add_argument("--cold", action="store_true", help="also exercise setup before NSS has initialized")
+    ap.add_argument("--darwin", action="store_true", help="force private-store policy with an existing Firefox DB")
     args = ap.parse_args()
     if os.geteuid() == 0:
         ap.error("Run this test as a non-root user with its own HOME.")

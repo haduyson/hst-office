@@ -66,17 +66,9 @@
   <li>Mở <span class="menu">HST ▸ Thiết lập USB Token…</span>. HST ưu tiên tìm thư viện VNPT <code>/usr/local/lib/libvnptca_p11_v8.dylib</code> và bản trong VNPT-CA Token Manager.</li>
   <li>Khi đăng ký thành công, khởi động lại HST Office nếu hộp thoại yêu cầu, rồi vào <span class="menu">Tập tin ▸ Chữ ký số…</span>.</li>
 </ol>
-<div class="note"><p>Token VNPT Feitian ePass2003Auto có thể không được OpenSC nhận diện. Hãy dùng VNPT-CA Token Manager cho token này. Nếu không có hồ sơ Firefox/Thunderbird, lệnh tạo kho <code>~/.pki/nssdb</code> và chọn kho đó trong cấu hình HST Office. Khi NSS đã khởi tạo trong phiên hiện tại, kho mới được hoàn tất lúc khởi động lại và sử dụng chữ ký số.</p></div>
-<div class="note"><p><strong>Giới hạn trên macOS:</strong> lệnh chỉ thêm driver khi kho chưa có tệp mô-đun <code>pkcs11.txt</code>. Nếu tệp đã tồn tại, lệnh từ chối thêm để bảo toàn mọi đăng ký hiện có vì chưa có cơ chế khóa an toàn trên macOS. Trường hợp này thường gặp với hồ sơ Firefox/Thunderbird hoặc khi thêm driver thứ hai vào kho đã thiết lập. Driver đã đăng ký và nạp được vẫn được nhận diện khi chạy lại lệnh.</p>
-<p>Đóng ứng dụng, khởi động lại máy hoặc chạy lại thiết lập <strong>không khắc phục giới hạn này</strong>. Không xóa, đổi tên hay sửa <code>pkcs11.txt</code> để thử vượt qua thông báo.</p></div>
-<p>Để giữ nguyên kho cũ, có thể dùng kho riêng cho driver mới:</p>
-<ol>
-  <li>Ghi lại đường dẫn kho đang chọn tại <span class="menu">HST Office → Tùy chọn… → HST Office → Bảo mật → Chứng chỉ…</span>. Tạo một thư mục mới, trống, thuộc tài khoản của bạn (ví dụ <code>/Users/ten-ban/Documents/HST-Token-moi</code>); không sao chép tệp từ kho cũ vào đó.</li>
-  <li>Chọn thư mục mới tại <span class="menu">Bảo mật → Chứng chỉ…</span>, đóng hết cửa sổ HST Office rồi mở lại để áp dụng đường dẫn.</li>
-  <li>Chạy <span class="menu">HST ▸ Thiết lập USB Token…</span> trước khi mở hộp thoại ký hoặc xuất PDF. Kho mới chỉ hỗ trợ thêm driver đầu tiên; nếu nhiều driver được phát hiện, các driver tiếp theo sẽ bị từ chối.</li>
-  <li>Khi đăng ký thành công, làm theo yêu cầu khởi động lại. Kho riêng không tự có chứng thư gốc hay các mô-đun của kho cũ; cài chứng thư gốc theo hướng dẫn nhà cung cấp nếu cần. Có thể chọn lại đường dẫn kho cũ và khởi động lại để dùng các đăng ký cũ.</li>
-</ol>
-<p>Nếu cần nhiều driver trong cùng kho hoặc không thể dùng kho riêng, liên hệ bộ phận hỗ trợ để thiết lập một kho riêng đã được kiểm tra. Không áp dụng lệnh ghi lại mô-đun trực tiếp lên hồ sơ trình duyệt đang dùng.</p>
+<div class="note"><p>Token VNPT Feitian ePass2003Auto có thể không được OpenSC nhận diện. Hãy dùng VNPT-CA Token Manager cho token này.</p></div>
+<p>HST Office tự tạo và chọn kho chứng thư riêng tại <code>~/Library/Application Support/HST Office/nssdb</code>. Khi cần thêm driver vào kho đã dùng, HST tạo kho tiếp theo (<code>nssdb-2</code>, <code>nssdb-3</code>…). Mọi đăng ký mô-đun cũ, kể cả mô-đun gốc tích hợp và các driver khác, được giữ lại trong kho mới cùng các driver vừa kiểm tra. Kho cũ được giữ nguyên. Khởi động lại HST Office khi hộp thoại yêu cầu để dùng kho mới; chạy lại lệnh không tạo đăng ký trùng.</p>
+<p>Cơ chế này cũng tự áp dụng trên Linux khi không thể khóa an toàn tệp mô-đun, với kho riêng tại <code>~/.local/share/hst-office/nssdb</code>. Chứng thư đã nhập riêng vào kho cũ không được sao chép; nếu cần, cài chứng thư gốc theo hướng dẫn nhà cung cấp. Có thể chọn lại kho cũ tại <span class="menu">Bảo mật → Chứng chỉ…</span> rồi khởi động lại.</p>
 
 <details>
 <summary>Nâng cao: đăng ký thủ công bằng công cụ NSS</summary>

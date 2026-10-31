@@ -2,6 +2,7 @@
 """Disposable, architecture-checked NSS probe. No login, PIN, or key operations."""
 import ctypes
 import json
+import os
 from pathlib import Path
 import platform
 import struct
@@ -13,7 +14,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from hst_office.usb_token_errors import SetupError, vietnamese_error
 from hst_office.usb_token_nss import addition, parse, read_text, run_tool
-from hst_office.usb_token_transaction import commit_addition
+from hst_office.usb_token_transaction import commit_addition, module_lease
 
 
 class ModuleHeader(ctypes.Structure):
@@ -65,14 +66,28 @@ def prepare(request):
             if not any(r.get("name") == name and r.get("library") == request["module"]["path"]
                        for r in parse(read_text(stage / "pkcs11.txt"))):
                 raise SetupError("Không xác minh được đăng ký NSS; chưa thay đổi kho chứng thư.")
-    commit_addition(db, original, extra)
+    if not request.get("probe"):
+        commit_addition(db, original, extra)
     return {"status": "added"}
+
+
+def lease_available(db):
+    # Check without opening the source for writing or creating recovery files.
+    fd = os.open(Path(db) / "pkcs11.txt", os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        try:
+            with module_lease(fd):
+                return {"available": True}
+        except (SetupError, OSError):
+            return {"available": False}
+    finally:
+        os.close(fd)
 
 
 def main():
     request = json.loads(Path(sys.argv[1]).read_text())
     try:
-        result = prepare(request)
+        result = lease_available(request["db"]) if request.get("lease") else prepare(request)
     except Exception as exc:  # noqa: BLE001 - never relay vendor/OS exception text
         result = {"status": "error", "error": vietnamese_error(exc)}
     Path(request["response"]).write_text(json.dumps(result))

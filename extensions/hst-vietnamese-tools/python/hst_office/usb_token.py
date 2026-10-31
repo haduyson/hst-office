@@ -12,21 +12,25 @@ _pending_restart = set()
 
 def setup(ctx):
     from .usb_token_db import office_state, select_db, set_fallback, user_database
-    from .usb_token_nss import register
+    from .usb_token_store import owned, register
     platform = platform_name()
     configured, current, initialized, nss = office_state(ctx)
     db, fallback = select_db(Path.home(), configured, platform, core_path=current)
+    # CertDir may already point to our new store while core still caches the old
+    # path. Repeated setup must use that store and keep the restart requirement.
+    if configured and owned(configured):
+        db, fallback = Path(configured), False
     modules = detect(platform, os.environ.get("HST_USB_TOKEN_TEST_ROOT", "/"), Path.home())
     if not modules:
         return db, [], False
     user_database(db)
-    rows = register(db, modules)
+    db, rows, moved = register(db, modules, Path.home(), platform, configured)
     added = any(row["status"] == "added" for row in rows)
     # NSS caches loaded modules and its path at first use (including PDF export).
     # Do not shut down or reload NSS in a running office: it holds signing keys.
-    if added and initialized:
+    if moved or (added and initialized):
         _pending_restart.add(str(db))
-    if any(row["status"] in ("added", "existing") for row in rows) and fallback:
+    if any(row["status"] in ("added", "existing") for row in rows) and (fallback or moved):
         set_fallback(ctx, db)
     restart = str(db) in _pending_restart
     if any(row["status"] in ("added", "existing") for row in rows):
@@ -45,6 +49,8 @@ def result_text(strings, db, rows, restart):
         parts.append(strings["notFound"])
         parts.extend(load_data("pkcs11-modules.json")["driver_guidance"])
     else:
+        if any(row.get("private_store") for row in rows):
+            parts.append(strings["privateStore"])
         parts.extend(strings[row["status"]].format(label=row["label"], path=row["path"])
                      + ("\n" + row["error"] if row["status"] == "error" else "") for row in rows)
         if any(row["status"] != "error" for row in rows):

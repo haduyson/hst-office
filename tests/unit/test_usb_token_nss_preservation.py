@@ -84,7 +84,7 @@ class NativePreservationTest(NativeNssFixture):
         before = self.snapshot()
         original = nss.read_text(self.path)
         extra, _ = nss.addition(original, 'New', str(SOFT))
-        for _ in range(2):  # Retrying does not make the macOS restriction transient.
+        for _ in range(2):  # Low-level append stays fail-closed; setup uses a new store.
             with patch.object(transaction.sys, 'platform', 'darwin'), self.assertRaisesRegex(SetupError, 'chưa hỗ trợ khóa an toàn'):
                 transaction.commit_addition(self.db, original, extra)
             self.assertEqual(self.snapshot(), before)
