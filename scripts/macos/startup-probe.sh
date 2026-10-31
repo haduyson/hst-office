@@ -3,6 +3,7 @@
 # Time HST Office start-up on macOS with and without the welcome dialog, for the shipped extension code and
 # for the extension code of this checkout (overlaid on a copy of the same bundle), cold and warm profile.
 #   startup-probe.sh <HSTOffice_*.dmg> <out-dir>
+# Cases per variant: first launch with a fresh profile (welcome dialog), second launch (no dialog), welcome again.
 # Per case: starts the app, samples its windows at 20 Hz (startup-probe-sampler.swift), takes a screenshot
 # about every 0.5 s, and for welcome cases sends Return (the dialog's default "Đóng" button) through
 # System Events 10 s after the first window. Writes summary.md. Evidence only: measurement failures never fail
@@ -26,15 +27,6 @@ swiftc -O -o "$work/sampler" "$here/startup-probe-sampler.swift" 2>"$out/swiftc.
 screencapture -x "$out/desktop-before.png" || true
 osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' >"$out/system-events-check.txt" 2>&1 || true
 { echo "# macOS start-up probe"; echo; echo "host: $(sw_vers -productVersion) $(uname -m); dmg: $(basename "$dmg")"; } >"$out/summary.md"
-
-seed_profile() { # seed_profile <profile> <shown true|false>: registry values read at the first start
-  mkdir -p "$1/user"
-  { echo '<?xml version="1.0" encoding="UTF-8"?>'
-    echo '<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
-    echo "<item oor:path=\"/org.hasontech.hstoffice.Welcome\"><prop oor:name=\"Shown\" oor:op=\"fuse\"><value>$2</value></prop></item>"
-    echo '<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="ShowTipOfTheDay" oor:op="fuse"><value>false</value></prop></item>'
-    echo '</oor:items>'; } >"$1/user/registrymodifications.xcu"
-}
 
 run_case() { # run_case <variant> <case> <profile> <close: yes|no> <seconds>
   local variant="$1" name="$2" profile="$3" close="$4" secs="$5" dir="$out/$1-$2"
@@ -69,12 +61,12 @@ run_case() { # run_case <variant> <case> <profile> <close: yes|no> <seconds>
 }
 
 for variant in shipped current; do
-  p="$work/profile-$variant-quiet"; seed_profile "$p" true
-  run_case "$variant" cold-no-welcome "$p" no 35
-  run_case "$variant" warm-no-welcome "$p" no 25
-  p="$work/profile-$variant-welcome"; seed_profile "$p" false
-  run_case "$variant" cold-welcome "$p" yes 50
-  sed -i '' '/Welcome/d' "$p/user/registrymodifications.xcu" 2>/dev/null || true
-  run_case "$variant" warm-welcome "$p" yes 40
+  # What a user sees: the first launch (fresh profile, welcome dialog up), then ordinary launches of that profile,
+  # then a launch where the welcome dialog is due again.
+  p="$work/profile-$variant"
+  run_case "$variant" first-run-welcome "$p" yes 50
+  run_case "$variant" second-run-no-welcome "$p" no 25
+  python3 -I "$here/probe-profile.py" "$p" --shown false
+  run_case "$variant" welcome-again "$p" yes 40
 done
 cat "$out/summary.md"

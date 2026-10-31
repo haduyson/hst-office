@@ -40,6 +40,8 @@ def main(run, label):
         events.append(("welcome closed by probe", closed))
         after = next((t for t, w in rows if t >= closed and w and all(s == big for s in w)), None)
         events.append(("only the Start Center left after close", after))
+        if center:
+            events.append(("Start Center on screen minus close time (negative: it was up behind the dialog)", center - closed + (launch or 0)))
     print(f"\n#### {label}\n\n| event | ms after launch |\n|---|---|")
     for name, stamp in events:
         print(f"| {name} | {stamp - launch if stamp and launch else 'n/a'} |")

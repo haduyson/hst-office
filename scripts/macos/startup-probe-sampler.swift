@@ -10,6 +10,7 @@ guard CommandLine.arguments.count >= 2, let seconds = Double(CommandLine.argumen
     FileHandle.standardError.write("usage: startup-probe-sampler <seconds>\n".data(using: .utf8)!)
     exit(64)
 }
+setvbuf(stdout, nil, _IOLBF, 0)  // line-buffered: the probe script reads the file while it grows
 let start = Date()
 print("epoch_ms,windows")
 while Date().timeIntervalSince(start) < seconds {

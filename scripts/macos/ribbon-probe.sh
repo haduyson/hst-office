@@ -14,14 +14,13 @@ ditto "$mnt/HST Office.app" "$work/HST Office.app"; hdiutil detach "$mnt" >/dev/
 app="$work/HST Office.app"
 bash "$here/adhoc-sign.sh" "$app" >"$out/adhoc-sign.log" 2>&1 || { echo "ad-hoc sign failed" >&2; exit 1; }
 
-seed_profile() { # seed_profile <profile> <transparency|default>
-  mkdir -p "$1/user"
-  { echo '<?xml version="1.0" encoding="UTF-8"?>'
-    echo '<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
-    echo '<item oor:path="/org.hasontech.hstoffice.Welcome"><prop oor:name="Shown" oor:op="fuse"><value>true</value></prop></item>'
-    echo '<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="ShowTipOfTheDay" oor:op="fuse"><value>false</value></prop></item>'
-    [ "$2" = default ] || echo "<item oor:path=\"/org.openoffice.Office.Common/Misc\"><prop oor:name=\"NotebookbarColorTransparency\" oor:op=\"fuse\"><value>$2</value></prop></item>"
-    echo '</oor:items>'; } >"$1/user/registrymodifications.xcu"
+seed_profile() { # seed_profile <profile> <transparency|default>: initialise the profile, then adjust its registry
+  for _ in 1 2 3; do
+    "$app/Contents/MacOS/soffice" --headless --norestore --terminate_after_init "-env:UserInstallation=file://$1" >/dev/null 2>&1 || true
+    [ -f "$1/user/registrymodifications.xcu" ] && break
+  done
+  python3 -I "$here/probe-profile.py" "$1" --shown true --no-tip
+  [ "$2" = default ] || python3 -I "$here/probe-profile.py" "$1" --transparency "$2"
 }
 
 shoot() { # shoot <appearance light|dark> <variant> <module>
