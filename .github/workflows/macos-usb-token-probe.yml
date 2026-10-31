@@ -11,6 +11,15 @@ on:
         description: 'Release tag whose arm64 dmg is probed'
         type: string
         default: v1.0.0-beta.4
+  # A workflow that is not on the default branch cannot be dispatched until GitHub has seen it run once;
+  # pushes of the probe files on this feature branch register and re-run it.
+  push:
+    branches: [codex/usb-token]
+    paths:
+      - .github/workflows/macos-usb-token-probe.yml
+      - scripts/macos/usb-token-probe.sh
+      - tests/runtime/check-usb-token-setup-macos.py
+      - tests/runtime/hst_gui_macos.py
 permissions:
   contents: read
 concurrency:
@@ -28,7 +37,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || 'v1.0.0-beta.4' }}
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/release"
