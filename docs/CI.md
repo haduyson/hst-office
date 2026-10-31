@@ -164,9 +164,17 @@ Homebrew). Phiên bản HST lấy từ `/VERSION` (header, `openoffice.lst`, `CF
   ngân sách, nên lượt `full` kế tiếp **cùng commit** chạy tiếp; cần 2 (có thể 3) lượt cho x86_64. Đổi file
   dùng chung (ví dụ `officecfg/.../Common.xcs`) làm phần lớn cache mất hiệu lực.
 
-**Bản chưa ký bị Gatekeeper chặn** ("bị hỏng" trên Apple Silicon, "nhà phát triển không xác định" trên
-Intel). Người thử: kéo app vào Applications rồi chuột phải → Open (macOS 15: System Settings → Privacy &
-Security → Open Anyway), hoặc `xattr -dr com.apple.quarantine "/Applications/HST Office.app"`.
+**Bản chưa ký Developer ID.** Bản build upstream không có identity chỉ mang chữ ký ad-hoc của linker trên
+từng tệp Mach-O; bundle (Info.plist, tài nguyên) không được niêm phong, và HST còn sửa bundle sau đó (gói
+tiếng Việt, icon). Trên Apple Silicon, bundle bị cách ly (quarantine) như vậy bị báo **"bị hỏng"**. Vì vậy
+`--collect` ký lại ad-hoc toàn bộ app sau thay đổi cuối cùng bằng [adhoc-sign.sh](../scripts/macos/adhoc-sign.sh)
+(từ trong ra ngoài như `macosx-codesign-app-bundle`) và chặn build nếu `codesign --verify --deep --strict`
+lỗi; `--verify` kiểm lại trên dmg. Có thể kiểm một dmg đã phát hành bằng
+[macos-signature-probe.yml](../.github/workflows/macos-signature-probe.yml) (input `tag`).
+
+Người dùng macOS 15: mở app → hộp "Apple không thể xác minh…" → **Xong** → **Cài đặt hệ thống ▸ Quyền riêng
+tư & Bảo mật ▸ Vẫn mở** (*Open Anyway*) → xác nhận mật khẩu → mở lại, chọn **Vẫn mở**. Dự phòng:
+`xattr -dr com.apple.quarantine "/Applications/HST Office.app"`.
 
 ### Ký và notarize (tùy chọn)
 

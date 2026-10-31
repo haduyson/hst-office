@@ -15,7 +15,9 @@ set -Eeuo pipefail
 app="${1%/}"
 [ -d "$app/Contents/MacOS" ] || { echo "not an app bundle: $app" >&2; exit 1; }
 id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
-sign() { codesign --force --sign - "$@"; }
+sign() { # codesign failures propagate (pipefail); only the "replacing existing signature" notes are dropped
+  codesign --force --sign - "$@" 2>&1 | { grep -v 'replacing existing signature' >&2 || :; }
+}
 deepest_first() { awk -F/ '{ print NF "\t" $0 }' | sort -rn | cut -f2-; }  # bundle paths contain no newlines
 
 # 1. Every Mach-O file (dylibs, Python extension modules, helper executables), deepest path first.
@@ -41,5 +43,6 @@ echo "ad-hoc signed $bundles nested bundles"
 
 # 3. The app: seals Info.plist, resources and the main executable.
 sign --identifier "$id" "$app"
-codesign --verify --deep --strict --verbose=2 "$app"
+codesign --verify --deep --strict "$app"
+echo "codesign --verify --deep --strict: ok"
 codesign -dv "$app" 2>&1 | grep -E '^(Identifier|Format|Signature|Sealed Resources|CodeDirectory)'

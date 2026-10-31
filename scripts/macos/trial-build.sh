@@ -278,6 +278,9 @@ do_collect() { # the single HST Office dmg -> $WORK/dmg with SHA256SUMS; signing
   [ "$rc" -eq 0 ] || { echo "collect: could not merge the Vietnamese language pack"; return 1; }
   # Repack with the HST layout: upstream's dmg carries the LibreOffice background and a DS_Store
   # whose icon positions name LibreOffice.app.
+  # Last change to the bundle is done: give it one consistent ad-hoc signature (hard gate inside:
+  # codesign --verify --deep --strict). Without it macOS reports the quarantined app as "damaged".
+  bash "$REPO/scripts/macos/adhoc-sign.sh" "$app" || return 1
   bash "$REPO/scripts/macos/build-dmg.sh" "$app" "$out/$(dmg_name)" || return 1
   (cd "$out" && shasum -a 256 "$(dmg_name)" > SHA256SUMS) || return 1
   cat "$out/SHA256SUMS"
@@ -338,7 +341,10 @@ do_verify() { # mount the dmg read-only and check product identity and Vietnames
     done
     compgen -G "$mnt/.background*" >/dev/null || { echo "FAIL: volume lacks the HST background"; bad=1; }
     cp "$mnt"/.background* "$WORK/artifacts/" 2>/dev/null || true
-    echo "codesign (unsigned build, informational):"; codesign -dv "$app" 2>&1 | head -5 || true
+    # Ad-hoc signature from scripts/macos/adhoc-sign.sh must survive the dmg copy intact.
+    if codesign --verify --deep --strict --verbose=2 "$app"; then echo "codesign: valid ad-hoc signature"; else echo "FAIL: codesign --verify --deep --strict"; bad=1; fi
+    codesign -dv "$app" 2>&1 | grep -E '^(Identifier|Signature|Sealed Resources)'
+    echo "spctl (expected: rejected, no Developer ID):"; spctl --assess --type execute -vv "$app" 2>&1 | head -3 || true
     du -sh "$app"
   } 2>&1 | tee "$report"
   [ "${PIPESTATUS[0]}" -eq 0 ] || bad=1
