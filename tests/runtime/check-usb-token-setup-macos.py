@@ -40,10 +40,11 @@ SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 TOOLS = ("modutil", "certutil")
 
 
-def brew_roots():
-    """Homebrew's Builtin Roots module (absolute install names, so a copy still loads)."""
-    prefix = subprocess.run(["brew", "--prefix", "nss"], capture_output=True, text=True, check=True).stdout.strip()
-    return Path(prefix) / "lib/libnssckbi.dylib"
+def other_vendor_module():
+    """OpenSC's PKCS#11 module from Homebrew: a real non-roots vendor module that loads without a
+    reader (absolute install names, so a copy outside Homebrew still loads)."""
+    prefix = subprocess.run(["brew", "--prefix", "opensc"], capture_output=True, text=True, check=True).stdout.strip()
+    return Path(prefix) / "lib/opensc-pkcs11.so"
 
 
 def firefox_profile(home, app):
@@ -53,8 +54,8 @@ def firefox_profile(home, app):
     source.mkdir(parents=True)
     (root / "profiles.ini").write_text("[Profile0]\nName=default-release\nIsRelative=1\n"
                                        "Path=Profiles/hst.default-release\nDefault=1\n\n[General]\nStartWithLastProfile=1\n")
-    vendor = home / "another-vendor.dylib"
-    shutil.copyfile(brew_roots(), vendor)
+    vendor = home / "another-vendor.so"
+    shutil.copyfile(other_vendor_module(), vendor)
     subprocess.run(["certutil", "-N", "-d", "sql:" + str(source), "--empty-password"], check=True, capture_output=True)
     # Builtin Roots: the app's own libnssckbi, as a profile used with this NSS would have it.
     roots = Path(app) / "Contents/Frameworks/libnssckbi.dylib"
