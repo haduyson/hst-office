@@ -141,3 +141,33 @@ Shipping to users requires the `sign` job with secrets.
 - The default UI language follows macOS. Vietnamese appears only when Vietnamese is a preferred macOS
   language; owner intent says menus follow the OS, so this is OK.
 - The app was not launched (no GUI on the runner): the GUI and first-start check remain for QA on a real Mac.
+
+## Update 2026-10-31: beta.2 "HST Office is damaged" on Apple Silicon
+
+- **Root cause (proved by CI on the released beta.2 arm64 dmg).** Probe runs 41161683389 and 41161906665
+  used `.github/workflows/macos-signature-probe.yml` on macOS 15.8.2 arm64, dmg sha256 `02514d73…0295`.
+  - The shipped `HST Office.app` and `Contents/MacOS/soffice` are only linker-signed
+    (`flags=0x20002(adhoc,linker-signed)`, `Info.plist=not bound`, `Sealed Resources=none`).
+  - `codesign --verify --deep --strict`, `spctl --assess` and `syspolicy_check` all fail with "code has no
+    resources but signature indicates they must be present". `LibreOfficePython.framework` fails the same way.
+  - Cause: an upstream release build without a signing identity never signs the bundle, and HST then edits it
+    (vi language pack, icons, Info.plist). With quarantine set, macOS reports this as "damaged".
+- **Fix (9de2f56).** `scripts/macos/adhoc-sign.sh` signs inside-out like `macosx-codesign-app-bundle`:
+  254 Mach-O files, then 5 nested bundles (Python.framework per version, QuickLook appex, Spotlight
+  mdimporter), then the app with identifier `vn.hasontech.hstoffice`.
+  - It has no hardened runtime and no entitlements; `sign-notarize.sh` re-signs everything with `--force`
+    for Developer ID.
+  - `trial-build.sh --collect` runs it after the last bundle change, before `build-dmg.sh`. The build fails
+    if `codesign --verify --deep --strict` fails.
+  - `--verify` re-checks the mounted dmg (hard gate) and records `spctl` output.
+- **Verified on the beta.2 bundle after re-sign:**
+  - `codesign --verify --deep --strict`: "valid on disk / satisfies its Designated Requirement".
+  - `spctl --assess --type execute -vv`: "rejected" (exit 3, unnotarized), the same with a simulated Safari
+    quarantine flag.
+  - `syspolicy_check distribution`: only "Notary Ticket Missing" plus a generic XProtect distribution note;
+    the codesign error is gone.
+  - Headless conversion `soffice --headless --convert-to pdf` works (exit 0, 13 872-byte PDF).
+- **Docs:** `docs/CI.md` and `docs/releases/v1.0.0-beta.3.md` ("Cài đặt" macOS) now give the macOS 15 steps
+  Xong → Cài đặt hệ thống ▸ Quyền riêng tư & Bảo mật ▸ Vẫn mở, plus the `xattr -dr com.apple.quarantine`
+  fallback.
+- **Not run:** no full `desktop-macos` build was started. The beta.3 builds will exercise the new gate.
