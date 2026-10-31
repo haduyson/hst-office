@@ -90,7 +90,17 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
   - Crash GTK3 hiếm (menubar/clipboard) khi mở tài liệu ngay sau khi đóng tài liệu ẩn dưới Xvfb, xảy ra cả khi tắt tab; xác minh trên desktop thật.
 - **v1.0.0-beta.4:** công cụ tự nhận diện USB Token ký số trên Linux/macOS (lệnh *HST ▸ Thiết lập USB Token*: tìm thư viện PKCS#11 của driver nhà cung cấp chữ ký số Việt Nam đã cài, khai báo vào kho chứng thư NSS mà HST dùng, báo kết quả tiếng Việt; thay 3 lệnh gõ tay trong trang F1 "Ký số tài liệu bằng USB Token"). Ưu tiên **VNPT-CA** (token chủ dự án dùng, 2026-10-31), sau đó Viettel-CA, BKAV-CA, FPT-CA, MISA, EasyCA. Cần chủ dự án thử bằng token VNPT-CA thật.
   - Lối tắt đổi ngôn ngữ giao diện (chủ dự án duyệt 2026-10-31): menu *HST ▸ Ngôn ngữ giao diện ▸ Tiếng Việt / English / Theo máy* (nhãn luôn tiếng Việt), ghi `UILocale` của người dùng, hỏi "Khởi động lại ngay?" và mở lại các tài liệu đang mở. Chỉ là lối tắt tới *Công cụ ▸ Tùy chọn ▸ Ngôn ngữ và vùng ▸ Chung ▸ Giao diện người dùng* đã có sẵn. Khởi động lại phải mở lại **mọi** tài liệu đang mở, kể cả chưa lưu/chưa đặt tên (dựa trên cơ chế khôi phục phiên; không dùng quiet-quit vì xóa cờ "đã sửa"). Kèm các sửa an toàn từ đợt rà soát ngôn ngữ ([báo cáo](../plans/reports/codex-language-selection-261031-0943-audit-design.md)): giá trị `en`/`en-GB` bị xóa về Mặc định lúc khởi động; Tùy chọn không khóa ô ngôn ngữ khi quản trị đã khóa và không báo lỗi khi ghi thất bại; gói tiếng Việt thiếu một phần cho giao diện lẫn lộn. Quy tắc "chọn English thì các phần luôn-tiếng-Việt chuyển sang tiếng Anh" đã bị chủ dự án bỏ (2026-10-31): các phần đó vẫn luôn tiếng Việt.
-- **v1.0.0:** khóa cấu hình kiểm tra cập nhật qua `.xcd`/registry (đưa schema vào lõi); thử build `.deb` trên Ubuntu 22.04 cho tương thích rộng hơn; trang "điểm mới" riêng cho nút "Xem điểm mới"; ký số Windows/macOS khi có chứng chỉ; chuyển repo sang tổ chức `hasontech` trước bản chính thức.
+- **v1.0.0-beta.4 (bổ sung, chủ dự án 2026-10-31: gom toàn bộ việc dự kiến cho 1.0 vào beta.4, trừ chuyển repo):**
+  - Chuyển mã TCVN3/VNI → Unicode trong Bảng tính (hiện chỉ có trong Văn bản).
+  - Rà và sửa phím tắt Alt+chữ bị trùng trên ribbon/menu tiếng Việt (KEY-01/02 của đợt rà soát UX).
+  - Kiểm tra độ tương phản chế độ tối của các hộp thoại HST (cần ảnh từ máy thật).
+  - Lỗi nhỏ tồn từ beta.3: mẫu "Japanese normal" hiện tên tiếng Anh; khung định dạng trang chiếu ở thanh bên trống khi giao diện tiếng Anh.
+  - Hỗ trợ token không có driver macOS/Linux của nhà cung cấp: dùng OpenSC (ePass2003 và các token PKCS#15) hoặc driver của hãng sản xuất token (Thales SafeNet Authentication Client, Feitian, Bit4id); công cụ *HST ▸ Thiết lập USB Token* nhận diện cả các thư viện này và hướng dẫn cài khi thiếu.
+  - Khóa cấu hình kiểm tra cập nhật qua `.xcd`/registry (đưa schema vào lõi).
+  - Gói Linux cho Ubuntu 22.04, Debian 13 và Ubuntu 26.04 (build riêng hoặc gói Python kèm theo).
+  - Trang "Điểm mới" riêng cho nút "Xem điểm mới".
+  - Ký số bộ cài Windows (cần chứng chỉ ký mã; macOS đã ký Developer ID + notarize từ beta.3 nếu chạy thử thành công).
+- **v1.0.0:** chuyển repo sang tổ chức `hasontech` trước bản chính thức.
 
 ## Blockers và câu hỏi còn mở
 
