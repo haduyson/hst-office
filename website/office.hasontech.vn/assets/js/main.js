@@ -93,8 +93,13 @@
   if (schema && typeof config.tag === 'string') {
     try {
       const data = JSON.parse(schema.textContent);
-      data.softwareVersion = config.tag.replace(/^v/, '');
-      schema.textContent = JSON.stringify(data);
+      // Structured data may be a single node or an @graph; only the SoftwareApplication carries the version.
+      const nodes = Array.isArray(data['@graph']) ? data['@graph'] : [data];
+      const app = nodes.find((node) => node['@type'] === 'SoftwareApplication');
+      if (app) {
+        app.softwareVersion = config.tag.replace(/^v/, '');
+        schema.textContent = JSON.stringify(data);
+      }
     } catch { /* The static structured data remains available. */ }
   }
 
