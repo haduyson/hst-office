@@ -1,16 +1,28 @@
---- a/include/default.rc	2026-09-17 05:11:38.000000000 +0700
-+++ b/include/default.rc	2026-10-30 12:40:57.055931324 +0700
-@@ -20,6 +20,9 @@
+--- a/include/default.rc
++++ b/include/default.rc
+@@ -19,14 +19,19 @@
+ #define WIN32_LEAN_AND_MEAN
  #include <windows.h>
  #include "version.hrc"
- 
++// HST: file and product version are the HST release (generated from /VERSION and release.json).
++#include "hst_version.h"
++
 +// HST: version strings are UTF-8 (Vietnamese copyright line) and stored as Unicode.
 +#pragma code_page(65001)
-+
+ 
  
  //                 version information
  
-@@ -41,16 +44,16 @@
+ 
+ VS_VERSION_INFO VERSIONINFO
+-    FILEVERSION    VERSION, SUBVERSION, MICROVERSION, VERVARIANT
+-    PRODUCTVERSION VERSION, SUBVERSION, MICROVERSION, VERVARIANT
++    FILEVERSION    HST_VERSION_MAJOR, HST_VERSION_MINOR, HST_VERSION_MICRO, HST_VERSION_BUILD
++    PRODUCTVERSION HST_VERSION_MAJOR, HST_VERSION_MINOR, HST_VERSION_MICRO, HST_VERSION_BUILD
+     FILEFLAGSMASK 0x3F
+     FILEFLAGS
+ #if OSL_DEBUG_LEVEL >= 2
+@@ -41,16 +46,16 @@
      {
          BLOCK "StringFileInfo"
          {
@@ -20,9 +32,11 @@
                  // International StringTable
                  VALUE "CompanyName",      PPS(RES_APP_VENDOR) "\0"
 -                VALUE "ProductName",      "LibreOffice\0"
+-                VALUE "ProductVersion",   PPS(VER_LEVEL) "\0"
+-                VALUE "FileVersion",      PPS(VER_LEVEL) "\0"
 +                VALUE "ProductName",      "HST Office\0"
-                 VALUE "ProductVersion",   PPS(VER_LEVEL) "\0"
-                 VALUE "FileVersion",      PPS(VER_LEVEL) "\0"
++                VALUE "ProductVersion",   HST_RELEASE "\0"
++                VALUE "FileVersion",      HST_FILE_VERSION "\0"
                  VALUE "OriginalFilename", PPS(ORG_NAME) "\0"
                  VALUE "InternalName",     PPS(INTERNAL_NAME) "\0"
 -                VALUE "LegalCopyright",   S_CRIGHT " LibreOffice contributors. All rights reserved.\0"
@@ -30,7 +44,7 @@
                  ADDITIONAL_VERINFO1
                  ADDITIONAL_VERINFO2
                  ADDITIONAL_VERINFO3
-@@ -59,6 +62,6 @@
+@@ -59,6 +64,6 @@
  
          BLOCK "VarFileInfo"
          {

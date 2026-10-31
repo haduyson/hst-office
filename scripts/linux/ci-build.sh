@@ -191,7 +191,7 @@ do_build() {
   test -x "$SRC/instdir/program/soffice" || { echo "build did not produce instdir/program/soffice"; return 1; }
 }
 
-do_package() { # HSTOffice_<ver>_Linux_x86-64.deb (ONE installable package) + SHA256SUMS
+do_package() { # HSTOffice_<release>_Linux_x86-64.deb (ONE installable package) + SHA256SUMS
   local inst="$SRC/workdir/installation" out="$WORK/installer" split="$WORK/pkg-split" d n
   # An installer run that logged errors leaves "<name>_deb_witherror": never ship that.
   if find "$inst" -maxdepth 4 -name '*_witherror' | grep -q .; then

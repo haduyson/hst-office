@@ -21,9 +21,10 @@ from hst_office import update_installer as installer
 from hst_office import update_logic as logic
 from test_update_check import TEST_PUBLIC, manifest, release, signed
 
-GITHUB = "https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.4/"
-NAMES = {"windows": "HSTOffice_1.0.0_Win_x86-64_en-US_vi.msi", "macos-arm": "HSTOffice_1.0.0_macOS_arm64.dmg",
-         "macos-intel": "HSTOffice_1.0.0_macOS_x86_64.dmg", "linux": "HSTOffice_1.0.0_Linux_x86-64.deb"}
+RELEASE = "1.0.0-beta.4.1"
+GITHUB = "https://github.com/haduyson/hst-office/releases/download/v%s/" % RELEASE
+NAMES = {"windows": "HSTOffice_%s_Win_x86-64_en-US_vi.msi" % RELEASE, "macos-arm": "HSTOffice_%s_macOS_arm64.dmg" % RELEASE,
+         "macos-intel": "HSTOffice_%s_macOS_x86_64.dmg" % RELEASE, "linux": "HSTOffice_%s_Linux_x86-64.deb" % RELEASE}
 SPEC = importlib.util.spec_from_file_location("generate_update_manifest",
                                             Path(_paths.ROOT) / "scripts/release/generate-update-manifest.py")
 generator = importlib.util.module_from_spec(SPEC)
@@ -214,7 +215,7 @@ class ManifestGenerator(unittest.TestCase):
         self.site.mkdir()
         self.sums = self.root / "SHA256SUMS"
         self.contents = {name: ("content for " + name).encode() for name in NAMES.values()}
-        self.contents["HSTOffice_1.0.0_Linux_x86-64_deb.tar.gz"] = b"legacy archive"
+        self.contents["HSTOffice_%s_Linux_x86-64_deb.tar.gz" % RELEASE] = b"legacy archive"
         for name, data in self.contents.items():
             (self.assets / name).write_bytes(data)
         self.write_sums()
@@ -225,8 +226,8 @@ class ManifestGenerator(unittest.TestCase):
                                     for name, content in data.items()), encoding="utf-8")
 
     def run_generator(self, extra=(), gh=False):
-        args = ["--tag", "v1.0.0-beta.4", "--sums", str(self.sums), "--site-dir", str(self.site), "--date", "2026-10-31"]
-        args += ["--gh-tag", "v1.0.0-beta.4"] if gh else ["--assets-dir", str(self.assets)]
+        args = ["--tag", "v" + RELEASE, "--sums", str(self.sums), "--site-dir", str(self.site), "--date", "2026-10-31"]
+        args += ["--gh-tag", "v" + RELEASE] if gh else ["--assets-dir", str(self.assets)]
         output = io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
             result = generator.main(args + list(extra))
@@ -253,12 +254,12 @@ class ManifestGenerator(unittest.TestCase):
             self.assertEqual(legacy["channels"][key], {k: v for k, v in entry.items() if k != "installers"})
         beta = modern["channels"]["beta"]
         self.assertEqual((beta["version"], beta["date"], beta["notes"], beta["critical"]),
-                         ("1.0.0-beta.4", "2026-10-31", "https://office.hasontech.vn/#tai-ve", True))
+                         (RELEASE, "2026-10-31", "https://office.hasontech.vn/#tai-ve", True))
         self.assertEqual(beta["downloads"], release("1.0.0")["downloads"])
         self.assertEqual(set(beta["installers"]), set(logic.PLATFORMS))
         for platform, name in NAMES.items():
             # The generator publishes the site copy (tai/<version>/), not the GitHub asset.
-            site = "https://office.hasontech.vn/tai/1.0.0-beta.4/" + name
+            site = "https://office.hasontech.vn/tai/" + RELEASE + "/" + name
             self.assertEqual(beta["installers"][platform], dict(metadata(platform, self.contents[name]), url=site))
         self.assertIn("sign-update-manifest.py", output)
         self.assertIn("latest-2.json", output)
@@ -268,9 +269,38 @@ class ManifestGenerator(unittest.TestCase):
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.site.iterdir()})
         self.assertEqual(set(before), {"latest.json", "latest-2.json"})
 
+    def test_asset_name_parsing(self):
+        parse = generator.parse_asset_name
+        for platform, name in NAMES.items():
+            self.assertEqual(parse(name), (platform, RELEASE))
+            self.assertEqual(generator.asset_platform(name), platform)
+        self.assertEqual(parse("HSTOffice_1.0.0_Win_x86-64_en-US_vi.msi"), ("windows", "1.0.0"))
+        self.assertEqual(parse("HSTOffice_1.0.0-beta.4_macOS_arm64.dmg"), ("macos-arm", "1.0.0-beta.4"))
+        self.assertEqual(parse("HSTOffice_1.0.0-rc.1_Linux_x86-64.deb"), ("linux", "1.0.0-rc.1"))
+        for bad in ("HSTOffice_Win_x86-64_en-US_vi.msi", "HSTOffice_1.0.0-beta.4.1_Linux_x86-64_deb.tar.gz",
+                    "HSTOffice_1.0_macOS_arm64.dmg", "HSTOffice_1.0.0-beta.4.1_macOS_ppc.dmg",
+                    "HSTOffice_1.0.0-beta.4.1_Win_x86-64_en-US_vi.msi.sig", "x_1.0.0_Linux_x86-64.deb", "SHA256SUMS"):
+            self.assertIsNone(parse(bad), bad)
+            self.assertIsNone(generator.asset_platform(bad), bad)
+
+    def rename_release(self, old, new):
+        for name in list(self.contents):
+            (self.assets / name).rename(self.assets / name.replace(old, new))
+        self.contents = {name.replace(old, new): data for name, data in self.contents.items()}
+        self.write_sums()
+
+    def test_legacy_names_accepted_but_other_release_rejected(self):
+        self.rename_release(RELEASE, "1.0.0")
+        self.run_generator()
+        self.assertEqual(set(self.read_output("latest-2.json")["channels"]["beta"]["installers"]), set(logic.PLATFORMS))
+        self.rename_release("1.0.0", "1.0.0-beta.3")
+        with self.assertRaises(SystemExit):
+            self.run_generator()
+
     def test_legacy_input_and_stable_default_channel(self):
         beta = release("1.0.0-beta.3")
         (self.site / "latest.json").write_bytes(manifest(beta=beta))
+        self.rename_release(RELEASE, "1.0.0")
         self.run_generator(("--tag", "v1.0.0"))
         modern = self.read_output("latest-2.json")
         self.assertEqual(modern["channels"]["beta"], beta)
@@ -318,7 +348,7 @@ class ManifestGenerator(unittest.TestCase):
         response = subprocess.CompletedProcess([], 0, stdout=json.dumps({"assets": assets}))
         with mock.patch.object(generator.subprocess, "run", return_value=response) as run:
             self.run_generator(gh=True)
-        self.assertEqual(run.call_args.args[0], ["gh", "release", "view", "v1.0.0-beta.4", "--repo",
+        self.assertEqual(run.call_args.args[0], ["gh", "release", "view", "v" + RELEASE, "--repo",
                                                "haduyson/hst-office", "--json", "assets"])
         self.assertEqual(set(self.read_output("latest-2.json")["channels"]["beta"]["installers"]), set(logic.PLATFORMS))
         assets[0]["digest"] = "sha256:" + "0" * 64

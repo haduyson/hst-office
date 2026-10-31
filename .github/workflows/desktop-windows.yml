@@ -131,8 +131,12 @@ jobs:
           shopt -s nullglob
           files=("$src"/*.msi)
           [ "${#files[@]}" -gt 0 ] || { echo "no .msi under $src" >&2; exit 1; }
+          # Download names carry the full release id (HSTOffice_1.0.0-beta.4.1_Win_...), not the
+          # numeric product version the installer puts in the file name.
+          release="$(python -I scripts/write-hst-version.py --release | tr -d '\r')"
           for f in "${files[@]}"; do
-            name="$(basename "$f" | tr -d ' ')"
+            name="$(basename "$f" | tr -d ' ' | sed -E "s/^HSTOffice_[0-9]+(\.[0-9]+)*_/HSTOffice_${release}_/")"
+            case "$name" in "HSTOffice_${release}_Win_x86-64_"*.msi) ;; *) echo "unexpected installer name: $name" >&2; exit 1 ;; esac
             cp "$f" "$out/$name"
             (cd "$out" && sha256sum "$name" >> SHA256SUMS)
             echo "- $name ($(( $(stat -c %s "$out/$name") / 1048576 )) MiB) sha256 $(cut -d' ' -f1 < <(sha256sum "$out/$name"))" >> "$GITHUB_STEP_SUMMARY"

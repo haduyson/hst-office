@@ -16,7 +16,7 @@ CONF="$REPO/build-config/windows-x86_64.conf"
 # HST release version (/VERSION) for the generated header, installer list and make;
 # the repository root in Windows form for HST rules inside the native make.
 eval "$(python3 "$REPO/scripts/write-hst-version.py" --env)"
-export HST_VERSION_MAJOR HST_VERSION_MINOR HST_VERSION_MICRO
+export HST_VERSION_MAJOR HST_VERSION_MINOR HST_VERSION_MICRO HST_RELEASE HST_VERSION_BUILD
 HST_REPO_ROOT="$("$CYGPATH" -m "$REPO")"; export HST_REPO_ROOT
 mkdir -p "$LOGS" "$METRICS"
 # Minimal PATH: Cygwin first, native make, NASM, Windows system. Avoids Strawberry perl / Git usr/bin shadowing.
@@ -118,6 +118,13 @@ do_configure() {
   sed -i -e "s/@HST_VERSION_MAJOR@/$HST_VERSION_MAJOR/g" -e "s/@HST_VERSION_MINOR@/$HST_VERSION_MINOR/g" \
     -e "s/@HST_VERSION_MICRO@/$HST_VERSION_MICRO/g" "$SRC/instsetoo_native/util/openoffice.lst" || return 1
   if grep -q '@HST_VERSION' "$SRC/instsetoo_native/util/openoffice.lst"; then echo "configure: HST version placeholders left"; return 1; fi
+  # The MSI ProductVersion (shown by Programs and Features) is PACKAGEVERSION plus the installer
+  # build id (LIBO_VERSION_PATCH, always 1) when PACKAGEVERSION has three parts. A four-part value
+  # is used as is, so the monotonic HST build number (1.0.0.401 for 1.0.0-beta.4.1) becomes the
+  # 4th field; only the HSTOffice product has a three-part PACKAGEVERSION.
+  sed -i -E "s/^( *PACKAGEVERSION +[0-9]+\.[0-9]+\.[0-9]+) *\r?$/\1.$HST_VERSION_BUILD/" "$SRC/instsetoo_native/util/openoffice.lst" || return 1
+  grep -Eq "^ *PACKAGEVERSION +$HST_VERSION_MAJOR\.$HST_VERSION_MINOR\.$HST_VERSION_MICRO\.$HST_VERSION_BUILD *\r?$" "$SRC/instsetoo_native/util/openoffice.lst" \
+    || { echo "configure: MSI PACKAGEVERSION not set to the HST build number"; return 1; }
 }
 
 do_fetch() { # download every external tarball (sha256-checked by gbuild) so preflight covers make's fetch stage

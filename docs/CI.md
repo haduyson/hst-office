@@ -94,7 +94,7 @@ gh workflow run desktop-linux.yml -f mode=preflight   # chỉ đến hết fetch
 Kết quả lượt xanh (run 41009617263): build 1 giờ 55 phút, cả lượt ~2 giờ 04 phút; đĩa trống ≥ 108 GiB,
 RAM đỉnh ~4,4 GiB (lấy mẫu 30 giây). Artifact:
 
-- `hst-office-linux-deb-<run_id>` (14 ngày): **một** tệp `HSTOffice_<version>_Linux_x86-64.deb` và
+- `hst-office-linux-deb-<run_id>` (14 ngày): **một** tệp `HSTOffice_<release>_Linux_x86-64.deb` và
   `SHA256SUMS`, chỉ tải lên khi build thành công. `--package` gộp bộ 38 gói `.deb` do EPM sinh ra thành
   một gói `hst-office` bằng [make-single-deb.py](../scripts/linux/make-single-deb.py): App Center, GNOME
   Software, gdebi chỉ mở được một tệp và không tự tìm các gói anh em. Gói gộp: `Depends` = hợp các phụ thuộc
@@ -160,7 +160,7 @@ SDK 15.5, target tối thiểu macOS 11.0). Các bước nằm trong [trial-buil
 (`--probe|--free-disk|--tools|--extract|--patch|--configure|--fetch|--build|--collect|--verify`), cấu hình ở
 [macos-arm64.conf](../build-config/macos-arm64.conf) / [macos-x86_64.conf](../build-config/macos-x86_64.conf).
 Công cụ lấy từ Homebrew nhưng chỉ symlink từng công cụ vào `~/hst/bin` (PATH tối thiểu, không lộ thư viện
-Homebrew). Phiên bản HST lấy từ `/VERSION` (header, `openoffice.lst`, `CFBundleShortVersionString`).
+Homebrew). Phiên bản HST lấy từ `/VERSION` và `data/hst/release.json` (header, `openoffice.lst`, `CFBundleShortVersionString` = `1.0.0`, `CFBundleVersion` = số build, `CFBundleGetInfoString` = mã bản phát hành; tên dmg mang mã đầy đủ).
 
 - `preflight`: probe runner, giải phóng đĩa nếu còn dưới 80 GiB, tải+sha256, giải nén, vá, cấu hình, `make fetch`.
 - `full`: thêm `make` với ngân sách 315 phút (dừng sạch), ccache lưu qua `actions/cache` kể cả khi dừng
@@ -172,7 +172,7 @@ Homebrew). Phiên bản HST lấy từ `/VERSION` (header, `openoffice.lst`, `CF
   kiểm tên `HST Office.app`, bundle ID `vn.hasontech.hstoffice`, kiến trúc, icon, bố cục, chuỗi Info.plist
   và catalog `.mo` tiếng Việt.
 - Artifact: `macos-build-<arch>-<run_id>` (log/số đo, luôn tải, 7 ngày) và
-  `hst-office-macos-<arch>-dmg-<run_id>` (`HSTOffice_<version>_macOS_<arch>.dmg` + `SHA256SUMS`, chỉ khi
+  `hst-office-macos-<arch>-dmg-<run_id>` (`HSTOffice_<release>_macOS_<arch>.dmg` + `SHA256SUMS`, chỉ khi
   thành công, 14 ngày). Kiểm tra cục bộ: [preflight-local.sh](../scripts/macos/preflight-local.sh) (trong `ci-quality.sh`).
 - Số đo (2026-10-30, run 41026070593): arm64 xanh trong 3 giờ 01 phút (make 9934 giây, 17 830 bước,
   RAM tối đa 4,7 GiB, đĩa trống thấp nhất 82 GiB), dmg 279,6 MB. Intel chậm hơn khoảng 3,3 lần: hết ngân sách
@@ -229,7 +229,11 @@ Linux (một tệp `.deb`) và macOS (`.dmg` arm64 + x86_64) của **cùng một
 tìm lượt build thành công mới nhất của từng nền tảng tại commit đó (hoặc dùng run id được ghim),
 kiểm `SHA256SUMS` từng artifact, ưu tiên `.dmg` đã ký + notarize nếu có, gộp một `SHA256SUMS`,
 rồi tạo tag tại commit đó. Thiếu bản build của nền tảng nào thì dừng với hướng dẫn. Ghi chú phát
-hành lấy từ `docs/releases/<tag>.md` (thiếu thì dừng).
+hành lấy từ `docs/releases/<tag>.md` (thiếu thì dừng). Tên tệp tải mang mã bản phát hành đầy đủ
+(`HSTOffice_1.0.0-beta.4.1_Win_x86-64_en-US_vi.msi`, `..._Linux_x86-64.deb`, `..._macOS_arm64.dmg`,
+`..._macOS_x86_64.dmg`); `collect-release-assets.sh` chọn tệp theo đuôi nên không phụ thuộc phần phiên
+bản, còn `generate-update-manifest.py` nhận diện nền tảng từ tên và dừng nếu mã trong tên khác tag
+(tên cũ `HSTOffice_1.0.0_*` của các bản đến beta.4 vẫn được chấp nhận).
 
 Quy trình: chạy `desktop-windows.yml`, `desktop-linux.yml`, `desktop-macos.yml` (`mode=full`)
 trên cùng commit; khi cả ba xanh:

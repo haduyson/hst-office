@@ -8,7 +8,6 @@ Sign each output separately with sign-update-manifest.py after reviewing it.
 """
 import argparse
 import datetime
-import fnmatch
 import json
 import os
 from pathlib import Path
@@ -22,17 +21,27 @@ sys.path.insert(0, str(ROOT / "extensions" / "hst-vietnamese-tools" / "python"))
 from hst_office import update_logic as logic  # noqa: E402
 from hst_office.update_installer import InstallerError, verify_file  # noqa: E402
 
-PATTERNS = {"windows": "*_Win_x86-64_*.msi", "macos-arm": "*_macOS_arm64.dmg",
-            "macos-intel": "*_macOS_x86_64.dmg", "linux": "*_Linux_x86-64.deb"}
+# Installer names embed the full release id: HSTOffice_1.0.0-beta.4.1_Win_x86-64_en-US_vi.msi.
+# Releases up to 1.0.0-beta.4 used the bare 1.0.0 (HSTOffice_1.0.0_Linux_x86-64.deb); still recognised.
+_NAME = re.compile(r"HSTOffice_(?P<release>\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?)_"
+                   r"(?:(?P<windows>Win_x86-64_[A-Za-z0-9_-]+\.msi)|(?P<macos_arm>macOS_arm64\.dmg)"
+                   r"|(?P<macos_intel>macOS_x86_64\.dmg)|(?P<linux>Linux_x86-64\.deb))")
 DEFAULT_SITE = ROOT / "website" / "office.hasontech.vn" / "update"
 NOTES = "https://office.hasontech.vn/#tai-ve"
 
 
+def parse_asset_name(name):
+    """(platform, release id embedded in the name) of an installer file name, else None."""
+    match = _NAME.fullmatch(name)
+    if not match:
+        return None
+    platform = next(key.replace("_", "-") for key in ("windows", "macos_arm", "macos_intel", "linux") if match.group(key))
+    return platform, match.group("release")
+
+
 def asset_platform(name):
-    for platform, pattern in PATTERNS.items():
-        if fnmatch.fnmatchcase(name, pattern):
-            return platform
-    return None
+    parsed = parse_asset_name(name)
+    return parsed[0] if parsed else None
 
 
 def read_sums(path):
@@ -80,6 +89,10 @@ def build_installers(args):
             raise ValueError("missing sha256 for %s" % name)
         if name not in assets:
             raise ValueError("missing asset for checksum: %s" % name)
+        release = parse_asset_name(name)[1]
+        version = args.tag.lstrip("v")
+        if release not in (version, version.split("-")[0]):  # the bare core is the legacy naming
+            raise ValueError("%s names release %s, not %s" % (name, release, version))
         if platform in installers:
             raise ValueError("multiple installers for %s" % platform)
         size = assets[name].get("size")

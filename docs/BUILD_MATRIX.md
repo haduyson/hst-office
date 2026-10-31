@@ -25,10 +25,28 @@ scripts/build-linux.sh --package          # .deb (EPM)
 
 ## Đóng gói `.deb` (Linux x86_64)
 
-- `scripts/build-linux.sh --package` chạy `make`, từ chối kết quả `*_witherror`, rồi gộp 38 file `.deb` (bộ `HSTOffice` + `HSTOffice_languagepack` vi) thành **một** `HSTOffice_<version>_Linux_x86-64.deb` (gói `hst-office`, `scripts/linux/make-single-deb.py`) cùng `SHA256SUMS` trong `dist/linux/` (~192 MiB). Trình cài đồ họa (nhấn đúp) chỉ mở được một tệp.
-- Phiên bản sản phẩm lấy từ [`VERSION`](../VERSION) (`1.0.0`; lõi LibreOffice vẫn 26.8.1.1). Tên gói `hst-office1.0*`, `hst-officebasis1.0-*` (phiên bản gói `1.0.0`); cài tại `/opt/hst-office1.0`; lệnh `/usr/bin/hst-office` và `/usr/bin/hst-office1.0`; tên tải `HSTOffice_1.0.0_*`; Maintainer `HASON TECH`. Không gói/tệp nào mang tên `libreoffice*`/`libobasis*` ngoài `/opt/hst-office1.0`, không `Conflicts/Replaces` với LibreOffice của distro.
+- `scripts/build-linux.sh --package` chạy `make`, từ chối kết quả `*_witherror`, rồi gộp 38 file `.deb` (bộ `HSTOffice` + `HSTOffice_languagepack` vi) thành **một** `HSTOffice_<release>_Linux_x86-64.deb` (gói `hst-office`, `scripts/linux/make-single-deb.py`) cùng `SHA256SUMS` trong `dist/linux/` (~192 MiB). Trình cài đồ họa (nhấn đúp) chỉ mở được một tệp.
+- Phiên bản sản phẩm lấy từ [`VERSION`](../VERSION) (`1.0.0`; lõi LibreOffice vẫn 26.8.1.1). Tên gói `hst-office1.0*`, `hst-officebasis1.0-*` (phiên bản gói `1.0.0`); cài tại `/opt/hst-office1.0`; lệnh `/usr/bin/hst-office` và `/usr/bin/hst-office1.0`; tên tải `HSTOffice_<release>_*` (mã đầy đủ như `1.0.0-beta.4.1`); Maintainer `HASON TECH`. Không gói/tệp nào mang tên `libreoffice*`/`libobasis*` ngoài `/opt/hst-office1.0`, không `Conflicts/Replaces` với LibreOffice của distro.
 - Cơ chế phiên bản: `scripts/build-linux.sh` xuất `HST_VERSION_MAJOR/MINOR/MICRO` (từ `scripts/write-hst-version.py`) vào môi trường `make`, ghi `include/hst_version.h` (chỉ khi đổi) và thay `@HST_VERSION_*@` trong `openoffice.lst` sau `config.status`; `sysui/productlist.mk` báo lỗi nếu thiếu biến. Đổi `VERSION` xong gbuild không tự theo dõi scp2/sysui: xoá `workdir/CustomTarget/sysui/deb/hst_office` và `workdir/CustomTarget/sysui/share/hst_office` rồi `--build`, `--package`. Windows/macOS gọi cùng `write-hst-version.py`.
 - Extension `hst-vietnamese-tools` đi kèm trong gói lõi (`/opt/hst-office1.0/share/extensions/hst-vietnamese-tools`, đăng ký tự động cho mọi người dùng, không gỡ được trong Extension Manager): `dictionaries/ExtensionPackage_hst-vietnamese-tools.mk` dựng `.oxt` từ `extensions/` bằng `scripts/build-extensions.py` (không commit nhị phân) và `scp2` liệt kê trong module brand (`hst-version.patch`).
 - Patch: `hst-packaging.patch` (openoffice.lst.in), `hst-packaging-sysui.patch` (sysui: product `hst_office`, launcher "HST Writer/Sheets/Slides", icon HST), `hst-packaging-installer.patch` (đường dẫn có dấu cách), `hst-packaging-vendor.patch` (Maintainer + phụ thuộc thư viện hệ thống Ubuntu 24.04), `hst-packaging-scp2.patch` (LibreLogo với Python hệ thống).
-- Kiểm thử vòng đời trong container sạch (`IMAGE=` ubuntu:22.04, 24.04, 26.04, debian:13; `INSTALL_MODE=` apt, pkcon, upgrade): `tests/runtime/check-deb-install.sh dist/linux/HSTOffice_<version>_Linux_x86-64.deb` (cài → chuyển đổi tài liệu bằng user thường → gỡ → purge → tài liệu/profile còn → cài lại). Cần mạng trong container để `apt` kéo thư viện phụ thuộc.
+- Kiểm thử vòng đời trong container sạch (`IMAGE=` ubuntu:22.04, 24.04, 26.04, debian:13; `INSTALL_MODE=` apt, pkcon, upgrade): `tests/runtime/check-deb-install.sh dist/linux/HSTOffice_<release>_Linux_x86-64.deb` (cài → chuyển đổi tài liệu bằng user thường → gỡ → purge → tài liệu/profile còn → cài lại). Cần mạng trong container để `apt` kéo thư viện phụ thuộc.
 - Sau khi sửa `.scp`/`.mk` của scp2, xoá `workdir/ScpPreprocessTarget/.../*.pre` tương ứng (gbuild không theo dõi `InstallModule_*.mk`); sau khi sửa `sysui/desktop/share/create_tree.sh`, xoá `workdir/CustomTarget/sysui/deb/hst_office` để không còn tệp cũ trong cây gói.
+
+## Phiên bản hiển thị theo hệ điều hành
+
+Nguồn: `VERSION` (`1.0.0`) + `data/hst/release.json` (mã đầy đủ, ví dụ `1.0.0-beta.4.1`). `scripts/write-hst-version.py`
+suy ra số build đơn điệu cho trường số thứ tư: `beta.N[.M]` thành `N*100+M` (`beta.4` = 400, `beta.4.1` = 401),
+`rc.N[.M]` thành `5000+N*100+M`, bản chính thức `10000`. Mã ngoài quy tắc này làm build dừng với thông báo rõ.
+
+| | Tên tệp tải | Phiên bản hiển thị |
+|---|---|---|
+| Mọi OS | `HSTOffice_<release>_<nền tảng>` | About và `soffice --version`: `1.0.0-beta.4.1 (<arch>)` (macro `HST_RELEASE`, `hst-version.patch`) |
+| Windows | `HSTOffice_1.0.0-beta.4.1_Win_x86-64_en-US_vi.msi` (workflow đổi tên tệp do installer đặt) | MSI `ProductVersion` `1.0.0.401` (`trial-build.sh` đặt `PACKAGEVERSION` bốn thành phần; Programs and Features hiện số này). `soffice.exe`/DLL: `FileVersion` `1.0.0.401`, `ProductVersion` `1.0.0-beta.4.1` (`hst-copyright.patch`, `include/default.rc`) |
+| Linux | `HSTOffice_1.0.0-beta.4.1_Linux_x86-64.deb` | `Version: 1:1.0.0~beta.4.1-1`; AppStream `<release version="1.0.0-beta.4.1" type="development">` |
+| macOS | `HSTOffice_1.0.0-beta.4.1_macOS_arm64.dmg`, `..._macOS_x86_64.dmg` | `CFBundleShortVersionString` `1.0.0`, `CFBundleVersion` `401` (Finder: "1.0.0 (401)"), `CFBundleGetInfoString` `HST Office 1.0.0-beta.4.1`; ghi vào `Info.plist` ở bước configure, trước khi ký |
+
+Thứ tự phiên bản Debian: epoch `1:` và dấu `~` cho bản thử. Không có epoch thì `1.0.0~beta4.1-1` nhỏ hơn
+`1.0.0-2` (gói beta.4 đã phát hành) và apt không bao giờ nâng cấp lên nó. Với epoch:
+`1.0.0-2 < 1:1.0.0~beta.4.1-1 < 1:1.0.0~beta.5-1 < 1:1.0.0~rc.1-1 < 1:1.0.0-1 < 1:1.0.1-1`.
+Epoch không thể bỏ đi nữa; bản chính thức phải là `1:1.0.0-1` (`scripts/linux/make-single-deb.py`, `deb_version`).

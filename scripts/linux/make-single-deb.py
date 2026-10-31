@@ -19,13 +19,20 @@ cannot resolve its siblings. This merges them into `hst-office`:
     the menu, and that file named distro libreoffice-* packages;
   * adds a DEP-5 copyright file, a changelog and an AppStream metainfo file.
 
-  make-single-deb.py <deb-dir> <out-dir> [--revision N]
-Needs only dpkg-deb. Writes <out-dir>/HSTOffice_<version>_Linux_x86-64.deb + SHA256SUMS.
+  make-single-deb.py <deb-dir> <out-dir> [--revision N] [--release ID]
+Needs only dpkg-deb. Writes <out-dir>/HSTOffice_<release>_Linux_x86-64.deb + SHA256SUMS, where
+<release> is the full release id of data/hst/release.json (e.g. 1.0.0-beta.4.1).
+
+Package version (deb_version): epoch 1, a pre-release goes after a tilde, so apt orders
+  1.0.0-2 (first single-package betas) < 1:1.0.0~beta.4.1-1 < 1:1.0.0~beta.5-1 < 1:1.0.0~rc.1-1 < 1:1.0.0-1.
+Without the epoch a tilde version would sort BELOW the already published 1.0.0-2, so a user
+could never upgrade to it; the epoch is the only way to have both, and stays from now on.
 """
 import argparse
 import datetime
 import gzip
 import hashlib
+import json
 import os
 import pathlib
 import re
@@ -114,9 +121,34 @@ METAINFO = """\
   <content_rating type="oars-1.1"/>
   <categories><category>Office</category></categories>
   <provides><binary>hst-office</binary></provides>
-  <releases><release version="{version}" date="{date}"/></releases>
+  <releases><release version="{version}" date="{date}"{kind}/></releases>
 </component>
 """
+
+
+EPOCH = 1
+_RELEASE = re.compile(r"(\d+\.\d+\.\d+)(?:-([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?")
+
+
+def deb_version(release, revision="1"):
+    """Debian version of a release id: 1.0.0-beta.4.1 -> 1:1.0.0~beta.4.1-1 (final 1.0.0 -> 1:1.0.0-1)."""
+    match = _RELEASE.fullmatch(release)
+    if not match:
+        raise ValueError(f"bad release id {release!r}")
+    core, pre = match.groups()
+    return f"{EPOCH}:{core}" + (f"~{pre}" if pre else "") + f"-{revision}"
+
+
+def read_release():
+    """Release id from data/hst/release.json; its MAJOR.MINOR.MICRO must equal /VERSION."""
+    try:
+        release = json.loads((ROOT / "data/hst/release.json").read_text(encoding="utf-8"))["release"]
+        core = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        die(f"cannot read the release id: {exc}")
+    if not isinstance(release, str) or not _RELEASE.fullmatch(release) or _RELEASE.fullmatch(release).group(1) != core:
+        die(f"release {release!r} does not match /VERSION {core!r}")
+    return release
 
 
 def die(msg):
@@ -291,7 +323,7 @@ def collect_scripts(infos, ctl_out, stage):
         (ctl_out / "conffiles").write_text("\n".join(conf) + "\n", encoding="utf-8")
 
 
-def add_docs(stage, version):
+def add_docs(stage, version, release):
     doc = stage / "usr/share/doc" / PACKAGE
     doc.mkdir(parents=True, exist_ok=True)
     (doc / "copyright").write_text(COPYRIGHT, encoding="utf-8")
@@ -307,7 +339,9 @@ def add_docs(stage, version):
     (lint / PACKAGE).chmod(0o644)
     meta = stage / "usr/share/metainfo"
     meta.mkdir(parents=True, exist_ok=True)
-    (meta / "vn.hasontech.hstoffice.metainfo.xml").write_text(METAINFO.format(version=version.split("-")[0], date=datetime.date.today().isoformat()), encoding="utf-8")
+    kind = ' type="development"' if "-" in release else ""  # AppStream: a pre-release is a development release
+    metainfo = METAINFO.format(version=release, date=datetime.date.today().isoformat(), kind=kind)
+    (meta / "vn.hasontech.hstoffice.metainfo.xml").write_text(metainfo, encoding="utf-8")
     for d in (doc.parent, doc, meta):
         d.chmod(0o755)
     for f in (doc / "copyright", doc / "changelog.Debian.gz", meta / "vn.hasontech.hstoffice.metainfo.xml"):
@@ -318,7 +352,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("deb_dir", type=pathlib.Path)
     ap.add_argument("out_dir", type=pathlib.Path)
-    ap.add_argument("--revision", default=os.environ.get("HST_DEB_REVISION", "2"), help="Debian revision (default 2: above the 1.0.0-1 of the first single-package release)")
+    ap.add_argument("--revision", default=os.environ.get("HST_DEB_REVISION", "1"), help="Debian revision (default 1; the epoch already sorts above every 1.0.0-N published before)")
+    ap.add_argument("--release", default=None, help="release id (default: data/hst/release.json)")
     ap.add_argument("--compression", default=os.environ.get("HST_DEB_COMPRESSION", "xz"), help="dpkg-deb -Z type (default xz)")
     args = ap.parse_args()
     if not re.fullmatch(r"[0-9][0-9A-Za-z.+~]*", args.revision):
@@ -326,10 +361,13 @@ def main():
     debs = sorted(args.deb_dir.resolve().glob("*.deb"))
     if not debs:
         die(f"no .deb files in {args.deb_dir}")
-    upstream = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
-    version = f"{upstream}-{args.revision}"
+    release = args.release or read_release()
+    try:
+        version = deb_version(release, args.revision)
+    except ValueError as exc:
+        die(str(exc))
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    out = args.out_dir / f"HSTOffice_{upstream}_Linux_x86-64.deb"
+    out = args.out_dir / f"HSTOffice_{release}_Linux_x86-64.deb"
     with tempfile.TemporaryDirectory(prefix="hst-single-deb-") as tmp:
         work = pathlib.Path(tmp)
         infos, stage = merge_packages(debs, work)
@@ -337,7 +375,7 @@ def main():
         (stage / "DEBIAN").mkdir()
         (stage / "DEBIAN/control").write_text(control, encoding="utf-8")
         collect_scripts(infos, stage / "DEBIAN", stage)
-        add_docs(stage, version)
+        add_docs(stage, version, release)
         # md5sums let `dpkg --verify` and debsums work; conffiles are tracked separately.
         sums = []
         for p in sorted(stage.rglob("*")):

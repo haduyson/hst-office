@@ -9,7 +9,7 @@ dialog, and asserts on the X window names and the frames' Title property:
   - no title contains the engine version ("26.8");
   - the Start Center window is titled exactly "HST Office";
   - document windows end with "HST Writer", "HST Sheets", "HST Slides" (and "HST Draw" for Draw);
-  - the HST release version from /VERSION is what About shows (static: libcuilo.so).
+  - the full HST release id from data/hst/release.json is what About shows (static: libcuilo.so).
 Exit 1 when a check fails.
 """
 import argparse
@@ -47,10 +47,10 @@ def main():
         results.append({"check": name, "status": "PASS" if ok else "FAIL", "detail": detail})
         print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}")
 
-    version = open(os.path.join(ROOT, "VERSION"), encoding="utf-8").read().strip()
+    version = json.load(open(os.path.join(ROOT, "data", "hst", "release.json"), encoding="utf-8"))["release"]
     with open(os.path.join(args.instdir, "program", "libcuilo.so"), "rb") as handle:
         # about.cxx: u"" HST_VERSION " (" -> a UTF-16 literal in the library
-        check("About shows the HST version from /VERSION", f"{version} (".encode("utf-16-le") in handle.read(), version)
+        check("About shows the HST release id from release.json", f"{version} (".encode("utf-16-le") in handle.read(), version)
 
     hst_gui.setup_uno(args.instdir)
     # Tabs off: every document window is mapped, so all titles can be read from X.

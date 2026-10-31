@@ -27,7 +27,7 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
 | Linux | `.deb` đơn: `pkexec env DEBIAN_FRONTEND=noninteractive apt-get install -y <deb>`, hoặc `pkcon install-local` (hỏi mật khẩu quản trị). Thiếu cả hai: báo rõ trước khi đóng, dùng "Tải về" |
 | macOS | gắn dmg, `codesign --verify --deep --strict`, `spctl --assess`, Team ID phải là `74AT34P945`; chép bản mới cạnh bản cũ, kiểm lại, đổi tên bản cũ sang `.hst-old`, đưa bản mới vào chỗ, rồi mới xóa bản cũ (hỏng thì khôi phục); quyền quản trị qua `osascript ... with administrator privileges` khi thư mục không ghi được; mở lại bằng `open` |
 
-Linux chỉ hỗ trợ bộ cài là **một tệp `.deb`** (`HSTOffice_<ver>_Linux_x86-64.deb`); bản phát hành cũ dạng
+Linux chỉ hỗ trợ bộ cài là **một tệp `.deb`** (`HSTOffice_<release>_Linux_x86-64.deb`, ví dụ `HSTOffice_1.0.0-beta.4.1_Linux_x86-64.deb`); bản phát hành cũ dạng
 `.deb.tar.gz` chỉ có "Tải về".
 
 ## Manifest schema 2
@@ -35,7 +35,7 @@ Linux chỉ hỗ trợ bộ cài là **một tệp `.deb`** (`HSTOffice_<ver>_Li
 `https://office.hasontech.vn/update/latest-2.json` (+ `.sig`) là schema 1 cộng khóa `installers` cho mỗi bản:
 
 ```json
-"installers": {"windows": {"url": "https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.4/HSTOffice_1.0.0_Win_x86-64_en-US_vi.msi",
+"installers": {"windows": {"url": "https://github.com/haduyson/hst-office/releases/download/v1.0.0-beta.4.1/HSTOffice_1.0.0-beta.4.1_Win_x86-64_en-US_vi.msi",
                            "sha256": "<64 hex thường>", "size": 222650368}}
 ```
 

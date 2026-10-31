@@ -13,15 +13,15 @@ Theo [release.yml](../../.github/workflows/release.yml) và
 
 | Nền tảng | Tệp |
 |---|---|
-| Windows | `HSTOffice_<version>_Win_x86-64_en-US_vi.msi` |
-| macOS Apple Silicon | `HSTOffice_<version>_macOS_arm64.dmg` |
-| macOS Intel | `HSTOffice_<version>_macOS_x86_64.dmg` |
-| Linux | `HSTOffice_<version>_Linux_x86-64_deb.tar.gz` |
+| Windows | `HSTOffice_<release>_Win_x86-64_en-US_vi.msi` |
+| macOS Apple Silicon | `HSTOffice_<release>_macOS_arm64.dmg` |
+| macOS Intel | `HSTOffice_<release>_macOS_x86_64.dmg` |
+| Linux | `HSTOffice_<release>_Linux_x86-64.deb` |
 | Mã kiểm tra | `SHA256SUMS` |
 
-URL: `https://github.com/haduyson/hst-office/releases/download/<tag>/<tệp>`. `<version>` là nội dung tệp
-[`VERSION`](../../VERSION) lúc build (ví dụ `1.0.0`); `<tag>` là tag nhập khi chạy release (ví dụ `v1.0.0`
-hoặc `v1.0.0-beta.2`, tên tệp vẫn là `1.0.0`).
+URL: `https://github.com/haduyson/hst-office/releases/download/<tag>/<tệp>`. `<release>` là mã bản phát hành đầy đủ trong
+[`data/hst/release.json`](../../data/hst/release.json) lúc build (ví dụ `1.0.0-beta.4.1`); `<tag>` là
+`v<release>` (ví dụ `v1.0.0-beta.4.1`). Các bản đến `1.0.0-beta.4` dùng `1.0.0` trong tên tệp.
 
 ## Cập nhật cho mỗi bản phát hành
 

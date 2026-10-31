@@ -3,12 +3,14 @@ HST Office release version (1.0.0) independent of the LibreOffice engine version
 The engine version (26.8.1.1) stays what configure/postprocess define: it feeds
 extension compatibility checks, document generator metadata, first-run detection
 and the PDF producer. Only what the user sees and what is installed carries the
-HST version, which comes from /VERSION via scripts/write-hst-version.py:
+HST version, which comes from /VERSION and data/hst/release.json via
+scripts/write-hst-version.py:
 
-- include/hst_version.h (generated, not part of this patch) defines HST_VERSION.
-- About dialog: "<HST version> (<arch>)"; "Copy version info" adds an "Engine:"
+- include/hst_version.h (generated, not part of this patch) defines HST_VERSION
+  (1.0.0) and HST_RELEASE (the full release id, e.g. 1.0.0-beta.4.1).
+- About dialog: "<HST release> (<arch>)"; "Copy version info" adds an "Engine:"
   line with the LibreOffice engine version (read at run time) for support tickets.
-- soffice --version: "<product> <HST version> <build id>".
+- soffice --version: "<product> <HST release> <build id>".
 - Installer and launcher naming use the same HST version (hst-packaging*.patch).
 - Bundled extension "HST Vietnamese tools": built from the HST repository by
   dictionaries/ExtensionPackage_hst-vietnamese-tools.mk, unpacked into
@@ -22,7 +24,7 @@ License: modified upstream files keep their license (MPL-2.0).
  #include <unotools/resmgr.hxx> //Translate
  
  #include <config_buildid.h> //EXTRA_BUILDID
-+#include <hst_version.h> //HST_VERSION (generated from /VERSION)
++#include <hst_version.h> //HST_RELEASE (generated from release.json)
  #include <config_features.h>
  #include <dialmgr.hxx> //CuiResId
  #include <i18nlangtag/languagetag.hxx>
@@ -44,9 +46,9 @@ License: modified upstream files keep their license (MPL-2.0).
      (void)ok;
 -    return CuiResId(TranslateId(nullptr, "%ABOUTBOXPRODUCTVERSION%ABOUTBOXPRODUCTVERSIONSUFFIX"))
 -           + " (" + arch + ")";
-+    // HST Office: show the HST release version; the LibreOffice engine version is
++    // HST Office: show the full HST release id (e.g. 1.0.0-beta.4.1); the engine version is
 +    // internal and only added to "Copy version info" (see HandleClick).
-+    return u"" HST_VERSION " (" + arch + u")";
++    return u"" HST_RELEASE " (" + arch + u")";
  }
  
  OUString AboutDialog::GetBuildString()
@@ -64,7 +66,7 @@ License: modified upstream files keep their license (MPL-2.0).
  #include <app.hxx>
  
  #include "cmdlinehelp.hxx"
-+#include <hst_version.h> // HST_VERSION (generated from /VERSION)
++#include <hst_version.h> // HST_RELEASE (generated from release.json)
  
  #ifdef _WIN32
  #if !defined WIN32_LEAN_AND_MEAN
@@ -73,7 +75,7 @@ License: modified upstream files keep their license (MPL-2.0).
  {
      constexpr OUString aCmdLineHelp_version =
 -        u"%PRODUCTNAME %PRODUCTVERSION%PRODUCTEXTENSION %BUILDID\n"
-+        u"%PRODUCTNAME " HST_VERSION " %BUILDID\n"
++        u"%PRODUCTNAME " HST_RELEASE " %BUILDID\n"
          "\n"_ustr;
      constexpr OUStringLiteral aCmdLineHelp =
          u"Usage: %CMDNAME [argument...]\n"

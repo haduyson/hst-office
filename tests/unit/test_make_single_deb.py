@@ -38,10 +38,10 @@ def make_deb(base, name, depends, files, scripts=None, conffiles=None, arch="amd
 
 @unittest.skipUnless(shutil.which("dpkg-deb"), "dpkg-deb not available")
 class MakeSingleDeb(unittest.TestCase):
-    def run_tool(self, base, split, expect_ok=True):
+    def run_tool(self, base, split, expect_ok=True, release="1.0.0-beta.4.1"):
         out = base / "out"
         proc = subprocess.run(
-            ["python3", "-I", str(ROOT / "scripts/linux/make-single-deb.py"), str(split), str(out)],
+            ["python3", "-I", str(ROOT / "scripts/linux/make-single-deb.py"), str(split), str(out), "--release", release],
             capture_output=True, text=True, env={**os.environ, "TMPDIR": str(base)},
         )
         if expect_ok:
@@ -59,12 +59,12 @@ class MakeSingleDeb(unittest.TestCase):
             split = make_deb(base, "hst-office1.0-menus", "hst-office1.0-core", {"usr/share/applications/x.desktop": "[Desktop Entry]"},
                              scripts={"postinst": "#!/bin/sh\nupdate-desktop-database\nexit 0\n", "postrm": "#!/bin/sh\nupdate-desktop-database\nexit 0\n", "prerm": "#!/bin/sh\n# nothing\nexit 0\n"})
             proc, out = self.run_tool(base, split)
-            deb = out / "HSTOffice_1.0.0_Linux_x86-64.deb"
+            deb = out / "HSTOffice_1.0.0-beta.4.1_Linux_x86-64.deb"
             self.assertTrue(deb.is_file())
-            self.assertIn("HSTOffice_1.0.0_Linux_x86-64.deb", (out / "SHA256SUMS").read_text())
+            self.assertIn("HSTOffice_1.0.0-beta.4.1_Linux_x86-64.deb", (out / "SHA256SUMS").read_text())
             field = lambda f: subprocess.run(["dpkg-deb", "-f", str(deb), f], capture_output=True, text=True, check=True).stdout.strip()
             self.assertEqual(field("Package"), "hst-office")
-            self.assertEqual(field("Version"), "1.0.0-2")
+            self.assertEqual(field("Version"), "1:1.0.0~beta.4.1-1")
             self.assertEqual(field("Architecture"), "amd64")
             depends = [c.strip() for c in field("Depends").split(",")]
             self.assertIn("libssl3t64 | libssl3", depends)
@@ -83,6 +83,10 @@ class MakeSingleDeb(unittest.TestCase):
             ctl = base / "ctl"
             subprocess.run(["dpkg-deb", "-e", str(deb), str(ctl)], check=True)
             self.assertIn("update-desktop-database", (ctl / "postinst").read_text())
+            meta = subprocess.run(["dpkg-deb", "--fsys-tarfile", str(deb)], capture_output=True, check=True).stdout
+            xml = subprocess.run(["tar", "-xO", "./usr/share/metainfo/vn.hasontech.hstoffice.metainfo.xml"], input=meta, capture_output=True, check=True).stdout.decode()
+            self.assertIn('<release version="1.0.0-beta.4.1"', xml)
+            self.assertIn('type="development"', xml)
             postrm = (ctl / "postrm").read_text()
             self.assertIn("update-desktop-database", postrm)
             self.assertIn("rm -rf /opt/hst-office1.0", postrm)
@@ -116,6 +120,38 @@ class MakeSingleDeb(unittest.TestCase):
             empty = base / "empty"
             empty.mkdir()
             self.assertNotEqual(self.run_tool(base, empty, expect_ok=False)[0].returncode, 0)
+
+    def test_final_release_package(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            split = make_deb(base, "p1", "", {"opt/hst-office1.0/a": "1"},
+                             scripts={"postrm": "#!/bin/sh\nupdate-desktop-database\nexit 0\n"})
+            _, out = self.run_tool(base, split, release="1.0.0")
+            deb = out / "HSTOffice_1.0.0_Linux_x86-64.deb"
+            version = subprocess.run(["dpkg-deb", "-f", str(deb), "Version"], capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(version, "1:1.0.0-1")
+
+    def test_rejects_bad_release_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            split = make_deb(base, "p1", "", {"opt/a": "1"})
+            proc, _ = self.run_tool(base, split, expect_ok=False, release="1.0-beta")
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("bad release id", proc.stderr)
+
+    def test_deb_version_orders_betas_before_final_and_above_published(self):
+        def newer(a, b):
+            return subprocess.run(["dpkg", "--compare-versions", a, "gt", b]).returncode == 0
+        v = MOD.deb_version
+        self.assertEqual(v("1.0.0-beta.4.1"), "1:1.0.0~beta.4.1-1")
+        self.assertEqual(v("1.0.0"), "1:1.0.0-1")
+        self.assertTrue(newer(v("1.0.0-beta.4"), "1.0.0-2"), "beta.4 must beat the published 1.0.0-2")
+        self.assertTrue(newer(v("1.0.0-beta.4.1"), "1.0.0-2"))
+        chain = ["1.0.0-beta.4", "1.0.0-beta.4.1", "1.0.0-beta.5", "1.0.0-beta.9", "1.0.0-beta.10", "1.0.0-rc.1", "1.0.0", "1.0.1-beta.1", "1.0.1"]
+        for lower, higher in zip(chain, chain[1:]):
+            self.assertTrue(newer(v(higher), v(lower)), f"{higher} must be newer than {lower}")
+        with self.assertRaises(ValueError):
+            v("1.0-beta")
 
     def test_t64_alternatives(self):
         f = MOD.with_t64_alternative
