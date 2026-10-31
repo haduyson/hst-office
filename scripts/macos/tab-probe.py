@@ -10,6 +10,7 @@ Each action is timed from the call until the new top-level window is on screen a
 import json
 import subprocess
 import sys
+import threading
 import time
 
 import uno
@@ -96,8 +97,23 @@ class Probe:
             json.dump(self.events, f, indent=1)
 
 
+def dismiss_welcome(pid):
+    """The welcome dialog opens modally with the first window and blocks UNO: close it when seen."""
+    script = ('tell application "System Events" to tell (first process whose unix id is %d)\n'
+              'repeat with w in windows\n'
+              'try\n'
+              'if (name of w) contains "Chào mừng" then click (first button of w whose subrole is "AXCloseButton")\n'
+              'end try\n'
+              'end repeat\n'
+              'end tell' % pid)
+    while True:
+        osa(script)
+        time.sleep(2)
+
+
 def main():
     pid, out, mode = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+    threading.Thread(target=dismiss_welcome, args=(pid,), daemon=True).start()
     p = Probe(pid, out, mode)
     time.sleep(3)
     p.timed("first-writer", lambda: p.load("private:factory/swriter", "_default"), 1)
