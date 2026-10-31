@@ -54,6 +54,14 @@ do_import() {
   check_notary_auth
 }
 
+retry() { # retry <attempts> <command...>: rerun on failure with a growing pause
+  local attempts="$1" n=1; shift
+  until "$@"; do
+    [ "$n" -lt "$attempts" ] || return 1
+    echo "attempt $n of $* failed; retrying in $((n * 20)) s" >&2; sleep $((n * 20)); n=$((n + 1))
+  done
+}
+
 notary() { # notary <subcommand> <args...>: notarytool with the App Store Connect API key
   local sub="$1"; shift
   xcrun notarytool "$sub" "$@" --key "$TMP/api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID"
@@ -171,8 +179,9 @@ do_sign() {
   if [ "$rc" -ne 0 ] || [ "$status" != Accepted ]; then
     echo "notarization failed: status '${status:-none}', exit $rc" >&2; return 1
   fi
-  xcrun stapler staple "$signed"
-  xcrun stapler validate "$signed"
+  # Stapling fetches the ticket from Apple's CDN; retry transient network errors (NSURLError -1005).
+  retry 5 xcrun stapler staple "$signed"
+  retry 5 xcrun stapler validate "$signed"
   spctl -a -t open --context context:primary-signature -v "$signed"
   # The app inside the stapled dmg: strict deep signature check and Gatekeeper assessment.
   hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$signed" >/dev/null
