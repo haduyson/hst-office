@@ -171,3 +171,27 @@ Shipping to users requires the `sign` job with secrets.
   Xong → Cài đặt hệ thống ▸ Quyền riêng tư & Bảo mật ▸ Vẫn mở, plus the `xattr -dr com.apple.quarantine`
   fallback.
 - **Not run:** no full `desktop-macos` build was started. The beta.3 builds will exercise the new gate.
+
+## Update 2026-10-31: Developer ID signing and notarization proven
+
+- **Probe 41164931911.**
+  - Signing passed: 254 Mach-O files, all timestamped Developer ID with hardened runtime.
+  - The entitlements are apple-events, allow-jit, disable-executable-page-protection,
+    disable-library-validation and addressbook, with no get-task-allow.
+  - `notarytool` returned HTTP 401.
+  - Fixed in 801dc97: no `--team-id` with API-key auth, a key self-check (`notarytool history`) right after
+    import, the key accepted as PEM or base64, and empty results parsed safely.
+- **Probe 41165430268 (green).** On the beta.2 arm64 app with the ad-hoc fix:
+  - notarization is `Accepted` (submission f272ba96-d66f-4160-86bc-35f8ee20573e);
+  - staple and validate pass;
+  - `spctl -a -t open --context context:primary-signature` on the dmg gives accepted, Notarized Developer ID;
+  - the app inside passes `codesign --verify --deep --strict`, and `spctl -a -t exec` gives accepted,
+    Notarized Developer ID;
+  - the temporary keychain was deleted.
+- **Artifact:** `macos-signing-probe-arm64-dmg-signed-41165430268` (3 days), dmg sha256 `4a501bb8…7cd20`.
+- **Other signing fixes (0749c6d):**
+  - The launch constraint is filled with the real team id at signing time (an unsigned configure leaves it
+    empty).
+  - Every Mach-O is pre-signed before upstream's pass.
+  - Signing happens under a space-free bundle name, because upstream's script leaves paths unquoted.
+  - Every Mach-O is checked for a timestamped Developer ID signature before submission.
