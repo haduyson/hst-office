@@ -76,6 +76,24 @@ def snapshot(items):
     return [(i["text"], i["font"]) for i in items]
 
 
+def rewrite_portion(row):
+    """Replace one planned portion in place, keeping its character attributes; swap a legacy font for a Unicode one."""
+    text = row["range"].getText()
+    if row["new"] == row["text"]:  # same text: only swap the legacy font for a Unicode one
+        same = text.createTextCursorByRange(row["range"])
+        same.CharFontName = row["new_font"]
+        return
+    end = text.createTextCursorByRange(row["range"].getEnd())
+    text.insertString(end, row["new"], False)  # inherits the old run's character attributes
+    old = text.createTextCursorByRange(row["range"].getStart())
+    old.goRight(len(row["text"]), True)
+    old.setString("")
+    if row["new_font"]:
+        fresh = text.createTextCursorByRange(old.getStart())
+        fresh.goRight(len(row["new"]), True)
+        fresh.CharFontName = row["new_font"]
+
+
 def apply(doc, rng, encoding_key, expected_snapshot, undo_title=None):
     """Re-collect, verify the selection still matches the previewed snapshot, then convert in one undo step."""
     items, _, protected = collect(rng)
@@ -87,18 +105,5 @@ def apply(doc, rng, encoding_key, expected_snapshot, undo_title=None):
     changed = [r for r in rows if r["new"] != r["text"] or r["new_font"]]
     with undo_step(doc, undo_title or "Convert %s to Unicode" % encoding_key):
         for row in reversed(changed):  # back to front: earlier ranges are unaffected by later replacements
-            text = row["range"].getText()
-            if row["new"] == row["text"]:  # same text: only swap the legacy font for a Unicode one
-                same = text.createTextCursorByRange(row["range"])
-                same.CharFontName = row["new_font"]
-                continue
-            end = text.createTextCursorByRange(row["range"].getEnd())
-            text.insertString(end, row["new"], False)  # inherits the old run's character attributes
-            old = text.createTextCursorByRange(row["range"].getStart())
-            old.goRight(len(row["text"]), True)
-            old.setString("")
-            if row["new_font"]:
-                fresh = text.createTextCursorByRange(old.getStart())
-                fresh.goRight(len(row["new"]), True)
-                fresh.CharFontName = row["new_font"]
+            rewrite_portion(row)
     return {"blockers": [], "changed_portions": sum(r["new"] != r["text"] for r in changed), **totals}

@@ -2,7 +2,7 @@
 """User-facing HST commands: gather UI input, call the logic modules, report results. One function per command."""
 import unohelper
 
-from . import csv_calc, encoding_writer, fonts, nd30_layout, nd30_writer, sheets
+from . import convert_calc_action, csv_calc, encoding_writer, fonts, nd30_layout, nd30_writer, sheets
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -55,6 +55,8 @@ def nd30_wizard(host):
 
 
 def convert_encoding(host):
+    if host.is_calc():
+        return convert_calc_action.run(host)
     if not host.is_writer():
         return
     rng, reasons = encoding_writer.check_selection(host.doc, host.controller.getSelection())
