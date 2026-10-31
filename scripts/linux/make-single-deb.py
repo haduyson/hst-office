@@ -164,19 +164,22 @@ NO_T64 = {"libc6", "libgcc-s1", "libstdc++6", "libm6"}
 
 
 def with_t64_alternative(clause):
-    """`libfoo (>= 1)` -> `libfoo (>= 1) | libfoot64 (>= 1)`.
+    """`libfoo (>= 1)` <-> `libfoot64 (>= 1)`: name both spellings of a library package.
 
-    The packages are built against an old distribution (glibc floor) whose library
-    packages carry the pre-transition names; Ubuntu 24.04+ and Debian 13 renamed the
-    ones whose ABI changed (libglib2.0-0t64, libcups2t64, ...). Naming both lets one
-    .deb resolve everywhere; an alternative that does not exist is ignored by apt.
+    One .deb must resolve on Ubuntu 22.04 (pre-transition names) and on Ubuntu 24.04+ /
+    Debian 13, which renamed the libraries whose ABI changed with 64-bit time_t
+    (libglib2.0-0t64, libcups2t64, ...). The input names come from either side; an
+    alternative that does not exist on a distribution is ignored by apt.
     """
     out = []
     for alt in (a.strip() for a in clause.split("|")):
         out.append(alt)
         m = re.fullmatch(r"(lib[^\s(:]*)(.*)", alt)
-        if m and not m.group(1).endswith("t64") and m.group(1) not in NO_T64:
-            out.append(f"{m.group(1)}t64{m.group(2)}")
+        if not m or m.group(1) in NO_T64:
+            continue
+        name, rest = m.groups()
+        other = name[:-3] if name.endswith("t64") else name + "t64"
+        out.append(other + rest)
     return " | ".join(dict.fromkeys(out))
 
 
@@ -227,6 +230,9 @@ def build_control(infos, stage, version):
     # Version-bounded clauses on the same library are redundant with the unbounded one.
     unbounded = {clause_name(c) for c in depends if "(" not in c and "|" not in c}
     depends = [c for c in depends if "(" not in c or clause_name(c) not in unbounded]
+    if list((stage / "opt/hst-office1.0/program").glob("python-core-*")):
+        # Bundled Python (--enable-python=internal): the distribution's one is not needed.
+        depends = [c for c in depends if not re.match(r"(libpython|python3)", c)]
     depends = [with_t64_alternative(c) for c in depends]
     archs = {i.get("Architecture") for i in infos} - {"all"}
     if archs != {"amd64"}:

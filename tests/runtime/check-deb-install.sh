@@ -54,7 +54,9 @@ install_deb() {
       # PackageKit with its apt backend on a private system bus: what App Center / GNOME Software drive.
       apt-get install -y -qq packagekit dbus >/tmp/pk-setup.log 2>&1 || { tail -20 /tmp/pk-setup.log; return 10; }
       mkdir -p /run/dbus; rm -f /run/dbus/pid; dbus-daemon --system --fork
-      pkcon -y install-local /pkg/hst.deb >/tmp/install.log 2>&1 || { tail -30 /tmp/install.log; return 10; } ;;
+      # PackageKit 1.3 (Ubuntu 26.04) replaced the pkcon client by pkgcli.
+      if command -v pkcon >/dev/null; then PK_INSTALL=(pkcon -y install-local); else PK_INSTALL=(pkgcli -y install); fi
+      "${PK_INSTALL[@]}" /pkg/hst.deb >/tmp/install.log 2>&1 || { tail -30 /tmp/install.log; return 10; } ;;
     *) apt-get install -y -qq /pkg/hst.deb >/tmp/install.log 2>&1 || { tail -30 /tmp/install.log; return 10; } ;;
   esac
 }
@@ -151,6 +153,12 @@ PYC
 chmod 644 /tmp/uno-check.py
 su tester -c "$PY /tmp/uno-check.py" | grep -q uno-ok && echo "PASS bundled-python-uno-session" || { echo "FAIL uno session"; exit 35; }
 pkill -x soffice.bin || true
+step gui-launch
+# Real GTK3 start (not the headless plugin) under a virtual X server: missing GTK/X
+# runtime libraries show up here. Xvfb is a test tool, not a package dependency.
+apt-get install -y -qq xvfb xauth >/tmp/xvfb.log 2>&1 || { tail -5 /tmp/xvfb.log; echo "FAIL install xvfb"; exit 36; }
+su tester -c "xvfb-run -a -s '-screen 0 1280x800x24' bash -c 'hst-office --writer --norestore >/tmp/gui.log 2>&1 & sleep 25; pgrep -x soffice.bin >/dev/null && echo GUI-ALIVE; pkill -x soffice.bin; true'" 2>&1 | grep -q GUI-ALIVE \
+  && echo "PASS gui-launch (GTK3 window process stays up)" || { echo "FAIL gui launch"; tail -5 /tmp/gui.log; exit 36; }
 step no-libreoffice-ui
 # Installed Vietnamese UI strings must not name the upstream project (same allow-list as
 # tests/runtime/check-no-libreoffice-ui.py: licence dialog, safe-mode zip file name).
@@ -183,7 +191,7 @@ grep -E '^Remv .*hst-office' <<<"$SIM" && { echo "FAIL official LibreOffice woul
 grep -q '^Inst libreoffice-writer' <<<"$SIM" && echo "PASS coexist-official-installable" || { echo "FAIL could not simulate libreoffice-writer install"; echo "$SIM" | tail -5; exit 29; }
 grep -q 'hst-office' /usr/share/applications/mimeinfo.cache 2>/dev/null && echo "PASS desktop-database-has-hst" || echo "INFO desktop-database-has-no-hst (desktop-file-utils missing?)"
 step remove
-if [ "$MODE" = pkcon ]; then pkcon -y remove hst-office >/tmp/remove.log 2>&1 || { tail -20 /tmp/remove.log; echo "FAIL pkcon remove"; exit 45; }
+if [ "$MODE" = pkcon ]; then { command -v pkcon >/dev/null && pkcon -y remove hst-office || pkgcli -y remove hst-office; } >/tmp/remove.log 2>&1 || { tail -20 /tmp/remove.log; echo "FAIL pkcon remove"; exit 45; }
 else apt-get remove -y -qq $PKGS >/dev/null; fi
 [ "$(dpkg-query -W -f='${db:Status-Abbrev}' hst-office)" = "rc " ] || [ "$(dpkg-query -W -f='${db:Status-Abbrev}' hst-office)" = "un " ] \
   && echo "PASS removed-no-config-leftover-state" || { echo "FAIL state after remove: $(dpkg-query -W -f='${db:Status-Abbrev}' hst-office)"; exit 46; }

@@ -67,7 +67,7 @@ class MakeSingleDeb(unittest.TestCase):
             self.assertEqual(field("Version"), "1.0.0-2")
             self.assertEqual(field("Architecture"), "amd64")
             depends = [c.strip() for c in field("Depends").split(",")]
-            self.assertIn("libssl3t64", depends)
+            self.assertIn("libssl3t64 | libssl3", depends)
             self.assertIn("libglib2.0-0t64 | libglib2.0-0", depends)
             self.assertIn("libc6", depends)
             self.assertNotIn("libc6 (>= 2.39)", depends)  # redundant with the unbounded libc6
@@ -120,9 +120,10 @@ class MakeSingleDeb(unittest.TestCase):
     def test_t64_alternatives(self):
         f = MOD.with_t64_alternative
         self.assertEqual(f("libglib2.0-0 (>= 2.70)"), "libglib2.0-0 (>= 2.70) | libglib2.0-0t64 (>= 2.70)")
-        self.assertEqual(f("libcups2t64"), "libcups2t64")
+        self.assertEqual(f("libcups2t64"), "libcups2t64 | libcups2")
         self.assertEqual(f("libc6 (>= 2.35)"), "libc6 (>= 2.35)")
         self.assertEqual(f("libx | python3"), "libx | libxt64 | python3")
+        self.assertEqual(f("libc6"), "libc6")
 
     def test_clause_helpers(self):
         self.assertEqual(MOD.clause_name("libfoo (>= 1) | libbar"), "libfoo")
