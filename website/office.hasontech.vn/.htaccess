@@ -58,7 +58,21 @@
   AddType application/json .json
   AddType text/plain .sig
   AddType image/svg+xml .svg
+  AddType application/x-msi .msi
+  AddType application/x-apple-diskimage .dmg
+  AddType application/vnd.debian.binary-package .deb
 </IfModule>
+
+# Bộ cài HST Office phục vụ trực tiếp từ tai/<phiên bản>/: tải xuống với tên tệp gốc, tải tiếp được (Range),
+# không nén, cache dài vì mỗi thư mục phiên bản là bất biến.
+<FilesMatch "^(?<installer>[^/]+\.(?:msi|dmg|deb))$">
+  SetEnv no-gzip 1
+  <IfModule mod_headers.c>
+    Header set Content-Disposition "attachment; filename=\"%{MATCH_INSTALLER}e\""
+    Header set Cache-Control "public, max-age=31536000, immutable"
+    Header unset Content-Encoding
+  </IfModule>
+</FilesMatch>
 
 # Tải thẳng SHA256SUMS (tệp không có đuôi) như một tệp văn bản.
 <Files "SHA256SUMS">
