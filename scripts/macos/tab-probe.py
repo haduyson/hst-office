@@ -115,6 +115,67 @@ def click_keys(*args):
     return subprocess.run(["cliclick", *args], capture_output=True, text=True, check=False, timeout=20)
 
 
+def png_pixels(path):
+    """(width, height, rows of (r, g, b) lists) of a non-interlaced 8-bit PNG (screencapture output)."""
+    import struct
+    import zlib
+    data = open(path, "rb").read()
+    pos, chunks, idat = 8, {}, b""
+    while pos < len(data):
+        length, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + length]
+        if kind == b"IHDR":
+            chunks["ihdr"] = struct.unpack(">IIBBBBB", body)
+        elif kind == b"IDAT":
+            idat += body
+        pos += 12 + length
+    width, height, depth, ctype, _c, _f, _i = chunks["ihdr"]
+    bpp = {2: 3, 6: 4}[ctype]
+    raw = zlib.decompress(idat)
+    stride = width * bpp
+    rows, prev = [], bytearray(stride)
+    for y in range(height):
+        base = y * (stride + 1)
+        ftype, line = raw[base], bytearray(raw[base + 1:base + 1 + stride])
+        for i in range(stride):
+            a = line[i - bpp] if i >= bpp else 0
+            b = prev[i]
+            c = prev[i - bpp] if i >= bpp else 0
+            if ftype == 1:
+                line[i] = (line[i] + a) & 255
+            elif ftype == 2:
+                line[i] = (line[i] + b) & 255
+            elif ftype == 3:
+                line[i] = (line[i] + ((a + b) >> 1)) & 255
+            elif ftype == 4:
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                pred = a if pa <= pb and pa <= pc else b if pb <= pc else c
+                line[i] = (line[i] + pred) & 255
+        rows.append(line)
+        prev = line
+    return width, height, rows, bpp
+
+
+def find_plus_y(path, x, lo=130, hi=220):
+    """Row of the "+" button centre: the plus glyph is dark on its cross (+-5 px) and light in the
+    four corners of its 11x11 box; pick the row with the best cross-versus-corner score."""
+    width, height, rows, bpp = png_pixels(path)
+
+    def dark(xx, yy):
+        i = xx * bpp
+        line = rows[yy]
+        return (line[i] + line[i + 1] + line[i + 2]) // 3 < 120
+
+    best, best_y = 0, None
+    for y in range(lo, min(hi, height - 7)):
+        cross = sum(dark(x + d, y) for d in range(-5, 6)) + sum(dark(x, y + d) for d in range(-5, 6))
+        corners = sum(dark(x + dx, y + dy) for dx in (-4, 4) for dy in (-4, 4))
+        score = cross - 3 * corners
+        if score > best:
+            best, best_y = score, y
+    return best_y, best
+
+
 def popup_open_file(p, pid, out, mode, label):
     """The real "+" popup: click the "+" button right of the last tab, choose the last entry
     ("Open File...", reached with Up then Return), drive the native open panel with System Events
@@ -129,8 +190,17 @@ def popup_open_file(p, pid, out, mode, label):
     time.sleep(1.5)
     before = len(p.frames())
     # "+" sits after the last tab; tabs are about 99 px wide in the 1024x768 probe display
-    x = 30 + 99 * before
+    x = 22 + 99 * before
     y = 180 if mode == "fullscreen" else 204
+    shot = f"{out}/{label}-locate-{mode}.png"
+    subprocess.run(["screencapture", "-x", shot], check=False)
+    try:
+        found, dark = find_plus_y(shot, x)
+        if found and dark >= 8:
+            y = found
+        p.mark(f"{label}:locate", x=x, found=found, dark=dark)
+    except Exception as error:  # noqa: BLE001 - keep the fixed guess
+        p.mark(f"{label}:locate-failed", error=repr(error))
     osa('tell application "System Events" to tell (first process whose unix id is %d) to set frontmost to true' % pid)
     time.sleep(1)
     p.mark(f"{label}:start", x=x, y=y)
