@@ -55,6 +55,9 @@ run_case() { # run_case <variant> <case> <profile> <close: yes|no> <seconds>
       app_pid="$(pgrep -f "UserInstallation=file://$profile" | head -1)"
       close_welcome "$app_pid" "$dir/close.log"
       now_ms >"$dir/closed.txt"   # the click has been delivered when osascript returns
+      # diagnostic: 6 s later move the pointer over the window; if the Start Center only paints then, the office's
+      # event loop was idle until an input event arrived
+      ( sleep 6; osascript -l JavaScript -e "ObjC.import('CoreGraphics'); var e=\$.CGEventCreateMouseEvent(null,\$.kCGEventMouseMoved,\$.CGPointMake(500,400),0); \$.CGEventPost(\$.kCGHIDEventTap,e);" >"$dir/nudge.log" 2>&1; now_ms >"$dir/nudge.txt" ) &
     fi
   fi
   wait "$sampler" 2>/dev/null || true
