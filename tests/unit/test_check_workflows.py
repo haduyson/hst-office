@@ -5,6 +5,7 @@ import copy
 import importlib.util
 import io
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -210,6 +211,41 @@ class WorkflowTests(unittest.TestCase):
                 workflow = copy.deepcopy(original)
                 mutate(workflow)
                 self.assertTrue(self.check(workflow, name))
+
+    def test_release_passes_the_macos_commit_to_the_checked_collector(self):
+        name = "release.yml"
+        original = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
+        self.assertEqual([], self.check(original, name))
+
+        def collect(w):
+            return next(s for s in w["jobs"]["publish"]["steps"] if "collect-release-assets.sh" in s.get("run", ""))
+
+        mutations = {
+            "no input": lambda w: w["on"]["workflow_dispatch"]["inputs"].pop("macos_commit"),
+            "not passed": lambda w: collect(w)["env"].pop("MACOS_COMMIT"),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(mutation=label):
+                workflow = copy.deepcopy(original)
+                mutate(workflow)
+                self.assertTrue(self.check(workflow, name))
+
+    def test_macos_commit_may_only_change_macos_packaging_ci_and_docs(self):
+        script = ROOT / "scripts/release/macos-commit-paths.sh"
+
+        def allowed(paths):
+            return subprocess.run(["bash", str(script)], input="\n".join(paths) + "\n", text=True,
+                                  capture_output=True).returncode == 0
+
+        self.assertTrue(allowed(["scripts/macos/adhoc-sign.sh", ".github/workflows/desktop-macos.yml",
+                                 "docs/CI.md", "plans/reports/x.md", "tests/unit/test_x.py",
+                                 "website/office.hasontech.vn/index.html", "scripts/check-workflows.py"]))
+        self.assertTrue(allowed([]))
+        for path in ("patches/libreoffice/hst-about.patch", "scripts/windows/trial-build.sh", "scripts/l10n/merge-vi.py",
+                     "extensions/hst-vietnamese-tools/description.xml", "branding/macos/hst-office.icns",
+                     "build-config/linux-x86_64.conf", "scripts/check-workflows.py.bak", "VERSION"):
+            with self.subTest(path=path):
+                self.assertFalse(allowed(["docs/CI.md", path]))
 
     def test_secrets_are_rejected_outside_the_macos_signing_job(self):
         self.quality["jobs"]["quality"]["steps"][4]["env"] = {"KEY": "${{ secrets.APPLE_API_KEY_ID }}"}

@@ -228,6 +228,17 @@ Phát hành từng phần: tạo bản phát hành với `-f platforms="windows 
 xong (cùng commit) chạy lại với `-f platforms=macos -f append=true` — workflow lấy commit của tag,
 không ghi đè bộ cài đã có, gộp `SHA256SUMS` theo tên tệp.
 
+**macOS từ commit sau (chỉ sửa đóng gói macOS).** Input `macos_commit` cho phép lấy `.dmg` từ một commit
+sau commit phát hành, chỉ khi commit đó là hậu duệ của commit phát hành và `git diff` giữa hai commit chỉ
+chạm `scripts/macos/**`, `.github/workflows/**`, `scripts/check-workflows.py`, `docs/**`, `plans/**`,
+`tests/**`, `website/**` (không có gì mà bộ cài Windows/Linux được build từ đó). Kiểm tra nằm ở
+[macos-commit-paths.sh](../scripts/release/macos-commit-paths.sh) (gọi qua GitHub compare API); sai thì dừng.
+Ghi chú phát hành và tóm tắt run ghi cả hai commit. Ví dụ:
+
+```bash
+gh workflow run release.yml -f tag=v1.0.0-beta.3 -f platforms=macos -f append=true -f macos_commit=<sha>
+```
+
 Chỉ job `publish` của workflow này có quyền ghi (`contents: write`, `actions: read`);
 `scripts/check-workflows.py` từ chối quyền ghi ở mọi nơi khác. Artifact hết hạn sau 14 ngày nên
 phải phát hành trong thời hạn đó. Liên kết `releases/latest` không trỏ tới bản pre-release.

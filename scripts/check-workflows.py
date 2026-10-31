@@ -234,6 +234,14 @@ def check_workflow(path, root=ROOT):
         require(len(debs) == 1 and "success" in str(debs[0].get("if", ""))
                 and str(debs[0].get("with", {}).get("name", "")).startswith("hst-office-linux-deb-"),
                 "the .deb artifact must be uploaded once, only after a successful build")
+    if path.name == "release.yml":
+        # A later macOS commit is allowed only through the collector, which runs the path rule
+        # (scripts/release/macos-commit-paths.sh) against the release commit.
+        inputs = events.get("workflow_dispatch", {}).get("inputs", {}) if isinstance(events, dict) else {}
+        collect = [step for step in all_steps if "collect-release-assets.sh" in step.get("run", "")]
+        require("macos_commit" in inputs and len(collect) == 1
+                and collect[0].get("env", {}).get("MACOS_COMMIT") == "${{ inputs.macos_commit }}",
+                "release must pass macos_commit to collect-release-assets.sh, which enforces the macOS-only rule")
     for (workflow_name, job_name) in SIGNING_JOBS:
         if path.name == workflow_name:
             check_signing_job(jobs.get(job_name, {}), require)

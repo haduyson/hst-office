@@ -8,6 +8,9 @@
 #   PLATFORMS         space-separated subset of "windows linux macos" (default: all three)
 #   COMMIT            commit to release (default: head of the newest successful Windows build)
 #   WINDOWS_RUN_ID / LINUX_RUN_ID / MACOS_RUN_ID   pin a specific run instead of searching
+#   MACOS_COMMIT      take the macOS dmgs from this later commit instead; accepted only when it
+#                     descends from COMMIT and changes nothing the Windows/Linux installers are
+#                     built from (scripts/release/macos-commit-paths.sh), e.g. a macOS packaging fix
 # Requires gh with GH_TOKEN/GH_REPO set (actions: read).
 set -euo pipefail
 
@@ -62,13 +65,32 @@ if [ -z "$commit" ]; then
 fi
 echo "release commit: $commit"
 
+macos_commit="${MACOS_COMMIT:-}"
+if [ -n "$macos_commit" ] && [ "$macos_commit" != "$commit" ]; then
+  [[ "$macos_commit" =~ ^[0-9a-f]{40}$ ]] || macos_commit="$(gh api "repos/$GH_REPO/commits/$macos_commit" --jq .sha)"
+  IFS=$'\t' read -r cmp_status behind nfiles < <(gh api "repos/$GH_REPO/compare/$commit...$macos_commit" \
+    --jq '[.status, .behind_by, (.files | length)] | @tsv')
+  if [ "$cmp_status" != ahead ] || [ "$behind" != 0 ]; then
+    die "macOS commit $macos_commit is not a descendant of $commit ($cmp_status)"
+  fi
+  [ "$nfiles" -lt 300 ] || die "macOS commit $macos_commit changes too many files to check ($nfiles)"
+  gh api "repos/$GH_REPO/compare/$commit...$macos_commit" --jq '.files[].filename' \
+    | bash "$(dirname "${BASH_SOURCE[0]}")/macos-commit-paths.sh" \
+    || die "macOS commit $macos_commit changes more than macOS packaging/CI/docs since $commit"
+  echo "macOS commit: $macos_commit (only macOS packaging, CI or docs changed since $commit)"
+else
+  macos_commit="$commit"
+fi
+
 for platform in $platforms; do
   [ -n "${WORKFLOW[$platform]:-}" ] || die "unknown platform: $platform"
+  expected="$commit"
+  if [ "$platform" = macos ]; then expected="$macos_commit"; fi
   id="${PINNED[$platform]}"
-  [ -n "$id" ] || id="$(find_run "$platform" "$commit")"
-  [ -n "$id" ] || die "no successful $platform build on main at $commit; run ${WORKFLOW[$platform]} (mode=full) first"
+  [ -n "$id" ] || id="$(find_run "$platform" "$expected")"
+  [ -n "$id" ] || die "no successful $platform build on main at $expected; run ${WORKFLOW[$platform]} (mode=full) first"
   sha="$(check_run "$platform" "$id")"
-  [ "$sha" = "$commit" ] || die "$platform run $id built $sha, not $commit: all installers must come from one commit"
+  [ "$sha" = "$expected" ] || die "$platform run $id built $sha, not $expected: installers must come from the release commit"
   names="$(artifact_names "$id")"
   case "$platform" in
     windows) fetch "$id" "hst-office-windows-msi-$id" ;;
@@ -89,5 +111,5 @@ for platform in $platforms; do
 done
 
 (cd "$out" && rm -f SHA256SUMS && sha256sum -- * > "$work/sums" && mv "$work/sums" SHA256SUMS)
-echo "commit=$commit" > "$out/.release-commit"
+printf 'commit=%s\nmacos_commit=%s\n' "$commit" "$macos_commit" > "$out/.release-commit"
 ls -la "$out"
