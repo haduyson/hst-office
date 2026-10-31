@@ -64,7 +64,17 @@
   AddType application/x-msi .msi
   AddType application/x-apple-diskimage .dmg
   AddType application/vnd.debian.binary-package .deb
+  AddType application/x-apple-aspen-config .mobileconfig
+  AddType text/plain .reg .xcd
 </IfModule>
+
+# Tệp mẫu cho quản trị viên trong hướng dẫn (huong-dan/files/): .reg/.xcd luôn tải xuống, không mở trong trình duyệt.
+<FilesMatch "\.(?:reg|xcd)$">
+  <IfModule mod_headers.c>
+    Header set Content-Disposition "attachment"
+    Header set Cache-Control "no-cache, must-revalidate"
+  </IfModule>
+</FilesMatch>
 
 # Bộ cài HST Office phục vụ trực tiếp từ tai/<phiên bản>/: tải xuống với tên tệp gốc, tải tiếp được (Range),
 # không nén, cache dài vì mỗi thư mục phiên bản là bất biến.

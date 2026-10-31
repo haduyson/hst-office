@@ -6,6 +6,9 @@ Nguồn: extensions/hst-vietnamese-tools/help/ trong repo hst-office, đọc th�
 
     python3 scripts/sync-help.py                 # dùng tag hiện hành trong config.js
     python3 scripts/sync-help.py --ref v1.0.0-beta.4
+    python3 scripts/sync-help.py --ref main --version 1.0.0-beta.4.1   # nội dung chưa phát hành
+
+Tệp mẫu cho quản trị viên trong help/files/ (.reg, .xcd, .mobileconfig) được chép sang huong-dan/files/.
 
 Kết quả (ghi đè hoàn toàn): huong-dan/index.html, huong-dan/<trang>/index.html, huong-dan/images/*,
 và vùng <!-- huong-dan --> trong sitemap.xml. Chạy lại ở mỗi lần chuyển bản phát hành.
@@ -83,12 +86,17 @@ def text_of(fragment):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ref", default=None, help="tag/commit nguồn (mặc định: tag trong config.js)")
+    ap.add_argument("--version", default=None, help="nhãn phiên bản hiển thị (mặc định: lấy từ tag)")
     a = ap.parse_args()
     ref = a.ref or current_tag()
-    version = ref.lstrip("v")
+    version = a.version or ref.lstrip("v")
+    if not a.version and not re.match(r"^\d", version):
+        sys.exit(f"--ref {ref} không phải tag phiên bản: cần --version để ghi nhãn")
     names = git("ls-tree", "--name-only", f"{ref}:{SRC}").split()
     pages = sorted(n[:-5] for n in names if n.endswith(".html"))
     images = git("ls-tree", "--name-only", f"{ref}:{SRC}/images").split() if "images" in names else []
+    files = [f for f in (git("ls-tree", "--name-only", f"{ref}:{SRC}/files").split() if "files" in names else [])
+             if f.endswith((".reg", ".xcd", ".mobileconfig"))]
     slugs = set(pages)
 
     def fix_links(fragment):
@@ -104,6 +112,8 @@ def main():
                 if mm.group(1) not in slugs:
                     return inner
                 attrs = attrs.replace(f'href="{href}"', f'href="{page_url(mm.group(1))}{mm.group(2) or ""}"')
+            if href.startswith("files/"):
+                attrs = attrs.replace(f'href="{href}"', f'href="/huong-dan/{href}"')
             if href.startswith("https://hasontech.vn/"):
                 attrs = attrs.replace("utm_source=hst-office&amp;utm_medium=help", "utm_source=office-hasontech-vn&amp;utm_medium=guide")
             return f"<a{attrs}>{inner}</a>"
@@ -133,6 +143,11 @@ def main():
         open(os.path.join(OUT, "images", name), "wb").write(data)
         if name.endswith(".png") and Image:
             Image.open(io.BytesIO(data)).save(os.path.join(OUT, "images", name[:-4] + ".webp"), "WEBP", quality=82, method=6)
+
+    if files:
+        os.makedirs(os.path.join(OUT, "files"))
+    for name in files:
+        open(os.path.join(OUT, "files", name), "wb").write(git("show", f"{ref}:{SRC}/files/{name}", binary=True))
 
     css_v, js_v = asset_version("style.css"), asset_version("main.js")
     today = datetime.date.today().isoformat()
@@ -232,7 +247,7 @@ def main():
     else:
         sm = sm.replace("</urlset>", block + "</urlset>")
     open(sm_path, "w", encoding="utf-8").write(sm)
-    print(f"Đồng bộ {len(pages)} trang, {len(images)} ảnh từ {ref} → huong-dan/ (phiên bản {version})")
+    print(f"Đồng bộ {len(pages)} trang, {len(images)} ảnh, {len(files)} tệp mẫu từ {ref} → huong-dan/ (phiên bản {version})")
 
 
 if __name__ == "__main__":
