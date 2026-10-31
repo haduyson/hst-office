@@ -145,7 +145,7 @@ def pump(toolkit, work, wait_for_window):
         for window in top_windows(toolkit):
             if is_new(window, known):
                 known.append(window)
-                time.sleep(1.5)  # let it paint, and let the title appear
+                time.sleep(4)  # let the dialog lay out (peer size settles), paint and get its title
                 try:
                     size = window.getPosSize()
                 except Exception:  # noqa: BLE001
