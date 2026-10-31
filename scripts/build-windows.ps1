@@ -59,7 +59,15 @@ function Invoke-FreeDisk {
 function Invoke-Cygwin {
     New-Item -ItemType Directory -Force -Path $Work, "$Work\logs", "$Work\bin" | Out-Null
     $setup = "$Work\setup-x86_64.exe"
-    Invoke-WebRequest -UseBasicParsing -Uri 'https://www.cygwin.com/setup-x86_64.exe' -OutFile $setup
+    # cygwin.com sometimes fails DNS on hosted runners; retry before failing the job.
+    for ($attempt = 1; ; $attempt++) {
+        try { Invoke-WebRequest -UseBasicParsing -Uri 'https://www.cygwin.com/setup-x86_64.exe' -OutFile $setup; break }
+        catch {
+            if ($attempt -ge 4) { throw }
+            Write-Host "Cygwin setup download failed (attempt $attempt): $($_.Exception.Message); retrying"
+            Start-Sleep -Seconds (30 * $attempt)
+        }
+    }
     $sig = Get-AuthenticodeSignature $setup
     Write-Summary ("- Cygwin setup sha256 $((Get-FileHash $setup).Hash), signature $($sig.Status) $($sig.SignerCertificate.Subject)")
     if ($sig.Status -ne 'Valid') { throw "Cygwin setup signature invalid: $($sig.Status)" }
