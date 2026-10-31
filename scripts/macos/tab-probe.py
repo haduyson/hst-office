@@ -102,7 +102,7 @@ def dismiss_welcome(pid):
     script = ('tell application "System Events" to tell (first process whose unix id is %d)\n'
               'repeat with w in windows\n'
               'try\n'
-              'if (name of w) contains "Chào mừng" then click (first button of w whose subrole is "AXCloseButton")\n'
+              'if ((name of w) contains "Chào mừng") or ((name of w) contains "chào đón") then click (first button of w whose subrole is "AXCloseButton")\n'
               'end try\n'
               'end repeat\n'
               'end tell' % pid)
