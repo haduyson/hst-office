@@ -25,6 +25,8 @@ EXPECTED = {
     # Enables the HASON TECH Start Center banner (hst-start-center-banner.patch); no donation UI exists.
     "org.openoffice.Office.Common/Misc/ShowDonation": True,
     "org.openoffice.Setup/Product/WhatsNew": False,
+    # Light ribbon: no module colour tint on the notebookbar (NotebookBar::UpdateBackground), 255 = dialog colour only.
+    "org.openoffice.Office.Common/Misc/NotebookbarColorTransparency": 255,
     "org.openoffice.Office.Writer/DefaultFont/Standard": "Times New Roman",
     "org.openoffice.Office.Common/Menus/DonationURL": "https://hasontech.vn",
     # Single help target for F1 / Help menu / dialog Help buttons (hst-debrand.patch): the offline

@@ -8,6 +8,9 @@ HST Office default configuration for the LibreOffice 26.8.1.1 based suite.
   services (menu items carry utm_medium=menu; the Help target is in hst-debrand.patch).
   The Send Feedback, Get Involved, Release Notes, Credits and Extensions URLs are empty:
   those items are hidden and no repository or extension-catalogue URL is shipped.
+- Light ribbon: Misc/NotebookbarColorTransparency=255 stops NotebookBar::UpdateBackground() from
+  tinting the ribbon with the module colour (Writer blue, Calc green, Impress orange); it uses the
+  theme's dialog colour, so it follows light and dark mode and keeps the text readable.
 - No upstream "What's New" infobar/dialog (Setup/Product WhatsNew*=false).
 - Writer default fonts Times New Roman (Decree 30/2020 Phụ lục I, I.4); when
   the font is absent fontconfig substitutes metric-compatible Liberation Serif.
@@ -98,6 +101,16 @@ Test: tests/runtime/check-defaults.py on a fresh profile.
      </prop>
    </node>
    <node oor:name="Forms">
+@@ -402,6 +402,9 @@
+     </node>
+   </node>
+   <node oor:name="Misc">
++    <prop oor:name="NotebookbarColorTransparency">
++      <value>255</value>
++    </prop>
+     <prop oor:name="UseSystemColorDialog">
+     </prop>
+     <prop oor:name="UseSystemFileDialog">
 --- a/officecfg/registry/schema/org/openoffice/Setup.xcs
 +++ b/officecfg/registry/schema/org/openoffice/Setup.xcs
 @@ -305,13 +305,13 @@
