@@ -94,3 +94,32 @@ class DetectionTest(unittest.TestCase):
         self.assertIn("StartModule", node.find("prop[@%sname='Context']/value" % ns).text)
         for language in ("en", "vi"):
             self.assertEqual(load_locale(language)["menu"]["usbToken"], "Thiết lập USB Token…")
+
+    def test_catalog_alias_cannot_override_explicit_exclusion(self):
+        primary = self.touch("usr/lib/libcastle.so.1.0.0")
+        alias = self.touch("usr/lib/libeTPkcs11.so")
+        alias.unlink()
+        alias.symlink_to(primary)
+        self.touch("home/.config/pkcs11/modules/token.module",
+                   "module: /usr/lib/libcastle.so.1.0.0\ndisable-in: soffice.bin\n")
+        self.assertEqual(detect("linux", self.root, self.home), [])
+
+    def test_global_none_ignores_user_exclusion(self):
+        self.touch("usr/lib/libcastle.so.1.0.0")
+        self.touch("etc/pkcs11/pkcs11.conf", "user-config: none\n")
+        self.touch("home/.config/pkcs11/pkcs11.conf", "user-config: only\n")
+        self.touch("home/.config/pkcs11/modules/token.module",
+                   "module: /usr/lib/libcastle.so.1.0.0\ndisable-in: soffice.bin\n")
+        self.assertEqual(len(detect("linux", self.root, self.home)), 1)
+
+    def test_global_only_ignores_system_modules(self):
+        self.touch("etc/pkcs11/pkcs11.conf", "user-config: only\n")
+        self.touch("etc/pkcs11/modules/token.module", "module: /custom.so\n")
+        self.touch("custom.so")
+        self.assertEqual(detect("linux", self.root, self.home), [])
+
+    def test_empty_user_module_also_excludes_catalog_path(self):
+        self.touch("usr/lib/libcastle.so.1.0.0")
+        self.touch("etc/pkcs11/modules/token.module", "module: /usr/lib/libcastle.so.1.0.0\n")
+        self.touch("home/.config/pkcs11/modules/token.module", "module:\n")
+        self.assertEqual(detect("linux", self.root, self.home), [])

@@ -58,17 +58,17 @@ def run_mode(args, mode, signing):
         print(mode + ": setup dialog checked", flush=True)
         result["first_dialog"] = text
         assert "Đã tìm thấy và đăng ký: Feitian ePass2003" in text, text
-        assert str(db) in text and ("Khởi động lại HST Office rồi" in text) == (not args.cold), text
+        assert str(db) in text and "Khởi động lại HST Office rồi" in text, text
         module_file = db / "pkcs11.txt"
         saved = module_file.read_bytes()
         assert str(library).encode() in saved, saved
         checks["vietnamese_command_registered_module"] = True
         text = setup_dialog(office, frame, signing)
-        assert "Đã đăng ký từ trước" in text and ("Khởi động lại HST Office rồi" in text) == (not args.cold), text
+        assert "Đã đăng ký từ trước" in text and "Khởi động lại HST Office rồi" in text, text
         assert saved == module_file.read_bytes()
         checks["repeat_command_idempotent"] = True
         if mode == "pkcs11":
-            assert (db / "cert9.db").exists() == args.cold, "Unexpected SQL initialization state"
+            assert not (db / "cert9.db").exists(), "Setup must leave live SQL initialization to core on restart"
             checks["no_nss_tools_needed"] = True
         doc.close(True)
         office.stop()

@@ -31,10 +31,13 @@ class ActionTest(unittest.TestCase):
 
     def test_error_shown_in_one_vietnamese_dialog(self):
         with patch.object(action, "platform_name", return_value="linux"), \
-                patch.object(action, "setup", side_effect=PermissionError("không có quyền")):
+                patch.object(action, "setup", side_effect=PermissionError(13, "Permission denied")):
             action.run(self.ctx, self.frame)
         self.assertEqual(self.box.call_count, 1)
         self.assertIn("Chưa hoàn tất", self.box.call_args.args[3])
+        self.assertIn("quyền", self.box.call_args.args[3])
+        self.assertNotIn("Permission denied", self.box.call_args.args[3])
+        self.assertNotIn("Errno", self.box.call_args.args[3])
         self.assertTrue(self.box.call_args.kwargs["error"])
 
     def test_missing_driver_gives_ca_guidance_without_download_links(self):
@@ -87,3 +90,14 @@ class ActionTest(unittest.TestCase):
             action.run(self.ctx, None)
         self.assertIsNone(self.box.call_args.args[1])
         self.assertEqual(self.box.call_count, 1)
+
+    def test_unexpected_exception_is_not_displayed_verbatim(self):
+        with patch.object(action, "platform_name", return_value="linux"), \
+                patch.object(action, "setup", side_effect=RuntimeError("English vendor details")):
+            action.run(self.ctx, self.frame)
+        self.assertNotIn("English", self.box.call_args.args[3])
+        self.assertIn("Không thể hoàn tất", self.box.call_args.args[3])
+
+    def test_only_errors_do_not_offer_signing_instruction(self):
+        text = action.result_text(self.strings, "/db", [dict(label="A", path="/a", status="error", error="Lỗi")], False)
+        self.assertNotIn(self.strings["next"], text)

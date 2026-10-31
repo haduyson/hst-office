@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import _paths
 from hst_office.usb_token_db import ROOTS, MAC_ROOTS, select_db, user_database
+from hst_office.usb_token_errors import SetupError
 
 
 class DatabaseTest(unittest.TestCase):
@@ -74,28 +75,32 @@ class DatabaseTest(unittest.TestCase):
         self.profile("custom", "[Profile0]\nName=a\nIsRelative=0\nPath=" + str(expected))
         self.assertEqual(self.select(env={"MOZILLA_FIREFOX_PROFILE_ROOT": str(self.home / "custom")})[0], expected)
 
-    def test_environment_then_options_then_core(self):
+    def test_cached_core_path_precedes_environment_and_configured(self):
         values = [str(self.home / v) for v in ("env", "configured", "core")]
         self.assertEqual(self.select(env={"MOZILLA_CERTIFICATE_FOLDER": "sql:" + values[0]},
-                                     configured=values[1], core_path=values[2])[0], Path(values[0]))
-        self.assertEqual(self.select(configured=values[1], core_path=values[2])[0], Path(values[1]))
-        self.assertEqual(self.select(core_path=values[2])[0], Path(values[2]))
+                                     configured=values[1], core_path=values[2])[0], Path(values[2]))
+        self.assertEqual(self.select(configured=values[1], core_path=values[2])[0], Path(values[2]))
+        self.assertEqual(self.select(env={"MOZILLA_CERTIFICATE_FOLDER": "sql:" + values[0]})[0], Path(values[0]))
 
-    def test_missing_configured_path_is_not_silently_ignored(self):
-        self.profile(".thunderbird")
-        self.assertEqual(self.select(configured=str(self.home / "new"))[0], self.home / "new")
+    def test_only_existing_absolute_filesystem_configured_path_is_accepted(self):
+        browser = self.profile(".thunderbird")
+        valid = self.home / "valid"
+        valid.mkdir()
+        self.assertEqual(self.select(configured=str(valid))[0], valid)
+        for value in (str(self.home / "missing"), "sql:" + str(valid), "~/valid", "relative", "dbm:/old"):
+            with self.subTest(value=value):
+                self.assertEqual(self.select(configured=value)[0], browser)
 
-    def test_relative_and_dbm_rejected(self):
-        for value in ("relative", "dbm:/old"):
-            with self.assertRaises(ValueError):
-                self.select(configured=value)
+    def test_cached_legacy_db_rejected(self):
+        with self.assertRaises(SetupError):
+            self.select(core_path="dbm:/old")
 
     def test_refuse_root(self):
-        with patch("os.geteuid", return_value=0), self.assertRaises(PermissionError):
+        with patch("os.geteuid", return_value=0), self.assertRaises(SetupError):
             user_database(self.home)
 
     def test_refuse_another_users_db(self):
-        with patch("os.geteuid", return_value=self.home.stat().st_uid + 1), self.assertRaises(PermissionError):
+        with patch("os.geteuid", return_value=self.home.stat().st_uid + 1), self.assertRaises(SetupError):
             user_database(self.home)
 
     def test_refuse_legacy_db(self):

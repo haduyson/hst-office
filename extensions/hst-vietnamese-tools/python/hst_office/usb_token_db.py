@@ -4,6 +4,8 @@ import configparser
 import os
 from pathlib import Path
 
+from .usb_token_errors import SetupError
+
 CONFIG = "/org.openoffice.Office.Common/Security/Scripting"
 ROOTS = (
     ("MOZILLA_THUNDERBIRD_PROFILE_ROOT", (".thunderbird", ".mozilla-thunderbird", ".mozilla/thunderbird", ".icedove",
@@ -36,21 +38,25 @@ def profile_in(root):
 
 def normalize(value):
     if value.startswith("dbm:"):
-        raise ValueError("Kho NSS cũ (dbm) chưa được hỗ trợ. Hãy chọn kho NSS SQL trong Bảo mật → Chứng chỉ…")
-    value = value.removeprefix("sql:")
-    path = Path(value).expanduser()
+        raise SetupError("Kho NSS cũ (dbm) chưa được hỗ trợ. Hãy chọn kho NSS SQL trong Bảo mật → Chứng chỉ…")
+    path = Path(value)
     if not path.is_absolute():
-        raise ValueError("Đường dẫn kho chứng thư phải là đường dẫn tuyệt đối.")
+        raise SetupError("Đường dẫn kho chứng thư phải là đường dẫn tuyệt đối.")
     return path.resolve()
 
 
 def select_db(home, configured="", platform="linux", env=None, core_path=""):
     env = os.environ if env is None else env
     home = Path(home)
-    # The environment takes precedence in the core, even over the Options value.
-    for value in (env.get("MOZILLA_CERTIFICATE_FOLDER", ""), configured, core_path):
-        if value:
-            return normalize(value), False
+    # NSSPath is already selected/cached by core, even before NSS initializes.
+    if core_path:
+        return normalize(core_path.removeprefix("sql:")), False
+    value = env.get("MOZILLA_CERTIFICATE_FOLDER", "")
+    if value:
+        return normalize(value.removeprefix("sql:")), False
+    # Core accepts an existing filesystem directory, not sql: or shell syntax.
+    if configured and Path(configured).is_absolute() and Path(configured).is_dir():
+        return normalize(configured), False
     for index, (variable, roots) in enumerate(ROOTS):
         if platform == "macos":
             roots = (MAC_ROOTS[index],)
@@ -67,18 +73,18 @@ def select_db(home, configured="", platform="linux", env=None, core_path=""):
 def user_database(path):
     """Only a SQL DB owned by this user; never migrate or modify another user's DB."""
     if os.geteuid() == 0:
-        raise PermissionError("Hãy chạy HST Office bằng tài khoản người dùng thông thường.")
-    if (path / "cert8.db").exists() and not (path / "cert9.db").exists():
-        raise ValueError("Kho chứng thư dùng định dạng NSS cũ. Hãy chọn kho NSS SQL trong Bảo mật → Chứng chỉ…")
+        raise SetupError("Hãy chạy HST Office bằng tài khoản người dùng thông thường.")
+    if (path / "secmod.db").exists() or ((path / "cert8.db").exists() and not (path / "cert9.db").exists()):
+        raise SetupError("Kho chứng thư dùng định dạng NSS cũ. Hãy chọn kho NSS SQL trong Bảo mật → Chứng chỉ…")
     ancestor = path
     while not ancestor.exists():
         ancestor = ancestor.parent
     if ancestor.stat().st_uid != os.geteuid():
-        raise PermissionError("Kho chứng thư phải thuộc tài khoản đang sử dụng.")
-    for name in ("cert9.db", "key4.db", "pkcs11.txt", ".hst-usb-token.lock"):
+        raise SetupError("Kho chứng thư phải thuộc tài khoản đang sử dụng.")
+    for name in ("cert9.db", "key4.db", "secmod.db", "pkcs11.txt", ".hst-usb-token.lock"):
         item = path / name
         if item.is_symlink() or (item.exists() and item.stat().st_uid != os.geteuid()):
-            raise PermissionError("Tệp trong kho chứng thư không thuộc tài khoản đang sử dụng hoặc là liên kết.")
+            raise SetupError("Tệp trong kho chứng thư không thuộc tài khoản đang sử dụng hoặc là liên kết.")
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
 
