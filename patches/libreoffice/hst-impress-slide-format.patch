@@ -1,0 +1,19 @@
+HST Office: the Impress sidebar Slide panel selects the slide format once its list is filled, so
+"Format" is never left blank when the first state notification arrived before the list existed.
+
+--- a/sd/source/ui/sidebar/SlideBackground.cxx
++++ b/sd/source/ui/sidebar/SlideBackground.cxx
+@@ -257,6 +257,13 @@
+     //margins
+     mxMarginSelectBox->connect_changed(LINK(this, SlideBackground, ModifyMarginHdl));
+ 
++    // HST: select the slide format now that the list is filled. The first state notifications of
++    // the controllers may arrive before FillPaperSizeEntries (selecting in an empty list) and are
++    // not repeated while the slide size stays the same, which left "Format" blank. Orientation
++    // first: the size handler uses it to normalise the size before matching.
++    maPaperOrientationController.RequestUpdate();
++    maPaperSizeController.RequestUpdate();
++
+     Update();
+     UpdateMarginBox();
+ }
