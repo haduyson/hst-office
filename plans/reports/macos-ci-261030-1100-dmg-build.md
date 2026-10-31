@@ -195,3 +195,30 @@ Shipping to users requires the `sign` job with secrets.
   - Every Mach-O is pre-signed before upstream's pass.
   - Signing happens under a space-free bundle name, because upstream's script leaves paths unquoted.
   - Every Mach-O is checked for a timestamped Developer ID signature before submission.
+
+## Update 2026-10-31: beta.3 x86_64 collect failure and release rule
+
+- **Failure.** Run 41169287028 (fdc80ff): arm64 green, x86_64 failed in `--collect` (adhoc-sign.sh).
+  `codesign` reported "soffice: code object is not signed at all, in subcomponent MacOS/regview".
+- **Cause.** On x86_64 the linker adds no signature. Signing `Contents/MacOS/soffice` (the app's
+  CFBundleExecutable) signs and seals the whole bundle, and its sibling `regview` came later in the
+  same-depth order. On arm64 every file was already linker-signed, so the order did not matter.
+- **Fix (a9ee206).** New `scripts/macos/macho-lib.sh`, shared by `adhoc-sign.sh` and `sign-notarize.sh`:
+  - Mach-O files are detected by header (`file -b`) over every file, not by name or mode;
+  - files are signed deepest first;
+  - bundle main executables are left to the bundle signature;
+  - the Developer ID gate still checks all of them.
+- **Proof on Intel.** `macos-signature-probe.yml` gained an `arch` input. Run 41173222467 ran on
+  macos-15-intel against beta.2 x86_64, which shipped with no signature at all:
+  - after the ad-hoc fix: 250 Mach-O files and 5 bundles signed, strict verify valid, `spctl` "rejected",
+    headless PDF conversion OK;
+  - Developer ID check: 255 Mach-O files, 0 problems;
+  - notarization Accepted (e8aa094c), stapled, `spctl` on the dmg and the app: accepted, Notarized Developer ID;
+  - artifact `macos-signing-probe-x86_64-dmg-signed-41173222467`.
+- **Release rule (80310de, 8e8f648).** `release.yml` has an optional `macos_commit`.
+  - `collect-release-assets.sh` accepts it only if it descends from the release commit and
+    `scripts/release/macos-commit-paths.sh` allows every changed path: scripts/macos, scripts/release,
+    .github/workflows, scripts/check-workflows.py, docs, plans, tests, website.
+  - The release notes and run summary name both commits.
+  - check-workflows enforces the wiring, and unit tests cover the path rule.
+- **Build.** beta.3 macOS full build 41173482341 at 4c453dd; fdc80ff→4c453dd passes the rule.
