@@ -77,6 +77,15 @@
   });
   openLinkedDetails();
 
+  // Điểm mới: bản cũ thu gọn trong <details>; link tới #v<phiên bản> thì tự mở bản đó.
+  const openVersion = () => {
+    const target = window.location.hash && document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+    const details = target && (target.querySelector('details.release-details') || target.closest('details'));
+    if (details && !details.open) details.open = true;
+  };
+  openVersion();
+  window.addEventListener('hashchange', openVersion);
+
   // GA4 does not recognise /tai/* as file downloads (no file extension), so report them explicitly.
   document.addEventListener('click', (event) => {
     const link = event.target.closest('a[href^="/tai/"]');
