@@ -161,7 +161,7 @@ class Office:
         """Raise this instance's mapped windows (another instance may share the display)."""
         env = dict(os.environ, DISPLAY=self.display)
         # document/Start Center windows first, dialogs last (on top)
-        windows = sorted(toplevels(self.display, self.pid), key=lambda w: w[1] == "HST Office" or " — HST Office" in w[1])
+        windows = sorted(toplevels(self.display, self.pid), key=lambda w: w[1] == "HST Office" or " — HST " in w[1])
         for wid, _name in reversed(windows):
             subprocess.run(["xdotool", "windowraise", wid], env=env, check=False, timeout=10)
         time.sleep(0.5)

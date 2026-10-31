@@ -159,3 +159,25 @@ So the fix removes one proven use-after-free but does not make this harness pass
 Status: DONE_WITH_CONCERNS
 Summary: Residual menubar root cause proven (MenuBarWindow::SetMenu shows the GTK menubar regardless of mbDisplayable) and fixed in vcl; crash backtraced to a dangling GtkSalFrame pointer in GtkSalMenu (fixed, small) followed by a cross-thread document close race inside the GTK clipboard nested loop (not fixable safely; upstream/UNO-thread only, not reachable from pure GUI use).
 Concerns/Blockers: crash harness still crashes after the fix at the next victim (Writer shell); no real desktop or Windows run; statistical menubar numbers are small, the deterministic repro and new test carry the proof.
+
+## Owner decisions applied (second round)
+
+- **FLO-02 Quit:** `Desktop::impl_closeFrames` now stops at the first Cancel (`break;`, section appended to `hst-document-tabs.patch`).
+  New check in `check-document-tabs`: 3 modified tabs, Ctrl+Q, Cancel on the first prompt -> no further prompt, 3 tabs open (PASS).
+- **Window titles:** `... — HST Writer / HST Sheets / HST Slides` via `TitleHelper` (framework/source/fwe/helper/titlehelper.cxx, section appended to
+  `hst-window-title.patch`). Draw and Math: no name defined by the welcome dialog or brand docs (they list only the three), so unchanged:
+  `... — HST Office Draw/Math` (check-window-title asserts Draw). Note the Linux launchers already substitute "HST" for the product
+  name, so `.desktop` names are "HST Writer/Sheets/Slides/Draw/Math/Base".
+  Tests updated: check-window-title, check-document-tabs, check-shortcuts, check-template-manager, hst_gui.
+- **Places that still show "HST Office Writer/Calc/Impress" (not changed):**
+  - Windows Start-menu folder items: `scp2/source/{writer,calc,impress,draw,math,base}/folderitem_*.scp` (`%PRODUCTNAME Writer` ...), and
+    the MSI feature/module names and descriptions in `scp2/source/*/module_*.ulf` (some descriptions already say HST Sheets/Slides via the copyright patch).
+  - Debian menu file `sysui/desktop/debian/openoffice.org-debian-menus` (`title="%PRODUCTNAME Writer"` ...).
+  - In-app strings with `%PRODUCTNAME Writer/Calc/Impress`: Tools > Options tree (`cui/inc/treeopt.hrc`), `sw/sc/sd/svtools/dbaccess` strings and
+    dialogs (e.g. sw query-continue dialogs, mail merge, calc search/autocorrect warnings), wizards strings, Tip of the Day (`cui/inc/tipoftheday.hrc`).
+  - Linux `.desktop` actions in `startcenter.desktop` use plain "Writer"; macOS shows "HST Office" (bundle) and, as upstream, no product name in window titles.
+  - About dialog and the HST help pages already use HST Writer/Sheets/Slides (no change needed).
+- **Stale `.mo`:** all 34 vi `.mo` rebuilt locally (the gbuild MO target has no dependency on the `.po`).
+- **Writer-shell crash:** left as is (upstream / UNO-thread race, not reachable from pure GUI use), as decided.
+- **Verification:** check-window-title, check-vi-intro, check-no-libreoffice-ui, check-shortcuts exit 0; check-document-tabs 36 PASS x3;
+  ci-quality 25 commands 0 failures; apply-patches --check all applied. Each edit compiled and linked (`Library_merged`) before tests.

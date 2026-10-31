@@ -32,12 +32,12 @@ PORT = 21991  # deterministic per check (see hst_gui)
 
 
 def is_doc_window(name):
-    return " — HST Office" in name or name.startswith("HST Office")
+    return " — HST " in name or name.startswith("HST Office")
 
 
 def is_document(name):
     """A document window (not the Start Center, not a tooltip or popup titled "HST Office")."""
-    return " — HST Office" in name
+    return " — HST " in name
 
 
 class Checker:
@@ -214,8 +214,8 @@ def run(args):
                 ", ".join(title(f) for f in c.visible_frames()))
         mapped = c.mapped()
         c.check("one taskbar entry (one mapped top-level)", len(mapped) == 1, repr(mapped))
-        c.check("new/opened document is the shown tab", "Calc" in (mapped or [""])[0] or "Bảng" in (mapped or [""])[0]
-                or "HST Office Calc" in " ".join(mapped), repr(mapped))
+        c.check("new/opened document is the shown tab", "Sheets" in (mapped or [""])[0] or "Bảng" in (mapped or [""])[0]
+                or "HST Sheets" in " ".join(mapped), repr(mapped))
         c.shot("02-three-tabs-calc.png")
 
         # 2. Switching by command and by keyboard.
@@ -338,6 +338,26 @@ def run(args):
                        and module_of(office, c.visible_frames()[0]) == "Impress" and len(c.mapped()) == 1, 20),
                 f"{[title(f) for f in c.frames()]} mapped={c.mapped()}")
         c.shot("13-after-slideshow.png")
+
+        # Quit (Ctrl+Q) with all three modified: Cancel on the first save query stops the quit,
+        # no further query appears and all three tabs stay open.
+        for frame in c.frames():
+            model = frame.getController().getModel()
+            if hasattr(model, "getText"):
+                model.getText().setString("Sửa")
+            elif hasattr(model, "getSheets"):
+                model.getSheets().getByIndex(0).getCellByPosition(0, 0).setString("Sửa")
+            else:
+                model.setModified(True)
+        c.key("ctrl+q")
+        if not c.wait(lambda: bool(c.queries()), 10):  # keyboard focus under Xvfb can fail: same command
+            threading.Thread(target=office.dispatch, args=(c.visible_frames()[0], ".uno:Quit"), daemon=True).start()
+        c.check("Quit: first save query", c.answer_query(dont_save=False, shot="16-quit-first-query.png"))
+        time.sleep(4)
+        c.check("Quit + Cancel: no further save query", not c.queries(), repr(c.queries()))
+        c.check("Quit + Cancel: all three tabs still open", len(c.frames()) == 3,
+                ", ".join(title(f) for f in c.frames()))
+        c.shot("17-quit-cancelled.png")
 
         # Title-bar X with all three modified: three save queries ("Don't save" each), all closed.
         for frame in c.frames():

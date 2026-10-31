@@ -8,7 +8,8 @@ Starts the GUI (Start Center), opens a Writer, a Calc and an Impress document an
 dialog, and asserts on the X window names and the frames' Title property:
   - no title contains the engine version ("26.8");
   - the Start Center window is titled exactly "HST Office";
-  - document windows end with "HST Office Writer/Calc/Impress";
+  - document windows end with "HST Writer", "HST Sheets", "HST Slides" (Draw and Math keep
+    "HST Office Draw/Math");
   - the HST release version from /VERSION is what About shows (static: libcuilo.so).
 Exit 1 when a check fails.
 """
@@ -60,7 +61,7 @@ def main():
         time.sleep(4)
         start = [n for n in hst_gui.mapped_toplevels(args.display, pid=office.pid) if "HST" in n]
         check("Start Center title is \"HST Office\"", start == ["HST Office"], repr(start))
-        for factory in ("swriter", "scalc", "simpress"):
+        for factory in ("swriter", "scalc", "simpress", "sdraw"):
             office.load(f"private:factory/{factory}", "_blank")
         time.sleep(4)
         frames = office.desktop().getFrames()
@@ -69,9 +70,13 @@ def main():
         check("no frame title contains the engine version", not any(ENGINE.search(t) for t in titles), repr(titles))
         check("no mapped window title contains the engine version", not any(ENGINE.search(n) for n in mapped),
               repr(mapped))
-        for module in ("Writer", "Calc", "Impress"):
-            check(f"{module} window titled '... HST Office {module}'",
-                  any(t.endswith(f"HST Office {module}") for t in titles), repr(titles))
+        for module in ("HST Writer", "HST Sheets", "HST Slides"):
+            check(f"window titled '... — {module}'",
+                  any(t.endswith(f" — {module}") for t in titles), repr(titles))
+        check("Draw keeps '... — HST Office Draw' (no HST name defined)",
+              any(t.endswith(" — HST Office Draw") for t in titles), repr(titles))
+        check("no title keeps the long \"HST Office Writer/Calc/Impress\" form",
+              not any(re.search(r"HST Office (Writer|Calc|Impress)$", t) for t in titles), repr(titles))
         worker = threading.Thread(target=office.dispatch, args=(frames.getByIndex(0), ".uno:About"), daemon=True)
         worker.start()
         time.sleep(5)

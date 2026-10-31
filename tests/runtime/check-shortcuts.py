@@ -63,7 +63,7 @@ class Keys:
 
     def doc_window(self):
         for wid, name in self.windows():
-            if name.endswith(("HST Office Writer", "HST Office Calc", "HST Office Impress")):
+            if name.endswith(("HST Writer", "HST Sheets", "HST Slides")):
                 return wid
         return None
 
@@ -199,7 +199,7 @@ def f1_check(keys, log, tag):
 
 def calc_checks(office, keys, tag):
     doc = office.load("private:factory/scalc")
-    wait(lambda: "Calc" in office.desktop().getCurrentFrame().getTitle(), 20)
+    wait(lambda: "Sheets" in office.desktop().getCurrentFrame().getTitle(), 20)
     office.raise_windows()
     cell = doc.getSheets().getByIndex(0).getCellByPosition(0, 0)
     cell.setString("Số liệu")
@@ -218,7 +218,7 @@ def calc_checks(office, keys, tag):
 
 def impress_checks(office, keys, tag):
     doc = office.load("private:factory/simpress")
-    wait(lambda: "Impress" in office.desktop().getCurrentFrame().getTitle(), 20)
+    wait(lambda: "Slides" in office.desktop().getCurrentFrame().getTitle(), 20)
     office.raise_windows()
     show = doc.getPresentation()
     keys.send("F5")

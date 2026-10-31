@@ -88,3 +88,67 @@ Test: tests/runtime/check-window-title.py under Xvfb.
          if( !aProduct.isEmpty() )
              aClassName.append( OUStringToOString( aProduct, osl_getThreadTextEncoding() ) );
          else
+--- a/framework/source/fwe/helper/titlehelper.cxx
++++ b/framework/source/fwe/helper/titlehelper.cxx
+@@ -47,6 +47,32 @@
+ 
+ namespace framework{
+ 
++namespace
++{
++/// HST Office: name shown in the window title instead of "<product> <module>" for the
++/// three main applications; empty for every other module (Draw, Math, Base, ...).
++OUString lcl_getHstApplicationName(const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                                   const css::uno::Reference<css::uno::XInterface>& xOwner)
++{
++    try
++    {
++        css::uno::Reference<css::frame::XModuleManager2> xModuleManager
++            = css::frame::ModuleManager::create(xContext);
++        const OUString sID = xModuleManager->identify(xOwner);
++        if (sID == "com.sun.star.text.TextDocument")
++            return u"HST Writer"_ustr;
++        if (sID == "com.sun.star.sheet.SpreadsheetDocument")
++            return u"HST Sheets"_ustr;
++        if (sID == "com.sun.star.presentation.PresentationDocument")
++            return u"HST Slides"_ustr;
++    }
++    catch (const css::uno::Exception&)
++    {
++    }
++    return OUString();
++}
++}
++
+ TitleHelper::TitleHelper(css::uno::Reference< css::uno::XComponentContext > xContext,
+                         const css::uno::Reference< css::uno::XInterface >& xOwner,
+                         const css::uno::Reference< css::frame::XUntitledNumbers >& xNumbers)
+@@ -502,8 +528,26 @@
+     {
+         // fdo#70376: We want the window title to contain just the
+         // document name (from the above "component title").
+-        impl_appendProductName      (sTitle);
+-        impl_appendModuleName       (sTitle);
++        // HST Office: Writer, Sheets and Slides are named by their HST application name.
++        css::uno::Reference<css::uno::XComponentContext> xContext;
++        css::uno::Reference<css::uno::XInterface> xOwner;
++        {
++            std::unique_lock aLock(m_aMutex);
++            xContext = m_xContext;
++            xOwner = m_xOwner;
++        }
++        const OUString sHstName = lcl_getHstApplicationName(xContext, xOwner);
++        if (!sHstName.isEmpty())
++        {
++            if (!sTitle.isEmpty())
++                sTitle.append(FwkResId(STR_EMDASH_SEPARATOR));
++            sTitle.append(sHstName);
++        }
++        else
++        {
++            impl_appendProductName      (sTitle);
++            impl_appendModuleName       (sTitle);
++        }
+         impl_appendDebugVersion     (sTitle);
+     }
+ #endif

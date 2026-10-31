@@ -110,7 +110,7 @@ def main():
         names = [n for _w, n in hst_gui.toplevels(args.display, office.pid)]
         check("Template Manager opens", len(names) >= 2, repr(names))
         for wid, name in hst_gui.toplevels(args.display, office.pid):
-            if " — HST Office" not in name and name != "HST Office":
+            if " — HST " not in name and name != "HST Office":
                 env = dict(os.environ, DISPLAY=args.display)
                 subprocess.run(["xdotool", "windowfocus", wid], env=env, check=False, timeout=10)
                 time.sleep(0.5)
