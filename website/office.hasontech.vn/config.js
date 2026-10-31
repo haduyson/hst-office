@@ -5,7 +5,7 @@
 window.HST_OFFICE_CONFIG = {
   version: "1.0.0",
   releaseLabel: "Bản thử nghiệm (beta)",
-  tag: "v1.0.0-beta.2",
+  tag: "v1.0.0-beta.3",
   platforms: {
     windows: { available: true, path: "/tai/windows", label: "Windows" },
     "macos-arm": { available: true, path: "/tai/macos-arm", label: "macOS Apple Silicon" },
@@ -13,7 +13,7 @@ window.HST_OFFICE_CONFIG = {
     linux: { available: true, path: "/tai/linux", label: "Linux" }
   },
   checksum: { available: true, path: "/tai/sha256" },
-  linuxArchive: "HSTOffice_1.0.0_Linux_x86-64_deb.tar.gz"
+  linuxArchive: "HSTOffice_1.0.0_Linux_x86-64.deb"
 };
 
 /* Khi ra bản mới:
