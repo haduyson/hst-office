@@ -120,7 +120,9 @@ def popup_open_file(p, pid, out, mode, label):
     ("Open File...", reached with Up then Return), drive the native open panel with System Events
     and require the document as the shown, active, frontmost tab. A hang is sampled."""
     target = f"{out}/popup-{label}.odt"
-    doc = p.load("private:factory/swriter")
+    hidden = PropertyValue()
+    hidden.Name, hidden.Value = "Hidden", True
+    doc = p.desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden,))
     doc.getText().setString("opened from the popup")
     doc.storeToURL("file://" + target, ())
     doc.close(True)
@@ -133,11 +135,11 @@ def popup_open_file(p, pid, out, mode, label):
     time.sleep(1)
     p.mark(f"{label}:start", x=x, y=y)
     began = time.time()
-    click_keys(f"c:{x},{y}")
+    click_keys(f"m:{x},{y}", "w:500", "c:.")
     time.sleep(1.2)
     subprocess.run(["screencapture", "-x", f"{out}/{label}-popup-{mode}.png"], check=False)
     # "Open File..." is the last entry: about 36 px right of and 101 px below the "+" centre
-    click_keys(f"c:{x + 36},{y + 101}")
+    click_keys(f"m:{x + 36},{y + 101}", "w:400", "c:.")
     subprocess.run(["screencapture", "-x", f"{out}/{label}-popup-item-{mode}.png"], check=False)
     time.sleep(3)
     subprocess.run(["screencapture", "-x", f"{out}/{label}-panel-{mode}.png"], check=False)
