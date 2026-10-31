@@ -56,6 +56,22 @@ def asset_version(name):
     return m.group(1) if m else "1"
 
 
+# Thẻ ứng dụng ở trang mục lục hướng dẫn: gắn biểu tượng HST (dùng chung ảnh với trang chủ) theo trang đích.
+APP_ICONS = {"van-ban": ("writer", "Văn bản"), "bang-tinh": ("sheets", "Bảng tính"), "trinh-chieu": ("slides", "Trình chiếu")}
+
+
+def add_app_icons(fragment):
+    def repl(m):
+        key = next((k for k in APP_ICONS if m.group(2).startswith(f"/huong-dan/{k}")), None)
+        if not key:
+            return m.group(0)
+        icon, label = APP_ICONS[key]
+        pic = (f'<picture class="app-icon"><source srcset="/assets/img/hst-{icon}-128.webp?v=1" type="image/webp">'
+               f'<img src="/assets/img/hst-{icon}-128.png?v=1" alt="" width="128" height="128" loading="lazy" decoding="async"></picture>')
+        return f'<section class="app app-{icon}">{pic}{m.group(1)}'
+    return re.sub(r'<section class="app">(<h2><a href="([^"]+)")', repl, fragment)
+
+
 def page_url(slug):
     return "/huong-dan/" if slug == "index" else f"/huong-dan/{slug}/"
 
@@ -190,7 +206,7 @@ def main():
       {sidebar}
       <div class="guide-body">
         {mobile_toc}
-        {fix_links(article)}
+        {add_app_icons(fix_links(article))}
         {fix_links(pnav)}
       </div>
     </div>
