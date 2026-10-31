@@ -80,7 +80,7 @@ class Dialog:
         return model
 
     def on_change(self, names, callback):
-        """Run `callback` after any text/selection change of the named edits and list boxes (added at execute)."""
+        """Run `callback` after any text/selection/state change of the named edits, list and check boxes (added at execute)."""
         listener = _Changed(callback)
         self._watchers += [(name, listener) for name in names]
 
@@ -122,7 +122,8 @@ class Dialog:
             self.dialog.getControl(name).addActionListener(listener)
         for name, listener in self._watchers:
             control = self.dialog.getControl(name)
-            if self.model.getByName(name).supportsService("com.sun.star.awt.UnoControlListBoxModel"):
+            model = self.model.getByName(name)
+            if any(model.supportsService("com.sun.star.awt.UnoControl%sModel" % kind) for kind in ("ListBox", "CheckBox")):
                 control.addItemListener(listener)
             else:
                 control.addTextListener(listener)

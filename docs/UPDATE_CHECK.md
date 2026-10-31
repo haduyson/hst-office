@@ -39,29 +39,14 @@ Mã: `extensions/hst-vietnamese-tools/python/hst_office/update_*.py`. Chỉ `upd
 
 ## Cài đặt và khóa tập trung
 
-Schema `update.xcs`, nút `/org.hasontech.hstoffice.UpdateCheck`:
+Từ beta.4 cài đặt nằm trong lõi, nút `/org.openoffice.Office.HSTUpdate` (`AutoCheck`, `ManualCheck`,
+`CheckIntervalHours`, `AllowInstall`, `Channel`, cùng trạng thái người dùng `LastCheck`, `SkippedVersion`). Mã đọc
+cài đặt: `update_config.py` (chép một lần giá trị cũ từ `/org.hasontech.hstoffice.UpdateCheck` của `update.xcs`, vẫn
+tôn trọng gói chính sách cũ). Người dùng đổi bằng Công cụ ▸ Tùy chọn ▸ Nâng cao ▸ Trình soạn cấu hình chuyên gia
+(tìm `HSTUpdate`).
 
-| Thuộc tính | Kiểu | Mặc định | Ý nghĩa |
-|---|---|---|---|
-| `AutoCheck` | boolean | `true` | Tự kiểm tra khi khởi động (tối đa 1 lần/24 giờ) |
-| `LastCheck` | long | `0` | Giờ Unix của lần tự kiểm tra gần nhất |
-| `SkippedVersion` | string | rỗng | Phiên bản người dùng chọn bỏ qua |
-
-Người dùng tắt bằng Công cụ ▸ Tùy chọn ▸ Nâng cao ▸ Trình soạn cấu hình chuyên gia (tìm `AutoCheck`).
-
-Quản trị viên tắt và **khóa** cho mọi người trên máy bằng lớp cấu hình của extension dùng chung:
-
-```sh
-python3 scripts/release/build-update-policy-oxt.py --output hst-update-policy.oxt   # --enable: khóa ở trạng thái bật
-# trên máy người dùng, quyền quản trị/root, trong thư mục program của bản cài:
-unopkg add --shared -s hst-update-policy.oxt          # gỡ: unopkg remove --shared vn.hasontech.hst.update-policy
-```
-
-Gói chỉ chứa `policy.xcu` đặt `AutoCheck` với `oor:finalized="true"`, nên hồ sơ người dùng không ghi đè được
-(đã kiểm thử runtime: đọc ra `false`, ghi bị từ chối "modification of finalized item", không có yêu cầu mạng).
-Không dùng được tệp `.xcd` trong `share/registry` hay registry Windows (HKLM `Policies`): các lớp đó được đọc
-**trước** extension đi kèm định nghĩa schema nên giá trị bị bỏ qua (đã thử). Muốn khóa bằng `.xcd`/registry thì
-schema phải chuyển vào lõi (bản sau). Mục menu vẫn dùng được để kiểm tra thủ công.
+Quản trị viên khóa cho cả máy bằng tệp `.xcd` (Linux), registry chính sách (Windows) hoặc hồ sơ cấu hình (macOS):
+xem [UPDATE_ADMIN](UPDATE_ADMIN.md).
 
 ## Khóa ký
 

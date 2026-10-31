@@ -20,7 +20,6 @@ from . import update_installer as installer
 from . import update_launch as launch
 from . import update_ui as ui
 from .update_download import DownloadCancelled
-from .update_fetch import release_info
 from .update_prepare import PrepareError, prepare
 from .update_texts import texts
 
@@ -140,7 +139,7 @@ def launch_and_quit(ctx, result, info):
 def start(ctx, peer):
     """Entry point of the "Cập nhật ngay" button / org.hst.office.update:Install."""
     try:
-        info = release_info()
+        info = ui.release_info_for(ctx)
         if not update_config.settings(ctx)["AllowInstall"]:
             return manual_download(ctx)
         if cmd.preflight(platform.system()):

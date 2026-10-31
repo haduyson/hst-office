@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Result dialog of HST ▸ Kiểm tra cập nhật…: up to date / new version (with its actions) / could not check."""
+from . import update_config
 from . import update_ui as ui
 from .update_texts import texts
 
@@ -13,8 +14,14 @@ def show_result(ctx, parent_peer, release, installed, failed):
         text = TEXT["uptodate"] % installed
     else:
         text = "%s\n%s" % (TEXT["new"] % release["version"], TEXT["current"] % installed)
-    dialog = Dialog(ctx, TEXT["title"], 300, 70)
+    prefs, locked = update_config.load(ctx)
+    dialog = Dialog(ctx, TEXT["title"], 300, 86)
     dialog.label("message", text, 8, 8, 284, 30, wrap=True)
+    auto = dialog.check("autocheck", TEXT["autocheck"], 8, 44, 284, state=prefs["AutoCheck"])
+    if "AutoCheck" in locked:  # finalized by the administrator (.xcd, registry, macOS profile, policy package)
+        auto.Enabled, auto.HelpText = False, TEXT["locked"]
+    else:
+        dialog.on_change(["autocheck"], lambda: ui.save(ctx, "AutoCheck", dialog.get("autocheck")))
     x, chosen = 8, []
     if release is not None and not failed:
         ui.STATE["release"] = release
@@ -24,10 +31,10 @@ def show_result(ctx, parent_peer, release, installed, failed):
         if ui.can_install(ctx, release):
             actions.insert(0, ("install", 60, lambda: chosen.append("install")))
         for name, width, fn in actions:
-            dialog.button(name, TEXT[name], x, 48, width, callback=(lambda f=fn: (f(), dialog.end(1))),
+            dialog.button(name, TEXT[name], x, 64, width, callback=(lambda f=fn: (f(), dialog.end(1))),
                           default=(name == actions[0][0]))
             x += width + 4
-    dialog.button("close", TEXT["close"], 252, 48, 40, kind=CANCEL, default=release is None or failed)
+    dialog.button("close", TEXT["close"], 252, 64, 40, kind=CANCEL, default=release is None or failed)
     dialog.execute(parent_peer)
     if chosen:  # after the dialog is gone: the installer flow opens its own dialogs
         from .update_install import start

@@ -10,6 +10,7 @@ import threading
 import time
 import traceback
 
+import uno
 import unohelper
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
@@ -18,7 +19,7 @@ from com.sun.star.task import XJob
 from . import update_logic as logic
 from . import update_result as result
 from . import update_ui as ui
-from .update_fetch import UpdateError, fetch_channels, release_info
+from .update_fetch import UpdateError, fetch_channels
 
 JOB_NAME = "org.hst.office.vi.UpdateCheckJob"
 HANDLER_NAME = "org.hst.office.vi.UpdateDispatchProvider"
@@ -54,10 +55,10 @@ def automatic_check(ctx, now=None):
     """The start-up path; returns the worker thread or None when nothing is due."""
     prefs = ui.settings(ctx)
     now = int(time.time() if now is None else now)
-    if not prefs["AutoCheck"] or not logic.check_due(now, prefs["LastCheck"]):
+    if not prefs["AutoCheck"] or not logic.check_due(now, prefs["LastCheck"], prefs["CheckIntervalHours"] * 3600):
         return None
     ui.save(ctx, "LastCheck", now)
-    info = release_info()
+    info = ui.release_info_for(ctx)
 
     def done(release, failed):
         if not failed and logic.should_notify(release, ui.settings(ctx)["SkippedVersion"]):
@@ -121,7 +122,9 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
         frame = self.frame
         peer = frame.getContainerWindow() if frame else None
         try:
-            info = release_info()
+            if not ui.settings(self.ctx)["ManualCheck"]:  # locked off by the administrator: never contact the server
+                return None
+            info = ui.release_info_for(self.ctx)
         except Exception:  # noqa: BLE001 - no release stamp: report "could not check"
             traceback.print_exc()
             return result.show_result(self.ctx, peer, None, "", True)
@@ -147,7 +150,16 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
             ui.remove_infobar(self.frame)
 
     def addStatusListener(self, control, url):
-        pass
+        """Menu entries of :Check are disabled when the administrator set ManualCheck = false."""
+        if url.Path != "Check":
+            return
+        try:
+            event = uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent")
+            event.FeatureURL, event.IsEnabled, event.Requery = url, bool(ui.settings(self.ctx)["ManualCheck"]), False
+            event.Source = self
+            control.statusChanged(event)
+        except Exception:  # noqa: BLE001 - the menu stays enabled; _check still refuses
+            traceback.print_exc()
 
     def removeStatusListener(self, control, url):
         pass

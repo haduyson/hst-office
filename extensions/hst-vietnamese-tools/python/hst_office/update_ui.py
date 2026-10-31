@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Office side of the update check: settings, proxy, main-thread hand-off, infobar and result dialog.
 
-Settings (schema update.xcs, per user, each property finalizable by an administrator's config layer):
-  /org.hasontech.hstoffice.UpdateCheck/AutoCheck       boolean, default true: check at start-up (max. once / 24 h)
-  /org.hasontech.hstoffice.UpdateCheck/LastCheck       long, unix seconds of the last automatic attempt
-  /org.hasontech.hstoffice.UpdateCheck/SkippedVersion  string, version the user chose to skip
+Settings: /org.openoffice.Office.HSTUpdate in the core configuration (AutoCheck, ManualCheck, CheckIntervalHours,
+AllowInstall, Channel, LastCheck, SkippedVersion), read through update_config with every administrator lock applied
+(docs/UPDATE_ADMIN.md).
 Texts follow the UI language (Vietnamese or English); the other HST commands are always Vietnamese.
 """
 import platform
@@ -18,9 +17,9 @@ from com.sun.star.document import XDocumentEventListener
 from . import update_config
 from . import update_installer as installer
 from . import update_logic as logic
+from .update_fetch import release_info
 from .update_texts import texts
 
-CONFIG_PATH = "/org.hasontech.hstoffice.UpdateCheck"
 PROTOCOL = "org.hst.office.update:"
 INFOBAR_ID = "hst-update-available"
 STATE = {"release": None, "pending": None, "listener": None}  # last release found (used by the infobar buttons)
@@ -35,18 +34,19 @@ def _node(ctx, path, writable=False):
 
 
 def settings(ctx):
-    node = _node(ctx, CONFIG_PATH)
-    return {name: node.getPropertyValue(name) for name in ("AutoCheck", "LastCheck", "SkippedVersion")}
+    """All settings with the administrator locks applied (update_config: core schema, old settings, macOS profile)."""
+    return update_config.settings(ctx)
 
 
 def save(ctx, name, value):
-    """Write one setting; a finalized (admin-locked) property makes this fail, which is logged and ignored."""
-    try:
-        node = _node(ctx, CONFIG_PATH, True)
-        node.setPropertyValue(name, value)
-        node.commitChanges()
-    except Exception:  # noqa: BLE001 - a failing config write must never disturb the office
-        traceback.print_exc()
+    """Write one per-user setting; False when an administrator locked it or the write failed."""
+    return update_config.save(ctx, name, value)
+
+
+def release_info_for(ctx):
+    """release_info() with the release channel the administrator may have set (Channel)."""
+    info = release_info()
+    return dict(info, channel=logic.effective_channel(info["channel"], settings(ctx)["Channel"]))
 
 
 def proxy(ctx):

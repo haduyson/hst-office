@@ -160,9 +160,15 @@ def should_notify(release, skipped):
     return bool(release) and (release["critical"] or release["version"] != (skipped or ""))
 
 
-def check_due(now, last):
-    """At most one automatic check per 24 h; a clock set back by the user makes the check due again."""
-    return not (0 <= now - int(last or 0) < CHECK_INTERVAL)
+def check_due(now, last, interval=CHECK_INTERVAL):
+    """At most one automatic check per `interval` seconds (24 h unless the administrator set CheckIntervalHours);
+    a clock set back by the user makes the check due again."""
+    return not (0 <= now - int(last or 0) < interval)
+
+
+def effective_channel(installed_channel, configured):
+    """The Channel setting ("stable"/"beta") overrides the channel of the installed version; empty keeps it."""
+    return configured if configured in CHANNELS else installed_channel
 
 
 def platform_key(system, machine):

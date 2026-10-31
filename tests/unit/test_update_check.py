@@ -167,6 +167,12 @@ class SkipAndThrottle(unittest.TestCase):
         self.assertFalse(logic.check_due(1_000_000, 1_000_000 - day + 1))
         self.assertTrue(logic.check_due(1_000_000, 1_000_000 - day))
         self.assertTrue(logic.check_due(1_000_000, 1_000_000 + 3600))  # clock set back
+        self.assertFalse(logic.check_due(1_000_000, 1_000_000 - day, interval=2 * day))  # CheckIntervalHours = 48
+
+    def test_channel_setting(self):
+        self.assertEqual(logic.effective_channel("beta", ""), "beta")
+        self.assertEqual(logic.effective_channel("beta", "stable"), "stable")
+        self.assertEqual(logic.effective_channel("stable", "beta"), "beta")
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):

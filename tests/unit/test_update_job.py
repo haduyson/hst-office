@@ -43,7 +43,8 @@ def channels(version):
 
 class StartupJob(unittest.TestCase):
     def setUp(self):
-        self.prefs = {"AutoCheck": True, "LastCheck": 0, "SkippedVersion": ""}
+        self.prefs = {"AutoCheck": True, "ManualCheck": True, "CheckIntervalHours": 24, "LastCheck": 0,
+                      "SkippedVersion": "", "Channel": ""}
         self.notified, self.fetches = [], []
         patches = [
             mock.patch.object(job.ui, "settings", lambda ctx: dict(self.prefs)),
@@ -51,7 +52,8 @@ class StartupJob(unittest.TestCase):
             mock.patch.object(job.ui, "proxy", lambda ctx: None),
             mock.patch.object(job.ui, "on_main_thread", lambda ctx, fn: fn()),
             mock.patch.object(job.ui, "notify", lambda ctx, rel, installed: self.notified.append(rel["version"])),
-            mock.patch.object(job, "release_info", lambda: dict(INFO)),
+            mock.patch.object(job.ui, "release_info_for",
+                              lambda ctx: dict(INFO, channel=logic.effective_channel(INFO["channel"], self.prefs["Channel"]))),
         ]
         for p in patches:
             p.start()
@@ -73,6 +75,18 @@ class StartupJob(unittest.TestCase):
         self.run_check(channels("1.0.0"))
         self.assertEqual(self.notified, ["1.0.0"])
         self.assertEqual(self.prefs["LastCheck"], NOW)
+
+    def test_interval_from_the_administrator_setting(self):
+        self.prefs["CheckIntervalHours"] = 168
+        self.run_check(channels("1.0.0"))
+        self.assertIsNone(self.run_check(channels("1.0.0"), NOW + 7 * 24 * 3600 - 1))
+        self.assertIsNotNone(self.run_check(channels("1.0.0"), NOW + 7 * 24 * 3600))
+        self.assertEqual(len(self.fetches), 2)
+
+    def test_channel_stable_hides_betas(self):
+        self.prefs["Channel"] = "stable"
+        self.run_check(channels("1.0.0"))
+        self.assertEqual(self.notified, [])
 
     def test_at_most_once_per_24_hours(self):
         self.run_check(channels("1.0.0"))

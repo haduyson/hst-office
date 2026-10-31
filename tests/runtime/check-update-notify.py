@@ -104,7 +104,7 @@ def policy_phase(instdir, out, results, display=":97"):
         time.sleep(8)
         from com.sun.star.beans import PropertyValue
         arg = PropertyValue()
-        arg.Name, arg.Value = "nodepath", "/org.hasontech.hstoffice.UpdateCheck"
+        arg.Name, arg.Value = "nodepath", "/org.openoffice.Office.HSTUpdate"  # core schema (old path stays locked too)
         node = office.service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
             "com.sun.star.configuration.ConfigurationUpdateAccess", (arg,))
         locked_off = node.getPropertyValue("AutoCheck") is False
@@ -138,12 +138,12 @@ def dialog_shot(office, shots, name, results, label, pattern):
     time.sleep(1.0)
     office.screenshot(os.path.join(shots, name))
     results.append((label, ok))
-    if found:  # click "Đóng" (AppFont box 252..292 x 48..62 of a 300 x 70 dialog); Xvfb has no WM to focus for keys
+    if found:  # click "Đóng" (AppFont box 252..292 x 64..78 of a 300 x 86 dialog); Xvfb has no WM to focus for keys
         wid = found[0][0]
         info = subprocess.run(["xwininfo", "-display", office.display, "-id", wid], capture_output=True, text=True).stdout
         width, height = (int(re.search(r"%s: (\d+)" % k, info).group(1)) for k in ("Width", "Height"))
         env = dict(os.environ, DISPLAY=office.display)
-        subprocess.run(["xdotool", "mousemove", "--window", wid, str(int(width * 272 / 300)), str(int(height * 55 / 70)),
+        subprocess.run(["xdotool", "mousemove", "--window", wid, str(int(width * 272 / 300)), str(int(height * 71 / 86)),
                         "click", "1"], env=env, check=False, timeout=10)
         closed = wait(lambda: not [w for w in hst_gui.toplevels(office.display, office.pid) if w[1] == "Kiểm tra cập nhật"], 10)
         results.append((label + ": closes with Đóng", closed))
