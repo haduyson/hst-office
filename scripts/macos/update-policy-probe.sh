@@ -49,6 +49,7 @@ plistlib.dump({k: v for k, v in item.items() if not k.startswith("Payload")}, op
 
 note "macOS $(sw_vers -productVersion), app $(defaults read "$app/Contents/Info.plist" CFBundleShortVersionString)"
 if codesign --verify --deep --strict "$app"; then note "signature verifies before the probe"; else note "FAIL signature before the probe"; status=1; fi
+marker="$work/started"; touch "$marker"
 probe none "$out/none"
 sudo mkdir -p "$managed"
 for name in tat-kiem-tra chi-tai-ve kenh-chinh-thuc; do
@@ -73,5 +74,12 @@ sudo install -m 644 "$work/tat-kiem-tra.plist" "$managed/$user/$domain.plist"
 probe tat-kiem-tra "$out/per-user-tat-kiem-tra"
 sudo rm -f "$managed/$user/$domain.plist"
 probe none "$out/none-after-removal"
-if codesign --verify --deep --strict "$app"; then note "signature still verifies after the probe"; else note "FAIL signature after the probe"; status=1; fi
+# Running the office from a writable copy may add Python bytecode caches inside the bundle; anything else changed
+# in the bundle is a failure (the lock lives in /Library/Managed Preferences only).
+find "$app" -newer "$marker" -type f >"$out/bundle-changes.txt"
+other="$(grep -v -E '/__pycache__/[^/]+[.]pyc$' "$out/bundle-changes.txt" || true)"
+note "files written inside the bundle while the office ran: $(wc -l <"$out/bundle-changes.txt" | tr -d ' ') (bundle-changes.txt)"
+if [ -n "$other" ]; then note "FAIL bundle files other than Python caches changed: $(printf '%s' "$other" | head -5 | tr '\n' ' ')"; status=1; fi
+find "$app" -newer "$marker" -type d -name __pycache__ -prune -exec rm -rf {} +
+if codesign --verify --deep --strict "$app"; then note "signature verifies after the probe (Python caches removed)"; else note "FAIL signature after the probe"; status=1; fi
 exit "$status"

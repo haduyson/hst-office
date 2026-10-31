@@ -183,7 +183,10 @@ def probe(soffice, name, source, out, port):
         enabled = command_enabled(ctx, doc.getCurrentController().getFrame(), "org.hst.office.update:Check")
         want = expected.get("ManualCheck", True)
         record("Kiểm tra cập nhật… %s" % ("enabled" if want else "greyed out"), enabled is want, "IsEnabled=%r" % enabled)
-        doc.close(True)
+        try:
+            doc.close(True)
+        except Exception:  # noqa: BLE001 - a hidden document may refuse close(); terminate() ends it anyway
+            pass
     except Exception as error:  # noqa: BLE001 - report instead of hanging the job
         record("probe ran", False, repr(error))
     finally:
