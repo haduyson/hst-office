@@ -136,10 +136,9 @@ def popup_open_file(p, pid, out, mode, label):
     click_keys(f"c:{x},{y}")
     time.sleep(1.2)
     subprocess.run(["screencapture", "-x", f"{out}/{label}-popup-{mode}.png"], check=False)
-    click_keys("kp:arrow-up")
-    time.sleep(0.4)
+    # "Open File..." is the last entry: about 36 px right of and 101 px below the "+" centre
+    click_keys(f"c:{x + 36},{y + 101}")
     subprocess.run(["screencapture", "-x", f"{out}/{label}-popup-item-{mode}.png"], check=False)
-    click_keys("kp:return")
     time.sleep(3)
     subprocess.run(["screencapture", "-x", f"{out}/{label}-panel-{mode}.png"], check=False)
     rc, msg = osa('tell application "System Events" to tell (first process whose unix id is %d)\n'
