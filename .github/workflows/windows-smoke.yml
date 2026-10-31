@@ -98,9 +98,11 @@ jobs:
         run: |
           set -euo pipefail
           install="$(cygpath -u "$HST_INSTALL")"
+          # the previous step may leave its office running: a second profile waits for it
+          MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe /IM oosplash.exe 2>&1 || echo "no office process was left running"
           export PATH="$install/program:$PATH"
           export UNO_PATH="$HST_INSTALL\\program"
-          timeout 600 "$install/program/python.exe" tests/runtime/check-windows-tabs.py --install "$HST_INSTALL" --out "$RUNNER_TEMP/out/tabs"
+          timeout 420 "$install/program/python.exe" -u tests/runtime/check-windows-tabs.py --install "$HST_INSTALL" --out "$RUNNER_TEMP/out/tabs"
       - name: Update now - download, verify and dry-run the msiexec helper
         shell: bash
         run: |

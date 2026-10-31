@@ -51,9 +51,11 @@ def main():
     smoke.OUT = out
     smoke.SHOT_DIR = None
     import uno  # noqa: F401  (the office's own Python)
+    print("starting office", flush=True)
     profile = "file:///" + os.path.join(out, "profile").replace("\\", "/")
     proc, ctx = smoke.start_office(os.path.join(install, "program"), profile, args.port,
                                    os.path.join(out, "soffice.err"), dict(os.environ))
+    print("office socket open", flush=True)
     code = 1
     try:
         desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
