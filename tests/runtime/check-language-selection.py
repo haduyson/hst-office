@@ -21,8 +21,9 @@ Phases (each starts soffice as the build user with fresh profiles on an existing
               the changed ones still modified with their changes, the files on disk untouched;
               the new UI language is active.
   shortcut    HST > Ngôn ngữ giao diện: the current choice is checked; "English" answered "No"
-              writes en-US without restarting; "Tiếng Việt" answered "Yes" restarts with the
-              open documents and a Vietnamese UI.
+              writes en-US without restarting; "Tiếng Việt" asks with Vietnamese buttons
+              ("Khởi động lại ngay" / "Để sau", focus on "Để sau") in the English UI and restarts with
+              the open documents and a Vietnamese UI.
 Evidence (JSON, screenshots) goes to --out. Exit 1 when a check fails.
 """
 import argparse
@@ -360,9 +361,24 @@ def phase_restart(args, check):
         office.stop()
 
 
+def dialog_buttons(office):
+    """[(label, focused, peer)] of the buttons of the active top window (our HST dialog)."""
+    window = office.service("com.sun.star.awt.Toolkit").getActiveTopWindow()
+    found = []
+    for child in (window.getWindows() if window is not None and hasattr(window, "getWindows") else ()):
+        if not hasattr(child, "setActionCommand"):  # XButton: push buttons only
+            continue
+        try:
+            label = child.getProperty("Label")
+        except Exception:  # noqa: BLE001 - not a button
+            continue
+        if isinstance(label, str) and label:
+            found.append((label.replace("~", ""), bool(child.hasFocus()), child))  # without access-key marks
+    return found
+
+
 def answer(office, title, key, timeout=30):
-    """Wait for our dialog `title` and press `key` in it (Escape = No); key "Yes" clicks the
-    Yes button (left of the centred Yes/No pair; No has the focus, so Return means No)."""
+    """Wait for our dialog `title` and press `key` in it (Escape/Return), or the button labelled `key`."""
     env = dict(os.environ, DISPLAY=office.display)
 
     def find():
@@ -371,13 +387,15 @@ def answer(office, title, key, timeout=30):
         return False
     time.sleep(1)
     wid = find()[0]
-    if key == "Yes":
-        info = subprocess.run(["xwininfo", "-display", office.display, "-id", wid], capture_output=True, text=True).stdout
-        width = int(info.split("Width: ")[1].split()[0])
-        height = int(info.split("Height: ")[1].split()[0])
-        subprocess.run(["xdotool", "mousemove", "--window", wid, str(width * 42 // 100), str(height - 18), "click", "1"],
-                       env=env, check=False, timeout=10)
-        return True
+    if key not in ("Escape", "Return"):  # a button label: press that button
+        for name, _focused, peer in dialog_buttons(office):
+            if name == key:
+                peer.setFocus()
+                time.sleep(0.5)
+                subprocess.run(["xdotool", "windowfocus", wid], env=env, check=False, timeout=10)
+                subprocess.run(["xdotool", "key", "space"], env=env, check=False, timeout=10)
+                return True
+        return False
     subprocess.run(["xdotool", "windowfocus", wid], env=env, check=False, timeout=10)
     time.sleep(0.5)
     subprocess.run(["xdotool", "key", key], env=env, check=False, timeout=10)
@@ -406,7 +424,12 @@ def phase_shortcut(args, check):
         office.screenshot(os.path.join(args.out, "shortcut-before-restart.png"))
         worker = threading.Thread(target=office.dispatch, args=(frame, SHORTCUT + "Vi"), daemon=True)
         worker.start()
-        check("[shortcut] Vietnamese asks to restart", answer(office, "Ngôn ngữ giao diện", "Yes"))
+        check("[shortcut] Vietnamese asks to restart", wait_for(lambda: len(dialog_buttons(office)) == 2, 30))
+        buttons = [(name, focused) for name, focused, _c in dialog_buttons(office)]
+        check("[shortcut] restart question has Vietnamese buttons in the English UI, focus on Để sau",
+              sorted(buttons) == [("Khởi động lại ngay", False), ("Để sau", True)], repr(buttons))
+        office.screenshot(os.path.join(args.out, "shortcut-restart-question.png"))
+        check("[shortcut] Khởi động lại ngay pressed", answer(office, "Ngôn ngữ giao diện", "Khởi động lại ngay"))
         check("[shortcut] office restarted on Yes", office.wait_restarted(old_pid))
         check_reopened(office, check, "shortcut", saved_odt, on_disk)
         check("[shortcut] Vietnamese UI after restart", office.read_config("/org.openoffice.Setup/L10N", "ooLocale") == "vi")

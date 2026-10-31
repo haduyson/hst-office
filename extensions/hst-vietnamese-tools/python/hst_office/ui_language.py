@@ -86,7 +86,8 @@ def run(ctx, frame, command):
     except Exception as exc:  # noqa: BLE001 - show configuration failures before offering restart
         message_box(ctx, peer, strings["title"], strings["saveError"].format(error=exc), error=True)
         return
-    if message_box(ctx, peer, strings["title"], strings["restart"], ask=True):
+    if message_box(ctx, peer, strings["title"], strings["restart"], ask=True,
+                   buttons=(strings["restartNow"], strings["later"])):
         request_restart(ctx)
 
 

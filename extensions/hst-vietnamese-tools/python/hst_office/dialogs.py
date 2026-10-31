@@ -157,13 +157,24 @@ class Dialog:
             self.dialog.dispose()
 
 
-def message_box(ctx, parent_peer, title, text, error=False, ask=False):
-    """Native message box; returns True for Yes/OK. `ask` shows Yes/No."""
-    from com.sun.star.awt.MessageBoxType import ERRORBOX, INFOBOX, QUERYBOX
-    toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-    buttons = 3 if ask else 1  # MessageBoxButtons: BUTTONS_OK=1, BUTTONS_YES_NO=3
-    box = toolkit.createMessageBox(parent_peer, QUERYBOX if ask else (ERRORBOX if error else INFOBOX), buttons, title, text)
-    try:
-        return box.execute() in (1, 2)  # RET_OK=1, RET_YES=2
-    finally:
-        box.dispose()
+def message_box(ctx, parent_peer, title, text, error=False, ask=False, buttons=None):
+    """HST message (always Vietnamese buttons, whatever the UI language); returns True for OK / the first button.
+
+    `ask` shows two buttons, `buttons`=(confirm, decline) or Có / Không; the decline button has the focus and is the
+    default, so Enter or Esc never confirm. `error` is kept for callers; the title says which tool reports it."""
+    import math
+    from .data_files import load_locale
+    common = load_locale("vi")["common"]
+    labels = (buttons or (common["yes"], common["no"])) if ask else (common["ok"],)
+    lines = sum(max(1, math.ceil(len(part) / 52)) for part in text.split("\n"))
+    width, text_height = 260, lines * 9 + 2
+    dialog = Dialog(ctx, title, width, text_height + 38)
+    dialog.label("text", text, 8, 8, width - 16, text_height, wrap=True)
+    y, x = text_height + 16, width - 8 - 70
+    results = (1, 0) if ask else (1,)
+    # the last label is inserted first: tab order, so it has the focus
+    for label, result in reversed(list(zip(labels, results))):
+        dialog.button("b%d" % result, label, x, y, 70, default=label == labels[-1],
+                      callback=lambda result=result: dialog.end(result))
+        x -= 74
+    return dialog.execute(parent_peer) == 1

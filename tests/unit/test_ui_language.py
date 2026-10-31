@@ -60,7 +60,7 @@ class CatalogTest(unittest.TestCase):
 
         compare(vi, en)
         self.assertEqual(vi["names"], {"vi": "Tiếng Việt", "en-US": "English", "": "Theo máy"})
-        self.assertEqual(set(vi), {"title", "locked", "selected", "saveError", "restart", "names"})
+        self.assertEqual(set(vi), {"title", "locked", "selected", "saveError", "restart", "restartNow", "later", "names"})
 
     def test_menu_titles_urls_contexts_and_placement(self):
         root = ET.parse(os.path.join(EXT, "Addons.xcu")).getroot()
@@ -136,7 +136,8 @@ class ActionTest(unittest.TestCase):
                 self.write.reset_mock()
                 self.restart.reset_mock()
                 ui.run(self.ctx, None, "UILanguageEn")
-                self.box.assert_called_once_with(self.ctx, None, self.strings["title"], self.strings["restart"], ask=True)
+                self.box.assert_called_once_with(self.ctx, None, self.strings["title"], self.strings["restart"], ask=True,
+                                                 buttons=(self.strings["restartNow"], self.strings["later"]))
                 if answer:
                     self.restart.assert_called_once_with(self.ctx)
                 else:
