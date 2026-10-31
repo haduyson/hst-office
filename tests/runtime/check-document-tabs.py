@@ -131,6 +131,11 @@ class Checker:
         r, g, b = Image.open(shot).convert("RGB").getpixel((left + 3, top + 100))
         return "blue" if b > r and b > g else "green" if g > r and g > b else "orange" if r > b else "?"
 
+    def menubar_shown(self, shot):
+        """Names of the document windows that show the classic menubar above the ribbon."""
+        return [n for w, n in hst_gui.toplevels(self.office.display, self.office.pid)
+                if is_document(n) and hst_gui.classic_menubar_visible(self.office.display, w, shot)]
+
     def key(self, keys):
         """Send keys to the visible document window (X focus set explicitly: no window manager)."""
         env = dict(os.environ, DISPLAY=self.office.display)
@@ -300,6 +305,8 @@ def run(args):
             shot = c.shot(f"11-mixed-tab-{index + 1}-{module.lower()}.png")
             visible = c.visible_frames()
             colours[module] = c.ribbon_colour(shot)
+            c.check(f"mixed group: {module} tab has no classic menubar above the ribbon", not c.menubar_shown(shot),
+                    repr(c.menubar_shown(shot)))
             c.check(f"mixed group: {module} tab shows the {module} window and ribbon",
                     len(visible) == 1 and module_of(office, visible[0]) == module and len(c.mapped()) == 1,
                     f"{title(visible[0]) if visible else '-'} ribbon border {colours[module]}")
@@ -355,6 +362,22 @@ def run(args):
                 c.wait(lambda: len(c.visible_frames()) == len(c.frames()) == 2 and len(c.mapped()) == 2),
                 repr(c.mapped()))
         c.shot("10-option-off-classic-windows.png")
+
+        # 9. A window hidden and shown again (tabs park windows; a document can also be hidden by a
+        #    macro) must keep the ribbon's hidden menubar hidden.
+        target = next(f for f in c.frames() if "Writer" in title(f))
+        container = target.getContainerWindow()
+        container.setVisible(False)
+        time.sleep(1.5)
+        container.setVisible(True)
+        time.sleep(2.5)
+        wid = next(w for w, n in hst_gui.toplevels(office.display, office.pid) if n == title(target))
+        subprocess.run(["xdotool", "windowraise", wid], env=dict(os.environ, DISPLAY=office.display), check=False,
+                       timeout=10)
+        time.sleep(1)
+        reshown = hst_gui.screenshot(os.path.join(args.shots, "15-window-reshown.png"), office.display)
+        c.check("window hidden and shown again keeps the menubar hidden",
+                not hst_gui.classic_menubar_visible(office.display, wid, reshown), title(target))
     finally:
         try:
             for doc in office.desktop().getComponents():

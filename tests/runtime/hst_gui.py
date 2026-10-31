@@ -298,3 +298,17 @@ def send_close_request(wid, display=":97"):
     xlib.XSendEvent(dpy, window, 0, 0, ctypes.byref(event))
     xlib.XFlush(dpy)
     xlib.XCloseDisplay(dpy)
+
+
+def classic_menubar_visible(display, wid, shot_path):
+    """True when the window `wid` shows the classic (GTK) menubar above its Tabbed ribbon.
+
+    The ribbon's frame starts at the window's top-left corner in the module colour (Writer blue,
+    Calc green, Impress orange); a classic menubar on top of it makes that corner a bright, almost
+    unsaturated grey. `shot_path` is a screenshot of the display taken while the window was on top."""
+    from PIL import Image
+    info = subprocess.run(["xwininfo", "-display", display, "-id", wid], capture_output=True, text=True).stdout
+    left = max(int(re.search(r"Absolute upper-left X:\s+(-?\d+)", info).group(1)), 0)
+    top = max(int(re.search(r"Absolute upper-left Y:\s+(-?\d+)", info).group(1)), 0)
+    red, green, blue = Image.open(shot_path).convert("RGB").getpixel((left + 3, top + 3))
+    return max(red, green, blue) - min(red, green, blue) < 18 and min(red, green, blue) > 200

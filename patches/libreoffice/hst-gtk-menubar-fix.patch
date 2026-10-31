@@ -1,0 +1,91 @@
+HST Office: GTK3 menubar fixes (classic menubar reappearing, crash on closed windows).
+
+1. vcl/source/window/menubarwindow.cxx: MenuBarWindow::SetMenu() showed the native menubar
+   unconditionally (ShowMenuBar(true)). MenuBar::SetDisplayable(false) removes the GTK widget, but
+   is a no-op while the flag is already false, so attaching a hidden menubar to a window again
+   (window hidden and shown again, which the document tabs do, or a hide that arrives while
+   SetMenu() runs its nested main loop) created a widget that nothing removed: the classic menubar
+   appeared above the Tabbed ribbon. The native menubar is now attached with
+   ShowMenuBar(IsDisplayable()). Windows (WinSalMenu) and macOS do not implement ShowMenuBar();
+   Qt gets the correct visibility.
+
+2. vcl/unx/gtk3: GtkSalMenu keeps a raw pointer to the GtkSalFrame of its window. The menubar
+   is owned by the layout manager of the document and can outlive the window (a UNO client that
+   still references the layout manager when the window is closed), and its update idle then ran
+   SetFrame() on the destroyed frame (crash in CreateMenuBarWidget, typically reached from the
+   nested main loop of gtk_clipboard_wait_for_targets while another menubar is being built).
+   ~GtkSalFrame now detaches the menubar (GtkSalMenu::DetachFromFrame: stop the update idle, drop
+   the widget, clear the frame pointer) and CreateMenuBarWidget ignores a menu without frame.
+
+--- a/vcl/source/window/menubarwindow.cxx
++++ b/vcl/source/window/menubarwindow.cxx
+@@ -191,7 +191,12 @@
+             ImplGetFrame()->SetMenu( m_pMenu->ImplGetSalMenu() );
+ 
+         m_pMenu->ImplGetSalMenu()->SetFrame( ImplGetFrame() );
+-        m_pMenu->ImplGetSalMenu()->ShowMenuBar(true);
++        // HST Office: attach the native menubar only when the menu is displayable. A menubar
++        // that was hidden (MenuBar::SetDisplayable(false), e.g. by the Tabbed ribbon) and is
++        // attached to a window again (hidden and shown again, or hidden while the attach runs
++        // its nested main loop) must stay hidden: SetDisplayable(false) is a no-op while the flag
++        // is already false, so a widget created here would never be removed again.
++        m_pMenu->ImplGetSalMenu()->ShowMenuBar(m_pMenu->IsDisplayable());
+     }
+ }
+ 
+--- a/vcl/inc/unx/gtk/gtksalmenu.hxx
++++ b/vcl/inc/unx/gtk/gtksalmenu.hxx
+@@ -121,6 +121,8 @@
+ 
+     void CreateMenuBarWidget();
+     void DestroyMenuBarWidget();
++    /// The frame is going away: forget it, drop the menubar widget and the pending update.
++    void DetachFromFrame();
+ #if !GTK_CHECK_VERSION(4, 0, 0)
+     gboolean SignalKey(GdkEventKey const * pEvent);
+ #endif
+--- a/vcl/unx/gtk3/gtksalmenu.cxx
++++ b/vcl/unx/gtk3/gtksalmenu.cxx
+@@ -938,7 +938,7 @@
+ 
+ void GtkSalMenu::CreateMenuBarWidget()
+ {
+-    if (mpMenuBarContainerWidget)
++    if (mpMenuBarContainerWidget || !mpFrame)
+         return;
+ 
+     GtkGrid* pGrid = mpFrame->getTopLevelGridWidget();
+@@ -1010,6 +1010,17 @@
+     mpCloseButton = nullptr;
+ }
+ 
++void GtkSalMenu::DetachFromFrame()
++{
++    SolarMutexGuard aGuard;
++    // The menubar is owned by the document's layout manager and can outlive the frame of its
++    // window (e.g. a client of the UNO API still holds the layout manager when the window is
++    // closed). Its update idle would then run SetFrame() on the destroyed frame.
++    maUpdateMenuBarIdle.Stop();
++    DestroyMenuBarWidget();
++    mpFrame = nullptr;
++}
++
+ void GtkSalMenu::SetFrame(const SalFrame* pFrame)
+ {
+     SolarMutexGuard aGuard;
+--- a/vcl/unx/gtk3/gtkframe.cxx
++++ b/vcl/unx/gtk3/gtkframe.cxx
+@@ -720,6 +720,13 @@
+         cairo_region_destroy( m_pRegion );
+     }
+ 
++    // HST Office: the menubar may outlive this frame; it must not keep a pointer to it.
++    if (m_pSalMenu)
++    {
++        m_pSalMenu->DetachFromFrame();
++        m_pSalMenu = nullptr;
++    }
++
+     m_pIMHandler.reset();
+ 
+     //tdf#108705 remove grabs on event widget before
