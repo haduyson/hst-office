@@ -287,6 +287,42 @@ def run(args):
                 f"frames={len(c.frames())} visible={len(c.visible_frames())}")
         c.shot("06-new-tab.png")
 
+        # 5b. "+" > Open File...: .uno:Open on the shown frame (target _self, exactly the popup's
+        #     dispatch) shows the file picker; the chosen document must open as the shown, active tab.
+        picked = write_odt(os.path.join(office.workdir, "popup-open.odt"), "Mở từ thẻ mới")
+        subprocess.run(["chown", hst_gui.BUILD_USER, picked], check=False)
+        frames_before = len(c.frames())  # an unmodified empty document is replaced by the opened one
+
+        def popup_open():
+            import uno
+            frame = c.visible_frames()[0]
+            url = uno.createUnoStruct("com.sun.star.util.URL")
+            url.Complete = ".uno:Open"
+            parser = office.service("com.sun.star.util.URLTransformer")
+            url = parser.parseStrict(url)[1]
+            dispatch = frame.queryDispatch(url, "_self", 0)
+            if dispatch is not None:
+                dispatch.dispatch(url, ())
+
+        threading.Thread(target=popup_open, daemon=True).start()
+        env = dict(os.environ, DISPLAY=office.display)
+        picker = c.wait(lambda: any(not is_doc_window(n) for _w, n in hst_gui.toplevels(office.display, office.pid)), 20)
+        c.check("popup Open File: the file picker opens", picker,
+                repr([n for _w, n in hst_gui.toplevels(office.display, office.pid)]))
+        if picker:
+            time.sleep(1.5)
+            wid = next(w for w, n in hst_gui.toplevels(office.display, office.pid) if not is_doc_window(n))
+            subprocess.run(["xdotool", "windowfocus", "--sync", wid], env=env, check=False, timeout=15)
+            for keys in (["key", "ctrl+l"], ["type", "--delay", "20", picked], ["key", "Return"]):
+                subprocess.run(["xdotool"] + keys, env=env, check=False, timeout=30)
+                time.sleep(0.7)
+        c.check("popup Open File: the document opens as the shown active tab",
+                c.wait(lambda: len(c.frames()) in (frames_before, frames_before + 1) and len(c.visible_frames()) == 1
+                       and "popup-open" in title(c.visible_frames()[0]) and c.visible_frames()[0].isActive(), 30),
+                ", ".join(title(f) for f in c.visible_frames()))
+        c.check("popup Open File: one mapped window afterwards", c.wait(lambda: len(c.mapped()) == 1, 10), repr(c.mapped()))
+        c.shot("06b-popup-open-file.png")
+
         # 6. Title-bar X closes the whole group like a browser window: each modified document
         #    asks in turn; "Don't save" on the first, Cancel on the second keeps that tab.
         for frame in c.frames():
