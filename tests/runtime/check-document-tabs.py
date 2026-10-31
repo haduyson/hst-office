@@ -266,6 +266,21 @@ def run(args):
                 c.wait(lambda: len(c.visible_frames()) == 1 and title(c.visible_frames()[0]) != shown_title),
                 ", ".join(title(f) for f in c.visible_frames()))
         c.check("application alive, one mapped window", len(c.mapped()) == 1, repr(c.mapped()))
+        # The neighbour must be the active, focused top-level (no app switch to another window).
+        def neighbour_active():
+            frame = c.visible_frames()[0]
+            return frame.isActive() and office.desktop().getActiveFrame() == frame
+        c.check("after closing a tab the neighbour is the active frame",
+                c.wait(neighbour_active),
+                f"active={title(office.desktop().getActiveFrame()) if office.desktop().getActiveFrame() else None}")
+        mapped = c.mapped()
+        focus = subprocess.run(["xdotool", "getwindowfocus"], env={**os.environ, "DISPLAY": office.display},
+                               capture_output=True, text=True, check=False).stdout.strip()
+        # Without a window manager X focus follows the pointer/root, so only require that the
+        # focused window is not another application's window when a focus owner exists.
+        owner = hst_gui.window_pid(focus, office.display) if focus.isdigit() else None
+        c.check("after closing a tab X focus is not in another application",
+                owner in (None, office.pid), f"focus={focus} pid={owner} mapped={mapped}")
         c.shot("05-after-close.png")
 
         # 5. New tab through the same dispatch the "+" button uses.
