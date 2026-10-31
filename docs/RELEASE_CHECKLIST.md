@@ -36,3 +36,10 @@ Một bản phát hành chỉ được đánh dấu sẵn sàng khi **mọi mụ
 
 - [ ] Windows x64 `.msi` (OPS-01, SIGN-01, QA-01).
 - [ ] macOS arm64 `.dmg` + notarization (OPS-01, SIGN-01, MAC-01) — kèm số đo độ trễ chuột phải trước/sau trên Mac thật.
+
+## Đưa bản phát hành lên office.hasontech.vn (mọi phiên bản từ beta 4.1)
+
+- [ ] Phát hành trên GitHub (tag `v<release>`, tạo release bằng tài khoản chủ dự án rồi chạy `release.yml` với `append=true` cho từng nền tảng).
+- [ ] Nền tảng nào build xong thì gửi ngay cho phiên quản lý website: tag, tên tệp, kích thước, SHA256. Website tải tệp về `tai/<release>/`, kiểm tra `sha256sum -c`, rồi chuyển `/tai/windows|linux|macos-arm|macos-intel` và `/tai/sha256`.
+- [ ] Khi đủ cả ba hệ điều hành: tạo và ký `update/latest.json` + `update/latest-2.json` (`generate-update-manifest.py`, `sign-update-manifest.py`), gửi kèm; website cập nhật nhãn phiên bản, `/diem-moi/`, dòng hỗ trợ, đồng bộ hướng dẫn (`sync-help.py --ref v<release>`) và đăng manifest — một lần.
+- [ ] Kiểm tra lại: 4 link `/tai/*` trả đúng tệp từ office.hasontech.vn, manifest báo đúng phiên bản.
