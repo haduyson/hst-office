@@ -170,7 +170,9 @@ tiếng Việt, icon). Trên Apple Silicon, bundle bị cách ly (quarantine) nh
 `--collect` ký lại ad-hoc toàn bộ app sau thay đổi cuối cùng bằng [adhoc-sign.sh](../scripts/macos/adhoc-sign.sh)
 (từ trong ra ngoài như `macosx-codesign-app-bundle`) và chặn build nếu `codesign --verify --deep --strict`
 lỗi; `--verify` kiểm lại trên dmg. Có thể kiểm một dmg đã phát hành bằng
-[macos-signature-probe.yml](../.github/workflows/macos-signature-probe.yml) (input `tag`).
+[macos-signature-probe.yml](../.github/workflows/macos-signature-probe.yml) (input `tag`); với `sign=true`
+workflow này chạy luôn đường ký Developer ID + notarize trên app đó (environment `macos-signing`, cần duyệt) và
+tải dmg đã ký lên artifact `macos-signing-probe-arm64-dmg-signed-<run_id>` (3 ngày).
 
 Người dùng macOS 15: mở app → hộp "Apple không thể xác minh…" → **Xong** → **Cài đặt hệ thống ▸ Quyền riêng
 tư & Bảo mật ▸ Vẫn mở** (*Open Anyway*) → xác nhận mật khẩu → mở lại, chọn **Vẫn mở**. Dự phòng:
@@ -190,6 +192,10 @@ Secret (repository hoặc environment `macos-signing`):
 | `APPLE_TEAM_ID` | Team ID 10 ký tự |
 | `APPLE_API_KEY_P8_BASE64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID` | Khóa App Store Connect API (`.p8` base64, Key ID, Issuer ID) cho `xcrun notarytool` |
 
+Bộ ký ([make-signing-kit.sh](../scripts/macos/make-signing-kit.sh)) giữ script upstream và **mẫu** `.in` của
+entitlement/launch constraint; lúc ký mới điền bundle ID và `APPLE_TEAM_ID` (configure không ký để trống team ID,
+helper ký xong sẽ không chạy được). Trước script upstream, mọi tệp Mach-O được ký Developer ID với hardened runtime
+và timestamp; sau đó kiểm từng tệp có chữ ký Developer ID kèm timestamp trước khi gửi notarize.
 [sign-notarize.sh](../scripts/macos/sign-notarize.sh) nhập chứng chỉ vào keychain tạm (luôn xóa ở bước
 cuối, kể cả khi lỗi), ký app bằng chính script upstream `solenv/bin/macosx-codesign-app-bundle` với
 hardened runtime và entitlement do configure sinh (`hardened_runtime.xcent`, launch constraint) — đúng

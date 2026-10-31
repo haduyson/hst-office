@@ -49,35 +49,99 @@ do_import() {
   echo "imported Developer ID identity into a temporary keychain"
 }
 
+deepest_first() { awk -F/ '{ print NF "\t" $0 }' | sort -rn | cut -f2-; }  # bundle paths contain no newlines
+macho_files() { # macho_files <app>: every Mach-O file in the bundle, deepest first
+  local f
+  while IFS= read -r f; do file -b "$f" | grep -q 'Mach-O' && printf '%s\n' "$f"; done \
+    < <(find "$1/Contents" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.dylib.*' -o -name '*.so' \) | deepest_first)
+}
+
+prepare_kit() { # prepare_kit <kit> <dir>: fill the upstream templates for this identity (BUILDDIR/SRCDIR layout)
+  local kit="$1" dir="$2"
+  mkdir -p "$dir/build/sysui/desktop/macosx" "$dir/src/sysui/desktop/macosx"
+  # Release build: no get-task-allow (notarization rejects it).
+  sed -e 's/@GET_TASK_ALLOW_ENTITLEMENT@//' "$kit/templates/hardened_runtime.xcent.in" > "$dir/build/hardened_runtime.xcent"
+  # The parent-process constraint names our bundle id and team (empty in an unsigned configure).
+  sed -e "s/@MACOSX_BUNDLE_IDENTIFIER@/$BUNDLE_ID/" -e "s/@MACOSX_CODESIGNING_TEAM_IDENTIFIER@/$APPLE_TEAM_ID/" \
+    "$kit/templates/LaunchConstraint.plist.in" > "$dir/build/sysui/desktop/macosx/LaunchConstraint.plist"
+  cp "$kit/templates/quicklookappex.entitlements" "$dir/src/sysui/desktop/macosx/"
+  ! grep -q '@[A-Z_]*@' "$dir/build/hardened_runtime.xcent" "$dir/build/sysui/desktop/macosx/LaunchConstraint.plist" \
+    || { echo "unfilled placeholders in the signing kit" >&2; return 1; }
+  plutil -lint "$dir/build/hardened_runtime.xcent" "$dir/build/sysui/desktop/macosx/LaunchConstraint.plist"
+  if grep -q 'get-task-allow' "$dir/build/hardened_runtime.xcent"; then echo "get-task-allow in entitlements" >&2; return 1; fi
+}
+
+check_signatures() { # check_signatures <app>: every Mach-O has a timestamped Developer ID signature
+  local f info bad=0 total=0
+  while IFS= read -r f; do
+    total=$((total + 1))
+    info="$(codesign -dvv "$f" 2>&1)" || { echo "unsigned: ${f#"$1"/}"; bad=$((bad + 1)); continue; }
+    grep -q '^Authority=Developer ID Application' <<<"$info" || { echo "not Developer ID: ${f#"$1"/}"; bad=$((bad + 1)); continue; }
+    grep -q '^Timestamp=' <<<"$info" || { echo "no secure timestamp: ${f#"$1"/}"; bad=$((bad + 1)); }
+  done < <(macho_files "$1")
+  echo "Developer ID check: $total Mach-O files, $bad problems"
+  [ "$bad" -eq 0 ]
+}
+
+notary_summary() { # notary_summary <log.json>: the issues Apple reported, one line each
+  python3 - "$1" <<'PY'
+import json, sys
+log = json.load(open(sys.argv[1]))
+print(f"status: {log.get('status')} - {log.get('statusSummary')}")
+for issue in log.get("issues") or []:
+    print(f"{issue.get('severity')}: {issue.get('path')} [{issue.get('architecture')}] {issue.get('message')}")
+PY
+}
+
 do_sign() {
   local dmg="$1" kit="$2" out="$3" mnt="$TMP/mnt" stage="$TMP/stage" name app signed
   name="$(basename "$dmg")"; signed="$out/$name"
-  rm -rf "$mnt" "$stage"; mkdir -p "$mnt" "$stage" "$out"
+  rm -rf "$mnt" "$stage" "$TMP/kit"; mkdir -p "$mnt" "$stage" "$out"
+  prepare_kit "$kit" "$TMP/kit"
   hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$dmg" >/dev/null
-  ditto "$mnt/HST Office.app" "$stage/HST Office.app"
+  # Upstream's script does not quote every path: sign under the space-free bundle name, rename after
+  # (the bundle directory name is not part of the signature).
+  ditto "$mnt/HST Office.app" "$stage/HSTOffice.app"
   hdiutil detach "$mnt" >/dev/null
-  app="$stage/HST Office.app"
-  [ -d "$app" ] || { echo "HST Office.app not in $name" >&2; return 1; }
-  # Upstream's own signing pass (what --enable-macosx-code-signing runs at packaging time):
-  # dylibs, nested apps, frameworks, executables, then the bundle, hardened runtime + entitlements.
-  env BUILDDIR="$kit/build" SRCDIR="$kit/src" MACOSX_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+  app="$stage/HSTOffice.app"
+  [ -d "$app/Contents/MacOS" ] || { echo "HST Office.app not in $name" >&2; return 1; }
+  # 1. Every Mach-O, deepest first: Developer ID, hardened runtime, secure timestamp. Covers files
+  #    outside the patterns of upstream's script, which then re-signs the ones it knows.
+  local f n=0
+  while IFS= read -r f; do
+    codesign --force --timestamp --options=runtime --sign "$MACOS_SIGNING_IDENTITY" "$f" 2>&1 | { grep -v 'replacing existing signature' || :; }
+    n=$((n + 1))
+  done < <(macho_files "$app")
+  echo "pre-signed $n Mach-O files"
+  # 2. Upstream's own pass (what --enable-macosx-code-signing runs at packaging time): identifiers,
+  #    entitlements and launch constraints for executables, nested bundles, then the app.
+  env BUILDDIR="$TMP/kit/build" SRCDIR="$TMP/kit/src" MACOSX_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     MACOSX_CODESIGNING_IDENTITY="$MACOS_SIGNING_IDENTITY" ENABLE_MACOSX_SANDBOX= ENABLE_RELEASE_BUILD=TRUE \
-    bash "$kit/macosx-codesign-app-bundle" "$app"
-  codesign --verify --deep --strict --verbose=2 "$app"
+    bash "$kit/macosx-codesign-app-bundle" "$app" 2>&1 | { grep -v 'replacing existing signature' || :; }
+  # 3. Gates before spending a notarization round trip.
+  check_signatures "$app"
+  codesign --verify --deep --strict "$app"
+  codesign -dvv --entitlements - "$app" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|Timestamp|flags)|CodeDirectory|security\.' || :
+  mv "$app" "$stage/HST Office.app"; app="$stage/HST Office.app"
   rm -f "$signed"
   # Same HST layout (background, volume icon, icon positions) as the unsigned image.
   bash "$(dirname "${BASH_SOURCE[0]}")/build-dmg.sh" "$app" "$signed"
   codesign --force --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$signed"
   echo "notarizing $name (waits for Apple)"
+  local rc=0 id status
   xcrun notarytool submit "$signed" --key "$TMP/api-key.p8" --key-id "$APPLE_API_KEY_ID" \
     --issuer "$APPLE_API_ISSUER_ID" --team-id "$APPLE_TEAM_ID" --wait --timeout 2h --output-format json \
-    > "$out/notarytool-submit.json"
-  local id status
-  id="$(plutil -extract id raw "$out/notarytool-submit.json")"
-  status="$(plutil -extract status raw "$out/notarytool-submit.json")"
-  xcrun notarytool log "$id" --key "$TMP/api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" \
-    --team-id "$APPLE_TEAM_ID" "$out/notarytool-log.json" >/dev/null
-  [ "$status" = Accepted ] || { echo "notarization status: $status (see notarytool-log.json)" >&2; return 1; }
+    > "$out/notarytool-submit.json" || rc=$?
+  cat "$out/notarytool-submit.json"
+  id="$(plutil -extract id raw "$out/notarytool-submit.json" 2>/dev/null || :)"
+  status="$(plutil -extract status raw "$out/notarytool-submit.json" 2>/dev/null || :)"
+  if [ -n "$id" ]; then
+    xcrun notarytool log "$id" --key "$TMP/api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" \
+      --team-id "$APPLE_TEAM_ID" "$out/notarytool-log.json" >/dev/null && notary_summary "$out/notarytool-log.json"
+  fi
+  if [ "$rc" -ne 0 ] || [ "$status" != Accepted ]; then
+    echo "notarization failed: status '${status:-none}', exit $rc" >&2; return 1
+  fi
   xcrun stapler staple "$signed"
   xcrun stapler validate "$signed"
   spctl -a -t open --context context:primary-signature -v "$signed"

@@ -186,6 +186,31 @@ class WorkflowTests(unittest.TestCase):
                 mutate(workflow)
                 self.assertTrue(self.check(workflow, name))
 
+    def test_macos_signing_probe_keeps_secrets_gated(self):
+        name = "macos-signature-probe.yml"
+        original = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=CHECK.WorkflowLoader)
+        self.assertEqual([], self.check(original, name))
+
+        def named(w, label):
+            return next(s for s in w["jobs"]["sign"]["steps"] if s.get("name") == label)
+
+        mutations = {
+            "ungated secret": lambda w: named(w, "Sign, notarize, staple and verify").pop("if"),
+            "secret in probe job": lambda w: w["jobs"]["probe"]["steps"][1].update(
+                {"env": {"KEY": "${{ secrets.APPLE_API_KEY_ID }}"}}),
+            "no environment": lambda w: w["jobs"]["sign"].pop("environment"),
+            "other job condition": lambda w: w["jobs"]["sign"].update({"if": "${{ always() }}"}),
+            "conditional probe job": lambda w: w["jobs"]["probe"].update({"if": "${{ inputs.sign }}"}),
+            "keychain kept on failure": lambda w: named(w, "Delete temporary keychain").pop("if"),
+            "signed upload ungated": lambda w: named(w, "Upload signed dmg").update({"if": "${{ always() }}"}),
+            "extra job": lambda w: w["jobs"].update({"other": copy.deepcopy(w["jobs"]["probe"])}),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(mutation=label):
+                workflow = copy.deepcopy(original)
+                mutate(workflow)
+                self.assertTrue(self.check(workflow, name))
+
     def test_secrets_are_rejected_outside_the_macos_signing_job(self):
         self.quality["jobs"]["quality"]["steps"][4]["env"] = {"KEY": "${{ secrets.APPLE_API_KEY_ID }}"}
         self.assertTrue(any("secrets only" in error for error in self.check(self.quality)))
