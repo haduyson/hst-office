@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: macOS startup probe
+# Times HST Office start-up (cold and warm profile, with and without the welcome dialog) on a GUI runner for the
+# shipped extension code and for this checkout's extension code overlaid on the same bundle. Evidence only.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag whose arm64 dmg is probed'
+        type: string
+        default: v1.0.0-beta.2
+permissions:
+  contents: read
+concurrency:
+  group: macos-startup-probe
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Download the released arm64 dmg
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/dmg"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg"
+      - name: Probe start-up
+        shell: bash
+        run: |
+          set -eu
+          dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
+          bash scripts/macos/startup-probe.sh "$dmg" "$RUNNER_TEMP/startup"
+      - name: Summarize
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/startup/summary.md" ]; then
+            cat "$RUNNER_TEMP/startup/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload probe evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-startup-probe-${{ github.run_id }}
+          path: ${{ runner.temp }}/startup/
+          if-no-files-found: error
+          retention-days: 7

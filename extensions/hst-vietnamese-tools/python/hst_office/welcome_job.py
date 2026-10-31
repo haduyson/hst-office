@@ -8,6 +8,7 @@ again" tick is on by default; closing with it cleared writes Shown=false so the 
 import traceback
 
 import unohelper
+from com.sun.star.awt import XCallback
 from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
@@ -16,6 +17,7 @@ from .welcome_dialog import Welcome
 
 JOB_NAME = "org.hst.office.vi.WelcomeJob"
 CONFIG_PATH = "/org.hasontech.hstoffice.Welcome"
+DEFER_TURNS = 1  # event-loop passes to wait before the dialog opens
 
 
 def _access(ctx, writable):
@@ -55,6 +57,37 @@ def _safe(fn, *args):
         traceback.print_exc()
 
 
+class _Later(unohelper.Base, XCallback):
+    """Runs `fn` on the office's main thread after `turns` further passes of the event loop."""
+
+    def __init__(self, ctx, fn, turns):
+        self.ctx, self.fn, self.turns = ctx, fn, turns
+
+    def notify(self, data):
+        try:
+            if self.turns > 0:
+                self.turns -= 1
+                _post(self.ctx, self)
+            else:
+                self.fn()
+        except Exception:  # noqa: BLE001 - never raise into the office's event loop
+            traceback.print_exc()
+
+
+def _post(ctx, callback):
+    ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.AsyncCallback", ctx).addCallback(callback, None)
+
+
+def show_after_start_center(ctx, turns=DEFER_TURNS):
+    """Show the welcome dialog once the event loop is back, not inside the job.
+
+    onFirstVisibleTask fires while the Start Center frame is still being shown, before its content is built
+    and painted; a modal dialog opened right there keeps the Start Center blank until it closes, so the
+    office seems to load slowly after "Đóng". Posting the dialog to the main loop lets the Start Center
+    finish first and appear behind the dialog."""
+    _post(ctx, _Later(ctx, lambda: show_welcome(ctx, "welcome"), turns))
+
+
 class WelcomeJob(unohelper.Base, XServiceInfo, XJob):
     def __init__(self, ctx):
         self.ctx = ctx
@@ -71,7 +104,7 @@ class WelcomeJob(unohelper.Base, XServiceInfo, XJob):
     def execute(self, arguments):
         try:
             if not is_shown(self.ctx):
-                show_welcome(self.ctx, "welcome")
+                show_after_start_center(self.ctx)
         except Exception:  # noqa: BLE001 - never block start-up
             traceback.print_exc()
         return None
