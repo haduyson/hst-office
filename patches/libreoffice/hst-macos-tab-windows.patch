@@ -1,0 +1,313 @@
+HST Office: document tab windows on macOS and Windows switch without a window animation, and on
+macOS the tabs of a native full screen window stay in its Space.
+
+Switching a document tab shows one top-level window and hides another. On macOS every native full
+screen window owns a Space, so the switch played the Space swipe and closing the shown tab left the
+full screen Space (the application looked gone). The framework tells vcl which windows are tab group
+members (hst_vcl_set_tab_group_member, vcl/source/window/syswin.cxx; no public header changes):
+
+- macOS (vcl/osx/salframe.cxx): members get NSWindowAnimationBehaviorNone; showing a member while
+  another member is native full screen adds it to that window's NSWindow tab group (the native tab
+  bar is toggled off), so the switch only selects a tab and stays in the Space; hiding a member
+  orders it out instead of closing it (a member of a full screen tab group is already hidden by the
+  selection; a native full screen window outside a group keeps the close, tdf#161623); after
+  hiding, the application stays frontmost and a visible tab becomes key.
+- Windows (vcl/win/window/salframe.cxx): DWMWA_TRANSITIONS_FORCEDISABLED for member windows, so the
+  DWM fade/zoom of ShowWindow does not play on a switch.
+- GTK3: no change (switching measured at 0.1-0.4 s, no gap between hide and show).
+
+--- a/vcl/source/window/syswin.cxx
++++ b/vcl/source/window/syswin.cxx
+@@ -323,6 +323,37 @@
+     }
+ }
+ 
++// HST Office: the document tab group (framework) tells the frame of a tab window that it is a
++// group member. Only the macOS and Windows backends use it (no window animation; on macOS tabs
++// also share the native full screen Space); declared here and in the framework instead of a public header on purpose.
++#if defined MACOSX
++void hst_osx_set_tab_group_member(SalFrame* pFrame, bool bMember);
++#elif defined _WIN32
++void hst_win_set_tab_group_member(SalFrame* pFrame, bool bMember);
++#endif
++
++SAL_DLLPUBLIC_EXPORT void hst_vcl_set_tab_group_member(vcl::Window* pWindow, bool bMember)
++{
++#if defined MACOSX || defined _WIN32
++    if (!pWindow)
++        return;
++    const vcl::Window* pFrameWindow = pWindow;
++    while (pFrameWindow->mpWindowImpl->mpBorderWindow)
++        pFrameWindow = pFrameWindow->mpWindowImpl->mpBorderWindow;
++    if (pFrameWindow->mpWindowImpl->mbFrame)
++    {
++#if defined MACOSX
++        hst_osx_set_tab_group_member(pFrameWindow->mpWindowImpl->mpFrame, bMember);
++#else
++        hst_win_set_tab_group_member(pFrameWindow->mpWindowImpl->mpFrame, bMember);
++#endif
++    }
++#else
++    (void)pWindow;
++    (void)bMember;
++#endif
++}
++
+ void SystemWindow::SetIcon( sal_uInt16 nIcon )
+ {
+     if ( mnIcon == nIcon )
+--- a/vcl/osx/salframe.cxx
++++ b/vcl/osx/salframe.cxx
+@@ -39,6 +39,8 @@
+ 
+ #include <osx/saldata.hxx>
+ #include <quartz/salgdi.h>
++#include <algorithm>
++#include <vector>
+ #include <osx/salframe.h>
+ #include <osx/salmenu.h>
+ #include <osx/salinst.h>
+@@ -54,6 +56,9 @@
+ AquaSalFrame* AquaSalFrame::s_pCaptureFrame = nullptr;
+ AquaSalFrame* AquaSalFrame::s_pHeadlessFocusFrame = nullptr;
+ 
++// HST Office: frames of the document tab group, in no particular order
++static std::vector<AquaSalFrame*> s_aTabGroupFrames;
++
+ AquaSalFrame::AquaSalFrame( SalFrame* pParent, SalFrameStyleFlags salFrameStyle ) :
+     mpNSWindow(nil),
+     mpNSView(nil),
+@@ -86,6 +91,7 @@
+     mbInternalFullScreen( false ),
+     maInternalFullScreenRestoreRect( NSZeroRect ),
+     maInternalFullScreenExpectedRect( NSZeroRect ),
++    mbTabGroupMember( false ),
+     mbNativeFullScreen( false ),
+     maNativeFullScreenRestoreRect( NSZeroRect ),
+     mbHeadlessMode(Application::IsBitmapRendering())
+@@ -125,6 +131,8 @@
+ 
+     assert( GetSalData()->mpInstance->IsMainThread() );
+ 
++    SetTabGroupMember( false );
++
+     // if the frame is destroyed and has the current menubar
+     // set the default menubar
+     if( mpMenu && mpMenu->mbMenuBar && AquaSalMenu::pCurrentMenuBar == mpMenu )
+@@ -379,6 +387,62 @@
+ {
+ }
+ 
++void AquaSalFrame::SetTabGroupMember( bool bMember )
++{
++    OSX_SALDATA_RUNINMAIN( SetTabGroupMember( bMember ) )
++
++    if( mbTabGroupMember == bMember )
++        return;
++    mbTabGroupMember = bMember;
++    auto it = std::find( s_aTabGroupFrames.begin(), s_aTabGroupFrames.end(), this );
++    if( bMember )
++    {
++        if( it == s_aTabGroupFrames.end() )
++            s_aTabGroupFrames.push_back( this );
++    }
++    else if( it != s_aTabGroupFrames.end() )
++        s_aTabGroupFrames.erase( it );
++    if( !mpNSWindow || mbHeadlessMode )
++        return;
++    // Switching tabs must look like a browser: no window animation (zoom, fade) on show and hide.
++    [mpNSWindow setAnimationBehavior: bMember ? NSWindowAnimationBehaviorNone
++                                              : NSWindowAnimationBehaviorDefault];
++    if( bMember )
++        [mpNSWindow setTabbingIdentifier: @"org.hasontech.hstoffice.document"];
++    else if( [mpNSWindow tabbedWindows] != nil )
++        [[mpNSWindow tabGroup] removeWindow: mpNSWindow];
++}
++
++void AquaSalFrame::joinNativeFullScreenTabs()
++{
++    if( !mpNSWindow || mbHeadlessMode || [mpNSWindow tabbedWindows] != nil )
++        return;
++    // Every native full screen window owns a Space, so showing a second window while the first
++    // one is full screen plays the Space swipe. As tabs of one NSWindow group they share the
++    // Space and the full screen state; selecting a tab (the show below) is instant. The native
++    // tab bar stays hidden: the document tab strip of HST Office is the one the user sees.
++    for( AquaSalFrame* pOther : s_aTabGroupFrames )
++    {
++        if( pOther == this || !pOther->mpNSWindow )
++            continue;
++        NSWindow* pWindow = pOther->mpNSWindow;
++        if( !([pWindow styleMask] & NSWindowStyleMaskFullScreen) )
++            continue;
++        [pWindow addTabbedWindow: mpNSWindow ordered: NSWindowAbove];
++        NSWindowTabGroup* pGroup = [pWindow tabGroup];
++        if( pGroup && [pGroup isTabBarVisible] )
++            [pWindow toggleTabBar: nil];
++        break;
++    }
++}
++
++// Called from vcl/source/window/syswin.cxx (hst_vcl_set_tab_group_member)
++void hst_osx_set_tab_group_member( SalFrame* pFrame, bool bMember )
++{
++    if( pFrame )
++        static_cast<AquaSalFrame*>( pFrame )->SetTabGroupMember( bMember );
++}
++
+ void AquaSalFrame::SetRepresentedURL( const OUString& i_rDocURL )
+ {
+     OSX_SALDATA_RUNINMAIN( SetRepresentedURL( i_rDocURL ) )
+@@ -529,6 +593,10 @@
+         // trigger filling our backbuffer
+         SendPaintEvent();
+ 
++        // HST Office: a tab shown while another tab is in native full screen joins its Space
++        if( mbTabGroupMember )
++            joinNativeFullScreenTabs();
++
+         if( bNoActivate || [mpNSWindow canBecomeKeyWindow] == NO )
+             [mpNSWindow orderFront: NSApp];
+         else
+@@ -568,11 +636,34 @@
+         if( mpParent && [mpNSWindow parentWindow] == mpParent->mpNSWindow )
+             [mpParent->mpNSWindow removeChildWindow: mpNSWindow];
+ 
++        // HST Office: hiding a document tab. The tab that replaces it has been shown (and made
++        // key) before, so ordering out is safe and plays no close animation; a tab in a tab
++        // group of a native full screen window is already hidden by the selection of the other
++        // tab and must stay in the group. A native full screen window that is not in a group
++        // keeps the close below (tdf#161623).
++        const bool bTabGroupHide = mbTabGroupMember
++            && ( [mpNSWindow tabbedWindows] != nil
++                 || !([mpNSWindow styleMask] & NSWindowStyleMaskFullScreen) );
++        const bool bAppWasActive = bTabGroupHide && [NSApp isActive];
++        if( bTabGroupHide )
++        {
++            if( [mpNSWindow tabbedWindows] == nil )
++                [mpNSWindow orderOut: NSApp];
++            else if( [mpNSWindow isVisible] )
++            {
++                // still the selected tab (nothing replaced it): leave the group before hiding
++                [[mpNSWindow tabGroup] removeWindow: mpNSWindow];
++                [mpNSWindow orderOut: NSApp];
++            }
++        }
++        else
++        {
+         // Related: tdf#161623 close windows, don't order them out
+         // Ordering out a native full screen window would leave the
+         // application in a state where there is no Desktop and both
+         // the menubar and the Dock are hidden.
+         [mpNSWindow close];
++        }
+ 
+         // Related: tdf#165448 move parent window to front after closing window
+         // When a floating window such as the dropdown list in the
+@@ -588,6 +679,25 @@
+         NSWindow *pKeyWin = [NSApp keyWindow];
+         if( pKeyWin )
+             [pKeyWin orderFront: NSApp];
++        if( bAppWasActive )
++        {
++            // HST Office: the application stays in front when a tab closes: key the visible tab
++            // and activate the application if hiding this window deactivated it
++            if( ![NSApp keyWindow] )
++            {
++                for( AquaSalFrame* pTab : s_aTabGroupFrames )
++                {
++                    if( pTab != this && pTab->mpNSWindow && [pTab->mpNSWindow isVisible]
++                        && [pTab->mpNSWindow canBecomeKeyWindow] )
++                    {
++                        [pTab->mpNSWindow makeKeyAndOrderFront: NSApp];
++                        break;
++                    }
++                }
++            }
++            if( ![NSApp isActive] )
++                [NSApp activateIgnoringOtherApps: YES];
++        }
+     }
+ }
+ 
+--- a/vcl/inc/osx/salframe.h
++++ b/vcl/inc/osx/salframe.h
+@@ -108,6 +108,9 @@
+     // Desired window size when entering exiting LibreOffice full screen mode
+     NSRect                          maInternalFullScreenExpectedRect;
+ 
++    // HST Office: window of a document tab group (see DocumentTabGroup in the framework)
++    bool                            mbTabGroupMember;
++
+     // Is window in native full screen mode
+     bool                            mbNativeFullScreen;
+     // Window size to restore to when exiting LibreOffice full screen mode
+@@ -130,6 +133,10 @@
+     virtual void                SetTitle( const OUString& rTitle ) override;
+     virtual void                SetIcon( sal_uInt16 nIcon ) override;
+     virtual void                SetRepresentedURL( const OUString& ) override;
++    /// HST Office: mark the window as a document tab (no window animation, tabs of a native
++    /// full screen window join its Space instead of opening their own).
++    void                        SetTabGroupMember( bool bMember );
++    void                        joinNativeFullScreenTabs();
+     virtual void                SetMenu( SalMenu* pSalMenu ) override;
+     virtual void                Show( bool bVisible, bool bNoActivate = false ) override;
+     virtual void                SetMinClientSize( tools::Long nWidth, tools::Long nHeight )
+--- a/vcl/win/window/salframe.cxx
++++ b/vcl/win/window/salframe.cxx
+@@ -1151,6 +1151,18 @@
+     }
+ }
+ 
++// HST Office: called from vcl/source/window/syswin.cxx. A document tab window is shown and hidden
++// when the user switches tabs: turn off the DWM show/hide transition (fade and zoom) so the switch
++// is instant like a browser tab.
++void hst_win_set_tab_group_member( SalFrame* pFrame, bool bMember )
++{
++    WinSalFrame* pWinFrame = static_cast<WinSalFrame*>( pFrame );
++    if ( !pWinFrame || !pWinFrame->mhWnd )
++        return;
++    const BOOL bDisable = bMember ? TRUE : FALSE;
++    DwmSetWindowAttribute( pWinFrame->mhWnd, DWMWA_TRANSITIONS_FORCEDISABLED, &bDisable, sizeof(bDisable) );
++}
++
+ void WinSalFrame::SetExtendedFrameStyle( SalExtStyle )
+ {
+ }
+--- a/framework/source/services/documenttabgroup.cxx
++++ b/framework/source/services/documenttabgroup.cxx
+@@ -50,6 +50,9 @@
+ #include <vcl/vclevent.hxx>
+ #include <vcl/wrkwin.hxx>
+ 
++// Implemented in vcl (syswin.cxx): marks the window's frame as a document tab (macOS only).
++void hst_vcl_set_tab_group_member(vcl::Window* pWindow, bool bMember);
++
+ using namespace css;
+ 
+ namespace framework
+@@ -358,6 +361,7 @@
+     Member aMember;
+     aMember.xFrame = xFrame;
+     aMember.pWindow = VCLUnoHelper::GetWindow(xFrame->getContainerWindow());
++    hst_vcl_set_tab_group_member(aMember.pWindow, true);
+     // New tabs open to the right of the active one, like a browser.
+     auto it = m_aMembers.end();
+     if (Member* pActive = activeMember())
+@@ -685,6 +689,8 @@
+         VclPtr<vcl::Window> pGeometry = pMember->pWindow;
+         size_t nIndex = pMember - m_aMembers.data();
+         pMember->pBar.disposeAndClear();
++        if (pGeometry && !pGeometry->isDisposed())
++            hst_vcl_set_tab_group_member(pGeometry, false);
+         uno::Reference<util::XCloseBroadcaster> xClose(xFrame, uno::UNO_QUERY);
+         if (xClose.is() && m_xListener.is())
+             xClose->removeCloseListener(m_xListener);
+@@ -771,6 +777,8 @@
+     {
+         aFrames.push_back(lcl_get(rMember.xFrame));
+         rMember.pBar.disposeAndClear();
++        if (rMember.pWindow && !rMember.pWindow->isDisposed())
++            hst_vcl_set_tab_group_member(rMember.pWindow, false);
+         uno::Reference<util::XCloseBroadcaster> xClose(aFrames.back(), uno::UNO_QUERY);
+         if (xClose.is() && m_xListener.is())
+             xClose->removeCloseListener(m_xListener);
