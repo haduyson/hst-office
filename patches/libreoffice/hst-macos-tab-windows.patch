@@ -94,7 +94,7 @@ next to the second window.
      // if the frame is destroyed and has the current menubar
      // set the default menubar
      if( mpMenu && mpMenu->mbMenuBar && AquaSalMenu::pCurrentMenuBar == mpMenu )
-@@ -379,6 +387,55 @@
+@@ -379,6 +387,58 @@
  {
  }
  
@@ -139,6 +139,9 @@ next to the second window.
 +        NSWindow* pWindow = pOther->mpNSWindow;
 +        if( !([pWindow styleMask] & NSWindowStyleMaskFullScreen) )
 +            continue;
++        // Same frame first: the window otherwise shows at its own size for a moment (about two
++        // frames at 20 fps measured) before the Space resizes it to the full screen window.
++        [mpNSWindow setFrame: [pWindow frame] display: NO];
 +        [pWindow addTabbedWindow: mpNSWindow ordered: NSWindowAbove];
 +        NSWindowTabGroup* pGroup = [pWindow tabGroup];
 +        if( pGroup && [pGroup isTabBarVisible] )
@@ -150,7 +153,7 @@ next to the second window.
  void AquaSalFrame::SetRepresentedURL( const OUString& i_rDocURL )
  {
      OSX_SALDATA_RUNINMAIN( SetRepresentedURL( i_rDocURL ) )
-@@ -529,6 +586,10 @@
+@@ -529,6 +589,10 @@
          // trigger filling our backbuffer
          SendPaintEvent();
  
@@ -161,7 +164,7 @@ next to the second window.
          if( bNoActivate || [mpNSWindow canBecomeKeyWindow] == NO )
              [mpNSWindow orderFront: NSApp];
          else
-@@ -568,11 +629,34 @@
+@@ -568,11 +632,34 @@
          if( mpParent && [mpNSWindow parentWindow] == mpParent->mpNSWindow )
              [mpParent->mpNSWindow removeChildWindow: mpNSWindow];
  
@@ -196,7 +199,7 @@ next to the second window.
  
          // Related: tdf#165448 move parent window to front after closing window
          // When a floating window such as the dropdown list in the
-@@ -588,6 +672,25 @@
+@@ -588,6 +675,25 @@
          NSWindow *pKeyWin = [NSApp keyWindow];
          if( pKeyWin )
              [pKeyWin orderFront: NSApp];
