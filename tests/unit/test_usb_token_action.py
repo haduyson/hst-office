@@ -106,7 +106,7 @@ class ActionTest(unittest.TestCase):
     def test_private_store_selected_and_restart_required_with_cached_old_path(self):
         path, _ = self.environment(False, [])
         target = path / 'new-store'
-        rows = [dict(label='VNPT-CA', path='/vnpt.so', status='added', private_store=True)]
+        rows = [dict(label='VNPT-CA', path='/vnpt.so', status='added', private_store=True, old_store_preserved=True)]
         with patch.object(store, 'register', return_value=(target, rows, True)), patch.object(db, 'set_fallback') as select:
             result = action.setup(self.ctx)
         select.assert_called_once_with(self.ctx, target)
@@ -114,6 +114,15 @@ class ActionTest(unittest.TestCase):
         text = action.result_text(self.strings, *result)
         self.assertIn('HST Office hiện dùng kho chứng thư riêng', text)
         self.assertIn('Kho cũ được giữ nguyên, không thay đổi', text)
+
+    def test_fresh_private_store_result_omits_old_store_sentence_in_both_locales(self):
+        rows = [dict(label='VNPT-CA', path='/vnpt.so', status='added', private_store=True, old_store_preserved=False)]
+        for locale in ('vi', 'en'):
+            with self.subTest(locale=locale):
+                strings = load_locale(locale)['usbToken']
+                text = action.result_text(strings, '/new-store', rows, True)
+                self.assertIn(strings['privateStore'], text)
+                self.assertNotIn(strings['oldStorePreserved'], text)
 
     def test_repeat_before_restart_uses_owned_certdir_despite_cached_core_path(self):
         path, register = self.environment(True, [dict(status='existing')])

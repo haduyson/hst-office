@@ -268,3 +268,23 @@ python3 -I scripts/macos/make-dmg-background.py --check
 ```
 
 Final logs use the `/tmp/usb-r4-` prefix: `unit-final.log`, `usb-unprivileged.log`, `quality-final.log`, `build.log`, `linux.log`, `darwin.log`, `linux-cold.log`, `darwin-cold.log`, `bindings-final.log`, `extension.log`, and `dmg.log`. Runtime result JSONs are in the corresponding `/tmp/usb-r4-*` work directories. Evidence copies under ignored `tests/output/usb-token-setup/round4/` contain only logs/results, not PKI or private keys.
+
+## macOS probe follow-ups
+
+2026-10-31. Addressed the two product issues reported after successful native arm64 run `41244400752`. Registration probes now validate ownership without creating the source directory, on every platform; normal Linux registration still creates its selected store. The result shows “Kho cũ được giữ nguyên, không thay đổi.” only after a successful switch that actually preserved an existing NSS store. Missing stores, empty directories and reused destinations do not trigger that sentence. Both locale resources were updated.
+
+Six additional unit tests cover fresh Linux/macOS/forced-Darwin setup in both backends, non-creating probes, empty sources, existing SQL stores without module files, reused HST destinations and localized results. The new real-NSS regression file also passes as uid 2000. The macOS probe now asserts that `~/.pki/nssdb` is absent after the fresh-HOME scenario and that the first dialog's preservation sentence matches the source. Its helpers/CLI were extracted to keep every touched module ≤199 lines; all 26 original scenario assertions and extracted function bodies remain intact.
+
+| Check | Result |
+|---|---|
+| Full unit discovery | **406 run: 405 passed, 1 skipped**, 0 failures/errors; USB subset **116/116** |
+| New fresh-store tests as uid 2000 | **5/5 passed** |
+| Linux runtime, `--mode both` | modutil **9/9**, pkcs11 **10/10**; **19/19**, 0 skipped |
+| Forced-Darwin runtime, `--mode both --darwin` | modutil **12/12**, pkcs11 **13/13**; **25/25**, 0 skipped |
+| Signing | **4/4 ODTs** valid in HST and independently; **40/40 reference digests**, 0 unchecked |
+| `scripts/ci-quality.sh` | **49 commands, 0 failures**; **37 unittest invocations / 433 tests**, same one skip |
+| Additional checks | Reproducible OXT; extension self-tests **18/18**; standalone DMG background, macOS probe `-I --help`/compilation, module bounds and `git diff --check` passed |
+
+The unit skip remains the absent upstream dictionary tree. Preflight retains its missing upstream/tarball and DMG dependency-guard skips; the standalone background check passes. Native macOS was not rerun in this Linux container. The first Linux runtime attempt had no live Xvfb display; after starting a persistent display, the complete runtime matrix passed. `/opt/hst` remained read-only; no push was performed.
+
+Logs use `/tmp/usb-followups-`: `unit.log`, `quality.log`, `linux-final.log`, `darwin.log`, `fresh-unprivileged.log`, `build.log`, `extension.log`, and `dmg.log`. Runtime results are `/tmp/usb-followups-{linux-final,darwin}/results.json`. Log/result copies are under ignored `tests/output/usb-token-setup/macos-followups/`; no PKI or private keys were copied.

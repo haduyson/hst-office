@@ -37,6 +37,7 @@ class PrivateStoreTest(NativeNssFixture):
                 target, rows, moved = self.migrate(mode=mode)
             self.assertTrue(moved, rows)
             self.assertEqual(rows[0]['status'], 'added')
+            self.assertTrue(rows[0]['old_store_preserved'])
             self.assertEqual(self.tree(self.db), before)
             self.assertTrue(store.owned(target))
             # Only the internal DB binding changes in the copy; all other bytes survive.
@@ -101,6 +102,7 @@ class PrivateStoreTest(NativeNssFixture):
             target, rows, moved = self.migrate(platform='linux')
         self.assertTrue(moved, rows)
         self.assertEqual(target, self.base / '.local/share/hst-office/nssdb')
+        self.assertTrue(rows[0]['old_store_preserved'])
         self.assertEqual(self.tree(self.db), before)
 
     def test_normal_linux_keeps_existing_lease_transaction(self):

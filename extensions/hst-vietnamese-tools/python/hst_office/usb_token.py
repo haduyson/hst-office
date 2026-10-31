@@ -52,6 +52,8 @@ def result_text(strings, db, rows, restart):
     else:
         if any(row.get("private_store") for row in rows):
             parts.append(strings["privateStore"])
+            if any(row.get("old_store_preserved") for row in rows):
+                parts[-1] += " " + strings["oldStorePreserved"]
         parts.extend(strings[row["status"]].format(label=row["label"], path=row["path"])
                      + ("\n" + row["error"] if row["status"] == "error" else "") for row in rows)
         if any(row["status"] != "error" for row in rows):

@@ -154,7 +154,7 @@ def worker(db, **values):
 
 def register(db, modules, probe=False):
     from .usb_token_db import user_database
-    user_database(db)
+    user_database(db, create=not probe)
     results = []
     for module in modules:
         row = dict(module, status="error")

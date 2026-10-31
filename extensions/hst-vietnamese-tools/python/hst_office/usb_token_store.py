@@ -83,6 +83,7 @@ def register_private(db, modules, home, platform, configured):
                          "Trên Linux, hãy đóng ứng dụng đang dùng kho rồi đăng ký vào kho đã cố định khi có thể khóa an toàn. "
                          "Nếu không, hãy bỏ thiết lập biến MOZILLA_CERTIFICATE_FOLDER trong môi trường khởi chạy "
                          "rồi khởi động lại HST Office và thử lại.")
+    had_store = any((db / name).is_file() for name in ("pkcs11.txt", "cert9.db", "key4.db"))
     original = nss.read_text(db / "pkcs11.txt")
     rows = nss.register(db, modules, probe=True)
     if not any(row["status"] == "added" for row in rows):
@@ -111,6 +112,7 @@ def register_private(db, modules, home, platform, configured):
     for row in rows:
         if row["status"] != "error":
             row["private_store"] = True
+            row["old_store_preserved"] = had_store and target != db
     return target, rows, True
 
 
