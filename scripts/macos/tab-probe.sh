@@ -15,7 +15,9 @@ app="$work/HST Office.app"
 bash "$here/adhoc-sign.sh" "$app" >"$out/adhoc-sign.log" 2>&1 || true
 swiftc -O -o "$work/sampler" "$here/tab-probe-sampler.swift" 2>"$out/swiftc.log"
 py="$(find "$app/Contents" -path '*bin/python3*' -type f -perm -u+x ! -name '*-config' | head -1)"
-echo "python: $py" >"$out/python.txt"
+pyuno="$(find "$app/Contents" -name 'pyuno*.so' -o -name 'pyuno*.dylib' | head -1)"
+{ echo "python: $py"; echo "pyuno: $pyuno"; find "$app/Contents" -name 'uno.py' -o -name 'fundamentalrc'; } >"$out/python.txt"
+pyhome="$(dirname "$pyuno")"
 screencapture -x "$out/desktop-before.png" || true
 : > "$out/summary.md"
 for mode in windowed fullscreen; do
@@ -30,7 +32,8 @@ for mode in windowed fullscreen; do
   echo "$origin" >"$out/sampler-start-$mode.txt"
   "$work/sampler" "$pid" 140 >"$out/samples-$mode.csv" 2>"$out/sampler-$mode.log" &
   sampler=$!
-  PYTHONPATH="$app/Contents/Resources" perl -e 'alarm 300; exec @ARGV' "$py" "$here/tab-probe.py" "$pid" "$out" "$mode" \
+  URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" \
+    PYTHONPATH="$app/Contents/Resources:$pyhome" perl -e 'alarm 300; exec @ARGV' "$py" "$here/tab-probe.py" "$pid" "$out" "$mode" \
     >"$out/driver-$mode.log" 2>&1 || echo "driver $mode exit $?" >>"$out/driver-$mode.log"
   screencapture -x "$out/desktop-after-$mode.png" || true
   kill "$sampler" 2>/dev/null || true; wait "$sampler" 2>/dev/null || true
