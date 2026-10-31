@@ -48,7 +48,7 @@ XCU
   end tell" >"$out/welcome-osascript-$mode.log" 2>&1 || echo "osascript exit $?" >>"$out/welcome-osascript-$mode.log"
   sleep 1
   screencapture -x "$out/welcome-after-osa-$mode.png" || true
-  ( screencapture -v -V 150 "$out/screen-$mode.mov" 2>"$out/screencapture-$mode.log" || true ) &
+  screencapture -v -V 150 "$out/screen-$mode.mov" 2>"$out/screencapture-$mode.log" &
   rec=$!
   origin="$(python3 -c 'import time;print(int(time.time()*1000))')"
   echo "$origin" >"$out/sampler-start-$mode.txt"
@@ -59,7 +59,7 @@ XCU
     >"$out/driver-$mode.log" 2>&1 || echo "driver $mode exit $?" >>"$out/driver-$mode.log"
   screencapture -x "$out/desktop-after-$mode.png" || true
   kill "$sampler" 2>/dev/null || true; wait "$sampler" 2>/dev/null || true
-  kill -INT "$rec" 2>/dev/null || true
+  kill -INT "$rec" 2>/dev/null || true; wait "$rec" 2>/dev/null || true; sleep 2
   kill "$pid" 2>/dev/null || true; sleep 2; kill -9 "$pid" 2>/dev/null || true
   python3 -I "$here/tab-probe-summary.py" "$out" "$mode" "$pid" >>"$out/summary.md" 2>>"$out/summary-errors.log" || true
 done
