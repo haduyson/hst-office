@@ -199,6 +199,51 @@ def run_command(ctx, frame, url_text, expect_dialog):
     return titles, state["error"]
 
 
+def tab_checks(ctx, desktop):
+    """Document tabs (HST Office): three documents form one tab group with one shown window, the tab
+    command switches, closing a tab shows the neighbour. Runs in the office of the smoke test."""
+    def frames():
+        access = desktop.getFrames()
+        return [access.getByIndex(i) for i in range(access.getCount())]
+
+    def shown():
+        return [f for f in frames() if f.getContainerWindow().isVisible()]
+
+    def wait(predicate, timeout=20):
+        end = time.time() + timeout
+        while time.time() < end:
+            try:
+                if predicate():
+                    return True
+            except Exception:  # noqa: BLE001 - UNO objects change while windows open and close
+                pass
+            time.sleep(0.3)
+        return False
+
+    helper = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    start = len(frames())
+    docs = [open_document(ctx, desktop, kind) for kind in ("swriter", "scalc", "simpress")]
+    record("tabs: three documents open", all(docs) and len(frames()) == start + 3, len(frames()))
+    record("tabs: one shown window (others parked)", wait(lambda: len(shown()) == 1), len(shown()))
+    before = shown()[0].getTitle()
+    began = time.time()
+    helper.executeDispatch(shown()[0], ".uno:NextDocumentTab", "_self", 0, ())
+    record("tabs: NextDocumentTab shows another tab",
+           wait(lambda: len(shown()) == 1 and shown()[0].getTitle() != before),
+           "%s, %.2f s" % (shown()[0].getTitle() if shown() else "-", time.time() - began))
+    for doc in docs:
+        doc.setModified(False)
+    helper.executeDispatch(shown()[0], ".uno:CloseWin", "_self", 0, ())
+    record("tabs: closing a tab shows the neighbour",
+           wait(lambda: len(frames()) == start + 2 and len(shown()) == 1 and shown()[0].isActive()),
+           "frames=%d shown=%d" % (len(frames()), len(shown())))
+    for doc in docs:
+        try:
+            doc.close(True)
+        except Exception:  # noqa: BLE001 - already closed
+            pass
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--install", required=True, help="office install root (contains program/)")
@@ -255,6 +300,10 @@ def main():
                 doc.close(True)
             except Exception:  # noqa: BLE001 - a leftover dialog may veto closing; the next step restarts nothing
                 pass
+        try:
+            tab_checks(ctx, desktop)
+        except Exception:  # noqa: BLE001
+            record("document tabs", False, traceback.format_exc())
         try:  # F1 help: the configured root must resolve to an existing file inside the install
             provider = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
             arg = PropertyValue()
