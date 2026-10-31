@@ -89,6 +89,7 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
   - Menubar cổ điển đôi khi hiện lại khi chuyển tab giữa Calc/Impress trên GTK3 (cosmetic; sửa trong vcl GTK menubar/sfx2), xác minh trên desktop thật và Windows.
   - Crash GTK3 hiếm (menubar/clipboard) khi mở tài liệu ngay sau khi đóng tài liệu ẩn dưới Xvfb, xảy ra cả khi tắt tab; xác minh trên desktop thật.
 - **v1.0.0-beta.4:** công cụ tự nhận diện USB Token ký số trên Linux/macOS (lệnh *HST ▸ Thiết lập USB Token*: tìm thư viện PKCS#11 của driver nhà cung cấp chữ ký số Việt Nam đã cài, khai báo vào kho chứng thư NSS mà HST dùng, báo kết quả tiếng Việt; thay 3 lệnh gõ tay trong trang F1 "Ký số tài liệu bằng USB Token"). Ưu tiên **VNPT-CA** (token chủ dự án dùng, 2026-10-31), sau đó Viettel-CA, BKAV-CA, FPT-CA, MISA, EasyCA. Cần chủ dự án thử bằng token VNPT-CA thật.
+  - Lối tắt đổi ngôn ngữ giao diện (chủ dự án duyệt 2026-10-31): menu *HST ▸ Ngôn ngữ giao diện ▸ Tiếng Việt / English / Theo máy* (nhãn luôn tiếng Việt), ghi `UILocale` của người dùng, hỏi "Khởi động lại ngay?" và mở lại các tài liệu đang mở. Chỉ là lối tắt tới *Công cụ ▸ Tùy chọn ▸ Ngôn ngữ và vùng ▸ Chung ▸ Giao diện người dùng* đã có sẵn.
 - **v1.0.0:** khóa cấu hình kiểm tra cập nhật qua `.xcd`/registry (đưa schema vào lõi); thử build `.deb` trên Ubuntu 22.04 cho tương thích rộng hơn; trang "điểm mới" riêng cho nút "Xem điểm mới"; ký số Windows/macOS khi có chứng chỉ; chuyển repo sang tổ chức `hasontech` trước bản chính thức.
 
 ## Blockers và câu hỏi còn mở
