@@ -30,7 +30,11 @@ do_import() {
   mkdir -p "$TMP"; chmod 700 "$TMP"
   password="$(openssl rand -hex 24)"
   printf '%s' "$MACOS_DEVELOPER_ID_P12_BASE64" | base64 --decode > "$TMP/cert.p12"
-  printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$TMP/api-key.p8"
+  # The key may be stored base64-encoded (documented) or as the PEM text itself.
+  case "$APPLE_API_KEY_P8_BASE64" in
+    -----BEGIN*) printf '%s\n' "$APPLE_API_KEY_P8_BASE64" > "$TMP/api-key.p8" ;;
+    *) printf '%s' "$APPLE_API_KEY_P8_BASE64" | tr -d ' \r\n' | base64 --decode > "$TMP/api-key.p8" ;;
+  esac
   chmod 600 "$TMP/cert.p12" "$TMP/api-key.p8"
   security create-keychain -p "$password" "$KEYCHAIN"
   security set-keychain-settings -lut 21600 "$KEYCHAIN"
@@ -47,6 +51,29 @@ do_import() {
   security find-identity -v -p codesigning "$KEYCHAIN" | grep -qF "$MACOS_SIGNING_IDENTITY" \
     || { echo "signing identity named in MACOS_SIGNING_IDENTITY is not in the imported certificate" >&2; return 1; }
   echo "imported Developer ID identity into a temporary keychain"
+  check_notary_auth
+}
+
+notary() { # notary <subcommand> <args...>: notarytool with the App Store Connect API key
+  local sub="$1"; shift
+  xcrun notarytool "$sub" "$@" --key "$TMP/api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID"
+}
+
+check_notary_auth() { # fail before signing when Apple rejects the API key; report formats only, never values
+  local fmt=ok
+  grep -q -- '-----BEGIN PRIVATE KEY-----' "$TMP/api-key.p8" || { echo "APPLE_API_KEY_P8_BASE64: not a .p8 private key after decoding" >&2; fmt=bad; }
+  [[ "$APPLE_API_KEY_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "APPLE_API_KEY_ID: expected 10 upper-case letters/digits" >&2; fmt=bad; }
+  [[ "$APPLE_API_ISSUER_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+    || { echo "APPLE_API_ISSUER_ID: expected a lower-case UUID (App Store Connect > Users and Access > Integrations)" >&2; fmt=bad; }
+  [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "APPLE_TEAM_ID: expected 10 upper-case letters/digits" >&2; fmt=bad; }
+  echo "notary credential formats: $fmt"
+  if notary history --output-format json > "$TMP/history.json" 2> "$TMP/history.err"; then
+    echo "notarytool authentication: ok"
+  else
+    echo "notarytool authentication failed: $(head -3 "$TMP/history.err")" >&2
+    echo "check that APPLE_API_KEY_ID and APPLE_API_ISSUER_ID belong to the .p8 key (Team key, role Developer or higher)" >&2
+    return 1
+  fi
 }
 
 deepest_first() { awk -F/ '{ print NF "\t" $0 }' | sort -rn | cut -f2-; }  # bundle paths contain no newlines
@@ -81,6 +108,14 @@ check_signatures() { # check_signatures <app>: every Mach-O has a timestamped De
   done < <(macho_files "$1")
   echo "Developer ID check: $total Mach-O files, $bad problems"
   [ "$bad" -eq 0 ]
+}
+
+json_field() { # json_field <file> <key>: top-level string value, empty when the file is empty or not JSON
+  python3 -c 'import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get(sys.argv[2]) or "")
+except (OSError, ValueError, AttributeError):
+    print("")' "$1" "$2"
 }
 
 notary_summary() { # notary_summary <log.json>: the issues Apple reported, one line each
@@ -129,15 +164,12 @@ do_sign() {
   codesign --force --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$signed"
   echo "notarizing $name (waits for Apple)"
   local rc=0 id status
-  xcrun notarytool submit "$signed" --key "$TMP/api-key.p8" --key-id "$APPLE_API_KEY_ID" \
-    --issuer "$APPLE_API_ISSUER_ID" --team-id "$APPLE_TEAM_ID" --wait --timeout 2h --output-format json \
-    > "$out/notarytool-submit.json" || rc=$?
+  notary submit "$signed" --wait --timeout 2h --output-format json > "$out/notarytool-submit.json" || rc=$?
   cat "$out/notarytool-submit.json"
-  id="$(plutil -extract id raw "$out/notarytool-submit.json" 2>/dev/null || :)"
-  status="$(plutil -extract status raw "$out/notarytool-submit.json" 2>/dev/null || :)"
+  id="$(json_field "$out/notarytool-submit.json" id)"
+  status="$(json_field "$out/notarytool-submit.json" status)"
   if [ -n "$id" ]; then
-    xcrun notarytool log "$id" --key "$TMP/api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" \
-      --team-id "$APPLE_TEAM_ID" "$out/notarytool-log.json" >/dev/null && notary_summary "$out/notarytool-log.json"
+    notary log "$id" "$out/notarytool-log.json" >/dev/null && notary_summary "$out/notarytool-log.json"
   fi
   if [ "$rc" -ne 0 ] || [ "$status" != Accepted ]; then
     echo "notarization failed: status '${status:-none}', exit $rc" >&2; return 1

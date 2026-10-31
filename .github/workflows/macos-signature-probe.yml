@@ -106,7 +106,7 @@ jobs:
           echo "HST_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
           HST_PYTHON="$(command -v python)" bash scripts/macos/prepare-signing-probe.sh \
             "$(find "$RUNNER_TEMP/release" -name 'HSTOffice_*_macOS_arm64.dmg' -print -quit)" "$RUNNER_TEMP/prep"
-      - name: Import Developer ID certificate into a temporary keychain
+      - name: Import Developer ID certificate and check notary credentials
         if: ${{ steps.gate.outputs.enabled == 'true' }}
         shell: bash
         env:
@@ -114,6 +114,9 @@ jobs:
           MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
           APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -eu
           bash scripts/macos/sign-notarize.sh --import
