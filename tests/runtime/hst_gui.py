@@ -38,7 +38,7 @@ class Office:
     """One soffice process with its own profile under `workdir`."""
 
     def __init__(self, instdir, workdir, port, display=":97", lang="vi_VN.UTF-8", extra_args=(), config=(), nodefault=True,
-                 welcome=False, env=None):
+                 welcome=False, env=None, restore=False):
         self.program = os.path.join(os.path.abspath(instdir), "program")
         self.workdir = os.path.abspath(workdir)
         self.port = port
@@ -51,6 +51,7 @@ class Office:
                        ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false")] + list(config)
         self.welcome = welcome  # True: leave the welcome dialog up (the caller closes it)
         self.extra_env = dict(env or {})
+        self.restore = restore  # True: no --norestore (AutoRecovery/session restore active)
         self.proc = None
         self.ctx = None
 
@@ -71,7 +72,7 @@ class Office:
         env = self._env()
         if os.geteuid() == 0:
             subprocess.run(["chown", "-R", BUILD_USER, self.workdir], check=True)
-        args = [f"-env:UserInstallation=file://{profile}", "--norestore", "--nologo",
+        args = [f"-env:UserInstallation=file://{profile}"] + ([] if self.restore else ["--norestore"]) + ["--nologo",
                 f"--accept=socket,host=127.0.0.1,port={self.port};urp;"] + self.extra_args
         if fresh:
             # A fresh profile makes soffice restart itself once (exit 81); initialise it first.
@@ -300,15 +301,44 @@ def send_close_request(wid, display=":97"):
     xlib.XCloseDisplay(dpy)
 
 
-def classic_menubar_visible(display, wid, shot_path):
-    """True when the window `wid` shows the classic (GTK) menubar above its Tabbed ribbon.
-
-    The ribbon's frame starts at the window's top-left corner in the module colour (Writer blue,
-    Calc green, Impress orange); a classic menubar on top of it makes that corner a bright, almost
-    unsaturated grey. `shot_path` is a screenshot of the display taken while the window was on top."""
+def ribbon_accent(display, wid, shot_path, first=33, last=130):
+    """(y offset from the window top, colour name) of the active-tab accent line of the light Tabbed
+    ribbon, or (None, None). The accent is a saturated horizontal run (module colour: Writer blue,
+    Calc green, Impress orange) under the active ribbon tab. `shot_path` is a screenshot of the
+    display taken while the window was on top."""
     from PIL import Image
     info = subprocess.run(["xwininfo", "-display", display, "-id", wid], capture_output=True, text=True).stdout
     left = max(int(re.search(r"Absolute upper-left X:\s+(-?\d+)", info).group(1)), 0)
     top = max(int(re.search(r"Absolute upper-left Y:\s+(-?\d+)", info).group(1)), 0)
-    red, green, blue = Image.open(shot_path).convert("RGB").getpixel((left + 3, top + 3))
-    return max(red, green, blue) - min(red, green, blue) < 18 and min(red, green, blue) > 200
+    width = int(re.search(r"Width:\s+(\d+)", info).group(1))
+    image = Image.open(shot_path).convert("RGB")
+    for dy in range(first, last):
+        run, best = 0, None
+        for dx in range(0, min(width, image.width - left), 2):
+            red, green, blue = image.getpixel((left + dx, top + dy))
+            if max(red, green, blue) - min(red, green, blue) > 70:
+                run += 1
+                best = (red, green, blue)
+                if run >= 20:  # 40 px wide
+                    name = ("blue" if best[2] > best[0] and best[2] > best[1] else
+                            "green" if best[1] > best[0] and best[1] > best[2] else "orange")
+                    return dy, name
+            else:
+                run = 0
+    return None, None
+
+
+def tab_accent_colour(display, wid, shot_path):
+    """Module colour (blue Writer, green Calc, orange Impress) of the accent line on top of the
+    active document tab, below the ribbon; None when it is not found."""
+    return ribbon_accent(display, wid, shot_path, first=120, last=260)[1]
+
+
+def classic_menubar_visible(display, wid, shot_path):
+    """True when the window `wid` shows the classic (GTK) menubar above its Tabbed ribbon.
+
+    The light ribbon marks its active tab with a module-colour accent line about 40 px below the
+    window top; a classic menubar on top pushes that line down by the menubar height (about 27 px).
+    `shot_path` is a screenshot of the display taken while the window was on top."""
+    offset, _colour = ribbon_accent(display, wid, shot_path)
+    return offset is not None and offset > 55

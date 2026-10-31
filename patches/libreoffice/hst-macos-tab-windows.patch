@@ -19,6 +19,11 @@ members (hst_vcl_set_tab_group_member, vcl/source/window/syswin.cxx; no public h
   close, which closes every tab and ended the application); the .uno:CloseWin accelerator closes
   the shown tab only and the neighbour (or the Start Center) takes over.
 
+Document tab group (all platforms): when a tab is shown and the group has no active tab (the frame
+that replaced the Start Center is a member but was never marked active), every other visible task
+frame is adopted and the visible previous tab is parked; before, the first document stayed shown
+next to the second window.
+
 --- a/vcl/source/window/syswin.cxx
 +++ b/vcl/source/window/syswin.cxx
 @@ -323,6 +323,37 @@
@@ -311,7 +316,58 @@ members (hst_vcl_set_tab_group_member, vcl/source/window/syswin.cxx; no public h
      // New tabs open to the right of the active one, like a browser.
      auto it = m_aMembers.end();
      if (Member* pActive = activeMember())
-@@ -685,6 +689,8 @@
+@@ -467,6 +471,28 @@
+             return;
+         const bool bPrepared = lcl_get(m_xPrepared) == xFrame;
+         m_xPrepared.clear();
++        // A tab that was shown before the group knew it (for example the Start Center frame that
++        // becomes the first document) has no member yet: adopt every other visible task frame so
++        // it is parked like any other previous tab.
++        try
++        {
++            uno::Reference<frame::XFramesSupplier> xDesktop
++                = frame::Desktop::create(comphelper::getProcessComponentContext());
++            uno::Reference<container::XIndexAccess> xFrames(xDesktop->getFrames(),
++                                                            uno::UNO_QUERY_THROW);
++            for (sal_Int32 i = 0; i < xFrames->getCount(); ++i)
++            {
++                uno::Reference<frame::XFrame> xOther(xFrames->getByIndex(i), uno::UNO_QUERY);
++                if (!xOther.is() || xOther == xFrame || find(xOther) || !isCandidate(xOther))
++                    continue;
++                VclPtr<vcl::Window> pOther = VCLUnoHelper::GetWindow(xOther->getContainerWindow());
++                if (pOther && !pOther->isDisposed() && pOther->IsVisible())
++                    join(xOther);
++            }
++        }
++        catch (const uno::Exception&)
++        {
++        }
+         Member* pPrevious = activeMember();
+         if (pPrevious && lcl_get(pPrevious->xFrame) == xFrame && !pPrevious->bParked)
+             return;
+@@ -481,6 +507,21 @@
+         Member& rMember = join(xFrame);
+         rMember.bParked = false;
+         m_xActive = xFrame;
++        if (!xPrevious.is())
++        {
++            // No active tab was known (the shown tab joined the group without a show event):
++            // never leave another tab shown next to the new one.
++            for (const Member& rOther : m_aMembers)
++            {
++                if (&rOther != &rMember && !rOther.bParked && rOther.pWindow
++                    && !rOther.pWindow->isDisposed() && rOther.pWindow->IsVisible())
++                {
++                    xPrevious = lcl_get(rOther.xFrame);
++                    pPreviousWindow = rOther.pWindow;
++                    break;
++                }
++            }
++        }
+         if (xPrevious.is() && xPrevious != xFrame && pPreviousWindow && pPreviousWindow->IsVisible())
+         {
+             // Shown without prepareShow(): take over the group geometry now.
+@@ -685,6 +726,8 @@
          VclPtr<vcl::Window> pGeometry = pMember->pWindow;
          size_t nIndex = pMember - m_aMembers.data();
          pMember->pBar.disposeAndClear();
@@ -320,7 +376,7 @@ members (hst_vcl_set_tab_group_member, vcl/source/window/syswin.cxx; no public h
          uno::Reference<util::XCloseBroadcaster> xClose(xFrame, uno::UNO_QUERY);
          if (xClose.is() && m_xListener.is())
              xClose->removeCloseListener(m_xListener);
-@@ -771,6 +777,8 @@
+@@ -771,6 +814,8 @@
      {
          aFrames.push_back(lcl_get(rMember.xFrame));
          rMember.pBar.disposeAndClear();

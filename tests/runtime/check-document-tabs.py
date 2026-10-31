@@ -122,14 +122,10 @@ class Checker:
         return False
 
     def ribbon_colour(self, shot):
-        """Colour of the ribbon frame border (module colour: Writer blue, Calc green, Impress orange)."""
-        from PIL import Image
+        """Module colour on the active document tab (Writer blue, Calc green, Impress orange); the
+        ribbon itself is light and carries no module tint."""
         wid, _n = next((w, n) for w, n in hst_gui.toplevels(self.office.display, self.office.pid) if is_document(n))
-        info = subprocess.run(["xwininfo", "-display", self.office.display, "-id", wid], capture_output=True, text=True).stdout
-        left = max(int(info.split("Absolute upper-left X:")[1].split()[0]), 0)
-        top = max(int(info.split("Absolute upper-left Y:")[1].split()[0]), 0)
-        r, g, b = Image.open(shot).convert("RGB").getpixel((left + 3, top + 100))
-        return "blue" if b > r and b > g else "green" if g > r and g > b else "orange" if r > b else "?"
+        return hst_gui.tab_accent_colour(self.office.display, wid, shot) or "?"
 
     def menubar_shown(self, shot):
         """Names of the document windows that show the classic menubar above the ribbon."""
@@ -230,7 +226,7 @@ def run(args):
         c.check("Ctrl+Alt+. switches to the next tab",
                 c.wait(lambda: len(c.visible_frames()) == 1 and title(c.visible_frames()[0]) != before),
                 f"{before} -> {title(c.visible_frames()[0])}")
-        c.check("still one mapped window after switching", len(c.mapped()) == 1, repr(c.mapped()))
+        c.check("still one mapped window after switching", c.wait(lambda: len(c.mapped()) == 1, 10), repr(c.mapped()))
 
         # 3. Close a modified tab: the save query appears; cancel keeps it open.
         target = None
@@ -324,8 +320,8 @@ def run(args):
                     repr(c.menubar_shown(shot)))
             c.check(f"mixed group: {module} tab shows the {module} window and ribbon",
                     len(visible) == 1 and module_of(office, visible[0]) == module and len(c.mapped()) == 1,
-                    f"{title(visible[0]) if visible else '-'} ribbon border {colours[module]}")
-        c.check("ribbon follows the module (distinct ribbon colours)", len(set(colours.values())) == 3, repr(colours))
+                    f"{title(visible[0]) if visible else '-'} active tab accent {colours[module]}")
+        c.check("module colour on the active tab (distinct accent colours)", len(set(colours.values())) == 3, repr(colours))
 
         # Impress in a tab: slideshow with F5, end with Esc, the group is intact.
         c.activate_module("Impress")
