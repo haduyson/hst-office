@@ -35,11 +35,11 @@ jobs:
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --pattern SHA256SUMS --dir "$RUNNER_TEMP/release"
           cd "$RUNNER_TEMP/release"
           grep '_macOS_arm64.dmg' SHA256SUMS | shasum -a 256 -c -
-      - name: Install test tooling (SoftHSM2, NSS tools, OpenSC pkcs11-tool) and verifier packages
+      - name: Install test tooling (SoftHSM2, NSS tools, OpenSC pkcs11-tool, cliclick) and verifier packages
         shell: bash
         run: |
           set -eu
-          brew install softhsm nss opensc
+          brew install softhsm nss opensc cliclick
           python3 -m venv "$RUNNER_TEMP/verify-venv"
           "$RUNNER_TEMP/verify-venv/bin/pip" install --quiet "lxml==5.3.0" "cryptography==43.0.3"
       - name: Build the extension from this ref

@@ -7,7 +7,10 @@ and Python). SoftHSM2 plays the VNPT-CA driver through HST_USB_TOKEN_TEST_ROOT
 (<root>/usr/local/lib/libvnptca_p11_v8.dylib -> libsofthsm2). Scenarios, each with a fresh HOME:
   fresh    no certificate store yet;
   firefox  an existing Firefox profile (internal, Builtin Roots and another module) that must
-           stay byte-identical while a new HST store is created and selected after restart.
+           stay byte-identical while a new HST store is created and selected after restart;
+           setup runs before NSS is first used, so the profile is compared with its creation;
+  firefox-warm  the same after a PDF export has already opened the profile in core NSS: the
+           profile is compared with the state core left it in before setup.
 Each: setup, repeat (existing), restart, the token certificate through XSecurityEnvironment
 with the test PIN, an ODT signed through the UI and validated by HST, a final repeat.
 
@@ -43,17 +46,18 @@ def brew_roots():
     return Path(prefix) / "lib/libnssckbi.dylib"
 
 
-def firefox_profile(home):
+def firefox_profile(home, app):
     from usb_token_private_harness import snapshot
     root = home / "Library/Application Support/Firefox"
     source = root / "Profiles/hst.default-release"
     source.mkdir(parents=True)
     (root / "profiles.ini").write_text("[Profile0]\nName=default-release\nIsRelative=1\n"
                                        "Path=Profiles/hst.default-release\nDefault=1\n\n[General]\nStartWithLastProfile=1\n")
-    roots = brew_roots()
     vendor = home / "another-vendor.dylib"
-    shutil.copyfile(roots, vendor)
+    shutil.copyfile(brew_roots(), vendor)
     subprocess.run(["certutil", "-N", "-d", "sql:" + str(source), "--empty-password"], check=True, capture_output=True)
+    # Builtin Roots: the app's own libnssckbi, as a profile used with this NSS would have it.
+    roots = Path(app) / "Contents/Frameworks/libnssckbi.dylib"
     for name, library in (("Builtin Roots", roots), ("Another vendor", vendor)):
         subprocess.run(["modutil", "-add", name, "-libfile", str(library), "-dbdir", "sql:" + str(source), "-force"],
                        check=True, capture_output=True)
@@ -76,15 +80,49 @@ def mac_dialogs(signing):
     class Dialogs(signing.Dialogs):
         log = []
 
+        def nudge(self):
+            self.office.service("com.sun.star.awt.AsyncCallback").addCallback(Wake(), None)
+            self.office.front()
+            if shutil.which("cliclick"):
+                subprocess.run(["cliclick", "m:+1,+0", "m:-1,+0"], check=False, capture_output=True, timeout=10)
+
+        def top(self):
+            # An ended but not yet returned PIN dialog stays the executing dialog while hidden:
+            # it is not a new prompt. Wake the loop instead of answering it again.
+            win, kids = super().top()
+            if "newpassEntry" in kids and {p.Name: p.Value for p in win.getState()}.get("Visible") == "false":
+                self.nudge()
+                time.sleep(0.5)
+                return None, set()
+            return win, kids
+
+        def _answer_pin(self, win):
+            if not self.pins:
+                return super()._answer_pin(win)
+            label = {p.Name: p.Value for p in win.getChild("openPasswordLabel").getState()}.get("Text", "")
+            answer = self.pins.pop(0)
+            entry = win.getChild("newpassEntry")
+            # SET needs no keyboard focus (a system alert may hold it); fall back to typing.
+            try:
+                entry.executeAction("SET", signing.props(TEXT=answer))
+            except Exception:  # noqa: BLE001
+                entry.executeAction("TYPE", signing.props(TEXT=answer))
+            filled = len({p.Name: p.Value for p in entry.getState()}.get("Text", ""))
+            self.prompts.append({"label": label, "answer": "pin(%d digits)" % len(answer), "entry_length": filled})
+            self.shot("pin-prompt-%d" % len(self.prompts))
+            self.later(win.getChild("ok"))
+            time.sleep(1)
+            self.nudge()
+            time.sleep(1)
+
+    class Logged(Dialogs):
+        log = []
+
         def _answer_pin(self, win):
             super()._answer_pin(win)
-            Dialogs.log.append(self.prompts[-1])
-            callback = self.office.service("com.sun.star.awt.AsyncCallback")
-            for _ in range(3):
-                callback.addCallback(Wake(), None)
-                time.sleep(0.3)
+            Logged.log.append(self.prompts[-1])
 
-    return Dialogs
+    return Logged
 
 
 def changed(path, before):
@@ -115,7 +153,7 @@ def addon_urls(office):
 def run_case(args, scenario, signing):
     import hst_gui_macos
     from usb_token_harness import certificate_with_pin, setup_dialog
-    from usb_token_private_harness import check_private, preserved_records, snapshot
+    from usb_token_private_harness import preserved_records, snapshot
     mode = "tools" if args.tools else "no-tools"
     signing.Dialogs.log = []
     base = (args.workdir / ("%s-%s" % (scenario, mode))).resolve()
@@ -141,8 +179,8 @@ def run_case(args, scenario, signing):
         found = {tool: shutil.which(tool, path=soffice_path) for tool in TOOLS}
         assert all(found.values()) if args.tools else not any(found.values()), found
         checks["nss_tools_on_soffice_path_" + ("present" if args.tools else "absent")] = True
-        if scenario == "firefox":
-            source, before = firefox_profile(home)
+        if scenario.startswith("firefox"):
+            source, before = firefox_profile(home, args.app)
         print("%s/%s: starting office" % (scenario, mode), flush=True)
         office.start()
         urls = addon_urls(office)
@@ -150,12 +188,14 @@ def run_case(args, scenario, signing):
         checks["hst_menu_has_usb_token_command"] = True
         doc = office.load("private:factory/swriter")
         frame = doc.getCurrentController().getFrame()
-        signing.export_pdf(doc, str(base / "before-setup.pdf"))  # PDF export initializes NSS
+        if scenario != "firefox":  # PDF export initializes NSS; "firefox" runs setup with NSS still cold
+            signing.export_pdf(doc, str(base / "before-setup.pdf"))
         nss = office.service("com.sun.star.xml.crypto.NSSInitializer")
         result["nss_before"] = {"path": nss.NSSPath, "initialized": bool(nss.IsNSSinitialized)}
-        if scenario == "firefox":
+        if source:
             assert Path(nss.NSSPath.removeprefix("sql:")) == source, result["nss_before"]
             checks["core_uses_firefox_profile_before_setup"] = True
+            assert scenario != "firefox" or snapshot(source) == before
             # Core's own NSS session on the browser store (before any setup) may touch it; record that,
             # then require that setup, restart and signing leave the store exactly as core left it.
             result["firefox_files_changed_by_core_before_setup"] = changed(source, before)
@@ -172,7 +212,7 @@ def run_case(args, scenario, signing):
         assert not (db / "cert9.db").exists() and not (db / "key4.db").exists()
         assert db.stat().st_mode & 0o777 == 0o700 and (db / ".hst-office-nssdb").is_file()
         checks["vietnamese_command_created_hst_store_and_registered_module"] = True
-        if scenario == "firefox":
+        if source:
             assert snapshot(source) == before
             preserved_records(saved, before["pkcs11.txt"][1])
             checks["old_store_byte_identical_and_records_carried_over"] = True
@@ -198,8 +238,16 @@ def run_case(args, scenario, signing):
         listing = subprocess.run(["modutil", "-list", "-dbdir", "sql:" + str(db)], check=True,
                                  capture_output=True, text=True, env=pki.env).stdout
         result["modutil_list_after_restart"] = listing
-        if scenario == "firefox":
-            check_private(db, source, before, pki.env, label="HST " + LABEL)
+        result["hst_store_pkcs11_before_restart"] = saved.decode("utf-8", "replace")
+        result["hst_store_pkcs11_after_restart"] = module_file.read_text(encoding="utf-8", errors="replace")
+        if source:
+            # Core's NSS owns the selected store after restart and may rewrite its module file, so check
+            # what it loads (as check_private does) rather than the bytes the setup wrote.
+            assert snapshot(source) == before, changed(source, before)
+            assert db.stat().st_mode & 0o777 == 0o700 and (db / ".hst-office-nssdb").is_file()
+            for name in ("NSS Internal PKCS #11 Module", "Builtin Roots", "Another vendor", "HST " + LABEL):
+                assert name in listing, listing
+            assert "Not loaded" not in listing, listing
             checks["inherited_roots_and_vendor_loaded_after_restart"] = True
         else:
             assert "HST " + LABEL in listing and "Not loaded" not in listing, listing
@@ -226,7 +274,7 @@ def run_case(args, scenario, signing):
         with zipfile.ZipFile(target) as archive:
             assert "META-INF/documentsignatures.xml" in archive.namelist()
         result["signed_odt"] = str(target)
-        if scenario == "firefox":
+        if source:
             assert snapshot(source) == before
             checks["old_store_unchanged_after_signing"] = True
         result["final_dialog"] = text = setup_dialog(office, doc.getCurrentController().getFrame(), signing)
@@ -276,7 +324,7 @@ def main():
     ap.add_argument("--oxt", type=Path)
     ap.add_argument("--workdir", type=Path)
     ap.add_argument("--port", type=int, default=2093)
-    ap.add_argument("--scenario", choices=("both", "fresh", "firefox"), default="both")
+    ap.add_argument("--scenario", choices=("all", "fresh", "firefox", "firefox-warm"), default="all")
     group = ap.add_mutually_exclusive_group()
     group.add_argument("--tools", dest="tools", action="store_true")
     group.add_argument("--no-tools", dest="tools", action="store_false")
@@ -302,7 +350,7 @@ def main():
     args.workdir = args.workdir.resolve()
     args.workdir.mkdir(parents=True, exist_ok=True)
     results, status = [], 0
-    for scenario in (("fresh", "firefox") if args.scenario == "both" else (args.scenario,)):
+    for scenario in (("fresh", "firefox", "firefox-warm") if args.scenario == "all" else (args.scenario,)):
         results.append(run_case(args, scenario, signing))
         passed = results[-1].get("passed", False)
         status |= not passed
