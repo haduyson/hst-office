@@ -111,6 +111,8 @@ do_patch() {
   # Same Vietnamese overlay + overrides as scripts/build-linux.sh (both idempotent).
   python3 -B "$REPO/scripts/l10n/merge-vi.py" --apply --tree "$SRC" || return 1
   python3 -B "$REPO/scripts/l10n/apply-overrides.py" --tree "$SRC" || return 1
+  # Vietnamese spelling dictionary: both tone placements (hóa and hoá), idempotent.
+  python3 -B "$REPO/scripts/dict/generate-vi-tone-variants.py" --apply --tree "$SRC" || return 1
   # HST icons in place of LibreOffice-shaped ones (same step as scripts/build-linux.sh).
   python3 -B "$REPO/scripts/brand/apply-icon-overrides.py" --tree "$SRC" || return 1
 }

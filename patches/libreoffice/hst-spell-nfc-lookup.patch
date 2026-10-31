@@ -1,0 +1,76 @@
+HST Office: accept a decomposed Vietnamese word in the Hunspell spell checker when its
+composed form is in the dictionary. Text typed, pasted or imported as a letter plus combining tone marks
+(NFD) was looked up unchanged against the NFC dictionaries and underlined in red.
+
+--- a/lingucomponent/Library_spell.mk
++++ b/lingucomponent/Library_spell.mk
+@@ -37,6 +37,7 @@
+ $(eval $(call gb_Library_use_externals,spell,\
+ 	boost_headers \
+ 	hunspell \
++	icu_headers \
+ 	icuuc \
+ ))
+ 
+--- a/lingucomponent/source/spellcheck/spell/sspellimp.cxx
++++ b/lingucomponent/source/spellcheck/spell/sspellimp.cxx
+@@ -47,6 +47,8 @@
+ #include <rtl/textenc.h>
+ #include <sal/log.hxx>
+ 
++#include <unicode/unorm2.h>
++
+ #include <numeric>
+ #include <algorithm>
+ #include <utility>
+@@ -236,6 +238,28 @@
+ }
+ 
+ #define SPELL_NON_ASCII_APOSTROPHE 1 << 10
++
++// HST Office: the Hunspell dictionaries are stored composed (NFC), but text typed, pasted or
++// imported in decomposed form (a letter plus combining tone marks, usual for Vietnamese from the web,
++// PDF files and some input methods) would be looked up unchanged and reported as misspelled.
++// Returns the NFC form of the word, or the word itself when it is already composed.
++static OUString lcl_toNFC(const OUString& rWord)
++{
++    UErrorCode eErr = U_ZERO_ERROR;
++    const UNormalizer2* pNorm = unorm2_getNFCInstance(&eErr);
++    if (U_FAILURE(eErr) || !pNorm)
++        return rWord;
++    const UChar* pSrc = reinterpret_cast<const UChar*>(rWord.getStr());
++    if (unorm2_isNormalized(pNorm, pSrc, rWord.getLength(), &eErr) || U_FAILURE(eErr))
++        return rWord;
++    std::vector<UChar> aBuf(rWord.getLength() * 3 + 8);
++    eErr = U_ZERO_ERROR;
++    const int32_t nLen = unorm2_normalize(pNorm, pSrc, rWord.getLength(), aBuf.data(),
++                                          static_cast<int32_t>(aBuf.size()), &eErr);
++    if (U_FAILURE(eErr))
++        return rWord;
++    return OUString(reinterpret_cast<const sal_Unicode*>(aBuf.data()), nLen);
++}
+ sal_Int16 SpellChecker::GetSpellFailure(const OUString &rWord, const Locale &rLocale, int& rInfo)
+ {
+     if (rWord.getLength() > MAXWORDLEN)
+@@ -405,6 +429,21 @@
+         nInfo = SPELL_NON_ASCII_APOSTROPHE; // disable apostrophe conversion
+         nFailure = GetSpellFailure( rWord, rLocale, nInfo );
+     }
++    // HST: a word that fails as written is accepted when its composed (NFC) form is in the
++    // dictionary; words that already pass are never changed.
++    if ( nFailure != -1 && !rWord.match(SPELL_XML, 0) )
++    {
++        const OUString aComposed = lcl_toNFC( rWord );
++        if ( aComposed != rWord )
++        {
++            nInfo = 0;
++            nFailure = GetSpellFailure( aComposed, rLocale, nInfo );
++            if ( nFailure != -1 && nInfo & SPELL_NON_ASCII_APOSTROPHE ) {
++                nInfo = SPELL_NON_ASCII_APOSTROPHE;
++                nFailure = GetSpellFailure( aComposed, rLocale, nInfo );
++            }
++        }
++    }
+     if (nFailure != -1 && !rWord.match(SPELL_XML, 0))
+     {
+         LanguageType nLang = LinguLocaleToLanguage( rLocale );

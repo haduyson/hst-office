@@ -82,6 +82,8 @@ do_patch() {
   # Same Vietnamese overlay + overrides as scripts/build-linux.sh (both idempotent).
   python3 -B "$REPO/scripts/l10n/merge-vi.py" --apply --tree "$SRC" || return 1
   python3 -B "$REPO/scripts/l10n/apply-overrides.py" --tree "$SRC" || return 1
+  # Vietnamese spelling dictionary: both tone placements (hóa and hoá), idempotent.
+  python3 -B "$REPO/scripts/dict/generate-vi-tone-variants.py" --apply --tree "$SRC" || return 1
   # Installer text is Vietnamese on every Windows display language (the app UI still follows the OS).
   python3 -B "$REPO/scripts/windows/msi-vietnamese-base.py" --tree "$SRC" || return 1
   # HST app icons (exe, shortcuts, taskbar, Programs and Features) and window icon in every theme.

@@ -148,6 +148,8 @@ do_patch() {
   # Same Vietnamese overlay + overrides as the Linux and Windows builds (both idempotent).
   "$PY" -B "$REPO/scripts/l10n/merge-vi.py" --apply --tree "$SRC" || return 1
   "$PY" -B "$REPO/scripts/l10n/apply-overrides.py" --tree "$SRC" || return 1
+  # Vietnamese spelling dictionary: both tone placements (hóa and hoá), idempotent.
+  "$PY" -B "$REPO/scripts/dict/generate-vi-tone-variants.py" --apply --tree "$SRC" || return 1
   # Window/Start Center icons (icon themes, all platforms), then the macOS .icns sources:
   # app icon (main.icns) and document icons (generic-*/oasis-*.icns) from the HST artwork.
   "$PY" -B "$REPO/scripts/brand/apply-icon-overrides.py" --tree "$SRC" || return 1

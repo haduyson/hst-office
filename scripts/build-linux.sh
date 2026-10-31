@@ -67,6 +67,8 @@ build() {
   # must not name the upstream project (overwrite specific keys, so last). Both idempotent.
   as_builder "python3 -B '$ROOT/scripts/l10n/merge-vi.py' --apply --tree '$SRC'"
   as_builder "python3 -B '$ROOT/scripts/l10n/apply-overrides.py' --tree '$SRC'"
+  # Vietnamese spelling dictionary: both tone placements of open oa/oe/uy syllables (hóa and hoá). Idempotent.
+  as_builder "python3 -B '$ROOT/scripts/dict/generate-vi-tone-variants.py' --apply --tree '$SRC'"
   # HST application/window/Start Center icons over the upstream ones in every icon theme
   # (the images_*.zip packs are rebuilt by make when these files change). Idempotent.
   as_builder "python3 -B '$ROOT/scripts/brand/apply-icon-overrides.py' --tree '$SRC'"

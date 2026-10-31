@@ -28,6 +28,8 @@ EXPECTED = {
     # Light ribbon: no module colour tint on the notebookbar (NotebookBar::UpdateBackground), 255 = dialog colour only.
     "org.openoffice.Office.Common/Misc/NotebookbarColorTransparency": 255,
     "org.openoffice.Office.Writer/DefaultFont/Standard": "Times New Roman",
+    # Fresh installs do not underline while typing (hst-spell-auto-off.patch); Shift+F7 turns it on.
+    "org.openoffice.Office.Linguistic/SpellChecking/IsSpellAuto": False,
     "org.openoffice.Office.Common/Menus/DonationURL": "https://hasontech.vn",
     # Single help target for F1 / Help menu / dialog Help buttons (hst-debrand.patch): the offline
     # Vietnamese guide in the bundled HST extension, expanded to a file URL (hst-offline-help.patch).
