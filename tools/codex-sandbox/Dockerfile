@@ -4,7 +4,7 @@
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates git python3 python3-venv xvfb xauth dbus dbus-x11 xdotool x11-utils imagemagick \
+      ca-certificates git python3 python3-venv python3-yaml python3-pil python3-cryptography python3-lxml shellcheck xvfb xauth dbus dbus-x11 xdotool x11-utils imagemagick \
       softhsm2 opensc libnss3-tools libnss3 libnspr4 p11-kit \
       libgtk-3-0t64 libcups2t64 libxinerama1 libxrandr2 libxslt1.1 libgl1 libegl1 libsm6 libice6 \
       libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libpython3.12t64 \

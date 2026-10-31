@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BRANCH="$1"; PROMPT="$(cat "$2")"
 WT="/home/office-codex/${BRANCH//\//-}"
-IMAGE=hst-codex-sandbox:1
+IMAGE=hst-codex-sandbox:2
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker build -t "$IMAGE" "$ROOT/tools/codex-sandbox"
 mkdir -p /home/office-codex
 # A standalone clone (not a worktree), so /work/.git is self-contained inside the container.
