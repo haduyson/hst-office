@@ -35,7 +35,18 @@ Test: tests/runtime/check-window-title.py under Xvfb.
          sAboutBoxVersion(utl::ConfigManager::getAboutBoxProductVersion()),
          sAboutBoxVersionSuffix(utl::ConfigManager::getAboutBoxProductVersionSuffix()),
          sExtension(utl::ConfigManager::getProductExtension());
-@@ -1422,7 +1426,9 @@
+@@ -427,6 +431,10 @@
+     OUString sRet(rStr);
+     if (sRet.indexOf("%PRODUCT") != -1 || sRet.indexOf("%ABOUTBOX") != -1)
+     {
++        // HST Office: inside the application the modules are named Writer, Sheets and Slides.
++        sRet = sRet.replaceAll( "%PRODUCTNAME Writer", "Writer" );
++        sRet = sRet.replaceAll( "%PRODUCTNAME Calc", "Sheets" );
++        sRet = sRet.replaceAll( "%PRODUCTNAME Impress", "Slides" );
+         sRet = sRet.replaceAll( "%PRODUCTNAME", sBrandName );
+         sRet = sRet.replaceAll( "%PRODUCTVERSION", sVersion );
+         sRet = sRet.replaceAll( "%BUILDID", sBuildId );
+@@ -1422,7 +1430,9 @@
      recordTime(startT, "SetSplashScreenProgress(30): time = ");
  
      // create title string
@@ -90,14 +101,14 @@ Test: tests/runtime/check-window-title.py under Xvfb.
          else
 --- a/framework/source/fwe/helper/titlehelper.cxx
 +++ b/framework/source/fwe/helper/titlehelper.cxx
-@@ -47,6 +47,32 @@
+@@ -47,6 +47,38 @@
  
  namespace framework{
  
 +namespace
 +{
-+/// HST Office: name shown in the window title instead of "<product> <module>" for the
-+/// three main applications; empty for every other module (Draw, Math, Base, ...).
++/// HST Office: name shown in the window title instead of "<product> <module>" (HST Writer,
++/// HST Sheets, HST Slides, HST Draw, HST Math, HST Base); empty for every other module.
 +OUString lcl_getHstApplicationName(const css::uno::Reference<css::uno::XComponentContext>& xContext,
 +                                   const css::uno::Reference<css::uno::XInterface>& xOwner)
 +{
@@ -112,6 +123,12 @@ Test: tests/runtime/check-window-title.py under Xvfb.
 +            return u"HST Sheets"_ustr;
 +        if (sID == "com.sun.star.presentation.PresentationDocument")
 +            return u"HST Slides"_ustr;
++        if (sID == "com.sun.star.drawing.DrawingDocument")
++            return u"HST Draw"_ustr;
++        if (sID == "com.sun.star.formula.FormulaProperties")
++            return u"HST Math"_ustr;
++        if (sID == "com.sun.star.sdb.OfficeDatabaseDocument")
++            return u"HST Base"_ustr;
 +    }
 +    catch (const css::uno::Exception&)
 +    {
@@ -123,7 +140,7 @@ Test: tests/runtime/check-window-title.py under Xvfb.
  TitleHelper::TitleHelper(css::uno::Reference< css::uno::XComponentContext > xContext,
                          const css::uno::Reference< css::uno::XInterface >& xOwner,
                          const css::uno::Reference< css::frame::XUntitledNumbers >& xNumbers)
-@@ -502,8 +528,26 @@
+@@ -502,8 +534,26 @@
      {
          // fdo#70376: We want the window title to contain just the
          // document name (from the above "component title").

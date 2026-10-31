@@ -102,7 +102,7 @@ class Office:
     def _dismiss_welcome(self):
         """The modal HST welcome dialog (first visible window of a fresh profile) blocks UNO
         calls until closed; click its close button whenever it appears."""
-        pattern = re.compile(r"Chào mừng|Welcome to")
+        pattern = re.compile(r"Chào mừng|chào đón bạn|Welcome to")
         while not self._stop_watch.wait(1.0):
             if self.pid is None:
                 continue
@@ -152,7 +152,7 @@ class Office:
 
     def close_welcome(self):
         for wid, name in toplevels(self.display, self.pid):
-            if re.search(r"Chào mừng|Welcome to", name):
+            if re.search(r"Chào mừng|chào đón bạn|Welcome to", name):
                 self.click_close(wid)
                 return True
         return False

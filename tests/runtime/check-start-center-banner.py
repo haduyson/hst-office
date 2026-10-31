@@ -73,6 +73,14 @@ def static_checks(instdir, check):
           any("Xem thêm các giải pháp khác →".encode("utf-16-le") in blob for blob in blobs)
           and not any("Xem các giải pháp tại hasontech.vn".encode("utf-16-le") in blob for blob in blobs))
     check("startcenter.ui has btnMoreSolutions", 'id="btnMoreSolutions"' in ui)
+    # "Create" list: product name + document type, em dash with spaces (type follows the UI language)
+    en = ("HST _Writer — Document", "HST _Sheets — Spreadsheet", "HST S_lides — Presentation")
+    vi = ("HST _Writer — Văn bản", "HST _Sheets — Bảng tính", "HST S_lides — Trình chiếu")
+    check("startcenter.ui: en-US create labels are 'HST <app> — <type>'", all(f">{text}<" in ui for text in en))
+    mo = subprocess.run(["msgunfmt", os.path.join(instdir, "program/resource/vi/LC_MESSAGES/sfx.mo")],
+                        capture_output=True, text=True).stdout
+    check("vi sfx.mo: create labels are 'HST <app> — Văn bản / Bảng tính / Trình chiếu'",
+          all(f'msgid "{e}"\nmsgstr "{v}"' in mo for e, v in zip(en, vi)))
     banner = os.path.join(ROOT, "branding/libreoffice/hst-banner.png")
     installed = os.path.join(instdir, "program/shell/donate1.png")
     check("installed donate1.png is the HST banner",
@@ -113,7 +121,7 @@ def banner_buttons(image_path, display, wid):
     hst_gui.screenshot(image_path, display)
     shot = Image.open(image_path).convert("RGB")
     background = shot.getpixel((x0 + width - 3, y0 + height - 3))
-    bottom, left = y0 + height - 2, x0 + 265
+    bottom, left = y0 + height - 2, x0 + 276  # left column: 270 px in en-US ("HST Sheets — Spreadsheet")
     top = bottom
     while top > y0 + 100 and not differs_at(shot, background, x0 + width - 40, top):
         top -= 1

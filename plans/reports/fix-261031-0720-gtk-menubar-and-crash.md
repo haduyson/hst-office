@@ -181,3 +181,31 @@ Concerns/Blockers: crash harness still crashes after the fix at the next victim 
 - **Writer-shell crash:** left as is (upstream / UNO-thread race, not reachable from pure GUI use), as decided.
 - **Verification:** check-window-title, check-vi-intro, check-no-libreoffice-ui, check-shortcuts exit 0; check-document-tabs 36 PASS x3;
   ci-quality 25 commands 0 failures; apply-patches --check all applied. Each edit compiled and linked (`Library_merged`) before tests.
+
+## Naming by context (third round)
+
+Scheme: full "HST Office Writer/Sheets/Slides" only in the installer and About; short "HST Writer/Sheets/Slides" (and
+HST Draw/Math/Base) in launchers, Debian menu, Windows Start-menu items, window titles, welcome dialog, help; plain
+"Writer/Sheets/Slides" inside the app UI; Start Center create list "HST Writer — Document / Văn bản" etc.
+
+| Tier | Where | How |
+|---|---|---|
+| Full | `scp2/source/{calc,impress}/module_*.ulf` (`%PRODUCTNAME Sheets/Slides`, Writer unchanged) + vi `scp2` po msgid/msgstr; deb descriptions (`packinfo_*`, hst-copyright/vi-descriptions); `branding/credits.html` (About > Credits) | hst-packaging-scp2.patch, vi-overrides.jsonl (`msgid_new`, new field of apply-overrides.py), existing packaging patches |
+| Short | `.desktop` (DESKTOPNAME stays "HST"), `openoffice.org-debian-menus`, `scp2 folderitem_*.scp` (6 apps), window titles (`TitleHelper`: HST Writer/Sheets/Slides/Draw/Math/Base), welcome dialog and help (unchanged, already short) | hst-packaging-sysui/-scp2, hst-window-title |
+| In-app | `ReplaceStringHookProc` (desktop/app.cxx): `%PRODUCTNAME Writer/Calc/Impress` -> `Writer/Sheets/Slides` before the product name is expanded: Options tree, Tip of the Day, dialogs, wizards, all vi msgstr that keep the token (17 Calc, 11 Impress, 23 Writer composed strings in en sources) | hst-window-title (one place, no msgid churn) |
+| Format labels | 12 filter/type UINames ("Calc 8", "HTML Document (Calc)", "ODF Drawing (Impress)" ...) and `UI.xcu` "Spreadsheets (Calc)", "Presentations (Impress)" -> Sheets/Slides; vi translations renamed through `msgid_new` | new hst-format-names.patch |
+| Start Center | create buttons "HST _Writer — Document", "HST _Sheets — Spreadsheet", "HST S_lides — Presentation" (vi: Văn bản / Bảng tính / Trình chiếu); Draw/Math/Base buttons are hidden, so no entries | hst-start-center-banner.patch (ui + vi po) |
+
+Grep result: no "HST Office Calc/Impress" or short "HST Writer/Sheets/Slides" in a wrong tier; the installed vi registry has no
+Calc/Impress display string left (only internal node names such as "Calc Office Open XML"). Left on purpose: filter/type internal names,
+`Calc Office Open XML` etc. (no UIName contains them), "LibreOffice Impress Remote" (name of the external remote-control app in a
+tooltip, `presentationdialog.ui`, and the Bluetooth service name), `sysui/desktop/appstream-appdata/*.xml` (not packaged), Draw/Math/Base in-app labels
+("HST Office Draw/Base": not part of the scheme), the old Options screenshot text in docs/user-guide/screenshots.md.
+Website: no app names, nothing to change. macOS: bundle is "HST Office", no per-app names in the dmg text.
+
+Verification: check-window-title, check-vi-intro, check-no-libreoffice-ui, check-shortcuts, check-template-manager, check-office-roundtrip (9/9: odf/ooxml/pdf
+for Writer, Sheets, Slides) exit 0; check-document-tabs 36 PASS x2; check-start-center-banner 66 PASS (new static checks for the labels;
+left-column probe widened to 276 px because the en column is 270 px); ci-quality 26 commands 0 failures; apply-patches --check all applied;
+series applies to pristine code files. Also fixed stale checks: welcome dialog is now titled "HST Office chào đón bạn" (check-vi-intro, hst_gui).
+Screenshots: `tests/output/screenshots-app-names/` — `02-title-bars.png`, `03-about.png`, `04-options-tree.png` (vi, node "Sheets"),
+`welcome-dialog-vi.png`, `start-center-{vi,en}-{wide,narrow}.png`.

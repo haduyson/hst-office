@@ -3,7 +3,9 @@
 """Apply l10n/vi-overrides.jsonl to the Vietnamese .po files of the LibreOffice tree.
 
 Each row {file, msgctxt, msgid, msgstr, reason} replaces the msgstr of exactly that
-(file, msgctxt, msgid) entry, overwriting an existing translation. Values use the
+(file, msgctxt, msgid) entry, overwriting an existing translation. An optional "msgid_new"
+renames the (single-line) msgid first, for strings whose English source text was changed by
+a patch (the translation key follows the source); a rerun finds the new msgid and skips it. Values use the
 escaped .po form (\\n, \\") like the rows merged by merge-vi.py. Run it after merge-vi.py
 so the overrides win. It also copies the Vietnamese tip-of-the-day images of l10n/vi-tipoftheday/
 (scripts/l10n/build-tip-images.py) over extras/source/tipoftheday and icon-themes/*/res. Idempotent; every changed file must pass `msgfmt --check`; a key that
@@ -40,11 +42,24 @@ def load_rows(path):
     return rows
 
 
+def rename_msgids(path, renames):
+    """Rename single-line msgids (old, new) in the .po text; already renamed ones are skipped."""
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    for old, new in renames:
+        text = text.replace(f'\nmsgid "{old}"\n', f'\nmsgid "{new}"\n', 1)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
 def apply(tree, overrides):
     root = os.path.join(tree, "translations", "source", "vi")
     by_file = collections.defaultdict(dict)
+    renames = collections.defaultdict(list)
     for row in load_rows(overrides):
-        by_file[row["file"]][(row["msgctxt"], row["msgid"])] = row["msgstr"]
+        if row.get("msgid_new"):
+            renames[row["file"]].append((row["msgid"], row["msgid_new"]))
+        by_file[row["file"]][(row["msgctxt"], row.get("msgid_new") or row["msgid"])] = row["msgstr"]
     changed = errors = 0
     for rel, translations in sorted(by_file.items()):
         path = os.path.join(root, rel)
@@ -52,6 +67,8 @@ def apply(tree, overrides):
             print(f"error: {rel}: no such file")
             errors += 1
             continue
+        if renames.get(rel):
+            rename_msgids(path, renames[rel])
         existing = {(e["msgctxt"], e["msgid"]) for e in parse_po(path)}
         absent = [key for key in translations if key not in existing]
         for ctx, msgid in absent:

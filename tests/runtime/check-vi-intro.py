@@ -84,11 +84,11 @@ def gui_run(args, lang, tag, check):
     # 1. welcome dialog on first start (blocks UNO until closed)
     deadline = time.time() + 120
     own = lambda: [n for _w, n in hst_gui.toplevels(args.display, office.pid)] if office.pid else []  # noqa: E731
-    while time.time() < deadline and not any(re.search(r"Chào mừng|Welcome", n) for n in own()):
+    while time.time() < deadline and not any(re.search(r"Chào mừng|chào đón|Welcome", n) for n in own()):
         time.sleep(1)
     time.sleep(3)
     names = own()
-    check(f"[{tag}] welcome dialog title is Vietnamese", any("Chào mừng" in n for n in names),
+    check(f"[{tag}] welcome dialog title is Vietnamese", any(("Chào mừng" in n or "chào đón" in n) for n in names),
           repr([n for n in names if "HST" in n][:4]))
     office.screenshot(os.path.join(args.shots, f"{tag}-01-welcome.png"))
     office.close_welcome()
