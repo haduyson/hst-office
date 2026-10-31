@@ -10,7 +10,8 @@ import datetime
 from . import nd30, nd30_layout, nd30_preview
 from .dialogs import Dialog
 
-WIDTH, HEIGHT = 600, 300  # about 675 px high with common Linux fonts: fits a 1366x768 screen
+TOP = 14  # height of the description line above the form
+WIDTH, HEIGHT = 600, 300 + TOP  # about 700 px high with common Linux fonts: fits a 1366x768 screen
 LABEL_X, LABEL_W = 8, 84
 FIELD_X, FIELD_W = 96, 200
 PREVIEW_X = FIELD_X + FIELD_W + 10
@@ -18,6 +19,7 @@ PREVIEW_W = WIDTH - PREVIEW_X - 8
 PREVIEW_CHARS = 70
 MONO = "Liberation Mono;Consolas;Menlo;DejaVu Sans Mono;Courier New"  # all carry precomposed Vietnamese
 ERROR_COLOR = 0xC5221F
+DESCRIPTION_COLOR = 0x555555  # slightly muted
 
 
 class Nd30Wizard:
@@ -25,31 +27,33 @@ class Nd30Wizard:
         self.s, self.s_nd = strings, strings["nd30"]
         self.data = nd30.rules()
         self.types = [t["id"] for t in self.data["documentTypes"]]
+        self.compact = False
         self.d = Dialog(ctx, self.s_nd["title"], WIDTH, HEIGHT)
         self._build()
         self.refresh()
 
     def _label(self, key, y, h=10):
-        self.d.label("l_" + key, self.s_nd[key], LABEL_X, y + 2, LABEL_W, h, wrap=h > 10)
+        self.d.label("l_" + key, self.s_nd[key], LABEL_X, y + 2 + TOP, LABEL_W, h, wrap=h > 10)
 
     def _row(self, key, y, h=12, multiline=False, label_h=10):
         self._label(key, y, label_h)
-        return self.d.edit(key, FIELD_X, y, FIELD_W, h, multiline=multiline, help_text=self.s_nd.get(key + "Help", self.s_nd[key]))
+        return self.d.edit(key, FIELD_X, y + TOP, FIELD_W, h, multiline=multiline, help_text=self.s_nd.get(key + "Help", self.s_nd[key]))
 
     def _build(self):
         d, s = self.d, self.s_nd
+        self.d.label("description", s["description"], LABEL_X, 4, WIDTH - 2 * LABEL_X, 10, wrap=True).TextColor = DESCRIPTION_COLOR
         self._label("type", 8)
-        d.listbox("type", FIELD_X, 6, FIELD_W, [s["types"][t] for t in self.types], help_text=s["type"])
+        d.listbox("type", FIELD_X, 6 + TOP, FIELD_W, [s["types"][t] for t in self.types], help_text=s["type"])
         self._row("parentAgency", 22)
         self._row("agency", 38)
         self._label("number", 54)
-        d.edit("number", FIELD_X, 54, 40, help_text=s["numberHelp"])
-        d.label("l_symbol", s["symbol"], FIELD_X + 46, 56, 38)
-        d.edit("symbol", FIELD_X + 86, 54, FIELD_W - 86, help_text=s["symbolHelp"])
+        d.edit("number", FIELD_X, 54 + TOP, 40, help_text=s["numberHelp"])
+        d.label("l_symbol", s["symbol"], FIELD_X + 46, 56 + TOP, 38)
+        d.edit("symbol", FIELD_X + 86, 54 + TOP, FIELD_W - 86, help_text=s["symbolHelp"])
         self._label("place", 70)
-        d.edit("place", FIELD_X, 70, 90, help_text=s["place"])
-        d.label("l_date", s["date"], FIELD_X + 96, 72, 22)
-        d.edit("date", FIELD_X + 120, 70, FIELD_W - 120, text=datetime.date.today().strftime("%d/%m/%Y"), help_text=s["dateHelp"])
+        d.edit("place", FIELD_X, 70 + TOP, 90, help_text=s["place"])
+        d.label("l_date", s["date"], FIELD_X + 96, 72 + TOP, 22)
+        d.edit("date", FIELD_X + 120, 70 + TOP, FIELD_W - 120, text=datetime.date.today().strftime("%d/%m/%Y"), help_text=s["dateHelp"])
         self._row("summary", 86, 18, True)
         self._row("kinhGui", 108, 22, True, label_h=20)
         self._row("body", 134, 34, True, label_h=20)
@@ -57,17 +61,17 @@ class Nd30Wizard:
         self._row("signerTitle", 194)
         self._row("signerName", 210)
         self._row("recipients", 226, 22, True, label_h=20)
-        check = d.check("applyPage", s["applyPage"], LABEL_X, 252, FIELD_X + FIELD_W - LABEL_X, h=12)
+        check = d.check("applyPage", s["applyPage"], LABEL_X, 252 + TOP, FIELD_X + FIELD_W - LABEL_X, h=12)
         check.MultiLine = True  # wraps instead of being cut off when a translation is longer
-        d.check("pageNumbers", s["pageNumbers"], LABEL_X + 10, 266, FIELD_X + FIELD_W - LABEL_X - 10)
-        d.label("legal", s["legal"], LABEL_X, 280, FIELD_X + FIELD_W - LABEL_X, 16, wrap=True)
-        heading = d.label("l_preview", s["previewHeading"], PREVIEW_X, 8, PREVIEW_W, 10)
+        d.check("pageNumbers", s["pageNumbers"], LABEL_X + 10, 266 + TOP, FIELD_X + FIELD_W - LABEL_X - 10)
+        d.label("legal", s["legal"], LABEL_X, 280 + TOP, FIELD_X + FIELD_W - LABEL_X, 16, wrap=True)
+        heading = d.label("l_preview", s["previewHeading"], PREVIEW_X, 8 + TOP, PREVIEW_W, 10)
         heading.FontWeight = 150
-        preview = d.edit("preview", PREVIEW_X, 20, PREVIEW_W, 228, multiline=True, readonly=True, help_text=self.s["common"]["preview"])
+        preview = d.edit("preview", PREVIEW_X, 20 + TOP, PREVIEW_W, 228, multiline=True, readonly=True, help_text=self.s["common"]["preview"])
         font = preview.FontDescriptor
         font.Name, font.Height = MONO, 8
         preview.FontDescriptor = font
-        status = d.label("status", "", PREVIEW_X, 250, PREVIEW_W, 24, wrap=True)  # room for several errors
+        status = d.label("status", "", PREVIEW_X, 250 + TOP, PREVIEW_W, 24, wrap=True)  # room for several errors
         status.TextColor = ERROR_COLOR
         d.button("btnOk", s["insert"], WIDTH - 8 - 64 - 4 - 64, HEIGHT - 22, 64, callback=self._accept, default=True)
         d.button("btnCancel", self.s["common"]["cancel"], WIDTH - 8 - 64, HEIGHT - 22, 64, kind=2)
@@ -75,17 +79,23 @@ class Nd30Wizard:
         d.on_oversize = self._compact
 
     def _compact(self):
-        """Screen too small for the side-by-side layout (about 1200 px wide at 100% on Windows): drop the preview column."""
+        """Screen too small for the side-by-side layout (about 1200 px wide at 100% on Windows): drop the preview column.
+
+        The dialog stays about 330 units high: the error line takes the place of the legal note (see refresh) and the
+        buttons sit directly under it."""
         m, width = self.d.model, FIELD_X + FIELD_W + 8
+        self.compact = True
+        m.getByName("description").Width = width - 2 * LABEL_X
         for name in ("l_preview", "preview"):
             m.getByName(name).EnableVisible = False
-        extra = 46  # the error line and the buttons move below the form
-        m.Width, m.Height = width, HEIGHT + extra
+        legal = m.getByName("legal")
         status = m.getByName("status")
-        status.PositionX, status.PositionY, status.Width = LABEL_X, HEIGHT + 2, width - 2 * LABEL_X
+        status.PositionX, status.PositionY, status.Width, status.Height = LABEL_X, legal.PositionY, width - 2 * LABEL_X, legal.Height
+        row = legal.PositionY + legal.Height + 2
+        m.Width, m.Height = width, row + 14 + 6
         for name, x in (("btnOk", width - 8 - 64 - 4 - 64), ("btnCancel", width - 8 - 64)):
             button = m.getByName(name)
-            button.PositionX, button.PositionY = x, HEIGHT + extra - 20
+            button.PositionX, button.PositionY = x, row
 
     def read(self):
         """(type_id, fields) from the form; date is normalised later by nd30.format_issue_date."""
@@ -117,6 +127,8 @@ class Nd30Wizard:
         errs = self._error_text()
         self.d.model.getByName("status").Label = (self.s_nd["errors"] % "; ".join(errs)) if errs else ""
         self.d.model.getByName("btnOk").Enabled = not errs
+        if self.compact:  # the error line and the legal note share one row
+            self.d.model.getByName("legal").EnableVisible = not errs
         if errs:
             return False
         type_id, fields = self.read()

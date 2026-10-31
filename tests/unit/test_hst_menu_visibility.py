@@ -45,7 +45,7 @@ class MenuContractTest(unittest.TestCase):
     def test_nd30_is_offered_everywhere_in_vietnamese(self):
         menu = items("OfficeMenuBar")["org.hst.office.vi:Nd30Wizard"][0]
         self.assertTrue((ALL | {"com.sun.star.frame.StartModule"}) <= menu[1])
-        self.assertEqual({v for v in menu[0].values()}, {"Văn bản theo NĐ 30…"})
+        self.assertEqual({v for v in menu[0].values()}, {"Văn bản hành chính…"})
         self.assertEqual(set(menu[0]), {"", "en-US", "vi"})
         ribbon = items("OfficeNotebookBar")["org.hst.office.vi:Nd30Wizard"][0]
         self.assertIn("com.sun.star.text.TextDocument", ribbon[1])

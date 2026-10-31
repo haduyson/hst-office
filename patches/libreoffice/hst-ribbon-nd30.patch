@@ -1,0 +1,72 @@
+HST Office: visible Vietnamese ribbon button for the ND 30 wizard in HST Writer.
+
+- sw/uiconfig/swriter/ui/notebookbar.ui (the Tabbed UI file HST selects by default, see
+  hst-defaults.patch): a "Văn bản hành chính" button on the Home tab, in the right-hand
+  block next to "Find & Replace" (the block never collapses into the overflow menu).
+  It dispatches org.hst.office.vi:Nd30Wizard from the bundled HST extension. The label is
+  written in the .ui file and is Vietnamese in every UI language (HST command).
+- vcl/source/window/builder.cxx: commands of extensions have no entry in the command
+  descriptions, so ToolBox::InsertItem() leaves the item label empty; fall back to the
+  label of the .ui file. Items of .uno: commands are unchanged (their label is not empty).
+  The same builder code is used by every VCL backend (gtk3, Windows), so the button
+  looks and behaves the same on Windows; no platform-specific code is involved.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-nd30-entry.py (button opens the wizard, HST menu entries).
+---
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -4016,6 +4016,40 @@
+                             <property name="position">1</property>
+                           </packing>
+                         </child>
++                        <child>
++                          <!-- HST Office: Decree 30 wizard of the bundled HST extension (always Vietnamese) -->
++                          <object class="sfxlo-NotebookbarToolBox" id="SectionBottomHstNd30">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="halign">end</property>
++                            <property name="valign">center</property>
++                            <property name="hexpand">True</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">1</property>
++                            <child>
++                              <object class="GtkToolButton" id="Home-HstNd30Wizard">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="valign">center</property>
++                                <property name="label">Văn bản hành chính</property>
++                                <property name="tooltip-text">Văn bản hành chính (Nghị định 30/2020/NĐ-CP)</property>
++                                <property name="action-name">org.hst.office.vi:Nd30Wizard</property>
++                                <property name="icon-name">cmd/lc_insertdoc.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">True</property>
++                            <property name="position">2</property>
++                          </packing>
++                        </child>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+--- a/vcl/source/window/builder.cxx
++++ b/vcl/source/window/builder.cxx
+@@ -1681,6 +1681,10 @@
+             {
+                 pToolBox->InsertItem(aCommand, m_xFrame, nBits, extractSizeRequest(rMap));
+                 nItemId = pToolBox->GetItemId(aCommand);
++                // HST: commands of bundled extensions (e.g. org.hst.office.vi:*) have no entry in the
++                // command descriptions, so the label written in the .ui file is the only one available.
++                if (pToolBox->GetItemText(nItemId).isEmpty())
++                    pToolBox->SetItemText(nItemId, extractLabel(rMap));
+             }
+             else
+             {

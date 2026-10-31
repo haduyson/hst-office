@@ -36,12 +36,18 @@ def run(rec, session, oxt_path):
         url = uno.createUnoStruct("com.sun.star.util.URL")
         url.Complete = "org.hst.office.vi:Unknown"
         _, url = transformer.parseStrict(url)
-        rec.check("unknown command is not handled", doc.getCurrentController().getFrame().queryDispatch(url, "_self", 0) is None)
+        # The office itself answers any unknown protocol with a generic dispatch object, so "not handled by HST" means
+        # the answer is not our handler.
+        unknown = doc.getCurrentController().getFrame().queryDispatch(url, "_self", 0)
+        rec.check("unknown command is not handled by the HST handler",
+                  unknown is None or not hasattr(unknown, "getImplementationName") or unknown.getImplementationName() != "org.hst.office.vi.DispatchProvider")
     finally:
         doc.close(True)
     menu = config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeMenuBar")
     rec.check("HST menu registered", menu.hasByName("org.hst.office.vi"), list(menu.getElementNames())[:5])
     sub = menu.getByName("org.hst.office.vi").getByName("Submenu")
-    rec.check("HST submenu has 7 commands (6 tools + solutions)", len(sub.getElementNames()) == 7, sub.getElementNames())
-    rec.check("HST toolbar registered", config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeToolBar").hasByName("org.hst.office.vi.toolbar"))
+    rec.check("HST submenu has 8 commands (6 tools + solutions + update check)", len(sub.getElementNames()) == 8, sub.getElementNames())
+    # A floating "Add-ons" toolbar over the ribbon is deliberately not shipped (see Addons.xcu): the commands are in the menu and ribbon.
+    rec.check("no floating HST toolbar", not config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeToolBar").hasByName("org.hst.office.vi.toolbar"))
+    rec.check("HST ribbon (Extension tab) items registered", config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeNotebookBar").hasByName("org.hst.office.vi.notebookbar"))
     sys.path.insert(0, py)

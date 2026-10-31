@@ -27,7 +27,6 @@ if hasattr(sys.stdout, "reconfigure"):
 
 ROWS = []
 OUT = None
-EN_TITLES = ("Administrative document (ND30)", "Welcome to HST Office", "Import CSV", "Convert legacy Vietnamese text to Unicode")
 
 
 def record(name, ok, detail=""):
