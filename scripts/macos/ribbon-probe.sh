@@ -18,7 +18,6 @@ bash "$here/adhoc-sign.sh" "$app" >"$out/adhoc-sign.log" 2>&1 || { echo "ad-hoc 
 
 seed_profile() { # seed_profile <profile> <transparency|default>: initialise the profile, then adjust its registry
   init_profile "$app" "$1"
-  python3 -I "$here/probe-profile.py" "$1" --shown true --no-tip
   if [ "$2" != default ]; then python3 -I "$here/probe-profile.py" "$1" --transparency "$2"; fi
 }
 
@@ -27,7 +26,9 @@ shoot() { # shoot <appearance light|dark> <variant> <module>
   if [ ! -d "$profile" ]; then seed_profile "$profile" "$([ "$variant" = default ] && echo default || echo "$override")"; fi
   "$app/Contents/MacOS/soffice" --norestore --nologo "--$module" "-env:UserInstallation=file://$profile" >"$out/soffice-$variant-$appearance-$module.log" 2>&1 &
   local pid=$!
-  sleep 25
+  sleep 12
+  close_welcome "$(pgrep -f "UserInstallation=file://$profile" | head -1)" "$out/close-welcome-$variant-$appearance-$module.log"
+  sleep 14
   screencapture -x "$out/$module-$variant-$appearance.png" || true
   kill "$pid" 2>/dev/null || true; sleep 2; kill -9 "$pid" 2>/dev/null || true
   pkill -f "UserInstallation=file://$profile" 2>/dev/null || true

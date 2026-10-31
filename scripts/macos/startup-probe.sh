@@ -5,13 +5,15 @@
 #   startup-probe.sh <HSTOffice_*.dmg> <out-dir>
 # Cases per variant: first launch with a fresh profile (welcome dialog), second launch (no dialog), welcome again.
 # Per case: starts the app, samples its windows at 20 Hz (startup-probe-sampler.swift), takes a screenshot
-# about every 0.5 s, and for welcome cases sends Return (the dialog's default "Đóng" button) through
+# about every 0.5 s, and for welcome cases activates the app and presses the dialog's "Đóng" button through
 # System Events 10 s after the first window. Writes summary.md. Evidence only: measurement failures never fail
 # the probe, only an app that cannot be prepared does.
 set -Eeuo pipefail
 [ $# -eq 2 ] || { echo "usage: $0 <dmg> <out-dir>" >&2; exit 64; }
 dmg="$1"; out="$2"; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; repo="$(cd "$here/../.." && pwd)"
 mkdir -p "$out"; work="$(mktemp -d)"; mnt="$work/mnt"; mkdir -p "$mnt"
+# shellcheck source=scripts/macos/probe-lib.sh
+. "$here/probe-lib.sh"
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
 
 hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$dmg" >/dev/null
@@ -49,8 +51,10 @@ run_case() { # run_case <variant> <case> <profile> <close: yes|no> <seconds>
     if [ -n "$first" ]; then
       while [ "$(now_ms)" -lt $((first + 10000)) ]; do sleep 0.2; done
       screencapture -x -t jpg "$dir/before-close.jpg" || true
-      now_ms >"$dir/closed.txt"
-      osascript -e 'tell application "System Events" to key code 36' >"$dir/close.log" 2>&1 || echo "osascript exit $?" >>"$dir/close.log"
+      # the app was started from a shell, so it is not frontmost: activate it first, then press "Đóng" (Return as fallback)
+      app_pid="$(pgrep -f "UserInstallation=file://$profile" | head -1)"
+      close_welcome "$app_pid" "$dir/close.log"
+      now_ms >"$dir/closed.txt"   # the click has been delivered when osascript returns
     fi
   fi
   wait "$sampler" 2>/dev/null || true
