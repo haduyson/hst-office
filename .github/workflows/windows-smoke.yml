@@ -80,11 +80,11 @@ jobs:
         run: |
           set -eu
           # the office may still hold a modal dialog after a timeout; stop it so its logs can be read
-          MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe /IM oosplash.exe 2>&1 | head -n 5
+          MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe /IM oosplash.exe 2>&1 || echo "no office process was left running"
           mkdir -p "$RUNNER_TEMP/out/smoke"
           cp -r "$(cygpath -u "$HST_INSTALL")/share/extensions/hst-vietnamese-tools" "$RUNNER_TEMP/out/extension-as-installed" || echo "extension directory missing"
           find "$RUNNER_TEMP/out" -type f | head -n 100
-          python -I -c "import json,sys; r=json.load(open(sys.argv[1], encoding='utf-8')); print('\n'.join('%s %s' % (x['status'], x['check']) for x in r['results']))" "$RUNNER_TEMP/out/smoke/smoke-results.json" >> "$GITHUB_STEP_SUMMARY"
+          PYTHONIOENCODING=utf-8 python -I -c "import json,sys; r=json.load(open(sys.argv[1], encoding='utf-8')); print('\n'.join('%s %s' % (x['status'], x['check']) for x in r['results']))" "$RUNNER_TEMP/out/smoke/smoke-results.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload smoke evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
