@@ -77,6 +77,19 @@
   });
   openLinkedDetails();
 
+  // GA4 does not recognise /tai/* as file downloads (no file extension), so report them explicitly.
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest('a[href^="/tai/"]');
+    if (!link || typeof window.gtag !== 'function') return;
+    const platform = link.getAttribute('href').replace(/^\/tai\//, '').replace(/\/$/, '');
+    window.gtag('event', 'file_download', {
+      file_name: platform,
+      link_url: new URL(link.getAttribute('href'), window.location.origin).href,
+      page_path: window.location.pathname,
+      transport_type: 'beacon'
+    });
+  });
+
   // Missing/invalid configuration leaves the current static HTML intact.
   const config = window.HST_OFFICE_CONFIG;
   if (!config || !config.platforms) return;
