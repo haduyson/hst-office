@@ -109,8 +109,8 @@ def check_workflow(path, root=ROOT):
         # Only the manually dispatched release jobs may write, and only releases plus reading run artifacts:
         # the public release and the draft "test-builds" release for maintainers.
         writers = {("release.yml", "publish"), ("test-build-share.yml", "share")}
-        # The tab probe only reads a run artifact (gh run download needs actions: read).
-        readers = {("macos-tab-probe.yml", "probe"), ("windows-smoke.yml", "smoke")}
+        # The tab and spell probes only read a run artifact (gh run download needs actions: read).
+        readers = {("macos-tab-probe.yml", "probe"), ("macos-spell-probe.yml", "probe"), ("windows-smoke.yml", "smoke")}
         allowed = RELEASE_PERMISSIONS if (path.name, name) in writers else \
             {"contents": "read", "actions": "read"} if (path.name, name) in readers else {"contents": "read"}
         require(job.get("permissions", {"contents": "read"}) == allowed, f"{name}: permissions escalation")

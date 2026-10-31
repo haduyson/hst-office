@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: macOS spell probe
+# Lists the spell checking services (Hunspell, Apple) configured for vi-VN in a macOS dmg and what each accepts
+# for the same Vietnamese words in NFC and NFD, over UNO on a GUI runner. Evidence only.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag whose arm64 dmg is probed (used when run_id is empty)'
+        type: string
+        default: v1.0.0-beta.2
+      run_id:
+        description: 'Desktop macOS run id whose dmg artifact is probed (overrides tag)'
+        type: string
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: macos-spell-probe
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Download the dmg
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/dmg"
+          if [ -n "$RUN_ID" ]; then
+            [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "bad run id" >&2; exit 1; }
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern '*macos*arm64*' --dir "$RUNNER_TEMP/dmg"
+          else
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg"
+          fi
+          find "$RUNNER_TEMP/dmg" -name '*.dmg'
+      - name: Probe the Vietnamese spell checkers
+        shell: bash
+        run: |
+          set -eu
+          dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
+          bash scripts/macos/spell-probe.sh "$dmg" "$RUNNER_TEMP/spellprobe"
+      - name: Summarize
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/spellprobe/spell-probe.md" ]; then
+            tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/spellprobe/spell-probe.md"
+          fi
+      - name: Upload probe evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-spell-probe-${{ github.run_id }}
+          path: ${{ runner.temp }}/spellprobe/
+          if-no-files-found: error
+          retention-days: 7
