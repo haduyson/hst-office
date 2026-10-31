@@ -239,7 +239,8 @@ class WorkflowTests(unittest.TestCase):
 
         self.assertTrue(allowed(["scripts/macos/adhoc-sign.sh", ".github/workflows/desktop-macos.yml",
                                  "docs/CI.md", "plans/reports/x.md", "tests/unit/test_x.py",
-                                 "website/office.hasontech.vn/index.html", "scripts/check-workflows.py"]))
+                                 "website/office.hasontech.vn/index.html", "scripts/check-workflows.py",
+                                 "scripts/release/collect-release-assets.sh"]))
         self.assertTrue(allowed([]))
         for path in ("patches/libreoffice/hst-about.patch", "scripts/windows/trial-build.sh", "scripts/l10n/merge-vi.py",
                      "extensions/hst-vietnamese-tools/description.xml", "branding/macos/hst-office.icns",

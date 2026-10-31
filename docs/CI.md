@@ -230,7 +230,7 @@ không ghi đè bộ cài đã có, gộp `SHA256SUMS` theo tên tệp.
 
 **macOS từ commit sau (chỉ sửa đóng gói macOS).** Input `macos_commit` cho phép lấy `.dmg` từ một commit
 sau commit phát hành, chỉ khi commit đó là hậu duệ của commit phát hành và `git diff` giữa hai commit chỉ
-chạm `scripts/macos/**`, `.github/workflows/**`, `scripts/check-workflows.py`, `docs/**`, `plans/**`,
+chạm `scripts/macos/**`, `scripts/release/**`, `.github/workflows/**`, `scripts/check-workflows.py`, `docs/**`, `plans/**`,
 `tests/**`, `website/**` (không có gì mà bộ cài Windows/Linux được build từ đó). Kiểm tra nằm ở
 [macos-commit-paths.sh](../scripts/release/macos-commit-paths.sh) (gọi qua GitHub compare API); sai thì dừng.
 Ghi chú phát hành và tóm tắt run ghi cả hai commit. Ví dụ:
