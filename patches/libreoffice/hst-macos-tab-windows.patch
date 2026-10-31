@@ -4,7 +4,7 @@ macOS the tabs of a native full screen window stay in its Space.
 Switching a document tab shows one top-level window and hides another. On macOS every native full
 screen window owns a Space, so the switch played the Space swipe and closing the shown tab left the
 full screen Space (the application looked gone). The framework tells vcl which windows are tab group
-members (hst_vcl_set_tab_group_member, vcl/source/window/syswin.cxx; no public header changes):
+members (hst_vcl_set_tab_group_member, vcl/source/window/syswin.cxx, then the new virtual SalFrame::SetTabGroupMember in the private vcl/inc/salframe.hxx; no public header changes):
 
 - macOS (vcl/osx/salframe.cxx): members get NSWindowAnimationBehaviorNone; showing a member while
   another member is native full screen adds it to that window's NSWindow tab group (the native tab
@@ -26,39 +26,36 @@ next to the second window.
 
 --- a/vcl/source/window/syswin.cxx
 +++ b/vcl/source/window/syswin.cxx
-@@ -323,6 +323,32 @@
+@@ -323,6 +323,17 @@
      }
  }
  
 +// HST Office: the document tab group (framework) tells the frame of a tab window that it is a
-+// group member. Only the macOS and Windows backends use it (no window animation; on macOS tabs
-+// also share the native full screen Space); declared here and in the framework instead of a public header on purpose.
-+#if defined MACOSX
-+void hst_osx_set_tab_group_member(SalFrame* pFrame, bool bMember);
-+#elif defined _WIN32
-+void hst_win_set_tab_group_member(SalFrame* pFrame, bool bMember);
-+#endif
-+
++// group member (macOS and Windows: no window animation; macOS: tabs share the native full screen
++// Space). Declared here and in the framework instead of a public header on purpose.
 +SAL_DLLPUBLIC_EXPORT void hst_vcl_set_tab_group_member(vcl::Window* pWindow, bool bMember)
 +{
-+#if defined MACOSX || defined _WIN32
 +    if (!pWindow)
 +        return;
-+    SalFrame* pFrame = pWindow->ImplGetFrame();
-+#if defined MACOSX
-+    hst_osx_set_tab_group_member(pFrame, bMember);
-+#else
-+    hst_win_set_tab_group_member(pFrame, bMember);
-+#endif
-+#else
-+    (void)pWindow;
-+    (void)bMember;
-+#endif
++    if (SalFrame* pFrame = pWindow->ImplGetFrame())
++        pFrame->SetTabGroupMember(bMember);
 +}
 +
  void SystemWindow::SetIcon( sal_uInt16 nIcon )
  {
      if ( mnIcon == nIcon )
+--- a/vcl/inc/salframe.hxx
++++ b/vcl/inc/salframe.hxx
+@@ -144,6 +144,9 @@
+     virtual void            SetTitle( const OUString& rTitle ) = 0;
+     virtual void            SetIcon( sal_uInt16 nIcon ) = 0;
+     virtual void            SetRepresentedURL( const OUString& );
++    /// HST Office: the frame belongs to the document tab group (see DocumentTabGroup); the macOS
++    /// and Windows backends turn off window animations for it.
++    virtual void            SetTabGroupMember( bool ) {}
+     virtual void            SetMenu( SalMenu *pSalMenu ) = 0;
+ 
+     virtual void            SetExtendedFrameStyle( SalExtStyle nExtStyle ) = 0;
 --- a/vcl/osx/salframe.cxx
 +++ b/vcl/osx/salframe.cxx
 @@ -39,6 +39,8 @@
@@ -97,7 +94,7 @@ next to the second window.
      // if the frame is destroyed and has the current menubar
      // set the default menubar
      if( mpMenu && mpMenu->mbMenuBar && AquaSalMenu::pCurrentMenuBar == mpMenu )
-@@ -379,6 +387,62 @@
+@@ -379,6 +387,55 @@
  {
  }
  
@@ -150,17 +147,10 @@ next to the second window.
 +    }
 +}
 +
-+// Called from vcl/source/window/syswin.cxx (hst_vcl_set_tab_group_member)
-+void hst_osx_set_tab_group_member( SalFrame* pFrame, bool bMember )
-+{
-+    if( pFrame )
-+        static_cast<AquaSalFrame*>( pFrame )->SetTabGroupMember( bMember );
-+}
-+
  void AquaSalFrame::SetRepresentedURL( const OUString& i_rDocURL )
  {
      OSX_SALDATA_RUNINMAIN( SetRepresentedURL( i_rDocURL ) )
-@@ -529,6 +593,10 @@
+@@ -529,6 +586,10 @@
          // trigger filling our backbuffer
          SendPaintEvent();
  
@@ -171,7 +161,7 @@ next to the second window.
          if( bNoActivate || [mpNSWindow canBecomeKeyWindow] == NO )
              [mpNSWindow orderFront: NSApp];
          else
-@@ -568,11 +636,34 @@
+@@ -568,11 +629,34 @@
          if( mpParent && [mpNSWindow parentWindow] == mpParent->mpNSWindow )
              [mpParent->mpNSWindow removeChildWindow: mpNSWindow];
  
@@ -206,7 +196,7 @@ next to the second window.
  
          // Related: tdf#165448 move parent window to front after closing window
          // When a floating window such as the dropdown list in the
-@@ -588,6 +679,25 @@
+@@ -588,6 +672,25 @@
          NSWindow *pKeyWin = [NSApp keyWindow];
          if( pKeyWin )
              [pKeyWin orderFront: NSApp];
@@ -265,27 +255,35 @@ next to the second window.
      virtual void                SetRepresentedURL( const OUString& ) override;
 +    /// HST Office: mark the window as a document tab (no window animation, tabs of a native
 +    /// full screen window join its Space instead of opening their own).
-+    void                        SetTabGroupMember( bool bMember );
++    virtual void                SetTabGroupMember( bool bMember ) override;
 +    void                        joinNativeFullScreenTabs();
      virtual void                SetMenu( SalMenu* pSalMenu ) override;
      virtual void                Show( bool bVisible, bool bNoActivate = false ) override;
      virtual void                SetMinClientSize( tools::Long nWidth, tools::Long nHeight )
+--- a/vcl/inc/win/salframe.h
++++ b/vcl/inc/win/salframe.h
+@@ -98,6 +98,7 @@
+     virtual bool                PostEvent(std::unique_ptr<ImplSVEvent> pData) override;
+     virtual void                SetTitle( const OUString& rTitle ) override;
+     virtual void                SetIcon( sal_uInt16 nIcon ) override;
++    virtual void                SetTabGroupMember( bool bMember ) override;
+     virtual void                SetMenu( SalMenu* pSalMenu ) override;
+     virtual void                SetExtendedFrameStyle( SalExtStyle nExtStyle ) override;
+     virtual void                Show( bool bVisible, bool bNoActivate = false ) override;
 --- a/vcl/win/window/salframe.cxx
 +++ b/vcl/win/window/salframe.cxx
-@@ -1151,6 +1151,18 @@
+@@ -1151,6 +1151,16 @@
      }
  }
  
-+// HST Office: called from vcl/source/window/syswin.cxx. A document tab window is shown and hidden
-+// when the user switches tabs: turn off the DWM show/hide transition (fade and zoom) so the switch
-+// is instant like a browser tab.
-+void hst_win_set_tab_group_member( SalFrame* pFrame, bool bMember )
++// HST Office: a document tab window is shown and hidden when the user switches tabs: turn off the
++// DWM show/hide transition (fade and zoom) so the switch is instant like a browser tab.
++void WinSalFrame::SetTabGroupMember( bool bMember )
 +{
-+    WinSalFrame* pWinFrame = static_cast<WinSalFrame*>( pFrame );
-+    if ( !pWinFrame || !pWinFrame->mhWnd )
++    if ( !mhWnd )
 +        return;
 +    const BOOL bDisable = bMember ? TRUE : FALSE;
-+    DwmSetWindowAttribute( pWinFrame->mhWnd, DWMWA_TRANSITIONS_FORCEDISABLED, &bDisable, sizeof(bDisable) );
++    DwmSetWindowAttribute( mhWnd, DWMWA_TRANSITIONS_FORCEDISABLED, &bDisable, sizeof(bDisable) );
 +}
 +
  void WinSalFrame::SetExtendedFrameStyle( SalExtStyle )
