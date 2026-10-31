@@ -34,6 +34,17 @@ XCU
     "-env:UserInstallation=file://$profile" >"$out/soffice-$mode.log" 2>&1 &
   pid=$!
   sleep 8
+  # The welcome dialog is modal and blocks UNO: close it (accessibility first, then a real click on
+  # its red close button at the top left of the window).
+  timeout_osa() { perl -e 'alarm 10; exec @ARGV' osascript "$@"; }
+  timeout_osa -e 'tell application "System Events" to tell (first process whose frontmost is true) to click (first button of window 1 whose subrole is "AXCloseButton")' \
+    >"$out/welcome-osascript-$mode.log" 2>&1 || echo "osascript exit $?" >>"$out/welcome-osascript-$mode.log"
+  sleep 1
+  screencapture -x "$out/welcome-after-osa-$mode.png" || true
+  if command -v cliclick >/dev/null 2>&1 || brew install cliclick >"$out/brew-cliclick.log" 2>&1; then
+    cliclick c:13,38 >"$out/welcome-cliclick-$mode.log" 2>&1 || true
+    sleep 2
+  fi
   ( screencapture -v -V 150 "$out/screen-$mode.mov" 2>"$out/screencapture-$mode.log" || true ) &
   rec=$!
   origin="$(python3 -c 'import time;print(int(time.time()*1000))')"

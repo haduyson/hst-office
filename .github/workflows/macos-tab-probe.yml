@@ -56,13 +56,23 @@ jobs:
         shell: bash
         run: |
           if [ -f "$RUNNER_TEMP/tabprobe/summary.md" ]; then
-            cat "$RUNNER_TEMP/tabprobe/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/tabprobe/summary.md"
           fi
       - name: Upload probe evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-tab-probe-${{ github.run_id }}
-          path: ${{ runner.temp }}/tabprobe/
+          path: |
+            ${{ runner.temp }}/tabprobe/
+            !${{ runner.temp }}/tabprobe/*.mov
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload screen recordings
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-tab-probe-video-${{ github.run_id }}
+          path: ${{ runner.temp }}/tabprobe/*.mov
           if-no-files-found: error
           retention-days: 7
