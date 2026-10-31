@@ -1,0 +1,16 @@
+HST Office: match bundled template titles to their translatable names case-insensitively, so the
+Japanese template (titled "Japanese normal") shows its translation, e.g. "Tiếng Nhật thông thường".
+
+--- a/sfx2/source/doc/doctempl.cxx
++++ b/sfx2/source/doc/doctempl.cxx
+@@ -546,7 +546,9 @@
+ 
+     for (size_t i = 0; i < SAL_N_ELEMENTS(STR_TEMPLATE_NAME); ++i)
+     {
+-        if (rString == aTemplateNames[i])
++        // HST: case-insensitive, the bundled ja_ott_normal.ott is titled "Japanese normal"
++        // while the key is "Japanese Normal" (its translation was never used)
++        if (rString.equalsIgnoreAsciiCase(aTemplateNames[i]))
+             return SfxResId(STR_TEMPLATE_NAME[i]);
+     }
+     return rString;
