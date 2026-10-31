@@ -106,8 +106,10 @@ def check_workflow(path, root=ROOT):
     for name, job in jobs.items():
         timeout = job.get("timeout-minutes")
         require(type(timeout) is int and 1 <= timeout <= 360, f"{name}: timeout must be 1..360 minutes")
-        # Only the manually dispatched release job may write, and only releases plus reading run artifacts.
-        allowed = RELEASE_PERMISSIONS if (path.name == "release.yml" and name == "publish") else {"contents": "read"}
+        # Only the manually dispatched release jobs may write, and only releases plus reading run artifacts:
+        # the public release and the draft "test-builds" release for maintainers.
+        writers = {("release.yml", "publish"), ("test-build-share.yml", "share")}
+        allowed = RELEASE_PERMISSIONS if (path.name, name) in writers else {"contents": "read"}
         require(job.get("permissions", {"contents": "read"}) == allowed, f"{name}: permissions escalation")
         require(not job.get("continue-on-error"), f"{name}: continue-on-error masks failures")
         signing = (path.name, name) in SIGNING_JOBS

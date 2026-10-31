@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copies one test artifact (e.g. a signed macOS dmg from a probe run) into a DRAFT release named
+# "test-builds", so maintainers download it at release-asset speed instead of the slow artifact
+# endpoint. Draft releases are visible only to repository collaborators; nothing is published.
+name: Share test build
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run id that produced the artifact"
+        required: true
+        type: string
+      artifact:
+        description: "Artifact name"
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: test-build-share
+  cancel-in-progress: false
+jobs:
+  share:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ inputs.run_id }}
+      ARTIFACT: ${{ inputs.artifact }}
+    steps:
+      - name: Download and verify the artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "bad run id" >&2; exit 1; }
+          [[ "$ARTIFACT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad artifact name" >&2; exit 1; }
+          mkdir -p dist && gh run download "$RUN_ID" -n "$ARTIFACT" -D dist
+          cd dist && [ -f SHA256SUMS ] && sha256sum -c SHA256SUMS --ignore-missing
+      - name: Upload to the draft test-builds release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view test-builds >/dev/null 2>&1; then
+            gh release create test-builds --draft --title "Test builds (internal)" \
+              --notes "Internal test builds for maintainers. Not a release."
+          fi
+          find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*.deb' -o -name SHA256SUMS \) \
+            -exec gh release upload test-builds --clobber {} +
