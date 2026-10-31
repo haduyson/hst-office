@@ -1,0 +1,56 @@
+--- a/vcl/win/app/fileregistration.cxx
++++ b/vcl/win/app/fileregistration.cxx
+@@ -10,6 +10,7 @@
+ #include <sal/config.h>
+ 
+ #include <comphelper/scopeguard.hxx>
++#include <i18nlangtag/languagetag.hxx>
+ #include <o3tl/char16_t2wchar_t.hxx>
+ #include <officecfg/Office/Common.hxx>
+ #include <unotools/resmgr.hxx>
+@@ -164,11 +165,14 @@
+ 
+     if (!aNonDefaults.isEmpty())
+     {
+-        OUString aMsg(VclResId(STR_FILEEXT_NONDEFAULT_ASK_MSG).replaceFirst("$1", aNonDefaults));
++        // HST: this startup notice is always shown in Vietnamese, whatever the UI language.
++        const std::locale aVi = Translate::Create("vcl", LanguageTag(u"vi-VN"_ustr));
++        OUString aMsg(
++            Translate::get(STR_FILEEXT_NONDEFAULT_ASK_MSG, aVi).replaceFirst("$1", aNonDefaults));
+ 
+         VclAbstractDialogFactory* pFact = VclAbstractDialogFactory::Create();
+         ScopedVclPtr<VclAbstractDialog> pDlg(pFact->CreateFileExtCheckDialog(
+-            pDialogParent, VclResId(STR_FILEEXT_NONDEFAULT_ASK_TITLE), aMsg));
++            pDialogParent, Translate::get(STR_FILEEXT_NONDEFAULT_ASK_TITLE, aVi), aMsg));
+         pDlg->Execute();
+     }
+ }
+--- a/cui/source/dialogs/fileextcheckdlg.cxx
++++ b/cui/source/dialogs/fileextcheckdlg.cxx
+@@ -19,7 +19,9 @@
+ 
+ #include <sal/config.h>
+ 
++#include <i18nlangtag/languagetag.hxx>
+ #include <officecfg/Office/Common.hxx>
++#include <unotools/resmgr.hxx>
+ #include <vcl/fileregistration.hxx>
+ #include <vcl/vclenum.hxx>
+ #include <vcl/weld/Builder.hxx>
+@@ -35,6 +37,16 @@
+     , m_pOk(m_xBuilder->weld_button("btnOk"))
+ {
+     m_pPerformCheck->set_active(true);
++    // HST: this startup notice is always shown in Vietnamese, whatever the UI language.
++    const std::locale aVi = Translate::Create("cui", LanguageTag(u"vi-VN"_ustr));
++    m_pPerformCheck->set_label(
++        Translate::get(TranslateId("FileExtCheck|Checkbox", "_Perform check on startup"), aVi));
++    m_pPerformCheck->set_tooltip_text(Translate::get(
++        TranslateId("FileExtCheck|Checkbox_Tooltip",
++            "Enable the dialog again at Tools - Options - %PRODUCTNAME - General"),
++        aVi));
++    m_xBuilder->weld_button(u"btnCancel"_ustr)
++        ->set_label(Translate::get(TranslateId("stock", "_Cancel"), aVi));
+     m_pOk->connect_clicked(LINK(this, FileExtCheckDialog, OnOkClick));
+     m_xDialog->set_title(sTitle);
+     m_pText->set_label(sMsg);
