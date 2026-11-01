@@ -82,5 +82,6 @@ other="$(grep -v -E '/__pycache__/[^/]+[.]pyc$' "$out/bundle-changes.txt" || tru
 note "files written inside the bundle while the office ran: $(wc -l <"$out/bundle-changes.txt" | tr -d ' ') (bundle-changes.txt)"
 if [ -n "$other" ]; then note "FAIL bundle files other than Python caches changed: $(printf '%s' "$other" | head -5 | tr '\n' ' ')"; status=1; fi
 find "$app" -newer "$marker" -type f -name "*.pyc" -delete  # only the new caches; the sealed ones stay
-if codesign --verify --deep --strict "$app"; then note "signature verifies after the probe (Python caches removed)"; else note "FAIL signature after the probe"; status=1; fi
+find "$app" -newer "$marker" -type d -empty -delete  # and the cache folders the office created
+if codesign --verify --deep --strict "$app" 2>"$out/codesign-after.txt"; then note "signature verifies after the probe (Python caches removed)"; else note "FAIL signature after the probe: $(head -c 300 "$out/codesign-after.txt" | tr '\n' ' ')"; status=1; fi
 exit "$status"
