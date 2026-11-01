@@ -59,6 +59,22 @@ def _password_edit(peer):
     return None
 
 
+def describe_peers(office):
+    """Short evidence of what the toolkit exposes for the open dialogs (types, not contents)."""
+    out = []
+    for peer in _peers(office):
+        try:
+            if not peer.isVisible():
+                continue
+            kinds = sorted({",".join(n for n in ("setEchoChar", "setText", "getWindows") if hasattr(c, n))
+                            for c in _children(peer)})
+            out.append({"title": _title(peer), "endDialog": hasattr(peer, "endDialog"),
+                        "children": len(_children(peer)), "child_kinds": kinds[:6]})
+        except Exception as exc:  # noqa: BLE001
+            out.append({"error": repr(exc)[:80]})
+    return out
+
+
 def pin_dialog_peer(office):
     """The visible dialog peer that holds a password edit (the token PIN prompt), or None."""
     for peer in _peers(office):
@@ -179,27 +195,40 @@ def mac_dialogs(signing):
             return win, kids
 
         def _answer_pin(self, win):
-            """Fill and accept the PIN dialog through its toolkit peer: XTextComponent.setText and
-            XDialog2.endDialog(RET_OK). A UITest CLICK on OK runs inside UITest's ExecuteWrapper, whose
-            nested Reschedule loop on Aqua sometimes never returns (stack samples: Dialog::Execute ->
-            ExecuteWrapper::ExecuteActionHdl -> Application::Reschedule spinning)."""
+            """Accept the PIN without a UITest action. UITest CLICK/SET/TYPE run inside its
+            ExecuteWrapper, whose nested Reschedule loop inside the modal PIN dialog sometimes never
+            returns on Aqua (stack samples: Dialog::Execute -> ExecuteWrapper::ExecuteActionHdl ->
+            Application::Reschedule spinning). Preferred: toolkit peer (setText + endDialog(RET_OK));
+            else native key events into the frontmost dialog, as a user types; UITest only last."""
             if not self.pins:
-                return super()._answer_pin(win)
-            peer = pin_dialog_peer(self.office)
-            if peer is None:  # fall back to UITest typing and clicking, recorded without "via"
                 return super()._answer_pin(win)
             label = {p.Name: p.Value for p in win.getChild("openPasswordLabel").getState()}.get("Text", "")
             answer = self.pins.pop(0)
-            entry = _password_edit(peer)
-            entry.setText(answer)
-            self.prompts.append({"label": label, "answer": "pin(%d digits)" % len(answer),
-                                 "entry_length": len(entry.getText()), "via": "toolkit"})
+            row = {"label": label, "answer": "pin(%d digits)" % len(answer), "peers": describe_peers(self.office)}
+            self.prompts.append(row)
             self.shot("pin-prompt-%d" % len(self.prompts))
-            peer.endDialog(1)  # RET_OK
+            peer = pin_dialog_peer(self.office)
+            if peer is not None:
+                _password_edit(peer).setText(answer)
+                peer.endDialog(1)  # RET_OK
+                row["via"] = "toolkit"
+            elif shutil.which("cliclick"):
+                self.office.front()
+                time.sleep(0.5)
+                subprocess.run(["cliclick", "t:" + answer, "kp:return"], check=False, capture_output=True, timeout=20)
+                row["via"] = "keyboard"
             for _ in range(3):
                 self.nudge(front=False)
                 time.sleep(0.3)
-            time.sleep(1)
+            time.sleep(1.5)
+            win2, kids = super().top()
+            still = "newpassEntry" in kids and {p.Name: p.Value for p in win2.getState()}.get("Visible") == "true"
+            if "via" not in row or still:
+                row["via"] = row.get("via", "") + "+uitest"
+                entry = win2.getChild("newpassEntry") if still else win.getChild("newpassEntry")
+                entry.executeAction("TYPE", signing.props(TEXT=answer))
+                self.later((win2 if still else win).getChild("ok"))
+                time.sleep(1.5)
 
     class Logged(Dialogs):
         log = []
