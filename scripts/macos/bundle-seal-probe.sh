@@ -42,11 +42,12 @@ session() {  # session <name> [VAR=value...]: copy, list, start, drive, quit, co
   pyuno="$(find "$app/Contents" -name 'pyuno*.so' -o -name 'pyuno*.dylib' | head -1)"
   codesign --verify --deep --strict "$app" || { note "FAIL $name: signature does not verify before the session"; status=1; }
   listing "$app" >"$out/$name-before.txt"
-  # no welcome dialog (modal); every other start-up job of the extension runs
+  # no welcome dialog, no tip of the day (both modal); every other start-up job of the extension runs
   cat >"$profile/user/registrymodifications.xcu" <<'XCU'
 <?xml version="1.0" encoding="UTF-8"?>
 <oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <item oor:path="/org.hasontech.hstoffice.Welcome"><prop oor:name="Shown" oor:op="fuse"><value>true</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="ShowTipOfTheDay" oor:op="fuse"><value>false</value></prop></item>
 </oor:items>
 XCU
   env -u PYTHONDONTWRITEBYTECODE -u PYTHONPYCACHEPREFIX "$@" "$app/Contents/MacOS/soffice" --norestore --nologo \
@@ -58,7 +59,10 @@ XCU
   URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" PYTHONPATH="$app/Contents/Resources:$(dirname "$pyuno")" \
     perl -e 'alarm 300; exec @ARGV' "$py" -B "$here/bundle-seal-session.py" "$port" "$out/$name-session.log" || rc=$?
   for _ in $(seq 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
-  if kill -0 "$pid" 2>/dev/null; then note "$name: the office did not quit within 60 s, stopped"; kill "$pid"; sleep 3; kill -9 "$pid" 2>/dev/null || true; fi
+  if kill -0 "$pid" 2>/dev/null; then
+    screencapture -x "$out/$name-not-quit.png" || true
+    note "$name: the office did not quit within 60 s, stopped ($name-not-quit.png)"; kill "$pid"; sleep 3; kill -9 "$pid" 2>/dev/null || true
+  fi
   wait "$pid" 2>/dev/null || true
   [ "$rc" -eq 0 ] || { note "FAIL $name: session driver exit $rc ($name-session.log)"; status=1; }
   listing "$app" >"$out/$name-after.txt"

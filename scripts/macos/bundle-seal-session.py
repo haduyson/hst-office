@@ -38,9 +38,15 @@ def close_dialogs(toolkit):
     closed = 0
     for index in range(toolkit.getTopWindowCount()):
         try:
-            toolkit.getTopWindow(index).endExecute()
+            window = toolkit.getTopWindow(index)
+            title = getattr(window, "Title", None) or window.getAccessibleContext().getAccessibleName()
+        except Exception:  # noqa: BLE001 - a window that vanished
+            continue
+        try:
+            window.endExecute()
             closed += 1
-        except Exception:  # noqa: BLE001 - a document window, or a window that vanished
+            log("closed dialog:", title)
+        except Exception:  # noqa: BLE001 - a document window
             pass
     return closed
 

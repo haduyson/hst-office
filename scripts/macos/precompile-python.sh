@@ -35,7 +35,7 @@ for root, _dirs, files in os.walk(sys.argv[1]):
             with open(os.path.join(root, name), "rb") as handle:
                 flags = int.from_bytes(handle.read(8)[4:8], "little")
             total += 1
-            checked += flags != 3
+            checked += flags != 1  # PEP 552: bit 0 hash-based, bit 1 check_source
 if checked:
     sys.exit("precompile: %d of %d .pyc are not unchecked-hash" % (checked, total))
 print("precompile: %d unchecked-hash .pyc" % total)
