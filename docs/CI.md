@@ -190,6 +190,18 @@ lỗi; `--verify` kiểm lại trên dmg. Có thể kiểm một dmg đã phát 
 workflow này chạy luôn đường ký Developer ID + notarize trên app đó (environment `macos-signing`, cần duyệt) và
 tải dmg đã ký lên artifact `macos-signing-probe-arm64-dmg-signed-<run_id>` (3 ngày).
 
+**Bundle không được tự sửa khi chạy.** Người dùng admin kéo app vào `/Applications` (thư mục ghi được), nên
+mọi tệp app ghi vào chính bundle sẽ phá niêm phong chữ ký. Python từng ghi `__pycache__/*.pyc` vào bundle
+(upstream chép framework Python bằng `cp -R` nên mọi `.pyc` kèm theo đều cũ so với `.py`). Hai lớp chặn:
+[hst-python-no-bytecode.patch](../patches/libreoffice/hst-python-no-bytecode.patch) đặt
+`PYTHONDONTWRITEBYTECODE=1` trước `Py_Initialize()` (tiến trình con dùng python3 đóng gói cũng thừa hưởng), và
+`--collect` chạy [precompile-python.sh](../scripts/macos/precompile-python.sh) trước khi ký (bytecode
+unchecked-hash hợp lệ cho thư viện chuẩn, mô-đun của office và phần mở rộng). Kiểm tra:
+[macos-bundle-seal-probe.yml](../.github/workflows/macos-bundle-seal-probe.yml) (input `tag` hoặc `run_id`,
+`baseline=required` mặc định: sau một phiên Writer + Kiểm tra cập nhật + trình hướng dẫn Văn bản hành chính,
+danh sách tệp trong bundle không đổi và `codesign --verify --deep --strict` vẫn đạt; dmg trước bản sửa dùng
+`informational`); trên Linux `tests/runtime/check-python-no-bytecode.py` (instdir).
+
 Người dùng macOS 15: mở app → hộp "Apple không thể xác minh…" → **Xong** → **Cài đặt hệ thống ▸ Quyền riêng
 tư & Bảo mật ▸ Vẫn mở** (*Open Anyway*) → xác nhận mật khẩu → mở lại, chọn **Vẫn mở**. Dự phòng:
 `xattr -dr com.apple.quarantine "/Applications/HST Office.app"`.
