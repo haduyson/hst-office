@@ -7,11 +7,13 @@
 #   as-shipped    the office as users start it;
 #   no-bytecode   with PYTHONDONTWRITEBYTECODE=1 in the office's environment (what the pyuno loader sets since
 #                 hst-python-no-bytecode.patch; children such as the update helper or the USB token worker inherit it);
-#   cache-prefix  with PYTHONPYCACHEPREFIX in a temporary folder (the alternative: caches outside the bundle).
+#   cache-prefix  with PYTHONPYCACHEPREFIX in a temporary folder (the alternative: caches outside the bundle);
+#   precompiled   as users start it, after precompile-python.sh and an ad-hoc signature (what trial-build.sh
+#                 does before signing: valid sealed bytecode, so Python has nothing to write).
 # Each session (bundle-seal-session.py over UNO): Writer with text, HST ▸ Kiểm tra cập nhật…, the Văn bản hành chính
 # wizard, quit. Before/after: the bundle's file list with size and mtime, and the signature check.
 # Also records which shipped .pyc files of the Python framework are stale for their source (pyc-staleness.txt).
-# Exit 1 when no-bytecode leaves a trace, or when as-shipped does and the third argument is "required" (default).
+# Exit 1 when no-bytecode or precompiled leaves a trace, or when as-shipped does and the third argument is "required" (default).
 set -Eeuo pipefail
 [ $# -ge 2 ] || { echo "usage: $0 <dmg> <out-dir> [required|informational]" >&2; exit 64; }
 dmg="$1"; out="$2"; baseline="${3:-required}"; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,6 +31,13 @@ session() {  # session <name> [VAR=value...]: copy, list, start, drive, quit, co
   shift
   mkdir -p "$work/$name" "$profile/user"
   ditto "$mnt/HST Office.app" "$app"
+  if [ "$name" = precompiled ]; then  # what trial-build.sh does before signing; then an ad-hoc signature
+    if bash "$here/precompile-python.sh" "$app" >"$out/precompile.log" 2>&1 && bash "$here/adhoc-sign.sh" "$app" >"$out/adhoc-sign.log" 2>&1; then
+      note "precompiled: $(tail -1 "$out/precompile.log"), ad-hoc signed"
+    else
+      note "FAIL precompiled: precompile-python.sh or adhoc-sign.sh failed (precompile.log, adhoc-sign.log)"; status=1
+    fi
+  fi
   py="$(find "$app/Contents" -path '*bin/python3*' -type f -perm -u+x ! -name '*-config' | head -1)"
   pyuno="$(find "$app/Contents" -name 'pyuno*.so' -o -name 'pyuno*.dylib' | head -1)"
   codesign --verify --deep --strict "$app" || { note "FAIL $name: signature does not verify before the session"; status=1; }
@@ -105,6 +114,7 @@ note "shipped bytecode: $(head -1 "$out/pyc-staleness.txt")"
 session as-shipped
 session no-bytecode PYTHONDONTWRITEBYTECODE=1
 session cache-prefix "PYTHONPYCACHEPREFIX=$work/pycache"
+session precompiled
 # What not writing caches costs: compile time of the extension's modules (done on every start without caches).
 "$(cat "$work/python")" -I -B - "$work/as-shipped/HST Office.app/Contents/Resources/extensions/hst-vietnamese-tools/python" >"$out/compile-time.txt" 2>&1 <<'PY' || true
 import os, sys, time

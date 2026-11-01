@@ -90,12 +90,14 @@ def main():
     for command in COMMANDS:
         run(ctx, frame, toolkit, command)
     doc.setModified(False)
-    close_dialogs(toolkit)
-    try:
-        desktop.terminate()
-        log("terminate requested")
-    except Exception as error:  # noqa: BLE001 - the bridge closes while the office quits
-        log("terminate:", error)
+    for attempt in range(10):  # a dialog still closing may veto the first request
+        try:
+            close_dialogs(toolkit)
+            log("terminate", attempt, "->", desktop.terminate())
+            time.sleep(3)
+        except Exception as error:  # noqa: BLE001 - the bridge closes while the office quits
+            log("office quit:", type(error).__name__)
+            break
     return 0
 
 
