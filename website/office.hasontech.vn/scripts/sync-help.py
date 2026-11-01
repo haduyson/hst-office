@@ -13,7 +13,7 @@ Tệp mẫu cho quản trị viên trong help/files/ (.reg, .xcd, .mobileconfig)
 Kết quả (ghi đè hoàn toàn): huong-dan/index.html, huong-dan/<trang>/index.html, huong-dan/images/*,
 và vùng <!-- huong-dan --> trong sitemap.xml. Chạy lại ở mỗi lần chuyển bản phát hành.
 """
-import argparse, datetime, html, io, json, os, re, shutil, subprocess, sys
+import argparse, datetime, hashlib, html, io, json, os, re, shutil, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from site_chrome import apply_chrome
 
@@ -98,6 +98,7 @@ def main():
     files = [f for f in (git("ls-tree", "--name-only", f"{ref}:{SRC}/files").split() if "files" in names else [])
              if f.endswith((".reg", ".xcd", ".mobileconfig"))]
     slugs = set(pages)
+    img_ver = {}
 
     def fix_links(fragment):
         # Liên kết nội bộ x.html(#a) -> /huong-dan/x/(#a); trang chưa có trong bản này -> chỉ giữ chữ.
@@ -125,10 +126,11 @@ def main():
             if not src:
                 return tag
             base = src.group(1)
-            tag = tag.replace(f'src="images/{base}.png"', f'src="/huong-dan/images/{base}.png"')
+            v = img_ver.get(base, "1")
+            tag = tag.replace(f'src="images/{base}.png"', f'src="/huong-dan/images/{base}.png?v={v}"')
             if "decoding=" not in tag:
                 tag = tag.replace("<img ", '<img decoding="async" ', 1)
-            return f'<picture><source type="image/webp" srcset="/huong-dan/images/{base}.webp">{tag}</picture>'
+            return f'<picture><source type="image/webp" srcset="/huong-dan/images/{base}.webp?v={v}">{tag}</picture>'
         return re.sub(r"<img\s[^>]*>", img, fragment)
 
     if os.path.isdir(OUT):
@@ -140,6 +142,7 @@ def main():
         Image = None
     for name in images:
         data = git("show", f"{ref}:{SRC}/images/{name}", binary=True)
+        img_ver[name.rsplit(".", 1)[0]] = hashlib.sha256(data).hexdigest()[:8]
         open(os.path.join(OUT, "images", name), "wb").write(data)
         if name.endswith(".png") and Image:
             Image.open(io.BytesIO(data)).save(os.path.join(OUT, "images", name[:-4] + ".webp"), "WEBP", quality=82, method=6)
