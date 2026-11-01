@@ -155,7 +155,7 @@
 <h2>3. Linux (Ubuntu)</h2>
 <p>Trên Linux, HST Office đọc chứng thư từ cơ sở dữ liệu chứng thư NSS và hỏi mã PIN bằng hộp thoại <span class="menu">Nhập mã PIN</span>. HST Office tự tìm cơ sở dữ liệu theo thứ tự:</p>
 <ol>
-  <li>Đường dẫn bạn chọn trong <span class="menu">Công cụ → Tùy chọn… → HST Office → Bảo mật → Chứng chỉ…</span>;</li>
+  <li>Đường dẫn bạn chọn trong <span class="menu">Công cụ → Tùy chọn… → HST Office → Bảo mật → Chứng thư…</span>;</li>
   <li>hồ sơ Firefox hoặc Thunderbird (kể cả bản cài dạng Snap hoặc Flatpak);</li>
   <li>thư mục dùng chung <code>~/.pki/nssdb</code>.</li>
 </ol>
@@ -179,18 +179,18 @@
 </ol>
 <div class="note"><p>Token VNPT Feitian ePass2003Auto có thể không được OpenSC nhận diện. Hãy dùng VNPT-CA Token Manager cho token này.</p></div>
 <p>HST Office tự tạo và chọn kho chứng thư riêng tại <code>~/Library/Application Support/HST Office/nssdb</code>. Khi cần thêm driver vào kho đã dùng, HST tạo kho tiếp theo (<code>nssdb-2</code>, <code>nssdb-3</code>…). Mọi đăng ký mô-đun cũ, kể cả mô-đun gốc tích hợp và các driver khác, được giữ lại trong kho mới cùng các driver vừa kiểm tra. Kho cũ được giữ nguyên. Khởi động lại HST Office khi hộp thoại yêu cầu để dùng kho mới; chạy lại lệnh không tạo đăng ký trùng.</p>
-<p>Cơ chế này cũng tự áp dụng trên Linux khi không thể khóa an toàn tệp mô-đun, với kho riêng tại <code>~/.local/share/hst-office/nssdb</code>. Chứng thư đã nhập riêng vào kho cũ không được sao chép; nếu cần, cài chứng thư gốc theo hướng dẫn nhà cung cấp. Có thể chọn lại kho cũ tại <span class="menu">Bảo mật → Chứng chỉ…</span> rồi khởi động lại.</p>
-<p>Nếu biến môi trường <code>MOZILLA_CERTIFICATE_FOLDER</code> đang cố định kho chứng thư, thay đổi lựa chọn kho không có hiệu lực. HST không tạo kho riêng trong trường hợp này. Trên Linux, hãy đóng ứng dụng đang dùng kho rồi đăng ký vào kho đã cố định khi có thể khóa an toàn; nếu không, bỏ thiết lập biến này trong môi trường khởi chạy rồi khởi động lại HST Office và thử lại. Tham số NSS nội bộ có chính sách không thể chuyển an toàn cũng được từ chối trước khi tạo kho; hãy chọn một kho NSS SQL mới tại <span class="menu">Bảo mật → Chứng chỉ…</span> theo thông báo.</p>
+<p>Cơ chế này cũng tự áp dụng trên Linux khi không thể khóa an toàn tệp mô-đun, với kho riêng tại <code>~/.local/share/hst-office/nssdb</code>. Chứng thư đã nhập riêng vào kho cũ không được sao chép; nếu cần, cài chứng thư gốc theo hướng dẫn nhà cung cấp. Có thể chọn lại kho cũ tại <span class="menu">Bảo mật → Chứng thư…</span> rồi khởi động lại.</p>
+<p>Nếu biến môi trường <code>MOZILLA_CERTIFICATE_FOLDER</code> đang cố định kho chứng thư, thay đổi lựa chọn kho không có hiệu lực. HST không tạo kho riêng trong trường hợp này. Trên Linux, hãy đóng ứng dụng đang dùng kho rồi đăng ký vào kho đã cố định khi có thể khóa an toàn; nếu không, bỏ thiết lập biến này trong môi trường khởi chạy rồi khởi động lại HST Office và thử lại. Tham số NSS nội bộ có chính sách không thể chuyển an toàn cũng được từ chối trước khi tạo kho; hãy chọn một kho NSS SQL mới tại <span class="menu">Bảo mật → Chứng thư…</span> theo thông báo.</p>
 
 <details>
 <summary>Nâng cao: đăng ký thủ công bằng công cụ NSS</summary>
 <p>Có thể dùng khi lệnh thiết lập chưa hỗ trợ đường dẫn driver của bạn hoặc khi cần chuẩn bị kho riêng trên macOS. Công cụ <code>modutil</code> có thể ghi lại tệp mô-đun; đăng ký thủ công không có các bảo đảm bảo toàn, sao lưu và khôi phục của lệnh HST. Các bước dưới đây chỉ dành cho một thư mục mới, trống, tách biệt với kho hiện có. Không dùng chúng để thêm driver vào kho đang có đăng ký. Cài công cụ NSS bằng trình quản lý gói của hệ điều hành nếu chưa có <code>certutil</code> và <code>modutil</code>. Không chạy các lệnh dưới đây bằng quyền quản trị.</p>
 <ol>
-  <li>Ghi lại đường dẫn kho hiện tại trong <span class="menu">Bảo mật → Chứng chỉ…</span> để có thể chọn lại. Chọn tên thư mục riêng chưa tồn tại; ví dụ dưới đây dùng <code>$HOME/.hst-token-moi</code>, không dùng hồ sơ Firefox/Thunderbird.</li>
+  <li>Ghi lại đường dẫn kho hiện tại trong <span class="menu">Bảo mật → Chứng thư…</span> để có thể chọn lại. Chọn tên thư mục riêng chưa tồn tại; ví dụ dưới đây dùng <code>$HOME/.hst-token-moi</code>, không dùng hồ sơ Firefox/Thunderbird.</li>
   <li>Tạo và khởi tạo kho mới; nếu thư mục đã tồn tại thì dừng và chọn tên khác:<br><code>mkdir -m 700 "$HOME/.hst-token-moi" &amp;&amp; certutil -N -d "sql:$HOME/.hst-token-moi" --empty-password</code></li>
   <li>Đăng ký đường dẫn PKCS#11 do nhà cung cấp công bố, ví dụ trên macOS:<br><code>modutil -dbdir "sql:$HOME/.hst-token-moi" -add "USB Token" -libfile /usr/local/lib/libvnptca_p11_v8.dylib -force</code></li>
   <li>Kiểm tra:<br><code>certutil -L -d "sql:$HOME/.hst-token-moi" -h all</code></li>
-  <li>Chọn kho này tại <span class="menu">Bảo mật → Chứng chỉ…</span> nếu cần, rồi đóng hết cửa sổ HST Office và mở lại.</li>
+  <li>Chọn kho này tại <span class="menu">Bảo mật → Chứng thư…</span> nếu cần, rồi đóng hết cửa sổ HST Office và mở lại.</li>
 </ol>
 </details>
 
