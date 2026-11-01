@@ -12,20 +12,25 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import signature_pki
 from usb_token_macos_cli import main
-from usb_token_macos_harness import addon_urls, changed, firefox_profile
+from usb_token_macos_harness import addon_urls, changed, firefox_profile, setup_dialog
 
 LABEL = "VNPT-CA Token Manager"
 SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 TOOLS = ("modutil", "certutil")
 
 
-def run_case(args, scenario, signing):
+def bounded_setup(office, frame, signing):
+    with office.step("setup-command", 150):
+        return setup_dialog(office, frame, signing)
+
+
+def run_case(args, scenario, signing, tag=None):
     import hst_gui_macos
-    from usb_token_harness import certificate_with_pin, setup_dialog
+    from usb_token_harness import certificate_with_pin
     from usb_token_private_harness import preserved_records, snapshot
     mode = "tools" if args.tools else "no-tools"
     signing.Dialogs.log = []
-    base = (args.workdir / ("%s-%s" % (scenario, mode))).resolve()
+    base = (args.workdir / ("%s-%s" % (tag or scenario, mode))).resolve()
     base.mkdir(parents=True)
     pki = signature_pki.TokenPki(str(base / "pki")).create(register_module=False)
     root = base / "vendors with spaces"
@@ -41,7 +46,7 @@ def run_case(args, scenario, signing):
     home = office.home
     home.mkdir(parents=True)
     db = home / "Library/Application Support/HST Office/nssdb"
-    result = {"scenario": scenario, "mode": mode, "soffice_path": soffice_path, "checks": {}, "ca_pem": pki.ca_pem}
+    result = {"scenario": tag or scenario, "mode": mode, "soffice_path": soffice_path, "checks": {}, "ca_pem": pki.ca_pem}
     checks = result["checks"]
     source = before = None
     try:
@@ -51,7 +56,8 @@ def run_case(args, scenario, signing):
         if scenario.startswith("firefox"):
             source, before = firefox_profile(home, args.app)
         print("%s/%s: starting office" % (scenario, mode), flush=True)
-        office.start()
+        with office.step("start", 300):
+            office.start()
         urls = addon_urls(office)
         assert "org.hst.office.vi:SetupUsbToken" in urls, urls
         checks["hst_menu_has_usb_token_command"] = True
@@ -69,7 +75,7 @@ def run_case(args, scenario, signing):
             # then require that setup, restart and signing leave the store exactly as core left it.
             result["firefox_files_changed_by_core_before_setup"] = changed(source, before)
             before = snapshot(source)
-        text = setup_dialog(office, frame, signing)
+        text = bounded_setup(office, frame, signing)
         print("%s/%s: setup dialog checked" % (scenario, mode), flush=True)
         result["first_dialog"] = text
         assert "Đã tìm thấy và đăng ký: " + LABEL in text, text
@@ -87,13 +93,14 @@ def run_case(args, scenario, signing):
             assert snapshot(source) == before
             preserved_records(saved, before["pkcs11.txt"][1])
             checks["old_store_byte_identical_and_records_carried_over"] = True
-        result["repeat_dialog"] = text = setup_dialog(office, frame, signing)
+        result["repeat_dialog"] = text = bounded_setup(office, frame, signing)
         assert "Đã đăng ký từ trước: " + LABEL in text and "Khởi động lại HST Office rồi" in text, text
         assert saved == module_file.read_bytes()
         checks["repeat_before_restart_reports_existing"] = True
         doc.close(True)
         office.stop()
-        office.start(fresh=False)
+        with office.step("restart", 300):
+            office.start(fresh=False)
         print("%s/%s: restarted office" % (scenario, mode), flush=True)
         doc = office.load("private:factory/swriter")
         doc.Text.String = "Văn bản kiểm thử thiết lập USB Token — HST Office trên macOS."
@@ -129,21 +136,24 @@ def run_case(args, scenario, signing):
             checks["vendor_module_loaded_after_restart"] = True
         subprocess.run(["certutil", "-A", "-d", "sql:" + str(db), "-n", "HST Test Root CA", "-t", "CT,C,C",
                         "-a", "-i", pki.ca_pem], env=pki.env, check=True, capture_output=True)
-        subject, prompts = certificate_with_pin(office, signing, base / "shots")
+        with office.step("certificate-with-pin", 180):
+            subject, prompts = certificate_with_pin(office, signing, base / "shots")
         print("%s/%s: token certificate listed" % (scenario, mode), flush=True)
         result["certificate_subject"] = subject
         assert signature_pki.USER_CN in subject and prompts == 1, (subject, prompts)
         checks["xsecurityenvironment_lists_token_certificate"] = True
         frame = doc.getCurrentController().getFrame()
         dialogs = signing.Dialogs(office, str(base / "shots"), [signature_pki.USER_PIN])
-        signed = dialogs.sign_open_document(frame, "usb-setup")
+        with office.step("sign-odt", 360):
+            signed = dialogs.sign_open_document(frame, "usb-setup")
         result["signing"] = signed
         assert signed["signed"], signed
         checks["odt_signed_through_ui_with_pin"] = True
         doc.close(True)
-        doc = signing.load_visible(office, target.as_uri())
-        time.sleep(3)
-        state = signing.signature_state(office, doc.getCurrentController().getFrame())
+        with office.step("reload-signed-odt", 180):
+            doc = signing.load_visible(office, target.as_uri())
+            time.sleep(3)
+            state = signing.signature_state(office, doc.getCurrentController().getFrame())
         assert state == "OK", state
         checks["office_validates_signature"] = True
         with zipfile.ZipFile(target) as archive:
@@ -152,7 +162,7 @@ def run_case(args, scenario, signing):
         if source:
             assert snapshot(source) == before
             checks["old_store_unchanged_after_signing"] = True
-        result["final_dialog"] = text = setup_dialog(office, doc.getCurrentController().getFrame(), signing)
+        result["final_dialog"] = text = bounded_setup(office, doc.getCurrentController().getFrame(), signing)
         assert "Đã đăng ký từ trước: " + LABEL in text and "Khởi động lại HST Office rồi" not in text, text
         checks["rerun_after_restart_reports_existing_without_restart"] = True
         doc.close(True)
@@ -167,7 +177,8 @@ def run_case(args, scenario, signing):
         result["pin_prompts"] = list(signing.Dialogs.log)
         if source:
             result["firefox_files_changed"] = changed(source, before)
-        print("%s/%s: %r" % (scenario, mode, exc), flush=True)
+        result["soffice_exit"] = office.crashed()
+        print("%s/%s: %r (soffice exit %s)" % (tag or scenario, mode, exc, result["soffice_exit"]), flush=True)
         try:
             office.screenshot(str(base / "shots/failure.png"))
         except Exception:  # noqa: BLE001 - evidence only

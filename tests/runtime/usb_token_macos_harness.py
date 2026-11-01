@@ -3,7 +3,90 @@
 from pathlib import Path
 import shutil
 import subprocess
+import threading
 import time
+
+TITLE = "Thiết lập USB Token"
+
+
+def _peers(office):
+    """Top-level window peers from the toolkit; a closing window raises DisposedException, never
+    crashes (unlike a UITest object whose window died between two calls)."""
+    toolkit = office.service("com.sun.star.awt.Toolkit")
+    peers = []
+    for index in range(toolkit.getTopWindowCount()):
+        try:
+            peers.append(toolkit.getTopWindow(index))
+        except Exception:  # noqa: BLE001 - window went away meanwhile
+            pass
+    return peers
+
+
+def _title(peer):
+    try:
+        return peer.getTitle() if hasattr(peer, "getTitle") else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def modal_dialog_open(office):
+    """True while a visible dialog (XDialog peer) exists: only then is UITest polled at all."""
+    for peer in _peers(office):
+        try:
+            if hasattr(peer, "endExecute") and peer.isVisible():
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+    return False
+
+
+def setup_dialog(office, frame, signing, timeout=90):
+    """Dispatch HST ▸ Thiết lập USB Token…, read the result dialog through the toolkit and close it.
+
+    Same contract as usb_token_harness.setup_dialog, without UITest: polling UITest's focus window
+    while windows open and close crashed soffice in WindowUIObject::get_state on macOS."""
+    errors = []
+
+    def dispatch():
+        try:
+            office.dispatch(frame, "org.hst.office.vi:SetupUsbToken")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(repr(exc))
+
+    def contents(parent):
+        values = [parent.getText()] if hasattr(parent, "getText") else []
+        if hasattr(parent, "getWindows"):
+            for child in parent.getWindows():
+                values.extend(contents(child))
+        return values
+
+    worker = threading.Thread(target=dispatch, daemon=True)
+    worker.start()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if office.crashed() is not None:
+            raise RuntimeError("soffice exited (%s) during the setup command" % office.crashed())
+        for peer in _peers(office):
+            if _title(peer) != TITLE:
+                continue
+            try:
+                text = "\n".join(contents(peer))
+            except Exception:  # noqa: BLE001 - still being built
+                text = ""
+            if not text:
+                continue
+            shots = Path(office.workdir) / "setup-shots"
+            shots.mkdir(exist_ok=True)
+            office.screenshot(str(shots / (str(len(list(shots.iterdir()))) + ".png")))
+            peer.endExecute()
+            worker.join(timeout=20)
+            assert not worker.is_alive() and not errors, errors or "setup command did not return"
+            return text
+        if errors:
+            raise AssertionError(errors)
+        time.sleep(0.3)
+    office.screenshot(str(Path(office.workdir) / "setup-shots" / "timeout.png"))
+    raise TimeoutError("Setup result dialog missing after %d s" % timeout)
 
 
 def other_vendor_module():
@@ -60,6 +143,8 @@ def mac_dialogs(signing):
             # Every poll also wakes the main loop: after a PIN answer the token login and certificate
             # listing continue there and otherwise may wait for the next native event.
             self.nudge(front=False)
+            if not modal_dialog_open(self.office):
+                return None, set()
             win, kids = super().top()
             if "newpassEntry" in kids and {p.Name: p.Value for p in win.getState()}.get("Visible") == "false":
                 self.nudge()

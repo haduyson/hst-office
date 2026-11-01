@@ -6,7 +6,9 @@
 # tests/runtime/check-usb-token-setup-macos.py with the bundled Python twice: soffice without and with
 # Homebrew modutil/certutil on PATH. <verify-python> has lxml + cryptography for the independent ODT
 # signature check. Evidence (results, dialog screenshots, logs, module files; no PKI material) goes to
-# <out-dir>. Exit status is non-zero when any scenario fails.
+# <out-dir>. Exit status is non-zero when any scenario fails. Optional environment: PROBE_SCENARIO
+# (all|fresh|firefox|firefox-warm, default all) and PROBE_REPEAT (rounds per mode, default 1).
+# macOS crash reports of soffice/HST Office written during the probe are copied to <out-dir>/crash-reports.
 set -Eeuo pipefail
 [ $# -eq 5 ] || { echo "usage: $0 <dmg> <oxt> <work-dir> <out-dir> <verify-python>" >&2; exit 64; }
 dmg="$1"; oxt="$2"; work="$3"; out="$4"; verify_py="$5"
@@ -33,13 +35,17 @@ openssl_bin="$(brew --prefix openssl@3)/bin"
 export PATH="$openssl_bin:$PATH"
 status=0
 port=2093
+scenario="${PROBE_SCENARIO:-all}"; repeat="${PROBE_REPEAT:-1}"
+[[ "$repeat" =~ ^[1-9][0-9]?$ ]] || { echo "bad PROBE_REPEAT" >&2; exit 64; }
+reports=(/Users/"$(id -un)"/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports)
+stamp="$work/.probe-start"; touch "$stamp"
 for mode in no-tools tools; do
   dir="$work/$mode"
   rm -rf "$dir"
   URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" \
     PYTHONPATH="$app/Contents/Resources:$(dirname "$pyuno"):$tests" \
-    perl -e 'alarm 1500; exec @ARGV' "$py" "$tests/check-usb-token-setup-macos.py" --app "$app" --oxt "$oxt" \
-      --workdir "$dir" --port "$port" "--$mode" 2>&1 | tee "$out/driver-$mode.log" || status=1
+    perl -e 'alarm 3600; exec @ARGV' "$py" "$tests/check-usb-token-setup-macos.py" --app "$app" --oxt "$oxt" \
+      --workdir "$dir" --port "$port" "--$mode" --scenario "$scenario" --repeat "$repeat" 2>&1 | tee "$out/driver-$mode.log" || status=1
   port=$((port + 1))
   if [ -f "$dir/results.json" ]; then
     "$verify_py" -I "$tests/check-usb-token-setup-macos.py" --verify "$dir/results.json" 2>&1 \
@@ -54,6 +60,7 @@ for mode in no-tools tools; do
     cp -R "$case/office/logs" "$dest/office-logs" 2>/dev/null || true
     cp -R "$case/office/setup-shots" "$dest/setup-dialog-shots" 2>/dev/null || true
     cp -R "$case/shots" "$dest/signing-shots" 2>/dev/null || true
+    cp -R "$case/office/timeouts" "$dest/timeouts" 2>/dev/null || true
     cp "$case/signed.odt" "$dest/" 2>/dev/null || true
     cp "$case/office/home/Library/Application Support/HST Office/nssdb/pkcs11.txt" "$dest/hst-store-pkcs11.txt" 2>/dev/null || true
     find "$case/office/home/Library/Application Support/Firefox" -name pkcs11.txt -exec cp {} "$dest/firefox-pkcs11.txt" \; 2>/dev/null || true
@@ -61,6 +68,12 @@ for mode in no-tools tools; do
   done
   cp "$dir/results.json" "$out/results-$mode.json" 2>/dev/null || true
 done
+mkdir -p "$out/crash-reports"
+for dir in "${reports[@]}"; do
+  [ -d "$dir" ] || continue
+  find "$dir" -newer "$stamp" \( -iname '*soffice*' -o -iname '*HST*' -o -iname '*python*' \) -exec cp {} "$out/crash-reports/" \; 2>/dev/null || true
+done
+ls -l "$out/crash-reports"
 # Nothing started here may outlive the probe: stop any soffice still using a profile under <work-dir>.
 pkill -f "UserInstallation=file://$work/" 2>/dev/null || true
 exit "$status"

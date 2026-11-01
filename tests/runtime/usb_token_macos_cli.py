@@ -57,6 +57,7 @@ def main(run_case):
     group = ap.add_mutually_exclusive_group()
     group.add_argument("--tools", dest="tools", action="store_true")
     group.add_argument("--no-tools", dest="tools", action="store_false")
+    ap.add_argument("--repeat", type=int, default=1, help="run each selected scenario this many times")
     ap.add_argument("--verify", type=Path, help="independent verification of an earlier results.json")
     args = ap.parse_args()
     if args.verify:
@@ -79,11 +80,14 @@ def main(run_case):
     args.workdir = args.workdir.resolve()
     args.workdir.mkdir(parents=True, exist_ok=True)
     results, status = [], 0
-    for scenario in (("fresh", "firefox", "firefox-warm") if args.scenario == "all" else (args.scenario,)):
-        results.append(run_case(args, scenario, signing))
-        passed = results[-1].get("passed", False)
-        status |= not passed
-        print("%s: %s (%d checks)" % (scenario, "PASS" if passed else "FAIL", len(results[-1]["checks"])), flush=True)
+    scenarios = ("fresh", "firefox", "firefox-warm") if args.scenario == "all" else (args.scenario,)
+    for round_ in range(1, args.repeat + 1):
+        for scenario in scenarios:
+            tag = "%s-%d" % (scenario, round_) if args.repeat > 1 else None
+            results.append(run_case(args, scenario, signing, tag))
+            passed = results[-1].get("passed", False)
+            status |= not passed
+            print("%s: %s (%d checks)" % (tag or scenario, "PASS" if passed else "FAIL", len(results[-1]["checks"])), flush=True)
         (args.workdir / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2) + "\n")
     print("%s: %d scenarios, %d checks" % ("PASS" if not status else "FAIL", len(results),
                                           sum(len(r["checks"]) for r in results)))

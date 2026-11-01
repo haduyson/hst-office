@@ -11,6 +11,15 @@ on:
         description: 'Release tag whose arm64 dmg is probed'
         type: string
         default: v1.0.0-beta.4
+      scenario:
+        description: 'Scenario(s) per mode'
+        type: choice
+        options: [all, fresh, firefox, firefox-warm]
+        default: all
+      repeat:
+        description: 'Rounds of the selected scenario(s) per mode (1-20)'
+        type: number
+        default: 1
 permissions:
   contents: read
 concurrency:
@@ -19,7 +28,7 @@ concurrency:
 jobs:
   probe:
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -49,6 +58,9 @@ jobs:
           python3 -I scripts/build-extensions.py --output "$RUNNER_TEMP/oxt"
       - name: Run the USB token setup natively (without and with modutil/certutil on PATH)
         shell: bash
+        env:
+          PROBE_SCENARIO: ${{ inputs.scenario }}
+          PROBE_REPEAT: ${{ inputs.repeat }}
         run: |
           set -eu
           dmg=$(find "$RUNNER_TEMP/release" -name 'HSTOffice_*_macOS_arm64.dmg' -print -quit)

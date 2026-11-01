@@ -9,7 +9,9 @@ signed bundle itself is never modified. Screenshots use `screencapture` (whole s
 import os
 from pathlib import Path
 import shutil
+from contextlib import contextmanager
 import subprocess
+import threading
 import time
 
 # Driver-only variables that must not leak into soffice's embedded Python.
@@ -109,6 +111,12 @@ class Office:
         subprocess.run(["perl", "-e", "alarm 20; exec @ARGV", "osascript", "-e", script],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
+    def _terminate(self):
+        try:
+            self.desktop().terminate()
+        except Exception:  # noqa: BLE001 - the bridge drops while terminating
+            pass
+
     def screenshot(self, path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         self.front()
@@ -140,12 +148,48 @@ class Office:
                                                       (PropertyValue(Name="nodepath", Value=node),))
         return access.getPropertyValue(name)
 
-    def stop(self):
+    @contextmanager
+    def step(self, name, timeout):
+        """Bound one UI step. A UNO call blocked in the office cannot be interrupted from Python, so on
+        timeout record a screenshot and a `sample` of every soffice thread, then kill soffice: the
+        blocked call fails with DisposedException and the step raises TimeoutError instead of hanging."""
+        fired = threading.Event()
+
+        def expire():
+            fired.set()
+            shots = Path(self.workdir) / "timeouts"
+            shots.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["screencapture", "-x", str(shots / (name + ".png"))], check=False, timeout=30)
+            if self.proc is not None and self.proc.poll() is None:
+                subprocess.run(["sample", str(self.proc.pid), "5", "-file", str(shots / (name + "-sample.txt"))],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=60)
+                self.proc.kill()
+
+        timer = threading.Timer(timeout, expire)
+        timer.daemon = True
+        timer.start()
         try:
-            if self.ctx is not None:
-                self.desktop().terminate()
-        except Exception:  # noqa: BLE001 - the bridge drops while terminating
-            pass
+            yield
+        except Exception:
+            if fired.is_set():
+                raise TimeoutError("%s did not finish within %d s (screenshot and stack sample in %s/timeouts)"
+                                   % (name, timeout, self.workdir)) from None
+            raise
+        finally:
+            timer.cancel()
+        if fired.is_set():
+            raise TimeoutError("%s did not finish within %d s" % (name, timeout))
+
+    def crashed(self):
+        """Exit status when soffice ended on its own (e.g. a signal), else None."""
+        return None if self.proc is None else self.proc.poll()
+
+    def stop(self):
+        if self.ctx is not None and self.proc is not None and self.proc.poll() is None:
+            # terminate() itself can block behind a stuck modal loop: give it a bounded thread.
+            worker = threading.Thread(target=self._terminate, daemon=True)
+            worker.start()
+            worker.join(timeout=60)
         self.ctx = None
         if self.proc is not None:
             try:
