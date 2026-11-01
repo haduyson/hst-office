@@ -88,6 +88,7 @@ def main(run_case):
             passed = results[-1].get("passed", False)
             status |= not passed
             print("%s: %s (%d checks)" % (tag or scenario, "PASS" if passed else "FAIL", len(results[-1]["checks"])), flush=True)
+            print("  pin prompts: %s; ui retries: %s" % (results[-1].get("pin_prompts"), results[-1].get("ui_retries")), flush=True)
         (args.workdir / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2) + "\n")
     print("%s: %d scenarios, %d checks" % ("PASS" if not status else "FAIL", len(results),
                                           sum(len(r["checks"]) for r in results)))
