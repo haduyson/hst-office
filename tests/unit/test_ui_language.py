@@ -65,14 +65,14 @@ class CatalogTest(unittest.TestCase):
     def test_menu_titles_urls_contexts_and_placement(self):
         root = ET.parse(os.path.join(EXT, "Addons.xcu")).getroot()
         menu = root.find("./node/node[@%sname='OfficeMenuBar']/node[@%sname='org.hst.office.vi']/node" % (OOR, OOR))
-        m9 = menu.find("node[@%sname='m9']" % OOR)
-        self.assertEqual([node.get(OOR + "name") for node in menu][-2:], ["m8", "m9"])
-        children = m9.findall("node/node")
+        # Placement: test_hst_menu_order keeps Giải pháp and Kiểm tra cập nhật last.
+        m8 = menu.find("node[@%sname='m8']" % OOR)
+        children = m8.findall("node/node")
         labels = ("Ngôn ngữ giao diện", "Tiếng Việt", "English", "Theo máy")
         self.assertEqual([node.find("prop[@%sname='URL']/value" % OOR).text for node in children],
                          ["org.hst.office.vi:" + command for command in ui.COMMANDS])
-        context = menu.find("node[@%sname='m7']/prop[@%sname='Context']/value" % (OOR, OOR)).text
-        for node, title in zip([m9] + children, labels):
+        context = menu.find("node[@%sname='m9']/prop[@%sname='Context']/value" % (OOR, OOR)).text
+        for node, title in zip([m8] + children, labels):
             self.assertEqual({value.get(XML + "lang", ""): value.text for value in node.findall("prop[@%sname='Title']/value" % OOR)},
                              {"": title, "en-US": title, "vi": title})
             self.assertEqual(node.find("prop[@%sname='Context']/value" % OOR).text, context)
