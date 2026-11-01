@@ -1,0 +1,114 @@
+HST Office: a document closed by a UNO client while Writer builds its menubar crashed the office
+(SIGSEGV in SwFEShell::GetObjCntTypeOfSelection under SwView::IsPasteAllowed, GTK3).
+
+The Paste/Paste Special state query reads the system clipboard; on GTK3 that runs a nested main
+loop (gtk_clipboard_wait_for_targets) which releases the SolarMutex. A UNO client thread that
+closes the document at that moment (load hidden, store, close, load the next file) destroys the
+view and the shell the query is still using. SwBaseShell::StateClpbrd now registers a close
+listener on the model for the duration of the query: a close is vetoed (CloseVetoException, as
+for the existing SfxCloseVetoLock), and a close that delivered ownership is carried out by an
+asynchronous user event after the query has unwound. No upstream fix exists for this race.
+
+--- a/sw/source/uibase/shells/basesh.cxx
++++ b/sw/source/uibase/shells/basesh.cxx
+@@ -122,6 +122,11 @@
+ #include <fmtrfmrk.hxx>
+ #include <txtrfmrk.hxx>
+ #include <rootfrm.hxx>
++#include <com/sun/star/util/CloseVetoException.hpp>
++#include <com/sun/star/util/XCloseable.hpp>
++#include <com/sun/star/util/XCloseListener.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <vcl/svapp.hxx>
+ 
+ FlyMode SwBaseShell::s_eFrameMode = FLY_DRAG_END;
+ 
+@@ -552,9 +557,88 @@
+ 
+ // ClipBoard state
+ 
++namespace
++{
++// HST Office: the clipboard queries below can run a nested main loop (GTK3:
++// gtk_clipboard_wait_for_targets) that releases the SolarMutex. A UNO client thread may then
++// close this document, destroying the view and shell this status query still uses (crash in
++// SwFEShell::GetObjCntTypeOfSelection under SwView::IsPasteAllowed). While the query runs,
++// veto such a close; a close that delivered ownership is carried out asynchronously once the
++// status query has unwound.
++class ClipboardQueryCloseVeto : public cppu::WeakImplHelper<css::util::XCloseListener>
++{
++    bool m_bActive = true;
++    bool m_bCloseRequested = false;
++
++public:
++    void Deactivate() { m_bActive = false; }
++    bool IsCloseRequested() const { return m_bCloseRequested; }
++
++    void SAL_CALL queryClosing(const css::lang::EventObject&, sal_Bool bDeliverOwnership) override
++    {
++        if (!m_bActive)
++            return;
++        if (bDeliverOwnership)
++            m_bCloseRequested = true;
++        throw css::util::CloseVetoException(u"Document is busy with a clipboard query"_ustr,
++                                            getXWeak());
++    }
++    void SAL_CALL notifyClosing(const css::lang::EventObject&) override {}
++    void SAL_CALL disposing(const css::lang::EventObject&) override {}
++};
++
++void CloseModelLater(void*, void* pModel)
++{
++    std::unique_ptr<css::uno::Reference<css::util::XCloseable>> xModel(
++        static_cast<css::uno::Reference<css::util::XCloseable>*>(pModel));
++    try
++    {
++        (*xModel)->close(true);
++    }
++    catch (const css::uno::Exception&)
++    {
++        // vetoed again (ownership passed on) or already disposed
++    }
++}
++
++class ClipboardQueryCloseGuard
++{
++    css::uno::Reference<css::util::XCloseable> m_xModel;
++    rtl::Reference<ClipboardQueryCloseVeto> m_xVeto;
++
++public:
++    explicit ClipboardQueryCloseGuard(SfxObjectShell* pDocShell)
++    {
++        if (pDocShell)
++            m_xModel.set(pDocShell->GetModel(), css::uno::UNO_QUERY);
++        if (!m_xModel.is())
++            return;
++        m_xVeto = new ClipboardQueryCloseVeto;
++        m_xModel->addCloseListener(m_xVeto);
++    }
++    ~ClipboardQueryCloseGuard()
++    {
++        if (!m_xVeto.is())
++            return;
++        m_xVeto->Deactivate();
++        try
++        {
++            m_xModel->removeCloseListener(m_xVeto);
++        }
++        catch (const css::uno::Exception&)
++        {
++        }
++        if (m_xVeto->IsCloseRequested())
++            Application::PostUserEvent(LINK_NONMEMBER(nullptr, CloseModelLater),
++                                       new css::uno::Reference<css::util::XCloseable>(m_xModel));
++    }
++};
++}
++
+ void SwBaseShell::StateClpbrd(SfxItemSet &rSet)
+ {
+     SwWrtShell &rSh = GetShell();
++    ClipboardQueryCloseGuard aCloseGuard(GetView().GetDocShell());
+     SfxWhichIter aIter(rSet);
+ 
+     const bool bCopy = rSh.HasSelection();
