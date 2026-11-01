@@ -40,6 +40,36 @@ def modal_dialog_open(office):
     return False
 
 
+def _children(peer):
+    out = []
+    try:
+        windows = peer.getWindows() if hasattr(peer, "getWindows") else ()
+    except Exception:  # noqa: BLE001
+        windows = ()
+    for child in windows:
+        out.append(child)
+        out.extend(_children(child))
+    return out
+
+
+def _password_edit(peer):
+    for child in _children(peer):
+        if hasattr(child, "setEchoChar") and hasattr(child, "setText"):
+            return child
+    return None
+
+
+def pin_dialog_peer(office):
+    """The visible dialog peer that holds a password edit (the token PIN prompt), or None."""
+    for peer in _peers(office):
+        try:
+            if hasattr(peer, "endDialog") and peer.isVisible() and _password_edit(peer) is not None:
+                return peer
+        except Exception:  # noqa: BLE001
+            pass
+    return None
+
+
 def setup_dialog(office, frame, signing, timeout=90):
     """Dispatch HST ▸ Thiết lập USB Token…, read the result dialog through the toolkit and close it.
 
@@ -134,41 +164,41 @@ def mac_dialogs(signing):
             self.office.service("com.sun.star.awt.AsyncCallback").addCallback(Wake(), None)
             if front:
                 self.office.front()
-            if shutil.which("cliclick"):
-                subprocess.run(["cliclick", "m:+1,+0", "m:-1,+0"], check=False, capture_output=True, timeout=10)
 
         def top(self):
-            # An ended but not yet returned PIN dialog stays the executing dialog while hidden:
-            # it is not a new prompt. Wake the loop instead of answering it again.
-            # Every poll also wakes the main loop: after a PIN answer the token login and certificate
-            # listing continue there and otherwise may wait for the next native event.
-            self.nudge(front=False)
+            # UITest is only asked while a dialog is up; between dialogs its focus-window objects can
+            # outlive their windows (soffice crashed in WindowUIObject::get_state).
             if not modal_dialog_open(self.office):
                 return None, set()
             win, kids = super().top()
             if "newpassEntry" in kids and {p.Name: p.Value for p in win.getState()}.get("Visible") == "false":
+                # Ended, not yet returned: wake the loop instead of answering it again.
                 self.nudge()
                 time.sleep(0.5)
                 return None, set()
             return win, kids
 
         def _answer_pin(self, win):
+            """Fill and accept the PIN dialog through its toolkit peer: XTextComponent.setText and
+            XDialog2.endDialog(RET_OK). A UITest CLICK on OK runs inside UITest's ExecuteWrapper, whose
+            nested Reschedule loop on Aqua sometimes never returns (stack samples: Dialog::Execute ->
+            ExecuteWrapper::ExecuteActionHdl -> Application::Reschedule spinning)."""
             if not self.pins:
+                return super()._answer_pin(win)
+            peer = pin_dialog_peer(self.office)
+            if peer is None:  # fall back to UITest typing and clicking, recorded without "via"
                 return super()._answer_pin(win)
             label = {p.Name: p.Value for p in win.getChild("openPasswordLabel").getState()}.get("Text", "")
             answer = self.pins.pop(0)
-            entry = win.getChild("newpassEntry")
-            # SET needs no keyboard focus (a system alert may hold it); fall back to typing.
-            try:
-                entry.executeAction("SET", signing.props(TEXT=answer))
-            except Exception:  # noqa: BLE001
-                entry.executeAction("TYPE", signing.props(TEXT=answer))
-            filled = len({p.Name: p.Value for p in entry.getState()}.get("Text", ""))
-            self.prompts.append({"label": label, "answer": "pin(%d digits)" % len(answer), "entry_length": filled})
+            entry = _password_edit(peer)
+            entry.setText(answer)
+            self.prompts.append({"label": label, "answer": "pin(%d digits)" % len(answer),
+                                 "entry_length": len(entry.getText()), "via": "toolkit"})
             self.shot("pin-prompt-%d" % len(self.prompts))
-            self.later(win.getChild("ok"))
-            time.sleep(1)
-            self.nudge()
+            peer.endDialog(1)  # RET_OK
+            for _ in range(3):
+                self.nudge(front=False)
+                time.sleep(0.3)
             time.sleep(1)
 
     class Logged(Dialogs):
