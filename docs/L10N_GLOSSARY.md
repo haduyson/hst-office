@@ -29,6 +29,8 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 | Header / Footer | Đầu trang / Chân trang | |
 | Home (thẻ ribbon) | Trang đầu | |
 | File (menu) | Tập tin | giữ theo bản dịch lõi |
+| Certificate | Chứng chỉ | nhãn giao diện (hộp thoại chữ ký số, Tùy chọn → Bảo mật); không dùng "chứng nhận", "chứng thư" trong nhãn. Văn bản hướng dẫn có thể viết "chứng thư số" (thuật ngữ pháp lý) khi giải thích |
+| Cancel / Yes / No | Hủy / Có / Không | viết "Hủy", không "Huỷ"; không dùng "Thôi", "Đồng ý" cho Yes |
 
 Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`, `%1`, `%s`) và số dạng số nhiều;
 `python3 scripts/l10n/check-translations.py <tệp.jsonl> --strict` kiểm tra các điểm này.
@@ -45,6 +47,16 @@ Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`
 - Lỗi chính tả/dấu: "Tranh tính", "Vản bản cuối trang", "Định đạng"; chú giải hộp thoại In ghi nhầm "Tạo một tài liệu chủ mới."
 - Lỗi viết hoa "GIãn cách…", "GIá" (11 chuỗi); hộp thoại Đoạn văn: dấu hai chấm và phím tắt nhãn khoảng cách đoạn; Trang bắt đầu: "…để tạo mới một cái" → "…để tạo tài liệu mới".
 - Lớp AI (`l10n/vi/`): 3 chuỗi "Lưu dưới dạng …" → "Lưu thành …".
+
+## Hộp thoại chữ ký số và nút chuẩn (beta.4.1)
+
+- Nút chuẩn GTK (`msgctxt "stock"`, mỗi module một bản): bỏ hậu tố phím tắt kiểu "Trợ giúp (H)", "Huỷ (C)"; chữ phím tắt nằm trong từ:
+  _Thêm, _Hủy, Đó_ng, _Xóa, _Chỉnh sửa, Trợ g_iúp, _Mới, Loại _bỏ, Đặt _lại, _Có. Riêng `framework` giữ "Đồng ý (_Y)"
+  vì `hst-document-tabs.patch` dùng dòng đó làm ngữ cảnh.
+- Còn khoảng 555 chuỗi khác (chủ yếu cui, sd, chart2) có hậu tố "(X)"; chưa sửa, cần rà theo từng hộp thoại.
+- "Huỷ"/"huỷ" → "Hủy"/"hủy" ở mọi module; nút Cancel chuẩn của VCL "Thôi" → "Hủy".
+- Hộp thoại chữ ký số: "chứng nhận"/"chứng thư" → "chứng chỉ"; cột "ID Kỹ thuật số được cấp bởi" → "Cấp bởi";
+  tiêu đề tài liệu đã ký "tên.odt (Đã ký)".
 
 ## Phím truy cập (Alt+chữ) trong menu và ribbon
 
@@ -88,7 +100,7 @@ cây nguồn đã vá, lỗi liệt kê các mục bị đổi):
 
 1. **Bookmark**: lõi dùng "Liên kết lưu" khắp nơi, bảng thuật ngữ ghi "Dấu trang". Đổi toàn bộ (~30 chuỗi) hay giữ?
 2. **Clipboard**: "Bảng nháp" và "Bảng tạm" lẫn lộn (lõi và lớp AI, ~25 chuỗi). Đề xuất "Bảng tạm".
-3. **Certificate**: "Chứng nhận" (lớp AI, ~13 chuỗi) và "Chứng chỉ" (bảng thuật ngữ).
+3. ~~**Certificate**~~: đã chốt "Chứng chỉ" cho nhãn giao diện (xem bảng thuật ngữ cốt lõi). Nếu muốn đổi toàn bộ sang "chứng thư số" thì phải đổi cả hình và tên hộp thoại trong trang hướng dẫn ký số.
 4. **Layout** (thẻ ribbon): Writer/Impress "Bố trí", Calc "Bố cục". Chọn một.
 5. **Home**: một số thanh Impress còn "Trang chủ" thay vì "Trang đầu".
 6. **File**: menu "Tập tin" trong khi tài liệu HST và hướng dẫn hay viết "tệp". Có đổi menu sang "Tệp" không?
