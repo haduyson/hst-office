@@ -157,12 +157,8 @@ class Office:
 
         def expire():
             fired.set()
-            shots = Path(self.workdir) / "timeouts"
-            shots.mkdir(parents=True, exist_ok=True)
-            subprocess.run(["screencapture", "-x", str(shots / (name + ".png"))], check=False, timeout=30)
+            self.diagnose(name)
             if self.proc is not None and self.proc.poll() is None:
-                subprocess.run(["sample", str(self.proc.pid), "5", "-file", str(shots / (name + "-sample.txt"))],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=60)
                 self.proc.kill()
 
         timer = threading.Timer(timeout, expire)
@@ -179,6 +175,15 @@ class Office:
             timer.cancel()
         if fired.is_set():
             raise TimeoutError("%s did not finish within %d s" % (name, timeout))
+
+    def diagnose(self, name):
+        """Screenshot plus a 5 s `sample` of every soffice thread into <workdir>/timeouts."""
+        shots = Path(self.workdir) / "timeouts"
+        shots.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["screencapture", "-x", str(shots / (name + ".png"))], check=False, timeout=30)
+        if self.proc is not None and self.proc.poll() is None:
+            subprocess.run(["sample", str(self.proc.pid), "5", "-file", str(shots / (name + "-sample.txt"))],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=60)
 
     def crashed(self):
         """Exit status when soffice ended on its own (e.g. a signal), else None."""

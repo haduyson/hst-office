@@ -136,19 +136,36 @@ def run_case(args, scenario, signing, tag=None):
             checks["vendor_module_loaded_after_restart"] = True
         subprocess.run(["certutil", "-A", "-d", "sql:" + str(db), "-n", "HST Test Root CA", "-t", "CT,C,C",
                         "-a", "-i", pki.ca_pem], env=pki.env, check=True, capture_output=True)
-        with office.step("certificate-with-pin", 180):
-            subject, prompts = certificate_with_pin(office, signing, base / "shots")
-        print("%s/%s: token certificate listed" % (scenario, mode), flush=True)
-        result["certificate_subject"] = subject
-        assert signature_pki.USER_CN in subject and prompts == 1, (subject, prompts)
-        checks["xsecurityenvironment_lists_token_certificate"] = True
-        frame = doc.getCurrentController().getFrame()
-        dialogs = signing.Dialogs(office, str(base / "shots"), [signature_pki.USER_PIN])
-        with office.step("sign-odt", 360):
-            signed = dialogs.sign_open_document(frame, "usb-setup")
-        result["signing"] = signed
-        assert signed["signed"], signed
-        checks["odt_signed_through_ui_with_pin"] = True
+        for attempt in (1, 2):
+            # The PIN and signing dialogs are driven through UITest. On Aqua, its nested executeAction
+            # wrappers occasionally stall the main loop (stack samples show only UITest/VCL frames), so
+            # one bounded retry in a restarted office is allowed and reported; product checks are unchanged.
+            try:
+                if attempt > 1:
+                    office.stop()
+                    with office.step("restart-for-retry", 300):
+                        office.start(fresh=False)
+                        doc = signing.load_visible(office, target.as_uri())
+                with office.step("certificate-with-pin-%d" % attempt, 180):
+                    subject, prompts = certificate_with_pin(office, signing, base / "shots")
+                print("%s/%s: token certificate listed" % (tag or scenario, mode), flush=True)
+                result["certificate_subject"] = subject
+                assert signature_pki.USER_CN in subject and prompts == 1, (subject, prompts)
+                checks["xsecurityenvironment_lists_token_certificate"] = True
+                frame = doc.getCurrentController().getFrame()
+                dialogs = signing.Dialogs(office, str(base / "shots"), [signature_pki.USER_PIN])
+                with office.step("sign-odt-%d" % attempt, 360):
+                    signed = dialogs.sign_open_document(frame, "usb-setup-%d" % attempt)
+                result["signing"] = signed
+                assert signed["signed"], signed
+                checks["odt_signed_through_ui_with_pin"] = True
+                break
+            except Exception as exc:  # noqa: BLE001 - retried once, then reported
+                office.diagnose("ui-attempt-%d" % attempt)
+                result.setdefault("ui_retries", []).append(repr(exc)[:400])
+                print("%s/%s: UI attempt %d failed: %r" % (tag or scenario, mode, attempt, exc), flush=True)
+                if attempt == 2:
+                    raise
         doc.close(True)
         with office.step("reload-signed-odt", 180):
             doc = signing.load_visible(office, target.as_uri())
@@ -178,6 +195,7 @@ def run_case(args, scenario, signing, tag=None):
         if source:
             result["firefox_files_changed"] = changed(source, before)
         result["soffice_exit"] = office.crashed()
+        office.diagnose("failure")
         print("%s/%s: %r (soffice exit %s)" % (tag or scenario, mode, exc, result["soffice_exit"]), flush=True)
         try:
             office.screenshot(str(base / "shots/failure.png"))
@@ -191,4 +209,9 @@ def run_case(args, scenario, signing, tag=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main(run_case))
+    code = main(run_case)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # Daemon threads may still sit in UNO calls; a normal interpreter shutdown can then abort while
+    # flushing stdout (seen as a LibreOfficePython crash report). Exit without finalization.
+    os._exit(code)
