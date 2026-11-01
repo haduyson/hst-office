@@ -285,6 +285,8 @@ do_collect() { # the single HST Office dmg -> $WORK/dmg with SHA256SUMS; signing
   [ "$rc" -eq 0 ] || { echo "collect: could not merge the Vietnamese language pack"; return 1; }
   # Repack with the HST layout: upstream's dmg carries the LibreOffice background and a DS_Store
   # whose icon positions name LibreOffice.app.
+  # Valid, sealed Python bytecode (upstream ships only stale .pyc); the last change to the bundle's files.
+  bash "$REPO/scripts/macos/precompile-python.sh" "$app" || return 1
   # Last change to the bundle is done: give it one consistent ad-hoc signature (hard gate inside:
   # codesign --verify --deep --strict). Without it macOS reports the quarantined app as "damaged".
   bash "$REPO/scripts/macos/adhoc-sign.sh" "$app" || return 1
