@@ -194,6 +194,15 @@ def mac_dialogs(signing):
                 return None, set()
             return win, kids
 
+        def later(self, obj, action="CLICK", args=()):
+            """Run a UITest action, but never two at once: on Aqua, a second action started while the
+            first is still inside UITest's ExecuteWrapper (waiting for its idle) nests two wrappers that
+            spin in Application::Reschedule forever (stack samples). Actions that open a dialog
+            asynchronously return within seconds; only a truly blocking modal keeps running."""
+            thread = signing.Dialogs.later(obj, action, args)
+            thread.join(timeout=15)
+            return thread
+
         def _answer_pin(self, win):
             """Accept the PIN without a UITest action. UITest CLICK/SET/TYPE run inside its
             ExecuteWrapper, whose nested Reschedule loop inside the modal PIN dialog sometimes never
