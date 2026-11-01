@@ -28,7 +28,8 @@ printf '# macOS update-lock templates\n\n' >"$summary"
 note() { printf -- '- %s\n' "$*" | tee -a "$summary"; }
 
 probe() {  # probe <profile> <out>
-  if URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" PYTHONPATH="$app/Contents/Resources:$pyhome" \
+  # the probe's own Python writes no caches into the bundle; the office still may (see bundle-changes.txt)
+  if PYTHONDONTWRITEBYTECODE=1 URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" PYTHONPATH="$app/Contents/Resources:$pyhome" \
       perl -e 'alarm 600; exec @ARGV' "$py" "$repo/tests/runtime/check-update-policy.py" --soffice "$app/Contents/MacOS/soffice" \
       --profile "$1" --source managed --out "$2" >"$2.log" 2>&1; then
     note "PASS $1 ($(basename "$2"))"
@@ -80,6 +81,6 @@ find "$app" -newer "$marker" -type f >"$out/bundle-changes.txt"
 other="$(grep -v -E '/__pycache__/[^/]+[.]pyc$' "$out/bundle-changes.txt" || true)"
 note "files written inside the bundle while the office ran: $(wc -l <"$out/bundle-changes.txt" | tr -d ' ') (bundle-changes.txt)"
 if [ -n "$other" ]; then note "FAIL bundle files other than Python caches changed: $(printf '%s' "$other" | head -5 | tr '\n' ' ')"; status=1; fi
-find "$app" -newer "$marker" -type d -name __pycache__ -prune -exec rm -rf {} +
+find "$app" -newer "$marker" -type f -name "*.pyc" -delete  # only the new caches; the sealed ones stay
 if codesign --verify --deep --strict "$app"; then note "signature verifies after the probe (Python caches removed)"; else note "FAIL signature after the probe"; status=1; fi
 exit "$status"
