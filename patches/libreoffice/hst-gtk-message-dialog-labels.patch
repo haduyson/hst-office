@@ -1,0 +1,88 @@
+HST Office: GTK3 message dialogs created by Application::CreateMessageDialog with standard
+buttons ("Do you want to remember that signature for each save?") showed English "Yes"/"No"
+and a "Question" title in the Vietnamese UI: GTK labels its stock buttons from the system gtk30
+catalogue, which follows the system locale (or is not installed), not the office UI language.
+The dialog now gets the office's own translated standard button texts (GetStandardText), in GTK's
+order with GTK's response ids, and the VCL message dialog title (GetStandardMessageDialogText),
+as the VCL and Qt backends already do.
+
+--- a/vcl/unx/gtk3/gtkinst.cxx
++++ b/vcl/unx/gtk3/gtkinst.cxx
+@@ -8105,33 +8105,6 @@
+     return eRet;
+ }
+ 
+-static GtkButtonsType VclToGtk(VclButtonsType eType)
+-{
+-    GtkButtonsType eRet(GTK_BUTTONS_NONE);
+-    switch (eType)
+-    {
+-        case VclButtonsType::NONE:
+-            eRet = GTK_BUTTONS_NONE;
+-            break;
+-        case VclButtonsType::Ok:
+-            eRet = GTK_BUTTONS_OK;
+-            break;
+-        case VclButtonsType::Close:
+-            eRet = GTK_BUTTONS_CLOSE;
+-            break;
+-        case VclButtonsType::Cancel:
+-            eRet = GTK_BUTTONS_CANCEL;
+-            break;
+-        case VclButtonsType::YesNo:
+-            eRet = GTK_BUTTONS_YES_NO;
+-            break;
+-        case VclButtonsType::OkCancel:
+-            eRet = GTK_BUTTONS_OK_CANCEL;
+-            break;
+-    }
+-    return eRet;
+-}
+-
+ static GtkSelectionMode VclToGtk(SelectionMode eType)
+ {
+     GtkSelectionMode eRet(GTK_SELECTION_NONE);
+@@ -24297,9 +24270,42 @@
+ {
+     GtkInstanceWidget* pParentInstance = dynamic_cast<GtkInstanceWidget*>(pParent);
+     GtkWindow* pParentWindow = pParentInstance ? pParentInstance->getWindow() : nullptr;
++    // HST Office: GTK's stock buttons ("_Yes", "_No", ...) are translated by the system gtk30
++    // catalogue, which follows the system locale and may be missing; the office UI language can
++    // differ (Vietnamese UI on an English system showed "Yes"/"No"). Add the buttons with the office's
++    // own translated labels, in GTK's order and with GTK's response ids, and give the dialog the
++    // same title as the VCL message dialog ("Confirmation", "Warning", ...).
+     GtkMessageDialog* pMessageDialog = GTK_MESSAGE_DIALOG(gtk_message_dialog_new(pParentWindow, GTK_DIALOG_MODAL,
+-                                                          VclToGtk(eMessageType), VclToGtk(eButtonsType), "%s",
++                                                          VclToGtk(eMessageType), GTK_BUTTONS_NONE, "%s",
+                                                           OUStringToOString(rPrimaryMessage, RTL_TEXTENCODING_UTF8).getStr()));
++    auto addButton = [pMessageDialog](StandardButtonType eType, int nResponse)
++    {
++        gtk_dialog_add_button(GTK_DIALOG(pMessageDialog), MapToGtkAccelerator(GetStandardText(eType)).getStr(), nResponse);
++    };
++    switch (eButtonsType)
++    {
++        case VclButtonsType::NONE:
++            break;
++        case VclButtonsType::Ok:
++            addButton(StandardButtonType::OK, GTK_RESPONSE_OK);
++            break;
++        case VclButtonsType::Close:
++            addButton(StandardButtonType::Close, GTK_RESPONSE_CLOSE);
++            break;
++        case VclButtonsType::Cancel:
++            addButton(StandardButtonType::Cancel, GTK_RESPONSE_CANCEL);
++            break;
++        case VclButtonsType::YesNo:
++            addButton(StandardButtonType::No, GTK_RESPONSE_NO);
++            addButton(StandardButtonType::Yes, GTK_RESPONSE_YES);
++            break;
++        case VclButtonsType::OkCancel:
++            addButton(StandardButtonType::Cancel, GTK_RESPONSE_CANCEL);
++            addButton(StandardButtonType::OK, GTK_RESPONSE_OK);
++            break;
++    }
++    gtk_window_set_title(GTK_WINDOW(pMessageDialog),
++                         OUStringToOString(GetStandardMessageDialogText(eMessageType), RTL_TEXTENCODING_UTF8).getStr());
+     return new GtkInstanceMessageDialog(pMessageDialog, nullptr, true);
+ }
+ 
