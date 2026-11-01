@@ -112,6 +112,9 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
   - Kiểm tra chính tả tắt sẵn khi mới cài; sửa gạch đỏ sai chữ tiếng Việt (NFD + hai cách bỏ dấu); trang F1 "Kiểm tra chính tả" và "Làm việc với PDF".
   - Menu "+" dùng nhãn "HST Writer — Văn bản / Document"… như cột Tạo ở Start Center.
   - Số phiên bản đầy đủ trong tên tệp tải về và trong Get Info (macOS) / Properties (Windows) / thông tin gói (Linux).
+- **v1.0.0-beta.5 (chủ dự án 2026-11-01, hoãn từ beta.4.1):**
+  - Hậu tố phím tắt kiểu "Thêm (_A)" trong bản dịch tiếng Việt: còn 556 mục `.po` (445 cặp khác nhau; 570 chuỗi trong `.mo` đã build), chủ yếu cui 308, sd 129, chart2 59, extensions 18, sfx2 15, filter 10. Đặt chữ phím tắt vào trong từ (hoặc bỏ) theo từng hộp thoại, như đã làm cho nút chuẩn GTK và hộp thoại ký số (`l10n/vi-overrides.jsonl`, [thuật ngữ](L10N_GLOSSARY.md)).
+  - Nút chuẩn "_Yes" của `framework` vẫn là "Đồng ý (_Y)": dòng này là ngữ cảnh của `hst-document-tabs.patch`, nên phải sửa bằng một patch sau patch đó (không dùng override).
 - **v1.0.0:** chuyển repo sang tổ chức `hasontech` trước bản chính thức.
 
 ## Blockers và câu hỏi còn mở
