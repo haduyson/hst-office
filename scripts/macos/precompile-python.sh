@@ -18,11 +18,14 @@ py="$(find "$app/Contents/Frameworks/LibreOfficePython.framework/Versions" -path
 lib="$(dirname "$py")/../lib/$(basename "$py")"
 [ -d "$lib" ] || { echo "precompile: no standard library at $lib" >&2; exit 1; }
 res="$app/Contents/Resources"
-# -l: the office's own modules sit at the top of Resources; extensions and the standard library are recursive.
-# All three optimization levels, as installed. Excluded: files of the standard library that are deliberately
-# invalid (as Python's own `make install` does).
+# The standard library at the three optimization levels it was installed with, excluding what Python's own
+# `make install` excludes (deliberately invalid files; site-packages: pip and setuptools, never imported here).
 env -u PYTHONDONTWRITEBYTECODE -u PYTHONPYCACHEPREFIX "$py" -I -m compileall -q -f -j 0 -o 0 -o 1 -o 2 \
-  --invalidation-mode unchecked-hash -x '(bad_coding|badsyntax|test_lib2to3/data)' "$lib" "$res/extensions"
+  --invalidation-mode unchecked-hash -x '(bad_coding|badsyntax|site-packages|test_lib2to3/data)' "$lib"
+# The bundled extensions (recursive) and the office's own modules at the top of Resources (-l), as the office
+# imports them (no optimization).
+env -u PYTHONDONTWRITEBYTECODE -u PYTHONPYCACHEPREFIX "$py" -I -m compileall -q -f -j 0 \
+  --invalidation-mode unchecked-hash "$res/extensions"
 env -u PYTHONDONTWRITEBYTECODE -u PYTHONPYCACHEPREFIX "$py" -I -m compileall -q -f -l \
   --invalidation-mode unchecked-hash "$res"
 # Gate: no timestamp-based (stale-prone) .pyc is left.

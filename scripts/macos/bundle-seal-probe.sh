@@ -33,7 +33,7 @@ session() {  # session <name> [VAR=value...]: copy, list, start, drive, quit, co
   ditto "$mnt/HST Office.app" "$app"
   if [ "$name" = precompiled ]; then  # what trial-build.sh does before signing; then an ad-hoc signature
     if bash "$here/precompile-python.sh" "$app" >"$out/precompile.log" 2>&1 && bash "$here/adhoc-sign.sh" "$app" >"$out/adhoc-sign.log" 2>&1; then
-      note "precompiled: $(tail -1 "$out/precompile.log"), ad-hoc signed"
+      note "precompiled: $(tail -1 "$out/precompile.log"), bundle $(du -sk "$mnt/HST Office.app" | cut -f1) -> $(du -sk "$app" | cut -f1) KiB, ad-hoc signed"
     else
       note "FAIL precompiled: precompile-python.sh or adhoc-sign.sh failed (precompile.log, adhoc-sign.log)"; status=1
     fi
