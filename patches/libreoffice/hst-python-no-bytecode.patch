@@ -1,0 +1,27 @@
+HST Office: the office never writes Python bytecode caches into its installation.
+
+Without this an HST Office.app the user can write to (an admin's /Applications) gets __pycache__
+folders and rewritten stale .pyc files inside the bundle on every start, and
+codesign --verify --deep --strict fails afterwards. Upstream's HAVE_FEATURE_READONLY_INSTALLSET
+branch sets PyConfig.write_bytecode = 0 on macOS, but that PyConfig is never passed to Python
+(Py_Initialize() is called, not Py_InitializeFromConfig()). PYTHONDONTWRITEBYTECODE=1 is read by
+Py_Initialize() and is inherited by the helper processes the office starts with the bundled
+python3 (the update helper, the USB token worker). A value already set is kept.
+
+--- a/pyuno/source/loader/pyuno_loader.cxx
++++ b/pyuno/source/loader/pyuno_loader.cxx
+@@ -238,6 +238,14 @@
+     o3tl::setEnvironment(u"PATH"_ustr, sPath);
+ #endif
+ 
++    // HST Office: never write Python bytecode caches into the installation. In an app bundle the user
++    // can write to (an admin's /Applications) Python would add __pycache__ folders and rewrite shipped
++    // .pyc files, which breaks the bundle's code signature seal. Py_Initialize() below reads the
++    // environment (the PyConfig above is not passed to it, so its write_bytecode is not used), and every
++    // process the office starts with the bundled python3 inherits the variable.
++    if (o3tl::getEnvironment(u"PYTHONDONTWRITEBYTECODE"_ustr).isEmpty())
++        o3tl::setEnvironment(u"PYTHONDONTWRITEBYTECODE"_ustr, u"1"_ustr);
++
+     PyImport_AppendInittab( "pyuno", PyInit_pyuno );
+ 
+ #if HAVE_FEATURE_READONLY_INSTALLSET
