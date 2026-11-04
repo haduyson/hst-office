@@ -2,9 +2,10 @@
 """Update check entry points: the start-up job (Jobs.xcu, onFirstVisibleTask) and the org.hst.office.update:
 command handler (menu "Kiểm tra cập nhật…" and the infobar buttons).
 
-Start-up: only when AutoCheck is on and the last attempt is 24 h old; the attempt time is stored first, then a
-daemon thread fetches and verifies the manifest (update_fetch), so start-up is never blocked or slowed.
-Any failure is logged (stderr) and nothing is shown. Results reach the UI through the main thread only.
+Start-up: only when AutoCheck is on and the last successful check is 24 h old. A daemon thread fetches and verifies
+the manifest (update_fetch), so start-up is never blocked or slowed. A failure is logged (stderr), shows nothing and
+is retried while the office stays open; the check time is stored on success only, so a machine that was offline at
+start-up is not skipped for a whole day. Results reach the UI through the main thread only.
 """
 import threading
 import time
@@ -24,23 +25,39 @@ from .update_fetch import UpdateError, fetch_channels
 JOB_NAME = "org.hst.office.vi.UpdateCheckJob"
 HANDLER_NAME = "org.hst.office.vi.UpdateDispatchProvider"
 COMMANDS = ("Check", "Download", "Install", "Notes", "Skip")
+RETRY_DELAYS = (120, 600)  # seconds before each new automatic attempt, e.g. the network comes up after login
+_automatic_thread = None  # a retrying check must not be doubled by a second start-up event of the same process
 
 
 def _log(message):
     print("HST update check: %s" % message, flush=True)
 
 
-def check(ctx, info, proxy, on_done):
-    """Fetch, verify and select on the calling (worker) thread; on_done(release|None, failed) on the main thread."""
+def _fetch_update(info, proxy):
+    """(release|None, failed) after fetching, verifying and selecting on the calling (worker) thread."""
     try:
         channels = fetch_channels(info, proxy)
-        release, failed = logic.select_update(channels, info["release"], info["channel"]), False
+        return logic.select_update(channels, info["release"], info["channel"]), False
     except UpdateError as exc:
         _log(exc)
-        release, failed = None, True
     except Exception:  # noqa: BLE001 - never crash the office from the worker thread
         traceback.print_exc()
-        release, failed = None, True
+    return None, True
+
+
+def check(ctx, info, proxy, on_done):
+    """One attempt on the calling (worker) thread; on_done(release|None, failed) on the main thread."""
+    release, failed = _fetch_update(info, proxy)
+    ui.on_main_thread(ctx, lambda: on_done(release, failed))
+
+
+def _check_with_retries(ctx, info, proxy, on_done):
+    release, failed = _fetch_update(info, proxy)
+    for delay in RETRY_DELAYS:
+        if not failed:
+            break
+        time.sleep(delay)
+        release, failed = _fetch_update(info, proxy)
     ui.on_main_thread(ctx, lambda: on_done(release, failed))
 
 
@@ -53,17 +70,26 @@ def start_background(ctx, info, on_done):
 
 def automatic_check(ctx, now=None):
     """The start-up path; returns the worker thread or None when nothing is due."""
+    global _automatic_thread
+    if _automatic_thread is not None and _automatic_thread.is_alive():
+        return None
     prefs = ui.settings(ctx)
     now = int(time.time() if now is None else now)
     if not prefs["AutoCheck"] or not logic.check_due(now, prefs["LastCheck"], prefs["CheckIntervalHours"] * 3600):
         return None
-    ui.save(ctx, "LastCheck", now)
     info = ui.release_info_for(ctx)
 
     def done(release, failed):
-        if not failed and logic.should_notify(release, ui.settings(ctx)["SkippedVersion"]):
+        if failed:
+            return
+        ui.save(ctx, "LastCheck", now)
+        if logic.should_notify(release, ui.settings(ctx)["SkippedVersion"]):
             ui.notify(ctx, release, info["release"])
-    return start_background(ctx, info, done)
+    proxy = ui.proxy(ctx)  # read on the main thread; the worker only does network and pure logic
+    _automatic_thread = threading.Thread(target=_check_with_retries, args=(ctx, info, proxy, done),
+                                         name="hst-update-check", daemon=True)
+    _automatic_thread.start()
+    return _automatic_thread
 
 
 class UpdateCheckJob(unohelper.Base, XServiceInfo, XJob):

@@ -23,8 +23,9 @@ HST Office tự biết khi có bản mới và báo cho người dùng kèm liê
   macOS) dựng extension qua quy tắc make gọi script đó, và tệp nằm trong `data/hst/` nên thay đổi kéo theo build lại `.oxt`.
 - **Kênh:** bản có hậu tố pre-release (`-beta.N`) theo kênh beta: được báo bản beta **hoặc** stable mới hơn.
   Bản stable chỉ được báo bản stable. So sánh theo SemVer 2.0: `1.0.0-beta.2 < 1.0.0-beta.10 < 1.0.0 < 1.0.1`.
-- **Khi khởi động** (job `onFirstVisibleTask`): chỉ khi `AutoCheck` bật và lần thử trước đã quá 24 giờ. Thời điểm
-  thử được ghi trước khi gọi mạng; luồng nền tải tối đa 64 KiB mỗi tệp, timeout 5 giây, HTTPS tới
+- **Khi khởi động** (job `onFirstVisibleTask`): chỉ khi `AutoCheck` bật và lần kiểm tra thành công trước đã quá 24 giờ.
+  Thời điểm chỉ được ghi khi kiểm tra thành công; nếu lỗi, luồng nền thử lại sau 2 phút và 10 phút rồi dừng, lần mở sau
+  lại kiểm tra. Luồng nền tải tối đa 64 KiB mỗi tệp, timeout 5 giây, HTTPS tới
   `office.hasontech.vn`, chỉ theo chuyển hướng cùng nguồn. Ngoại tuyến hay lỗi: không hiện gì.
   Proxy: theo Công cụ ▸ Tùy chọn ▸ Internet ▸ Proxy (không dùng / thủ công HTTPS / theo hệ thống).
 - **Thông báo:** thanh thông tin (infobar) trên Văn bản/Bảng tính/Trình chiếu: "Đã có HST Office X — bản mới."

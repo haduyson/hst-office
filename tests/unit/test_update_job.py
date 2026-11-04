@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Start-up update job without an office: UNO modules are stubbed, settings and UI are recorded.
 
-Covers: AutoCheck off, 24 h throttle (attempt time stored before the network), skip-version memory,
-silent failure offline, and that the result reaches the UI through the main-thread hand-off only.
+Covers: AutoCheck off, 24 h throttle (time stored after a successful check only), retries after a failure,
+skip-version memory, silent failure offline, and that the result reaches the UI through the main-thread hand-off only.
 """
 import sys
+import threading
 import types
 import unittest
 from unittest import mock
@@ -50,6 +51,7 @@ class StartupJob(unittest.TestCase):
             mock.patch.object(job.ui, "settings", lambda ctx: dict(self.prefs)),
             mock.patch.object(job.ui, "save", lambda ctx, k, v: self.prefs.__setitem__(k, v)),
             mock.patch.object(job.ui, "proxy", lambda ctx: None),
+            mock.patch.object(job, "RETRY_DELAYS", (0, 0)),
             mock.patch.object(job.ui, "on_main_thread", lambda ctx, fn: fn()),
             mock.patch.object(job.ui, "notify", lambda ctx, rel, installed: self.notified.append(rel["version"])),
             mock.patch.object(job.ui, "release_info_for",
@@ -62,6 +64,11 @@ class StartupJob(unittest.TestCase):
     def run_check(self, result, now=NOW):
         def fake_fetch(info, proxy):
             self.fetches.append(info["release"])
+            if isinstance(result, list):
+                outcome = result.pop(0)
+                if isinstance(outcome, Exception):
+                    raise outcome
+                return outcome
             if isinstance(result, Exception):
                 raise result
             return result
@@ -71,7 +78,7 @@ class StartupJob(unittest.TestCase):
                 thread.join(10)
         return thread
 
-    def test_new_version_is_announced_and_attempt_time_stored(self):
+    def test_new_version_is_announced_and_check_time_stored(self):
         self.run_check(channels("1.0.0"))
         self.assertEqual(self.notified, ["1.0.0"])
         self.assertEqual(self.prefs["LastCheck"], NOW)
@@ -113,9 +120,32 @@ class StartupJob(unittest.TestCase):
         self.prefs["LastCheck"] = 0
         with mock.patch("builtins.print"):
             self.run_check(UpdateError("URLError: offline"))
-            self.prefs["LastCheck"] = 0
             self.run_check(RuntimeError("unexpected"))
         self.assertEqual(self.notified, [])
+
+    def test_failed_check_keeps_the_next_start_due(self):
+        with mock.patch("builtins.print"):
+            self.run_check(UpdateError("URLError: offline"))
+        self.assertEqual((len(self.fetches), self.prefs["LastCheck"]), (3, 0))
+        self.run_check(channels("1.0.0"), NOW + 60)
+        self.assertEqual((self.notified, self.prefs["LastCheck"]), (["1.0.0"], NOW + 60))
+
+    def test_retry_finds_the_update_after_the_network_returns(self):
+        with mock.patch("builtins.print"):
+            self.run_check([UpdateError("URLError: offline"), channels("1.0.0")])
+        self.assertEqual((len(self.fetches), self.notified, self.prefs["LastCheck"]), (2, ["1.0.0"], NOW))
+
+    def test_retrying_check_is_not_doubled(self):
+        release = threading.Event()
+        def fake_fetch(info, proxy):
+            release.wait(10)
+            return channels("1.0.0")
+        with mock.patch.object(job, "fetch_channels", fake_fetch):
+            thread = job.automatic_check(object(), NOW)
+            self.assertIsNone(job.automatic_check(object(), NOW))
+            release.set()
+            thread.join(10)
+        self.assertEqual(self.notified, ["1.0.0"])
 
 
 if __name__ == "__main__":
