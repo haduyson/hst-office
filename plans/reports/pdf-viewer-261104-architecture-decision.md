@@ -8,8 +8,10 @@ Tệp mẫu: hợp đồng tiếng Việt do chính HST Office xuất PDF (`test
 
 | Cách mở | 50 trang | 300 trang |
 |---|---|---|
-| HST Draw hiện tại (`loadComponentFromURL`, hiện cửa sổ; lần 1 / lần 2) | 28,2 s / 27,5 s | 45,3 s / 36,4 s |
+| HST Draw hiện tại (`loadComponentFromURL`, hiện cửa sổ; lần 1 / lần 2; số thô, xem ghi chú dưới bảng) | 28,2 s / 27,5 s | 45,3 s / 36,4 s |
 | PDFium: mở tệp và dựng ảnh trang 1 (đo qua `GraphicProvider`, cùng thư viện PDFium đi kèm; ước lượng trước khi làm) | 0,04–0,07 s | 0,12–0,13 s |
+
+Ghi chú: số thô ở trên gồm khoảng 9–19 s chờ `dbus-launch` mỗi khi GTK tạo cửa sổ mới trên Xvfb không có session bus (môi trường thử, máy người dùng không gặp). Số so sánh công bằng nằm ở mục "Đo sau khi làm".
 
 Draw chậm vì nhập toàn bộ tài liệu (`sdext` pdfimport chạy tiến trình `xpdfimport`, dựng mọi trang thành hình vẽ, rồi Bộ điều hướng liệt kê hàng nghìn hình) trước khi hiện trang đầu. PDFium chỉ đọc bảng xref và vẽ trang đang xem: chi phí gần như không phụ thuộc số trang.
 
@@ -27,10 +29,24 @@ Draw chậm vì nhập toàn bộ tài liệu (`sdext` pdfimport chạy tiến t
    - Kiểm tra chữ ký có sẵn: `PDFSignatureHelper` (cùng thư viện `xmlsecurity`).
    - Mã đặt trong thư viện `xmlsecurity` (đã liên kết vcl, svl, sfx2; không thêm thư viện mới), chuỗi trong miền `xsc`, tùy chọn trong lược đồ cấu hình riêng `Office/HSTPdfViewer.xcs` (không sửa `Common.xcs` để khỏi dịch lại cả cây), một ô chọn ở Công cụ ▸ Tùy chọn ▸ HST Office ▸ Chung.
 
-## Mục tiêu đo sau khi làm
+## Đo sau khi làm (cùng máy, gtk3, Xvfb, session bus giả `DBUS_SESSION_BUS_ADDRESS` để GTK không chờ `dbus-launch`; 3 lần)
 
-Thời gian đến trang đầu ≤ 1 s cho 50 trang và ≤ 1,5 s cho 300 trang trên cùng máy (kiểm thử runtime khẳng định ngưỡng này, số đo thật ghi trong báo cáo cuối).
+| Cách mở | 50 trang | 300 trang |
+|---|---|---|
+| HST Draw (`loadComponentFromURL` tới khi trả về) | 2,9 / 3,5 / 3,7 s | 12,9 / 15,4 / 16,7 s |
+| HST PDF (`loadComponentFromURL` tới khi trả về) | 0,71 / 0,12 / 0,10 s | 0,12 / 0,51 / 0,10 s |
+| HST PDF: từ lúc loader nhận tệp tới khi vẽ xong trang 1 | 140 / 88 / 79 ms | 92 / 426 / 72 ms |
+
+Lần đầu 0,7 s gồm cả nạp thư viện. Kiểm thử runtime (`tests/runtime/check-pdf-viewer.py`, gen VCL) khẳng định trang đầu < 1 s (50 trang) và < 1,5 s (300 trang); lần chạy cuối: 43 ms và 41 ms. Thanh trạng thái hiện "Mở trong 0,1 giây".
+
+## Kết quả
+
+- `patches/libreoffice/hst-pdf-viewer.patch`: frame loader + cửa sổ HST PDF (`xmlsecurity/source/hstpdf/`), `hstpdfviewer.ui`, chuỗi tiếng Việt, lược đồ `Office/HSTPdfViewer.xcs` (bật/tắt HST PDF; chứng thư dùng lần trước theo SHA-1), ô chọn "Mở tệp PDF bằng HST PDF" ở Tùy chọn ▸ HST Office ▸ Chung, tiêu đề cửa sổ/thẻ "tệp.pdf — HST PDF", liên kết tệp: Linux `pdf.desktop` (HST PDF nhận `application/pdf`, bỏ khỏi `draw.desktop`), Windows `REGISTER_PDF=1`, macOS khai báo `com.adobe.pdf` (Viewer, Default).
+- Ký số: chọn chứng thư bằng hộp thoại của ký văn bản (NSS/USB Token, Windows store), lý do ký, khung chữ ký kéo trên trang (hoặc không hiện hình), "Ký và lưu bản sao…" (không ghi đè tệp đang xem), mở lại bản đã ký và kiểm tra chữ ký; trạng thái chữ ký ở thanh trạng thái và bảng ký.
+- Đã kiểm trên Linux: kiểm thử runtime 12/12 (mở, đếm trang, vẽ, tìm tiếng Việt, chọn chữ, thời gian mở, ký bằng token SoftHSM qua hộp thoại chọn chứng thư và nhập PIN, pdfsig "Signature is Valid / Certificate is Trusted / Total document signed", hình chữ ký, mở lại hợp lệ, tải ẩn và tắt tùy chọn dùng Draw, "Sửa trong HST Draw").
+- Cần kiểm trên Windows/macOS: giao diện, in, chọn chứng thư từ Windows store, liên kết `.pdf` (MSI `REGISTER_PDF`, Info.plist), HiDPI/Retina.
+- Giới hạn: chữ ký trong HST PDF chưa gắn dấu thời gian TSA (như "Ký tệp PDF có sẵn" của Draw); PDF có mật khẩu được hỏi mật khẩu khi xem, ký tệp mã hóa chưa thử.
 
 ## Phạm vi ngoài
 
-Sửa nội dung PDF, chú thích, biểu mẫu: ở HST Draw. Dấu thời gian (TSA) theo cấu hình ký văn bản hiện có.
+Sửa nội dung PDF, chú thích, biểu mẫu: ở HST Draw.
