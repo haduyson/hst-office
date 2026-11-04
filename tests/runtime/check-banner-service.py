@@ -8,6 +8,8 @@ python3 tests/runtime/check-banner-service.py --boundary-only
 The boundary check uses real UNO types but substitutes profile lookup; it does not prove native deployment.
 """
 import argparse
+import base64
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -22,22 +24,29 @@ sys.path.insert(0, str(ROOT / "tests/fixtures/vietnamese/runtime"))
 def snapshot_check(service, ctx=None):
     import uno
     from com.sun.star.beans import NamedValue
-    for scale, suffix in ((1, "@1x.png"), (1.5, "@2x.png"), (3, "@3x.png")):
+    expected = json.loads((ROOT / "data/hst/banners.json").read_text())
+    expected = {i["id"]: i for i in expected["items"]}
+    for scale, level in ((1, 1), (1.5, 2), (3, 3)):
         result = json.loads(service.execute((NamedValue("Scale", scale),)))
         assert result["rotateSeconds"] == 10 and len(result["items"]) == 6
         assert result["items"][0]["name"] == "AIOS"
         for item in result["items"]:
-            assert item["image_path"].endswith(suffix) and Path(item["image_path"]).is_file()
-            assert uno.fileUrlToSystemPath(item["image_url"]) == item["image_path"]
+            blob = base64.b64decode(item["image_base64"], validate=True)
+            spec = expected[item["id"]]["image"][f"{level}x"]
+            assert len(blob) == spec["size"] and hashlib.sha256(blob).hexdigest() == spec["sha256"]
+            assert item["tagline"] == expected[item["id"]]["tagline"]
+            assert "image_url" not in item and "image_path" not in item
             assert "utm_medium=banner" in item["click_url_with_utm"]
             if ctx is not None:
                 provider = ctx.ServiceManager.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
                 prop = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-                prop.Name, prop.Value = "URL", item["image_url"]
+                stream = ctx.ServiceManager.createInstanceWithContext("com.sun.star.io.SequenceInputStream", ctx)
+                stream.initialize((uno.ByteSequence(blob),))
+                prop.Name, prop.Value = "InputStream", stream
                 graphic = provider.queryGraphic((prop,))
                 assert graphic is not None and graphic.getType() > 0
-                assert (graphic.SizePixel.Width, graphic.SizePixel.Height) == (360 * int(suffix[1]), 104 * int(suffix[1]))
-        print("PASS UNO NamedValue / JSON / six images / file URLs at scale", scale)
+                assert (graphic.SizePixel.Width, graphic.SizePixel.Height) == (360 * level, 104 * level)
+        print("PASS UNO NamedValue / JSON / six images / verified buffers at scale", scale)
 
 
 def boundary():

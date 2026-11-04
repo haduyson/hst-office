@@ -93,3 +93,76 @@ service deployment and image decoding, not the future visible ribbon widget.
    certificate when available. The permitted wordmark fallback is usable now.
 
 The product release stamp was not changed. Nothing was pushed.
+
+## Review fixes
+
+Owner follow-up and security review addressed on 2026-11-04. This revision includes the
+requested HST Post derivative, updated shared copy, and fixes for all eight findings in
+[the security review](codex-banner-review.md). The sections above record the original delivery;
+the interface, artwork and validation results below describe this revision.
+
+### Artwork and copy
+
+- Added `hst-post.svg`, transparent PNGs at 512px and 1024px wide, and a square mark-only
+  SVG plus 512×512 PNG. The company HS symbol is preserved as two vector paths fitted to
+  the original raster edges. Normalized silhouette overlap with the untouched company
+  source is **99.947%**; the regression threshold permits antialiasing differences only.
+- Replaced the company lettering with outlined **HST POST**, using a matching bold italic
+  sans and the original blue `#0072bb` / grey `#58595b`. The original source font is not
+  available; Exo 2 ExtraBold Italic supplies the replacement lettering without a runtime
+  font dependency. Its static font instance and OFL are bundled for reproducibility.
+- Checked the full-resolution 2026 company logo, 2023 slogan logo, two other 2023 variants
+  and the site's media metadata. The 2026 source has the largest available symbol detail;
+  the wider slogan image contains a smaller mark. Both SOURCES.md copies record the
+  company-logo derivation at the owner's request on **2026-11-04**.
+- HST Post's banner now uses the new logo. Regenerated all 18 banners and both manifests
+  from `solutions.json`, including the exact owner-supplied revised tagline. Tests compare
+  complete solution ID sets and every name/tagline/URL, and package validation compares
+  every tagline as well.
+- Regenerated the [banner sheet](../../docs/design/banners-preview.png),
+  [Writer placement](../../docs/design/banner-on-writer.png), and
+  [logo comparison](../../docs/design/hst-post-logo-preview.png). The Writer placement
+  remains a mockup; the native ribbon widget remains a separate implementation step.
+
+### Security and maintenance
+
+| Finding | Change and regression evidence |
+|---|---|
+| R1 — mutable cached paths | Cache reads return the exact verified immutable bytes. Snapshots retain those bytes; UNO returns `image_base64`, and consumers decode that buffer through `SequenceInputStream` / `GraphicProvider.InputStream`. No cached pathname is reopened. Tests replace both a cached file and a symlink target after verification, confirm the in-memory bytes stay authentic, and confirm a restarted feed rejects the substitute. Native runtime checks decode the buffers in all three applications. |
+| R2 — pixel allocations | Added bounded PNG IHDR/chunk/CRC, JPEG SOF/scan and WebP header inspection. Exact per-scale dimensions are mandatory. Malformed/truncated headers, unsupported frames and animation fail closed. Tests cover all three formats in signed feeds and cache, scale mismatch, integer extremes and a 900-million-pixel PNG compressed below 300 KiB, without decoding the bomb. |
+| R3 — rollback floor | Recover the highest generation from signed current/previous metadata independently of images. Publication rereads that floor under a kernel file lock after downloads. An atomic current envelope commits the floor and eligible fallback together. Equal timestamps require identical bytes. Tests cover missing images, invalid current with valid previous, restart/replay, conflicting equal timestamps and overlapping workers publishing out of order. Documentation states that resetting all profile metadata can reset the floor. |
+| R4 — scheduled fallback | The current envelope retains a separately signed last-eligible campaign. Identical polls do not rotate it away; distinct future-only generations preserve its metadata and image hashes. Tests poll across multiple days, restart offline, use differing artwork hashes and verify activation when the future window opens. |
+| R5 — total deadline | A private Python HTTPS helper isolates DNS, connection, TLS, redirects and body reads under one monotonic five-second supervisor deadline. Timeout kills and reaps the child, closes connections and releases the feed worker. Real loopback HTTPS tests exercise slow bodies, redirect chains, blocked DNS and subsequent recovery. Package exceptions allow HTTPS only in the helper and subprocess only in its fixed-command supervisor; neither permits raw sockets. |
+| R6 — snapshot race | Workers publish a single immutable state tuple and readers capture it once. Snapshot reads never acquire the network/publication lock. Errors in snapshot acquisition return installed content. An event-controlled concurrent publication test pauses a reader after capture, publishes a future campaign and resumes the reader successfully. |
+| R7 — invalid keys | Validate canonical, nonidentity, prime-order public points before any cache/network use. Tests cover empty/wrong-length, noncanonical, identity, small-order and mixed-order keys, forged signatures and valid generated keys. Signing validates before reading a private seed. Package validation rejects invalid/non-separate keys; `check-extensions.py --require-banner-key` additionally rejects the development placeholder for release. |
+| R8 — authored line limit | Extracted package content/contract helpers and split the language catalog tests while retaining their assertions. Added a gate for all changed authored Python, including scripts and tests, using the existing newline-plus-one convention. Its regression covers committed, edited and untracked files while excluding untouched legacy files. Quality CI fetches history and supplies the PR/push base so the gate covers the actual changes. |
+
+### Revision validation
+
+Counts overlap: the banner tests are part of the unit suites, and quality runs both unit and brand suites.
+
+| Executed check | Result |
+|---|---|
+| Unit suites in `scripts/ci-quality.sh` | **49 suites; 482 tests run, 481 passed, 1 skipped, 0 failures/errors**. Existing skip: upstream source tree absent. |
+| Brand suites in the same run | **2 suites; 27 passed**. |
+| `bash scripts/ci-quality.sh` | **64 commands, 0 failures; 509 tests run = 508 passed + 1 skipped**. Platform preflights report unavailable upstream/tarball inputs as before. |
+| Full banner runtime check on `/opt/hst` | **3 applications, 9 snapshots, 54 native image decodes passed**, using verified byte streams; exact dimensions, hashes, taglines and UTM checked. Installation untouched. |
+| Banner boundary-only check | **3 snapshots, 18 buffers checked**, using real UNO types with injected profile lookup. |
+| `scripts/check-extensions.py` | **1 package passed**, 206 bundled files. |
+| Package checker `--self-test` | **27 invalid packages rejected; 1 valid package accepted**. |
+| Reproducible extension build | **PASS**, byte-identical SHA-256 `d1ac033d06688a9e99b12211ebe6a4f5140b112c67097fe7f9002c076cb7dc86`. |
+| Banner renderer `--check` | **22 outputs identical**, contrast ≥4.5, no clipping. |
+| Logo renderer `--check` | **6 outputs identical**. All three preview images visually inspected. |
+| Authored Python gate | **36 changed files, 0 violations**. |
+
+### Upstream availability
+
+`git fetch` was attempted before implementation and retried. The configured origin is
+`/home/office`, which does not exist in this isolated container; fetch fails with “does not
+appear to be a git repository.” `git rebase origin/main` against the supplied local reference
+`c22775b` reported the branch already up to date. No newer main reference or matching updated
+copy was found among the local objects. The exact owner-supplied tagline was therefore applied
+to `data/hst/solutions.json` locally and all generated content follows that file.
+
+**Rebasing onto a freshly fetched main remains blocked on a reachable origin URL/path.**
+The configured remote was not replaced with a guessed repository, and nothing was pushed.

@@ -4,7 +4,7 @@
 
 Build dependencies: playwright==1.64.1 (its Chromium), Pillow (requirements-templates.lock).
 Run: .venv/bin/python scripts/brand/render-banners.py
-No network, key access or generated logos. --check verifies byte-for-byte regeneration without modifying outputs.
+No network or key access; the HST Post derivative is built by render-hst-post-logo.py. --check verifies byte-for-byte regeneration without modifying outputs.
 """
 import argparse
 import hashlib

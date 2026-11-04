@@ -37,7 +37,7 @@ class BannerFeedTests(unittest.TestCase):
     def test_fresh_online_precedes_bundle(self):
         result = self.run_refresh(self.feed())
         self.assertEqual(result["items"][0]["name"], "Online AIOS")
-        self.assertTrue(Path(result["items"][0].image_path_for_scale(2)).is_file())
+        self.assertIsInstance(result["items"][0].image_bytes_for_scale(2), bytes)
 
     def test_valid_cache_when_offline_after_restart(self):
         self.run_refresh(self.feed())
@@ -53,8 +53,9 @@ class BannerFeedTests(unittest.TestCase):
         self.assertEqual(self.run_refresh(self.feed())["items"][0]["name"], "AIOS")
 
     def test_tampered_cached_image_rejected(self):
-        result = self.run_refresh(self.feed())
-        Path(result["items"][0].image_path_for_scale(1)).write_bytes(b"corrupt")
+        self.run_refresh(self.feed())
+        spec = self.remote.doc["items"][0]["image"]["1x"]
+        cache.image_path(Path(self.temp.name) / "hst-banners", spec, ".png").write_bytes(b"corrupt")
         self.remote.offline = True
         self.assertEqual(self.run_refresh(self.feed())["items"][0]["name"], "AIOS")
 
@@ -145,7 +146,7 @@ class BannerFeedTests(unittest.TestCase):
     def test_scale_selection(self):
         banner = self.feed().current()["items"][0]
         for scale, expected in ((.5, 1), (1, 1), (1.25, 2), (2, 2), (2.5, 3), (4, 3), (float("nan"), 1)):
-            self.assertTrue(banner.image_path_for_scale(scale).endswith(f"@{expected}x.png"))
+            self.assertEqual(banner.image_bytes_for_scale(scale), banner["images"][f"{expected}x"])
 
     def test_weight_order_and_rotation(self):
         doc = manifest(); doc["rotateSeconds"] = 12

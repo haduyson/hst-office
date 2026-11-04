@@ -92,11 +92,13 @@ class BannerContractTests(unittest.TestCase):
 
     def test_image_magic_types(self):
         png = (Path(ROOT) / "extensions/hst-vietnamese-tools/banners/aios@1x.png").read_bytes()
-        jpeg = (Path(ROOT) / "website/office.hasontech.vn/assets/img/office-writer-1485.jpg").read_bytes()
+        jpeg = None  # generated below at an allowed banner size
         # Small real WebP generated from the committed banner; test dependency only, never in extension.
         import io
         from PIL import Image
         stream = io.BytesIO(); Image.open(io.BytesIO(png)).save(stream, format="WEBP")
+        jpeg_stream = io.BytesIO(); Image.open(io.BytesIO(png)).convert("RGB").save(jpeg_stream, format="JPEG")
+        jpeg = jpeg_stream.getvalue()
         for data, ext in ((png, ".png"), (jpeg, ".jpg"), (stream.getvalue(), ".webp")):
             self.assertEqual(verify.verify_image(data, image_spec(data)), ext)
         for data in (b"<svg></svg>", b"GIF89a", b"<html>fake.png</html>", b"\x89PNG\r\n\x1a\n", b"RIFFxxxxWEBPxxxxxxxx"):
@@ -126,7 +128,10 @@ class BannerContractTests(unittest.TestCase):
 
     def test_bundle_copy_and_images(self):
         doc = schema.parse_manifest((Path(ROOT) / "data/hst/banners.json").read_bytes(), bundled=True)
-        for item, solution in zip(doc["items"], load_data("solutions.json")["solutions"]):
+        solutions = {s["id"]: s for s in load_data("solutions.json")["solutions"]}
+        self.assertEqual({i["id"] for i in doc["items"]}, set(solutions))
+        for item in doc["items"]:
+            solution = solutions[item["id"]]
             for field in ("id", "name", "tagline", "url"): self.assertEqual(item[field], solution[field])
             for scale, spec in item["image"].items():
                 data = (Path(ROOT) / "extensions/hst-vietnamese-tools" / spec["url"]).read_bytes()

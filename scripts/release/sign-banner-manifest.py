@@ -18,7 +18,7 @@ from hst_office.banner_schema import parse_manifest  # noqa: E402
 def sign(path, key_path):
     data = Path(path).read_bytes()
     parse_manifest(data)  # online URLs only; bundled defaults are trusted through the installed package
-    if len(banner_verify.PUBLIC_KEY) != 32:
+    if not banner_verify.valid_key(banner_verify.PUBLIC_KEY):
         raise ValueError("set the separate banner PUBLIC_KEY in banner_verify.py before signing")
     mode = Path(key_path).stat().st_mode
     if os.name == "posix" and mode & (stat.S_IRWXG | stat.S_IRWXO):

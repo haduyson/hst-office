@@ -8,7 +8,8 @@ import urllib.request
 
 from _paths import ROOT
 from banner_fixtures import KEY, SEED, VERSION, manifest, signed
-from hst_office import banner_fetch, banner_verify, update_logic
+from hst_office import banner_http as banner_fetch
+from hst_office import banner_verify, update_logic
 from hst_office.banner_urls import FEED_URL
 
 
@@ -25,7 +26,7 @@ class BannerTransportTests(unittest.TestCase):
     def test_plain_user_agent_timeout_bounded_read(self):
         opener, response = self.response()
         with patch.object(banner_fetch.urllib.request, "build_opener", return_value=opener):
-            self.assertEqual(banner_fetch.fetch(FEED_URL, 20, VERSION), b"hello")
+            self.assertEqual(banner_fetch.request(FEED_URL, 20, VERSION), b"hello")
         request = opener.open.call_args.args[0]
         self.assertEqual(request.get_header("User-agent"), "HSTOffice/" + VERSION)
         self.assertEqual(set(k.lower() for k in request.headers), {"user-agent", "accept"})
@@ -35,12 +36,12 @@ class BannerTransportTests(unittest.TestCase):
     def test_oversize_response_rejected(self):
         opener, _ = self.response(b"x" * 21)
         with patch.object(banner_fetch.urllib.request, "build_opener", return_value=opener), self.assertRaises(ValueError):
-            banner_fetch.fetch(FEED_URL, 20, VERSION)
+            banner_fetch.request(FEED_URL, 20, VERSION)
 
     def test_transport_https_only(self):
         with patch.object(banner_fetch.urllib.request, "build_opener") as opener:
             for url in ("http://system.hasontech.vn/a", "file:///tmp/a"):
-                with self.assertRaises(ValueError): banner_fetch.fetch(url, 20, VERSION)
+                with self.assertRaises(ValueError): banner_fetch.request(url, 20, VERSION)
             opener.assert_not_called()
 
     def test_final_origin_and_compression_checked(self):
@@ -49,7 +50,7 @@ class BannerTransportTests(unittest.TestCase):
             opener, response = self.response(url=url)
             response.headers = {"Content-Encoding": encoding}; response.status = status
             with patch.object(banner_fetch.urllib.request, "build_opener", return_value=opener), self.assertRaises(ValueError):
-                banner_fetch.fetch(FEED_URL, 20, VERSION)
+                banner_fetch.request(FEED_URL, 20, VERSION)
 
     def test_redirect_policy(self):
         redirect = banner_fetch._Redirect()

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Registered XJob service: nonblocking JSON snapshots for the native ribbon, shared by every app."""
+import base64
 import json
 
 import uno
@@ -49,10 +50,10 @@ class BannerService(unohelper.Base, XServiceInfo, XJob):
         snapshot = get_banners(feed_for_context(self.ctx))
         items = []
         for banner in snapshot["items"]:
-            path = banner.image_path_for_scale(scale)
+            blob = banner.image_bytes_for_scale(scale)
             items.append({"id": banner["id"], "name": banner["name"], "tagline": banner["tagline"],
-                          "click_url_with_utm": banner["click_url_with_utm"], "image_path": path,
-                          "image_url": uno.systemPathToFileUrl(path)})
+                          "click_url_with_utm": banner["click_url_with_utm"],
+                          "image_base64": base64.b64encode(blob).decode("ascii")})
         return json.dumps({"rotateSeconds": snapshot["rotateSeconds"], "items": items}, ensure_ascii=False)
 
 
