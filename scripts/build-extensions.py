@@ -54,6 +54,8 @@ def notices_text():
     for name, src in sorted(prov["sources"].items()):
         lines.append("  - %s: %s (sha256 %s)" % (name, src.get("url") or src.get("path"), src["sha256"]))
     lines += ["", "ND30 rules: Nghi dinh 30/2020/ND-CP, Phu luc I; legal validity in 2026 is unverified. Presentation helper only."]
+    lines += ["", "Banner fonts: Be Vietnam Pro, SIL Open Font License 1.1 (banners/fonts/OFL.txt).",
+              "Solution logos: HASON TECH and respective product marks; source attribution: banners/SOURCES.md."]
     return "\n".join(lines) + "\n"
 
 
@@ -104,6 +106,7 @@ def collect(ext_root, test_mode=False):
     for name in SHARED_DATA:
         files["data/" + name] = open(os.path.join(ROOT, "data", "vietnamese", name), "rb").read()
     files["data/solutions.json"] = open(os.path.join(ROOT, "data", "hst", "solutions.json"), "rb").read()  # welcome dialog content
+    files["data/banners.json"] = open(os.path.join(ROOT, "data", "hst", "banners.json"), "rb").read()
     files["data/pkcs11-modules.json"] = open(os.path.join(ROOT, "data", "hst", "pkcs11-modules.json"), "rb").read()
     files["data/release.json"] = release_json(test_mode)  # update check: installed release id
     for name, src in BRAND_IMAGES.items():
@@ -111,6 +114,12 @@ def collect(ext_root, test_mode=False):
     files["license/LICENSE.txt"] = open(os.path.join(ROOT, "LICENSE"), "rb").read()
     files["license/NOTICES.txt"] = notices_text().encode("utf-8")
     if os.path.basename(os.path.normpath(ext_root)) == TEMPLATE_EXTENSION:
+        sys.path.insert(0, os.path.join(ext_root, "python"))
+        from hst_office.banner_snapshot import encoded_items
+        doc = json.loads(files["data/banners.json"])
+        images = {i["id"]: {s: files[v["url"]] for s, v in i["image"].items()} for i in doc["items"]}
+        encoded = encoded_items(doc, images, json.loads(files["data/solutions.json"])["utm"])
+        files["data/banner-snapshots.json"] = json.dumps(encoded, sort_keys=True).encode("ascii")
         files.update(template_files())
     return files
 
