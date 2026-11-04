@@ -91,6 +91,35 @@ def same_text(a, b):
     return norm(a) == norm(b)
 
 
+# Dialog elements (xmlscript) of the controls HST can write into Excel and Word VBA projects.
+_FORM_CONTROLS = {"button", "text", "textfield", "checkbox", "radio", "radiogroup", "combobox", "menulist", "titledbox", "frame",
+                  "spinbutton", "scrollbar", "bulletinboard", "title", "menupopup", "menuitem", "styles", "style",
+                  "window", "event", "listener-event"}
+
+
+def unwritable_form_content(dialog_xml):
+    """(controls that cannot be written, controls whose fixed list items are not stored) of a dialog's XML.
+
+    Word and Excel keep no list items in a form file (code fills them with AddItem), so items typed in
+    the HST dialog editor stay only in .ods/.odt."""
+    import xml.etree.ElementTree as ET
+    dialog_ns = "{http://openoffice.org/2000/dialog}"
+    unwritable, list_items = [], []
+    for element in ET.fromstring(dialog_xml).iter():
+        tag = element.tag.replace(dialog_ns, "")
+        control = element.get(dialog_ns + "id", tag)
+        if tag not in _FORM_CONTROLS and element.tag.startswith(dialog_ns):
+            unwritable.append(control)
+        elif tag in ("combobox", "menulist") and element.find(dialog_ns + "menupopup") is not None:
+            list_items.append(control)
+    return unwritable, list_items
+
+
 def is_excel_filter(name):
     """True for the filters that write an Excel file (xls, xlsx, xlsm, Excel templates)."""
     return bool(name) and ("Excel" in name or "Calc Office Open XML" in name)
+
+
+def is_word_filter(name):
+    """True for the filters that write a Word file with a VBA project (.doc, .docm)."""
+    return name in ("MS Word 97", "MS Word 97 Vorlage", "MS Word 2007 XML VBA", "Office Open XML Text VBA")

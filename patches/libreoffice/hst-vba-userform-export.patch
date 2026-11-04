@@ -1,0 +1,1064 @@
+HST Office: VBA UserForms are written to .xlsm, .xls, .docm and .doc (owner request).
+
+VbaExport wrote only the module streams, so a form became a document module and its dialog was
+lost. oox/source/ole/vbaformexport writes the designer per MS-OVBA and MS-OFORMS from the Basic
+dialog: a storage named like the module with \001CompObj, \003VBFrame, f (form and sites) and o
+(control models); a Frame gets an iNN substorage and its controls back from the importer's flat
+layout. Labels, text boxes, buttons, toggle buttons, check boxes, option buttons, combo and list
+boxes, frames, spin buttons and scroll bars are written; other control types are left out.
+- vbaexport: Package, BaseClass and Class lines in PROJECT, the MS Forms reference in dir, class
+  and form module attributes, form captions in the code page check.
+- axcontrol: combo box drop button and list rows are written.
+- vbaproject: forms are read in the project's code page, not always Windows-1252, so Vietnamese
+  form captions stay intact.
+- vbaeventshelperbase: the event handler map is filled before it is stored. A document event on
+  an .odt with a form crashed: looking up a handler loads the library, and the changes listener
+  then erased the map entry being filled.
+- docxexport, wrtww8: projects with forms are regenerated too, unless a control cannot be written
+  (then the original project is kept as before).
+
+--- a/vbahelper/source/vbahelper/vbaeventshelperbase.cxx
++++ b/vbahelper/source/vbahelper/vbaeventshelperbase.cxx
+@@ -18,6 +18,8 @@
+  */
+ 
+ #include <vbahelper/vbaeventshelperbase.hxx>
++
++#include <utility>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/document/XEventBroadcaster.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
+@@ -369,7 +371,9 @@
+     // get type of the specified module (throws on error)
+     sal_Int32 nModuleType = getModuleType( rModuleName );
+     // search for all event handlers
+-    ModulePathMap& rPathMap = maEventPaths[ rModuleName ];
++    // HST: not a reference into maEventPaths: resolveVBAMacro() can load the library of an ODF
++    // document, and the changes listener then erases entries of that map
++    ModulePathMap aPathMap;
+ 
+     // Use WORKBOOK_OPEN as a way to get the codename for ThisWorkbook
+     OUString sThisWorkbook;
+@@ -434,9 +438,11 @@
+                                             bOnlyPublic, sSkipModule);
+                 }
+             }
+-            rPathMap[rInfo.mnEventId] = sName;
++            aPathMap[rInfo.mnEventId] = sName;
+         }
+     }
++    ModulePathMap& rPathMap = maEventPaths[ rModuleName ];
++    rPathMap = std::move(aPathMap);
+     return rPathMap;
+ }
+ 
+--- a/oox/source/ole/vbaexport.cxx
++++ b/oox/source/ole/vbaexport.cxx
+@@ -13,6 +13,8 @@
+ #include <string_view>
+ 
+ #include <oox/ole/vbaexport.hxx>
++#include "vbaformexport.hxx"
++#include <comphelper/processfactory.hxx>
+ 
+ #include <tools/stream.hxx>
+ 
+@@ -624,8 +626,11 @@
+ }
+ 
+ // section 2.3.4.2.2
+-void writePROJECTREFERENCES(SvStream& rStrm, const rtl_TextEncoding eTextEncoding)
++void writePROJECTREFERENCES(SvStream& rStrm, const rtl_TextEncoding eTextEncoding, bool bForms)
+ {
++    // HST: UserForms use the MS Forms type library
++    if (bForms)
++        writeREFERENCE(rStrm, u"MSForms"_ustr, u"*\\G{0D452EE1-E08F-101A-852E-02608C4D0BB4}#2.0#0#C:\\Windows\\SysWOW64\\FM20.DLL#Microsoft Forms 2.0 Object Library", eTextEncoding);
+     // TODO: find out where these references are coming from
+     writeREFERENCE(rStrm, u"stdole"_ustr, u"*\\G{00020430-0000-0000-C000-000000000046}#2.0#0#C:\\Windows\\SysWOW64\\stdole2.tlb#OLE Automation", eTextEncoding);
+     writeREFERENCE(rStrm, u"Office"_ustr, u"*\\G{2DF8D04C-5BFA-101B-BDE5-00AA0044DE52}#2.0#0#C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE14\\MSO.DLL#Microsoft Office 14.0 Object Library", eTextEncoding);
+@@ -764,7 +769,13 @@
+     SvMemoryStream aDirStream(4096, 4096);
+ 
+     writePROJECTINFORMATION(aDirStream, projectName, eTextEncoding);
+-    writePROJECTREFERENCES(aDirStream, eTextEncoding);
++    bool bForms = false;
++    {
++        css::uno::Reference<css::script::vba::XVBAModuleInfo> xInfo(xNameContainer, css::uno::UNO_QUERY);
++        for (const OUString& rName : xNameContainer->getElementNames())
++            bForms = bForms || (xInfo->hasModuleInfo(rName) && xInfo->getModuleInfo(rName).ModuleType == 3);
++    }
++    writePROJECTREFERENCES(aDirStream, eTextEncoding, bForms);
+     writePROJECTMODULES(aDirStream, xNameContainer, rLibraryMap, eTextEncoding);
+     aDirStream.WriteUInt16(0x0010); // terminator
+     aDirStream.WriteUInt32(0x00000000); // reserved
+@@ -801,6 +812,22 @@
+         exportString(aModuleStream, u"Attribute VB_TemplateDerived = False\r\n", eTextEncoding);
+         exportString(aModuleStream, u"Attribute VB_Customizable = True\r\n", eTextEncoding);
+     }
++    else if (rInfo.ModuleType == 2 || rInfo.ModuleType == 3)
++    {
++        // HST: class and UserForm modules (MS-OVBA 2.4.3 ClassAttrs, DesignerAttrs)
++        const bool bForm = rInfo.ModuleType == 3;
++        exportString(aModuleStream,
++                     bForm ? OUString("Attribute VB_Base = \"0{" + OStringToOUString(comphelper::xml::generateGUIDString(), RTL_TEXTENCODING_UTF8).copy(1, 36) + "}{"
++                                      + OStringToOUString(comphelper::xml::generateGUIDString(), RTL_TEXTENCODING_UTF8).copy(1, 36) + "}\"\r\n")
++                           : u"Attribute VB_Base = \"0{FCFB3D2A-A0FA-1068-A738-08002B3371B5}\"\r\n"_ustr,
++                     eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_GlobalNameSpace = False\r\n", eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_Creatable = False\r\n", eTextEncoding);
++        exportString(aModuleStream, bForm ? u"Attribute VB_PredeclaredId = True\r\n"_ustr : u"Attribute VB_PredeclaredId = False\r\n"_ustr, eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_Exposed = False\r\n", eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_TemplateDerived = False\r\n", eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_Customizable = False\r\n", eTextEncoding);
++    }
+     OUString aSourceCode = rSourceCode.replaceFirst("Option VBASupport 1\n", "");
+     const sal_Int32 nPos = aSourceCode.indexOf("Rem Attribute VBA_ModuleType=");
+     const sal_Int32 nEndPos = nPos != -1 ? aSourceCode.indexOf("\n", nPos) : -1;
+@@ -850,6 +877,7 @@
+     exportString(rStrm, u"\"\r\n", eTextEncoding);
+ 
+     // section 2.3.1.3 ProjectModule
++    bool bPackageWritten = false;
+     for (sal_Int32 i = 0; i < n; ++i)
+     {
+         const OUString& rModuleName = aElementNames[rLibraryMap[i]];
+@@ -865,6 +893,18 @@
+                          Concat2View("Document=" + rModuleName + "/&H00000000\r\n"),
+                          eTextEncoding);
+         }
++        // HST: class modules and UserForms (2.3.1.5 ProjectClassModule, 2.3.1.6 ProjectDesignerModule)
++        else if(aModuleInfo.ModuleType == 2)
++        {
++            exportString(rStrm, Concat2View("Class=" + rModuleName + "\r\n"), eTextEncoding);
++        }
++        else if(aModuleInfo.ModuleType == 3)
++        {
++            if (!bPackageWritten) // 2.3.1.8 ProjectPackage: the MS Forms designer
++                exportString(rStrm, u"Package={AC9F2F90-E877-11CE-9F68-00AA00574A4F}\r\n", eTextEncoding);
++            bPackageWritten = true;
++            exportString(rStrm, Concat2View("BaseClass=" + rModuleName + "\r\n"), eTextEncoding);
++        }
+     }
+ 
+     // section 2.3.1.11 ProjectName
+@@ -1114,6 +1154,17 @@
+ 
+ #endif
+ 
++    // HST: the UserForm designers, one storage per form module in the project root
++    {
++        const css::uno::Reference<css::uno::XComponentContext> xContext = comphelper::getProcessComponentContext();
++        oox::ole::VbaFormExporter aForms(xContext, mxModel);
++        for (const OUString& rName : aElementNames)
++        {
++            if (xModuleInfo->getModuleInfo(rName).ModuleType == 3)
++                aForms.exportForm(*pRootStorage, rName, aForms.loadDialog(getProjectName(), rName), eTextEncoding);
++        }
++    }
++
+     pVBAProjectStream->Commit();
+ 
+     pDirStream->Commit();
+@@ -1131,6 +1182,36 @@
+     return xLibContainer;
+ }
+ 
++std::vector<OUString> VbaExport::getUnsupportedFormControls() const
++{
++    std::vector<OUString> aResult;
++    css::uno::Reference<css::container::XNameContainer> xLibrary = getBasicLibrary();
++    css::uno::Reference<css::script::vba::XVBAModuleInfo> xInfo(xLibrary, css::uno::UNO_QUERY);
++    if (!xInfo.is())
++        return aResult;
++    oox::ole::VbaFormExporter aForms(comphelper::getProcessComponentContext(), mxModel);
++    for (const OUString& rName : xLibrary->getElementNames())
++    {
++        if (!xInfo->hasModuleInfo(rName) || xInfo->getModuleInfo(rName).ModuleType != 3)
++            continue;
++        for (const OUString& rControl : oox::ole::VbaFormExporter::getUnsupportedControls(aForms.loadDialog(getProjectName(), rName)))
++            aResult.push_back(rName + "." + rControl);
++    }
++    return aResult;
++}
++
++bool VbaExport::hasForms() const
++{
++    css::uno::Reference<css::container::XNameContainer> xLibrary = getBasicLibrary();
++    css::uno::Reference<css::script::vba::XVBAModuleInfo> xInfo(xLibrary, css::uno::UNO_QUERY);
++    if (!xInfo.is())
++        return false;
++    for (const OUString& rName : xLibrary->getElementNames())
++        if (xInfo->hasModuleInfo(rName) && xInfo->getModuleInfo(rName).ModuleType == 3)
++            return true;
++    return false;
++}
++
+ css::uno::Reference<css::container::XNameContainer> VbaExport::getBasicLibrary() const
+ {
+     css::uno::Reference<css::container::XNameContainer> xLibrary;
+@@ -1218,8 +1299,22 @@
+     // HST: a project whose code page cannot hold its code (Vietnamese text in a project made
+     // with a Western code page) is saved in Windows-1258 instead of turning letters into '?'.
+     css::uno::Reference<css::container::XNameContainer> xLibrary = getBasicLibrary();
+-    if (!lcl_canEncodeModules(xLibrary, aTextEncoding)
+-        && lcl_canEncodeModules(xLibrary, RTL_TEXTENCODING_MS_1258))
++    // form captions are stored in the code page too (\003VBFrame)
++    OUString aCaptions;
++    {
++        css::uno::Reference<css::script::vba::XVBAModuleInfo> xInfo(xLibrary, css::uno::UNO_QUERY);
++        oox::ole::VbaFormExporter aForms(comphelper::getProcessComponentContext(), mxModel);
++        if (xInfo.is())
++            for (const OUString& rName : xLibrary->getElementNames())
++                if (xInfo->hasModuleInfo(rName) && xInfo->getModuleInfo(rName).ModuleType == 3)
++                    aCaptions += oox::ole::VbaFormExporter::getCaption(aForms.loadDialog(getProjectName(), rName));
++    }
++    const auto canEncode = [&](rtl_TextEncoding eEncoding)
++    {
++        return lcl_canEncodeModules(xLibrary, eEncoding)
++               && OUStringToOString(aCaptions, eEncoding).indexOf('?') == aCaptions.indexOf('?');
++    };
++    if (!canEncode(aTextEncoding) && canEncode(RTL_TEXTENCODING_MS_1258))
+     {
+         aTextEncoding = RTL_TEXTENCODING_MS_1258;
+         if (xProps.is())
+--- a/oox/source/ole/vbaproject.cxx
++++ b/oox/source/ole/vbaproject.cxx
+@@ -437,6 +437,15 @@
+     if( !xVbaStrg )
+         return;
+     rtl_TextEncoding eTextEnc = RTL_TEXTENCODING_MS_1252;
++    // HST: form captions are in the project's code page, which readVbaModules() stored here
++    try
++    {
++        Reference< beans::XPropertySet > xLibProps( getLibraryContainer( PROP_BasicLibraries ), UNO_QUERY_THROW );
++        xLibProps->getPropertyValue( u"VBATextEncoding"_ustr ) >>= eTextEnc;
++    }
++    catch( const Exception& )
++    {
++    }
+     bool bExecutable = isImportVbaExecutable();
+ 
+     // create empty dummy modules
+--- a/include/oox/ole/vbaexport.hxx
++++ b/include/oox/ole/vbaexport.hxx
+@@ -12,6 +12,8 @@
+ 
+ #include <cstddef>
+ 
++#include <vector>
++
+ #include <com/sun/star/uno/Reference.hxx>
+ #include <oox/dllapi.h>
+ #include <rtl/ustring.hxx>
+@@ -36,6 +38,12 @@
+ 
+     bool containsVBAProject();
+ 
++    /// HST: names of form controls that exportVBA() cannot write ("Form.Control"), empty if none
++    std::vector<OUString> getUnsupportedFormControls() const;
++
++    /// HST: true when the project has at least one UserForm
++    bool hasForms() const;
++
+ private:
+ 
+     css::uno::Reference<css::container::XNameContainer>
+--- a/oox/Library_oox.mk
++++ b/oox/Library_oox.mk
+@@ -272,6 +272,7 @@
+     oox/source/ole/olestorage \
+     oox/source/ole/vbacontrol \
+     oox/source/ole/vbaexport \
++    oox/source/ole/vbaformexport \
+     oox/source/ole/vbahelper \
+     oox/source/ole/vbainputstream \
+     oox/source/ole/vbamodule \
+--- a/oox/source/ole/axcontrol.cxx
++++ b/oox/source/ole/axcontrol.cxx
+@@ -1520,11 +1520,18 @@
+     aWriter.skipProperty(); // bound column
+     aWriter.skipProperty(); // text column
+     aWriter.skipProperty(); // column count
+-    aWriter.skipProperty(); // mnListRows
++    // HST: UserForm export needs these for combo boxes; defaults stay unwritten
++    if ( ( mnDisplayStyle == AX_DISPLAYSTYLE_COMBOBOX || mnDisplayStyle == AX_DISPLAYSTYLE_DROPDOWN ) && mnListRows != 8 )
++        aWriter.writeIntProperty< sal_uInt16 >( mnListRows );
++    else
++        aWriter.skipProperty(); // mnListRows
+     aWriter.skipProperty(); // column info count
+     aWriter.skipProperty(); // mnMatchEntry
+     aWriter.skipProperty(); // list style
+-    aWriter.skipProperty(); // mnShowDropButton );
++    if ( ( mnDisplayStyle == AX_DISPLAYSTYLE_COMBOBOX || mnDisplayStyle == AX_DISPLAYSTYLE_DROPDOWN ) && mnShowDropButton != AX_SHOWDROPBUTTON_NEVER )
++        aWriter.writeIntProperty< sal_uInt8 >( mnShowDropButton );
++    else
++        aWriter.skipProperty(); // mnShowDropButton );
+     aWriter.skipProperty();
+     aWriter.skipProperty(); // drop down style
+     if ( (mnDisplayStyle == AX_DISPLAYSTYLE_LISTBOX || mnDisplayStyle == AX_DISPLAYSTYLE_CHECKBOX) && mnMultiSelect != AX_SELECTION_SINGLE )
+--- a/sw/source/filter/ww8/docxexport.cxx
++++ b/sw/source/filter/ww8/docxexport.cxx
+@@ -2054,8 +2054,11 @@
+     OUString aMacrosName(u"_MS_VBA_Macros"_ustr);
+     const bool bOriginal = xDocumentStorage.is() && xDocumentStorage->hasByName(aMacrosName);
+     // HST: save the macros as they are now (written or edited in the Basic IDE), like Calc does for
+-    // .xlsm, unless the original project has UserForms: those are only kept by copying it unchanged.
+-    if (!bOriginal || !lcl_hasVbaDesignerStorages(xDocumentStorage->openStreamElement(aMacrosName, embed::ElementModes::READ)))
++    // .xlsm, unless the original project has UserForms that cannot be rewritten.
++    // HST: VbaExport now writes UserForms too, except forms with control types it cannot write.
++    uno::Reference<frame::XModel> xModelForForms(m_rDoc.GetDocShell() ? m_rDoc.GetDocShell()->GetModel() : nullptr);
++    if (!bOriginal || !lcl_hasVbaDesignerStorages(xDocumentStorage->openStreamElement(aMacrosName, embed::ElementModes::READ))
++        || VbaExport(xModelForForms).getUnsupportedFormControls().empty())
+     {
+         if (WriteCurrentVBA() || !bOriginal)
+             return;
+--- a/sw/source/filter/ww8/wrtww8.cxx
++++ b/sw/source/filter/ww8/wrtww8.cxx
+@@ -4121,8 +4121,9 @@
+             SvStorageInfoList aElements;
+             xOriginal->FillInfoList( &aElements );
+             for ( const SvStorageInfo& rElement : aElements )
+-                if ( rElement.IsStorage() && rElement.GetName() != "VBA" )
+-                    return false; // UserForms
++                if ( rElement.IsStorage() && rElement.GetName() != "VBA"
++                     && !VbaExport( rDoc.GetModel() ).getUnsupportedFormControls().empty() )
++                    return false; // UserForms with controls VbaExport cannot write
+         }
+ 
+         rtl::Reference< SotStorage > xMacros = rStor.OpenSotStorage( rStorageName, StreamMode::READWRITE | StreamMode::TRUNC );
+--- /dev/null
++++ b/oox/source/ole/vbaformexport.cxx
+@@ -0,0 +1,662 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "vbaformexport.hxx"
++
++#include <algorithm>
++#include <memory>
++#include <utility>
++
++#include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/awt/XControlModel.hpp>
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XNameContainer.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/io/XInputStreamProvider.hpp>
++#include <com/sun/star/lang/XMultiComponentFactory.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/script/XLibraryContainer.hpp>
++#include <com/sun/star/uno/XComponentContext.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <o3tl/unit_conversion.hxx>
++#include <oox/helper/binaryoutputstream.hxx>
++#include <oox/helper/graphichelper.hxx>
++#include <oox/helper/propertyset.hxx>
++#include <oox/ole/axbinarywriter.hxx>
++#include <oox/ole/axcontrol.hxx>
++#include <oox/token/properties.hxx>
++#include <sot/formats.hxx>
++#include <sot/storage.hxx>
++#include <tools/globname.hxx>
++#include <tools/stream.hxx>
++#include <xmlscript/xmldlg_imexp.hxx>
++
++using namespace ::com::sun::star;
++
++namespace oox::ole
++{
++namespace
++{
++// class cache indexes of OleSiteConcreteControl (MS-OFORMS 2.2.10.10; see VbaSiteModel)
++const sal_uInt16 SITE_FRAME = 14;
++const sal_uInt16 SITE_SPINBUTTON = 16;
++const sal_uInt16 SITE_COMMANDBUTTON = 17;
++const sal_uInt16 SITE_LABEL = 21;
++const sal_uInt16 SITE_TEXTBOX = 23;
++const sal_uInt16 SITE_LISTBOX = 24;
++const sal_uInt16 SITE_COMBOBOX = 25;
++const sal_uInt16 SITE_CHECKBOX = 26;
++const sal_uInt16 SITE_OPTIONBUTTON = 27;
++const sal_uInt16 SITE_TOGGLEBUTTON = 28;
++const sal_uInt16 SITE_SCROLLBAR = 47;
++const sal_uInt16 SITE_UNSUPPORTED = 0xFFFF;
++
++const sal_uInt32 SITE_FLAG_TABSTOP = 0x00000001;
++const sal_uInt32 SITE_FLAG_VISIBLE = 0x00000002;
++const sal_uInt32 SITE_FLAG_STREAMED = 0x00000010;
++const sal_uInt32 SITE_FLAG_DEFAULT = 0x00000020;
++
++const sal_uInt32 FORM_FLAGS_ENABLED = 0x00000004;
++const sal_uInt32 FORM_DRAWBUFFER = 32000;
++const sal_uInt32 FORM_SPECIALEFFECT_ETCHED = 3;
++const sal_uInt32 FRAME_BACKCOLOR_DEFAULT = 0x8000000F;
++constexpr OUStringLiteral DUMMY_GROUP_SEP = u"DummyGroupSep"; // see VbaDummyFormControl
++
++/** A seekable BinaryOutputStream in memory (records are patched after they are written). */
++class MemoryOutputStream final : public BinaryOutputStream
++{
++public:
++    MemoryOutputStream()
++        : BinaryStreamBase(true)
++    {
++    }
++    virtual sal_Int64 size() const override { return static_cast<sal_Int64>(maData.size()); }
++    virtual sal_Int64 tell() const override { return mnPos; }
++    virtual void seek(sal_Int64 nPos) override
++    {
++        mnPos = nPos;
++        mbEof = nPos < 0;
++    }
++    virtual void close() override {}
++    virtual void writeData(const StreamDataSequence& rData, size_t /*nAtomSize*/ = 1) override
++    {
++        writeMemory(rData.getConstArray(), rData.getLength());
++    }
++    virtual void writeMemory(const void* pMem, sal_Int32 nBytes, size_t /*nAtomSize*/ = 1) override
++    {
++        if (nBytes <= 0)
++            return;
++        if (static_cast<size_t>(mnPos + nBytes) > maData.size())
++            maData.resize(mnPos + nBytes);
++        memcpy(maData.data() + mnPos, pMem, nBytes);
++        mnPos += nBytes;
++    }
++    const std::vector<sal_uInt8>& getData() const { return maData; }
++
++private:
++    std::vector<sal_uInt8> maData;
++    sal_Int64 mnPos = 0;
++};
++
++struct ControlNode
++{
++    OUString maName;
++    OUString maTag;
++    OUString maToolTip;
++    sal_uInt16 mnClass = SITE_UNSUPPORTED;
++    sal_Int32 mnId = 0;
++    sal_Int32 mnTabIndex = 0;
++    sal_uInt32 mnFlags = 0;
++    AxPairData maPos{ 0, 0 };
++    AxPairData maSize{ 0, 0 };
++    OUString maCaption; // Frame
++    bool mbEnabled = true;
++    bool mbNested = false; // UnoFrameModel: holds its controls itself, positions already relative
++    uno::Reference<beans::XPropertySet> mxProps;
++    uno::Reference<lang::XServiceInfo> mxInfo;
++    ControlModelRef mxModel; // simple controls
++    std::vector<std::shared_ptr<ControlNode>> maChildren; // Frame
++};
++using ControlNodeRef = std::shared_ptr<ControlNode>;
++
++sal_uInt16 lclClassOf(const uno::Reference<lang::XServiceInfo>& xInfo,
++                      const uno::Reference<beans::XPropertySet>& xProps)
++{
++    if (!xInfo.is())
++        return SITE_UNSUPPORTED;
++    const auto is
++        = [&](const char* pName) { return xInfo->supportsService(OUString::createFromAscii(pName)); };
++    if (is("com.sun.star.awt.UnoControlFixedTextModel"))
++        return SITE_LABEL;
++    if (is("com.sun.star.awt.UnoControlButtonModel"))
++    {
++        bool bToggle = false;
++        xProps->getPropertyValue(u"Toggle"_ustr) >>= bToggle;
++        return bToggle ? SITE_TOGGLEBUTTON : SITE_COMMANDBUTTON;
++    }
++    if (is("com.sun.star.awt.UnoControlEditModel"))
++        return SITE_TEXTBOX;
++    if (is("com.sun.star.awt.UnoControlCheckBoxModel"))
++        return SITE_CHECKBOX;
++    if (is("com.sun.star.awt.UnoControlRadioButtonModel"))
++        return SITE_OPTIONBUTTON;
++    if (is("com.sun.star.awt.UnoControlComboBoxModel"))
++        return SITE_COMBOBOX;
++    if (is("com.sun.star.awt.UnoControlListBoxModel"))
++    {
++        bool bDropdown = false;
++        xProps->getPropertyValue(u"Dropdown"_ustr) >>= bDropdown;
++        return bDropdown ? SITE_COMBOBOX : SITE_LISTBOX;
++    }
++    // a group box drawn in the HST dialog editor, or the nested frame the importer creates
++    if (is("com.sun.star.awt.UnoControlGroupBoxModel") || is("com.sun.star.awt.UnoFrameModel"))
++        return SITE_FRAME;
++    if (is("com.sun.star.awt.UnoControlSpinButtonModel"))
++        return SITE_SPINBUTTON;
++    if (is("com.sun.star.awt.UnoControlScrollBarModel"))
++        return SITE_SCROLLBAR;
++    return SITE_UNSUPPORTED;
++}
++
++ControlModelRef lclCreateModel(ControlNode& rNode, const ControlConverter& rConv)
++{
++    ControlModelRef xModel;
++    switch (rNode.mnClass)
++    {
++        case SITE_COMMANDBUTTON: xModel = std::make_shared<AxCommandButtonModel>(); break;
++        case SITE_LABEL: xModel = std::make_shared<AxLabelModel>(); break;
++        case SITE_TOGGLEBUTTON: xModel = std::make_shared<AxToggleButtonModel>(); break;
++        case SITE_CHECKBOX: xModel = std::make_shared<AxCheckBoxModel>(); break;
++        case SITE_OPTIONBUTTON: xModel = std::make_shared<AxOptionButtonModel>(); break;
++        case SITE_TEXTBOX: xModel = std::make_shared<AxTextBoxModel>(); break;
++        case SITE_LISTBOX: xModel = std::make_shared<AxListBoxModel>(); break;
++        case SITE_COMBOBOX: xModel = std::make_shared<AxComboBoxModel>(); break;
++        case SITE_SPINBUTTON: xModel = std::make_shared<AxSpinButtonModel>(); break;
++        case SITE_SCROLLBAR: xModel = std::make_shared<AxScrollBarModel>(); break;
++        default: return xModel;
++    }
++    xModel->setAwtModelMode();
++    PropertySet aPropSet(rNode.mxProps);
++    xModel->convertFromProperties(aPropSet, rConv);
++
++    if (auto* pMorph = dynamic_cast<AxMorphDataModelBase*>(xModel.get()))
++    {
++        // properties the importer maps for dialog models but convertFromProperties() leaves out
++        bool bValue = true;
++        if (aPropSet.getProperty(bValue, PROP_Enabled))
++            setFlag(pMorph->mnFlags, AX_FLAGS_ENABLED, bValue);
++        if (rNode.mnClass == SITE_LISTBOX && aPropSet.getProperty(bValue, PROP_MultiSelection))
++            pMorph->mnMultiSelect = bValue ? AX_SELECTION_MULTI : AX_SELECTION_SINGLE;
++        if (rNode.mnClass == SITE_COMBOBOX)
++        {
++            bool bList = rNode.mxInfo->supportsService(u"com.sun.star.awt.UnoControlListBoxModel"_ustr);
++            pMorph->mnDisplayStyle = bList ? AX_DISPLAYSTYLE_DROPDOWN : AX_DISPLAYSTYLE_COMBOBOX;
++            bool bDropdown = bList;
++            if (!bList)
++                aPropSet.getProperty(bDropdown, PROP_Dropdown);
++            pMorph->mnShowDropButton = bDropdown ? AX_SHOWDROPBUTTON_ALWAYS : AX_SHOWDROPBUTTON_NEVER;
++        }
++    }
++    return xModel;
++}
++
++/** Writes one MS-OFORMS record with AxBinaryPropertyWriter and replaces its version word: the
++    writer always starts with 0x0200, the form record needs 0x0400 and the site record 0. */
++template <typename Func>
++void lclWriteRecord(BinaryOutputStream& rOut, sal_uInt16 nVersion, Func aWrite)
++{
++    const sal_Int64 nStart = rOut.tell();
++    aWrite();
++    const sal_Int64 nEnd = rOut.tell();
++    rOut.seek(nStart);
++    rOut.WriteUInt16(nVersion);
++    rOut.seek(nEnd);
++}
++
++void lclWriteStream(SotStorage& rStorage, const OUString& rName, const std::vector<sal_uInt8>& rData)
++{
++    rtl::Reference<SotStorageStream> xStream = rStorage.OpenSotStream(rName, StreamMode::READWRITE | StreamMode::TRUNC);
++    xStream->WriteBytes(rData.data(), rData.size());
++    xStream->Commit();
++}
++
++/** \001CompObj per MS-OLEDS 2.3.8, the same layout as the exportCompObj() tables in axcontrol.cxx. */
++void lclWriteCompObj(SotStorage& rStorage, const SvGlobalName& rClass, const char* pUserType, const char* pProgId)
++{
++    rtl::Reference<SotStorageStream> xStream = rStorage.OpenSotStream(u"\001CompObj"_ustr, StreamMode::READWRITE | StreamMode::TRUNC);
++    SvStream& rOut = *xStream;
++    rOut.SetEndian(SvStreamEndian::LITTLE);
++    rOut.WriteUInt32(0xFFFE0001).WriteUInt32(0x00000A03).WriteInt32(-1);
++    const SvGUID& rClsId = rClass.GetCLSID();
++    rOut.WriteUInt32(rClsId.Data1).WriteUInt16(rClsId.Data2).WriteUInt16(rClsId.Data3);
++    rOut.WriteBytes(rClsId.Data4, 8);
++    const auto writeAnsi = [&rOut](const char* pText)
++    {
++        const sal_uInt32 nLen = strlen(pText) + 1;
++        rOut.WriteUInt32(nLen);
++        rOut.WriteBytes(pText, nLen);
++    };
++    writeAnsi(pUserType);
++    writeAnsi("Embedded Object");
++    writeAnsi(pProgId);
++    // Unicode marker and three empty Unicode strings
++    rOut.WriteUInt32(0x71B239F4).WriteUInt32(0).WriteUInt32(0).WriteUInt32(0);
++    xStream->Commit();
++}
++
++void lclPrepareStorage(SotStorage& rStorage, const SvGlobalName& rClass, const char* pUserType, const char* pProgId)
++{
++    // SetClass() stores the class id of the storage entry; its companion streams are replaced
++    rStorage.SetClass(rClass, SotClipboardFormatId::NONE, OUString::createFromAscii(pUserType));
++    rStorage.Remove(u"\001Ole"_ustr);
++    lclWriteCompObj(rStorage, rClass, pUserType, pProgId);
++}
++
++/** Geometry helper: dialog models use AppFont units, the file 1/100 mm (reverse of ControlConverter). */
++class UnitConverter
++{
++public:
++    explicit UnitConverter(const GraphicHelper& rHelper)
++        : maScale(rHelper.convertHmmToAppFont(awt::Size(100000, 100000)))
++    {
++    }
++    sal_Int32 toHmmX(sal_Int32 nAppFont) const
++    {
++        return maScale.Width > 0 ? static_cast<sal_Int32>((sal_Int64(nAppFont) * 100000 + maScale.Width / 2) / maScale.Width) : nAppFont;
++    }
++    sal_Int32 toHmmY(sal_Int32 nAppFont) const
++    {
++        return maScale.Height > 0 ? static_cast<sal_Int32>((sal_Int64(nAppFont) * 100000 + maScale.Height / 2) / maScale.Height) : nAppFont;
++    }
++
++private:
++    awt::Size maScale;
++};
++
++sal_Int32 lclGetInt(const uno::Reference<beans::XPropertySet>& xProps, const OUString& rName)
++{
++    sal_Int32 nValue = 0;
++    if (xProps.is())
++        xProps->getPropertyValue(rName) >>= nValue;
++    return nValue;
++}
++
++/** The controls of a dialog or nested frame as a tree. A control inside the rectangle of a flat group
++    box (UNO group boxes cannot contain controls) goes back into that Frame. */
++std::vector<ControlNodeRef> lclBuildTree(const uno::Reference<container::XNameContainer>& xContainer,
++                                         const UnitConverter& rUnits, const ControlConverter& rConv,
++                                         sal_Int32& rnNextId)
++{
++    std::vector<ControlNodeRef> aFlat;
++    const uno::Sequence<OUString> aNames = xContainer->getElementNames();
++    for (const OUString& rName : aNames)
++    {
++        if (rName.startsWith(DUMMY_GROUP_SEP))
++            continue; // the importer's separator between option groups
++        uno::Reference<beans::XPropertySet> xProps(xContainer->getByName(rName), uno::UNO_QUERY);
++        uno::Reference<lang::XServiceInfo> xInfo(xProps, uno::UNO_QUERY);
++        if (!xProps.is())
++            continue;
++        auto xNode = std::make_shared<ControlNode>();
++        xNode->maName = rName;
++        xNode->mxProps = xProps;
++        xNode->mxInfo = xInfo;
++        xNode->mnClass = lclClassOf(xInfo, xProps);
++        if (xNode->mnClass == SITE_UNSUPPORTED)
++            continue;
++        PropertySet aPropSet(xProps);
++        aPropSet.getProperty(xNode->maTag, PROP_Tag);
++        aPropSet.getProperty(xNode->maToolTip, PROP_HelpText);
++        sal_Int16 nTabIndex = 0;
++        aPropSet.getProperty(nTabIndex, PROP_TabIndex);
++        xNode->mnTabIndex = nTabIndex;
++        bool bVisible = true;
++        aPropSet.getProperty(bVisible, PROP_EnableVisible);
++        bool bTabStop = true;
++        aPropSet.getProperty(bTabStop, PROP_Tabstop);
++        xNode->mnFlags = SITE_FLAG_DEFAULT | (bVisible ? SITE_FLAG_VISIBLE : 0) | (bTabStop ? SITE_FLAG_TABSTOP : 0);
++        xNode->maPos = { rUnits.toHmmX(lclGetInt(xProps, u"PositionX"_ustr)), rUnits.toHmmY(lclGetInt(xProps, u"PositionY"_ustr)) };
++        xNode->maSize = { rUnits.toHmmX(lclGetInt(xProps, u"Width"_ustr)), rUnits.toHmmY(lclGetInt(xProps, u"Height"_ustr)) };
++        xNode->mnId = rnNextId++;
++        if (xNode->mnClass == SITE_FRAME)
++        {
++            aPropSet.getProperty(xNode->maCaption, PROP_Label);
++            aPropSet.getProperty(xNode->mbEnabled, PROP_Enabled);
++            uno::Reference<container::XNameContainer> xNested(xProps, uno::UNO_QUERY);
++            if (xNested.is())
++            {
++                xNode->mbNested = true;
++                xNode->maChildren = lclBuildTree(xNested, rUnits, rConv, rnNextId);
++            }
++        }
++        else
++        {
++            xNode->mnFlags |= SITE_FLAG_STREAMED;
++            xNode->mxModel = lclCreateModel(*xNode, rConv);
++            if (!xNode->mxModel)
++                continue;
++            xNode->mxModel->maSize = xNode->maSize;
++        }
++        aFlat.push_back(xNode);
++    }
++    std::stable_sort(aFlat.begin(), aFlat.end(), [](const ControlNodeRef& rA, const ControlNodeRef& rB)
++                     { return rA->mnTabIndex < rB->mnTabIndex; });
++
++    const auto contains = [](const ControlNode& rFrame, const ControlNode& rNode)
++    {
++        return rNode.maPos.first >= rFrame.maPos.first && rNode.maPos.second >= rFrame.maPos.second
++               && rNode.maPos.first + rNode.maSize.first <= rFrame.maPos.first + rFrame.maSize.first
++               && rNode.maPos.second + rNode.maSize.second <= rFrame.maPos.second + rFrame.maSize.second;
++    };
++    std::vector<ControlNodeRef> aRoots;
++    std::vector<std::pair<ControlNodeRef, ControlNode*>> aMoved;
++    for (const ControlNodeRef& xNode : aFlat)
++    {
++        ControlNode* pParent = nullptr;
++        for (const ControlNodeRef& xFrame : aFlat)
++        {
++            if (xFrame == xNode || xFrame->mnClass != SITE_FRAME || xFrame->mbNested || !contains(*xFrame, *xNode))
++                continue;
++            // the innermost (smallest) group box holds the control
++            if (!pParent || xFrame->maSize.first * sal_Int64(xFrame->maSize.second) < pParent->maSize.first * sal_Int64(pParent->maSize.second))
++                pParent = xFrame.get();
++        }
++        if (pParent)
++        {
++            pParent->maChildren.push_back(xNode);
++            aMoved.emplace_back(xNode, pParent);
++        }
++        else
++            aRoots.push_back(xNode);
++    }
++    // relative to the parent: uses each parent's absolute position, so subtract only after all are known
++    std::vector<AxPairData> aOffsets;
++    aOffsets.reserve(aMoved.size());
++    for (const auto& [xNode, pParent] : aMoved)
++        aOffsets.push_back(pParent->maPos);
++    for (size_t i = 0; i < aMoved.size(); ++i)
++    {
++        aMoved[i].first->maPos.first -= aOffsets[i].first;
++        aMoved[i].first->maPos.second -= aOffsets[i].second;
++    }
++    return aRoots;
++}
++
++/** Option groups: in a dialog, contiguous radio buttons form a group; in MS Forms, buttons of a
++    container share a group unless GroupName differs. */
++void lclAssignOptionGroups(const std::vector<ControlNodeRef>& rControls, sal_Int32& rnGroup)
++{
++    std::vector<std::vector<AxMorphDataModelBase*>> aRuns;
++    bool bInRun = false;
++    for (const ControlNodeRef& xNode : rControls)
++    {
++        if (xNode->mnClass == SITE_OPTIONBUTTON)
++        {
++            if (!bInRun)
++                aRuns.emplace_back();
++            aRuns.back().push_back(static_cast<AxMorphDataModelBase*>(xNode->mxModel.get()));
++            bInRun = true;
++        }
++        else
++            bInRun = false;
++        if (xNode->mnClass == SITE_FRAME)
++            lclAssignOptionGroups(xNode->maChildren, rnGroup);
++    }
++    for (auto& rRun : aRuns)
++    {
++        const OUString aGroup = aRuns.size() > 1 ? "HstGroup" + OUString::number(++rnGroup) : OUString();
++        for (AxMorphDataModelBase* pButton : rRun)
++            if (pButton->maGroupName.isEmpty() || pButton->maGroupName.startsWith("autoGroup_"))
++                pButton->maGroupName = aGroup;
++    }
++}
++
++void lclWriteSite(BinaryOutputStream& rOut, ControlNode& rNode, sal_uInt32 nStreamSize)
++{
++    lclWriteRecord(rOut, 0x0000, [&]()
++    {
++        AxBinaryPropertyWriter aWriter(rOut);
++        aWriter.writeStringProperty(rNode.maName);
++        if (!rNode.maTag.isEmpty())
++            aWriter.writeStringProperty(rNode.maTag);
++        else
++            aWriter.skipProperty();
++        aWriter.writeIntProperty<sal_Int32>(rNode.mnId);
++        aWriter.skipProperty(); // help context id
++        aWriter.writeIntProperty<sal_uInt32>(rNode.mnFlags);
++        if (rNode.mnClass != SITE_FRAME)
++            aWriter.writeIntProperty<sal_uInt32>(nStreamSize);
++        else
++            aWriter.skipProperty();
++        aWriter.writeIntProperty<sal_Int16>(static_cast<sal_Int16>(rNode.mnTabIndex));
++        aWriter.writeIntProperty<sal_uInt16>(rNode.mnClass);
++        aWriter.writePairProperty(rNode.maPos);
++        aWriter.skipProperty(); // group id
++        aWriter.skipProperty(); // unused
++        if (!rNode.maToolTip.isEmpty())
++            aWriter.writeStringProperty(rNode.maToolTip);
++        else
++            aWriter.skipProperty();
++        aWriter.skipProperty(); // license key
++        aWriter.skipProperty(); // control source
++        aWriter.skipProperty(); // row source
++        aWriter.finalizeExport();
++    });
++}
++
++/** Writes the "f" and "o" streams of a form or Frame into rStorage (MS-OFORMS 2.2.10). */
++void lclWriteContainer(SotStorage& rStorage, const std::vector<ControlNodeRef>& rChildren,
++                       AxPairData aSize, OUString aCaption, bool bEnabled, sal_uInt32 nBackColor,
++                       sal_uInt32 nSpecialEffect, sal_Int32 nNextId)
++{
++    // the models first: each site records the size of its model in "o"
++    MemoryOutputStream aOStrm;
++    std::vector<sal_uInt32> aSizes;
++    {
++        for (const ControlNodeRef& xNode : rChildren)
++        {
++            const sal_Int64 nStart = aOStrm.tell();
++            if (xNode->mxModel)
++                xNode->mxModel->exportBinaryModel(aOStrm);
++            aSizes.push_back(static_cast<sal_uInt32>(aOStrm.tell() - nStart));
++        }
++    }
++    // Frames in their own iNN substorage
++    for (const ControlNodeRef& xNode : rChildren)
++    {
++        if (xNode->mnClass != SITE_FRAME)
++            continue;
++        OUString aStorageName = (xNode->mnId < 10 ? u"i0"_ustr : u"i"_ustr) + OUString::number(xNode->mnId);
++        rtl::Reference<SotStorage> xSub = rStorage.OpenSotStorage(aStorageName, StreamMode::READWRITE | StreamMode::TRUNC);
++        lclPrepareStorage(*xSub, SvGlobalName(0x6E182020, 0xF460, 0x11CE, 0x9B, 0xCD, 0x00, 0xAA, 0x00, 0x60, 0x8E, 0x01),
++                          "Microsoft Forms 2.0 Frame", "Forms.Frame.1");
++        lclWriteContainer(*xSub, xNode->maChildren, xNode->maSize, xNode->maCaption, xNode->mbEnabled,
++                          FRAME_BACKCOLOR_DEFAULT, FORM_SPECIALEFFECT_ETCHED, nNextId);
++        xSub->Commit();
++    }
++
++    MemoryOutputStream aFStrm;
++    {
++        lclWriteRecord(aFStrm, 0x0400, [&]()
++        {
++            AxBinaryPropertyWriter aWriter(aFStrm);
++            aWriter.skipProperty(); // unused
++            aWriter.writeIntProperty<sal_uInt32>(nBackColor);
++            aWriter.skipProperty(); // fore color
++            aWriter.writeIntProperty<sal_uInt32>(static_cast<sal_uInt32>(nNextId));
++            aWriter.skipProperty(); // unused
++            aWriter.skipProperty(); // unused
++            aWriter.writeIntProperty<sal_uInt32>(bEnabled ? FORM_FLAGS_ENABLED : 0);
++            aWriter.skipProperty(); // border style
++            aWriter.skipProperty(); // mouse pointer
++            aWriter.skipProperty(); // scroll bars
++            aWriter.writePairProperty(aSize);
++            aWriter.writePairProperty(aSize); // logical size
++            aWriter.skipProperty(); // scroll position
++            aWriter.skipProperty(); // group count
++            aWriter.skipProperty(); // reserved
++            aWriter.skipProperty(); // mouse icon
++            aWriter.skipProperty(); // cycle
++            aWriter.writeIntProperty<sal_uInt8>(static_cast<sal_uInt8>(nSpecialEffect));
++            aWriter.skipProperty(); // border color
++            if (!aCaption.isEmpty())
++                aWriter.writeStringProperty(aCaption);
++            else
++                aWriter.skipProperty();
++            aWriter.skipProperty(); // font
++            aWriter.skipProperty(); // picture
++            aWriter.skipProperty(); // zoom
++            aWriter.skipProperty(); // picture alignment
++            aWriter.skipProperty(); // picture tiling
++            aWriter.skipProperty(); // picture size mode
++            aWriter.skipProperty(); // shape cookie
++            aWriter.writeIntProperty<sal_uInt32>(FORM_DRAWBUFFER);
++            aWriter.finalizeExport();
++        });
++        aFStrm.WriteUInt16(0); // class table: empty
++
++        // FormSiteData: site count, byte count, one (depth, type) pair per site, 32-bit alignment
++        MemoryOutputStream aSiteStrm;
++        {
++            const sal_uInt32 nCount = rChildren.size();
++            for (sal_uInt32 i = 0; i < nCount; ++i)
++            {
++                const sal_uInt8 aDepthType[2] = { 0x00, 0x01 }; // depth, one control of type 1
++                aSiteStrm.writeMemory(aDepthType, 2);
++            }
++            const sal_uInt8 aPad[4] = { 0, 0, 0, 0 };
++            if (aSiteStrm.tell() % 4)
++                aSiteStrm.writeMemory(aPad, 4 - aSiteStrm.tell() % 4);
++            for (sal_uInt32 i = 0; i < nCount; ++i)
++                lclWriteSite(aSiteStrm, *rChildren[i], aSizes[i]);
++        }
++        aFStrm.WriteUInt32(static_cast<sal_uInt32>(rChildren.size()));
++        aFStrm.WriteUInt32(static_cast<sal_uInt32>(aSiteStrm.getData().size()));
++        aFStrm.writeMemory(aSiteStrm.getData().data(), aSiteStrm.getData().size());
++    }
++    lclWriteStream(rStorage, u"f"_ustr, aFStrm.getData());
++    if (!aOStrm.getData().empty())
++        lclWriteStream(rStorage, u"o"_ustr, aOStrm.getData());
++}
++}
++
++VbaFormExporter::VbaFormExporter(uno::Reference<uno::XComponentContext> xContext,
++                                 uno::Reference<frame::XModel> xDocModel)
++    : mxContext(std::move(xContext))
++    , mxDocModel(std::move(xDocModel))
++{
++}
++
++uno::Reference<container::XNameContainer> VbaFormExporter::loadDialog(const OUString& rProject,
++                                                                      const OUString& rForm) const
++{
++    uno::Reference<container::XNameContainer> xDialog;
++    try
++    {
++        uno::Reference<beans::XPropertySet> xDocProps(mxDocModel, uno::UNO_QUERY_THROW);
++        uno::Reference<script::XLibraryContainer> xLibraries(xDocProps->getPropertyValue(u"DialogLibraries"_ustr), uno::UNO_QUERY_THROW);
++        if (!xLibraries->hasByName(rProject))
++            return xDialog;
++        if (!xLibraries->isLibraryLoaded(rProject))
++            xLibraries->loadLibrary(rProject);
++        uno::Reference<container::XNameContainer> xLibrary(xLibraries->getByName(rProject), uno::UNO_QUERY_THROW);
++        if (!xLibrary->hasByName(rForm))
++            return xDialog;
++        uno::Reference<io::XInputStreamProvider> xSource(xLibrary->getByName(rForm), uno::UNO_QUERY_THROW);
++        xDialog.set(mxContext->getServiceManager()->createInstanceWithContext(u"com.sun.star.awt.UnoControlDialogModel"_ustr, mxContext), uno::UNO_QUERY_THROW);
++        ::xmlscript::importDialogModel(xSource->createInputStream(), xDialog, mxContext, mxDocModel);
++    }
++    catch (const uno::Exception&)
++    {
++        DBG_UNHANDLED_EXCEPTION("oox");
++        xDialog.clear();
++    }
++    return xDialog;
++}
++
++OUString VbaFormExporter::getCaption(const uno::Reference<container::XNameContainer>& xDialog)
++{
++    OUString aCaption;
++    uno::Reference<beans::XPropertySet> xProps(xDialog, uno::UNO_QUERY);
++    if (xProps.is())
++        xProps->getPropertyValue(u"Title"_ustr) >>= aCaption;
++    return aCaption;
++}
++
++std::vector<OUString>
++VbaFormExporter::getUnsupportedControls(const uno::Reference<container::XNameContainer>& xDialog)
++{
++    std::vector<OUString> aNames;
++    if (!xDialog.is())
++        return aNames;
++    for (const OUString& rName : xDialog->getElementNames())
++    {
++        if (rName.startsWith(DUMMY_GROUP_SEP))
++            continue;
++        uno::Reference<beans::XPropertySet> xProps(xDialog->getByName(rName), uno::UNO_QUERY);
++        uno::Reference<lang::XServiceInfo> xInfo(xProps, uno::UNO_QUERY);
++        if (lclClassOf(xInfo, xProps) == SITE_UNSUPPORTED)
++            aNames.push_back(rName);
++        uno::Reference<container::XNameContainer> xNested(xProps, uno::UNO_QUERY);
++        if (xNested.is())
++            for (const OUString& rInner : getUnsupportedControls(xNested))
++                aNames.push_back(rInner);
++    }
++    return aNames;
++}
++
++void VbaFormExporter::exportForm(SotStorage& rProjectRoot, const OUString& rForm,
++                                 const uno::Reference<container::XNameContainer>& xDialog,
++                                 rtl_TextEncoding eTextEncoding) const
++{
++    GraphicHelper aGraphicHelper(mxContext, uno::Reference<frame::XFrame>(), StorageRef());
++    UnitConverter aUnits(aGraphicHelper);
++    ControlConverter aConv(mxDocModel, aGraphicHelper, true);
++
++    OUString aCaption = rForm;
++    AxPairData aSize(11000, 8000); // the Office default form size
++    sal_uInt32 nBackColor = AX_SYSCOLOR_BUTTONFACE;
++    sal_Int32 nNextId = 1;
++    std::vector<ControlNodeRef> aRoots;
++    if (xDialog.is())
++    {
++        uno::Reference<beans::XPropertySet> xProps(xDialog, uno::UNO_QUERY);
++        aCaption = getCaption(xDialog);
++        aSize = { aUnits.toHmmX(lclGetInt(xProps, u"Width"_ustr)), aUnits.toHmmY(lclGetInt(xProps, u"Height"_ustr)) };
++        PropertySet aPropSet(xProps);
++        ControlConverter::convertToMSColor(aPropSet, PROP_BackgroundColor, nBackColor, AX_SYSCOLOR_BUTTONFACE);
++        aRoots = lclBuildTree(xDialog, aUnits, aConv, nNextId);
++        sal_Int32 nGroup = 0;
++        lclAssignOptionGroups(aRoots, nGroup);
++    }
++
++    rtl::Reference<SotStorage> xForm = rProjectRoot.OpenSotStorage(rForm, StreamMode::READWRITE | StreamMode::TRUNC);
++    const SvGlobalName aFormClass(0xC62A69F0, 0x16DC, 0x11CE, 0x9E, 0x98, 0x00, 0xAA, 0x00, 0x57, 0x4A, 0x4F);
++    lclPrepareStorage(*xForm, aFormClass, "Microsoft Forms 2.0 Form", "Forms.Form.1");
++
++    // \003VBFrame: VB source text of the designer; sizes in twips, quotes doubled
++    const sal_Int32 nTwipsX = o3tl::convert(aSize.first, o3tl::Length::mm100, o3tl::Length::twip);
++    const sal_Int32 nTwipsY = o3tl::convert(aSize.second, o3tl::Length::mm100, o3tl::Length::twip);
++    const OUString aFrame = "VERSION 5.00\r\nBegin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} " + rForm
++                            + " \r\n   Caption         =   \"" + aCaption.replaceAll("\"", "\"\"")
++                            + "\"\r\n   ClientHeight    =   " + OUString::number(nTwipsY)
++                            + "\r\n   ClientLeft      =   45\r\n   ClientTop       =   390"
++                            + "\r\n   ClientWidth     =   " + OUString::number(nTwipsX)
++                            + "\r\n   StartUpPosition =   1  'CenterOwner\r\n   TypeInfoVer     =   1\r\nEnd\r\n";
++    const OString aFrameBytes = OUStringToOString(aFrame, eTextEncoding);
++    rtl::Reference<SotStorageStream> xFrame = xForm->OpenSotStream(u"\003VBFrame"_ustr, StreamMode::READWRITE | StreamMode::TRUNC);
++    xFrame->WriteBytes(aFrameBytes.getStr(), aFrameBytes.getLength());
++    xFrame->Commit();
++
++    lclWriteContainer(*xForm, aRoots, aSize, OUString(), true, nBackColor, 0, nNextId);
++    xForm->Commit();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/oox/source/ole/vbaformexport.hxx
+@@ -0,0 +1,68 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <vector>
++
++#include <com/sun/star/uno/Reference.hxx>
++#include <rtl/textenc.h>
++#include <rtl/ustring.hxx>
++
++class SotStorage;
++
++namespace com::sun::star
++{
++namespace container
++{
++class XNameContainer;
++}
++namespace frame
++{
++class XModel;
++}
++namespace uno
++{
++class XComponentContext;
++}
++}
++
++namespace oox::ole
++{
++/** HST: writes a VBA UserForm from its Basic dialog into a VBA project storage (MS-OVBA 2.2.10,
++    MS-OFORMS): a storage named like the form module with \001CompObj, \003VBFrame, the "f" stream
++    (form, sites) and the "o" stream (control models); Frames get an iNN substorage. */
++class VbaFormExporter
++{
++public:
++    VbaFormExporter(css::uno::Reference<css::uno::XComponentContext> xContext,
++                    css::uno::Reference<css::frame::XModel> xDocModel);
++
++    /** The dialog model of the form in the document's dialog library, empty when it has none. */
++    css::uno::Reference<css::container::XNameContainer> loadDialog(const OUString& rProject,
++                                                                   const OUString& rForm) const;
++
++    /** The form caption (stored in the project code page, unlike control captions). */
++    static OUString getCaption(const css::uno::Reference<css::container::XNameContainer>& xDialog);
++
++    /** Names of the controls whose type cannot be written (they are left out of the file). */
++    static std::vector<OUString>
++    getUnsupportedControls(const css::uno::Reference<css::container::XNameContainer>& xDialog);
++
++    /** Writes the form storage below rProjectRoot. xDialog may be empty (an empty form). */
++    void exportForm(SotStorage& rProjectRoot, const OUString& rForm,
++                    const css::uno::Reference<css::container::XNameContainer>& xDialog,
++                    rtl_TextEncoding eTextEncoding) const;
++
++private:
++    css::uno::Reference<css::uno::XComponentContext> mxContext;
++    css::uno::Reference<css::frame::XModel> mxDocModel;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

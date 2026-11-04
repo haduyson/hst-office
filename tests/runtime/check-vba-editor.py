@@ -23,6 +23,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "extensions/hst-vietnamese-tools/python"))
 import hst_gui  # noqa: E402
 from hst_office import vba, vba_template  # noqa: E402
+from vba_worksheet_change import check_worksheet_change  # noqa: E402
 
 RESULTS = []
 
@@ -58,10 +59,7 @@ def ide_frame(office):
 def close_ide(office):
     frame = ide_frame(office)
     if frame is not None:
-        try:
-            frame.close(True)
-        except Exception:  # noqa: BLE001 - the frame may already be going away
-            pass
+        frame.close(True)
         wait(lambda: ide_frame(office) is None, 10)
 
 
@@ -141,92 +139,6 @@ def check_security_prompt(office, out, shots):
     loader.join(30)
 
 
-def check_userform(office, kind, app):
-    """A dialog inserted in the editor of a VBA-mode document is a UserForm that VBA code can use."""
-    doc = office.load(f"private:factory/{kind}")
-    office.dispatch(doc.getCurrentController().getFrame(), "org.hst.office.vi:EditVba")
-    wait(lambda: ide_frame(office) is not None)
-    office.dispatch(ide_frame(office), ".uno:NewDialog")
-    project = vba_template.project_name(app)
-    dialogs = doc.DialogLibraries
-    ok = wait(lambda: dialogs.hasByName(project) and dialogs.getByName(project).hasByName("UserForm1"), 10)
-    lib = doc.BasicLibraries.getByName(project)
-    form = lib.hasByName("UserForm1") and lib.getModuleInfo("UserForm1").ModuleType == 3
-    check(f"{app}: a new dialog in the editor is UserForm1 with its form module", ok and form,
-          f"dialog={ok} module={lib.hasByName('UserForm1')}")
-    close_ide(office)
-    vba.add_module(lib, "HstForm", vba_template.OPTION_LINE + '\nFunction T()\n  UserForm1.Caption = "Biểu mẫu HST"\n'
-                   '  T = UserForm1.Caption\n  Unload UserForm1\nEnd Function\n')
-    try:
-        got = doc.getScriptProvider().getScript(
-            f"vnd.sun.star.script:{project}.HstForm.T?language=Basic&location=document").invoke((), (), ())[0]
-    except Exception as error:  # noqa: BLE001
-        got = repr(error)
-    check(f"{app}: VBA code uses the new UserForm (UserForm1.Caption, Unload)", got == "Biểu mẫu HST", got)
-    # UserForm1.Show is modal: the form window appears until it is closed
-    import threading
-    vba.add_module(lib, "HstShow", vba_template.OPTION_LINE + '\nSub HienForm()\n  UserForm1.Caption = "Biểu mẫu HST"\n  UserForm1.Show\nEnd Sub\n')
-    show = doc.getScriptProvider().getScript(f"vnd.sun.star.script:{project}.HstShow.HienForm?language=Basic&location=document")
-    runner = threading.Thread(target=lambda: show.invoke((), (), ()), daemon=True)
-    runner.start()
-    shown = wait(lambda: window(office, r"^Biểu mẫu HST$") is not None, 15)
-    check(f"{app}: UserForm1.Show shows the form", shown, str(hst_gui.toplevels(office.display, office.pid)))
-    if shown:
-        hst_gui.send_close_request(window(office, r"^Biểu mẫu HST$")[0], office.display)
-    runner.join(15)
-    if app == "calc":
-        # Excel files do not get the UserForm designs: saving as .xlsm shows the Vietnamese hint
-        import uno
-        from com.sun.star.beans import PropertyValue
-        prop = PropertyValue()
-        prop.Name, prop.Value = "FilterName", "Calc Office Open XML VBA"
-        path = os.path.join(office.workdir, "form.xlsm")
-        saver = threading.Thread(target=lambda: doc.storeAsURL(uno.systemPathToFileUrl(path), (prop,)), daemon=True)
-        saver.start()
-        hint = wait(lambda: window(office, r"^Macro VBA$") is not None, 20)
-        check("calc: saving a workbook with a UserForm as .xlsm warns that the form is not written", hint,
-              str(hst_gui.toplevels(office.display, office.pid)))
-        if hint:
-            keys(office, window(office, r"^Macro VBA$")[0], "Return")
-        saver.join(20)
-    doc.close(True)
-
-
-def check_worksheet_change(office, out):
-    """Worksheet_Change of an Excel file runs when the user types into a cell."""
-    import shutil
-    import uno
-    from com.sun.star.beans import PropertyValue
-    path = os.path.join(out, "change.xlsm")
-    shutil.copyfile(os.path.join(hst_gui.ROOT, "upstream/libreoffice/sc/qa/extras/testdocuments/SimpleCopyPaste.xlsm"), path)
-    subprocess.run(["chown", hst_gui.BUILD_USER, path], check=False)
-    mode = PropertyValue()
-    mode.Name, mode.Value = "MacroExecutionMode", 4  # the test's own file; the prompt is checked separately
-    doc = office.desktop().loadComponentFromURL(uno.systemPathToFileUrl(path), "_blank", 0, (mode,))
-    lib = doc.BasicLibraries.getByName(doc.BasicLibraries.ProjectName)
-    lib.replaceByName("Sheet1", lib.getByName("Sheet1") + '\nPrivate Sub Worksheet_Change(ByVal Target As Range)\n'
-                      '  If Target.Address = "$A$5" Then Range("H2").Value = Target.Value * 2\nEnd Sub\n')
-    sheet = doc.Sheets.getByIndex(0)
-    found = wait(lambda: window(office, r"HST Sheets$") is not None, 10)
-    if found:
-        env = dict(os.environ, DISPLAY=office.display)
-        wid = window(office, r"HST Sheets$")[0]
-        # a click in the sheet area gives the grid keyboard focus; then select A5 and type
-        subprocess.run(["xdotool", "mousemove", "--window", wid, "700", "600", "click", "1"], env=env, check=False, timeout=15)
-        time.sleep(1)
-        doc.getCurrentController().select(sheet.getCellRangeByName("A5"))
-        time.sleep(0.5)
-        subprocess.run(["xdotool", "windowfocus", "--sync", wid, "type", "--delay", "80", "21"], env=env, check=False, timeout=15)
-        subprocess.run(["xdotool", "windowfocus", "--sync", wid, "key", "Return"], env=env, check=False, timeout=15)
-        time.sleep(1)
-    if sheet.getCellRangeByName("A5").Value != 21:
-        office.screenshot(os.path.join(out, "worksheet-change-failed.png"))
-        print("windows:", hst_gui.toplevels(office.display, office.pid))
-    check("calc: Worksheet_Change runs when the user types into a cell",
-          wait(lambda: sheet.getCellRangeByName("H2").Value == 42, 10), f"A5={sheet.getCellRangeByName('A5').Value} H2={sheet.getCellRangeByName('H2').Value}")
-    doc.close(True)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--instdir", default=os.path.join(hst_gui.ROOT, "upstream/libreoffice/instdir"))
@@ -240,9 +152,7 @@ def main():
     try:
         check_app(office, "scalc", "calc", r"HST Sheets$", args.shots)
         check_app(office, "swriter", "writer", r"HST Writer$", args.shots)
-        check_userform(office, "scalc", "calc")
-        check_userform(office, "swriter", "writer")
-        check_worksheet_change(office, os.path.abspath(args.out))
+        check_worksheet_change(office, os.path.abspath(args.out), check, wait, window)
         check_security_prompt(office, os.path.abspath(args.out), args.shots)
     finally:
         office.stop()
