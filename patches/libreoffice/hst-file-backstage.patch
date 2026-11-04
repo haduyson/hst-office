@@ -1,0 +1,4460 @@
+HST Office: full-window File view ("Trang Tập tin", backstage).
+
+- sfx2/source/backstage: BackstageWindow, a child of the frame's container window that covers its client area while the
+  ribbon is hidden, created on first use and reused. Left column in the application colour (the ribbon tint darkened to a
+  4.5:1 contrast with white), pages Home, New, Open, Info and Save As; the other items close the view and dispatch their
+  command to the frame. The recent list reads SvtHistoryOptions, the Start Center's list and pinning.
+- .uno:HSTBackstage is answered in SfxBaseController::queryDispatch instead of a new slot, because a change to sfx.sdi
+  regenerates the slot headers of sw, sc and sd. Alt+F opens it (Global accelerators, not on macOS).
+- The File tab: an application event listener sees TabpageDeactivate and TabpageActivate of notebookbar tab controls and,
+  for the page "FileLabel", selects the previous tab again and opens the view. The wheel over the tab strip only skips it.
+- The classic menu bar and its File menu are unchanged.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-backstage.py.
+---
+--- a/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
+@@ -147,6 +147,13 @@
+           <value xml:lang="en-US">vnd.sun.star.findbar:FocusToFindbar</value>
+         </prop>
+       </node>
++      <!-- HST Office: Alt+F opens the full-window File view; not on macOS, where Option+F types a character -->
++      <node oor:name="F_MOD2" oor:op="replace">
++        <prop oor:name="Command">
++          <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++          <value xml:lang="en-US" install:module="unxwnt">.uno:HSTBackstage</value>
++        </prop>
++      </node>
+       <node oor:name="F_MOD1_MOD2" oor:op="replace">
+         <prop oor:name="Command">
+           <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
+@@ -7124,6 +7124,14 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HSTBackstage" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">File View</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:CommandPopup" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Search Commands</value>
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -85,6 +85,9 @@
+ $(eval $(call gb_Library_add_exception_objects,sfx,\
+     sfx2/source/dialog/backingcomp \
+     sfx2/source/dialog/backingwindow \
++    sfx2/source/backstage/hstbackstage \
++    sfx2/source/backstage/hstbackstagedata \
++    sfx2/source/backstage/hstbackstagewindow \
+     sfx2/source/control/recentdocsview \
+     sfx2/source/control/recentdocsviewitem \
+ ))
+--- a/sfx2/UIConfig_sfx.mk
++++ b/sfx2/UIConfig_sfx.mk
+@@ -41,6 +41,7 @@
+ 	sfx2/uiconfig/ui/helpmanual \
+ 	sfx2/uiconfig/ui/helpsearchpage \
+ 	sfx2/uiconfig/ui/helpwindow \
++	sfx2/uiconfig/ui/hstbackstage \
+ 	sfx2/uiconfig/ui/infobar \
+ 	sfx2/uiconfig/ui/inputdialog \
+ 	sfx2/uiconfig/ui/licensedialog \
+--- a/sfx2/source/view/sfxbasecontroller.cxx
++++ b/sfx2/source/view/sfxbasecontroller.cxx
+@@ -80,6 +80,7 @@
+ 
+ #include <com/sun/star/ui/XSidebarProvider.hpp>
+ #include <sidebar/UnoSidebar.hxx>
++#include <backstage/hstbackstage.hxx>
+ 
+ #define TIMEOUT_START_RESCHEDULE    10L /* 10th s */
+ 
+@@ -428,6 +429,8 @@
+     :   m_pData ( new IMPL_SfxBaseController_DataContainer( m_aMutex, pViewShell, this ))
+ {
+     m_pData->m_pViewShell->SetController( this );
++    // HST Office: the ribbon's File tab opens the full-window File view
++    sfx2::hst::InstallFileTabHandler();
+ }
+ 
+ 
+@@ -737,6 +740,10 @@
+             }
+         }
+ 
++        // HST Office: the full-window File view (Alt+F), handled outside the slot machinery
++        if ( aURL.Complete == sfx2::hst::BACKSTAGE_COMMAND )
++            return sfx2::hst::CreateBackstageDispatch( rAct.GetFrame().GetFrameInterface() );
++
+         if ( aURL.Protocol == ".uno:" )
+         {
+             OUString aActCommand = SfxOfficeDispatch::GetMasterUnoCommand(aURL);
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -42047,3 +42047,13 @@
+ "value.text"
+ msgid "Previous Document Tab"
+ msgstr "Thẻ tài liệu trước"
++
++#. hstBS
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:HSTBackstage\n"
++"Label\n"
++"value.text"
++msgid "File View"
++msgstr "Trang Tập tin"
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -5738,6 +5738,582 @@
+ msgid "Lists the existing versions of the current document, the date and the time they were created, the author and the associated comments."
+ msgstr "Liệt kê các phiên bản đã tồn tại của tài liệu, và cho mỗi bản sao, ngày/giờ tạo, tác giả và ghi chú liên quan."
+ 
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|menuopen"
++msgid "Open"
++msgstr "Mở"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|menupin"
++msgid "Pin"
++msgstr "Ghim"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|menuunpin"
++msgid "Unpin"
++msgstr "Bỏ ghim"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|menuremove"
++msgid "Remove from List"
++msgstr "Xóa khỏi danh sách"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navback"
++msgid "←"
++msgstr "←"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navback-atkobject"
++msgid "Back to Document"
++msgstr "Quay lại tài liệu"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navhome"
++msgid "Home"
++msgstr "Trang chủ"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navnew"
++msgid "New"
++msgstr "Mới"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navopen"
++msgid "Open"
++msgstr "Mở"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navinfo"
++msgid "Info"
++msgstr "Thông tin"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navsave"
++msgid "Save"
++msgstr "Lưu"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navsaveas"
++msgid "Save As"
++msgstr "Lưu thành"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navprint"
++msgid "Print"
++msgstr "In"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navpdf"
++msgid "Export as PDF"
++msgstr "Xuất PDF"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navsign"
++msgid "Sign Digitally"
++msgstr "Ký số"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navclose"
++msgid "Close"
++msgstr "Đóng"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navabout"
++msgid "About HST Office"
++msgstr "Giới thiệu HST Office"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|navoptions"
++msgid "Options"
++msgstr "Tùy chọn"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|createlabel"
++msgid "Create new"
++msgstr "Tạo mới"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|moretemplates"
++msgid "More templates →"
++msgstr "Thêm mẫu →"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|recentlistcol1"
++msgid "Name"
++msgstr "Tên"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|recentlistcol2"
++msgid "Location"
++msgstr "Vị trí"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|recentlistcol3"
++msgid "Date modified"
++msgstr "Ngày sửa"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|recentlist-atkobject"
++msgid "Recent files"
++msgstr "Tệp gần đây"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|recenttab"
++msgid "Recent"
++msgstr "Gần đây"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|pinnedlistcol1"
++msgid "Name"
++msgstr "Tên"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|pinnedlistcol2"
++msgid "Location"
++msgstr "Vị trí"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|pinnedlistcol3"
++msgid "Date modified"
++msgstr "Ngày sửa"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|pinnedlist-atkobject"
++msgid "Pinned files"
++msgstr "Tệp đã ghim"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|pinnedtab"
++msgid "Pinned"
++msgstr "Đã ghim"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|newtitle"
++msgid "New"
++msgstr "Mới"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|newmanage"
++msgid "Manage Templates…"
++msgstr "Quản lý mẫu…"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|local_view-atkobject"
++msgid "Templates"
++msgstr "Mẫu"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|opentitle"
++msgid "Open"
++msgstr "Mở"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|openbrowse"
++msgid "Browse…"
++msgstr "Duyệt…"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|openrecent"
++msgid "Recent"
++msgstr "Gần đây"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|openlistcol1"
++msgid "Name"
++msgstr "Tên"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|openlistcol2"
++msgid "Location"
++msgstr "Vị trí"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|openlistcol3"
++msgid "Date modified"
++msgstr "Ngày sửa"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|openlist-atkobject"
++msgid "Recent files"
++msgstr "Tệp gần đây"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infotitle"
++msgid "Info"
++msgstr "Thông tin"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infonamelabel"
++msgid "File name"
++msgstr "Tên tệp"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infotypelabel"
++msgid "Type"
++msgstr "Loại"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infopathlabel"
++msgid "Location"
++msgstr "Vị trí"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infosizelabel"
++msgid "Size"
++msgstr "Kích thước"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infocreatedlabel"
++msgid "Created"
++msgstr "Ngày tạo"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infomodifiedlabel"
++msgid "Modified"
++msgstr "Ngày sửa"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infoauthorlabel"
++msgid "Author"
++msgstr "Tác giả"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infosignaturelabel"
++msgid "Digital signature"
++msgstr "Chữ ký số"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infoproperties"
++msgid "Properties…"
++msgstr "Thuộc tính…"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infosign"
++msgid "Digital Signatures…"
++msgstr "Chữ ký số…"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|saveastitle"
++msgid "Save As"
++msgstr "Lưu thành"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|saveaschoose"
++msgid "Choose a format, then a name and a folder:"
++msgstr "Chọn định dạng, sau đó chọn tên và thư mục:"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|formatlistcol0"
++msgid "Format"
++msgstr "Định dạng"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|formatlist-atkobject"
++msgid "File formats"
++msgstr "Định dạng tệp"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|saveasbrowse"
++msgid "Browse…"
++msgstr "Duyệt…"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_MORNING"
++msgid "Good morning"
++msgstr "Chào buổi sáng"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_AFTERNOON"
++msgid "Good afternoon"
++msgstr "Chào buổi chiều"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_EVENING"
++msgid "Good evening"
++msgstr "Chào buổi tối"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_BLANK_WRITER"
++msgid "Blank document"
++msgstr "Tài liệu trống"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_BLANK_CALC"
++msgid "Blank spreadsheet"
++msgstr "Bảng tính trống"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_BLANK_IMPRESS"
++msgid "Blank presentation"
++msgstr "Bản trình chiếu trống"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_ND30"
++msgid "Administrative document (Decree 30)"
++msgstr "Văn bản hành chính (NĐ 30)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_TPL_CONG_VAN"
++msgid "Official letter"
++msgstr "Công văn"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_TPL_BAO_CAO"
++msgid "Report"
++msgstr "Báo cáo"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_TPL_GIAY_MOI"
++msgid "Invitation"
++msgstr "Giấy mời"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_TPL_CHAM_CONG"
++msgid "Attendance"
++msgstr "Chấm công"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_TPL_BANG_LUONG"
++msgid "Payroll"
++msgstr "Bảng lương"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_TPL_DU_TOAN"
++msgid "Budget"
++msgstr "Dự toán"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_TPL_HOP_CO_QUAN"
++msgid "Agency meeting"
++msgstr "Họp cơ quan"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_TPL_BAO_CAO_DON_VI"
++msgid "Unit report"
++msgstr "Báo cáo đơn vị"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_TPL_GIANG_DAY"
++msgid "Teaching"
++msgstr "Giảng dạy"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_TODAY"
++msgid "Today %1"
++msgstr "Hôm nay %1"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_YESTERDAY"
++msgid "Yesterday"
++msgstr "Hôm qua"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_NO_RECENT"
++msgid "No recent files yet."
++msgstr "Chưa có tệp gần đây."
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_NO_PINNED"
++msgid "No pinned files. Right-click a recent file to pin it."
++msgstr "Chưa có tệp đã ghim. Bấm chuột phải vào một tệp gần đây để ghim."
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_NOT_SAVED"
++msgid "Not saved yet"
++msgstr "Chưa lưu"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_SIG_NONE"
++msgid "Not signed"
++msgstr "Chưa ký số"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_SIG_OK"
++msgid "Signed, the signature is valid"
++msgstr "Đã ký số, chữ ký hợp lệ"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_SIG_NOTVALIDATED"
++msgid "Signed, the certificate could not be validated"
++msgstr "Đã ký số, chưa xác minh được chứng thư số"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_SIG_PARTIAL"
++msgid "Signed, but not all parts of the document are signed"
++msgstr "Đã ký số, nhưng không phải mọi phần của tài liệu đều được ký"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_SIG_BROKEN"
++msgid "The signature is invalid"
++msgstr "Chữ ký số không hợp lệ"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_SAVEAS_FOLDER"
++msgid "Current folder: %1"
++msgstr "Thư mục hiện tại: %1"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_DOCX"
++msgid "DOCX document (.docx)"
++msgstr "Văn bản DOCX (.docx)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_DOC"
++msgid "DOC 97–2003 document (.doc)"
++msgstr "Văn bản DOC 97–2003 (.doc)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_ODT"
++msgid "ODF text document (.odt)"
++msgstr "Văn bản ODF (.odt)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_RTF"
++msgid "Rich text (.rtf)"
++msgstr "Văn bản RTF (.rtf)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_TXT"
++msgid "Plain text (.txt)"
++msgstr "Văn bản thuần (.txt)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_XLSX"
++msgid "XLSX spreadsheet (.xlsx)"
++msgstr "Bảng tính XLSX (.xlsx)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_XLS"
++msgid "XLS 97–2003 spreadsheet (.xls)"
++msgstr "Bảng tính XLS 97–2003 (.xls)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_ODS"
++msgid "ODF spreadsheet (.ods)"
++msgstr "Bảng tính ODF (.ods)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_CSV"
++msgid "Comma-separated values (.csv)"
++msgstr "Giá trị phân cách bằng dấu phẩy (.csv)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_PPTX"
++msgid "PPTX presentation (.pptx)"
++msgstr "Trình chiếu PPTX (.pptx)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_PPT"
++msgid "PPT 97–2003 presentation (.ppt)"
++msgstr "Trình chiếu PPT 97–2003 (.ppt)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_ODP"
++msgid "ODF presentation (.odp)"
++msgstr "Trình chiếu ODF (.odp)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_DEFAULT_FORMAT"
++msgid "%1 — default"
++msgstr "%1 — mặc định"
++
+ #. EbijK
+ #: sfx2/uiconfig/ui/versionsofdialog.ui:332
+ msgctxt "versionsofdialog|label2"
+--- /dev/null
++++ b/sfx2/inc/backstage/hstbackstage.hrc
+@@ -0,0 +1,61 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <unotools/resmgr.hxx>
++
++#define NC_(Context, String) TranslateId(Context, u8##String)
++
++// HST Office: texts of the full-window File view (backstage) that are set from code;
++// the Vietnamese translations are in translations/source/vi/sfx2/messages.po.
++
++#define STR_HST_BS_MORNING              NC_("STR_HST_BS_MORNING", "Good morning")
++#define STR_HST_BS_AFTERNOON            NC_("STR_HST_BS_AFTERNOON", "Good afternoon")
++#define STR_HST_BS_EVENING              NC_("STR_HST_BS_EVENING", "Good evening")
++#define STR_HST_BS_BLANK_WRITER         NC_("STR_HST_BS_BLANK_WRITER", "Blank document")
++#define STR_HST_BS_BLANK_CALC           NC_("STR_HST_BS_BLANK_CALC", "Blank spreadsheet")
++#define STR_HST_BS_BLANK_IMPRESS        NC_("STR_HST_BS_BLANK_IMPRESS", "Blank presentation")
++#define STR_HST_BS_ND30                 NC_("STR_HST_BS_ND30", "Administrative document (Decree 30)")
++#define STR_HST_BS_TPL_CONG_VAN         NC_("STR_HST_BS_TPL_CONG_VAN", "Official letter")
++#define STR_HST_BS_TPL_BAO_CAO          NC_("STR_HST_BS_TPL_BAO_CAO", "Report")
++#define STR_HST_BS_TPL_GIAY_MOI         NC_("STR_HST_BS_TPL_GIAY_MOI", "Invitation")
++#define STR_HST_BS_TPL_CHAM_CONG        NC_("STR_HST_BS_TPL_CHAM_CONG", "Attendance")
++#define STR_HST_BS_TPL_BANG_LUONG       NC_("STR_HST_BS_TPL_BANG_LUONG", "Payroll")
++#define STR_HST_BS_TPL_DU_TOAN          NC_("STR_HST_BS_TPL_DU_TOAN", "Budget")
++#define STR_HST_BS_TPL_HOP_CO_QUAN      NC_("STR_HST_BS_TPL_HOP_CO_QUAN", "Agency meeting")
++#define STR_HST_BS_TPL_BAO_CAO_DON_VI   NC_("STR_HST_BS_TPL_BAO_CAO_DON_VI", "Unit report")
++#define STR_HST_BS_TPL_GIANG_DAY        NC_("STR_HST_BS_TPL_GIANG_DAY", "Teaching")
++// %1 is a time of day such as 14:20
++#define STR_HST_BS_TODAY                NC_("STR_HST_BS_TODAY", "Today %1")
++#define STR_HST_BS_YESTERDAY            NC_("STR_HST_BS_YESTERDAY", "Yesterday")
++#define STR_HST_BS_NO_RECENT            NC_("STR_HST_BS_NO_RECENT", "No recent files yet.")
++#define STR_HST_BS_NO_PINNED            NC_("STR_HST_BS_NO_PINNED", "No pinned files. Right-click a recent file to pin it.")
++#define STR_HST_BS_NOT_SAVED            NC_("STR_HST_BS_NOT_SAVED", "Not saved yet")
++#define STR_HST_BS_SIG_NONE             NC_("STR_HST_BS_SIG_NONE", "Not signed")
++#define STR_HST_BS_SIG_OK               NC_("STR_HST_BS_SIG_OK", "Signed, the signature is valid")
++#define STR_HST_BS_SIG_NOTVALIDATED     NC_("STR_HST_BS_SIG_NOTVALIDATED", "Signed, the certificate could not be validated")
++#define STR_HST_BS_SIG_PARTIAL          NC_("STR_HST_BS_SIG_PARTIAL", "Signed, but not all parts of the document are signed")
++#define STR_HST_BS_SIG_BROKEN           NC_("STR_HST_BS_SIG_BROKEN", "The signature is invalid")
++#define STR_HST_BS_SAVEAS_FOLDER        NC_("STR_HST_BS_SAVEAS_FOLDER", "Current folder: %1")
++#define STR_HST_BS_FMT_DOCX             NC_("STR_HST_BS_FMT_DOCX", "DOCX document (.docx)")
++#define STR_HST_BS_FMT_DOC              NC_("STR_HST_BS_FMT_DOC", "DOC 97–2003 document (.doc)")
++#define STR_HST_BS_FMT_ODT              NC_("STR_HST_BS_FMT_ODT", "ODF text document (.odt)")
++#define STR_HST_BS_FMT_RTF              NC_("STR_HST_BS_FMT_RTF", "Rich text (.rtf)")
++#define STR_HST_BS_FMT_TXT              NC_("STR_HST_BS_FMT_TXT", "Plain text (.txt)")
++#define STR_HST_BS_FMT_XLSX             NC_("STR_HST_BS_FMT_XLSX", "XLSX spreadsheet (.xlsx)")
++#define STR_HST_BS_FMT_XLS              NC_("STR_HST_BS_FMT_XLS", "XLS 97–2003 spreadsheet (.xls)")
++#define STR_HST_BS_FMT_ODS              NC_("STR_HST_BS_FMT_ODS", "ODF spreadsheet (.ods)")
++#define STR_HST_BS_FMT_CSV              NC_("STR_HST_BS_FMT_CSV", "Comma-separated values (.csv)")
++#define STR_HST_BS_FMT_PPTX             NC_("STR_HST_BS_FMT_PPTX", "PPTX presentation (.pptx)")
++#define STR_HST_BS_FMT_PPT              NC_("STR_HST_BS_FMT_PPT", "PPT 97–2003 presentation (.ppt)")
++#define STR_HST_BS_FMT_ODP              NC_("STR_HST_BS_FMT_ODP", "ODF presentation (.odp)")
++#define STR_HST_BS_DEFAULT_FORMAT       NC_("STR_HST_BS_DEFAULT_FORMAT", "%1 — default")
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/inc/backstage/hstbackstage.hxx
+@@ -0,0 +1,41 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XFrame.hpp>
++#include <rtl/ustring.hxx>
++
++/* HST Office: the full-window "File" view (backstage).
++
++   The view is a child window that covers the client area of the document's frame window while
++   the ribbon is hidden; it is created on first use only (no startup cost) and reused afterwards.
++   It opens from the ribbon's File tab and from the .uno:HSTBackstage command (Alt+F); Esc, the
++   back button and the command itself return to the document. */
++namespace sfx2::hst
++{
++inline constexpr OUString BACKSTAGE_COMMAND = u".uno:HSTBackstage"_ustr;
++
++/// Open the view over the given frame, or close it when it is open.
++void ToggleBackstage(const css::uno::Reference<css::frame::XFrame>& rxFrame);
++
++/// Close the view of this frame if it is open; returns whether it was open.
++bool CloseBackstage(const css::uno::Reference<css::frame::XFrame>& rxFrame);
++
++/** Make the ribbon's File tab open the view (once per process; cheap: one application event
++    listener that reacts to tab page activations of notebookbar tab controls only). */
++void InstallFileTabHandler();
++
++/// Dispatch object for .uno:HSTBackstage on this frame (see SfxBaseController::queryDispatch).
++css::uno::Reference<css::frame::XDispatch>
++CreateBackstageDispatch(const css::uno::Reference<css::frame::XFrame>& rxFrame);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstage.cxx
+@@ -0,0 +1,207 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <backstage/hstbackstage.hxx>
++#include "hstbackstagewindow.hxx"
++
++#include <sfx2/viewfrm.hxx>
++
++#include <com/sun/star/frame/FeatureStateEvent.hpp>
++#include <com/sun/star/frame/XStatusListener.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <cppuhelper/weakref.hxx>
++#include <sal/log.hxx>
++#include <toolkit/helper/vclunohelper.hxx>
++#include <vcl/event.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/syswin.hxx>
++#include <vcl/tabctrl.hxx>
++#include <vcl/vclevent.hxx>
++
++using namespace css;
++
++namespace sfx2::hst
++{
++namespace
++{
++vcl::Window* lcl_containerWindow(const uno::Reference<frame::XFrame>& rxFrame)
++{
++    return rxFrame.is() ? VCLUnoHelper::GetWindow(rxFrame->getContainerWindow()) : nullptr;
++}
++
++/// The backstage child of the frame's container window, if it was created already.
++BackstageWindow* lcl_findBackstage(vcl::Window* pContainer)
++{
++    if (!pContainer)
++        return nullptr;
++    for (vcl::Window* pChild = pContainer->GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (auto* pBackstage = dynamic_cast<BackstageWindow*>(pChild))
++            if (!pBackstage->isDisposed())
++                return pBackstage;
++    }
++    return nullptr;
++}
++
++/// The frame of a ribbon widget. The ribbon is a child of the border window around the frame's
++/// container window, not of the container window, so GetSystemWindow() does not reach it.
++uno::Reference<frame::XFrame> lcl_frameOfRibbonWidget(const vcl::Window* pWindow)
++{
++    for (SfxViewFrame* pFrame = SfxViewFrame::GetFirst(); pWindow && pFrame;
++         pFrame = SfxViewFrame::GetNext(*pFrame))
++    {
++        uno::Reference<frame::XFrame> xFrame = pFrame->GetFrame().GetFrameInterface();
++        vcl::Window* pContainer = lcl_containerWindow(xFrame);
++        vcl::Window* pBorder = pContainer ? pContainer->GetWindow(GetWindowType::Border) : nullptr;
++        if (pBorder && pBorder->IsWindowOrChild(pWindow))
++            return xFrame;
++    }
++    return nullptr;
++}
++
++void lcl_openBackstageAsync(void*, void* pArg)
++{
++    std::unique_ptr<uno::WeakReference<frame::XFrame>> xWeak(
++        static_cast<uno::WeakReference<frame::XFrame>*>(pArg));
++    uno::Reference<frame::XFrame> xFrame(*xWeak);
++    vcl::Window* pContainer = lcl_containerWindow(xFrame);
++    BackstageWindow* pBackstage = lcl_findBackstage(pContainer);
++    if (pContainer && !(pBackstage && pBackstage->IsOpen()))
++        ToggleBackstage(xFrame);
++}
++
++/* The ribbon's File tab: TabControl::SelectTabPage (user selection only: click, keyboard,
++   access key, wheel) reports TabpageDeactivate with the old page, then TabpageActivate with the
++   new one. When the new page is the File tab ("FileLabel" in the Writer, Calc and Impress
++   notebookbar .ui files) the previous tab is selected again and the File view opens.
++   Scrolling the wheel over the tabs (the pointer is over the tab strip, not on the File tab)
++   only skips the File tab. */
++sal_uInt16 g_nPrevPageId = 0;
++
++void lcl_tabEvent(void*, VclSimpleEvent& rEvent)
++{
++    const VclEventId nId = rEvent.GetId();
++    if (nId != VclEventId::TabpageDeactivate && nId != VclEventId::TabpageActivate)
++        return;
++    auto* pTabs = dynamic_cast<NotebookbarTabControlBase*>(
++        static_cast<VclWindowEvent&>(rEvent).GetWindow());
++    if (!pTabs)
++        return;
++    const sal_uInt16 nPageId
++        = static_cast<sal_uInt16>(reinterpret_cast<sal_uIntPtr>(static_cast<VclWindowEvent&>(rEvent).GetData()));
++    if (nId == VclEventId::TabpageDeactivate)
++    {
++        g_nPrevPageId = nPageId;
++        return;
++    }
++    const sal_uInt16 nPrev = g_nPrevPageId;
++    g_nPrevPageId = 0;
++    if (!nPrev || nPrev == nPageId || pTabs->GetPageName(nPageId) != "FileLabel")
++        return;
++
++    const Point aPointer = pTabs->GetPointerPosPixel();
++    const bool bOnFileTab = pTabs->GetTabBounds(nPageId).Contains(aPointer);
++    const bool bOverTabs = tools::Rectangle(Point(), pTabs->GetOutputSizePixel()).Contains(aPointer);
++    pTabs->SelectTabPage(nPrev);
++    if (bOverTabs && !bOnFileTab)
++        return; // the wheel over the tab strip
++
++    uno::Reference<frame::XFrame> xFrame = lcl_frameOfRibbonWidget(pTabs);
++    if (!xFrame.is())
++        return;
++    std::unique_ptr<uno::WeakReference<frame::XFrame>> xWeak(new uno::WeakReference<frame::XFrame>(xFrame));
++    if (Application::PostUserEvent(LINK_NONMEMBER(nullptr, lcl_openBackstageAsync), xWeak.get()))
++        xWeak.release();
++}
++
++/// .uno:HSTBackstage of one frame: opens or closes the File view; always enabled.
++class BackstageDispatch final : public cppu::WeakImplHelper<frame::XDispatch>
++{
++    uno::WeakReference<frame::XFrame> m_xFrame;
++
++public:
++    explicit BackstageDispatch(const uno::Reference<frame::XFrame>& rxFrame)
++        : m_xFrame(rxFrame)
++    {
++    }
++
++    void SAL_CALL dispatch(const util::URL&, const uno::Sequence<beans::PropertyValue>&) override
++    {
++        SolarMutexGuard aGuard;
++        ToggleBackstage(uno::Reference<frame::XFrame>(m_xFrame));
++    }
++
++    void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>& rxListener,
++                                    const util::URL& rURL) override
++    {
++        if (!rxListener.is())
++            return;
++        frame::FeatureStateEvent aEvent;
++        aEvent.FeatureURL = rURL;
++        aEvent.IsEnabled = true;
++        aEvent.Source = getXWeak();
++        rxListener->statusChanged(aEvent);
++    }
++
++    void SAL_CALL removeStatusListener(const uno::Reference<frame::XStatusListener>&,
++                                       const util::URL&) override
++    {
++    }
++};
++}
++
++void ToggleBackstage(const uno::Reference<frame::XFrame>& rxFrame)
++{
++    vcl::Window* pContainer = lcl_containerWindow(rxFrame);
++    if (!pContainer)
++        return;
++    BackstageWindow* pBackstage = lcl_findBackstage(pContainer);
++    if (pBackstage && pBackstage->IsOpen())
++    {
++        pBackstage->Close();
++        return;
++    }
++    if (pBackstage && pBackstage->ShowsCurrentDocument())
++    {
++        pBackstage->Open();
++        return;
++    }
++    if (pBackstage)
++        pBackstage->disposeOnce();
++    // created on first use; the container window keeps it (and disposes it with the frame)
++    VclPtr<BackstageWindow> xNew = VclPtr<BackstageWindow>::Create(pContainer, rxFrame);
++    xNew->Open();
++}
++
++void InstallFileTabHandler()
++{
++    static bool bInstalled = false;
++    if (bInstalled)
++        return;
++    bInstalled = true;
++    Application::AddEventListener(LINK_NONMEMBER(nullptr, lcl_tabEvent));
++}
++
++bool CloseBackstage(const uno::Reference<frame::XFrame>& rxFrame)
++{
++    BackstageWindow* pBackstage = lcl_findBackstage(lcl_containerWindow(rxFrame));
++    if (!pBackstage || !pBackstage->IsOpen())
++        return false;
++    pBackstage->Close();
++    return true;
++}
++
++uno::Reference<frame::XDispatch> CreateBackstageDispatch(const uno::Reference<frame::XFrame>& rxFrame)
++{
++    return new BackstageDispatch(rxFrame);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstagedata.cxx
+@@ -0,0 +1,400 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "hstbackstagedata.hxx"
++
++#include <algorithm>
++
++#include <backstage/hstbackstage.hrc>
++
++#include <com/sun/star/document/XDocumentProperties.hpp>
++#include <com/sun/star/document/XDocumentPropertiesSupplier.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/util/XPathSettings.hpp>
++#include <com/sun/star/util/thePathSettings.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/getexpandeduri.hxx>
++#include <comphelper/processfactory.hxx>
++#include <osl/file.hxx>
++#include <sfx2/docfile.hxx>
++#include <sfx2/docfilt.hxx>
++#include <sfx2/objsh.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/signaturestate.hxx>
++#include <svtools/imagemgr.hxx>
++#include <tools/urlobj.hxx>
++#include <unotools/historyoptions.hxx>
++#include <unotools/moduleoptions.hxx>
++
++using namespace css;
++
++namespace sfx2::hst
++{
++namespace
++{
++struct HstTemplateFile
++{
++    BackstageApp eApp;
++    std::u16string_view aFolder;
++    std::u16string_view aFile;
++    TranslateId aTitle;
++};
++
++// The HST templates offered on the Home page, in display order (templates/catalog.json; the
++// extension installs them under template/<folder>/). Missing files are left out.
++constexpr HstTemplateFile aHstTemplates[] = {
++    { BackstageApp::Writer, u"hst-van-ban", u"cong-van.ott", STR_HST_BS_TPL_CONG_VAN },
++    { BackstageApp::Writer, u"hst-van-ban", u"bao-cao.ott", STR_HST_BS_TPL_BAO_CAO },
++    { BackstageApp::Writer, u"hst-van-ban", u"giay-moi.ott", STR_HST_BS_TPL_GIAY_MOI },
++    { BackstageApp::Calc, u"hst-bang-tinh", u"cham-cong.ots", STR_HST_BS_TPL_CHAM_CONG },
++    { BackstageApp::Calc, u"hst-bang-tinh", u"bang-luong.ots", STR_HST_BS_TPL_BANG_LUONG },
++    { BackstageApp::Calc, u"hst-bang-tinh", u"du-toan.ots", STR_HST_BS_TPL_DU_TOAN },
++    { BackstageApp::Impress, u"hst-trinh-chieu", u"hop-co-quan.otp", STR_HST_BS_TPL_HOP_CO_QUAN },
++    { BackstageApp::Impress, u"hst-trinh-chieu", u"bao-cao-don-vi.otp", STR_HST_BS_TPL_BAO_CAO_DON_VI },
++    { BackstageApp::Impress, u"hst-trinh-chieu", u"giang-day.otp", STR_HST_BS_TPL_GIANG_DAY },
++};
++
++struct SaveFormat
++{
++    BackstageApp eApp;
++    OUString aFilter;
++    TranslateId aLabel;
++};
++
++const SaveFormat aSaveFormats[] = {
++    { BackstageApp::Writer, u"MS Word 2007 XML"_ustr, STR_HST_BS_FMT_DOCX },
++    { BackstageApp::Writer, u"writer8"_ustr, STR_HST_BS_FMT_ODT },
++    { BackstageApp::Writer, u"MS Word 97"_ustr, STR_HST_BS_FMT_DOC },
++    { BackstageApp::Writer, u"Rich Text Format"_ustr, STR_HST_BS_FMT_RTF },
++    { BackstageApp::Writer, u"Text"_ustr, STR_HST_BS_FMT_TXT },
++    { BackstageApp::Calc, u"Calc MS Excel 2007 XML"_ustr, STR_HST_BS_FMT_XLSX },
++    { BackstageApp::Calc, u"calc8"_ustr, STR_HST_BS_FMT_ODS },
++    { BackstageApp::Calc, u"MS Excel 97"_ustr, STR_HST_BS_FMT_XLS },
++    { BackstageApp::Calc, u"Text - txt - csv (StarCalc)"_ustr, STR_HST_BS_FMT_CSV },
++    { BackstageApp::Impress, u"Impress MS PowerPoint 2007 XML"_ustr, STR_HST_BS_FMT_PPTX },
++    { BackstageApp::Impress, u"impress8"_ustr, STR_HST_BS_FMT_ODP },
++    { BackstageApp::Impress, u"MS PowerPoint 97"_ustr, STR_HST_BS_FMT_PPT },
++};
++
++bool lcl_fileExists(const OUString& rURL)
++{
++    osl::DirectoryItem aItem;
++    return osl::DirectoryItem::get(rURL, aItem) == osl::FileBase::E_None;
++}
++
++std::vector<OUString> lcl_templateFolders()
++{
++    std::vector<OUString> aFolders;
++    try
++    {
++        const uno::Reference<uno::XComponentContext>& xContext
++            = comphelper::getProcessComponentContext();
++        uno::Reference<util::XPathSettings> xPaths = util::thePathSettings::get(xContext);
++        for (const auto& rProperty : { u"Template_internal"_ustr, u"Template_user"_ustr })
++        {
++            uno::Sequence<OUString> aList;
++            xPaths->getPropertyValue(rProperty) >>= aList;
++            for (const OUString& rFolder : aList)
++                aFolders.push_back(comphelper::getExpandedUri(xContext, rFolder));
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "reading the template folders");
++    }
++    return aFolders;
++}
++
++OUString lcl_findTemplate(const std::vector<OUString>& rFolders, std::u16string_view aFolder,
++                          std::u16string_view aFile)
++{
++    for (const OUString& rBase : rFolders)
++    {
++        OUString aURL = rBase + (rBase.endsWith("/") ? u"" : u"/") + aFolder + u"/" + aFile;
++        if (lcl_fileExists(aURL))
++            return aURL;
++    }
++    return OUString();
++}
++
++bool lcl_stat(const OUString& rURL, sal_uInt32 nMask, osl::FileStatus& rStatus)
++{
++    osl::DirectoryItem aItem;
++    return rURL.startsWithIgnoreAsciiCase("file:")
++           && osl::DirectoryItem::get(rURL, aItem) == osl::FileBase::E_None
++           && aItem.getFileStatus(rStatus) == osl::FileBase::E_None && rStatus.isValid(nMask);
++}
++
++DateTime lcl_toLocalDateTime(const TimeValue& rUTC)
++{
++    TimeValue aLocal;
++    oslDateTime aDT;
++    if (!osl_getLocalTimeFromSystemTime(&rUTC, &aLocal) || !osl_getDateTimeFromTimeValue(&aLocal, &aDT))
++        return DateTime(DateTime::EMPTY);
++    return DateTime(Date(aDT.Day, aDT.Month, aDT.Year),
++                    tools::Time(aDT.Hours, aDT.Minutes, aDT.Seconds));
++}
++
++OUString lcl_twoDigits(sal_Int32 n) { return (n < 10 ? u"0"_ustr : OUString()) + OUString::number(n); }
++
++OUString lcl_formatDate(const Date& rDate)
++{
++    return lcl_twoDigits(rDate.GetDay()) + "/" + lcl_twoDigits(rDate.GetMonth()) + "/"
++           + OUString::number(rDate.GetYear());
++}
++
++OUString lcl_formatTime(const tools::Time& rTime)
++{
++    return lcl_twoDigits(rTime.GetHour()) + ":" + lcl_twoDigits(rTime.GetMin());
++}
++
++OUString lcl_formatDateTime(const util::DateTime& rDT)
++{
++    if (rDT.Year == 0)
++        return OUString();
++    return lcl_formatDate(Date(rDT.Day, rDT.Month, rDT.Year)) + " "
++           + lcl_formatTime(tools::Time(rDT.Hours, rDT.Minutes, rDT.Seconds));
++}
++
++/// "Documents › Reports": the last two folders of the file's location.
++OUString lcl_shortLocation(const OUString& rURL)
++{
++    INetURLObject aURL(rURL);
++    if (aURL.GetProtocol() != INetProtocol::File)
++        return aURL.GetHost(INetURLObject::DecodeMechanism::WithCharset);
++    aURL.removeSegment();
++    std::vector<OUString> aParts;
++    for (sal_Int32 n = aURL.getSegmentCount(); n > 0 && aParts.size() < 2; --n)
++    {
++        OUString aName = aURL.getName(n - 1, true, INetURLObject::DecodeMechanism::WithCharset);
++        if (!aName.isEmpty())
++            aParts.insert(aParts.begin(), aName);
++    }
++    OUStringBuffer aBuf;
++    for (const OUString& rPart : aParts)
++    {
++        if (!aBuf.isEmpty())
++            aBuf.append(u" › ");
++        aBuf.append(rPart);
++    }
++    return aBuf.makeStringAndClear();
++}
++
++OUString lcl_formatSize(sal_uInt64 nBytes)
++{
++    if (nBytes < 1024)
++        return OUString::number(nBytes) + " B";
++    const double fKB = nBytes / 1024.0;
++    if (fKB < 1024)
++        return OUString::number(static_cast<sal_Int64>(fKB + 0.5)) + " KB";
++    const double fMB = fKB / 1024.0;
++    // one decimal with the Vietnamese/HST decimal comma
++    const sal_Int64 nTenths = static_cast<sal_Int64>(fMB * 10 + 0.5);
++    return OUString::number(nTenths / 10) + "," + OUString::number(nTenths % 10) + " MB";
++}
++}
++
++OUString GetFactoryURL(BackstageApp eApp)
++{
++    switch (eApp)
++    {
++        case BackstageApp::Calc:
++            return u"private:factory/scalc"_ustr;
++        case BackstageApp::Impress:
++            return u"private:factory/simpress"_ustr;
++        case BackstageApp::Other:
++            return u"private:factory/sdraw"_ustr;
++        case BackstageApp::Writer:
++            break;
++    }
++    return u"private:factory/swriter"_ustr;
++}
++
++std::vector<BackstageTemplate> GetNewDocumentChoices(BackstageApp eApp)
++{
++    std::vector<BackstageTemplate> aChoices;
++    aChoices.push_back({ SfxResId(eApp == BackstageApp::Calc      ? STR_HST_BS_BLANK_CALC
++                                  : eApp == BackstageApp::Impress ? STR_HST_BS_BLANK_IMPRESS
++                                                                  : STR_HST_BS_BLANK_WRITER),
++                         GetFactoryURL(eApp), BackstageTemplate::Kind::Factory });
++    if (eApp == BackstageApp::Writer)
++        aChoices.push_back(
++            { SfxResId(STR_HST_BS_ND30), ND30_COMMAND, BackstageTemplate::Kind::Command });
++
++    const std::vector<OUString> aFolders = lcl_templateFolders();
++    for (const HstTemplateFile& rTemplate : aHstTemplates)
++    {
++        if (rTemplate.eApp != eApp)
++            continue;
++        OUString aURL = lcl_findTemplate(aFolders, rTemplate.aFolder, rTemplate.aFile);
++        if (!aURL.isEmpty())
++            aChoices.push_back({ SfxResId(rTemplate.aTitle), aURL, BackstageTemplate::Kind::Template });
++    }
++    return aChoices;
++}
++
++OUString FormatRecentDate(const DateTime& rWhen, const DateTime& rNow)
++{
++    if (rWhen.IsEmpty())
++        return OUString();
++    const Date aDay(rWhen.GetDate());
++    if (aDay == Date(rNow.GetDate()))
++        return SfxResId(STR_HST_BS_TODAY).replaceFirst("%1", lcl_formatTime(rWhen));
++    Date aYesterday(rNow.GetDate());
++    aYesterday.AddDays(-1);
++    if (aDay == aYesterday)
++        return SfxResId(STR_HST_BS_YESTERDAY);
++    return lcl_formatDate(aDay);
++}
++
++std::vector<BackstageRecentFile> GetRecentFiles()
++{
++    std::vector<BackstageRecentFile> aFiles;
++    const DateTime aNow(DateTime::SYSTEM);
++    for (const SvtHistoryOptions::HistoryItem& rItem : SvtHistoryOptions::GetList(EHistoryType::PickList))
++    {
++        if (rItem.sURL.isEmpty())
++            continue;
++        INetURLObject aURL(rItem.sURL);
++        BackstageRecentFile aFile;
++        aFile.aURL = rItem.sURL;
++        aFile.aName = aURL.getName(INetURLObject::LAST_SEGMENT, true,
++                                   INetURLObject::DecodeMechanism::WithCharset);
++        if (aFile.aName.isEmpty())
++            aFile.aName = rItem.sTitle;
++        aFile.aLocation = lcl_shortLocation(rItem.sURL);
++        aFile.aIcon = SvFileInformationManager::GetImageId(aURL, false);
++        aFile.bPinned = rItem.isPinned;
++        osl::FileStatus aStatus(osl_FileStatus_Mask_ModifyTime);
++        if (lcl_stat(rItem.sURL, osl_FileStatus_Mask_ModifyTime, aStatus))
++            aFile.aDate = FormatRecentDate(lcl_toLocalDateTime(aStatus.getModifyTime()), aNow);
++        aFiles.push_back(std::move(aFile));
++    }
++    // pinned files first (as in the Start Center), each group in history order
++    std::stable_partition(aFiles.begin(), aFiles.end(),
++                          [](const BackstageRecentFile& rFile) { return rFile.bPinned; });
++    return aFiles;
++}
++
++OUString GetDisplayPath(const OUString& rURL)
++{
++    OUString aPath;
++    if (rURL.startsWithIgnoreAsciiCase("file:")
++        && osl::FileBase::getSystemPathFromFileURL(rURL, aPath) == osl::FileBase::E_None)
++        return aPath;
++    return INetURLObject(rURL).GetMainURL(INetURLObject::DecodeMechanism::WithCharset);
++}
++
++BackstageDocumentInfo GetDocumentInfo(const uno::Reference<frame::XFrame>& rxFrame, bool bWithSignature)
++{
++    BackstageDocumentInfo aInfo;
++    try
++    {
++        uno::Reference<frame::XController> xController(rxFrame.is() ? rxFrame->getController() : nullptr);
++        uno::Reference<frame::XModel> xModel(xController.is() ? xController->getModel() : nullptr);
++        SfxObjectShell* pShell = SfxObjectShell::GetShellFromComponent(xModel);
++        if (!xModel.is() || !pShell)
++            return aInfo;
++
++        const OUString aURL = xModel->getURL();
++        if (!aURL.isEmpty())
++        {
++            INetURLObject aObj(aURL);
++            aInfo.aName = aObj.getName(INetURLObject::LAST_SEGMENT, true,
++                                       INetURLObject::DecodeMechanism::WithCharset);
++            aInfo.aBaseName = aObj.getBase(INetURLObject::LAST_SEGMENT, true,
++                                           INetURLObject::DecodeMechanism::WithCharset);
++            INetURLObject aFolder(aObj);
++            aFolder.removeSegment();
++            aInfo.aFolderURL = aFolder.GetMainURL(INetURLObject::DecodeMechanism::NONE);
++            aInfo.aFolder = GetDisplayPath(aInfo.aFolderURL);
++            osl::FileStatus aStatus(osl_FileStatus_Mask_FileSize);
++            if (lcl_stat(aURL, osl_FileStatus_Mask_FileSize, aStatus))
++                aInfo.aSize = lcl_formatSize(aStatus.getFileSize());
++        }
++        else
++        {
++            aInfo.aName = pShell->GetTitle();
++            aInfo.aBaseName = aInfo.aName;
++        }
++
++        // an unsaved document has no file type yet
++        if (SfxMedium* pMedium = aURL.isEmpty() ? nullptr : pShell->GetMedium())
++            if (std::shared_ptr<const SfxFilter> pFilter = pMedium->GetFilter())
++                aInfo.aType = pFilter->GetUIName();
++
++        uno::Reference<document::XDocumentPropertiesSupplier> xSupplier(xModel, uno::UNO_QUERY);
++        if (xSupplier.is())
++        {
++            uno::Reference<document::XDocumentProperties> xProps = xSupplier->getDocumentProperties();
++            aInfo.aCreated = lcl_formatDateTime(xProps->getCreationDate());
++            aInfo.aModified = lcl_formatDateTime(xProps->getModificationDate());
++            aInfo.aAuthor = xProps->getAuthor();
++            if (aInfo.aAuthor.isEmpty())
++                aInfo.aAuthor = xProps->getModifiedBy();
++        }
++
++        if (bWithSignature)
++        {
++            TranslateId aState;
++            switch (pShell->GetDocumentSignatureState())
++            {
++                case SignatureState::OK:
++                    aState = STR_HST_BS_SIG_OK;
++                    break;
++                case SignatureState::NOTVALIDATED:
++                    aState = STR_HST_BS_SIG_NOTVALIDATED;
++                    break;
++                case SignatureState::PARTIAL_OK:
++                case SignatureState::NOTVALIDATED_PARTIAL_OK:
++                    aState = STR_HST_BS_SIG_PARTIAL;
++                    break;
++                case SignatureState::BROKEN:
++                case SignatureState::INVALID:
++                    aState = STR_HST_BS_SIG_BROKEN;
++                    break;
++                default:
++                    aState = STR_HST_BS_SIG_NONE;
++                    break;
++            }
++            aInfo.aSignature = SfxResId(aState);
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "reading the document information");
++    }
++    return aInfo;
++}
++
++std::vector<BackstageFormat> GetSaveFormats(BackstageApp eApp)
++{
++    std::vector<BackstageFormat> aFormats;
++    const SvtModuleOptions::EFactory eFactory
++        = eApp == BackstageApp::Writer    ? SvtModuleOptions::EFactory::WRITER
++          : eApp == BackstageApp::Calc    ? SvtModuleOptions::EFactory::CALC
++          : eApp == BackstageApp::Impress ? SvtModuleOptions::EFactory::IMPRESS
++                                          : SvtModuleOptions::EFactory::DRAW;
++    const OUString aDefault = SvtModuleOptions().GetFactoryDefaultFilter(eFactory);
++    for (const SaveFormat& rFormat : aSaveFormats)
++    {
++        if (rFormat.eApp != eApp || !SfxFilter::GetFilterByName(rFormat.aFilter))
++            continue;
++        OUString aLabel = SfxResId(rFormat.aLabel);
++        if (rFormat.aFilter == aDefault) // the format Save uses for new documents
++            aLabel = SfxResId(STR_HST_BS_DEFAULT_FORMAT).replaceFirst("%1", aLabel);
++        aFormats.push_back({ rFormat.aFilter, aLabel });
++    }
++    return aFormats;
++}
++
++int GetCurrentHour() { return DateTime(DateTime::SYSTEM).GetHour(); }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstagedata.hxx
+@@ -0,0 +1,102 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <vector>
++
++#include <com/sun/star/frame/XFrame.hpp>
++#include <rtl/ustring.hxx>
++#include <tools/datetime.hxx>
++
++/* HST Office: the data shown by the File view (backstage): "create new" choices, recent files
++   (the Start Center's history list with its pinning), document information and save formats. */
++namespace sfx2::hst
++{
++/// The document application a backstage belongs to (decides colour, blank document, templates).
++enum class BackstageApp
++{
++    Writer,
++    Calc,
++    Impress,
++    Other
++};
++
++/// The HST administrative document wizard (Decree 30/2020/ND-CP) of the HST extension.
++inline constexpr OUString ND30_COMMAND = u"org.hst.office.vi:Nd30Wizard"_ustr;
++
++struct BackstageTemplate
++{
++    enum class Kind
++    {
++        Factory, // a blank document (private:factory/...)
++        Command, // a dispatch command (the administrative document wizard)
++        Template // an installed HST template, opened as a new untitled document
++    };
++    OUString aTitle;
++    OUString aTarget;
++    Kind eKind;
++};
++
++struct BackstageRecentFile
++{
++    OUString aURL;
++    OUString aName;
++    OUString aLocation; // the last two folders, "Documents › Reports"
++    OUString aDate; // "Today 14:20", "Yesterday", "02/11/2026"
++    OUString aIcon;
++    bool bPinned = false;
++};
++
++struct BackstageDocumentInfo
++{
++    OUString aName;
++    OUString aBaseName; // file name without extension (or the title of an unsaved document)
++    OUString aType;
++    OUString aFolder; // system path of the folder, empty when not saved yet
++    OUString aFolderURL;
++    OUString aSize;
++    OUString aCreated;
++    OUString aModified;
++    OUString aAuthor;
++    OUString aSignature;
++};
++
++struct BackstageFormat
++{
++    OUString aFilterName;
++    OUString aLabel;
++};
++
++OUString GetFactoryURL(BackstageApp eApp);
++
++/// Blank document first, then the administrative document wizard (Writer) and the HST
++/// templates of the application that are installed.
++std::vector<BackstageTemplate> GetNewDocumentChoices(BackstageApp eApp);
++
++/// The recent documents list (most recent first) with dates of the files on disk.
++std::vector<BackstageRecentFile> GetRecentFiles();
++
++/// System path for a file URL (the URL itself for other schemes).
++OUString GetDisplayPath(const OUString& rURL);
++
++/// "Today 14:20", "Yesterday" or the date as dd/mm/yyyy.
++OUString FormatRecentDate(const DateTime& rWhen, const DateTime& rNow);
++
++BackstageDocumentInfo GetDocumentInfo(const css::uno::Reference<css::frame::XFrame>& rxFrame,
++                                      bool bWithSignature = true);
++
++/// Save formats of the application, the OOXML format first; the format Save uses for new
++/// documents is marked as default; filters that are not installed are left out.
++std::vector<BackstageFormat> GetSaveFormats(BackstageApp eApp);
++
++int GetCurrentHour();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -0,0 +1,1073 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "hstbackstagewindow.hxx"
++#include "hstbackstagedata.hxx"
++
++#include <algorithm>
++#include <climits>
++#include <cmath>
++
++#include <backstage/hstbackstage.hrc>
++#include <backstage/hstbackstage.hxx>
++#include <templatedefaultview.hxx>
++
++#include <com/sun/star/document/MacroExecMode.hpp>
++#include <com/sun/star/document/UpdateDocMode.hpp>
++#include <com/sun/star/frame/Desktop.hpp>
++#include <com/sun/star/frame/XController.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/lang/XEventListener.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/task/InteractionHandler.hpp>
++#include <com/sun/star/ui/dialogs/TemplateDescription.hpp>
++#include <com/sun/star/util/URLTransformer.hpp>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <sfx2/docfilt.hxx>
++#include <sfx2/filedlghelper.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <sfx2/viewsh.hxx>
++#include <tools/urlobj.hxx>
++#include <unotools/historyoptions.hxx>
++#include <vcl/commandevent.hxx>
++#include <vcl/event.hxx>
++#include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/syswin.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/vclevent.hxx>
++#include <o3tl/safeint.hxx>
++
++using namespace css;
++
++namespace sfx2::hst
++{
++namespace
++{
++// HST Office application colours, the same as the ribbon tint of NotebookBar::UpdateBackground()
++constexpr Color WRITER_COLOR(0x1a, 0x85, 0xd1);
++constexpr Color CALC_COLOR(0x3c, 0xbc, 0x45);
++constexpr Color IMPRESS_COLOR(0xe7, 0x57, 0x29);
++constexpr Color OTHER_COLOR(0x5b, 0x6b, 0x7f);
++
++constexpr tools::Long NAV_ITEM_HEIGHT = 44;
++constexpr tools::Long NAV_TEXT_INDENT = 24;
++constexpr tools::Long TILE_WIDTH = 150;
++constexpr tools::Long TILE_HEIGHT = 190;
++
++double lcl_luminance(const Color& rColor)
++{
++    auto lin = [](sal_uInt8 c) {
++        double v = c / 255.0;
++        return v <= 0.03928 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
++    };
++    return 0.2126 * lin(rColor.GetRed()) + 0.7152 * lin(rColor.GetGreen())
++           + 0.0722 * lin(rColor.GetBlue());
++}
++
++/// The application colour, darkened until white text on it has at least a 4.5:1 contrast (WCAG AA).
++Color lcl_navColor(BackstageApp eApp)
++{
++    Color aBase = eApp == BackstageApp::Writer    ? WRITER_COLOR
++                  : eApp == BackstageApp::Calc    ? CALC_COLOR
++                  : eApp == BackstageApp::Impress ? IMPRESS_COLOR
++                                                  : OTHER_COLOR;
++    for (double fFactor = 1.0; fFactor > 0.3; fFactor -= 0.02)
++    {
++        Color aColor(static_cast<sal_uInt8>(aBase.GetRed() * fFactor),
++                     static_cast<sal_uInt8>(aBase.GetGreen() * fFactor),
++                     static_cast<sal_uInt8>(aBase.GetBlue() * fFactor));
++        if (1.05 / (lcl_luminance(aColor) + 0.05) >= 4.5)
++            return aColor;
++    }
++    return aBase;
++}
++
++BackstageApp lcl_detectApp(const uno::Reference<frame::XFrame>& rxFrame)
++{
++    try
++    {
++        uno::Reference<frame::XController> xController(rxFrame->getController());
++        uno::Reference<lang::XServiceInfo> xInfo(
++            xController.is() ? xController->getModel() : nullptr, uno::UNO_QUERY);
++        if (xInfo.is())
++        {
++            if (xInfo->supportsService(u"com.sun.star.text.TextDocument"_ustr))
++                return BackstageApp::Writer;
++            if (xInfo->supportsService(u"com.sun.star.sheet.SpreadsheetDocument"_ustr))
++                return BackstageApp::Calc;
++            if (xInfo->supportsService(u"com.sun.star.presentation.PresentationDocument"_ustr))
++                return BackstageApp::Impress;
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "detecting the document type");
++    }
++    return BackstageApp::Other;
++}
++
++struct DelayedDispatch
++{
++    uno::Reference<frame::XDispatch> xDispatch;
++    util::URL aURL;
++    uno::Sequence<beans::PropertyValue> aArgs;
++};
++
++void lcl_runDelayedDispatch(void*, void* pArg)
++{
++    std::unique_ptr<DelayedDispatch> pDispatch(static_cast<DelayedDispatch*>(pArg));
++    try
++    {
++        pDispatch->xDispatch->dispatch(pDispatch->aURL, pDispatch->aArgs);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "dispatching " << pDispatch->aURL.Complete);
++    }
++}
++
++/// Dispatch rURL through rxProvider after the current event has been handled.
++void lcl_dispatchAsync(const uno::Reference<frame::XDispatchProvider>& rxProvider,
++                       const OUString& rURL, const OUString& rTarget,
++                       const uno::Sequence<beans::PropertyValue>& rArgs)
++{
++    if (!rxProvider.is())
++        return;
++    try
++    {
++        util::URL aURL;
++        aURL.Complete = rURL;
++        util::URLTransformer::create(comphelper::getProcessComponentContext())->parseStrict(aURL);
++        uno::Reference<frame::XDispatch> xDispatch = rxProvider->queryDispatch(aURL, rTarget, 0);
++        if (!xDispatch.is())
++        {
++            SAL_WARN("sfx.backstage", "no dispatch for " << rURL);
++            return;
++        }
++        std::unique_ptr<DelayedDispatch> pDispatch(new DelayedDispatch{ xDispatch, aURL, rArgs });
++        if (Application::PostUserEvent(LINK_NONMEMBER(nullptr, lcl_runDelayedDispatch),
++                                       pDispatch.get()))
++            pDispatch.release();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "dispatching " << rURL);
++    }
++}
++
++/// Disposes the view when its frame goes away, while the frame's container window is still
++/// intact: a child must not be disposed from inside its parent's Window::dispose().
++class FrameDisposeListener final : public cppu::WeakImplHelper<lang::XEventListener>
++{
++    VclPtr<vcl::Window> m_xWindow;
++
++public:
++    explicit FrameDisposeListener(vcl::Window* pWindow)
++        : m_xWindow(pWindow)
++    {
++    }
++    void SAL_CALL disposing(const lang::EventObject&) override
++    {
++        SolarMutexGuard aGuard;
++        if (m_xWindow)
++            m_xWindow.disposeAndClear();
++    }
++};
++
++/// Paint the page preview of a "create new" tile: a page with a thin border; the
++/// administrative document also shows the national motto heading.
++void lcl_paintTile(VirtualDevice& rDev, bool bNd30, bool bBlank)
++{
++    const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
++    const bool bDark = rStyle.GetWindowColor().IsDark();
++    rDev.SetOutputSizePixel(Size(TILE_WIDTH, TILE_HEIGHT));
++    rDev.SetBackground(Wallpaper(rStyle.GetWindowColor()));
++    rDev.Erase();
++    // the page stays white in dark mode (it is the paper), with a softer border
++    rDev.SetLineColor(bDark ? Color(0x5f, 0x63, 0x68) : Color(0xcf, 0xd6, 0xe0));
++    rDev.SetFillColor(bBlank ? COL_WHITE : Color(0xf7, 0xf8, 0xfa));
++    rDev.DrawRect(tools::Rectangle(Point(0, 0), Size(TILE_WIDTH, TILE_HEIGHT)));
++    if (bNd30)
++    {
++        vcl::Font aFont(rStyle.GetAppFont());
++        aFont.SetFontHeight(7);
++        aFont.SetWeight(WEIGHT_BOLD);
++        aFont.SetColor(Color(0x1d, 0x24, 0x33));
++        rDev.SetFont(aFont);
++        rDev.SetTextColor(Color(0x1d, 0x24, 0x33));
++        const OUString aLine1(u"CỘNG HÒA XÃ HỘI"_ustr);
++        const OUString aLine2(u"CHỦ NGHĨA VIỆT NAM"_ustr);
++        const tools::Long nH = rDev.GetTextHeight();
++        rDev.DrawText(Point((TILE_WIDTH - rDev.GetTextWidth(aLine1)) / 2, 22), aLine1);
++        rDev.DrawText(Point((TILE_WIDTH - rDev.GetTextWidth(aLine2)) / 2, 22 + nH), aLine2);
++        rDev.SetLineColor(Color(0x1d, 0x24, 0x33));
++        rDev.DrawLine(Point(TILE_WIDTH / 2 - 22, 26 + 2 * nH), Point(TILE_WIDTH / 2 + 22, 26 + 2 * nH));
++        // text lines of the body
++        rDev.SetLineColor(Color(0xcf, 0xd6, 0xe0));
++        for (tools::Long y = 60; y < TILE_HEIGHT - 20; y += 9)
++            rDev.DrawLine(Point(16, y), Point(TILE_WIDTH - 16, y));
++    }
++}
++}
++
++BackstageWindow::BackstageWindow(vcl::Window* pParent, uno::Reference<frame::XFrame> xFrame)
++    : InterimItemWindow(pParent, u"sfx/ui/hstbackstage.ui"_ustr, u"HstBackstage"_ustr, false)
++    , m_xFrame(std::move(xFrame))
++    , m_xParent(pParent)
++    , m_eApp(lcl_detectApp(m_xFrame))
++    , m_aNavColor(lcl_navColor(m_eApp))
++    , m_ePage(Page::Home)
++    , m_bOpen(false)
++    , m_bNewPageInitialized(false)
++    , m_bRibbonHidden(false)
++    , m_nSelectedNav(1)
++    , m_nNavWidth(0)
++    , m_xNavBox(m_xBuilder->weld_container(u"nav"_ustr))
++    , m_xNavSeparator(m_xBuilder->weld_container(u"navsep"_ustr))
++    , m_xContent(m_xBuilder->weld_container(u"content"_ustr))
++    , m_xPageHome(m_xBuilder->weld_container(u"pagehome"_ustr))
++    , m_xPageNew(m_xBuilder->weld_container(u"pagenew"_ustr))
++    , m_xPageOpen(m_xBuilder->weld_container(u"pageopen"_ustr))
++    , m_xPageInfo(m_xBuilder->weld_container(u"pageinfo"_ustr))
++    , m_xPageSaveAs(m_xBuilder->weld_container(u"pagesaveas"_ustr))
++    , m_xGreeting(m_xBuilder->weld_label(u"greeting"_ustr))
++    , m_xMoreTemplates(m_xBuilder->weld_link_button(u"moretemplates"_ustr))
++    , m_xRecentTabs(m_xBuilder->weld_notebook(u"recenttabs"_ustr))
++    , m_xRecentList(m_xBuilder->weld_tree_view(u"recentlist"_ustr))
++    , m_xPinnedList(m_xBuilder->weld_tree_view(u"pinnedlist"_ustr))
++    , m_xRecentEmpty(m_xBuilder->weld_label(u"recentempty"_ustr))
++    , m_xPinnedEmpty(m_xBuilder->weld_label(u"pinnedempty"_ustr))
++    , m_xRecentMenu(m_xBuilder->weld_menu(u"recentmenu"_ustr))
++    , m_xNewBlank(m_xBuilder->weld_button(u"newblank"_ustr))
++    , m_xNewNd30(m_xBuilder->weld_button(u"newnd30"_ustr))
++    , m_xNewManage(m_xBuilder->weld_button(u"newmanage"_ustr))
++    , m_xOpenBrowse(m_xBuilder->weld_button(u"openbrowse"_ustr))
++    , m_xOpenList(m_xBuilder->weld_tree_view(u"openlist"_ustr))
++    , m_xInfoName(m_xBuilder->weld_label(u"infoname"_ustr))
++    , m_xInfoType(m_xBuilder->weld_label(u"infotype"_ustr))
++    , m_xInfoPath(m_xBuilder->weld_label(u"infopath"_ustr))
++    , m_xInfoSize(m_xBuilder->weld_label(u"infosize"_ustr))
++    , m_xInfoCreated(m_xBuilder->weld_label(u"infocreated"_ustr))
++    , m_xInfoModified(m_xBuilder->weld_label(u"infomodified"_ustr))
++    , m_xInfoAuthor(m_xBuilder->weld_label(u"infoauthor"_ustr))
++    , m_xInfoSignature(m_xBuilder->weld_label(u"infosignature"_ustr))
++    , m_xInfoProperties(m_xBuilder->weld_button(u"infoproperties"_ustr))
++    , m_xInfoSign(m_xBuilder->weld_button(u"infosign"_ustr))
++    , m_xSaveAsFolder(m_xBuilder->weld_label(u"saveasfolder"_ustr))
++    , m_xFormatList(m_xBuilder->weld_tree_view(u"formatlist"_ustr))
++    , m_xSaveAsBrowse(m_xBuilder->weld_button(u"saveasbrowse"_ustr))
++    , m_pPendingSaveAs(nullptr)
++    , m_pPendingMenu(nullptr)
++{
++    SetPaintTransparent(false);
++    SetStyle(GetStyle() | WB_DIALOGCONTROL);
++
++    InitNavigation();
++    InitHomePage();
++
++    for (const auto& rId : { u"newtitle"_ustr, u"opentitle"_ustr, u"infotitle"_ustr,
++                             u"saveastitle"_ustr, u"createlabel"_ustr, u"openrecent"_ustr })
++        m_aTitles.push_back(m_xBuilder->weld_label(rId));
++
++    for (weld::TreeView* pList : { m_xRecentList.get(), m_xPinnedList.get(), m_xOpenList.get() })
++    {
++        pList->connect_item_activated(LINK(this, BackstageWindow, RecentActivatedHdl));
++        pList->connect_command(LINK(this, BackstageWindow, RecentCommandHdl));
++        pList->connect_query_tooltip(LINK(this, BackstageWindow, RecentTooltipHdl));
++        const int nWidth = pList->get_approximate_digit_width();
++        pList->set_column_fixed_widths({ nWidth * 4, nWidth * 40, nWidth * 46, nWidth * 18 });
++        pList->set_size_request(-1, pList->get_height_rows(6));
++    }
++    m_xFormatList->connect_item_activated(LINK(this, BackstageWindow, FormatActivatedHdl));
++    m_xFormatList->set_size_request(-1, m_xFormatList->get_height_rows(8));
++
++    m_xMoreTemplates->connect_activate_link(LINK(this, BackstageWindow, MoreTemplatesHdl));
++    for (weld::Button* pButton :
++         { m_xNewBlank.get(), m_xNewNd30.get(), m_xNewManage.get(), m_xOpenBrowse.get(),
++           m_xInfoProperties.get(), m_xInfoSign.get(), m_xSaveAsBrowse.get() })
++        pButton->connect_clicked(LINK(this, BackstageWindow, ButtonClickHdl));
++
++    m_xNewBlank->set_label(SfxResId(m_eApp == BackstageApp::Calc      ? STR_HST_BS_BLANK_CALC
++                                    : m_eApp == BackstageApp::Impress ? STR_HST_BS_BLANK_IMPRESS
++                                                                      : STR_HST_BS_BLANK_WRITER));
++    m_xNewNd30->set_label(SfxResId(STR_HST_BS_ND30));
++    m_xNewNd30->set_visible(m_eApp == BackstageApp::Writer);
++
++    ApplyColors();
++    ShowPage(Page::Home);
++
++    m_xParent->AddEventListener(LINK(this, BackstageWindow, ParentEventHdl));
++    m_xFrame->addEventListener(new FrameDisposeListener(this));
++}
++
++bool BackstageWindow::ShowsCurrentDocument() const { return m_eApp == lcl_detectApp(m_xFrame); }
++
++BackstageWindow::~BackstageWindow() { disposeOnce(); }
++
++void BackstageWindow::dispose()
++{
++    if (m_pPendingSaveAs)
++    {
++        Application::RemoveUserEvent(m_pPendingSaveAs);
++        m_pPendingSaveAs = nullptr;
++    }
++    if (m_pPendingMenu)
++    {
++        Application::RemoveUserEvent(m_pPendingMenu);
++        m_pPendingMenu = nullptr;
++    }
++    if (m_xParent)
++        m_xParent->RemoveEventListener(LINK(this, BackstageWindow, ParentEventHdl));
++    if (m_bRibbonHidden)
++        SetRibbonVisible(true);
++    m_xParent.reset();
++    m_xAccExec.reset();
++    m_aNav.clear();
++    m_aTiles.clear();
++    m_aTitles.clear();
++    m_xNavBox.reset();
++    m_xNavSeparator.reset();
++    m_xContent.reset();
++    m_xPageHome.reset();
++    m_xPageNew.reset();
++    m_xPageOpen.reset();
++    m_xPageInfo.reset();
++    m_xPageSaveAs.reset();
++    m_xGreeting.reset();
++    m_xMoreTemplates.reset();
++    m_xRecentTabs.reset();
++    m_xRecentList.reset();
++    m_xPinnedList.reset();
++    m_xRecentEmpty.reset();
++    m_xPinnedEmpty.reset();
++    m_xRecentMenu.reset();
++    m_xNewBlank.reset();
++    m_xNewNd30.reset();
++    m_xNewManage.reset();
++    m_xTemplateViewWin.reset();
++    m_xTemplateView.reset();
++    m_xOpenBrowse.reset();
++    m_xOpenList.reset();
++    m_xInfoName.reset();
++    m_xInfoType.reset();
++    m_xInfoPath.reset();
++    m_xInfoSize.reset();
++    m_xInfoCreated.reset();
++    m_xInfoModified.reset();
++    m_xInfoAuthor.reset();
++    m_xInfoSignature.reset();
++    m_xInfoProperties.reset();
++    m_xInfoSign.reset();
++    m_xSaveAsFolder.reset();
++    m_xFormatList.reset();
++    m_xSaveAsBrowse.reset();
++    m_xFrame.clear();
++    InterimItemWindow::dispose();
++}
++
++void BackstageWindow::InitNavigation()
++{
++    static constexpr std::pair<OUString, bool> aIds[]
++        = { { u"navback"_ustr, true },    { u"navhome"_ustr, false },  { u"navnew"_ustr, false },
++            { u"navopen"_ustr, false },   { u"navinfo"_ustr, false },  { u"navsave"_ustr, false },
++            { u"navsaveas"_ustr, false }, { u"navprint"_ustr, false }, { u"navpdf"_ustr, false },
++            { u"navsign"_ustr, false },   { u"navclose"_ustr, false }, { u"navabout"_ustr, false },
++            { u"navoptions"_ustr, false } };
++    for (const auto& [rId, bLarge] : aIds)
++    {
++        NavItem aItem;
++        aItem.aId = rId;
++        aItem.xButton = m_xBuilder->weld_button(rId);
++        aItem.bLarge = bLarge;
++        // the text is drawn into the custom button image (white on the application colour);
++        // the translated label stays the accessible name
++        aItem.aText = aItem.xButton->get_label();
++        if (!bLarge)
++            aItem.xButton->set_accessible_name(aItem.aText);
++        aItem.xButton->set_label(OUString());
++        aItem.xButton->connect_clicked(LINK(this, BackstageWindow, NavClickHdl));
++        m_aNav.push_back(std::move(aItem));
++    }
++}
++
++tools::Long BackstageWindow::GetNavWidth()
++{
++    if (m_nNavWidth)
++        return m_nNavWidth;
++    // wide enough for the longest item, at least 220 pixels like the design
++    m_nNavWidth = 220;
++    if (!m_aNav.empty())
++    {
++        ScopedVclPtr<VirtualDevice> xDev = m_aNav.front().xButton->create_virtual_device();
++        vcl::Font aFont(GetNavFont(false, *xDev));
++        aFont.SetWeight(WEIGHT_BOLD); // the selected item
++        xDev->SetFont(aFont);
++        for (const NavItem& rItem : m_aNav)
++            if (!rItem.bLarge)
++                m_nNavWidth = std::max(m_nNavWidth, xDev->GetTextWidth(rItem.aText) + 2 * NAV_TEXT_INDENT);
++    }
++    return m_nNavWidth;
++}
++
++vcl::Font BackstageWindow::GetNavFont(bool bLarge, const OutputDevice& rDevice) const
++{
++    // the style font height is in points, the virtual device draws in pixels
++    vcl::Font aFont(Application::GetSettings().GetStyleSettings().GetLabelFont());
++    const double fPixels = aFont.GetFontHeight() * rDevice.GetDPIY() / 72.0;
++    aFont.SetFontHeight(fPixels * (bLarge ? 1.8 : 1.15));
++    return aFont;
++}
++
++void BackstageWindow::PaintNavItem(size_t nIndex)
++{
++    NavItem& rItem = m_aNav[nIndex];
++    const bool bSelected = static_cast<int>(nIndex) == m_nSelectedNav;
++    const tools::Long nWidth = GetNavWidth();
++    ScopedVclPtr<VirtualDevice> xDev = rItem.xButton->create_virtual_device();
++    xDev->SetOutputSizePixel(Size(nWidth, NAV_ITEM_HEIGHT));
++    Color aBack(m_aNavColor);
++    if (bSelected)
++        aBack.Merge(COL_WHITE, 210); // about 18 % white over the application colour
++    xDev->SetBackground(Wallpaper(aBack));
++    xDev->Erase();
++    vcl::Font aFont(GetNavFont(rItem.bLarge, *xDev));
++    if (bSelected)
++        aFont.SetWeight(WEIGHT_BOLD);
++    aFont.SetColor(COL_WHITE);
++    xDev->SetFont(aFont);
++    xDev->SetTextColor(COL_WHITE);
++    const tools::Long nTextY = (NAV_ITEM_HEIGHT - xDev->GetTextHeight()) / 2;
++    xDev->DrawText(Point(NAV_TEXT_INDENT, nTextY), rItem.aText);
++    rItem.xButton->set_size_request(nWidth, NAV_ITEM_HEIGHT);
++    rItem.xButton->set_custom_button(xDev.get());
++}
++
++void BackstageWindow::PaintNavItems()
++{
++    for (size_t i = 0; i < m_aNav.size(); ++i)
++        PaintNavItem(i);
++}
++
++void BackstageWindow::ApplyColors()
++{
++    const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
++    m_xNavBox->set_background(m_aNavColor);
++    Color aSeparator(m_aNavColor);
++    aSeparator.Merge(COL_WHITE, 190);
++    m_xNavSeparator->set_background(aSeparator);
++    m_xContent->set_background(rStyle.GetWindowColor());
++    SetBackground(rStyle.GetWindowColor());
++    PaintNavItems();
++
++    vcl::Font aTitle(rStyle.GetLabelFont());
++    aTitle.SetFontHeight(aTitle.GetFontHeight() * 2.2);
++    aTitle.SetWeight(WEIGHT_SEMIBOLD);
++    m_xGreeting->set_font(aTitle);
++    for (size_t i = 0; i < m_aTitles.size(); ++i)
++    {
++        vcl::Font aFont(rStyle.GetLabelFont());
++        // the first four are page titles, the others section headings
++        aFont.SetFontHeight(aFont.GetFontHeight() * (i < 4 ? 2.2 : 1.1));
++        aFont.SetWeight(i < 4 ? WEIGHT_SEMIBOLD : WEIGHT_BOLD);
++        m_aTitles[i]->set_font(aFont);
++    }
++    for (TemplateTile& rTile : m_aTiles)
++        if (!rTile.aTarget.isEmpty())
++            PaintTile(rTile);
++}
++
++void BackstageWindow::PaintTile(TemplateTile& rTile)
++{
++    ScopedVclPtr<VirtualDevice> xDev = rTile.xButton->create_virtual_device();
++    lcl_paintTile(*xDev, rTile.bNd30, rTile.bBlank);
++    rTile.xButton->set_image(xDev.get());
++}
++
++void BackstageWindow::InitHomePage()
++{
++    std::vector<BackstageTemplate> aTemplates = GetNewDocumentChoices(m_eApp);
++    for (size_t i = 0; i < 5; ++i)
++    {
++        TemplateTile aTile;
++        aTile.xBox = m_xBuilder->weld_container(u"tilebox"_ustr + OUString::number(i));
++        aTile.xButton = m_xBuilder->weld_button(u"tile"_ustr + OUString::number(i));
++        aTile.xLabel = m_xBuilder->weld_label(u"tilelabel"_ustr + OUString::number(i));
++        if (i >= aTemplates.size())
++        {
++            aTile.xBox->hide();
++            m_aTiles.push_back(std::move(aTile));
++            continue;
++        }
++        const BackstageTemplate& rTemplate = aTemplates[i];
++        aTile.aTarget = rTemplate.aTarget;
++        aTile.eKind = rTemplate.eKind;
++        aTile.bBlank = rTemplate.eKind == BackstageTemplate::Kind::Factory;
++        aTile.bNd30 = rTemplate.eKind == BackstageTemplate::Kind::Command;
++        aTile.xLabel->set_label(rTemplate.aTitle);
++        aTile.xButton->set_accessible_name(rTemplate.aTitle);
++        aTile.xButton->set_tooltip_text(rTemplate.aTitle);
++        aTile.xButton->connect_clicked(LINK(this, BackstageWindow, TileClickHdl));
++        m_aTiles.push_back(std::move(aTile));
++    }
++}
++
++void BackstageWindow::InitNewPage()
++{
++    if (m_bNewPageInitialized)
++        return;
++    m_bNewPageInitialized = true;
++    m_xTemplateView.reset(new TemplateDefaultView(m_xBuilder->weld_scrolled_window(u"scrolllocal"_ustr, true),
++                                                  m_xBuilder->weld_menu(u"localmenu"_ustr)));
++    m_xTemplateViewWin.reset(new weld::CustomWeld(*m_xBuilder, u"local_view"_ustr, *m_xTemplateView));
++    m_xTemplateView->setOpenTemplateHdl(LINK(this, BackstageWindow, OpenTemplateHdl));
++    m_xTemplateView->ShowTooltips(true);
++    m_xTemplateView->Populate();
++    const FILTER_APPLICATION eFilter = m_eApp == BackstageApp::Writer    ? FILTER_APPLICATION::WRITER
++                                       : m_eApp == BackstageApp::Calc    ? FILTER_APPLICATION::CALC
++                                       : m_eApp == BackstageApp::Impress ? FILTER_APPLICATION::IMPRESS
++                                                                         : FILTER_APPLICATION::DRAW;
++    m_xTemplateView->filterItems(ViewFilter_Application(eFilter));
++    m_xTemplateView->showAllTemplates();
++}
++
++void BackstageWindow::ShowPage(Page ePage)
++{
++    m_ePage = ePage;
++    m_xPageHome->set_visible(ePage == Page::Home);
++    m_xPageNew->set_visible(ePage == Page::New);
++    m_xPageOpen->set_visible(ePage == Page::Open);
++    m_xPageInfo->set_visible(ePage == Page::Info);
++    m_xPageSaveAs->set_visible(ePage == Page::SaveAs);
++
++    const OUString aNavId = ePage == Page::Home     ? u"navhome"_ustr
++                            : ePage == Page::New    ? u"navnew"_ustr
++                            : ePage == Page::Open   ? u"navopen"_ustr
++                            : ePage == Page::Info   ? u"navinfo"_ustr
++                                                    : u"navsaveas"_ustr;
++    const int nOld = m_nSelectedNav;
++    for (size_t i = 0; i < m_aNav.size(); ++i)
++        if (m_aNav[i].aId == aNavId)
++            m_nSelectedNav = i;
++    if (nOld != m_nSelectedNav)
++    {
++        if (nOld >= 0 && o3tl::make_unsigned(nOld) < m_aNav.size())
++            PaintNavItem(nOld);
++        PaintNavItem(m_nSelectedNav);
++    }
++
++    if (ePage == Page::New)
++        InitNewPage();
++    else if (ePage == Page::Info)
++        FillInfoPage();
++    else if (ePage == Page::SaveAs)
++        FillSaveAsPage();
++}
++
++void BackstageWindow::FillRecentLists()
++{
++    std::vector<BackstageRecentFile> aFiles = GetRecentFiles();
++    FillRecentList(*m_xRecentList, aFiles, false);
++    FillRecentList(*m_xPinnedList, aFiles, true);
++    FillRecentList(*m_xOpenList, aFiles, false);
++
++    m_xRecentEmpty->set_label(SfxResId(STR_HST_BS_NO_RECENT));
++    m_xRecentEmpty->set_visible(m_xRecentList->n_children() == 0);
++    m_xPinnedEmpty->set_label(SfxResId(STR_HST_BS_NO_PINNED));
++    m_xPinnedEmpty->set_visible(m_xPinnedList->n_children() == 0);
++}
++
++void BackstageWindow::FillRecentList(weld::TreeView& rList,
++                                     const std::vector<BackstageRecentFile>& rFiles, bool bPinnedOnly)
++{
++    rList.freeze();
++    rList.clear();
++    for (const BackstageRecentFile& rFile : rFiles)
++    {
++        if (bPinnedOnly && !rFile.bPinned)
++            continue;
++        rList.insert(-1, rFile.aName, &rFile.aURL, &rFile.aIcon, nullptr);
++        const int nRow = rList.n_children() - 1;
++        rList.set_text(nRow, rFile.aLocation, 2);
++        rList.set_text(nRow, rFile.aDate, 3);
++        if (rFile.bPinned)
++            rList.set_image(nRow, u"res/recentdoc_pin.png"_ustr, 4);
++    }
++    rList.thaw();
++}
++
++void BackstageWindow::FillInfoPage()
++{
++    BackstageDocumentInfo aInfo = GetDocumentInfo(m_xFrame);
++    m_xInfoName->set_label(aInfo.aName);
++    m_xInfoType->set_label(aInfo.aType);
++    m_xInfoPath->set_label(aInfo.aFolder.isEmpty() ? SfxResId(STR_HST_BS_NOT_SAVED) : aInfo.aFolder);
++    m_xInfoSize->set_label(aInfo.aSize);
++    m_xInfoCreated->set_label(aInfo.aCreated);
++    m_xInfoModified->set_label(aInfo.aModified);
++    m_xInfoAuthor->set_label(aInfo.aAuthor);
++    m_xInfoSignature->set_label(aInfo.aSignature);
++}
++
++void BackstageWindow::FillSaveAsPage()
++{
++    BackstageDocumentInfo aInfo = GetDocumentInfo(m_xFrame, false);
++    m_xSaveAsFolder->set_label(
++        SfxResId(STR_HST_BS_SAVEAS_FOLDER)
++            .replaceFirst("%1", aInfo.aFolder.isEmpty() ? SfxResId(STR_HST_BS_NOT_SAVED) : aInfo.aFolder));
++    m_xFormatList->freeze();
++    m_xFormatList->clear();
++    for (const BackstageFormat& rFormat : GetSaveFormats(m_eApp))
++        m_xFormatList->append(rFormat.aFilterName, rFormat.aLabel);
++    m_xFormatList->thaw();
++    if (m_xFormatList->n_children())
++        m_xFormatList->select(0);
++}
++
++void BackstageWindow::LayoutToParent()
++{
++    if (!m_xParent)
++        return;
++    SetPosSizePixel(Point(0, 0), m_xParent->GetOutputSizePixel());
++}
++
++void BackstageWindow::SetRibbonVisible(bool bVisible)
++{
++    SystemWindow* pSysWin = m_xParent ? m_xParent->GetSystemWindow() : nullptr;
++    if (!pSysWin)
++        return;
++    const VclPtr<NotebookBar>& pNotebookBar = pSysWin->GetNotebookBar();
++    if (!pNotebookBar)
++        return;
++    if (bVisible && m_bRibbonHidden)
++    {
++        m_bRibbonHidden = false;
++        pNotebookBar->Show();
++        pNotebookBar->GetParent()->Resize();
++    }
++    else if (!bVisible && pNotebookBar->IsVisible())
++    {
++        m_bRibbonHidden = true;
++        pNotebookBar->Hide();
++        pNotebookBar->GetParent()->Resize();
++    }
++}
++
++void BackstageWindow::Open()
++{
++    if (m_bOpen)
++        return;
++    m_bOpen = true;
++
++    const int nHour = GetCurrentHour();
++    m_xGreeting->set_label(SfxResId(nHour < 12   ? STR_HST_BS_MORNING
++                                    : nHour < 18 ? STR_HST_BS_AFTERNOON
++                                                 : STR_HST_BS_EVENING));
++    FillRecentLists();
++    ShowPage(Page::Home);
++    m_xRecentTabs->set_current_page(0);
++
++    SetRibbonVisible(false);
++    LayoutToParent();
++    SetZOrder(nullptr, ZOrderFlags::First);
++    Show();
++    m_aNav[m_nSelectedNav].xButton->grab_focus();
++}
++
++void BackstageWindow::Close()
++{
++    if (!m_bOpen)
++        return;
++    m_bOpen = false;
++    Hide();
++    SetRibbonVisible(true);
++    // focus back to the document
++    for (SfxViewFrame* pFrame = SfxViewFrame::GetFirst(); pFrame; pFrame = SfxViewFrame::GetNext(*pFrame))
++    {
++        if (pFrame->GetFrame().GetFrameInterface() == m_xFrame)
++        {
++            if (SfxViewShell* pShell = pFrame->GetViewShell())
++                if (vcl::Window* pWin = pShell->GetWindow())
++                    pWin->GrabFocus();
++            break;
++        }
++    }
++}
++
++void BackstageWindow::CloseAndDispatch(const OUString& rCommand,
++                                       const uno::Sequence<beans::PropertyValue>& rArgs)
++{
++    uno::Reference<frame::XDispatchProvider> xProvider(m_xFrame, uno::UNO_QUERY);
++    Close();
++    lcl_dispatchAsync(xProvider, rCommand, OUString(), rArgs);
++}
++
++void BackstageWindow::OpenDocumentURL(const OUString& rURL, bool bAsTemplate)
++{
++    uno::Sequence<beans::PropertyValue> aArgs{
++        comphelper::makePropertyValue(u"Referer"_ustr, u"private:user"_ustr),
++        comphelper::makePropertyValue(u"AsTemplate"_ustr, bAsTemplate)
++    };
++    if (bAsTemplate)
++    {
++        aArgs = { comphelper::makePropertyValue(u"Referer"_ustr, u"private:user"_ustr),
++                  comphelper::makePropertyValue(u"AsTemplate"_ustr, true),
++                  comphelper::makePropertyValue(u"MacroExecutionMode"_ustr,
++                                                document::MacroExecMode::USE_CONFIG),
++                  comphelper::makePropertyValue(u"UpdateDocMode"_ustr,
++                                                document::UpdateDocMode::ACCORDING_TO_CONFIG) };
++    }
++    uno::Reference<frame::XDispatchProvider> xDesktop(
++        frame::Desktop::create(comphelper::getProcessComponentContext()), uno::UNO_QUERY);
++    Close();
++    lcl_dispatchAsync(xDesktop, rURL, u"_default"_ustr, aArgs);
++}
++
++void BackstageWindow::FocusNavItem(int nDelta)
++{
++    int nFocused = -1;
++    for (size_t i = 0; i < m_aNav.size(); ++i)
++        if (m_aNav[i].xButton->has_focus())
++            nFocused = i;
++    if (nFocused < 0)
++        return;
++    const int nCount = m_aNav.size();
++    int nNext = nDelta == INT_MIN ? 0 : nDelta == INT_MAX ? nCount - 1 : nFocused + nDelta;
++    nNext = std::clamp(nNext, 0, nCount - 1);
++    m_aNav[nNext].xButton->grab_focus();
++}
++
++bool BackstageWindow::IsNavFocused() const
++{
++    return std::any_of(m_aNav.begin(), m_aNav.end(),
++                       [](const NavItem& rItem) { return rItem.xButton->has_focus(); });
++}
++
++bool BackstageWindow::PreNotify(NotifyEvent& rNEvt)
++{
++    if (m_bOpen && rNEvt.GetType() == NotifyEventType::KEYINPUT)
++    {
++        const vcl::KeyCode& rKey = rNEvt.GetKeyEvent()->GetKeyCode();
++        const sal_uInt16 nCode = rKey.GetCode();
++        if (nCode == KEY_ESCAPE && !rKey.GetModifier())
++        {
++            Close();
++            return true;
++        }
++        if (!rKey.GetModifier() && IsNavFocused())
++        {
++            switch (nCode)
++            {
++                case KEY_UP:
++                    FocusNavItem(-1);
++                    return true;
++                case KEY_DOWN:
++                    FocusNavItem(1);
++                    return true;
++                case KEY_HOME:
++                    FocusNavItem(INT_MIN);
++                    return true;
++                case KEY_END:
++                    FocusNavItem(INT_MAX);
++                    return true;
++                case KEY_RIGHT:
++                {
++                    // into the page: the first tile on Home, else the page's first control
++                    if (m_ePage == Page::Home && !m_aTiles.empty())
++                        m_aTiles.front().xButton->grab_focus();
++                    else if (m_ePage == Page::Open)
++                        m_xOpenBrowse->grab_focus();
++                    else if (m_ePage == Page::SaveAs)
++                        m_xFormatList->grab_focus();
++                    else if (m_ePage == Page::Info)
++                        m_xInfoProperties->grab_focus();
++                    else if (m_ePage == Page::New)
++                        m_xNewBlank->grab_focus();
++                    return true;
++                }
++                default:
++                    break;
++            }
++        }
++        // tiles: left/right move between them, left from the first goes back to the navigation
++        if (!rKey.GetModifier() && (nCode == KEY_LEFT || nCode == KEY_RIGHT))
++        {
++            for (size_t i = 0; i < m_aTiles.size(); ++i)
++            {
++                if (!m_aTiles[i].xButton->has_focus())
++                    continue;
++                if (nCode == KEY_LEFT && i == 0)
++                    m_aNav[m_nSelectedNav].xButton->grab_focus();
++                else if (nCode == KEY_LEFT)
++                    m_aTiles[i - 1].xButton->grab_focus();
++                else if (i + 1 < m_aTiles.size() && m_aTiles[i + 1].xButton->get_visible())
++                    m_aTiles[i + 1].xButton->grab_focus();
++                return true;
++            }
++        }
++
++        // the frame's shortcuts (Alt+F closes this view, Ctrl+S saves, Ctrl+P prints...)
++        if (!m_xAccExec)
++        {
++            m_xAccExec = svt::AcceleratorExecute::createAcceleratorHelper();
++            m_xAccExec->init(comphelper::getProcessComponentContext(), m_xFrame);
++        }
++        const OUString aCommand
++            = m_xAccExec->findCommand(svt::AcceleratorExecute::st_VCLKey2AWTKey(rKey));
++        if (!aCommand.isEmpty() && rKey.GetModifier())
++        {
++            if (aCommand == BACKSTAGE_COMMAND)
++                Close();
++            else
++                CloseAndDispatch(aCommand);
++            return true;
++        }
++    }
++    return InterimItemWindow::PreNotify(rNEvt);
++}
++
++void BackstageWindow::DataChanged(const DataChangedEvent& rDCEvt)
++{
++    InterimItemWindow::DataChanged(rDCEvt);
++    if (rDCEvt.GetType() == DataChangedEventType::SETTINGS
++        && (rDCEvt.GetFlags() & AllSettingsFlags::STYLE))
++        ApplyColors();
++}
++
++IMPL_LINK(BackstageWindow, NavClickHdl, weld::Button&, rButton, void)
++{
++    OUString aId;
++    for (const NavItem& rItem : m_aNav)
++        if (rItem.xButton.get() == &rButton)
++            aId = rItem.aId;
++
++    if (aId == "navback")
++        Close();
++    else if (aId == "navhome")
++        ShowPage(Page::Home);
++    else if (aId == "navnew")
++        ShowPage(Page::New);
++    else if (aId == "navopen")
++        ShowPage(Page::Open);
++    else if (aId == "navinfo")
++        ShowPage(Page::Info);
++    else if (aId == "navsaveas")
++        ShowPage(Page::SaveAs);
++    else if (aId == "navsave")
++        CloseAndDispatch(u".uno:Save"_ustr);
++    else if (aId == "navprint")
++        CloseAndDispatch(u".uno:Print"_ustr);
++    else if (aId == "navpdf")
++        CloseAndDispatch(u".uno:ExportToPDF"_ustr);
++    else if (aId == "navsign")
++        CloseAndDispatch(u".uno:Signature"_ustr);
++    else if (aId == "navclose")
++        CloseAndDispatch(u".uno:CloseDoc"_ustr);
++    else if (aId == "navabout")
++        CloseAndDispatch(u".uno:About"_ustr);
++    else if (aId == "navoptions")
++        CloseAndDispatch(u".uno:OptionsTreeDialog"_ustr);
++}
++
++IMPL_LINK(BackstageWindow, TileClickHdl, weld::Button&, rButton, void)
++{
++    for (const TemplateTile& rTile : m_aTiles)
++    {
++        if (rTile.xButton.get() != &rButton)
++            continue;
++        if (rTile.eKind == BackstageTemplate::Kind::Command)
++            CloseAndDispatch(rTile.aTarget);
++        else
++            OpenDocumentURL(rTile.aTarget, rTile.eKind == BackstageTemplate::Kind::Template);
++        return;
++    }
++}
++
++IMPL_LINK_NOARG(BackstageWindow, MoreTemplatesHdl, weld::LinkButton&, bool)
++{
++    CloseAndDispatch(u".uno:NewDoc"_ustr);
++    return true;
++}
++
++IMPL_LINK(BackstageWindow, ButtonClickHdl, weld::Button&, rButton, void)
++{
++    if (&rButton == m_xNewBlank.get())
++        OpenDocumentURL(GetFactoryURL(m_eApp), false);
++    else if (&rButton == m_xNewNd30.get())
++        CloseAndDispatch(ND30_COMMAND);
++    else if (&rButton == m_xNewManage.get())
++        CloseAndDispatch(u".uno:NewDoc"_ustr);
++    else if (&rButton == m_xOpenBrowse.get())
++        CloseAndDispatch(u".uno:Open"_ustr);
++    else if (&rButton == m_xInfoProperties.get())
++        CloseAndDispatch(u".uno:SetDocumentProperties"_ustr);
++    else if (&rButton == m_xInfoSign.get())
++        CloseAndDispatch(u".uno:Signature"_ustr);
++    else if (&rButton == m_xSaveAsBrowse.get())
++        CloseAndDispatch(u".uno:SaveAs"_ustr);
++}
++
++IMPL_LINK(BackstageWindow, RecentActivatedHdl, const weld::TreeIter&, rIter, bool)
++{
++    for (weld::TreeView* pList : { m_xRecentList.get(), m_xPinnedList.get(), m_xOpenList.get() })
++    {
++        if (pList->get_visible() && pList->has_focus())
++        {
++            OpenDocumentURL(pList->get_id(rIter), false);
++            return true;
++        }
++    }
++    // activation by double click without focus change: use the selected row of the visible list
++    weld::TreeView* pList = m_ePage == Page::Open ? m_xOpenList.get()
++                            : m_xRecentTabs->get_current_page() == 1 ? m_xPinnedList.get()
++                                                                     : m_xRecentList.get();
++    OpenDocumentURL(pList->get_id(rIter), false);
++    return true;
++}
++
++weld::TreeView* BackstageWindow::GetActiveRecentList() const
++{
++    for (weld::TreeView* pList : { m_xRecentList.get(), m_xPinnedList.get(), m_xOpenList.get() })
++        if (pList->get_visible() && pList->has_focus())
++            return pList;
++    return m_ePage == Page::Open                 ? m_xOpenList.get()
++           : m_xRecentTabs->get_current_page() == 1 ? m_xPinnedList.get()
++                                                    : m_xRecentList.get();
++}
++
++void BackstageWindow::ShowRecentMenu(weld::TreeView& rList, const weld::TreeIter& rIter,
++                                     const tools::Rectangle& rRect)
++{
++    const OUString aURL = rList.get_id(rIter);
++    bool bPinned = false;
++    for (const BackstageRecentFile& rFile : GetRecentFiles())
++        if (rFile.aURL == aURL)
++            bPinned = rFile.bPinned;
++    m_xRecentMenu->set_visible(u"menupin"_ustr, !bPinned);
++    m_xRecentMenu->set_visible(u"menuunpin"_ustr, bPinned);
++
++    const OUString aAction = m_xRecentMenu->popup_at_rect(&rList, rRect);
++    if (aAction == "menuopen")
++        OpenDocumentURL(aURL, false);
++    else if (aAction == "menupin" || aAction == "menuunpin")
++    {
++        SvtHistoryOptions::TogglePinItem(EHistoryType::PickList, aURL);
++        FillRecentLists();
++    }
++    else if (aAction == "menuremove")
++    {
++        SvtHistoryOptions::DeleteItem(EHistoryType::PickList, aURL, false);
++        FillRecentLists();
++    }
++}
++
++IMPL_LINK(BackstageWindow, RecentCommandHdl, const CommandEvent&, rCEvt, bool)
++{
++    if (rCEvt.GetCommand() != CommandEventId::ContextMenu)
++        return false;
++    if (rCEvt.IsMouseEvent())
++    {
++        // this runs before the list's own handling of the press, which selects the clicked row:
++        // not handled here, the menu opens right after for the row selected by then
++        m_aPendingMenuPos = rCEvt.GetMousePosPixel();
++        if (m_pPendingMenu)
++            Application::RemoveUserEvent(m_pPendingMenu);
++        m_pPendingMenu = Application::PostUserEvent(LINK(this, BackstageWindow, RecentMenuHdl));
++        return false;
++    }
++    weld::TreeView* pList = GetActiveRecentList();
++    std::unique_ptr<weld::TreeIter> xIter = pList->get_cursor();
++    if (!xIter)
++        return false;
++    ShowRecentMenu(*pList, *xIter, pList->get_row_area(*xIter));
++    return true;
++}
++
++IMPL_LINK_NOARG(BackstageWindow, RecentMenuHdl, void*, void)
++{
++    m_pPendingMenu = nullptr;
++    weld::TreeView* pList = GetActiveRecentList();
++    std::unique_ptr<weld::TreeIter> xIter = pList->get_selected();
++    if (xIter)
++        ShowRecentMenu(*pList, *xIter, tools::Rectangle(m_aPendingMenuPos, Size(1, 1)));
++}
++
++IMPL_LINK(BackstageWindow, RecentTooltipHdl, const weld::TreeIter&, rIter, OUString)
++{
++    for (weld::TreeView* pList : { m_xRecentList.get(), m_xPinnedList.get(), m_xOpenList.get() })
++        if (pList->get_visible())
++        {
++            const OUString aURL = pList->get_id(rIter);
++            return GetDisplayPath(aURL);
++        }
++    return OUString();
++}
++
++IMPL_LINK(BackstageWindow, FormatActivatedHdl, const weld::TreeIter&, rIter, bool)
++{
++    m_aPendingFilter = m_xFormatList->get_id(rIter);
++    Close();
++    if (m_pPendingSaveAs)
++        Application::RemoveUserEvent(m_pPendingSaveAs);
++    m_pPendingSaveAs = Application::PostUserEvent(LINK(this, BackstageWindow, SaveAsFormatHdl));
++    return true;
++}
++
++IMPL_LINK_NOARG(BackstageWindow, SaveAsFormatHdl, void*, void)
++{
++    m_pPendingSaveAs = nullptr;
++    const OUString aFilterName = m_aPendingFilter;
++    std::shared_ptr<const SfxFilter> pFilter = SfxFilter::GetFilterByName(aFilterName);
++    if (!pFilter || !m_xFrame.is())
++        return;
++
++    BackstageDocumentInfo aInfo = GetDocumentInfo(m_xFrame, false);
++    const OUString aExtension = pFilter->GetDefaultExtension().replaceFirst("*.", "");
++    sfx2::FileDialogHelper aDialog(ui::dialogs::TemplateDescription::FILESAVE_AUTOEXTENSION,
++                                   FileDialogFlags::NONE, GetFrameWeld());
++    aDialog.AddFilter(pFilter->GetUIName(), pFilter->GetWildcard().getGlob());
++    aDialog.SetCurrentFilter(pFilter->GetUIName());
++    if (!aInfo.aFolderURL.isEmpty())
++        aDialog.SetDisplayFolder(aInfo.aFolderURL);
++    aDialog.SetFileName(aInfo.aBaseName + "." + aExtension);
++    if (aDialog.Execute() != ERRCODE_NONE)
++        return;
++
++    uno::Reference<frame::XDispatchProvider> xProvider(m_xFrame, uno::UNO_QUERY);
++    lcl_dispatchAsync(xProvider, u".uno:SaveAs"_ustr, OUString(),
++                      { comphelper::makePropertyValue(u"URL"_ustr, aDialog.GetPath()),
++                        comphelper::makePropertyValue(u"FilterName"_ustr, aFilterName) });
++}
++
++IMPL_LINK(BackstageWindow, OpenTemplateHdl, const OUString&, rTemplateURL, void)
++{
++    OpenDocumentURL(rTemplateURL, true);
++}
++
++IMPL_LINK(BackstageWindow, ParentEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++    {
++        // normally gone already (FrameDisposeListener); nothing may touch the dying parent
++        m_xParent->RemoveEventListener(LINK(this, BackstageWindow, ParentEventHdl));
++        m_bRibbonHidden = false;
++        m_xParent.reset();
++    }
++    else if (rEvent.GetId() == VclEventId::WindowResize && m_bOpen)
++        LayoutToParent();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -0,0 +1,199 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include "hstbackstagedata.hxx"
++
++#include <memory>
++#include <vector>
++
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/frame/XFrame.hpp>
++#include <svtools/acceleratorexecute.hxx>
++#include <tools/color.hxx>
++#include <vcl/InterimItemWindow.hxx>
++#include <vcl/font.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/Button.hxx>
++#include <vcl/weld/Container.hxx>
++#include <vcl/weld/Label.hxx>
++#include <vcl/weld/LinkButton.hxx>
++#include <vcl/weld/Menu.hxx>
++#include <vcl/weld/Notebook.hxx>
++#include <vcl/weld/TreeView.hxx>
++#include <vcl/weld/customweld.hxx>
++
++class TemplateDefaultView;
++class VclWindowEvent;
++struct ImplSVEvent;
++
++namespace sfx2::hst
++{
++/* HST Office: full-window File view (backstage) of one document frame.
++
++   A child of the frame's container window that covers its whole client area; the ribbon is
++   hidden while it is shown. Left: navigation in the application colour; right: the page of the
++   selected navigation item. Commands are dispatched to the frame after the view is closed. */
++class BackstageWindow final : public InterimItemWindow
++{
++public:
++    BackstageWindow(vcl::Window* pParent, css::uno::Reference<css::frame::XFrame> xFrame);
++    virtual ~BackstageWindow() override;
++    virtual void dispose() override;
++
++    /// Refresh the data (recent files) and show the window over the frame.
++    void Open();
++    /// Hide the window, show the ribbon again and give the focus back to the document.
++    void Close();
++    bool IsOpen() const { return m_bOpen; }
++    /// False when the frame now holds a document of another application (a reused frame).
++    bool ShowsCurrentDocument() const;
++    const css::uno::Reference<css::frame::XFrame>& GetFrame() const { return m_xFrame; }
++
++    virtual bool PreNotify(NotifyEvent& rNEvt) override;
++    virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
++
++private:
++    enum class Page
++    {
++        Home,
++        New,
++        Open,
++        Info,
++        SaveAs
++    };
++
++    struct NavItem
++    {
++        OUString aId;
++        std::unique_ptr<weld::Button> xButton;
++        OUString aText;
++        bool bLarge = false; // the back arrow
++    };
++
++    struct TemplateTile
++    {
++        std::unique_ptr<weld::Container> xBox;
++        std::unique_ptr<weld::Button> xButton;
++        std::unique_ptr<weld::Label> xLabel;
++        OUString aTarget; // private:factory/..., a command or a template URL
++        BackstageTemplate::Kind eKind = BackstageTemplate::Kind::Factory;
++        bool bBlank = false;
++        bool bNd30 = false;
++    };
++
++    void InitNavigation();
++    void InitHomePage();
++    void PaintTile(TemplateTile& rTile);
++    void InitNewPage();
++    void ApplyColors();
++    tools::Long GetNavWidth();
++    vcl::Font GetNavFont(bool bLarge, const OutputDevice& rDevice) const;
++    void PaintNavItem(size_t nIndex);
++    void PaintNavItems();
++    void ShowPage(Page ePage);
++    void FillRecentLists();
++    static void FillRecentList(weld::TreeView& rList, const std::vector<BackstageRecentFile>& rFiles,
++                               bool bPinnedOnly);
++    void FillInfoPage();
++    void FillSaveAsPage();
++    void LayoutToParent();
++    void SetRibbonVisible(bool bVisible);
++    void FocusNavItem(int nDelta);
++    bool IsNavFocused() const;
++    weld::TreeView* GetActiveRecentList() const;
++    void ShowRecentMenu(weld::TreeView& rList, const weld::TreeIter& rIter,
++                        const tools::Rectangle& rRect);
++
++    /// Close the view, then dispatch rCommand to the frame (asynchronously).
++    void CloseAndDispatch(const OUString& rCommand,
++                          const css::uno::Sequence<css::beans::PropertyValue>& rArgs = {});
++    /// Close the view, then load rURL (a document, a template or private:factory/...).
++    void OpenDocumentURL(const OUString& rURL, bool bAsTemplate);
++
++    DECL_LINK(NavClickHdl, weld::Button&, void);
++    DECL_LINK(TileClickHdl, weld::Button&, void);
++    DECL_LINK(MoreTemplatesHdl, weld::LinkButton&, bool);
++    DECL_LINK(ButtonClickHdl, weld::Button&, void);
++    DECL_LINK(RecentActivatedHdl, const weld::TreeIter&, bool);
++    DECL_LINK(RecentCommandHdl, const CommandEvent&, bool);
++    DECL_LINK(RecentMenuHdl, void*, void);
++    DECL_LINK(RecentTooltipHdl, const weld::TreeIter&, OUString);
++    DECL_LINK(FormatActivatedHdl, const weld::TreeIter&, bool);
++    DECL_LINK(SaveAsFormatHdl, void*, void);
++    DECL_LINK(OpenTemplateHdl, const OUString&, void);
++    DECL_LINK(ParentEventHdl, VclWindowEvent&, void);
++
++    css::uno::Reference<css::frame::XFrame> m_xFrame;
++    VclPtr<vcl::Window> m_xParent;
++    BackstageApp m_eApp;
++    Color m_aNavColor;
++    Page m_ePage;
++    bool m_bOpen;
++    bool m_bNewPageInitialized;
++    bool m_bRibbonHidden;
++    int m_nSelectedNav;
++    tools::Long m_nNavWidth;
++    std::unique_ptr<svt::AcceleratorExecute> m_xAccExec;
++
++    std::unique_ptr<weld::Container> m_xNavBox;
++    std::unique_ptr<weld::Container> m_xNavSeparator;
++    std::unique_ptr<weld::Container> m_xContent;
++    std::vector<NavItem> m_aNav;
++
++    std::unique_ptr<weld::Container> m_xPageHome;
++    std::unique_ptr<weld::Container> m_xPageNew;
++    std::unique_ptr<weld::Container> m_xPageOpen;
++    std::unique_ptr<weld::Container> m_xPageInfo;
++    std::unique_ptr<weld::Container> m_xPageSaveAs;
++
++    std::unique_ptr<weld::Label> m_xGreeting;
++    std::vector<TemplateTile> m_aTiles;
++    std::unique_ptr<weld::LinkButton> m_xMoreTemplates;
++    std::unique_ptr<weld::Notebook> m_xRecentTabs;
++    std::unique_ptr<weld::TreeView> m_xRecentList;
++    std::unique_ptr<weld::TreeView> m_xPinnedList;
++    std::unique_ptr<weld::Label> m_xRecentEmpty;
++    std::unique_ptr<weld::Label> m_xPinnedEmpty;
++    std::unique_ptr<weld::Menu> m_xRecentMenu;
++
++    std::unique_ptr<weld::Button> m_xNewBlank;
++    std::unique_ptr<weld::Button> m_xNewNd30;
++    std::unique_ptr<weld::Button> m_xNewManage;
++    std::unique_ptr<TemplateDefaultView> m_xTemplateView;
++    std::unique_ptr<weld::CustomWeld> m_xTemplateViewWin;
++
++    std::unique_ptr<weld::Button> m_xOpenBrowse;
++    std::unique_ptr<weld::TreeView> m_xOpenList;
++
++    std::unique_ptr<weld::Label> m_xInfoName;
++    std::unique_ptr<weld::Label> m_xInfoType;
++    std::unique_ptr<weld::Label> m_xInfoPath;
++    std::unique_ptr<weld::Label> m_xInfoSize;
++    std::unique_ptr<weld::Label> m_xInfoCreated;
++    std::unique_ptr<weld::Label> m_xInfoModified;
++    std::unique_ptr<weld::Label> m_xInfoAuthor;
++    std::unique_ptr<weld::Label> m_xInfoSignature;
++    std::unique_ptr<weld::Button> m_xInfoProperties;
++    std::unique_ptr<weld::Button> m_xInfoSign;
++
++    std::unique_ptr<weld::Label> m_xSaveAsFolder;
++    std::unique_ptr<weld::TreeView> m_xFormatList;
++    std::unique_ptr<weld::Button> m_xSaveAsBrowse;
++    OUString m_aPendingFilter;
++    ImplSVEvent* m_pPendingSaveAs;
++    ImplSVEvent* m_pPendingMenu;
++    Point m_aPendingMenuPos;
++
++    std::vector<std::unique_ptr<weld::Label>> m_aTitles;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -0,0 +1,1652 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- HST Office: full-window File view (backstage), see sfx2/source/backstage/hstbackstagewindow.cxx -->
++<interface domain="sfx">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkImage" id="tileimg0">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++  </object>
++  <object class="GtkImage" id="tileimg1">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++  </object>
++  <object class="GtkImage" id="tileimg2">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++  </object>
++  <object class="GtkImage" id="tileimg3">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++  </object>
++  <object class="GtkImage" id="tileimg4">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++  </object>
++  <object class="GtkListStore" id="recentstore">
++    <columns>
++      <column type="GdkPixbuf"/>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++      <column type="GdkPixbuf"/>
++      <column type="gchararray"/>
++    </columns>
++  </object>
++  <object class="GtkListStore" id="pinnedstore">
++    <columns>
++      <column type="GdkPixbuf"/>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++      <column type="GdkPixbuf"/>
++      <column type="gchararray"/>
++    </columns>
++  </object>
++  <object class="GtkListStore" id="openstore">
++    <columns>
++      <column type="GdkPixbuf"/>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++      <column type="GdkPixbuf"/>
++      <column type="gchararray"/>
++    </columns>
++  </object>
++  <object class="GtkListStore" id="formatstore">
++    <columns>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++    </columns>
++  </object>
++  <object class="GtkMenu" id="localmenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++  </object>
++  <object class="GtkMenu" id="recentmenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="menuopen">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hstbackstage|menuopen">Open</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="menupin">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hstbackstage|menupin">Pin</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="menuunpin">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hstbackstage|menuunpin">Unpin</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="menuremove">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hstbackstage|menuremove">Remove from List</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkBox" id="HstBackstage">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="vexpand">True</property>
++    <child>
++      <object class="GtkBox" id="nav">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="vexpand">True</property>
++        <property name="orientation">vertical</property>
++        <property name="spacing">2</property>
++        <property name="margin-top">12</property>
++        <property name="margin-bottom">12</property>
++        <child>
++          <object class="GtkButton" id="navback">
++            <property name="label" translatable="yes" context="hstbackstage|navback">←</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="navback-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|navback-atkobject">Back to Document</property>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navhome">
++            <property name="label" translatable="yes" context="hstbackstage|navhome">Home</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navnew">
++            <property name="label" translatable="yes" context="hstbackstage|navnew">New</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navopen">
++            <property name="label" translatable="yes" context="hstbackstage|navopen">Open</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">3</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="navsep">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="height-request">1</property>
++            <property name="margin-start">24</property>
++            <property name="margin-end">24</property>
++            <property name="margin-top">8</property>
++            <property name="margin-bottom">8</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">4</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navinfo">
++            <property name="label" translatable="yes" context="hstbackstage|navinfo">Info</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">5</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navsave">
++            <property name="label" translatable="yes" context="hstbackstage|navsave">Save</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">6</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navsaveas">
++            <property name="label" translatable="yes" context="hstbackstage|navsaveas">Save As</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">7</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navprint">
++            <property name="label" translatable="yes" context="hstbackstage|navprint">Print</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">8</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navpdf">
++            <property name="label" translatable="yes" context="hstbackstage|navpdf">Export as PDF</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">9</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navsign">
++            <property name="label" translatable="yes" context="hstbackstage|navsign">Sign Digitally</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">10</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navclose">
++            <property name="label" translatable="yes" context="hstbackstage|navclose">Close</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">11</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="navfiller">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="vexpand">True</property>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++            <property name="position">12</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navabout">
++            <property name="label" translatable="yes" context="hstbackstage|navabout">About HST Office</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">13</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="navoptions">
++            <property name="label" translatable="yes" context="hstbackstage|navoptions">Options</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="relief">none</property>
++            <property name="halign">start</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">14</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkBox" id="content">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="vexpand">True</property>
++        <property name="orientation">vertical</property>
++        <property name="margin-start">56</property>
++        <property name="margin-end">56</property>
++        <property name="margin-top">36</property>
++        <property name="margin-bottom">24</property>
++        <child>
++          <object class="GtkBox" id="pagehome">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <property name="orientation">vertical</property>
++            <property name="spacing">16</property>
++            <child>
++              <object class="GtkLabel" id="greeting">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label"/>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="createlabel">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|createlabel">Create new</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="tiles">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">18</property>
++                <child>
++                  <object class="GtkBox" id="tilebox0">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="spacing">6</property>
++                    <property name="width-request">154</property>
++                    <child>
++                      <object class="GtkButton" id="tile0">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">False</property>
++                        <property name="relief">none</property>
++                        <property name="image">tileimg0</property>
++                        <property name="always-show-image">True</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="tilelabel0">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="xalign">0</property>
++                        <property name="wrap">True</property>
++                        <property name="max-width-chars">22</property>
++                        <property name="margin-start">4</property>
++                        <property name="mnemonic-widget">tile0</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkBox" id="tilebox1">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="spacing">6</property>
++                    <property name="width-request">154</property>
++                    <child>
++                      <object class="GtkButton" id="tile1">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">False</property>
++                        <property name="relief">none</property>
++                        <property name="image">tileimg1</property>
++                        <property name="always-show-image">True</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="tilelabel1">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="xalign">0</property>
++                        <property name="wrap">True</property>
++                        <property name="max-width-chars">22</property>
++                        <property name="margin-start">4</property>
++                        <property name="mnemonic-widget">tile1</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkBox" id="tilebox2">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="spacing">6</property>
++                    <property name="width-request">154</property>
++                    <child>
++                      <object class="GtkButton" id="tile2">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">False</property>
++                        <property name="relief">none</property>
++                        <property name="image">tileimg2</property>
++                        <property name="always-show-image">True</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="tilelabel2">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="xalign">0</property>
++                        <property name="wrap">True</property>
++                        <property name="max-width-chars">22</property>
++                        <property name="margin-start">4</property>
++                        <property name="mnemonic-widget">tile2</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkBox" id="tilebox3">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="spacing">6</property>
++                    <property name="width-request">154</property>
++                    <child>
++                      <object class="GtkButton" id="tile3">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">False</property>
++                        <property name="relief">none</property>
++                        <property name="image">tileimg3</property>
++                        <property name="always-show-image">True</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="tilelabel3">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="xalign">0</property>
++                        <property name="wrap">True</property>
++                        <property name="max-width-chars">22</property>
++                        <property name="margin-start">4</property>
++                        <property name="mnemonic-widget">tile3</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkBox" id="tilebox4">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="spacing">6</property>
++                    <property name="width-request">154</property>
++                    <child>
++                      <object class="GtkButton" id="tile4">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">False</property>
++                        <property name="relief">none</property>
++                        <property name="image">tileimg4</property>
++                        <property name="always-show-image">True</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="tilelabel4">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="xalign">0</property>
++                        <property name="wrap">True</property>
++                        <property name="max-width-chars">22</property>
++                        <property name="margin-start">4</property>
++                        <property name="mnemonic-widget">tile4</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLinkButton" id="moretemplates">
++                    <property name="label" translatable="yes" context="hstbackstage|moretemplates">More templates →</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="relief">none</property>
++                    <property name="valign">center</property>
++                    <property name="uri"/>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">5</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkNotebook" id="recenttabs">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="hexpand">True</property>
++                <property name="vexpand">True</property>
++                <property name="show-border">False</property>
++                <child>
++                  <object class="GtkBox" id="recentlistbox">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="spacing">6</property>
++                    <property name="border-width">6</property>
++                    <child>
++                      <object class="GtkLabel" id="recentempty">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="label"/>
++                        <property name="xalign">0</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkScrolledWindow" id="recentlistscroll">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="hexpand">True</property>
++                        <property name="vexpand">True</property>
++                        <property name="shadow-type">in</property>
++                        <child>
++                          <object class="GtkTreeView" id="recentlist">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="receives-default">True</property>
++                            <property name="hexpand">True</property>
++                            <property name="vexpand">True</property>
++                            <property name="model">recentstore</property>
++                            <property name="search-column">1</property>
++                            <property name="show-expanders">False</property>
++                            <property name="enable-search">False</property>
++                            <child internal-child="selection">
++                              <object class="GtkTreeSelection" id="recentlist-selection"/>
++                            </child>
++                            <child>
++                              <object class="GtkTreeViewColumn" id="recentlistc0">
++                                <property name="resizable">True</property>
++                                <property name="spacing">6</property>
++                                <child>
++                                  <object class="GtkCellRendererPixbuf" id="recentlistr0"/>
++                                  <attributes>
++                                    <attribute name="pixbuf">0</attribute>
++                                  </attributes>
++                                </child>
++                              </object>
++                            </child>
++                            <child>
++                              <object class="GtkTreeViewColumn" id="recentlistc1">
++                                <property name="resizable">True</property>
++                                <property name="spacing">6</property>
++                                <property name="expand">True</property>
++                                <property name="title" translatable="yes" context="hstbackstage|recentlistcol1">Name</property>
++                                <child>
++                                  <object class="GtkCellRendererText" id="recentlistr1"/>
++                                  <attributes>
++                                    <attribute name="text">1</attribute>
++                                  </attributes>
++                                </child>
++                              </object>
++                            </child>
++                            <child>
++                              <object class="GtkTreeViewColumn" id="recentlistc2">
++                                <property name="resizable">True</property>
++                                <property name="spacing">6</property>
++                                <property name="expand">True</property>
++                                <property name="title" translatable="yes" context="hstbackstage|recentlistcol2">Location</property>
++                                <child>
++                                  <object class="GtkCellRendererText" id="recentlistr2"/>
++                                  <attributes>
++                                    <attribute name="text">2</attribute>
++                                  </attributes>
++                                </child>
++                              </object>
++                            </child>
++                            <child>
++                              <object class="GtkTreeViewColumn" id="recentlistc3">
++                                <property name="resizable">True</property>
++                                <property name="spacing">6</property>
++                                <property name="expand">True</property>
++                                <property name="title" translatable="yes" context="hstbackstage|recentlistcol3">Date modified</property>
++                                <child>
++                                  <object class="GtkCellRendererText" id="recentlistr3"/>
++                                  <attributes>
++                                    <attribute name="text">3</attribute>
++                                  </attributes>
++                                </child>
++                              </object>
++                            </child>
++                            <child>
++                              <object class="GtkTreeViewColumn" id="recentlistc4">
++                                <property name="resizable">True</property>
++                                <property name="spacing">6</property>
++                                <child>
++                                  <object class="GtkCellRendererPixbuf" id="recentlistr4"/>
++                                  <attributes>
++                                    <attribute name="pixbuf">4</attribute>
++                                  </attributes>
++                                </child>
++                              </object>
++                            </child>
++                            <child internal-child="accessible">
++                              <object class="AtkObject" id="recentlist-atkobject">
++                                <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|recentlist-atkobject">Recent files</property>
++                              </object>
++                            </child>
++                          </object>
++                        </child>
++                      </object>
++                      <packing>
++                        <property name="expand">True</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                  </object>
++                </child>
++                <child type="tab">
++                  <object class="GtkLabel" id="recenttab">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hstbackstage|recenttab">Recent</property>
++                  </object>
++                  <packing>
++                    <property name="tab-fill">False</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkBox" id="pinnedlistbox">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="spacing">6</property>
++                    <property name="border-width">6</property>
++                    <child>
++                      <object class="GtkLabel" id="pinnedempty">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="label"/>
++                        <property name="xalign">0</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkScrolledWindow" id="pinnedlistscroll">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="hexpand">True</property>
++                        <property name="vexpand">True</property>
++                        <property name="shadow-type">in</property>
++                        <child>
++                          <object class="GtkTreeView" id="pinnedlist">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="receives-default">True</property>
++                            <property name="hexpand">True</property>
++                            <property name="vexpand">True</property>
++                            <property name="model">pinnedstore</property>
++                            <property name="search-column">1</property>
++                            <property name="show-expanders">False</property>
++                            <property name="enable-search">False</property>
++                            <child internal-child="selection">
++                              <object class="GtkTreeSelection" id="pinnedlist-selection"/>
++                            </child>
++                            <child>
++                              <object class="GtkTreeViewColumn" id="pinnedlistc0">
++                                <property name="resizable">True</property>
++                                <property name="spacing">6</property>
++                                <child>
++                                  <object class="GtkCellRendererPixbuf" id="pinnedlistr0"/>
++                                  <attributes>
++                                    <attribute name="pixbuf">0</attribute>
++                                  </attributes>
++                                </child>
++                              </object>
++                            </child>
++                            <child>
++                              <object class="GtkTreeViewColumn" id="pinnedlistc1">
++                                <property name="resizable">True</property>
++                                <property name="spacing">6</property>
++                                <property name="expand">True</property>
++                                <property name="title" translatable="yes" context="hstbackstage|pinnedlistcol1">Name</property>
++                                <child>
++                                  <object class="GtkCellRendererText" id="pinnedlistr1"/>
++                                  <attributes>
++                                    <attribute name="text">1</attribute>
++                                  </attributes>
++                                </child>
++                              </object>
++                            </child>
++                            <child>
++                              <object class="GtkTreeViewColumn" id="pinnedlistc2">
++                                <property name="resizable">True</property>
++                                <property name="spacing">6</property>
++                                <property name="expand">True</property>
++                                <property name="title" translatable="yes" context="hstbackstage|pinnedlistcol2">Location</property>
++                                <child>
++                                  <object class="GtkCellRendererText" id="pinnedlistr2"/>
++                                  <attributes>
++                                    <attribute name="text">2</attribute>
++                                  </attributes>
++                                </child>
++                              </object>
++                            </child>
++                            <child>
++                              <object class="GtkTreeViewColumn" id="pinnedlistc3">
++                                <property name="resizable">True</property>
++                                <property name="spacing">6</property>
++                                <property name="expand">True</property>
++                                <property name="title" translatable="yes" context="hstbackstage|pinnedlistcol3">Date modified</property>
++                                <child>
++                                  <object class="GtkCellRendererText" id="pinnedlistr3"/>
++                                  <attributes>
++                                    <attribute name="text">3</attribute>
++                                  </attributes>
++                                </child>
++                              </object>
++                            </child>
++                            <child>
++                              <object class="GtkTreeViewColumn" id="pinnedlistc4">
++                                <property name="resizable">True</property>
++                                <property name="spacing">6</property>
++                                <child>
++                                  <object class="GtkCellRendererPixbuf" id="pinnedlistr4"/>
++                                  <attributes>
++                                    <attribute name="pixbuf">4</attribute>
++                                  </attributes>
++                                </child>
++                              </object>
++                            </child>
++                            <child internal-child="accessible">
++                              <object class="AtkObject" id="pinnedlist-atkobject">
++                                <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|pinnedlist-atkobject">Pinned files</property>
++                              </object>
++                            </child>
++                          </object>
++                        </child>
++                      </object>
++                      <packing>
++                        <property name="expand">True</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="position">1</property>
++                  </packing>
++                </child>
++                <child type="tab">
++                  <object class="GtkLabel" id="pinnedtab">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hstbackstage|pinnedtab">Pinned</property>
++                  </object>
++                  <packing>
++                    <property name="position">1</property>
++                    <property name="tab-fill">False</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">True</property>
++                <property name="fill">True</property>
++                <property name="position">3</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="pagenew">
++            <property name="visible">False</property>
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <property name="orientation">vertical</property>
++            <property name="spacing">18</property>
++            <child>
++              <object class="GtkLabel" id="newtitle">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|newtitle">New</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="newbuttons">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">12</property>
++                <child>
++                  <object class="GtkButton" id="newblank">
++                    <property name="label"/>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="newnd30">
++                    <property name="label"/>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="newmanage">
++                    <property name="label" translatable="yes" context="hstbackstage|newmanage">Manage Templates…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">2</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkScrolledWindow" id="scrolllocal">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="hexpand">True</property>
++                <property name="vexpand">True</property>
++                <property name="shadow-type">in</property>
++                <child>
++                  <object class="GtkViewport">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="hexpand">True</property>
++                    <property name="vexpand">True</property>
++                    <child>
++                      <object class="GtkDrawingArea" id="local_view">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="events">GDK_BUTTON_MOTION_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_STRUCTURE_MASK</property>
++                        <property name="hexpand">True</property>
++                        <property name="vexpand">True</property>
++                        <child internal-child="accessible">
++                          <object class="AtkObject" id="local_view-atkobject">
++                            <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|local_view-atkobject">Templates</property>
++                          </object>
++                        </child>
++                      </object>
++                    </child>
++                  </object>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">True</property>
++                <property name="fill">True</property>
++                <property name="position">2</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="pageopen">
++            <property name="visible">False</property>
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <property name="orientation">vertical</property>
++            <property name="spacing">18</property>
++            <child>
++              <object class="GtkLabel" id="opentitle">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|opentitle">Open</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="openbuttons">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">12</property>
++                <child>
++                  <object class="GtkButton" id="openbrowse">
++                    <property name="label" translatable="yes" context="hstbackstage|openbrowse">Browse…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="openrecent">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|openrecent">Recent</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkScrolledWindow" id="openlistscroll">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="hexpand">True</property>
++                <property name="vexpand">True</property>
++                <property name="shadow-type">in</property>
++                <child>
++                  <object class="GtkTreeView" id="openlist">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">True</property>
++                    <property name="hexpand">True</property>
++                    <property name="vexpand">True</property>
++                    <property name="model">openstore</property>
++                    <property name="search-column">1</property>
++                    <property name="show-expanders">False</property>
++                    <property name="enable-search">False</property>
++                    <child internal-child="selection">
++                      <object class="GtkTreeSelection" id="openlist-selection"/>
++                    </child>
++                    <child>
++                      <object class="GtkTreeViewColumn" id="openlistc0">
++                        <property name="resizable">True</property>
++                        <property name="spacing">6</property>
++                        <child>
++                          <object class="GtkCellRendererPixbuf" id="openlistr0"/>
++                          <attributes>
++                            <attribute name="pixbuf">0</attribute>
++                          </attributes>
++                        </child>
++                      </object>
++                    </child>
++                    <child>
++                      <object class="GtkTreeViewColumn" id="openlistc1">
++                        <property name="resizable">True</property>
++                        <property name="spacing">6</property>
++                        <property name="expand">True</property>
++                        <property name="title" translatable="yes" context="hstbackstage|openlistcol1">Name</property>
++                        <child>
++                          <object class="GtkCellRendererText" id="openlistr1"/>
++                          <attributes>
++                            <attribute name="text">1</attribute>
++                          </attributes>
++                        </child>
++                      </object>
++                    </child>
++                    <child>
++                      <object class="GtkTreeViewColumn" id="openlistc2">
++                        <property name="resizable">True</property>
++                        <property name="spacing">6</property>
++                        <property name="expand">True</property>
++                        <property name="title" translatable="yes" context="hstbackstage|openlistcol2">Location</property>
++                        <child>
++                          <object class="GtkCellRendererText" id="openlistr2"/>
++                          <attributes>
++                            <attribute name="text">2</attribute>
++                          </attributes>
++                        </child>
++                      </object>
++                    </child>
++                    <child>
++                      <object class="GtkTreeViewColumn" id="openlistc3">
++                        <property name="resizable">True</property>
++                        <property name="spacing">6</property>
++                        <property name="expand">True</property>
++                        <property name="title" translatable="yes" context="hstbackstage|openlistcol3">Date modified</property>
++                        <child>
++                          <object class="GtkCellRendererText" id="openlistr3"/>
++                          <attributes>
++                            <attribute name="text">3</attribute>
++                          </attributes>
++                        </child>
++                      </object>
++                    </child>
++                    <child>
++                      <object class="GtkTreeViewColumn" id="openlistc4">
++                        <property name="resizable">True</property>
++                        <property name="spacing">6</property>
++                        <child>
++                          <object class="GtkCellRendererPixbuf" id="openlistr4"/>
++                          <attributes>
++                            <attribute name="pixbuf">4</attribute>
++                          </attributes>
++                        </child>
++                      </object>
++                    </child>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="openlist-atkobject">
++                        <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|openlist-atkobject">Recent files</property>
++                      </object>
++                    </child>
++                  </object>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">True</property>
++                <property name="fill">True</property>
++                <property name="position">3</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="pageinfo">
++            <property name="visible">False</property>
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <property name="orientation">vertical</property>
++            <property name="spacing">18</property>
++            <child>
++              <object class="GtkLabel" id="infotitle">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|infotitle">Info</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkGrid" id="infogrid">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="row-spacing">10</property>
++                <property name="column-spacing">24</property>
++                <child>
++                  <object class="GtkLabel" id="infonamelabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hstbackstage|infonamelabel">File name</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infoname">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="hexpand">True</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="selectable">True</property>
++                    <property name="max-width-chars">80</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infotypelabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hstbackstage|infotypelabel">Type</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infotype">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="hexpand">True</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="selectable">True</property>
++                    <property name="max-width-chars">80</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infopathlabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hstbackstage|infopathlabel">Location</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infopath">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="hexpand">True</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="selectable">True</property>
++                    <property name="max-width-chars">80</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infosizelabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hstbackstage|infosizelabel">Size</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infosize">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="hexpand">True</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="selectable">True</property>
++                    <property name="max-width-chars">80</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infocreatedlabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hstbackstage|infocreatedlabel">Created</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infocreated">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="hexpand">True</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="selectable">True</property>
++                    <property name="max-width-chars">80</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infomodifiedlabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hstbackstage|infomodifiedlabel">Modified</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">5</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infomodified">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="hexpand">True</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="selectable">True</property>
++                    <property name="max-width-chars">80</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">5</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infoauthorlabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hstbackstage|infoauthorlabel">Author</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">6</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infoauthor">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="hexpand">True</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="selectable">True</property>
++                    <property name="max-width-chars">80</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">6</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infosignaturelabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hstbackstage|infosignaturelabel">Digital signature</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">7</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infosignature">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="hexpand">True</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="selectable">True</property>
++                    <property name="max-width-chars">80</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">7</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="infobuttons">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">12</property>
++                <child>
++                  <object class="GtkButton" id="infoproperties">
++                    <property name="label" translatable="yes" context="hstbackstage|infoproperties">Properties…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="infosign">
++                    <property name="label" translatable="yes" context="hstbackstage|infosign">Digital Signatures…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">1</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">2</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++            <property name="position">3</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="pagesaveas">
++            <property name="visible">False</property>
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <property name="orientation">vertical</property>
++            <property name="spacing">18</property>
++            <child>
++              <object class="GtkLabel" id="saveastitle">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|saveastitle">Save As</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="saveasfolder">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label"/>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="saveaschoose">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|saveaschoose">Choose a format, then a name and a folder:</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkScrolledWindow" id="formatlistscroll">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="hexpand">True</property>
++                <property name="vexpand">True</property>
++                <property name="shadow-type">in</property>
++                <child>
++                  <object class="GtkTreeView" id="formatlist">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">True</property>
++                    <property name="hexpand">True</property>
++                    <property name="vexpand">True</property>
++                    <property name="model">formatstore</property>
++                    <property name="search-column">1</property>
++                    <property name="show-expanders">False</property>
++                    <property name="enable-search">False</property>
++                    <child internal-child="selection">
++                      <object class="GtkTreeSelection" id="formatlist-selection"/>
++                    </child>
++                    <child>
++                      <object class="GtkTreeViewColumn" id="formatlistc0">
++                        <property name="resizable">True</property>
++                        <property name="spacing">6</property>
++                        <property name="expand">True</property>
++                        <property name="title" translatable="yes" context="hstbackstage|formatlistcol0">Format</property>
++                        <child>
++                          <object class="GtkCellRendererText" id="formatlistr0"/>
++                          <attributes>
++                            <attribute name="text">0</attribute>
++                          </attributes>
++                        </child>
++                      </object>
++                    </child>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="formatlist-atkobject">
++                        <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|formatlist-atkobject">File formats</property>
++                      </object>
++                    </child>
++                  </object>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">True</property>
++                <property name="fill">True</property>
++                <property name="position">3</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="saveasbuttons">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">12</property>
++                <child>
++                  <object class="GtkButton" id="saveasbrowse">
++                    <property name="label" translatable="yes" context="hstbackstage|saveasbrowse">Browse…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">4</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++            <property name="position">4</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">True</property>
++        <property name="fill">True</property>
++        <property name="position">1</property>
++      </packing>
++    </child>
++  </object>
++</interface>
