@@ -103,26 +103,21 @@ the interface, artwork and validation results below describe this revision.
 
 ### Artwork and copy
 
-- Added `hst-post.svg`, transparent PNGs at 512px and 1024px wide, and a square mark-only
-  SVG plus 512×512 PNG. The company HS symbol is preserved as two vector paths fitted to
-  the original raster edges. Normalized silhouette overlap with the untouched company
-  source is **99.947%**; the regression threshold permits antialiasing differences only.
-- Replaced the company lettering with outlined **HST POST**, using a matching bold italic
-  sans and the original blue `#0072bb` / grey `#58595b`. The original source font is not
-  available; Exo 2 ExtraBold Italic supplies the replacement lettering without a runtime
-  font dependency. Its static font instance and OFL are bundled for reproducibility.
-- Checked the full-resolution 2026 company logo, 2023 slogan logo, two other 2023 variants
-  and the site's media metadata. The 2026 source has the largest available symbol detail;
-  the wider slogan image contains a smaller mark. Both SOURCES.md copies record the
-  company-logo derivation at the owner's request on **2026-11-04**.
-- HST Post's banner now uses the new logo. Regenerated all 18 banners and both manifests
-  from `solutions.json`, including the exact owner-supplied revised tagline. Tests compare
-  complete solution ID sets and every name/tagline/URL, and package validation compares
-  every tagline as well.
-- Regenerated the [banner sheet](../../docs/design/banners-preview.png),
-  [Writer placement](../../docs/design/banner-on-writer.png), and
-  [logo comparison](../../docs/design/hst-post-logo-preview.png). The Writer placement
-  remains a mockup; the native ribbon widget remains a separate implementation step.
+- Corrected the company reference to the official owner-supplied 476×393 RGBA file,
+  copied unchanged to `banners/logos/hasontech.png`. Both SOURCES.md copies record
+  its provenance and pinned hash. This supersedes the earlier website-logo selection.
+- Rebuilt `hst-post.svg`, transparent 512px/1024px PNGs, and the mark-only square SVG
+  and 512×512 PNG from that source. The triangle keeps its original blue and geometry;
+  regression tests require over 99.8% normalized silhouette overlap with the official file.
+- Extracted H/S/T/O from the official all-caps italic wordmark and constructed P from
+  O's bowl and H's stem. All lettering uses the source's single dark `#322e2e` colour,
+  stroke weight, slant and spacing. Removed the superseded substitute font.
+- The HST Post banner uses the square icon beside the product name, with a distinct
+  violet `#6d28d9` accent. Banner and social renderers share one palette; violet text
+  passes 7.10:1 on white and 6.36:1 on the pale violet tint.
+- Regenerated all 18 banners, both manifests, logo/social assets and review sheets.
+  The [Writer placement](../../docs/design/banner-on-writer.png) now shows HST Post;
+  it remains a mockup, with the native ribbon widget a separate implementation step.
 
 ### Security and maintenance
 
@@ -140,12 +135,14 @@ the interface, artwork and validation results below describe this revision.
 ### Revision validation
 
 Counts overlap: the banner tests are part of the unit suites, and quality runs both unit and brand suites.
+Unit, brand, quality and artwork regeneration checks were rerun after the official-source correction.
+The native runtime rows below record the earlier integration checks; runtime code is unchanged.
 
 | Executed check | Result |
 |---|---|
-| Unit suites in `scripts/ci-quality.sh` | **49 suites; 482 tests run, 481 passed, 1 skipped, 0 failures/errors**. Existing skip: upstream source tree absent. |
+| Unit suites in `scripts/ci-quality.sh` | **49 suites; 485 tests run, 484 passed, 1 skipped, 0 failures/errors**. Existing skip: upstream source tree absent. |
 | Brand suites in the same run | **2 suites; 27 passed**. |
-| `bash scripts/ci-quality.sh` | **64 commands, 0 failures; 509 tests run = 508 passed + 1 skipped**. Platform preflights report unavailable upstream/tarball inputs as before. |
+| `bash scripts/ci-quality.sh` | **64 commands, 0 failures; 512 tests run = 511 passed + 1 skipped**. Platform preflights report unavailable upstream/tarball inputs as before. |
 | Full banner runtime check on `/opt/hst` | **3 applications, 9 snapshots, 54 native image decodes passed**, using verified byte streams; exact dimensions, hashes, taglines and UTM checked. Installation untouched. |
 | Banner boundary-only check | **3 snapshots, 18 buffers checked**, using real UNO types with injected profile lookup. |
 | `scripts/check-extensions.py` | **1 package passed**, 206 bundled files. |

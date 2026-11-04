@@ -10,8 +10,6 @@
 
 | Be Vietnam Pro Regular / SemiBold / Bold | fetched 2026-11-04; hashes in [banner sources](assets/banners/SOURCES.md) | SIL OFL 1.1 | Bundled banner artwork and regeneration | [OFL.txt](extensions/hst-vietnamese-tools/banners/fonts/OFL.txt) |
 
-| Exo 2 ExtraBold Italic (static instance, weight 800) | fetched 2026-11-04; hashes in banner sources | SIL OFL 1.1 | Outlined HST Post lettering and offline regeneration | [OFL.txt](extensions/hst-vietnamese-tools/banners/fonts/exo2/OFL.txt) |
-
 Solution logos are HASON TECH/product marks; provenance and owner-requested derivative details: [banner sources](assets/banners/SOURCES.md).
 
 Mẫu HST không nhúng font, ảnh hay nội dung của bên thứ ba.

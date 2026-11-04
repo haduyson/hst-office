@@ -123,7 +123,7 @@ def render():
     writer.paste(source.crop((905, 54, 1012, 115)), (905, 54))
     writer.paste(source.crop((1304, 88, 1327, 116)), (1071, 80))
     writer.paste(source.crop((1173, 134, 1244, 154)), (967, 134))
-    banner = Image.open(io.BytesIO(outputs[ART / "aios@1x.png"]))
+    banner = Image.open(io.BytesIO(outputs[ART / "hst-post@1x.png"]))
     writer.paste(banner, (1108, 48), banner)
     outputs[DESIGN / "banner-on-writer.png"] = png_bytes(writer)
     return outputs

@@ -7,6 +7,7 @@ Requires Pillow==10.4.0 and playwright==1.64.1 with its Chromium, as used by ren
 import argparse
 import base64
 import io
+import json
 from pathlib import Path
 from string import Template
 
@@ -18,6 +19,7 @@ ART = ROOT / "extensions/hst-vietnamese-tools/banners"
 DEST = ROOT / "assets/hst-post"
 FONT = ART / "fonts"
 TEMPLATE = Path(__file__).with_name("hst-post-social.html")
+BRAND = json.loads((ART / "brands.json").read_text())["hst-post"]
 
 
 def data_url(path, mime):
@@ -56,7 +58,7 @@ def validate(page, height):
         assert "BeVietnam" in item["family"], item
         assert contrast(item["color"], item["background"]) >= 4.5, item
     # The outlined wordmark also meets the requested text contrast on white.
-    for color in ("#0072bb", "#58595b"):
+    for color in ("#322e2e", BRAND["accent"]):
         assert contrast(color, "#ffffff") >= 4.5
     for weight in (400, 600, 700):
         assert page.evaluate("w => document.fonts.check(w + ' 23px BeVietnam', 'Đăng bài Sắp ra mắt')", weight)
@@ -76,16 +78,16 @@ def preview(og):
     text(752, 144, "Zalo · Thẻ liên kết trong hội thoại", 21, "SemiBold")
     thumb = og.resize((632, 332), Image.Resampling.LANCZOS)
     draw.rounded_rectangle((56, 193, 688, 707), 18, fill="white", outline="#c4d0dc", width=1)
-    draw.ellipse((76, 213, 108, 245), fill="#0072bb")
+    draw.ellipse((76, 213, 108, 245), fill=BRAND["accent"])
     text(120, 215, "HASON TECH", 18, "SemiBold")
     sheet.paste(thumb, (56, 266))
     draw.rectangle((57, 598, 687, 686), fill="#f5f7f9")
     text(76, 611, "POST.HASONTECH.VN", 13, color="#526071")
     text(76, 637, "HST Post — Đăng bài đa nền tảng bằng AI", 21, "SemiBold")
     text(76, 672, "Sắp ra mắt · Công cụ của HASON TECH", 15)
-    draw.rounded_rectangle((734, 193, 1400, 733), 24, fill="#e1edf6")
+    draw.rounded_rectangle((734, 193, 1400, 733), 24, fill=BRAND["tint"])
     draw.rounded_rectangle((752, 215, 1384, 709), 16, fill="white", outline="#c4d0dc", width=1)
-    text(772, 231, "https://post.hasontech.vn", 20, color="#005a94")
+    text(772, 231, "https://post.hasontech.vn", 20, color=BRAND["ink"])
     sheet.paste(thumb, (752, 279))
     text(772, 625, "HST Post — Đăng bài đa nền tảng bằng AI", 21, "SemiBold")
     text(772, 662, "Sắp ra mắt · post.hasontech.vn", 17)
@@ -97,10 +99,11 @@ def render():
     outputs, images = {}, {}
     values = {name: data_url(FONT / f"BeVietnamPro-{weight}.ttf", "font/ttf")
               for name, weight in (("regular", "Regular"), ("semibold", "SemiBold"), ("bold", "Bold"))}
+    values.update(BRAND)
     values["logo"] = data_url(ART / "logos/hst-post.svg", "image/svg+xml")
     icon = (ART / "logos/hst-post-icon.svg").read_text(encoding="utf-8")
-    # Opaque white canvas preserves the blue mark on dark browser chrome and touch screens.
-    icon = icon.replace("</title>", '</title><rect width="320" height="320" fill="#fff"/>', 1)
+    # Opaque violet tint carries the product palette while preserving the official blue mark.
+    icon = icon.replace("</title>", f'</title><rect width="320" height="320" fill="{BRAND["tint"]}"/>', 1)
     outputs[DEST / "favicon.svg"] = icon.encode("utf-8")
     with sync_playwright() as pw:
         browser = pw.chromium.launch()

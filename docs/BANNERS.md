@@ -20,13 +20,15 @@ Be Vietnam Pro is bundled with its [OFL licence](../extensions/hst-vietnamese-to
 Names are 18px, taglines 12.5px, CTA and company endorsement 12px. The renderer asserts
 at least 4.5:1 contrast for all added text against both gradient endpoints, font readiness,
 loaded logos and a maximum of two tagline lines. Original logo colours are preserved.
-HST Post uses the owner-requested company-logo derivative, with the HS mark and new outlined lettering.
+HST Post uses the square HS mark beside its large name and a distinct violet `#6d28d9`
+palette (7.10:1 on white, 6.36:1 on the pale violet background). Its full logo derives
+from the owner-supplied official 476×393 file, with extracted all-caps dark lettering.
 [Logo comparison](design/hst-post-logo-preview.png) shows the logo, square icon and original together.
 
 ```sh
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-templates.lock
-.venv/bin/pip install playwright==1.64.1 fonttools==4.68.0
+.venv/bin/pip install playwright==1.64.1
 .venv/bin/playwright install --with-deps chromium
 .venv/bin/python scripts/brand/render-hst-post-logo.py
 .venv/bin/python scripts/brand/render-hst-post-logo.py --check

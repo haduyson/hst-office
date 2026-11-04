@@ -9,7 +9,7 @@ Standalone web assets for `https://post.hasontech.vn/`. Deploy this directory at
 | [og-hst-post@2x.png](og-hst-post@2x.png) | 2400 × 1260 | High-resolution landscape master for reuse. |
 | [og-hst-post.jpg](og-hst-post.jpg) | 1200 × 630 | Optimised progressive JPEG, under 300,000 bytes; used by the tags below. |
 | [og-hst-post-square.png](og-hst-post-square.png) | 1200 × 1200 | Re-composed square artwork for square preview placements. |
-| [favicon.svg](favicon.svg) | Vector, 320 × 320 viewBox | Square HS logo icon on white, for browser tabs. |
+| [favicon.svg](favicon.svg) | Vector, 320 × 320 viewBox | Square HS logo icon on pale violet, for browser tabs. |
 | [favicon-32.png](favicon-32.png) | 32 × 32 | PNG browser icon fallback. |
 | [apple-touch-icon.png](apple-touch-icon.png) | 180 × 180 | Opaque home-screen icon. |
 | [icon-512.png](icon-512.png) | 512 × 512 | Large square icon for web/app integrations. |
@@ -88,10 +88,11 @@ Sources:
   [HTML/SVG composition](../../scripts/brand/hst-post-social.html).
 - Existing [HST POST logo](../../extensions/hst-vietnamese-tools/banners/logos/hst-post.svg)
   and [square icon](../../extensions/hst-vietnamese-tools/banners/logos/hst-post-icon.svg).
-  The favicon adds a white canvas to the unchanged square icon paths.
+  The favicon adds an opaque pale-violet canvas to the unchanged official blue mark.
+  The full logo uses the owner-supplied official source and extracted dark `#322e2e` lettering.
 - Bundled Be Vietnam Pro Regular, SemiBold and Bold, with
   [SIL Open Font License](../../extensions/hst-vietnamese-tools/banners/fonts/OFL.txt).
-- Existing [brand palette](../../extensions/hst-vietnamese-tools/banners/brands.json)
+- Shared violet [brand palette](../../extensions/hst-vietnamese-tools/banners/brands.json)
   and [logo provenance](../banners/SOURCES.md).
 
 All landscape text and the entire logo box stay inside `x=60…1140`, `y=32…598`
@@ -99,8 +100,8 @@ All landscape text and the entire logo box stay inside `x=60…1140`, `y=32…59
 60 px safe margins. The four channel glyphs are original generic conversation,
 gallery, feed and community drawings, with no other companies' marks or implied integrations.
 
-Text contrast against its solid background is 12.32:1 for slate body copy, 7.27:1
-for the dark blue headline/footer, 6.69:1 for the badge, and 7.01:1 for the grey
-company name. Even the original logo lettering passes: blue 5.09:1, grey 7.01:1
-on white. No text sits on a gradient. The copy describes the product and its
-coming-soon status without invented usage claims.
+Text contrast against its solid background is 12.32:1 for slate body copy, **7.10:1**
+for violet `#6d28d9` headline/footer text, **6.36:1** for the badge on `#f5f0ff`, and
+**13.41:1** for the dark `#322e2e` company name and logo lettering. No text sits on a
+gradient. The renderer reads the same HST Post palette as the banner from `brands.json`.
+The copy describes the product and its coming-soon status without invented usage claims.

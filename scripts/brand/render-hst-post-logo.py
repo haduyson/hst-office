@@ -1,49 +1,36 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Reproduce the owner's HST Post derivative: traced company mark and outlined bold italic lettering.
+"""Reproduce HST POST from the owner-supplied official HASON TECH artwork.
 
-Offline: fontTools + the same pinned Playwright/Pillow dependencies as render-banners.py.
-The paths trace the 2026 source at its original coordinates; no redesign of the HS mark.
+Offline: the same pinned Playwright/Pillow dependencies as render-banners.py.
+Committed outlines extract the official mark and H/S/T/O; P reuses O and H strokes.
 """
 import argparse
+import hashlib
 import io
+import json
 from pathlib import Path
 
-from fontTools.pens.boundsPen import BoundsPen
-from fontTools.pens.svgPathPen import SVGPathPen
-from fontTools.pens.transformPen import TransformPen
-from fontTools.ttLib import TTFont
 from PIL import Image, ImageDraw, ImageFont
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
 ART = ROOT / "extensions/hst-vietnamese-tools/banners"
 LOGOS = ART / "logos"
-BLUE, GREY = "#0072bb", "#58595b"
-# Straight-edge trace of the two original blue components. The negative spaces are part of the mark.
-MARK = '''<g id="company-mark" fill="#0072bb">
-<path d="M230.512 7.618 165.265 119.150 183.945 149.031 279.424 149.031 309.724 207.233 263.895 206.002 248.191 237.382 362.425 237.382 294.434 119.074 203.449 119.074 230.999 72.955 248.153 104.161 286.298 104.161Z"/>
-<path d="M94.620 239.382 133.445 239.382 147.965 212.695 207.665 212.695 191.460 239.382 230.580 239.382 274.422 161.618 234.574 161.618 223.365 179.969 167.408 179.969 175.884 164.657 156.140 130.955Z"/>
-</g>'''
+WORDMARK = "#322e2e"
+SHAPES = json.loads(Path(__file__).with_name("hst-post-shapes.json").read_text())
+MARK = f'<g id="company-mark" fill="#0072bb"><path d="{SHAPES["mark"]}"/></g>'
+# Source glyphs keep their original 48px cap height and 44px advance (H→S and S→O).
+# The original word gap is 24px. Centre the shorter wordmark under the unchanged mark.
+LETTERS = (("H", 0), ("S", 44), ("T", 88), ("P", 148), ("O", 192), ("S", 236), ("T", 280))
+WORDMARK_X = 68
 
 
 def lettering():
-    font = TTFont(ART / "fonts/exo2/Exo2-ExtraBoldItalic.ttf")
-    glyphs, cmap = font.getGlyphSet(), font.getBestCmap()
-    paths, x, bounds = [], 0, BoundsPen(glyphs)
-    for word, color in (("HST ", BLUE), ("POST", GREY)):
-        pen = SVGPathPen(glyphs)
-        for char in word:
-            glyph = glyphs[cmap[ord(char)]]
-            transform = (1, 0, 0, -1, x, 0)
-            glyph.draw(TransformPen(pen, transform))
-            glyph.draw(TransformPen(bounds, transform))
-            x += glyph.width
-        paths.append(f'<path fill="{color}" d="{pen.getCommands()}"/>')
-    left, top, right, bottom = bounds.bounds
-    sx = sy = 54 / (bottom - top)
-    left_edge = 228 - (right - left) * sx / 2
-    return f'<g transform="translate({left_edge-left*sx:.6f} {269-top*sy:.6f}) scale({sx:.8f} {sy:.8f})">' + ''.join(paths) + '</g>'
+    paths = ''.join(f'<path data-letter="{char}" transform="translate({x} 0)" '
+                    f'd="{SHAPES["glyphs"][char]["path"]}"/>' for char, x in LETTERS)
+    return (f'<g id="wordmark" fill="{WORDMARK}" '
+            f'transform="translate({WORDMARK_X} 304)">{paths}</g>')
 
 
 def svg(body, box, title):
@@ -58,14 +45,16 @@ def png(image):
 
 
 def render():
+    assert hashlib.sha256((LOGOS / "hasontech.png").read_bytes()).hexdigest() == SHAPES["sourceSha256"], \
+        "Company source must be the official file supplied by the owner"
     outputs = {
-        LOGOS / "hst-post.svg": svg(MARK + lettering(), "0 0 460 336", "HST POST"),
-        LOGOS / "hst-post-icon.svg": svg('<g transform="translate(-68.5 36.5)">' + MARK + '</g>',
+        LOGOS / "hst-post.svg": svg(MARK + lettering(), "0 0 476 393", "HST POST"),
+        LOGOS / "hst-post-icon.svg": svg('<g transform="translate(-68.5 5.5)">' + MARK + '</g>',
                                          "0 0 320 320", "HST Post — HS company mark"),
     }
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        for filename, widths, ratio in (("hst-post", (512, 1024), 336 / 460), ("hst-post-icon", (512,), 1)):
+        for filename, widths, ratio in (("hst-post", (512, 1024), 393 / 476), ("hst-post-icon", (512,), 1)):
             data = outputs[LOGOS / (filename + ".svg")].decode()
             for width in widths:
                 page = browser.new_page(viewport={"width": width, "height": round(width * ratio)})
