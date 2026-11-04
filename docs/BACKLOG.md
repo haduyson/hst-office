@@ -116,7 +116,7 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
   - *Việc mới (chủ dự án 2026-11-04):*
     - Tìm tính năng trong HST Office bằng phím tắt (gõ để tìm, có tìm không dấu).
     - Hộp Giải pháp HASON TECH: hiện mô tả ngắn cạnh tên từng giải pháp.
-    - Tệp nặng nhiều công thức/hình (Toán, Lý, Hóa): mở chậm, công thức/hình không hiện hoặc hiện sai.
+    - Tệp nặng nhiều công thức/hình (Toán, Lý, Hóa): mở chậm, công thức/hình không hiện hoặc hiện sai. *Đã làm một phần:* xuất PDF/in công thức MathType/ChemDraw dạng vector (xuất PDF bộ 27 tệp mẫu 217 s → 31 s); chữ TCVN3/VNI (.VnTime, VNI-Times) trong công thức hiện đúng. Còn: mũi tên phản ứng dài bị đứt trên Linux, kiểm tra Windows/macOS. [Báo cáo](../plans/reports/stem-docs-261104-mathtype-previews-pdf-vn-fonts.md).
     - Viết/sửa macro VBA cho Writer và Sheets.
     - Trình xem PDF nhẹ, nhanh, giao diện phổ thông, có ký số PDF (thiết kế chủ dự án duyệt trước).
     - Ô banner quảng cáo giải pháp HASON TECH, luân phiên 10 giây, bên phải ngang notebookbar (thiết kế chủ dự án duyệt trước).
