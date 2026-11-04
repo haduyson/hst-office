@@ -1,0 +1,756 @@
+HST Office: Word-style Paragraph dialog. Tabs in Word's order and names ("Indents and Spacing", "Line
+and Page Breaks", then Tabs), an alignment list in a General group, and Special (none / First line /
+Hanging) + By replacing the first-line field. Line and Page Breaks starts with pagination.
+
+- Special and By only drive the existing first-line field, which stays the single value read and written
+  to the items; the field itself still appears for a style's relative (%) or em first line.
+- The alignment list exchanges SvxAdjustItem with the Alignment page, which stays as "Advanced Alignment"
+  with its justification details, as do Outline & List, Drop Caps, Borders, Area, Transparency and Asian.
+- Page ids are unchanged. The tab names are local to this dialog: the same pages keep their general names
+  elsewhere.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py paragraph
+---
+--- a/cui/source/inc/paragrph.hxx
++++ b/cui/source/inc/paragrph.hxx
+@@ -30,6 +30,7 @@
+ #include <vcl/weld/TriStateEnabled.hxx>
+ 
+ class SvxLineSpacingItem;
++enum class SvxAdjust;
+ 
+ // class SvxStdParagraphTabPage ------------------------------------------
+ /*
+@@ -65,6 +66,16 @@
+     SvxRelativeField m_aFLineIndent;
+     std::unique_ptr<weld::CheckButton> m_xAutoCB;
+ 
++    // HST: Word-style "Special" (none / first line / hanging) + "By"; they drive m_aFLineIndent,
++    // which stays the only value read and written to the items
++    std::unique_ptr<weld::Label> m_xHstSpecialLabel;
++    std::unique_ptr<weld::ComboBox> m_xHstSpecial;
++    std::unique_ptr<weld::Label> m_xHstSpecialByLabel;
++    std::unique_ptr<weld::MetricSpinButton> m_xHstSpecialBy;
++    // HST: Word-style "General" group: paragraph alignment as a list
++    std::unique_ptr<weld::Widget> m_xHstGeneralFrame;
++    std::unique_ptr<weld::ComboBox> m_xHstAlign;
++
+     // distance
+     SvxRelativeField m_aTopDist;
+     SvxRelativeField m_aBottomDist;
+@@ -88,7 +99,14 @@
+     void                    Init_Impl();
+     void                    UpdateExample_Impl();
+     void                    ELRLoseFocus();
+-
++    void                    HstSpecialFromFirstLine();
++    void                    HstApplySpecialBy();
++    void                    HstAlignFromSet(const SfxItemSet& rSet);
++    void                    HstPreviewAlign(SvxAdjust eAdjust);
++
++    DECL_LINK(HstSpecialHdl_Impl, weld::ComboBox&, void);
++    DECL_LINK(HstSpecialByHdl_Impl, weld::MetricSpinButton&, void);
++    DECL_LINK(HstAlignHdl_Impl, weld::ComboBox&, void);
+     DECL_LINK(LineDistPopupHdl_Impl, weld::ComboBox&, void);
+     DECL_LINK(LineDistHdl_Impl, weld::ComboBox&, void);
+     DECL_LINK(ModifyHdl_Impl, weld::MetricSpinButton&, void);
+--- a/cui/source/tabpages/paragrph.cxx
++++ b/cui/source/tabpages/paragrph.cxx
+@@ -39,6 +39,8 @@
+ #include <editeng/frmdiritem.hxx>
+ #include <editeng/lspcitem.hxx>
+ #include <editeng/adjustitem.hxx>
++#include <cstdlib>
++#include <iterator>
+ #include <editeng/orphitem.hxx>
+ #include <editeng/widwitem.hxx>
+ #include <editeng/tstpitem.hxx>
+@@ -263,6 +265,115 @@
+     return std::make_unique<SvxStdParagraphTabPage>(pPage, pController, *rSet);
+ }
+ 
++// HST: entries of comboLB_HST_ALIGN, in list order
++const SvxAdjust aHstAlignments[] = { SvxAdjust::Left, SvxAdjust::Center, SvxAdjust::Right, SvxAdjust::Block };
++
++void SvxStdParagraphTabPage::HstSpecialFromFirstLine()
++{
++    // A style can hold a relative (%) or font-relative (em) first line: only the original field
++    // can show those, so it stays visible for them and "Special" is hidden.
++    const bool bPlainLength = !m_aFLineIndent.IsRelative() && m_aFLineIndent.GetCurrentUnit() == FieldUnit::NONE;
++    m_xFLineLabel->set_visible(!bPlainLength);
++    m_aFLineIndent.get_widget().set_visible(!bPlainLength);
++    m_xHstSpecialLabel->set_visible(bPlainLength);
++    m_xHstSpecial->set_visible(bPlainLength);
++    m_xHstSpecialByLabel->set_visible(bPlainLength);
++    m_xHstSpecialBy->set_visible(bPlainLength);
++    if (!bPlainLength)
++        return;
++
++    if (m_aFLineIndent.get_text().isEmpty()) // mixed selection
++    {
++        m_xHstSpecial->set_active(-1);
++        m_xHstSpecialBy->set_text(OUString());
++        return;
++    }
++    const FieldUnit eUnit = m_xHstSpecialBy->get_unit();
++    const sal_Int64 nValue = m_aFLineIndent.get_value(eUnit);
++    m_xHstSpecial->set_active(nValue > 0 ? 1 : nValue < 0 ? 2 : 0);
++    m_xHstSpecialBy->set_value(std::abs(nValue), eUnit);
++    m_xHstSpecialBy->set_sensitive(nValue != 0 && !m_xAutoCB->get_active());
++    m_xHstSpecialByLabel->set_sensitive(nValue != 0 && !m_xAutoCB->get_active());
++}
++
++IMPL_LINK_NOARG(SvxStdParagraphTabPage, HstSpecialHdl_Impl, weld::ComboBox&, void)
++{
++    const int nKind = m_xHstSpecial->get_active();
++    const FieldUnit eUnit = m_xHstSpecialBy->get_unit();
++    sal_Int64 nBy = m_xHstSpecialBy->get_value(eUnit);
++    if (nKind == 0)
++        nBy = 0;
++    else if (nBy == 0) // like Word: choosing a kind offers a usable amount (1.27 cm)
++    {
++        m_xHstSpecialBy->set_value(m_xHstSpecialBy->normalize(720), FieldUnit::TWIP);
++        nBy = m_xHstSpecialBy->get_value(eUnit);
++    }
++    m_aFLineIndent.set_value(nKind == 2 ? -nBy : nBy, eUnit);
++    m_xHstSpecialBy->set_sensitive(nKind > 0);
++    m_xHstSpecialByLabel->set_sensitive(nKind > 0);
++    ELRLoseFocus();
++}
++
++void SvxStdParagraphTabPage::HstApplySpecialBy()
++{
++    // Only when edited: an untouched dialog must not rewrite a value the field rounded for display.
++    if (m_xHstSpecial->get_active() < 0 || !m_xHstSpecial->get_visible()
++        || !(m_xHstSpecial->get_value_changed_from_saved() || m_xHstSpecialBy->get_value_changed_from_saved()))
++        return;
++    const FieldUnit eUnit = m_xHstSpecialBy->get_unit();
++    const sal_Int64 nBy = m_xHstSpecial->get_active() == 0 ? 0 : m_xHstSpecialBy->get_value(eUnit);
++    m_aFLineIndent.set_value(m_xHstSpecial->get_active() == 2 ? -nBy : nBy, eUnit);
++}
++
++IMPL_LINK_NOARG(SvxStdParagraphTabPage, HstSpecialByHdl_Impl, weld::MetricSpinButton&, void)
++{
++    HstApplySpecialBy();
++    ELRLoseFocus();
++}
++
++void SvxStdParagraphTabPage::HstPreviewAlign(SvxAdjust eAdjust)
++{
++    // same convention as ActivatePage: the preview draws right alignment through its RTL mode
++    m_aExampleWin.EnableRTL(eAdjust == SvxAdjust::Right);
++    m_aExampleWin.SetAdjust(eAdjust == SvxAdjust::Right ? SvxAdjust::Left : eAdjust);
++}
++
++void SvxStdParagraphTabPage::HstAlignFromSet(const SfxItemSet& rSet)
++{
++    const sal_uInt16 nWhich = GetWhich(SID_ATTR_PARA_ADJUST);
++    const SfxItemState eState = rSet.GetItemState(nWhich);
++    // Pages without an alignment item in their dialog (no Alignment page) have no such option.
++    const bool bAvailable = eState != SfxItemState::UNKNOWN && eState != SfxItemState::DISABLED;
++    m_xHstGeneralFrame->set_visible(bAvailable);
++    int nActive = -1;
++    if (eState >= SfxItemState::DEFAULT)
++    {
++        SvxAdjust eAdjust = static_cast<const SvxAdjustItem&>(rSet.Get(nWhich)).GetAdjust();
++        // Start/End are logical: show the side they mean in this paragraph direction.
++        const sal_uInt16 nWhichDir = GetWhich(SID_ATTR_FRAMEDIRECTION);
++        const bool bRTL = rSet.GetItemState(nWhichDir) >= SfxItemState::DEFAULT
++            && static_cast<const SvxFrameDirectionItem&>(rSet.Get(nWhichDir)).GetValue() == SvxFrameDirection::Horizontal_RL_TB;
++        if (eAdjust == SvxAdjust::ParaStart)
++            eAdjust = bRTL ? SvxAdjust::Right : SvxAdjust::Left;
++        else if (eAdjust == SvxAdjust::ParaEnd)
++            eAdjust = bRTL ? SvxAdjust::Left : SvxAdjust::Right;
++        for (size_t i = 0; i < std::size(aHstAlignments); ++i)
++            if (aHstAlignments[i] == eAdjust)
++                nActive = static_cast<int>(i);
++    }
++    m_xHstAlign->set_active(nActive);
++    m_xHstAlign->save_value();
++}
++
++IMPL_LINK_NOARG(SvxStdParagraphTabPage, HstAlignHdl_Impl, weld::ComboBox&, void)
++{
++    const int nActive = m_xHstAlign->get_active();
++    if (nActive < 0)
++        return;
++    HstPreviewAlign(aHstAlignments[nActive]);
++    UpdateExample_Impl();
++}
++
+ bool SvxStdParagraphTabPage::FillItemSet( SfxItemSet* rOutSet )
+ {
+     const SfxPoolItem* pOld = nullptr;
+@@ -271,6 +382,26 @@
+ 
+     bool bModified = false;
+     sal_uInt16 nWhich;
++
++    // HST: a By value typed and confirmed with Enter has not left its field yet.
++    HstApplySpecialBy();
++
++    // HST: alignment list. Start from the item already exchanged by the Alignment page, if any,
++    // so its justification details (last line, word spacing...) are kept.
++    if (m_xHstGeneralFrame->get_visible() && m_xHstAlign->get_active() >= 0
++        && m_xHstAlign->get_value_changed_from_saved())
++    {
++        nWhich = GetWhich(SID_ATTR_PARA_ADJUST);
++        const SfxPoolItem* pCurrent = nullptr;
++        if (rOutSet->GetItemState(nWhich, false, &pCurrent) != SfxItemState::SET)
++            pCurrent = &GetItemSet().Get(nWhich);
++        SvxAdjustItem aAdjust(*static_cast<const SvxAdjustItem*>(pCurrent));
++        aAdjust.SetAdjust(aHstAlignments[m_xHstAlign->get_active()]);
++        rOutSet->Put(aAdjust);
++        m_xHstAlign->save_value();
++        bModified = true;
++    }
++
+     int nPos = m_xLineDist->get_active();
+ 
+     if ( nPos != -1 &&
+@@ -608,6 +739,7 @@
+     m_aLeftIndent.SetFieldUnit(eFUnit);
+     m_aRightIndent.SetFieldUnit(eFUnit);
+     m_aFLineIndent.SetFieldUnit(eFUnit);
++    SetFieldUnit(*m_xHstSpecialBy, eFUnit);
+     if ( eFUnit == FieldUnit::CHAR )
+     {
+         m_aTopDist.SetFieldUnit(FieldUnit::LINE);
+@@ -876,6 +1008,8 @@
+     // because for Impress the min of first-line indent depends on value of
+     // left-indent!
+     ELRLoseFocus();
++    HstSpecialFromFirstLine();
++    HstAlignFromSet(*rSet);
+     ChangesApplied();
+ }
+ 
+@@ -892,6 +1026,8 @@
+     m_aBottomDist.save_value();
+     m_xContextualCB->save_state();
+     m_xAutoCB->save_state();
++    m_xHstSpecial->save_value();
++    m_xHstSpecialBy->save_value();
+ }
+ 
+ void SvxStdParagraphTabPage::EnableRelativeMode()
+@@ -908,6 +1044,8 @@
+ 
+ void SvxStdParagraphTabPage::ActivatePage( const SfxItemSet& rSet )
+ {
++    HstAlignFromSet(rSet);
++
+     sal_uInt16 _nWhich = GetWhich( SID_ATTR_PARA_ADJUST );
+     SfxItemState eItemState = rSet.GetItemState( _nWhich );
+ 
+@@ -962,6 +1100,12 @@
+     , m_xFLineLabel(m_xBuilder->weld_label(u"labelFT_FLINEINDENT"_ustr))
+     , m_aFLineIndent(m_xBuilder->weld_metric_spin_button(u"spinED_FLINEINDENT"_ustr, FieldUnit::CM))
+     , m_xAutoCB(m_xBuilder->weld_check_button(u"checkCB_AUTO"_ustr))
++    , m_xHstSpecialLabel(m_xBuilder->weld_label(u"labelFT_HST_SPECIAL"_ustr))
++    , m_xHstSpecial(m_xBuilder->weld_combo_box(u"comboLB_HST_SPECIAL"_ustr))
++    , m_xHstSpecialByLabel(m_xBuilder->weld_label(u"labelFT_HST_SPECIALBY"_ustr))
++    , m_xHstSpecialBy(m_xBuilder->weld_metric_spin_button(u"spinED_HST_SPECIALBY"_ustr, FieldUnit::CM))
++    , m_xHstGeneralFrame(m_xBuilder->weld_widget(u"frameHST_GENERAL"_ustr))
++    , m_xHstAlign(m_xBuilder->weld_combo_box(u"comboLB_HST_ALIGN"_ustr))
+     , m_aTopDist(m_xBuilder->weld_metric_spin_button(u"spinED_TOPDIST"_ustr, FieldUnit::CM))
+     , m_aBottomDist(m_xBuilder->weld_metric_spin_button(u"spinED_BOTTOMDIST"_ustr, FieldUnit::CM))
+     , m_xContextualCB(m_xBuilder->weld_check_button(u"checkCB_CONTEXTUALSPACING"_ustr))
+@@ -1165,6 +1309,9 @@
+     m_aBottomDist.connect_value_changed(aLink);
+ 
+     m_xAutoCB->connect_toggled(LINK(this, SvxStdParagraphTabPage, AutoHdl_Impl));
++    m_xHstSpecial->connect_changed(LINK(this, SvxStdParagraphTabPage, HstSpecialHdl_Impl));
++    m_xHstSpecialBy->connect_value_changed(LINK(this, SvxStdParagraphTabPage, HstSpecialByHdl_Impl));
++    m_xHstAlign->connect_changed(LINK(this, SvxStdParagraphTabPage, HstAlignHdl_Impl));
+     SfxItemPool* pPool = GetItemSet().GetPool();
+     assert(pPool && "Where is the pool?");
+     FieldUnit eUnit = MapToFieldUnit( pPool->GetMetric( GetWhich( SID_ATTR_LRSPACE ) ) );
+@@ -1215,6 +1362,11 @@
+     bool bEnable = !rBox.get_active();
+     m_xFLineLabel->set_sensitive(bEnable);
+     m_aFLineIndent.set_sensitive(bEnable);
++    m_xHstSpecialLabel->set_sensitive(bEnable);
++    m_xHstSpecial->set_sensitive(bEnable);
++    const bool bBy = bEnable && m_xHstSpecial->get_active() > 0;
++    m_xHstSpecialByLabel->set_sensitive(bBy);
++    m_xHstSpecialBy->set_sensitive(bBy);
+ }
+ 
+ void SvxStdParagraphTabPage::EnableAutoFirstLine()
+--- a/cui/uiconfig/ui/paraindentspacing.ui
++++ b/cui/uiconfig/ui/paraindentspacing.ui
+@@ -45,6 +45,11 @@
+     <property name="page-increment">10</property>
+   </object>
+   <!-- n-columns=2 n-rows=1 -->
++  <object class="GtkAdjustment" id="adjustmentHST_SPECIALBY">
++    <property name="upper">9999</property>
++    <property name="step-increment">10</property>
++    <property name="page-increment">100</property>
++  </object>
+   <object class="GtkGrid" id="ParaIndentSpacing">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -88,7 +93,7 @@
+       </packing>
+     </child>
+     <child>
+-      <!-- n-columns=1 n-rows=3 -->
++      <!-- n-columns=1 n-rows=4 -->
+       <object class="GtkGrid" id="maingrid">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+@@ -97,13 +102,76 @@
+         <property name="vexpand">True</property>
+         <property name="row-spacing">12</property>
+         <child>
++          <object class="GtkFrame" id="frameHST_GENERAL">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label-xalign">0</property>
++            <property name="shadow-type">none</property>
++            <child>
++              <!-- n-columns=2 n-rows=1 -->
++              <object class="GtkGrid" id="gridHST_GENERAL">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="margin-start">12</property>
++                <property name="margin-top">6</property>
++                <property name="row-spacing">3</property>
++                <property name="column-spacing">6</property>
++                <child>
++                  <object class="GtkLabel" id="labelFT_HST_ALIGN">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="paraindentspacing|labelFT_HST_ALIGN">Ali_gnment:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">comboLB_HST_ALIGN</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkComboBoxText" id="comboLB_HST_ALIGN">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <items>
++                      <item id="0" translatable="yes" context="paraindentspacing|liststoreLB_HST_ALIGN">Left</item>
++                      <item id="1" translatable="yes" context="paraindentspacing|liststoreLB_HST_ALIGN">Centered</item>
++                      <item id="2" translatable="yes" context="paraindentspacing|liststoreLB_HST_ALIGN">Right</item>
++                      <item id="3" translatable="yes" context="paraindentspacing|liststoreLB_HST_ALIGN">Justified</item>
++                    </items>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++              </object>
++            </child>
++            <child type="label">
++              <object class="GtkLabel" id="labelFL_HST_GENERAL">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="paraindentspacing|labelFL_HST_GENERAL">General</property>
++                <attributes>
++                  <attribute name="weight" value="bold"/>
++                </attributes>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="left-attach">0</property>
++            <property name="top-attach">0</property>
++          </packing>
++        </child>
++        <child>
+           <object class="GtkFrame" id="frame1">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+             <property name="label-xalign">0</property>
+             <property name="shadow-type">none</property>
+             <child>
+-              <!-- n-columns=2 n-rows=4 -->
++              <!-- n-columns=2 n-rows=7 -->
+               <object class="GtkGrid" id="grid4">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+@@ -196,6 +264,63 @@
+                   </packing>
+                 </child>
+                 <child>
++                  <object class="GtkLabel" id="labelFT_HST_SPECIAL">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="paraindentspacing|labelFT_HST_SPECIAL">Sp_ecial:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">comboLB_HST_SPECIAL</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkComboBoxText" id="comboLB_HST_SPECIAL">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <items>
++                      <item id="0" translatable="yes" context="paraindentspacing|liststoreLB_HST_SPECIAL">(none)</item>
++                      <item id="1" translatable="yes" context="paraindentspacing|liststoreLB_HST_SPECIAL">First line</item>
++                      <item id="2" translatable="yes" context="paraindentspacing|liststoreLB_HST_SPECIAL">Hanging</item>
++                    </items>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="labelFT_HST_SPECIALBY">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="paraindentspacing|labelFT_HST_SPECIALBY">B_y:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">spinED_HST_SPECIALBY</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">5</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSpinButton" id="spinED_HST_SPECIALBY">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="adjustment">adjustmentHST_SPECIALBY</property>
++                    <property name="digits">2</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">5</property>
++                  </packing>
++                </child>
++                <child>
+                   <object class="GtkCheckButton" id="checkCB_AUTO">
+                     <property name="label" translatable="yes" context="paraindentspacing|checkCB_AUTO">_Automatic</property>
+                     <property name="can-focus">True</property>
+@@ -206,7 +331,7 @@
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+-                    <property name="top-attach">3</property>
++                    <property name="top-attach">6</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -239,7 +364,7 @@
+           </object>
+           <packing>
+             <property name="left-attach">0</property>
+-            <property name="top-attach">0</property>
++            <property name="top-attach">1</property>
+           </packing>
+         </child>
+         <child>
+@@ -355,7 +480,7 @@
+           </object>
+           <packing>
+             <property name="left-attach">0</property>
+-            <property name="top-attach">1</property>
++            <property name="top-attach">2</property>
+           </packing>
+         </child>
+         <child>
+@@ -546,7 +671,7 @@
+           </object>
+           <packing>
+             <property name="left-attach">0</property>
+-            <property name="top-attach">2</property>
++            <property name="top-attach">3</property>
+           </packing>
+         </child>
+       </object>
+@@ -561,6 +686,9 @@
+       <widget name="labelFT_LEFTINDENT"/>
+       <widget name="labelFT_RIGHTINDENT"/>
+       <widget name="labelFT_FLINEINDENT"/>
++      <widget name="labelFT_HST_ALIGN"/>
++      <widget name="labelFT_HST_SPECIAL"/>
++      <widget name="labelFT_HST_SPECIALBY"/>
+       <widget name="labelFT_TOPDIST"/>
+       <widget name="labelFT_BOTTOMDIST"/>
+       <widget name="box3"/>
+@@ -571,6 +699,9 @@
+       <widget name="spinED_LEFTINDENT"/>
+       <widget name="spinED_RIGHTINDENT"/>
+       <widget name="spinED_FLINEINDENT"/>
++      <widget name="comboLB_HST_ALIGN"/>
++      <widget name="comboLB_HST_SPECIAL"/>
++      <widget name="spinED_HST_SPECIALBY"/>
+       <widget name="spinED_TOPDIST"/>
+       <widget name="spinED_BOTTOMDIST"/>
+       <widget name="spinED_LINEDISTPERCENT"/>
+--- a/cui/uiconfig/ui/textflowpage.ui
++++ b/cui/uiconfig/ui/textflowpage.ui
+@@ -420,7 +420,7 @@
+         </child>
+       </object>
+       <packing>
+-        <property name="left-attach">0</property>
++        <property name="left-attach">1</property>
+         <property name="top-attach">0</property>
+         <property name="height">2</property>
+       </packing>
+@@ -882,8 +882,8 @@
+         </child>
+       </object>
+       <packing>
+-        <property name="left-attach">1</property>
+-        <property name="top-attach">0</property>
++        <property name="left-attach">0</property>
++        <property name="top-attach">1</property>
+       </packing>
+     </child>
+     <child>
+@@ -1074,8 +1074,8 @@
+         </child>
+       </object>
+       <packing>
+-        <property name="left-attach">1</property>
+-        <property name="top-attach">1</property>
++        <property name="left-attach">0</property>
++        <property name="top-attach">0</property>
+       </packing>
+     </child>
+     <child internal-child="accessible">
+--- a/sw/source/ui/chrdlg/pardlg.cxx
++++ b/sw/source/ui/chrdlg/pardlg.cxx
+@@ -42,6 +42,14 @@
+ #include <vcl/tabs.hrc>
+ #include <vcl/weld/Dialog.hxx>
+ 
++namespace
++{
++// HST: Word's tab names here only: the same pages keep their general names in other dialogs.
++constexpr TranslateId STR_HST_TAB_INDENTS = NC_("hstparadlg|indents", "Indents and Spacing");
++constexpr TranslateId STR_HST_TAB_BREAKS = NC_("hstparadlg|textflow", "Line and Page Breaks");
++constexpr TranslateId STR_HST_TAB_ALIGNMENT = NC_("hstparadlg|alignment", "Advanced Alignment");
++}
++
+ SwParaDlg::SwParaDlg(weld::Window *pParent,
+                     SwView& rVw,
+                     const SfxItemSet& rCoreSet,
+@@ -66,46 +74,47 @@
+     // tabs common to paragraph and draw paragraphs (paragraphs inside a text box)
+     SvxAbstractDialogFactory* pFact = SvxAbstractDialogFactory::Create();
+ 
++    // HST: Word's two tabs and Tabs come first; every other option keeps its page behind them.
+     assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_STD_PARAGRAPH)
+            && "GetTabPageCreatorFunc fail!");
+     assert(pFact->GetTabPageRangesFunc(RID_SVXPAGE_STD_PARAGRAPH) && "GetTabPageRangesFunc fail!");
+-    AddTabPage(u"indents"_ustr, TabResId(RID_TAB_INDENTS.aLabel),
++    AddTabPage(u"indents"_ustr, SwResId(STR_HST_TAB_INDENTS),
+                pFact->GetTabPageCreatorFunc(RID_SVXPAGE_STD_PARAGRAPH),
+                pFact->GetTabPageRangesFunc(RID_SVXPAGE_STD_PARAGRAPH),
+                RID_M + RID_TAB_INDENTS.sIconName);
+ 
+-    assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_ALIGN_PARAGRAPH)
+-           && "GetTabPageCreatorFunc fail!");
+-    assert(pFact->GetTabPageRangesFunc(RID_SVXPAGE_ALIGN_PARAGRAPH)
+-           && "GetTabPageRangesFunc fail!");
+-    AddTabPage(u"alignment"_ustr, TabResId(RID_TAB_ALIGNMENT.aLabel),
+-               pFact->GetTabPageCreatorFunc(RID_SVXPAGE_ALIGN_PARAGRAPH),
+-               pFact->GetTabPageRangesFunc(RID_SVXPAGE_ALIGN_PARAGRAPH),
+-               RID_M + RID_TAB_ALIGNMENT.sIconName);
+-
+     if (!m_bDrawParaDlg && (!bHtmlMode || officecfg::Office::Common::Filter::HTML::Export::PrintLayout::get()))
+     {
+         assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_EXT_PARAGRAPH)
+                && "GetTabPageCreatorFunc fail!");
+         assert(pFact->GetTabPageRangesFunc(RID_SVXPAGE_EXT_PARAGRAPH)
+                && "GetTabPageRangesFunc fail!");
+-        AddTabPage(u"textflow"_ustr, TabResId(RID_TAB_TEXTFLOW.aLabel),
++        AddTabPage(u"textflow"_ustr, SwResId(STR_HST_TAB_BREAKS),
+                    pFact->GetTabPageCreatorFunc(RID_SVXPAGE_EXT_PARAGRAPH),
+                    pFact->GetTabPageRangesFunc(RID_SVXPAGE_EXT_PARAGRAPH),
+                    RID_M + RID_TAB_TEXTFLOW.sIconName);
+     }
+ 
+-    if(!bHtmlMode && SvtCJKOptions::IsAsianTypographyEnabled())
++    if(!bHtmlMode)
+     {
+-        assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_PARA_ASIAN)
++        assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_TABULATOR)
+                && "GetTabPageCreatorFunc fail!");
+-        assert(pFact->GetTabPageRangesFunc(RID_SVXPAGE_PARA_ASIAN) && "GetTabPageRangesFunc fail!");
+-        AddTabPage(u"asiantypo"_ustr, TabResId(RID_TAB_ASIANTYPO.aLabel),
+-                   pFact->GetTabPageCreatorFunc(RID_SVXPAGE_PARA_ASIAN),
+-                   pFact->GetTabPageRangesFunc(RID_SVXPAGE_PARA_ASIAN),
+-                   RID_M + RID_TAB_ASIANTYPO.sIconName);
++        assert(pFact->GetTabPageRangesFunc(RID_SVXPAGE_TABULATOR) && "GetTabPageRangesFunc fail!");
++        AddTabPage(u"tabs"_ustr, TabResId(RID_TAB_TABS.aLabel),
++                   pFact->GetTabPageCreatorFunc(RID_SVXPAGE_TABULATOR),
++                   pFact->GetTabPageRangesFunc(RID_SVXPAGE_TABULATOR),
++                   RID_M + RID_TAB_TABS.sIconName);
+     }
+ 
++    assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_ALIGN_PARAGRAPH)
++           && "GetTabPageCreatorFunc fail!");
++    assert(pFact->GetTabPageRangesFunc(RID_SVXPAGE_ALIGN_PARAGRAPH)
++           && "GetTabPageRangesFunc fail!");
++    AddTabPage(u"alignment"_ustr, SwResId(STR_HST_TAB_ALIGNMENT),
++               pFact->GetTabPageCreatorFunc(RID_SVXPAGE_ALIGN_PARAGRAPH),
++               pFact->GetTabPageRangesFunc(RID_SVXPAGE_ALIGN_PARAGRAPH),
++               RID_M + RID_TAB_ALIGNMENT.sIconName);
++
+     if (!m_bDrawParaDlg)
+     {
+         if(!(nDialogMode & DLG_ENVELOP))
+@@ -114,17 +123,6 @@
+                        RID_M + RID_TAB_OUTLINELIST.sIconName);
+     }
+ 
+-    if(!bHtmlMode)
+-    {
+-        assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_TABULATOR)
+-               && "GetTabPageCreatorFunc fail!");
+-        assert(pFact->GetTabPageRangesFunc(RID_SVXPAGE_TABULATOR) && "GetTabPageRangesFunc fail!");
+-        AddTabPage(u"tabs"_ustr, TabResId(RID_TAB_TABS.aLabel),
+-                   pFact->GetTabPageCreatorFunc(RID_SVXPAGE_TABULATOR),
+-                   pFact->GetTabPageRangesFunc(RID_SVXPAGE_TABULATOR),
+-                   RID_M + RID_TAB_TABS.sIconName);
+-    }
+-
+     if (!m_bDrawParaDlg)
+     {
+         AddTabPage(u"dropcaps"_ustr, TabResId(RID_TAB_DROPCAPS.aLabel), SwDropCapsPage::Create,
+@@ -151,6 +149,17 @@
+         }
+     }
+ 
++    if(!bHtmlMode && SvtCJKOptions::IsAsianTypographyEnabled())
++    {
++        assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_PARA_ASIAN)
++               && "GetTabPageCreatorFunc fail!");
++        assert(pFact->GetTabPageRangesFunc(RID_SVXPAGE_PARA_ASIAN) && "GetTabPageRangesFunc fail!");
++        AddTabPage(u"asiantypo"_ustr, TabResId(RID_TAB_ASIANTYPO.aLabel),
++                   pFact->GetTabPageCreatorFunc(RID_SVXPAGE_PARA_ASIAN),
++                   pFact->GetTabPageRangesFunc(RID_SVXPAGE_PARA_ASIAN),
++                   RID_M + RID_TAB_ASIANTYPO.sIconName);
++    }
++
+     if (!sDefPage.isEmpty())
+         SetCurPageId(sDefPage);
+ }
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -19006,6 +19006,72 @@
+ msgid "Fixed"
+ msgstr "Cố định"
+ 
++#. hstPI1
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|labelFL_HST_GENERAL"
++msgid "General"
++msgstr "Chung"
++
++#. hstPI2
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|labelFT_HST_ALIGN"
++msgid "Ali_gnment:"
++msgstr "Căn chỉn_h:"
++
++#. hstPI3
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|liststoreLB_HST_ALIGN"
++msgid "Left"
++msgstr "Trái"
++
++#. hstPI4
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|liststoreLB_HST_ALIGN"
++msgid "Centered"
++msgstr "Giữa"
++
++#. hstPI5
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|liststoreLB_HST_ALIGN"
++msgid "Right"
++msgstr "Phải"
++
++#. hstPI6
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|liststoreLB_HST_ALIGN"
++msgid "Justified"
++msgstr "Căn đều"
++
++#. hstPI7
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|labelFT_HST_SPECIAL"
++msgid "Sp_ecial:"
++msgstr "Đặc b_iệt:"
++
++#. hstPI8
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|liststoreLB_HST_SPECIAL"
++msgid "(none)"
++msgstr "(không có)"
++
++#. hstPI9
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|liststoreLB_HST_SPECIAL"
++msgid "First line"
++msgstr "Dòng đầu tiên"
++
++#. hstPIa
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|liststoreLB_HST_SPECIAL"
++msgid "Hanging"
++msgstr "Treo"
++
++#. hstPIb
++#: cui/uiconfig/ui/paraindentspacing.ui
++msgctxt "paraindentspacing|labelFT_HST_SPECIALBY"
++msgid "B_y:"
++msgstr "Th_eo:"
++
+ #. qwSsb
+ #: cui/uiconfig/ui/paraindentspacing.ui:233
+ msgctxt "paraindentspacing|label1"
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -26961,6 +26961,24 @@
+ msgid "Custom"
+ msgstr "Tự chọn"
+ 
++#. hstPD1
++#: sw/source/ui/chrdlg/pardlg.cxx
++msgctxt "hstparadlg|indents"
++msgid "Indents and Spacing"
++msgstr "Thụt lề và Giãn cách"
++
++#. hstPD2
++#: sw/source/ui/chrdlg/pardlg.cxx
++msgctxt "hstparadlg|textflow"
++msgid "Line and Page Breaks"
++msgstr "Ngắt Dòng và Trang"
++
++#. hstPD3
++#: sw/source/ui/chrdlg/pardlg.cxx
++msgctxt "hstparadlg|alignment"
++msgid "Advanced Alignment"
++msgstr "Căn chỉnh nâng cao"
++
+ #. ZrS3t
+ #: sw/uiconfig/swriter/ui/paradialog.ui:8
+ msgctxt "paradialog|ParagraphPropertiesDialog"
