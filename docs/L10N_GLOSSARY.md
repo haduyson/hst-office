@@ -32,6 +32,7 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 | Certificate | Chứng thư số | quyết định của chủ dự án (2026-11-01): thuật ngữ pháp lý của Luật Giao dịch điện tử và cách gọi của VNPT-CA, Viettel-CA. Nhãn ngắn được viết "chứng thư" khi đã rõ là chứng thư số ("Lựa chọn chứng thư", "Xem chứng thư…", "Cấp bởi"); câu đầy đủ dùng "chứng thư số". Không dùng "chứng chỉ", "chứng nhận" trong ký số. Chứng chỉ SSL của trang web (uui) chưa đổi |
 | Search Commands (Shift+Esc) | Tìm tính năng… | quyết định của chủ dự án (2026-11-04): ô tìm lệnh theo tên, gõ không dấu cũng được; có ở Trợ giúp, menu HST và thẻ Trang đầu. Ô nhập ghi "Gõ tên tính năng, không dấu cũng được". Không dùng "Tìm lệnh" |
 | Cancel / Yes / No | Hủy / Có / Không | viết "Hủy", không "Huỷ"; không dùng "Thôi", "Đồng ý" cho Yes |
+| Dấu thanh trên oa/oe/uy | Xóa, hòa, khỏe, hủy, Tùy | kiểu mới: thanh đặt trên nguyên âm đầu khi vần đứng cuối âm tiết (không "Xoá", "hoà", "huỷ", "Tuỳ"); `apply-overrides.py` tự sửa mọi `.po` tiếng Việt khi build ([`vi_tone.py`](../scripts/l10n/vi_tone.py)); nếu chữ phím tắt nằm trên nguyên âm mang dấu thì dời sang chữ ASCII kế bên ("Xó~a") |
 
 Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`, `%1`, `%s`) và số dạng số nhiều;
 `python3 scripts/l10n/check-translations.py <tệp.jsonl> --strict` kiểm tra các điểm này.
@@ -85,6 +86,11 @@ Mục không có `~` (menu HST trong `Addons.xcu`) do VCL tự gán chữ còn t
 chỉ nhãn có `use-underline`). Trùng phím trong hộp thoại là lỗi strict khi một dòng override đã chọn phím đó và bản tiếng Anh
 không trùng; trùng do bản dịch gốc là cảnh báo (`--verbose` liệt kê). CI không có cây nguồn nên bỏ qua phần này
 ([`access_keys_dialogs.py`](../scripts/l10n/access_keys_dialogs.py)).
+beta.5 sửa thêm các phím trùng của bản dịch gốc trong hộp thoại (293 → 37 cảnh báo, 158 → 3 phím không phải ASCII).
+Phần còn lại: 20 trùng y như bản tiếng Anh (hai nút cùng tên "_Mới", "_X:", C/M/Y/K…), 17 hộp thoại hết chữ ASCII
+(Toán: Giãn cách, Khung, Bảng, Xem của Calc…), 3 nhãn chỉ có ký hiệu (">>", "<<", "..."). Tìm và thay thế (21–23 điều khiển,
+chữ tiếng Việt chỉ cho 17 chữ ASCII) và Nhập văn bản CSV có ngoại lệ trong `access-keys-exceptions.json`; phím là duy nhất
+giữa các điều khiển mà mọi ứng dụng cùng hiện.
 
 Kiểm tra: `python3 scripts/l10n/check-access-keys.py --strict` (chạy trong `scripts/ci-quality.sh`). Script
 dựng menu/ribbon từ cây nguồn (hoặc từ [`l10n/access-keys-snapshot.json`](../l10n/access-keys-snapshot.json)

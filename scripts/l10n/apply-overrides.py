@@ -7,7 +7,8 @@ Each row {file, msgctxt, msgid, msgstr, reason} replaces the msgstr of exactly t
 renames the (single-line) msgid first, for strings whose English source text was changed by
 a patch (the translation key follows the source); a rerun finds the new msgid and skips it. Values use the
 escaped .po form (\\n, \\") like the rows merged by merge-vi.py. Run it after merge-vi.py
-so the overrides win. It also copies the Vietnamese tip-of-the-day images of l10n/vi-tipoftheday/
+so the overrides win. Then every Vietnamese .po gets new-style oa/oe/uy tones (vi_tone.py:
+Xoá -> Xóa, huỷ -> hủy). It also copies the Vietnamese tip-of-the-day images of l10n/vi-tipoftheday/
 (scripts/l10n/build-tip-images.py) over extras/source/tipoftheday and icon-themes/*/res. Idempotent; every changed file must pass `msgfmt --check`; a key that
 no longer exists in the tree is an error (the upstream string changed).
 
@@ -24,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from po_io import fill_po, parse_po  # noqa: E402
+from vi_tone import normalize_po  # noqa: E402
 
 REQUIRED = ("file", "msgctxt", "msgid", "msgstr", "reason")
 
@@ -92,6 +94,32 @@ def apply(tree, overrides):
     return 1 if errors else 0
 
 
+def normalize_tones(tree):
+    """New-style tone placement (Xóa, hòa, hủy, Tùy) in every Vietnamese .po, after the overrides."""
+    root = os.path.join(tree, "translations", "source", "vi")
+    files = lines = errors = 0
+    for folder, _dirs, names in os.walk(root):
+        for name in sorted(names):
+            if not name.endswith(".po"):
+                continue
+            path = os.path.join(folder, name)
+            with open(path, encoding="utf-8") as handle:
+                before = handle.read()
+            count = normalize_po(path)
+            if not count:
+                continue
+            result = subprocess.run(["msgfmt", "--check", "-o", os.devnull, path], capture_output=True, text=True)
+            if result.returncode:
+                print(f"error: msgfmt rejects {os.path.relpath(path, root)} after tone normalization:\n{result.stderr}")
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(before)
+                errors += 1
+                continue
+            files, lines = files + 1, lines + count
+    print(f"tones: {lines} lines in {files} files moved to new-style oa/oe/uy, {errors} errors")
+    return 1 if errors else 0
+
+
 def apply_tip_images(tree, images):
     """Copy the Vietnamese/HST tip-of-the-day images (scripts/l10n/build-tip-images.py) into the tree."""
     import filecmp
@@ -123,7 +151,8 @@ def main():
     parser.add_argument("--overrides", default=os.path.join(ROOT, "l10n", "vi-overrides.jsonl"))
     parser.add_argument("--tip-images", default=os.path.join(ROOT, "l10n", "vi-tipoftheday"))
     args = parser.parse_args()
-    return apply(args.tree, args.overrides) | apply_tip_images(args.tree, args.tip_images)
+    status = apply(args.tree, args.overrides)
+    return status | normalize_tones(args.tree) | apply_tip_images(args.tree, args.tip_images)
 
 
 if __name__ == "__main__":

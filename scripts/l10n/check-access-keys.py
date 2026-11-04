@@ -449,7 +449,10 @@ def main(argv=None):
         dialogs = Path(args.tree).exists() and not args.no_dialogs
         if dialogs:  # .ui dialogs come from the tree only; see access_keys_dialogs.py
             model["containers"] += dialog_containers(args.tree, ModelBuilder(args.tree))
-        result = check(model, load_overrides(args.overrides), load_exceptions(args.exceptions))
+        exceptions = load_exceptions(args.exceptions)
+        if not dialogs:  # dialog exceptions ("x.ui:Dialog") cannot be checked without the tree
+            exceptions = [e for e in exceptions if ".ui:" not in e["container"]]
+        result = check(model, load_overrides(args.overrides), exceptions)
         if args.json:
             write_json(args.json, result)
     except (OSError, ValueError, SyntaxError, KeyError, ET.ParseError) as exc:
