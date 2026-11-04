@@ -1,0 +1,339 @@
+HST Office: Conditional Formatting uses Excel's rule types and Rules Manager order
+(owner-approved Microsoft Office parity for beta.5).
+
+- The rule type list holds: all cells by value, cells that contain, top or bottom ranked, above or below
+  average, unique or duplicate, a formula, dates. The condition list shows the conditions of its rule type
+  only; all 24 conditions are still reachable. A saved rule opens on the type that holds its condition.
+- Manage Conditional Formatting lists the rule first, then the range it applies to.
+
+Rules still apply cell styles rather than direct formats, and there is no Stop If True: both differ from
+Excel by design of the engine and were not part of the approved scope.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-sheets.py (conditional-format).
+---
+--- a/sc/source/ui/condformat/condformatdlg.cxx
++++ b/sc/source/ui/condformat/condformatdlg.cxx
+@@ -287,16 +287,19 @@
+             mpDialogParent->InvalidateRefData();
+             (*itr)->SetActive();
+             break;
+-        case 1:
+-            if((*itr)->GetType() == condformat::entry::CONDITION)
++        case condformat::entry::RULE_ROW_CONTAINS:
++        case condformat::entry::RULE_ROW_RANKED:
++        case condformat::entry::RULE_ROW_AVERAGE:
++        case condformat::entry::RULE_ROW_DUPLICATE:
++            if((*itr)->GetRuleRow() == nPos)
+                 return;
+ 
+             Freeze();
+-            itr->reset(new ScConditionFrmtEntry(this, mrDoc, mpDialogParent, maPos));
++            itr->reset(new ScConditionFrmtEntry(this, mrDoc, mpDialogParent, maPos, nullptr, nPos));
+             mpDialogParent->InvalidateRefData();
+             (*itr)->SetActive();
+             break;
+-        case 2:
++        case condformat::entry::RULE_ROW_FORMULA:
+             if((*itr)->GetType() == condformat::entry::FORMULA)
+                 return;
+ 
+@@ -305,7 +308,7 @@
+             mpDialogParent->InvalidateRefData();
+             (*itr)->SetActive();
+             break;
+-        case 3:
++        case condformat::entry::RULE_ROW_DATE:
+             if((*itr)->GetType() == condformat::entry::DATE)
+                 return;
+ 
+--- a/sc/source/ui/condformat/condformatdlgentry.cxx
++++ b/sc/source/ui/condformat/condformatdlgentry.cxx
+@@ -10,6 +10,9 @@
+ #include <memory>
+ #include <condformatdlg.hxx>
+ #include <condformatdlgentry.hxx>
++#include <o3tl/safeint.hxx>
++#include <algorithm>
++#include <iterator>
+ #include <conditio.hxx>
+ #include <compiler.hxx>
+ #include <colorscale.hxx>
+@@ -157,7 +160,7 @@
+         ScConditionMode::NotContainsText };
+ 
+ ScConditionFrmtEntry::ScConditionFrmtEntry(ScCondFormatList* pParent, ScDocument& rDoc, ScCondFormatDlg* pDialogParent,
+-        const ScAddress& rPos, const ScCondFormatEntry* pFormatEntry)
++        const ScAddress& rPos, const ScCondFormatEntry* pFormatEntry, sal_Int32 nRuleRow)
+     : ScCondFrmtEntry(pParent, rDoc, rPos)
+     , mxLbCondType(mxBuilder->weld_combo_box(u"typeis"_ustr))
+     , mxEdVal1(new formula::RefEdit(mxBuilder->weld_entry(u"val1"_ustr)))
+@@ -168,12 +171,14 @@
+     , mxWdPreviewWin(mxBuilder->weld_widget(u"previewwin"_ustr))
+     , mxWdPreview(new weld::CustomWeld(*mxBuilder, u"preview"_ustr, maWdPreview))
+     , mbIsInStyleCreate(false)
++    , mnRuleRow(pFormatEntry ? RuleRowOfMode(pFormatEntry->GetOperation()) : nRuleRow)
+ {
+     mxLbCondType->set_size_request(CommonWidgetWidth, -1);
+     mxLbType->set_size_request(CommonWidgetWidth, -1);
+     mxWdPreview->set_size_request(-1, mxLbStyle->get_preferred_size().Height());
+ 
+-    mxLbType->set_active(1);
++    mxLbType->set_active(mnRuleRow);
++    ShowModesOfRuleRow();
+ 
+     Init(pDialogParent);
+ 
+@@ -212,6 +217,9 @@
+     else
+     {
+         mxLbCondType->set_active(0);
++        // The first condition of a rule type may have no value (above average, duplicate).
++        mxEdVal1->GetWidget()->set_visible(GetNumberEditFields(maShownModes[0]) > 0);
++        mxFtVal->set_visible(GetNumberEditFields(maShownModes[0]) > 0);
+         mxEdVal2->GetWidget()->hide();
+         mxLbStyle->set_active(1);
+     }
+@@ -314,11 +322,45 @@
+     ScCondFrmtEntry::Deselect();
+ }
+ 
+-sal_Int32 ScConditionFrmtEntry::ConditionModeToEntryPos( ScConditionMode eMode )
+-{
+-    for ( sal_Int32 i = 0; i < NUM_COND_ENTRIES; ++i )
+-    {
+-        if (mpEntryToCond[i] == eMode)
++sal_Int32 ScConditionFrmtEntry::RuleRowOfMode( ScConditionMode eMode )
++{
++    switch (eMode)
++    {
++        case ScConditionMode::Top10:
++        case ScConditionMode::Bottom10:
++        case ScConditionMode::TopPercent:
++        case ScConditionMode::BottomPercent:
++            return condformat::entry::RULE_ROW_RANKED;
++        case ScConditionMode::AboveAverage:
++        case ScConditionMode::BelowAverage:
++        case ScConditionMode::AboveEqualAverage:
++        case ScConditionMode::BelowEqualAverage:
++            return condformat::entry::RULE_ROW_AVERAGE;
++        case ScConditionMode::Duplicate:
++        case ScConditionMode::NotDuplicate:
++            return condformat::entry::RULE_ROW_DUPLICATE;
++        default:
++            return condformat::entry::RULE_ROW_CONTAINS;
++    }
++}
++
++void ScConditionFrmtEntry::ShowModesOfRuleRow()
++{
++    // Back to front: removing a row must not move the rows still to be looked at.
++    for (sal_Int32 i = NUM_COND_ENTRIES - 1; i >= 0; --i)
++    {
++        if (RuleRowOfMode(mpEntryToCond[i]) == mnRuleRow)
++            maShownModes.insert(maShownModes.begin(), mpEntryToCond[i]);
++        else
++            mxLbCondType->remove(i);
++    }
++}
++
++sal_Int32 ScConditionFrmtEntry::ConditionModeToEntryPos( ScConditionMode eMode ) const
++{
++    for (size_t i = 0; i < maShownModes.size(); ++i)
++    {
++        if (maShownModes[i] == eMode)
+         {
+             return i;
+         }
+@@ -327,10 +369,10 @@
+     return 0;
+ }
+ 
+-ScConditionMode ScConditionFrmtEntry::EntryPosToConditionMode( sal_Int32 aEntryPos )
+-{
+-    assert( 0 <= aEntryPos && aEntryPos < NUM_COND_ENTRIES );
+-    return mpEntryToCond[aEntryPos];
++ScConditionMode ScConditionFrmtEntry::EntryPosToConditionMode( sal_Int32 aEntryPos ) const
++{
++    assert(0 <= aEntryPos && o3tl::make_unsigned(aEntryPos) < maShownModes.size());
++    return maShownModes[aEntryPos];
+ }
+ 
+ sal_Int32 ScConditionFrmtEntry::GetNumberEditFields( ScConditionMode eMode )
+@@ -372,7 +414,11 @@
+ 
+ OUString ScConditionFrmtEntry::GetExpressionString()
+ {
+-    return ScCondFormatHelper::GetExpression(CONDITION, mxLbCondType->get_active(), mxEdVal1->GetText(), mxEdVal2->GetText());
++    // The helper counts in the full list of conditions, not in the rows of this rule type.
++    const ScConditionMode eMode = EntryPosToConditionMode(mxLbCondType->get_active());
++    const sal_Int32 nFullPos = std::distance(std::begin(mpEntryToCond),
++                                             std::find(std::begin(mpEntryToCond), std::end(mpEntryToCond), eMode));
++    return ScCondFormatHelper::GetExpression(CONDITION, nFullPos, mxEdVal1->GetText(), mxEdVal2->GetText());
+ }
+ 
+ ScFormatEntry* ScConditionFrmtEntry::GetEntry() const
+@@ -534,7 +580,7 @@
+ 
+     Init(pDialogParent);
+ 
+-    mxLbType->set_active(2);
++    mxLbType->set_active(condformat::entry::RULE_ROW_FORMULA);
+ 
+     if(pFormat)
+     {
+@@ -1268,7 +1314,7 @@
+ void ScDateFrmtEntry::Init()
+ {
+     mxLbDateEntry->set_active(0);
+-    mxLbType->set_active(3);
++    mxLbType->set_active(condformat::entry::RULE_ROW_DATE);
+ 
+     FillStyleListBox(&mrDoc, *mxLbStyle);
+     mxLbStyle->connect_changed( LINK( this, ScDateFrmtEntry, StyleSelectHdl ) );
+--- a/sc/source/ui/condformat/condformatmgr.cxx
++++ b/sc/source/ui/condformat/condformatmgr.cxx
+@@ -45,9 +45,10 @@
+         {
+             const ScRangeList& aRange = rItem->GetRange();
+             aRange.Format(sRangeStr, ScRefFlags::VALID, mrDoc, mrDoc.GetAddressConvention());
+-            mrTreeView.append(OUString::number(rItem->GetKey()), sRangeStr);
+-            mrTreeView.set_text(
+-                nRow, ScCondFormatHelper::GetExpression(*rItem, aRange.GetTopLeftCorner()), 1);
++            // HST: the rule first, then the range it applies to, as in Excel's Rules Manager.
++            mrTreeView.append(OUString::number(rItem->GetKey()),
++                              ScCondFormatHelper::GetExpression(*rItem, aRange.GetTopLeftCorner()));
++            mrTreeView.set_text(nRow, sRangeStr, 1);
+             ++nRow;
+         }
+     }
+--- a/sc/source/ui/inc/condformatdlgentry.hxx
++++ b/sc/source/ui/inc/condformatdlgentry.hxx
+@@ -19,6 +19,7 @@
+ #include <vcl/weld/Grid.hxx>
+ #include <vcl/weld/Label.hxx>
+ #include <svl/lstner.hxx>
++#include <vector>
+ #include <svx/fntctrl.hxx>
+ 
+ class ScIconSetFrmtDataEntry;
+@@ -43,6 +44,18 @@
+     DATE
+ };
+ 
++// HST: rows of the rule type list, in the order of Excel's New Formatting Rule.
++enum ScCondRuleRow
++{
++    RULE_ROW_ALL_CELLS = 0,
++    RULE_ROW_CONTAINS,
++    RULE_ROW_RANKED,
++    RULE_ROW_AVERAGE,
++    RULE_ROW_DUPLICATE,
++    RULE_ROW_FORMULA,
++    RULE_ROW_DATE
++};
++
+ }
+ 
+ class ScCondFrmtEntry
+@@ -90,6 +103,8 @@
+     void SetIndex(sal_Int32 nIndex);
+ 
+     virtual ScFormatEntry* GetEntry() const = 0;
++    /// HST: the row of the rule type list that a condition entry shows, -1 for other entries.
++    virtual sal_Int32 GetRuleRow() const { return -1; }
+     virtual void SetActive() = 0;
+     virtual void SetInactive() = 0;
+ 
+@@ -122,10 +137,16 @@
+     DECL_LINK( ConditionTypeSelectHdl, weld::ComboBox&, void );
+     DECL_LINK( OnEdChanged, formula::RefEdit&, void );
+ 
+-    // Searches the lookup table for the entry position, given condition mode
+-    static sal_Int32 ConditionModeToEntryPos( ScConditionMode eMode );
+-    // Accesses the lookup table for the condition mode, given entry position
+-    static ScConditionMode EntryPosToConditionMode( sal_Int32 aEntryPos );
++    // HST: the rule type (Excel's New Formatting Rule) limits the list to its own conditions.
++    sal_Int32 mnRuleRow;
++    std::vector<ScConditionMode> maShownModes;
++    static sal_Int32 RuleRowOfMode( ScConditionMode eMode );
++    void ShowModesOfRuleRow();
++
++    // Searches the shown conditions for the entry position, given condition mode
++    sal_Int32 ConditionModeToEntryPos( ScConditionMode eMode ) const;
++    // Accesses the shown conditions for the condition mode, given entry position
++    ScConditionMode EntryPosToConditionMode( sal_Int32 aEntryPos ) const;
+     // Returns the number of edit fields used for a given condition mode
+     static sal_Int32 GetNumberEditFields( ScConditionMode eMode );
+ 
+@@ -135,8 +156,10 @@
+ 
+ public:
+     ScConditionFrmtEntry(ScCondFormatList* pParent, ScDocument& rDoc, ScCondFormatDlg* pDialogParent,
+-            const ScAddress& rPos, const ScCondFormatEntry* pFormatEntry = nullptr);
++            const ScAddress& rPos, const ScCondFormatEntry* pFormatEntry = nullptr,
++            sal_Int32 nRuleRow = condformat::entry::RULE_ROW_CONTAINS);
+     virtual ~ScConditionFrmtEntry() override;
++    virtual sal_Int32 GetRuleRow() const override { return mnRuleRow; }
+ 
+     virtual ScFormatEntry* GetEntry() const override;
+     virtual void SetActive() override;
+--- a/sc/uiconfig/scalc/ui/condformatmanager.ui
++++ b/sc/uiconfig/scalc/ui/condformatmanager.ui
+@@ -126,7 +126,7 @@
+                           <object class="GtkTreeViewColumn" id="treeviewcolumn1">
+                             <property name="resizable">True</property>
+                             <property name="spacing">6</property>
+-                            <property name="title" translatable="yes" context="condformatmanager|STR_HEADER_RANGE">Range</property>
++                            <property name="title" translatable="yes" context="condformatmanager|STR_HEADER_FIRST_CONDITION">First Condition</property>
+                             <child>
+                               <object class="GtkCellRendererText" id="cellrenderer1"/>
+                               <attributes>
+@@ -139,7 +139,7 @@
+                           <object class="GtkTreeViewColumn" id="treeviewcolumn2">
+                             <property name="resizable">True</property>
+                             <property name="spacing">6</property>
+-                            <property name="title" translatable="yes" context="condformatmanager|STR_HEADER_FIRST_CONDITION">First Condition</property>
++                            <property name="title" translatable="yes" context="condformatmanager|STR_HEADER_RANGE">Range</property>
+                             <child>
+                               <object class="GtkCellRendererText" id="cellrenderer2"/>
+                               <attributes>
+--- a/sc/uiconfig/scalc/ui/conditionalentry.ui
++++ b/sc/uiconfig/scalc/ui/conditionalentry.ui
+@@ -73,6 +73,9 @@
+                     <items>
+                       <item translatable="yes" context="conditionalentry|type">All Cells</item>
+                       <item translatable="yes" context="conditionalentry|type">Cell value</item>
++                      <item translatable="yes" context="conditionalentry|type">Top or bottom ranked values</item>
++                      <item translatable="yes" context="conditionalentry|type">Above or below average</item>
++                      <item translatable="yes" context="conditionalentry|type">Unique or duplicate values</item>
+                       <item translatable="yes" context="conditionalentry|type">Formula is</item>
+                       <item translatable="yes" context="conditionalentry|type">Date is</item>
+                     </items>
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -21514,6 +21514,24 @@
+ msgid "Manage Conditional Formatting"
+ msgstr "Trình quản lý quy tắc định dạng có điều kiện"
+ 
++#. hstDLG
++#: sc/uiconfig/scalc/ui/conditionalentry.ui
++msgctxt "conditionalentry|type"
++msgid "Top or bottom ranked values"
++msgstr "Giá trị xếp hạng đầu hoặc cuối"
++
++#. hstDLG
++#: sc/uiconfig/scalc/ui/conditionalentry.ui
++msgctxt "conditionalentry|type"
++msgid "Above or below average"
++msgstr "Trên hoặc dưới trung bình"
++
++#. hstDLG
++#: sc/uiconfig/scalc/ui/conditionalentry.ui
++msgctxt "conditionalentry|type"
++msgid "Unique or duplicate values"
++msgstr "Giá trị duy nhất hoặc trùng lặp"
++
+ #. FZLBr
+ #: sc/uiconfig/scalc/ui/condformatmanager.ui:129
+ msgctxt "condformatmanager|STR_HEADER_RANGE"
