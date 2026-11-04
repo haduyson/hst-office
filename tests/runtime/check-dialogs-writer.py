@@ -11,13 +11,14 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dialogs_writer_other_cases import (check_hyperlink, check_page_number, check_page_setup,  # noqa: E402
-                                        check_special_character, check_word_count)
+                                        check_slide_properties, check_special_character, check_word_count)
 from dialogs_writer_paragraph_font_cases import check_font, check_paragraph  # noqa: E402
 from hst_dialog_uitest import Checks, DialogHarness  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DIALOGS = {"paragraph": check_paragraph, "font": check_font, "word-count": check_word_count, "hyperlink": check_hyperlink,
-           "page-setup": check_page_setup, "special-character": check_special_character, "page-number": check_page_number}
+           "page-setup": check_page_setup, "special-character": check_special_character, "page-number": check_page_number,
+           "slide-properties": check_slide_properties}
 
 
 def main():

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Checks of the smaller Writer dialogs that follow Word. Used by check-dialogs-writer.py."""
 from dialogs_writer_paragraph_font_cases import first_paragraph
-from hst_dialog_uitest import click, props, select_tab, state, tab_titles, type_value
+from hst_dialog_uitest import click, props, select_tab, state, tab_titles, type_value, visible
 
 def check_word_count(h, c):
     doc = h.new_document()
@@ -77,4 +77,13 @@ def check_page_number(h, c):
     click(dlg, "ok")
     h.wait_idle()
     c.equal("page number: Start at 5", first_paragraph(doc).PageNumberOffset, 5)
+    h.close_document(doc)
+
+
+def check_slide_properties(h, c):
+    doc = h.new_document("simpress")
+    dlg = h.open_dialog(".uno:PageSetup", "DrawPageDialog")
+    c.equal("slide properties: no margins", visible(dlg, "spinMargLeft"), False)
+    c.equal("slide properties: orientation kept", visible(dlg, "radiobuttonPortrait"), True)
+    click(dlg, "cancel")
     h.close_document(doc)

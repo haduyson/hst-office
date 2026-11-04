@@ -1,0 +1,74 @@
+HST Office: Slide Properties in Slides shows a size and an orientation like PowerPoint's Slide Size. Margins and
+the paper tray, which are print settings, leave the view of the shared page; their values are not changed.
+Draw, Writer and Sheets keep them.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py slide-properties
+---
+--- a/cui/source/inc/page.hxx
++++ b/cui/source/inc/page.hxx
+@@ -183,6 +183,7 @@
+     virtual void        Reset( const SfxItemSet* rSet ) override;
+     virtual void        FillUserData() override;
+ 
++    void                HstHideSlidePrintFields();
+     void                SetPaperFormatRanges( Paper eStart )
+                             { ePaperStart = eStart; }
+ 
+--- a/cui/source/tabpages/page.cxx
++++ b/cui/source/tabpages/page.cxx
+@@ -36,6 +36,8 @@
+ 
+ #include <svx/strings.hrc>
+ #include <svx/dialmgr.hxx>
++#include <dialmgr.hxx>
++#include <vcl/weld/Notebook.hxx>
+ #include <page.hxx>
+ #include <svx/pageitem.hxx>
+ #include <editeng/brushitem.hxx>
+@@ -1649,6 +1651,20 @@
+     return bRet;
+ }
+ 
++// HST: a slide has a size and an orientation, as in PowerPoint's Slide Size: margins and the paper
++// tray are print settings. The widgets stay, with their values, and only leave the view.
++void SvxPageDescPage::HstHideSlidePrintFields()
++{
++    for (const auto& rId : { u"box3"_ustr, u"box2"_ustr, u"labelTopMargin"_ustr, u"labelBottomMargin"_ustr,
++                             u"spinMargLeft"_ustr, u"spinMargRight"_ustr, u"spinMargTop"_ustr,
++                             u"spinMargBot"_ustr, u"labelPaperTray"_ustr, u"comboPaperTray"_ustr })
++        m_xBuilder->weld_widget(rId)->hide();
++    const OUString aTitle = CuiResId(NC_("hstpageformat", "Orientation"));
++    m_xBuilder->weld_label(u"labelMargins"_ustr)->set_label(aTitle);
++    std::unique_ptr<weld::Notebook> xTabs = m_xBuilder->weld_notebook(u"hstPageTabs"_ustr);
++    xTabs->set_tab_label_text(xTabs->get_page_ident(0), aTitle);
++}
++
+ void SvxPageDescPage::PageCreated(const SfxAllItemSet& aSet)
+ {
+     const SfxUInt16Item* pModeItem = aSet.GetItem(SID_ENUM_PAGE_MODE, false);
+@@ -1680,6 +1696,9 @@
+         mbEnableDrawingLayerFillStyles = bNew;
+     }
+ 
++    if (pIsImpressDoc && pIsImpressDoc->GetValue())
++        HstHideSlidePrintFields();
++
+     if (pIsImpressDoc)
+         m_xNumberFormatText->set_label(SvxResId(STR_SLIDE_NUMBERS));
+ }
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -18470,6 +18470,12 @@
+ msgid "Paper"
+ msgstr "Giấy"
+ 
++#. hstPF4
++#: cui/source/tabpages/page.cxx
++msgctxt "hstpageformat"
++msgid "Orientation"
++msgstr "Hướng"
++
+ #. hstPF3
+ #: cui/uiconfig/ui/pageformatpage.ui
+ msgctxt "pageformatpage|hstTabLayout"
