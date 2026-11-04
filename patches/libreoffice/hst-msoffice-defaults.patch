@@ -1,0 +1,65 @@
+HST Office: new documents behave like Microsoft Office (owner decision 2026-11-04; docs/SHORTCUTS-MSOFFICE.md, section on defaults).
+
+- officecfg Setup.xcu: ooSetupFactoryDefaultFilter is MS Word 2007 XML, Calc MS Excel 2007 XML and Impress MS PowerPoint 2007 XML. sfx2 guisaveas.cxx asks "Keep current format" only when the format differs from this default, so .docx/.xlsx/.pptx save silently and .doc/.xls/.ppt still ask. AutoRecovery keeps its ODF copies (ooSetupFactoryActualFilter).
+- sw DocumentStylePoolManager.cxx: the default page margins are Word's "Normal" 2.54 cm (upstream 2 cm). The ND 30 wizard sets its own margins.
+- officecfg VCL.xcu: default font of HST Sheets and HST Slides is Calibri, or bundled metric-compatible Carlito (upstream Liberation Sans). HST Writer stays Times New Roman (hst-defaults.patch).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-msoffice-save-format.py, tests/runtime/check-defaults.py.
+---
+--- a/officecfg/registry/data/org/openoffice/Setup.xcu
++++ b/officecfg/registry/data/org/openoffice/Setup.xcu
+@@ -54,7 +54,7 @@
+           <value>calc8_template</value>
+         </prop>
+         <prop oor:name="ooSetupFactoryDefaultFilter">
+-          <value>calc8</value>
++          <value>Calc MS Excel 2007 XML</value>
+         </prop>
+         <prop oor:name="ooSetupFactoryEmptyDocumentURL" oor:finalized="true">
+           <value>private:factory/scalc</value>
+@@ -142,7 +142,7 @@
+           <value>impress8_template</value>
+         </prop>
+         <prop oor:name="ooSetupFactoryDefaultFilter">
+-          <value>impress8</value>
++          <value>Impress MS PowerPoint 2007 XML</value>
+         </prop>
+         <prop oor:name="ooSetupFactoryEmptyDocumentURL" oor:finalized="true">
+           <value>private:factory/simpress</value>
+@@ -272,7 +272,7 @@
+           <value>writer8_template</value>
+         </prop>
+         <prop oor:name="ooSetupFactoryDefaultFilter">
+-          <value>writer8</value>
++          <value>MS Word 2007 XML</value>
+         </prop>
+         <prop oor:name="ooSetupFactoryEmptyDocumentURL" oor:finalized="true">
+           <value>private:factory/swriter</value>
+--- a/sw/source/core/doc/DocumentStylePoolManager.cxx
++++ b/sw/source/core/doc/DocumentStylePoolManager.cxx
+@@ -1824,7 +1824,8 @@
+ 
+     SvxLRSpaceItem aLR( RES_LR_SPACE );
+     {
+-        aLR.SetLeft(SvxIndentValue::twips(o3tl::convert(2, o3tl::Length::cm, o3tl::Length::twip)));
++        // HST Office: Microsoft Word "Normal" margins, 2.54 cm on every side (upstream: 2 cm).
++        aLR.SetLeft(SvxIndentValue::twips(1440));
+         aLR.SetRight(aLR.GetLeft());
+     }
+     SvxULSpaceItem aUL( RES_UL_SPACE );
+--- a/officecfg/registry/data/org/openoffice/VCL.xcu
++++ b/officecfg/registry/data/org/openoffice/VCL.xcu
+@@ -33,10 +33,10 @@
+         <value>Liberation Mono;Cumberland AMT;Cumberland;Courier New;Cousine;Nimbus Mono L;DejaVu Sans Mono;Courier;Lucida Sans Typewriter;Lucida Typewriter;Monaco;Monospaced</value>
+       </prop>
+       <prop oor:name="LATIN_PRESENTATION" oor:type="xs:string" oor:op="replace">
+-        <value>Liberation Sans;Albany AMT;Albany;Arial;Arimo;Nimbus Sans L;DejaVu Sans;Helvetica;Lucida;Geneva;Helmet;Arial Unicode MS;Lucida Sans Unicode;Tahoma;SansSerif</value>
++        <value>Calibri;Carlito;Liberation Sans;Albany AMT;Albany;Arial;Arimo;Nimbus Sans L;DejaVu Sans;Helvetica;Lucida;Geneva;Helmet;Arial Unicode MS;Lucida Sans Unicode;Tahoma;SansSerif</value>
+       </prop>
+       <prop oor:name="LATIN_SPREADSHEET" oor:type="xs:string" oor:op="replace">
+-        <value>Liberation Sans;Albany AMT;Albany;Arial;Arimo;Nimbus Sans L;DejaVu Sans;Helvetica;Lucida;Geneva;Helmet;Arial Unicode MS;Lucida Sans Unicode;Tahoma;SansSerif</value>
++        <value>Calibri;Carlito;Liberation Sans;Albany AMT;Albany;Arial;Arimo;Nimbus Sans L;DejaVu Sans;Helvetica;Lucida;Geneva;Helmet;Arial Unicode MS;Lucida Sans Unicode;Tahoma;SansSerif</value>
+       </prop>
+       <prop oor:name="LATIN_TEXT" oor:type="xs:string" oor:op="replace">
+         <value>Liberation Serif;Thorndale AMT;Thorndale;Times New Roman;Tinos;Nimbus Roman No9 L;DejaVu Serif;Times;Lucida Serif;Lucida Bright;Timmons;New York;Serif</value>
