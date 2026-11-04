@@ -7,10 +7,10 @@ from . import ed25519
 from .banner_image import inspect
 from .banner_schema import MAX_IMAGE, MAX_MANIFEST, parse_manifest
 
-# TODO(maintainer): set bytes.fromhex(<64 hex digits of the separate BANNER public key>) before release.
+# Separate banner signing key (private seed kept off-repo by the maintainer).
 # Empty means reject ALL remote/cache manifests, continuing to show bundled defaults.
 # NEVER substitute update_logic.PUBLIC_KEY or generate a production private key in this repository.
-PUBLIC_KEY = b""
+PUBLIC_KEY = bytes.fromhex("e6da7d4b87f7edd32776c7e943396c46e93e480c9ce9320f09531aede1aa70e6")
 
 
 def valid_key(key):
