@@ -79,6 +79,10 @@ class Office:
     def start(self, fresh=True):
         if fresh:
             self.prepare()
+        elif self.proc is None:
+            # A soffice killed by the step watchdog leaves its profile lock behind; the next start
+            # would otherwise stop at the "profile in use" prompt. Only our own, dead instance used it.
+            (self.profile / ".lock").unlink(missing_ok=True)
         self.logs.mkdir(parents=True, exist_ok=True)
         log = open(self.logs / "soffice.log", "a", encoding="utf-8")
         args = [self.program + "/soffice", self._install_arg(), "--norestore", "--nologo", "--nodefault",

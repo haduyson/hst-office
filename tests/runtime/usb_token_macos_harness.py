@@ -199,7 +199,7 @@ def mac_dialogs(signing):
             first is still inside UITest's ExecuteWrapper (waiting for its idle) nests two wrappers that
             spin in Application::Reschedule forever (stack samples). Actions that open a dialog
             asynchronously return within seconds; only a truly blocking modal keeps running."""
-            thread = signing.Dialogs.later(obj, action, args)
+            thread = super().later(obj, action, args)
             thread.join(timeout=15)
             return thread
 
