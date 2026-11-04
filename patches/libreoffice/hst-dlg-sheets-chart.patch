@@ -1,0 +1,43 @@
+HST Office: the chart type list in Insert Chart follows Excel's order: column, line, pie, bar, area, scatter,
+stock, radar, combo (owner-approved Microsoft Office parity for beta.5).
+
+The wizard stays: the first step is already a type list with a preview of its variants, like Excel's All Charts.
+Recommended Charts is not included (the approved survey advises against it). Only the order changes.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-sheets.py (chart).
+---
+--- a/chart2/source/controller/dialogs/tp_ChartType.cxx
++++ b/chart2/source/controller/dialogs/tp_ChartType.cxx
+@@ -99,25 +99,23 @@
+         }
+     }
+ 
++    // HST: the order of Excel's Insert Chart; the types Excel lists under other names follow.
+     m_aChartTypeDialogControllerList.push_back(std::make_unique<ColumnChartDialogController>());
+-    m_aChartTypeDialogControllerList.push_back(std::make_unique<BarChartDialogController>());
+-    if (officecfg::Office::Common::Misc::ExperimentalMode::get())
+-        m_aChartTypeDialogControllerList.push_back(std::make_unique<HistogramChartDialogController>());
++    m_aChartTypeDialogControllerList.push_back(std::make_unique<LineChartDialogController>());
+     m_aChartTypeDialogControllerList.push_back(std::make_unique<PieChartDialogController>());
+     m_aChartTypeDialogControllerList.push_back(std::make_unique<OfPieChartDialogController>());
++    m_aChartTypeDialogControllerList.push_back(std::make_unique<BarChartDialogController>());
+     m_aChartTypeDialogControllerList.push_back(std::make_unique<AreaChartDialogController>());
+-    m_aChartTypeDialogControllerList.push_back(std::make_unique<LineChartDialogController>());
+     if (bEnableComplexChartTypes)
+     {
+         m_aChartTypeDialogControllerList.push_back(std::make_unique<XYChartDialogController>());
+         m_aChartTypeDialogControllerList.push_back(
+             std::make_unique<BubbleChartDialogController>());
++        m_aChartTypeDialogControllerList.push_back(std::make_unique<StockChartDialogController>());
+     }
+     m_aChartTypeDialogControllerList.push_back(std::make_unique<NetChartDialogController>());
+-    if (bEnableComplexChartTypes)
+-    {
+-        m_aChartTypeDialogControllerList.push_back(std::make_unique<StockChartDialogController>());
+-    }
++    if (officecfg::Office::Common::Misc::ExperimentalMode::get())
++        m_aChartTypeDialogControllerList.push_back(std::make_unique<HistogramChartDialogController>());
+     m_aChartTypeDialogControllerList.push_back(
+         std::make_unique<CombiColumnLineChartDialogController>());
+ 
