@@ -4,8 +4,8 @@ command handler (menu "Kiểm tra cập nhật…" and the infobar buttons).
 
 Start-up: only when AutoCheck is on and the last successful check is 24 h old. A daemon thread fetches and verifies
 the manifest (update_fetch), so start-up is never blocked or slowed. A failure is logged (stderr), shows nothing and
-is retried while the office stays open; the check time is stored on success only, so a machine that was offline at
-start-up is not skipped for a whole day. Results reach the UI through the main thread only.
+is retried twice (RETRY_DELAYS), then waits for the next start; the check time is stored on success only, so a machine
+that was offline at start-up is not skipped for a whole day. Results reach the UI through the main thread only.
 """
 import threading
 import time
@@ -78,11 +78,12 @@ def automatic_check(ctx, now=None):
     if not prefs["AutoCheck"] or not logic.check_due(now, prefs["LastCheck"], prefs["CheckIntervalHours"] * 3600):
         return None
     info = ui.release_info_for(ctx)
+    started = time.monotonic()
 
     def done(release, failed):
         if failed:
             return
-        ui.save(ctx, "LastCheck", now)
+        ui.save(ctx, "LastCheck", now + int(time.monotonic() - started))  # when it succeeded, retries included
         if logic.should_notify(release, ui.settings(ctx)["SkippedVersion"]):
             ui.notify(ctx, release, info["release"])
     proxy = ui.proxy(ctx)  # read on the main thread; the worker only does network and pure logic

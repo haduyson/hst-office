@@ -135,6 +135,12 @@ class StartupJob(unittest.TestCase):
             self.run_check([UpdateError("URLError: offline"), channels("1.0.0")])
         self.assertEqual((len(self.fetches), self.notified, self.prefs["LastCheck"]), (2, ["1.0.0"], NOW))
 
+    def test_check_time_is_when_the_retry_succeeded(self):
+        clock = iter((100.0, 820.0))
+        with mock.patch("builtins.print"), mock.patch.object(job.time, "monotonic", lambda: next(clock)):
+            self.run_check([UpdateError("URLError: offline"), channels("1.0.0")])
+        self.assertEqual(self.prefs["LastCheck"], NOW + 720)
+
     def test_retrying_check_is_not_doubled(self):
         release = threading.Event()
         def fake_fetch(info, proxy):
