@@ -133,21 +133,45 @@ def check_word_count(h, c):
 def check_hyperlink(h, c):
     doc = h.new_document()
     dlg = h.open_dialog(".uno:HyperlinkDialog", "tabcontrol", modeless=True)
-    c.equal("hyperlink: Word's Link to order", tab_titles(dlg),
+    c.equal("hyperlink: Word's Link to order", [t.replace("~", "") for t in tab_titles(dlg)],
             ["Tệp hoặc Trang Web Hiện có", "Vị trí trong Tài liệu Này", "Tạo Tài liệu Mới", "Địa chỉ Email"])
-    c.equal("hyperlink: Cancel is translated", state(dlg.getChild("cancel")).get("Text"), "Hủy")
+    c.equal("hyperlink: Cancel is translated", state(dlg.getChild("cancel")).get("Text").replace("~", ""), "Hủy")
     click(dlg, "cancel")
     h.close_document(doc)
 
 
-DIALOGS = {"paragraph": check_paragraph, "font": check_font, "word-count": check_word_count, "hyperlink": check_hyperlink}
+def check_page_setup(h, c):
+    doc = h.new_document()
+    dlg = h.open_dialog(".uno:PageDialog", "TemplateDialog8")
+    titles = tab_titles(dlg)
+    c.equal("page setup: page comes first", titles[0], "Trang")
+    c.equal("page setup: style organizer last", titles[-1], "Chung")
+    c.equal("page setup: nested Word tabs", state(dlg.getChild("hstPageTabs")).get("PageCount"), "3")
+    type_value(dlg, "spinMargLeft", "3")
+    click(dlg, "ok")
+    h.wait_idle()
+    style = doc.StyleFamilies.getByName("PageStyles").getByName(doc.getText().createEnumeration().nextElement().PageStyleName or "Standard")
+    c.equal("page setup: left margin applied", abs(style.LeftMargin - 3000) <= 2, True)
+
+    dlg = h.open_dialog(".uno:PageDialog", "TemplateDialog8")
+    select_tab(dlg, titles.index("Đầu trang"))
+    click(dlg, "checkHeaderOn")
+    click(dlg, "checkHST_DIFFLR-header")
+    click(dlg, "ok")
+    h.wait_idle()
+    c.equal("header: Different odd and even pages applied", style.HeaderIsShared, False)
+    h.close_document(doc)
+
+
+DIALOGS = {"paragraph": check_paragraph, "font": check_font, "word-count": check_word_count, "hyperlink": check_hyperlink,
+           "page-setup": check_page_setup}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--instdir", default=os.path.join(ROOT, "upstream/libreoffice/instdir"))
     parser.add_argument("--work", default=os.path.join(ROOT, "tests/output/dialogs-writer"))
-    parser.add_argument("dialogs", nargs="*", choices=[[], *DIALOGS], default=[])
+    parser.add_argument("dialogs", nargs="*", default=[])
     args = parser.parse_args()
     harness = DialogHarness(args.instdir, args.work, 22979, ":79")
     checks = Checks()

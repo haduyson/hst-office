@@ -1,0 +1,133 @@
+HST Office: Insert Hyperlink uses Word's "Link to" order and names (page ids unchanged), and its
+Reset/OK/Cancel/Help/Apply buttons are translated (the .ui labels were not marked translatable).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py hyperlink
+---
+--- a/cui/source/dialogs/hyperlinkdlg.cxx
++++ b/cui/source/dialogs/hyperlinkdlg.cxx
+@@ -13,6 +13,7 @@
+ #include <hyperlinkdoctabpage.hxx>
+ #include <hyperlinknewdoctabpage.hxx>
+ #include <hyperlinktabpagebase.hxx>
++#include <dialmgr.hxx>
+ #include <comphelper/lok.hxx>
+ #include <sfx2/app.hxx>
+ #include <sfx2/basedlgs.hxx>
+@@ -23,21 +24,30 @@
+ #include <svx/hlnkitem.hxx>
+ #include <vcl/tabs.hrc>
+ 
++namespace
++{
++constexpr TranslateId STR_HST_HL_INTERNET = NC_("hsthyperlinkdlg|internet", "~Existing File or Web Page");
++constexpr TranslateId STR_HST_HL_DOCUMENT = NC_("hsthyperlinkdlg|document", "~Place in This Document");
++constexpr TranslateId STR_HST_HL_NEWDOC = NC_("hsthyperlinkdlg|newdoc", "Create ~New Document");
++constexpr TranslateId STR_HST_HL_MAIL = NC_("hsthyperlinkdlg|mail", "E-~mail Address");
++}
++
+ HyperlinkDialog::HyperlinkDialog(weld::Window* pParent, SfxChildWindow* /*pChildWindow*/)
+     : SfxTabDialogController(pParent, u"cui/ui/hyperlinkdlg.ui"_ustr, u"HyperlinkDialog"_ustr)
+ {
+-    AddTabPage("Internet", TabResId(RID_TAB_HLINTERNET.aLabel), HyperlinkInternetTP::Create,
++    // HST: Word's "Link to" order and names; the page ids stay.
++    AddTabPage("Internet", CuiResId(STR_HST_HL_INTERNET), HyperlinkInternetTP::Create,
+                RID_TAB_HLINTERNET.sIconName);
+ 
+-    AddTabPage("Mail", TabResId(RID_TAB_HLMAIL.aLabel), HyperlinkMailTabPage::Create,
+-               RID_TAB_HLMAIL.sIconName);
+-
+-    AddTabPage("Document", TabResId(RID_TAB_HLDOC.aLabel), HyperlinkDocTabPage::Create,
++    AddTabPage("Document", CuiResId(STR_HST_HL_DOCUMENT), HyperlinkDocTabPage::Create,
+                RID_TAB_HLDOC.sIconName);
+ 
+-    AddTabPage("New Document", TabResId(RID_TAB_HLDOCN.aLabel), HyperlinkDocNewTabPage::Create,
++    AddTabPage("New Document", CuiResId(STR_HST_HL_NEWDOC), HyperlinkDocNewTabPage::Create,
+                RID_TAB_HLDOCN.sIconName);
+ 
++    AddTabPage("Mail", CuiResId(STR_HST_HL_MAIL), HyperlinkMailTabPage::Create,
++               RID_TAB_HLMAIL.sIconName);
++
+     SetApplyHandler(LINK(this, HyperlinkDialog, ClickApplyHdl));
+ }
+ 
+--- a/cui/uiconfig/ui/hyperlinkdlg.ui
++++ b/cui/uiconfig/ui/hyperlinkdlg.ui
+@@ -18,7 +18,7 @@
+             <property name="layout-style">end</property>
+             <child>
+               <object class="GtkButton" id="reset">
+-                <property name="label">_Reset</property>
++                <property name="label" translatable="yes" context="stock">_Reset</property>
+                 <property name="visible">True</property>
+                 <property name="use-underline">True</property>
+               </object>
+@@ -30,7 +30,7 @@
+             </child>
+             <child>
+               <object class="GtkButton" id="ok">
+-                <property name="label">_OK</property>
++                <property name="label" translatable="yes" context="stock">_OK</property>
+                 <property name="visible">True</property>
+                 <property name="use-underline">True</property>
+                 <property name="can-default">True</property>
+@@ -42,7 +42,7 @@
+             </child>
+             <child>
+               <object class="GtkButton" id="cancel">
+-                <property name="label">_Cancel</property>
++                <property name="label" translatable="yes" context="stock">_Cancel</property>
+                 <property name="visible">True</property>
+                 <property name="use-underline">True</property>
+               </object>
+@@ -52,7 +52,7 @@
+             </child>
+             <child>
+               <object class="GtkButton" id="help">
+-                <property name="label">_Help</property>
++                <property name="label" translatable="yes" context="stock">_Help</property>
+                 <property name="visible">True</property>
+                 <property name="use-underline">True</property>
+               </object>
+@@ -63,7 +63,7 @@
+             </child>
+             <child>
+               <object class="GtkButton" id="apply">
+-                <property name="label">_Apply</property>
++                <property name="label" translatable="yes" context="stock">_Apply</property>
+                 <property name="visible">True</property>
+                 <property name="use-underline">True</property>
+               </object>
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -11632,6 +11632,30 @@
+ msgid "Hyperlinks to any document or targets in documents can be edited using the Document tab from the Hyperlink dialog."
+ msgstr "Có thể chỉnh sửa siêu liên kết đến bất kỳ tài liệu hoặc mục tiêu nào trong tài liệu bằng cách sử dụng tab Tài liệu từ hộp thoại Siêu liên kết."
+ 
++#. hstHL1
++#: cui/source/dialogs/hyperlinkdlg.cxx
++msgctxt "hsthyperlinkdlg|internet"
++msgid "~Existing File or Web Page"
++msgstr "Tệp hoặc Trang ~Web Hiện có"
++
++#. hstHL2
++#: cui/source/dialogs/hyperlinkdlg.cxx
++msgctxt "hsthyperlinkdlg|document"
++msgid "~Place in This Document"
++msgstr "~Vị trí trong Tài liệu Này"
++
++#. hstHL3
++#: cui/source/dialogs/hyperlinkdlg.cxx
++msgctxt "hsthyperlinkdlg|newdoc"
++msgid "Create ~New Document"
++msgstr "Tạo Tài liệu ~Mới"
++
++#. hstHL4
++#: cui/source/dialogs/hyperlinkdlg.cxx
++msgctxt "hsthyperlinkdlg|mail"
++msgid "E-~mail Address"
++msgstr "Địa chỉ ~Email"
++
+ #. XhMm4
+ #: cui/uiconfig/ui/hyperlinkinternetpage.ui:32
+ msgctxt "hyperlinkinternetpage|indication_label"

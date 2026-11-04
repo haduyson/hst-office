@@ -55,7 +55,7 @@ class DialogHarness:
         while time.time() < deadline:
             top = self.ui.getTopFocusWindow()
             # A modeless dialog's top window has no id of its own: dialog_id is then one of its widgets.
-            if state(top).get("ID") == dialog_id or (modeless and dialog_id in top.getChildren()):
+            if state(top).get("ID") == dialog_id or (modeless and has_child(top, dialog_id)):
                 return top
             if "chào đón" in state(top).get("Text", ""):  # can appear after the first document loads
                 click(top, "ok")
@@ -115,7 +115,11 @@ def click(dialog, widget):
 
 
 def has_child(dialog, widget):
-    return widget in dialog.getChildren()
+    try:
+        dialog.getChild(widget)
+        return True
+    except Exception:  # noqa: BLE001 - UITest reports a missing child as a runtime error
+        return False
 
 
 def visible(dialog, widget):
