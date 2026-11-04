@@ -88,14 +88,14 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
   - `ProductName` trong version resource Windows (`include/default.rc`, hiện ở Properties → Details của `soffice.exe`) vẫn là "LibreOffice" → "HST Office".
   - Menubar cổ điển đôi khi hiện lại khi chuyển tab giữa Calc/Impress trên GTK3 (cosmetic; sửa trong vcl GTK menubar/sfx2), xác minh trên desktop thật và Windows.
   - Crash GTK3 hiếm (menubar/clipboard) khi mở tài liệu ngay sau khi đóng tài liệu ẩn dưới Xvfb, xảy ra cả khi tắt tab; xác minh trên desktop thật.
-- **Đã làm (beta.4.1):** *HST ▸ Thiết lập USB Token…* trên Linux/macOS: nhận diện driver PKCS#11 đã cài, đăng ký vào đúng kho NSS qua `modutil` hoặc `pkcs11.txt` khi không có công cụ NSS; nhãn và kết quả luôn tiếng Việt. Ưu tiên VNPT-CA Token Manager trên macOS (`libvnptca_p11_v8.dylib`) cho Feitian ePass2003Auto của chủ dự án, vì OpenSC không đọc được token đó. Có nhận diện Feitian, SafeNet, Bit4id, OpenSC, MISA/EasyCA macOS và đăng ký p11-kit trên Linux; không đoán tên thư viện Viettel/BKAV/FPT khi chưa có bằng chứng. Không kèm/cài driver, không hỏi PIN trong thiết lập. Kiểm thử SoftHSM2 cả hai cách đăng ký; GUI macOS đã đạt trên máy Mac arm64 của GitHub; vẫn cần thử token VNPT thật. [Báo cáo](../plans/reports/codex-usb-token-setup.md).
+- **Đã làm (beta.5):** *HST ▸ Thiết lập USB Token…* trên Linux/macOS: nhận diện driver PKCS#11 đã cài, đăng ký vào đúng kho NSS qua `modutil` hoặc `pkcs11.txt` khi không có công cụ NSS; nhãn và kết quả luôn tiếng Việt. Ưu tiên VNPT-CA Token Manager trên macOS (`libvnptca_p11_v8.dylib`) cho Feitian ePass2003Auto của chủ dự án, vì OpenSC không đọc được token đó. Có nhận diện Feitian, SafeNet, Bit4id, OpenSC, MISA/EasyCA macOS và đăng ký p11-kit trên Linux; không đoán tên thư viện Viettel/BKAV/FPT khi chưa có bằng chứng. Không kèm/cài driver, không hỏi PIN trong thiết lập. Kiểm thử SoftHSM2 cả hai cách đăng ký; GUI macOS đã đạt trên máy Mac arm64 của GitHub; vẫn cần thử token VNPT thật. [Báo cáo](../plans/reports/codex-usb-token-setup.md).
   - **Đã làm (beta.4):** Lối tắt đổi ngôn ngữ giao diện (chủ dự án duyệt 2026-10-31; `patches/libreoffice/hst-language-selection.patch`, kiểm tra `tests/runtime/check-language-selection.py`): menu *HST ▸ Ngôn ngữ giao diện ▸ Tiếng Việt / English / Theo máy* (nhãn luôn tiếng Việt), ghi `UILocale` của người dùng, hỏi "Khởi động lại ngay?" và mở lại các tài liệu đang mở. Chỉ là lối tắt tới *Công cụ ▸ Tùy chọn ▸ Ngôn ngữ và vùng ▸ Chung ▸ Giao diện người dùng* đã có sẵn. Khởi động lại phải mở lại **mọi** tài liệu đang mở, kể cả chưa lưu/chưa đặt tên (dựa trên cơ chế khôi phục phiên; không dùng quiet-quit vì xóa cờ "đã sửa"). Kèm các sửa an toàn từ đợt rà soát ngôn ngữ ([báo cáo](../plans/reports/codex-language-selection-261031-0943-audit-design.md)): giá trị `en`/`en-GB` bị xóa về Mặc định lúc khởi động; Tùy chọn không khóa ô ngôn ngữ khi quản trị đã khóa và không báo lỗi khi ghi thất bại; gói tiếng Việt thiếu một phần cho giao diện lẫn lộn. Quy tắc "chọn English thì các phần luôn-tiếng-Việt chuyển sang tiếng Anh" đã bị chủ dự án bỏ (2026-10-31): các phần đó vẫn luôn tiếng Việt.
 - **v1.0.0-beta.4 (bổ sung, chủ dự án 2026-10-31: gom toàn bộ việc dự kiến cho 1.0 vào beta.4, trừ chuyển repo):**
   - Chuyển mã TCVN3/VNI → Unicode trong Bảng tính (hiện chỉ có trong Văn bản).
   - Rà và sửa phím tắt Alt+chữ bị trùng trên ribbon/menu tiếng Việt (KEY-01/02 của đợt rà soát UX).
   - Kiểm tra độ tương phản chế độ tối của các hộp thoại HST (cần ảnh từ máy thật).
   - Lỗi nhỏ tồn từ beta.3: mẫu "Japanese normal" hiện tên tiếng Anh; khung định dạng trang chiếu ở thanh bên trống khi giao diện tiếng Anh.
-  - **Đã làm (beta.4.1):** Công cụ USB Token nhận diện driver hãng token (Feitian, SafeNet, Bit4id) và OpenSC; hướng dẫn chọn driver tương thích khi thiếu. OpenSC chỉ dùng cho token được hỗ trợ, không mặc định thay thế driver VNPT ePass2003Auto.
+  - **Đã làm (beta.5):** Công cụ USB Token nhận diện driver hãng token (Feitian, SafeNet, Bit4id) và OpenSC; hướng dẫn chọn driver tương thích khi thiếu. OpenSC chỉ dùng cho token được hỗ trợ, không mặc định thay thế driver VNPT ePass2003Auto.
   - Khóa cấu hình kiểm tra cập nhật qua `.xcd`/registry (đưa schema vào lõi).
   - Gói Linux cho Ubuntu 22.04, Debian 13 và Ubuntu 26.04 (build riêng hoặc gói Python kèm theo).
   - Trang "Điểm mới" riêng cho nút "Xem điểm mới".
@@ -106,13 +106,21 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
   - Ribbon sáng trắng cho Writer/Sheets/Slides (chữ tối dễ đọc; màu riêng của ứng dụng chỉ còn ở đường nhấn dưới thẻ đang chọn và icon) trên cả 3 hệ điều hành.
   - **"Cập nhật ngay"** (đã làm, xem [UPDATE_INSTALL.md](UPDATE_INSTALL.md); chưa thử trên máy Windows/macOS thật) (chủ dự án 2026-10-31): nút trên thanh báo phiên bản mới thay cho "Tải về" — HST Office tự tải bộ cài cho đúng hệ điều hành, kiểm tra SHA256 (và chữ ký manifest Ed25519), **hỏi người dùng** "Đóng HST Office để cập nhật?", lưu/hỏi lưu tài liệu, chạy bộ cài (Windows msiexec — UAC; Linux cài `.deb` qua pkexec/PackageKit; macOS thay `HST Office.app` đã ký Developer ID, kiểm tra chữ ký trước khi thay) rồi mở lại. Không bao giờ cài ngầm; luôn còn lựa chọn "Tải về" thủ công; quản trị viên tắt được.
   - Chuyển tab tài liệu mượt như trình duyệt trên cả 3 hệ điều hành (chủ dự án 2026-10-31): trên macOS mỗi lần chuyển tab trông như chuyển sang màn hình khác; tìm nguyên nhân (mỗi tab là một cửa sổ riêng bị ẩn/hiện) và sửa cho chuyển tab tức thì, không hiệu ứng, cùng vị trí/kích thước.
-- **v1.0.0-beta.4.1 (sửa lỗi sau beta.4, chủ dự án 2026-10-31):**
+- **v1.0.0-beta.5 (chủ dự án 2026-11-04: không phát hành beta.4.1; mọi sửa lỗi sau beta.4 và các việc dưới đây vào beta.5):**
+  - *Sửa lỗi sau beta.4 (đã làm):*
   - macOS: nút "+" → "Mở tệp…" → chọn tệp làm ứng dụng treo lâu rồi màn hình trắng; phải dùng Tập tin ▸ Mở trên thanh menu mới mở được. Kiểm tra cùng đường đi trên Windows/Linux và thêm vào bài kiểm tra tab.
   - Ribbon: nền trắng + viền mảnh màu nhạt theo ứng dụng (giống hình writer-home.png trên Linux) trên cả 3 hệ điều hành.
   - Kiểm tra chính tả tắt sẵn khi mới cài; sửa gạch đỏ sai chữ tiếng Việt (NFD + hai cách bỏ dấu); trang F1 "Kiểm tra chính tả" và "Làm việc với PDF".
   - Menu "+" dùng nhãn "HST Writer — Văn bản / Document"… như cột Tạo ở Start Center.
   - Số phiên bản đầy đủ trong tên tệp tải về và trong Get Info (macOS) / Properties (Windows) / thông tin gói (Linux).
-- **v1.0.0-beta.5 (chủ dự án 2026-11-01, hoãn từ beta.4.1):**
+  - *Việc mới (chủ dự án 2026-11-04):*
+    - Tìm tính năng trong HST Office bằng phím tắt (gõ để tìm, có tìm không dấu).
+    - Hộp Giải pháp HASON TECH: hiện mô tả ngắn cạnh tên từng giải pháp.
+    - Tệp nặng nhiều công thức/hình (Toán, Lý, Hóa): mở chậm, công thức/hình không hiện hoặc hiện sai.
+    - Viết/sửa macro VBA cho Writer và Sheets.
+    - Trình xem PDF nhẹ, nhanh, giao diện phổ thông, có ký số PDF (thiết kế chủ dự án duyệt trước).
+    - Ô banner quảng cáo giải pháp HASON TECH, luân phiên 10 giây, bên phải ngang notebookbar (thiết kế chủ dự án duyệt trước).
+  - *Để sau (hoãn từ beta.4.1, chủ dự án 2026-11-01):*
   - Hậu tố phím tắt kiểu "Thêm (_A)" trong bản dịch tiếng Việt: còn 556 mục `.po` (445 cặp khác nhau; 570 chuỗi trong `.mo` đã build), chủ yếu cui 308, sd 129, chart2 59, extensions 18, sfx2 15, filter 10. Đặt chữ phím tắt vào trong từ (hoặc bỏ) theo từng hộp thoại, như đã làm cho nút chuẩn GTK và hộp thoại ký số (`l10n/vi-overrides.jsonl`, [thuật ngữ](L10N_GLOSSARY.md)).
   - Nút chuẩn "_Yes" của `framework` vẫn là "Đồng ý (_Y)": dòng này là ngữ cảnh của `hst-document-tabs.patch`, nên phải sửa bằng một patch sau patch đó (không dùng override).
 - **v1.0.0:** chuyển repo sang tổ chức `hasontech` trước bản chính thức.
@@ -122,4 +130,4 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
 - Môi trường: cấp Git/network/apt/Docker cho Claude; phiên lập kế hoạch có 53.5 GiB free, 18 GiB RAM available, Docker socket denied, `gh api` lỗi kết nối. Chỉ dọn cache ONLYOFFICE do dự án sở hữu khi cần; giữ ≥10 GiB.
 - Mac: cần máy/OS/version/gesture/tài liệu tái hiện và GUI permissions; Windows cần builder riêng. Linux không chứng minh Mac hết delay. Signing/notarization chưa được cấp.
 - Pháp lý/nội dung: cần policy TDF đầy đủ, dictionary license, nguồn bảng mã và trạng thái hiệu lực NĐ30; không tự thay license owner đã chọn hay bundle font thiếu quyền.
-- Release: chưa có artifact/CI run đo thật; không công bố PASS hoặc link tải giả. Không telemetry, cloud/login, PDF editor riêng hay thêm module mới.
+- Release: chưa có artifact/CI run đo thật; không công bố PASS hoặc link tải giả. Không telemetry, cloud/login. Trình xem PDF nhẹ là yêu cầu của chủ dự án 2026-11-04 (thiết kế duyệt trước).
