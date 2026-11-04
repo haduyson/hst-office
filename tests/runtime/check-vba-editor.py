@@ -8,7 +8,7 @@ The X display must already run (e.g. Xvfb :91 -screen 0 1600x1000x24 -nolisten t
   - org.hst.office.vi:EditVba (HST menu / ribbon command) in a new Calc and a new Writer document:
     the Basic IDE opens and the document gets Module1 = Option VBASupport 1 + Vietnamese template,
     in a VBA-mode project (VBAProject / Project); a second call reuses the module.
-  - Alt+F11 opens the editor from a document, Alt+F8 opens the Basic Macros dialog in HST Sheets.
+  - Alt+F11 opens the editor from a document, Alt+F8 opens the Basic Macros dialog (Sheets and Writer).
   - Opening an .xlsm with macros shows the macro security prompt (nothing runs before the answer).
 --shots writes the help screenshots (macro-vba-*.png). Exit 1 when any check fails.
 """
@@ -102,12 +102,12 @@ def check_app(office, kind, app, title, shots):
         keys(office, wid, "alt+F11")
     check(f"{app}: Alt+F11 opens the VBA editor", wid and wait(lambda: ide_frame(office) is not None))
     close_ide(office)
-    if app == "calc" and wid:
+    if wid:
         keys(office, wid, "alt+F8")
         dialog = wait(lambda: window(office, r"Macro Basic|Basic Macros|Macro") is not None, 10)
-        check("calc: Alt+F8 opens the Basic Macros dialog", dialog, str(hst_gui.toplevels(office.display, office.pid)))
+        check(f"{app}: Alt+F8 opens the Basic Macros dialog", dialog, str(hst_gui.toplevels(office.display, office.pid)))
         if dialog:
-            if shots:
+            if shots and app == "calc":
                 office.screenshot(os.path.join(shots, "macro-vba-run.png"))
             keys(office, window(office, r"Macro Basic|Basic Macros|Macro")[0], "Escape")
     doc.close(True)

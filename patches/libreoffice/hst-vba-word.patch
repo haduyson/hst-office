@@ -1,0 +1,981 @@
+HST Office: Word VBA in HST Writer (owner goal for 1.0.0-beta.5: at least 20 of the 24 Word cases of
+tests/runtime/vba_cases.py; now 20/24), Word document events, and Vietnamese text in VBA projects.
+
+Object model (oovbaapi word/*.idl, sw/source/ui/vba):
+- Paragraph.Alignment and Paragraph.Format; ParagraphFormat.Alignment read and wrote the short
+  ParaAdjust property as the enum, so it always reported "left" and setting it did nothing.
+- Table.Cell(Row, Column) and Cell.Range.
+- Document.Words and Document.Sentences (new vbatextunits.*: collections of Ranges built with the
+  word/sentence cursors; Count, Item, For Each).
+- ListFormat.ApplyBulletDefault (default bullet list style "List 1", toggles like Word).
+- Find.Execute without replacement searched after the range instead of inside it, reused the
+  replacement of an earlier Execute, and did not redefine the Range to the found text.
+- Bookmarks.Add made a collapsed bookmark (insertTextContent without absorb).
+- Sections(n).Headers/Footers(...).Range switches an unused header/footer on instead of failing.
+- Document.Range(0, 0) / Range(n, n) are collapsed at that position (they were at the end of the
+  text), and a collapsed Range has no text (it returned the next character).
+
+Events and VBA mode (sw core):
+- Word VBA events and code names ran only for Word 97 files (mime "application/msword"). They now
+  also run for .docx/.docm and for documents whose Basic is in VBA mode, the event processor
+  starts with the VBA globals (as in Calc), and an exception in a handler or a missing ThisDocument
+  module no longer ends the office (SwDocShell::Notify).
+- .odt keeps the VBA mode and project name of its macros (document settings VBACompatibilityMode,
+  VBAProjectName), so Document_Open and the VBA object model work after saving in ODF too.
+
+Code page (oox VbaExport):
+- A VBA project whose code page cannot hold its code (Vietnamese text in a project made with a
+  Western code page) is saved in Windows-1258 instead of turning letters into '?'. An unset code
+  page no longer replaces the thread encoding with DONTKNOW.
+
+License: these upstream files remain under their original license (MPL-2.0); the new
+sw/source/ui/vba/vbatextunits.* files are MPL-2.0 like their neighbours.
+Test: tests/runtime/check-vba.py, tests/runtime/check-vba-editor.py.
+---
+--- a/oovbaapi/ooo/vba/word/XCell.idl
++++ b/oovbaapi/ooo/vba/word/XCell.idl
+@@ -19,6 +19,7 @@
+ 
+ module ooo {  module vba {  module word {
+ 
++interface XRange;
+ interface XCell
+ {
+     interface ooo::vba::XHelperInterface;
+@@ -26,6 +27,8 @@
+     [attribute] long Width;
+     [attribute] any Height;
+     [attribute] long HeightRule;
++    // HST: Word's Cell.Range (the text of the cell)
++    [attribute, readonly] XRange Range;
+ 
+     void SetWidth( [in] float ColumnWidth, [in] long RulerStyle );
+     void SetHeight( [in] float RowHeight, [in] long HeightRule );
+--- a/oovbaapi/ooo/vba/word/XDocument.idl
++++ b/oovbaapi/ooo/vba/word/XDocument.idl
+@@ -43,6 +43,9 @@
+     any SelectContentControlsByTitle( [in] any Index );
+     any Variables( [in] any Index );
+     any Paragraphs( [in] any Index );
++    // HST: Word's Document.Words / Document.Sentences (collections of ranges)
++    any Words( [in] any Index );
++    any Sentences( [in] any Index );
+     any Styles( [in] any Index ) raises (com::sun::star::script::BasicErrorException);
+     any Tables( [in] any Index );
+     any Fields( [in] any Index );
+--- a/oovbaapi/ooo/vba/word/XListFormat.idl
++++ b/oovbaapi/ooo/vba/word/XListFormat.idl
+@@ -30,6 +30,9 @@
+         [in] any /* optional */ DefaultListBehavior);
+ 
+     void ConvertNumbersToText();
++
++    // HST: Word's ListFormat.ApplyBulletDefault (switches default bullets on or off)
++    void ApplyBulletDefault([in] any /* optional */ DefaultListBehavior);
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XParagraph.idl
++++ b/oovbaapi/ooo/vba/word/XParagraph.idl
+@@ -20,12 +20,16 @@
+ module ooo {  module vba {  module word {
+ 
+ interface XRange;
++interface XParagraphFormat;
+ interface XParagraph
+ {
+     interface ooo::vba::XHelperInterface;
+ 
+     [attribute, readonly] XRange Range;
+     [attribute] any Style;
++    // HST: Word's Paragraph.Alignment and Paragraph.Format
++    [attribute] long Alignment;
++    [attribute, readonly] XParagraphFormat Format;
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XTable.idl
++++ b/oovbaapi/ooo/vba/word/XTable.idl
+@@ -20,6 +20,7 @@
+ module ooo { module vba { module word {
+ 
+ interface XRange;
++interface XCell;
+ 
+ interface XTable
+ {
+@@ -54,6 +55,8 @@
+ 
+     any Rows([in] any aIndex );
+     any Columns([in] any aIndex );
++    // HST: Word's Table.Cell(Row, Column)
++    XCell Cell([in] long Row, [in] long Column);
+ 
+     [attribute] float BottomPadding;
+     [attribute] float LeftPadding;
+--- a/oox/source/ole/vbaexport.cxx
++++ b/oox/source/ole/vbaexport.cxx
+@@ -1171,6 +1171,32 @@
+     return OUString();
+ }
+ 
++namespace
++{
++/// HST: true when every module of the library can be stored in eEncoding without loss: the
++/// export's conversion (which composes Vietnamese letters for Windows-1258) adds no '?'.
++bool lcl_canEncodeModules(const css::uno::Reference<css::container::XNameContainer>& xLibrary,
++                          rtl_TextEncoding eEncoding)
++{
++    if (!xLibrary.is())
++        return true;
++    for (const OUString& rName : xLibrary->getElementNames())
++    {
++        OUString aCode;
++        xLibrary->getByName(rName) >>= aCode;
++        const OString aEncoded = OUStringToOString(aCode, eEncoding);
++        sal_Int32 nBefore = 0, nAfter = 0;
++        for (sal_Int32 i = 0; i < aCode.getLength(); ++i)
++            nBefore += aCode[i] == '?';
++        for (sal_Int32 i = 0; i < aEncoded.getLength(); ++i)
++            nAfter += aEncoded[i] == '?';
++        if (nAfter != nBefore)
++            return false;
++    }
++    return true;
++}
++}
++
+ rtl_TextEncoding VbaExport::getVBATextEncoding() const
+ {
+     rtl_TextEncoding aTextEncoding = osl_getThreadTextEncoding();
+@@ -1179,12 +1205,32 @@
+     if (xProps.is())
+         try
+         {
+-            xProps->getPropertyValue(u"VBATextEncoding"_ustr) >>= aTextEncoding;
++            rtl_TextEncoding eStored = RTL_TEXTENCODING_DONTKNOW;
++            // HST: an unset code page used to replace the thread encoding with DONTKNOW
++            if ((xProps->getPropertyValue(u"VBATextEncoding"_ustr) >>= eStored)
++                && eStored != RTL_TEXTENCODING_DONTKNOW)
++                aTextEncoding = eStored;
+         }
+         catch (const css::uno::Exception&)
+         {
+         }
+ 
++    // HST: a project whose code page cannot hold its code (Vietnamese text in a project made
++    // with a Western code page) is saved in Windows-1258 instead of turning letters into '?'.
++    css::uno::Reference<css::container::XNameContainer> xLibrary = getBasicLibrary();
++    if (!lcl_canEncodeModules(xLibrary, aTextEncoding)
++        && lcl_canEncodeModules(xLibrary, RTL_TEXTENCODING_MS_1258))
++    {
++        aTextEncoding = RTL_TEXTENCODING_MS_1258;
++        if (xProps.is())
++            try
++            {
++                xProps->setPropertyValue(u"VBATextEncoding"_ustr, css::uno::Any(aTextEncoding));
++            }
++            catch (const css::uno::Exception&)
++            {
++            }
++    }
+     return aTextEncoding;
+ }
+ 
+--- a/sw/Library_vbaswobj.mk
++++ b/sw/Library_vbaswobj.mk
+@@ -140,6 +140,7 @@
+     sw/source/ui/vba/vbatables \
+     sw/source/ui/vba/vbatableofcontents \
+     sw/source/ui/vba/vbatablesofcontents \
++    sw/source/ui/vba/vbatextunits \
+     sw/source/ui/vba/vbavariable \
+     sw/source/ui/vba/vbawordbasic \
+     sw/source/ui/vba/vbadocuments \
+--- a/sw/source/core/doc/doc.cxx
++++ b/sw/source/core/doc/doc.cxx
+@@ -101,6 +101,8 @@
+ #include <osl/diagnose.h>
+ #include <osl/interlck.h>
+ #include <vbahelper/vbaaccesshelper.hxx>
++#include <com/sun/star/script/vba/XVBACompatibility.hpp>
++#include <com/sun/star/script/XStorageBasedLibraryContainer.hpp>
+ #include <editeng/langitem.hxx>
+ #include <calbck.hxx>
+ #include <crsrsh.hxx>
+@@ -2303,6 +2305,28 @@
+      }
+ }
+ 
++#if HAVE_FEATURE_SCRIPTING
++namespace
++{
++/// HST: Word VBA runs (events, code names) for Word 97 files, Word 2007+ files (.docx/.docm)
++/// and documents whose Basic is in VBA mode (e.g. .odt with Word macros, or "Macro VBA").
++bool lcl_IsWordVbaDoc(SfxObjectShell& rDocShell)
++{
++    if (ooo::vba::isAlienWordDoc(rDocShell))
++        return true;
++    try
++    {
++        uno::Reference<script::vba::XVBACompatibility> xVBA(rDocShell.GetBasicContainer(), uno::UNO_QUERY);
++        return xVBA.is() && xVBA->getVBACompatibilityMode();
++    }
++    catch (const uno::Exception&)
++    {
++        return false;
++    }
++}
++}
++#endif
++
+ uno::Reference< script::vba::XVBAEventProcessor > const &
+ SwDoc::GetVbaEventProcessor()
+ {
+@@ -2312,7 +2336,7 @@
+ void SwDoc::SetVbaEventProcessor()
+ {
+ #if HAVE_FEATURE_SCRIPTING
+-    if (mpDocShell && ooo::vba::isAlienWordDoc(*mpDocShell))
++    if (mpDocShell && lcl_IsWordVbaDoc(*mpDocShell))
+     {
+         try
+         {
+--- a/sw/source/core/unocore/unocoll.cxx
++++ b/sw/source/core/unocore/unocoll.cxx
+@@ -71,6 +71,8 @@
+ #include <com/sun/star/script/vba/XVBAModuleInfo.hpp>
+ #include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
+ #include <vbahelper/vbaaccesshelper.hxx>
++#include <com/sun/star/script/vba/XVBACompatibility.hpp>
++#include <com/sun/star/script/XStorageBasedLibraryContainer.hpp>
+ #include <basic/basmgr.hxx>
+ #include <comphelper/processfactory.hxx>
+ #include <cppuhelper/implbase.hxx>
+@@ -515,6 +517,27 @@
+     }
+     return SwServiceType::Invalid;
+ }
++#if HAVE_FEATURE_SCRIPTING
++namespace
++{
++/// HST: Word VBA runs (events, code names) for Word 97 files, Word 2007+ files (.docx/.docm)
++/// and documents whose Basic is in VBA mode (e.g. .odt with Word macros, or "Macro VBA").
++bool lcl_IsWordVbaDoc(SfxObjectShell& rDocShell)
++{
++    if (ooo::vba::isAlienWordDoc(rDocShell))
++        return true;
++    try
++    {
++        uno::Reference<script::vba::XVBACompatibility> xVBA(rDocShell.GetBasicContainer(), uno::UNO_QUERY);
++        return xVBA.is() && xVBA->getVBACompatibilityMode();
++    }
++    catch (const uno::Exception&)
++    {
++        return false;
++    }
++}
++}
++#endif
+ 
+ uno::Reference<uno::XInterface>
+ SwXServiceProvider::MakeInstance(SwServiceType nObjectType, SwDoc & rDoc)
+@@ -570,7 +593,7 @@
+         case  SwServiceType::VbaCodeNameProvider :
+ #if HAVE_FEATURE_SCRIPTING
+         {
+-            if (rDoc.GetDocShell() && ooo::vba::isAlienWordDoc(*rDoc.GetDocShell()))
++            if (rDoc.GetDocShell() && lcl_IsWordVbaDoc(*rDoc.GetDocShell()))
+             {
+                 xRet = getXWeak(new SwVbaCodeNameProvider(rDoc.GetDocShell()));
+             }
+@@ -582,7 +605,7 @@
+         {
+                 uno::Reference< container::XNameContainer > xProjProv = rDoc.GetVBATemplateToProjectCache();
+                 if (!xProjProv.is() && rDoc.GetDocShell()
+-                            && ooo::vba::isAlienWordDoc(*rDoc.GetDocShell()))
++                            && lcl_IsWordVbaDoc(*rDoc.GetDocShell()))
+                 {
+                     xProjProv = new SwVbaProjectNameProvider;
+                     rDoc.SetVBATemplateToProjectCache(xProjProv);
+@@ -603,6 +626,9 @@
+                     uno::Sequence< uno::Any > aArgs{ uno::Any(pShell->GetModel()) };
+                     aGlobs <<= ::comphelper::getProcessServiceFactory()->createInstanceWithArguments( u"ooo.vba.word.Globals"_ustr, aArgs );
+                     pBasicMan->SetGlobalUNOConstant( u"VBAGlobals"_ustr, aGlobs );
++                    // HST: start the Word VBA event processor with the globals (as Calc does), so
++                    // Document_Open/AutoOpen run on load and not only after the first ActiveDocument use.
++                    rDoc.SetVbaEventProcessor();
+                 }
+             }
+             aGlobs >>= xRet;
+--- a/sw/source/ui/vba/vbabookmarks.cxx
++++ b/sw/source/ui/vba/vbabookmarks.cxx
+@@ -156,7 +156,8 @@
+     uno::Reference< text::XTextContent > xBookmark( xModel->createInstance(u"com.sun.star.text.Bookmark"_ustr), uno::UNO_QUERY_THROW );
+     uno::Reference< container::XNamed > xNamed( xBookmark, uno::UNO_QUERY_THROW );
+     xNamed->setName( rName );
+-    rTextRange->getText()->insertTextContent( rTextRange, xBookmark, false );
++    // HST: bAbsorb = true makes the bookmark span the range (false collapsed it to one point)
++    rTextRange->getText()->insertTextContent( rTextRange, xBookmark, true );
+ }
+ 
+ uno::Any SAL_CALL
+--- a/sw/source/ui/vba/vbacell.cxx
++++ b/sw/source/ui/vba/vbacell.cxx
+@@ -19,6 +19,11 @@
+ #include <utility>
+ 
+ #include "vbacell.hxx"
++#include "vbarange.hxx"
++#include "wordvbahelper.hxx"
++#include <unotxdoc.hxx>
++#include <com/sun/star/table/XCellRange.hpp>
++#include <com/sun/star/text/XText.hpp>
+ #include "vbatablehelper.hxx"
+ #include "vbarow.hxx"
+ 
+@@ -70,6 +75,14 @@
+     xRow->setHeightRule( _heightrule );
+ }
+ 
++// HST: Word's Cell.Range, the text of this cell
++uno::Reference< word::XRange > SAL_CALL SwVbaCell::getRange()
++{
++    uno::Reference< table::XCellRange > xCells( mxTextTable, uno::UNO_QUERY_THROW );
++    uno::Reference< text::XText > xText( xCells->getCellByPosition( mnColumn, mnRow ), uno::UNO_QUERY_THROW );
++    return uno::Reference< word::XRange >( new SwVbaRange( this, mxContext, word::getCurrentWordDoc( mxContext ), xText->getStart(), xText->getEnd(), xText ) );
++}
++
+ void SAL_CALL SwVbaCell::SetWidth( float width, sal_Int32 /*rulestyle*/ )
+ {
+     // FIXME: handle the argument: rulestyle
+--- a/sw/source/ui/vba/vbacell.hxx
++++ b/sw/source/ui/vba/vbacell.hxx
+@@ -43,6 +43,7 @@
+     virtual css::uno::Any SAL_CALL getHeight() override;
+     virtual void SAL_CALL setHeight( const css::uno::Any& _height ) override;
+     virtual ::sal_Int32 SAL_CALL getHeightRule() override;
++    virtual css::uno::Reference< ooo::vba::word::XRange > SAL_CALL getRange() override;
+     virtual void SAL_CALL setHeightRule( ::sal_Int32 _heightrule ) override;
+ 
+     // Methods
+--- a/sw/source/ui/vba/vbadocument.cxx
++++ b/sw/source/ui/vba/vbadocument.cxx
+@@ -54,6 +54,7 @@
+ #include <docsh.hxx>
+ #include "vbatemplate.hxx"
+ #include "vbaparagraph.hxx"
++#include "vbatextunits.hxx"
+ #include "vbastyles.hxx"
+ #include "vbatables.hxx"
+ #include "vbafield.hxx"
+@@ -165,8 +166,9 @@
+     {
+         if( nEnd == nStart )
+         {
+-            xStart = mxTextDocument->getText()->getEnd();
+-            xEnd = mxTextDocument->getText()->getEnd();
++            // HST: a collapsed range sits at that position (it was put at the end of the text)
++            xStart = SwVbaRangeHelper::getRangeByPosition( mxTextDocument->getText(), nStart );
++            xEnd = xStart;
+         }
+         else
+         {
+@@ -180,8 +182,9 @@
+     }
+     else
+     {
+-        xStart = mxTextDocument->getText()->getEnd();
+-        xEnd = mxTextDocument->getText()->getEnd();
++        // HST: Range(0, 0) is the start of the document, as in Word (it was the end)
++        xStart = mxTextDocument->getText()->getStart();
++        xEnd = mxTextDocument->getText()->getStart();
+     }
+ 
+     if( !xStart.is() && !xEnd.is() )
+@@ -304,6 +307,25 @@
+     if ( index.hasValue() )
+         return xCol->Item( index, uno::Any() );
+     return uno::Any( xCol );
++}
++
++// HST: Word's Document.Words / Document.Sentences
++uno::Any SAL_CALL
++SwVbaDocument::Words( const uno::Any& index )
++{
++    uno::Reference< XCollection > xCol( new SwVbaTextUnits( this, mxContext, mxTextDocument, SwVbaTextUnits::Unit::Word ) );
++    if ( index.hasValue() )
++        return xCol->Item( index, uno::Any() );
++    return uno::Any( xCol );
++}
++
++uno::Any SAL_CALL
++SwVbaDocument::Sentences( const uno::Any& index )
++{
++    uno::Reference< XCollection > xCol( new SwVbaTextUnits( this, mxContext, mxTextDocument, SwVbaTextUnits::Unit::Sentence ) );
++    if ( index.hasValue() )
++        return xCol->Item( index, uno::Any() );
++    return uno::Any( xCol );
+ }
+ 
+ uno::Any SAL_CALL
+--- a/sw/source/ui/vba/vbadocument.hxx
++++ b/sw/source/ui/vba/vbadocument.hxx
+@@ -69,6 +69,8 @@
+     virtual css::uno::Any SAL_CALL getAttachedTemplate() override;
+     virtual void SAL_CALL setAttachedTemplate( const css::uno::Any& _attachedtemplate ) override;
+     virtual css::uno::Any SAL_CALL Paragraphs( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL Words( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL Sentences( const css::uno::Any& rIndex ) override;
+     virtual css::uno::Any SAL_CALL Styles( const css::uno::Any& rIndex ) override;
+     virtual css::uno::Any SAL_CALL Tables( const css::uno::Any& aIndex ) override;
+     virtual css::uno::Any SAL_CALL Fields( const css::uno::Any& aIndex ) override;
+--- a/sw/source/ui/vba/vbafind.cxx
++++ b/sw/source/ui/vba/vbafind.cxx
+@@ -20,6 +20,7 @@
+ #include "vbareplacement.hxx"
+ #include <ooo/vba/word/WdFindWrap.hpp>
+ #include <ooo/vba/word/WdReplace.hpp>
++#include <com/sun/star/text/XTextCursor.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
+ #include <com/sun/star/text/XTextRangeCompare.hpp>
+ #include <doc.hxx>
+@@ -123,7 +124,10 @@
+     }
+     else
+     {
+-        xFoundOne.set( mxModel->findNext( mxTextRange, uno::Reference< util::XSearchDescriptor >( mxPropertyReplace, uno::UNO_QUERY_THROW ) ), uno::UNO_QUERY );
++        // HST: search inside the range (from its start), not after it.
++        xFoundOne.set( mxModel->findNext( mxTextRange->getStart(), uno::Reference< util::XSearchDescriptor >( mxPropertyReplace, uno::UNO_QUERY_THROW ) ), uno::UNO_QUERY );
++        if( xFoundOne.is() && !InRange( xFoundOne ) )
++            xFoundOne.clear();
+     }
+ 
+     if( !xFoundOne.is() && ( getWrap() == word::WdFindWrap::wdFindContinue || getWrap() == word::WdFindWrap::wdFindAsk ) )
+@@ -195,7 +199,18 @@
+     {
+         uno::Reference< text::XTextRange > xFindOne = FindOneElement();
+         if( xFindOne.is() )
+-            result = mxSelSupp->select( uno::Any( xFindOne ) );
++        {
++            // HST: as in Word, Range.Find redefines the range to the found text.
++            uno::Reference< text::XTextCursor > xRangeCursor( mxTextRange, uno::UNO_QUERY );
++            if( xRangeCursor.is() && xRangeCursor != uno::Reference< text::XTextCursor >( mxTVC, uno::UNO_QUERY ) )
++            {
++                xRangeCursor->gotoRange( xFindOne->getStart(), false );
++                xRangeCursor->gotoRange( xFindOne->getEnd(), true );
++                result = true;
++            }
++            else
++                result = mxSelSupp->select( uno::Any( xFindOne ) );
++        }
+     }
+ 
+     return result;
+@@ -335,6 +350,10 @@
+ SwVbaFind::Execute( const uno::Any& FindText, const uno::Any& MatchCase, const uno::Any& MatchWholeWord, const uno::Any& MatchWildcards, const uno::Any& MatchSoundsLike, const uno::Any& MatchAllWordForms, const uno::Any& Forward, const uno::Any& Wrap, const uno::Any& Format, const uno::Any& ReplaceWith, const uno::Any& Replace, const uno::Any& /*MatchKashida*/, const uno::Any& /*MatchDiacritics*/, const uno::Any& /*MatchAlefHamza*/, const uno::Any& /*MatchControl*/, const uno::Any& /*MatchPrefix*/, const uno::Any& /*MatchSuffix*/, const uno::Any& /*MatchPhrase*/, const uno::Any& /*IgnoreSpace*/, const uno::Any& /*IgnorePunct*/ )
+ {
+     bool result = false;
++    // HST: the Find object is shared per document; a find-only Execute must not reuse the
++    // replacement of an earlier Execute(ReplaceWith:=…).
++    if( !ReplaceWith.hasValue() && !Replace.hasValue() )
++        mbReplace = false;
+     if( FindText.hasValue() )
+     {
+         OUString sText;
+--- a/sw/source/ui/vba/vbaheaderfooter.cxx
++++ b/sw/source/ui/vba/vbaheaderfooter.cxx
+@@ -76,6 +76,11 @@
+         sPropsNameText += "Left";
+     }
+ 
++    // HST: Word documents always have headers and footers; switch an unused one on before use.
++    const OUString sIsOn = mbHeader ? u"HeaderIsOn"_ustr : u"FooterIsOn"_ustr;
++    bool bIsOn = false;
++    if( ( mxPageStyleProps->getPropertyValue( sIsOn ) >>= bIsOn ) && !bIsOn )
++        mxPageStyleProps->setPropertyValue( sIsOn, uno::Any( true ) );
+     uno::Reference< text::XText > xText( mxPageStyleProps->getPropertyValue( sPropsNameText ), uno::UNO_QUERY_THROW );
+     return uno::Reference< word::XRange >( new SwVbaRange( this, mxContext, mxModel, xText->getStart(), xText->getEnd(), xText ) );
+ }
+--- a/sw/source/ui/vba/vbalistformat.cxx
++++ b/sw/source/ui/vba/vbalistformat.cxx
+@@ -27,6 +27,8 @@
+ #include <com/sun/star/document/XUndoManagerSupplier.hpp>
+ #include <com/sun/star/beans/XMultiPropertySet.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <vector>
+ #include <com/sun/star/style/TabStop.hpp>
+ #include <com/sun/star/text/PositionAndSpaceMode.hpp>
+ #include <com/sun/star/text/XTextTable.hpp>
+@@ -132,6 +134,29 @@
+     }
+ }
+ 
++// HST: Word's ListFormat.ApplyBulletDefault: the paragraphs of the range get the default bullet
++// list style ("List 1"); when they already have it, the bullets are removed (Word toggles too).
++void SAL_CALL SwVbaListFormat::ApplyBulletDefault( const css::uno::Any& /*DefaultListBehavior*/ )
++{
++    static constexpr OUString aBulletStyle = u"List 1"_ustr;
++    uno::Reference< container::XEnumerationAccess > xEnumAccess( mxTextRange, uno::UNO_QUERY_THROW );
++    std::vector< uno::Reference< beans::XPropertySet > > aParagraphs;
++    uno::Reference< container::XEnumeration > xEnum = xEnumAccess->createEnumeration();
++    while( xEnum->hasMoreElements() )
++    {
++        uno::Reference< lang::XServiceInfo > xInfo( xEnum->nextElement(), uno::UNO_QUERY );
++        if( xInfo.is() && xInfo->supportsService( u"com.sun.star.text.Paragraph"_ustr ) )
++            aParagraphs.emplace_back( xInfo, uno::UNO_QUERY_THROW );
++    }
++    if( aParagraphs.empty() )
++        return;
++    OUString aCurrent;
++    aParagraphs.front()->getPropertyValue( u"NumberingStyleName"_ustr ) >>= aCurrent;
++    const OUString aNew = aCurrent == aBulletStyle ? OUString() : aBulletStyle;
++    for( const auto& xProps : aParagraphs )
++        xProps->setPropertyValue( u"NumberingStyleName"_ustr, uno::Any( aNew ) );
++}
++
+ void SAL_CALL SwVbaListFormat::ConvertNumbersToText(  )
+ {
+     rtl::Reference<SwXTextDocument> xModel(getThisWordDoc(mxContext));
+--- a/sw/source/ui/vba/vbalistformat.hxx
++++ b/sw/source/ui/vba/vbalistformat.hxx
+@@ -39,6 +39,7 @@
+     // Methods
+     virtual void SAL_CALL ApplyListTemplate( const css::uno::Reference< ::ooo::vba::word::XListTemplate >& ListTemplate, const css::uno::Any& ContinuePreviousList, const css::uno::Any& ApplyTo, const css::uno::Any& DefaultListBehavior ) override;
+     virtual void SAL_CALL ConvertNumbersToText(  ) override;
++    virtual void SAL_CALL ApplyBulletDefault( const css::uno::Any& DefaultListBehavior ) override;
+ 
+     // XHelperInterface
+     virtual OUString getServiceImplName() override;
+--- a/sw/source/ui/vba/vbaparagraph.cxx
++++ b/sw/source/ui/vba/vbaparagraph.cxx
+@@ -18,6 +18,8 @@
+  */
+ #include "vbaparagraph.hxx"
+ #include "vbarange.hxx"
++#include "vbaparagraphformat.hxx"
++#include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/lang/XServiceInfo.hpp>
+ #include <cppuhelper/implbase.hxx>
+ #include <utility>
+@@ -58,6 +60,26 @@
+     xRange->setStyle( style );
+ }
+ 
++// HST: Paragraph.Alignment / Paragraph.Format act on this paragraph like Range.ParagraphFormat.
++uno::Reference< word::XParagraphFormat > SAL_CALL
++SwVbaParagraph::getFormat()
++{
++    uno::Reference< beans::XPropertySet > xParaProps( mxTextRange, uno::UNO_QUERY_THROW );
++    return uno::Reference< word::XParagraphFormat >( new SwVbaParagraphFormat( this, mxContext, xParaProps ) );
++}
++
++::sal_Int32 SAL_CALL
++SwVbaParagraph::getAlignment()
++{
++    return getFormat()->getAlignment();
++}
++
++void SAL_CALL
++SwVbaParagraph::setAlignment( ::sal_Int32 nAlignment )
++{
++    getFormat()->setAlignment( nAlignment );
++}
++
+ OUString
+ SwVbaParagraph::getServiceImplName()
+ {
+--- a/sw/source/ui/vba/vbaparagraph.hxx
++++ b/sw/source/ui/vba/vbaparagraph.hxx
+@@ -51,6 +51,9 @@
+     virtual css::uno::Reference< ooo::vba::word::XRange > SAL_CALL getRange() override;
+     virtual css::uno::Any SAL_CALL getStyle() override;
+     virtual void SAL_CALL setStyle( const css::uno::Any& style ) override;
++    virtual ::sal_Int32 SAL_CALL getAlignment() override;
++    virtual void SAL_CALL setAlignment( ::sal_Int32 nAlignment ) override;
++    virtual css::uno::Reference< ooo::vba::word::XParagraphFormat > SAL_CALL getFormat() override;
+ 
+     // XHelperInterface
+     virtual OUString getServiceImplName() override;
+--- a/sw/source/ui/vba/vbaparagraphformat.cxx
++++ b/sw/source/ui/vba/vbaparagraphformat.cxx
+@@ -48,15 +48,16 @@
+ 
+ sal_Int32 SAL_CALL SwVbaParagraphFormat::getAlignment()
+ {
+-    style::ParagraphAdjust aParaAdjust = style::ParagraphAdjust_LEFT;
+-    mxParaProps->getPropertyValue(u"ParaAdjust"_ustr) >>= aParaAdjust;
+-    return getMSWordAlignment( aParaAdjust );
++    // HST: ParaAdjust is a short, not the enum: reading it into the enum always gave "left".
++    sal_Int16 nParaAdjust = sal_Int16(style::ParagraphAdjust_LEFT);
++    mxParaProps->getPropertyValue(u"ParaAdjust"_ustr) >>= nParaAdjust;
++    return getMSWordAlignment( static_cast< style::ParagraphAdjust >( nParaAdjust ) );
+ }
+ 
+ void SAL_CALL SwVbaParagraphFormat::setAlignment( sal_Int32 _alignment )
+ {
+     style::ParagraphAdjust aParaAdjust = getOOoAlignment( _alignment );
+-    mxParaProps->setPropertyValue(u"ParaAdjust"_ustr, uno::Any( aParaAdjust ) );
++    mxParaProps->setPropertyValue(u"ParaAdjust"_ustr, uno::Any( sal_Int16( aParaAdjust ) ) );
+ }
+ 
+ float SAL_CALL SwVbaParagraphFormat::getFirstLineIndent()
+--- a/sw/source/ui/vba/vbarange.cxx
++++ b/sw/source/ui/vba/vbarange.cxx
+@@ -123,13 +123,9 @@
+     // FIXME: should add a line separator if the range includes the last paragraph
+     if( nLen == 0 )
+     {
+-        if( mxTextCursor->isCollapsed() )
+-        {
+-            mxTextCursor->goRight( 1, true );
+-            aText = mxTextCursor->getString();
+-            mxTextCursor->collapseToStart();
+-        }
+-        else
++        // HST: a collapsed Range has no text in Word (Range(0, 0).Text = ""); it used to return
++        // the next character, which only stayed hidden while Range(0, 0) sat at the end of the text.
++        if( !mxTextCursor->isCollapsed() )
+         {
+             uno::Reference< text::XTextRange > xStart = mxTextCursor->getStart();
+             uno::Reference< text::XTextRange > xEnd = mxTextCursor->getEnd();
+--- a/sw/source/ui/vba/vbatable.cxx
++++ b/sw/source/ui/vba/vbatable.cxx
+@@ -18,6 +18,8 @@
+  */
+ 
+ #include "vbatable.hxx"
++#include "vbacell.hxx"
++#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
+ #include "vbarange.hxx"
+ #include <com/sun/star/frame/XModel.hpp>
+ #include <com/sun/star/text/XTextViewCursorSupplier.hpp>
+@@ -188,6 +190,15 @@
+     return uno::Any( xCol );
+ }
+ 
++// HST: Word's Table.Cell(Row, Column), 1-based
++uno::Reference< word::XCell > SAL_CALL
++SwVbaTable::Cell( ::sal_Int32 nRow, ::sal_Int32 nColumn )
++{
++    if ( nRow < 1 || nColumn < 1 || nRow > mxTextTable->getRows()->getCount() || nColumn > mxTextTable->getColumns()->getCount() )
++        throw lang::IndexOutOfBoundsException();
++    return uno::Reference< word::XCell >( new SwVbaCell( this, mxContext, mxTextTable, nColumn - 1, nRow - 1 ) );
++}
++
+ // XHelperInterface
+ OUString
+ SwVbaTable::getServiceImplName()
+--- a/sw/source/ui/vba/vbatable.hxx
++++ b/sw/source/ui/vba/vbatable.hxx
+@@ -56,6 +56,7 @@
+     virtual void SAL_CALL setTopPadding( float fValue ) override;
+     virtual css::uno::Any SAL_CALL Rows( const css::uno::Any& aIndex ) override;
+     virtual css::uno::Any SAL_CALL Columns( const css::uno::Any& aIndex ) override;
++    virtual css::uno::Reference< ooo::vba::word::XCell > SAL_CALL Cell( ::sal_Int32 nRow, ::sal_Int32 nColumn ) override;
+ 
+     // XHelperInterface
+     virtual OUString getServiceImplName() override;
+--- a/sw/source/uibase/app/docsh2.cxx
++++ b/sw/source/uibase/app/docsh2.cxx
+@@ -247,8 +247,18 @@
+ 
+     uno::Reference< script::vba::XVBAEventProcessor > const xVbaEvents =
+         m_xDoc->GetVbaEventProcessor();
++    // HST: VBA events now also run for .docm and VBA-mode documents; a document without a
++    // ThisDocument module (or a failing handler) must not end the office (as in Calc).
+     if( xVbaEvents.is() )
+-        lcl_processCompatibleSfxHint( xVbaEvents, rHint );
++    {
++        try
++        {
++            lcl_processCompatibleSfxHint( xVbaEvents, rHint );
++        }
++        catch( const uno::Exception& )
++        {
++        }
++    }
+ 
+     if (rHint.GetId() == SfxHintId::ThisIsAnSfxEventHint)
+     {
+--- a/sw/source/uibase/uno/SwXDocumentSettings.cxx
++++ b/sw/source/uibase/uno/SwXDocumentSettings.cxx
+@@ -22,6 +22,9 @@
+ 
+ #include <sal/config.h>
+ #include <sal/log.hxx>
++#include <com/sun/star/script/vba/XVBACompatibility.hpp>
++#include <com/sun/star/script/XStorageBasedLibraryContainer.hpp>
++#include <com/sun/star/script/XLibraryContainer.hpp>
+ 
+ #include <utility>
+ 
+@@ -173,6 +176,8 @@
+     HANDLE_FORCE_TOP_ALIGNMENT_IN_CELL_WITH_FLOATING_ANCHOR,
+     HANDLE_ADJUST_TABLE_LINE_HEIGHTS_TO_GRID_HEIGHT,
+     HANDLE_LIST_LABEL_ALIGNMENT_IGNORES_DIRECTION,
++    HANDLE_VBA_COMPATIBILITY_MODE,
++    HANDLE_VBA_PROJECT_NAME,
+ };
+ 
+ }
+@@ -282,6 +287,9 @@
+         { u"ApplyTextAttrToEmptyLineAtEndOfParagraph"_ustr, HANDLE_APPLY_TEXT_ATTR_TO_EMPTY_LINE_AT_END_OF_PARAGRAPH, cppu::UnoType<bool>::get(), 0 },
+         { u"ApplyParagraphMarkFormatToEmptyLineAtEndOfParagraph"_ustr, HANDLE_APPLY_PARAGRAPH_MARK_FORMAT_TO_EMPTY_LINE_AT_END_OF_PARAGRAPH, cppu::UnoType<bool>::get(), 0 },
+         { u"HiddenParagraphMarkPerLineProperties"_ustr, HANDLE_HIDDEN_PARAGRAPH_MARK_PER_LINE_PROPERTIES, cppu::UnoType<bool>::get(), 0 },
++        // HST: Word VBA mode of the document's macros, kept in .odt like Calc keeps it in .ods
++        { u"VBACompatibilityMode"_ustr, HANDLE_VBA_COMPATIBILITY_MODE, cppu::UnoType<bool>::get(), 0 },
++        { u"VBAProjectName"_ustr, HANDLE_VBA_PROJECT_NAME, cppu::UnoType<OUString>::get(), 0 },
+         { u"DoNotMirrorRtlDrawObjs"_ustr, HANDLE_DO_NOT_MIRROR_RTL_DRAW_OBJS, cppu::UnoType<bool>::get(), 0 },
+         { u"PaintHellOverHeaderFooter"_ustr, HANDLE_PAINT_HELL_OVER_HEADER_FOOTER, cppu::UnoType<bool>::get(), 0 },
+         { u"MinRowHeightInclBorder"_ustr, HANDLE_MIN_ROW_HEIGHT_INCL_BORDER, cppu::UnoType<bool>::get(), 0 },
+@@ -1138,6 +1146,29 @@
+             }
+         }
+         break;
++        case HANDLE_VBA_COMPATIBILITY_MODE:
++        {
++            // Only switch on: documents without Word macros never create their Basic here.
++            bool bTmp = false;
++            if ((rValue >>= bTmp) && bTmp)
++            {
++                uno::Reference<script::vba::XVBACompatibility> xVBA(mpDocSh->GetBasicContainer(), uno::UNO_QUERY);
++                if (xVBA.is() && !xVBA->getVBACompatibilityMode())
++                    xVBA->setVBACompatibilityMode(true);
++            }
++        }
++        break;
++        case HANDLE_VBA_PROJECT_NAME:
++        {
++            OUString sName;
++            if ((rValue >>= sName) && !sName.isEmpty())
++            {
++                uno::Reference<script::vba::XVBACompatibility> xVBA(mpDocSh->GetBasicContainer(), uno::UNO_QUERY);
++                if (xVBA.is())
++                    xVBA->setProjectName(sName);
++            }
++        }
++        break;
+         case HANDLE_DO_NOT_MIRROR_RTL_DRAW_OBJS:
+         {
+             bool bTmp;
+@@ -1821,6 +1852,19 @@
+                 DocumentSettingId::HIDDEN_PARAGRAPH_MARK_PER_LINE_PROPERTIES);
+         }
+         break;
++        case HANDLE_VBA_COMPATIBILITY_MODE:
++        case HANDLE_VBA_PROJECT_NAME:
++        {
++            // Without a Basic manager the document has no macros: do not create one for this.
++            uno::Reference<script::vba::XVBACompatibility> xVBA;
++            if (mpDocSh->HasBasic())
++                xVBA.set(mpDocSh->GetBasicContainer(), uno::UNO_QUERY);
++            if (rInfo.mnHandle == HANDLE_VBA_COMPATIBILITY_MODE)
++                rValue <<= xVBA.is() && xVBA->getVBACompatibilityMode();
++            else
++                rValue <<= xVBA.is() ? xVBA->getProjectName() : OUString();
++        }
++        break;
+         case HANDLE_DO_NOT_MIRROR_RTL_DRAW_OBJS:
+         {
+             rValue <<= mpDoc->getIDocumentSettingAccess().get(
+--- /dev/null
++++ b/sw/source/ui/vba/vbatextunits.cxx
+@@ -0,0 +1,143 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <vector>
++
++#include <com/sun/star/container/NoSuchElementException.hpp>
++#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
++#include <com/sun/star/text/XSentenceCursor.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/text/XTextCursor.hpp>
++#include <com/sun/star/text/XWordCursor.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <ooo/vba/word/XRange.hpp>
++
++#include <unotxdoc.hxx>
++
++#include "vbarange.hxx"
++#include "vbatextunits.hxx"
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++/// Splits the body text into words or sentences once, when the collection is created.
++std::vector<uno::Reference<text::XTextRange>> lcl_split(const rtl::Reference<SwXTextDocument>& xDoc,
++                                                        SwVbaTextUnits::Unit eUnit)
++{
++    std::vector<uno::Reference<text::XTextRange>> aUnits;
++    uno::Reference<text::XText> xText = xDoc->getText();
++    uno::Reference<text::XTextCursor> xCursor = xText->createTextCursor();
++    uno::Reference<text::XWordCursor> xWord(xCursor, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XSentenceCursor> xSentence(xCursor, uno::UNO_QUERY_THROW);
++    xCursor->gotoStart(false);
++    for (;;)
++    {
++        uno::Reference<text::XTextRange> xStart = xCursor->getStart();
++        bool bMore = eUnit == SwVbaTextUnits::Unit::Word ? xWord->gotoNextWord(true)
++                                                         : xSentence->gotoNextSentence(true);
++        if (!bMore)
++            xCursor->gotoEnd(true);
++        if (xCursor->isCollapsed())
++            break; // end of text (or no progress)
++        uno::Reference<text::XTextCursor> xUnit = xText->createTextCursorByRange(xStart);
++        xUnit->gotoRange(xCursor->getEnd(), true);
++        aUnits.push_back(xUnit);
++        if (!bMore)
++            break;
++        xCursor->collapseToEnd();
++    }
++    return aUnits;
++}
++
++class TextUnitsEnumWrapper : public EnumerationHelper_BASE
++{
++    uno::Reference<XCollection> mxCollection;
++    sal_Int32 mnIndex;
++
++public:
++    explicit TextUnitsEnumWrapper(uno::Reference<XCollection> xCollection)
++        : mxCollection(std::move(xCollection))
++        , mnIndex(0)
++    {
++    }
++
++    sal_Bool SAL_CALL hasMoreElements() override { return mnIndex < mxCollection->getCount(); }
++
++    uno::Any SAL_CALL nextElement() override
++    {
++        if (mnIndex < mxCollection->getCount())
++            return mxCollection->Item(uno::Any(++mnIndex), uno::Any());
++        throw container::NoSuchElementException();
++    }
++};
++
++class TextUnitsIndexAccess : public ::cppu::WeakImplHelper<container::XIndexAccess>
++{
++    std::vector<uno::Reference<text::XTextRange>> maUnits;
++
++public:
++    explicit TextUnitsIndexAccess(std::vector<uno::Reference<text::XTextRange>>&& rUnits)
++        : maUnits(std::move(rUnits))
++    {
++    }
++
++    sal_Int32 SAL_CALL getCount() override { return static_cast<sal_Int32>(maUnits.size()); }
++
++    uno::Any SAL_CALL getByIndex(sal_Int32 nIndex) override
++    {
++        if (nIndex < 0 || nIndex >= getCount())
++            throw lang::IndexOutOfBoundsException();
++        return uno::Any(maUnits[nIndex]);
++    }
++
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<text::XTextRange>::get(); }
++
++    sal_Bool SAL_CALL hasElements() override { return !maUnits.empty(); }
++};
++}
++
++SwVbaTextUnits::SwVbaTextUnits(const uno::Reference<XHelperInterface>& xParent,
++                               const uno::Reference<uno::XComponentContext>& xContext,
++                               const rtl::Reference<SwXTextDocument>& xTextDocument, Unit eUnit)
++    : SwVbaTextUnits_BASE(xParent, xContext,
++                          new TextUnitsIndexAccess(lcl_split(xTextDocument, eUnit)))
++    , mxTextDocument(xTextDocument)
++    , meUnit(eUnit)
++{
++}
++
++uno::Type SwVbaTextUnits::getElementType() { return cppu::UnoType<word::XRange>::get(); }
++
++uno::Reference<container::XEnumeration> SwVbaTextUnits::createEnumeration()
++{
++    return new TextUnitsEnumWrapper(this);
++}
++
++uno::Any SwVbaTextUnits::createCollectionObject(const uno::Any& aSource)
++{
++    uno::Reference<text::XTextRange> xRange(aSource, uno::UNO_QUERY_THROW);
++    return uno::Any(uno::Reference<word::XRange>(new SwVbaRange(
++        mxParent, mxContext, mxTextDocument, xRange->getStart(), xRange->getEnd(), xRange->getText())));
++}
++
++OUString SwVbaTextUnits::getServiceImplName()
++{
++    return meUnit == Unit::Word ? u"SwVbaWords"_ustr : u"SwVbaSentences"_ustr;
++}
++
++uno::Sequence<OUString> SwVbaTextUnits::getServiceNames()
++{
++    static uno::Sequence<OUString> const aWords{ u"ooo.vba.word.Words"_ustr };
++    static uno::Sequence<OUString> const aSentences{ u"ooo.vba.word.Sentences"_ustr };
++    return meUnit == Unit::Word ? aWords : aSentences;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/ui/vba/vbatextunits.hxx
+@@ -0,0 +1,50 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <ooo/vba/XCollection.hpp>
++#include <vbahelper/vbacollectionimpl.hxx>
++#include <rtl/ref.hxx>
++
++class SwXTextDocument;
++
++typedef CollTestImplHelper<ooo::vba::XCollection> SwVbaTextUnits_BASE;
++
++/// HST: ooo.vba.word.Words / ooo.vba.word.Sentences, e.g. ActiveDocument.Words.Count,
++/// ActiveDocument.Sentences(1).Text. Each item is a Range; as in Word, a word includes the
++/// spaces after it and a sentence the spaces before the next one.
++class SwVbaTextUnits : public SwVbaTextUnits_BASE
++{
++public:
++    enum class Unit
++    {
++        Word,
++        Sentence
++    };
++
++    /// @throws css::uno::RuntimeException
++    SwVbaTextUnits(const css::uno::Reference<ov::XHelperInterface>& xParent,
++                   const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                   const rtl::Reference<SwXTextDocument>& xTextDocument, Unit eUnit);
++
++    // XEnumerationAccess
++    css::uno::Type SAL_CALL getElementType() override;
++    css::uno::Reference<css::container::XEnumeration> SAL_CALL createEnumeration() override;
++
++    // SwVbaTextUnits_BASE
++    css::uno::Any createCollectionObject(const css::uno::Any& aSource) override;
++    OUString getServiceImplName() override;
++    css::uno::Sequence<OUString> getServiceNames() override;
++
++private:
++    rtl::Reference<SwXTextDocument> mxTextDocument;
++    Unit meUnit;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

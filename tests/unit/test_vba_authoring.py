@@ -79,12 +79,11 @@ class Shortcuts(unittest.TestCase):
         for module in CONTEXT:
             self.assertEqual(keys[(module, "F11_MOD2")], "org.hst.office.vi:EditVba")
 
-    def test_alt_f8_macro_dialog_only_where_free(self):
+    def test_alt_f8_opens_the_macro_dialog_like_office(self):
         keys = self.keys()
-        self.assertEqual(keys[("com.sun.star.sheet.SpreadsheetDocument", "F8_MOD2")], ".uno:MacroDialog")
-        # Writer keeps Alt+F8 = extended selection (taken upstream).
-        self.assertNotIn(("com.sun.star.text.TextDocument", "F8_MOD2"), keys)
-        self.assertEqual(len(keys), 3)
+        for module in CONTEXT:
+            self.assertEqual(keys[(module, "F8_MOD2")], ".uno:MacroDialog")
+        self.assertEqual(len(keys), 4)
 
     def test_manifest_registers_accelerators(self):
         manifest = read(os.path.join(EXT, "META-INF", "manifest.xml"))
@@ -111,6 +110,18 @@ class CorePatch(unittest.TestCase):
     def test_macro_security_asks_before_running_document_macros(self):
         self.assertRegex(self.text, r"\+\s*<value>1</value>")
         self.assertIn("Office/Common.xcs", self.text)
+
+
+class WordPatch(unittest.TestCase):
+    def test_word_object_model_events_and_code_page(self):
+        path = os.path.join(_paths.ROOT, "patches", "libreoffice", "hst-vba-word.patch")
+        text = read(path)
+        series = read(os.path.join(_paths.ROOT, "patches", "libreoffice", "series")).split()
+        self.assertIn("hst-vba-word.patch", series)
+        self.assertGreater(series.index("hst-vba-word.patch"), series.index("hst-vba-authoring.patch"))
+        for needle in ("XCell Cell(", "any Words(", "any Sentences(", "long Alignment", "ApplyBulletDefault",
+                       "VBACompatibilityMode", "RTL_TEXTENCODING_MS_1258", "SetVbaEventProcessor"):
+            self.assertIn(needle, text)
 
 
 class Menu(unittest.TestCase):

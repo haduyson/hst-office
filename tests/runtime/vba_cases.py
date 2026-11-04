@@ -21,6 +21,12 @@ def _sheet_names(doc):
     return list(doc.Sheets.ElementNames)
 
 
+def _paragraphs(doc):
+    enum = doc.Text.createEnumeration()
+    while enum.hasMoreElements():
+        yield enum.nextElement()
+
+
 def _text(doc):
     return doc.Text.String.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -155,30 +161,33 @@ WRITER = [
          doc=lambda d: d.Text.createEnumeration().nextElement().createEnumeration().nextElement().CharWeight >= 150),
     dict(id="writer-paragraphs", title="Paragraphs.Count, Paragraphs(n).Range.Text", status="ok",
          body='r = ActiveDocument.Paragraphs.Count & "|" & Left(ActiveDocument.Paragraphs(3).Range.Text, 7)', want="3|Đoạn ba"),
-    dict(id="writer-paragraph-format", title="Paragraphs(1).Alignment", status="limited",
-         body='ActiveDocument.Paragraphs(1).Alignment = wdAlignParagraphCenter\nr = ActiveDocument.Paragraphs(1).Alignment',
-         want="1", doc=lambda d: d.Text.createEnumeration().nextElement().ParaAdjust == 3),
+    dict(id="writer-paragraph-format", title="Paragraphs(1).Alignment, Range.ParagraphFormat.Alignment", status="ok",
+         body='ActiveDocument.Paragraphs(1).Alignment = wdAlignParagraphCenter\n'
+              'ActiveDocument.Paragraphs(2).Range.ParagraphFormat.Alignment = wdAlignParagraphRight\n'
+              'r = ActiveDocument.Paragraphs(1).Alignment & "|" & ActiveDocument.Paragraphs(2).Format.Alignment',
+         want="1|2", doc=lambda d: d.Text.createEnumeration().nextElement().ParaAdjust == 3),
     dict(id="writer-find-replace", title="Find.Execute Replace:=wdReplaceAll", status="ok",
          body='Dim rg As Object\nSet rg = ActiveDocument.Content\nrg.Find.Execute FindText:="HST", ReplaceWith:="HASON", Replace:=wdReplaceAll\n'
               'r = "ok"', want="ok", doc=lambda d: "HST" not in _text(d) and _text(d).count("HASON") == 2),
-    dict(id="writer-find", title="Find.Execute không thay thế (tìm, chọn chữ tìm thấy)", status="limited",
+    dict(id="writer-find", title="Find.Execute không thay thế (tìm, chọn chữ tìm thấy)", status="ok",
          body='Dim rg As Object\nSet rg = ActiveDocument.Content\nr = rg.Find.Execute(FindText:="thế giới") & "|" & rg.Text', want="True|thế giới"),
     dict(id="writer-tables-add", title="Tables.Add, Rows.Count, Columns.Count", status="ok",
          body='Dim tb As Object\nSet tb = ActiveDocument.Tables.Add(ActiveDocument.Paragraphs(3).Range, 2, 3)\n'
               'r = ActiveDocument.Tables.Count & "|" & tb.Rows.Count & "|" & tb.Columns.Count',
          want="1|2|3", doc=lambda d: d.TextTables.Count == 1),
-    dict(id="writer-table-cell", title="Table.Cell(h, c).Range.Text", status="limited",
+    dict(id="writer-table-cell", title="Table.Cell(h, c).Range.Text", status="ok",
          body='Dim tb As Object\nSet tb = ActiveDocument.Tables.Add(ActiveDocument.Paragraphs(3).Range, 2, 3)\n'
-              'tb.Cell(1, 1).Range.Text = "Ô 1"\nr = "ok"', want="ok"),
-    dict(id="writer-words-sentences", title="Words.Count, Sentences(1)", status="limited",
+              'tb.Cell(1, 1).Range.Text = "Ô 1"\ntb.Cell(2, 3).Range.Text = "Ô 6"\nr = tb.Cell(2, 3).Range.Text', want="Ô 6",
+         doc=lambda d: d.TextTables.getByIndex(0).getCellByName("A1").String == "Ô 1"),
+    dict(id="writer-words-sentences", title="Words.Count, Sentences(1)", status="ok",
          body='r = (ActiveDocument.Words.Count > 10) & "|" & Left(ActiveDocument.Sentences(1).Text, 8)', want="True|Xin chào"),
-    dict(id="writer-bookmarks", title="Bookmarks.Add, Bookmarks(\"tên\").Range", status="limited",
+    dict(id="writer-bookmarks", title="Bookmarks.Add, Bookmarks(\"tên\").Range", status="ok",
          body='ActiveDocument.Bookmarks.Add "DauVanBan", ActiveDocument.Range(0, 3)\n'
               'r = ActiveDocument.Bookmarks.Count & "|" & ActiveDocument.Bookmarks("DauVanBan").Range.Text', want="1|Xin"),
     dict(id="writer-styles", title="Paragraphs(1).Style = \"Heading 1\"", status="ok",
          body='ActiveDocument.Paragraphs(1).Style = ActiveDocument.Styles(wdStyleHeading1)\nr = "ok"', want="ok",
          doc=lambda d: d.Text.createEnumeration().nextElement().ParaStyleName in ("Heading 1", "Heading1")),
-    dict(id="writer-header-footer", title="Sections(1).Headers(wdHeaderFooterPrimary)", status="limited",
+    dict(id="writer-header-footer", title="Sections(1).Headers(wdHeaderFooterPrimary)", status="ok",
          body='ActiveDocument.Sections(1).Headers(wdHeaderFooterPrimary).Range.Text = "Đầu trang"\nr = "ok"', want="ok"),
     dict(id="writer-insert-break", title="Selection.InsertBreak wdPageBreak", status="ok",
          body='Selection.EndKey Unit:=wdStory\nSelection.InsertBreak Type:=wdPageBreak\nr = "ok"', want="ok"),
@@ -193,8 +202,9 @@ WRITER = [
          want="1"),
     dict(id="writer-comments", title="Comments.Add", status="limited",
          body='ActiveDocument.Comments.Add ActiveDocument.Range(0, 3), "Ghi chú"\nr = ActiveDocument.Comments.Count', want="1"),
-    dict(id="writer-lists", title="Range.ListFormat.ApplyBulletDefault", status="limited",
-         body='ActiveDocument.Paragraphs(2).Range.ListFormat.ApplyBulletDefault\nr = "ok"', want="ok"),
+    dict(id="writer-lists", title="Range.ListFormat.ApplyBulletDefault", status="ok",
+         body='ActiveDocument.Paragraphs(2).Range.ListFormat.ApplyBulletDefault\nr = "ok"', want="ok",
+         doc=lambda d: [p.NumberingStyleName for p in _paragraphs(d)][:3] == ["", "List 1", ""]),
     dict(id="writer-document-properties", title="BuiltInDocumentProperties(\"Title\")", status="ok",
          body='ActiveDocument.BuiltInDocumentProperties("Title") = "Báo cáo"\nr = ActiveDocument.BuiltInDocumentProperties("Title")',
          want="Báo cáo"),

@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -239,7 +240,8 @@ def check_config(office):
     for module, key, name, want in (
             ("com.sun.star.sheet.SpreadsheetDocument", F11, "Alt+F11", "org.hst.office.vi:EditVba"),
             ("com.sun.star.text.TextDocument", F11, "Alt+F11", "org.hst.office.vi:EditVba"),
-            ("com.sun.star.sheet.SpreadsheetDocument", F8, "Alt+F8", ".uno:MacroDialog")):
+            ("com.sun.star.sheet.SpreadsheetDocument", F8, "Alt+F8", ".uno:MacroDialog"),
+            ("com.sun.star.text.TextDocument", F8, "Alt+F8", ".uno:MacroDialog")):
         event = KeyEvent()
         event.KeyCode, event.Modifiers = key, MOD2
         try:
@@ -355,11 +357,12 @@ def check_events(office, work):
     doc = office.load(path)
     try:
         sheet = doc.Sheets.getByIndex(0)
-        h1 = sheet.getCellRangeByName("H1").String
+        h1 = unicodedata.normalize("NFC", sheet.getCellRangeByName("H1").String)  # Windows-1258 decomposes some letters
         record("events", "Workbook_Open runs when the .xlsm opens (macros allowed)", h1 != "", f"H1={h1!r}")
         # This Excel project uses code page 1252: Vietnamese letters in its code cannot be stored.
+        # The fixture's project uses code page 1252: HST saves it in Windows-1258 so the letters survive.
         record("events", "Vietnamese text in the code of an Excel project with a Western code page", h1 == "mở",
-               f"H1={h1!r}", "limited")
+               f"H1={h1!r}")
         # Worksheet_Change follows edits made by the user, not UNO calls: see check-vba-editor.py.
     finally:
         doc.close(True)
@@ -376,9 +379,8 @@ def check_events(office, work):
             doc.close(True)
         doc = office.load(path)
         try:
-            text = doc.Text.String
-            record("events", f"Document_Open runs when the .{ext} opens (macros allowed)", text.startswith("MỞ "), f"text={text[:20]!r}",
-                   "limited")
+            text = unicodedata.normalize("NFC", doc.Text.String)
+            record("events", f"Document_Open runs when the .{ext} opens (macros allowed)", text.startswith("MỞ "), f"text={text[:20]!r}")
         finally:
             doc.close(True)
 

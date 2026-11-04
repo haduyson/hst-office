@@ -5,12 +5,14 @@ Entry point name decided by the owner: **"Macro VBA"**.
 
 ## Summary
 
+Two commits of core work: `hst-vba-authoring.patch` (first round) and `hst-vba-word.patch` (owner follow-up).
+
 - **Sheets (Excel VBA): 35/37 idioms pass.** Only `Scripting.Dictionary`/COM objects and newly authored UserForms are missing.
-- **Writer (Word VBA): 13/24 idioms pass.** The baseline was 12/24 with the harness fixed: `Range.InsertAfter`/`InsertBefore` were missing and are now patched. Upstream Word VBA suites: 4/8 pass. The other 4 are upstream "TODO" suites.
-- **Round trip: 9/10.** New and edited macros now survive .xlsm, .xls, .ods, .odt **and .docm**. Before this work, .docm lost every new or edited macro. .doc does not keep new macros.
-- **Events:** `Workbook_Open` and `Worksheet_Change` now run after an HST save of .xlsm. Before, the code names were dropped and the modules came back orphaned. Writer `Document_Open`/`AutoOpen` do not run after an HST save (roadmap).
-- **Entry points:** HST menu "Macro VBA", a Tools-tab ribbon button "Macro VBA", Alt+F11 (Writer/Sheets) and Alt+F8 (Sheets only). The GUI check passes 11/11.
-- **Defaults:** VBA load/executable/save were already on upstream (verified). Macro security changed from High to **Medium**, so the user is always asked and nothing runs silently.
+- **Writer (Word VBA): 20/24 idioms pass** (12/24 at the start, 13/24 after round 1). Missing: `InlineShapes`, `Comments.Add`, `Fields.Add`, new UserForms. Upstream Word VBA suites: 4/8.
+- **Round trip: 9/10.** New and edited macros survive .xlsm, .xls, .ods, .odt and .docm; .doc does not keep new macros. Vietnamese text in code survives also in projects made with a Western code page (switched to Windows-1258).
+- **Events: 4/4.** `Workbook_Open`, `Worksheet_Change` (GUI), and Writer `Document_Open` in .docm and .odt saved by HST.
+- **Entry points:** HST menu "Macro VBA", Tools-tab ribbon button "Macro VBA", Alt+F11 (Writer/Sheets), Alt+F8 macro dialog (Writer/Sheets). GUI check 12/12.
+- **Defaults:** VBA load/executable/save on (upstream, verified); macro security **Medium** (owner approved): always asks, never runs silently.
 
 Measured with `tests/runtime/check-vba.py` (headless, fresh profile, soffice as hstbuild) and `tests/runtime/check-vba-editor.py` (GTK3 under Xvfb, Vietnamese UI). Evidence: `tests/output/vba/evidence.json`, `tests/output/vba/matrix.md`.
 
@@ -20,7 +22,7 @@ Measured with `tests/runtime/check-vba.py` (headless, fresh profile, soffice as 
 |---|---|---|
 | Command | `org.hst.office.vi:EditVba`. In a document without Basic code it switches on VBA mode, project `VBAProject` (Sheets) or `Project` (Writer), and VBA code page Windows-1258. It creates `Module1` with `Option VBASupport 1`, a Vietnamese guide and the example `Sub XinChao`, then opens the Basic IDE on that Sub. It reuses the existing VBA module of Excel/Word files. A document that already has LibreOffice Basic code keeps its mode, and only the new module gets VBA support. | `extensions/hst-vietnamese-tools/python/hst_office/vba.py`, `vba_template.py`, `actions.py` |
 | HST menu | "Macro VBA" (m9, Writer and Sheets only), placed before "Tìm tính năng…". The last two items are unchanged (m10–m12 renumbered). | `Addons.xcu`, `locales/*.json`, `tests/unit/test_hst_menu_order.py` |
-| Shortcuts | `Accelerators.xcu` in the extension. Alt+F11 opens EditVba in Writer and Calc. It replaces, in those two modules only, the global Alt+F11 = Basic Macros dialog. Alt+F8 opens `.uno:MacroDialog` in Calc only. | `Accelerators.xcu`, `META-INF/manifest.xml` |
+| Shortcuts | `Accelerators.xcu` in the extension. Alt+F11 opens EditVba in Writer and Calc. It replaces, in those two modules only, the global Alt+F11 = Basic Macros dialog. Alt+F8 opens `.uno:MacroDialog` in Calc and Writer. | `Accelerators.xcu`, `META-INF/manifest.xml` |
 | Core patch | `hst-vba-authoring.patch`: (1) Tools-tab button "Macro VBA" (tooltip "Soạn và chạy macro VBA (Alt+F11)") in the sw/sc notebookbar; (2) MacroSecurityLevel 2→1; (3) Word `Range.InsertBefore/InsertAfter` (oovbaapi IDL + `sw/source/ui/vba/vbarange`); (4) .docm export writes the current VBA project with `VbaExport`, but keeps the original stream when it contains UserForm designer storages; (5) .xlsx/.xlsm export writes `sheetPr`/`workbookPr` `codeName`. | `patches/libreoffice/hst-vba-authoring.patch` |
 | Help | New F1 page `macro-vba.html`: open the editor, first macro in Sheets and in Writer, run, save formats, security prompt and compatibility tables. It has 2 screenshots (gtk3/Xvfb) and is linked in every sidebar, the index, the page navigation and the shortcuts page. | `help/macro-vba.html`, `help/images/macro-vba-*.png`, sidebars, `phim-tat.html` |
 | Tests | Runtime matrix and round trip (`check-vba.py` + `vba_cases.py`), GUI entry points (`check-vba-editor.py`), unit tests (`test_vba_authoring.py`, menu order). | `tests/runtime/`, `tests/unit/` |
@@ -31,10 +33,10 @@ Builds run as hstbuild: oovbaapi, Library_vbaswobj, Library_msword, Library_scfi
 ## Shortcut decisions (Alt+F11 / Alt+F8 / macOS)
 
 - **Alt+F11** was **not free**. Upstream binds it globally to `.uno:MacroDialog` (Basic Macros organizer). It is now remapped in the Writer and Calc modules only, to open the VBA editor directly, as Excel and Word do. The organizer stays reachable: Calc via Alt+F8, both via the Tools tab or menu. Impress and Draw keep the global binding.
-- **Alt+F8**: free in Calc, so it is mapped to `.uno:MacroDialog`, the Run/Edit/Assign dialog that matches Office's "Macros" dialog. In **Writer it is taken** by `.uno:SetExtSelection` (extended selection). Following the "if free" rule it is not remapped there; this is an open question for the owner.
+- **Alt+F8**: `.uno:MacroDialog` (Run/Edit/Assign, like Office's "Macros" dialog) in Calc and, by owner decision, in Writer, replacing extended selection on that key (still on the status-bar selection-mode control).
 - **macOS**: MOD2 = Option, so the keys are Option+F11 and Option+F8. With media keys on, F11 is volume-down and Option+volume opens Sound settings, so users need **fn+Option+F11**. This is the same as Excel for Mac and is documented on the help page. It was not run on a Mac.
 
-## Compatibility table (final run)
+## Compatibility table (final run, after hst-vba-word.patch)
 
 | Group | Case | Result |
 |---|---|---|
@@ -50,6 +52,7 @@ Builds run as hstbuild: oovbaapi, Library_vbaswobj, Library_msword, Library_scfi
 | config | SpreadsheetDocument Alt+F11 -> org.hst.office.vi:EditVba | PASS |
 | config | TextDocument Alt+F11 -> org.hst.office.vi:EditVba | PASS |
 | config | SpreadsheetDocument Alt+F8 -> .uno:MacroDialog | PASS |
+| config | TextDocument Alt+F8 -> .uno:MacroDialog | PASS |
 | calc | calc-range-value: Range("A1").Value | PASS |
 | calc | calc-cells: Cells(hàng, cột) | PASS |
 | calc | calc-worksheets: Worksheets(1), Worksheets("tên"), .Count | PASS |
@@ -93,32 +96,32 @@ Builds run as hstbuild: oovbaapi, Library_vbaswobj, Library_msword, Library_scfi
 | writer | writer-selection-typetext: Selection.TypeText, TypeParagraph | PASS |
 | writer | writer-selection-font: Selection.Font.Bold, Range.Font.Size | PASS |
 | writer | writer-paragraphs: Paragraphs.Count, Paragraphs(n).Range.Text | PASS |
-| writer | writer-paragraph-format: Paragraphs(1).Alignment | LIMITED |
+| writer | writer-paragraph-format: Paragraphs(1).Alignment, Range.ParagraphFormat.Alignment | PASS |
 | writer | writer-find-replace: Find.Execute Replace:=wdReplaceAll | PASS |
-| writer | writer-find: Find.Execute không thay thế (tìm, chọn chữ tìm thấy) | LIMITED |
+| writer | writer-find: Find.Execute không thay thế (tìm, chọn chữ tìm thấy) | PASS |
 | writer | writer-tables-add: Tables.Add, Rows.Count, Columns.Count | PASS |
-| writer | writer-table-cell: Table.Cell(h, c).Range.Text | LIMITED |
-| writer | writer-words-sentences: Words.Count, Sentences(1) | LIMITED |
-| writer | writer-bookmarks: Bookmarks.Add, Bookmarks("tên").Range | LIMITED |
+| writer | writer-table-cell: Table.Cell(h, c).Range.Text | PASS |
+| writer | writer-words-sentences: Words.Count, Sentences(1) | PASS |
+| writer | writer-bookmarks: Bookmarks.Add, Bookmarks("tên").Range | PASS |
 | writer | writer-styles: Paragraphs(1).Style = "Heading 1" | PASS |
-| writer | writer-header-footer: Sections(1).Headers(wdHeaderFooterPrimary) | LIMITED |
+| writer | writer-header-footer: Sections(1).Headers(wdHeaderFooterPrimary) | PASS |
 | writer | writer-insert-break: Selection.InsertBreak wdPageBreak | PASS |
 | writer | writer-msgbox: MsgBox | PASS |
 | writer | writer-loop-paragraphs: For Each p In ActiveDocument.Paragraphs | PASS |
 | writer | writer-inlineshapes: InlineShapes.Count, Shapes.Count | LIMITED |
 | writer | writer-fields: Fields.Add (trường DATE) | LIMITED |
 | writer | writer-comments: Comments.Add | LIMITED |
-| writer | writer-lists: Range.ListFormat.ApplyBulletDefault | LIMITED |
+| writer | writer-lists: Range.ListFormat.ApplyBulletDefault | PASS |
 | writer | writer-document-properties: BuiltInDocumentProperties("Title") | PASS |
 | writer | writer-userform: UserForm1.Show (biểu mẫu mới tạo trong HST) | LIMITED |
 | writer-upstream | testFind.docm testAll() | PASS |
 | writer-upstream | testDocumentRange.docm testAll() | PASS |
+| writer-upstream | testTables.docm TestAll() | PASS |
+| writer-upstream | testVBA.docm testAll() | PASS |
 | writer-upstream | testFontColor.docm testAll() | LIMITED |
 | writer-upstream | testSentences.docm TestAll() | LIMITED |
 | writer-upstream | testWords.docm TestAll() | LIMITED |
 | writer-upstream | testParagraphFormat.docm TestAll() | LIMITED |
-| writer-upstream | testTables.docm TestAll() | PASS |
-| writer-upstream | testVBA.docm testAll() | PASS |
 | roundtrip | new document -> .xlsm: module kept and runs | PASS |
 | roundtrip | new document -> .ods: module kept and runs | PASS |
 | roundtrip | new document -> .xls: module kept and runs | PASS |
@@ -130,11 +133,11 @@ Builds run as hstbuild: oovbaapi, Library_vbaswobj, Library_msword, Library_scfi
 | roundtrip | testWords.docm: unchanged save keeps the original VBA | PASS |
 | roundtrip | testWords.docm: edited module saved back to .docm | PASS |
 | events | Workbook_Open runs when the .xlsm opens (macros allowed) | PASS |
-| events | Vietnamese text in the code of an Excel project with a Western code page | LIMITED |
-| events | Document_Open runs when the .odt opens (macros allowed) | LIMITED |
-| events | Document_Open runs when the .docm opens (macros allowed) | LIMITED |
+| events | Vietnamese text in the code of an Excel project with a Western code page | PASS |
+| events | Document_Open runs when the .odt opens (macros allowed) | PASS |
+| events | Document_Open runs when the .docm opens (macros allowed) | PASS |
 
-GUI check (`check-vba-editor.py`, 11/11): Macro VBA opens the IDE with the template in Calc and Writer, and a second call reuses Module1. Alt+F11 works in both, Alt+F8 opens the macros dialog in Calc, typing into a cell fires `Worksheet_Change`, and opening an .xlsm with macros shows the security prompt.
+GUI check (`check-vba-editor.py`, 12/12): Macro VBA opens the IDE with the template in Calc and Writer, and a second call reuses Module1. Alt+F11 works in both, Alt+F8 opens the macros dialog in Calc, typing into a cell fires `Worksheet_Change`, and opening an .xlsm with macros shows the security prompt.
 
 ### Before vs after (same harness)
 
@@ -155,20 +158,41 @@ GUI check (`check-vba-editor.py`, 11/11): Macro VBA opens the IDE with the templ
 - Lock files left by crashed offices blocked fixtures, so the runner now loads copies.
 - `Worksheet_Change` reacts to user edits, not to UNO `setValue`, so it is checked in the GUI test.
 
+## Follow-up after the owner's decisions (2026-11-04)
+
+Decisions: Medium macro security approved (recorded in `docs/BACKLOG.md`, superseding "không hạ macro security"); Alt+F8 opens the Macro dialog in Writer too (extended selection stays on the status-bar control); Alt+F11 accepted; Word VBA target ≥20/24; automatic Windows-1258 code page when a project's code page cannot hold Vietnamese text.
+
+New core patch `patches/libreoffice/hst-vba-word.patch` (after `hst-vba-authoring.patch`):
+
+| Gap | Fix |
+|---|---|
+| `Paragraph.Alignment` missing; `ParagraphFormat.Alignment` always "left" | IDL `Alignment`/`Format` on Paragraph; ParaAdjust read/written as short |
+| `Table.Cell` missing | `Table.Cell(Row, Column)` + `Cell.Range` |
+| `Words`, `Sentences` missing | `SwVbaTextUnits` collections (word/sentence cursors) |
+| Find-only `Find.Execute` returned False | search inside the range from its start; no stale replacement; Range redefined to the found text |
+| `Bookmarks.Add` collapsed | bookmark absorbs the range |
+| `Sections().Headers().Range` failed | switches the unused header/footer on |
+| `ListFormat.ApplyBulletDefault` missing | default bullet list style, toggles |
+| `Document_Open`/`AutoOpen` never ran for .docx/.docm/.odt | events for Word 2007+ and VBA-mode documents; processor starts with the VBA globals; handler exceptions no longer abort the office |
+| VBA mode lost in .odt | document settings `VBACompatibilityMode`, `VBAProjectName` |
+| `Range(0, 0)` at the end of the text; collapsed `.Text` returned the next character | collapsed at the position, empty text (upstream testDocumentRange still passes) |
+| Vietnamese in code of a Western-code-page project saved as "?" | VbaExport switches to Windows-1258 when the stored code page would lose characters (round trip verified: "mở" survives) |
+
+Result: **Writer 20/24** (was 13/24), **events 4/4**, Sheets 35/37, round trip 9/10, config 13/13, GUI 12/12, upstream Word suites 4/8 (testWords/testSentences/testParagraphFormat/testFontColor still use members outside this scope and end the headless office on their unhandled errors). Remaining Writer gaps: `InlineShapes`, `Comments.Add`, `Fields.Add`, new UserForms.
+
+Risk notes: Word events now run for .docx/.docm/VBA-mode documents only after the macro security answer allows macros; reading `Sections().Headers().Range` turns an unused header on (Word always has one). The Windows-1258 switch only happens when the old code page would lose characters; Excel/Word on non-Vietnamese Windows may display those letters wrongly in their editor, but the code is no longer destroyed.
+
+Approval screenshots (Linux GTK3, Vietnamese UI): `scratchpad/approve/vba/` (HST menu, Công cụ tab in Writer and Sheets, editor with template, macro result in Sheets, security prompt).
+
 ## Roadmap (larger gaps, not attempted)
 
-1. **Writer object model**: `Table.Cell`/`Rows(i).Cells`, `Words`, `Sentences`, `InlineShapes`, `Comments`, `Fields.Add`, `Paragraph.Alignment`/`Format`, `Sections().Headers` when no header exists, `ListFormat.ApplyBulletDefault`, `Find.Execute` without replace (returns False), `Bookmarks().Range` (returns 1 character). Each is an IDL + `sw/source/ui/vba` addition similar to InsertAfter. Upstream has failing suites for Words, Sentences, ParagraphFormat and FontColor.
-2. **Writer document events after an HST save**: `Document_Open`/`AutoOpen` do not fire in .docm regenerated by VbaExport, while the original Word file works. In .odt the VBA mode is not stored (`VBACompatibilityMode` False after reload). Needs investigation in the sw VBA import and in ODF VBA-mode persistence.
-3. **UserForms**: no Excel-style form designer for new forms (Basic dialogs only). VbaExport writes no designer storages, so an .xlsm with UserForms saved by HST may lose them. This is upstream Calc behaviour and was not measured; Writer now keeps such projects unchanged.
-4. **Code page of existing projects**: Excel/Word projects created with a Western code page (1252) cannot store Vietnamese letters, which become "?" on save. Option: offer to switch `VBATextEncoding` to 1258 for the project, but check how Excel then reads it.
-5. **`Scripting.Dictionary`** (very common in Excel code): a Basic-side implementation via `ooo.vba` or a built-in class.
-6. **Excel opening HST-made .xlsm/.docm**: not verified, because no Microsoft Office on the build host. New HST projects contain no ThisWorkbook/Sheet document modules; Excel normally recreates them.
-7. **.doc** (Word 97) does not export new VBA projects.
+1. Writer: `InlineShapes`, `Comments.Add`, `Fields.Add` (IDL + `sw/source/ui/vba` like the beta.5 additions); remaining members used by upstream testWords/testSentences/testParagraphFormat/testFontColor.
+2. UserForms: no Excel-style designer for new forms; VbaExport writes no designer storages (Calc .xlsm with UserForms may lose them on save — upstream behaviour, not measured; Writer keeps such projects unchanged).
+3. `Scripting.Dictionary` (common in Excel code).
+4. Verify HST-saved .xlsm/.docm in Microsoft Excel/Word (no Office on the build host); new HST projects have no ThisWorkbook/Sheet/ThisDocument document modules.
+5. .doc (Word 97) does not export new VBA projects.
 
 ## Open questions for the owner
 
-1. **Alt+F8 in HST Writer** is extended-selection mode upstream. Should it open the Macro dialog as in Word, with extended selection left on F8 cycling / the status-bar control?
-2. **Alt+F11** now opens the VBA editor instead of the Basic Macros organizer in Writer and Sheets. Please confirm.
-3. **Macro security Medium** (always ask) replaces High. The backlog item LO-EXT-01 said "không hạ macro security", but that was about the extension spike. Please confirm Medium is the intended policy for beta.5.
-4. Do you want HST to **switch existing Western-code-page VBA projects to Windows-1258** so Vietnamese text in code survives (roadmap 4)?
-5. Is someone available to **verify HST-saved .xlsm/.docm in Microsoft Excel/Word** on Windows?
+1. Is someone available to verify HST-saved .xlsm/.docm in Microsoft Excel/Word on Windows (code page 1258 projects, regenerated .docm)?
+2. Should `Scripting.Dictionary` be the next VBA item (most requested Excel idiom still missing)?

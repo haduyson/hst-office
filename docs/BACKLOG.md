@@ -32,7 +32,7 @@ Nguồn thực thi: [kế hoạch standalone](../plans/261029-1234-hst-office-li
 | LO-PERF-01 | P0 | Nghiên cứu bug tracker, xác minh fix ancestry; Linux baseline/HST đo input→menu visible p50/p95/p99/raw samples | LO-BLD-03 | planned · 04 |
 | LO-PERF-02 | P0 | Mac harness CGEvent/AX/frame capture, profiler, cold/warm/context/long-session matrix; tách physical/synthetic gestures | LO-PERF-01 | planned harness; execution blocked: chưa có Mac · 04 |
 | LO-PERF-03 | P0 | Sửa bằng config an toàn/upstream backport/source patch theo trace; đo trước/sau và giữ chức năng menu | LO-PERF-01, LO-PERF-02 | blocked cho claim sửa lỗi Mac · 04 |
-| LO-EXT-01 | P0 | Spike Python-UNO OXT thật: bundled discovery, dialog, insert/Undo/save/reopen, không hạ macro security | LO-BLD-03, LO-CFG-01 | planned · 05 |
+| LO-EXT-01 | P0 | Spike Python-UNO OXT thật: bundled discovery, dialog, insert/Undo/save/reopen; extension HST không cần hạ macro security (mức mặc định nay là Vừa, xem mục macro VBA beta.5) | LO-BLD-03, LO-CFG-01 | planned · 05 |
 | LO-EXT-02 | P0 | Wizard 7 loại NĐ30; port data/layout/validation từ archive, preview/Cancel/Undo, A4/margins/styles, fields do user nhập | LO-EXT-01, LO-LEG-03 | planned · 05 |
 | LO-EXT-03 | P1 | TCVN3/VNI→Unicode có mapping/vector độc lập, chọn encoding, preview, stale-selection guard, Undo giữ format | LO-EXT-01, LO-LEG-03 | planned · 05 |
 | LO-EXT-04 | P0 | VND/dd/mm/yyyy/percent qua UNO; giá trị/công thức/date serial không bị đổi | LO-EXT-01 | planned · 05 |
@@ -117,7 +117,10 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
     - Tìm tính năng trong HST Office bằng phím tắt (gõ để tìm, có tìm không dấu).
     - Hộp Giải pháp HASON TECH: hiện mô tả ngắn cạnh tên từng giải pháp.
     - Tệp nặng nhiều công thức/hình (Toán, Lý, Hóa): mở chậm, công thức/hình không hiện hoặc hiện sai. *Đã làm một phần:* xuất PDF/in công thức MathType/ChemDraw dạng vector (xuất PDF bộ 27 tệp mẫu 217 s → 31 s); chữ TCVN3/VNI (.VnTime, VNI-Times) trong công thức hiện đúng. Còn: mũi tên phản ứng dài bị đứt trên Linux, kiểm tra Windows/macOS. [Báo cáo](../plans/reports/stem-docs-261104-mathtype-previews-pdf-vn-fonts.md).
-    - Viết/sửa macro VBA cho Writer và Sheets.
+    - Viết/sửa macro VBA cho Writer và Sheets (đã làm: "Macro VBA" ở menu HST, thẻ Công cụ, Alt+F11; Alt+F8 mở hộp thoại macro ở cả Writer và Sheets; trang F1 `macro-vba.html`; báo cáo [vba-261104](../plans/reports/vba-261104-1224-vba-authoring-writer-sheets.md)).
+      - **Bảo mật macro mặc định = Vừa** (chủ dự án duyệt 2026-11-04, thay ghi chú cũ "không hạ macro security"): luôn hỏi trước khi chạy macro trong tệp từ nguồn chưa tin cậy, không bao giờ chạy ngầm. Macro tự viết trong tài liệu mới chạy ngay.
+      - Alt+F8 trong HST Writer mở hộp thoại macro như Word, thay phím chọn mở rộng (vẫn có ở ô chế độ chọn trên thanh trạng thái); Alt+F11 mở trình soạn VBA (chủ dự án duyệt 2026-11-04).
+      - Word VBA trong beta.5: mục tiêu ≥20/24 trường hợp của `tests/runtime/vba_cases.py`; dự án VBA có mã chữ Việt mà bảng mã cũ không chứa được tự chuyển sang Windows-1258 khi lưu.
     - Trình xem PDF nhẹ, nhanh, giao diện phổ thông, có ký số PDF (thiết kế chủ dự án duyệt trước).
     - Ô banner quảng cáo giải pháp HASON TECH, luân phiên 10 giây, bên phải ngang notebookbar (thiết kế chủ dự án duyệt trước).
   - *Để sau (hoãn từ beta.4.1, chủ dự án 2026-11-01):*
