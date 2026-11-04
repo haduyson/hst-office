@@ -61,7 +61,7 @@ def validate(page, height):
     for color in ("#322e2e", BRAND["accent"]):
         assert contrast(color, "#ffffff") >= 4.5
     for weight in (400, 600, 700):
-        assert page.evaluate("w => document.fonts.check(w + ' 23px BeVietnam', 'Đăng bài Sắp ra mắt')", weight)
+        assert page.evaluate("w => document.fonts.check(w + ' 23px BeVietnam', 'Đăng bài Dùng ngay nền tảng')", weight)
     assert page.evaluate("Array.from(document.images).every(i => i.complete && i.naturalWidth > 0)")
 
 
@@ -84,13 +84,13 @@ def preview(og):
     draw.rectangle((57, 598, 687, 686), fill="#f5f7f9")
     text(76, 611, "POST.HASONTECH.VN", 13, color="#526071")
     text(76, 637, "HST Post — Đăng bài đa nền tảng bằng AI", 21, "SemiBold")
-    text(76, 672, "Sắp ra mắt · Công cụ của HASON TECH", 15)
+    text(76, 672, "Công cụ đăng bài bằng AI của HASON TECH", 15)
     draw.rounded_rectangle((734, 193, 1400, 733), 24, fill=BRAND["tint"])
     draw.rounded_rectangle((752, 215, 1384, 709), 16, fill="white", outline="#c4d0dc", width=1)
     text(772, 231, "https://post.hasontech.vn", 20, color=BRAND["ink"])
     sheet.paste(thumb, (752, 279))
     text(772, 625, "HST Post — Đăng bài đa nền tảng bằng AI", 21, "SemiBold")
-    text(772, 662, "Sắp ra mắt · post.hasontech.vn", 17)
+    text(772, 662, "Dùng ngay tại post.hasontech.vn", 17)
     text(56, 761, "Ảnh ngang 1200 × 630 · Các biểu tượng trong ảnh là hình vẽ khái quát, không đại diện thương hiệu.", 17)
     return encode(sheet)
 

@@ -1,6 +1,6 @@
 # HST Post social previews
 
-Standalone web assets for `https://post.hasontech.vn/`. Deploy this directory at
+Launch-ready web assets for `https://post.hasontech.vn/`. Deploy this directory at
 `/assets/hst-post/` on that host. These files are not bundled into the Office extension.
 
 | File | Dimensions | Purpose |
@@ -28,16 +28,16 @@ does not deploy or change the live site.
 ```html
 <meta charset="utf-8">
 <title>HST Post — Đăng bài đa nền tảng bằng AI</title>
-<meta name="description" content="Công cụ đăng bài bằng AI trên hàng loạt nền tảng mạng xã hội của HASON TECH. Sắp ra mắt.">
+<meta name="description" content="Công cụ đăng bài bằng AI trên hàng loạt nền tảng mạng xã hội của HASON TECH. Dùng ngay tại post.hasontech.vn.">
 <link rel="canonical" href="https://post.hasontech.vn/">
 
 <meta property="og:title" content="HST Post — Đăng bài đa nền tảng bằng AI">
-<meta property="og:description" content="Công cụ đăng bài bằng AI trên hàng loạt nền tảng mạng xã hội của HASON TECH. Sắp ra mắt.">
+<meta property="og:description" content="Công cụ đăng bài bằng AI trên hàng loạt nền tảng mạng xã hội của HASON TECH. Dùng ngay tại post.hasontech.vn.">
 <meta property="og:image" content="https://post.hasontech.vn/assets/hst-post/og-hst-post.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="HST POST — Đăng bài đa nền tảng bằng AI. Một bài viết kết nối tới nhiều nền tảng. Sắp ra mắt. HASON TECH — post.hasontech.vn.">
+<meta property="og:image:alt" content="HST POST — Đăng bài đa nền tảng bằng AI. Một bài viết kết nối tới nhiều nền tảng. HASON TECH. Dùng ngay tại post.hasontech.vn.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://post.hasontech.vn/">
 <meta property="og:site_name" content="HST Post">
@@ -45,9 +45,9 @@ does not deploy or change the live site.
 
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="HST Post — Đăng bài đa nền tảng bằng AI">
-<meta name="twitter:description" content="Công cụ đăng bài bằng AI trên hàng loạt nền tảng mạng xã hội của HASON TECH. Sắp ra mắt.">
+<meta name="twitter:description" content="Công cụ đăng bài bằng AI trên hàng loạt nền tảng mạng xã hội của HASON TECH. Dùng ngay tại post.hasontech.vn.">
 <meta name="twitter:image" content="https://post.hasontech.vn/assets/hst-post/og-hst-post.jpg">
-<meta name="twitter:image:alt" content="HST POST — Đăng bài đa nền tảng bằng AI. Một bài viết kết nối tới nhiều nền tảng. Sắp ra mắt. HASON TECH — post.hasontech.vn.">
+<meta name="twitter:image:alt" content="HST POST — Đăng bài đa nền tảng bằng AI. Một bài viết kết nối tới nhiều nền tảng. HASON TECH. Dùng ngay tại post.hasontech.vn.">
 
 <link rel="icon" type="image/svg+xml" sizes="any" href="https://post.hasontech.vn/assets/hst-post/favicon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="https://post.hasontech.vn/assets/hst-post/favicon-32.png">
@@ -101,7 +101,8 @@ All landscape text and the entire logo box stay inside `x=60…1140`, `y=32…59
 gallery, feed and community drawings, with no other companies' marks or implied integrations.
 
 Text contrast against its solid background is 12.32:1 for slate body copy, **7.10:1**
-for violet `#6d28d9` headline/footer text, **6.36:1** for the badge on `#f5f0ff`, and
+for violet `#6d28d9` headline/footer text, and
 **13.41:1** for the dark `#322e2e` company name and logo lettering. No text sits on a
 gradient. The renderer reads the same HST Post palette as the banner from `brands.json`.
-The copy describes the product and its coming-soon status without invented usage claims.
+The launch copy describes the product and invites readers to use `post.hasontech.vn`,
+without invented usage claims.
