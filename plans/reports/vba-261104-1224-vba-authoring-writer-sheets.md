@@ -192,12 +192,21 @@ Approval screenshots (Linux GTK3, Vietnamese UI): `scratchpad/approve/vba/` (HST
 
 New IDL interfaces `XInlineShape(s)`, `XComment(s)` and `Document.InlineShapes`/`Comments`: InlineShapes Count/Item/For Each/AddPicture (natural size, as character), Width/Height in points, LockAspectRatio keeps proportions, Type, Range, Delete, Select; Comments Add (spanning the range, user name as author), Range (comment text), Scope, Author, Initial, Delete. Fields.Add now creates PAGE, NUMPAGES, DATE, TIME (WdFieldType or field code; like Word it replaces the target range); Fields.Update also updates tables of contents. Writer now **26/27** (only new UserForms missing).
 
+## UserForms (`hst-vba-userform.patch` + extension save hint)
+
+Measured first (MiscControlTests.xls with UserForm1): **.ods keeps** the form (dialog + form module); **.xlsm and .xls lose it** — the form module comes back as a document module and the dialog is gone, because `VbaExport` writes no MS-OFORMS designer storages (upstream limitation). Fixes:
+- In a VBA-mode document, a new Basic dialog (Insert ▸ Hộp thoại BASIC) is named `UserForm1…` and gets its FORM module, so `UserForm1.Show`, `Load/Unload`, `.Caption` and control events work in Sheets and Writer (GUI-verified).
+- Saving a workbook with UserForms as .xlsm/.xls shows a Vietnamese hint (job `VbaSaveCheckJob`, OnSaveDone/OnSaveAsDone) to keep an .ods copy. Writing the form designs into Excel files stays on the roadmap.
+
+## Word 97 .doc (`hst-vba-doc.patch`)
+
+.doc saving copied only the original VBA storage. Now the current VBA-mode code is written with `VbaExport` into the "Macros" storage when the project is new or edited (`IsBasicModified`); unchanged projects and originals with UserForms are copied (the existing "VBA code will not be saved" warning still covers the latter). New document → .doc → reload: module kept and runs (**round trip 10/10**).
+
 ## Roadmap (larger gaps, not attempted)
 
 1. Writer: remaining members used by upstream testWords/testSentences/testParagraphFormat/testFontColor.
-2. UserForms: no Excel-style designer for new forms; VbaExport writes no designer storages (Calc .xlsm with UserForms may lose them on save — upstream behaviour, not measured; Writer keeps such projects unchanged).
+2. UserForms in Excel/Word files: write MS-OFORMS designer storages in `VbaExport` so .xlsm/.xls/.docm keep forms (today: kept in .ods/.odt, hint when saving Excel files, Word keeps the original project).
 4. Verify HST-saved .xlsm/.docm in Microsoft Excel/Word (no Office on the build host); new HST projects have no ThisWorkbook/Sheet/ThisDocument document modules.
-5. .doc (Word 97) does not export new VBA projects.
 
 ## Open questions for the owner
 

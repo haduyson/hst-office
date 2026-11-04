@@ -63,13 +63,21 @@ End Sub</code></pre>
   <li>Từ bảng tính hoặc văn bản: <span class="keys"><kbd>Alt</kbd>+<kbd>F8</kbd></span> (trên Mac: <span class="keys"><kbd>Option</kbd>+<kbd>F8</kbd></span>) mở hộp thoại macro, giống hộp thoại Macros của Excel và Word: ở cột <span class="menu">Vĩ lệnh từ</span>, mở tên tài liệu, chọn mô-đun, chọn macro rồi bấm <span class="menu">Chạy</span>. Nút <span class="menu">Chỉnh sửa</span> mở mã của macro, nút <span class="menu">Gán…</span> gán macro cho phím tắt hoặc nút.</li>
   <li>Trong HST Writer, chế độ chọn mở rộng (trước đây ở <span class="keys"><kbd>Alt</kbd>+<kbd>F8</kbd></span>) vẫn bật được ở ô chế độ chọn trên thanh trạng thái.</li>
 </ul>
+<h2 id="userform">Tạo biểu mẫu (UserForm)</h2>
+<ol>
+  <li>Mở trình soạn bằng <span class="menu">Macro VBA</span>.</li>
+  <li>Chọn <span class="menu">Chèn → Hộp thoại BASIC</span>: HST Office tạo <code>UserForm1</code> cùng mô-đun mã của nó, như trong Excel/Word.</li>
+  <li>Kéo nút, ô nhập từ hộp công cụ vào biểu mẫu. Viết mã sự kiện trong mô-đun <code>UserForm1</code>, ví dụ <code>Private Sub CommandButton1_Click()</code>.</li>
+  <li>Hiện biểu mẫu từ một macro: <code>UserForm1.Show</code>.</li>
+</ol>
+<div class="note warn"><strong>Lưu ý:</strong> UserForm được giữ khi lưu dạng <code>.ods</code>/<code>.odt</code>. Khi lưu <code>.xlsm</code>/<code>.xls</code>, biểu mẫu chưa được ghi vào tệp Excel; HST Office sẽ nhắc bạn lưu thêm một bản <code>.ods</code>.</div>
 <h2 id="luu-tep">Lưu tệp để giữ macro</h2>
 <div class="table-wrap"><table><caption>Định dạng tệp và macro</caption><thead><tr><th scope="col">Lưu dạng</th><th scope="col">Macro</th></tr></thead><tbody>
 <tr><td><code>.xlsm</code> (Excel có macro)</td><td>Giữ macro, kể cả macro viết mới hoặc vừa sửa trong HST Sheets. Sự kiện <code>Workbook_Open</code>, <code>Worksheet_Change</code> vẫn chạy sau khi lưu.</td></tr>
 <tr><td><code>.docm</code> (Word có macro)</td><td>Giữ macro viết mới hoặc vừa sửa trong HST Writer. Tệp Word có UserForm: giữ nguyên dự án gốc, phần sửa không được lưu (hãy lưu thêm một bản <code>.odt</code>).</td></tr>
 <tr><td><code>.ods</code>, <code>.odt</code></td><td>Giữ macro.</td></tr>
 <tr><td><code>.xls</code></td><td>Giữ macro.</td></tr>
-<tr><td><code>.doc</code></td><td>Không giữ macro viết mới.</td></tr>
+<tr><td><code>.doc</code></td><td>Giữ macro, kể cả macro viết mới hoặc vừa sửa (tệp Word có UserForm: giữ dự án gốc).</td></tr>
 <tr><td><code>.xlsx</code>, <code>.docx</code></td><td>Không có macro (giống Excel và Word).</td></tr>
 </tbody></table></div>
 <div class="note"><strong>Chữ tiếng Việt trong mã:</strong> HST Office lưu mã VBA bằng bảng mã tiếng Việt (Windows-1258) khi cần, nên chú thích và chuỗi có dấu được giữ nguyên, kể cả trong tệp tạo bằng Excel/Word bản tiếng Anh. Excel/Word trên máy không dùng tiếng Việt có thể hiển thị các chữ này không đúng trong trình soạn của chúng.</div>
@@ -99,7 +107,8 @@ End Sub</code></pre>
 <tr><td>Sự kiện <code>Workbook_Open</code>, <code>Worksheet_Change</code> (cả sau khi lưu <code>.xlsm</code>)</td><td>Chạy được</td></tr>
 <tr><td><code>Scripting.Dictionary</code> (<code>CreateObject</code>, <code>New Dictionary</code>): <code>Add</code>, <code>d(khóa) = giá trị</code>, <code>Exists</code>, <code>Remove</code>, <code>Keys</code>, <code>Items</code>, <code>For Each</code>, <code>CompareMode = vbTextCompare</code> (khóa tiếng Việt không phân biệt hoa thường), lỗi 457 khi thêm trùng khóa</td><td>Chạy được</td></tr>
 <tr><td>Đối tượng COM khác của Windows (<code>Excel.Application</code>, <code>ADODB</code>…)</td><td>Hạn chế</td></tr>
-<tr><td>UserForm (<code>UserForm1.Show</code>) soạn mới</td><td>Hạn chế</td></tr>
+<tr><td>UserForm soạn mới trong trình soạn (<code>UserForm1.Show</code>, <code>Unload</code>, sự kiện nút bấm)</td><td>Chạy được</td></tr>
+<tr><td>Lưu UserForm vào <code>.xlsm</code>/<code>.xls</code> (giữ được trong <code>.ods</code>)</td><td>Hạn chế</td></tr>
 </tbody></table></div>
 <h3>HST Writer (mã Word): 26/27 trường hợp chạy được</h3>
 <div class="table-wrap"><table><caption>Mã VBA của Word trong HST Writer</caption><thead><tr><th scope="col">Mã VBA</th><th scope="col">Kết quả</th></tr></thead><tbody>
@@ -116,9 +125,9 @@ End Sub</code></pre>
 <tr><td>Sự kiện <code>Document_Open</code> khi mở tệp <code>.docm</code> hoặc <code>.odt</code> đã lưu bằng HST</td><td>Chạy được</td></tr>
 <tr><td><code>InlineShapes.AddPicture</code>, <code>Width</code>/<code>Height</code>, <code>LockAspectRatio</code>; <code>Comments.Add</code>, <code>Comments(n).Range</code>, <code>Scope</code>, <code>Author</code></td><td>Chạy được</td></tr>
 <tr><td><code>Fields.Add</code> (trang <code>PAGE</code>, tổng số trang <code>NUMPAGES</code>, ngày <code>DATE</code>, giờ <code>TIME</code>), <code>Fields.Update</code> (cập nhật cả mục lục)</td><td>Chạy được</td></tr>
-<tr><td>UserForm soạn mới</td><td>Hạn chế</td></tr>
+<tr><td>UserForm soạn mới trong trình soạn (<code>UserForm1.Show</code>, <code>Unload</code>, sự kiện nút bấm)</td><td>Chạy được</td></tr>
 </tbody></table></div>
-<div class="note warn"><strong>Chưa hỗ trợ:</strong> các đối tượng COM của Windows ngoài <code>Scripting.Dictionary</code>; soạn UserForm mới; Với tệp quan trọng, hãy giữ một bản gốc trước khi lưu đè.</div>
+<div class="note warn"><strong>Chưa hỗ trợ:</strong> các đối tượng COM của Windows ngoài <code>Scripting.Dictionary</code>; Với tệp quan trọng, hãy giữ một bản gốc trước khi lưu đè.</div>
 </article>
 <nav class="page-nav" aria-label="Chuyển trang hướng dẫn">
   <a href="chuyen-ma.html" rel="prev"><strong>← Trang trước</strong><span>Chuyển TCVN3/VNI sang Unicode</span></a>

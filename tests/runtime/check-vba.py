@@ -271,7 +271,7 @@ def check_roundtrip(office, out):
             ("scalc", "xls", "MS Excel 97", marker_calc, "ok"),
             ("swriter", "docm", "MS Word 2007 XML VBA", marker_writer, "ok"),
             ("swriter", "odt", "writer8", marker_writer, "ok"),
-            ("swriter", "doc", "MS Word 97", marker_writer, "limited")):
+            ("swriter", "doc", "MS Word 97", marker_writer, "ok")):
         path = os.path.join(work, f"new-{kind}.{ext}")
         doc = office.new(kind)
         try:

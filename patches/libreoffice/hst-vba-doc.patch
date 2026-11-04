@@ -1,0 +1,133 @@
+HST Office: Word 97 (.doc) keeps macros written or edited in HST Writer (owner request, beta.5).
+
+Saving as .doc copied only the VBA project read from the original file, so new macros were lost and
+edits were dropped (with a generic warning). Like .docm and .xlsm, the document's current VBA-mode
+Basic code is now written with oox::ole::VbaExport into the "Macros" storage of the .doc when the
+project is new or was edited (BasicManager::IsBasicModified). An unchanged project, or an original
+project with UserForms (which VbaExport cannot write), is still copied unchanged; for an edited one
+with UserForms the existing "VBA code will not be saved" warning still appears.
+- sw/source/uibase/app/docsh.cxx: also save the VBA storage for a VBA-mode document that did not
+  come from a .doc (macros written in HST).
+- sw/source/filter/ww8/wrtww8.cxx: SaveOrDelMSVBAStorage_ww8 writes the current project.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba.py (new document -> .doc: module kept and runs).
+---
+--- a/sw/source/filter/ww8/wrtww8.cxx
++++ b/sw/source/filter/ww8/wrtww8.cxx
+@@ -107,6 +107,13 @@
+ #include <unotools/tempfile.hxx>
+ #include <filter/msfilter/mscodec.hxx>
+ #include <filter/msfilter/svxmsbas.hxx>
++#include <oox/ole/vbaexport.hxx>
++#include <config_features.h>
++#include <sot/storinfo.hxx>
++#include <basic/basmgr.hxx>
++#include <com/sun/star/script/XLibraryContainer.hpp>
++#include <com/sun/star/script/vba/XVBACompatibility.hpp>
++#include <com/sun/star/embed/XStorage.hpp>
+ #include <rtl/random.h>
+ #include <vcl/svapp.hxx>
+ #include <sfx2/docfilt.hxx>
+@@ -4071,8 +4078,73 @@
+ {
+ }
+ 
++namespace
++{
++/// HST: write the document's current VBA-mode Basic code as the .doc "Macros" storage (like .docm
++/// and .xlsm), when it is new or was edited and the original project has no UserForms (which
++/// VbaExport cannot write; then the original is kept and the usual "modified Basic" warning shows).
++bool lcl_writeCurrentVBA( SfxObjectShell& rDoc, SotStorage& rStor, const OUString& rStorageName )
++{
++#if HAVE_FEATURE_SCRIPTING
++    try
++    {
++        uno::Reference< script::vba::XVBACompatibility > xVBA( rDoc.GetBasicContainer(), uno::UNO_QUERY );
++        uno::Reference< script::XLibraryContainer > xLibraries( xVBA, uno::UNO_QUERY );
++        if ( !xVBA.is() || !xVBA->getVBACompatibilityMode() )
++            return false;
++        const OUString aProject = xVBA->getProjectName();
++        if ( aProject.isEmpty() || !xLibraries->hasByName( aProject ) )
++            return false;
++        if ( !xLibraries->isLibraryLoaded( aProject ) )
++            xLibraries->loadLibrary( aProject );
++        uno::Reference< container::XNameAccess > xLibrary( xLibraries->getByName( aProject ), uno::UNO_QUERY );
++        if ( !xLibrary.is() || !xLibrary->hasElements() )
++            return false;
++
++        rtl::Reference< SotStorage > xOriginal;
++        try
++        {
++            uno::Reference< embed::XStorage > xDocStorage( rDoc.GetStorage() );
++            const OUString aOriginal( SvxImportMSVBasic::GetMSBasicStorageName() );
++            if ( xDocStorage.is() && xDocStorage->hasByName( aOriginal ) )
++                xOriginal = SotStorage::OpenOLEStorage( xDocStorage, aOriginal, StreamMode::STD_READ );
++        }
++        catch ( const uno::Exception& )
++        {
++            // no original VBA project (a new document)
++        }
++        if ( xOriginal.is() && !xOriginal->GetError() )
++        {
++            BasicManager* pBasicMan = rDoc.GetBasicManager();
++            if ( !pBasicMan || !pBasicMan->IsBasicModified() )
++                return false; // unchanged: copy the original project
++            SvStorageInfoList aElements;
++            xOriginal->FillInfoList( &aElements );
++            for ( const SvStorageInfo& rElement : aElements )
++                if ( rElement.IsStorage() && rElement.GetName() != "VBA" )
++                    return false; // UserForms
++        }
++
++        rtl::Reference< SotStorage > xMacros = rStor.OpenSotStorage( rStorageName, StreamMode::READWRITE | StreamMode::TRUNC );
++        VbaExport aExport( rDoc.GetModel() );
++        aExport.exportVBA( xMacros.get() );
++        xMacros->Commit();
++        return !xMacros->GetError();
++    }
++    catch ( const uno::Exception& )
++    {
++    }
++#else
++    (void)rDoc; (void)rStor; (void)rStorageName;
++#endif
++    return false;
++}
++}
++
+ extern "C" SAL_DLLPUBLIC_EXPORT sal_uInt32 SaveOrDelMSVBAStorage_ww8( SfxObjectShell& rDoc, SotStorage& rStor, sal_Bool bSaveInto, const OUString& rStorageName )
+ {
++    if ( bSaveInto && lcl_writeCurrentVBA( rDoc, rStor, rStorageName ) )
++        return sal_uInt32( ERRCODE_NONE );
+     SvxImportMSVBasic aTmp( rDoc, rStor );
+     return sal_uInt32(aTmp.SaveOrDelMSVBAStorage( bSaveInto, rStorageName ));
+ }
+--- a/sw/source/uibase/app/docsh.cxx
++++ b/sw/source/uibase/app/docsh.cxx
+@@ -23,6 +23,7 @@
+ #include <officecfg/Office/Common.hxx>
+ #include <officecfg/Office/Impress.hxx>
+ #include <officecfg/Office/Writer.hxx>
++#include <com/sun/star/script/vba/XVBACompatibility.hpp>
+ #include <vcl/weld/MessageDialog.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/syswin.hxx>
+@@ -606,7 +607,16 @@
+ 
+     ErrCode nVBWarning = ERRCODE_NONE;
+ 
+-    if (m_xDoc->ContainsMSVBasic())
++    // HST: a document with VBA-mode macros written in HST also gets them saved into .doc
++    bool bVbaModeMacros = false;
++#if HAVE_FEATURE_SCRIPTING
++    if (!m_xDoc->ContainsMSVBasic() && pFlt->GetUserData() == "CWW8" && HasBasic())
++    {
++        uno::Reference<script::vba::XVBACompatibility> xVBA(GetBasicContainer(), uno::UNO_QUERY);
++        bVbaModeMacros = xVBA.is() && xVBA->getVBACompatibilityMode();
++    }
++#endif
++    if (m_xDoc->ContainsMSVBasic() || bVbaModeMacros)
+     {
+         bool bSave = pFlt->GetUserData() == "CWW8"
+                      && officecfg::Office::Writer::Filter::Import::VBA::Save::get();
