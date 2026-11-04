@@ -315,6 +315,42 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
  #. GyY9M
  #: cui/inc/numcategories.hrc:18
  msgctxt "numberingformatpage|liststore1"
+@@ -7005,7 +7017,7 @@
+ #: cui/uiconfig/ui/borderpage.ui:117
+ msgctxt "borderpage|userdefft"
+ msgid "_User-defined:"
+-msgstr "Tự _xác định:"
++msgstr "Tự _xác định"
+ 
+ #. WTqFr
+ #: cui/uiconfig/ui/borderpage.ui:158
+@@ -9253,7 +9265,7 @@
+ #: cui/uiconfig/ui/dimensionlinestabpage.ui:349
+ msgctxt "dimensionlinestabpage|FT_POSITION"
+ msgid "_Text position"
+-msgstr "_Vị trí văn bản"
++msgstr "_Vị trí văn bản:"
+ 
+ #. EBYZf
+ #: cui/uiconfig/ui/dimensionlinestabpage.ui:388
+@@ -16001,7 +16013,7 @@
+ #: cui/uiconfig/ui/optgeneralpage.ui:192
+ msgctxt "optgeneralpage|filedlg"
+ msgid "U_se %PRODUCTNAME color dialog"
+-msgstr "Dùng _hộp thoại màu của %PRODUCTNAME"
++msgstr "Dùng _hộp thoại màu của HST Office"
+ 
+ #. PJG7c
+ #: cui/uiconfig/ui/optgeneralpage.ui:210
+@@ -16595,7 +16607,7 @@
+ #: cui/uiconfig/ui/optlanguagespage.ui:62
+ msgctxt "optlanguagespage|label4"
+ msgid "_User interface:"
+-msgstr "Giao _diện người dùng:"
++msgstr "Giao _diện người dùng"
+ 
+ #. rj5UD
+ #: cui/uiconfig/ui/optlanguagespage.ui:80
 --- a/translations/source/vi/sysui/desktop/share.po
 +++ b/translations/source/vi/sysui/desktop/share.po
 @@ -16,6 +16,24 @@
@@ -866,7 +902,7 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +org.hasontech.comp.PdfViewerFrameLoader
 --- /dev/null
 +++ b/xmlsecurity/source/hstpdf/pdfpageview.cxx
-@@ -0,0 +1,727 @@
+@@ -0,0 +1,728 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -967,6 +1003,7 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +    m_nScrollX = m_nScrollY = m_nScrollTarget = 0;
 +    m_nCurrentPage = m_nSelectedPage = 0;
 +    m_oPlacement.reset();
++    m_bPainted = false; // the next paint is the first page of this document
 +    clearSelection();
 +    layout();
 +    Invalidate();
@@ -2600,7 +2637,7 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
-@@ -0,0 +1,297 @@
+@@ -0,0 +1,290 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -2621,7 +2658,6 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +#include <com/sun/star/security/CertificateValidity.hpp>
 +#include <com/sun/star/security/DocumentDigitalSignatures.hpp>
 +#include <com/sun/star/xml/crypto/SecurityOperationStatus.hpp>
-+#include <comphelper/base64.hxx>
 +#include <comphelper/configuration.hxx>
 +#include <comphelper/diagnose_ex.hxx>
 +#include <comphelper/processfactory.hxx>
@@ -2757,18 +2793,16 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +{
 +    try
 +    {
-+        const OUString aIssuer = officecfg::Office::HSTPdfViewer::Signing::LastCertificateIssuer::get();
-+        const OUString aSerial = officecfg::Office::HSTPdfViewer::Signing::LastCertificateSerial::get();
-+        if (aIssuer.isEmpty() || aSerial.isEmpty())
++        const OUString aThumbprint
++            = officecfg::Office::HSTPdfViewer::Signing::LastCertificateThumbprint::get();
++        if (aThumbprint.isEmpty())
 +            return {};
 +        DocumentSignatureManager aManager(comphelper::getProcessComponentContext(),
 +                                          DocumentSignatureMode::Content);
 +        if (!aManager.init())
 +            return {};
-+        uno::Sequence<sal_Int8> aSerialNumber;
-+        comphelper::Base64::decode(aSerialNumber, aSerial);
 +        uno::Reference<security::XCertificate> xCertificate
-+            = aManager.getSecurityEnvironment()->getCertificate(aIssuer, aSerialNumber);
++            = comphelper::xmlsec::FindCertInContext(aManager.getSecurityContext(), aThumbprint);
 +        if (xCertificate.is() && !describeCertificate(xCertificate).bExpired)
 +            return xCertificate;
 +    }
@@ -2785,14 +2819,10 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +        return;
 +    try
 +    {
-+        OUStringBuffer aSerial;
-+        comphelper::Base64::encode(aSerial, xCertificate->getSerialNumber());
 +        std::shared_ptr<comphelper::ConfigurationChanges> xChanges
 +            = comphelper::ConfigurationChanges::create();
-+        officecfg::Office::HSTPdfViewer::Signing::LastCertificateIssuer::set(
-+            xCertificate->getIssuerName(), xChanges);
-+        officecfg::Office::HSTPdfViewer::Signing::LastCertificateSerial::set(
-+            aSerial.makeStringAndClear(), xChanges);
++        officecfg::Office::HSTPdfViewer::Signing::LastCertificateThumbprint::set(
++            comphelper::xmlsec::GetHexString(xCertificate->getSHA1Thumbprint(), ""), xChanges);
 +        xChanges->commit();
 +    }
 +    catch (const uno::Exception&)
@@ -2975,7 +3005,7 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
-@@ -0,0 +1,1030 @@
+@@ -0,0 +1,1032 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -3053,12 +3083,13 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +                        tools::Long nMinWidth = 0)
 +{
 +    ScopedVclPtr<VirtualDevice> pDevice = rButton.create_virtual_device();
-+    vcl::Font aFont = rButton.get_font();
++    vcl::Font aFont = Application::GetSettings().GetStyleSettings().GetPushButtonFont();
 +    aFont.SetWeight(WEIGHT_BOLD);
++    aFont.SetFontHeight(aFont.GetFontHeight() * 5 / 4);
 +    pDevice->SetFont(aFont);
 +    const OUString aText = rText.replaceAll("~", "").replaceAll("_", "");
 +    const Size aTextSize(pDevice->GetTextWidth(aText), pDevice->GetTextHeight());
-+    const Size aSize(std::max(aTextSize.Width() + 36, nMinWidth), aTextSize.Height() + 16);
++    const Size aSize(std::max(aTextSize.Width() + 40, nMinWidth), aTextSize.Height() + 18);
 +    pDevice->SetOutputSizePixel(aSize);
 +    pDevice->SetBackground(Wallpaper(Application::GetSettings().GetStyleSettings().GetDialogColor()));
 +    pDevice->Erase();
@@ -3084,8 +3115,8 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +OUString formatSeconds(sal_Int64 nMillis)
 +{
 +    const LocaleDataWrapper& rLocale = Application::GetSettings().GetUILocaleDataWrapper();
-+    return rtl::math::doubleToUString(nMillis / 1000.0, rtl_math_StringFormat_F, 1,
-+                                      rLocale.getNumDecimalSep()[0], true);
++    return rtl::math::doubleToUString(std::max<sal_Int64>(nMillis, 100) / 1000.0,
++                                      rtl_math_StringFormat_F, 1, rLocale.getNumDecimalSep()[0], false);
 +}
 +}
 +
@@ -3177,6 +3208,7 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +    , m_xStatusInfo(m_xBuilder->weld_label(u"statusinfo"_ustr))
 +{
 +    SetStyle(GetStyle() | WB_DIALOGCONTROL);
++    m_xZoom->set_entry_width_chars(6);
 +    for (weld::Button* pButton : { m_xOpen.get(), m_xPrint.get(), m_xZoomOut.get(), m_xZoomIn.get(),
 +                                   m_xFitPage.get(), m_xFindPrev.get(), m_xFindNext.get(),
 +                                   m_xEdit.get(), m_xChooseCert.get(), m_xSignSave.get() })
@@ -3535,7 +3567,7 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +        m_xChooseCert->set_label(XsResId(STR_HSTPDF_CHOOSE_CERT));
 +    }
 +    paintPrimaryButton(*m_xSignSave, XsResId(STR_HSTPDF_SIGN_SAVE), false, m_xCertificate.is(),
-+                       264);
++                       300);
 +    m_xSignSave->set_sensitive(m_xCertificate.is() && m_xDocument);
 +
 +    OUStringBuffer aExisting;
@@ -3545,7 +3577,7 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +        if (!m_bSignaturesChecked)
 +            aExisting.append("\n" + XsResId(STR_HSTPDF_SIG_CHECKING));
 +        for (const OUString& rLine : m_aSignatures.aLines)
-+            aExisting.append("\n• " + rLine);
++            aExisting.append(u"\n• "_ustr + rLine);
 +    }
 +    m_xExisting->set_label(aExisting.makeStringAndClear());
 +    m_xExisting->set_visible(m_xDocument && m_xDocument->getSignatureCount() > 0);
@@ -4159,7 +4191,7 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/xmlsecurity/uiconfig/ui/hstpdfviewer.ui
-@@ -0,0 +1,723 @@
+@@ -0,0 +1,722 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!-- HST PDF: the lightweight PDF viewer window (toolbar, thumbnails, pages, signing panel, status bar). -->
 +<interface domain="xsc">
@@ -4399,7 +4431,6 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +            <property name="width-chars">24</property>
 +            <property name="placeholder-text" translatable="yes" context="hstpdfviewer|search">Search in document</property>
 +            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|search|tooltip_text">Search in document (Ctrl+F). Enter: next match</property>
-+            <property name="primary-icon-name">cmd/sc_recsearch.png</property>
 +            <property name="truncate-multiline">True</property>
 +          </object>
 +          <packing>
@@ -4885,7 +4916,7 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +</interface>
 --- /dev/null
 +++ b/officecfg/registry/schema/org/openoffice/Office/HSTPdfViewer.xcs
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,41 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!--
 + * This file is part of the LibreOffice project.
@@ -4918,15 +4949,9 @@ hidden loads, hybrid PDFs and Tools > Options > HST Office > General > PDF Files
 +      <info>
 +        <desc>The certificate used for the last PDF signature, offered again next time.</desc>
 +      </info>
-+      <prop oor:name="LastCertificateIssuer" oor:type="xs:string" oor:nillable="false">
++      <prop oor:name="LastCertificateThumbprint" oor:type="xs:string" oor:nillable="false">
 +        <info>
-+          <desc>Issuer name of the last signing certificate.</desc>
-+        </info>
-+        <value/>
-+      </prop>
-+      <prop oor:name="LastCertificateSerial" oor:type="xs:string" oor:nillable="false">
-+        <info>
-+          <desc>Serial number (base64) of the last signing certificate.</desc>
++          <desc>SHA-1 thumbprint (hex) of the last signing certificate.</desc>
 +        </info>
 +        <value/>
 +      </prop>
