@@ -8,4 +8,8 @@
 | python-docx, openpyxl, python-pptx, lxml, Pillow, PyYAML (build-time) | `requirements-templates.lock` | MIT / MIT / MIT / BSD-3-Clause / HPND / MIT | Sinh asset/kiểm thử, không đóng gói | PyPI |
 | Liberation Sans Bold Italic (build-time) | fonts-liberation 2.1.5 | SIL OFL 1.1 | Raster hoá chữ "HST OFFICE" trong logo; font không đóng gói | gói Ubuntu |
 
+| Be Vietnam Pro Regular / SemiBold / Bold | fetched 2026-11-04; hashes in [banner sources](assets/banners/SOURCES.md) | SIL OFL 1.1 | Bundled banner artwork and regeneration | [OFL.txt](extensions/hst-vietnamese-tools/banners/fonts/OFL.txt) |
+
+Solution logos are HASON TECH/product marks; provenance and fallback details: [banner sources](assets/banners/SOURCES.md).
+
 Mẫu HST không nhúng font, ảnh hay nội dung của bên thứ ba.

@@ -34,8 +34,8 @@ HST Office tự biết khi có bản mới và báo cho người dùng kèm liê
   kiểm tra ngay (không phụ thuộc `AutoCheck`) và báo: đã mới nhất / có bản mới / không kiểm tra được.
 - Mọi chữ hiển thị là tiếng Việt ở mọi ngôn ngữ giao diện (nội dung hệ thống, theo chính sách sản phẩm).
 
-Mã: `extensions/hst-vietnamese-tools/python/hst_office/update_*.py`. Chỉ `update_fetch.py` được phép dùng
-`urllib`/`ssl`/`http` (`scripts/check-extensions.py` kiểm tra; socket/process vẫn bị cấm).
+Mã: `extensions/hst-vietnamese-tools/python/hst_office/update_*.py`. Các mô-đun `update_fetch.py`, `update_download.py` và `banner_fetch.py` được phép dùng HTTPS
+(`urllib`/`ssl`/`http`); banner có khóa riêng và hợp đồng riêng tại [BANNERS.md](BANNERS.md). `scripts/check-extensions.py` kiểm tra phạm vi import này; socket/process vẫn bị cấm trong các mô-đun mạng.
 
 ## Cài đặt và khóa tập trung
 

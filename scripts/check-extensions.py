@@ -19,11 +19,12 @@ from xml.dom import minidom
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REQUIRED = ("description.xml", "META-INF/manifest.xml", "license/LICENSE.txt", "license/NOTICES.txt", "data/provenance.json", "data/solutions.json",
-            "data/release.json", "data/pkcs11-modules.json")
+            "data/release.json", "data/pkcs11-modules.json", "data/banners.json", "banners.xcs")
 SHARED_DATA = ("nd30.json", "number-formats.json", "encoding-maps.json", "provenance.json")
 HOST_ALLOW = ("openoffice.org", "libreoffice.org", "w3.org", "hasontech.vn", "sun.com")
 NETWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess|ctypes)\b", re.M)
-# The update check (docs/UPDATE_CHECK.md) is the one module that may use HTTPS (urllib/ssl/http); never sockets or processes.
+# Update and signed-banner transport may use HTTPS (urllib/ssl/http); never sockets or processes.
+BANNER_FETCH = "python/hst_office/banner_fetch.py"  # signed solution feed; same narrow HTTPS exception
 UPDATE_FETCH = "python/hst_office/update_fetch.py"
 UPDATE_DOWNLOAD = "python/hst_office/update_download.py"  # installer download after the user's click
 UPDATE_LAUNCH = "python/hst_office/update_launch.py"  # starts the external update helper
@@ -127,7 +128,7 @@ def check_content(zf, names, errors):
                 errors.append("%s: not an ASCII Windows .reg file" % name)
         if name.endswith(".py"):
             text = data.decode("utf-8")
-            if (USB_WORKER_IMPORT if name == USB_TOKEN_WORKER else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD) else UPDATE_LAUNCH_IMPORT
+            if (USB_WORKER_IMPORT if name == USB_TOKEN_WORKER else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD, BANNER_FETCH) else UPDATE_LAUNCH_IMPORT
                     if name in (UPDATE_LAUNCH, USB_TOKEN_NSS) else NETWORK_IMPORT).search(text):
                 errors.append("network/process module imported in %s" % name)
             if text.count("\n") + 1 > MAX_LINES:
@@ -151,6 +152,25 @@ def check_content(zf, names, errors):
     src = os.path.join(ROOT, "data", "hst", "pkcs11-modules.json")
     if "data/pkcs11-modules.json" in names and zf.read("data/pkcs11-modules.json") != open(src, "rb").read():
         errors.append("data/pkcs11-modules.json is stale compared with data/hst/pkcs11-modules.json")
+
+
+def check_banners(zf, names, errors):
+    """Bundle contract: exact shared manifest, all scale images present, digest/size/magic verified."""
+    sys.path.insert(0, os.path.join(ROOT, "extensions", "hst-vietnamese-tools", "python"))
+    from hst_office.banner_schema import parse_manifest
+    from hst_office.banner_verify import verify_image
+    try:
+        data = zf.read("data/banners.json")
+        if data != open(os.path.join(ROOT, "data", "hst", "banners.json"), "rb").read():
+            errors.append("stale bundled banners manifest")
+        doc = parse_manifest(data, bundled=True)
+        for item in doc["items"]:
+            for spec in item["image"].values():
+                verify_image(zf.read(spec["url"]), spec)
+        if "banners/fonts/OFL.txt" not in names:
+            errors.append("missing bundled banner font license")
+    except (KeyError, ValueError, OSError) as exc:
+        errors.append("invalid bundled banners: %s" % exc)
 
 
 def check_labels(zf, names, errors):
@@ -181,6 +201,7 @@ def check_oxt(path):
             check_registration(zf, names, errors)
             check_content(zf, names, errors)
             check_labels(zf, names, errors)
+            check_banners(zf, names, errors)
     except zipfile.BadZipFile as exc:
         errors.append("not a zip file: %s" % exc)
     return errors
@@ -199,6 +220,10 @@ def self_test():
         "remote resource": lambda d: d.update({"Addons.xcu": d["Addons.xcu"] + b"<!-- https://evil.example/x -->"}),
         "bad xml": lambda d: d.update({"ProtocolHandler.xcu": b"<oor:component-data"}),
         "missing registered file": lambda d: d.pop("python/hst_office_component.py"),
+        "stale banners": lambda d: d.update({"data/banners.json": b"{}"}),
+        "missing banner image": lambda d: d.pop("banners/aios@1x.png"),
+        "missing banner font license": lambda d: d.pop("banners/fonts/OFL.txt"),
+        "socket in banner fetch": lambda d: d.update({BANNER_FETCH: d[BANNER_FETCH] + b"\nimport socket\n"}),
         "network import": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: AGPL-3.0-only\nimport socket\n"}),
         "urllib outside update_fetch": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: AGPL-3.0-only\nimport urllib.request\n"}),
         "socket in update_fetch": lambda d: d.update({UPDATE_FETCH: d[UPDATE_FETCH] + b"\nimport socket\n"}),

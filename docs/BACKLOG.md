@@ -119,7 +119,7 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
     - Tệp nặng nhiều công thức/hình (Toán, Lý, Hóa): mở chậm, công thức/hình không hiện hoặc hiện sai.
     - Viết/sửa macro VBA cho Writer và Sheets.
     - Trình xem PDF nhẹ, nhanh, giao diện phổ thông, có ký số PDF (thiết kế chủ dự án duyệt trước).
-    - Ô banner quảng cáo giải pháp HASON TECH, luân phiên 10 giây, bên phải ngang notebookbar (thiết kế chủ dự án duyệt trước).
+    - Ô banner quảng cáo giải pháp HASON TECH, luân phiên 10 giây, bên phải ngang notebookbar (thiết kế chủ dự án duyệt trước). Artwork 6 giải pháp + feed ký riêng/cache/UNO đã có: [giao diện tích hợp](BANNERS.md), [preview](design/banners-preview.png). Còn đặt public key banner và triển khai widget C++ trong ribbon.
   - *Để sau (hoãn từ beta.4.1, chủ dự án 2026-11-01):*
   - Hậu tố phím tắt kiểu "Thêm (_A)" trong bản dịch tiếng Việt: còn 556 mục `.po` (445 cặp khác nhau; 570 chuỗi trong `.mo` đã build), chủ yếu cui 308, sd 129, chart2 59, extensions 18, sfx2 15, filter 10. Đặt chữ phím tắt vào trong từ (hoặc bỏ) theo từng hộp thoại, như đã làm cho nút chuẩn GTK và hộp thoại ký số (`l10n/vi-overrides.jsonl`, [thuật ngữ](L10N_GLOSSARY.md)).
   - Nút chuẩn "_Yes" của `framework` vẫn là "Đồng ý (_Y)": dòng này là ngữ cảnh của `hst-document-tabs.patch`, nên phải sửa bằng một patch sau patch đó (không dùng override).
