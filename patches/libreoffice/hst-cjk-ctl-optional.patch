@@ -1,0 +1,374 @@
+HST Office: Asian and complex text layout options are hidden by default and optional again.
+
+Upstream 26.8 (tdf#168719) made SvtCJKOptions and SvtCTLOptions always report "enabled"
+and removed the Options checkboxes, so every dialog shows the Asian font column and the
+Asian Layout/Asian Typography tabs, which Vietnamese users never need.
+
+- svl: the CJK and CTL getters read Office.Common/I18N again; the existing automatic
+  enabling for a CJK or CTL system locale or keyboard still runs.
+- officecfg: the cjk and ctl install modules default these settings to false (the schema
+  default). Writer's word-completion setting in the cjk module stays.
+- Tools > Options > Languages and Locales > General: two checkboxes turn the options back
+  on; a default language list is only available while its options are shown.
+
+Text layout and rendering of Asian or complex text in documents do not read these settings.
+With complex text layout off, input sequence checking (Thai, Lao, Khmer, Burmese), visual
+cursor movement and the RTL page-side print option are off too, as they were before 26.8.
+Vietnamese is a Latin-script language and uses none of them.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-defaults.py on a fresh profile.
+---
+--- a/svl/source/config/cjkoptions.cxx
++++ b/svl/source/config/cjkoptions.cxx
+@@ -35,56 +35,56 @@
+ {
+     SvtCJKOptions_Load();
+ 
+-    // tdf#168719: The CJK font can no longer be disabled
+-    return true;
++    // HST Office: optional again, Tools - Options - Languages and Locales - General
++    return officecfg::Office::Common::I18N::CJK::CJKFont::get();
+ }
+ 
+ bool IsVerticalTextEnabled()
+ {
+     SvtCJKOptions_Load();
+ 
+-    // tdf#168719: The CJK font can no longer be disabled
+-    return true;
++    // HST Office: optional again, Tools - Options - Languages and Locales - General
++    return officecfg::Office::Common::I18N::CJK::VerticalText::get();
+ }
+ 
+ bool IsAsianTypographyEnabled()
+ {
+     SvtCJKOptions_Load();
+ 
+-    // tdf#168719: The CJK font can no longer be disabled
+-    return true;
++    // HST Office: optional again, Tools - Options - Languages and Locales - General
++    return officecfg::Office::Common::I18N::CJK::AsianTypography::get();
+ }
+ 
+ bool IsJapaneseFindEnabled()
+ {
+     SvtCJKOptions_Load();
+ 
+-    // tdf#168719: The CJK font can no longer be disabled
+-    return true;
++    // HST Office: optional again, Tools - Options - Languages and Locales - General
++    return officecfg::Office::Common::I18N::CJK::JapaneseFind::get();
+ }
+ 
+ bool IsRubyEnabled()
+ {
+     SvtCJKOptions_Load();
+ 
+-    // tdf#168719: The CJK font can no longer be disabled
+-    return true;
++    // HST Office: optional again, Tools - Options - Languages and Locales - General
++    return officecfg::Office::Common::I18N::CJK::Ruby::get();
+ }
+ 
+ bool IsChangeCaseMapEnabled()
+ {
+     SvtCJKOptions_Load();
+ 
+-    // tdf#168719: The CJK font can no longer be disabled
+-    return true;
++    // HST Office: optional again, Tools - Options - Languages and Locales - General
++    return officecfg::Office::Common::I18N::CJK::ChangeCaseMap::get();
+ }
+ 
+ bool IsDoubleLinesEnabled()
+ {
+     SvtCJKOptions_Load();
+ 
+-    // tdf#168719: The CJK font can no longer be disabled
+-    return true;
++    // HST Office: optional again, Tools - Options - Languages and Locales - General
++    return officecfg::Office::Common::I18N::CJK::DoubleLines::get();
+ }
+ 
+ bool    IsAnyEnabled()
+--- a/svl/source/config/ctloptions.cxx
++++ b/svl/source/config/ctloptions.cxx
+@@ -34,6 +34,8 @@
+ #include <officecfg/System.hxx>
+ #include <officecfg/Office/Common.hxx>
+ 
++#include <atomic>
++
+ using namespace ::com::sun::star;
+ using namespace ::com::sun::star::uno;
+ 
+@@ -421,8 +423,12 @@
+ 
+ bool SvtCTLOptions::IsCTLFontEnabled()
+ {
+-    // tdf#168719: The CTL font can no longer be disabled
+-    return true;
++    // HST Office: optional again, Tools - Options - Languages and Locales - General.
++    // The first instance loads the options, which turns CTL on for a CTL system locale or keyboard.
++    static std::atomic<bool> bLoaded(false);
++    if (!bLoaded.exchange(true))
++        SvtCTLOptions aLoadOptions;
++    return officecfg::Office::Common::I18N::CTL::CTLFont::get();
+ }
+ 
+ void SvtCTLOptions::SetCTLVerticalText(bool bVertical)
+@@ -433,8 +439,7 @@
+ 
+ bool SvtCTLOptions::IsCTLVerticalText()
+ {
+-    // tdf#168719: The CTL font can no longer be disabled
+-    return true;
++    return officecfg::Office::Common::I18N::CTL::CTLVerticalText::get();
+ }
+ 
+ void SvtCTLOptions::SetCTLSequenceChecking( bool _bEnabled )
+--- a/cui/source/options/optgdlg.cxx
++++ b/cui/source/options/optgdlg.cxx
+@@ -973,7 +973,12 @@
+     , m_xCurrentDocCB(m_xBuilder->weld_check_button(u"currentdoc"_ustr))
+     , m_xUseInputLanguageCB(m_xBuilder->weld_check_button(u"useinputlanguage"_ustr))
+     , m_xUseInputLanguageImg(m_xBuilder->weld_widget(u"lockuseinputlanguage"_ustr))
++    , m_xAsianSupportCB(m_xBuilder->weld_check_button(u"asiansupport"_ustr))
++    , m_xCTLSupportCB(m_xBuilder->weld_check_button(u"ctlsupport"_ustr))
+ {
++    m_xAsianSupportCB->connect_toggled(LINK(this, OfaLanguagesTabPage, SupportHdl));
++    m_xCTLSupportCB->connect_toggled(LINK(this, OfaLanguagesTabPage, SupportHdl));
++
+     // tdf#125483 save original default label
+     m_sDecimalSeparatorLabel = m_xDecimalSeparatorCB->get_label();
+ 
+@@ -1135,7 +1140,8 @@
+     }
+ 
+     OUString checkButton[]
+-        = { u"decimalseparator"_ustr, u"currentdoc"_ustr, u"useinputlanguage"_ustr };
++        = { u"decimalseparator"_ustr, u"currentdoc"_ustr, u"useinputlanguage"_ustr,
++            u"asiansupport"_ustr, u"ctlsupport"_ustr };
+ 
+     for (const auto& check : checkButton)
+     {
+@@ -1146,8 +1152,40 @@
+     return sAllStrings.toString().replaceAll("_", "");
+ }
+ 
++IMPL_LINK_NOARG(OfaLanguagesTabPage, SupportHdl, weld::Toggleable&, void)
++{
++    // A default language only matters while the options of its script are shown.
++    bool bEnable = m_xAsianSupportCB->get_active() && !pLangConfig->aLinguConfig.IsReadOnly(u"DefaultLocale_CJK");
++    m_xAsianLanguageFT->set_sensitive(bEnable);
++    m_xAsianLanguageLB->set_sensitive(bEnable);
++    bEnable = m_xCTLSupportCB->get_active() && !pLangConfig->aLinguConfig.IsReadOnly(u"DefaultLocale_CTL");
++    m_xComplexLanguageFT->set_sensitive(bEnable);
++    m_xComplexLanguageLB->set_sensitive(bEnable);
++}
++
+ bool OfaLanguagesTabPage::FillItemSet( SfxItemSet* rSet )
+ {
++    if (m_xAsianSupportCB->get_state_changed_from_saved() || m_xCTLSupportCB->get_state_changed_from_saved())
++    {
++        using I18N = officecfg::Office::Common::I18N;
++        std::shared_ptr<comphelper::ConfigurationChanges> xChanges(comphelper::ConfigurationChanges::create());
++        if (m_xAsianSupportCB->get_state_changed_from_saved())
++        {
++            const bool bAsian = m_xAsianSupportCB->get_active();
++            I18N::CJK::CJKFont::set(bAsian, xChanges);
++            I18N::CJK::VerticalText::set(bAsian, xChanges);
++            I18N::CJK::AsianTypography::set(bAsian, xChanges);
++            I18N::CJK::JapaneseFind::set(bAsian, xChanges);
++            I18N::CJK::Ruby::set(bAsian, xChanges);
++            I18N::CJK::ChangeCaseMap::set(bAsian, xChanges);
++            I18N::CJK::DoubleLines::set(bAsian, xChanges);
++            I18N::CJK::EmphasisMarks::set(bAsian, xChanges);
++        }
++        if (m_xCTLSupportCB->get_state_changed_from_saved())
++            I18N::CTL::CTLFont::set(m_xCTLSupportCB->get_active(), xChanges);
++        xChanges->commit();
++    }
++
+     // lock configuration broadcasters so that we can coordinate the notifications
+     pLangConfig->aSysLocaleOptions.BlockBroadcasts( true );
+     pLangConfig->aCTLLanguageOptions.BlockBroadcasts( true );
+@@ -1517,20 +1555,24 @@
+     m_xUseInputLanguageCB->save_state();
+     m_xCurrentDocCB->save_state();
+ 
++    m_xAsianSupportCB->set_active(SvtCJKOptions::IsCJKFontEnabled());
++    m_xAsianSupportCB->set_sensitive(!officecfg::Office::Common::I18N::CJK::CJKFont::isReadOnly());
++    m_xAsianSupportCB->save_state();
++    m_xCTLSupportCB->set_active(SvtCTLOptions::IsCTLFontEnabled());
++    m_xCTLSupportCB->set_sensitive(!officecfg::Office::Common::I18N::CTL::CTLFont::isReadOnly());
++    m_xCTLSupportCB->save_state();
++
+     bool bEnable = !pLangConfig->aLinguConfig.IsReadOnly( u"DefaultLocale" );
+     m_xWesternLanguageFT->set_sensitive( bEnable );
+     m_xWesternLanguageLB->set_sensitive( bEnable );
+     m_xWesternLanguageImg->set_visible( !bEnable );
+ 
+     bEnable = !pLangConfig->aLinguConfig.IsReadOnly(u"DefaultLocale_CJK");
+-    m_xAsianLanguageFT->set_sensitive(bEnable);
+-    m_xAsianLanguageLB->set_sensitive(bEnable);
+     m_xAsianLanguageImg->set_visible(!bEnable);
+ 
+     bEnable = !pLangConfig->aLinguConfig.IsReadOnly(u"DefaultLocale_CTL");
+-    m_xComplexLanguageFT->set_sensitive(bEnable);
+-    m_xComplexLanguageLB->set_sensitive(bEnable);
+     m_xComplexLanguageImg->set_visible(!bEnable);
++    SupportHdl(*m_xAsianSupportCB);
+ 
+     // check the box "For the current document only"
+     // set the focus to the Western Language box
+--- a/cui/source/options/optgdlg.hxx
++++ b/cui/source/options/optgdlg.hxx
+@@ -182,7 +182,10 @@
+     std::unique_ptr<weld::CheckButton> m_xCurrentDocCB;
+     std::unique_ptr<weld::CheckButton> m_xUseInputLanguageCB;
+     std::unique_ptr<weld::Widget> m_xUseInputLanguageImg;
++    std::unique_ptr<weld::CheckButton> m_xAsianSupportCB;
++    std::unique_ptr<weld::CheckButton> m_xCTLSupportCB;
+ 
++    DECL_LINK(SupportHdl, weld::Toggleable&, void);
+     DECL_LINK(LocaleSettingHdl, weld::ComboBox&, void);
+     DECL_LINK(DatePatternsHdl, weld::Entry&, void);
+ 
+--- a/cui/uiconfig/ui/optlanguagespage.ui
++++ b/cui/uiconfig/ui/optlanguagespage.ui
+@@ -238,6 +238,48 @@
+               </packing>
+             </child>
+             <child>
++              <object class="GtkCheckButton" id="asiansupport">
++                <property name="label" translatable="yes" context="optlanguagespage|asiansupport">Show options for _Asian languages</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="halign">start</property>
++                <property name="use-underline">True</property>
++                <property name="draw-indicator">True</property>
++                <child internal-child="accessible">
++                  <object class="AtkObject" id="asiansupport-atkobject">
++                    <property name="AtkObject::accessible-description" translatable="yes" context="extended_tip|asiansupport">Shows the Asian font, vertical text and Asian typography options in the dialogs.</property>
++                  </object>
++                </child>
++              </object>
++              <packing>
++                <property name="left-attach">1</property>
++                <property name="top-attach">4</property>
++                <property name="width">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkCheckButton" id="ctlsupport">
++                <property name="label" translatable="yes" context="optlanguagespage|ctlsupport">Show options for complex te_xt layout</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="halign">start</property>
++                <property name="use-underline">True</property>
++                <property name="draw-indicator">True</property>
++                <child internal-child="accessible">
++                  <object class="AtkObject" id="ctlsupport-atkobject">
++                    <property name="AtkObject::accessible-description" translatable="yes" context="extended_tip|ctlsupport">Shows the complex text layout font and text direction options in the dialogs.</property>
++                  </object>
++                </child>
++              </object>
++              <packing>
++                <property name="left-attach">1</property>
++                <property name="top-attach">5</property>
++                <property name="width">2</property>
++              </packing>
++            </child>
++            <child>
+               <object class="GtkLabel" id="complex">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+--- a/officecfg/registry/data/org/openoffice/Office/Common.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Common.xcu
+@@ -53,10 +53,10 @@
+   <node oor:name="I18N">
+     <node oor:name="CTL">
+       <prop oor:name="CTLFont" install:module="ctl">
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="CTLVerticalText" install:module="ctl">
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="CTLSequenceChecking" install:module="ctlseqcheck">
+         <value>true</value>
+@@ -70,28 +70,28 @@
+     </node>
+     <node oor:name="CJK" install:module="cjk">
+       <prop oor:name="VerticalText">
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="Ruby">
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="JapaneseFind">
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="EmphasisMarks">
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="DoubleLines">
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="CJKFont">
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="ChangeCaseMap">
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+       <prop oor:name="AsianTypography">
+-        <value>true</value>
++        <value>false</value>
+       </prop>
+     </node>
+   </node>
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -16,6 +16,30 @@
+ "X-Generator: LibreOffice\n"
+ "X-POOTLE-MTIME: 1542196094.000000\n"
+ 
++#. hstLO
++#: cui/uiconfig/ui/optlanguagespage.ui
++msgctxt "optlanguagespage|asiansupport"
++msgid "Show options for _Asian languages"
++msgstr "Hiện tùy chọn cho ngôn _ngữ châu Á"
++
++#. hstLO
++#: cui/uiconfig/ui/optlanguagespage.ui
++msgctxt "extended_tip|asiansupport"
++msgid "Shows the Asian font, vertical text and Asian typography options in the dialogs."
++msgstr "Hiện trong các hộp thoại tùy chọn phông chữ châu Á, văn bản dọc và cách trình bày chữ châu Á."
++
++#. hstLO
++#: cui/uiconfig/ui/optlanguagespage.ui
++msgctxt "optlanguagespage|ctlsupport"
++msgid "Show options for complex te_xt layout"
++msgstr "Hiện tùy chọn cho _bố trí văn bản phức tạp"
++
++#. hstLO
++#: cui/uiconfig/ui/optlanguagespage.ui
++msgctxt "extended_tip|ctlsupport"
++msgid "Shows the complex text layout font and text direction options in the dialogs."
++msgstr "Hiện trong các hộp thoại tùy chọn phông chữ và hướng văn bản của bố trí văn bản phức tạp."
++
+ #. hstPDF
+ #: cui/uiconfig/ui/optgeneralpage.ui
+ msgctxt "optgeneralpage|pdfviewer"

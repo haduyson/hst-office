@@ -17,6 +17,10 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 EXPECTED = {
+    # Asian and complex text layout options are hidden until turned on in Options.
+    "org.openoffice.Office.Common/I18N/CJK/CJKFont": False,
+    "org.openoffice.Office.Common/I18N/CJK/AsianTypography": False,
+    "org.openoffice.Office.Common/I18N/CTL/CTLFont": False,
     "org.openoffice.Setup/Product/ooName": "HST Office",
     "org.openoffice.Setup/Product/ooVendor": "HASON TECH",
     "org.openoffice.Office.UI.ToolbarMode/Applications/Writer/Active": "notebookbar.ui",
@@ -28,6 +32,13 @@ EXPECTED = {
     # Ribbon frame tint stays the upstream value: hst-ribbon-panel.patch keeps the tint to a thin frame.
     "org.openoffice.Office.Common/Misc/NotebookbarColorTransparency": 150,
     "org.openoffice.Office.Writer/DefaultFont/Standard": "Times New Roman",
+    # Word, Excel and PowerPoint formats by default, no keep-format question for them; the question
+    # stays on for legacy formats (hst-msoffice-defaults.patch, tests/runtime/check-msoffice-save-format.py).
+    "org.openoffice.Setup/Office/Factories/com.sun.star.text.TextDocument/ooSetupFactoryDefaultFilter": "MS Word 2007 XML",
+    "org.openoffice.Setup/Office/Factories/com.sun.star.sheet.SpreadsheetDocument/ooSetupFactoryDefaultFilter": "Calc MS Excel 2007 XML",
+    "org.openoffice.Setup/Office/Factories/com.sun.star.presentation.PresentationDocument/ooSetupFactoryDefaultFilter":
+        "Impress MS PowerPoint 2007 XML",
+    "org.openoffice.Office.Common/Save/Document/WarnAlienFormat": True,
     # Fresh installs do not underline while typing (hst-spell-auto-off.patch); Shift+F7 turns it on.
     "org.openoffice.Office.Linguistic/SpellChecking/IsSpellAuto": False,
     "org.openoffice.Office.Common/Menus/DonationURL": "https://hasontech.vn",

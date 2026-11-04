@@ -1,0 +1,31 @@
+HST Office: Insert Table shows translated style names.
+
+The style list showed the programmatic English names; it now shows the translated names of
+the built-in styles. Stored names and the selection, which goes by position, are unchanged.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sw/source/ui/table/instable.cxx
++++ b/sw/source/ui/table/instable.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include <instable.hxx>
+ #include <shellres.hxx>
++#include <SwStyleNameMapper.hxx>
+ #include <modcfg.hxx>
+ #include <swmodule.hxx>
+ #include <sfx2/htmlmode.hxx>
+@@ -138,7 +139,12 @@
+ 
+     for (size_t i = 0; i < m_xTableTable->size(); i++)
+     {
+-        m_xLbFormat->append_text((*m_xTableTable)[i].GetName().toString());
++        // HST Office: show the translated name of the built-in styles; the stored name stays
++        const ProgName aStyleName((*m_xTableTable)[i].GetName().toString());
++        m_xLbFormat->append_text(
++            SwStyleNameMapper::GetUIName(
++                SwStyleNameMapper::GetPoolIdFromProgName(aStyleName, SwGetPoolIdFromName::TableStyle),
++                aStyleName).toString());
+     }
+ 
+     m_xLbFormat->select(0);
