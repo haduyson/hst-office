@@ -113,6 +113,7 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
   - Kiểm tra chính tả tắt sẵn khi mới cài; sửa gạch đỏ sai chữ tiếng Việt (NFD + hai cách bỏ dấu); trang F1 "Kiểm tra chính tả" và "Làm việc với PDF".
   - Menu "+" dùng nhãn "HST Writer — Văn bản / Document"… như cột Tạo ở Start Center.
   - Số phiên bản đầy đủ trong tên tệp tải về và trong Get Info (macOS) / Properties (Windows) / thông tin gói (Linux).
+  - Hậu tố phím tắt kiểu "Thêm (_A)" trong bản dịch tiếng Việt (hoãn từ beta.4.1, đã làm): chữ phím tắt nằm trong từ ("_Thêm", "Đó_ng", "Trợ g_iúp"), không trùng trong cùng hộp thoại. Trước: 556 mục `.po` (446 cặp khác nhau, kể cả "_Yes" của `framework`; 556 chuỗi trong `.mo` đã build), cui 308, sd 129, chart2 59, extensions 18, sfx2 15, filter 10, basctl 7, sc 4, dbaccess 2, wizards 2, framework 1, sw 1. Sau: 0 trong `.po` và `.mo`. `l10n/vi-overrides.jsonl` thêm 625 dòng, sửa 3 dòng: 555 chuỗi có hậu tố và 73 chuỗi gốc đổi chữ phím tắt để nhường chữ cho nút chuẩn trong cùng hộp thoại hoặc vì phím hỏng như "Dư_owng"; "Đồng ý (_Y)" của `framework` thành "_Có" bằng `hst-framework-stock-yes-vi.patch` (sau `hst-document-tabs.patch`). `check-access-keys.py` kiểm tra thêm từng hộp thoại `.ui` khi có cây nguồn ([thuật ngữ](L10N_GLOSSARY.md#phím-truy-cập-altchữ-trong-menu-và-ribbon)).
   - *Việc mới (chủ dự án 2026-11-04):*
     - Tìm tính năng trong HST Office bằng phím tắt (gõ để tìm, có tìm không dấu).
     - Hộp Giải pháp HASON TECH: hiện mô tả ngắn cạnh tên từng giải pháp.
@@ -123,9 +124,6 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
       - Word VBA trong beta.5: mục tiêu ≥20/24 trường hợp của `tests/runtime/vba_cases.py`; dự án VBA có mã chữ Việt mà bảng mã cũ không chứa được tự chuyển sang Windows-1258 khi lưu.
     - Trình xem PDF nhẹ, nhanh, giao diện phổ thông, có ký số PDF (thiết kế chủ dự án duyệt trước).
     - Ô banner quảng cáo giải pháp HASON TECH, luân phiên 10 giây, bên phải ngang notebookbar (thiết kế chủ dự án duyệt trước).
-  - *Để sau (hoãn từ beta.4.1, chủ dự án 2026-11-01):*
-  - Hậu tố phím tắt kiểu "Thêm (_A)" trong bản dịch tiếng Việt: còn 556 mục `.po` (445 cặp khác nhau; 570 chuỗi trong `.mo` đã build), chủ yếu cui 308, sd 129, chart2 59, extensions 18, sfx2 15, filter 10. Đặt chữ phím tắt vào trong từ (hoặc bỏ) theo từng hộp thoại, như đã làm cho nút chuẩn GTK và hộp thoại ký số (`l10n/vi-overrides.jsonl`, [thuật ngữ](L10N_GLOSSARY.md)).
-  - Nút chuẩn "_Yes" của `framework` vẫn là "Đồng ý (_Y)": dòng này là ngữ cảnh của `hst-document-tabs.patch`, nên phải sửa bằng một patch sau patch đó (không dùng override).
 - **v1.0.0:** chuyển repo sang tổ chức `hasontech` trước bản chính thức.
 
 ## Blockers và câu hỏi còn mở

@@ -24,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 from po_io import parse_po  # noqa: E402
+from access_keys_dialogs import dialog_containers, english_groups, is_override  # noqa: E402
 
 OOR = "{http://openoffice.org/2001/registry}"
 MENU = "{http://openoffice.org/2001/menu}"
@@ -388,6 +389,8 @@ def check(model, overrides, exceptions=()):
         group = container["app"] + " menus" if container["type"] == "menus" else container["type"]
         counts = summary.setdefault(group, {"collisions": 0, "non-ascii": 0})
         keys = defaultdict(list)
+        dialog = container["type"] == "dialogs"
+        english = english_groups(container, mnemonic) if dialog else {}
 
         def report(kind, key, items, strict):
             problems.append(dict(container=container["path"], type=container["type"],
@@ -399,16 +402,23 @@ def check(model, overrides, exceptions=()):
             char = mnemonic(label, markers)
             shown = dict(id=item["id"], command=item["command"], label=label,
                          contextual=item.get("contextual", False))
+            if dialog:
+                shown["override"] = is_override(item, overrides)
             if not char:
-                info.append(dict(container=container["path"], kind="auto" if item.get("auto") else "none", **shown))
+                if not dialog:
+                    info.append(dict(container=container["path"], kind="auto" if item.get("auto") else "none", **shown))
                 continue
             keys[char.upper()].append(shown)
             if not (char.isascii() and char.isalnum()):
-                report("non-ascii", char.upper(), [shown], container["strict"])
+                report("non-ascii", char.upper(), [shown], container["strict"] and shown.get("override", True))
         for key, items in sorted(keys.items()):
             if len(items) > 1:
                 strict = container["strict"] and not (container["type"] == "tab-bars"
                                                        and all(i["contextual"] for i in items))
+                if dialog:  # strict only when HST chose one of the keys and English has no such collision
+                    ids = {i["id"] for i in items}
+                    strict = (any(i["override"] for i in items)
+                              and not any(ids <= group for group in english.values()))
                 report("collision", key, items, strict)
     by_identity = {(p["kind"], p["container"], p["key"], tuple(sorted(i["label"] for i in p["items"]))): p
                    for p in problems}
@@ -431,11 +441,14 @@ def main(argv=None):
     parser.add_argument("--exceptions", type=Path, default=ROOT / "l10n/access-keys-exceptions.json")
     parser.add_argument("--addons", type=Path, default=ROOT / "extensions/hst-vietnamese-tools/Addons.xcu")
     parser.add_argument("--json", type=Path)
-    for flag in ("strict", "write-snapshot", "verbose"):
+    for flag in ("strict", "write-snapshot", "verbose", "no-dialogs"):
         parser.add_argument("--" + flag, action="store_true")
     args = parser.parse_args(argv)
     try:
         model = load_model(args.tree, args.snapshot, args.write_snapshot, args.addons)
+        dialogs = Path(args.tree).exists() and not args.no_dialogs
+        if dialogs:  # .ui dialogs come from the tree only; see access_keys_dialogs.py
+            model["containers"] += dialog_containers(args.tree, ModelBuilder(args.tree))
         result = check(model, load_overrides(args.overrides), load_exceptions(args.exceptions))
         if args.json:
             write_json(args.json, result)
@@ -443,6 +456,8 @@ def main(argv=None):
         print(f"error: {exc}", file=sys.stderr)
         return 1
     for problem in result["problems"]:
+        if problem["type"] == "dialogs" and not problem["strict"] and not args.verbose:
+            continue  # upstream Vietnamese dialog keys: counted below, listed with --verbose
         labels = " | ".join(i["label"] for i in problem["items"])
         kind = "key" if problem["kind"] == "collision" else "non-ascii"
         severity = "strict" if problem["strict"] else "warning"
@@ -461,6 +476,11 @@ def main(argv=None):
           f"{sum(i['kind'] == 'auto' for i in result['info'])} (details: --verbose/--json)")
     print(f"Excepted problems: {sum('exception' in p for p in result['problems'])}; "
           f"stale exceptions: {len(result['stale_exceptions'])}")
+    if dialogs:
+        print("Dialogs: strict only where an override chose a key that English does not share "
+              "(upstream Vietnamese keys are warnings, listed with --verbose)")
+    else:
+        print("Dialogs: not checked (needs the source tree)")
     return int(args.strict and result["strict_problems"] > 0)
 
 

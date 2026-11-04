@@ -52,9 +52,11 @@ Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`
 ## Hộp thoại chữ ký số và nút chuẩn (beta.4.1)
 
 - Nút chuẩn GTK (`msgctxt "stock"`, mỗi module một bản): bỏ hậu tố phím tắt kiểu "Trợ giúp (H)", "Huỷ (C)"; chữ phím tắt nằm trong từ:
-  _Thêm, _Hủy, Đó_ng, _Xóa, _Chỉnh sửa, Trợ g_iúp, _Mới, Loại _bỏ, Đặt _lại, _Có. Riêng `framework` giữ "Đồng ý (_Y)"
-  vì `hst-document-tabs.patch` dùng dòng đó làm ngữ cảnh.
-- Còn 556 chuỗi khác (chủ yếu cui, sd, chart2) có hậu tố "(X)", cùng "Đồng ý (_Y)" của framework: hoãn sang beta 5 (docs/BACKLOG.md).
+  _Thêm, _Hủy, Đó_ng, _Xóa, _Chỉnh sửa, Trợ g_iúp, _Mới, Loại _bỏ, Đặt _lại, _Có. "_Yes" của `framework` được sửa bằng
+  `hst-framework-stock-yes-vi.patch` (dòng đó là ngữ cảnh của `hst-document-tabs.patch`, không sửa bằng override).
+- beta.5: 555 chuỗi còn lại có hậu tố "(X)" (cui, sd, chart2, extensions, sfx2, filter…) đã đặt chữ phím tắt vào trong từ, không trùng
+  trong cùng hộp thoại; khi hết chữ thì sửa lời ("Đỏ:" → "Mà_u đỏ:", "Ẩn" → "Ẩn c_hữ") hoặc dời phím của nhãn gốc cùng hộp thoại.
+  Không còn chuỗi "(X)" nào trong `.po`/`.mo` tiếng Việt.
 - "Huỷ"/"huỷ" → "Hủy"/"hủy" ở mọi module; nút Cancel chuẩn của VCL "Thôi" → "Hủy".
 - Ký số (xmlsecurity, Tùy chọn → Bảo mật, dòng chữ ký, ký PDF, GPG, cảnh báo macro, thanh trạng thái): "chứng chỉ"/"chứng nhận" → "chứng thư số"/"chứng thư"; cột "ID Kỹ thuật số được cấp bởi" → "Cấp bởi";
   tiêu đề tài liệu đã ký "tên.odt (Đã ký)".
@@ -78,6 +80,11 @@ Mục không có `~` (menu HST trong `Addons.xcu`) do VCL tự gán chữ còn t
 | Công cụ | G | | Xem | X |
 | Cửa sổ | A | | Công cụ | N |
 | Trợ giúp | I | | Phần mở rộng | P |
+
+**Hộp thoại**: khi có cây nguồn, script còn đọc mọi hộp thoại `.ui` (mỗi đối tượng gốc một nhóm, menu bật lên là nhóm riêng,
+chỉ nhãn có `use-underline`). Trùng phím trong hộp thoại là lỗi strict khi một dòng override đã chọn phím đó và bản tiếng Anh
+không trùng; trùng do bản dịch gốc là cảnh báo (`--verbose` liệt kê). CI không có cây nguồn nên bỏ qua phần này
+([`access_keys_dialogs.py`](../scripts/l10n/access_keys_dialogs.py)).
 
 Kiểm tra: `python3 scripts/l10n/check-access-keys.py --strict` (chạy trong `scripts/ci-quality.sh`). Script
 dựng menu/ribbon từ cây nguồn (hoặc từ [`l10n/access-keys-snapshot.json`](../l10n/access-keys-snapshot.json)

@@ -378,6 +378,48 @@ class AccessKeysTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires an upstream tree"):
             MOD.load_model(self.base / "absent", self.snapshot, True)
 
+    def test_dialog_collisions_are_strict_only_for_new_override_keys(self):
+        self.write("cui/uiconfig/ui/demo.ui", """<interface domain="cui">
+          <object class="GtkDialog" id="Demo">
+            <child><object class="GtkButton" id="help">
+              <property name="label" translatable="yes" context="stock">_Help</property><property name="use-underline">True</property></object></child>
+            <child><object class="GtkLabel" id="icons">
+              <property name="label" translatable="yes" context="demo|icons">_Icons</property><property name="use-underline">True</property></object></child>
+            <child><object class="GtkLabel" id="top">
+              <property name="label" translatable="yes" context="demo|top">_Top</property><property name="use_underline">True</property></object></child>
+            <child><object class="GtkLabel" id="type">
+              <property name="label" translatable="yes" context="demo|type">_Type</property><property name="use-underline">True</property></object></child>
+            <child><object class="GtkLabel" id="plain">
+              <property name="label" translatable="yes" context="demo|plain">Adding %EXTENSION_NAME</property></object></child>
+            <child><object class="GtkMenu" id="menu">
+              <child><object class="GtkMenuItem" id="item">
+                <property name="label" translatable="yes" context="demo|item">_Item</property><property name="use-underline">True</property></object></child>
+            </object></child>
+          </object></interface>""")
+        self.po("cui/messages.po", [("stock", "_Help", "Trợ g_iúp"), ("demo|icons", "_Icons", "B_iểu tượng"),
+                                    ("demo|top", "_Top", "_Trên"), ("demo|type", "_Type", "_Kiểu"),
+                                    ("demo|item", "_Item", "_Mục")])
+        model = MOD.build_model(self.tree)
+        model["containers"] += MOD.dialog_containers(self.tree, MOD.ModelBuilder(self.tree))
+        dialogs = {c["path"]: [i["id"] for i in c["items"]] for c in model["containers"] if c["type"] == "dialogs"}
+        self.assertEqual(dialogs, {"cui/uiconfig/ui/demo.ui:Demo": ["help", "icons", "top", "type"],
+                                   "cui/uiconfig/ui/demo.ui:menu": ["item"]})
+
+        def dialog_problems(rows):
+            self.overrides.write_text("".join(json.dumps(dict(file="cui/messages.po", msgctxt=c, msgid=i, msgstr=v,
+                                                               reason="fixture"), ensure_ascii=False) + "\n"
+                                              for c, i, v in rows), encoding="utf-8")
+            result = MOD.check(model, MOD.load_overrides(self.overrides))
+            return [(p["kind"], p["key"], p["strict"]) for p in result["problems"] if p["type"] == "dialogs"]
+
+        self.assertEqual(dialog_problems([]), [("collision", "I", False)])  # upstream translation
+        self.assertEqual(dialog_problems([("stock", "_Help", "Trợ g_iúp")]), [("collision", "I", True)])
+        self.assertEqual(dialog_problems([("stock", "_Help", "Trợ g_iúp"), ("demo|icons", "_Icons", "_Biểu tượng")]), [])
+        # English shares T for Top/Type: the same collision in Vietnamese is not strict.
+        self.assertEqual(dialog_problems([("demo|type", "_Type", "_Thể loại")]),
+                         [("collision", "I", False), ("collision", "T", False)])
+        self.assertEqual(dialog_problems([("demo|item", "_Item", "_Ô")]), [("collision", "I", False), ("non-ascii", "Ô", True)])
+
 
 if __name__ == "__main__":
     unittest.main()
