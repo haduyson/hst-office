@@ -1,0 +1,187 @@
+HST Office: Header and Footer pages use Word's "Different odd and even pages" and "Different first page".
+The two new boxes are the inverse of the "same content" boxes, which stay in a hidden box as the values
+every caller reads (svx and sc), so items and page ids do not change.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py header-footer
+---
+--- a/include/svx/hdft.hxx
++++ b/include/svx/hdft.hxx
+@@ -69,6 +69,12 @@
+     std::unique_ptr<weld::CheckButton> m_xTurnOnBox;
+     std::unique_ptr<weld::CheckButton> m_xCntSharedBox;
+     std::unique_ptr<weld::CheckButton> m_xCntSharedFirstBox;
++    // HST: Word's wording: "different" is the inverse of the two "same content" boxes, which sit in a
++    // hidden box and stay the values every caller reads
++    std::unique_ptr<weld::CheckButton> m_xHstDifferentLR;
++    std::unique_ptr<weld::CheckButton> m_xHstDifferentFirst;
++    void HstSyncDifferent();
++    DECL_DLLPRIVATE_LINK(HstDifferentHdl, weld::Toggleable&, void);
+     std::unique_ptr<weld::Label> m_xLMLbl;
+     std::unique_ptr<weld::MetricSpinButton>m_xLMEdit;
+     std::unique_ptr<weld::Label> m_xRMLbl;
+--- a/svx/source/dialog/hdft.cxx
++++ b/svx/source/dialog/hdft.cxx
+@@ -133,6 +133,8 @@
+     , mbEnableDrawingLayerFillStyles(false)
+     , m_xCntSharedBox(m_xBuilder->weld_check_button(u"checkSameLR"_ustr))
+     , m_xCntSharedFirstBox(m_xBuilder->weld_check_button(u"checkSameFP"_ustr))
++    , m_xHstDifferentLR(m_xBuilder->weld_check_button(u"checkHST_DIFFLR"_ustr))
++    , m_xHstDifferentFirst(m_xBuilder->weld_check_button(u"checkHST_DIFFFP"_ustr))
+     , m_xLMLbl(m_xBuilder->weld_label(u"labelLeftMarg"_ustr))
+     , m_xLMEdit(m_xBuilder->weld_metric_spin_button(u"spinMargLeft"_ustr, FieldUnit::CM))
+     , m_xRMLbl(m_xBuilder->weld_label(u"labelRightMarg"_ustr))
+@@ -175,6 +177,8 @@
+         // uitest
+         m_xCntSharedBox->set_buildable_name(m_xCntSharedBox->get_buildable_name() + "-footer");
+         m_xCntSharedFirstBox->set_buildable_name(m_xCntSharedFirstBox->get_buildable_name() + "-footer");
++        m_xHstDifferentLR->set_buildable_name(m_xHstDifferentLR->get_buildable_name() + "-footer");
++        m_xHstDifferentFirst->set_buildable_name(m_xHstDifferentFirst->get_buildable_name() + "-footer");
+     }
+     else //Header
+     {
+@@ -186,6 +190,8 @@
+         // uitest
+         m_xCntSharedBox->set_buildable_name(m_xCntSharedBox->get_buildable_name() + "-header");
+         m_xCntSharedFirstBox->set_buildable_name(m_xCntSharedFirstBox->get_buildable_name() + "-header");
++        m_xHstDifferentLR->set_buildable_name(m_xHstDifferentLR->get_buildable_name() + "-header");
++        m_xHstDifferentFirst->set_buildable_name(m_xHstDifferentFirst->get_buildable_name() + "-header");
+     }
+     m_xTurnOnBox->show();
+ 
+@@ -436,10 +442,29 @@
+         }
+     }
+ 
++    HstSyncDifferent();
++}
++
++void SvxHFPage::HstSyncDifferent()
++{
++    m_xHstDifferentLR->set_active(!m_xCntSharedBox->get_active());
++    m_xHstDifferentLR->set_visible(m_xCntSharedBox->get_visible());
++    m_xHstDifferentLR->set_sensitive(m_xCntSharedBox->get_sensitive());
++    m_xHstDifferentFirst->set_active(!m_xCntSharedFirstBox->get_active());
++    m_xHstDifferentFirst->set_visible(m_xCntSharedFirstBox->get_visible());
++    m_xHstDifferentFirst->set_sensitive(m_xCntSharedFirstBox->get_sensitive());
++}
++
++IMPL_LINK_NOARG(SvxHFPage, HstDifferentHdl, weld::Toggleable&, void)
++{
++    m_xCntSharedBox->set_active(!m_xHstDifferentLR->get_active());
++    m_xCntSharedFirstBox->set_active(!m_xHstDifferentFirst->get_active());
+ }
+ 
+ void SvxHFPage::InitHandler()
+ {
++    m_xHstDifferentLR->connect_toggled(LINK(this, SvxHFPage, HstDifferentHdl));
++    m_xHstDifferentFirst->connect_toggled(LINK(this, SvxHFPage, HstDifferentHdl));
+     m_xTurnOnBox->connect_toggled(LINK(this, SvxHFPage, TurnOnHdl));
+     m_xDistEdit->connect_value_changed(LINK(this, SvxHFPage, ValueChangeHdl));
+     m_xHeightEdit->connect_value_changed(LINK(this,SvxHFPage,ValueChangeHdl));
+@@ -516,6 +541,7 @@
+         else
+             m_xTurnOnBox->set_active(true);
+     }
++    HstSyncDifferent();
+     UpdateExample();
+ }
+ 
+@@ -965,6 +991,8 @@
+     }
+     ResetBackground_Impl( rSet );
+     RangeHdl();
++
++    HstSyncDifferent();
+ }
+ 
+ DeactivateRC SvxHFPage::DeactivatePage( SfxItemSet* _pSet )
+--- a/svx/uiconfig/ui/headfootformatpage.ui
++++ b/svx/uiconfig/ui/headfootformatpage.ui
+@@ -108,6 +108,9 @@
+                 <property name="row-spacing">6</property>
+                 <property name="column-spacing">12</property>
+                 <child>
++                  <object class="GtkBox" id="boxHST_SAMEHIDDEN">
++                    <property name="can-focus">False</property>
++                <child>
+                   <object class="GtkCheckButton" id="checkSameLR">
+                     <property name="label" translatable="yes" context="headfootformatpage|checkSameLR">Same co_ntent on left and right pages</property>
+                     <property name="visible">True</property>
+@@ -117,26 +120,50 @@
+                     <property name="use-underline">True</property>
+                     <property name="draw-indicator">True</property>
+                   </object>
++                </child>
++                <child>
++                  <object class="GtkCheckButton" id="checkSameFP">
++                    <property name="label" translatable="yes" context="headfootformatpage|checkSameFP">Same content on first _page</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="hexpand">True</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                  </object>
++                </child>
++                  </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+                     <property name="top-attach">0</property>
+-                    <property name="width">2</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkCheckButton" id="checkSameFP">
+-                    <property name="label" translatable="yes" context="headfootformatpage|checkSameFP">Same content on first _page</property>
++                  <object class="GtkCheckButton" id="checkHST_DIFFLR">
++                    <property name="label" translatable="yes" context="headfootformatpage|checkHST_DIFFLR">Different _odd and even pages</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkCheckButton" id="checkHST_DIFFFP">
++                    <property name="label" translatable="yes" context="headfootformatpage|checkHST_DIFFFP">Different _first page</property>
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">False</property>
+-                    <property name="hexpand">True</property>
+                     <property name="use-underline">True</property>
+                     <property name="draw-indicator">True</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+                     <property name="top-attach">1</property>
+-                    <property name="width">2</property>
+                   </packing>
+                 </child>
+                 <child>
+--- a/translations/source/vi/svx/messages.po
++++ b/translations/source/vi/svx/messages.po
+@@ -17723,6 +17723,18 @@
+ msgid "Same co_ntent on left and right pages"
+ msgstr "Cùng _nội dung trên trang trái và phải"
+ 
++#. hstHF1
++#: svx/uiconfig/ui/headfootformatpage.ui
++msgctxt "headfootformatpage|checkHST_DIFFLR"
++msgid "Different _odd and even pages"
++msgstr "Trang chẵn và lẻ _khác nhau"
++
++#. hstHF2
++#: svx/uiconfig/ui/headfootformatpage.ui
++msgctxt "headfootformatpage|checkHST_DIFFFP"
++msgid "Different _first page"
++msgstr "Tr_ang đầu tiên khác"
++
+ #. cADVE
+ #: svx/uiconfig/ui/headfootformatpage.ui:128
+ msgctxt "headfootformatpage|checkSameFP"
