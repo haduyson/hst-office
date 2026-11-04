@@ -1,0 +1,34 @@
+HST Office: Writer exported or printed OLE objects whose replacement graphic is a vector
+metafile (the WMF/EMF preview of MathType, Equation, ChemDraw, ChemWindow objects in Word
+documents) by rasterising the metafile at the device resolution (Graphic::Draw): PDF export
+of an exam paper with a few hundred equations took tens of seconds and every formula became a
+bitmap without text in the PDF. Such graphics are now painted through the primitive renderer
+like pictures, so they stay vectors (searchable text) and export is fast. Screen painting is
+unchanged.
+
+--- a/sw/source/core/doc/notxtfrm.cxx
++++ b/sw/source/core/doc/notxtfrm.cxx
+@@ -1427,7 +1427,22 @@
+ 
+     if ( pGraphic && pGraphic->GetType() != GraphicType::NONE )
+     {
+-        pGraphic->Draw(*pOut, aPosition, aSize);
++        // HST Office: when printing or exporting (PDF), paint a vector replacement graphic (the
++        // WMF/EMF preview of a MathType or ChemDraw object) as primitives, like a picture.
++        // Graphic::Draw would rasterise it at the device resolution: slow, and the formula
++        // would end up as a bitmap without text in the PDF.
++        if (pGraphic->getVectorGraphicData()
++            && (bPrn || pOut->GetConnectMetaFile() || pOut->GetOutDevType() == OUTDEV_PRINTER
++                || pOut->GetOutDevType() == OUTDEV_PDF))
++        {
++            paintGraphicUsingPrimitivesHelper(
++                *pOut, GraphicObject(*pGraphic), GraphicAttr(),
++                basegfx::utils::createScaleTranslateB2DHomMatrix(
++                    aSize.Width(), aSize.Height(), aPosition.X(), aPosition.Y()),
++                OUString(), OUString(), OUString());
++        }
++        else
++            pGraphic->Draw(*pOut, aPosition, aSize);
+ 
+         // shade the representation if the object is activated outplace
+         if ( xObj.is() && xObj->getCurrentState() == embed::EmbedStates::ACTIVE )
