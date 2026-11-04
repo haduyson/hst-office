@@ -1,0 +1,50 @@
+HST Office: without the Windows Symbol font (Linux), Symbol text such as the pieces of the long
+arrows in MathType equations was drawn with OpenSymbol, whose pieces do not join ("– –→").
+The metric-compatible URW "Standard Symbols PS" (Debian/Ubuntu fonts-urw-base35, a dependency of
+the HST .deb) is now the first substitute for Symbol, and symbol-encoded text (U+F0xx) is recoded
+to its codes; OpenSymbol stays the fallback. Windows and macOS have Symbol and are unaffected.
+
+--- a/officecfg/registry/data/org/openoffice/VCL.xcu
++++ b/officecfg/registry/data/org/openoffice/VCL.xcu
+@@ -4945,7 +4945,7 @@
+       </node>
+       <node oor:name="symbol" oor:op="replace">
+         <prop oor:name="SubstFonts">
+-          <value>starsymbol;opensymbol;standardsymbols;standardsymbolsl;mtsymbol;opensymbol;starsymbol;opensymbol;starbats;wingdings;zapfdingbats;itczapfdingbats;monotypesorts;dingbats;lucidadingbats;lucidasansdingbats;webdings;symbol;standardsymbols;standardsymbolsl;andalesansui;arialunicodems;lucidaunicode</value>
++          <value>standardsymbolsps;starsymbol;opensymbol;standardsymbols;standardsymbolsl;mtsymbol;opensymbol;starsymbol;opensymbol;starbats;wingdings;zapfdingbats;itczapfdingbats;monotypesorts;dingbats;lucidadingbats;lucidasansdingbats;webdings;symbol;standardsymbols;standardsymbolsl;andalesansui;arialunicodems;lucidaunicode</value>
+         </prop>
+         <prop oor:name="SubstFontsMS">
+           <value/>
+--- a/unotools/source/misc/fontcvt.cxx
++++ b/unotools/source/misc/fontcvt.cxx
+@@ -1334,6 +1334,18 @@
+ 
+ const ConvertChar aImplStarSymbolCvt = { nullptr, u"StarBats"_ustr, ImplStarSymbolToStarBats };
+ 
++// HST Office: URW "Standard Symbols PS" (fonts-urw-base35) is a metric-compatible Symbol clone
++// whose Unicode cmap holds the glyphs at the Symbol byte codes; symbol-encoded text (U+F0xx)
++// is recoded to those codes, so equation pieces (long arrows, brackets) join as with Symbol.
++static sal_Unicode ImplSymbolToStandardSymbolsPS( sal_Unicode c )
++{
++    if( c >= 0xF020 && c <= 0xF0FF )
++        return c - 0xF000;
++    return c;
++}
++
++const ConvertChar aImplStandardSymbolsPSCvt = { nullptr, u"Standard Symbols PS"_ustr, ImplSymbolToStandardSymbolsPS };
++
+ const ConvertChar* ConvertChar::GetRecodeData( std::u16string_view rOrgFontName, std::u16string_view rMapFontName )
+ {
+     const ConvertChar* pCvt = nullptr;
+@@ -1357,6 +1369,11 @@
+     //It's plausible that it's better to implement this
+     //as an additional encoding alongside the existing
+     //adobe-symbol to unicode conversion in rtl instead
++    else if( aMapName == "standardsymbolsps" )
++    {
++        if( aOrgName == "symbol" )
++            pCvt = &aImplStandardSymbolsPSCvt;
++    }
+     else if( aMapName == "applesymbol" )
+     {
+         for (auto const & r: aAppleSymbolRecodeTable)

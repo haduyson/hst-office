@@ -45,6 +45,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 PACKAGE = "hst-office"
 MAINTAINER = "HASON TECH <lienhe@hasontech.vn>"
 HOMEPAGE = "https://office.hasontech.vn"
+# Distribution packages the merged package needs beyond the split packages' own Depends.
+EXTRA_DEPENDS = ["fonts-urw-base35"]
 SCRIPTS = ("preinst", "postinst", "prerm", "postrm")
 
 DESCRIPTION = """\
@@ -266,6 +268,11 @@ def build_control(infos, stage, version):
         # Bundled Python (--enable-python=internal): the distribution's one is not needed.
         depends = [c for c in depends if not re.match(r"(libpython|python3)", c)]
     depends = [with_t64_alternative(c) for c in depends]
+    # Metric-compatible Symbol font: MathType/Word equations without the Windows Symbol font
+    # (Linux) draw long arrows from its pieces; OpenSymbol's pieces leave gaps.
+    for extra in EXTRA_DEPENDS:
+        if extra not in depends:
+            depends.append(extra)
     archs = {i.get("Architecture") for i in infos} - {"all"}
     if archs != {"amd64"}:
         die(f"expected only amd64/all packages, got {sorted(archs)}")
