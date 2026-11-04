@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Owner-supplied source, extracted lettering, shared mark and distinct Post palette."""
+import colorsys
 import hashlib
 import json
 from pathlib import Path
@@ -87,20 +88,48 @@ class ArtworkTests(unittest.TestCase):
                 with self.subTest(letter=char):
                     self.assertGreater(len(expected & actual) / len(expected | actual), .98)
 
-    def test_post_icon_and_violet_palette_reach_generated_assets(self):
+    def test_post_icon_and_forest_palette_reach_generated_assets(self):
         brands = json.loads((ART / "brands.json").read_text())
         post = brands["hst-post"]
         self.assertEqual(post["logo"], "hst-post-icon.svg")
         self.assertEqual(post["logoWidth"], 30)
-        self.assertEqual(post["accent"], "#6d28d9")
+        self.assertEqual(post["accent"], "#245c2a")
         self.assertNotEqual(post["accent"], brands["hst-seo"]["accent"])
         for path in [ART / f"hst-post@{scale}x.png" for scale in (1, 2, 3)] + [
             Path(ROOT) / "assets/hst-post" / name for name in
-            ("og-hst-post.png", "og-hst-post@2x.png", "og-hst-post-square.png")
+            ("og-hst-post.png", "og-hst-post.jpg", "og-hst-post@2x.png", "og-hst-post-square.png")
         ]:
             with Image.open(path) as image:
-                count = sum(pixel == ImageColor.getrgb(post["accent"]) for pixel in image.convert("RGB").getdata())
+                colors = image.convert("RGB").getcolors(image.width * image.height)
+                accent = ImageColor.getrgb(post["accent"])
+                tolerance = 8 if path.suffix == ".jpg" else 0
+                count = sum(n for n, pixel in colors
+                            if max(abs(a - b) for a, b in zip(pixel, accent)) <= tolerance)
                 self.assertGreater(count, 100, path)
+                if path.suffix == ".png":
+                    old_colors = {ImageColor.getrgb(c) for c in
+                                  ("#6d28d9", "#f5f0ff", "#ede5fa", "#d6c2ef", "#aa84d9")}
+                    self.assertFalse(old_colors.intersection(pixel for _, pixel in colors), path)
         for name in ("favicon-32.png", "apple-touch-icon.png", "icon-512.png"):
             with Image.open(Path(ROOT) / "assets/hst-post" / name) as image:
                 self.assertEqual(image.getpixel((0, 0)), ImageColor.getrgb(post["tint"]))
+        favicon = ET.parse(Path(ROOT) / "assets/hst-post/favicon.svg").getroot()
+        self.assertEqual(favicon.find(SVG + "rect").get("fill"), post["tint"])
+
+    def test_post_text_contrast_and_separation_from_teal(self):
+        brands = json.loads((ART / "brands.json").read_text())
+        post, chatbot = brands["hst-post"], brands["echatbot"]
+        def hue(color):
+            return colorsys.rgb_to_hls(*(c / 255 for c in ImageColor.getrgb(color)))[0] * 360
+        self.assertTrue(100 <= hue(post["accent"]) <= 135, "Post must remain a warm forest green")
+        self.assertGreaterEqual(hue(chatbot["accent"]) - hue(post["accent"]), 40)
+        self.assertGreaterEqual(hue(chatbot["tint"]) - hue(post["tint"]), 40)
+        def luminance(color):
+            channels = [c / 255 for c in ImageColor.getrgb(color)]
+            linear = [c / 12.92 if c <= .04045 else ((c + .055) / 1.055) ** 2.4 for c in channels]
+            return sum(c * weight for c, weight in zip(linear, (.2126, .7152, .0722)))
+        for foreground in (post["ink"], post["accent"], "#25364a", "#526071", "#322e2e"):
+            for background in ("#ffffff", post["tint"]):
+                with self.subTest(foreground=foreground, background=background):
+                    lo, hi = sorted((luminance(foreground), luminance(background)))
+                    self.assertGreaterEqual((hi + .05) / (lo + .05), 4.5)

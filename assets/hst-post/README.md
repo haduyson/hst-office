@@ -9,7 +9,7 @@ Launch-ready web assets for `https://post.hasontech.vn/`. Deploy this directory 
 | [og-hst-post@2x.png](og-hst-post@2x.png) | 2400 × 1260 | High-resolution landscape master for reuse. |
 | [og-hst-post.jpg](og-hst-post.jpg) | 1200 × 630 | Optimised progressive JPEG, under 300,000 bytes; used by the tags below. |
 | [og-hst-post-square.png](og-hst-post-square.png) | 1200 × 1200 | Re-composed square artwork for square preview placements. |
-| [favicon.svg](favicon.svg) | Vector, 320 × 320 viewBox | Square HS logo icon on pale violet, for browser tabs. |
+| [favicon.svg](favicon.svg) | Vector, 320 × 320 viewBox | Square HS logo icon on pale moss, for browser tabs. |
 | [favicon-32.png](favicon-32.png) | 32 × 32 | PNG browser icon fallback. |
 | [apple-touch-icon.png](apple-touch-icon.png) | 180 × 180 | Opaque home-screen icon. |
 | [icon-512.png](icon-512.png) | 512 × 512 | Large square icon for web/app integrations. |
@@ -88,11 +88,11 @@ Sources:
   [HTML/SVG composition](../../scripts/brand/hst-post-social.html).
 - Existing [HST POST logo](../../extensions/hst-vietnamese-tools/banners/logos/hst-post.svg)
   and [square icon](../../extensions/hst-vietnamese-tools/banners/logos/hst-post-icon.svg).
-  The favicon adds an opaque pale-violet canvas to the unchanged official blue mark.
+  The favicon adds an opaque pale-moss canvas to the unchanged official blue mark.
   The full logo uses the owner-supplied official source and extracted dark `#322e2e` lettering.
 - Bundled Be Vietnam Pro Regular, SemiBold and Bold, with
   [SIL Open Font License](../../extensions/hst-vietnamese-tools/banners/fonts/OFL.txt).
-- Shared violet [brand palette](../../extensions/hst-vietnamese-tools/banners/brands.json)
+- Shared forest green [brand palette](../../extensions/hst-vietnamese-tools/banners/brands.json)
   and [logo provenance](../banners/SOURCES.md).
 
 All landscape text and the entire logo box stay inside `x=60…1140`, `y=32…598`
@@ -100,9 +100,18 @@ All landscape text and the entire logo box stay inside `x=60…1140`, `y=32…59
 60 px safe margins. The four channel glyphs are original generic conversation,
 gallery, feed and community drawings, with no other companies' marks or implied integrations.
 
-Text contrast against its solid background is 12.32:1 for slate body copy, **7.10:1**
-for violet `#6d28d9` headline/footer text, and
+The owner-selected deep green direction uses **`#245c2a`** for accents and text,
+**`#f2f7e8`** for background washes and icon canvases, `#e4edcf` for soft fills,
+`#b9ce96` for illustration outlines and `#7d9e55` for muted illustration details.
+Its warm green hue (126.43°) is 46.25° away from eChatbot's teal `#07594f` (172.68°).
+The [banner preview](../../docs/design/banners-preview.png) includes the two cards
+side by side for comparison.
+
+Text contrast against its solid white background is 12.32:1 for slate body copy, **7.96:1**
+for forest green `#245c2a` headline/footer text, and
 **13.41:1** for the dark `#322e2e` company name and logo lettering. No text sits on a
 gradient. The renderer reads the same HST Post palette as the banner from `brands.json`.
+Green text also achieves **7.29:1** on the pale-moss tint; the banner's lowest text
+contrast is **5.88:1** for `#526071` on that tint. All text pairs exceed 4.5:1.
 The launch copy describes the product and invites readers to use `post.hasontech.vn`,
 without invented usage claims.

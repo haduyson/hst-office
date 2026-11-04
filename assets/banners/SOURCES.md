@@ -15,7 +15,7 @@ and advertised web manifest. The committed copies live under
 | eChatbot / `echatbot.svg` | [Official favicon vector](https://echatbot.vn/assets/favicon.svg) | True vector; same speech-bubble mark as the site header. Site theme `#07594f`. |
 | Zalo Mini App / `espace.png` | [eSpace product icon, 360×360](https://espace.vn/zaloapp/espace-logo.png) | The product's own current icon, advertised as favicon and touch icon. Blue sampled from logo; accent `#0068ff`. |
 | HST SEO / `hst-seo.png` | [Official touch icon, 180×180](https://seo.hasontech.vn/apple-touch-icon.png) | Actual product touch icon, sufficient for the 32px slot even at 3×; the page header uses the company logo. Site CSS `--blue: #0874c9`, `--blue-dark: #005a9f`. |
-| HST Post / `hst-post.svg`, `hst-post-512.png`, `hst-post-1024.png`, `hst-post-icon.svg`, `hst-post-icon-512.png` | Owner-supplied official `hasontech-official-logo.png` (476×393, RGBA), retained as `logos/hasontech.png` | Official blue HS triangle; H/S/T/O extracted from the all-caps official wordmark, P constructed from O/H strokes. All lettering is dark `#322e2e`. Surrounding product artwork uses violet `#6d28d9`. |
+| HST Post / `hst-post.svg`, `hst-post-512.png`, `hst-post-1024.png`, `hst-post-icon.svg`, `hst-post-icon-512.png` | Owner-supplied official `hasontech-official-logo.png` (476×393, RGBA), retained as `logos/hasontech.png` | Official blue HS triangle; H/S/T/O extracted from the all-caps official wordmark, P constructed from O/H strokes. All lettering is dark `#322e2e`. Surrounding product artwork uses forest green `#245c2a`. |
 | AI Dễ Lắm / `ai-de-lam.svg` | [Official page's inline `rel=icon` SVG](https://aidelam.com) | URL-decoded exact SVG, not a recreation. Gradient stops `#0f3ea0`, `#2570e6`. Live `og-aidelam.png` returned HTTP 403; the inline vector is sharper for this slot. |
 | Company / `hasontech.png` | **Official file supplied by the owner:** `/work/banner-inbox/local/hasontech-official-logo.png` | Unmodified 476×393 RGBA reference: blue HS triangle above italic, all-caps, one-colour “HASON TECH”. Supersedes the previously selected website logo. |
 
@@ -61,11 +61,17 @@ icon beside its large “HST Post” title. `scripts/brand/render-hst-post-logo.
 all five logo assets and the side-by-side preview from the committed outlines, verifying
 the official source hash first. `--check` compares all six outputs byte for byte.
 
-HST Post's banner and social artwork share `brands.json`: violet **`#6d28d9`** for accents
-and text, pale violet `#f5f0ff` for backgrounds, and related violet illustration shades.
-Text contrast is **7.10:1 on white** and **6.36:1 on the tint**, exceeding 4.5:1. HST SEO
-retains its separate blue palette. The official blue mark and dark wordmark are preserved.
-Social favicons use the same square mark on an opaque pale-violet canvas.
+At the owner's request, HST Post's banner and social artwork share a deep forest green
+palette in `brands.json`: **`#245c2a`** for accents and text, pale moss `#f2f7e8` for
+backgrounds, `#e4edcf` for soft fills, `#b9ce96` for illustration outlines and `#7d9e55`
+for muted illustration details. Green text contrast is **7.96:1 on white** and
+**7.29:1 on the tint**. The lowest added-text contrast is **5.88:1** (`#526071` on
+`#f2f7e8`), exceeding 4.5:1. Renderers and regression tests check these text pairs.
+The green's hue is 126.43°, more yellow than eChatbot's 172.68° teal `#07594f`
+(46.25° apart); pale moss also separates the backgrounds. The generated banner preview
+includes both cards side by side at their actual ribbon size for visual review.
+HST SEO retains its separate blue palette. The official blue mark and dark wordmark
+are preserved. Social favicons use the same square mark on an opaque pale-moss canvas.
 
 ## Font
 

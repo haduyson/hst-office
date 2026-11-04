@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ART = ROOT / "extensions/hst-vietnamese-tools/banners"
 DESIGN = ROOT / "docs/design"
 FONT = ART / "fonts"
-GENERATED_AT = "2026-11-04T00:00:00Z"
+GENERATED_AT = "2026-11-04T00:01:00Z"
 
 
 def luminance(color):
@@ -57,7 +57,7 @@ def png_bytes(image):
 
 
 def preview(outputs, solutions):
-    sheet = Image.new("RGB", (1200, 1592), "#f2f5f8")
+    sheet = Image.new("RGB", (1200, 1792), "#f2f5f8")
     draw = ImageDraw.Draw(sheet)
     bold = ImageFont.truetype(str(FONT / "BeVietnamPro-Bold.ttf"), 24)
     regular = ImageFont.truetype(str(FONT / "BeVietnamPro-Regular.ttf"), 14)
@@ -70,6 +70,11 @@ def preview(outputs, solutions):
         for scale, x in ((1, 32), (2, 440)):
             im = Image.open(io.BytesIO(outputs[ART / f'{solution["id"]}@{scale}x.png']))
             sheet.paste(im, (x, y), im)
+    draw.text((32, 1590), "HST Post / eChatbot · So sánh bảng màu", font=bold, fill="#192d43")
+    draw.text((32, 1628), "1× · Xanh lá cây đậm / Xanh ngọc đậm", font=regular, fill="#526071")
+    for name, x in (("hst-post", 32), ("echatbot", 440)):
+        im = Image.open(io.BytesIO(outputs[ART / f"{name}@1x.png"]))
+        sheet.paste(im, (x, 1660), im)
     return png_bytes(sheet)
 
 

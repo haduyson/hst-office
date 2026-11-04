@@ -102,7 +102,7 @@ def render():
     values.update(BRAND)
     values["logo"] = data_url(ART / "logos/hst-post.svg", "image/svg+xml")
     icon = (ART / "logos/hst-post-icon.svg").read_text(encoding="utf-8")
-    # Opaque violet tint carries the product palette while preserving the official blue mark.
+    # Opaque moss tint carries the product palette while preserving the official blue mark.
     icon = icon.replace("</title>", f'</title><rect width="320" height="320" fill="{BRAND["tint"]}"/>', 1)
     outputs[DEST / "favicon.svg"] = icon.encode("utf-8")
     with sync_playwright() as pw:

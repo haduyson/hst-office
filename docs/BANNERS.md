@@ -20,8 +20,10 @@ Be Vietnam Pro is bundled with its [OFL licence](../extensions/hst-vietnamese-to
 Names are 18px, taglines 12.5px, CTA and company endorsement 12px. The renderer asserts
 at least 4.5:1 contrast for all added text against both gradient endpoints, font readiness,
 loaded logos and a maximum of two tagline lines. Original logo colours are preserved.
-HST Post uses the square HS mark beside its large name and a distinct violet `#6d28d9`
-palette (7.10:1 on white, 6.36:1 on the pale violet background). Its full logo derives
+HST Post uses the square HS mark beside its large name and a deep forest green `#245c2a`
+palette (7.96:1 on white, 7.29:1 on the pale-moss `#f2f7e8` background). All added text
+achieves at least 5.88:1. Its warm green hue is 46.25° away from eChatbot's dark teal
+`#07594f`; the preview includes a side-by-side comparison at 1×. Its full logo derives
 from the owner-supplied official 476×393 file, with extracted all-caps dark lettering.
 [Logo comparison](design/hst-post-logo-preview.png) shows the logo, square icon and original together.
 
