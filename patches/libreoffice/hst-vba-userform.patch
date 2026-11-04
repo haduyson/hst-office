@@ -1,0 +1,60 @@
+HST Office: new UserForms in the VBA editor of HST Writer and HST Sheets (owner request, beta.5).
+
+In a document whose macros are in VBA mode (an Excel/Word file, or one prepared by "Macro VBA"),
+a dialog inserted in the Basic IDE (Insert > Basic Dialog, or the Basic Macros organizer) is now a
+VBA UserForm, as in the Office VBA editor:
+- it is named UserForm1, UserForm2, ... (not Dialog1), avoiding the module names too;
+- a form module of the same name (ModuleType FORM, "Option VBASupport 1") is created with it, so
+  VBA code can use UserForm1.Show, Load/Unload, .Caption and the control events
+  (Private Sub CommandButton1_Click() in that module).
+Documents that are not in VBA mode keep LibreOffice Basic dialogs named Dialog1, ...
+
+License: this upstream file remains under its original license (MPL-2.0).
+Test: tests/runtime/check-vba-editor.py (UserForm1 in Sheets and Writer).
+---
+--- a/basctl/source/basicide/scriptdocument.cxx
++++ b/basctl/source/basicide/scriptdocument.cxx
+@@ -751,6 +751,24 @@
+ 
+             // insert dialog into library
+             xLib->insertByName( _rDialogName, Any( _out_rDialogProvider ) );
++
++            // HST: in a VBA-mode document a new dialog is a UserForm: its form module (same name,
++            // ModuleType FORM) makes UserForm1.Show, Load/Unload and the control events work.
++            if ( isInVBAMode() )
++            {
++                Reference< XNameContainer > xModLib( getLibrary( E_SCRIPTS, _rLibName, true ), UNO_SET_THROW );
++                Reference< css::script::vba::XVBAModuleInfo > xVBAModuleInfo( xModLib, UNO_QUERY );
++                if ( xVBAModuleInfo.is() && !xModLib->hasByName( _rDialogName ) )
++                {
++                    css::script::ModuleInfo aModuleInfo;
++                    aModuleInfo.ModuleType = css::script::ModuleType::FORM;
++                    aModuleInfo.ModuleObject = getDocument();
++                    xVBAModuleInfo->insertModuleInfo( _rDialogName, aModuleInfo );
++                    xModLib->insertByName( _rDialogName, Any( u"Rem Attribute VBA_ModuleType=VBAFormModule\n"
++                        "Option VBASupport 1\n"
++                        "' Mã của biểu mẫu: ví dụ Private Sub CommandButton1_Click() ... End Sub\n"_ustr ) );
++                }
++            }
+         }
+         catch( const Exception& )
+         {
+@@ -1227,10 +1245,17 @@
+     {
+         OUString aObjectName;
+ 
+-        OUString aBaseName = _eType == E_SCRIPTS ? u"Module"_ustr : u"Dialog"_ustr;
++        // HST: dialogs of a VBA-mode document are UserForms, named like in the Office VBA editor
++        const bool bUserForm = _eType == E_DIALOGS && isInVBAMode();
++        OUString aBaseName = _eType == E_SCRIPTS ? u"Module"_ustr : ( bUserForm ? u"UserForm"_ustr : u"Dialog"_ustr );
+ 
+         const Sequence< OUString > aUsedNames( getObjectNames( _eType, _rLibName ) );
+         std::set< OUString > aUsedNamesCheck( aUsedNames.begin(), aUsedNames.end() );
++        if ( bUserForm ) // the form module has the same name as the dialog
++        {
++            const Sequence< OUString > aModuleNames( getObjectNames( E_SCRIPTS, _rLibName ) );
++            aUsedNamesCheck.insert( aModuleNames.begin(), aModuleNames.end() );
++        }
+ 
+         bool bValid = false;
+         sal_Int32 i = 1;

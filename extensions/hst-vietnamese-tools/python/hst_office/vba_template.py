@@ -89,3 +89,8 @@ def same_text(a, b):
         lines = [line for line in lines if not line.startswith("Rem Attribute VBA_")]
         return unicodedata.normalize("NFC", "\n".join(lines)).strip("\n")
     return norm(a) == norm(b)
+
+
+def is_excel_filter(name):
+    """True for the filters that write an Excel file (xls, xlsx, xlsm, Excel templates)."""
+    return bool(name) and ("Excel" in name or "Calc Office Open XML" in name)

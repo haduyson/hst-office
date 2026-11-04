@@ -138,6 +138,18 @@ class LaterPatches(unittest.TestCase):
             self.assertIn(needle, objects)
 
 
+class SaveCheck(unittest.TestCase):
+    def test_excel_filters_get_the_userform_hint(self):
+        check = vba_template
+        for name in ("MS Excel 97", "Calc MS Excel 2007 XML", "Calc Office Open XML VBA", "Calc MS Excel 2007 VBA XML"):
+            self.assertTrue(check.is_excel_filter(name), name)
+        for name in ("calc8", "MS Word 97", ""):
+            self.assertFalse(check.is_excel_filter(name), name)
+        jobs = read(os.path.join(EXT, "Jobs.xcu"))
+        self.assertIn("org.hst.office.vi.VbaSaveCheckJob", jobs)
+        self.assertIn('oor:name="OnSaveAsDone"', jobs)
+
+
 class Menu(unittest.TestCase):
     def test_menu_item_for_writer_and_sheets(self):
         root = ET.parse(os.path.join(EXT, "Addons.xcu")).getroot()

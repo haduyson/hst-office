@@ -138,6 +138,47 @@ def check_security_prompt(office, out, shots):
     loader.join(30)
 
 
+def check_userform(office, kind, app):
+    """A dialog inserted in the editor of a VBA-mode document is a UserForm that VBA code can use."""
+    doc = office.load(f"private:factory/{kind}")
+    office.dispatch(doc.getCurrentController().getFrame(), "org.hst.office.vi:EditVba")
+    wait(lambda: ide_frame(office) is not None)
+    office.dispatch(ide_frame(office), ".uno:NewDialog")
+    project = vba_template.project_name(app)
+    dialogs = doc.DialogLibraries
+    ok = wait(lambda: dialogs.hasByName(project) and dialogs.getByName(project).hasByName("UserForm1"), 10)
+    lib = doc.BasicLibraries.getByName(project)
+    form = lib.hasByName("UserForm1") and lib.getModuleInfo("UserForm1").ModuleType == 3
+    check(f"{app}: a new dialog in the editor is UserForm1 with its form module", ok and form,
+          f"dialog={ok} module={lib.hasByName('UserForm1')}")
+    close_ide(office)
+    vba.add_module(lib, "HstForm", vba_template.OPTION_LINE + '\nFunction T()\n  UserForm1.Caption = "Biểu mẫu HST"\n'
+                   '  T = UserForm1.Caption\n  Unload UserForm1\nEnd Function\n')
+    try:
+        got = doc.getScriptProvider().getScript(
+            f"vnd.sun.star.script:{project}.HstForm.T?language=Basic&location=document").invoke((), (), ())[0]
+    except Exception as error:  # noqa: BLE001
+        got = repr(error)
+    check(f"{app}: VBA code uses the new UserForm (UserForm1.Caption, Unload)", got == "Biểu mẫu HST", got)
+    if app == "calc":
+        # Excel files do not get the UserForm designs: saving as .xlsm shows the Vietnamese hint
+        import threading
+        import uno
+        from com.sun.star.beans import PropertyValue
+        prop = PropertyValue()
+        prop.Name, prop.Value = "FilterName", "Calc Office Open XML VBA"
+        path = os.path.join(office.workdir, "form.xlsm")
+        saver = threading.Thread(target=lambda: doc.storeAsURL(uno.systemPathToFileUrl(path), (prop,)), daemon=True)
+        saver.start()
+        hint = wait(lambda: window(office, r"^Macro VBA$") is not None, 20)
+        check("calc: saving a workbook with a UserForm as .xlsm warns that the form is not written", hint,
+              str(hst_gui.toplevels(office.display, office.pid)))
+        if hint:
+            keys(office, window(office, r"^Macro VBA$")[0], "Return")
+        saver.join(20)
+    doc.close(True)
+
+
 def check_worksheet_change(office, out):
     """Worksheet_Change of an Excel file runs when the user types into a cell."""
     import shutil
@@ -186,6 +227,8 @@ def main():
     try:
         check_app(office, "scalc", "calc", r"HST Sheets$", args.shots)
         check_app(office, "swriter", "writer", r"HST Writer$", args.shots)
+        check_userform(office, "scalc", "calc")
+        check_userform(office, "swriter", "writer")
         check_worksheet_change(office, os.path.abspath(args.out))
         check_security_prompt(office, os.path.abspath(args.out), args.shots)
     finally:
