@@ -16,6 +16,9 @@ NAV = [
     ("Liên hệ", "#lien-he", None),
 ]
 CTA = ("Tải miễn phí", "/#tai-ve")
+# Nhóm Facebook hỗ trợ: thanh trên cùng (cuộn đi cùng trang) và mục trên menu (trong header dính).
+SUPPORT_BAR = '<a class="support-bar" href="https://www.facebook.com/share/g/1TvVaU6q4V/" target="_blank" rel="noopener nofollow"><svg class="fb-icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M24 12a12 12 0 1 0-13.9 11.9v-8.400H7.100V12h3V9.400c0-3 1.800-4.700 4.500-4.700 1.300 0 2.700.2 2.700.2v3h-1.500c-1.500 0-2 .9-2 1.900V12h3.400l-.5 3.500h-2.900v8.400A12 12 0 0 0 24 12Z"/></svg><span>Cần hỗ trợ khi dùng HST Office? <strong>Tham gia nhóm Facebook</strong></span> <span aria-hidden="true">→</span></a>'
+NAV_SUPPORT = '<a class="nav-support" href="https://www.facebook.com/share/g/1TvVaU6q4V/" target="_blank" rel="noopener nofollow">Nhóm hỗ trợ</a>'
 FOOTER_NAV = [("Trang chủ", "/", "home"), ("Tính năng", "/#tinh-nang", None), ("Tải về", "/#tai-ve", None),
               ("Hướng dẫn", "/huong-dan/", "guide"), ("Điểm mới", "/diem-moi/", "whats-new")]
 
@@ -31,7 +34,8 @@ def _link(label, href, key, active, cls=""):
 
 def render_header(active):
     links = "\n        ".join(_link(l, h, k, active) for l, h, k in NAV)
-    return f"""<header class="site-header">
+    return f"""{SUPPORT_BAR}
+  <header class="site-header">
     <div class="container header-inner">
       <a class="brand" href="/" aria-label="HST Office — Trang chủ">
         {LOGO}
@@ -39,6 +43,7 @@ def render_header(active):
       <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav" hidden><span>Menu</span><span class="menu-lines" aria-hidden="true"></span></button>
       <nav class="main-nav" id="main-nav" aria-label="Điều hướng chính">
         {links}
+        {NAV_SUPPORT}
         <a class="button button-small" href="{CTA[1]}">{CTA[0]} <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg></a>
       </nav>
     </div>
