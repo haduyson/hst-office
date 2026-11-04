@@ -30,6 +30,9 @@ class HstMenuOrder(unittest.TestCase):
     def test_solutions_and_update_are_last(self):
         self.assertEqual(menu_urls()[-2:], ["org.hst.office.vi:ShowSolutions", "org.hst.office.update:Check"])
 
+    def test_feature_search_comes_right_before_them(self):
+        self.assertEqual(menu_urls()[-3], ".uno:CommandPopup")
+
 
 if __name__ == "__main__":
     unittest.main()

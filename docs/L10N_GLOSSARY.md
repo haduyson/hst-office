@@ -30,6 +30,7 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 | Home (thẻ ribbon) | Trang đầu | |
 | File (menu) | Tập tin | giữ theo bản dịch lõi |
 | Certificate | Chứng thư số | quyết định của chủ dự án (2026-11-01): thuật ngữ pháp lý của Luật Giao dịch điện tử và cách gọi của VNPT-CA, Viettel-CA. Nhãn ngắn được viết "chứng thư" khi đã rõ là chứng thư số ("Lựa chọn chứng thư", "Xem chứng thư…", "Cấp bởi"); câu đầy đủ dùng "chứng thư số". Không dùng "chứng chỉ", "chứng nhận" trong ký số. Chứng chỉ SSL của trang web (uui) chưa đổi |
+| Search Commands (Shift+Esc) | Tìm tính năng… | quyết định của chủ dự án (2026-11-04): ô tìm lệnh theo tên, gõ không dấu cũng được; có ở Trợ giúp, menu HST và thẻ Trang đầu. Ô nhập ghi "Gõ tên tính năng, không dấu cũng được". Không dùng "Tìm lệnh" |
 | Cancel / Yes / No | Hủy / Có / Không | viết "Hủy", không "Huỷ"; không dùng "Thôi", "Đồng ý" cho Yes |
 
 Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`, `%1`, `%s`) và số dạng số nhiều;

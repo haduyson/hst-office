@@ -1,0 +1,483 @@
+HST Office: "Tìm tính năng…" (Search Commands, Shift+Esc) finds features typed without diacritics, including the HST add-on commands, and has a button on the Home tab of the ribbon.
+
+- sfx2/source/commandpopup/CommandPopup.cxx, sfx2/inc/commandpopup/CommandPopup.hxx:
+  - Matching is case-, diacritic- and NFC/NFD-insensitive: labels, menu paths, tooltips and the
+    typed text are compared as search keys (ICU NFD, combining marks removed, case-folded, "đ"
+    as "d", white space collapsed), so "chu ky" finds "Chữ ký số…" and "dinh dang" finds
+    "Định dạng…".
+  - Ranking: label starts with the text, then a word of the label starts with it, then the menu
+    path ("Menu ▸ Submenu ▸ Item") contains it, then every typed word occurs in the menu path or
+    the tooltip. (The upstream "starts with" pass looked for " / " in a path joined with " ▸ "
+    and never matched.)
+  - The add-on menus (Addons.xcu OfficeMenuBar, e.g. the HST menu of the bundled extension) are
+    merged into the menu bar at runtime and are not part of the module menu bar settings, so the
+    popup never listed them. They are now read from the configuration (localized titles, order
+    as in the menu, Context filtered by the current module) and listed as "HST ▸ Văn bản hành
+    chính…". Add-on commands have no SFX slot: they are offered when the frame has a dispatcher
+    for them (queryDispatch), and run through the same dispatch as before.
+- sw/sc/sd notebookbar.ui (Tabbed UI, the HST default): a "Search Commands" button
+  (.uno:CommandPopup, magnifier icon, label of the command, "Tìm tính năng…" in the vi UI) in the
+  right-hand block of the Home tab, which never collapses into the overflow menu: in HST Writer
+  next to "Văn bản hành chính", in HST Sheets and HST Slides as a third row under the search
+  icons. The .ui label is only a fallback required by the accessibility check.
+- Shift+Esc stays the shortcut on every platform (also macOS: ⇧⎋, no system conflict).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-feature-search.py (ribbon buttons, Shift+Esc, searches "chu ky",
+"dinh dang", "van ban hanh chinh", "chuyen ma", "usb", Enter opens the ND 30 wizard, HST menu).
+---
+--- a/sfx2/inc/commandpopup/CommandPopup.hxx
++++ b/sfx2/inc/commandpopup/CommandPopup.hxx
+@@ -19,6 +19,7 @@
+ #include <com/sun/star/uno/XComponentContext.hpp>
+ #include <com/sun/star/frame/XFrame.hpp>
+ #include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/container/XNameAccess.hpp>
+ #include <com/sun/star/i18n/XCharacterClassification.hpp>
+ #include <com/sun/star/util/XURLTransformer.hpp>
+ 
+@@ -44,6 +45,9 @@
+     OUString m_aSearchableMenuLabel;
+     OUString m_aFullLabelWithPath;
+     OUString m_aTooltip;
++    // HST Office: case- and diacritic-folded own label and tooltip (see foldForSearch)
++    OUString m_aSearchableLabel;
++    OUString m_aSearchableTooltip;
+     std::vector<MenuContent> m_aSubMenuContent;
+ };
+ 
+@@ -58,6 +62,7 @@
+     MenuContent m_aMenuContent;
+     OUString m_sModuleLongName;
+     OUString toLower(OUString const& rString);
++    void setSearchKeys(MenuContent& rContent);
+     std::unordered_set<OUString> m_aAdded;
+ 
+ public:
+@@ -66,6 +71,10 @@
+     void gatherMenuContent(css::uno::Reference<css::container::XIndexAccess> const& xIndexAccess,
+                            MenuContent& rMenuContent);
+ 
++    // HST Office: add-on menus (Addons.xcu OfficeMenuBar) for the current module
++    void gatherAddonMenuContent(css::uno::Reference<css::container::XNameAccess> const& xItems,
++                                MenuContent& rMenuContent);
++
+     void findInMenu(OUString const& rText, std::unique_ptr<weld::TreeView>& rpCommandTreeView,
+                     std::vector<CurrentEntry>& rCommandList);
+ 
+@@ -80,6 +89,10 @@
+                               std::vector<CurrentEntry>& rCommandList);
+ };
+ 
++// HST Office: search key of a text: case-folded, without diacritics (NFD, combining marks
++// removed), "đ" as "d", so "chu ky" finds "Chữ ký số…" and NFC/NFD input behave the same.
++OUString foldForSearch(OUString const& rText);
++
+ class CommandListBox final
+ {
+ private:
+--- a/sfx2/source/commandpopup/CommandPopup.cxx
++++ b/sfx2/source/commandpopup/CommandPopup.cxx
+@@ -17,6 +17,7 @@
+ #include <comphelper/processfactory.hxx>
+ #include <comphelper/dispatchcommand.hxx>
+ 
++#include <com/sun/star/frame/XDispatchProvider.hpp>
+ #include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
+ #include <com/sun/star/util/URL.hpp>
+ #include <com/sun/star/util/URLTransformer.hpp>
+@@ -26,9 +27,104 @@
+ #include <vcl/event.hxx>
+ #include <vcl/svapp.hxx>
+ #include <i18nlangtag/languagetag.hxx>
++#include <officecfg/Office/Addons.hxx>
++#include <rtl/ustrbuf.hxx>
++#include <comphelper/string.hxx>
++#include <o3tl/string_view.hxx>
++#include <comphelper/diagnose_ex.hxx>
++
++#include <unicode/normalizer2.h>
++#include <unicode/uchar.h>
++#include <unicode/unistr.h>
+ 
+ using namespace css;
+ 
++OUString foldForSearch(OUString const& rText)
++{
++    icu::UnicodeString aText(reinterpret_cast<const UChar*>(rText.getStr()), rText.getLength());
++    UErrorCode eStatus = U_ZERO_ERROR;
++    const icu::Normalizer2* pNFD = icu::Normalizer2::getNFDInstance(eStatus);
++    if (U_SUCCESS(eStatus))
++    {
++        icu::UnicodeString aDecomposed = pNFD->normalize(aText, eStatus);
++        if (U_SUCCESS(eStatus))
++            aText = aDecomposed;
++    }
++    aText.foldCase();
++
++    OUStringBuffer aKey(aText.length());
++    bool bSpace = true; // collapse runs of white space, drop leading white space
++    for (int32_t i = 0; i < aText.length(); i = aText.moveIndex32(i, 1))
++    {
++        UChar32 c = aText.char32At(i);
++        if (u_charType(c) == U_NON_SPACING_MARK || c == '~')
++            continue;
++        if (c == 0x0111) // đ (Đ is case-folded to đ); it has no decomposition
++            c = 'd';
++        if (u_isUWhiteSpace(c))
++        {
++            if (!bSpace)
++                aKey.append(' ');
++            bSpace = true;
++            continue;
++        }
++        bSpace = false;
++        aKey.appendUtf32(c);
++    }
++    return comphelper::string::stripEnd(aKey.makeStringAndClear(), ' ');
++}
++
++namespace
++{
++// rNeedle occurs in rHaystack at the start of a word
++bool containsAtWordStart(OUString const& rHaystack, OUString const& rNeedle)
++{
++    for (sal_Int32 nPos = rHaystack.indexOf(rNeedle); nPos >= 0;
++         nPos = rHaystack.indexOf(rNeedle, nPos + 1))
++    {
++        if (nPos == 0 || !u_isalnum(rHaystack[nPos - 1]))
++            return true;
++    }
++    return false;
++}
++
++// every white-space separated word of rQuery occurs in one of the texts
++bool containsAllWords(OUString const& rQuery, OUString const& rText1, OUString const& rText2)
++{
++    sal_Int32 nIndex = 0;
++    do
++    {
++        const OUString aWord(o3tl::getToken(rQuery, 0, ' ', nIndex));
++        if (!aWord.isEmpty() && rText1.indexOf(aWord) < 0 && rText2.indexOf(aWord) < 0)
++            return false;
++    } while (nIndex >= 0);
++    return true;
++}
++
++// Addons.xcu "Context": empty = every module, else a comma-separated list of module identifiers
++bool isAddonForModule(OUString const& rContext, std::u16string_view rModule)
++{
++    if (rContext.isEmpty())
++        return true;
++    sal_Int32 nIndex = 0;
++    do
++    {
++        if (o3tl::trim(o3tl::getToken(rContext, 0, ',', nIndex)) == rModule)
++            return true;
++    } while (nIndex >= 0);
++    return false;
++}
++
++template <typename T>
++T getAddonProperty(uno::Reference<container::XNameAccess> const& xNode, OUString const& rName)
++{
++    T aValue{};
++    if (xNode->hasByName(rName))
++        xNode->getByName(rName) >>= aValue;
++    return aValue;
++}
++}
++
+ MenuContentHandler::MenuContentHandler(uno::Reference<frame::XFrame> const& xFrame)
+     : m_xContext(comphelper::getProcessComponentContext())
+     , m_xFrame(xFrame)
+@@ -47,6 +143,67 @@
+         = xConfigurationManager->getSettings(u"private:resource/menubar/menubar"_ustr, false);
+ 
+     gatherMenuContent(xConfigData, m_aMenuContent);
++
++    // HST Office: the add-on menus (e.g. the HST menu of the bundled extension) are merged into
++    // the menu bar at runtime and are not part of the module menu bar settings: index them too.
++    try
++    {
++        gatherAddonMenuContent(officecfg::Office::Addons::AddonUI::OfficeMenuBar::get(),
++                               m_aMenuContent);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx", "CommandPopup: reading the add-on menus failed");
++    }
++}
++
++void MenuContentHandler::setSearchKeys(MenuContent& rContent)
++{
++    rContent.m_aSearchableMenuLabel = foldForSearch(rContent.m_aFullLabelWithPath);
++    rContent.m_aSearchableLabel = foldForSearch(rContent.m_aMenuLabel);
++    rContent.m_aSearchableTooltip = foldForSearch(rContent.m_aTooltip);
++}
++
++void MenuContentHandler::gatherAddonMenuContent(uno::Reference<container::XNameAccess> const& xItems,
++                                                MenuContent& rMenuContent)
++{
++    if (!xItems.is())
++        return;
++    std::u16string_view aMenuLabelSeparator = AllSettings::GetLayoutRTL() ? u" ◂ " : u" ▸ ";
++    // configmgr returns the set elements in the order the menu shows them
++    for (OUString const& rName : xItems->getElementNames())
++    {
++        uno::Reference<container::XNameAccess> xNode(xItems->getByName(rName), uno::UNO_QUERY);
++        if (!xNode.is())
++            continue;
++        if (!isAddonForModule(getAddonProperty<OUString>(xNode, u"Context"_ustr),
++                              m_sModuleLongName))
++            continue;
++
++        MenuContent aNewContent;
++        aNewContent.m_aCommandURL = getAddonProperty<OUString>(xNode, u"URL"_ustr);
++        aNewContent.m_aMenuLabel
++            = getAddonProperty<OUString>(xNode, u"Title"_ustr).replaceAll("~", "");
++        if (aNewContent.m_aMenuLabel.isEmpty())
++            continue;
++        if (!rMenuContent.m_aFullLabelWithPath.isEmpty())
++            aNewContent.m_aFullLabelWithPath
++                = rMenuContent.m_aFullLabelWithPath + aMenuLabelSeparator;
++        aNewContent.m_aFullLabelWithPath += aNewContent.m_aMenuLabel;
++        if (aNewContent.m_aCommandURL.startsWith(".uno:"))
++        {
++            auto aCommandProperties = vcl::CommandInfoProvider::GetCommandProperties(
++                aNewContent.m_aCommandURL, m_sModuleLongName);
++            aNewContent.m_aTooltip = vcl::CommandInfoProvider::GetTooltipForCommand(
++                aNewContent.m_aCommandURL, aCommandProperties, m_xFrame);
++        }
++        setSearchKeys(aNewContent);
++
++        gatherAddonMenuContent(
++            getAddonProperty<uno::Reference<container::XNameAccess>>(xNode, u"Submenu"_ustr),
++            aNewContent);
++        rMenuContent.m_aSubMenuContent.push_back(std::move(aNewContent));
++    }
+ }
+ 
+ void MenuContentHandler::gatherMenuContent(
+@@ -85,13 +242,16 @@
+             aNewContent.m_aCommandURL, m_sModuleLongName);
+         aNewContent.m_aMenuLabel = vcl::CommandInfoProvider::GetLabelForCommand(aCommandProperties);
+ 
++        // HST Office: the path starts with the parent's path ("Menu ▸ Submenu ▸ Item"); upstream
++        // only prepended the separator
+         if (!rMenuContent.m_aFullLabelWithPath.isEmpty())
+-            aNewContent.m_aFullLabelWithPath += aMenuLabelSeparator;
++            aNewContent.m_aFullLabelWithPath
++                = rMenuContent.m_aFullLabelWithPath + aMenuLabelSeparator;
+         aNewContent.m_aFullLabelWithPath += aNewContent.m_aMenuLabel;
+-        aNewContent.m_aSearchableMenuLabel = toLower(aNewContent.m_aFullLabelWithPath);
+ 
+         aNewContent.m_aTooltip = vcl::CommandInfoProvider::GetTooltipForCommand(
+             aNewContent.m_aCommandURL, aCommandProperties, m_xFrame);
++        setSearchKeys(aNewContent);
+ 
+         if (xIndexContainer.is())
+             gatherMenuContent(xIndexContainer, aNewContent);
+@@ -106,24 +266,36 @@
+ {
+     m_aAdded.clear();
+ 
+-    OUString aLowerCaseText = toLower(rText);
+-
+-    // find submenus and menu items that start with the searched text
+-    auto aTextStartCriterium = [](MenuContent const& rMenuContent, OUString const& rSearchText) {
+-        OUString aSearchText = " / " + rSearchText;
+-        return rMenuContent.m_aSearchableMenuLabel.indexOf(aSearchText) > 0;
+-    };
+-
+-    findInMenuRecursive(m_aMenuContent, aLowerCaseText, rpCommandTreeView, rCommandList,
+-                        aTextStartCriterium);
+-
+-    // find submenus and menu items that contain the searched text
+-    auto aTextAllCriterium = [](MenuContent const& rMenuContent, OUString const& rSearchText) {
+-        return rMenuContent.m_aSearchableMenuLabel.indexOf(rSearchText) > 0;
+-    };
++    // HST Office: case-, diacritic- and NFC/NFD-insensitive ("dinh dang" finds "Định dạng…"),
++    // best matches first.
++    const OUString aQuery = foldForSearch(rText);
++    if (aQuery.isEmpty())
++        return;
+ 
+-    findInMenuRecursive(m_aMenuContent, aLowerCaseText, rpCommandTreeView, rCommandList,
+-                        aTextAllCriterium);
++    // 1. the item's label starts with the searched text
++    findInMenuRecursive(m_aMenuContent, aQuery, rpCommandTreeView, rCommandList,
++                        [](MenuContent const& rContent, OUString const& rSearchText) {
++                            return rContent.m_aSearchableLabel.startsWith(rSearchText);
++                        });
++
++    // 2. a word of the item's label starts with the searched text
++    findInMenuRecursive(m_aMenuContent, aQuery, rpCommandTreeView, rCommandList,
++                        [](MenuContent const& rContent, OUString const& rSearchText) {
++                            return containsAtWordStart(rContent.m_aSearchableLabel, rSearchText);
++                        });
++
++    // 3. the menu path ("Menu ▸ Submenu ▸ Item") contains the searched text
++    findInMenuRecursive(m_aMenuContent, aQuery, rpCommandTreeView, rCommandList,
++                        [](MenuContent const& rContent, OUString const& rSearchText) {
++                            return rContent.m_aSearchableMenuLabel.indexOf(rSearchText) >= 0;
++                        });
++
++    // 4. every searched word occurs in the menu path or in the tooltip
++    findInMenuRecursive(m_aMenuContent, aQuery, rpCommandTreeView, rCommandList,
++                        [](MenuContent const& rContent, OUString const& rSearchText) {
++                            return containsAllWords(rSearchText, rContent.m_aSearchableMenuLabel,
++                                                    rContent.m_aSearchableTooltip);
++                        });
+ }
+ 
+ void MenuContentHandler::findInMenuRecursive(
+@@ -159,15 +331,26 @@
+     if (!pViewFrame)
+         return;
+ 
+-    SfxSlotPool& rSlotPool = SfxSlotPool::GetSlotPool(pViewFrame);
+-    const SfxSlot* pSlot = rSlotPool.GetUnoSlot(aCommandURL.Path);
+-    if (!pSlot)
+-        return;
+-
+-    std::unique_ptr<SfxPoolItem> pState;
+-    SfxItemState eState = pViewFrame->GetBindings().QueryState(pSlot->GetSlotId(), pState);
+-    if (eState == SfxItemState::DISABLED)
+-        return;
++    if (aCommandURL.Protocol == ".uno:")
++    {
++        SfxSlotPool& rSlotPool = SfxSlotPool::GetSlotPool(pViewFrame);
++        const SfxSlot* pSlot = rSlotPool.GetUnoSlot(aCommandURL.Path);
++        if (!pSlot)
++            return;
++
++        std::unique_ptr<SfxPoolItem> pState;
++        SfxItemState eState = pViewFrame->GetBindings().QueryState(pSlot->GetSlotId(), pState);
++        if (eState == SfxItemState::DISABLED)
++            return;
++    }
++    else
++    {
++        // HST Office: add-on command (protocol handler of an extension): offered when the
++        // frame has a dispatcher for it
++        uno::Reference<frame::XDispatchProvider> xProvider(m_xFrame, uno::UNO_QUERY);
++        if (!xProvider.is() || !xProvider->queryDispatch(aCommandURL, OUString(), 0).is())
++            return;
++    }
+ 
+     auto xGraphic = vcl::CommandInfoProvider::GetXGraphicForCommand(sCommandURL, m_xFrame);
+     rCommandList.emplace_back(sCommandURL, rMenuContent.m_aTooltip);
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -4029,6 +4029,22 @@
+                             <property name="show-arrow">False</property>
+                             <property name="icon_size">1</property>
+                             <child>
++                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc) -->
++                              <object class="GtkToolButton" id="Home-HstFeatureSearch">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="valign">center</property>
++                                <!-- fallback only: the toolbox shows the label of the command ("Tìm tính năng…" in vi) -->
++                                <property name="label">Search Commands</property>
++                                <property name="action-name">.uno:CommandPopup</property>
++                                <property name="icon-name">cmd/lc_recsearch.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                            <child>
+                               <object class="GtkToolButton" id="Home-HstNd30Wizard">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -4051,6 +4051,41 @@
+                             <property name="position">1</property>
+                           </packing>
+                         </child>
++                        <child>
++                          <!-- HST Office: feature search row (.uno:CommandPopup, Shift+Esc) -->
++                          <object class="sfxlo-NotebookbarToolBox" id="SectionBottomHstFeatureSearch">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="halign">end</property>
++                            <property name="valign">center</property>
++                            <property name="hexpand">True</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">1</property>
++                            <child>
++                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc) -->
++                              <object class="GtkToolButton" id="Home-HstFeatureSearch">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="valign">center</property>
++                                <!-- fallback only: the toolbox shows the label of the command ("Tìm tính năng…" in vi) -->
++                                <property name="label">Search Commands</property>
++                                <property name="action-name">.uno:CommandPopup</property>
++                                <property name="icon-name">cmd/lc_recsearch.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">True</property>
++                            <property name="position">2</property>
++                          </packing>
++                        </child>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+--- a/sd/uiconfig/simpress/ui/notebookbar.ui
++++ b/sd/uiconfig/simpress/ui/notebookbar.ui
+@@ -3949,6 +3949,41 @@
+                             <property name="position">1</property>
+                           </packing>
+                         </child>
++                        <child>
++                          <!-- HST Office: feature search row (.uno:CommandPopup, Shift+Esc) -->
++                          <object class="sfxlo-NotebookbarToolBox" id="SectionBottomHstFeatureSearch">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="halign">end</property>
++                            <property name="valign">center</property>
++                            <property name="hexpand">True</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">1</property>
++                            <child>
++                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc) -->
++                              <object class="GtkToolButton" id="Home-HstFeatureSearch">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="valign">center</property>
++                                <!-- fallback only: the toolbox shows the label of the command ("Tìm tính năng…" in vi) -->
++                                <property name="label">Search Commands</property>
++                                <property name="action-name">.uno:CommandPopup</property>
++                                <property name="icon-name">cmd/lc_recsearch.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">True</property>
++                            <property name="position">2</property>
++                          </packing>
++                        </child>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
