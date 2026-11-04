@@ -1,0 +1,224 @@
+HST Office: Name Manager shows Excel's Value column (owner-approved Microsoft Office parity for beta.5).
+
+The value is calculated when a row becomes visible, like the existing formula text: the result of the name,
+or {...} for a block of cells. Paste Names shares the table and keeps its three columns. A Comment column
+would need a new model property and a file round trip, so it is not included.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-sheets.py (name-manager).
+---
+--- a/sc/source/ui/inc/namemgrtable.hxx
++++ b/sc/source/ui/inc/namemgrtable.hxx
+@@ -27,6 +27,8 @@
+     OUString aScope;
+ };
+ 
++class ScDocument;
++
+ class SC_DLLPUBLIC ScRangeManagerTable
+ {
+ private:
+@@ -46,6 +48,11 @@
+ 
+     bool mbNeedUpdate;
+ 
++    // HST: Name Manager shows Excel's Value column; Paste Names has no such column (no document).
++    ScDocument* mpValueDoc;
++    int mnExpressionCol;
++    int mnScopeCol;
++
+     void GetLine(ScRangeNameLine& aLine, const weld::TreeIter& rEntry);
+     void Init();
+     const ScRangeData* findRangeData(const ScRangeNameLine& rLine);
+@@ -56,7 +63,7 @@
+ public:
+     ScRangeManagerTable(std::unique_ptr<weld::TreeView>,
+         const std::map<OUString, ScRangeName>& rTabRangeNames,
+-        const ScAddress& rPos);
++        const ScAddress& rPos, ScDocument* pValueDoc = nullptr);
+ 
+     void CheckForFormulaString();
+ 
+--- a/sc/source/ui/namedlg/namedlg.cxx
++++ b/sc/source/ui/namedlg/namedlg.cxx
+@@ -106,7 +106,7 @@
+     std::unique_ptr<weld::TreeView> xTreeView(m_xBuilder->weld_tree_view(u"names"_ustr));
+     xTreeView->set_size_request(xTreeView->get_approximate_digit_width() * 75,
+                                 xTreeView->get_height_rows(10));
+-    m_xRangeManagerTable.reset(new ScRangeManagerTable(std::move(xTreeView), m_RangeMap, maCursorPos));
++    m_xRangeManagerTable.reset(new ScRangeManagerTable(std::move(xTreeView), m_RangeMap, maCursorPos, &mrDoc));
+ 
+     m_xRangeManagerTable->connect_changed( LINK( this, ScNameDlg, SelectionChangedHdl_Impl ) );
+ 
+--- a/sc/source/ui/namedlg/namemgrtable.cxx
++++ b/sc/source/ui/namedlg/namemgrtable.cxx
+@@ -16,10 +16,38 @@
+ #include <globalnames.hxx>
+ #include <namemgrtable.hxx>
+ #include <rangenam.hxx>
++#include <document.hxx>
++#include <simpleformulacalc.hxx>
++#include <svl/numformat.hxx>
++#include <svl/sharedstring.hxx>
+ 
+ #include <unotools/charclass.hxx>
+ #include <vcl/vclenum.hxx>
+ #include <tools/link.hxx>
++
++namespace
++{
++/// What Excel's Value column shows: the result of a name, {...} for a block of cells.
++OUString lcl_GetNameValue(ScDocument& rDoc, const ScRangeData& rData, const ScAddress& rPos)
++{
++    ScRange aRange;
++    if (rData.IsReference(aRange) && aRange.aStart != aRange.aEnd)
++        return u"{...}"_ustr;
++
++    ScSimpleFormulaCalculator aCalculator(rDoc, rPos, rData.GetSymbol(rPos),
++                                          /*bMatrixFormula*/ false);
++    if (aCalculator.GetErrCode() != FormulaError::NONE)
++        return ScGlobal::GetErrorString(aCalculator.GetErrCode());
++    if (aCalculator.IsValue())
++    {
++        OUString aText;
++        const Color* pColor = nullptr;
++        rDoc.GetFormatTable()->GetOutputString(aCalculator.GetValue(), 0, aText, &pColor);
++        return aText;
++    }
++    return aCalculator.GetString().getString();
++}
++}
+ 
+ void ScRangeManagerTable::GetCurrentLine(ScRangeNameLine& rLine)
+ {
+@@ -45,7 +73,7 @@
+     for (int i = 0, nEntryCount = m_xTreeView->n_children(); i < nEntryCount; ++i)
+     {
+         if (rLine.aName == m_xTreeView->get_text(i, 0)
+-            && rLine.aScope == m_xTreeView->get_text(i, 2))
++            && rLine.aScope == m_xTreeView->get_text(i, mnScopeCol))
+         {
+             m_xTreeView->set_cursor(i);
+         }
+@@ -54,17 +82,23 @@
+ 
+ ScRangeManagerTable::ScRangeManagerTable(std::unique_ptr<weld::TreeView> xTreeView,
+                                          const std::map<OUString, ScRangeName>& rRangeMap,
+-                                         const ScAddress& rPos)
++                                         const ScAddress& rPos, ScDocument* pValueDoc)
+     : m_xTreeView(std::move(xTreeView))
+     , maGlobalString(ScResId(STR_GLOBAL_SCOPE))
+     , m_RangeMap(rRangeMap)
+     , maPos(rPos)
+     , m_nId(0)
+     , mbNeedUpdate(true)
++    , mpValueDoc(pValueDoc)
++    , mnExpressionCol(pValueDoc ? 2 : 1)
++    , mnScopeCol(pValueDoc ? 3 : 2)
+ {
+     auto nColWidth = m_xTreeView->get_size_request().Width() / 7;
+     std::vector<int> aWidths{ o3tl::narrowing<int>(nColWidth * 2),
+                               o3tl::narrowing<int>(nColWidth * 3) };
++    if (mpValueDoc)
++        aWidths = { o3tl::narrowing<int>(nColWidth * 2), o3tl::narrowing<int>(nColWidth),
++                    o3tl::narrowing<int>(nColWidth * 3) };
+     m_xTreeView->set_column_fixed_widths(aWidths);
+ 
+     Init();
+@@ -111,7 +145,9 @@
+             GetLine(aLine, rEntry);
+             const ScRangeData* pData = findRangeData(aLine);
+             OUString aFormulaString = pData->GetSymbol(maPos);
+-            m_xTreeView->set_text(rEntry, aFormulaString, 1);
++            m_xTreeView->set_text(rEntry, aFormulaString, mnExpressionCol);
++            if (mpValueDoc)
++                m_xTreeView->set_text(rEntry, lcl_GetNameValue(*mpValueDoc, *pData, maPos), 1);
+             maCalculatedFormulaEntries.insert(std::pair<OUString, bool>(sId, true));
+         }
+         return false;
+@@ -130,8 +166,8 @@
+     int nRow = m_xTreeView->n_children();
+     m_xTreeView->append();
+     m_xTreeView->set_text(nRow, rLine.aName, 0);
+-    m_xTreeView->set_text(nRow, rLine.aExpression, 1);
+-    m_xTreeView->set_text(nRow, rLine.aScope, 2);
++    m_xTreeView->set_text(nRow, rLine.aExpression, mnExpressionCol);
++    m_xTreeView->set_text(nRow, rLine.aScope, mnScopeCol);
+     // just unique to track which one has been cached by maCalculatedFormulaEntries
+     m_xTreeView->set_id(nRow, OUString::number(m_nId++));
+     if (bSetCurEntry)
+@@ -141,8 +177,8 @@
+ void ScRangeManagerTable::GetLine(ScRangeNameLine& rLine, const weld::TreeIter& rEntry)
+ {
+     rLine.aName = m_xTreeView->get_text(rEntry, 0);
+-    rLine.aExpression = m_xTreeView->get_text(rEntry, 1);
+-    rLine.aScope = m_xTreeView->get_text(rEntry, 2);
++    rLine.aExpression = m_xTreeView->get_text(rEntry, mnExpressionCol);
++    rLine.aScope = m_xTreeView->get_text(rEntry, mnScopeCol);
+ }
+ 
+ void ScRangeManagerTable::Init()
+--- a/sc/uiconfig/scalc/ui/managenamesdialog.ui
++++ b/sc/uiconfig/scalc/ui/managenamesdialog.ui
+@@ -9,6 +9,8 @@
+       <!-- column-name text2 -->
+       <column type="gchararray"/>
+       <!-- column-name text1 -->
++      <column type="gchararray"/>
++      <!-- column-name value -->
+       <column type="gchararray"/>
+       <!-- column-name id -->
+       <column type="gchararray"/>
+@@ -140,6 +142,19 @@
+                           </object>
+                         </child>
+                         <child>
++                          <object class="GtkTreeViewColumn" id="treeviewcolumnValue">
++                            <property name="resizable">True</property>
++                            <property name="spacing">6</property>
++                            <property name="title" translatable="yes" context="managenamesdialog|value">Value</property>
++                            <child>
++                              <object class="GtkCellRendererText" id="cellrendererValue"/>
++                              <attributes>
++                                <attribute name="text">1</attribute>
++                              </attributes>
++                            </child>
++                          </object>
++                        </child>
++                        <child>
+                           <object class="GtkTreeViewColumn" id="treeviewcolumn2">
+                             <property name="resizable">True</property>
+                             <property name="spacing">6</property>
+@@ -147,7 +162,7 @@
+                             <child>
+                               <object class="GtkCellRendererText" id="cellrenderer2"/>
+                               <attributes>
+-                                <attribute name="text">1</attribute>
++                                <attribute name="text">2</attribute>
+                               </attributes>
+                             </child>
+                           </object>
+@@ -160,7 +175,7 @@
+                             <child>
+                               <object class="GtkCellRendererText" id="cellrenderer3"/>
+                               <attributes>
+-                                <attribute name="text">2</attribute>
++                                <attribute name="text">3</attribute>
+                               </attributes>
+                             </child>
+                           </object>
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -26578,6 +26578,12 @@
+ msgid "Header (left)"
+ msgstr "Đầu trang (trái)"
+ 
++#. hstDLG
++#: sc/uiconfig/scalc/ui/managenamesdialog.ui
++msgctxt "managenamesdialog|value"
++msgid "Value"
++msgstr "Giá trị"
++
+ #. C7nbC
+ #: sc/uiconfig/scalc/ui/managenamesdialog.ui:20
+ msgctxt "managenamesdialog|ManageNamesDialog"
