@@ -88,9 +88,17 @@ không trùng; trùng do bản dịch gốc là cảnh báo (`--verbose` liệt 
 ([`access_keys_dialogs.py`](../scripts/l10n/access_keys_dialogs.py)).
 beta.5 sửa thêm các phím trùng của bản dịch gốc trong hộp thoại (293 → 37 cảnh báo, 158 → 3 phím không phải ASCII).
 Phần còn lại: 20 trùng y như bản tiếng Anh (hai nút cùng tên "_Mới", "_X:", C/M/Y/K…), 17 hộp thoại hết chữ ASCII
-(Toán: Giãn cách, Khung, Bảng, Xem của Calc…), 3 nhãn chỉ có ký hiệu (">>", "<<", "..."). Tìm và thay thế (21–23 điều khiển,
-chữ tiếng Việt chỉ cho 17 chữ ASCII) và Nhập văn bản CSV có ngoại lệ trong `access-keys-exceptions.json`; phím là duy nhất
-giữa các điều khiển mà mọi ứng dụng cùng hiện.
+(Toán: Giãn cách, Khung, Bảng, Xem của Calc…), 3 nhãn chỉ có ký hiệu (">>", "<<", "..."). Nhập văn bản CSV còn một ngoại lệ trong
+`access-keys-exceptions.json` (hết chữ).
+
+**Theo Microsoft Office** (quyết định của chủ dự án 2026-11-04: "cố gắng giữ nguyên phím tắt giống Microsoft Office"): khi
+Microsoft Office tiếng Việt có nhãn/phím tắt cho lệnh tương đương thì dùng đúng như vậy; không kiểm chứng được bản tiếng Việt thì
+theo chữ của bản tiếng Anh nếu chữ đó có trong từ tiếng Việt; phím Ctrl/Alt giữ y như Microsoft Office. Mỗi dòng override ghi
+nguồn hoặc giả định trong `reason`. Hộp Tìm và thay thế dùng thuật ngữ Word/Excel ("Tìm gì", "Thay thế bằng", "Tìm Tiếp",
+"Thay thế", "Thay thế Tất cả", "Tìm Tất cả", "Khớp chữ hoa/thường", "Chỉ tìm toàn bộ từ", "Khớp toàn bộ nội dung ô",
+"Xem trong", "Theo Hàng/Theo Cột"; nguồn: trang hỗ trợ Excel tiếng Việt của Microsoft) và không còn trùng phím trong các điều
+khiển mà Writer hoặc Calc cùng hiện; vài tùy chọn hiếm (Tìm xấp xỉ, tùy chọn tiếng châu Á/CTL, Theo định dạng hiển thị) không
+có phím.
 
 Kiểm tra: `python3 scripts/l10n/check-access-keys.py --strict` (chạy trong `scripts/ci-quality.sh`). Script
 dựng menu/ribbon từ cây nguồn (hoặc từ [`l10n/access-keys-snapshot.json`](../l10n/access-keys-snapshot.json)
