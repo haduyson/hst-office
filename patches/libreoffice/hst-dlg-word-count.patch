@@ -1,0 +1,321 @@
+HST Office: Word Count shows Pages and Paragraphs in Word's order (the numbers come from SwDocStat).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py word-count
+---
+--- a/sw/source/ui/dialog/wordcountdialog.cxx
++++ b/sw/source/ui/dialog/wordcountdialog.cxx
+@@ -66,6 +66,11 @@
+     setValue(*m_xDocCharacterExcludingSpacesFT, rDoc.nCharExcludingSpaces, rLocaleData);
+     setValue(*m_xDocCjkcharsFT, rDoc.nAsianWord, rLocaleData);
+     setValue(*m_xDocComments, rCurrent.nComments, rLocaleData);
++    // HST: pages and paragraphs, as in Word. SwDocStat starts nPara at 1 and only the document
++    // statistics reset it, so a selection's own count is one less.
++    setValue(*m_xHstDocPagesFT, rDoc.nPage, rLocaleData);
++    setValue(*m_xHstCurrentParasFT, rCurrent.nPara > 0 ? rCurrent.nPara - 1 : 0, rLocaleData);
++    setValue(*m_xHstDocParasFT, rDoc.nPara, rLocaleData);
+ 
+     const sal_Int64 nCharsPerStandardizedPage = m_xStandardizedPagesLabelFT->get_visible() ?
+         officecfg::Office::Writer::WordCount::StandardizedPageSize::get() : 0;
+@@ -119,6 +124,9 @@
+     , m_xStandardizedPagesLabelFT(m_xBuilder->weld_label(u"standardizedpages"_ustr))
+     , m_xDocComments(m_xBuilder->weld_label(u"docComments"_ustr))
+     , m_xWordsCursorFT(m_xBuilder->weld_label(u"wordscursor"_ustr))
++    , m_xHstDocPagesFT(m_xBuilder->weld_label(u"hstdocpages"_ustr))
++    , m_xHstCurrentParasFT(m_xBuilder->weld_label(u"hstselectparas"_ustr))
++    , m_xHstDocParasFT(m_xBuilder->weld_label(u"hstdocparas"_ustr))
+ {
+     showCJK(SvtCJKOptions::IsAnyEnabled());
+     showStandardizedPages(officecfg::Office::Writer::WordCount::ShowStandardizedPageCount::get());
+--- a/sw/source/uibase/inc/wordcountdialog.hxx
++++ b/sw/source/uibase/inc/wordcountdialog.hxx
+@@ -47,6 +47,9 @@
+     std::unique_ptr<weld::Label> m_xStandardizedPagesLabelFT;
+     std::unique_ptr<weld::Label> m_xDocComments;
+     std::unique_ptr<weld::Label> m_xWordsCursorFT;
++    std::unique_ptr<weld::Label> m_xHstDocPagesFT;
++    std::unique_ptr<weld::Label> m_xHstCurrentParasFT;
++    std::unique_ptr<weld::Label> m_xHstDocParasFT;
+ 
+     // Cached before/after cursor word counts — only updated at word boundaries
+     SwDocStat m_aCachedBefore;
+--- a/sw/uiconfig/swriter/ui/wordcount.ui
++++ b/sw/uiconfig/swriter/ui/wordcount.ui
+@@ -70,6 +70,75 @@
+             <property name="row-spacing">6</property>
+             <property name="column-spacing">12</property>
+             <child>
++              <object class="GtkLabel" id="hstpagesft">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="wordcount|hstpagesft">Pages</property>
++                <property name="xalign">1</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="hstdocpages">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="halign">end</property>
++                <property name="hexpand">True</property>
++                <property name="label">            0</property>
++                <property name="justify">right</property>
++                <property name="xalign">1</property>
++              </object>
++              <packing>
++                <property name="left-attach">2</property>
++                <property name="top-attach">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="hstparasft">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="wordcount|hstparasft">Paragraphs</property>
++                <property name="xalign">1</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">5</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="hstselectparas">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="halign">end</property>
++                <property name="hexpand">True</property>
++                <property name="label">            0</property>
++                <property name="justify">right</property>
++                <property name="xalign">1</property>
++              </object>
++              <packing>
++                <property name="left-attach">1</property>
++                <property name="top-attach">5</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="hstdocparas">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="halign">end</property>
++                <property name="hexpand">True</property>
++                <property name="label">            0</property>
++                <property name="justify">right</property>
++                <property name="xalign">1</property>
++              </object>
++              <packing>
++                <property name="left-attach">2</property>
++                <property name="top-attach">5</property>
++              </packing>
++            </child>
++            <child>
+               <object class="GtkLabel" id="label1">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+@@ -78,7 +147,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+-                <property name="top-attach">1</property>
++                <property name="top-attach">2</property>
+               </packing>
+             </child>
+             <child>
+@@ -90,7 +159,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+-                <property name="top-attach">2</property>
++                <property name="top-attach">3</property>
+               </packing>
+             </child>
+             <child>
+@@ -102,7 +171,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+-                <property name="top-attach">3</property>
++                <property name="top-attach">4</property>
+               </packing>
+             </child>
+             <child>
+@@ -117,7 +186,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">1</property>
+-                <property name="top-attach">1</property>
++                <property name="top-attach">2</property>
+               </packing>
+             </child>
+             <child>
+@@ -132,7 +201,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">1</property>
+-                <property name="top-attach">2</property>
++                <property name="top-attach">3</property>
+               </packing>
+             </child>
+             <child>
+@@ -147,7 +216,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">1</property>
+-                <property name="top-attach">3</property>
++                <property name="top-attach">4</property>
+               </packing>
+             </child>
+             <child>
+@@ -192,7 +261,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">2</property>
+-                <property name="top-attach">1</property>
++                <property name="top-attach">2</property>
+               </packing>
+             </child>
+             <child>
+@@ -207,7 +276,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">2</property>
+-                <property name="top-attach">2</property>
++                <property name="top-attach">3</property>
+               </packing>
+             </child>
+             <child>
+@@ -222,7 +291,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">2</property>
+-                <property name="top-attach">3</property>
++                <property name="top-attach">4</property>
+               </packing>
+             </child>
+             <child>
+@@ -234,7 +303,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+-                <property name="top-attach">4</property>
++                <property name="top-attach">6</property>
+               </packing>
+             </child>
+             <child>
+@@ -249,7 +318,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">1</property>
+-                <property name="top-attach">4</property>
++                <property name="top-attach">6</property>
+               </packing>
+             </child>
+             <child>
+@@ -264,7 +333,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">2</property>
+-                <property name="top-attach">4</property>
++                <property name="top-attach">6</property>
+               </packing>
+             </child>
+             <child>
+@@ -276,7 +345,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+-                <property name="top-attach">5</property>
++                <property name="top-attach">7</property>
+               </packing>
+             </child>
+             <child>
+@@ -291,7 +360,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">1</property>
+-                <property name="top-attach">5</property>
++                <property name="top-attach">7</property>
+               </packing>
+             </child>
+             <child>
+@@ -306,7 +375,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">2</property>
+-                <property name="top-attach">5</property>
++                <property name="top-attach">7</property>
+               </packing>
+             </child>
+             <child>
+@@ -321,7 +390,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+-                <property name="top-attach">6</property>
++                <property name="top-attach">8</property>
+               </packing>
+             </child>
+             <child>
+@@ -338,7 +407,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">2</property>
+-                <property name="top-attach">6</property>
++                <property name="top-attach">8</property>
+               </packing>
+             </child>
+             <child>
+@@ -359,7 +428,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+-                <property name="top-attach">7</property>
++                <property name="top-attach">9</property>
+               </packing>
+             </child>
+             <child>
+@@ -380,7 +449,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">1</property>
+-                <property name="top-attach">7</property>
++                <property name="top-attach">9</property>
+                 <property name="width">2</property>
+               </packing>
+             </child>
+@@ -401,6 +470,9 @@
+   <object class="GtkSizeGroup" id="sizegroup1">
+     <property name="ignore-hidden">True</property>
+     <widgets>
++      <widget name="hstselectparas"/>
++      <widget name="hstdocpages"/>
++      <widget name="hstdocparas"/>
+       <widget name="selectwords"/>
+       <widget name="selectchars"/>
+       <widget name="selectcharsnospaces"/>
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -32051,6 +32051,18 @@
+ msgid "Word Count"
+ msgstr "Đế~m từ"
+ 
++#. hstWC1
++#: sw/uiconfig/swriter/ui/wordcount.ui
++msgctxt "wordcount|hstpagesft"
++msgid "Pages"
++msgstr "Trang"
++
++#. hstWC2
++#: sw/uiconfig/swriter/ui/wordcount.ui
++msgctxt "wordcount|hstparasft"
++msgid "Paragraphs"
++msgstr "Đoạn văn"
++
+ #. 4rhHV
+ #: sw/uiconfig/swriter/ui/wordcount.ui:76
+ msgctxt "wordcount|label1"
