@@ -1,0 +1,749 @@
+HST Office: Format Cells in Sheets follows Excel: tabs Number, Alignment, Font, Border, Fill, Protection
+(owner-approved Microsoft Office parity for beta.5).
+
+- Tab order as in Excel; the Background page is labelled "Tô màu" here only. Page ids stay, so
+  .uno:FormatCellDialog and other callers that open a page by id keep working.
+- Alignment has "Gộp ô" (Merge cells): on for one merged block, mixed when the selection only contains
+  merged cells, unavailable for one plain cell. OK merges or unmerges the selection. Other users of the
+  page (cell styles, dbaccess) leave SID_TABLE_MERGE_CELLS out of the item set and do not see it.
+- Number lists its categories in Excel's order in Sheets and adds "Kế toán" (Accounting): decimals and a
+  symbol only, with the symbol and digits aligned by a fill, four sections like Excel's code. A cell with
+  such a format reopens on that row, also when it came from .xlsx. Other documents keep the old list.
+
+- Font holds the effects (hst-dlg-font.patch); .uno:FontEffectsDialog opens that tab. Cell styles keep their tabs.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-sheets.py (format-cells-tabs, merge-cells, accounting).
+---
+--- a/cui/source/inc/align.hxx
++++ b/cui/source/inc/align.hxx
+@@ -80,6 +80,7 @@
+     DECL_LINK(WrapClickHdl, weld::Toggleable&, void);
+     DECL_LINK(HyphenClickHdl, weld::Toggleable&, void);
+     DECL_LINK(ShrinkClickHdl, weld::Toggleable&, void);
++    DECL_LINK(MergeClickHdl, weld::Toggleable&, void);
+ 
+ private:
+     weld::TriStateEnabled m_aStackedState;
+@@ -87,6 +88,7 @@
+     weld::TriStateEnabled m_aWrapState;
+     weld::TriStateEnabled m_aHyphenState;
+     weld::TriStateEnabled m_aShrinkState;
++    weld::TriStateEnabled m_aMergeState;
+ 
+     ValueSet m_aVsRefEdge;
+ 
+@@ -105,6 +107,7 @@
+     std::unique_ptr<weld::CheckButton> m_xBtnWrap;
+     std::unique_ptr<weld::CheckButton> m_xBtnHyphen;
+     std::unique_ptr<weld::CheckButton> m_xBtnShrink;
++    std::unique_ptr<weld::CheckButton> m_xBtnMerge;
+     std::unique_ptr<svx::FrameDirectionListBox> m_xLbFrameDir;
+ 
+     // hidden labels/string
+--- a/cui/source/inc/numfmt.hxx
++++ b/cui/source/inc/numfmt.hxx
+@@ -89,6 +89,7 @@
+     bool                bOneAreaFlag;
+     bool                bLegacyAutomaticCurrency;
+     short               nFixedCategory;
++    bool                m_bExcelCategories; ///< HST: Sheets lists the categories like Excel, with Accounting
+ 
+     OUString sAutomaticLangEntry;
+     OUString sAutomaticCurrencyEntry;
+@@ -132,6 +133,14 @@
+     void    EnableBySourceFormat_Impl();
+     void EnableLocaleUi();
+     void    SetCategory( sal_uInt16 nPos );
++    // HST: the list rows differ from the SvxNumberFormatCategory values in Sheets; Accounting is
++    // a row of its own that works on the currency category.
++    short   GetSelectedCategory_Impl() const;
++    OUString GetUserDefinedLabel_Impl() const;
++    bool    IsAccountingRow_Impl() const;
++    void    ShowExcelCategories_Impl();
++    void    ApplyAccounting_Impl();
++    void    ShowAccountingList_Impl();
+     OUString  GetExpColorString( const Color*& rpPreviewColor, const OUString& aFormatStr, short nTmpCatPos );
+     void    MakePreviewText( const OUString& rFormat );
+     void    ChangePreviewText( sal_uInt16 nPos );
+--- a/cui/source/tabpages/align.cxx
++++ b/cui/source/tabpages/align.cxx
+@@ -129,6 +129,7 @@
+     , m_xBtnWrap(m_xBuilder->weld_check_button(u"checkWrapTextAuto"_ustr))
+     , m_xBtnHyphen(m_xBuilder->weld_check_button(u"checkHyphActive"_ustr))
+     , m_xBtnShrink(m_xBuilder->weld_check_button(u"checkShrinkFitCellSize"_ustr))
++    , m_xBtnMerge(m_xBuilder->weld_check_button(u"checkMergeCells"_ustr))
+     , m_xLbFrameDir(new svx::FrameDirectionListBox(m_xBuilder->weld_combo_box(u"comboTextDirBox"_ustr)))
+     //ValueSet hover strings
+     , m_xFtBotLock(m_xBuilder->weld_label(u"labelSTR_BOTTOMLOCK"_ustr))
+@@ -154,6 +155,7 @@
+     m_xBtnWrap->connect_toggled(LINK(this, AlignmentTabPage, WrapClickHdl));
+     m_xBtnHyphen->connect_toggled(LINK(this, AlignmentTabPage, HyphenClickHdl));
+     m_xBtnShrink->connect_toggled(LINK(this, AlignmentTabPage, ShrinkClickHdl));
++    m_xBtnMerge->connect_toggled(LINK(this, AlignmentTabPage, MergeClickHdl));
+ 
+     // Asian vertical mode
+     m_xCbAsianMode->set_visible(SvtCJKOptions::IsVerticalTextEnabled());
+@@ -387,6 +389,14 @@
+     if (!bChanged)
+         bChanged = HasAlignmentChanged(*rSet, nWhichVerJM);
+ 
++    // HST: "Merge cells" is only offered by callers that put SID_TABLE_MERGE_CELLS in the set
++    // (Format Cells in Sheets); the caller merges or unmerges the selection when it changed.
++    if (m_xBtnMerge->get_visible() && m_xBtnMerge->get_state_changed_from_saved())
++    {
++        rSet->Put(SfxBoolItem(SID_TABLE_MERGE_CELLS, m_xBtnMerge->get_active()));
++        bChanged = true;
++    }
++
+     return bChanged;
+ }
+ 
+@@ -431,6 +441,7 @@
+     ResetBool(GetWhich(SID_ATTR_ALIGN_LINEBREAK), pCoreAttrs, *m_xBtnWrap, m_aWrapState);
+     ResetBool(GetWhich(SID_ATTR_ALIGN_HYPHENATION), pCoreAttrs, *m_xBtnHyphen, m_aHyphenState);
+     ResetBool(GetWhich(SID_ATTR_ALIGN_SHRINKTOFIT), pCoreAttrs, *m_xBtnShrink, m_aShrinkState);
++    ResetBool(SID_TABLE_MERGE_CELLS, pCoreAttrs, *m_xBtnMerge, m_aMergeState);
+ 
+     sal_uInt16 nWhich = GetWhich(SID_ATTR_ALIGN_HOR_JUSTIFY);
+     SfxItemState eState = pCoreAttrs->GetItemState(nWhich);
+@@ -777,6 +788,11 @@
+     m_aHyphenState.CheckButtonToggled(*m_xBtnHyphen);
+ }
+ 
++IMPL_LINK_NOARG(AlignmentTabPage, MergeClickHdl, weld::Toggleable&, void)
++{
++    m_aMergeState.CheckButtonToggled(*m_xBtnMerge);
++}
++
+ IMPL_LINK_NOARG(AlignmentTabPage, ShrinkClickHdl, weld::Toggleable&, void)
+ {
+     m_aShrinkState.CheckButtonToggled(*m_xBtnShrink);
+--- a/cui/source/tabpages/numfmt.cxx
++++ b/cui/source/tabpages/numfmt.cxx
+@@ -19,6 +19,10 @@
+ 
+ #include <sal/config.h>
+ 
++#include <i18nlangtag/languagetag.hxx>
++#include <o3tl/string_view.hxx>
++#include <rtl/ustrbuf.hxx>
++#include <unotools/localedatawrapper.hxx>
+ #include <o3tl/safeint.hxx>
+ #include <o3tl/temporary.hxx>
+ #include <svl/eitem.hxx>
+@@ -45,6 +49,7 @@
+ #include <com/sun/star/frame/XModel.hpp>
+ #include <com/sun/star/frame/XModel3.hpp>
+ #include <com/sun/star/lang/XServiceInfo.hpp>
++#include <iterator>
+ #include <limits>
+ #include <memory>
+ 
+@@ -53,6 +58,57 @@
+ using ::com::sun::star::uno::UNO_QUERY;
+ 
+ #define NUMKEY_UNDEFINED SAL_MAX_UINT32
++
++// HST: the category list of Format Cells in Sheets, in Excel's order. The Accounting row has no
++// SvxNumberFormatCategory value of its own: it works on the currency category.
++#define STR_HST_CAT_ACCOUNTING NC_("numberingformatpage|liststore1", "Accounting")
++
++namespace
++{
++const short CAT_ROW_ACCOUNTING = -1;
++const short aExcelCategoryRows[]
++    = { CAT_ALL,  CAT_NUMBER,  CAT_CURRENCY,   CAT_ROW_ACCOUNTING, CAT_DATE, CAT_TIME,
++        CAT_PERCENT, CAT_FRACTION, CAT_SCIENTIFIC, CAT_BOOLEAN,    CAT_TEXT, CAT_USERDEFINED };
++
++/// Excel's Accounting formats start with a space the width of a sign and fill up to the digits.
++bool lcl_IsAccountingFormat(std::u16string_view aFormat)
++{
++    return (o3tl::starts_with(aFormat, u"_-") || o3tl::starts_with(aFormat, u"_("))
++           && aFormat.find(u"* ") != std::u16string_view::npos;
++}
++
++/// The currency symbol of the first section of a currency format code, and whether it comes first.
++void lcl_GetCurrencySymbol(std::u16string_view aFormat, OUString& rSymbol, bool& rbPrefix)
++{
++    OUStringBuffer aSymbol;
++    bool bSeenDigit = false;
++    rbPrefix = false;
++    for (size_t i = 0; i < aFormat.size() && aFormat[i] != ';'; ++i)
++    {
++        const sal_Unicode c = aFormat[i];
++        if (c == '[' || c == '"')
++        {
++            const sal_Unicode cEnd = c == '[' ? ']' : '"';
++            size_t nEnd = aFormat.find(cEnd, i + 1);
++            if (nEnd == std::u16string_view::npos)
++                nEnd = aFormat.size() - 1;
++            if (!bSeenDigit)
++                rbPrefix = true;
++            aSymbol.append(aFormat.substr(i, nEnd - i + 1));
++            i = nEnd;
++        }
++        else if (c == '#' || c == '0' || c == '?')
++            bSeenDigit = true;
++        else if (c != '.' && c != ',' && c != ' ' && c != '-' && c != '\\')
++        {
++            if (!bSeenDigit)
++                rbPrefix = true;
++            aSymbol.append(c);
++        }
++    }
++    rSymbol = aSymbol.makeStringAndClear();
++}
++}
+ 
+ // static ----------------------------------------------------------------
+ 
+@@ -241,6 +297,7 @@
+     Init_Impl();
+     SetExchangeSupport(); // this page needs ExchangeSupport
+     nFixedCategory=-1;
++    m_bExcelCategories=false;
+ }
+ 
+ SvxNumberFormatTabPage::~SvxNumberFormatTabPage()
+@@ -260,7 +317,7 @@
+     m_xIbRemove->set_sensitive(false );
+     m_xIbInfo->set_sensitive(false );
+ 
+-    m_xEdComment->set_text(m_xLbCategory->get_text(1));    // string for user defined
++    m_xEdComment->set_text(GetUserDefinedLabel_Impl());    // string for user defined
+ 
+     m_xEdComment->hide();
+ 
+@@ -465,6 +522,8 @@
+             bUseStarFormat = xSI->supportsService(u"com.sun.star.sheet.SpreadsheetDocument"_ustr);
+     }
+     pNumFmtShell->SetUseStarFormat( bUseStarFormat );
++    if (bUseStarFormat && !bOneAreaFlag)
++        ShowExcelCategories_Impl();
+ 
+     FillCurrencyBox();
+ 
+@@ -511,6 +570,15 @@
+     if ( pValFmtAttr )
+     {
+         EditHdl_Impl(m_xEdFormat.get()); // UpdateOptions_Impl() as a side effect
++        // HST: open on the Accounting row, also for a format the shell files elsewhere (from .xlsx)
++        if (m_bExcelCategories && lcl_IsAccountingFormat(m_xEdFormat->get_text()))
++        {
++            const bool bOtherCategory = GetSelectedCategory_Impl() != CAT_CURRENCY;
++            SetCategory(CAT_CURRENCY);
++            if (bOtherCategory)
++                UpdateFormatListBox_Impl(true, false);
++            ShowAccountingList_Impl();
++        }
+     }
+     else    // DONT_KNOW
+     {
+@@ -566,7 +634,7 @@
+     m_xLbCategory->select(0);
+     m_xEdFormat->set_text( OUString() );
+     m_xFtComment->set_label( OUString() );
+-    m_xEdComment->set_text(m_xLbCategory->get_text(1));  // string for user defined
++    m_xEdComment->set_text(GetUserDefinedLabel_Impl());  // string for user defined
+ 
+     m_xEdFormat->grab_focus();
+ }
+@@ -756,7 +824,7 @@
+     }
+     else
+     {
+-        nTmpCatPos=m_xLbCategory->get_selected_index();
++        nTmpCatPos=GetSelectedCategory_Impl();
+     }
+ 
+     switch (nTmpCatPos)
+@@ -814,7 +882,7 @@
+ void SvxNumberFormatTabPage::UpdateOptions_Impl( bool bCheckCatChange /*= sal_False*/ )
+ {
+     OUString    theFormat           = m_xEdFormat->get_text();
+-    sal_Int32   nCurCategory        = m_xLbCategory->get_selected_index();
++    sal_Int32   nCurCategory        = GetSelectedCategory_Impl();
+     sal_uInt16  nCategory           = static_cast<sal_uInt16>(nCurCategory);
+     sal_uInt16  nDecimals           = 0;
+     sal_uInt16  nZeroes             = 0;
+@@ -938,6 +1006,16 @@
+             m_xBtnThousand->set_active( false );
+             m_xBtnEngineering->set_active( false );
+     }
++    if (IsAccountingRow_Impl())
++    {
++        // HST: Excel's Accounting only has decimals and a symbol.
++        m_xFtLeadZeroes->set_sensitive(false);
++        m_xEdLeadZeroes->set_sensitive(false);
++        m_xBtnNegRed->set_sensitive(false);
++        m_xBtnNegRed->set_active(false);
++        m_xBtnThousand->set_sensitive(false);
++        m_xBtnThousand->set_active(true);
++    }
+ }
+ 
+ 
+@@ -970,7 +1048,7 @@
+     }
+     else
+     {
+-        nTmpCatPos=m_xLbCategory->get_selected_index();
++        nTmpCatPos=GetSelectedCategory_Impl();
+     }
+ 
+ 
+@@ -1008,7 +1086,7 @@
+             {
+                 if(pNumFmtShell->GetComment4Entry(nFmtLbSelPos).isEmpty())
+                 {
+-                    m_xFtComment->set_label(m_xLbCategory->get_text(1));
++                    m_xFtComment->set_label(GetUserDefinedLabel_Impl());
+                 }
+             }
+             ChangePreviewText( static_cast<sal_uInt16>(nFmtLbSelPos) );
+@@ -1027,7 +1105,7 @@
+             {
+                 if(pNumFmtShell->GetComment4Entry(nFmtLbSelPos).isEmpty())
+                 {
+-                    m_xFtComment->set_label(m_xLbCategory->get_text(1));
++                    m_xFtComment->set_label(GetUserDefinedLabel_Impl());
+                 }
+             }
+         }
+@@ -1055,7 +1133,7 @@
+ 
+ void SvxNumberFormatTabPage::UpdateThousandEngineeringCheckBox()
+ {
+-    bool bIsScientific = m_xLbCategory->get_selected_index() == CAT_SCIENTIFIC;
++    bool bIsScientific = GetSelectedCategory_Impl() == CAT_SCIENTIFIC;
+     m_xBtnThousand->set_visible( !bIsScientific );
+     m_xBtnEngineering->set_visible( bIsScientific );
+ }
+@@ -1069,7 +1147,7 @@
+ 
+ void SvxNumberFormatTabPage::UpdateDecimalsDenominatorEditBox()
+ {
+-    bool bIsFraction = m_xLbCategory->get_selected_index() == CAT_FRACTION;
++    bool bIsFraction = GetSelectedCategory_Impl() == CAT_FRACTION;
+     m_xFtDecimals->set_visible( !bIsFraction );
+     m_xEdDecimals->set_visible( !bIsFraction );
+     m_xFtDenominator->set_visible( bIsFraction );
+@@ -1163,7 +1241,7 @@
+     }
+     else
+     {
+-        nTmpCatPos=m_xLbCategory->get_selected_index();
++        nTmpCatPos=GetSelectedCategory_Impl();
+     }
+ 
+     if (nTmpCatPos==CAT_CURRENCY && pLb == m_xLbCurrency.get())
+@@ -1182,7 +1260,7 @@
+         {
+             if(aComment.isEmpty())
+             {
+-                aComment = m_xLbCategory->get_text(1);
++                aComment = GetUserDefinedLabel_Impl();
+             }
+         }
+ 
+@@ -1224,6 +1302,14 @@
+         UpdateFormatListBox_Impl( true, true );
+         EditHdl_Impl( nullptr );
+         UpdateOptions_Impl( false );
++        if (IsAccountingRow_Impl())
++        {
++            if (pLb == m_xLbCategory.get())
++                m_xEdDecimals->set_value(2);
++            ApplyAccounting_Impl();
++        }
++        else
++            ShowAccountingList_Impl();
+ 
+         return;
+     }
+@@ -1321,7 +1407,7 @@
+                         SetCategory(nCatLbSelPos );
+ 
+                     FillFormatListBox_Impl( aEntryList );
+-                    if (m_xEdComment->get_text()!=m_xLbCategory->get_text(1))
++                    if (m_xEdComment->get_text()!=GetUserDefinedLabel_Impl())
+                     {
+                         pNumFmtShell->SetComment4Entry(nFmtLbSelPos,
+                                                     m_xEdComment->get_text());
+@@ -1334,7 +1420,7 @@
+                     m_xLbFormat->select(static_cast<sal_uInt16>(nFmtLbSelPos));
+                     m_xEdFormat->set_text( aFormat );
+ 
+-                    m_xEdComment->set_text(m_xLbCategory->get_text(1));    // String for user defined
++                    m_xEdComment->set_text(GetUserDefinedLabel_Impl());    // String for user defined
+ 
+                     ChangePreviewText( static_cast<sal_uInt16>(nFmtLbSelPos) );
+                 }
+@@ -1346,6 +1432,7 @@
+             m_xEdFormat->select_region(nErrPos == -1 ? m_xEdFormat->get_text().getLength() : nErrPos, -1);
+         }
+         EditHdl_Impl(m_xEdFormat.get());
++        ShowAccountingList_Impl();
+         nReturn = ((nReturn & nReturnOneArea) ? 0 : (nReturn & nReturnChanged));
+ 
+         aEntryList.clear();
+@@ -1363,7 +1450,7 @@
+                                     nFmtLbSelPos,
+                                     aEntryList );
+ 
+-        m_xEdComment->set_text(m_xLbCategory->get_text(1));
++        m_xEdComment->set_text(GetUserDefinedLabel_Impl());
+ 
+         if( nFmtLbSelPos>=0 && o3tl::make_unsigned(nFmtLbSelPos)<aEntryList.size() )
+         {
+@@ -1468,7 +1555,7 @@
+                     set_active_currency(nTmpCurPos);
+             }
+             short nPosi=pNumFmtShell->GetListPos4Entry( nCurKey, aFormat);
+-            if(nPosi>=0)
++            if (nPosi >= 0 && !IsAccountingRow_Impl())
+                 m_xLbFormat->select(static_cast<sal_uInt16>(nPosi));
+ 
+         }
+@@ -1522,6 +1609,12 @@
+         || pOptCtrl == m_xBtnThousand.get()
+         || pOptCtrl == m_xBtnEngineering.get()))
+         return;
++
++    if (IsAccountingRow_Impl())
++    {
++        ApplyAccounting_Impl();
++        return;
++    }
+ 
+     OUString          aFormat;
+     bool          bThousand  = ( m_xBtnThousand->get_visible() && m_xBtnThousand->get_sensitive() && m_xBtnThousand->get_active() )
+@@ -1596,7 +1689,7 @@
+     if (!bAddSensitive)
+     {
+         // String for user defined, if present
+-        OUString sEntry = m_xLbCategory->n_children() > 1 ? m_xLbCategory->get_text(1) : OUString();
++        OUString sEntry = GetUserDefinedLabel_Impl();
+         m_xEdComment->set_text(sEntry);
+     }
+ }
+@@ -1693,7 +1786,7 @@
+ 
+ void SvxNumberFormatTabPage::SetCategory(sal_uInt16 nPos)
+ {
+-    int nCurCategory = m_xLbCategory->get_selected_index();
++    int nCurCategory = GetSelectedCategory_Impl();
+     sal_uInt16 nTmpCatPos;
+ 
+     if (bOneAreaFlag)
+@@ -1712,7 +1805,95 @@
+         else
+             m_xLbCurrency->show();
+     }
+-    m_xLbCategory->select(nPos);
++    if (!m_bExcelCategories)
++    {
++        m_xLbCategory->select(nPos);
++        return;
++    }
++    // HST: an Accounting format stays on the Accounting row.
++    const short nRowValue = (nPos == CAT_CURRENCY && lcl_IsAccountingFormat(m_xEdFormat->get_text()))
++                                ? CAT_ROW_ACCOUNTING
++                                : static_cast<short>(nPos);
++    for (size_t i = 0; i < std::size(aExcelCategoryRows); ++i)
++        if (aExcelCategoryRows[i] == nRowValue)
++            m_xLbCategory->select(static_cast<int>(i));
++}
++
++short SvxNumberFormatTabPage::GetSelectedCategory_Impl() const
++{
++    const int nRow = m_xLbCategory->get_selected_index();
++    if (!m_bExcelCategories || nRow < 0 || o3tl::make_unsigned(nRow) >= std::size(aExcelCategoryRows))
++        return nRow;
++    const short nValue = aExcelCategoryRows[nRow];
++    return nValue == CAT_ROW_ACCOUNTING ? short(CAT_CURRENCY) : nValue;
++}
++
++OUString SvxNumberFormatTabPage::GetUserDefinedLabel_Impl() const
++{
++    if (m_bExcelCategories)
++        return CuiResId(NUM_CATEGORIES[CAT_USERDEFINED]);
++    return m_xLbCategory->n_children() > 1 ? m_xLbCategory->get_text(1) : OUString();
++}
++
++bool SvxNumberFormatTabPage::IsAccountingRow_Impl() const
++{
++    if (!m_bExcelCategories)
++        return false;
++    const int nRow = m_xLbCategory->get_selected_index();
++    return nRow >= 0 && o3tl::make_unsigned(nRow) < std::size(aExcelCategoryRows)
++           && aExcelCategoryRows[nRow] == CAT_ROW_ACCOUNTING;
++}
++
++void SvxNumberFormatTabPage::ShowExcelCategories_Impl()
++{
++    if (m_bExcelCategories)
++        return;
++    m_bExcelCategories = true;
++    m_xLbCategory->freeze();
++    m_xLbCategory->clear();
++    for (short nValue : aExcelCategoryRows)
++        m_xLbCategory->append_text(CuiResId(nValue == CAT_ROW_ACCOUNTING
++                                                ? STR_HST_CAT_ACCOUNTING
++                                                : NUM_CATEGORIES[nValue]));
++    m_xLbCategory->thaw();
++}
++
++/// Accounting has no list of formats, as in Excel: the code follows the symbol and the decimals.
++void SvxNumberFormatTabPage::ShowAccountingList_Impl()
++{
++    const bool bAccounting = IsAccountingRow_Impl();
++    if (bAccounting)
++        m_xLbFormat->clear();
++    m_xLbFormat->set_sensitive(!bAccounting);
++}
++
++/// The minus sign, the symbol and the digits line up in the columns as Excel's Accounting does.
++void SvxNumberFormatTabPage::ApplyAccounting_Impl()
++{
++    OUString aSymbol;
++    bool bPrefix = false;
++    lcl_GetCurrencySymbol(pNumFmtShell->GetFormat4Entry(0), aSymbol, bPrefix);
++
++    const LocaleDataWrapper aLocale{ LanguageTag(pNumFmtShell->GetCurLanguage()) };
++    OUString sDigits = "#" + aLocale.getNumThousandSep() + "##0";
++    const sal_Int32 nDecimals = m_xEdDecimals->get_value();
++    if (nDecimals > 0)
++        sDigits += aLocale.getNumDecimalSep();
++    for (sal_Int32 i = 0; i < nDecimals; ++i)
++        sDigits += "0";
++
++    OUString aFormat;
++    if (bPrefix)
++        aFormat = "_-" + aSymbol + "* " + sDigits + "_-;-" + aSymbol + "* " + sDigits + "_-;_-"
++                  + aSymbol + "* \"-\"??_-;_-@_-";
++    else
++        aFormat = "_-* " + sDigits + " " + aSymbol + "_-;-* " + sDigits + " " + aSymbol + "_-;_-* \"-\"?? "
++                  + aSymbol + "_-;_-@_-";
++
++    m_xEdFormat->set_text(aFormat);
++    MakePreviewText(aFormat);
++    EditHdl_Impl(m_xEdFormat.get());
++    ShowAccountingList_Impl();
+ }
+ 
+ /* to support Writer text field language handling an
+--- a/cui/uiconfig/ui/cellalignment.ui
++++ b/cui/uiconfig/ui/cellalignment.ui
+@@ -312,6 +312,27 @@
+                     <property name="fill">True</property>
+                     <property name="position">1</property>
+                   </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">4</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkCheckButton" id="checkMergeCells">
++                <property name="label" translatable="yes" context="cellalignment|checkMergeCells">_Merge cells</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="no-show-all">True</property>
++                <property name="use-underline">True</property>
++                <property name="inconsistent">True</property>
++                <property name="draw-indicator">True</property>
++                <child internal-child="accessible">
++                  <object class="AtkObject" id="checkMergeCells-atkobject">
++                    <property name="AtkObject::accessible-description" translatable="yes" context="cellalignment|extended_tip|checkMergeCells">Combines the selected cells into one cell.</property>
++                  </object>
+                 </child>
+               </object>
+               <packing>
+--- a/sc/source/ui/attrdlg/attrdlg.cxx
++++ b/sc/source/ui/attrdlg/attrdlg.cxx
+@@ -28,11 +28,18 @@
+ #include <attrdlg.hxx>
+ #include <sal/log.hxx>
+ #include <svx/dialogs.hrc>
++#include <svx/flagsdef.hxx>
++#include <svx/svxids.hrc>
++#include <svl/intitem.hxx>
+ #include <editeng/editids.hrc>
+ #include <editeng/flstitem.hxx>
+ #include <osl/diagnose.h>
+ 
+ #include <vcl/tabs.hrc>
++#include <scresid.hxx>
++
++// HST: Excel names this page "Fill"; RID_TAB_BACKGROUND is shared with the other dialogs.
++#define STR_HST_TAB_FILL NC_("formatcellsdialog|fill", "Fill")
+ 
+ ScAttrDlg::ScAttrDlg(weld::Window* pParent, const SfxItemSet* pCellAttrs)
+     : SfxTabDialogController(pParent, u"modules/scalc/ui/formatcellsdialog.ui"_ustr,
+@@ -40,23 +47,20 @@
+ {
+     SfxAbstractDialogFactory* pFact = SfxAbstractDialogFactory::Create();
+ 
++    // HST: tabs in the order of Excel's Format Cells (Number, Alignment, Font, Border, Fill,
++    // Protection). The page ids are unchanged: callers open a page by id.
+     assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_NUMBERFORMAT) && "GetTabPageCreatorFunc fail!");
+     AddTabPage(u"numbers"_ustr, TabResId(RID_TAB_NUMBERS.aLabel),
+                pFact->GetTabPageCreatorFunc(RID_SVXPAGE_NUMBERFORMAT),
+                RID_M + RID_TAB_NUMBERS.sIconName);
++    assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_ALIGNMENT) && "GetTabPageCreatorFunc fail!");
++    AddTabPage(u"alignment"_ustr, TabResId(RID_TAB_ALIGNMENT.aLabel),
++               pFact->GetTabPageCreatorFunc(RID_SVXPAGE_ALIGNMENT),
++               RID_M + RID_TAB_ALIGNMENT.sIconName);
+     assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_CHAR_NAME) && "GetTabPageCreatorFunc fail!");
+     AddTabPage(u"font"_ustr, TabResId(RID_TAB_FONT.aLabel),
+                pFact->GetTabPageCreatorFunc(RID_SVXPAGE_CHAR_NAME),
+                RID_M + RID_TAB_FONT.sIconName);
+-    assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_CHAR_EFFECTS) && "GetTabPageCreatorFunc fail!");
+-    AddTabPage(u"fonteffects"_ustr, TabResId(RID_TAB_FONTEFFECTS.aLabel),
+-               pFact->GetTabPageCreatorFunc(RID_SVXPAGE_CHAR_EFFECTS),
+-               RID_M + RID_TAB_FONTEFFECTS.sIconName);
+-    assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_ALIGNMENT) && "GetTabPageCreatorFunc fail!");
+-    AddTabPage(u"alignment"_ustr, TabResId(RID_TAB_ALIGNMENT.aLabel),
+-               pFact->GetTabPageCreatorFunc(RID_SVXPAGE_ALIGNMENT),
+-               RID_M + RID_TAB_ALIGNMENT.sIconName);
+-
+     if (SvtCJKOptions::IsAsianTypographyEnabled())
+     {
+         assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_PARA_ASIAN)
+@@ -69,7 +73,7 @@
+     AddTabPage(u"borders"_ustr, TabResId(RID_TAB_BORDER.aLabel),
+                pFact->GetTabPageCreatorFunc(RID_SVXPAGE_BORDER), RID_M + RID_TAB_BORDER.sIconName);
+     assert(pFact->GetTabPageCreatorFunc(RID_SVXPAGE_BKG) && "GetTabPageCreatorFunc fail!");
+-    AddTabPage(u"background"_ustr, TabResId(RID_TAB_BACKGROUND.aLabel),
++    AddTabPage(u"background"_ustr, ScResId(STR_HST_TAB_FILL),
+                pFact->GetTabPageCreatorFunc(RID_SVXPAGE_BKG), RID_M + RID_TAB_BACKGROUND.sIconName);
+     AddTabPage(u"cellprotection"_ustr, TabResId(RID_TAB_PROTECTION.aLabel),
+                ScTabPageProtection::Create, RID_M + RID_TAB_PROTECTION.sIconName);
+@@ -94,6 +98,8 @@
+         if (pInfoItem)
+         {
+             aSet.Put (SvxFontListItem(pInfoItem->GetFontList(), SID_ATTR_CHAR_FONTLIST ));
++            // HST: the effects live on the Font tab, as in Excel.
++            aSet.Put(SfxUInt32Item(SID_FLAG_TYPE, SVX_HST_MERGE_FONT_EFFECTS));
+             rTabPage.PageCreated(aSet);
+         }
+     }
+--- a/sc/source/ui/view/cellsh3.cxx
++++ b/sc/source/ui/view/cellsh3.cxx
+@@ -399,7 +399,7 @@
+             break;
+ 
+         case SID_CHAR_DLG_EFFECT:
+-            pTabViewShell->ExecuteCellFormatDlg( rReq, u"fonteffects"_ustr );
++            pTabViewShell->ExecuteCellFormatDlg( rReq, u"font"_ustr );
+             break;
+ 
+         case SID_OPENDLG_SOLVE:
+--- a/sc/source/ui/view/tabvwsha.cxx
++++ b/sc/source/ui/view/tabvwsha.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <com/sun/star/table/BorderLineStyle.hpp>
++#include <algorithm>
+ #include <officecfg/Office/Calc.hxx>
+ 
+ #include <comphelper/lok.hxx>
+@@ -626,6 +627,30 @@
+     xOldSet->MergeRange( SID_ATTR_NUMBERFORMAT_INFO, SID_ATTR_NUMBERFORMAT_INFO );
+     xOldSet->Put( std::move(pNumberInfoItem) );
+ 
++    // HST: state of Merge cells on the Alignment page, as in Excel: on for one merged block, mixed
++    // when the selection only contains merged cells, off otherwise; not offered if nothing can
++    // be merged (one plain cell, a multi-selection).
++    const bool bCanMerge = TestMergeCells();
++    const bool bHasMerge = TestRemoveMerge();
++    xOldSet->MergeRange(SID_TABLE_MERGE_CELLS, SID_TABLE_MERGE_CELLS);
++    if (bHasMerge)
++    {
++        ScRange aRange;
++        GetViewData().GetSimpleArea(aRange);
++        const ScMergeAttr& rMerge = rDoc.GetAttr(aRange.aStart, ATTR_MERGE);
++        ScRange aBlock(aRange.aStart);
++        aBlock.aEnd.IncCol(std::max<SCCOL>(rMerge.GetColMerge() - 1, 0));
++        aBlock.aEnd.IncRow(std::max<SCROW>(rMerge.GetRowMerge() - 1, 0));
++        if (rMerge.IsMerged() && (aRange == aBlock || aRange.aStart == aRange.aEnd))
++            xOldSet->Put(SfxBoolItem(SID_TABLE_MERGE_CELLS, true));
++        else
++            xOldSet->InvalidateItem(SID_TABLE_MERGE_CELLS);
++    }
++    else if (bCanMerge)
++        xOldSet->Put(SfxBoolItem(SID_TABLE_MERGE_CELLS, false));
++    else
++        xOldSet->DisableItem(SID_TABLE_MERGE_CELLS);
++
+     bInFormatDialog = true;
+     ScAbstractDialogFactory* pFact = ScAbstractDialogFactory::Create();
+ 
+@@ -649,6 +674,19 @@
+             }
+ 
+             ApplyAttributes(*pOutSet, *xOldSet);
++
++            // HST: Merge cells on the Alignment page; last, because merging drops the selection.
++            if (const SfxBoolItem* pMerge = pOutSet->GetItemIfSet(TypedWhichId<SfxBoolItem>(SID_TABLE_MERGE_CELLS), false))
++            {
++                if (pMerge->GetValue())
++                {
++                    if (TestRemoveMerge()) // a mixed selection: merging must not nest
++                        RemoveMerge();
++                    MergeCells(false, false, false, 0);
++                }
++                else
++                    RemoveMerge();
++            }
+ 
+             xRequest->Done(*pOutSet);
+         }
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -7817,6 +7817,24 @@
+ msgid "Click in the dial to set the text orientation."
+ msgstr "Bấm vào mặt số để đặt hướng văn bản."
+ 
++#. hstDLG
++#: cui/uiconfig/ui/cellalignment.ui
++msgctxt "cellalignment|checkMergeCells"
++msgid "_Merge cells"
++msgstr "Gộ_p ô"
++
++#. hstDLG
++#: cui/uiconfig/ui/cellalignment.ui
++msgctxt "cellalignment|extended_tip|checkMergeCells"
++msgid "Combines the selected cells into one cell."
++msgstr "Gộp các ô đã chọn thành một ô."
++
++#. hstDLG
++#: cui/source/tabpages/numfmt.cxx
++msgctxt "numberingformatpage|liststore1"
++msgid "Accounting"
++msgstr "Kế toán"
++
+ #. Kh9JE
+ #: cui/uiconfig/ui/cellalignment.ui:193
+ msgctxt "cellalignment|labelTextOrient"
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -32467,6 +32467,12 @@
+ msgid "Enter the maximum number of pages to be printed."
+ msgstr "Gõ số tối đa các trang cần in ra."
+ 
++#. hstDLG
++#: sc/source/ui/attrdlg/attrdlg.cxx
++msgctxt "formatcellsdialog|fill"
++msgid "Fill"
++msgstr "Tô màu"
++
+ #. zeMqg
+ #: sc/uiconfig/scalc/ui/sheetprintpage.ui:668
+ msgctxt "sheetprintpage|labelScale"
