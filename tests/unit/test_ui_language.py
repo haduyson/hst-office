@@ -71,7 +71,9 @@ class CatalogTest(unittest.TestCase):
         labels = ("Ngôn ngữ giao diện", "Tiếng Việt", "English", "Theo máy")
         self.assertEqual([node.find("prop[@%sname='URL']/value" % OOR).text for node in children],
                          ["org.hst.office.vi:" + command for command in ui.COMMANDS])
-        context = menu.find("node[@%sname='m9']/prop[@%sname='Context']/value" % (OOR, OOR)).text
+        # Feature search now occupies m9 and requires a document; language also works in Start Center.
+        context = ("com.sun.star.text.TextDocument,com.sun.star.sheet.SpreadsheetDocument,"
+                   "com.sun.star.presentation.PresentationDocument,com.sun.star.frame.StartModule")
         for node, title in zip([m8] + children, labels):
             self.assertEqual({value.get(XML + "lang", ""): value.text for value in node.findall("prop[@%sname='Title']/value" % OOR)},
                              {"": title, "en-US": title, "vi": title})
