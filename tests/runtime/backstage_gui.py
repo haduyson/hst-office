@@ -189,3 +189,10 @@ def dark_shot(args, path):
         close_document(document)
     finally:
         office.stop()
+
+
+def reopen(office, frame):
+    if not is_open():
+        office.dispatch(frame, COMMAND)
+        wait_state(True)
+    time.sleep(0.5)

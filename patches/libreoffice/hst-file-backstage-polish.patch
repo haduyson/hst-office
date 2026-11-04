@@ -1,0 +1,240 @@
+HST Office: File view polish, and no upstream language sample templates.
+
+- extras/Package_templates.mk: upstream's Japanese and Simplified Chinese sample templates are not installed. They appeared
+  in the File view gallery, the Start Center and the Templates dialog (the Chinese one names LibreOffice) while Asian text
+  is hidden by default; they do not return when it is enabled. Nothing depends on them.
+- File view gallery: its own small view class with the colours of the page; TemplateDefaultView keeps the Start Center's
+  configured background.
+- Left column: a hover highlight drawn into the custom button image, which covers the theme's own.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-backstage-flows.py.
+---
+--- a/extras/Package_templates.mk
++++ b/extras/Package_templates.mk
+@@ -19,8 +19,6 @@
+ 	styles/Modern.ott \
+ 	styles/Simple.ott \
+ 	draw/bpmn.otg \
+-	l10n/zh_CN_ott_normal.ott \
+-	l10n/ja_ott_normal.ott \
+ ))
+ 
+ # vim: set noet sw=4 ts=4:
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -16,7 +16,7 @@
+ 
+ #include <backstage/hstbackstage.hrc>
+ #include <backstage/hstbackstage.hxx>
+-#include <templatedefaultview.hxx>
++#include <templateviewitem.hxx>
+ 
+ #include <com/sun/star/document/MacroExecMode.hpp>
+ #include <com/sun/star/document/UpdateDocMode.hpp>
+@@ -36,6 +36,7 @@
+ #include <sfx2/docfilt.hxx>
+ #include <sfx2/filedlghelper.hxx>
+ #include <sfx2/sfxresid.hxx>
++#include <sfx2/templatelocalview.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <sfx2/viewsh.hxx>
+ #include <tools/urlobj.hxx>
+@@ -66,6 +67,7 @@
+ constexpr tools::Long NAV_TEXT_INDENT = 24;
+ constexpr tools::Long TILE_WIDTH = 150;
+ constexpr tools::Long TILE_HEIGHT = 190;
++constexpr tools::Long GALLERY_ITEM_SIZE = 192;
+ 
+ double lcl_luminance(const Color& rColor)
+ {
+@@ -168,6 +170,48 @@
+     }
+ }
+ 
++/// The template gallery of the New page: like the Start Center's, one click opens a template, but
++/// in the colours of this page and not the Start Center's configured background.
++class BackstageTemplateView final : public TemplateLocalView
++{
++public:
++    BackstageTemplateView(std::unique_ptr<weld::ScrolledWindow> xWindow, std::unique_ptr<weld::Menu> xMenu)
++        : TemplateLocalView(std::move(xWindow), std::move(xMenu))
++    {
++        mbAllowMultiSelection = false;
++        setItemDimensions(GALLERY_ITEM_SIZE, GALLERY_ITEM_SIZE, 30, 5);
++        updateThumbnailDimensions(GALLERY_ITEM_SIZE);
++        mfHighlightTransparence = 0.75;
++        BackstageTemplateView::UpdateColors(Application::GetSettings().GetStyleSettings());
++    }
++
++    void showAllTemplates() override
++    {
++        mnCurRegionId = 0;
++        insertItems(maAllTemplates, false);
++    }
++
++    bool MouseButtonDown(const MouseEvent& rMEvt) override
++    {
++        if (rMEvt.IsLeft() && rMEvt.GetClicks() == 1)
++        {
++            ThumbnailViewItem* pItem = ImplGetItem(ImplGetItem(rMEvt.GetPosPixel()));
++            if (auto* pTemplate = dynamic_cast<TemplateViewItem*>(pItem))
++                maOpenTemplateHdl.Call(pTemplate->getPath());
++            return true;
++        }
++        return TemplateLocalView::MouseButtonDown(rMEvt);
++    }
++
++protected:
++    void UpdateColors(const StyleSettings& rSettings) override
++    {
++        TemplateLocalView::UpdateColors(rSettings);
++        maFillColor = rSettings.GetWindowColor();
++        maTextColor = rSettings.GetWindowTextColor();
++    }
++};
++
+ /// Disposes the view when its frame goes away, while the frame's container window is still
+ /// intact: a child must not be disposed from inside its parent's Window::dispose().
+ class FrameDisposeListener final : public cppu::WeakImplHelper<lang::XEventListener>
+@@ -234,6 +278,7 @@
+     , m_bNewPageInitialized(false)
+     , m_bRibbonHidden(false)
+     , m_nSelectedNav(1)
++    , m_nHoverNav(-1)
+     , m_nNavWidth(0)
+     , m_xNavBox(m_xBuilder->weld_container(u"nav"_ustr))
+     , m_xNavSeparator(m_xBuilder->weld_container(u"navsep"_ustr))
+@@ -399,6 +444,8 @@
+             aItem.xButton->set_accessible_name(aItem.aText);
+         aItem.xButton->set_label(OUString());
+         aItem.xButton->connect_clicked(LINK(this, BackstageWindow, NavClickHdl));
++        aItem.xHover.reset(new NavHover(*this, m_aNav.size()));
++        aItem.xButton->connect_mouse_move(LINK(aItem.xHover.get(), NavHover, MouseHdl));
+         m_aNav.push_back(std::move(aItem));
+     }
+ }
+@@ -441,6 +488,8 @@
+     Color aBack(m_aNavColor);
+     if (bSelected)
+         aBack.Merge(COL_WHITE, 210); // about 18 % white over the application colour
++    else if (static_cast<int>(nIndex) == m_nHoverNav)
++        aBack.Merge(COL_WHITE, 232); // about 9 % white
+     xDev->SetBackground(Wallpaper(aBack));
+     xDev->Erase();
+     vcl::Font aFont(GetNavFont(rItem.bLarge, *xDev));
+@@ -455,6 +504,34 @@
+     rItem.xButton->set_custom_button(xDev.get());
+ }
+ 
++// the theme's own button hover cannot show: the custom button image covers it
++IMPL_LINK(BackstageWindow::NavHover, MouseHdl, const MouseEvent&, rMEvt, bool)
++{
++    if (rMEvt.IsEnterWindow())
++        m_rWindow.SetNavHover(m_nIndex);
++    else if (rMEvt.IsLeaveWindow())
++        m_rWindow.ClearNavHover(m_nIndex);
++    return false;
++}
++
++void BackstageWindow::SetNavHover(int nIndex)
++{
++    if (nIndex == m_nHoverNav)
++        return;
++    const int nOld = m_nHoverNav;
++    m_nHoverNav = nIndex;
++    if (nOld >= 0)
++        PaintNavItem(nOld);
++    if (nIndex >= 0)
++        PaintNavItem(nIndex);
++}
++
++void BackstageWindow::ClearNavHover(int nIndex)
++{
++    if (nIndex == m_nHoverNav)
++        SetNavHover(-1);
++}
++
+ void BackstageWindow::PaintNavItems()
+ {
+     for (size_t i = 0; i < m_aNav.size(); ++i)
+@@ -529,7 +606,7 @@
+     if (m_bNewPageInitialized)
+         return;
+     m_bNewPageInitialized = true;
+-    m_xTemplateView.reset(new TemplateDefaultView(m_xBuilder->weld_scrolled_window(u"scrolllocal"_ustr, true),
++    m_xTemplateView.reset(new BackstageTemplateView(m_xBuilder->weld_scrolled_window(u"scrolllocal"_ustr, true),
+                                                   m_xBuilder->weld_menu(u"localmenu"_ustr)));
+     m_xTemplateViewWin.reset(new weld::CustomWeld(*m_xBuilder, u"local_view"_ustr, *m_xTemplateView));
+     m_xTemplateView->setOpenTemplateHdl(LINK(this, BackstageWindow, OpenTemplateHdl));
+@@ -670,6 +747,7 @@
+     if (m_bOpen)
+         return;
+     m_bOpen = true;
++    SetNavHover(-1); // the pointer left the item when the view closed
+ 
+     const int nHour = GetCurrentHour();
+     m_xGreeting->set_label(SfxResId(nHour < 12   ? STR_HST_BS_MORNING
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -30,7 +30,8 @@
+ #include <vcl/weld/TreeView.hxx>
+ #include <vcl/weld/customweld.hxx>
+ 
+-class TemplateDefaultView;
++class MouseEvent;
++class TemplateLocalView;
+ class VclWindowEvent;
+ struct ImplSVEvent;
+ 
+@@ -70,8 +71,24 @@
+         SaveAs
+     };
+ 
++    /// Tells the view which left-column item the pointer entered or left.
++    class NavHover
++    {
++        BackstageWindow& m_rWindow;
++        int m_nIndex;
++
++    public:
++        NavHover(BackstageWindow& rWindow, int nIndex)
++            : m_rWindow(rWindow)
++            , m_nIndex(nIndex)
++        {
++        }
++        DECL_LINK(MouseHdl, const MouseEvent&, bool);
++    };
++
+     struct NavItem
+     {
++        std::unique_ptr<NavHover> xHover;
+         OUString aId;
+         std::unique_ptr<weld::Button> xButton;
+         OUString aText;
+@@ -98,6 +115,8 @@
+     vcl::Font GetNavFont(bool bLarge, const OutputDevice& rDevice) const;
+     void PaintNavItem(size_t nIndex);
+     void PaintNavItems();
++    void SetNavHover(int nIndex);
++    void ClearNavHover(int nIndex);
+     void ShowPage(Page ePage);
+     void FillRecentLists();
+     static void FillRecentList(weld::TreeView& rList, const std::vector<BackstageRecentFile>& rFiles,
+@@ -140,6 +159,7 @@
+     bool m_bNewPageInitialized;
+     bool m_bRibbonHidden;
+     int m_nSelectedNav;
++    int m_nHoverNav;
+     tools::Long m_nNavWidth;
+     std::unique_ptr<svt::AcceleratorExecute> m_xAccExec;
+ 
+@@ -167,7 +187,7 @@
+     std::unique_ptr<weld::Button> m_xNewBlank;
+     std::unique_ptr<weld::Button> m_xNewNd30;
+     std::unique_ptr<weld::Button> m_xNewManage;
+-    std::unique_ptr<TemplateDefaultView> m_xTemplateView;
++    std::unique_ptr<TemplateLocalView> m_xTemplateView;
+     std::unique_ptr<weld::CustomWeld> m_xTemplateViewWin;
+ 
+     std::unique_ptr<weld::Button> m_xOpenBrowse;

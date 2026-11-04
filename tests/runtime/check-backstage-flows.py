@@ -6,7 +6,8 @@ Usage (needs a running X display; never started or stopped here; runs the office
     python3 tests/runtime/check-backstage-flows.py [--instdir upstream/libreoffice/instdir]
         [--out tests/output/backstage-flows] [--display :93] [--port 2165]
 
-  1. New: the template view shows; the administrative document wizard runs from the page and from the Home tile;
+  0. the left column shows a hover highlight that ends when the pointer leaves;
+  1. New: the template view shows on the page background, without upstream's language samples; the administrative document wizard runs from the page and from the Home tile;
   2. Recent: a right click and the Menu key open the file menu; Pin moves the file to the pinned list;
   3. Save As: activating a format closes the view and opens the save dialog;
   4. classic menu bar: its File menu opens with Alt+T as before.
@@ -24,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
 import backstage_gui as gui  # noqa: E402
+from backstage_visual import check_hover, pixel  # noqa: E402
 
 ND30 = "org.hst.office.vi:Nd30Wizard"
 OUT_DEFAULT = os.path.join(os.path.dirname(HERE), "output", "backstage-flows")
@@ -42,24 +44,23 @@ def menu_items():
     return [name for name, _node in found("menu item") if name]
 
 
-def reopen(office, frame):
-    if not gui.is_open():
-        office.dispatch(frame, gui.COMMAND)
-        gui.wait_state(True)
-    time.sleep(0.5)
-
-
 def check_new(office, frame, interceptor, out):
-    reopen(office, frame)
+    gui.reopen(office, frame)
     gui.press(gui.view_items()["Mới"])
     time.sleep(3)
     hst_gui.screenshot(os.path.join(out, "moi.png"), office.display)
     gui.record("New shows the template view", bool(named("Mẫu")))
+    shot = os.path.join(out, "moi.png")
+    box = named("Mẫu")[0].queryComponent().getExtents(0)
+    page, gallery = pixel(shot, (box.x - 20, box.y + 8)), pixel(shot, (box.x + 8, box.y + 8))
+    gui.record("the gallery has the page background", page == gallery, "%s %s" % (page, gallery))
+    samples = os.path.join(office.program, "..", "share", "template", "common", "l10n")
+    gui.record("the upstream language samples are not installed", not os.path.exists(samples))
     gui.press(gui.view_items()["Văn bản hành chính (NĐ 30)"])
     gui.record("New: the Decree 30 button runs the wizard", gui.expect_call(interceptor, ND30))
     gui.wait_state(False)
     interceptor.calls.clear()
-    reopen(office, frame)
+    gui.reopen(office, frame)
     gui.press(gui.view_items()["Văn bản hành chính (NĐ 30)"])
     gui.record("Home: the Decree 30 tile runs the wizard", gui.expect_call(interceptor, ND30))
     gui.wait_state(False)
@@ -67,7 +68,7 @@ def check_new(office, frame, interceptor, out):
 
 def check_pin(office, frame, recent, out):
     display = office.display
-    reopen(office, frame)
+    gui.reopen(office, frame)
     cell = named(recent)
     gui.record("Recent lists the saved file", bool(cell), recent)
     box = cell[0].queryComponent().getExtents(0)
@@ -80,7 +81,7 @@ def check_pin(office, frame, recent, out):
     gui.record("a right click opens the file menu", {"Mở", "Ghim", "Xóa khỏi danh sách"} <= set(items), items[:6])
     gui.xdo(display, "key", "Escape")
     time.sleep(0.6)
-    reopen(office, frame)
+    gui.reopen(office, frame)
     gui.xdo(display, "click", "1")
     time.sleep(0.3)
     gui.xdo(display, "key", "Menu")
@@ -100,7 +101,7 @@ def check_pin(office, frame, recent, out):
 
 def check_format(office, frame, out):
     display = office.display
-    reopen(office, frame)
+    gui.reopen(office, frame)
     gui.press(gui.view_items()["Lưu thành"])
     time.sleep(0.6)
     row = [node for name, node in found() if name and name.startswith("Văn bản ODF")]
@@ -138,6 +139,7 @@ def main():
     parser.add_argument("--out", default=OUT_DEFAULT)
     parser.add_argument("--display", default=":93")
     parser.add_argument("--port", type=int, default=2165)
+    parser.add_argument("--dark", action="store_true", help="in the dark GTK theme")
     args = parser.parse_args()
     if os.geteuid() == 0:
         os.makedirs(args.out, exist_ok=True)
@@ -148,7 +150,8 @@ def main():
     hst_gui.setup_uno(args.instdir)
     work = os.path.join(args.out, "work")
     shutil.rmtree(work, ignore_errors=True)
-    office = hst_gui.Office(args.instdir, work, args.port, display=args.display)
+    office = hst_gui.Office(args.instdir, work, args.port, display=args.display,
+                            env={"GTK_THEME": "Adwaita:dark"} if args.dark else None)
     office.start()
     try:
         files = os.path.join(args.out, "files")
@@ -160,7 +163,8 @@ def main():
         office.raise_windows()
         interceptor = gui.make_interceptor({ND30, ".uno:SaveAs"})
         frame.registerDispatchProviderInterceptor(interceptor)
-        for step in (lambda: check_new(office, frame, interceptor, args.out),
+        for step in (lambda: check_hover(office, frame, args.out),
+                     lambda: check_new(office, frame, interceptor, args.out),
                      lambda: check_pin(office, frame, recent, args.out),
                      lambda: check_format(office, frame, args.out),
                      lambda: check_classic(office, frame, args.out)):
