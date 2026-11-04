@@ -1,0 +1,377 @@
+HST Office: Symbol dialog with Word's Symbols and Special Characters tabs. The second tab lists the common
+typographic characters by name (dashes, spaces, hyphens, marks) and inserts through the same path as the
+character grid.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py special-character
+---
+--- a/cui/uiconfig/ui/specialcharacters.ui
++++ b/cui/uiconfig/ui/specialcharacters.ui
+@@ -22,6 +22,13 @@
+       <column type="gchararray"/>
+     </columns>
+   </object>
++  <object class="GtkTreeStore" id="hstspecial_treestore">
++    <columns>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++    </columns>
++  </object>
+   <object class="GtkDialog" id="SpecialCharactersDialog">
+     <property name="can-focus">False</property>
+     <property name="border-width">6</property>
+@@ -107,6 +114,12 @@
+           </packing>
+         </child>
+         <child>
++          <object class="GtkNotebook" id="hstsymboltabs">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <child>
+           <!-- n-columns=2 n-rows=4 -->
+           <object class="GtkGrid" id="grid1">
+             <property name="visible">True</property>
+@@ -556,6 +569,81 @@
+               </packing>
+             </child>
+           </object>
++            </child>
++            <child type="tab">
++              <object class="GtkLabel" id="hsttabsymbols">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="specialcharacters|hsttabsymbols">Symbols</property>
++              </object>
++              <packing>
++                <property name="tab-fill">False</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkScrolledWindow">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="hexpand">True</property>
++                <property name="vexpand">True</property>
++                <property name="shadow-type">in</property>
++                <child>
++                  <object class="GtkTreeView" id="hstspeciallist">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="hexpand">True</property>
++                    <property name="vexpand">True</property>
++                    <property name="model">hstspecial_treestore</property>
++                    <property name="headers-visible">False</property>
++                    <property name="search-column">1</property>
++                    <property name="show-expanders">False</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="hstspeciallist-atkobject">
++                        <property name="AtkObject::accessible-name" translatable="yes" context="specialcharacters|hstspeciallist-atkobject">Special Characters</property>
++                      </object>
++                    </child>
++                    <child internal-child="selection">
++                      <object class="GtkTreeSelection"/>
++                    </child>
++                    <child>
++                      <object class="GtkTreeViewColumn">
++                        <child>
++                          <object class="GtkCellRendererText"/>
++                          <attributes>
++                            <attribute name="text">0</attribute>
++                          </attributes>
++                        </child>
++                      </object>
++                    </child>
++                    <child>
++                      <object class="GtkTreeViewColumn">
++                        <child>
++                          <object class="GtkCellRendererText"/>
++                          <attributes>
++                            <attribute name="text">1</attribute>
++                          </attributes>
++                        </child>
++                      </object>
++                    </child>
++                  </object>
++                </child>
++              </object>
++              <packing>
++                <property name="position">1</property>
++              </packing>
++            </child>
++            <child type="tab">
++              <object class="GtkLabel" id="hsttabspecial">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="specialcharacters|hsttabspecial">Special Characters</property>
++              </object>
++              <packing>
++                <property name="position">1</property>
++                <property name="tab-fill">False</property>
++              </packing>
++            </child>
++          </object>
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+--- a/include/svx/cuicharmap.hxx
++++ b/include/svx/cuicharmap.hxx
+@@ -18,6 +18,7 @@
+  */
+ #pragma once
+ 
++#include <vcl/weld/TreeView.hxx>
+ #include <vcl/weld/Button.hxx>
+ #include <vcl/weld/ComboBox.hxx>
+ #include <vcl/weld/Dialog.hxx>
+@@ -89,6 +90,9 @@
+ 
+ private:
+     void init();
++    void HstFillSpecialList();
++    DECL_DLLPRIVATE_LINK(HstSpecialSelectHdl, weld::ItemView&, void);
++    DECL_DLLPRIVATE_LINK(HstSpecialActivateHdl, const weld::TreeIter&, bool);
+ 
+     enum class Radix : sal_Int16
+     {
+@@ -145,6 +149,7 @@
+     std::unique_ptr<weld::Label> m_xSubsetText;
+     std::unique_ptr<weld::ComboBox> m_xSubsetLB;
+     std::unique_ptr<weld::Entry> m_xSearchText;
++    std::unique_ptr<weld::TreeView> m_xHstSpecialList; // HST: Word's Special Characters tab
+     std::unique_ptr<weld::Entry> m_xHexCodeText;
+     std::unique_ptr<weld::Entry> m_xDecimalCodeText;
+     std::unique_ptr<weld::Button> m_xFavouritesBtn;
+--- a/svx/source/dialog/cuicharmap.cxx
++++ b/svx/source/dialog/cuicharmap.cxx
+@@ -67,6 +67,7 @@
+     , m_xSubsetText(m_xBuilder->weld_label(u"subsetft"_ustr))
+     , m_xSubsetLB(m_xBuilder->weld_combo_box(u"subsetlb"_ustr))
+     , m_xSearchText(m_xBuilder->weld_entry(u"search"_ustr))
++    , m_xHstSpecialList(m_xBuilder->weld_tree_view(u"hstspeciallist"_ustr))
+     , m_xHexCodeText(m_xBuilder->weld_entry(u"hexvalue"_ustr))
+     , m_xDecimalCodeText(m_xBuilder->weld_entry(u"decimalvalue"_ustr))
+     , m_xFavouritesBtn(m_xBuilder->weld_button(u"favbtn"_ustr))
+@@ -220,6 +221,7 @@
+     m_xFontLB->connect_changed(LINK( this, SvxCharacterMap, FontSelectHdl));
+     m_xSubsetLB->connect_changed(LINK( this, SvxCharacterMap, SubsetSelectHdl));
+     m_xOKBtn->connect_clicked(LINK(this, SvxCharacterMap, InsertClickHdl));
++    HstFillSpecialList();
+     m_xOKBtn->show();
+ 
+     m_xShowSet->SetDoubleClickHdl( LINK( this, SvxCharacterMap, CharDoubleClickHdl ) );
+@@ -586,6 +588,68 @@
+     m_xDialog->response(RET_OK);
+ }
+ 
++namespace
++{
++struct HstSpecialChar
++{
++    sal_UCS4 nChar;
++    TranslateId pName;
++};
++// HST: the list of Word's Special Characters tab
++constexpr HstSpecialChar aHstSpecialChars[] = {
++    { 0x2014, NC_("hstspecialchar", "Em Dash") },
++    { 0x2013, NC_("hstspecialchar", "En Dash") },
++    { 0x2011, NC_("hstspecialchar", "Nonbreaking Hyphen") },
++    { 0x00AD, NC_("hstspecialchar", "Optional Hyphen") },
++    { 0x2003, NC_("hstspecialchar", "Em Space") },
++    { 0x2002, NC_("hstspecialchar", "En Space") },
++    { 0x2005, NC_("hstspecialchar", "1/4 Em Space") },
++    { 0x00A0, NC_("hstspecialchar", "Nonbreaking Space") },
++    { 0x00A9, NC_("hstspecialchar", "Copyright") },
++    { 0x00AE, NC_("hstspecialchar", "Registered") },
++    { 0x2122, NC_("hstspecialchar", "Trademark") },
++    { 0x00A7, NC_("hstspecialchar", "Section") },
++    { 0x00B6, NC_("hstspecialchar", "Paragraph") },
++    { 0x2026, NC_("hstspecialchar", "Ellipsis") },
++    { 0x2018, NC_("hstspecialchar", "Single Opening Quote") },
++    { 0x2019, NC_("hstspecialchar", "Single Closing Quote") },
++    { 0x201C, NC_("hstspecialchar", "Double Opening Quote") },
++    { 0x201D, NC_("hstspecialchar", "Double Closing Quote") },
++};
++}
++
++void SvxCharacterMap::HstFillSpecialList()
++{
++    m_xHstSpecialList->set_size_request(-1, m_xHstSpecialList->get_height_rows(14));
++    for (const HstSpecialChar& rEntry : aHstSpecialChars)
++    {
++        m_xHstSpecialList->append(OUString::number(rEntry.nChar), OUString(&rEntry.nChar, 1));
++        m_xHstSpecialList->set_text(m_xHstSpecialList->n_children() - 1, SvxResId(rEntry.pName), 1);
++    }
++    m_xHstSpecialList->connect_selection_changed(LINK(this, SvxCharacterMap, HstSpecialSelectHdl));
++    m_xHstSpecialList->connect_item_activated(LINK(this, SvxCharacterMap, HstSpecialActivateHdl));
++}
++
++IMPL_LINK_NOARG(SvxCharacterMap, HstSpecialSelectHdl, weld::ItemView&, void)
++{
++    const OUString sId = m_xHstSpecialList->get_selected_id();
++    if (sId.isEmpty())
++        return;
++    const sal_UCS4 cChar = sId.toUInt32();
++    m_aShowChar.SetText(OUString(&cChar, 1));
++    m_aShowChar.Invalidate();
++    m_xHexCodeText->set_text(OUString::number(cChar, 16).toAsciiUpperCase());
++    m_xDecimalCodeText->set_text(OUString::number(cChar));
++    setCharName(cChar);
++    m_xOKBtn->set_sensitive(true);
++}
++
++IMPL_LINK_NOARG(SvxCharacterMap, HstSpecialActivateHdl, const weld::TreeIter&, bool)
++{
++    InsertClickHdl(*m_xOKBtn);
++    return true;
++}
++
+ IMPL_LINK_NOARG(SvxCharacterMap, InsertClickHdl, weld::Button&, void)
+ {
+     OUString sChar = m_aShowChar.GetText();
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -21435,6 +21435,24 @@
+ msgid "Opens a dialog for defining solarization. Solarization refers to an effect that looks like what can happen when there is too much light during photo development. The colors become partly inverted."
+ msgstr "Mở hộp thoại để xác định phơi sáng một phần. Phơi sáng một phần đề cập đến một hiệu ứng giống như những gì có thể xảy ra khi có quá nhiều ánh sáng trong quá trình phát triển ảnh. Màu sắc trở nên đảo ngược một phần."
+ 
++#. hstSC1
++#: cui/uiconfig/ui/specialcharacters.ui
++msgctxt "specialcharacters|hsttabsymbols"
++msgid "Symbols"
++msgstr "Ký hiệu"
++
++#. hstSC3
++#: cui/uiconfig/ui/specialcharacters.ui
++msgctxt "specialcharacters|hstspeciallist-atkobject"
++msgid "Special Characters"
++msgstr "Ký tự Đặc biệt"
++
++#. hstSC2
++#: cui/uiconfig/ui/specialcharacters.ui
++msgctxt "specialcharacters|hsttabspecial"
++msgid "Special Characters"
++msgstr "Ký tự Đặc biệt"
++
+ #. JpXVy
+ #: cui/uiconfig/ui/specialcharacters.ui:28
+ msgctxt "specialcharacters|SpecialCharactersDialog"
+--- a/translations/source/vi/svx/messages.po
++++ b/translations/source/vi/svx/messages.po
+@@ -10500,6 +10500,114 @@
+ msgid "Top and Double Bottom Borders"
+ msgstr "Viền trên và viền dưới đôi"
+ 
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Em Dash"
++msgstr "Gạch ngang dài"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "En Dash"
++msgstr "Gạch ngang ngắn"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Nonbreaking Hyphen"
++msgstr "Gạch nối không ngắt"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Optional Hyphen"
++msgstr "Gạch nối tùy chọn"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Em Space"
++msgstr "Khoảng trắng dài"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "En Space"
++msgstr "Khoảng trắng ngắn"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "1/4 Em Space"
++msgstr "Khoảng trắng 1/4"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Nonbreaking Space"
++msgstr "Khoảng trắng không ngắt"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Copyright"
++msgstr "Bản quyền"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Registered"
++msgstr "Đã đăng ký"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Trademark"
++msgstr "Thương hiệu"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Section"
++msgstr "Mục"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Paragraph"
++msgstr "Đoạn văn"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Ellipsis"
++msgstr "Dấu ba chấm"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Single Opening Quote"
++msgstr "Nháy đơn mở"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Single Closing Quote"
++msgstr "Nháy đơn đóng"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Double Opening Quote"
++msgstr "Nháy kép mở"
++
++#. hstSCc
++#: svx/source/dialog/cuicharmap.cxx
++msgctxt "hstspecialchar"
++msgid "Double Closing Quote"
++msgstr "Nháy kép đóng"
++
+ #. c8nou
+ #: include/svx/strings.hrc:1878
+ msgctxt "RID_SVXSTR_REMOVE_FAVORITES"
