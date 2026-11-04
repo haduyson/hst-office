@@ -11,6 +11,7 @@ import _paths
 HELP = os.path.join(_paths.ROOT, "extensions", "hst-vietnamese-tools", "help")
 EXT = os.path.dirname(HELP)
 FORBIDDEN = re.compile(r"github|libreoffice|openoffice|document foundation", re.I)
+SUPPORT_GROUP = "https://www.facebook.com/share/g/1TvVaU6q4V/"
 
 
 def pages():
@@ -30,6 +31,8 @@ class UserGuide(unittest.TestCase):
         for path in pages():
             text = open(path, encoding="utf-8").read()
             for url in re.findall(r"""(?:href|src)=["'](https?:[^"']+)["']""", text):
+                if url == SUPPORT_GROUP and os.path.basename(path) == "lien-he.html":
+                    continue
                 self.assertTrue(re.match(r"https://hasontech\.vn/", url), url)
                 self.assertIn("utm_medium=help", url.replace("&amp;", "&"))
             self.assertNotRegex(text, r"""src=["']https?:""")

@@ -12,6 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REQUIRED = ("description.xml", "META-INF/manifest.xml", "license/LICENSE.txt", "license/NOTICES.txt", "data/provenance.json", "data/solutions.json",
             "data/release.json", "data/pkcs11-modules.json", "data/banners.json", "banners.xcs")
 SHARED_DATA = ("nd30.json", "number-formats.json", "encoding-maps.json", "provenance.json")
+GUIDE_SUPPORT_GROUP = "https://www.facebook.com/share/g/1TvVaU6q4V/"  # the one link outside hasontech.vn in the guide
 HOST_ALLOW = ("openoffice.org", "libreoffice.org", "w3.org", "hasontech.vn", "sun.com")
 NETWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess|ctypes)\b", re.M)
 # HTTPS is confined to transport helpers; only the deadline supervisor may spawn its private helper.
@@ -94,7 +95,7 @@ def check_content(zf, names, errors):
                     errors.append("remote resource in %s: %s" % (name, host))
         if name.endswith(".html"):  # bundled user guide: no remote resource, no upstream/GitHub naming
             text = data.decode("utf-8")
-            for host in re.findall(r"(?:https?:)?//([^/\s\"'<>)]+)", text):
+            for host in re.findall(r"(?:https?:)?//([^/\s\"'<>)]+)", text.replace(GUIDE_SUPPORT_GROUP, "")):
                 if not host.endswith("hasontech.vn"):
                     errors.append("remote link in %s: %s" % (name, host))
             if re.search(r"github|libreoffice|document foundation", text, re.I):
