@@ -4,11 +4,14 @@ HST Office Start Center: HASON TECH solutions banner with clickable solution but
   Misc/ShowDonation is enabled (upstream: every 30 days). The artwork (HS mark and headline,
   no solution names) ships as the custom brand image donate1.png (2x pixels, drawn at half
   size). Next to it, each solution (AIOS, eChatbot, Zalo Mini App, HST SEO, HST Post,
-  AI Dễ Lắm) is its own GtkButton: keyboard focusable, accessible name = solution name,
-  tooltip = tagline, opening its own URL. Names, taglines and URLs mirror
-  data/hst/solutions.json. Donation texts and the right image are gone. Below the grid a
-  flat text link "Xem thêm các giải pháp khác →" opens https://hasontech.vn (same UTM).
-  Window narrower than 1100 px: the artwork is hidden, the buttons stay (3x2 grid).
+  AI Dễ Lắm) is its own GtkButton (bold name) with its short description (tagline) shown
+  centred below it in a smaller, muted label (#5F6368, #BDC1C6 on a dark theme): keyboard
+  focusable, accessible name = solution name, accessible description and tooltip = tagline,
+  opening its own URL. Names, taglines and URLs mirror data/hst/solutions.json. Donation
+  texts and the right image are gone. Below the grid a flat text link "Xem thêm các giải
+  pháp khác →" opens https://hasontech.vn (same UTM). The grid fills the width next to the
+  artwork; window narrower than 1400 px: the artwork is hidden, buttons and taglines stay
+  (3x2 grid).
 - The hint in the empty recent-documents area ("Chào mừng đến với HST Office! Thả tài
   liệu vào đây...") is introductory text: Vietnamese in every UI language.
 - The Start Center donation button is never shown; the Extensions button opens the
@@ -83,14 +86,17 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  
      mxDropTarget = mxAllRecentThumbnails->GetDropTarget();
  
-@@ -260,49 +244,108 @@
+@@ -260,49 +244,121 @@
  
  }
  
+-void BackingWindow::initDonationBanner()
 +namespace
-+{
+ {
+-    mxDonationLink->connect_activate_link(LINK(this, BackingWindow, OnDonateLinkClick));
 +// HST Office: the HASON TECH solutions shown in the Start Center banner, in display order.
-+// Name, tooltip (tagline) and URL mirror data/hst/solutions.json (checked by tests/runtime).
++// Name, short description (tagline) and URL mirror data/hst/solutions.json (checked by
++// tests/runtime).
 +struct HstSolution
 +{
 +    OUString aName;
@@ -100,50 +106,61 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +
 +const HstSolution aHstSolutions[BackingWindow::HST_SOLUTION_COUNT] = {
 +    { u"AIOS"_ustr,
-+      u"Tr\u1EE3 l\u00FD s\u1ED1 c\u00E1 nh\u00E2n c\u1EE7a ng\u01B0\u1EDDi Vi\u1EC7t"_ustr,
++      u"Tr\u1EE3 l\u00FD AI cho c\u00E1 nh\u00E2n, nh\u01B0 m\u1ED9t tr\u1EE3 l\u00FD th\u1EF1c th\u1EE5"_ustr,
 +      u"https://aios.hasontech.vn"_ustr },
 +    { u"eChatbot"_ustr,
-+      u"Tr\u1EE3 l\u00FD s\u1ED1 AI cho ch\u00EDnh quy\u1EC1n v\u00E0 doanh nghi\u1EC7p"_ustr,
++      u"Chatbot AI \u2013 tr\u1EE3 l\u00FD s\u1ED1 cho c\u01A1 quan ch\u00EDnh quy\u1EC1n, doanh nghi\u1EC7p, gi\u00E1o d\u1EE5c"_ustr,
 +      u"https://echatbot.vn"_ustr },
 +    { u"Zalo Mini App"_ustr,
-+      u"M\u1ED7i t\u1ED5 ch\u1EE9c m\u1ED9t Zalo Mini App ri\u00EAng \u2014 g\u1EA7n ng\u01B0\u1EDDi d\u00F9ng ngay tr\u00EAn Zalo"_ustr,
++      u"Mini App tr\u00EAn \u1EE9ng d\u1EE5ng Zalo d\u00E0nh cho ch\u00EDnh quy\u1EC1n s\u1ED1, doanh nghi\u1EC7p"_ustr,
 +      u"https://espace.vn/zaloapp"_ustr },
 +    { u"HST SEO"_ustr,
-+      u"V\u1EADn h\u00E0nh SEO th\u00F4ng minh c\u00F9ng AI"_ustr,
++      u"SEO t\u1EF1 \u0111\u1ED9ng h\u00F3a th\u00F4ng minh b\u1EB1ng AI"_ustr,
 +      u"https://seo.hasontech.vn"_ustr },
 +    { u"HST Post"_ustr,
-+      u"\u0110\u0103ng b\u00E0i \u0111a n\u1EC1n t\u1EA3ng"_ustr,
++      u"C\u00F4ng c\u1EE5 \u0111\u0103ng b\u00E0i b\u1EB1ng AI tr\u00EAn h\u00E0ng lo\u1EA1t n\u1EC1n t\u1EA3ng m\u1EA1ng x\u00E3 h\u1ED9i"_ustr,
 +      u"https://post.hasontech.vn"_ustr },
 +    { u"AI D\u1EC5 L\u1EAFm"_ustr,
-+      u"AI d\u1EC5 l\u1EAFm \u2014 AI d\u1EC5 l\u00E0m"_ustr,
++      u"B\u1ED9 c\u00F4ng c\u1EE5 h\u1ED7 tr\u1EE3 s\u1EED d\u1EE5ng AI th\u00E0nh th\u1EA1o"_ustr,
 +      u"https://aidelam.com"_ustr },
 +};
 +
 +// UTM only tells the site where the click came from; the application sends no data.
 +const OUString sHstSolutionUtm
 +    = u"utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0"_ustr;
-+
-+// Below this window width the banner artwork is hidden and only the buttons remain.
-+constexpr sal_Int32 nHstBannerArtMinWidth = 1100;
+ 
+-    mxDonationBox->set_background(COL_WHITE);
+-    mxDonationBoxTitle->set_font_color(COL_BLACK);
+-    mxDonationBoxText->set_font_color(COL_BLACK);
++// Below this window width the banner artwork is hidden and only the solutions remain.
++constexpr sal_Int32 nHstBannerArtMinWidth = 1400;
 +}
 +
- void BackingWindow::initDonationBanner()
- {
--    mxDonationLink->connect_activate_link(LINK(this, BackingWindow, OnDonateLinkClick));
++void BackingWindow::initDonationBanner()
++{
 +    // HST Office: the brand image slot donate1.png carries the banner artwork (2x pixels,
 +    // drawn at half size) without any solution name; every solution is its own real button
-+    // (keyboard focusable, accessible name = solution name, tooltip = tagline).
++    // (keyboard focusable, accessible name = solution name, accessible description and
++    // tooltip = tagline) with the tagline shown below it in a muted colour.
++    const bool bDark = Application::GetSettings().GetStyleSettings().GetDialogColor().IsDark();
++    const Color aMuted = bDark ? Color(0xBD, 0xC1, 0xC6) : Color(0x5F, 0x63, 0x68);
 +    for (int i = 0; i < HST_SOLUTION_COUNT; ++i)
 +    {
 +        mxSolutionButtons[i] = m_xBuilder->weld_button(u"btnSolution" + OUString::number(i));
 +        mxSolutionButtons[i]->set_label(aHstSolutions[i].aName);
 +        mxSolutionButtons[i]->set_tooltip_text(aHstSolutions[i].aTagline);
++        mxSolutionButtons[i]->set_accessible_name(aHstSolutions[i].aName);
++        mxSolutionButtons[i]->set_accessible_description(aHstSolutions[i].aTagline);
++        vcl::Font aFont(mxSolutionButtons[i]->get_font());
++        aFont.SetWeight(WEIGHT_BOLD);
++        mxSolutionButtons[i]->set_font(aFont);
 +        mxSolutionButtons[i]->connect_clicked(LINK(this, BackingWindow, OnSolutionClick));
++
++        mxSolutionLabels[i] = m_xBuilder->weld_label(u"lbSolution" + OUString::number(i));
++        mxSolutionLabels[i]->set_label(aHstSolutions[i].aTagline);
++        mxSolutionLabels[i]->set_font_color(aMuted);
 +    }
- 
--    mxDonationBox->set_background(COL_WHITE);
--    mxDonationBoxTitle->set_font_color(COL_BLACK);
--    mxDonationBoxText->set_font_color(COL_BLACK);
++
 +    // text link after the solutions: the HASON TECH home page (always Vietnamese)
 +    mxMoreSolutions = m_xBuilder->weld_button(u"btnMoreSolutions"_ustr);
 +    mxMoreSolutions->set_label(u"Xem th\u00EAm c\u00E1c gi\u1EA3i ph\u00E1p kh\u00E1c \u2192"_ustr);
@@ -218,7 +235,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  }
  
  IMPL_LINK(BackingWindow, ClickHelpHdl, weld::Button&, rButton, void)
-@@ -401,8 +444,9 @@
+@@ -401,8 +457,9 @@
  
      checkInstalledModules();
  
@@ -230,7 +247,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  
      mxOpenButton->connect_clicked(LINK(this, BackingWindow, ClickHdl));
  
-@@ -529,6 +573,13 @@
+@@ -529,6 +586,13 @@
      mxDrawAllButton->set_sensitive(aModuleOpt.IsDrawInstalled());
      mxMathAllButton->set_sensitive(aModuleOpt.IsMathInstalled());
      mxDBAllButton->set_sensitive(aModuleOpt.IsDataBaseInstalled());
@@ -244,7 +261,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  }
  
  bool BackingWindow::PreNotify(NotifyEvent& rNEvt)
-@@ -638,32 +689,6 @@
+@@ -638,32 +702,6 @@
          xFramesSupplier->setActiveFrame(mxFrame);
  }
  
@@ -277,7 +294,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  void BackingWindow::applyFilter()
  {
      const int nFilter = mxFilter->get_active();
-@@ -738,6 +763,12 @@
+@@ -738,6 +776,12 @@
  
          dispatchURL( u".uno:OpenRemote"_ustr, OUString(), xFrame, {} );
      }
@@ -304,7 +321,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
      css::uno::Reference<css::uno::XComponentContext> mxContext;
      css::uno::Reference<css::frame::XDispatchProvider> mxDesktopDispatchProvider;
      css::uno::Reference<css::frame::XFrame> mxFrame;
-@@ -88,11 +93,9 @@
+@@ -88,11 +93,10 @@
      std::unique_ptr<TemplateDefaultView> mxLocalView;
      std::unique_ptr<weld::CustomWeld> mxLocalViewWin;
      std::unique_ptr<weld::Image> mxDonationLeft;
@@ -314,11 +331,12 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 -    std::unique_ptr<weld::Label> mxDonationBoxTitle;
 -    std::unique_ptr<weld::Label> mxDonationBoxText;
 +    std::unique_ptr<weld::Button> mxSolutionButtons[HST_SOLUTION_COUNT];
++    std::unique_ptr<weld::Label> mxSolutionLabels[HST_SOLUTION_COUNT];
 +    std::unique_ptr<weld::Button> mxMoreSolutions;
  
      bool mbLocalViewInitialized;
  
-@@ -112,11 +115,10 @@
+@@ -112,11 +116,10 @@
      DECL_LINK(ClickHdl, weld::Button&, void);
      DECL_LINK(ClickHelpHdl, weld::Button&, void);
      DECL_LINK(MenuSelectHdl, const OUString&, void);
@@ -331,7 +349,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  
      void initControls();
      void initDonationBanner();
-@@ -139,6 +141,7 @@
+@@ -139,6 +142,7 @@
      virtual void dispose() override;
  
      virtual bool PreNotify(NotifyEvent& rNEvt) override;
@@ -368,7 +386,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
                          <property name="visible">True</property>
                          <property name="can-focus">True</property>
                          <property name="receives-default">True</property>
-@@ -677,89 +677,134 @@
+@@ -677,89 +677,260 @@
                </packing>
              </child>
              <child>
@@ -395,17 +413,20 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
                      <property name="left-attach">0</property>
                      <property name="top-attach">0</property>
 -                    <property name="height">3</property>
--                  </packing>
--                </child>
--                <child>
+                   </packing>
+                 </child>
+                 <child>
 -                  <object class="GtkLabel" id="lbDonateTitle">
--                    <property name="visible">True</property>
--                    <property name="can-focus">False</property>
++                  <!-- n-columns=3 n-rows=5 -->
++                  <!-- HST Office: per solution a button (name) with its short description below it -->
++                  <object class="GtkGrid" id="gdSolutions">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
 -                    <property name="halign">start</property>
 -                    <property name="valign">end</property>
 -                    <property name="margin-start">24</property>
 -                    <property name="margin-top">12</property>
--                    <property name="hexpand">True</property>
+                     <property name="hexpand">True</property>
 -                    <property name="label" translatable="yes" context="startcenter|donatetitle">%PRODUCTNAME is free software.</property>
 -                    <attributes>
 -                      <attribute name="weight" value="bold"/>
@@ -415,15 +436,13 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 -                  <packing>
 -                    <property name="left-attach">1</property>
 -                    <property name="top-attach">0</property>
-                   </packing>
-                 </child>
-                 <child>
+-                  </packing>
+-                </child>
+-                <child>
 -                  <object class="GtkLabel" id="lbDonateText">
-+                  <!-- n-columns=3 n-rows=3 -->
-+                  <object class="GtkGrid" id="gdSolutions">
-                     <property name="visible">True</property>
-                     <property name="can-focus">False</property>
-                     <property name="halign">start</property>
+-                    <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
+-                    <property name="halign">start</property>
                      <property name="valign">center</property>
 -                    <property name="margin-start">24</property>
 -                    <property name="hexpand">True</property>
@@ -444,8 +463,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 -                    <property name="valign">start</property>
 -                    <property name="margin-start">24</property>
 -                    <property name="relief">none</property>
-+                    <property name="row-spacing">6</property>
-+                    <property name="column-spacing">6</property>
++                    <property name="column-spacing">12</property>
 +                    <property name="column-homogeneous">True</property>
 +                    <child>
 +                      <object class="GtkButton" id="btnSolution0">
@@ -458,6 +476,27 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +                      <packing>
 +                        <property name="left-attach">0</property>
 +                        <property name="top-attach">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="lbSolution0">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="valign">start</property>
++                        <property name="margin-top">2</property>
++                        <property name="margin-bottom">8</property>
++                        <property name="label" translatable="no">Trợ lý AI cho cá nhân, như một trợ lý thực thụ</property>
++                        <property name="justify">center</property>
++                        <property name="wrap">True</property>
++                        <property name="width-chars">20</property>
++                        <property name="max-width-chars">30</property>
++                        <attributes>
++                          <attribute name="scale" value="0.9"/>
++                        </attributes>
++                      </object>
++                      <packing>
++                        <property name="left-attach">0</property>
++                        <property name="top-attach">1</property>
 +                      </packing>
 +                    </child>
 +                    <child>
@@ -474,6 +513,27 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +                      </packing>
 +                    </child>
 +                    <child>
++                      <object class="GtkLabel" id="lbSolution1">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="valign">start</property>
++                        <property name="margin-top">2</property>
++                        <property name="margin-bottom">8</property>
++                        <property name="label" translatable="no">Chatbot AI – trợ lý số cho cơ quan chính quyền, doanh nghiệp, giáo dục</property>
++                        <property name="justify">center</property>
++                        <property name="wrap">True</property>
++                        <property name="width-chars">20</property>
++                        <property name="max-width-chars">30</property>
++                        <attributes>
++                          <attribute name="scale" value="0.9"/>
++                        </attributes>
++                      </object>
++                      <packing>
++                        <property name="left-attach">1</property>
++                        <property name="top-attach">1</property>
++                      </packing>
++                    </child>
++                    <child>
 +                      <object class="GtkButton" id="btnSolution2">
 +                        <property name="label" translatable="no">Zalo Mini App</property>
 +                        <property name="visible">True</property>
@@ -487,6 +547,27 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +                      </packing>
 +                    </child>
 +                    <child>
++                      <object class="GtkLabel" id="lbSolution2">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="valign">start</property>
++                        <property name="margin-top">2</property>
++                        <property name="margin-bottom">8</property>
++                        <property name="label" translatable="no">Mini App trên ứng dụng Zalo dành cho chính quyền số, doanh nghiệp</property>
++                        <property name="justify">center</property>
++                        <property name="wrap">True</property>
++                        <property name="width-chars">20</property>
++                        <property name="max-width-chars">30</property>
++                        <attributes>
++                          <attribute name="scale" value="0.9"/>
++                        </attributes>
++                      </object>
++                      <packing>
++                        <property name="left-attach">2</property>
++                        <property name="top-attach">1</property>
++                      </packing>
++                    </child>
++                    <child>
 +                      <object class="GtkButton" id="btnSolution3">
 +                        <property name="label" translatable="no">HST SEO</property>
 +                        <property name="visible">True</property>
@@ -496,7 +577,28 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +                      </object>
 +                      <packing>
 +                        <property name="left-attach">0</property>
-+                        <property name="top-attach">1</property>
++                        <property name="top-attach">2</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="lbSolution3">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="valign">start</property>
++                        <property name="margin-top">2</property>
++                        <property name="margin-bottom">8</property>
++                        <property name="label" translatable="no">SEO tự động hóa thông minh bằng AI</property>
++                        <property name="justify">center</property>
++                        <property name="wrap">True</property>
++                        <property name="width-chars">20</property>
++                        <property name="max-width-chars">30</property>
++                        <attributes>
++                          <attribute name="scale" value="0.9"/>
++                        </attributes>
++                      </object>
++                      <packing>
++                        <property name="left-attach">0</property>
++                        <property name="top-attach">3</property>
 +                      </packing>
 +                    </child>
 +                    <child>
@@ -509,7 +611,28 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +                      </object>
 +                      <packing>
 +                        <property name="left-attach">1</property>
-+                        <property name="top-attach">1</property>
++                        <property name="top-attach">2</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="lbSolution4">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="valign">start</property>
++                        <property name="margin-top">2</property>
++                        <property name="margin-bottom">8</property>
++                        <property name="label" translatable="no">Công cụ đăng bài bằng AI trên hàng loạt nền tảng mạng xã hội</property>
++                        <property name="justify">center</property>
++                        <property name="wrap">True</property>
++                        <property name="width-chars">20</property>
++                        <property name="max-width-chars">30</property>
++                        <attributes>
++                          <attribute name="scale" value="0.9"/>
++                        </attributes>
++                      </object>
++                      <packing>
++                        <property name="left-attach">1</property>
++                        <property name="top-attach">3</property>
 +                      </packing>
 +                    </child>
 +                    <child>
@@ -522,7 +645,28 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +                      </object>
 +                      <packing>
 +                        <property name="left-attach">2</property>
-+                        <property name="top-attach">1</property>
++                        <property name="top-attach">2</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="lbSolution5">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="valign">start</property>
++                        <property name="margin-top">2</property>
++                        <property name="margin-bottom">8</property>
++                        <property name="label" translatable="no">Bộ công cụ hỗ trợ sử dụng AI thành thạo</property>
++                        <property name="justify">center</property>
++                        <property name="wrap">True</property>
++                        <property name="width-chars">20</property>
++                        <property name="max-width-chars">30</property>
++                        <attributes>
++                          <attribute name="scale" value="0.9"/>
++                        </attributes>
++                      </object>
++                      <packing>
++                        <property name="left-attach">2</property>
++                        <property name="top-attach">3</property>
 +                      </packing>
 +                    </child>
 +                    <child>
@@ -536,7 +680,7 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
 +                      </object>
 +                      <packing>
 +                        <property name="left-attach">0</property>
-+                        <property name="top-attach">2</property>
++                        <property name="top-attach">4</property>
 +                        <property name="width">3</property>
 +                      </packing>
 +                    </child>
@@ -618,11 +762,17 @@ under their upstream license). Test: Start Center screenshot under Xvfb.
  #: sfx2/uiconfig/ui/startcenter.ui:297
 --- a/solenv/sanitizers/ui/sfx.suppr
 +++ b/solenv/sanitizers/ui/sfx.suppr
-@@ -36,7 +36,6 @@
+@@ -36,7 +36,12 @@
  sfx2/uiconfig/ui/startcenter.ui://GtkLabel[@id='create_label'] orphan-label
  sfx2/uiconfig/ui/startcenter.ui://GtkLabel[@id='althelplabel'] orphan-label
  sfx2/uiconfig/ui/startcenter.ui://GtkImage[@id='imgDonationLeft'] no-labelled-by
 -sfx2/uiconfig/ui/startcenter.ui://GtkImage[@id='imgDonationRight'] no-labelled-by
++sfx2/uiconfig/ui/startcenter.ui://GtkLabel[@id='lbSolution0'] orphan-label
++sfx2/uiconfig/ui/startcenter.ui://GtkLabel[@id='lbSolution1'] orphan-label
++sfx2/uiconfig/ui/startcenter.ui://GtkLabel[@id='lbSolution2'] orphan-label
++sfx2/uiconfig/ui/startcenter.ui://GtkLabel[@id='lbSolution3'] orphan-label
++sfx2/uiconfig/ui/startcenter.ui://GtkLabel[@id='lbSolution4'] orphan-label
++sfx2/uiconfig/ui/startcenter.ui://GtkLabel[@id='lbSolution5'] orphan-label
  sfx2/uiconfig/ui/tabbarcontents.ui://GtkToggleToolButton[@id='toggle'] button-no-label
  sfx2/uiconfig/ui/tabbutton.ui://GtkToggleToolButton[@id='toggle'] button-no-label
  sfx2/uiconfig/ui/templatepanel.ui://GtkToggleToolButton[@id='1'] button-no-label

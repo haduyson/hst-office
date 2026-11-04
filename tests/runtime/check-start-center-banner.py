@@ -8,11 +8,14 @@ Usage: python3 tests/runtime/check-start-center-banner.py [--instdir upstream/li
 Static part: the C++ table in patches/libreoffice/hst-start-center-banner.patch mirrors
 data/hst/solutions.json (name, tagline, URL, same order), the installed startcenter.ui has the six
 buttons and no leftover donation widgets, and the installed program carries the texts.
-GUI part (unless --no-gui, needs a running X display; the test never starts or stops it): Start
-Center under an en-US and a vi UI with a fake xdg-open that logs the opened URL. Every button is
-clicked and must open url + "?utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0";
-Tab moves the focus through the six buttons; in a narrow window the artwork is hidden and the six
-buttons and the text link are still clickable. Screenshots are kept. Exit 1 when a check fails.
+GUI part (unless --no-gui, needs a running X display; the test never starts or stops it; as root it
+re-executes itself as the build user under dbus-run-session for AT-SPI): Start Center under an en-US
+and a vi UI with a fake xdg-open that logs the opened URL. Widgets are located through AT-SPI: every
+solution button has accessible name = name and description = tagline, its tagline is shown centred
+below it, no banner widget overlaps another or leaves the window. Every button is clicked and must
+open url + "?utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0"; Tab moves
+the focus through the six buttons; in a narrow window the artwork is hidden and the buttons, taglines
+and the text link remain. Screenshots are kept. Exit 1 when a check fails.
 """
 import argparse
 import glob
@@ -30,8 +33,9 @@ import hst_gui  # noqa: E402
 ROOT = hst_gui.ROOT
 UTM = "utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0"
 MORE = "https://hasontech.vn?" + UTM
+MORE_LABEL = "Xem thêm các giải pháp khác →"
 PATCH = os.path.join(ROOT, "patches/libreoffice/hst-start-center-banner.patch")
-NARROW = (800, 620)
+NARROW = (1000, 700)
 
 
 def solutions():
@@ -57,8 +61,10 @@ def static_checks(instdir, check):
           patch_table() == expected, repr(patch_table())[:200])
     ui_path = os.path.join(instdir, "share/config/soffice.cfg/sfx/ui/startcenter.ui")
     ui = open(ui_path, encoding="utf-8").read() if os.path.isfile(ui_path) else ""
-    for index in range(len(expected)):
-        check(f"startcenter.ui has btnSolution{index}", f'id="btnSolution{index}"' in ui)
+    for index, (name, tagline, _url) in enumerate(expected):
+        check(f"startcenter.ui has btnSolution{index} and its tagline label lbSolution{index}",
+              f'id="btnSolution{index}"' in ui and f'id="lbSolution{index}"' in ui)
+        check(f"startcenter.ui tagline {index} equals data/hst/solutions.json", f">{tagline}<" in ui)
     check("startcenter.ui has no donation widgets left",
           not any(name in ui for name in ("btnDonateLink", "lbDonateTitle", "lbDonateText", "imgDonationRight")))
     libs = [path for path in glob.glob(os.path.join(instdir, "program/lib*.so")) if os.path.getsize(path) > 1000]
@@ -105,59 +111,87 @@ def start_center_window(display, pid):
     return max(windows, key=lambda w: geometry(display, w[0])[2] * geometry(display, w[0])[3])[0]
 
 
-def differs_at(shot, background, x, y):
-    return sum(abs(a - b) for a, b in zip(shot.getpixel((x, y)), background)) > 24
+def office_app():
+    import pyatspi
+    desktop = pyatspi.Registry.getDesktop(0)
+    for index in range(desktop.childCount):
+        app = desktop.getChildAtIndex(index)
+        if "office" in (app.name or "").lower():
+            return app
+    return None
 
 
-def banner_buttons(image_path, display, wid):
-    """Screen centers of the six solution buttons plus the "more" link (7 points) and the number
-    of artwork runs, from a screenshot.
+def walk(node, out):
+    try:
+        out.append(node)
+        for index in range(node.childCount):
+            walk(node.getChildAtIndex(index), out)
+    except Exception:  # noqa: BLE001 - a widget may vanish while walking
+        pass
+    return out
 
-    The banner strip is the bottom of the Start Center window, above the recent-documents pane.
-    Non-background column runs are separated by gaps; the last run is the button grid (3x2
-    buttons, the text link below), any run before it is the artwork."""
-    from PIL import Image
-    x0, y0, width, height = geometry(display, wid)
-    hst_gui.screenshot(image_path, display)
-    shot = Image.open(image_path).convert("RGB")
-    background = shot.getpixel((x0 + width - 3, y0 + height - 3))
-    bottom, left = y0 + height - 2, x0 + 276  # left column: 270 px in en-US ("HST Sheets — Spreadsheet")
-    top = bottom
-    while top > y0 + 100 and not differs_at(shot, background, x0 + width - 40, top):
-        top -= 1
-    top += 3
 
-    def differs(x, y):
-        return differs_at(shot, background, x, y)
+def banner(display):
+    """{"buttons": [(name, description, box)] in solution order + the more link, "labels": [(text, box)]} of the
+    banner as AT-SPI shows it (box = x, y, w, h in screen coordinates; showing widgets only)."""
+    import pyatspi
+    names = [s["name"] for s in solutions()] + [MORE_LABEL]
+    taglines = [s["tagline"] for s in solutions()]
+    found = {"buttons": {}, "labels": {}}
+    app = office_app()
+    for node in walk(app, []) if app is not None else []:
+        try:
+            if not node.getState().contains(pyatspi.STATE_SHOWING):
+                continue
+            role, name = node.getRoleName(), node.name
+            ext = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+            box = (ext.x, ext.y, ext.width, ext.height)
+        except Exception:  # noqa: BLE001
+            continue
+        if role == "push button" and name in names:
+            found["buttons"][name] = (name, node.description, box)
+        elif role == "label" and name in taglines:
+            found["labels"][name] = (name, box)
+    return {"buttons": [found["buttons"].get(n) for n in names], "labels": [found["labels"].get(t) for t in taglines]}
 
-    columns = [x for x in range(left, x0 + width - 4) if any(differs(x, y) for y in range(top, bottom))]
-    runs, start = [], None
-    for previous, x in zip([None] + columns, columns):
-        if previous is None or x - previous > 8:
-            if start is not None:
-                runs.append((start, previous))
-            start = x
-    if start is not None:
-        runs.append((start, columns[-1]))
-    if not runs:
-        return [], 0
-    gx0, gx1 = runs[-1]
-    rows = [y for y in range(top, bottom) if any(differs(x, y) for x in range(gx0, gx1 + 1))]
-    bands, begin = [], rows[0]
-    for previous, y in zip(rows, rows[1:]):
-        if y - previous > 3:
-            bands.append((begin, previous))
-            begin = y
-    bands.append((begin, rows[-1]))
-    if len(bands) != 3:
-        return [], len(runs) - 1
-    # button columns from the two button bands only (the link text is narrower than the grid)
-    cell_w = (gx1 - gx0 + 1) / 3
-    centers = [(round(gx0 + cell_w * (i % 3 + 0.5)), (bands[i // 3][0] + bands[i // 3][1]) // 2) for i in range(6)]
-    link = bands[2]
-    link_x = [x for x in range(gx0, gx1 + 1) if any(differs(x, y) for y in range(link[0], link[1] + 1))]
-    centers.append(((link_x[0] + link_x[-1]) // 2, (link[0] + link[1]) // 2))
-    return centers, len(runs) - 1
+
+def center(box):
+    return box[0] + box[2] // 2, box[1] + box[3] // 2
+
+
+def overlaps(a, b):
+    return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+
+
+def layout_checks(tag, what, found, window, check):
+    """Every solution shows its name (button: accessible name = name, description = tagline) and its tagline
+    below it; nothing overlaps and nothing lies outside the window. Returns True when everything was found."""
+    sols = solutions()
+    ok_found = all(found["buttons"]) and all(found["labels"])
+    check(f"[{tag}] {what}: six buttons, the more link and six visible taglines found", ok_found,
+          f"buttons={[b and b[0] for b in found['buttons']]} labels={sum(1 for l in found['labels'] if l)}")
+    if not ok_found:
+        return False
+    check(f"[{tag}] {what}: accessible name = solution name, accessible description = tagline",
+          all(b[0] == s["name"] and b[1] == s["tagline"] for b, s in zip(found["buttons"], sols)),
+          repr([(b[0], b[1]) for b in found["buttons"][:6]])[:300])
+    boxes = [b[2] for b in found["buttons"]] + [l[1] for l in found["labels"]]
+    x0, y0, width, height = window
+    inside = all(b[2] > 0 and b[3] > 0 and b[0] >= x0 and b[1] >= y0 and b[0] + b[2] <= x0 + width
+                 and b[1] + b[3] <= y0 + height for b in boxes)
+    check(f"[{tag}] {what}: banner widgets lie inside the window (not clipped)", inside, repr(boxes)[:300])
+    clash = [(i, j) for i in range(len(boxes)) for j in range(i + 1, len(boxes)) if overlaps(boxes[i], boxes[j])]
+    check(f"[{tag}] {what}: no two banner widgets overlap", not clash, repr(clash))
+    below = all(l[1][1] >= b[2][1] + b[2][3] and abs(center(l[1])[0] - center(b[2])[0]) <= 2
+                for b, l in zip(found["buttons"], found["labels"]))
+    check(f"[{tag}] {what}: each tagline sits centred below its button", below)
+    return True
+
+
+def art_shown(found, window):
+    """The artwork sits left of the button grid: the grid starts far right of the left pane when it is shown."""
+    left = min(b[2][0] for b in found["buttons"][:6])
+    return left - window[0] > 600
 
 
 class Opener:
@@ -183,30 +217,32 @@ class Opener:
         return self.opened()
 
 
-def click(display, center):
-    xdo(display, "mousemove", str(center[0]), str(center[1]), "click", "1")
+def click(display, point):
+    xdo(display, "mousemove", str(point[0]), str(point[1]), "click", "1")
 
 
 def gui_run(args, lang, tag, check):
     expected = [s["url"] + "?" + UTM for s in solutions()]
     workdir = os.path.join(args.out, f"gui-{tag}")
     opener = Opener(os.path.join(workdir, "fakebin"))
+    subprocess.run(["xprop", "-display", args.display, "-root", "-remove", "AT_SPI_BUS"], check=False)
     office = hst_gui.Office(args.instdir, workdir, 21996 if tag == "en" else 21997, display=args.display, lang=lang,
                             nodefault=False, env={"PATH": opener.directory + ":" + os.environ["PATH"]})
     office.start()
     try:
         time.sleep(8)
         wid = start_center_window(args.display, office.pid)
-        x0, y0, width, height = geometry(args.display, wid)
+        window = geometry(args.display, wid)
         office.raise_windows()
         shot = lambda name: os.path.join(args.shots, f"{tag}-{name}.png")  # noqa: E731
-        centers, art = banner_buttons(shot("01-start-center"), args.display, wid)
-        check(f"[{tag}] wide window ({width}x{height}): six buttons and the more link found, artwork shown", len(centers) == 7 and art == 1,
-              f"art={art}")
-        if len(centers) != 7:
+        hst_gui.screenshot(shot("01-start-center"), args.display)
+        found = banner(args.display)
+        if not layout_checks(tag, f"default window {window[2]}x{window[3]}", found, window, check):
             return
-        for index, center in enumerate(centers[:6]):
-            click(args.display, center)
+        check(f"[{tag}] default window {window[2]}x{window[3]}: artwork shown", art_shown(found, window))
+        centers = [center(b[2]) for b in found["buttons"]]
+        for index, point in enumerate(centers[:6]):
+            click(args.display, point)
             opened = opener.wait_for(index + 1)
             got = opened[index] if len(opened) > index else None
             check(f"[{tag}] click {solutions()[index]['name']} opens its URL with UTM", got == expected[index], repr(got))
@@ -230,31 +266,32 @@ def gui_run(args, lang, tag, check):
         xdo(args.display, "key", "space")
         opened = opener.wait_for(before + 7)
         check(f"[{tag}] Tab+Space reaches the more link", opened[-1:] == [MORE], repr(opened[-1:]))
-        # tooltip: hover a button, the tagline appears in a tooltip window or the screenshot
+        # tooltip: hover a button, the tagline appears in a tooltip
         xdo(args.display, "mousemove", str(centers[2][0]), str(centers[2][1] - 3))
         time.sleep(0.4)
         xdo(args.display, "mousemove", str(centers[2][0]), str(centers[2][1]))
         time.sleep(2.5)
         office.screenshot(shot("02-tooltip"))
-        # narrow window: artwork hidden, buttons remain
+        # narrow window: artwork hidden, buttons and taglines remain
         xdo(args.display, "windowsize", wid, str(NARROW[0]), str(NARROW[1]))
         time.sleep(3)
-        office.screenshot(shot("03-narrow-raw"))
-        centers, art = banner_buttons(shot("03-narrow"), args.display, wid)
-        check(f"[{tag}] narrow window {NARROW[0]}x{NARROW[1]}: artwork hidden, six buttons and the more link found",
-              len(centers) == 7 and art == 0, f"points={len(centers)} art={art}")
-        if len(centers) == 7:
+        office.screenshot(shot("03-narrow"))
+        narrow = geometry(args.display, wid)
+        found = banner(args.display)
+        if layout_checks(tag, f"narrow window {narrow[2]}x{narrow[3]}", found, narrow, check):
+            check(f"[{tag}] narrow window: artwork hidden", not art_shown(found, narrow))
             before = len(opener.opened())
-            click(args.display, centers[5])
-            click(args.display, centers[6])
+            click(args.display, center(found["buttons"][5][2]))
+            click(args.display, center(found["buttons"][6][2]))
             opened = opener.wait_for(before + 2)
             check(f"[{tag}] narrow: last button and the more link open their URLs",
                   opened[-2:] == [expected[5], MORE], repr(opened[-2:]))
         # wide again: artwork returns
-        xdo(args.display, "windowsize", wid, str(width), str(height))
+        xdo(args.display, "windowsize", wid, str(window[2]), str(window[3]))
         time.sleep(3)
-        centers, art = banner_buttons(shot("04-wide-again"), args.display, wid)
-        check(f"[{tag}] widened again: artwork shown", len(centers) == 7 and art == 1, f"art={art}")
+        hst_gui.screenshot(shot("04-wide-again"), args.display)
+        found = banner(args.display)
+        check(f"[{tag}] widened again: artwork shown", all(found["buttons"]) and art_shown(found, window))
     finally:
         office.stop()
 
@@ -267,6 +304,12 @@ def main():
     parser.add_argument("--display", default=":95")
     parser.add_argument("--no-gui", action="store_true")
     args = parser.parse_args()
+    if os.geteuid() == 0 and not args.no_gui:
+        # AT-SPI needs a session bus shared with the office: run as the build user under dbus-run-session
+        for directory in (args.out, args.shots):
+            os.makedirs(directory, exist_ok=True)
+            subprocess.run(["chown", "-R", hst_gui.BUILD_USER, directory], check=False)
+        os.execvp("runuser", ["runuser", "-u", hst_gui.BUILD_USER, "--", "dbus-run-session", "--", sys.executable] + sys.argv)
     args.instdir, args.out = os.path.abspath(args.instdir), os.path.abspath(args.out)
     os.makedirs(args.out, exist_ok=True)
     os.makedirs(args.shots, exist_ok=True)
@@ -278,6 +321,7 @@ def main():
 
     static_checks(args.instdir, check)
     if not args.no_gui:
+        os.environ.update(NO_AT_BRIDGE="0", GTK_MODULES="gail:atk-bridge")
         hst_gui.setup_uno(args.instdir)
         gui_run(args, "en_US.UTF-8", "en", check)
         gui_run(args, "vi_VN.UTF-8", "vi", check)
