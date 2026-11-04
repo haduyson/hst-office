@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import sys
+import urllib.error
 import urllib.request
 
 if __package__ in (None, ""):
@@ -44,9 +45,28 @@ def request(url, limit, version, proxy=None):
     return data
 
 
+def head_status(url, version, proxy=None, timeout=TIMEOUT):
+    """HTTP status of one HEAD; an error status is an answer, a failed connection raises."""
+    if not https_url(url):
+        raise ValueError("banner HTTPS required")
+    version_key(version)
+    handlers = [_Redirect(), urllib.request.HTTPSHandler(context=tls_context())]
+    if proxy is not None:
+        handlers.append(urllib.request.ProxyHandler(proxy))
+    probe = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "HSTOffice/" + version, "Accept": "*/*"})
+    try:
+        with urllib.request.build_opener(*handlers).open(probe, timeout=timeout) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        return error.code
+
+
 def main():
     try:
         args = json.loads(sys.stdin.buffer.read(16385))
+        if args.pop("head", False):
+            sys.stdout.buffer.write(str(head_status(**args)).encode("ascii"))
+            return 0
         data = request(**args)
         sys.stdout.buffer.write(data)
         return 0

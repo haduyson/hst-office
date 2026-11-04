@@ -72,14 +72,18 @@ def main_flow(args, catalogue, rotate, app, scale, display):
                 time.sleep(rotate + 2)
                 held = probe.recognise(run.shot("02-hover-held"), box, catalogue, scale)[0]
                 check(label(f"hover pauses the rotation for {rotate + 2} s"), held == item["id"], repr(held))
+            # the destination depends on the real click counter here; check_ribbon_banner_click.py stubs it
             run.click(box)
             opened = run.opener.wait_for(1)
-            check(label("click opens the item URL with UTM"), opened[-1:] == [item["url"]], repr(opened[-1:]))
+            check(label("click opens the item URL with UTM, or the home page"),
+                  opened[-1:] in ([item["url"]], [item["home"]]), repr(opened[-1:]))
+            time.sleep(1.3)  # double clicks within a second open one tab
             run.banner().queryComponent().grabFocus()
             time.sleep(0.5)
             xdo(display, "key", "Return")
             opened = run.opener.wait_for(2)
-            check(label("Enter on the focused banner opens it"), opened[-1:] == [item["url"]], repr(opened[-1:]))
+            check(label("Enter on the focused banner opens it"), opened[-1:] in ([item["url"]], [item["home"]]),
+                  repr(opened[-1:]))
         run.leave()
         start, first, changed = time.time(), drawn[0], None
         while time.time() - start < rotate + 2 and changed is None:

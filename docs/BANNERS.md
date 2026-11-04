@@ -133,7 +133,17 @@ defaults are trusted via the packaged application, not signed with a fake/test k
 
 ## Click counting
 
-Every banner `url`, bundled and online, is `https://system.hasontech.vn/hst-office/go/<id>`. The server adds to a total per banner and day, stores no IP address, and answers 302 to the solution page with the three UTM parameters. The office sends no separate request: only a user click opens this link in the browser. There is no display telemetry. `data/hst/solutions.json` keeps the direct page for the welcome dialog and Start Center, which are not counted. An id added to the bundled set must be published on the server first, or its clicks go to https://hasontech.vn/ uncounted. If system.hasontech.vn is down entirely, banner clicks do not reach the destination.
+Every banner `url`, bundled and online, is `https://system.hasontech.vn/hst-office/go/<id>`. The server adds to a total per banner and day, stores no IP address, and answers 302 to the solution page with the three UTM parameters. Only a user click opens this link in the browser. There is no display telemetry. `data/hst/solutions.json` keeps the direct page for the welcome dialog and Start Center, which are not counted. An id added to the bundled set must be published on the server first, or its clicks go to https://hasontech.vn/ uncounted.
+
+A click first checks that the counter answers, because the server-side fallback needs nginx to be up. Off the UI
+thread, [banner_click.py](../extensions/hst-vietnamese-tools/python/hst_office/banner_click.py) sends one HTTPS HEAD to
+`https://system.hasontech.vn/hst-office/banners.json`, never to `/go/<id>`, which would count a click. The deadline is
+1.5 seconds in total, with the feed's proxy settings and plain `User-Agent`. **This probe is sent only on a user click
+and carries no identifiers.** Any status below 500 opens the click URL. A connection, DNS or TLS failure, a timeout or
+a 5xx opens `https://hasontech.vn` with the same three UTM parameters. Hosts other than system.hasontech.vn open
+directly, without a probe. If the Python service is unavailable, the widget opens the URL as it is, so a click then
+fails in the browser when the server is down. No error dialog appears, and clicks within one second of each other
+open one browser tab.
 
 ## Runtime, cache and privacy
 
@@ -228,7 +238,7 @@ Implemented by [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banne
   A decoder error skips to the next entry, at most three times in a row.
 - **Rotation:** a main-thread timer requests `Slot + 1` every `rotateSeconds`; paused while hovered or focused; 300 ms
   cross-fade, or a plain switch when `MiscSettings::IsAnimatedOthersAllowed()` is false (reduced motion).
-- **Activation:** click, Enter or Space opens `click_url_with_utm` through `sfx2::openUriExternally`.
+- **Activation:** click, Enter or Space opens `click_url_with_utm` through `SystemShellExecute`, after the check in [Click counting](#click-counting).
 - **Accessibility:** focusable with a focus ring; role `HYPER_LINK`; accessible name and tooltip `<name> — <tagline>`.
   VCL did not expose the notebookbar to assistive technology at all, so the patch reports it as a child of the
   work window, like the menu bar (`vcl/source/window/accessibility.cxx`), and appends a link child after the page
@@ -269,7 +279,9 @@ scale ≥ requested scale, clamped to 1…3 (1.25 selects 2×; 2.5 selects 3×).
 Optional `NamedValue("Slot", integer)` selects one weighted rotation slot, default 0.
 Nonnegative integers wrap modulo the current slot count; negative/noninteger values select 0.
 Eligibility and slot selection use one coherent snapshot, including after campaign changes.
-Output is a UNO string containing JSON:
+With `NamedValue("ClickUrl", string)`, the service instead returns the URL to open as a plain string
+(see [Click counting](#click-counting)); it can wait 1.5 seconds, so call it on a worker thread.
+Otherwise the output is a UNO string containing JSON:
 
 ```json
 {

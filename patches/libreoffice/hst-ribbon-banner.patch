@@ -20,8 +20,9 @@ the system browser. Content only comes from the data layer of the bundled extens
   Rotation: a main-thread timer requests Slot+1; paused while hovered or focused; a 300 ms
   cross-fade, or a plain switch when animations are reduced (Accessibility option / OS setting).
   Keyboard focusable (focus ring), accessible role HYPER_LINK, accessible name and tooltip
-  "<name> — <tagline>"; Enter, Space or a click opens the URL through sfx2::openUriExternally
-  (com.sun.star.system.SystemShellExecute). In dark mode the light artwork sits on a light
+  "<name> — <tagline>"; Enter, Space or a click opens the URL with com.sun.star.system.SystemShellExecute,
+  without any error dialog; a worker asks the service for the destination first (click counter
+  down: the home page). Double clicks open one tab. In dark mode the light artwork sits on a light
   rounded card. Decoder errors skip to the next entry without disturbing editing.
 - sfx2/source/notebookbar/HstBannerGeometry.hxx (new): slot, fit and variant arithmetic without
   LibreOffice types (unit test: tests/unit/test_ribbon_banner_geometry.py).
@@ -427,7 +428,7 @@ Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/u
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sfx2/source/notebookbar/HstRibbonBanner.hxx
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,94 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -444,10 +445,12 @@ Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/u
 +#include <vcl/ctrl.hxx>
 +#include <vcl/timer.hxx>
 +
++#include <chrono>
 +#include <memory>
 +
 +namespace hst::banner
 +{
++class ClickThread;
 +class FetchThread;
 +struct Data;
 +}
@@ -480,6 +483,8 @@ Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/u
 +
 +    /** Called on the main thread with a result of the worker (takes ownership). */
 +    void Deliver(std::unique_ptr<hst::banner::Data> pData);
++    /** Called with the SolarMutex held by the click worker: open the resolved destination. */
++    void DeliverClick(const OUString& rUrl);
 +
 +private:
 +    void Request(sal_Int32 nSlot);
@@ -493,8 +498,12 @@ Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/u
 +    DECL_LINK(RotateHdl, Timer*, void);
 +    DECL_LINK(FadeHdl, Timer*, void);
 +    DECL_LINK(DeliverHdl, void*, void);
++    DECL_LINK(OpenHdl, void*, void);
 +
 +    rtl::Reference<hst::banner::FetchThread> mxThread;
++    rtl::Reference<hst::banner::ClickThread> mxClickThread;
++    std::chrono::steady_clock::time_point maLastOpen; // double clicks open one browser tab
++    bool mbClickPending = false;
 +    Timer maRotateTimer;
 +    Timer maFadeTimer;
 +    OUString maId;
@@ -516,7 +525,7 @@ Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/u
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sfx2/source/notebookbar/HstRibbonBanner.cxx
-@@ -0,0 +1,584 @@
+@@ -0,0 +1,666 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -531,12 +540,12 @@ Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/u
 +#include "HstRibbonBanner.hxx"
 +#include "HstBannerGeometry.hxx"
 +
-+#include <openuriexternally.hxx>
-+
 +#include <basegfx/matrix/b2dhommatrixtools.hxx>
 +#include <boost/property_tree/json_parser.hpp>
 +#include <com/sun/star/accessibility/AccessibleRole.hpp>
 +#include <com/sun/star/beans/NamedValue.hpp>
++#include <com/sun/star/system/SystemShellExecute.hpp>
++#include <com/sun/star/system/SystemShellExecuteFlags.hpp>
 +#include <com/sun/star/task/XJob.hpp>
 +#include <com/sun/star/uno/XComponentContext.hpp>
 +#include <comphelper/base64.hxx>
@@ -554,7 +563,6 @@ Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/u
 +#include <vcl/settings.hxx>
 +#include <vcl/svapp.hxx>
 +#include <vcl/sysdata.hxx>
-+#include <vcl/weld/Window.hxx>
 +
 +#include <algorithm>
 +#include <sstream>
@@ -790,6 +798,48 @@ Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/u
 +    int mnScale;
 +    bool mbBundledFirst;
 +};
++
++/** Where a click goes: the service probes the click counter off the UI thread (at most 1.5 s) and
++    answers with the home page when it is down. Without the service the URL is opened as it is. */
++class ClickThread final : public salhelper::Thread
++{
++public:
++    ClickThread(HstRibbonBanner* pBanner, OUString aUrl)
++        : salhelper::Thread("HstRibbonBannerClick")
++        , mpBanner(pBanner)
++        , maUrl(std::move(aUrl))
++    {
++    }
++
++private:
++    void execute() override
++    {
++        OUString aTarget;
++        try
++        {
++            const uno::Reference<uno::XComponentContext>& xContext
++                = comphelper::getProcessComponentContext();
++            uno::Reference<task::XJob> xFeed(
++                xContext->getServiceManager()->createInstanceWithContext(
++                    u"org.hst.office.BannerFeed"_ustr, xContext),
++                uno::UNO_QUERY);
++            if (xFeed.is())
++                xFeed->execute({ { u"ClickUrl"_ustr, uno::Any(maUrl) } }) >>= aTarget;
++        }
++        catch (...)
++        {
++        }
++        if (!aTarget.startsWith("https://"))
++            aTarget = maUrl;
++        SolarMutexGuard aGuard;
++        if (!mpBanner->isDisposed())
++            mpBanner->DeliverClick(aTarget);
++        mpBanner.reset();
++    }
++
++    VclPtr<HstRibbonBanner> mpBanner;
++    OUString maUrl;
++};
 +}
 +
 +using namespace hst::banner;
@@ -819,7 +869,13 @@ Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/u
 +        SolarMutexReleaser aReleaser; // the worker takes the SolarMutex to post its result
 +        mxThread->join();
 +    }
++    if (mxClickThread.is())
++    {
++        SolarMutexReleaser aReleaser;
++        mxClickThread->join();
++    }
 +    mxThread.clear();
++    mxClickThread.clear();
 +    Control::dispose();
 +}
 +
@@ -1032,8 +1088,43 @@ Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/u
 +
 +void HstRibbonBanner::Activate()
 +{
-+    if (!maUrl.isEmpty())
-+        sfx2::openUriExternally(maUrl, true, GetFrameWeld());
++    using namespace std::chrono_literals;
++    if (maUrl.isEmpty() || mbClickPending || std::chrono::steady_clock::now() - maLastOpen < 1s)
++        return;
++    mbClickPending = true;
++    try
++    {
++        mxClickThread = new ClickThread(this, maUrl);
++        mxClickThread->launch();
++    }
++    catch (const std::exception&)
++    {
++        mxClickThread.clear();
++        DeliverClick(maUrl);
++    }
++}
++
++void HstRibbonBanner::DeliverClick(const OUString& rUrl)
++{
++    Application::PostUserEvent(LINK(this, HstRibbonBanner, OpenHdl), new OUString(rUrl), true);
++}
++
++IMPL_LINK(HstRibbonBanner, OpenHdl, void*, p, void)
++{
++    std::unique_ptr<OUString> pUrl(static_cast<OUString*>(p));
++    mbClickPending = false;
++    maLastOpen = std::chrono::steady_clock::now();
++    if (isDisposed())
++        return;
++    try
++    {
++        system::SystemShellExecute::create(comphelper::getProcessComponentContext())
++            ->execute(*pUrl, OUString(), system::SystemShellExecuteFlags::URIS_ONLY);
++    }
++    catch (const uno::Exception&)
++    {
++        // no dialog: a banner must never interrupt editing
++    }
 +}
 +
 +void HstRibbonBanner::MouseMove(const MouseEvent& rMEvt)

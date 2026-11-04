@@ -11,6 +11,7 @@ from .banner_urls import https_url
 from .update_logic import version_key
 
 TIMEOUT = 5
+PROBE_TIMEOUT = 1.5
 
 
 def interpreter():
@@ -24,14 +25,9 @@ def interpreter():
     raise OSError("banner Python helper unavailable")
 
 
-def fetch(url, limit, version, proxy=None):
-    if not https_url(url) or not isinstance(limit, int) or not 0 < limit <= MAX_IMAGE:
-        raise ValueError("invalid banner request")
-    version_key(version)
-    payload = json.dumps(dict(url=url, limit=limit, version=version, proxy=proxy)).encode()
-    if len(payload) > 16384:
-        raise ValueError("banner request too large")
-    deadline = time.monotonic() + TIMEOUT
+def _run(payload, timeout):
+    """Bytes the private helper wrote before the wall-clock deadline; it is killed and reaped at expiry."""
+    deadline = time.monotonic() + timeout
     options = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.DEVNULL,
                "shell": False, "close_fds": True}
     if sys.platform == "win32":
@@ -46,6 +42,30 @@ def fetch(url, limit, version, proxy=None):
             raise TimeoutError("banner request deadline") from exc
         if time.monotonic() >= deadline:
             raise TimeoutError("banner request deadline")
-        if proc.returncode or len(data) > limit:
+        if proc.returncode:
             raise ValueError("banner response refused")
     return data
+
+
+def fetch(url, limit, version, proxy=None):
+    if not https_url(url) or not isinstance(limit, int) or not 0 < limit <= MAX_IMAGE:
+        raise ValueError("invalid banner request")
+    version_key(version)
+    payload = json.dumps(dict(url=url, limit=limit, version=version, proxy=proxy)).encode()
+    if len(payload) > 16384:
+        raise ValueError("banner request too large")
+    data = _run(payload, TIMEOUT)
+    if len(data) > limit:
+        raise ValueError("banner response refused")
+    return data
+
+
+def head_status(url, version, proxy=None, timeout=PROBE_TIMEOUT):
+    """Status of one HEAD through the same helper, proxy settings and User-Agent as the feed."""
+    if not https_url(url):
+        raise ValueError("invalid banner request")
+    version_key(version)
+    payload = json.dumps(dict(head=True, url=url, version=version, proxy=proxy, timeout=timeout)).encode()
+    if len(payload) > 16384:
+        raise ValueError("banner request too large")
+    return int(_run(payload, timeout))

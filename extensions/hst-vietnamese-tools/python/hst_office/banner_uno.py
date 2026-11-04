@@ -5,6 +5,7 @@ import unohelper
 from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
+from .banner_click import destination
 from .banner_feed import BannerFeed, get_banners
 from .banner_snapshot import selected_json
 from .data_files import load_data
@@ -43,7 +44,11 @@ class BannerService(unohelper.Base, XServiceInfo, XJob):
         return name in self.getSupportedServiceNames()
 
     def execute(self, arguments):
-        """Scale/Slot -> bounded JSON for one weighted slot; no UI/window/document access."""
+        """Scale/Slot -> bounded JSON for one weighted slot, ClickUrl -> URL to open; no UI/window/document access."""
+        click = next((a.Value for a in arguments if a.Name == "ClickUrl"), None)
+        if click is not None:  # called by the widget's worker thread, after a user click only
+            feed = feed_for_context(self.ctx)
+            return destination(click, feed.utm, feed.version, feed.proxy)
         scale = next((a.Value for a in arguments if a.Name == "Scale"), 1)
         slot = next((a.Value for a in arguments if a.Name == "Slot"), 0)
         snapshot = get_banners(feed_for_context(self.ctx))

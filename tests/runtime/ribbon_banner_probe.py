@@ -30,7 +30,7 @@ def items(instdir):
     for item in sorted(manifest["items"], key=lambda i: (i["order"], i["id"])):
         base = re.split(r"[?#]", item["url"])[0]
         result.append({"id": item["id"], "name": item["name"], "tagline": item["tagline"],
-                       "url": f"{base}?{query}", "label": f"{item['name']} — {item['tagline']}",
+                       "url": f"{base}?{query}", "home": f"https://hasontech.vn?{query}", "label": f"{item['name']} — {item['tagline']}",
                        "art": {int(k[0]): os.path.join(root, v["url"]) for k, v in item["image"].items()}})
     return result, manifest.get("rotateSeconds", 10)
 

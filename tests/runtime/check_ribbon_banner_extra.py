@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 
+from check_ribbon_banner_click import click_flows
 import hst_gui
 import ribbon_banner_probe as probe
 
@@ -179,6 +180,7 @@ def main(module):
     fallback_flow(module, args, catalogue, rotate, (measured.get(("writer", 1)) or {}).get("box"))
     dark_flow(module, args, catalogue)
     reduced_motion_flow(module, args, catalogue, rotate)
+    click_flows(module, args)
     failed = sum(r["status"] == "FAIL" for r in module.RESULTS)
     with open(os.path.join(args.out, "evidence.json"), "w", encoding="utf-8") as handle:
         json.dump({"failed": failed, "ribbon": {f"{a}-x{s}": v for (a, s), v in measured.items()},
