@@ -99,13 +99,12 @@ def select_entry(dialog, widget, pos):
 
 
 def type_value(dialog, widget, text):
-    """Replace a field's text and leave the field, so its value-changed handler runs."""
+    """Replace a field's text. UITest maps no Tab key (it types a stray "a"), so the value is read on OK."""
     field = dialog.getChild(widget)
     field.executeAction("FOCUS", ())
     field.executeAction("SELECT", props(FROM="0", TO="99"))
     field.executeAction("TYPE", props(KEYCODE="BACKSPACE"))
     field.executeAction("TYPE", props(TEXT=text))
-    field.executeAction("TYPE", props(KEYCODE="TAB"))
     time.sleep(0.2)
 
 

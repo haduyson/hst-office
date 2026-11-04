@@ -1,0 +1,193 @@
+HST Office: Insert Page Number has Word's "Start at". It sets a page number offset on the first paragraph of
+the document, within the wizard's undo step.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py page-number
+---
+--- a/sw/inc/swabstdlg.hxx
++++ b/sw/inc/swabstdlg.hxx
+@@ -243,6 +243,7 @@
+     virtual bool GetFitIntoExistingMargins() const = 0;
+     virtual SvxNumType GetPageNumberType() const = 0;
+     virtual void SetPageNumberType(SvxNumType nSet) = 0;
++    virtual std::optional<sal_uInt16> GetPageNumberStartAt() const = 0;
+ };
+ 
+ /**
+--- a/sw/source/ui/dialog/swdlgfact.cxx
++++ b/sw/source/ui/dialog/swdlgfact.cxx
+@@ -733,6 +733,7 @@
+     bool GetFitIntoExistingMargins() const override { return m_pDlg->GetFitIntoExistingMargins(); }
+     SvxNumType GetPageNumberType() const override { return m_pDlg->GetPageNumberType(); }
+     void SetPageNumberType(SvxNumType nSet) override { m_pDlg->SetPageNumberType(nSet); }
++    std::optional<sal_uInt16> GetPageNumberStartAt() const override { return m_pDlg->GetPageNumberStartAt(); }
+ };
+ }
+ 
+--- a/sw/source/ui/misc/pagenumberdlg.cxx
++++ b/sw/source/ui/misc/pagenumberdlg.cxx
+@@ -41,12 +41,16 @@
+     , m_xFitIntoExistingMargins(
+           m_xBuilder->weld_check_button(u"fitintoexistingmarginsCheckbox"_ustr))
+     , m_xPageNumberTypeLB(new SvxPageNumberListBox(m_xBuilder->weld_combo_box(u"numfmtlb"_ustr)))
++    , m_xHstStartAt(m_xBuilder->weld_check_button(u"checkHST_STARTAT"_ustr))
++    , m_xHstStartAtValue(m_xBuilder->weld_spin_button(u"spinHST_STARTAT"_ustr))
+     , m_xPreviewImage(m_xBuilder->weld_image(u"previewImage"_ustr))
+     , m_aPageNumberPosition(1) // bottom
+     , m_aPageNumberAlignment(1) // center
+     , m_nPageNumberType(SVX_NUM_CHARS_UPPER_LETTER)
+ {
+     m_xOk->connect_clicked(LINK(this, SwPageNumberDlg, OkHdl));
++    m_xHstStartAt->connect_toggled(LINK(this, SwPageNumberDlg, HstStartAtHdl));
++    m_xHstStartAtValue->set_sensitive(false);
+     m_xPageNumberPosition->connect_changed(LINK(this, SwPageNumberDlg, PositionSelectHdl));
+     m_xPageNumberAlignment->connect_changed(LINK(this, SwPageNumberDlg, AlignmentSelectHdl));
+     m_xPageNumberPosition->set_active(m_aPageNumberPosition);
+@@ -67,6 +71,18 @@
+ 
+ IMPL_LINK_NOARG(SwPageNumberDlg, OkHdl, weld::Button&, void) { m_xDialog->response(RET_OK); }
+ 
++IMPL_LINK_NOARG(SwPageNumberDlg, HstStartAtHdl, weld::Toggleable&, void)
++{
++    m_xHstStartAtValue->set_sensitive(m_xHstStartAt->get_active());
++}
++
++std::optional<sal_uInt16> SwPageNumberDlg::GetPageNumberStartAt() const
++{
++    if (!m_xHstStartAt->get_active())
++        return std::nullopt;
++    return static_cast<sal_uInt16>(m_xHstStartAtValue->get_value());
++}
++
+ IMPL_LINK_NOARG(SwPageNumberDlg, PositionSelectHdl, weld::ComboBox&, void)
+ {
+     m_aPageNumberPosition = m_xPageNumberPosition->get_active();
+--- a/sw/source/uibase/inc/pagenumberdlg.hxx
++++ b/sw/source/uibase/inc/pagenumberdlg.hxx
+@@ -24,6 +24,8 @@
+ #include <vcl/weld/Button.hxx>
+ #include <vcl/weld/CheckButton.hxx>
+ #include <vcl/weld/Image.hxx>
++#include <vcl/weld/SpinButton.hxx>
++#include <optional>
+ 
+ /// Page number wizard for easy header/footer page number insertion
+ class SwPageNumberDlg final : public SfxDialogController
+@@ -37,6 +39,9 @@
+     std::unique_ptr<weld::CheckButton> m_xIncludePageRangeTotal;
+     std::unique_ptr<weld::CheckButton> m_xFitIntoExistingMargins;
+     std::unique_ptr<SvxPageNumberListBox> m_xPageNumberTypeLB;
++    std::unique_ptr<weld::CheckButton> m_xHstStartAt;
++    std::unique_ptr<weld::SpinButton> m_xHstStartAtValue;
++    DECL_LINK(HstStartAtHdl, weld::Toggleable&, void);
+ 
+     std::unique_ptr<weld::Image> m_xPreviewImage;
+ 
+@@ -62,6 +67,7 @@
+     bool GetIncludePageRangeTotal() const;
+     bool GetFitIntoExistingMargins() const;
+     SvxNumType GetPageNumberType() const { return m_nPageNumberType; }
++    std::optional<sal_uInt16> GetPageNumberStartAt() const; ///< HST: empty = continue numbering
+     void SetPageNumberType(SvxNumType nSet);
+ };
+ 
+--- a/sw/source/uibase/shells/textfld.cxx
++++ b/sw/source/uibase/shells/textfld.cxx
+@@ -56,6 +56,7 @@
+ #include <fldmgr.hxx>
+ #include <uitool.hxx>
+ #include <cmdid.h>
++#include <fmtpdsc.hxx>
+ #include <strings.hrc>
+ #include <sfx2/event.hxx>
+ #include <swabstdlg.hxx>
+@@ -1502,6 +1503,15 @@
+                                    sw::mark::InsertMode::New);
+                 }
+ 
++                // HST: Word's "Start at": a page number offset on the document's first paragraph
++                if (const std::optional<sal_uInt16> oStartAt = pDlg->GetPageNumberStartAt())
++                {
++                    rSh.SttEndDoc(true);
++                    SwFormatPageDesc aFirstPageDesc(&rSh.GetPageDesc(rSh.GetCurPageDesc()));
++                    aFirstPageDesc.SetNumOffset(*oStartAt);
++                    rSh.SetAttrItem(aFirstPageDesc);
++                }
++
+                 rSh.SwCursorShell::Pop(SwCursorShell::PopMode::DeleteCurrent);
+                 rSh.EndAllAction();
+                 rSh.LockView(false);
+--- a/sw/uiconfig/swriter/ui/pagenumberdlg.ui
++++ b/sw/uiconfig/swriter/ui/pagenumberdlg.ui
+@@ -2,6 +2,13 @@
+ <!-- Generated with glade 3.40.0 -->
+ <interface domain="sw">
+   <requires lib="gtk+" version="3.24"/>
++  <object class="GtkAdjustment" id="adjustmentHST_STARTAT">
++    <property name="lower">1</property>
++    <property name="upper">9999</property>
++    <property name="value">1</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
+   <object class="GtkDialog" id="PageNumberDialog">
+     <property name="can-focus">False</property>
+     <property name="border-width">6</property>
+@@ -298,6 +305,42 @@
+                     <property name="position">9</property>
+                   </packing>
+                 </child>
++                <child>
++                  <object class="GtkBox" id="boxHST_STARTAT">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="spacing">6</property>
++                    <child>
++                      <object class="GtkCheckButton" id="checkHST_STARTAT">
++                        <property name="label" translatable="yes" context="pagenumberdlg|checkHST_STARTAT">_Start at:</property>
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">False</property>
++                        <property name="use-underline">True</property>
++                        <property name="draw-indicator">True</property>
++                        <accessibility>
++                          <relation type="label-for" target="spinHST_STARTAT"/>
++                        </accessibility>
++                      </object>
++                    </child>
++                    <child>
++                      <object class="GtkSpinButton" id="spinHST_STARTAT">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="adjustment">adjustmentHST_STARTAT</property>
++                        <property name="value">1</property>
++                        <accessibility>
++                          <relation type="labelled-by" target="checkHST_STARTAT"/>
++                        </accessibility>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">10</property>
++                  </packing>
++                </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -26649,6 +26649,12 @@
+ msgid "More Options"
+ msgstr "Tùy chọn khác"
+ 
++#. hstPN1
++#: sw/uiconfig/swriter/ui/pagenumberdlg.ui
++msgctxt "pagenumberdlg|checkHST_STARTAT"
++msgid "_Start at:"
++msgstr "_Bắt đầu từ:"
++
+ #. DVeaU
+ #: sw/uiconfig/swriter/ui/pagenumberdlg.ui:8
+ msgctxt "pagenumberdlg|PageNumberDialog"
