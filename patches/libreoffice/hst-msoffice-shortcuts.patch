@@ -1,0 +1,650 @@
+HST Office: Microsoft Office keyboard shortcuts in HST Writer, HST Sheets and HST Slides (owner decision 2026-11-04: on a conflict the Microsoft binding wins; docs/SHORTCUTS-MSOFFICE.md lists every binding and every displaced LibreOffice key).
+
+- officecfg Accelerators.xcu, per module; macOS bindings follow Office for Mac (install:module="macosx"); a key used only on Windows/Linux is install:module="unxwnt". Values without install:module are not used for a key that has language variants with one (officecfg/util/alllang.xsl drops them), so T_MOD1 lists both platforms.
+- Symbol keys are bound under both key codes (GREATER and POINT, LESS and COMMA, ADD and EQUAL, TILDE and QUOTELEFT, NUMBERSIGN and 3, COLON and SEMICOLON): GTK delivers the shifted symbol, other back ends can deliver the base key.
+- sc inputhdl.cxx, tabvwsh4.cxx: Alt+Enter (Option+Return) starts a new line in a cell and Ctrl+Enter fills the selection, as in Excel (upstream: the other way round).
+- sc cellsh2.cxx: Ctrl+T (.uno:InsertCalcTable) also works in a new workbook: the default table styles are generated with the drawing layer, created on demand here.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-msoffice-shortcuts.py.
+---
+--- a/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
+@@ -621,6 +621,79 @@
+         </node>
+       </node>
+       <node oor:name="com.sun.star.sheet.SpreadsheetDocument" oor:op="replace">
++        <!-- HST Office: Microsoft Excel shortcuts (docs/SHORTCUTS-MSOFFICE.md) -->
++        <node oor:name="EQUAL_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:AutoSum</value>
++          </prop>
++        </node>
++        <node oor:name="TILDE_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatStandard</value>
++          </prop>
++        </node>
++        <node oor:name="QUOTELEFT_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatStandard</value>
++          </prop>
++        </node>
++        <node oor:name="NUMBERSIGN_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatDate</value>
++          </prop>
++        </node>
++        <node oor:name="TILDE_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatStandard</value>
++          </prop>
++        </node>
++        <node oor:name="QUOTELEFT_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatStandard</value>
++          </prop>
++        </node>
++        <node oor:name="NUMBERSIGN_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatDate</value>
++          </prop>
++        </node>
++        <node oor:name="COLON_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:InsertCurrentTime</value>
++          </prop>
++        </node>
++        <node oor:name="SEMICOLON_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:InsertCurrentDate</value>
++          </prop>
++        </node>
++        <node oor:name="EQUAL_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:InsertCell</value>
++          </prop>
++        </node>
++        <node oor:name="ADD_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:InsertCell</value>
++          </prop>
++        </node>
++        <node oor:name="EQUAL_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:InsertCell</value>
++          </prop>
++        </node>
+         <node oor:name="2_MOD2" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+@@ -678,67 +751,67 @@
+         <node oor:name="2_SHIFT_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatTime</value>
++          </prop>
++        </node>
++        <node oor:name="2_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatTime</value>
++          </prop>
++        </node>
++        <node oor:name="3_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatDate</value>
++          </prop>
++        </node>
++        <node oor:name="3_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatDate</value>
++          </prop>
++        </node>
++        <node oor:name="4_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatCurrency</value>
++          </prop>
++        </node>
++        <node oor:name="4_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatCurrency</value>
++          </prop>
++        </node>
++        <node oor:name="5_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:SpacePara15</value>
++          </prop>
++        </node>
++        <node oor:name="5_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatPercent</value>
++          </prop>
++        </node>
++        <node oor:name="5_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatPercent</value>
++          </prop>
++        </node>
++        <node oor:name="6_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+             <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatScientific</value>
+           </prop>
+         </node>
+-        <node oor:name="2_SHIFT_MOD3" oor:op="replace">
++        <node oor:name="6_SHIFT_MOD3" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+             <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatScientific</value>
+-          </prop>
+-        </node>
+-        <node oor:name="3_SHIFT_MOD1" oor:op="replace">
+-          <prop oor:name="Command">
+-            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatDate</value>
+-          </prop>
+-        </node>
+-        <node oor:name="3_SHIFT_MOD3" oor:op="replace">
+-          <prop oor:name="Command">
+-            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatDate</value>
+-          </prop>
+-        </node>
+-        <node oor:name="4_SHIFT_MOD1" oor:op="replace">
+-          <prop oor:name="Command">
+-            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatCurrency</value>
+-          </prop>
+-        </node>
+-        <node oor:name="4_SHIFT_MOD3" oor:op="replace">
+-          <prop oor:name="Command">
+-            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatCurrency</value>
+-          </prop>
+-        </node>
+-        <node oor:name="5_MOD1" oor:op="replace">
+-          <prop oor:name="Command">
+-            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:SpacePara15</value>
+-          </prop>
+-        </node>
+-        <node oor:name="5_SHIFT_MOD1" oor:op="replace">
+-          <prop oor:name="Command">
+-            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatPercent</value>
+-          </prop>
+-        </node>
+-        <node oor:name="5_SHIFT_MOD3" oor:op="replace">
+-          <prop oor:name="Command">
+-            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatPercent</value>
+-          </prop>
+-        </node>
+-        <node oor:name="6_SHIFT_MOD1" oor:op="replace">
+-          <prop oor:name="Command">
+-            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US" install:module="unxwnt">.uno:NumberFormatStandard</value>
+-          </prop>
+-        </node>
+-        <node oor:name="6_SHIFT_MOD3" oor:op="replace">
+-          <prop oor:name="Command">
+-            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US" install:module="macosx">.uno:NumberFormatStandard</value>
+           </prop>
+         </node>
+         <node oor:name="8_MOD1" oor:op="replace">
+@@ -906,13 +979,14 @@
+         <node oor:name="F11_SHIFT" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:SaveAsTemplate</value>
++            <value xml:lang="en-US">.uno:Insert?Name:string=&amp;Index:short=0</value>
+           </prop>
+         </node>
+         <node oor:name="F12" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:Group</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:SaveAs</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:Group</value>
+           </prop>
+         </node>
+         <node oor:name="F12_MOD1" oor:op="replace">
+@@ -1272,7 +1346,7 @@
+         <node oor:name="R_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:AlignRight</value>
++            <value xml:lang="en-US">.uno:FillRight</value>
+           </prop>
+         </node>
+         <node oor:name="R_SHIFT_MOD1" oor:op="replace">
+@@ -1290,7 +1364,8 @@
+         <node oor:name="SEMICOLON_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:InsertCurrentDate</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:InsertCurrentDate</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:InsertCurrentTime</value>
+           </prop>
+         </node>
+         <node oor:name="COLON_MOD1" oor:op="replace">
+@@ -1434,13 +1509,15 @@
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+             <value xml:lang="de" install:module="unxwnt">.uno:SubScript</value>
+             <value xml:lang="es" install:module="unxwnt">.uno:AlignHorizontalCenter</value>
+-            <value xml:lang="en-US" install:module="macosx">.uno:DesignerDialog</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:InsertCalcTable</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:InsertCalcTable</value>
+           </prop>
+         </node>
+         <node oor:name="T_SHIFT_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:FocusCellAddress</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:FocusCellAddress</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:AutoSum</value>
+           </prop>
+         </node>
+         <node oor:name="UP" oor:op="replace">
+@@ -2988,6 +3065,43 @@
+         </node>
+       </node>
+       <node oor:name="com.sun.star.presentation.PresentationDocument" oor:op="replace">
++        <!-- HST Office: Microsoft PowerPoint shortcuts (docs/SHORTCUTS-MSOFFICE.md) -->
++        <node oor:name="D_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:DuplicatePage</value>
++          </prop>
++        </node>
++        <node oor:name="D_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:DuplicatePage</value>
++          </prop>
++        </node>
++        <node oor:name="D_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:DuplicatePage</value>
++          </prop>
++        </node>
++        <node oor:name="G_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:FormatGroup</value>
++          </prop>
++        </node>
++        <node oor:name="RETURN_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:Presentation</value>
++          </prop>
++        </node>
++        <node oor:name="F12" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:SaveAs</value>
++          </prop>
++        </node>
+         <node oor:name="2_MOD2" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+@@ -3317,12 +3431,13 @@
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+             <value xml:lang="es">.uno:Save</value>
+             <value xml:lang="fr">.uno:Bold</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:FormatGroup</value>
+           </prop>
+         </node>
+         <node oor:name="G_SHIFT_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:FormatGroup</value>
++            <value xml:lang="en-US">.uno:FormatUngroup</value>
+           </prop>
+         </node>
+         <node oor:name="G_SHIFT_MOD1_MOD2" oor:op="replace">
+@@ -3425,7 +3540,8 @@
+         <node oor:name="N_SHIFT_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:NewDoc</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:NewDoc</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:InsertPage</value>
+           </prop>
+         </node>
+         <node oor:name="O_MOD1" oor:op="replace">
+@@ -6130,6 +6246,127 @@
+         </node>
+       </node>
+       <node oor:name="com.sun.star.text.TextDocument" oor:op="replace">
++        <!-- HST Office: Microsoft Word shortcuts (docs/SHORTCUTS-MSOFFICE.md) -->
++        <node oor:name="GREATER_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:Grow</value>
++          </prop>
++        </node>
++        <node oor:name="LESS_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:Shrink</value>
++          </prop>
++        </node>
++        <node oor:name="L_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:DefaultBullet</value>
++          </prop>
++        </node>
++        <node oor:name="N_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:StyleApply?Style:string=Standard&amp;FamilyName:string=ParagraphStyles</value>
++          </prop>
++        </node>
++        <node oor:name="1_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:StyleApply?Style:string=Heading 1&amp;FamilyName:string=ParagraphStyles</value>
++          </prop>
++        </node>
++        <node oor:name="2_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:StyleApply?Style:string=Heading 2&amp;FamilyName:string=ParagraphStyles</value>
++          </prop>
++        </node>
++        <node oor:name="3_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:StyleApply?Style:string=Heading 3&amp;FamilyName:string=ParagraphStyles</value>
++          </prop>
++        </node>
++        <node oor:name="SPACE_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:ResetAttributes</value>
++          </prop>
++        </node>
++        <node oor:name="M_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:DecrementIndent</value>
++          </prop>
++        </node>
++        <node oor:name="M_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:IncrementIndent</value>
++          </prop>
++        </node>
++        <node oor:name="EQUAL_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:SubScript</value>
++          </prop>
++        </node>
++        <node oor:name="EQUAL_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:SuperScript</value>
++          </prop>
++        </node>
++        <node oor:name="ADD_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:SuperScript</value>
++          </prop>
++        </node>
++        <node oor:name="D_SHIFT_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:InsertDateFieldVar</value>
++          </prop>
++        </node>
++        <node oor:name="T_SHIFT_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:InsertTimeFieldVar</value>
++          </prop>
++        </node>
++        <node oor:name="D_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:InsertDateFieldVar</value>
++          </prop>
++        </node>
++        <node oor:name="T_SHIFT_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:InsertTimeFieldVar</value>
++          </prop>
++        </node>
++        <node oor:name="V_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:PasteSpecial</value>
++          </prop>
++        </node>
++        <node oor:name="G_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:GotoPage</value>
++          </prop>
++        </node>
++        <node oor:name="L_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:SpellingAndGrammarDialog</value>
++          </prop>
++        </node>
+         <node oor:name="O_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+@@ -6180,13 +6417,13 @@
+         <node oor:name="1_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:StyleApply?Style:string=Heading 1&amp;FamilyName:string=ParagraphStyles</value>
++            <value xml:lang="en-US">.uno:SpacePara1</value>
+           </prop>
+         </node>
+         <node oor:name="2_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:StyleApply?Style:string=Heading 2&amp;FamilyName:string=ParagraphStyles</value>
++            <value xml:lang="en-US">.uno:SpacePara2</value>
+           </prop>
+         </node>
+         <node oor:name="3_MOD1" oor:op="replace">
+@@ -6204,7 +6441,7 @@
+         <node oor:name="5_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:StyleApply?Style:string=Heading 5&amp;FamilyName:string=ParagraphStyles</value>
++            <value xml:lang="en-US">.uno:SpacePara15</value>
+           </prop>
+         </node>
+         <node oor:name="8_MOD1" oor:op="replace">
+@@ -6325,12 +6562,14 @@
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+             <value xml:lang="hu">.uno:Shrink</value>
++            <value xml:lang="en-US">.uno:Shrink</value>
+           </prop>
+         </node>
+         <node oor:name="POINT_SHIFT_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+             <value xml:lang="hu">.uno:Grow</value>
++            <value xml:lang="en-US">.uno:Grow</value>
+           </prop>
+         </node>
+         <node oor:name="B_MOD1" oor:op="replace">
+@@ -6425,13 +6664,13 @@
+         <node oor:name="D_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:FontDialog</value>
++          </prop>
++        </node>
++        <node oor:name="D_SHIFT_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+             <value xml:lang="en-US">.uno:UnderlineDouble</value>
+-          </prop>
+-        </node>
+-        <node oor:name="D_SHIFT_MOD1" oor:op="replace">
+-          <prop oor:name="Command">
+-            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:ParaRightToLeft</value>
+           </prop>
+         </node>
+         <node oor:name="E_SHIFT_MOD1" oor:op="replace">
+@@ -6516,7 +6755,8 @@
+         <node oor:name="F12" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:DefaultNumbering</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:SaveAs</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:DefaultNumbering</value>
+           </prop>
+         </node>
+         <node oor:name="F12_MOD1" oor:op="replace">
+@@ -6576,7 +6816,7 @@
+         <node oor:name="F4" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:GraphicDialog</value>
++            <value xml:lang="en-US">.uno:Repeat</value>
+           </prop>
+         </node>
+         <node oor:name="F4_SHIFT" oor:op="replace">
+@@ -6828,7 +7068,7 @@
+         <node oor:name="M_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US" install:module="unxwnt">.uno:ResetAttributes</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:IncrementIndent</value>
+           </prop>
+         </node>
+         <node oor:name="M_MOD3" oor:op="replace">
+@@ -7010,7 +7250,8 @@
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+             <value xml:lang="de" install:module="unxwnt">.uno:SubScript</value>
+             <value xml:lang="es" install:module="unxwnt">.uno:CenterPara</value>
+-            <value xml:lang="en-US" install:module="macosx">.uno:DesignerDialog</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:HangingIndent</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:HangingIndent</value>
+           </prop>
+         </node>
+         <node oor:name="T_SHIFT_MOD1" oor:op="replace">
+@@ -7086,7 +7327,7 @@
+         <node oor:name="V_SHIFT_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:PasteSpecial</value>
++            <value xml:lang="en-US">.uno:PasteUnformatted</value>
+           </prop>
+         </node>
+         <node oor:name="Z_SHIFT_MOD1" oor:op="replace">
+--- a/sc/source/ui/app/inputhdl.cxx
++++ b/sc/source/ui/app/inputhdl.cxx
+@@ -3990,7 +3990,10 @@
+         case KEY_RETURN:
+             // New line when in the input line and Shift/Ctrl-Enter is pressed,
+             // or when in a cell and Ctrl-Enter is pressed.
+-            if ((pInputWin && bInputLine && bControl != bShift) || (!bInputLine && bControl && !bShift))
++            // HST Office: as in Microsoft Excel, Alt+Enter (Option+Return on macOS) starts a new
++            // line in the cell or the input line, and Ctrl+Enter in a cell fills the selected
++            // cells with the entry (upstream: Ctrl+Enter new line, Alt+Enter fill).
++            if ((pInputWin && bInputLine && bControl != bShift) || (bAlt && !bControl && !bShift))
+             {
+                 bDoEnter = true;
+             }
+@@ -4009,7 +4012,7 @@
+                 ScEnterMode nMode = ScEnterMode::NORMAL;
+                 if ( bShift && bControl )
+                     nMode = ScEnterMode::MATRIX;
+-                else if ( bAlt )
++                else if ( bControl || bAlt )
+                     nMode = ScEnterMode::BLOCK;
+                 EnterHandler( nMode );
+ 
+--- a/sc/source/ui/view/tabvwsh4.cxx
++++ b/sc/source/ui/view/tabvwsh4.cxx
+@@ -1323,7 +1323,8 @@
+             switch ( nCode )
+             {
+                 case KEY_RETURN:
+-                    bIsType = bControl && !bAlt;        // Control, Shift-Control-Return
++                    // Control, Shift-Control-Return; HST Office: Alt-Return (new line, as in Excel)
++                    bIsType = ( bControl && !bAlt ) || ( bAlt && !bControl && !bShift );
+                     if ( !bIsType && nModi == 0 )
+                     {
+                         // Does the Input Handler also want a simple Return?
+@@ -1402,7 +1403,8 @@
+                         }
+                     }
+ 
+-                    bool bEditReturn = bControl && !bShift;         // pass on to edit engine
++                    // pass on to edit engine; HST Office: Alt+Enter is the new line key, as in Excel
++                    bool bEditReturn = bAlt && !bControl && !bShift;
+                     if ( !bUsed && !bEditReturn )
+                     {
+                         if ( bOnRefSheet )
+@@ -1411,7 +1413,7 @@
+                         ScEnterMode nMode = ScEnterMode::NORMAL;
+                         if ( bShift && bControl )
+                             nMode = ScEnterMode::MATRIX;
+-                        else if ( bAlt )
++                        else if ( bControl || bAlt )   // HST Office: Ctrl+Enter fills the selection
+                             nMode = ScEnterMode::BLOCK;
+                         pScMod->InputEnterHandler(nMode);
+ 
+--- a/sc/source/ui/view/cellsh2.cxx
++++ b/sc/source/ui/view/cellsh2.cxx
+@@ -792,6 +792,11 @@
+ 
+         case SID_INSERT_CALCTABLE:
+             {
++                // HST Office: Ctrl+T as in Excel also in a new workbook; the default table styles
++                // are generated with the drawing layer, which a new workbook does not have yet.
++                ScDocument& rTableDoc = GetViewData().GetDocument();
++                if (!rTableDoc.HasTableStyles())
++                    rTableDoc.InitDrawLayer(GetViewData().GetDocShell());
+                 sal_uInt16 nId = ScTableLayoutWrapper::GetChildWindowId();
+                 SfxViewFrame& rViewFrm = pTabViewShell->GetViewFrame();
+                 SfxChildWindow* pWnd = rViewFrm.GetChildWindow(nId);
+@@ -1421,7 +1426,7 @@
+             case SID_INSERT_CALCTABLE:
+                 {
+                     bool bDisable = false;
+-                    if (!rDoc.HasTableStyles() || pDocSh->IsDocShared())
++                    if (pDocSh->IsDocShared())   // HST Office: table styles are created on demand
+                         bDisable = true;
+                     else
+                     {
