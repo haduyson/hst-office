@@ -124,6 +124,20 @@ class WordPatch(unittest.TestCase):
             self.assertIn(needle, text)
 
 
+class LaterPatches(unittest.TestCase):
+    def test_dictionary_and_word_objects_follow_in_series(self):
+        series = read(os.path.join(_paths.ROOT, "patches", "libreoffice", "series")).split()
+        order = [series.index(n) for n in ("hst-vba-authoring.patch", "hst-vba-word.patch",
+                                           "hst-vba-dictionary.patch", "hst-vba-word-objects.patch")]
+        self.assertEqual(order, sorted(order))
+        dictionary = read(os.path.join(_paths.ROOT, "patches", "libreoffice", "hst-vba-dictionary.patch"))
+        for needle in ("Scripting.Dictionary", "nErrKeyExists = 457", "GetKeysArray", "vbTextCompare"):
+            self.assertIn(needle, dictionary)
+        objects = read(os.path.join(_paths.ROOT, "patches", "libreoffice", "hst-vba-word-objects.patch"))
+        for needle in ("AddPicture", "XComments", "wdFieldPage", "getDocumentIndexes"):
+            self.assertIn(needle, objects)
+
+
 class Menu(unittest.TestCase):
     def test_menu_item_for_writer_and_sheets(self):
         root = ET.parse(os.path.join(EXT, "Addons.xcu")).getroot()

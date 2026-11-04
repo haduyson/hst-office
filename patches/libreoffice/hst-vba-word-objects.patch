@@ -1,0 +1,880 @@
+HST Office: more of Word's VBA object model in HST Writer (owner request for 1.0.0-beta.5).
+
+- Document.InlineShapes (new XInlineShape/XInlineShapes, sw/source/ui/vba/vbainlineshapes.*):
+  Count, Item, For Each, AddPicture(FileName, LinkToFile, SaveWithDocument, Range) inserting the
+  picture as character at its natural size; InlineShape.Width/Height (points), LockAspectRatio
+  (keeps the proportions when one side changes), Type, Range, Delete, Select.
+- Document.Comments (new XComment/XComments, sw/source/ui/vba/vbacomments.*): Count, Item,
+  For Each, Add(Range, Text) spanning the range, with the user's name as author; Comment.Range
+  (the comment text), Scope (the commented text), Author, Initial, Delete.
+- Fields.Add for PAGE, NUMPAGES, DATE and TIME (by WdFieldType or field code); Fields.Update also
+  updates the tables of contents and other indexes, as in Word.
+
+License: these upstream files remain under their original license (MPL-2.0); the new files are
+MPL-2.0 like their neighbours.
+Test: tests/runtime/check-vba.py (writer-inlineshapes*, writer-comments, writer-fields*).
+---
+--- a/oovbaapi/UnoApi_oovbaapi.mk
++++ b/oovbaapi/UnoApi_oovbaapi.mk
+@@ -1069,6 +1069,10 @@
+ 	XGlobals \
+ 	XHeaderFooter \
+ 	XHeadersFooters \
++	XInlineShape \
++	XInlineShapes \
++	XComment \
++	XComments \
+ 	XListEntries \
+ 	XListEntry \
+ 	XListFormat \
+--- a/oovbaapi/ooo/vba/word/XDocument.idl
++++ b/oovbaapi/ooo/vba/word/XDocument.idl
+@@ -46,6 +46,9 @@
+     // HST: Word's Document.Words / Document.Sentences (collections of ranges)
+     any Words( [in] any Index );
+     any Sentences( [in] any Index );
++    // HST: Word's Document.InlineShapes / Document.Comments
++    any InlineShapes( [in] any Index );
++    any Comments( [in] any Index );
+     any Styles( [in] any Index ) raises (com::sun::star::script::BasicErrorException);
+     any Tables( [in] any Index );
+     any Fields( [in] any Index );
+--- a/sw/Library_vbaswobj.mk
++++ b/sw/Library_vbaswobj.mk
+@@ -141,6 +141,8 @@
+     sw/source/ui/vba/vbatableofcontents \
+     sw/source/ui/vba/vbatablesofcontents \
+     sw/source/ui/vba/vbatextunits \
++    sw/source/ui/vba/vbainlineshapes \
++    sw/source/ui/vba/vbacomments \
+     sw/source/ui/vba/vbavariable \
+     sw/source/ui/vba/vbawordbasic \
+     sw/source/ui/vba/vbadocuments \
+--- a/sw/source/ui/vba/vbadocument.cxx
++++ b/sw/source/ui/vba/vbadocument.cxx
+@@ -55,6 +55,8 @@
+ #include "vbatemplate.hxx"
+ #include "vbaparagraph.hxx"
+ #include "vbatextunits.hxx"
++#include "vbainlineshapes.hxx"
++#include "vbacomments.hxx"
+ #include "vbastyles.hxx"
+ #include "vbatables.hxx"
+ #include "vbafield.hxx"
+@@ -326,6 +328,25 @@
+     if ( index.hasValue() )
+         return xCol->Item( index, uno::Any() );
+     return uno::Any( xCol );
++}
++
++// HST: Word's Document.InlineShapes / Document.Comments
++uno::Any SAL_CALL
++SwVbaDocument::InlineShapes( const uno::Any& index )
++{
++    uno::Reference< XCollection > xCol( new SwVbaInlineShapes( this, mxContext, mxTextDocument ) );
++    if ( index.hasValue() )
++        return xCol->Item( index, uno::Any() );
++    return uno::Any( xCol );
++}
++
++uno::Any SAL_CALL
++SwVbaDocument::Comments( const uno::Any& index )
++{
++    uno::Reference< XCollection > xCol( new SwVbaComments( this, mxContext, mxTextDocument ) );
++    if ( index.hasValue() )
++        return xCol->Item( index, uno::Any() );
++    return uno::Any( xCol );
+ }
+ 
+ uno::Any SAL_CALL
+--- a/sw/source/ui/vba/vbadocument.hxx
++++ b/sw/source/ui/vba/vbadocument.hxx
+@@ -71,6 +71,8 @@
+     virtual css::uno::Any SAL_CALL Paragraphs( const css::uno::Any& rIndex ) override;
+     virtual css::uno::Any SAL_CALL Words( const css::uno::Any& rIndex ) override;
+     virtual css::uno::Any SAL_CALL Sentences( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL InlineShapes( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL Comments( const css::uno::Any& rIndex ) override;
+     virtual css::uno::Any SAL_CALL Styles( const css::uno::Any& rIndex ) override;
+     virtual css::uno::Any SAL_CALL Tables( const css::uno::Any& aIndex ) override;
+     virtual css::uno::Any SAL_CALL Fields( const css::uno::Any& aIndex ) override;
+--- a/sw/source/ui/vba/vbafield.cxx
++++ b/sw/source/ui/vba/vbafield.cxx
+@@ -22,6 +22,10 @@
+ #include <com/sun/star/frame/XModel.hpp>
+ #include <com/sun/star/text/XTextFieldsSupplier.hpp>
+ #include <com/sun/star/text/FilenameDisplayFormat.hpp>
++#include <com/sun/star/text/PageNumberType.hpp>
++#include <com/sun/star/text/XDocumentIndex.hpp>
++#include <com/sun/star/style/NumberingType.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
+ #include <com/sun/star/util/XRefreshable.hpp>
+ #include <com/sun/star/util/XUpdatable.hpp>
+ #include <ooo/vba/word/WdFieldType.hpp>
+@@ -350,6 +354,29 @@
+     {
+         xTextField.set( Create_Field_DocProperty( sText ), uno::UNO_QUERY_THROW );
+     }
++    // HST: the common Word fields: PAGE, NUMPAGES, DATE, TIME
++    else if( nType == word::WdFieldType::wdFieldPage || sFieldName.equalsIgnoreAsciiCase("PAGE") )
++    {
++        uno::Reference< beans::XPropertySet > xProps( mxModel->createInstance(u"com.sun.star.text.TextField.PageNumber"_ustr), uno::UNO_QUERY_THROW );
++        xProps->setPropertyValue(u"NumberingType"_ustr, uno::Any( style::NumberingType::ARABIC ) );
++        xProps->setPropertyValue(u"SubType"_ustr, uno::Any( text::PageNumberType_CURRENT ) );
++        xTextField.set( xProps, uno::UNO_QUERY_THROW );
++    }
++    else if( nType == word::WdFieldType::wdFieldNumPages || sFieldName.equalsIgnoreAsciiCase("NUMPAGES") )
++    {
++        uno::Reference< beans::XPropertySet > xProps( mxModel->createInstance(u"com.sun.star.text.TextField.PageCount"_ustr), uno::UNO_QUERY_THROW );
++        xProps->setPropertyValue(u"NumberingType"_ustr, uno::Any( style::NumberingType::ARABIC ) );
++        xTextField.set( xProps, uno::UNO_QUERY_THROW );
++    }
++    else if( nType == word::WdFieldType::wdFieldDate || nType == word::WdFieldType::wdFieldTime
++             || sFieldName.equalsIgnoreAsciiCase("DATE") || sFieldName.equalsIgnoreAsciiCase("TIME") )
++    {
++        const bool bDate = nType == word::WdFieldType::wdFieldDate || sFieldName.equalsIgnoreAsciiCase("DATE");
++        uno::Reference< beans::XPropertySet > xProps( mxModel->createInstance(u"com.sun.star.text.TextField.DateTime"_ustr), uno::UNO_QUERY_THROW );
++        xProps->setPropertyValue(u"IsDate"_ustr, uno::Any( bDate ) );
++        xProps->setPropertyValue(u"IsFixed"_ustr, uno::Any( false ) );
++        xTextField.set( xProps, uno::UNO_QUERY_THROW );
++    }
+     else
+     {
+         throw uno::RuntimeException(u"Not implemented"_ustr );
+@@ -516,6 +543,14 @@
+     {
+         rtl::Reference< SwXTextFieldTypes > xRef( mxModel->getSwTextFields() );
+         xRef->refresh();
++        // HST: as in Word, Fields.Update also updates the tables of contents and other indexes
++        uno::Reference< container::XIndexAccess > xIndexes( mxModel->getDocumentIndexes() );
++        for( sal_Int32 i = 0; i < xIndexes->getCount(); ++i )
++        {
++            uno::Reference< text::XDocumentIndex > xIndex( xIndexes->getByIndex( i ), uno::UNO_QUERY );
++            if( xIndex.is() )
++                xIndex->update();
++        }
+         nUpdate = 0;
+     }
+     catch(const uno::Exception&)
+--- /dev/null
++++ b/oovbaapi/ooo/vba/word/XComment.idl
+@@ -0,0 +1,27 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo {  module vba {  module word {
++
++interface XRange;
++// HST: Word Comment (Range = the comment text, Scope = the commented text)
++interface XComment
++{
++    interface ooo::vba::XHelperInterface;
++
++    [attribute, readonly] XRange Range;
++    [attribute, readonly] XRange Scope;
++    [attribute] string Author;
++    [attribute] string Initial;
++    void Delete();
++};
++
++}; }; };
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/oovbaapi/ooo/vba/word/XComments.idl
+@@ -0,0 +1,24 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo {  module vba {  module word {
++
++interface XRange;
++interface XComment;
++// HST: Word Comments collection
++interface XComments
++{
++    interface ooo::vba::XCollection;
++
++    XComment Add([in] XRange Range, [in] any Text);
++};
++
++}; }; };
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/oovbaapi/ooo/vba/word/XInlineShape.idl
+@@ -0,0 +1,29 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo {  module vba {  module word {
++
++interface XRange;
++// HST: Word InlineShape (a picture in the text)
++interface XInlineShape
++{
++    interface ooo::vba::XHelperInterface;
++
++    [attribute] float Width;
++    [attribute] float Height;
++    [attribute] long LockAspectRatio;
++    [attribute, readonly] long Type;
++    [attribute, readonly] XRange Range;
++    void Delete();
++    void Select();
++};
++
++}; }; };
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/oovbaapi/ooo/vba/word/XInlineShapes.idl
+@@ -0,0 +1,23 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo {  module vba {  module word {
++
++interface XInlineShape;
++// HST: Word InlineShapes collection
++interface XInlineShapes
++{
++    interface ooo::vba::XCollection;
++
++    XInlineShape AddPicture([in] string FileName, [in] any LinkToFile, [in] any SaveWithDocument, [in] any Range);
++};
++
++}; }; };
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/ui/vba/vbacomments.cxx
+@@ -0,0 +1,195 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <vector>
++
++#include <com/sun/star/container/NoSuchElementException.hpp>
++#include <com/sun/star/container/XEnumerationAccess.hpp>
++#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/text/XTextContent.hpp>
++#include <com/sun/star/text/XTextField.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <unotools/useroptions.hxx>
++#include <unotxdoc.hxx>
++
++#include "vbacomments.hxx"
++#include "vbarange.hxx"
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++std::vector<uno::Reference<beans::XPropertySet>> lcl_annotations(const rtl::Reference<SwXTextDocument>& xDoc)
++{
++    std::vector<uno::Reference<beans::XPropertySet>> aComments;
++    uno::Reference<container::XEnumerationAccess> xFields(xDoc->getTextFields());
++    uno::Reference<container::XEnumeration> xEnum = xFields->createEnumeration();
++    while (xEnum->hasMoreElements())
++    {
++        uno::Reference<lang::XServiceInfo> xInfo(xEnum->nextElement(), uno::UNO_QUERY);
++        if (xInfo.is() && xInfo->supportsService(u"com.sun.star.text.textfield.Annotation"_ustr))
++            aComments.emplace_back(xInfo, uno::UNO_QUERY_THROW);
++    }
++    return aComments;
++}
++
++class CommentsIndexAccess : public ::cppu::WeakImplHelper<container::XIndexAccess>
++{
++    std::vector<uno::Reference<beans::XPropertySet>> maComments;
++
++public:
++    explicit CommentsIndexAccess(std::vector<uno::Reference<beans::XPropertySet>>&& rComments)
++        : maComments(std::move(rComments))
++    {
++    }
++    sal_Int32 SAL_CALL getCount() override { return static_cast<sal_Int32>(maComments.size()); }
++    uno::Any SAL_CALL getByIndex(sal_Int32 nIndex) override
++    {
++        if (nIndex < 0 || nIndex >= getCount())
++            throw lang::IndexOutOfBoundsException();
++        return uno::Any(maComments[nIndex]);
++    }
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<beans::XPropertySet>::get(); }
++    sal_Bool SAL_CALL hasElements() override { return !maComments.empty(); }
++};
++
++class CommentsEnumWrapper : public EnumerationHelper_BASE
++{
++    uno::Reference<XCollection> mxCollection;
++    sal_Int32 mnIndex = 0;
++
++public:
++    explicit CommentsEnumWrapper(uno::Reference<XCollection> xCollection)
++        : mxCollection(std::move(xCollection))
++    {
++    }
++    sal_Bool SAL_CALL hasMoreElements() override { return mnIndex < mxCollection->getCount(); }
++    uno::Any SAL_CALL nextElement() override
++    {
++        if (mnIndex < mxCollection->getCount())
++            return mxCollection->Item(uno::Any(++mnIndex), uno::Any());
++        throw container::NoSuchElementException();
++    }
++};
++}
++
++SwVbaComment::SwVbaComment(const uno::Reference<XHelperInterface>& rParent,
++                           const uno::Reference<uno::XComponentContext>& rContext,
++                           rtl::Reference<SwXTextDocument> xTextDocument,
++                           uno::Reference<beans::XPropertySet> xAnnotation)
++    : SwVbaComment_BASE(rParent, rContext)
++    , mxTextDocument(std::move(xTextDocument))
++    , mxAnnotation(std::move(xAnnotation))
++{
++}
++
++uno::Reference<word::XRange> SAL_CALL SwVbaComment::getRange()
++{
++    uno::Reference<text::XText> xText(mxAnnotation->getPropertyValue(u"TextRange"_ustr), uno::UNO_QUERY_THROW);
++    return uno::Reference<word::XRange>(
++        new SwVbaRange(this, mxContext, mxTextDocument, xText->getStart(), xText->getEnd(), xText));
++}
++
++uno::Reference<word::XRange> SAL_CALL SwVbaComment::getScope()
++{
++    uno::Reference<text::XTextContent> xContent(mxAnnotation, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XTextRange> xAnchor = xContent->getAnchor();
++    return uno::Reference<word::XRange>(new SwVbaRange(this, mxContext, mxTextDocument, xAnchor->getStart(),
++                                                       xAnchor->getEnd(), xAnchor->getText()));
++}
++
++OUString SAL_CALL SwVbaComment::getAuthor()
++{
++    OUString aAuthor;
++    mxAnnotation->getPropertyValue(u"Author"_ustr) >>= aAuthor;
++    return aAuthor;
++}
++
++void SAL_CALL SwVbaComment::setAuthor(const OUString& rAuthor)
++{
++    mxAnnotation->setPropertyValue(u"Author"_ustr, uno::Any(rAuthor));
++}
++
++OUString SAL_CALL SwVbaComment::getInitial()
++{
++    OUString aInitials;
++    mxAnnotation->getPropertyValue(u"Initials"_ustr) >>= aInitials;
++    return aInitials;
++}
++
++void SAL_CALL SwVbaComment::setInitial(const OUString& rInitial)
++{
++    mxAnnotation->setPropertyValue(u"Initials"_ustr, uno::Any(rInitial));
++}
++
++void SAL_CALL SwVbaComment::Delete()
++{
++    uno::Reference<text::XTextContent> xContent(mxAnnotation, uno::UNO_QUERY_THROW);
++    xContent->getAnchor()->getText()->removeTextContent(xContent);
++}
++
++OUString SwVbaComment::getServiceImplName() { return u"SwVbaComment"_ustr; }
++
++uno::Sequence<OUString> SwVbaComment::getServiceNames()
++{
++    static uno::Sequence<OUString> const aNames{ u"ooo.vba.word.Comment"_ustr };
++    return aNames;
++}
++
++SwVbaComments::SwVbaComments(const uno::Reference<XHelperInterface>& xParent,
++                             const uno::Reference<uno::XComponentContext>& xContext,
++                             const rtl::Reference<SwXTextDocument>& xTextDocument)
++    : SwVbaComments_BASE(xParent, xContext, new CommentsIndexAccess(lcl_annotations(xTextDocument)))
++    , mxTextDocument(xTextDocument)
++{
++}
++
++uno::Reference<word::XComment> SAL_CALL SwVbaComments::Add(const uno::Reference<word::XRange>& rRange,
++                                                           const uno::Any& rText)
++{
++    OUString aText;
++    rText >>= aText;
++    uno::Reference<beans::XPropertySet> xAnnotation(
++        mxTextDocument->createInstance(u"com.sun.star.text.textfield.Annotation"_ustr), uno::UNO_QUERY_THROW);
++    SvtUserOptions aUserOptions;
++    xAnnotation->setPropertyValue(u"Author"_ustr, uno::Any(aUserOptions.GetFullName()));
++    xAnnotation->setPropertyValue(u"Initials"_ustr, uno::Any(aUserOptions.GetID()));
++    xAnnotation->setPropertyValue(u"Content"_ustr, uno::Any(aText));
++    uno::Reference<text::XTextRange> xTextRange = dynamic_cast<SwVbaRange&>(*rRange).getXTextRange();
++    uno::Reference<text::XTextContent> xContent(xAnnotation, uno::UNO_QUERY_THROW);
++    // absorb: the comment spans the range (Word's Comment.Scope)
++    xTextRange->getText()->insertTextContent(xTextRange, xContent, !xTextRange->getString().isEmpty());
++    return uno::Reference<word::XComment>(new SwVbaComment(mxParent, mxContext, mxTextDocument, xAnnotation));
++}
++
++uno::Type SwVbaComments::getElementType() { return cppu::UnoType<word::XComment>::get(); }
++
++uno::Reference<container::XEnumeration> SwVbaComments::createEnumeration()
++{
++    return new CommentsEnumWrapper(this);
++}
++
++uno::Any SwVbaComments::createCollectionObject(const uno::Any& aSource)
++{
++    uno::Reference<beans::XPropertySet> xAnnotation(aSource, uno::UNO_QUERY_THROW);
++    return uno::Any(uno::Reference<word::XComment>(new SwVbaComment(mxParent, mxContext, mxTextDocument, xAnnotation)));
++}
++
++OUString SwVbaComments::getServiceImplName() { return u"SwVbaComments"_ustr; }
++
++uno::Sequence<OUString> SwVbaComments::getServiceNames()
++{
++    static uno::Sequence<OUString> const aNames{ u"ooo.vba.word.Comments"_ustr };
++    return aNames;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/ui/vba/vbacomments.hxx
+@@ -0,0 +1,68 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <ooo/vba/word/XComment.hpp>
++#include <ooo/vba/word/XComments.hpp>
++#include <vbahelper/vbacollectionimpl.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++#include <rtl/ref.hxx>
++
++class SwXTextDocument;
++
++typedef InheritedHelperInterfaceWeakImpl<ooo::vba::word::XComment> SwVbaComment_BASE;
++
++/// HST: ooo.vba.word.Comment (a Writer annotation). Range = comment text, Scope = commented text.
++class SwVbaComment : public SwVbaComment_BASE
++{
++    rtl::Reference<SwXTextDocument> mxTextDocument;
++    css::uno::Reference<css::beans::XPropertySet> mxAnnotation;
++
++public:
++    SwVbaComment(const css::uno::Reference<ov::XHelperInterface>& rParent,
++                 const css::uno::Reference<css::uno::XComponentContext>& rContext,
++                 rtl::Reference<SwXTextDocument> xTextDocument,
++                 css::uno::Reference<css::beans::XPropertySet> xAnnotation);
++
++    css::uno::Reference<ooo::vba::word::XRange> SAL_CALL getRange() override;
++    css::uno::Reference<ooo::vba::word::XRange> SAL_CALL getScope() override;
++    OUString SAL_CALL getAuthor() override;
++    void SAL_CALL setAuthor(const OUString& rAuthor) override;
++    OUString SAL_CALL getInitial() override;
++    void SAL_CALL setInitial(const OUString& rInitial) override;
++    void SAL_CALL Delete() override;
++
++    OUString getServiceImplName() override;
++    css::uno::Sequence<OUString> getServiceNames() override;
++};
++
++typedef CollTestImplHelper<ooo::vba::word::XComments> SwVbaComments_BASE;
++
++/// HST: ooo.vba.word.Comments (ActiveDocument.Comments)
++class SwVbaComments : public SwVbaComments_BASE
++{
++    rtl::Reference<SwXTextDocument> mxTextDocument;
++
++public:
++    SwVbaComments(const css::uno::Reference<ov::XHelperInterface>& xParent,
++                  const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                  const rtl::Reference<SwXTextDocument>& xTextDocument);
++
++    css::uno::Reference<ooo::vba::word::XComment> SAL_CALL Add(const css::uno::Reference<ooo::vba::word::XRange>& rRange,
++                                                               const css::uno::Any& rText) override;
++
++    css::uno::Type SAL_CALL getElementType() override;
++    css::uno::Reference<css::container::XEnumeration> SAL_CALL createEnumeration() override;
++    css::uno::Any createCollectionObject(const css::uno::Any& aSource) override;
++    OUString getServiceImplName() override;
++    css::uno::Sequence<OUString> getServiceNames() override;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/ui/vba/vbainlineshapes.cxx
+@@ -0,0 +1,259 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <vector>
++
++#include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/container/NoSuchElementException.hpp>
++#include <com/sun/star/graphic/GraphicProvider.hpp>
++#include <com/sun/star/graphic/XGraphic.hpp>
++#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
++#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/text/TextContentAnchorType.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/text/XTextContent.hpp>
++#include <com/sun/star/view/XSelectionSupplier.hpp>
++#include <comphelper/propertyvalue.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <ooo/vba/word/WdInlineShapeType.hpp>
++#include <osl/file.hxx>
++#include <unotxdoc.hxx>
++
++#include "vbainlineshapes.hxx"
++#include "vbarange.hxx"
++#include "wordvbahelper.hxx"
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++// points <-> 1/100 mm
++float lcl_toPoints(sal_Int32 n100thMM) { return static_cast<float>(n100thMM) * 72.0f / 2540.0f; }
++sal_Int32 lcl_to100thMM(float fPoints) { return static_cast<sal_Int32>(fPoints * 2540.0f / 72.0f + 0.5f); }
++
++std::vector<uno::Reference<beans::XPropertySet>>
++lcl_inlineGraphics(const rtl::Reference<SwXTextDocument>& xDoc)
++{
++    std::vector<uno::Reference<beans::XPropertySet>> aShapes;
++    uno::Reference<container::XIndexAccess> xGraphics(xDoc->getGraphicObjects(), uno::UNO_QUERY_THROW);
++    for (sal_Int32 i = 0; i < xGraphics->getCount(); ++i)
++    {
++        uno::Reference<beans::XPropertySet> xProps(xGraphics->getByIndex(i), uno::UNO_QUERY);
++        text::TextContentAnchorType eAnchor = text::TextContentAnchorType_AT_PARAGRAPH;
++        if (xProps.is() && (xProps->getPropertyValue(u"AnchorType"_ustr) >>= eAnchor)
++            && eAnchor == text::TextContentAnchorType_AS_CHARACTER)
++            aShapes.push_back(xProps);
++    }
++    return aShapes;
++}
++
++class InlineShapesIndexAccess : public ::cppu::WeakImplHelper<container::XIndexAccess>
++{
++    std::vector<uno::Reference<beans::XPropertySet>> maShapes;
++
++public:
++    explicit InlineShapesIndexAccess(std::vector<uno::Reference<beans::XPropertySet>>&& rShapes)
++        : maShapes(std::move(rShapes))
++    {
++    }
++    sal_Int32 SAL_CALL getCount() override { return static_cast<sal_Int32>(maShapes.size()); }
++    uno::Any SAL_CALL getByIndex(sal_Int32 nIndex) override
++    {
++        if (nIndex < 0 || nIndex >= getCount())
++            throw lang::IndexOutOfBoundsException();
++        return uno::Any(maShapes[nIndex]);
++    }
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<beans::XPropertySet>::get(); }
++    sal_Bool SAL_CALL hasElements() override { return !maShapes.empty(); }
++};
++
++class InlineShapesEnumWrapper : public EnumerationHelper_BASE
++{
++    uno::Reference<XCollection> mxCollection;
++    sal_Int32 mnIndex = 0;
++
++public:
++    explicit InlineShapesEnumWrapper(uno::Reference<XCollection> xCollection)
++        : mxCollection(std::move(xCollection))
++    {
++    }
++    sal_Bool SAL_CALL hasMoreElements() override { return mnIndex < mxCollection->getCount(); }
++    uno::Any SAL_CALL nextElement() override
++    {
++        if (mnIndex < mxCollection->getCount())
++            return mxCollection->Item(uno::Any(++mnIndex), uno::Any());
++        throw container::NoSuchElementException();
++    }
++};
++}
++
++SwVbaInlineShape::SwVbaInlineShape(const uno::Reference<XHelperInterface>& rParent,
++                                   const uno::Reference<uno::XComponentContext>& rContext,
++                                   rtl::Reference<SwXTextDocument> xTextDocument,
++                                   uno::Reference<beans::XPropertySet> xShape)
++    : SwVbaInlineShape_BASE(rParent, rContext)
++    , mxTextDocument(std::move(xTextDocument))
++    , mxShape(std::move(xShape))
++    , mnLockAspectRatio(-1)
++{
++}
++
++float SAL_CALL SwVbaInlineShape::getWidth()
++{
++    sal_Int32 nWidth = 0;
++    mxShape->getPropertyValue(u"Width"_ustr) >>= nWidth;
++    return lcl_toPoints(nWidth);
++}
++
++void SAL_CALL SwVbaInlineShape::setWidth(float fWidth)
++{
++    sal_Int32 nOldWidth = 0, nOldHeight = 0;
++    mxShape->getPropertyValue(u"Width"_ustr) >>= nOldWidth;
++    mxShape->getPropertyValue(u"Height"_ustr) >>= nOldHeight;
++    const sal_Int32 nWidth = lcl_to100thMM(fWidth);
++    mxShape->setPropertyValue(u"Width"_ustr, uno::Any(nWidth));
++    if (mnLockAspectRatio != 0 && nOldWidth > 0)
++        mxShape->setPropertyValue(u"Height"_ustr,
++                                  uno::Any(static_cast<sal_Int32>(sal_Int64(nOldHeight) * nWidth / nOldWidth)));
++}
++
++float SAL_CALL SwVbaInlineShape::getHeight()
++{
++    sal_Int32 nHeight = 0;
++    mxShape->getPropertyValue(u"Height"_ustr) >>= nHeight;
++    return lcl_toPoints(nHeight);
++}
++
++void SAL_CALL SwVbaInlineShape::setHeight(float fHeight)
++{
++    sal_Int32 nOldWidth = 0, nOldHeight = 0;
++    mxShape->getPropertyValue(u"Width"_ustr) >>= nOldWidth;
++    mxShape->getPropertyValue(u"Height"_ustr) >>= nOldHeight;
++    const sal_Int32 nHeight = lcl_to100thMM(fHeight);
++    mxShape->setPropertyValue(u"Height"_ustr, uno::Any(nHeight));
++    if (mnLockAspectRatio != 0 && nOldHeight > 0)
++        mxShape->setPropertyValue(u"Width"_ustr,
++                                  uno::Any(static_cast<sal_Int32>(sal_Int64(nOldWidth) * nHeight / nOldHeight)));
++}
++
++sal_Int32 SAL_CALL SwVbaInlineShape::getLockAspectRatio() { return mnLockAspectRatio; }
++
++void SAL_CALL SwVbaInlineShape::setLockAspectRatio(sal_Int32 nLock) { mnLockAspectRatio = nLock == 0 ? 0 : -1; }
++
++sal_Int32 SAL_CALL SwVbaInlineShape::getType() { return word::WdInlineShapeType::wdInlineShapePicture; }
++
++uno::Reference<word::XRange> SAL_CALL SwVbaInlineShape::getRange()
++{
++    uno::Reference<text::XTextContent> xContent(mxShape, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XTextRange> xAnchor = xContent->getAnchor();
++    return uno::Reference<word::XRange>(new SwVbaRange(this, mxContext, mxTextDocument, xAnchor->getStart(),
++                                                       xAnchor->getEnd(), xAnchor->getText()));
++}
++
++void SAL_CALL SwVbaInlineShape::Delete()
++{
++    uno::Reference<lang::XComponent> xComponent(mxShape, uno::UNO_QUERY_THROW);
++    xComponent->dispose();
++}
++
++void SAL_CALL SwVbaInlineShape::Select()
++{
++    uno::Reference<view::XSelectionSupplier> xSelection(mxTextDocument->getCurrentController(), uno::UNO_QUERY_THROW);
++    xSelection->select(uno::Any(mxShape));
++}
++
++OUString SwVbaInlineShape::getServiceImplName() { return u"SwVbaInlineShape"_ustr; }
++
++uno::Sequence<OUString> SwVbaInlineShape::getServiceNames()
++{
++    static uno::Sequence<OUString> const aNames{ u"ooo.vba.word.InlineShape"_ustr };
++    return aNames;
++}
++
++SwVbaInlineShapes::SwVbaInlineShapes(const uno::Reference<XHelperInterface>& xParent,
++                                     const uno::Reference<uno::XComponentContext>& xContext,
++                                     const rtl::Reference<SwXTextDocument>& xTextDocument)
++    : SwVbaInlineShapes_BASE(xParent, xContext, new InlineShapesIndexAccess(lcl_inlineGraphics(xTextDocument)))
++    , mxTextDocument(xTextDocument)
++{
++}
++
++uno::Reference<word::XInlineShape> SAL_CALL
++SwVbaInlineShapes::AddPicture(const OUString& rFileName, const uno::Any& rLinkToFile,
++                              const uno::Any& /*rSaveWithDocument*/, const uno::Any& rRange)
++{
++    OUString aURL;
++    if (osl::FileBase::getFileURLFromSystemPath(rFileName, aURL) != osl::FileBase::E_None)
++        aURL = rFileName;
++    uno::Reference<graphic::XGraphicProvider> xProvider = graphic::GraphicProvider::create(mxContext);
++    uno::Sequence<beans::PropertyValue> aArgs{ comphelper::makePropertyValue(u"URL"_ustr, aURL) };
++    uno::Reference<graphic::XGraphic> xGraphic = xProvider->queryGraphic(aArgs);
++    if (!xGraphic.is())
++        throw uno::RuntimeException(u"Cannot load the picture "_ustr + rFileName);
++
++    uno::Reference<beans::XPropertySet> xShape(
++        mxTextDocument->createInstance(u"com.sun.star.text.TextGraphicObject"_ustr), uno::UNO_QUERY_THROW);
++    xShape->setPropertyValue(u"AnchorType"_ustr, uno::Any(text::TextContentAnchorType_AS_CHARACTER));
++    bool bLink = false;
++    rLinkToFile >>= bLink;
++    if (bLink)
++        xShape->setPropertyValue(u"GraphicURL"_ustr, uno::Any(aURL));
++    else
++        xShape->setPropertyValue(u"Graphic"_ustr, uno::Any(xGraphic));
++
++    // natural size of the picture (1/100 mm, else pixels at 96 dpi)
++    uno::Reference<beans::XPropertySet> xGraphicProps(xGraphic, uno::UNO_QUERY);
++    awt::Size aSize;
++    if (xGraphicProps.is())
++    {
++        xGraphicProps->getPropertyValue(u"Size100thMM"_ustr) >>= aSize;
++        if (aSize.Width <= 0 || aSize.Height <= 0)
++        {
++            xGraphicProps->getPropertyValue(u"SizePixel"_ustr) >>= aSize;
++            aSize.Width = aSize.Width * 2540 / 96;
++            aSize.Height = aSize.Height * 2540 / 96;
++        }
++    }
++    if (aSize.Width > 0 && aSize.Height > 0)
++        xShape->setPropertyValue(u"Size"_ustr, uno::Any(aSize));
++
++    uno::Reference<text::XTextRange> xTextRange;
++    uno::Reference<word::XRange> xRange;
++    if ((rRange >>= xRange) && xRange.is())
++        xTextRange = dynamic_cast<SwVbaRange&>(*xRange).getXTextRange();
++    else
++        xTextRange.set(word::getXTextViewCursor(mxTextDocument), uno::UNO_QUERY_THROW);
++    uno::Reference<text::XTextContent> xContent(xShape, uno::UNO_QUERY_THROW);
++    xTextRange->getText()->insertTextContent(xTextRange, xContent, false);
++    return uno::Reference<word::XInlineShape>(new SwVbaInlineShape(mxParent, mxContext, mxTextDocument, xShape));
++}
++
++uno::Type SwVbaInlineShapes::getElementType() { return cppu::UnoType<word::XInlineShape>::get(); }
++
++uno::Reference<container::XEnumeration> SwVbaInlineShapes::createEnumeration()
++{
++    return new InlineShapesEnumWrapper(this);
++}
++
++uno::Any SwVbaInlineShapes::createCollectionObject(const uno::Any& aSource)
++{
++    uno::Reference<beans::XPropertySet> xShape(aSource, uno::UNO_QUERY_THROW);
++    return uno::Any(uno::Reference<word::XInlineShape>(new SwVbaInlineShape(mxParent, mxContext, mxTextDocument, xShape)));
++}
++
++OUString SwVbaInlineShapes::getServiceImplName() { return u"SwVbaInlineShapes"_ustr; }
++
++uno::Sequence<OUString> SwVbaInlineShapes::getServiceNames()
++{
++    static uno::Sequence<OUString> const aNames{ u"ooo.vba.word.InlineShapes"_ustr };
++    return aNames;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/ui/vba/vbainlineshapes.hxx
+@@ -0,0 +1,73 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <ooo/vba/word/XInlineShape.hpp>
++#include <ooo/vba/word/XInlineShapes.hpp>
++#include <vbahelper/vbacollectionimpl.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++#include <rtl/ref.hxx>
++
++class SwXTextDocument;
++
++typedef InheritedHelperInterfaceWeakImpl<ooo::vba::word::XInlineShape> SwVbaInlineShape_BASE;
++
++/// HST: ooo.vba.word.InlineShape, a picture anchored as character. Width/Height in points.
++class SwVbaInlineShape : public SwVbaInlineShape_BASE
++{
++    rtl::Reference<SwXTextDocument> mxTextDocument;
++    css::uno::Reference<css::beans::XPropertySet> mxShape;
++    sal_Int32 mnLockAspectRatio; // msoTrue (-1) as Word does for pictures
++
++public:
++    SwVbaInlineShape(const css::uno::Reference<ov::XHelperInterface>& rParent,
++                     const css::uno::Reference<css::uno::XComponentContext>& rContext,
++                     rtl::Reference<SwXTextDocument> xTextDocument,
++                     css::uno::Reference<css::beans::XPropertySet> xShape);
++
++    float SAL_CALL getWidth() override;
++    void SAL_CALL setWidth(float fWidth) override;
++    float SAL_CALL getHeight() override;
++    void SAL_CALL setHeight(float fHeight) override;
++    sal_Int32 SAL_CALL getLockAspectRatio() override;
++    void SAL_CALL setLockAspectRatio(sal_Int32 nLock) override;
++    sal_Int32 SAL_CALL getType() override;
++    css::uno::Reference<ooo::vba::word::XRange> SAL_CALL getRange() override;
++    void SAL_CALL Delete() override;
++    void SAL_CALL Select() override;
++
++    OUString getServiceImplName() override;
++    css::uno::Sequence<OUString> getServiceNames() override;
++};
++
++typedef CollTestImplHelper<ooo::vba::word::XInlineShapes> SwVbaInlineShapes_BASE;
++
++/// HST: ooo.vba.word.InlineShapes (ActiveDocument.InlineShapes)
++class SwVbaInlineShapes : public SwVbaInlineShapes_BASE
++{
++    rtl::Reference<SwXTextDocument> mxTextDocument;
++
++public:
++    SwVbaInlineShapes(const css::uno::Reference<ov::XHelperInterface>& xParent,
++                      const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                      const rtl::Reference<SwXTextDocument>& xTextDocument);
++
++    css::uno::Reference<ooo::vba::word::XInlineShape> SAL_CALL
++    AddPicture(const OUString& rFileName, const css::uno::Any& rLinkToFile,
++               const css::uno::Any& rSaveWithDocument, const css::uno::Any& rRange) override;
++
++    css::uno::Type SAL_CALL getElementType() override;
++    css::uno::Reference<css::container::XEnumeration> SAL_CALL createEnumeration() override;
++    css::uno::Any createCollectionObject(const css::uno::Any& aSource) override;
++    OUString getServiceImplName() override;
++    css::uno::Sequence<OUString> getServiceNames() override;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

@@ -10,6 +10,7 @@ status "ok" = must pass (a failure fails the check); "limited" = known gap, repo
 is flagged so the help page and report get updated.
 """
 
+LOGO = "/home/office/assets/brand/hst-office-logo.png"  # readable by the build user
 WRITER_TEXT = "Xin chào thế giới. Đây là câu thứ hai.\nĐoạn hai có từ HST và HST.\nĐoạn ba."
 
 
@@ -228,13 +229,23 @@ WRITER = [
          body='Dim a As Integer\na = MsgBox("Xin chào", vbOKOnly)\nr = "ok"', want="ok"),
     dict(id="writer-loop-paragraphs", title="For Each p In ActiveDocument.Paragraphs", status="ok",
          body='Dim p As Object, n As Integer\nFor Each p In ActiveDocument.Paragraphs\n  n = n + 1\nNext p\nr = n', want="3"),
-    dict(id="writer-inlineshapes", title="InlineShapes.Count, Shapes.Count", status="limited",
+    dict(id="writer-inlineshapes", title="InlineShapes.Count, Shapes.Count", status="ok",
          body='r = ActiveDocument.InlineShapes.Count & "|" & ActiveDocument.Shapes.Count', want="0|0"),
-    dict(id="writer-fields", title="Fields.Add (trường DATE)", status="limited",
-         body='ActiveDocument.Fields.Add Range:=ActiveDocument.Range(0, 0), Type:=wdFieldDate\nr = ActiveDocument.Fields.Count',
-         want="1"),
-    dict(id="writer-comments", title="Comments.Add", status="limited",
-         body='ActiveDocument.Comments.Add ActiveDocument.Range(0, 3), "Ghi chú"\nr = ActiveDocument.Comments.Count', want="1"),
+    dict(id="writer-inlineshapes-add", title="InlineShapes.AddPicture, Width/Height, LockAspectRatio", status="ok",
+         body='Dim ish As Object, h As Single\nSet ish = ActiveDocument.InlineShapes.AddPicture(FileName:="' + LOGO + '", '
+              'LinkToFile:=False, SaveWithDocument:=True, Range:=ActiveDocument.Paragraphs(3).Range)\n'
+              'h = ish.Height / ish.Width\nish.LockAspectRatio = msoTrue\nish.Width = 72\n'
+              'r = ActiveDocument.InlineShapes.Count & "|" & Round(ish.Width) & "|" & (Abs(ish.Height / ish.Width - h) < 0.02) & "|" & ish.Type',
+         want="1|72|True|3", doc=lambda d: d.GraphicObjects.Count == 1),
+    dict(id="writer-fields", title="Fields.Add (DATE, PAGE, NUMPAGES), Fields.Update", status="ok",
+         body='ActiveDocument.Fields.Add Range:=ActiveDocument.Range(0, 0), Type:=wdFieldDate\n'
+              'ActiveDocument.Fields.Add ActiveDocument.Paragraphs(3).Range, wdFieldPage\n'
+              'ActiveDocument.Fields.Add ActiveDocument.Range(0, 0), wdFieldEmpty, "NUMPAGES"\n'
+              'r = ActiveDocument.Fields.Count & "|" & ActiveDocument.Fields.Update', want="3|0"),
+    dict(id="writer-comments", title="Comments.Add, Comments(1).Range.Text, .Scope, .Author", status="ok",
+         body='Dim cm As Object\nSet cm = ActiveDocument.Comments.Add(ActiveDocument.Range(0, 3), "Ghi chú")\n'
+              'cm.Author = "HST"\nr = ActiveDocument.Comments.Count & "|" & ActiveDocument.Comments(1).Range.Text & "|" & cm.Scope.Text & "|" & cm.Author',
+         want="1|Ghi chú|Xin|HST"),
     dict(id="writer-lists", title="Range.ListFormat.ApplyBulletDefault", status="ok",
          body='ActiveDocument.Paragraphs(2).Range.ListFormat.ApplyBulletDefault\nr = "ok"', want="ok",
          doc=lambda d: [p.NumberingStyleName for p in _paragraphs(d)][:3] == ["", "List 1", ""]),
