@@ -2,7 +2,7 @@
 """User-facing HST commands: gather UI input, call the logic modules, report results. One function per command."""
 import unohelper
 
-from . import convert_calc_action, csv_calc, encoding_writer, fonts, nd30_layout, nd30_writer, sheets
+from . import convert_calc_action, csv_calc, encoding_writer, fonts, nd30_layout, nd30_writer, sheets, vba
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -141,4 +141,5 @@ COMMANDS = {
     "FormatVnd": lambda h: apply_format(h, "vnd"),
     "FormatPercent": lambda h: apply_format(h, "percent"),
     "ImportCsv": import_csv,
+    "EditVba": vba.run,
 }

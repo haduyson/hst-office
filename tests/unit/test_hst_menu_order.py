@@ -33,6 +33,9 @@ class HstMenuOrder(unittest.TestCase):
     def test_feature_search_comes_right_before_them(self):
         self.assertEqual(menu_urls()[-3], ".uno:CommandPopup")
 
+    def test_macro_vba_comes_before_feature_search(self):
+        self.assertEqual(menu_urls()[-4], "org.hst.office.vi:EditVba")
+
 
 if __name__ == "__main__":
     unittest.main()

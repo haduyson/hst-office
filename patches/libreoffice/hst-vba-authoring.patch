@@ -1,0 +1,436 @@
+HST Office: write and edit VBA macros in HST Writer and HST Sheets like in Microsoft Office.
+
+- sw/uiconfig/swriter/ui/notebookbar.ui, sc/uiconfig/scalc/ui/notebookbar.ui: a large
+  "Macro VBA" button first in the Macro group of the Tools tab (Công cụ). It dispatches
+  org.hst.office.vi:EditVba of the bundled HST extension, which opens the Basic IDE on the
+  document's VBA module and creates one ("Option VBASupport 1" + Vietnamese template) when
+  there is none. Label and tooltip are Vietnamese in every UI language (HST command); the
+  label fallback for extension commands comes from hst-ribbon-nd30.patch.
+- officecfg Common.xcs: MacroSecurityLevel default 1 (Medium) instead of 2 (High). With High,
+  macros of an .xlsm/.docm from someone else are blocked without a choice; Medium shows the
+  security prompt and runs them only when the user agrees. Never silent. Profiles that store
+  a level keep it.
+- oovbaapi word/XRange.idl, sw/source/ui/vba/vbarange.*: Range.InsertBefore / Range.InsertAfter,
+  the most common Word VBA calls that were missing ("Property or method not found"); as in
+  Word, the range grows to include the inserted text.
+- sw/source/filter/ww8/docxexport.*: saving as .docm wrote only the VBA project read from the
+  original file, so macros written or edited in HST Writer were lost. When the document is in
+  VBA mode the current Basic code is now written with oox::ole::VbaExport (as Calc does for
+  .xlsm). A project with UserForms (designer storages, which VbaExport cannot write) is still
+  copied unchanged; vbaData.xml is then omitted because it could name stale macros.
+- sc/source/filter/excel/excrecds.cxx, excdoc.cxx: .xlsx/.xlsm export writes the VBA code names
+  (sheetPr codeName, workbookPr codeName). Without them the document modules Sheet1/ThisWorkbook
+  lost their sheets after a save, so Worksheet_Change / Workbook_Open no longer ran and Excel
+  saw orphaned modules.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba.py (compatibility matrix, .xlsm/.docm/.ods/.odt round trip, events,
+defaults), tests/unit/test_vba_authoring.py.
+---
+--- a/officecfg/registry/schema/org/openoffice/Office/Common.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Common.xcs
+@@ -2162,7 +2162,9 @@
+               </info>
+             </maxInclusive>
+           </constraints>
+-          <value>2</value>
++          <!-- HST Office: Medium. Macros of a document from an untrusted source run only after the user
++               agrees in the security prompt (Excel/Word files with VBA); never silently. -->
++          <value>1</value>
+         </prop>
+         <prop oor:name="DisableMacrosExecution" oor:type="xs:boolean" oor:nillable="false">
+           <info>
+--- a/oovbaapi/ooo/vba/word/XRange.idl
++++ b/oovbaapi/ooo/vba/word/XRange.idl
+@@ -50,6 +50,9 @@
+     void InsertParagraph();
+     void InsertParagraphBefore();
+     void InsertParagraphAfter();
++    // HST: Word's Range.InsertBefore / Range.InsertAfter (the range grows to include the text)
++    void InsertBefore( [in] string Text );
++    void InsertAfter( [in] string Text );
+     any PageSetup();
+     boolean InRange( [in] XRange Range );
+     any Revisions( [in] any index );
+--- a/sc/source/filter/excel/excdoc.cxx
++++ b/sc/source/filter/excel/excdoc.cxx
+@@ -72,6 +72,20 @@
+     return aRet;
+ }
+ 
++namespace {
++
++/// HST: workbookPr codeName attribute (written inside the open workbookPr element).
++class XclExpXmlWorkbookCodeName : public XclExpRecordBase
++{
++public:
++    explicit XclExpXmlWorkbookCodeName( OUString aName ) : maName( std::move( aName ) ) {}
++    virtual void SaveXml( XclExpXmlStream& rStrm ) override { rStrm.WriteAttributes( XML_codeName, maName ); }
++private:
++    OUString maName;
++};
++
++}
++
+ static void lcl_AddBookviews( XclExpRecordList<>& aRecList, const ExcTable& self )
+ {
+     aRecList.AppendNewRecord( new XclExpXmlStartElementRecord( XML_bookViews ) );
+@@ -347,6 +361,9 @@
+     Add( new XclExpBoolRecord(0x008D, false, XML_showObjects ) );   // HIDEOBJ
+ 
+     Add( new Exc1904( rDoc ) );
++    // HST: VBA code name of the workbook (its ThisWorkbook document module, Workbook_Open…).
++    if (!rDoc.GetCodeName().isEmpty())
++        Add( new XclExpXmlWorkbookCodeName( rDoc.GetCodeName() ) );
+     // OOXTODO: The following /workbook/workbookPr attributes are mapped
+     //          to various BIFF records that are not currently supported:
+     //
+--- a/sc/source/filter/excel/excrecds.cxx
++++ b/sc/source/filter/excel/excrecds.cxx
+@@ -367,6 +367,9 @@
+ void XclExpXmlSheetPr::SaveXml( XclExpXmlStream& rStrm )
+ {
+     sax_fastparser::FSHelperPtr& rWorksheet = rStrm.GetCurrentStream();
++    // HST: the sheet's VBA code name binds its document module (Worksheet_Change…) in Excel and on reload.
++    OUString aCodeName;
++    rStrm.GetRoot().GetDoc().GetCodeName(mnScTab, aCodeName);
+     rWorksheet->startElement( XML_sheetPr,
+             // OOXTODO: XML_syncHorizontal,
+             // OOXTODO: XML_syncVertical,
+@@ -374,7 +377,7 @@
+             // OOXTODO: XML_transitionEvaluation,
+             // OOXTODO: XML_transitionEntry,
+             // OOXTODO: XML_published,
+-            // OOXTODO: XML_codeName,
++            XML_codeName, sax_fastparser::UseIf(aCodeName, !aCodeName.isEmpty()),
+             XML_filterMode, mpManager ? ToPsz(mpManager->HasFilterMode(mnScTab)) : nullptr
+             // OOXTODO: XML_enableFormatConditionsCalculation
+     );
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -13669,6 +13669,37 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">3</property>
+                         <child>
++                          <!-- HST Office: "Macro VBA" of the bundled HST extension: Basic IDE on the document's VBA module -->
++                          <object class="sfxlo-NotebookbarToolBox" id="bxToolsHstVba">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnToolsHstVba">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Macro VBA</property>
++                                <property name="tooltip-text">Soạn và chạy macro VBA (Alt+F11)</property>
++                                <property name="action-name">org.hst.office.vi:EditVba</property>
++                                <property name="icon-name">cmd/lc_basicideappear.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkLabel" id="lbToolsMacro">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -13686,7 +13717,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">2</property>
++                            <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -13699,7 +13730,7 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -13726,7 +13757,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">2</property>
+                           </packing>
+@@ -13750,7 +13781,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -13772,7 +13803,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+--- a/sw/source/filter/ww8/docxexport.cxx
++++ b/sw/source/filter/ww8/docxexport.cxx
+@@ -57,6 +57,13 @@
+ #include <oox/token/relationship.hxx>
+ #include <oox/ole/olestorage.hxx>
+ #include <oox/ole/olehelper.hxx>
++#include <oox/ole/vbaexport.hxx>
++#include <sot/storage.hxx>
++#include <sot/storinfo.hxx>
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/script/XLibraryContainer.hpp>
++#include <tools/stream.hxx>
++#include <com/sun/star/script/vba/XVBACompatibility.hpp>
+ 
+ #include <svx/svdpage.hxx>
+ #include <svx/xfillit0.hxx>
+@@ -1977,6 +1984,67 @@
+     }
+ }
+ 
++namespace
++{
++/// HST: true when the stored original VBA project carries UserForms (designer storages besides
++/// "VBA"), which oox::ole::VbaExport cannot write; such a project is saved back unchanged.
++bool lcl_hasVbaDesignerStorages(const uno::Reference<io::XStream>& xMacrosStream)
++{
++    std::unique_ptr<SvStream> pIn(utl::UcbStreamHelper::CreateStream(xMacrosStream));
++    if (!pIn)
++        return true;
++    rtl::Reference<SotStorage> xStorage(new SotStorage(*pIn));
++    if (xStorage->GetError())
++        return true;
++    SvStorageInfoList aElements;
++    xStorage->FillInfoList(&aElements);
++    for (const SvStorageInfo& rElement : aElements)
++        if (rElement.IsStorage() && rElement.GetName() != "VBA")
++            return true;
++    return false;
++}
++}
++
++bool DocxExport::WriteCurrentVBA()
++{
++    uno::Reference<frame::XModel> xModel(m_rDoc.GetDocShell() ? m_rDoc.GetDocShell()->GetModel() : nullptr);
++    uno::Reference<beans::XPropertySet> xProps(xModel, uno::UNO_QUERY);
++    if (!xProps.is())
++        return false;
++    uno::Reference<script::XLibraryContainer> xLibraries(xProps->getPropertyValue(u"BasicLibraries"_ustr), uno::UNO_QUERY);
++    uno::Reference<script::vba::XVBACompatibility> xVBA(xLibraries, uno::UNO_QUERY);
++    if (!xVBA.is() || !xVBA->getVBACompatibilityMode())
++        return false;
++    const OUString aProject = xVBA->getProjectName();
++    if (aProject.isEmpty() || !xLibraries->hasByName(aProject))
++        return false;
++    if (!xLibraries->isLibraryLoaded(aProject))
++        xLibraries->loadLibrary(aProject);
++    uno::Reference<container::XNameAccess> xLibrary(xLibraries->getByName(aProject), uno::UNO_QUERY);
++    if (!xLibrary.is() || !xLibrary->hasElements())
++        return false;
++
++    VbaExport aExport(xModel);
++    SvMemoryStream aVbaStream(4096, 4096);
++    {
++        rtl::Reference<SotStorage> xVBAStorage(new SotStorage(aVbaStream));
++        aExport.exportVBA(xVBAStorage.get());
++    }
++    aVbaStream.Seek(0);
++    uno::Reference<io::XOutputStream> xProjectStream
++        = GetFilter().openFragmentStream(u"word/vbaProject.bin"_ustr, u"application/vnd.ms-office.vbaProject"_ustr);
++    uno::Reference<io::XStream> xOutputStream(xProjectStream, uno::UNO_QUERY);
++    if (!xOutputStream.is())
++        return false;
++    {
++        std::unique_ptr<SvStream> pOut(utl::UcbStreamHelper::CreateStream(xOutputStream));
++        pOut->WriteStream(aVbaStream);
++    }
++    m_rFilter.addRelation(m_pDocumentFS->getOutputStream(), oox::getRelationship(Relationship::VBAPROJECT), u"vbaProject.bin");
++    // vbaData.xml (key bindings of the original project) is optional and would name stale macros: not written.
++    return true;
++}
++
+ void DocxExport::WriteVBA()
+ {
+     if (!m_xTextDoc)
+@@ -1984,8 +2052,14 @@
+ 
+     uno::Reference<embed::XStorage> xDocumentStorage = m_xTextDoc->getDocumentStorage();
+     OUString aMacrosName(u"_MS_VBA_Macros"_ustr);
+-    if (!xDocumentStorage.is() || !xDocumentStorage->hasByName(aMacrosName))
+-        return;
++    const bool bOriginal = xDocumentStorage.is() && xDocumentStorage->hasByName(aMacrosName);
++    // HST: save the macros as they are now (written or edited in the Basic IDE), like Calc does for
++    // .xlsm, unless the original project has UserForms: those are only kept by copying it unchanged.
++    if (!bOriginal || !lcl_hasVbaDesignerStorages(xDocumentStorage->openStreamElement(aMacrosName, embed::ElementModes::READ)))
++    {
++        if (WriteCurrentVBA() || !bOriginal)
++            return;
++    }
+ 
+     const sal_Int32 nOpenMode = embed::ElementModes::READ;
+     uno::Reference<io::XStream> xMacrosStream = xDocumentStorage->openStreamElement(aMacrosName, nOpenMode);
+--- a/sw/source/filter/ww8/docxexport.hxx
++++ b/sw/source/filter/ww8/docxexport.hxx
+@@ -305,6 +305,9 @@
+     /// Writes word/vbaProject.bin.
+     void WriteVBA();
+ 
++    /// HST: writes word/vbaProject.bin from the document's current VBA-mode Basic code.
++    bool WriteCurrentVBA();
++
+ public:
+     /// All xml namespaces to be used at the top of any text .xml file (main doc, headers, footers,...)
+     rtl::Reference<sax_fastparser::FastAttributeList> MainXmlNamespaces();
+--- a/sw/source/ui/vba/vbarange.cxx
++++ b/sw/source/ui/vba/vbarange.cxx
+@@ -261,6 +261,31 @@
+     mxText->insertControlCharacter( xTextRange, text::ControlCharacter::PARAGRAPH_BREAK, true );
+ }
+ 
++// HST: as in Word, the range is extended to include the inserted text.
++void SAL_CALL
++SwVbaRange::InsertBefore( const OUString& rText )
++{
++    const bool bCollapsed = mxTextCursor->isCollapsed();
++    uno::Reference< text::XTextRange > xEnd = mxTextCursor->getEnd();
++    uno::Reference< text::XTextCursor > xNew = mxText->createTextCursorByRange( mxTextCursor->getStart() );
++    xNew->collapseToStart();
++    mxText->insertString( xNew, rText, true );
++    mxTextCursor->gotoRange( xNew->getStart(), false );
++    mxTextCursor->gotoRange( bCollapsed ? xNew->getEnd() : xEnd, true );
++}
++
++void SAL_CALL
++SwVbaRange::InsertAfter( const OUString& rText )
++{
++    const bool bCollapsed = mxTextCursor->isCollapsed();
++    uno::Reference< text::XTextRange > xStart = mxTextCursor->getStart();
++    uno::Reference< text::XTextCursor > xNew = mxText->createTextCursorByRange( mxTextCursor->getEnd() );
++    xNew->collapseToEnd();
++    mxText->insertString( xNew, rText, true );
++    mxTextCursor->gotoRange( bCollapsed ? xNew->getStart() : xStart, false );
++    mxTextCursor->gotoRange( xNew->getEnd(), true );
++}
++
+ uno::Reference< word::XParagraphFormat > SAL_CALL
+ SwVbaRange::getParagraphFormat()
+ {
+--- a/sw/source/ui/vba/vbarange.hxx
++++ b/sw/source/ui/vba/vbarange.hxx
+@@ -95,6 +95,8 @@
+     virtual void SAL_CALL InsertParagraph() override;
+     virtual void SAL_CALL InsertParagraphBefore() override;
+     virtual void SAL_CALL InsertParagraphAfter() override;
++    virtual void SAL_CALL InsertBefore( const OUString& rText ) override;
++    virtual void SAL_CALL InsertAfter( const OUString& rText ) override;
+     virtual ::sal_Int32 SAL_CALL getLanguageID() override;
+     virtual void SAL_CALL setLanguageID( ::sal_Int32 _languageid ) override;
+     virtual css::uno::Any SAL_CALL PageSetup() override;
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -15250,6 +15250,37 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">3</property>
+                         <child>
++                          <!-- HST Office: "Macro VBA" of the bundled HST extension: Basic IDE on the document's VBA module -->
++                          <object class="sfxlo-NotebookbarToolBox" id="bxToolsHstVba">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnToolsHstVba">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Macro VBA</property>
++                                <property name="tooltip-text">Soạn và chạy macro VBA (Alt+F11)</property>
++                                <property name="action-name">org.hst.office.vi:EditVba</property>
++                                <property name="icon-name">cmd/lc_basicideappear.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkLabel" id="lbToolsMacro">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -15267,7 +15298,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">2</property>
++                            <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -15280,7 +15311,7 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -15307,7 +15338,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">2</property>
+                           </packing>
+@@ -15331,7 +15362,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -15353,7 +15384,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>

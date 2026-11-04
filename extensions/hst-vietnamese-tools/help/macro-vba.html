@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Macro VBA · Hướng dẫn HST Office</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#noi-dung">Đến nội dung chính</a>
+<header class="site-header">
+  <div class="wrap header-inner">
+    <img class="logo" src="../icons/hst-office-logo.png" alt="HST OFFICE">
+    <div>
+      <a class="guide-title" href="index.html">Hướng dẫn sử dụng HST Office</a>
+      <div class="header-meta"><span>Hướng dẫn ngoại tuyến</span><span class="badge">MIỄN PHÍ VĨNH VIỄN</span></div>
+    </div>
+  </div>
+</header>
+<div class="wrap layout">
+<nav class="sidebar" aria-label="Các trang hướng dẫn"><section><h2>Bắt đầu</h2><ul><li><a href="index.html">Trang chủ</a></li><li><a href="bat-dau.html">Bắt đầu</a></li><li><a href="giao-dien.html">Giao diện theo thẻ</a></li></ul></section>
+<section><h2>Văn bản</h2><ul><li><a href="van-ban-soan-thao.html">Soạn thảo và định dạng</a></li><li><a href="van-ban-bang-hinh.html">Bảng, hình ảnh, tìm kiếm</a></li><li><a href="van-ban-trang-in.html">Trang, in và PDF</a></li></ul></section>
+<section><h2>Bảng tính</h2><ul><li><a href="bang-tinh-co-ban.html">Làm quen</a></li><li><a href="bang-tinh-cong-thuc.html">Công thức</a></li><li><a href="bang-tinh-dinh-dang.html">Định dạng và sắp xếp</a></li><li><a href="bang-tinh-csv.html">Nhập CSV (UTF-8)</a></li></ul></section>
+<section><h2>Trình chiếu</h2><ul><li><a href="trinh-chieu.html">Trình chiếu</a></li></ul></section>
+<section><h2>Công cụ HST</h2><ul><li><a href="nd30.html">Văn bản hành chính</a></li><li><a href="chuyen-ma.html">Chuyển TCVN3/VNI sang Unicode</a></li><li><a href="macro-vba.html" aria-current="page">Macro VBA</a></li></ul></section>
+<section><h2>Khác</h2><ul><li><a href="dinh-dang-office.html">Lưu tệp Word, Excel, PowerPoint</a></li><li><a href="lam-viec-voi-pdf.html">Làm việc với PDF</a></li><li><a href="ky-so-usb-token.html">Ký số bằng USB Token</a></li><li><a href="phan-mo-rong.html">Cài phần mở rộng từ tệp</a></li><li><a href="phim-tat.html">Phím tắt thường dùng</a></li><li><a href="kiem-tra-chinh-ta.html">Kiểm tra chính tả</a></li><li><a href="cap-nhat.html">Cập nhật HST Office</a></li><li><a href="meo-hay.html">Mẹo và câu hỏi thường gặp</a></li><li><a href="lien-he.html">Hỗ trợ và liên hệ</a></li></ul></section></nav>
+<main id="noi-dung" tabindex="-1">
+<article>
+  <p class="eyebrow">Công cụ HST</p>
+  <h1>Macro VBA</h1>
+<p class="lead">Viết và sửa macro VBA trong <strong>HST Sheets</strong> và <strong>HST Writer</strong> như trong Excel và Word: <code>Range</code>, <code>Cells</code>, <code>ActiveSheet</code>, <code>ActiveDocument</code>, <code>MsgBox</code>… Phần lớn mã VBA thông dụng của Excel chạy được ngay; với Word, các lệnh cơ bản chạy được, một số lệnh còn thiếu (xem <a href="#tuong-thich">bảng tương thích</a>).</p>
+<h2 id="mo-trinh-soan">Mở trình soạn macro</h2>
+<ul>
+  <li>Thẻ <span class="menu">Công cụ</span> trên dải lệnh → nút <span class="menu">Macro VBA</span> (nút đầu tiên của nhóm <span class="menu">Vĩ lệnh</span>).</li>
+  <li>Hoặc menu <span class="menu">HST → Macro VBA</span>.</li>
+  <li>Hoặc phím tắt <span class="keys"><kbd>Alt</kbd>+<kbd>F11</kbd></span>, giống Excel và Word. Trên máy Mac: <span class="keys"><kbd>Option</kbd>+<kbd>F11</kbd></span>; nếu phím F11 đang điều khiển âm lượng hay màn hình, giữ thêm <span class="keys"><kbd>fn</kbd></span>: <span class="keys"><kbd>fn</kbd>+<kbd>Option</kbd>+<kbd>F11</kbd></span>.</li>
+</ul>
+<p>Với tài liệu mới, HST Office tạo sẵn mô-đun <code>Module1</code> trong dự án <code>VBAProject</code> (Sheets) hoặc <code>Project</code> (Writer). Mô-đun bắt đầu bằng dòng <code>Option VBASupport 1</code>, tiếp theo là vài dòng hướng dẫn và macro mẫu <code>XinChao</code>. Hãy giữ dòng <code>Option VBASupport 1</code> ở đầu mọi mô-đun: dòng này bật chế độ VBA. Nếu tệp Excel hoặc Word đã có macro, trình soạn mở mô-đun có sẵn của tệp.</p>
+<figure><img src="images/macro-vba-editor.png" alt="Trình soạn macro của HST Sheets: bên trái là danh mục VBAProject, bên phải là Module1 với dòng Option VBASupport 1, phần hướng dẫn và macro XinChao." loading="lazy" width="1000" height="444"><figcaption>Trình soạn macro mở <code>Module1</code> vừa được tạo.</figcaption></figure>
+<h2>Macro đầu tiên trong HST Sheets</h2>
+<p>Xóa macro mẫu hoặc viết thêm bên dưới:</p>
+<pre><code>Sub TongCong()
+    Dim i As Long, tong As Double
+    For i = 2 To 10
+        tong = tong + Cells(i, 2).Value      ' cột B, dòng 2 đến 10
+    Next i
+    Range("B11").Value = tong
+    Range("B11").Font.Bold = True
+    MsgBox "Tổng: " &amp; Format(tong, "#,##0"), vbInformation
+End Sub</code></pre>
+<p><code>WorksheetFunction.Sum(Range("B2:B10"))</code> cho cùng kết quả. Hàm tự viết (<code>Function</code>) dùng được ngay trong ô, ví dụ <code>=NHANDOI(A1)</code>.</p>
+<h2>Macro đầu tiên trong HST Writer</h2>
+<pre><code>Sub ThayChu()
+    ' Thay mọi chữ "Cty" bằng "Công ty" trong cả văn bản
+    ActiveDocument.Content.Find.Execute FindText:="Cty", _
+        ReplaceWith:="Công ty", Replace:=wdReplaceAll
+    ActiveDocument.Content.InsertAfter "Đã rà soát."
+    MsgBox "Văn bản có " &amp; ActiveDocument.Paragraphs.Count &amp; " đoạn"
+End Sub</code></pre>
+<h2 id="chay-macro">Chạy macro</h2>
+<ul>
+  <li>Trong trình soạn: đặt con trỏ trong một <code>Sub</code> rồi nhấn <span class="keys"><kbd>F5</kbd></span>.</li>
+  <li>Từ bảng tính: <span class="keys"><kbd>Alt</kbd>+<kbd>F8</kbd></span> mở hộp thoại macro, giống hộp thoại Macros của Excel: ở cột <span class="menu">Vĩ lệnh từ</span>, mở tên tài liệu, chọn mô-đun, chọn macro rồi bấm <span class="menu">Chạy</span>. Nút <span class="menu">Chỉnh sửa</span> mở mã của macro, nút <span class="menu">Gán…</span> gán macro cho phím tắt hoặc nút.</li>
+  <li>Từ văn bản (HST Writer): thẻ <span class="menu">Công cụ</span> → <span class="menu">Chạy macro</span>. Trong HST Writer, <span class="keys"><kbd>Alt</kbd>+<kbd>F8</kbd></span> vẫn là phím chọn mở rộng.</li>
+</ul>
+<h2 id="luu-tep">Lưu tệp để giữ macro</h2>
+<div class="table-wrap"><table><caption>Định dạng tệp và macro</caption><thead><tr><th scope="col">Lưu dạng</th><th scope="col">Macro</th></tr></thead><tbody>
+<tr><td><code>.xlsm</code> (Excel có macro)</td><td>Giữ macro, kể cả macro viết mới hoặc vừa sửa trong HST Sheets. Sự kiện <code>Workbook_Open</code>, <code>Worksheet_Change</code> vẫn chạy sau khi lưu.</td></tr>
+<tr><td><code>.docm</code> (Word có macro)</td><td>Giữ macro viết mới hoặc vừa sửa trong HST Writer. Tệp Word có UserForm: giữ nguyên dự án gốc, phần sửa không được lưu (hãy lưu thêm một bản <code>.odt</code>).</td></tr>
+<tr><td><code>.ods</code>, <code>.odt</code></td><td>Giữ macro.</td></tr>
+<tr><td><code>.xls</code></td><td>Giữ macro.</td></tr>
+<tr><td><code>.doc</code></td><td>Không giữ macro viết mới.</td></tr>
+<tr><td><code>.xlsx</code>, <code>.docx</code></td><td>Không có macro (giống Excel và Word).</td></tr>
+</tbody></table></div>
+<div class="note"><strong>Chữ tiếng Việt trong mã:</strong> dự án VBA tạo trong HST Office lưu mã bằng bảng mã tiếng Việt (Windows-1258), nên chú thích và chuỗi có dấu được giữ nguyên. Tệp tạo bằng Excel/Word bản tiếng Anh dùng bảng mã phương Tây: chữ có dấu trong mã của tệp đó sẽ thành dấu <code>?</code> khi lưu lại. Với các tệp này, hãy để chữ có dấu trong ô hoặc trong văn bản thay vì trong mã.</div>
+<h2 id="bao-mat">Hỏi trước khi chạy macro trong tệp</h2>
+<p>Macro có thể chứa mã độc. Khi mở một tệp có macro (<code>.xlsm</code>, <code>.docm</code>…), HST Office luôn hỏi trước khi chạy:</p>
+<figure><img src="images/macro-vba-security.png" alt="Hộp thoại bảo mật: Tài liệu chứa macro tài liệu, với các nút Trợ giúp, Tắt macro và Bật macro." loading="lazy" width="680" height="190"><figcaption>Chỉ bấm <span class="menu">Bật macro</span> khi bạn tin người gửi tệp.</figcaption></figure>
+<ul>
+  <li><span class="menu">Tắt macro</span>: mở tệp, không chạy macro nào. Bạn vẫn xem và sửa được mã trong trình soạn.</li>
+  <li><span class="menu">Bật macro</span>: macro của tệp được chạy, kể cả <code>Workbook_Open</code>.</li>
+  <li>Muốn đổi mức bảo mật: <span class="menu">Công cụ → Tùy chọn → HST Office → Bảo mật → Bảo mật Macro...</span>. Mức mặc định của HST Office là <span class="menu">Vừa</span>: luôn hỏi trước khi chạy macro trong tệp từ nguồn chưa tin cậy. Macro bạn tự viết trong tài liệu mới chạy ngay, không cần hỏi.</li>
+</ul>
+<h2 id="tuong-thich">Bảng tương thích</h2>
+<p>Kết quả kiểm tra tự động trên HST Office 1.0.0-beta.5: mỗi dòng là một đoạn mã VBA chạy trong tài liệu mới.</p>
+<h3>HST Sheets (mã Excel): 35/37 trường hợp chạy được</h3>
+<div class="table-wrap"><table><caption>Mã VBA của Excel trong HST Sheets</caption><thead><tr><th scope="col">Mã VBA</th><th scope="col">Kết quả</th></tr></thead><tbody>
+<tr><td><code>Range("A1").Value</code>, <code>Cells(hàng, cột)</code>, <code>Offset</code>, <code>Resize</code>, <code>Address</code></td><td>Chạy được</td></tr>
+<tr><td><code>Worksheets(1)</code>, <code>Worksheets("tên")</code>, <code>ActiveSheet</code>, <code>ThisWorkbook</code>, <code>Worksheets.Add</code></td><td>Chạy được</td></tr>
+<tr><td><code>Range.Select</code>, <code>Selection</code></td><td>Chạy được</td></tr>
+<tr><td>Vòng lặp <code>For…Next</code>, <code>For Each ô In Range</code>; mảng từ <code>Range.Value</code></td><td>Chạy được</td></tr>
+<tr><td><code>Formula</code>, <code>WorksheetFunction.Sum/Max/CountIf/VLookup</code></td><td>Chạy được</td></tr>
+<tr><td><code>MsgBox</code>, <code>InputBox</code></td><td>Chạy được</td></tr>
+<tr><td><code>Font</code>, <code>Interior.Color</code>, <code>NumberFormat</code>, <code>Borders</code>, <code>Merge</code>, độ rộng cột/chiều cao dòng</td><td>Chạy được</td></tr>
+<tr><td><code>End(xlDown)</code>, <code>UsedRange</code>, <code>Copy Destination:=</code>, <code>ClearContents</code>, <code>Sort</code>, <code>AutoFilter</code></td><td>Chạy được</td></tr>
+<tr><td><code>Names.Add</code>, <code>Cells.Find</code>, <code>Replace</code>, <code>AddComment</code>, <code>Shapes.AddShape</code>, <code>ChartObjects.Add</code></td><td>Chạy được</td></tr>
+<tr><td><code>On Error Resume Next</code>, <code>On Error GoTo</code>, <code>Err.Raise</code>, <code>Split</code>, <code>Format</code>, <code>Collection</code></td><td>Chạy được</td></tr>
+<tr><td>Hàm tự viết dùng trong ô (<code>=NHANDOI(A1)</code>), <code>Call</code>, <code>Application.ScreenUpdating</code></td><td>Chạy được</td></tr>
+<tr><td>Sự kiện <code>Workbook_Open</code>, <code>Worksheet_Change</code> (cả sau khi lưu <code>.xlsm</code>)</td><td>Chạy được</td></tr>
+<tr><td><code>CreateObject("Scripting.Dictionary")</code> và đối tượng COM của Windows</td><td>Hạn chế</td></tr>
+<tr><td>UserForm (<code>UserForm1.Show</code>) soạn mới</td><td>Hạn chế</td></tr>
+</tbody></table></div>
+<h3>HST Writer (mã Word): 13/24 trường hợp chạy được</h3>
+<div class="table-wrap"><table><caption>Mã VBA của Word trong HST Writer</caption><thead><tr><th scope="col">Mã VBA</th><th scope="col">Kết quả</th></tr></thead><tbody>
+<tr><td><code>ActiveDocument.Content</code>, <code>ActiveDocument.Range(đầu, cuối)</code>, <code>.Text</code></td><td>Chạy được</td></tr>
+<tr><td><code>Range.InsertAfter</code>, <code>Range.InsertBefore</code></td><td>Chạy được</td></tr>
+<tr><td><code>Selection.TypeText</code>, <code>TypeParagraph</code>, <code>HomeKey</code>, <code>EndKey</code>, <code>InsertBreak</code></td><td>Chạy được</td></tr>
+<tr><td><code>Paragraphs.Count</code>, <code>Paragraphs(n).Range</code>, <code>For Each p In ActiveDocument.Paragraphs</code>, <code>Style</code></td><td>Chạy được</td></tr>
+<tr><td><code>Find.Execute … Replace:=wdReplaceAll</code> (tìm và thay thế)</td><td>Chạy được</td></tr>
+<tr><td><code>Tables.Add</code>, <code>Tables.Count</code>, <code>Rows.Count</code>, <code>Columns.Count</code></td><td>Chạy được</td></tr>
+<tr><td><code>Font.Bold</code>, <code>Font.Size</code>, <code>BuiltInDocumentProperties</code>, <code>MsgBox</code></td><td>Chạy được</td></tr>
+<tr><td><code>Find.Execute</code> chỉ để tìm (không thay thế)</td><td>Hạn chế</td></tr>
+<tr><td><code>Table.Cell(h, c)</code>, <code>Words</code>, <code>Sentences</code>, <code>InlineShapes</code>, <code>Comments</code>, <code>Fields.Add</code></td><td>Hạn chế</td></tr>
+<tr><td><code>Paragraph.Alignment</code>, <code>Sections(1).Headers</code>, <code>ListFormat.ApplyBulletDefault</code>, <code>Bookmarks("tên").Range</code></td><td>Hạn chế</td></tr>
+<tr><td>Sự kiện <code>Document_Open</code>, <code>AutoOpen</code> sau khi lưu bằng HST; UserForm soạn mới</td><td>Hạn chế</td></tr>
+</tbody></table></div>
+<div class="note warn"><strong>Chưa hỗ trợ:</strong> <code>CreateObject("Scripting.Dictionary")</code> và các đối tượng COM của Windows (dùng <code>Collection</code> thay thế); soạn UserForm mới; trong HST Writer: <code>Table.Cell</code>, <code>Words</code>, <code>Sentences</code>, <code>InlineShapes</code>, <code>Comments</code>, <code>Fields.Add</code>, <code>Paragraph.Alignment</code> (dùng <code>Paragraphs(1).Range.ParagraphFormat</code>), sự kiện <code>Document_Open</code>/<code>AutoOpen</code> sau khi lưu bằng HST. Với tệp quan trọng, hãy giữ một bản gốc trước khi lưu đè.</div>
+</article>
+<nav class="page-nav" aria-label="Chuyển trang hướng dẫn">
+  <a href="chuyen-ma.html" rel="prev"><strong>← Trang trước</strong><span>Chuyển TCVN3/VNI sang Unicode</span></a>
+  <a href="dinh-dang-office.html" rel="next"><strong>Trang sau →</strong><span>Lưu tệp Word, Excel, PowerPoint</span></a>
+</nav>
+</main>
+</div>
+<footer class="site-footer"><div class="wrap">HST Office · HASON TECH · Hướng dẫn ngoại tuyến</div></footer>
+</body>
+</html>
