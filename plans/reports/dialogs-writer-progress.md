@@ -5,7 +5,7 @@ Survey: `dialogs-msoffice-survey-261104.md`. Check: `tests/runtime/check-dialogs
 | Dialog | Status | Hours (actual / estimate) | Commit |
 |---|---|---|---|
 | Paragraph | done | ~2.5 / 20 | see git log (hst-dlg-paragraph.patch) |
-| Font | in progress | - / 18 | |
-| Word Count | in progress | - / 4 | |
-| Insert Hyperlink | in progress | - / 2.5 | |
+| Font | done (Set As Default not done) | ~2 / 18 | see git log (hst-dlg-font.patch) |
+| Word Count | done (Lines not done: no line count in SwDocStat) | ~0.5 / 4 | see git log (hst-dlg-word-count.patch) |
+| Insert Hyperlink | done | ~0.5 / 2.5 | see git log (hst-dlg-hyperlink.patch) |
 | Page Setup | started in scratch | - / 14 | |

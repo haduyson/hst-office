@@ -1,0 +1,476 @@
+HST Office: Word-style Font dialog. Writer's Font tab also holds colour, underline, effects and
+superscript/subscript, and the Position page is the "Advanced" tab.
+
+- A dialog opts in with SVX_HST_MERGE_FONT_EFFECTS on the "font" page: SvxCharNamePage then hosts a
+  SvxCharEffectsPage and adds no second tab. Other dialogs using these two pages are unchanged.
+- Superscript/Subscript exchange SvxEscapementItem with the Advanced page and hide without that item.
+- Page id "fonteffects" no longer exists in this dialog; .uno:FontDialog with that page (macros) opens "font".
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py font
+---
+--- a/cui/source/inc/chardlg.hxx
++++ b/cui/source/inc/chardlg.hxx
+@@ -43,6 +43,8 @@
+ class SvxFontListItem;
+ class FontList;
+ 
++class SvxCharEffectsPage;
++
+ class SvxCharBasePage : public SfxTabPage
+ {
+ protected:
+@@ -77,6 +79,16 @@
+ 
+     std::unique_ptr<SvxCharNamePage_Impl>   m_pImpl;
+ 
++    // HST: Word-style Font tab (SVX_HST_MERGE_FONT_EFFECTS): the effects page lives inside this page
++    std::unique_ptr<weld::Container> m_xHstEffectsBox;
++    std::unique_ptr<weld::Container> m_xHstEffectsHost;
++    std::unique_ptr<weld::CheckButton> m_xHstSuperscript;
++    std::unique_ptr<weld::CheckButton> m_xHstSubscript;
++    std::unique_ptr<SvxCharEffectsPage> m_xHstEffects;
++    void HstEscapementFromSet(const SfxItemSet& rSet);
++    void HstEscapementPreview();
++    DECL_LINK(HstEscapementHdl, weld::Toggleable&, void);
++
+     std::unique_ptr<weld::Notebook> m_xWestern;
+     std::unique_ptr<weld::Label> m_xWestFontNameFT;
+     std::unique_ptr<weld::EntryTreeView> m_xWestFontNameLB;
+@@ -216,6 +228,10 @@
+     void                EnableNoneFontColor();
+ 
+     void SelectHdl_Impl(const weld::ComboBox*);
++    // HST: when set, the effects are also shown in the Font page's preview, which hides this one
++    SvxFontPrevWindow* m_pHstPreviewTarget = nullptr;
++    void HstApplyPreview(SvxFontPrevWindow& rWin);
++
+     DECL_LINK(SelectListBoxHdl_Impl, weld::ComboBox&, void);
+     DECL_LINK(OutlineBtnClickHdl, weld::Toggleable&, void);
+     DECL_LINK(ShadowBtnClickHdl, weld::Toggleable&, void);
+@@ -234,6 +250,8 @@
+ public:
+     static const WhichRangesContainer & GetRanges() { return pEffectsRanges; }
+ 
++    void HstEmbedPreviewIn(SvxFontPrevWindow& rTarget);
++
+     virtual void        Reset( const SfxItemSet* rSet ) override;
+     virtual bool        FillItemSet( SfxItemSet* rSet ) override;
+     virtual void        ChangesApplied() override;
+--- a/cui/source/tabpages/chardlg.cxx
++++ b/cui/source/tabpages/chardlg.cxx
+@@ -234,7 +234,13 @@
+     , m_xCTLFontTypeFT(m_xBuilder->weld_label(u"lbCTLFontinfo"_ustr))
+ 
+     , m_xVDev(*Application::GetDefaultDevice(), DeviceFormat::WITH_ALPHA)
++    , m_xHstEffectsBox(m_xBuilder->weld_container(u"boxHST_EFFECTS"_ustr))
++    , m_xHstEffectsHost(m_xBuilder->weld_container(u"boxHST_EFFECTSPAGE"_ustr))
++    , m_xHstSuperscript(m_xBuilder->weld_check_button(u"checkHST_SUPERSCRIPT"_ustr))
++    , m_xHstSubscript(m_xBuilder->weld_check_button(u"checkHST_SUBSCRIPT"_ustr))
+ {
++    m_xHstSuperscript->connect_toggled(LINK(this, SvxCharNamePage, HstEscapementHdl));
++    m_xHstSubscript->connect_toggled(LINK(this, SvxCharNamePage, HstEscapementHdl));
+     m_xPreviewWin.reset(new weld::CustomWeld(*m_xBuilder, u"preview"_ustr, m_aPreviewWin));
+ #ifdef IOS
+     m_xPreviewWin->hide();
+@@ -1205,6 +1211,9 @@
+ 
+     UpdatePreview_Impl();       // instead of asynchronous calling in ctor
+ 
++    if (m_xHstEffects)
++        HstEscapementFromSet(rSet); // the Advanced page may have changed it
++
+     // tdf#161205: Automatically switch between CTL and CJK tabs based on last state
+     if (SvtCJKOptions::IsCJKFontEnabled() && SvtCTLOptions::IsCTLFontEnabled())
+     {
+@@ -1248,6 +1257,12 @@
+ 
+     SetPrevFontWidthScale( *rSet );
+     UpdatePreview_Impl();
++
++    if (m_xHstEffects)
++    {
++        m_xHstEffects->Reset(rSet);
++        HstEscapementFromSet(*rSet);
++    }
+ }
+ 
+ void  SvxCharNamePage::ChangesApplied()
+@@ -1264,6 +1279,12 @@
+     m_xCTLFontStyleLB->save_value();
+     m_xCTLFontSizeLB->save_value();
+     m_xCTLFontLanguageLB->save_active_id();
++    if (m_xHstEffects)
++    {
++        m_xHstEffects->ChangesApplied();
++        m_xHstSuperscript->save_state();
++        m_xHstSubscript->save_state();
++    }
+ }
+ 
+ bool SvxCharNamePage::FillItemSet( SfxItemSet* rSet )
+@@ -1272,9 +1293,71 @@
+     bModified |= FillItemSet_Impl( *rSet, Asian );
+     bModified |= FillItemSet_Impl( *rSet, Ctl );
+ 
++    if (m_xHstEffects)
++    {
++        bModified |= m_xHstEffects->FillItemSet(rSet);
++        if (m_xHstSuperscript->get_visible()
++            && (m_xHstSuperscript->get_state_changed_from_saved()
++                || m_xHstSubscript->get_state_changed_from_saved()))
++        {
++            const SvxEscapement eEsc = m_xHstSuperscript->get_active() ? SvxEscapement::Superscript
++                                       : m_xHstSubscript->get_active() ? SvxEscapement::Subscript
++                                                                       : SvxEscapement::Off;
++            rSet->Put(SvxEscapementItem(eEsc, GetWhich(SID_ATTR_CHAR_ESCAPEMENT)));
++            m_xHstSuperscript->save_state();
++            m_xHstSubscript->save_state();
++            bModified = true;
++        }
++    }
+     return bModified;
+ }
+ 
++void SvxCharNamePage::HstEscapementFromSet(const SfxItemSet& rSet)
++{
++    const sal_uInt16 nWhich = GetWhich(SID_ATTR_CHAR_ESCAPEMENT);
++    const SfxItemState eState = rSet.GetItemState(nWhich);
++    // Calc cells have no superscript or subscript: the options go away with the item.
++    const bool bAvailable = eState != SfxItemState::UNKNOWN && eState != SfxItemState::DISABLED;
++    m_xHstSuperscript->set_visible(bAvailable);
++    m_xHstSubscript->set_visible(bAvailable);
++    bool bSuper = false, bSub = false;
++    if (eState >= SfxItemState::DEFAULT)
++    {
++        const short nEsc = static_cast<const SvxEscapementItem&>(rSet.Get(nWhich)).GetEsc();
++        bSuper = nEsc > 0;
++        bSub = nEsc < 0;
++    }
++    m_xHstSuperscript->set_active(bSuper);
++    m_xHstSubscript->set_active(bSub);
++    m_xHstSuperscript->save_state();
++    m_xHstSubscript->save_state();
++    HstEscapementPreview();
++}
++
++void SvxCharNamePage::HstEscapementPreview()
++{
++    if (m_xHstSuperscript->get_active())
++        SetPrevFontEscapement(100, DFLT_ESC_PROP, DFLT_ESC_SUPER);
++    else if (m_xHstSubscript->get_active())
++        SetPrevFontEscapement(100, DFLT_ESC_PROP, DFLT_ESC_SUB);
++    else
++        SetPrevFontEscapement(100, 100, 0);
++    m_aPreviewWin.Invalidate();
++}
++
++IMPL_LINK(SvxCharNamePage, HstEscapementHdl, weld::Toggleable&, rButton, void)
++{
++    // A character is one or the other, as in Word.
++    if (rButton.get_active())
++    {
++        if (&rButton == m_xHstSuperscript.get())
++            m_xHstSubscript->set_active(false);
++        else
++            m_xHstSuperscript->set_active(false);
++    }
++    HstEscapementPreview();
++}
++
+ void SvxCharNamePage::SetFontList( const SvxFontListItem& rItem )
+ {
+     m_pImpl->m_pFontList = rItem.GetFontList()->Clone();
+@@ -1333,6 +1416,14 @@
+     if (pFontListItem)
+         SetFontList(*pFontListItem);
+ 
++    if (pFlagItem && (pFlagItem->GetValue() & SVX_HST_MERGE_FONT_EFFECTS) && !m_xHstEffects)
++    {
++        m_xHstEffects = std::make_unique<SvxCharEffectsPage>(m_xHstEffectsHost.get(), GetDialogController(), GetItemSet());
++        m_xHstEffects->HstEmbedPreviewIn(m_aPreviewWin);
++        m_xHstEffects->PageCreated(aSet);
++        m_xHstEffectsBox->show();
++    }
++
+     if (pFlagItem)
+     {
+         sal_uInt32 nFlags=pFlagItem->GetValue();
+@@ -1469,15 +1560,28 @@
+ 
+ void SvxCharEffectsPage::UpdatePreview_Impl()
+ {
+-    SvxFont& rFont = GetPreviewFont();
+-    SvxFont& rCJKFont = GetPreviewCJKFont();
+-    SvxFont& rCTLFont = GetPreviewCTLFont();
++    HstApplyPreview(m_aPreviewWin);
++    if (m_pHstPreviewTarget)
++        HstApplyPreview(*m_pHstPreviewTarget);
++}
++
++void SvxCharEffectsPage::HstEmbedPreviewIn(SvxFontPrevWindow& rTarget)
++{
++    m_pHstPreviewTarget = &rTarget;
++    m_xBuilder->weld_widget(u"hstpreviewframe"_ustr)->hide();
++}
++
++void SvxCharEffectsPage::HstApplyPreview(SvxFontPrevWindow& rWin)
++{
++    SvxFont& rFont = rWin.GetFont();
++    SvxFont& rCJKFont = rWin.GetCJKFont();
++    SvxFont& rCTLFont = rWin.GetCTLFont();
+ 
+     const Color& rSelectedColor = m_xFontColorLB->GetSelectEntryColor();
+     rFont.SetColor(rSelectedColor);
+     rCJKFont.SetColor(rSelectedColor);
+     rCTLFont.SetColor(rSelectedColor);
+-    m_aPreviewWin.AutoCorrectFontColor(); // handle color COL_AUTO
++    rWin.AutoCorrectFontColor(); // handle color COL_AUTO
+ 
+     FontLineStyle eUnderline = static_cast<FontLineStyle>(m_xUnderlineLB->get_active_id().toInt32());
+     FontLineStyle eOverline = static_cast<FontLineStyle>(m_xOverlineLB->get_active_id().toInt32());
+@@ -1485,11 +1589,11 @@
+     rFont.SetUnderline( eUnderline );
+     rCJKFont.SetUnderline( eUnderline );
+     rCTLFont.SetUnderline( eUnderline );
+-    m_aPreviewWin.SetTextLineColor( m_xUnderlineColorLB->GetSelectEntryColor() );
++    rWin.SetTextLineColor( m_xUnderlineColorLB->GetSelectEntryColor() );
+     rFont.SetOverline( eOverline );
+     rCJKFont.SetOverline( eOverline );
+     rCTLFont.SetOverline( eOverline );
+-    m_aPreviewWin.SetOverlineColor( m_xOverlineColorLB->GetSelectEntryColor() );
++    rWin.SetOverlineColor( m_xOverlineColorLB->GetSelectEntryColor() );
+     rFont.SetStrikeout( eStrikeout );
+     rCJKFont.SetStrikeout( eStrikeout );
+     rCTLFont.SetStrikeout( eStrikeout );
+@@ -1536,7 +1640,7 @@
+     rCJKFont.SetWordLineMode( bWordLine );
+     rCTLFont.SetWordLineMode( bWordLine );
+ 
+-    m_aPreviewWin.Invalidate();
++    rWin.Invalidate();
+ }
+ 
+ void SvxCharEffectsPage::SetCaseMap_Impl( SvxCaseMap eCaseMap )
+--- a/cui/uiconfig/ui/charnamepage.ui
++++ b/cui/uiconfig/ui/charnamepage.ui
+@@ -872,6 +872,52 @@
+       </packing>
+     </child>
+     <child>
++      <object class="GtkBox" id="boxHST_EFFECTS">
++        <property name="can-focus">False</property>
++        <property name="orientation">vertical</property>
++        <property name="spacing">6</property>
++        <child>
++          <object class="GtkBox" id="boxHST_ESCAPEMENT">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="margin-start">6</property>
++            <property name="spacing">18</property>
++            <child>
++              <object class="GtkCheckButton" id="checkHST_SUPERSCRIPT">
++                <property name="label" translatable="yes" context="charnamepage|checkHST_SUPERSCRIPT">Su_perscript</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="draw-indicator">True</property>
++              </object>
++            </child>
++            <child>
++              <object class="GtkCheckButton" id="checkHST_SUBSCRIPT">
++                <property name="label" translatable="yes" context="charnamepage|checkHST_SUBSCRIPT">Su_bscript</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="draw-indicator">True</property>
++              </object>
++            </child>
++          </object>
++        </child>
++        <child>
++          <object class="GtkBox" id="boxHST_EFFECTSPAGE">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="orientation">vertical</property>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="left-attach">2</property>
++        <property name="top-attach">0</property>
++      </packing>
++    </child>
++    <child>
+       <object class="GtkScrolledWindow" id="swPreview">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+@@ -904,7 +950,7 @@
+       <packing>
+         <property name="left-attach">0</property>
+         <property name="top-attach">1</property>
+-        <property name="width">2</property>
++        <property name="width">3</property>
+       </packing>
+     </child>
+   </object>
+--- a/cui/uiconfig/ui/effectspage.ui
++++ b/cui/uiconfig/ui/effectspage.ui
+@@ -647,7 +647,7 @@
+       </packing>
+     </child>
+     <child>
+-      <object class="GtkScrolledWindow">
++      <object class="GtkScrolledWindow" id="hstpreviewframe">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="valign">end</property>
+--- a/include/svx/flagsdef.hxx
++++ b/include/svx/flagsdef.hxx
+@@ -64,6 +64,9 @@
+ #define SVX_RELATIVE_MODE       0x02
+ // flags for SvxCharEffectsPage
+ #define SVX_ENABLE_CHAR_TRANSPARENCY 0x08
++// HST: the Font page also shows the font effects and superscript/subscript (Word's Font tab).
++// A dialog sets this on the "font" page and then adds no separate effects page.
++#define SVX_HST_MERGE_FONT_EFFECTS 0x10
+ 
+ 
+ // Default values for Number Format Category List and Preview
+--- a/sw/source/ui/chrdlg/chardlg.cxx
++++ b/sw/source/ui/chrdlg/chardlg.cxx
+@@ -41,6 +41,13 @@
+ using namespace ::com::sun::star::uno;
+ using namespace ::sfx2;
+ 
++namespace
++{
++// HST: Word's tab names here only: the same pages keep their general names in other dialogs.
++constexpr TranslateId STR_HST_TAB_FONT = NC_("hstchardlg|font", "Font");
++constexpr TranslateId STR_HST_TAB_ADVANCED = NC_("hstchardlg|position", "Advanced");
++}
++
+ SwCharDlg::SwCharDlg(weld::Window* pParent, SwView& rView, const SfxItemSet& rCoreSet,
+     SwCharDlgMode nDialogMode, const OUString* pStr)
+     : SfxTabDialogController(pParent, u"modules/swriter/ui/characterproperties.ui"_ustr,
+@@ -52,11 +59,11 @@
+     {
+         m_xDialog->set_title(m_xDialog->get_title() + SwResId(STR_TEXTCOLL_HEADER) + *pStr + ")");
+     }
+-    AddTabPage(u"font"_ustr, TabResId(RID_TAB_FONT.aLabel), RID_SVXPAGE_CHAR_NAME,
++    // HST: Word's two tabs first. "font" also holds the effects (SVX_HST_MERGE_FONT_EFFECTS) and
++    // "position" is Word's Advanced; callers asking for "fonteffects" get "font".
++    AddTabPage(u"font"_ustr, SwResId(STR_HST_TAB_FONT), RID_SVXPAGE_CHAR_NAME,
+                RID_M + RID_TAB_FONT.sIconName);
+-    AddTabPage(u"fonteffects"_ustr, TabResId(RID_TAB_FONTEFFECTS.aLabel), RID_SVXPAGE_CHAR_EFFECTS,
+-               RID_M + RID_TAB_FONTEFFECTS.sIconName);
+-    AddTabPage(u"position"_ustr, TabResId(RID_TAB_POSITION.aLabel), RID_SVXPAGE_CHAR_POSITION,
++    AddTabPage(u"position"_ustr, SwResId(STR_HST_TAB_ADVANCED), RID_SVXPAGE_CHAR_POSITION,
+                RID_M + RID_TAB_POSITION.sIconName);
+     AddTabPage(u"asianlayout"_ustr, TabResId(RID_TAB_ASIANLAYOUT.aLabel), RID_SVXPAGE_CHAR_TWOLINES,
+                RID_M + RID_TAB_ASIANLAYOUT.sIconName);
+@@ -91,14 +98,10 @@
+     {
+         SvxFontListItem aFontListItem( *m_rView.GetDocShell()->GetItem( SID_ATTR_CHAR_FONTLIST ) );
+         aSet.Put (SvxFontListItem( aFontListItem.GetFontList(), SID_ATTR_CHAR_FONTLIST));
++        sal_uInt32 nFlags = SVX_HST_MERGE_FONT_EFFECTS | SVX_ENABLE_CHAR_TRANSPARENCY;
+         if(m_nDialogMode != SwCharDlgMode::Draw && m_nDialogMode != SwCharDlgMode::Ann)
+-            aSet.Put (SfxUInt32Item(SID_FLAG_TYPE,SVX_PREVIEW_CHARACTER));
+-        rPage.PageCreated(aSet);
+-    }
+-    else if (rId == "fonteffects")
+-    {
+-        aSet.Put(
+-            SfxUInt32Item(SID_FLAG_TYPE, SVX_PREVIEW_CHARACTER | SVX_ENABLE_CHAR_TRANSPARENCY));
++            nFlags |= SVX_PREVIEW_CHARACTER;
++        aSet.Put(SfxUInt32Item(SID_FLAG_TYPE, nFlags));
+         rPage.PageCreated(aSet);
+     }
+     else if (rId == "position")
+--- a/sw/source/uibase/shells/annotsh.cxx
++++ b/sw/source/uibase/shells/annotsh.cxx
+@@ -518,7 +518,7 @@
+                 VclPtr<SfxAbstractTabDialog> pDlg(pFact->CreateSwCharDlg(m_rView.GetFrameWeld(), m_rView, aDlgAttr, SwCharDlgMode::Ann));
+                 if (nSlot == SID_CHAR_DLG_EFFECT)
+                 {
+-                    pDlg->SetCurPageId(u"fonteffects"_ustr);
++                    pDlg->SetCurPageId(u"font"_ustr); // HST: the effects are on the Font tab
+                 }
+                 if (nSlot == SID_CHAR_DLG_POSITION)
+                 {
+@@ -526,7 +526,8 @@
+                 }
+                 else if (pItem)
+                 {
+-                    pDlg->SetCurPageId(pItem->GetValue());
++                    // HST: "fonteffects" stays valid for macros; those options are on the Font tab
++                    pDlg->SetCurPageId(pItem->GetValue() == u"fonteffects" ? u"font"_ustr : pItem->GetValue());
+                 }
+ 
+                 auto xRequest = std::make_shared<SfxRequest>(rReq);
+--- a/sw/source/uibase/shells/textsh1.cxx
++++ b/sw/source/uibase/shells/textsh1.cxx
+@@ -221,7 +221,7 @@
+         pDlg.reset(pFact->CreateSwCharDlg(rWrtSh.GetView().GetFrameWeld(), rWrtSh.GetView(), *pCoreSet, SwCharDlgMode::Std));
+ 
+         if (nSlot == SID_CHAR_DLG_EFFECT)
+-            pDlg->SetCurPageId(u"fonteffects"_ustr);
++            pDlg->SetCurPageId(u"font"_ustr); // HST: the effects are on the Font tab
+         else if (nSlot == SID_CHAR_DLG_POSITION)
+             pDlg->SetCurPageId(u"position"_ustr);
+         else if (nSlot == SID_CHAR_DLG_FOR_PARAGRAPH)
+@@ -229,8 +229,8 @@
+         else if (pReq)
+         {
+             const SfxStringItem* pItem = (*pReq).GetArg<SfxStringItem>(FN_PARAM_1);
+-            if (pItem)
+-                pDlg->SetCurPageId(pItem->GetValue());
++            if (pItem) // HST: "fonteffects" stays valid for macros; those options are on the Font tab
++                pDlg->SetCurPageId(pItem->GetValue() == u"fonteffects" ? u"font"_ustr : pItem->GetValue());
+         }
+     }
+ 
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -8057,6 +8057,18 @@
+ msgid "Select the font that you want to apply."
+ msgstr "Chọn phông chữ mà bạn muốn áp dụng."
+ 
++#. hstCN1
++#: cui/uiconfig/ui/charnamepage.ui
++msgctxt "charnamepage|checkHST_SUPERSCRIPT"
++msgid "Su_perscript"
++msgstr "Chỉ số trên"
++
++#. hstCN2
++#: cui/uiconfig/ui/charnamepage.ui
++msgctxt "charnamepage|checkHST_SUBSCRIPT"
++msgid "Su_bscript"
++msgstr "Chỉ _số dưới"
++
+ #. PEg2a
+ #: cui/uiconfig/ui/charnamepage.ui:200
+ msgctxt "charnamepage|extended_tip|weststylelb-cjk"
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -12961,6 +12961,18 @@
+ msgid "Send a Copy of This Mail To..."
+ msgstr "Gửi bản sao thư này tới..."
+ 
++#. hstCD1
++#: sw/source/ui/chrdlg/chardlg.cxx
++msgctxt "hstchardlg|font"
++msgid "Font"
++msgstr "Phông chữ"
++
++#. hstCD2
++#: sw/source/ui/chrdlg/chardlg.cxx
++msgctxt "hstchardlg|position"
++msgid "Advanced"
++msgstr "Nâng cao"
++
+ #. z7D9z
+ #: sw/uiconfig/swriter/ui/characterproperties.ui:8
+ msgctxt "characterproperties|CharacterPropertiesDialog"
