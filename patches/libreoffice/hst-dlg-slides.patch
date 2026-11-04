@@ -1,0 +1,154 @@
+HST Office: Slides dialogs and sidebars in PowerPoint's order (owner-approved Microsoft Office parity for beta.5).
+
+- Slide Properties names the background page "Định dạng nền" in Slides; Draw is unchanged.
+- Slide Show settings: show type and options first, then the slides to show, then displays.
+- Transitions sidebar: effect options, sound, duration. Animation sidebar: direction before start, duration, delay.
+
+Widget ids are unchanged. PowerPoint keeps transitions and animations on ribbon tabs: that is ribbon work.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-slides.py.
+---
+--- a/sd/source/ui/dlg/dlgpage.cxx
++++ b/sd/source/ui/dlg/dlgpage.cxx
+@@ -34,6 +34,9 @@
+ 
+ #include <vcl/tabs.hrc>
+ 
++// HST: PowerPoint calls the slide background "Format Background"; RID_TAB_BACKGROUND is shared.
++#define STR_HST_TAB_FORMAT_BACKGROUND NC_("drawpagedialog|formatbackground", "Format Background")
++
+ /**
+  * Constructor of tab dialog: appends pages to the dialog
+  */
+@@ -65,7 +68,9 @@
+                    pFact->GetTabPageCreatorFunc(RID_SVXPAGE_PAGE), RID_L + RID_TAB_PAGE.sIconName);
+     if (bAreaPage)
+     { // I have to add the page before I remove it !
+-        AddTabPage(u"RID_SVXPAGE_AREA"_ustr, TabResId(RID_TAB_BACKGROUND.aLabel),
++        AddTabPage(u"RID_SVXPAGE_AREA"_ustr,
++                   mbIsImpressDoc ? SdResId(STR_HST_TAB_FORMAT_BACKGROUND)
++                                  : TabResId(RID_TAB_BACKGROUND.aLabel),
+                    pFact->GetTabPageCreatorFunc(RID_SVXPAGE_AREA),
+                    RID_L + RID_TAB_BACKGROUND.sIconName);
+         AddTabPage(u"RID_SVXPAGE_TRANSPARENCE"_ustr, TabResId(RID_TAB_TRANSPARENCE.aLabel),
+--- a/sd/uiconfig/simpress/ui/customanimationspanel.ui
++++ b/sd/uiconfig/simpress/ui/customanimationspanel.ui
+@@ -451,7 +451,7 @@
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+-                    <property name="top-attach">5</property>
++                    <property name="top-attach">6</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -472,7 +472,7 @@
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+-                    <property name="top-attach">5</property>
++                    <property name="top-attach">6</property>
+                     <property name="width">2</property>
+                   </packing>
+                 </child>
+@@ -486,7 +486,7 @@
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+-                    <property name="top-attach">6</property>
++                    <property name="top-attach">5</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -676,7 +676,7 @@
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+-                    <property name="top-attach">6</property>
++                    <property name="top-attach">5</property>
+                     <property name="width">2</property>
+                   </packing>
+                 </child>
+--- a/sd/uiconfig/simpress/ui/presentationdialog.ui
++++ b/sd/uiconfig/simpress/ui/presentationdialog.ui
+@@ -247,7 +247,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+-                <property name="top-attach">0</property>
++                <property name="top-attach">1</property>
+               </packing>
+             </child>
+             <child>
+@@ -571,7 +571,7 @@
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+-                <property name="top-attach">1</property>
++                <property name="top-attach">0</property>
+               </packing>
+             </child>
+             <child>
+--- a/sd/uiconfig/simpress/ui/slidetransitionspanel.ui
++++ b/sd/uiconfig/simpress/ui/slidetransitionspanel.ui
+@@ -107,7 +107,7 @@
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+-                    <property name="top-attach">1</property>
++                    <property name="top-attach">3</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -127,7 +127,7 @@
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+-                    <property name="top-attach">1</property>
++                    <property name="top-attach">3</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -142,7 +142,7 @@
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+-                    <property name="top-attach">2</property>
++                    <property name="top-attach">1</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -163,7 +163,7 @@
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+-                    <property name="top-attach">2</property>
++                    <property name="top-attach">1</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -182,7 +182,7 @@
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+-                    <property name="top-attach">3</property>
++                    <property name="top-attach">2</property>
+                   </packing>
+                 </child>
+                 <child>
+--- a/translations/source/vi/sd/messages.po
++++ b/translations/source/vi/sd/messages.po
+@@ -9174,6 +9174,12 @@
+ msgid "Choose where to apply the following changes"
+ msgstr "Chọn nơi áp dụng các thay đổi sau"
+ 
++#. hstDLG
++#: sd/source/ui/dlg/dlgpage.cxx
++msgctxt "drawpagedialog|formatbackground"
++msgid "Format Background"
++msgstr "Định dạng nền"
++
+ #. LAEo2
+ #: sd/uiconfig/simpress/ui/presentationdialog.ui:13
+ msgctxt "presentationdialog|PresentationDialog"
