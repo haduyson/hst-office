@@ -174,8 +174,6 @@ CALC = [
     dict(id="calc-shapes", title="Shapes.AddShape", status="ok",
          body='Dim s As Object\nSet s = ActiveSheet.Shapes.AddShape(msoShapeRectangle, 10, 10, 100, 50)\nr = ActiveSheet.Shapes.Count',
          want="1"),
-    dict(id="calc-userform", title="UserForm1.Show (biểu mẫu mới tạo trong HST)", status="limited",
-         body='UserForm1.Show\nr = "ok"', want="ok"),
 ]
 
 WRITER = [
@@ -260,6 +258,12 @@ WRITER = [
          body='Dim d As Object\nSet d = CreateObject("Scripting.Dictionary")\nd.CompareMode = vbTextCompare\n'
               'Set d("Hà Nội") = CreateObject("Scripting.Dictionary")\nd("hà nội")("số đoạn") = ActiveDocument.Paragraphs.Count\n'
               'r = d("HÀ NỘI")("số đoạn") & "|" & d.Count', want="3|1"),
-    dict(id="writer-userform", title="UserForm1.Show (biểu mẫu mới tạo trong HST)", status="limited",
-         body='UserForm1.Show\nr = "ok"', want="ok"),
+    dict(id="writer-range-words", title="Range.Words.Count, Range.Sentences(1), Range.Bold/Italic", status="ok",
+         body='Dim rg As Object\nSet rg = ActiveDocument.Paragraphs(1).Range\nrg.Words(1).Bold = True\nrg.Sentences(2).Italic = True\n'
+              'r = rg.Words.Count & "|" & Left(rg.Sentences(2).Text, 6) & "|" & rg.Words(1).Bold & "|" & rg.Words(2).Bold & "|" & rg.Sentences(2).Italic',
+         want="9|Đây là|-1|0|-1"),
+    dict(id="writer-selection-words", title="Selection.Words, Selection.Sentences, Selection.ClearFormatting", status="ok",
+         body='ActiveDocument.Paragraphs(1).Range.Select\nSelection.Words(1).Italic = True\n'
+              'r = Selection.Words(1).Italic & "|" & Selection.Sentences.Count\nSelection.ClearFormatting\nr = r & "|" & Selection.Words(1).Italic',
+         want="-1|2|0"),
 ]

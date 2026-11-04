@@ -1,0 +1,250 @@
+HST Office: Range.Words / Range.Sentences, Range.Bold / Range.Italic, Selection.Words /
+Selection.Sentences and Selection.ClearFormatting in Word VBA (owner request for beta.5, toward the
+upstream TODO suites testWords / testSentences).
+
+- SwVbaTextUnits can be limited to a range (the words or sentences of a Range or of the selection).
+- Range.Bold / Range.Italic read and set the character weight / posture (True = -1 as in Word).
+- Selection.ClearFormatting resets the direct character formatting (.uno:ResetAttributes).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba.py (writer-range-words*, upstream suites).
+---
+--- a/oovbaapi/ooo/vba/word/XRange.idl
++++ b/oovbaapi/ooo/vba/word/XRange.idl
+@@ -53,6 +53,11 @@
+     // HST: Word's Range.InsertBefore / Range.InsertAfter (the range grows to include the text)
+     void InsertBefore( [in] string Text );
+     void InsertAfter( [in] string Text );
++    // HST: Range.Words / Range.Sentences and the Range.Bold / Range.Italic shortcuts
++    any Words( [in] any Index );
++    any Sentences( [in] any Index );
++    [attribute] long Bold;
++    [attribute] long Italic;
+     any PageSetup();
+     boolean InRange( [in] XRange Range );
+     any Revisions( [in] any index );
+--- a/oovbaapi/ooo/vba/word/XSelection.idl
++++ b/oovbaapi/ooo/vba/word/XSelection.idl
+@@ -41,6 +41,10 @@
+     [attribute] long Start;
+     [attribute] long End;
+ 
++    // HST: Selection.Words / Selection.Sentences / Selection.ClearFormatting
++    any Words( [in] any Index );
++    any Sentences( [in] any Index );
++    void ClearFormatting();
+     any Tables( [in] any Index );
+     any Fields( [in] any Index );
+     void TypeText( [in] string Text );
+--- a/sw/source/ui/vba/vbarange.cxx
++++ b/sw/source/ui/vba/vbarange.cxx
+@@ -17,6 +17,9 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "vbarange.hxx"
++#include "vbatextunits.hxx"
++#include <com/sun/star/awt/FontWeight.hpp>
++#include <com/sun/star/awt/FontSlant.hpp>
+ #include <utility>
+ #include <vbahelper/vbahelper.hxx>
+ #include <basic/sberrors.hxx>
+@@ -282,6 +285,54 @@
+     mxTextCursor->gotoRange( xNew->getEnd(), true );
+ }
+ 
++// HST: Range.Words / Range.Sentences
++uno::Any SAL_CALL
++SwVbaRange::Words( const uno::Any& rIndex )
++{
++    uno::Reference< XCollection > xCol( new SwVbaTextUnits( this, mxContext, mxTextDocument, SwVbaTextUnits::Unit::Word, getXTextRange() ) );
++    return rIndex.hasValue() ? xCol->Item( rIndex, uno::Any() ) : uno::Any( xCol );
++}
++
++uno::Any SAL_CALL
++SwVbaRange::Sentences( const uno::Any& rIndex )
++{
++    uno::Reference< XCollection > xCol( new SwVbaTextUnits( this, mxContext, mxTextDocument, SwVbaTextUnits::Unit::Sentence, getXTextRange() ) );
++    return rIndex.hasValue() ? xCol->Item( rIndex, uno::Any() ) : uno::Any( xCol );
++}
++
++// HST: Range.Bold / Range.Italic as in Word (True = -1, False = 0)
++::sal_Int32 SAL_CALL
++SwVbaRange::getBold()
++{
++    uno::Reference< beans::XPropertySet > xProps( mxTextCursor, uno::UNO_QUERY_THROW );
++    float fWeight = awt::FontWeight::NORMAL;
++    xProps->getPropertyValue( u"CharWeight"_ustr ) >>= fWeight;
++    return fWeight >= awt::FontWeight::BOLD ? -1 : 0;
++}
++
++void SAL_CALL
++SwVbaRange::setBold( ::sal_Int32 nBold )
++{
++    uno::Reference< beans::XPropertySet > xProps( mxTextCursor, uno::UNO_QUERY_THROW );
++    xProps->setPropertyValue( u"CharWeight"_ustr, uno::Any( nBold != 0 ? awt::FontWeight::BOLD : awt::FontWeight::NORMAL ) );
++}
++
++::sal_Int32 SAL_CALL
++SwVbaRange::getItalic()
++{
++    uno::Reference< beans::XPropertySet > xProps( mxTextCursor, uno::UNO_QUERY_THROW );
++    awt::FontSlant eSlant = awt::FontSlant_NONE;
++    xProps->getPropertyValue( u"CharPosture"_ustr ) >>= eSlant;
++    return eSlant == awt::FontSlant_ITALIC ? -1 : 0;
++}
++
++void SAL_CALL
++SwVbaRange::setItalic( ::sal_Int32 nItalic )
++{
++    uno::Reference< beans::XPropertySet > xProps( mxTextCursor, uno::UNO_QUERY_THROW );
++    xProps->setPropertyValue( u"CharPosture"_ustr, uno::Any( nItalic != 0 ? awt::FontSlant_ITALIC : awt::FontSlant_NONE ) );
++}
++
+ uno::Reference< word::XParagraphFormat > SAL_CALL
+ SwVbaRange::getParagraphFormat()
+ {
+--- a/sw/source/ui/vba/vbarange.hxx
++++ b/sw/source/ui/vba/vbarange.hxx
+@@ -97,6 +97,12 @@
+     virtual void SAL_CALL InsertParagraphAfter() override;
+     virtual void SAL_CALL InsertBefore( const OUString& rText ) override;
+     virtual void SAL_CALL InsertAfter( const OUString& rText ) override;
++    virtual css::uno::Any SAL_CALL Words( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL Sentences( const css::uno::Any& rIndex ) override;
++    virtual ::sal_Int32 SAL_CALL getBold() override;
++    virtual void SAL_CALL setBold( ::sal_Int32 nBold ) override;
++    virtual ::sal_Int32 SAL_CALL getItalic() override;
++    virtual void SAL_CALL setItalic( ::sal_Int32 nItalic ) override;
+     virtual ::sal_Int32 SAL_CALL getLanguageID() override;
+     virtual void SAL_CALL setLanguageID( ::sal_Int32 _languageid ) override;
+     virtual css::uno::Any SAL_CALL PageSetup() override;
+--- a/sw/source/ui/vba/vbaselection.cxx
++++ b/sw/source/ui/vba/vbaselection.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "vbaselection.hxx"
++#include "vbatextunits.hxx"
+ #include <utility>
+ #include <vbahelper/vbahelper.hxx>
+ #include "vbarange.hxx"
+@@ -1132,6 +1133,27 @@
+     }
+ }
+ 
++// HST: Selection.Words / Selection.Sentences / Selection.ClearFormatting
++uno::Any SAL_CALL
++SwVbaSelection::Words( const uno::Any& aIndex )
++{
++    uno::Reference< XCollection > xCol( new SwVbaTextUnits( this, mxContext, mxModel, SwVbaTextUnits::Unit::Word, mxTextViewCursor ) );
++    return aIndex.hasValue() ? xCol->Item( aIndex, uno::Any() ) : uno::Any( xCol );
++}
++
++uno::Any SAL_CALL
++SwVbaSelection::Sentences( const uno::Any& aIndex )
++{
++    uno::Reference< XCollection > xCol( new SwVbaTextUnits( this, mxContext, mxModel, SwVbaTextUnits::Unit::Sentence, mxTextViewCursor ) );
++    return aIndex.hasValue() ? xCol->Item( aIndex, uno::Any() ) : uno::Any( xCol );
++}
++
++void SAL_CALL
++SwVbaSelection::ClearFormatting()
++{
++    dispatchRequests( uno::Reference< frame::XModel >( static_cast< SfxBaseModel* >( mxModel.get() ) ), u".uno:ResetAttributes"_ustr );
++}
++
+ uno::Any SAL_CALL
+ SwVbaSelection::Paragraphs( const uno::Any& aIndex )
+ {
+--- a/sw/source/ui/vba/vbaselection.hxx
++++ b/sw/source/ui/vba/vbaselection.hxx
+@@ -92,6 +92,9 @@
+     virtual css::uno::Any SAL_CALL Information( sal_Int32 _type ) override;
+     virtual void SAL_CALL InsertBreak( const css::uno::Any& _breakType ) override;
+     virtual css::uno::Any SAL_CALL Tables( const css::uno::Any& aIndex ) override;
++    virtual css::uno::Any SAL_CALL Words( const css::uno::Any& aIndex ) override;
++    virtual css::uno::Any SAL_CALL Sentences( const css::uno::Any& aIndex ) override;
++    virtual void SAL_CALL ClearFormatting() override;
+     virtual css::uno::Any SAL_CALL Fields( const css::uno::Any& aIndex ) override;
+     virtual css::uno::Reference< ooo::vba::word::XHeaderFooter > SAL_CALL getHeaderFooter() override;
+     virtual css::uno::Any SAL_CALL ShapeRange( ) override;
+--- a/sw/source/ui/vba/vbatextunits.cxx
++++ b/sw/source/ui/vba/vbatextunits.cxx
+@@ -15,6 +15,7 @@
+ #include <com/sun/star/text/XText.hpp>
+ #include <com/sun/star/text/XTextCursor.hpp>
+ #include <com/sun/star/text/XWordCursor.hpp>
++#include <com/sun/star/text/XTextRangeCompare.hpp>
+ #include <cppuhelper/implbase.hxx>
+ #include <ooo/vba/word/XRange.hpp>
+ 
+@@ -30,17 +31,26 @@
+ {
+ /// Splits the body text into words or sentences once, when the collection is created.
+ std::vector<uno::Reference<text::XTextRange>> lcl_split(const rtl::Reference<SwXTextDocument>& xDoc,
+-                                                        SwVbaTextUnits::Unit eUnit)
++                                                        SwVbaTextUnits::Unit eUnit,
++                                                        const uno::Reference<text::XTextRange>& xScope = {})
+ {
+     std::vector<uno::Reference<text::XTextRange>> aUnits;
+-    uno::Reference<text::XText> xText = xDoc->getText();
++    uno::Reference<text::XText> xText = xScope.is() ? xScope->getText() : xDoc->getText();
+     uno::Reference<text::XTextCursor> xCursor = xText->createTextCursor();
++    uno::Reference<text::XTextRangeCompare> xCompare(xText, uno::UNO_QUERY);
+     uno::Reference<text::XWordCursor> xWord(xCursor, uno::UNO_QUERY_THROW);
+     uno::Reference<text::XSentenceCursor> xSentence(xCursor, uno::UNO_QUERY_THROW);
+-    xCursor->gotoStart(false);
++    if (xScope.is())
++        xCursor->gotoRange(xScope->getStart(), false);
++    else
++        xCursor->gotoStart(false);
+     for (;;)
+     {
+         uno::Reference<text::XTextRange> xStart = xCursor->getStart();
++        // a unit that starts at or after the end of the scope is outside it
++        if (xScope.is() && xCompare.is() && xCompare->compareRegionStarts(xStart, xScope->getEnd()) <= 0
++            && !aUnits.empty())
++            break;
+         bool bMore = eUnit == SwVbaTextUnits::Unit::Word ? xWord->gotoNextWord(true)
+                                                          : xSentence->gotoNextSentence(true);
+         if (!bMore)
+@@ -112,6 +122,17 @@
+     , mxTextDocument(xTextDocument)
+     , meUnit(eUnit)
+ {
++}
++
++SwVbaTextUnits::SwVbaTextUnits(const uno::Reference<XHelperInterface>& xParent,
++                               const uno::Reference<uno::XComponentContext>& xContext,
++                               const rtl::Reference<SwXTextDocument>& xTextDocument, Unit eUnit,
++                               const uno::Reference<text::XTextRange>& xScope)
++    : SwVbaTextUnits_BASE(xParent, xContext,
++                          new TextUnitsIndexAccess(lcl_split(xTextDocument, eUnit, xScope)))
++    , mxTextDocument(xTextDocument)
++    , meUnit(eUnit)
++{
+ }
+ 
+ uno::Type SwVbaTextUnits::getElementType() { return cppu::UnoType<word::XRange>::get(); }
+--- a/sw/source/ui/vba/vbatextunits.hxx
++++ b/sw/source/ui/vba/vbatextunits.hxx
+@@ -11,6 +11,7 @@
+ #include <ooo/vba/XCollection.hpp>
+ #include <vbahelper/vbacollectionimpl.hxx>
+ #include <rtl/ref.hxx>
++#include <com/sun/star/text/XTextRange.hpp>
+ 
+ class SwXTextDocument;
+ 
+@@ -32,6 +33,11 @@
+     SwVbaTextUnits(const css::uno::Reference<ov::XHelperInterface>& xParent,
+                    const css::uno::Reference<css::uno::XComponentContext>& xContext,
+                    const rtl::Reference<SwXTextDocument>& xTextDocument, Unit eUnit);
++    /// the words or sentences of one range (Range.Words, Selection.Sentences, ...)
++    SwVbaTextUnits(const css::uno::Reference<ov::XHelperInterface>& xParent,
++                   const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                   const rtl::Reference<SwXTextDocument>& xTextDocument, Unit eUnit,
++                   const css::uno::Reference<css::text::XTextRange>& xScope);
+ 
+     // XEnumerationAccess
+     css::uno::Type SAL_CALL getElementType() override;

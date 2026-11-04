@@ -202,9 +202,36 @@ Measured first (MiscControlTests.xls with UserForm1): **.ods keeps** the form (d
 
 .doc saving copied only the original VBA storage. Now the current VBA-mode code is written with `VbaExport` into the "Macros" storage when the project is new or edited (`IsBasicModified`); unchanged projects and originals with UserForms are copied (the existing "VBA code will not be saved" warning still covers the latter). New document → .doc → reload: module kept and runs (**round trip 10/10**).
 
+## Range/Selection units and the upstream TODO suites (`hst-vba-word-units.patch`)
+
+Added Range.Words, Range.Sentences, Range.Bold, Range.Italic, Selection.Words, Selection.Sentences, Selection.ClearFormatting. As implemented, punctuation stays attached to its word (Word counts it as a separate word).
+
+Upstream TODO suites, function by function (run in a visible headless document with an error-capturing wrapper; final `testAll` results stay 4/8 overall):
+
+| Suite | Function | Result | Why |
+|---|---|---|---|
+| testWords | testWordsCount | pass | |
+| testWords | testWordsStyles | fail | expects Word default sizes (10.5/14); not achievable in Writer |
+| testSentences | testInsertingSentences, testSentenceStyles, testSentencesCount | pass | |
+| testSentences | testSentencesPosition | fail | `Sentences.First/.Last` missing |
+| testParagraphFormat | CheckLeftIndent, CheckRightIndent | pass | |
+| testParagraphFormat | testAlignment | fail | exception on an attribute access |
+| testParagraphFormat | testFormatBorders | fail | error 420 |
+| testParagraphFormat | TestAWholeLoadOfAttributes | fail | `SpaceBeforeAuto` missing |
+| testFontColor | testColor | fail | ColorIndex 6 vs Color 255 mismatch |
+| testFontColor | testColorIndex | returned "1" | not "True" |
+| testFontColor | testDiacriticColor | fail | `DiacriticColor` missing |
+| testFontColor | testAllColors, checkColorIndexColor | fail | exception on an attribute access |
+
+testFontColor testRangeColorFind and the two testWords functions in that probe run were not reached (probe timed out; testWords numbers come from the suite's own TestAll).
+
+## Final pass rates
+
+Sheets **43/43**, Writer **28/28**, settings 13/13, round trip **10/10**, events 4/4, upstream Word suites 4/8. The denominators dropped by one each compared with earlier runs: the two headless `UserForm1.Show` cases (a form that did not exist) were removed; new UserForms are covered by the GUI check instead.
+
 ## Roadmap (larger gaps, not attempted)
 
-1. Writer: remaining members used by upstream testWords/testSentences/testParagraphFormat/testFontColor.
+1. Writer: `Sentences.First/.Last`, `SpaceBeforeAuto`, `DiacriticColor`, the ParagraphFormat/Font attribute exceptions (see table).
 2. UserForms in Excel/Word files: write MS-OFORMS designer storages in `VbaExport` so .xlsm/.xls/.docm keep forms (today: kept in .ods/.odt, hint when saving Excel files, Word keeps the original project).
 4. Verify HST-saved .xlsm/.docm in Microsoft Excel/Word (no Office on the build host); new HST projects have no ThisWorkbook/Sheet/ThisDocument document modules.
 
