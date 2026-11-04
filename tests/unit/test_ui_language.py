@@ -71,7 +71,9 @@ class CatalogTest(unittest.TestCase):
         labels = ("Ngôn ngữ giao diện", "Tiếng Việt", "English", "Theo máy")
         self.assertEqual([node.find("prop[@%sname='URL']/value" % OOR).text for node in children],
                          ["org.hst.office.vi:" + command for command in ui.COMMANDS])
-        context = menu.find("node[@%sname='m9']/prop[@%sname='Context']/value" % (OOR, OOR)).text
+        solutions = next(node for node in menu if node.find("prop[@%sname='URL']/value" % OOR) is not None
+                         and node.find("prop[@%sname='URL']/value" % OOR).text == "org.hst.office.vi:ShowSolutions")
+        context = solutions.find("prop[@%sname='Context']/value" % OOR).text  # every module incl. the Start Center
         for node, title in zip([m8] + children, labels):
             self.assertEqual({value.get(XML + "lang", ""): value.text for value in node.findall("prop[@%sname='Title']/value" % OOR)},
                              {"": title, "en-US": title, "vi": title})
