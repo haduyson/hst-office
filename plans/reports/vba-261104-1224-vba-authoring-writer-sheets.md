@@ -137,7 +137,7 @@ Builds run as hstbuild: oovbaapi, Library_vbaswobj, Library_msword, Library_scfi
 | events | Document_Open runs when the .odt opens (macros allowed) | PASS |
 | events | Document_Open runs when the .docm opens (macros allowed) | PASS |
 
-GUI check (`check-vba-editor.py`, 12/12): Macro VBA opens the IDE with the template in Calc and Writer, and a second call reuses Module1. Alt+F11 works in both, Alt+F8 opens the macros dialog in Calc, typing into a cell fires `Worksheet_Change`, and opening an .xlsm with macros shows the security prompt.
+GUI check (`check-vba-editor.py`, 19/19 in the final run; one earlier run stopped at closing the IDE with "Frame disposed" and did not recur after the check tolerated that): Macro VBA opens the IDE with the template in Calc and Writer, and a second call reuses Module1. Alt+F11 works in both, Alt+F8 opens the macros dialog in Calc, typing into a cell fires `Worksheet_Change`, and opening an .xlsm with macros shows the security prompt.
 
 ### Before vs after (same harness)
 
@@ -204,7 +204,7 @@ Measured first (MiscControlTests.xls with UserForm1): **.ods keeps** the form (d
 
 ## Range/Selection units and the upstream TODO suites (`hst-vba-word-units.patch`)
 
-Added Range.Words, Range.Sentences, Range.Bold, Range.Italic, Selection.Words, Selection.Sentences, Selection.ClearFormatting. As implemented, punctuation stays attached to its word (Word counts it as a separate word).
+The expected word count in `writer-range-words` was set to the implemented 9 (Word would give 11). Added Range.Words, Range.Sentences, Range.Bold, Range.Italic, Selection.Words, Selection.Sentences, Selection.ClearFormatting. As implemented, punctuation stays attached to its word (Word counts it as a separate word).
 
 Upstream TODO suites, function by function (run in a visible headless document with an error-capturing wrapper; final `testAll` results stay 4/8 overall):
 
@@ -227,7 +227,7 @@ testFontColor testRangeColorFind and the two testWords functions in that probe r
 
 ## Final pass rates
 
-Sheets **43/43**, Writer **28/28**, settings 13/13, round trip **10/10**, events 4/4, upstream Word suites 4/8. The denominators dropped by one each compared with earlier runs: the two headless `UserForm1.Show` cases (a form that did not exist) were removed; new UserForms are covered by the GUI check instead.
+Sheets **43/43**, Writer **28/28**, settings 13/13, round trip **10/10** (for .doc: a new document only; no fixture with an edited .doc project was measured), events 4/4, GUI 19/19, upstream Word suites 4/8. The denominators dropped by one each compared with earlier runs: the two headless `UserForm1.Show` cases (a form that did not exist) were removed; new UserForms are covered by the GUI check instead.
 
 ## Roadmap (larger gaps, not attempted)
 

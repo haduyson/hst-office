@@ -58,7 +58,10 @@ def ide_frame(office):
 def close_ide(office):
     frame = ide_frame(office)
     if frame is not None:
-        frame.close(True)
+        try:
+            frame.close(True)
+        except Exception:  # noqa: BLE001 - the frame may already be going away
+            pass
         wait(lambda: ide_frame(office) is None, 10)
 
 
@@ -160,9 +163,19 @@ def check_userform(office, kind, app):
     except Exception as error:  # noqa: BLE001
         got = repr(error)
     check(f"{app}: VBA code uses the new UserForm (UserForm1.Caption, Unload)", got == "Biểu mẫu HST", got)
+    # UserForm1.Show is modal: the form window appears until it is closed
+    import threading
+    vba.add_module(lib, "HstShow", vba_template.OPTION_LINE + '\nSub HienForm()\n  UserForm1.Caption = "Biểu mẫu HST"\n  UserForm1.Show\nEnd Sub\n')
+    show = doc.getScriptProvider().getScript(f"vnd.sun.star.script:{project}.HstShow.HienForm?language=Basic&location=document")
+    runner = threading.Thread(target=lambda: show.invoke((), (), ()), daemon=True)
+    runner.start()
+    shown = wait(lambda: window(office, r"^Biểu mẫu HST$") is not None, 15)
+    check(f"{app}: UserForm1.Show shows the form", shown, str(hst_gui.toplevels(office.display, office.pid)))
+    if shown:
+        hst_gui.send_close_request(window(office, r"^Biểu mẫu HST$")[0], office.display)
+    runner.join(15)
     if app == "calc":
         # Excel files do not get the UserForm designs: saving as .xlsm shows the Vietnamese hint
-        import threading
         import uno
         from com.sun.star.beans import PropertyValue
         prop = PropertyValue()
