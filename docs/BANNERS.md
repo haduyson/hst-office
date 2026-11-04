@@ -136,7 +136,11 @@ defaults are trusted via the packaged application, not signed with a fake/test k
 profile path and proxy/config settings on the main thread, then starts a daemon worker.
 The widget API also starts a due refresh, so later daily checks happen in long-running
 sessions. Neither path performs network access or cache signature/image verification
-on the UI thread. The small installed manifest is read locally when the shared feed is created.
+on the UI thread. Installed content is read locally when the shared feed is created.
+The package builder pre-serializes bundled images; workers pre-serialize verified remote/cache
+images before publishing their state. Snapshot selection never base64-encodes images or runs
+JSON serialization over their payloads. Uninstalled source-tree Python callers prepare the fixed
+bundled set once during construction; installed UI callers load the prepared package data.
 
 One attempt per 86,400 seconds, including failed attempts, across apps and processes
 sharing the profile. A short directory lock protects an atomically written attempt stamp
@@ -192,6 +196,11 @@ an offline cache. Time/version windows are re-evaluated on every snapshot. Expir
 ineligible content cannot blank the banner: selection proceeds to the next source.
 Bundled defaults have no eligibility windows. Within a generation, sorted items appear once
 in round one, then items with `weight≥2` in round two, etc., up to ten rounds (240 slots maximum).
+Slots reference shared banners and immutable image buffers; weighting never duplicates payloads.
+The service returns only the requested slot, with an aggregate **432 KiB** JSON response limit,
+including its one base64 image and all metadata. This bound is independent of item count and
+weights. The header uses fixed-width JSON whitespace, so changing only weights does not change
+the response size for the same selected banner and scale.
 
 ## Integration for the ribbon widget
 
@@ -206,7 +215,8 @@ css::uno::Reference<css::task::XJob> feed(
     xContext->getServiceManager()->createInstanceWithContext(
         u"org.hst.office.BannerFeed"_ustr, xContext), css::uno::UNO_QUERY_THROW);
 css::uno::Sequence<css::beans::NamedValue> args{
-    {u"Scale"_ustr, css::uno::Any(fDeviceScale)}};
+    {u"Scale"_ustr, css::uno::Any(fDeviceScale)},
+    {u"Slot"_ustr, css::uno::Any(nSlot)}}; // integer, initially zero
 OUString json;
 feed->execute(args) >>= json;
 // Decode image_base64 to a bounded byte sequence; initialize SequenceInputStream.
@@ -215,11 +225,16 @@ feed->execute(args) >>= json;
 
 Input: optional `NamedValue("Scale", double)`, default 1. Selects the smallest raster
 scale ≥ requested scale, clamped to 1…3 (1.25 selects 2×; 2.5 selects 3×).
+Optional `NamedValue("Slot", integer)` selects one weighted rotation slot, default 0.
+Nonnegative integers wrap modulo the current slot count; negative/noninteger values select 0.
+Eligibility and slot selection use one coherent snapshot, including after campaign changes.
 Output is a UNO string containing JSON:
 
 ```json
 {
   "rotateSeconds": 10,
+  "slot": 0,
+  "slotCount": 6,
   "items": [{
     "id": "aios",
     "name": "AIOS",
@@ -230,6 +245,9 @@ Output is a UNO string containing JSON:
 }
 ```
 
+`items` contains exactly one selected banner, regardless of weight. `slotCount` is the total
+number of weighted slots and `slot` is the normalized requested index. This selected-slot
+interface supersedes the earlier service response that embedded the entire weighted list.
 The base64 string is abbreviated above; decode the complete value into the exact verified bytes.
 Its decoded length is at most 300 KiB. Use `com.sun.star.io.SequenceInputStream.initialize` with
 a byte sequence, then `GraphicProvider.queryGraphic` with an `InputStream` property. There are no
@@ -237,8 +255,9 @@ image paths or file URLs in the service output. Draw the selected
 image inside a **360×104 logical px** slot on the far right beside the two-row notebookbar;
 respect DPI, retain aspect ratio, and let the ribbon manage overflow of its existing controls.
 Provide an accessible name/tooltip from `name` and `tagline`, a keyboard focus target and activation.
-Use a normal main-thread timer with `rotateSeconds`, refresh the snapshot before choosing each
-slot, keep index modulo the new list length, and requery on scale changes. No modal dialogs,
+Use a normal main-thread timer with `rotateSeconds`; request `Slot = slot + 1` on each tick.
+The service wraps the index against the current eligible rotation. Requery the same slot on
+scale changes. No modal dialogs,
 network activity on clicks, close button or hide preference. Handle native image decoder errors
 without disturbing editing; retry another entry or the installed fallback asset.
 The initial snapshot may be bundled while the worker checks cache/network; subsequent calls
@@ -255,7 +274,9 @@ for banner in snapshot["items"]:
     # banner["name"], banner["tagline"], banner["click_url_with_utm"]
 ```
 
-`get_banners` returns a fresh ordered list of `Banner` mappings with copied `images` maps;
+`get_banners` retains the pure Python ordered list API. Each snapshot has one `Banner` mapping
+and copied `images` map per unique eligible item; repeated weighted slots reference that same
+mapping. Separate snapshots have independent maps, sharing immutable buffers and serialized variants;
 `image_bytes_for_scale(scale)` is their Python method. `BannerFeed.current()` returns the
 same snapshot without scheduling a refresh. Constructor injection of key/fetcher/clock is
 for unit tests only; it is not exposed by UNO or office configuration.

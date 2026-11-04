@@ -11,6 +11,7 @@ def check_banners(zf, names, errors):
     """Bundle contract: exact shared manifest, all scale images present, digest/size/magic verified."""
     sys.path.insert(0, os.path.join(ROOT, "extensions", "hst-vietnamese-tools", "python"))
     from hst_office.banner_schema import parse_manifest
+    from hst_office.banner_snapshot import encoded_items
     from hst_office.banner_verify import verify_image, valid_key
     from hst_office.update_logic import PUBLIC_KEY as UPDATE_KEY
     try:
@@ -27,6 +28,10 @@ def check_banners(zf, names, errors):
         for item in doc["items"]:
             for scale, spec in item["image"].items():
                 verify_image(zf.read(spec["url"]), spec, scale)
+        images = {i["id"]: {s: zf.read(v["url"]) for s, v in i["image"].items()} for i in doc["items"]}
+        encoded = encoded_items(doc, images, json.loads(zf.read("data/solutions.json"))["utm"])
+        if json.loads(zf.read("data/banner-snapshots.json")) != encoded:
+            errors.append("stale bundled banner snapshots")
         if "banners/fonts/OFL.txt" not in names:
             errors.append("missing bundled banner font license")
     except (KeyError, ValueError, OSError) as exc:

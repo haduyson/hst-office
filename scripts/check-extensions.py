@@ -56,6 +56,8 @@ def self_test():
             d["python/hst_office/banner_verify.py"].replace(b'PUBLIC_KEY = b""', b'PUBLIC_KEY = bytes.fromhex("01' + b'00' * 31 + b'")')}),
         "stale banners": lambda d: d.update({"data/banners.json": b"{}"}),
         "missing banner image": lambda d: d.pop("banners/aios@1x.png"),
+        "missing banner snapshots": lambda d: d.pop("data/banner-snapshots.json"),
+        "stale banner snapshots": lambda d: d.update({"data/banner-snapshots.json": b"{}"}),
         "missing banner font license": lambda d: d.pop("banners/fonts/OFL.txt"),
         "network in banner deadline": lambda d: d.update({BANNER_DEADLINE: d[BANNER_DEADLINE] + b"\nimport urllib.request\n"}),
         "subprocess in banner HTTP": lambda d: d.update({BANNER_FETCH: d[BANNER_FETCH] + b"\nimport subprocess\n"}),

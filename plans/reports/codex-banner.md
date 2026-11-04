@@ -163,3 +163,70 @@ to `data/hst/solutions.json` locally and all generated content follows that file
 
 **Rebasing onto a freshly fetched main remains blocked on a reachable origin URL/path.**
 The configured remote was not replaced with a guessed repository, and nothing was pushed.
+
+## Review 2 fix
+
+R9 addressed on 2026-11-04. Weighted rotation now references one banner and image map
+per eligible item; repeated slots share immutable verified buffers and prepared responses.
+Separate Python snapshots retain independent maps. Sorting, weighted round robin,
+eligibility windows, fallback selection and coherent state capture are preserved.
+
+The UNO service accepts an optional integer `Slot` (default zero) and returns exactly one
+selected banner, its normalized `slot`, `slotCount` and `rotateSeconds`. Nonnegative slots
+wrap against the current eligible rotation. The complete response is capped at **432 KiB
+(442,368 bytes)**, independent of item count and weight. Fixed-width header whitespace
+makes the same banner/scale response exactly equal in size when only weights change.
+The integration guide and runtime consumer now use this selected-slot interface.
+
+Workers prepare reusable JSON/base64 variants from the exact verified bytes before
+publishing their state. The package builder prepares installed defaults, and package
+validation rejects missing or stale prepared data. Uninstalled source-tree callers prepare
+the fixed bundled set during construction. UI selection neither encodes images nor serializes
+their payloads again; native decoding still consumes the verified buffer without reopening
+cache paths. The earlier security regressions remain in the passing full suite.
+
+### Regression evidence
+
+The fixture uses a normally signed refresh with **24 distinct IDs, weight 10, and 72
+distinct valid PNGs of exactly 307,200 bytes each**, at all three required dimensions.
+Only fetch transport/profile lookup is substituted; no private feed state is injected.
+Two behavioral regressions were run before product edits against starting HEAD `2478a78`:
+**2 failed, 0 errors**. They detected a **98,365,232-byte** UI response and **240** separate
+banner/image-map objects. The same assertions now pass: **24** unique objects, one image
+per service response, and **409,937 bytes** at both weights 1 and 10, across all three scales.
+
+The complete new suite has **6 passing tests**, also covering worker-only encoding for
+remote/cache content, prepared installed defaults, rotation/wrapping/windows, fractional
+scale selection, replacement of a verified cache file, independent snapshot maps and
+enforcement of the aggregate response limit. Existing security tests cover the remaining
+signature, cache, deadline and concurrency guarantees.
+
+Measured scale-1 caller time for the regression fell from **1.028826 s to 0.001622 s**.
+A separate real-UNO boundary probe passed **6/6** maximum-campaign cases, all **409,937
+bytes**, with caller times **0.000469–0.004995 s**. These are container measurements,
+excluding native marshaling and decoding, not universal timing guarantees. Tests gate
+payload sizes, reference identity and absence of UI encoding rather than wall-clock thresholds.
+
+### Validation counts
+
+Counts overlap: the new regressions and banner suites are included in unit and quality runs.
+
+| Check | Result |
+|---|---|
+| Full unit discovery | **491 run: 490 passed, 1 skipped, 0 failures/errors.** The existing skip is the absent upstream dictionary source tree. |
+| New R9 regression suite | **6 run, 6 passed.** The two pre-fix behavioral tests both failed on the original HEAD. |
+| `bash scripts/ci-quality.sh` | **65 commands, 0 failures; 518 tests run = 517 passed + 1 skipped.** Unit: **50 suites, 491 run**. Brand: **2 suites, 27 passed**. |
+| Full native banner runtime | **3 applications, 54 bounded snapshots, 54 native image decodes passed.** Isolated profile; installation untouched. |
+| Maximum-campaign real-UNO boundary | **6 snapshots passed**, weights 1/10 × scales 1/2/3; exact verified bytes preserved. |
+| Package validation | **1 package passed; 206 entries, 66 Python modules, maximum 198 lines.** |
+| Package checker self-test | **29 invalid packages rejected; 1 valid package accepted.** Includes missing/stale prepared snapshots. |
+| Reproducible extension build | **2 builds byte-identical.** SHA-256 `505a9b61557fe199ba77349ad9d6b2125b47cd55e1f49ce5ad7c484c4fb182f9`. |
+| Authored Python line gate | **40 changed files, 0 violations; maximum 184 lines.** All packaged modules remain below 200 lines. |
+| Markdown links / whitespace | **99 Markdown files checked, 0 broken relative file links; `git diff --check` passed.** |
+
+Quality retains its existing unavailable-input skips for pinned tarballs, upstream platform
+checks and the macOS background dependencies. These are not native platform validations.
+
+Logs for this fix are retained under `/tmp/hst-banner-r9/`, including
+`regression-before.log`, `regression-after.log`, `unit.log`, `maximum-uno.log`,
+`runtime.log`, `extensions.log`, `extensions-self-test.log` and `quality.log`.

@@ -1,14 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Registered XJob service: nonblocking JSON snapshots for the native ribbon, shared by every app."""
-import base64
-import json
-
 import uno
 import unohelper
 from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
 from .banner_feed import BannerFeed, get_banners
+from .banner_snapshot import selected_json
 from .data_files import load_data
 from .update_config import _node
 from .update_ui import proxy
@@ -45,16 +43,11 @@ class BannerService(unohelper.Base, XServiceInfo, XJob):
         return name in self.getSupportedServiceNames()
 
     def execute(self, arguments):
-        """execute((NamedValue('Scale', 1.5),)) -> UTF-8 JSON as UNO string; no UI/window/document access."""
+        """Scale/Slot -> bounded JSON for one weighted slot; no UI/window/document access."""
         scale = next((a.Value for a in arguments if a.Name == "Scale"), 1)
+        slot = next((a.Value for a in arguments if a.Name == "Slot"), 0)
         snapshot = get_banners(feed_for_context(self.ctx))
-        items = []
-        for banner in snapshot["items"]:
-            blob = banner.image_bytes_for_scale(scale)
-            items.append({"id": banner["id"], "name": banner["name"], "tagline": banner["tagline"],
-                          "click_url_with_utm": banner["click_url_with_utm"],
-                          "image_base64": base64.b64encode(blob).decode("ascii")})
-        return json.dumps({"rotateSeconds": snapshot["rotateSeconds"], "items": items}, ensure_ascii=False)
+        return selected_json(snapshot, scale, slot)
 
 
 class BannerStartup(BannerService):

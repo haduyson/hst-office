@@ -114,6 +114,12 @@ def collect(ext_root, test_mode=False):
     files["license/LICENSE.txt"] = open(os.path.join(ROOT, "LICENSE"), "rb").read()
     files["license/NOTICES.txt"] = notices_text().encode("utf-8")
     if os.path.basename(os.path.normpath(ext_root)) == TEMPLATE_EXTENSION:
+        sys.path.insert(0, os.path.join(ext_root, "python"))
+        from hst_office.banner_snapshot import encoded_items
+        doc = json.loads(files["data/banners.json"])
+        images = {i["id"]: {s: files[v["url"]] for s, v in i["image"].items()} for i in doc["items"]}
+        encoded = encoded_items(doc, images, json.loads(files["data/solutions.json"])["utm"])
+        files["data/banner-snapshots.json"] = json.dumps(encoded, sort_keys=True).encode("ascii")
         files.update(template_files())
     return files
 

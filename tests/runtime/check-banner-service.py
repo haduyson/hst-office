@@ -27,10 +27,14 @@ def snapshot_check(service, ctx=None):
     expected = json.loads((ROOT / "data/hst/banners.json").read_text())
     expected = {i["id"]: i for i in expected["items"]}
     for scale, level in ((1, 1), (1.5, 2), (3, 3)):
-        result = json.loads(service.execute((NamedValue("Scale", scale),)))
-        assert result["rotateSeconds"] == 10 and len(result["items"]) == 6
-        assert result["items"][0]["name"] == "AIOS"
-        for item in result["items"]:
+        for slot, identifier in enumerate(expected):
+            raw = service.execute((NamedValue("Scale", scale), NamedValue("Slot", slot)))
+            assert len(raw.encode("utf-8")) <= 432 * 1024
+            result = json.loads(raw)
+            assert result["rotateSeconds"] == 10 and len(result["items"]) == 1
+            assert result["slotCount"] == 6 and result["slot"] == slot
+            item = result["items"][0]
+            assert item["id"] == identifier and item["name"] == expected[identifier]["name"]
             blob = base64.b64decode(item["image_base64"], validate=True)
             spec = expected[item["id"]]["image"][f"{level}x"]
             assert len(blob) == spec["size"] and hashlib.sha256(blob).hexdigest() == spec["sha256"]
@@ -46,7 +50,7 @@ def snapshot_check(service, ctx=None):
                 graphic = provider.queryGraphic((prop,))
                 assert graphic is not None and graphic.getType() > 0
                 assert (graphic.SizePixel.Width, graphic.SizePixel.Height) == (360 * level, 104 * level)
-        print("PASS UNO NamedValue / JSON / six images / verified buffers at scale", scale)
+        print("PASS UNO NamedValue / six bounded snapshots / six verified buffers at scale", scale)
 
 
 def boundary():
