@@ -1,0 +1,329 @@
+HST Office: Save As keeps macros: it proposes a format that holds them and warns before one that does not.
+
+New documents save as .docx, .xlsx and .pptx by default, which hold no macros, so a document with
+macros lost them with no question. As in Word and Excel, Save As now proposes a format that keeps
+them, and choosing or already having a format that does not asks first (Save without Macros /
+Choose Another Format; the safe answer is the default). The question also covers Ctrl+S on an open
+.docx and a Save As with the file named.
+What a format keeps decides what is proposed: VBA projects go to .docm and .xlsm; plain Basic to
+ODF, because VBA formats write only the VBA project; macros in HST Slides to .odp, because .pptm and
+.ppt only copy a project read from a file (they are proposed for such a file). API saves, hidden
+documents and headless runs are not affected.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba-save-format.py.
+---
+--- a/sfx2/source/doc/guisaveas.cxx
++++ b/sfx2/source/doc/guisaveas.cxx
+@@ -35,6 +35,11 @@
+ #include <com/sun/star/view/XSelectionSupplier.hpp>
+ #include <com/sun/star/beans/PropertyExistException.hpp>
+ #include <com/sun/star/beans/XPropertyAccess.hpp>
++#include <com/sun/star/document/XEmbeddedScripts.hpp>
++#include <com/sun/star/document/XStorageBasedDocument.hpp>
++#include <com/sun/star/script/XLibraryContainer.hpp>
++#include <com/sun/star/script/vba/XVBACompatibility.hpp>
++#include <o3tl/string_view.hxx>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/beans/XPropertyContainer.hpp>
+ #include <com/sun/star/beans/PropertyAttribute.hpp>
+@@ -273,6 +278,106 @@
+ 
+ 
+ 
++namespace
++{
++/// HST: the macros of a document, as far as file formats differ in keeping them
++struct DocumentMacros
++{
++    bool bAny = false; ///< there is macro code
++    bool bBasic = false; ///< code outside the VBA project: VBA formats do not write it, only ODF does
++    bool bImportedVba = false; ///< the VBA project read from the file, which PowerPoint formats copy
++};
++
++bool lclHasMacroCode(const OUString& rCode)
++{
++    sal_Int32 nIndex = 0;
++    do
++    {
++        const OUString aLine = OUString(o3tl::getToken(rCode, 0, '\n', nIndex)).trim();
++        if (aLine.isEmpty() || aLine.startsWith("'") || aLine.equalsIgnoreAsciiCase("rem")
++            || aLine.startsWithIgnoreAsciiCase("rem ") || aLine.startsWithIgnoreAsciiCase("option ")
++            || aLine.startsWithIgnoreAsciiCase("attribute "))
++            continue;
++        return true;
++    } while (nIndex >= 0);
++    return false;
++}
++
++DocumentMacros lclGetDocumentMacros(const uno::Reference<frame::XModel>& xModel)
++{
++    DocumentMacros aMacros;
++    try
++    {
++        uno::Reference<document::XEmbeddedScripts> xScripts(xModel, uno::UNO_QUERY);
++        if (!xScripts.is())
++            return aMacros;
++        uno::Reference<script::XLibraryContainer> xLibraries(xScripts->getBasicLibraries(), uno::UNO_QUERY);
++        uno::Reference<container::XNameAccess> xNames(xLibraries, uno::UNO_QUERY);
++        if (!xNames.is())
++            return aMacros;
++        uno::Reference<script::vba::XVBACompatibility> xVba(xLibraries, uno::UNO_QUERY);
++        const OUString aProject = xVba.is() && xVba->getVBACompatibilityMode() ? xVba->getProjectName() : OUString();
++        for (const OUString& rLibrary : xNames->getElementNames())
++        {
++            if (!xLibraries->isLibraryLoaded(rLibrary))
++                xLibraries->loadLibrary(rLibrary);
++            uno::Reference<container::XNameAccess> xModules(xNames->getByName(rLibrary), uno::UNO_QUERY);
++            if (!xModules.is())
++                continue;
++            for (const OUString& rModule : xModules->getElementNames())
++            {
++                OUString aCode;
++                if ((xModules->getByName(rModule) >>= aCode) && lclHasMacroCode(aCode))
++                {
++                    aMacros.bAny = true;
++                    aMacros.bBasic = aMacros.bBasic || rLibrary != aProject;
++                    break;
++                }
++            }
++        }
++        uno::Reference<document::XStorageBasedDocument> xStorageDoc(xModel, uno::UNO_QUERY);
++        if (xStorageDoc.is())
++        {
++            uno::Reference<embed::XStorage> xStorage = xStorageDoc->getDocumentStorage();
++            aMacros.bImportedVba = xStorage.is() && xStorage->hasByName(u"_MS_VBA_Macros"_ustr);
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.doc", "macro check before saving");
++    }
++    return aMacros;
++}
++
++bool lclFormatKeepsMacros(const DocumentMacros& rMacros, std::u16string_view rFilter, SfxFilterFlags nFlags)
++{
++    if (!rMacros.bAny || (nFlags & SfxFilterFlags::OWN))
++        return true;
++    if (rMacros.bBasic)
++        return false;
++    if (rFilter == u"MS Word 97" || rFilter == u"MS Word 97 Vorlage" || rFilter == u"MS Word 2007 XML VBA"
++        || rFilter == u"Office Open XML Text VBA" || rFilter == u"MS Excel 97"
++        || rFilter == u"MS Excel 97 Vorlage/Template" || rFilter == u"Calc MS Excel 2007 VBA XML"
++        || rFilter == u"Calc Office Open XML VBA")
++        return true;
++    return rMacros.bImportedVba
++           && (rFilter == u"Impress MS PowerPoint 2007 XML VBA" || rFilter == u"MS PowerPoint 97"
++               || rFilter == u"MS PowerPoint 97 Vorlage");
++}
++
++/// The format Save As proposes for the document's macros: Office's when it can write them, else ODF.
++OUString lclMacroKeepingFilter(const DocumentMacros& rMacros, std::u16string_view rDocService)
++{
++    if (rDocService == u"com.sun.star.text.TextDocument")
++        return rMacros.bBasic ? u"writer8"_ustr : u"MS Word 2007 XML VBA"_ustr;
++    if (rDocService == u"com.sun.star.sheet.SpreadsheetDocument")
++        return rMacros.bBasic ? u"calc8"_ustr : u"Calc MS Excel 2007 VBA XML"_ustr;
++    if (rDocService == u"com.sun.star.presentation.PresentationDocument")
++        return !rMacros.bBasic && rMacros.bImportedVba ? u"Impress MS PowerPoint 2007 XML VBA"_ustr : u"impress8"_ustr;
++    return OUString();
++}
++}
++
+ class ModelData_Impl
+ {
+     SfxStoringHelper* m_pOwner;
+@@ -329,6 +434,11 @@
+     bool ExecuteFilterDialog_Impl( const OUString& aFilterName, bool bAsync );
+ 
+     sal_Int8 CheckSaveAcceptable( sal_Int8 nCurStatus );
++
++    /// HST: false when saving as rFilter would drop macros and the user chose not to
++    bool ConfirmMacroFormat( const OUString& rFilter );
++    /// HST: the properties of the format to propose instead of rFilter, empty when rFilter keeps the macros
++    uno::Sequence< beans::PropertyValue > GetMacroFilterInsteadOf( const OUString& rFilter );
+     sal_Int8 CheckStateForSave();
+ 
+     sal_Int8 CheckFilter( const OUString& );
+@@ -709,6 +819,58 @@
+     }
+ }
+ 
++uno::Sequence< beans::PropertyValue > ModelData_Impl::GetMacroFilterInsteadOf( const OUString& rFilter )
++{
++    uno::Sequence< beans::PropertyValue > aResult;
++    const DocumentMacros aMacros = lclGetDocumentMacros( m_xModel );
++    if ( !aMacros.bAny )
++        return aResult;
++    uno::Sequence< beans::PropertyValue > aProps;
++    if ( !rFilter.isEmpty() && m_pOwner->GetFilterConfiguration()->hasByName( rFilter ) )
++        m_pOwner->GetFilterConfiguration()->getByName( rFilter ) >>= aProps;
++    const SfxFilterFlags nFlags = static_cast< SfxFilterFlags >(
++        ::comphelper::SequenceAsHashMap( aProps ).getUnpackedValueOrDefault( u"Flags"_ustr, sal_Int32( 0 ) ) );
++    if ( lclFormatKeepsMacros( aMacros, rFilter, nFlags ) )
++        return aResult;
++    const OUString aKeeping = lclMacroKeepingFilter( aMacros, GetDocServiceName() );
++    if ( !aKeeping.isEmpty() && m_pOwner->GetFilterConfiguration()->hasByName( aKeeping ) )
++        m_pOwner->GetFilterConfiguration()->getByName( aKeeping ) >>= aResult;
++    return aResult;
++}
++
++bool ModelData_Impl::ConfirmMacroFormat( const OUString& rFilter )
++{
++    if ( Application::IsHeadlessModeEnabled() || comphelper::LibreOfficeKit::isActive()
++         || GetDocProps().getUnpackedValueOrDefault( u"Hidden"_ustr, false ) )
++        return true;
++    const DocumentMacros aMacros = lclGetDocumentMacros( m_xModel );
++    if ( !aMacros.bAny || rFilter.isEmpty() || !m_pOwner->GetFilterConfiguration()->hasByName( rFilter ) )
++        return true;
++    uno::Sequence< beans::PropertyValue > aProps;
++    m_pOwner->GetFilterConfiguration()->getByName( rFilter ) >>= aProps;
++    const ::comphelper::SequenceAsHashMap aPropsHM( aProps );
++    const SfxFilterFlags nFlags = static_cast< SfxFilterFlags >(
++        aPropsHM.getUnpackedValueOrDefault( u"Flags"_ustr, sal_Int32( 0 ) ) );
++    if ( lclFormatKeepsMacros( aMacros, rFilter, nFlags ) )
++        return true;
++
++    OUString aText = SfxResId( STR_HST_MACRO_FORMAT_TEXT ).replaceAll(
++        "%FORMATNAME", aPropsHM.getUnpackedValueOrDefault( u"UIName"_ustr, rFilter ) );
++    const uno::Sequence< beans::PropertyValue > aKeeping = GetMacroFilterInsteadOf( rFilter );
++    if ( aKeeping.hasElements() )
++    {
++        aText += "\n\n" + SfxResId( STR_HST_MACRO_FORMAT_HINT ).replaceAll(
++            "%FORMATNAME", ::comphelper::SequenceAsHashMap( aKeeping ).getUnpackedValueOrDefault( u"UIName"_ustr, OUString() ) );
++    }
++    std::unique_ptr< weld::MessageDialog > xBox( Application::CreateMessageDialog(
++        SfxStoringHelper::GetModelWindow( m_xModel ), VclMessageType::Warning, VclButtonsType::NONE, aText ) );
++    xBox->set_title( SfxResId( STR_HST_MACRO_FORMAT_TITLE ) );
++    xBox->add_button( SfxResId( STR_HST_MACRO_FORMAT_LOSE ), RET_YES );
++    xBox->add_button( SfxResId( STR_HST_MACRO_FORMAT_BACK ), RET_NO );
++    xBox->set_default_response( RET_NO ); // as in Word: losing macros takes a deliberate choice
++    return xBox->run() == RET_YES;
++}
++
+ sal_Int8 ModelData_Impl::CheckSaveAcceptable( sal_Int8 nCurStatus )
+ {
+     sal_Int8 nResult = nCurStatus;
+@@ -844,6 +1006,11 @@
+         }
+     }
+ 
++    // HST: the question offers the default format; not when that would drop macros this format keeps
++    if ( bAsk && GetMacroFilterInsteadOf( aFilterName ).getLength() == 0
++         && GetMacroFilterInsteadOf( aDefFiltPropsHM.getUnpackedValueOrDefault( u"Name"_ustr, OUString() ) ).getLength() != 0 )
++        bAsk = false;
++
+     if (bAsk)
+     {
+         // the default filter is acceptable and the old filter is alien one
+@@ -1079,6 +1246,20 @@
+         }
+     }
+ 
++    // HST: propose a format that keeps the document's macros, as Word and Excel do
++    if ( !( nStoreMode & EXPORT_REQUESTED ) )
++    {
++        OUString aProposed = GetDocProps().getUnpackedValueOrDefault( sFilterNameString, OUString() );
++        if ( bSetStandardName || !GetStorable()->hasLocation() || aProposed.isEmpty() )
++            aProposed = aPreselectedFilterPropsHM.getUnpackedValueOrDefault( u"Name"_ustr, OUString() );
++        const ::comphelper::SequenceAsHashMap aKeepingHM( GetMacroFilterInsteadOf( aProposed ) );
++        if ( !aKeepingHM.empty() )
++        {
++            aAdjustToType = aKeepingHM.getUnpackedValueOrDefault( u"Type"_ustr, OUString() );
++            pFileDlg->SetCurrentFilter( aKeepingHM.getUnpackedValueOrDefault( u"UIName"_ustr, OUString() ) );
++        }
++    }
++
+     if ( !aSuggestedDir.isEmpty() )
+         pFileDlg->SetDisplayFolder( aSuggestedDir );
+     const OUString aRecommendedName {GetRecommendedName( aSuggestedName, aAdjustToType )};
+@@ -1515,6 +1696,11 @@
+             if ( nStatusSave == STATUS_SAVEAS_STANDARDNAME )
+                 m_bSetStandardName = true;
+         }
++        else if ( !aModelData.ConfirmMacroFormat( aModelData.GetDocProps().getUnpackedValueOrDefault( aFilterNameString, OUString() ) ) )
++        {
++            // HST: the file's format would drop the macros and the user wants to keep them
++            m_nStoreMode = SAVEAS_REQUESTED;
++        }
+     }
+ 
+     if (!comphelper::LibreOfficeKit::isActive() && !( m_nStoreMode & EXPORT_REQUESTED ) && SfxViewShell::Current() )
+@@ -1673,6 +1859,10 @@
+         {
+             // in case the dialog is opened a second time the folder should be the same as previously navigated to by the user, not what was handed over by initial parameters
+             bUseFilterOptions = aModelData.OutputFileDialog( nStoreMode, aFilterProps, bSetStandardName, aSuggestedName, bPreselectPassword, aSuggestedDir, nDialog, aDenyList, nScriptingSignatureState );
++            // HST: warn before a format that would drop the macros; back to the dialog when not wanted
++            if ( !( nStoreMode & EXPORT_REQUESTED ) && !aModelData.ConfirmMacroFormat(
++                     aModelData.GetMediaDescr().getUnpackedValueOrDefault( sFilterNameString, OUString() ) ) )
++                continue;
+             if ( nStoreMode == SAVEAS_REQUESTED )
+             {
+                 // in case of saving check filter for possible alien warning
+@@ -1698,6 +1888,12 @@
+     }
+     else
+     {
++        // HST: a target given with a format that would drop the macros: same question, no dialog to go back to
++        if ( !( nStoreMode & EXPORT_REQUESTED ) && !aModelData.ConfirmMacroFormat( OUString( aFilterFromMediaDescr ) ) )
++            throw task::ErrorCodeIOException(
++                u"SfxStoringHelper::GUIStoreModel: ERRCODE_IO_ABORT"_ustr,
++                uno::Reference< uno::XInterface >(), sal_uInt32(ERRCODE_IO_ABORT));
++
+         // the target file name is provided so check if new filter options
+         // are provided or old options can be used
+         if ( aFilterFromMediaDescr == aOldFilterName )
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -54,6 +54,11 @@
+ #define STR_QUERY_ALIENFORMAT_QUESTION          NC_("STR_QUERY_ALIENFORMAT_QUESTION", "Use the default ODF file format (*.%EXTENSION) to be sure that the document is saved correctly.")
+ #define STR_QUERY_ALIENFORMAT_YES               NC_("STR_QUERY_ALIENFORMAT_YES", "Use %FORMATNAME Format")
+ #define STR_QUERY_ALIENFORMAT_NO                NC_("STR_QUERY_ALIENFORMAT_No", "Use %DEFAULTEXTENSION Format")
++#define STR_HST_MACRO_FORMAT_TITLE              NC_("STR_HST_MACRO_FORMAT_TITLE", "Save a Document with Macros")
++#define STR_HST_MACRO_FORMAT_TEXT               NC_("STR_HST_MACRO_FORMAT_TEXT", "This document has macros (VBA or Basic), but the format %FORMATNAME cannot keep them. If you save in this format, the saved file has no macros.")
++#define STR_HST_MACRO_FORMAT_HINT               NC_("STR_HST_MACRO_FORMAT_HINT", "To keep the macros, choose the format %FORMATNAME.")
++#define STR_HST_MACRO_FORMAT_LOSE               NC_("STR_HST_MACRO_FORMAT_LOSE", "Save without Macros")
++#define STR_HST_MACRO_FORMAT_BACK               NC_("STR_HST_MACRO_FORMAT_BACK", "Choose Another Format")
+ 
+ // Used in the title of a shared document.
+ #define STR_SHARED                              NC_("STR_SHARED", " (shared)")
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -6382,6 +6382,36 @@
+ msgid "%1 — default"
+ msgstr "%1 — mặc định"
+ 
++#. hstMacroFormat
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_MACRO_FORMAT_TITLE"
++msgid "Save a Document with Macros"
++msgstr "Lưu tài liệu có macro"
++
++#. hstMacroFormat
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_MACRO_FORMAT_TEXT"
++msgid "This document has macros (VBA or Basic), but the format %FORMATNAME cannot keep them. If you save in this format, the saved file has no macros."
++msgstr "Tài liệu này có macro (VBA hoặc Basic), nhưng định dạng %FORMATNAME không giữ được macro. Nếu lưu ở định dạng này, tệp được lưu sẽ không có macro."
++
++#. hstMacroFormat
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_MACRO_FORMAT_HINT"
++msgid "To keep the macros, choose the format %FORMATNAME."
++msgstr "Để giữ macro, hãy chọn định dạng %FORMATNAME."
++
++#. hstMacroFormat
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_MACRO_FORMAT_LOSE"
++msgid "Save without Macros"
++msgstr "Lưu không có macro"
++
++#. hstMacroFormat
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_MACRO_FORMAT_BACK"
++msgid "Choose Another Format"
++msgstr "Chọn định dạng khác"
++
+ #. EbijK
+ #: sfx2/uiconfig/ui/versionsofdialog.ui:332
+ msgctxt "versionsofdialog|label2"

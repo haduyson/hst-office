@@ -229,10 +229,29 @@ testFontColor testRangeColorFind and the two testWords functions in that probe r
 
 Sheets **43/43**, Writer **28/28**, settings 13/13, round trip **10/10** (for .doc: a new document only; no fixture with an edited .doc project was measured), events 4/4, GUI 19/19, upstream Word suites 4/8. The denominators dropped by one each compared with earlier runs: the two headless `UserForm1.Show` cases (a form that did not exist) were removed; new UserForms are covered by the GUI check instead.
 
+
+## UserForms in Office files (`hst-vba-userform-export.patch`)
+
+Owner decision: forms are written to .xlsm/.xls (and .docm/.doc, same writer). New `oox/source/ole/vbaformexport`: designer storage with `\001CompObj`, `\003VBFrame`, `f`, `o`, `iNN` for Frames. Label, TextBox, CommandButton, ToggleButton, CheckBox, OptionButton, ComboBox, ListBox, Frame, SpinButton, ScrollBar. Also: PROJECT Package/BaseClass/Class lines, MS Forms reference in dir, form module attributes.
+
+Two bugs found by the round trip and fixed: forms were always read as Windows-1252 (Vietnamese captions garbled, upstream import bug); opening an .odt with a form crashed (`VbaEventsHelperBase::updateModulePathMap` held a map reference across a library load whose listener erases that map).
+
+Regressions after the change: settings 13/13, Sheets 43/43, Writer 28/28, upstream Word suites 4/8, round trip 10/10, events 4/4, editor GUI 12/12.
+
+Measured: headless round trip 177/177 (`check-vba-forms.py`: .xlsm, .xls, .docm, .doc, .ods, .odt, saved twice, plus MiscControlTests.xls); GUI 24/24 (`check-vba-form-events.py`): a real mouse click runs `CommandButton1_Click` on a new form and on forms reopened from all four Office formats. `olevba` 0.60.2 (independent parser, scratch venv, not a project dependency) reads forms and code in all four. `tests/runtime/vba_form_structure.py` validates MS-CFB/MS-OVBA/MS-OFORMS structure.
+
+Limits: not opened in real Microsoft Office; fixed list items are not stored (Office has none; warned); other control types are left out (warned; a Word file that already had such a form keeps its original project, so code edits are not saved there; warned); Word form with such controls created new loses the control; captions and string literals read from Windows-1258 have combining marks, so a macro comparing them with composed text does not match; a form macro run after reopening .ods fails with a Basic error, cause not established; new .xls projects have no CODENAME records or ThisWorkbook module, unlike Excel's.
+
+## Macros and the default save format (`hst-macro-save-guard.patch`)
+
+Baseline measured before the change: a new document with VBA saved with Ctrl+S became .docx/.xlsx with no question and 0 `vbaProject` entries. Now Save As proposes a format that keeps the macros and warns before one that does not (default answer: go back), also on Ctrl+S of an open .docx and on a Save As with a named file; the keep-format question is skipped when the format keeps macros the default would lose. `check-vba-save-format.py` 33/33.
+
+Different from the request: .pptm is not proposed for macros written in HST Slides, and .docm/.xlsm are not proposed for plain Basic, because those formats would drop them (`PowerPointExport::WriteVBA` only copies a project read from a file; `VbaExport::containsVBAProject` needs VBA mode). They get ODF instead. Edited code in a .pptm that came from a file is still not written.
+
 ## Roadmap (larger gaps, not attempted)
 
 1. Writer: `Sentences.First/.Last`, `SpaceBeforeAuto`, `DiacriticColor`, the ParagraphFormat/Font attribute exceptions (see table).
-2. UserForms in Excel/Word files: write MS-OFORMS designer storages in `VbaExport` so .xlsm/.xls/.docm keep forms (today: kept in .ods/.odt, hint when saving Excel files, Word keeps the original project).
+2. (done, see above) UserForms in Excel/Word files: write MS-OFORMS designer storages in `VbaExport` so .xlsm/.xls/.docm keep forms (today: kept in .ods/.odt, hint when saving Excel files, Word keeps the original project).
 4. Verify HST-saved .xlsm/.docm in Microsoft Excel/Word (no Office on the build host); new HST projects have no ThisWorkbook/Sheet/ThisDocument document modules.
 
 ## Open questions for the owner
