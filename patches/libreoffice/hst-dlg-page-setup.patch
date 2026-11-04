@@ -1,0 +1,908 @@
+HST Office: Word-style Page Setup. The page has Margins, Paper and Layout tabs with the preview under them
+on every tab, and in Writer's page style dialog the page comes first, followed by Header, Footer, Columns
+and Borders; the fill pages, Footnote and the style organizer stay reachable after them.
+
+- Only widget positions move in pageformatpage.ui (ids and types unchanged), so Calc and Impress get the
+  same tabs. The orientation moved to Margins as in Word.
+- SfxStyleDialogController::HstMoveOrganizerToEnd keeps the organizer's id; new styles still open on it.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py page-setup
+---
+--- a/cui/uiconfig/ui/pageformatpage.ui
++++ b/cui/uiconfig/ui/pageformatpage.ui
+@@ -11,37 +11,61 @@
+     <property name="border-width">6</property>
+     <property name="row-spacing">12</property>
+     <child>
+-      <object class="GtkFrame" id="frame1">
++      <object class="GtkNotebook" id="hstPageTabs">
+         <property name="visible">True</property>
+-        <property name="can-focus">False</property>
++        <property name="can-focus">True</property>
+         <property name="hexpand">True</property>
+-        <property name="label-xalign">0</property>
+-        <property name="shadow-type">none</property>
+         <child>
+-          <!-- n-columns=3 n-rows=1 -->
+-          <object class="GtkGrid" id="grid2">
++          <object class="GtkFrame" id="frame3">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+-            <property name="margin-start">12</property>
+-            <property name="margin-top">6</property>
+             <property name="hexpand">True</property>
+-            <property name="column-spacing">12</property>
++            <property name="label-xalign">0</property>
++            <property name="shadow-type">none</property>
+             <child>
+-              <!-- n-columns=2 n-rows=6 -->
+-              <object class="GtkGrid" id="grid3">
++              <!-- n-columns=2 n-rows=5 -->
++              <object class="GtkGrid" id="grid6">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="margin-start">12</property>
++                <property name="margin-top">6</property>
+                 <property name="hexpand">True</property>
+                 <property name="row-spacing">3</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+-                  <object class="GtkLabel" id="labelFormat">
++                  <object class="GtkBox" id="box3">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="pageformatpage|labelFormat">_Format:</property>
+-                    <property name="use-underline">True</property>
+-                    <property name="mnemonic-widget">comboPageFormat</property>
+-                    <property name="xalign">0</property>
++                    <property name="valign">center</property>
++                    <property name="orientation">vertical</property>
++                    <child>
++                      <object class="GtkLabel" id="labelLeftMargin">
++                        <property name="can-focus">False</property>
++                        <property name="label" translatable="yes" context="pageformatpage|labelLeftMargin">Left:</property>
++                        <property name="use-underline">True</property>
++                        <property name="mnemonic-widget">spinMargLeft</property>
++                        <property name="xalign">0</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="labelInner">
++                        <property name="can-focus">False</property>
++                        <property name="label" translatable="yes" context="pageformatpage|labelInner">I_nner:</property>
++                        <property name="use-underline">True</property>
++                        <property name="mnemonic-widget">spinMargLeft</property>
++                        <property name="xalign">0</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -49,9 +73,12 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkComboBoxText" id="comboPageFormat">
++                  <object class="GtkSpinButton" id="spinMargLeft">
+                     <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
++                    <property name="can-focus">True</property>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="digits">2</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+@@ -59,13 +86,39 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkLabel" id="labelWidth">
++                  <object class="GtkBox" id="box2">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="pageformatpage|labelWidth">_Width:</property>
+-                    <property name="use-underline">True</property>
+-                    <property name="mnemonic-widget">spinWidth</property>
+-                    <property name="xalign">0</property>
++                    <property name="valign">center</property>
++                    <property name="orientation">vertical</property>
++                    <child>
++                      <object class="GtkLabel" id="labelRightMargin">
++                        <property name="can-focus">False</property>
++                        <property name="label" translatable="yes" context="pageformatpage|labelRightMargin">Right:</property>
++                        <property name="use-underline">True</property>
++                        <property name="mnemonic-widget">spinMargRight</property>
++                        <property name="xalign">0</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkLabel" id="labelOuter">
++                        <property name="can-focus">False</property>
++                        <property name="label" translatable="yes" context="pageformatpage|labelOuter">O_uter:</property>
++                        <property name="use-underline">True</property>
++                        <property name="mnemonic-widget">spinMargRight</property>
++                        <property name="xalign">0</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -73,10 +126,9 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkSpinButton" id="spinWidth">
++                  <object class="GtkSpinButton" id="spinMargRight">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+-                    <property name="halign">start</property>
+                     <property name="activates-default">True</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="digits">2</property>
+@@ -87,12 +139,12 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkLabel" id="labelHeight">
++                  <object class="GtkLabel" id="labelTopMargin">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="pageformatpage|labelHeight">_Height:</property>
++                    <property name="label" translatable="yes" context="pageformatpage|labelTopMargin">Top:</property>
+                     <property name="use-underline">True</property>
+-                    <property name="mnemonic-widget">spinHeight</property>
++                    <property name="mnemonic-widget">spinMargTop</property>
+                     <property name="xalign">0</property>
+                   </object>
+                   <packing>
+@@ -101,10 +153,9 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkSpinButton" id="spinHeight">
++                  <object class="GtkSpinButton" id="spinMargTop">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+-                    <property name="halign">start</property>
+                     <property name="activates-default">True</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="digits">2</property>
+@@ -115,17 +166,13 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkLabel" id="labelOrientation">
++                  <object class="GtkLabel" id="labelBottomMargin">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="pageformatpage|labelOrientation">_Orientation:</property>
++                    <property name="label" translatable="yes" context="pageformatpage|labelBottomMargin">Bottom:</property>
+                     <property name="use-underline">True</property>
+-                    <property name="mnemonic-widget">radiobuttonPortrait</property>
++                    <property name="mnemonic-widget">spinMargBot</property>
+                     <property name="xalign">0</property>
+-                    <accessibility>
+-                      <relation type="label-for" target="radiobuttonPortrait"/>
+-                      <relation type="label-for" target="radiobuttonLandscape"/>
+-                    </accessibility>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -133,18 +180,12 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkRadioButton" id="radiobuttonPortrait">
+-                    <property name="label" translatable="yes" context="pageformatpage|radiobuttonPortrait">_Portrait</property>
++                  <object class="GtkSpinButton" id="spinMargBot">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+-                    <property name="receives-default">False</property>
+-                    <property name="valign">center</property>
+-                    <property name="use-underline">True</property>
+-                    <property name="active">True</property>
+-                    <property name="draw-indicator">True</property>
+-                    <accessibility>
+-                      <relation type="labelled-by" target="labelOrientation"/>
+-                    </accessibility>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="digits">2</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+@@ -152,207 +193,146 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkRadioButton" id="radiobuttonLandscape">
+-                    <property name="label" translatable="yes" context="pageformatpage|radiobuttonLandscape">L_andscape</property>
++                  <object class="GtkLabel" id="labelGutterMargin">
+                     <property name="visible">True</property>
+-                    <property name="can-focus">True</property>
+-                    <property name="receives-default">False</property>
+-                    <property name="halign">start</property>
+-                    <property name="valign">center</property>
+-                    <property name="use-underline">True</property>
+-                    <property name="draw-indicator">True</property>
+-                    <property name="group">radiobuttonPortrait</property>
+-                    <accessibility>
+-                      <relation type="labelled-by" target="labelOrientation"/>
+-                    </accessibility>
+-                  </object>
+-                  <packing>
+-                    <property name="left-attach">1</property>
+-                    <property name="top-attach">4</property>
+-                  </packing>
+-                </child>
+-                <child>
+-                  <object class="GtkLabel" id="labelTextFlow">
+                     <property name="can-focus">False</property>
+-                    <property name="no-show-all">True</property>
+-                    <property name="label" translatable="yes" context="pageformatpage|labelTextFlow">_Text direction:</property>
++                    <property name="label" translatable="yes" context="pageformatpage|labelGutterMargin">Gutter:</property>
+                     <property name="use-underline">True</property>
+-                    <property name="mnemonic-widget">comboTextFlowBox</property>
++                    <property name="mnemonic-widget">spinMargGut</property>
+                     <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+-                    <property name="top-attach">5</property>
++                    <property name="top-attach">4</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkComboBoxText" id="comboTextFlowBox">
+-                    <property name="can-focus">False</property>
+-                    <property name="no-show-all">True</property>
++                  <object class="GtkSpinButton" id="spinMargGut">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="digits">2</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+-                    <property name="top-attach">5</property>
++                    <property name="top-attach">4</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <placeholder/>
+-                </child>
+-              </object>
+-              <packing>
+-                <property name="left-attach">0</property>
+-                <property name="top-attach">0</property>
+-              </packing>
+-            </child>
+-            <child>
+-              <object class="GtkCheckButton" id="checkResizeAllPages">
+-                <property name="label" translatable="yes" context="pageformatpage|checkResizeAllPages">Resize all pages</property>
+-                <property name="visible">True</property>
+-                <property name="can-focus">True</property>
+-                <property name="receives-default">False</property>
+-                <property name="use-underline">True</property>
+-                <property name="active">True</property>
+-                <property name="draw-indicator">True</property>
+-              </object>
+-              <packing>
+-                <property name="left-attach">1</property>
+-                <property name="top-attach">0</property>
+-              </packing>
+-            </child>
+-            <child>
+-              <!-- n-columns=2 n-rows=2 -->
+-              <object class="GtkGrid" id="grid4">
+-                <property name="visible">True</property>
+-                <property name="can-focus">False</property>
+-                <property name="hexpand">True</property>
+-                <property name="row-spacing">6</property>
+-                <property name="column-spacing">12</property>
+-                <child>
+-                  <object class="GtkDrawingArea" id="drawingareaPageDirection">
++                  <object class="GtkLabel" id="labelOrientation">
+                     <property name="visible">True</property>
+-                    <property name="sensitive">False</property>
+                     <property name="can-focus">False</property>
+-                    <property name="halign">center</property>
+-                    <property name="valign">center</property>
+-                    <property name="vexpand">True</property>
+-                    <child internal-child="accessible">
+-                      <object class="AtkObject" id="drawingareaPageDirection-atkobject">
+-                        <property name="AtkObject::accessible-name" translatable="yes" context="pageformatpage|drawingareaPageDirection-atkobject">Page Direction</property>
+-                      </object>
+-                    </child>
++                    <property name="label" translatable="yes" context="pageformatpage|labelOrientation">_Orientation:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">radiobuttonPortrait</property>
++                    <property name="xalign">0</property>
++                    <accessibility>
++                      <relation type="label-for" target="radiobuttonPortrait"/>
++                      <relation type="label-for" target="radiobuttonLandscape"/>
++                    </accessibility>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+-                    <property name="top-attach">0</property>
+-                    <property name="width">2</property>
++                    <property name="top-attach">5</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkLabel" id="labelPaperTray">
++                  <object class="GtkRadioButton" id="radiobuttonPortrait">
++                    <property name="label" translatable="yes" context="pageformatpage|radiobuttonPortrait">_Portrait</property>
+                     <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="pageformatpage|labelPaperTray">Paper _tray:</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="valign">center</property>
+                     <property name="use-underline">True</property>
+-                    <property name="mnemonic-widget">comboPaperTray</property>
+-                    <property name="xalign">0</property>
++                    <property name="active">True</property>
++                    <property name="draw-indicator">True</property>
++                    <accessibility>
++                      <relation type="labelled-by" target="labelOrientation"/>
++                    </accessibility>
+                   </object>
+                   <packing>
+-                    <property name="left-attach">0</property>
+-                    <property name="top-attach">1</property>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">5</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkComboBoxText" id="comboPaperTray">
++                  <object class="GtkRadioButton" id="radiobuttonLandscape">
++                    <property name="label" translatable="yes" context="pageformatpage|radiobuttonLandscape">L_andscape</property>
+                     <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="halign">start</property>
++                    <property name="valign">center</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                    <property name="group">radiobuttonPortrait</property>
++                    <accessibility>
++                      <relation type="labelled-by" target="labelOrientation"/>
++                    </accessibility>
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+-                    <property name="top-attach">1</property>
++                    <property name="top-attach">6</property>
+                   </packing>
+                 </child>
+               </object>
+-              <packing>
+-                <property name="left-attach">2</property>
+-                <property name="top-attach">0</property>
+-              </packing>
++            </child>
++            <child type="label">
++              <object class="GtkLabel" id="labelMargins">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="pageformatpage|labelMargins">Margins</property>
++                <attributes>
++                  <attribute name="weight" value="bold"/>
++                </attributes>
++              </object>
+             </child>
+           </object>
+         </child>
+-        <child type="label">
+-          <object class="GtkLabel" id="labelPaperFormat">
++        <child type="tab">
++          <object class="GtkLabel" id="hstTabMargins">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+-            <property name="label" translatable="yes" context="pageformatpage|labelPaperFormat">Paper Format</property>
+-            <attributes>
+-              <attribute name="weight" value="bold"/>
+-            </attributes>
++            <property name="label" translatable="yes" context="pageformatpage|hstTabMargins">Margins</property>
+           </object>
++          <packing>
++            <property name="position">0</property>
++            <property name="tab-fill">False</property>
++          </packing>
+         </child>
+-      </object>
+-      <packing>
+-        <property name="left-attach">0</property>
+-        <property name="top-attach">0</property>
+-      </packing>
+-    </child>
+     <child>
+-      <!-- n-columns=2 n-rows=1 -->
+-      <object class="GtkGrid" id="grid5">
++      <object class="GtkFrame" id="frame1">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="hexpand">True</property>
+-        <property name="column-spacing">12</property>
++        <property name="label-xalign">0</property>
++        <property name="shadow-type">none</property>
+         <child>
+-          <object class="GtkFrame" id="frame3">
++          <!-- n-columns=3 n-rows=1 -->
++          <object class="GtkGrid" id="grid2">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
++            <property name="margin-start">12</property>
++            <property name="margin-top">6</property>
+             <property name="hexpand">True</property>
+-            <property name="label-xalign">0</property>
+-            <property name="shadow-type">none</property>
++            <property name="column-spacing">12</property>
+             <child>
+-              <!-- n-columns=2 n-rows=5 -->
+-              <object class="GtkGrid" id="grid6">
++              <!-- n-columns=2 n-rows=6 -->
++              <object class="GtkGrid" id="grid3">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="margin-start">12</property>
+-                <property name="margin-top">6</property>
+                 <property name="hexpand">True</property>
+                 <property name="row-spacing">3</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+-                  <object class="GtkBox" id="box3">
++                  <object class="GtkLabel" id="labelFormat">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="valign">center</property>
+-                    <property name="orientation">vertical</property>
+-                    <child>
+-                      <object class="GtkLabel" id="labelLeftMargin">
+-                        <property name="can-focus">False</property>
+-                        <property name="label" translatable="yes" context="pageformatpage|labelLeftMargin">Left:</property>
+-                        <property name="use-underline">True</property>
+-                        <property name="mnemonic-widget">spinMargLeft</property>
+-                        <property name="xalign">0</property>
+-                      </object>
+-                      <packing>
+-                        <property name="expand">False</property>
+-                        <property name="fill">True</property>
+-                        <property name="position">0</property>
+-                      </packing>
+-                    </child>
+-                    <child>
+-                      <object class="GtkLabel" id="labelInner">
+-                        <property name="can-focus">False</property>
+-                        <property name="label" translatable="yes" context="pageformatpage|labelInner">I_nner:</property>
+-                        <property name="use-underline">True</property>
+-                        <property name="mnemonic-widget">spinMargLeft</property>
+-                        <property name="xalign">0</property>
+-                      </object>
+-                      <packing>
+-                        <property name="expand">False</property>
+-                        <property name="fill">True</property>
+-                        <property name="position">1</property>
+-                      </packing>
+-                    </child>
++                    <property name="label" translatable="yes" context="pageformatpage|labelFormat">_Format:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">comboPageFormat</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -360,12 +340,9 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkSpinButton" id="spinMargLeft">
++                  <object class="GtkComboBoxText" id="comboPageFormat">
+                     <property name="visible">True</property>
+-                    <property name="can-focus">True</property>
+-                    <property name="activates-default">True</property>
+-                    <property name="truncate-multiline">True</property>
+-                    <property name="digits">2</property>
++                    <property name="can-focus">False</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+@@ -373,39 +350,13 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkBox" id="box2">
++                  <object class="GtkLabel" id="labelWidth">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="valign">center</property>
+-                    <property name="orientation">vertical</property>
+-                    <child>
+-                      <object class="GtkLabel" id="labelRightMargin">
+-                        <property name="can-focus">False</property>
+-                        <property name="label" translatable="yes" context="pageformatpage|labelRightMargin">Right:</property>
+-                        <property name="use-underline">True</property>
+-                        <property name="mnemonic-widget">spinMargRight</property>
+-                        <property name="xalign">0</property>
+-                      </object>
+-                      <packing>
+-                        <property name="expand">False</property>
+-                        <property name="fill">True</property>
+-                        <property name="position">0</property>
+-                      </packing>
+-                    </child>
+-                    <child>
+-                      <object class="GtkLabel" id="labelOuter">
+-                        <property name="can-focus">False</property>
+-                        <property name="label" translatable="yes" context="pageformatpage|labelOuter">O_uter:</property>
+-                        <property name="use-underline">True</property>
+-                        <property name="mnemonic-widget">spinMargRight</property>
+-                        <property name="xalign">0</property>
+-                      </object>
+-                      <packing>
+-                        <property name="expand">False</property>
+-                        <property name="fill">True</property>
+-                        <property name="position">1</property>
+-                      </packing>
+-                    </child>
++                    <property name="label" translatable="yes" context="pageformatpage|labelWidth">_Width:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">spinWidth</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -413,9 +364,10 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkSpinButton" id="spinMargRight">
++                  <object class="GtkSpinButton" id="spinWidth">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
++                    <property name="halign">start</property>
+                     <property name="activates-default">True</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="digits">2</property>
+@@ -426,12 +378,12 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkLabel" id="labelTopMargin">
++                  <object class="GtkLabel" id="labelHeight">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="pageformatpage|labelTopMargin">Top:</property>
++                    <property name="label" translatable="yes" context="pageformatpage|labelHeight">_Height:</property>
+                     <property name="use-underline">True</property>
+-                    <property name="mnemonic-widget">spinMargTop</property>
++                    <property name="mnemonic-widget">spinHeight</property>
+                     <property name="xalign">0</property>
+                   </object>
+                   <packing>
+@@ -440,9 +392,10 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkSpinButton" id="spinMargTop">
++                  <object class="GtkSpinButton" id="spinHeight">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
++                    <property name="halign">start</property>
+                     <property name="activates-default">True</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="digits">2</property>
+@@ -453,12 +406,12 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkLabel" id="labelBottomMargin">
+-                    <property name="visible">True</property>
++                  <object class="GtkLabel" id="labelTextFlow">
+                     <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="pageformatpage|labelBottomMargin">Bottom:</property>
++                    <property name="no-show-all">True</property>
++                    <property name="label" translatable="yes" context="pageformatpage|labelTextFlow">_Text direction:</property>
+                     <property name="use-underline">True</property>
+-                    <property name="mnemonic-widget">spinMargBot</property>
++                    <property name="mnemonic-widget">comboTextFlowBox</property>
+                     <property name="xalign">0</property>
+                   </object>
+                   <packing>
+@@ -467,12 +420,9 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkSpinButton" id="spinMargBot">
+-                    <property name="visible">True</property>
+-                    <property name="can-focus">True</property>
+-                    <property name="activates-default">True</property>
+-                    <property name="truncate-multiline">True</property>
+-                    <property name="digits">2</property>
++                  <object class="GtkComboBoxText" id="comboTextFlowBox">
++                    <property name="can-focus">False</property>
++                    <property name="no-show-all">True</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+@@ -480,48 +430,90 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkLabel" id="labelGutterMargin">
++                  <placeholder/>
++                </child>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkCheckButton" id="checkResizeAllPages">
++                <property name="label" translatable="yes" context="pageformatpage|checkResizeAllPages">Resize all pages</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="active">True</property>
++                <property name="draw-indicator">True</property>
++              </object>
++              <packing>
++                <property name="left-attach">1</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <!-- n-columns=2 n-rows=2 -->
++              <object class="GtkGrid" id="grid4">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="hexpand">True</property>
++                <property name="row-spacing">6</property>
++                <property name="column-spacing">12</property>
++                <child>
++                  <object class="GtkLabel" id="labelPaperTray">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="pageformatpage|labelGutterMargin">Gutter:</property>
++                    <property name="label" translatable="yes" context="pageformatpage|labelPaperTray">Paper _tray:</property>
+                     <property name="use-underline">True</property>
+-                    <property name="mnemonic-widget">spinMargGut</property>
++                    <property name="mnemonic-widget">comboPaperTray</property>
+                     <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+-                    <property name="top-attach">4</property>
++                    <property name="top-attach">1</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkSpinButton" id="spinMargGut">
++                  <object class="GtkComboBoxText" id="comboPaperTray">
+                     <property name="visible">True</property>
+-                    <property name="can-focus">True</property>
+-                    <property name="activates-default">True</property>
+-                    <property name="truncate-multiline">True</property>
+-                    <property name="digits">2</property>
++                    <property name="can-focus">False</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+-                    <property name="top-attach">4</property>
++                    <property name="top-attach">1</property>
+                   </packing>
+                 </child>
+               </object>
++              <packing>
++                <property name="left-attach">2</property>
++                <property name="top-attach">0</property>
++              </packing>
+             </child>
+-            <child type="label">
+-              <object class="GtkLabel" id="labelMargins">
+-                <property name="visible">True</property>
+-                <property name="can-focus">False</property>
+-                <property name="label" translatable="yes" context="pageformatpage|labelMargins">Margins</property>
+-                <attributes>
+-                  <attribute name="weight" value="bold"/>
+-                </attributes>
+-              </object>
+-            </child>
++          </object>
++        </child>
++        <child type="label">
++          <object class="GtkLabel" id="labelPaperFormat">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="pageformatpage|labelPaperFormat">Paper Format</property>
++            <attributes>
++              <attribute name="weight" value="bold"/>
++            </attributes>
++          </object>
++        </child>
++      </object>
++    </child>
++        <child type="tab">
++          <object class="GtkLabel" id="hstTabPaper">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="pageformatpage|hstTabPaper">Paper</property>
+           </object>
+           <packing>
+-            <property name="left-attach">0</property>
+-            <property name="top-attach">0</property>
++            <property name="position">1</property>
++            <property name="tab-fill">False</property>
+           </packing>
+         </child>
+         <child>
+@@ -787,17 +779,43 @@
+               </object>
+             </child>
+           </object>
++        </child>
++        <child type="tab">
++          <object class="GtkLabel" id="hstTabLayout">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="pageformatpage|hstTabLayout">Layout</property>
++          </object>
+           <packing>
+-            <property name="left-attach">1</property>
+-            <property name="top-attach">0</property>
++            <property name="position">2</property>
++            <property name="tab-fill">False</property>
+           </packing>
+         </child>
+       </object>
+       <packing>
+         <property name="left-attach">0</property>
+-        <property name="top-attach">1</property>
++        <property name="top-attach">0</property>
+       </packing>
+     </child>
++                <child>
++                  <object class="GtkDrawingArea" id="drawingareaPageDirection">
++                    <property name="visible">True</property>
++                    <property name="sensitive">False</property>
++                    <property name="can-focus">False</property>
++                    <property name="halign">center</property>
++                    <property name="valign">center</property>
++                    <property name="vexpand">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="drawingareaPageDirection-atkobject">
++                        <property name="AtkObject::accessible-name" translatable="yes" context="pageformatpage|drawingareaPageDirection-atkobject">Page Direction</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
+     <child>
+       <object class="GtkLabel" id="labelMsg">
+         <property name="can-focus">False</property>
+--- a/include/sfx2/styledlg.hxx
++++ b/include/sfx2/styledlg.hxx
+@@ -44,6 +44,9 @@
+ 
+     virtual short               Ok() override;
+ 
++    /// HST: Word has no style organizer: where a dialog is opened as Page Setup, it comes last
++    void HstMoveOrganizerToEnd();
++
+     static OUString GenerateUnusedName(SfxStyleSheetBasePool &rPool, SfxStyleFamily eFam);
+ };
+ 
+--- a/sfx2/source/dialog/styledlg.cxx
++++ b/sfx2/source/dialog/styledlg.cxx
+@@ -103,6 +103,13 @@
+     If the dialogue was canceled, then all selected attributes must be reset
+     again.
+ */
++void SfxStyleDialogController::HstMoveOrganizerToEnd()
++{
++    RemoveTabPage(u"organizer"_ustr);
++    AddTabPage(u"organizer"_ustr, TabResId(RID_TAB_ORGANIZER.aLabel),
++               SfxManageStyleSheetPage::Create, RID_M + RID_TAB_ORGANIZER.sIconName);
++}
++
+ IMPL_LINK_NOARG(SfxStyleDialogController, CancelHdl, weld::Button&, void)
+ {
+     SfxTabPage* pPage = GetTabPage(u"organizer");
+--- a/sw/source/ui/fmtui/tmpdlg.cxx
++++ b/sw/source/ui/fmtui/tmpdlg.cxx
+@@ -186,20 +186,16 @@
+             // add Area and Transparence TabPages
+             AddTabPage(u"page"_ustr, TabResId(RID_TAB_PAGE.aLabel), RID_SVXPAGE_PAGE,
+                        RID_M + RID_TAB_PAGE.sIconName);
+-            AddTabPage(u"area"_ustr, TabResId(RID_TAB_AREA.aLabel), RID_SVXPAGE_AREA,
+-                       RID_M + RID_TAB_AREA.sIconName);
+-            AddTabPage(u"transparence"_ustr, TabResId(RID_TAB_TRANSPARENCE.aLabel),
+-                       RID_SVXPAGE_TRANSPARENCE, RID_M + RID_TAB_TRANSPARENCE.sIconName);
+             AddTabPage(u"header"_ustr, TabResId(RID_TAB_HEADER.aLabel), SvxHeaderPage::Create,
+                        SvxHeaderPage::GetRanges, RID_M + RID_TAB_HEADER.sIconName);
+             AddTabPage(u"footer"_ustr, TabResId(RID_TAB_FOOTER.aLabel), SvxFooterPage::Create,
+                        SvxFooterPage::GetRanges, RID_M + RID_TAB_FOOTER.sIconName);
+             if (0 == ::GetHtmlMode(m_pWrtShell->GetView().GetDocShell()))
+             {
+-                AddTabPage(u"borders"_ustr, TabResId(RID_TAB_BORDER.aLabel), RID_SVXPAGE_BORDER,
+-                           RID_M + RID_TAB_BORDER.sIconName);
+                 AddTabPage(u"columns"_ustr, TabResId(RID_TAB_COLUMNS.aLabel), SwColumnPage::Create,
+                            SwColumnPage::GetRanges, RID_M + RID_TAB_COLUMNS.sIconName);
++                AddTabPage(u"borders"_ustr, TabResId(RID_TAB_BORDER.aLabel), RID_SVXPAGE_BORDER,
++                           RID_M + RID_TAB_BORDER.sIconName);
+                 AddTabPage(u"footnotes"_ustr, TabResId(RID_TAB_FOOTNOTES.aLabel),
+                            SwFootNotePage::Create, SwFootNotePage::GetRanges,
+                            RID_M + RID_TAB_FOOTNOTES.sIconName);
+@@ -215,6 +211,13 @@
+                 RemoveTabPage(u"footnotes"_ustr);
+                 RemoveTabPage(u"textgrid"_ustr);
+             }
++            // HST: Word's Page Setup order: page, header/footer, columns, borders first; the fill
++            // pages and the style organizer stay reachable after them.
++            AddTabPage(u"area"_ustr, TabResId(RID_TAB_AREA.aLabel), RID_SVXPAGE_AREA,
++                       RID_M + RID_TAB_AREA.sIconName);
++            AddTabPage(u"transparence"_ustr, TabResId(RID_TAB_TRANSPARENCE.aLabel),
++                       RID_SVXPAGE_TRANSPARENCE, RID_M + RID_TAB_TRANSPARENCE.sIconName);
++            HstMoveOrganizerToEnd();
+         }
+         break;
+         // numbering styles
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -18452,6 +18452,24 @@
+ msgid "Run Graphics Tests"
+ msgstr "Chạy thử nghiệm đồ họa"
+ 
++#. hstPF1
++#: cui/uiconfig/ui/pageformatpage.ui
++msgctxt "pageformatpage|hstTabMargins"
++msgid "Margins"
++msgstr "Lề"
++
++#. hstPF2
++#: cui/uiconfig/ui/pageformatpage.ui
++msgctxt "pageformatpage|hstTabPaper"
++msgid "Paper"
++msgstr "Giấy"
++
++#. hstPF3
++#: cui/uiconfig/ui/pageformatpage.ui
++msgctxt "pageformatpage|hstTabLayout"
++msgid "Layout"
++msgstr "Bố trí"
++
+ #. 872fQ
+ #: cui/uiconfig/ui/pageformatpage.ui:41
+ msgctxt "pageformatpage|labelFormat"
