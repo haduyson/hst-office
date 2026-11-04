@@ -1,0 +1,399 @@
+HST Office: Page Setup in Sheets moves toward Excel's Page, Header/Footer, Sheet order
+(owner-approved Microsoft Office parity for beta.5).
+
+- Tabs: page, header, footer, sheet, then borders and background; page ids unchanged. The dialog opens on
+  the page tab unless a new style is being named; the organizer tab stays first (added by SfxStyleDialogController).
+- The sheet tab gets Excel's Print Titles first: rows and columns to repeat on every page of the current
+  sheet, applied on OK only. Text fields take $1:$2 and $A:$B; the existing Print Ranges dialog still works.
+
+Scaling stays on the sheet tab and margins stay on the page tab: moving them means changing the page
+shared with Writer and Slides (cui/uiconfig/ui/pageformatpage.ui).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-sheets.py (page-setup).
+---
+--- a/sc/source/ui/inc/styledlg.hxx
++++ b/sc/source/ui/inc/styledlg.hxx
+@@ -34,6 +34,7 @@
+ protected:
+     virtual void PageCreated(const OUString& rPageId, SfxTabPage& rTabPage) override;
+     virtual void RefreshInputSet() override;
++    virtual short Ok() override;
+ 
+ private:
+     bool m_bPage;
+--- a/sc/source/ui/inc/tptable.hxx
++++ b/sc/source/ui/inc/tptable.hxx
+@@ -39,13 +39,22 @@
+     virtual bool        FillItemSet     ( SfxItemSet* rCoreSet ) override;
+     virtual void        Reset           ( const SfxItemSet* rCoreSet ) override;
+     virtual DeactivateRC   DeactivatePage  ( SfxItemSet* pSet ) override;
++    // HST: Excel's "Print titles" belong to the current sheet, not to the style: the dialog applies
++    // them on OK only (a page with exchange support also fills its set when another tab opens).
++    void            ApplyPrintTitles();
+ 
+ private:
+     void            ShowImage();
++    void            ResetPrintTitles();
+ 
+ private:
+     sal_uInt16              m_nOrigScalePageWidth;
+     sal_uInt16              m_nOrigScalePageHeight;
++
++    std::unique_ptr<weld::Entry> m_xEdRepeatRows;
++    std::unique_ptr<weld::Entry> m_xEdRepeatCols;
++    OUString                m_aSavedRepeatRows;
++    OUString                m_aSavedRepeatCols;
+ 
+     std::unique_ptr<weld::RadioButton> m_xBtnTopDown;
+     std::unique_ptr<weld::RadioButton> m_xBtnLeftRight;
+--- a/sc/source/ui/pagedlg/tptable.cxx
++++ b/sc/source/ui/pagedlg/tptable.cxx
+@@ -30,6 +30,18 @@
+ #include <attrib.hxx>
+ #include <bitmaps.hlst>
+ 
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/frame/XModel3.hpp>
++#include <com/sun/star/sheet/XPrintAreas.hpp>
++#include <com/sun/star/sheet/XSpreadsheetView.hpp>
++#include <com/sun/star/table/CellRangeAddress.hpp>
++#include <com/sun/star/table/XCellRange.hpp>
++#include <com/sun/star/sheet/XCellRangeAddressable.hpp>
++#include <o3tl/string_view.hxx>
++#include <rtl/character.hxx>
++#include <sfx2/objsh.hxx>
++#include <vcl/weld/Entry.hxx>
++
+ // Static Data
+ 
+ const WhichRangesContainer ScTablePage::pPageTableRanges(
+@@ -88,6 +100,8 @@
+     : SfxTabPage(pPage, pController, u"modules/scalc/ui/sheetprintpage.ui"_ustr, u"SheetPrintPage"_ustr, &rCoreAttrs)
+     , m_nOrigScalePageWidth(0)
+     , m_nOrigScalePageHeight(0)
++    , m_xEdRepeatRows(m_xBuilder->weld_entry(u"entryRepeatRows"_ustr))
++    , m_xEdRepeatCols(m_xBuilder->weld_entry(u"entryRepeatCols"_ustr))
+     , m_xBtnTopDown(m_xBuilder->weld_radio_button(u"radioBTN_TOPDOWN"_ustr))
+     , m_xBtnLeftRight(m_xBuilder->weld_radio_button(u"radioBTN_LEFTRIGHT"_ustr))
+     , m_xBmpPageDir(m_xBuilder->weld_image(u"imageBMP_PAGEDIR"_ustr))
+@@ -137,8 +151,141 @@
+     return std::make_unique<ScTablePage>(pPage, pController, *rCoreSet);
+ }
+ 
++namespace
++{
++css::uno::Reference<css::sheet::XPrintAreas> lcl_GetActiveSheetPrintAreas()
++{
++    SfxObjectShell* pDocSh = SfxObjectShell::Current();
++    if (!pDocSh)
++        return {};
++    css::uno::Reference<css::frame::XModel> xModel = pDocSh->GetModel();
++    if (!xModel)
++        return {};
++    css::uno::Reference<css::sheet::XSpreadsheetView> xView(xModel->getCurrentController(),
++                                                            css::uno::UNO_QUERY);
++    if (!xView)
++        return {};
++    return css::uno::Reference<css::sheet::XPrintAreas>(xView->getActiveSheet(), css::uno::UNO_QUERY);
++}
++
++/// "A" for column index 0, "AB" for 27: the column letters of an index.
++OUString lcl_ColumnName(sal_Int32 nCol)
++{
++    OUString aName;
++    for (sal_Int32 n = nCol + 1; n > 0; n = (n - 1) / 26)
++        aName = OUStringChar(static_cast<sal_Unicode>('A' + (n - 1) % 26)) + aName;
++    return aName;
++}
++
++/// Reads "$1:$3", "1:3" or "2" (rows), "$A:$B", "a" (columns) to a zero-based range.
++bool lcl_ParseRepeat(std::u16string_view aText, bool bColumns, sal_Int32& rFirst, sal_Int32& rLast)
++{
++    auto parseOne = [bColumns](std::u16string_view aPart, sal_Int32& rValue) {
++        aPart = o3tl::trim(aPart);
++        if (!aPart.empty() && aPart[0] == '$')
++            aPart.remove_prefix(1);
++        if (aPart.empty())
++            return false;
++        sal_Int32 nValue = 0;
++        for (sal_Unicode c : aPart)
++        {
++            if (bColumns && rtl::isAsciiAlpha(c))
++                nValue = nValue * 26 + (rtl::toAsciiUpperCase(c) - 'A' + 1);
++            else if (!bColumns && rtl::isAsciiDigit(c))
++                nValue = nValue * 10 + (c - '0');
++            else
++                return false;
++            if (nValue > 1048576)
++                return false;
++        }
++        rValue = nValue - 1;
++        return rValue >= 0;
++    };
++    const size_t nColon = aText.find(':');
++    if (!parseOne(aText.substr(0, nColon), rFirst))
++        return false;
++    rLast = rFirst;
++    if (nColon != std::u16string_view::npos && !parseOne(aText.substr(nColon + 1), rLast))
++        return false;
++    if (rLast < rFirst)
++        std::swap(rFirst, rLast);
++    return true;
++}
++}
++
++void ScTablePage::ResetPrintTitles()
++{
++    OUString aRows, aCols;
++    if (const auto xAreas = lcl_GetActiveSheetPrintAreas())
++    {
++        if (xAreas->getPrintTitleRows())
++        {
++            const css::table::CellRangeAddress aRange = xAreas->getTitleRows();
++            aRows = "$" + OUString::number(aRange.StartRow + 1) + ":$"
++                    + OUString::number(aRange.EndRow + 1);
++        }
++        if (xAreas->getPrintTitleColumns())
++        {
++            const css::table::CellRangeAddress aRange = xAreas->getTitleColumns();
++            aCols = "$" + lcl_ColumnName(aRange.StartColumn) + ":$"
++                    + lcl_ColumnName(aRange.EndColumn);
++        }
++    }
++    else
++    {
++        m_xEdRepeatRows->set_sensitive(false);
++        m_xEdRepeatCols->set_sensitive(false);
++    }
++    m_xEdRepeatRows->set_text(aRows);
++    m_xEdRepeatCols->set_text(aCols);
++    m_aSavedRepeatRows = aRows;
++    m_aSavedRepeatCols = aCols;
++}
++
++void ScTablePage::ApplyPrintTitles()
++{
++    const OUString aRows = m_xEdRepeatRows->get_text().trim();
++    const OUString aCols = m_xEdRepeatCols->get_text().trim();
++    if (aRows == m_aSavedRepeatRows && aCols == m_aSavedRepeatCols)
++        return;
++    const auto xAreas = lcl_GetActiveSheetPrintAreas();
++    if (!xAreas)
++        return;
++    sal_Int32 nFirst = 0, nLast = 0;
++    if (aRows != m_aSavedRepeatRows)
++    {
++        if (aRows.isEmpty())
++            xAreas->setPrintTitleRows(false);
++        else if (lcl_ParseRepeat(aRows, false, nFirst, nLast))
++        {
++            css::table::CellRangeAddress aRange;
++            aRange.StartRow = nFirst;
++            aRange.EndRow = nLast;
++            xAreas->setTitleRows(aRange);
++            xAreas->setPrintTitleRows(true);
++        }
++    }
++    if (aCols != m_aSavedRepeatCols)
++    {
++        if (aCols.isEmpty())
++            xAreas->setPrintTitleColumns(false);
++        else if (lcl_ParseRepeat(aCols, true, nFirst, nLast))
++        {
++            css::table::CellRangeAddress aRange;
++            aRange.StartColumn = nFirst;
++            aRange.EndColumn = nLast;
++            xAreas->setTitleColumns(aRange);
++            xAreas->setPrintTitleColumns(true);
++        }
++    }
++    m_aSavedRepeatRows = aRows;
++    m_aSavedRepeatCols = aCols;
++}
++
+ void ScTablePage::Reset( const SfxItemSet* rCoreSet )
+ {
++    ResetPrintTitles();
++
+     bool    bTopDown = rCoreSet->Get(SID_SCATTR_PAGE_TOPDOWN).GetValue();
+ 
+     // sal_Bool flags
+--- a/sc/source/ui/styleui/styledlg.cxx
++++ b/sc/source/ui/styleui/styledlg.cxx
+@@ -56,18 +56,23 @@
+ {
+     if (m_bPage) // page styles
+     {
++        // HST: the order of Excel's Page Setup (Page, Header/Footer, Sheet), then the rest. The
++        // page ids are unchanged.
+         AddTabPage(u"page"_ustr, TabResId(RID_TAB_PAGE.aLabel), RID_SVXPAGE_PAGE,
+                    RID_M + RID_TAB_PAGE.sIconName);
+-        AddTabPage(u"borders"_ustr, TabResId(RID_TAB_BORDER.aLabel), RID_SVXPAGE_BORDER,
+-                   RID_M + RID_TAB_BORDER.sIconName);
+-        AddTabPage(u"background"_ustr, TabResId(RID_TAB_BACKGROUND.aLabel), RID_SVXPAGE_BKG,
+-                   RID_M + RID_TAB_BACKGROUND.sIconName);
+         AddTabPage(u"header"_ustr, TabResId(RID_TAB_HEADER.aLabel), &ScHeaderPage::Create,
+                    &ScHeaderPage::GetRanges, RID_M + RID_TAB_HEADER.sIconName);
+         AddTabPage(u"footer"_ustr, TabResId(RID_TAB_FOOTER.aLabel), &ScFooterPage::Create,
+                    &ScFooterPage::GetRanges, RID_M + RID_TAB_FOOTER.sIconName);
+         AddTabPage(u"sheet"_ustr, TabResId(RID_TAB_SHEET.aLabel), &ScTablePage::Create,
+                    &ScTablePage::GetRanges, RID_M + RID_TAB_SHEET.sIconName);
++        AddTabPage(u"borders"_ustr, TabResId(RID_TAB_BORDER.aLabel), RID_SVXPAGE_BORDER,
++                   RID_M + RID_TAB_BORDER.sIconName);
++        AddTabPage(u"background"_ustr, TabResId(RID_TAB_BACKGROUND.aLabel), RID_SVXPAGE_BKG,
++                   RID_M + RID_TAB_BACKGROUND.sIconName);
++        // HST: the organizer tab comes first (added by the base class); only a new style needs it.
++        if (!rStyleBase.GetName().isEmpty())
++            SetCurPageId(u"page"_ustr);
+     }
+     else // cell format styles
+     {
+@@ -145,6 +150,15 @@
+             rTabPage.PageCreated(aSet);
+         }
+     }
++}
++
++short ScStyleDlg::Ok()
++{
++    const short nResult = SfxStyleDialogController::Ok();
++    if (m_bPage)
++        if (auto* pSheetPage = static_cast<ScTablePage*>(GetTabPage(u"sheet")))
++            pSheetPage->ApplyPrintTitles();
++    return nResult;
+ }
+ 
+ void ScStyleDlg::RefreshInputSet()
+--- a/sc/uiconfig/scalc/ui/sheetprintpage.ui
++++ b/sc/uiconfig/scalc/ui/sheetprintpage.ui
+@@ -211,7 +211,7 @@
+       </object>
+       <packing>
+         <property name="left-attach">0</property>
+-        <property name="top-attach">0</property>
++        <property name="top-attach">2</property>
+       </packing>
+     </child>
+     <child>
+@@ -674,7 +674,92 @@
+       </object>
+       <packing>
+         <property name="left-attach">0</property>
+-        <property name="top-attach">2</property>
++        <property name="top-attach">3</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkFrame" id="frameTitles">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="label-xalign">0</property>
++        <property name="shadow-type">none</property>
++        <child>
++          <object class="GtkGrid" id="gridTitles">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="margin-start">12</property>
++            <property name="margin-top">6</property>
++            <property name="row-spacing">6</property>
++            <property name="column-spacing">12</property>
++            <child>
++              <object class="GtkLabel" id="labelRepeatRows">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="sheetprintpage|labelRepeatRows">_Rows to repeat at top:</property>
++                <property name="use-underline">True</property>
++                <property name="mnemonic-widget">entryRepeatRows</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkEntry" id="entryRepeatRows">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="width-chars">12</property>
++                <property name="placeholder-text">$1:$1</property>
++              </object>
++              <packing>
++                <property name="left-attach">1</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="labelRepeatCols">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="sheetprintpage|labelRepeatCols">_Columns to repeat at left:</property>
++                <property name="use-underline">True</property>
++                <property name="mnemonic-widget">entryRepeatCols</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkEntry" id="entryRepeatCols">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="width-chars">12</property>
++                <property name="placeholder-text">$A:$A</property>
++              </object>
++              <packing>
++                <property name="left-attach">1</property>
++                <property name="top-attach">1</property>
++              </packing>
++            </child>
++          </object>
++        </child>
++        <child type="label">
++          <object class="GtkLabel" id="labelTitles">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="sheetprintpage|labelTitles">Print Titles</property>
++            <attributes>
++              <attribute name="weight" value="bold"/>
++            </attributes>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="left-attach">0</property>
++        <property name="top-attach">0</property>
+       </packing>
+     </child>
+     <child internal-child="accessible">
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -31759,6 +31759,24 @@
+ msgid "Defines the unit of measure in spreadsheets."
+ msgstr "Xác định đơn vị đo trong bảng tính."
+ 
++#. hstDLG
++#: sc/uiconfig/scalc/ui/sheetprintpage.ui
++msgctxt "sheetprintpage|labelRepeatRows"
++msgid "_Rows to repeat at top:"
++msgstr "Hàng lặ_p lại ở trên:"
++
++#. hstDLG
++#: sc/uiconfig/scalc/ui/sheetprintpage.ui
++msgctxt "sheetprintpage|labelRepeatCols"
++msgid "_Columns to repeat at left:"
++msgstr "Cột lặp lại ở _bên trái:"
++
++#. hstDLG
++#: sc/uiconfig/scalc/ui/sheetprintpage.ui
++msgctxt "sheetprintpage|labelTitles"
++msgid "Print Titles"
++msgstr "Tiêu đề in"
++
+ #. zzQpA
+ #: sc/uiconfig/scalc/ui/scgeneralpage.ui:126
+ msgctxt "scgeneralpage|label1"
