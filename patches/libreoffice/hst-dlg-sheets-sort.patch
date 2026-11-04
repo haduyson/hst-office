@@ -1,0 +1,194 @@
+HST Office: Sort moves toward Excel's level list (owner-approved Microsoft Office parity for beta.5).
+
+The header option comes first, one row per sort level, and Add Level / Delete Level buttons (Delete removes
+the last level). Levels still appear on their own when the last one gets a column. Options stay on their tab.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-sheets.py (sort).
+---
+--- a/sc/source/ui/dbgui/tpsort.cxx
++++ b/sc/source/ui/dbgui/tpsort.cxx
+@@ -93,6 +93,8 @@
+     , m_xBtnLeftRight(m_xBuilder->weld_radio_button(u"rbLeftRight"_ustr))
+     , m_xScrolledWindow(m_xBuilder->weld_scrolled_window(u"SortCriteriaPage"_ustr))
+     , m_xBox(m_xBuilder->weld_box(u"SortKeyWindow"_ustr))
++    , m_xBtnAddLevel(m_xBuilder->weld_button(u"btnAddLevel"_ustr))
++    , m_xBtnDeleteLevel(m_xBuilder->weld_button(u"btnDeleteLevel"_ustr))
+     , m_aSortWin(m_xBox.get())
+ {
+     // tdf#147722 set some nominal small default height so the height adapts
+@@ -140,6 +142,8 @@
+     m_xBtnTopDown->connect_toggled( aLink );
+     m_xBtnLeftRight->connect_toggled( aLink );
+     m_xBtnHeader->connect_toggled( aLink );
++    m_xBtnAddLevel->connect_clicked(LINK(this, ScTabPageSortFields, AddLevelHdl));
++    m_xBtnDeleteLevel->connect_clicked(LINK(this, ScTabPageSortFields, DeleteLevelHdl));
+ 
+     const ScSortItem& rSortItem = GetItemSet().Get( nWhichSort );
+ 
+@@ -432,6 +436,22 @@
+         for ( sal_uInt16 i=0; i<nSortKeyCount; i++ )
+             m_aSortWin.m_aSortKeyItems[i]->m_xLbSort->set_active(nCurSel[i]);
+     }
++}
++
++// HST: Excel's Add Level and Delete Level (levels are also added as the last one gets a column).
++IMPL_LINK_NOARG(ScTabPageSortFields, AddLevelHdl, weld::Button&, void)
++{
++    SetLastSortKey(nSortKeyCount);
++}
++
++IMPL_LINK_NOARG(ScTabPageSortFields, DeleteLevelHdl, weld::Button&, void)
++{
++    if (nSortKeyCount <= 1)
++        return;
++    m_aSortWin.m_aSortKeyItems.pop_back();
++    --nSortKeyCount;
++    if (aSortData.maKeyState.size() > nSortKeyCount)
++        aSortData.maKeyState.resize(nSortKeyCount);
+ }
+ 
+ IMPL_LINK( ScTabPageSortFields, SelectHdl, weld::ComboBox&, rLb, void )
+--- a/sc/source/ui/inc/tpsort.hxx
++++ b/sc/source/ui/inc/tpsort.hxx
+@@ -27,6 +27,7 @@
+ #include <unotools/collatorwrapper.hxx>
+ #include <vcl/idle.hxx>
+ #include <vcl/weld/Box.hxx>
++#include <vcl/weld/Button.hxx>
+ #include <vcl/weld/CheckButton.hxx>
+ #include <vcl/weld/Container.hxx>
+ #include <vcl/weld/Entry.hxx>
+@@ -84,6 +85,8 @@
+     std::unique_ptr<weld::RadioButton> m_xBtnLeftRight;
+     std::unique_ptr<weld::ScrolledWindow> m_xScrolledWindow;
+     std::unique_ptr<weld::Box> m_xBox;
++    std::unique_ptr<weld::Button> m_xBtnAddLevel;
++    std::unique_ptr<weld::Button> m_xBtnDeleteLevel;
+     ScSortKeyWindow m_aSortWin;
+ 
+     void AddSortKey( sal_uInt16 nItem );
+@@ -96,6 +99,8 @@
+ 
+     // Handler ------------------------
+     DECL_LINK(SelectHdl, weld::ComboBox&, void);
++    DECL_LINK(AddLevelHdl, weld::Button&, void);
++    DECL_LINK(DeleteLevelHdl, weld::Button&, void);
+     DECL_LINK(ScrollToEndHdl, Timer*, void);
+     DECL_LINK(SortDirHdl, weld::Toggleable&, void);
+ 
+--- a/sc/uiconfig/scalc/ui/sortcriteriapage.ui
++++ b/sc/uiconfig/scalc/ui/sortcriteriapage.ui
+@@ -44,7 +44,7 @@
+       <packing>
+         <property name="expand">False</property>
+         <property name="fill">True</property>
+-        <property name="position">0</property>
++        <property name="position">2</property>
+       </packing>
+     </child>
+     <child>
+@@ -147,7 +147,43 @@
+               </packing>
+             </child>
+             <child>
+-              <placeholder/>
++              <object class="GtkBox" id="boxLevels">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">6</property>
++                <child>
++                  <object class="GtkButton" id="btnAddLevel">
++                    <property name="label" translatable="yes" context="sortcriteriapage|btnAddLevel">_Add Level</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="btnDeleteLevel">
++                    <property name="label" translatable="yes" context="sortcriteriapage|btnDeleteLevel">_Delete Level</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">1</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="left-attach">1</property>
++                <property name="top-attach">3</property>
++              </packing>
+             </child>
+           </object>
+         </child>
+@@ -165,7 +201,7 @@
+       <packing>
+         <property name="expand">False</property>
+         <property name="fill">True</property>
+-        <property name="position">2</property>
++        <property name="position">0</property>
+       </packing>
+     </child>
+   </object>
+--- a/sc/uiconfig/scalc/ui/sortkey.ui
++++ b/sc/uiconfig/scalc/ui/sortkey.ui
+@@ -33,7 +33,6 @@
+           <packing>
+             <property name="left-attach">1</property>
+             <property name="top-attach">0</property>
+-            <property name="height">2</property>
+           </packing>
+         </child>
+         <child>
+@@ -72,8 +71,8 @@
+             </child>
+           </object>
+           <packing>
+-            <property name="left-attach">2</property>
+-            <property name="top-attach">1</property>
++            <property name="left-attach">3</property>
++            <property name="top-attach">0</property>
+           </packing>
+         </child>
+         <child>
+@@ -88,7 +87,6 @@
+           <packing>
+             <property name="left-attach">0</property>
+             <property name="top-attach">0</property>
+-            <property name="height">2</property>
+           </packing>
+         </child>
+       </object>
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -33781,6 +33781,18 @@
+ msgid "Headers:"
+ msgstr "Tiêu đề:"
+ 
++#. hstDLG
++#: sc/uiconfig/scalc/ui/sortcriteriapage.ui
++msgctxt "sortcriteriapage|btnAddLevel"
++msgid "_Add Level"
++msgstr "_Thêm mức"
++
++#. hstDLG
++#: sc/uiconfig/scalc/ui/sortcriteriapage.ui
++msgctxt "sortcriteriapage|btnDeleteLevel"
++msgid "_Delete Level"
++msgstr "_Xóa mức"
++
+ #. 5oaCb
+ #: sc/uiconfig/scalc/ui/sortcriteriapage.ui:158
+ msgctxt "sortcriteriapage|lbOptions"
