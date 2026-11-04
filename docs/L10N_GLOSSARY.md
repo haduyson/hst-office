@@ -118,6 +118,22 @@ cây nguồn đã vá, lỗi liệt kê các mục bị đổi):
 
 Đổi bản dịch (`msgstr`) hay sửa menu HST không làm snapshot cũ.
 
+## Hộp thoại thường dùng theo Microsoft Office (beta.5)
+
+Thuật ngữ lấy từ trang hỗ trợ tiếng Việt của Microsoft (`support.microsoft.com/vi-vn`); dòng nào không kiểm chứng được ghi `UNVERIFIED` trong `reason` của `vi-overrides.jsonl`.
+
+| Tiếng Anh | Tiếng Việt | | Tiếng Anh | Tiếng Việt |
+|---|---|---|---|---|
+| Font (hộp thoại, thẻ) | Phông chữ | | Data Validation | Xác thực dữ liệu |
+| Line and Page Breaks | Ngắt dòng và ngắt trang | | Settings / Input Message | Thiết đặt / Thông báo nhập |
+| Before / After (đoạn văn) | Trước / Sau | | Name Manager / Refers to | Trình quản lý tên / Tham chiếu tới |
+| Multiple / At least / Exactly | Nhiều / Tối thiểu / Chính xác | | Print area | Vùng in |
+| Bullets / Numbering / Multilevel | Dấu đầu dòng / Đánh số / Danh sách đa mức | | Chart | Biểu đồ (không dùng "đồ thị" trong hộp thoại biểu đồ) |
+| Wrap Text | Ngắt dòng văn bản | | Show type | Kiểu chiếu |
+| Page Setup / Orientation | Thiết lập trang / Hướng | | Conditional rules | Trình quản lý quy tắc định dạng có điều kiện |
+
+Thẻ dùng chung (`include/vcl/tabs.hrc`) đổi một chỗ là đổi ở mọi hộp thoại. Chưa đổi vì cần tách trong C++: "Nền" (Excel: Tô màu, Word: Tô bóng), "Vị trí" của Phông chữ (Word: Nâng cao, nhưng cùng chuỗi với hộp thoại Đánh số đại cương), tiêu đề "Thuộc tính trang" dùng chung Draw và Impress.
+
 ## Cần người duyệt (chưa sửa, cần quyết định)
 
 1. **Bookmark**: lõi dùng "Liên kết lưu" khắp nơi, bảng thuật ngữ ghi "Dấu trang". Đổi toàn bộ (~30 chuỗi) hay giữ?
@@ -126,7 +142,7 @@ cây nguồn đã vá, lỗi liệt kê các mục bị đổi):
 4. **Layout** (thẻ ribbon): Writer/Impress "Bố trí", Calc "Bố cục". Chọn một.
 5. **Home**: một số thanh Impress còn "Trang chủ" thay vì "Trang đầu".
 6. **File**: menu "Tập tin" trong khi tài liệu HST và hướng dẫn hay viết "tệp". Có đổi menu sang "Tệp" không?
-7. **Chart**: "Đồ thị" (menu Chèn) và "Biểu đồ" (nơi khác).
+7. **Chart**: hộp thoại biểu đồ đã thống nhất "Biểu đồ"; menu Chèn còn "Đồ thị" (đổi menu phải dời phím truy cập).
 8. **Selection / Master / Copy / Alignment**: `term-report.py` liệt kê ~400 khác biệt trong lớp AI, phần lớn là biến thể chấp nhận được ("Lựa chọn"/"Vùng chọn", "Trang chiếu mẫu"/"Trang cái", "Căn"/"Canh"). Cần người bản ngữ chốt từng cặp.
 9. Văn phong chung các hộp thoại Định dạng ô, Đoạn văn, Tìm và thay thế, In: chưa đọc lại toàn bộ bằng mắt người.
 
