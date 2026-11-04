@@ -70,6 +70,7 @@ class MakeSingleDeb(unittest.TestCase):
             self.assertIn("libssl3t64 | libssl3", depends)
             self.assertIn("libglib2.0-0t64 | libglib2.0-0", depends)
             self.assertIn("libc6", depends)
+            self.assertIn("fonts-urw-base35", depends)  # Symbol substitute for equation arrows
             self.assertNotIn("libc6 (>= 2.39)", depends)  # redundant with the unbounded libc6
             self.assertFalse([d for d in depends if d.startswith("hst-office")])
             for field_name in ("Replaces", "Conflicts"):

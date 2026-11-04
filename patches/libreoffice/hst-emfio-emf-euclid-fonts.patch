@@ -1,0 +1,526 @@
+HST Office: equation previews in more fonts and in EMF.
+- EMF previews (MathType 7, ChemDraw): text in legacy Vietnamese fonts (TCVN3 ".VnTime", VNI
+  "VNI-Times") is decoded and drawn with Times New Roman/Arial, as WMF previews already are
+  (EXTTEXTOUTA bytes; EXTTEXTOUTW keeps the byte codes as U+00xx/U+F0xx/Windows-1252).
+- Old MathType equations use the Euclid fonts: "Euclid Math One" (script), "Euclid Math Two"
+  (double-struck), "Euclid Fraktur" letters become Unicode mathematical letters drawn with
+  the bundled DejaVu Math TeX Gyre; "Euclid Symbol" / "Euclid Extra" have the Symbol / MT Extra
+  layout and use their handling; "Euclid" (the text font) is drawn as Times New Roman.
+  Letter mapping: Unicode Mathematical Alphanumeric Symbols; the Math Two relations follow the
+  transpect fontmaps (BSD-2-Clause).
+
+--- a/emfio/source/reader/wmfreader.cxx
++++ b/emfio/source/reader/wmfreader.cxx
+@@ -19,7 +19,7 @@
+ 
+ #include <wmfreader.hxx>
+ #include <emfreader.hxx>
+-#include "hstlegacyvn.hxx"
++#include "hstfonttext.hxx"
+ 
+ #include <cstdlib>
+ #include <memory>
+@@ -749,20 +749,22 @@
+                     nLength = std::min<sal_uInt16>(nLength, mpInputStream->ReadBytes(aChars.data(), aChars.size()));
+                     // HST Office: text in a legacy Vietnamese font (TCVN3/VNI) is decoded to Unicode
+                     // and drawn with the Unicode equivalent of the font
+-                    const legacyvn::Encoding eLegacyVn = legacyvn::GetEncoding(maFont.GetFamilyName());
++                    // (also the letter fonts of old MathType equations, see hstfonttext.hxx)
+                     std::vector<sal_Int32> aLegacyBytes;
+-                    OUString aText = eLegacyVn != legacyvn::Encoding::None
+-                        ? legacyvn::Decode(eLegacyVn, aChars.data(), nLength, aLegacyBytes)
+-                        : OUString(aChars.data(), nLength, GetCharSet());
++                    OUString aText, aHstFont;
++                    const bool bHstText = hstfonttext::Decode(maFont.GetFamilyName(), aChars.data(), nLength,
++                                                              aText, aLegacyBytes, aHstFont);
++                    if (!bHstText)
++                        aText = OUString(aChars.data(), nLength, GetCharSet());
+                     Point aPosition( ReadYX() );
+                     const vcl::Font aLegacyFont(maFont);
+-                    if (eLegacyVn != legacyvn::Encoding::None)
++                    if (bHstText)
+                     {
+-                        maFont.SetFamilyName(legacyvn::GetReplacementFamily(aLegacyFont.GetFamilyName()));
++                        maFont.SetFamilyName(aHstFont);
+                         maFont.SetCharSet(RTL_TEXTENCODING_UNICODE);
+                     }
+                     DrawText( aPosition, aText );
+-                    if (eLegacyVn != legacyvn::Encoding::None)
++                    if (bHstText)
+                         maFont = aLegacyFont;
+                 }
+             }
+@@ -827,11 +829,13 @@
+                     mpInputStream->ReadBytes(pChar.data(), nOriginalBlockLen);
+                     // HST Office: text in a legacy Vietnamese font (TCVN3/VNI) is decoded to Unicode
+                     // (VNI letter + tone mark bytes become one character, see aLegacyBytes)
+-                    const legacyvn::Encoding eLegacyVn = legacyvn::GetEncoding(maFont.GetFamilyName());
++                    // (also the letter fonts of old MathType equations, see hstfonttext.hxx)
+                     std::vector<sal_Int32> aLegacyBytes;
+-                    OUString aText = eLegacyVn != legacyvn::Encoding::None
+-                        ? legacyvn::Decode(eLegacyVn, pChar.data(), nOriginalTextLen, aLegacyBytes)
+-                        : OUString(pChar.data(), nOriginalTextLen, GetCharSet()); // after this conversion the text may contain
++                    OUString aText, aHstFont;
++                    const bool bHstText = hstfonttext::Decode(maFont.GetFamilyName(), pChar.data(), nOriginalTextLen,
++                                                              aText, aLegacyBytes, aHstFont);
++                    if (!bHstText)
++                        aText = OUString(pChar.data(), nOriginalTextLen, GetCharSet()); // after this conversion the text may contain
+                     sal_Int32 nNewTextLen = aText.getLength();                         // less character (japanese version), so the
+                                                                                        // dxAry will not fit
+                     if ( nNewTextLen )
+@@ -848,7 +852,7 @@
+                         auto nDxAryEntries = nDxArySize >> 1;
+                         bool        bUseDXAry = false;
+ 
+-                        if ( ( ( nDxAryEntries % nOriginalTextLen ) == 0 ) && ( nNewTextLen <= nOriginalTextLen ) )
++                        if ( ( ( nDxAryEntries % nOriginalTextLen ) == 0 ) && ( bHstText || nNewTextLen <= nOriginalTextLen ) )
+                         {
+                             sal_Int32 i; // needed just outside the for
+                             aDXAry.resize( nNewTextLen );
+@@ -901,17 +905,17 @@
+                                 bUseDXAry = true;
+                         }
+                         const vcl::Font aLegacyFont(maFont);
+-                        if (eLegacyVn != legacyvn::Encoding::None)
++                        if (bHstText)
+                         {
+                             // drawn with the Unicode equivalent of the legacy font
+-                            maFont.SetFamilyName(legacyvn::GetReplacementFamily(aLegacyFont.GetFamilyName()));
++                            maFont.SetFamilyName(aHstFont);
+                             maFont.SetCharSet(RTL_TEXTENCODING_UNICODE);
+                         }
+                         if ( bUseDXAry )
+                             DrawText( aPosition, aText, &aDXAry, pDYAry.get() );
+                         else
+                             DrawText( aPosition, aText );
+-                        if (eLegacyVn != legacyvn::Encoding::None)
++                        if (bHstText)
+                             maFont = aLegacyFont;
+                         if ( nOptions & ETO_CLIPPED )
+                             Pop();
+--- a/emfio/source/reader/emfreader.cxx
++++ b/emfio/source/reader/emfreader.cxx
+@@ -19,6 +19,7 @@
+ #include <basegfx/polygon/b2dpolygontools.hxx>
+ #include <basegfx/polygon/b2dpolypolygoncutter.hxx>
+ #include <emfreader.hxx>
++#include "hstfonttext.hxx"
+ #include <rtl/ustrbuf.hxx>
+ #include <sal/log.hxx>
+ #include <osl/diagnose.h>
+@@ -2183,11 +2184,12 @@
+                                     // Standard text path: read Unicode or ANSI text
+                                     mpInputStream->Seek( nCurPos + nOffString );
+                                     OUString aText;
++                                    std::vector<char> pBuf;
+                                     if ( bFlag )
+                                     {
+                                         if ( nLen <= ( nNextPos - mpInputStream->Tell() ) )
+                                         {
+-                                            std::vector<char> pBuf( nLen );
++                                            pBuf.resize( nLen );
+                                             mpInputStream->ReadBytes(pBuf.data(), nLen);
+                                             aText = OUString(pBuf.data(), nLen, GetCharSet());
+                                         }
+@@ -2200,6 +2202,25 @@
+                                         }
+                                     }
+ 
++                                    // HST Office: text in a legacy Vietnamese font (TCVN3/VNI) or a letter
++                                    // font of old MathType equations is decoded to Unicode and drawn with
++                                    // a Unicode font (hstfonttext.hxx); aHstBytes: source characters
++                                    // behind each UTF-16 unit of the decoded text
++                                    std::vector<sal_Int32> aHstBytes;
++                                    OUString aHstText, aHstFont;
++                                    bool bHstText = false;
++                                    if ( !aText.isEmpty() )
++                                    {
++                                        if ( bFlag )
++                                            bHstText = hstfonttext::Decode(maFont.GetFamilyName(), pBuf.data(), pBuf.size(),
++                                                                           aHstText, aHstBytes, aHstFont);
++                                        else
++                                            bHstText = hstfonttext::DecodeWide(maFont.GetFamilyName(), aText, aHstText,
++                                                                               aHstBytes, aHstFont);
++                                        if ( bHstText )
++                                            aText = aHstText;
++                                    }
++
+                                     SAL_INFO("emfio", "\t\tText: " << aText);
+                                     SAL_INFO("emfio", "\t\tDxBuffer:");
+ 
+@@ -2233,7 +2254,9 @@
+                                         for (sal_Int32 i = 0; i < aText.getLength(); ++i)
+                                         {
+                                             sal_Int32 nDxCount = 1;
+-                                            if ( static_cast<sal_uInt32>( aText.getLength() ) !=  nLen )
++                                            if ( bHstText )
++                                                nDxCount = aHstBytes[i];
++                                            else if ( static_cast<sal_uInt32>( aText.getLength() ) !=  nLen )
+                                             {
+                                                 sal_Unicode cUniChar = aText[i];
+                                                 OString aTmp(&cUniChar, 1, GetCharSet());
+@@ -2270,7 +2293,15 @@
+                                         Push(); // Save the current clip. It will be restored after text drawing
+                                         IntersectClipRect( aRect );
+                                     }
++                                    const vcl::Font aHstSavedFont(maFont);
++                                    if ( bHstText )
++                                    {
++                                        maFont.SetFamilyName(aHstFont);
++                                        maFont.SetCharSet(RTL_TEXTENCODING_UNICODE);
++                                    }
+                                     DrawText(aPos, aText, aDXAry.empty() ? nullptr : &aDXAry, pDYAry.get(), fXScale, fYScale, mbRecordPath, static_cast<GraphicsMode>(nGfxMode));
++                                    if ( bHstText )
++                                        maFont = aHstSavedFont;
+                                     if ( nOptions & ETO_CLIPPED )
+                                         Pop();
+                                 }
+--- a/emfio/source/reader/mtftools.cxx
++++ b/emfio/source/reader/mtftools.cxx
+@@ -206,8 +206,14 @@
+     WinMtfFontStyle::WinMtfFontStyle( LOGFONTW const & rFont )
+     {
+         rtl_TextEncoding eCharSet;
+-        if ((rFont.alfFaceName == "Symbol")
+-         || (rFont.alfFaceName == "MT Extra"))
++        // HST Office: "Euclid Symbol" / "Euclid Extra" of old MathType equations have the
++        // Symbol / MT Extra layout; use those fonts (and their substitutes and recode tables).
++        // "Euclid", their text font, is a Times design.
++        const OUString aFaceName = rFont.alfFaceName.equalsIgnoreAsciiCase("Euclid Symbol") ? u"Symbol"_ustr
++            : rFont.alfFaceName.equalsIgnoreAsciiCase("Euclid Extra") ? u"MT Extra"_ustr
++            : rFont.alfFaceName.equalsIgnoreAsciiCase("Euclid") ? u"Times New Roman"_ustr : rFont.alfFaceName;
++        if ((aFaceName == "Symbol")
++         || (aFaceName == "MT Extra"))
+             eCharSet = RTL_TEXTENCODING_SYMBOL;
+         else if ((rFont.lfCharSet == DEFAULT_CHARSET) || (rFont.lfCharSet == OEM_CHARSET))
+             eCharSet = utl_getWinTextEncodingFromLangStr(utl_getLocaleForGlobalDefaultEncoding(),
+@@ -217,7 +223,7 @@
+         if ( eCharSet == RTL_TEXTENCODING_DONTKNOW )
+             eCharSet = RTL_TEXTENCODING_MS_1252;
+         aFont.SetCharSet( eCharSet );
+-        aFont.SetFamilyName( rFont.alfFaceName );
++        aFont.SetFamilyName( aFaceName );
+         FontFamily eFamily;
+         switch ( rFont.lfPitchAndFamily >> 4 & 0x0f )
+         {
+--- /dev/null
++++ b/emfio/source/reader/hstfonttext.hxx
+@@ -0,0 +1,169 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++// HST Office: metafile text in fonts whose codes are not Unicode and whose fonts are rarely
++// installed: legacy Vietnamese fonts (TCVN3/VNI, hstlegacyvn.hxx) and the letter fonts of old
++// MathType equations (Euclid Math One: script, Euclid Math Two: double-struck, Euclid
++// Fraktur). The text is decoded to Unicode and drawn with a Unicode font that has the letters.
++
++#pragma once
++
++#include "hstlegacyvn.hxx"
++
++#include <o3tl/string_view.hxx>
++#include <rtl/ustrbuf.hxx>
++#include <rtl/ustring.hxx>
++
++#include <string_view>
++#include <vector>
++
++namespace emfio::hstfonttext
++{
++enum class EuclidLetters
++{
++    None,
++    Script, // "Euclid Math One"
++    DoubleStruck, // "Euclid Math Two"
++    Fraktur // "Euclid Fraktur"
++};
++
++inline EuclidLetters GetEuclidLetters(std::u16string_view rFamily)
++{
++    if (o3tl::equalsIgnoreAsciiCase(rFamily, u"Euclid Math One"))
++        return EuclidLetters::Script;
++    if (o3tl::equalsIgnoreAsciiCase(rFamily, u"Euclid Math Two"))
++        return EuclidLetters::DoubleStruck;
++    if (o3tl::equalsIgnoreAsciiCase(rFamily, u"Euclid Fraktur"))
++        return EuclidLetters::Fraktur;
++    return EuclidLetters::None;
++}
++
++// Unicode Mathematical Alphanumeric Symbols; the letters that Unicode encodes in the
++// Letterlike Symbols block (holes in the range) are listed first. 0 = not mapped.
++inline sal_uInt32 EuclidLetter(EuclidLetters eKind, unsigned char c)
++{
++    struct Hole
++    {
++        char cLetter;
++        sal_uInt32 nCode;
++    };
++    static constexpr Hole aScript[] = { { 'B', 0x212C }, { 'E', 0x2130 }, { 'F', 0x2131 }, { 'H', 0x210B },
++                                        { 'I', 0x2110 }, { 'L', 0x2112 }, { 'M', 0x2133 }, { 'R', 0x211B } };
++    static constexpr Hole aDoubleStruck[] = { { 'C', 0x2102 }, { 'H', 0x210D }, { 'N', 0x2115 }, { 'P', 0x2119 },
++                                              { 'Q', 0x211A }, { 'R', 0x211D }, { 'Z', 0x2124 } };
++    static constexpr Hole aFraktur[] = { { 'C', 0x212D }, { 'H', 0x210C }, { 'I', 0x2111 }, { 'R', 0x211C },
++                                         { 'Z', 0x2128 } };
++    const bool bUpper = c >= 'A' && c <= 'Z';
++    const bool bLower = c >= 'a' && c <= 'z';
++    switch (eKind)
++    {
++        case EuclidLetters::Script: // capitals only (the lower case of the font is not documented)
++            for (const Hole& r : aScript)
++                if (r.cLetter == static_cast<char>(c))
++                    return r.nCode;
++            return bUpper ? 0x1D49C + (c - 'A') : 0;
++        case EuclidLetters::DoubleStruck:
++            for (const Hole& r : aDoubleStruck)
++                if (r.cLetter == static_cast<char>(c))
++                    return r.nCode;
++            if (bUpper)
++                return 0x1D538 + (c - 'A');
++            if (bLower)
++                return 0x1D552 + (c - 'a');
++            switch (c) // relations of the font
++            {
++                case 0xB0: return 0x227C;
++                case 0xD8: return 0x228A;
++                case 0xD9: return 0x228B;
++                case 0xE4: return 0x2208;
++                default: return 0;
++            }
++        case EuclidLetters::Fraktur:
++            for (const Hole& r : aFraktur)
++                if (r.cLetter == static_cast<char>(c))
++                    return r.nCode;
++            if (bUpper)
++                return 0x1D504 + (c - 'A');
++            if (bLower)
++                return 0x1D51E + (c - 'a');
++            return 0;
++        case EuclidLetters::None:
++            break;
++    }
++    return 0;
++}
++
++// Decode nLen bytes of text in rFamily. Returns false (nothing done) for other fonts; otherwise
++// rText is the Unicode text, rBytes the number of source bytes behind each UTF-16 unit (0 for
++// the second half of a surrogate pair) and rReplacement the font to draw it with.
++inline bool Decode(std::u16string_view rFamily, const char* pChars, sal_Int32 nLen, OUString& rText,
++                   std::vector<sal_Int32>& rBytes, OUString& rReplacement)
++{
++    const legacyvn::Encoding eLegacyVn = legacyvn::GetEncoding(rFamily);
++    if (eLegacyVn != legacyvn::Encoding::None)
++    {
++        rText = legacyvn::Decode(eLegacyVn, pChars, nLen, rBytes);
++        rReplacement = legacyvn::GetReplacementFamily(rFamily);
++        return true;
++    }
++    const EuclidLetters eEuclid = GetEuclidLetters(rFamily);
++    if (eEuclid == EuclidLetters::None)
++        return false;
++    OUStringBuffer aBuf(nLen);
++    rBytes.clear();
++    for (sal_Int32 i = 0; i < nLen; ++i)
++    {
++        const unsigned char c = static_cast<unsigned char>(pChars[i]);
++        const sal_uInt32 nCode = EuclidLetter(eEuclid, c);
++        if (nCode > 0xFFFF)
++        {
++            aBuf.appendUtf32(nCode);
++            rBytes.push_back(1);
++            rBytes.push_back(0);
++        }
++        else
++        {
++            aBuf.append(nCode ? sal_Unicode(nCode) : legacyvn::DecodeCp1252(c));
++            rBytes.push_back(1);
++        }
++    }
++    rText = aBuf.makeStringAndClear();
++    rReplacement = u"DejaVu Math TeX Gyre"_ustr;
++    return true;
++}
++
++// The same for UTF-16 text (EMF EXTTEXTOUTW) written in such a font: Windows keeps the byte
++// codes there (as U+00xx, U+F0xx or the Windows-1252 character). Returns false when the text
++// holds other characters (it is real Unicode text then).
++inline bool DecodeWide(std::u16string_view rFamily, std::u16string_view rWide, OUString& rText,
++                       std::vector<sal_Int32>& rBytes, OUString& rReplacement)
++{
++    if (legacyvn::GetEncoding(rFamily) == legacyvn::Encoding::None
++        && GetEuclidLetters(rFamily) == EuclidLetters::None)
++        return false;
++    std::string aBytes;
++    aBytes.reserve(rWide.size());
++    for (sal_Unicode c : rWide)
++    {
++        if (c >= 0xF020 && c <= 0xF0FF)
++            c -= 0xF000;
++        if (c > 0xFF)
++        {
++            sal_Unicode nByte = 0;
++            for (sal_Unicode b = 0x80; b < 0xA0 && !nByte; ++b)
++                if (legacyvn::aCp1252High[b - 0x80] == c)
++                    nByte = b;
++            if (!nByte)
++                return false;
++            c = nByte;
++        }
++        aBytes.push_back(static_cast<char>(c));
++    }
++    return Decode(rFamily, aBytes.data(), aBytes.size(), rText, rBytes, rReplacement);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/emfio/qa/cppunit/wmf/wmfimporttest.cxx
++++ b/emfio/qa/cppunit/wmf/wmfimporttest.cxx
+@@ -67,6 +67,8 @@
+     void testPatternBrushEllipseWmf();
+     void testHatchBkModeWmf();
+     void testLegacyVietnameseFontsWmf();
++    void testEuclidFontsWmf();
++    void testLegacyVietnameseFontsEmf();
+ 
+     CPPUNIT_TEST_SUITE(WmfTest);
+     CPPUNIT_TEST(testEOFWmf);
+@@ -90,6 +92,8 @@
+     CPPUNIT_TEST(testPatternBrushEllipseWmf);
+     CPPUNIT_TEST(testHatchBkModeWmf);
+     CPPUNIT_TEST(testLegacyVietnameseFontsWmf);
++    CPPUNIT_TEST(testEuclidFontsWmf);
++    CPPUNIT_TEST(testLegacyVietnameseFontsEmf);
+     CPPUNIT_TEST_SUITE_END();
+ };
+ 
+@@ -722,6 +726,128 @@
+     assertXPathContent(pDoc, "(//textarray)[4]/text", u"x°");
+ }
+ 
++void WmfTest::testEuclidFontsWmf()
++{
++    // HST Office: old MathType equations use the Euclid fonts. The letter fonts become Unicode
++    // mathematical letters drawn with a math font; Euclid Symbol / Euclid Extra use the
++    // Symbol / MT Extra handling (the same layout).
++    SvMemoryStream aStream;
++    aStream.WriteUInt16(1).WriteUInt16(9).WriteUInt16(0x0300);
++    aStream.WriteUInt32(0).WriteUInt16(1).WriteUInt32(0).WriteUInt16(0);
++    writeWmfRecord(aStream, 0x020B, { 0, 0 });
++    writeWmfRecord(aStream, 0x020C, { 1000, 2000 });
++    writeWmfFont(aStream, "Euclid Math Two");
++    writeWmfExtTextOut(aStream, 100, "RN"); // double-struck R and N (Letterlike Symbols)
++    writeWmfRecord(aStream, 0x01F0, { 0 });
++    writeWmfFont(aStream, "Euclid Math One");
++    writeWmfExtTextOut(aStream, 400, "AL"); // script A (U+1D49C, surrogate pair) and L (U+2112)
++    writeWmfRecord(aStream, 0x01F0, { 0 });
++    writeWmfFont(aStream, "Euclid Fraktur");
++    writeWmfExtTextOut(aStream, 700, "g");
++    writeWmfRecord(aStream, 0x01F0, { 0 });
++    writeWmfFont(aStream, "Euclid Symbol");
++    writeWmfExtTextOut(aStream, 1000, "a");
++    writeWmfRecord(aStream, 0x01F0, { 0 });
++    writeWmfFont(aStream, "Euclid");
++    writeWmfExtTextOut(aStream, 1300, "x");
++    writeWmfRecord(aStream, 0x0000, {});
++    aStream.Seek(6);
++    aStream.WriteUInt32(aStream.TellEnd() / 2);
++    aStream.Seek(0);
++
++    GDIMetaFile aGDIMetaFile;
++    ReadWindowMetafile(aStream, aGDIMetaFile);
++    xmlDocUniquePtr pDoc = dumpAndParse(aGDIMetaFile);
++    CPPUNIT_ASSERT(pDoc);
++
++    // Without the fix: "RN" in the missing font "Euclid Math Two"
++    assertXPathContent(pDoc, "(//textarray)[1]/text", u"ℝℕ");
++    assertXPath(pDoc, "(//textarray)[1]/preceding-sibling::font[1]", "name", u"DejaVu Math TeX Gyre");
++    assertXPathContent(pDoc, "(//textarray)[2]/text", u"\U0001D49Cℒ");
++    assertXPathContent(pDoc, "(//textarray)[3]/text", u"\U0001D524");
++    // Euclid Symbol is drawn as Symbol (symbol encoding)
++    assertXPath(pDoc, "(//textarray)[4]/preceding-sibling::font[1]", "name", u"Symbol");
++    assertXPath(pDoc, "//font[@name='Euclid Symbol']", 0);
++    assertXPath(pDoc, "(//textarray)[5]/preceding-sibling::font[1]", "name", u"Times New Roman");
++}
++
++namespace
++{
++// Minimal EMF writer for the legacy Vietnamese font test
++void writeEmfRecord(SvMemoryStream& rStream, sal_uInt32 nType, const std::vector<sal_uInt32>& rDwords)
++{
++    rStream.WriteUInt32(nType).WriteUInt32(8 + 4 * rDwords.size());
++    for (sal_uInt32 n : rDwords)
++        rStream.WriteUInt32(n);
++}
++
++void writeEmfFont(SvMemoryStream& rStream, std::u16string_view aFace)
++{
++    // EMR_EXTCREATEFONTINDIRECTW: handle 1, LOGFONTW height -16, weight 400, DEFAULT_CHARSET
++    std::vector<sal_uInt32> aDwords{ 1, sal_uInt32(-16), 0, 0, 0, 400, 0x01000000, 0 };
++    sal_Unicode aName[32] = {};
++    std::copy(aFace.begin(), aFace.end(), aName);
++    for (size_t i = 0; i < 32; i += 2)
++        aDwords.push_back(aName[i] | (sal_uInt32(aName[i + 1]) << 16));
++    writeEmfRecord(rStream, 82, aDwords);
++    writeEmfRecord(rStream, 37, { 1 }); // EMR_SELECTOBJECT
++}
++
++// EMR_EXTTEXTOUTA (bWide false: one byte per character) or EMR_EXTTEXTOUTW
++void writeEmfText(SvMemoryStream& rStream, sal_Int32 nY, std::u16string_view aText, bool bWide)
++{
++    const sal_uInt32 nChars = aText.size();
++    const sal_uInt32 nStringBytes = ((bWide ? 2 * nChars : nChars) + 3) & ~3u;
++    std::vector<sal_uInt32> aDwords{ 0, 0, 2000, 1000, 1, 0, 0, // bounds, GM_COMPATIBLE, scales
++                                     100, sal_uInt32(nY), nChars, 76, 0, 0, 0, 2000, 1000, 76 + nStringBytes };
++    std::vector<unsigned char> aBytes;
++    for (sal_Unicode c : aText)
++    {
++        aBytes.push_back(c & 0xFF);
++        if (bWide)
++            aBytes.push_back(c >> 8);
++    }
++    aBytes.resize(nStringBytes);
++    for (size_t i = 0; i < aBytes.size(); i += 4)
++        aDwords.push_back(aBytes[i] | aBytes[i + 1] << 8 | aBytes[i + 2] << 16 | sal_uInt32(aBytes[i + 3]) << 24);
++    for (sal_uInt32 i = 0; i < nChars; ++i)
++        aDwords.push_back(100);
++    writeEmfRecord(rStream, bWide ? 84 : 83, aDwords);
++}
++}
++
++void WmfTest::testLegacyVietnameseFontsEmf()
++{
++    // HST Office: EMF equation previews (MathType 7, ChemDraw) with text in a TCVN3/VNI font
++    SvMemoryStream aStream;
++    // EMR_HEADER: bounds, frame (0.01 mm), " EMF", version, size and record count (patched), 3 handles
++    writeEmfRecord(aStream, 1, { 0, 0, 2000, 1000, 0, 0, 5000, 2500, 0x464D4520, 0x10000, 0, 0, 3, 0, 0, 0,
++                                 1024, 768, 320, 240 });
++    writeEmfFont(aStream, u".VnTime");
++    writeEmfText(aStream, 200, u"NaCl (r¾" u"n)", true); // EXTTEXTOUTW keeps the byte codes
++    writeEmfText(aStream, 500, u"®Æc", false); // EXTTEXTOUTA: "đặc"
++    writeEmfRecord(aStream, 40, { 1 }); // EMR_DELETEOBJECT
++    writeEmfFont(aStream, u"VNI-Times");
++    writeEmfText(aStream, 800, u"Hoøa tan", true);
++    writeEmfRecord(aStream, 14, { 0, 16, 20 }); // EMR_EOF
++    const sal_uInt32 nBytes = aStream.TellEnd();
++    aStream.Seek(48);
++    aStream.WriteUInt32(nBytes).WriteUInt32(10);
++    aStream.Seek(0);
++
++    GDIMetaFile aGDIMetaFile;
++    ReadWindowMetafile(aStream, aGDIMetaFile);
++    xmlDocUniquePtr pDoc = dumpAndParse(aGDIMetaFile);
++    CPPUNIT_ASSERT(pDoc);
++
++    // Without the fix: "NaCl (r¾n)" and "®Æc" in the font ".VnTime"
++    assertXPathContent(pDoc, "(//textarray)[1]/text", u"NaCl (rắn)");
++    assertXPathContent(pDoc, "(//textarray)[2]/text", u"đặc");
++    assertXPathContent(pDoc, "(//textarray)[3]/text", u"Hòa tan");
++    assertXPath(pDoc, "//font[@name='.VnTime']", 0);
++    assertXPath(pDoc, "(//textarray)[3]/preceding-sibling::font[1]", "name", u"Times New Roman");
++}
++
+ CPPUNIT_TEST_SUITE_REGISTRATION(WmfTest);
+ 
+ CPPUNIT_PLUGIN_IMPLEMENT();

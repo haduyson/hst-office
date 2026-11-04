@@ -1,0 +1,34 @@
+HST Office: Word sets an OMML equation in the size of the surrounding text (14 pt in most
+Vietnamese exam papers); imported formulas kept LibreOffice Math's 12 pt base size and looked
+smaller than in Word. The formula now gets the character height at the equation as base size
+and its frame is scaled to that size.
+
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
+@@ -3810,9 +3810,25 @@
+             uno::Any(sal_Int32(0)));
+         xComponentProperties->setPropertyValue(getPropertyName( PROP_BOTTOM_MARGIN ),
+             uno::Any(sal_Int32(0)));
++        // HST Office: Word sets an equation in the size of the surrounding text (the run or
++        // paragraph character height, often 13-14 pt in Vietnamese exam papers); the formula
++        // kept LibreOffice Math's 12 pt base size and looked smaller than in Word.
++        // The object is laid out at 12 pt and scaled to the text size.
++        double fCharHeight = 0;
++        double fScale = 1.0;
++        if ((GetAnyProperty(PROP_CHAR_HEIGHT, GetTopContext()) >>= fCharHeight) && fCharHeight >= 1
++            && fCharHeight <= 400 && std::round(fCharHeight) != 12)
++        {
++            xComponentProperties->setPropertyValue(u"BaseFontHeight"_ustr,
++                                                   uno::Any(sal_Int16(std::round(fCharHeight))));
++            fScale = std::round(fCharHeight) / 12.0;
++        }
+         Size size( 1000, 1000 );
+         if( oox::FormulaImExportBase* formulaimport = dynamic_cast< oox::FormulaImExportBase* >( xInterface.get()))
+-            size = formulaimport->getFormulaSize();
++        {
++            const Size aFormulaSize(formulaimport->getFormulaSize());
++            size = Size(std::round(aFormulaSize.Width() * fScale), std::round(aFormulaSize.Height() * fScale));
++        }
+         xStarMath->setPropertyValue(getPropertyName( PROP_WIDTH ),
+             uno::Any( sal_Int32(size.Width())));
+         xStarMath->setPropertyValue(getPropertyName( PROP_HEIGHT ),
