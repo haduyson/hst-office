@@ -145,15 +145,14 @@ class Welcome:
         tip = d.label("helpTip", s["helpTip"], PAD, y + 2, TEXT_W, 10)
         tip.TextColor = self.colours["muted"]
         y = self._rule("rule2", y + 15)
-        # Other HASON TECH solutions, two columns of names (tagline and description as tooltip).
+        # Other HASON TECH solutions: one row each, the name as a link and its short description beside it.
         y = self._heading("solutionsHeading", s["solutions"], y)
-        half = TEXT_W // 2
-        rows = int(math.ceil(len(m["solutions"]) / 2.0))
         for i, sol in enumerate(m["solutions"]):
-            col, row = i // rows, i % rows
             tooltip = "%s — %s. %s" % (sol["name"], sol["tagline"], s["openHelp"] % sol["label"])
-            self._link("link%d" % i, sol["name"], sol["url"], PAD + col * half, y + row * 11, half - 4, tooltip)
-        y += rows * 11 + 3
+            self._link("link%d" % i, sol["name"], sol["url"], PAD, y, 52, tooltip)
+            d.label("tagline%d" % i, sol["tagline"], PAD + 54, y, TEXT_W - 54, 10)
+            y += 11
+        y += 3
         c = m["contact"]
         contact = s["contactLine"] % {"email": c["email"], "phone": c["phone"]}
         d.label("contactLine", contact, PAD, y, TEXT_W, 10)
