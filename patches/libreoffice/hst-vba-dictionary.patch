@@ -1,0 +1,382 @@
+HST Office: Scripting.Dictionary in VBA code, on every platform (owner request for 1.0.0-beta.5).
+
+CreateObject("Scripting.Dictionary") needed the Windows scripting runtime through COM and failed
+everywhere else ("Module cannot be loaded"). basic now has its own Dictionary object
+(basic/source/classes/sbxdictionary.cxx, created by SbiFactory for "Scripting.Dictionary" and
+"Dictionary", so CreateObject, New Scripting.Dictionary and New Dictionary all work):
+- Add (error 457 on a duplicate key), Item (get and let), d(key) / d(key) = value (the default
+  member is the stored item itself; a missing key is added, as in VBA), Exists, Remove (error 32811
+  when missing), RemoveAll, Count, Keys / Items (0-based arrays), CompareMode (vbBinaryCompare,
+  vbTextCompare: case-insensitive keys, also for Vietnamese letters).
+- For Each k In d iterates over the keys (runtime.cxx).
+- Keys may be strings, numbers or objects; items keep their type (nested dictionaries work).
+
+License: these upstream files remain under their original license (MPL-2.0); the new
+basic/source/classes/sbxdictionary.cxx is MPL-2.0 like its neighbours.
+Test: tests/runtime/check-vba.py (calc-dictionary*, writer-dictionary* cases).
+---
+--- a/basic/Library_sb.mk
++++ b/basic/Library_sb.mk
+@@ -74,6 +74,7 @@
+ 	basic/source/classes/propacc \
+ 	basic/source/classes/sb \
+ 	basic/source/classes/sbunoobj \
++	basic/source/classes/sbxdictionary \
+ 	basic/source/classes/sbxmod \
+ 	basic/source/comp/buffer \
+ 	basic/source/comp/codegen \
+--- a/basic/source/classes/sb.cxx
++++ b/basic/source/classes/sb.cxx
+@@ -450,6 +450,11 @@
+     {
+         return new BasicCollection( u"Collection"_ustr );
+     }
++    // HST: Scripting.Dictionary on every platform (CreateObject, New Dictionary)
++    else if( rClass.equalsIgnoreAsciiCase( "Scripting.Dictionary" ) || rClass.equalsIgnoreAsciiCase( "Dictionary" ) )
++    {
++        return new BasicDictionary( u"Dictionary"_ustr );
++    }
+     else if( rClass.equalsIgnoreAsciiCase( "FileSystemObject" ) )
+     {
+         try
+--- a/basic/source/inc/sbunoobj.hxx
++++ b/basic/source/inc/sbunoobj.hxx
+@@ -365,6 +365,34 @@
+     virtual void Clear() override;
+ };
+ 
++// HST: Scripting.Dictionary for VBA code (implemented in sbxdictionary.cxx)
++class BasicDictionary final : public SbxObject
++{
++    std::vector<SbxVariableRef> maKeys;
++    std::vector<SbxVariableRef> maItems;
++    std::unordered_map<OUString, sal_Int32> maIndex; // normalized key -> position
++    sal_Int32 mnCompareMode; // 0 = vbBinaryCompare, 1 = vbTextCompare
++    static SbxInfoRef xAddInfo;
++    static SbxInfoRef xKeyInfo;
++
++    void Initialize();
++    virtual ~BasicDictionary() override;
++    virtual void Notify( SfxBroadcaster& rBC, const SfxHint& rHint ) override;
++    OUString implKeyOf( SbxVariable& rKey ) const;
++    sal_Int32 implFind( SbxVariable& rKey ) const;
++    sal_Int32 implAdd( SbxVariable& rKey, const SbxVariable* pItem );
++    static SbxDimArray* implArray( const std::vector<SbxVariableRef>& rValues );
++    static void implReturnArray( SbxVariable* pVar, SbxDimArray* pArray );
++
++public:
++    BasicDictionary( const OUString& rClassname );
++    virtual void Clear() override;
++    /// d(key) and d.Item(key): the stored item (added when missing, as VBA does)
++    SbxVariable* GetItemForKey( SbxVariable& rKey );
++    /// For Each k In d: the keys
++    SbxDimArray* GetKeysArray();
++};
++
+ class VBAConstantHelper
+ {
+ private:
+--- a/basic/source/runtime/runtime.cxx
++++ b/basic/source/runtime/runtime.cxx
+@@ -1165,6 +1165,14 @@
+             pObj = v.pObj;
+     }
+ 
++    // HST: For Each k In dictionary loops over its keys
++    SbxDimArrayRef xDictKeys;
++    if (BasicDictionary* pDict = dynamic_cast<BasicDictionary*>(pObj))
++    {
++        xDictKeys = pDict->GetKeysArray();
++        pObj = xDictKeys.get();
++    }
++
+     if (SbxDimArray* pArray = dynamic_cast<SbxDimArray*>(pObj))
+     {
+         p->refEnd = reinterpret_cast<SbxVariable*>(pArray);
+@@ -4131,6 +4139,14 @@
+                     pPar->Put(pElem, 0);
+                     pCol->CollItem( pPar );
+                 }
++                // HST: d(key) is the stored item itself, so d(key) = value assigns (and adds) it
++                else if (BasicDictionary* pDict = dynamic_cast<BasicDictionary*>(pObj.get()))
++                {
++                    if (pPar->Count() == 2)
++                        pElem = pDict->GetItemForKey( *pPar->Get(1) );
++                    else
++                        Error( ERRCODE_BASIC_WRONG_ARGS );
++                }
+             }
+             else if( bVBAEnabled )  // !pObj
+             {
+--- /dev/null
++++ b/basic/source/classes/sbxdictionary.cxx
+@@ -0,0 +1,269 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Scripting.Dictionary for VBA code (CreateObject("Scripting.Dictionary"), New Dictionary),
++// on every platform: no Windows scripting runtime needed.
++
++#include <basic/sbx.hxx>
++#include <basic/sberrors.hxx>
++#include <runtime.hxx>
++#include <sbintern.hxx>
++#include <sbunoobj.hxx>
++#include <errobject.hxx>
++
++namespace
++{
++constexpr OUString aCountStr = u"Count"_ustr;
++constexpr OUString aAddStr = u"Add"_ustr;
++constexpr OUString aItemStr = u"Item"_ustr;
++constexpr OUString aExistsStr = u"Exists"_ustr;
++constexpr OUString aRemoveStr = u"Remove"_ustr;
++constexpr OUString aRemoveAllStr = u"RemoveAll"_ustr;
++constexpr OUString aKeysStr = u"Keys"_ustr;
++constexpr OUString aItemsStr = u"Items"_ustr;
++constexpr OUString aCompareModeStr = u"CompareMode"_ustr;
++
++// VBA run-time errors of the Scripting runtime
++constexpr sal_Int32 nErrKeyExists = 457; // This key is already associated with an element of this collection
++constexpr sal_Int32 nErrNotFound = 32811; // Element not found
++
++void lcl_vbaError(sal_Int32 nNumber, const OUString& rMessage)
++{
++    if (SbiInstance* pInst = GetSbData()->pInst)
++    {
++        // like Err.Raise: the Err object gets the VBA number, then the runtime error is raised
++        if (SbxErrObject* pErr = static_cast<SbxErrObject*>(SbxErrObject::getErrObject().get()))
++            pErr->setNumberAndDescription(nNumber, rMessage);
++        pInst->ErrorVB(nNumber, rMessage);
++    }
++    else
++        StarBASIC::Error(ERRCODE_BASIC_BAD_ARGUMENT);
++}
++
++SbxDataType lcl_baseType(const SbxVariable& rVar)
++{
++    SbxDataType eType = rVar.GetType();
++    return static_cast<SbxDataType>(eType & ~SbxBYREF);
++}
++}
++
++SbxInfoRef BasicDictionary::xAddInfo;
++SbxInfoRef BasicDictionary::xKeyInfo;
++
++BasicDictionary::BasicDictionary(const OUString& rClass)
++    : SbxObject(rClass)
++    , mnCompareMode(0)
++{
++    Initialize();
++}
++
++BasicDictionary::~BasicDictionary() {}
++
++void BasicDictionary::Clear()
++{
++    SbxObject::Clear();
++    Initialize();
++}
++
++void BasicDictionary::Initialize()
++{
++    maKeys.clear();
++    maItems.clear();
++    maIndex.clear();
++    SetType(SbxOBJECT);
++    SetFlag(SbxFlagBits::Fixed);
++    ResetFlag(SbxFlagBits::Write);
++    SbxVariable* p = Make(aCountStr, SbxClassType::Property, SbxLONG);
++    p->ResetFlag(SbxFlagBits::Write);
++    p->SetFlag(SbxFlagBits::DontStore);
++    for (const OUString& rName : { aAddStr, aExistsStr, aRemoveStr, aRemoveAllStr, aKeysStr, aItemsStr })
++        Make(rName, SbxClassType::Method, SbxVARIANT)->SetFlag(SbxFlagBits::DontStore);
++    p = Make(aItemStr, SbxClassType::Property, SbxVARIANT);
++    p->SetFlag(SbxFlagBits::DontStore);
++    p = Make(aCompareModeStr, SbxClassType::Property, SbxLONG);
++    p->SetFlag(SbxFlagBits::DontStore);
++    if (!xAddInfo.is())
++    {
++        xAddInfo = new SbxInfo;
++        xAddInfo->AddParam(u"Key"_ustr, SbxVARIANT);
++        xAddInfo->AddParam(u"Item"_ustr, SbxVARIANT);
++    }
++    if (!xKeyInfo.is())
++    {
++        xKeyInfo = new SbxInfo;
++        xKeyInfo->AddParam(u"Key"_ustr, SbxVARIANT);
++    }
++}
++
++OUString BasicDictionary::implKeyOf(SbxVariable& rKey) const
++{
++    switch (lcl_baseType(rKey))
++    {
++        case SbxSTRING:
++        case SbxLPSTR:
++        case SbxLPWSTR:
++        {
++            OUString aKey = rKey.GetOUString();
++            // TextCompare: case-insensitive, also for Vietnamese letters ("Hà Nội" = "hà nội")
++            return "s" + (mnCompareMode == 1 ? SbxVariable::NameToCaseInsensitiveName(aKey) : aKey);
++        }
++        case SbxOBJECT:
++        case SbxDATAOBJECT:
++            return "o" + OUString::number(reinterpret_cast<sal_IntPtr>(rKey.GetObject()));
++        case SbxEMPTY:
++            return u"e"_ustr;
++        default:
++            return "n" + OUString::number(rKey.GetDouble());
++    }
++}
++
++sal_Int32 BasicDictionary::implFind(SbxVariable& rKey) const
++{
++    auto it = maIndex.find(implKeyOf(rKey));
++    return it == maIndex.end() ? -1 : it->second;
++}
++
++sal_Int32 BasicDictionary::implAdd(SbxVariable& rKey, const SbxVariable* pItem)
++{
++    auto xKey = tools::make_ref<SbxVariable>(rKey);
++    xKey->SetFlag(SbxFlagBits::ReadWrite);
++    xKey->SetParameters(nullptr);
++    auto xItem = pItem ? tools::make_ref<SbxVariable>(*pItem) : tools::make_ref<SbxVariable>(SbxVARIANT);
++    xItem->SetFlag(SbxFlagBits::ReadWrite);
++    xItem->ResetFlag(SbxFlagBits::Fixed);
++    xItem->SetParameters(nullptr);
++    maIndex.emplace(implKeyOf(rKey), static_cast<sal_Int32>(maKeys.size()));
++    maKeys.push_back(xKey);
++    maItems.push_back(xItem);
++    return static_cast<sal_Int32>(maKeys.size()) - 1;
++}
++
++SbxVariable* BasicDictionary::GetItemForKey(SbxVariable& rKey)
++{
++    // VBA adds a missing key on read and on assignment (d(k) = v)
++    sal_Int32 nIndex = implFind(rKey);
++    if (nIndex < 0)
++        nIndex = implAdd(rKey, nullptr);
++    return maItems[nIndex].get();
++}
++
++SbxDimArray* BasicDictionary::implArray(const std::vector<SbxVariableRef>& rValues)
++{
++    SbxDimArray* pArray = new SbxDimArray(SbxVARIANT);
++    sal_Int32 nCount = static_cast<sal_Int32>(rValues.size());
++    pArray->unoAddDim(0, nCount - 1);
++    for (sal_Int32 i = 0; i < nCount; ++i)
++    {
++        SbxVariableRef xVar = new SbxVariable(*rValues[i]);
++        xVar->ResetFlag(SbxFlagBits::Fixed);
++        pArray->Put(xVar.get(), &i);
++    }
++    return pArray;
++}
++
++SbxDimArray* BasicDictionary::GetKeysArray() { return implArray(maKeys); }
++
++void BasicDictionary::implReturnArray(SbxVariable* pVar, SbxDimArray* pArray)
++{
++    SbxFlagBits nFlags = pVar->GetFlags();
++    pVar->ResetFlag(SbxFlagBits::Fixed);
++    pVar->PutObject(pArray);
++    pVar->SetFlags(nFlags);
++}
++
++void BasicDictionary::Notify(SfxBroadcaster& rCst, const SfxHint& rHint)
++{
++    const SbxHint* p = dynamic_cast<const SbxHint*>(&rHint);
++    if (!p)
++        return SbxObject::Notify(rCst, rHint);
++    const SfxHintId nId = p->GetId();
++    const bool bRead = nId == SfxHintId::BasicDataWanted;
++    const bool bWrite = nId == SfxHintId::BasicDataChanged;
++    SbxVariable* pVar = p->GetVar();
++    SbxArray* pArg = pVar->GetParameters();
++    const OUString aName = pVar->GetName();
++    const sal_uInt32 nArgs = pArg ? pArg->Count() : 0;
++
++    if (nId == SfxHintId::BasicInfoWanted)
++    {
++        if (aName.equalsIgnoreAsciiCase(aAddStr))
++            pVar->SetInfo(xAddInfo.get());
++        else if (aName.equalsIgnoreAsciiCase(aItemStr) || aName.equalsIgnoreAsciiCase(aExistsStr)
++                 || aName.equalsIgnoreAsciiCase(aRemoveStr))
++            pVar->SetInfo(xKeyInfo.get());
++        return SbxObject::Notify(rCst, rHint);
++    }
++    if (!bRead && !bWrite)
++        return SbxObject::Notify(rCst, rHint);
++
++    if (aName.equalsIgnoreAsciiCase(aCountStr))
++        pVar->PutLong(static_cast<sal_Int32>(maKeys.size()));
++    else if (aName.equalsIgnoreAsciiCase(aCompareModeStr))
++    {
++        if (bWrite)
++            mnCompareMode = pVar->GetLong() == 0 ? 0 : 1; // vbBinaryCompare / vbTextCompare
++        else
++            pVar->PutLong(mnCompareMode);
++    }
++    else if (aName.equalsIgnoreAsciiCase(aAddStr))
++    {
++        if (nArgs != 3)
++            return SetError(ERRCODE_BASIC_WRONG_ARGS);
++        if (implFind(*pArg->Get(1)) >= 0)
++            return lcl_vbaError(nErrKeyExists, u"This key is already associated with an element of this collection"_ustr);
++        implAdd(*pArg->Get(1), pArg->Get(2));
++    }
++    else if (aName.equalsIgnoreAsciiCase(aItemStr))
++    {
++        if (nArgs != 2)
++            return SetError(ERRCODE_BASIC_WRONG_ARGS);
++        SbxVariable* pItem = GetItemForKey(*pArg->Get(1));
++        if (bWrite)
++        {
++            SbxVariableRef xValue = new SbxVariable(*pVar);
++            xValue->SetParameters(nullptr);
++            *pItem = *xValue;
++        }
++        else
++            *(pArg->Get(0)) = *pItem;
++    }
++    else if (aName.equalsIgnoreAsciiCase(aExistsStr))
++    {
++        if (nArgs != 2)
++            return SetError(ERRCODE_BASIC_WRONG_ARGS);
++        pVar->PutBool(implFind(*pArg->Get(1)) >= 0);
++    }
++    else if (aName.equalsIgnoreAsciiCase(aRemoveStr))
++    {
++        if (nArgs != 2)
++            return SetError(ERRCODE_BASIC_WRONG_ARGS);
++        sal_Int32 nIndex = implFind(*pArg->Get(1));
++        if (nIndex < 0)
++            return lcl_vbaError(nErrNotFound, u"Element not found"_ustr);
++        maKeys.erase(maKeys.begin() + nIndex);
++        maItems.erase(maItems.begin() + nIndex);
++        maIndex.clear();
++        for (sal_Int32 i = 0; i < static_cast<sal_Int32>(maKeys.size()); ++i)
++            maIndex.emplace(implKeyOf(*maKeys[i]), i);
++    }
++    else if (aName.equalsIgnoreAsciiCase(aRemoveAllStr))
++    {
++        maKeys.clear();
++        maItems.clear();
++        maIndex.clear();
++    }
++    else if (aName.equalsIgnoreAsciiCase(aKeysStr))
++        implReturnArray(pVar, implArray(maKeys));
++    else if (aName.equalsIgnoreAsciiCase(aItemsStr))
++        implReturnArray(pVar, implArray(maItems));
++    else
++        return SbxObject::Notify(rCst, rHint);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

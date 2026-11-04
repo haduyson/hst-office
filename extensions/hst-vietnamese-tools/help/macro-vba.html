@@ -83,7 +83,7 @@ End Sub</code></pre>
 </ul>
 <h2 id="tuong-thich">Bảng tương thích</h2>
 <p>Kết quả kiểm tra tự động trên HST Office 1.0.0-beta.5: mỗi dòng là một đoạn mã VBA chạy trong tài liệu mới.</p>
-<h3>HST Sheets (mã Excel): 35/37 trường hợp chạy được</h3>
+<h3>HST Sheets (mã Excel): 43/44 trường hợp chạy được</h3>
 <div class="table-wrap"><table><caption>Mã VBA của Excel trong HST Sheets</caption><thead><tr><th scope="col">Mã VBA</th><th scope="col">Kết quả</th></tr></thead><tbody>
 <tr><td><code>Range("A1").Value</code>, <code>Cells(hàng, cột)</code>, <code>Offset</code>, <code>Resize</code>, <code>Address</code></td><td>Chạy được</td></tr>
 <tr><td><code>Worksheets(1)</code>, <code>Worksheets("tên")</code>, <code>ActiveSheet</code>, <code>ThisWorkbook</code>, <code>Worksheets.Add</code></td><td>Chạy được</td></tr>
@@ -97,10 +97,11 @@ End Sub</code></pre>
 <tr><td><code>On Error Resume Next</code>, <code>On Error GoTo</code>, <code>Err.Raise</code>, <code>Split</code>, <code>Format</code>, <code>Collection</code></td><td>Chạy được</td></tr>
 <tr><td>Hàm tự viết dùng trong ô (<code>=NHANDOI(A1)</code>), <code>Call</code>, <code>Application.ScreenUpdating</code></td><td>Chạy được</td></tr>
 <tr><td>Sự kiện <code>Workbook_Open</code>, <code>Worksheet_Change</code> (cả sau khi lưu <code>.xlsm</code>)</td><td>Chạy được</td></tr>
-<tr><td><code>CreateObject("Scripting.Dictionary")</code> và đối tượng COM của Windows</td><td>Hạn chế</td></tr>
+<tr><td><code>Scripting.Dictionary</code> (<code>CreateObject</code>, <code>New Dictionary</code>): <code>Add</code>, <code>d(khóa) = giá trị</code>, <code>Exists</code>, <code>Remove</code>, <code>Keys</code>, <code>Items</code>, <code>For Each</code>, <code>CompareMode = vbTextCompare</code> (khóa tiếng Việt không phân biệt hoa thường), lỗi 457 khi thêm trùng khóa</td><td>Chạy được</td></tr>
+<tr><td>Đối tượng COM khác của Windows (<code>Excel.Application</code>, <code>ADODB</code>…)</td><td>Hạn chế</td></tr>
 <tr><td>UserForm (<code>UserForm1.Show</code>) soạn mới</td><td>Hạn chế</td></tr>
 </tbody></table></div>
-<h3>HST Writer (mã Word): 20/24 trường hợp chạy được</h3>
+<h3>HST Writer (mã Word): 22/26 trường hợp chạy được</h3>
 <div class="table-wrap"><table><caption>Mã VBA của Word trong HST Writer</caption><thead><tr><th scope="col">Mã VBA</th><th scope="col">Kết quả</th></tr></thead><tbody>
 <tr><td><code>ActiveDocument.Content</code>, <code>ActiveDocument.Range(đầu, cuối)</code>, <code>.Text</code></td><td>Chạy được</td></tr>
 <tr><td><code>Range.InsertAfter</code>, <code>Range.InsertBefore</code></td><td>Chạy được</td></tr>
@@ -111,10 +112,11 @@ End Sub</code></pre>
 <tr><td><code>Words</code>, <code>Sentences</code>, <code>Bookmarks.Add</code>, <code>Bookmarks("tên").Range</code></td><td>Chạy được</td></tr>
 <tr><td><code>Sections(1).Headers(wdHeaderFooterPrimary)</code>, <code>ListFormat.ApplyBulletDefault</code></td><td>Chạy được</td></tr>
 <tr><td><code>Font.Bold</code>, <code>Font.Size</code>, <code>BuiltInDocumentProperties</code>, <code>MsgBox</code></td><td>Chạy được</td></tr>
+<tr><td><code>Scripting.Dictionary</code> trong macro của Writer (đếm từ, khóa tiếng Việt)</td><td>Chạy được</td></tr>
 <tr><td>Sự kiện <code>Document_Open</code> khi mở tệp <code>.docm</code> hoặc <code>.odt</code> đã lưu bằng HST</td><td>Chạy được</td></tr>
 <tr><td><code>InlineShapes</code>, <code>Comments.Add</code>, <code>Fields.Add</code>, UserForm soạn mới</td><td>Hạn chế</td></tr>
 </tbody></table></div>
-<div class="note warn"><strong>Chưa hỗ trợ:</strong> <code>CreateObject("Scripting.Dictionary")</code> và các đối tượng COM của Windows (dùng <code>Collection</code> thay thế); soạn UserForm mới; trong HST Writer: <code>InlineShapes</code>, <code>Comments</code>, <code>Fields.Add</code>. Với tệp quan trọng, hãy giữ một bản gốc trước khi lưu đè.</div>
+<div class="note warn"><strong>Chưa hỗ trợ:</strong> các đối tượng COM của Windows ngoài <code>Scripting.Dictionary</code>; soạn UserForm mới; trong HST Writer: <code>InlineShapes</code>, <code>Comments</code>, <code>Fields.Add</code>. Với tệp quan trọng, hãy giữ một bản gốc trước khi lưu đè.</div>
 </article>
 <nav class="page-nav" aria-label="Chuyển trang hướng dẫn">
   <a href="chuyen-ma.html" rel="prev"><strong>← Trang trước</strong><span>Chuyển TCVN3/VNI sang Unicode</span></a>

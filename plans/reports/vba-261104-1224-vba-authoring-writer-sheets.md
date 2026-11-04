@@ -184,11 +184,14 @@ Risk notes: Word events now run for .docx/.docm/VBA-mode documents only after th
 
 Approval screenshots (Linux GTK3, Vietnamese UI): `scratchpad/approve/vba/` (HST menu, Công cụ tab in Writer and Sheets, editor with template, macro result in Sheets, security prompt).
 
+## Scripting.Dictionary (owner request, `hst-vba-dictionary.patch`)
+
+`CreateObject("Scripting.Dictionary")` failed off Windows (no COM). basic now ships its own Dictionary (`basic/source/classes/sbxdictionary.cxx`): Add (error 457 on duplicates), Item get/let, `d(k)` / `d(k) = v` (adds a missing key, like VBA), Exists, Remove (32811), RemoveAll, Count, Keys/Items arrays, CompareMode (TextCompare: case-insensitive Vietnamese keys), For Each over keys, `CreateObject`, `New Scripting.Dictionary`, `New Dictionary`, nested dictionaries. New cases: 8 in Sheets (incl. word count, dedupe a column, nested, "Hà Nội"/"hà nội"), 2 in Writer — all pass. Sheets now **43/44**, Writer **22/26**.
+
 ## Roadmap (larger gaps, not attempted)
 
 1. Writer: `InlineShapes`, `Comments.Add`, `Fields.Add` (IDL + `sw/source/ui/vba` like the beta.5 additions); remaining members used by upstream testWords/testSentences/testParagraphFormat/testFontColor.
 2. UserForms: no Excel-style designer for new forms; VbaExport writes no designer storages (Calc .xlsm with UserForms may lose them on save — upstream behaviour, not measured; Writer keeps such projects unchanged).
-3. `Scripting.Dictionary` (common in Excel code).
 4. Verify HST-saved .xlsm/.docm in Microsoft Excel/Word (no Office on the build host); new HST projects have no ThisWorkbook/Sheet/ThisDocument document modules.
 5. .doc (Word 97) does not export new VBA projects.
 

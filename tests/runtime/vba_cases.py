@@ -103,8 +103,41 @@ CALC = [
          body='Dim p As Variant, c As New Collection\np = Split("a,b,c", ",")\nc.Add "x"\nc.Add "y"\n'
               'r = Join(p, "-") & "|" & UCase("hà nội") & "|" & Format(1234.5, "0.00") & "|" & c.Count',
          want="a-b-c|HÀ NỘI|1234.50|2"),
-    dict(id="calc-dictionary", title="CreateObject(\"Scripting.Dictionary\")", status="limited",
-         body='Dim d As Object\nSet d = CreateObject("Scripting.Dictionary")\nd.Add "k", 1\nr = d("k")', want="1"),
+    dict(id="calc-dictionary", title="CreateObject(\"Scripting.Dictionary\"): Add, Item, Exists, Count, Remove", status="ok",
+         body='Dim d As Object\nSet d = CreateObject("Scripting.Dictionary")\nd.Add "a", 1\nd.Add "b", 2\nd("c") = 3\n'
+              'd.Item("a") = 10\nd.Remove "b"\nr = d.Count & "|" & d("a") & "|" & d.Item("c") & "|" & d.Exists("b") & "|" & d.Exists("c")',
+         want="2|10|3|False|True"),
+    dict(id="calc-dictionary-keys", title="Dictionary.Keys, .Items (mảng), For Each k In d, RemoveAll", status="ok",
+         body='Dim d As Object, k As Variant, s As String, ks As Variant\nSet d = CreateObject("Scripting.Dictionary")\n'
+              'd.Add "x", 1: d.Add "y", 2: d.Add "z", 3\nFor Each k In d\n  s = s & k & d(k)\nNext k\nks = d.Keys\n'
+              'r = s & "|" & ks(2) & "|" & UBound(d.Items) & "|" & d.Items()(0)\nd.RemoveAll\nr = r & "|" & d.Count',
+         want="x1y2z3|z|2|1|0"),
+    dict(id="calc-dictionary-errors", title="Dictionary: Add trùng khóa báo lỗi 457", status="ok",
+         body='r = HstTrung()', want="457",
+         extra='Function HstTrung()\n  Dim d As Object\n  Set d = CreateObject("Scripting.Dictionary")\n  d.Add "k", 1\n'
+               '  On Error Resume Next\n  d.Add "k", 2\n  HstTrung = Err.Number\nEnd Function'),
+    dict(id="calc-dictionary-textcompare", title="Dictionary.CompareMode = vbTextCompare (\"Hà Nội\" = \"hà nội\")", status="ok",
+         body='Dim d As Object, e As Object\nSet d = CreateObject("Scripting.Dictionary")\nd.CompareMode = vbTextCompare\n'
+              'd("Hà Nội") = 1\nd("hà nội") = d("hà nội") + 1\nSet e = CreateObject("Scripting.Dictionary")\ne("Hà Nội") = 1\ne("hà nội") = 1\n'
+              'r = d.Count & "|" & d("HÀ NỘI") & "|" & e.Count', want="1|2|2"),
+    dict(id="calc-dictionary-new", title="Dim d As New Scripting.Dictionary, Set d = New Dictionary", status="ok",
+         body='Dim d As New Scripting.Dictionary\nDim e As Object\nSet e = New Dictionary\nd.Add 1, "một"\ne(2) = "hai"\n'
+              'r = d(1) & "|" & e(2) & "|" & d.Exists(1)', want="một|hai|True"),
+    dict(id="calc-dictionary-wordcount", title="Đếm số lần xuất hiện của từ (Dictionary)", status="ok",
+         body='Dim d As Object, w As Variant\nSet d = CreateObject("Scripting.Dictionary")\n'
+              'For Each w In Split("an bình an vui bình an", " ")\n  d(w) = d(w) + 1\nNext w\n'
+              'Range("A1").Value = d("an")\nr = d.Count & "|" & d("an") & "|" & d("bình") & "|" & d("vui")', want="3|3|2|1"),
+    dict(id="calc-dictionary-dedupe", title="Lọc trùng một cột bằng Dictionary", status="ok",
+         body='Dim d As Object, c As Object, i As Long, k As Variant\nSet d = CreateObject("Scripting.Dictionary")\n'
+              'Range("A1").Value = "Hà Nội": Range("A2").Value = "Huế": Range("A3").Value = "Hà Nội": Range("A4").Value = "Đà Nẵng": Range("A5").Value = "Huế"\n'
+              'For Each c In Range("A1:A5")\n  If Not d.Exists(c.Value) Then d.Add c.Value, True\nNext c\n'
+              'i = 1\nFor Each k In d.Keys\n  Cells(i, 2).Value = k\n  i = i + 1\nNext k\nr = d.Count & "|" & Range("B3").Value',
+         want="3|Đà Nẵng", doc=lambda d: _cell(d, "B1").String == "Hà Nội" and _cell(d, "B4").String == ""),
+    dict(id="calc-dictionary-nested", title="Dictionary lồng nhau (Set d(k) = Dictionary)", status="ok",
+         body='Dim d As Object, tp As Object\nSet d = CreateObject("Scripting.Dictionary")\n'
+              'Set tp = CreateObject("Scripting.Dictionary")\ntp("dân số") = 8\nSet d("Hà Nội") = tp\n'
+              'Set d("Huế") = CreateObject("Scripting.Dictionary")\nd("Huế")("dân số") = 1\n'
+              'r = d("Hà Nội")("dân số") & "|" & d("Huế")("dân số") & "|" & d("Hà Nội").Count', want="8|1|1"),
     dict(id="calc-application", title="Application.ScreenUpdating, Calculate, StatusBar", status="ok",
          body='Application.ScreenUpdating = False\nApplication.Calculate\nApplication.StatusBar = "Đang chạy"\n'
               'Application.StatusBar = False\nApplication.ScreenUpdating = True\nr = Application.ScreenUpdating', want="True"),
@@ -208,6 +241,14 @@ WRITER = [
     dict(id="writer-document-properties", title="BuiltInDocumentProperties(\"Title\")", status="ok",
          body='ActiveDocument.BuiltInDocumentProperties("Title") = "Báo cáo"\nr = ActiveDocument.BuiltInDocumentProperties("Title")',
          want="Báo cáo"),
+    dict(id="writer-dictionary-wordcount", title="Đếm từ trong văn bản bằng Scripting.Dictionary", status="ok",
+         body='Dim d As Object, w As Variant\nSet d = CreateObject("Scripting.Dictionary")\nd.CompareMode = vbTextCompare\n'
+              'For Each w In Split(Replace(ActiveDocument.Paragraphs(2).Range.Text, ".", ""), " ")\n  If Len(Trim(w)) > 0 Then d(Trim(w)) = d(Trim(w)) + 1\nNext w\n'
+              'r = d("hst") & "|" & d.Exists("ĐOẠN") & "|" & d.Count', want="2|True|6"),
+    dict(id="writer-dictionary-nested", title="Dictionary lồng nhau, khóa tiếng Việt (TextCompare)", status="ok",
+         body='Dim d As Object\nSet d = CreateObject("Scripting.Dictionary")\nd.CompareMode = vbTextCompare\n'
+              'Set d("Hà Nội") = CreateObject("Scripting.Dictionary")\nd("hà nội")("số đoạn") = ActiveDocument.Paragraphs.Count\n'
+              'r = d("HÀ NỘI")("số đoạn") & "|" & d.Count', want="3|1"),
     dict(id="writer-userform", title="UserForm1.Show (biểu mẫu mới tạo trong HST)", status="limited",
          body='UserForm1.Show\nr = "ok"', want="ok"),
 ]
