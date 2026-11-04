@@ -86,6 +86,37 @@
   openVersion();
   window.addEventListener('hashchange', openVersion);
 
+  // All-time visit/download totals; the server rewrites /thong-ke.json every 15 minutes.
+  // Numbers stay hidden (space reserved, no layout shift) until valid data arrives.
+  const statsBox = document.querySelector('[data-office-stats]');
+  if (statsBox && typeof window.fetch === 'function') {
+    fetch('/thong-ke.json').then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data) => {
+        const os = data.theo_he_dieu_hanh || {};
+        const values = Object.assign({}, os, {
+          luot_truy_cap: data.luot_truy_cap,
+          luot_tai: data.luot_tai,
+          macos: (os['macos-arm'] || 0) + (os['macos-intel'] || 0)
+        });
+        const number = new Intl.NumberFormat('vi-VN');
+        document.querySelectorAll('[data-stat]').forEach((element) => {
+          const value = values[element.dataset.stat];
+          if (Number.isFinite(value)) element.textContent = number.format(value);
+        });
+        const time = statsBox.querySelector('[data-stat-time]');
+        const updated = new Date(data.cap_nhat);
+        if (time && !Number.isNaN(updated.getTime())) {
+          time.dateTime = data.cap_nhat;
+          time.textContent = updated.toLocaleString('vi-VN', {
+            hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric',
+            timeZone: 'Asia/Ho_Chi_Minh'
+          });
+        }
+        document.querySelectorAll('.stats-pending').forEach((element) => element.classList.remove('stats-pending'));
+      })
+      .catch(() => { /* Keep the reserved space empty rather than show wrong numbers. */ });
+  }
+
   // GA4 does not recognise /tai/* as file downloads (no file extension), so report them explicitly.
   document.addEventListener('click', (event) => {
     const link = event.target.closest('a[href^="/tai/"]');
