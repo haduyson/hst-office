@@ -85,7 +85,9 @@ def render():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(args=["--allow-file-access-from-files"])
         for solution in solutions:
-            item = {k: solution[k] for k in ("id", "name", "tagline", "url")}
+            item = {k: solution[k] for k in ("id", "name", "tagline")}
+            # Clicks go through the server-side counter, which redirects to the solution's page.
+            item["url"] = "https://system.hasontech.vn/hst-office/go/" + solution["id"]
             item.update(order=len(items), image={})
             # Temporary HTML beside the template makes file:// fonts work without a web server.
             page_path = ART / ".render.html"

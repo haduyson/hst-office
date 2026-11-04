@@ -132,7 +132,9 @@ class BannerContractTests(unittest.TestCase):
         self.assertEqual({i["id"] for i in doc["items"]}, set(solutions))
         for item in doc["items"]:
             solution = solutions[item["id"]]
-            for field in ("id", "name", "tagline", "url"): self.assertEqual(item[field], solution[field])
+            for field in ("id", "name", "tagline"): self.assertEqual(item[field], solution[field])
+            # Clicks go through the server-side counter; solutions.json keeps the direct page.
+            self.assertEqual(item["url"], "https://system.hasontech.vn/hst-office/go/" + item["id"])
             for scale, spec in item["image"].items():
                 data = (Path(ROOT) / "extensions/hst-vietnamese-tools" / spec["url"]).read_bytes()
                 self.assertEqual(verify.verify_image(data, spec), ".png")

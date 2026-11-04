@@ -132,6 +132,10 @@ bytes**, detached base64 ASCII, one line with an optional trailing newline. The 
 response is limited to 128 bytes. Verification precedes JSON/schema parsing. Installed
 defaults are trusted via the packaged application, not signed with a fake/test key.
 
+## Click counting
+
+Every banner `url`, bundled and online, is `https://system.hasontech.vn/hst-office/go/<id>`. The server adds to a total per banner and day, stores no IP address, and answers 302 to the solution page with the three UTM parameters. The office sends no separate request: only a user click opens this link in the browser. There is no display telemetry. `data/hst/solutions.json` keeps the direct page for the welcome dialog and Start Center, which are not counted. An id added to the bundled set must be published on the server first, or its clicks go to https://hasontech.vn/ uncounted. If system.hasontech.vn is down entirely, banner clicks do not reach the destination.
+
 ## Runtime, cache and privacy
 
 `onFirstVisibleTask` starts the `org.hst.office.BannerStartup` job. It captures the
