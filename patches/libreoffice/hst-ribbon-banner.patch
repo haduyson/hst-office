@@ -1,0 +1,1103 @@
+HST Office: rotating HASON TECH solution banner in the ribbon of HST Writer, Sheets and Slides.
+
+Owner decisions (2026-11-04): one banner set for all apps, rotating every rotateSeconds (default 10);
+users cannot hide it and there is no administrator switch; a click opens the item's URL with UTM in
+the system browser. Content only comes from the data layer of the bundled extension
+(docs/BANNERS.md: installed defaults, verified cache, signed system.hasontech.vn feed).
+
+- sfx2/source/notebookbar/HstRibbonBanner.{hxx,cxx} (new): a VCL control drawn at the right end of
+  the Tabbed notebookbar (notebookbar.ui) of Writer, Calc and Impress, beside the 2-row groups.
+  The slot adapts to the ribbon, never the other way round: its height is the height of the tab
+  page that already holds the groups, its width keeps the 360:104 ratio of the artwork and is
+  capped at 360 logical px. The ribbon height and the group heights do not change. Images of any
+  pixel size are aspect-fitted with a high-quality downscale from the matching @1x/@2x/@3x variant
+  (device pixels: VCL DPI factor x cairo surface scale on gtk, 2 on macOS).
+  Data: org.hst.office.BannerFeed (XJob, Scale/Slot -> JSON) is called on a worker thread; results
+  are posted to the main thread. Before the first result, and whenever the service is missing or
+  fails, the installed defaults are read directly from the bundled extension
+  ($BRAND_BASE_DIR/share/extensions/hst-vietnamese-tools/data/banners.json, banners/*.png, UTM
+  from data/solutions.json), so the slot is never empty and startup never waits for Python.
+  Rotation: a main-thread timer requests Slot+1; paused while hovered or focused; a 300 ms
+  cross-fade, or a plain switch when animations are reduced (Accessibility option / OS setting).
+  Keyboard focusable (focus ring), accessible role HYPER_LINK, accessible name and tooltip
+  "<name> — <tagline>"; Enter, Space or a click opens the URL through sfx2::openUriExternally
+  (com.sun.star.system.SystemShellExecute). In dark mode the light artwork sits on a light
+  rounded card. Decoder errors skip to the next entry without disturbing editing.
+- sfx2/source/notebookbar/HstBannerGeometry.hxx (new): slot, fit and variant arithmetic without
+  LibreOffice types (unit test: tests/unit/test_ribbon_banner_geometry.py).
+- sfx2/source/notebookbar/NotebookbarTabControl.cxx, sfx2/inc/notebookbar/NotebookbarTabControl.hxx:
+  creates the banner for modules/{swriter,scalc,simpress}/ui/notebookbar.ui only, narrows the
+  current tab page by the slot (the groups fold into their overflow menu as before) and restores
+  the full width when the window is narrower than 1280 logical px. Narrowing runs after the tab
+  control's own page allocation has finished (posted user event): done inside it, the allocation
+  continued with the full width and moved the Impress groups 4 px down.
+- sfx2/Library_sfx.mk: the new source file.
+- vcl/source/window/accessibility.cxx: the notebookbar sits in the border window and was unreachable for
+  assistive technology; it is now reported as a child of THE workwindow, like the menubar.
+- vcl/source/accessibility/vclxaccessibletabcontrol.cxx: a visible link child placed on a tab control (the
+  banner) follows the page tabs in the accessible children.
+
+The control is plain VCL with no backend-specific code besides the HiDPI scale query.
+
+License: these upstream files remain under their original license (MPL-2.0); the new files are MPL-2.0.
+Test: tests/runtime/check-ribbon-banner.py (gtk3, Writer/Sheets/Slides), tests/unit/test_ribbon_banner_geometry.py.
+---
+--- a/vcl/source/accessibility/vclxaccessibletabcontrol.cxx
++++ b/vcl/source/accessibility/vclxaccessibletabcontrol.cxx
+@@ -306,11 +306,26 @@
+ // XAccessibleContext
+ 
+ 
++// HST Office: a link placed on the tab control itself (the ribbon banner) follows the page tabs,
++// otherwise assistive technology could never reach it.
++static vcl::Window* lcl_getLinkChild(const TabControl* pTabControl)
++{
++    if (!pTabControl)
++        return nullptr;
++    for (vcl::Window* pChild = pTabControl->GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (pChild->IsVisible() && pChild->GetAccessibleRole() == AccessibleRole::HYPER_LINK)
++            return pChild;
++    }
++    return nullptr;
++}
++
+ sal_Int64 VCLXAccessibleTabControl::getAccessibleChildCount()
+ {
+     OExternalLockGuard aGuard( this );
+ 
+-    return m_aAccessibleChildren.size();
++    return m_aAccessibleChildren.size() + (lcl_getLinkChild(m_pTabControl) ? 1 : 0);
+ }
+ 
+ 
+@@ -318,6 +333,11 @@
+ {
+     OExternalLockGuard aGuard( this );
+ 
++    if (o3tl::make_unsigned(i) == m_aAccessibleChildren.size() && i >= 0)
++    {
++        if (vcl::Window* pLink = lcl_getLinkChild(m_pTabControl))
++            return pLink->GetAccessible();
++    }
+     if ( i < 0 || o3tl::make_unsigned(i) >= m_aAccessibleChildren.size() )
+         throw IndexOutOfBoundsException();
+ 
+--- a/vcl/source/window/accessibility.cxx
++++ b/vcl/source/window/accessibility.cxx
+@@ -25,6 +25,7 @@
+ #include <vcl/accessibility/vclxaccessiblecomponent.hxx>
+ #include <vcl/vclevent.hxx>
+ #include <vcl/wrkwin.hxx>
++#include <vcl/notebookbar/notebookbar.hxx>
+ 
+ #include <accessibility/floatingwindowaccessible.hxx>
+ #include <accessibility/vclxaccessiblefixedtext.hxx>
+@@ -149,6 +150,15 @@
+     }
+ 
+     vcl::Window* pParent = mpWindowImpl->mpParent;
++    // HST Office: the notebookbar is reported as a child of THE workwindow, like the menubar
++    if (pParent && pParent->GetType() == WindowType::BORDERWINDOW
++        && static_cast<ImplBorderWindow*>(pParent)->GetNotebookBar().get() == this)
++    {
++        for (vcl::Window* pSibling = pParent->mpWindowImpl->mpFirstChild; pSibling;
++             pSibling = pSibling->mpWindowImpl->mpNext)
++            if (pSibling->GetType() == WindowType::WORKWINDOW)
++                return pSibling;
++    }
+     if( GetType() == WindowType::MENUBARWINDOW )
+     {
+         // report the menubar as a child of THE workwindow
+@@ -193,6 +203,8 @@
+             pBorderWindow->mpMenuBarWindow->IsVisible()
+             )
+             --nChildren;
++        if (pBorderWindow->GetNotebookBar() && pBorderWindow->GetNotebookBar()->IsVisible())
++            --nChildren;
+     }
+     else if( GetType() == WindowType::WORKWINDOW )
+     {
+@@ -202,6 +214,9 @@
+             pWorkWindow->GetMenuBar()->GetWindow()->IsVisible()
+             )
+             ++nChildren;
++        // HST Office: the ribbon lives in the border window; without this it is unreachable for AT
++        if (pWorkWindow->GetNotebookBar() && pWorkWindow->GetNotebookBar()->IsVisible())
++            ++nChildren;
+     }
+ 
+     return nChildren;
+@@ -222,12 +237,27 @@
+             --n;
+     }
+ 
++    // HST Office: then the notebookbar of THE workwindow
++    if (GetType() == WindowType::WORKWINDOW)
++    {
++        NotebookBar* pNotebookBar = static_cast<WorkWindow*>(this)->GetNotebookBar().get();
++        if (pNotebookBar && pNotebookBar->IsVisible())
++        {
++            if (n == 0)
++                return pNotebookBar;
++            --n;
++        }
++    }
++
+     // transform n to child number including invisible children
+     sal_uInt16 nChildren = n;
+     vcl::Window* pChild = mpWindowImpl->mpFirstChild;
++    const vcl::Window* pSkip = GetType() == WindowType::BORDERWINDOW
++                                   ? static_cast<ImplBorderWindow*>(this)->GetNotebookBar().get()
++                                   : nullptr;
+     while( pChild )
+     {
+-        if( pChild->IsVisible() )
++        if( pChild->IsVisible() && pChild != pSkip )
+         {
+             if( ! nChildren )
+                 break;
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -255,6 +255,7 @@
+     sfx2/source/inet/inettbc \
+     sfx2/source/notebookbar/SfxNotebookBar \
+     sfx2/source/notebookbar/NotebookbarTabControl \
++    sfx2/source/notebookbar/HstRibbonBanner \
+     sfx2/source/notify/eventsupplier \
+     sfx2/source/notify/globalevents \
+     sfx2/source/notify/hintpost \
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -16,6 +16,9 @@
+ 
+ namespace com::sun::star::uno { class XComponentContext; }
+ class ChangedUIEventListener;
++class HstRibbonBanner;
++class VclWindowEvent;
++struct ImplSVEvent;
+ 
+ class NotebookbarTabControl final : public NotebookbarTabControlBase
+ {
+@@ -30,8 +33,19 @@
+     virtual bool EventNotify( NotifyEvent& rNEvt ) override;
+     virtual void StateChanged(StateChangedType nStateChange) override;
+     virtual Size calculateRequisition() const override;
++    virtual void Resize() override;
++    virtual void dispose() override;
+ 
+ private:
++    // HST Office: HASON TECH solution banner beside the groups (Writer, Calc, Impress Tabbed UI)
++    void HstCreateBanner();
++    void HstLayoutBanner();
++    DECL_LINK(HstChildEventHdl, VclWindowEvent&, void);
++    DECL_LINK(HstDeferredLayoutHdl, void*, void);
++    ImplSVEvent* m_pHstLayoutEvent = nullptr;
++    VclPtr<HstRibbonBanner> m_pHstBanner;
++    bool m_bHstLayout = false;
++
+     // time-based debounce: track when the last tab switch via scroll happened
+     std::chrono::steady_clock::time_point m_lastTabSwitch{};
+     static void FillShortcutsToolBox(css::uno::Reference<css::uno::XComponentContext> const & xContext,
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -25,6 +25,12 @@
+ #include <vcl/tabpage.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <notebookbar/NotebookbarTabControl.hxx>
++#include "HstBannerGeometry.hxx"
++#include "HstRibbonBanner.hxx"
++#include <vcl/event.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/vclevent.hxx>
++#include <vcl/syswin.hxx>
+ #include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
+ #include <com/sun/star/ui/ItemType.hpp>
+ #include <com/sun/star/frame/XModuleManager.hpp>
+@@ -159,6 +165,104 @@
+ 
+ NotebookbarTabControl::~NotebookbarTabControl()
+ {
++    disposeOnce();
++}
++
++void NotebookbarTabControl::dispose()
++{
++    if (m_pHstLayoutEvent)
++    {
++        Application::RemoveUserEvent(m_pHstLayoutEvent);
++        m_pHstLayoutEvent = nullptr;
++    }
++    if (m_pHstBanner)
++    {
++        RemoveChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
++        m_pHstBanner.disposeAndClear();
++    }
++    NotebookbarTabControlBase::dispose();
++}
++
++// HST Office: the banner belongs to the Tabbed notebookbar (notebookbar.ui) of Writer, Calc and
++// Impress only; Draw, the compact and the other variants keep the upstream layout.
++void NotebookbarTabControl::HstCreateBanner()
++{
++    if (m_pHstBanner)
++        return;
++    for (vcl::Window* pParent = GetParent(); pParent; pParent = pParent->GetParent())
++    {
++        if (NotebookBar* pBar = dynamic_cast<NotebookBar*>(pParent))
++        {
++            const OUString& rFile = pBar->GetUIFilePath();
++            if (!rFile.endsWith("/notebookbar.ui")
++                || (rFile.indexOf("/swriter/") < 0 && rFile.indexOf("/scalc/") < 0
++                    && rFile.indexOf("/simpress/") < 0))
++                return;
++            m_pHstBanner = VclPtr<HstRibbonBanner>::Create(this);
++            AddChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
++            HstLayoutBanner();
++            return;
++        }
++    }
++}
++
++// The banner takes the right end of the current page; the page (the 2-row groups) keeps its
++// height and gets the remaining width, so groups fold into their overflow menu as usual. The
++// ribbon height never depends on the banner. Narrow windows give the groups the whole width.
++void NotebookbarTabControl::HstLayoutBanner()
++{
++    if (!m_pHstBanner || m_bHstLayout)
++        return;
++    m_bHstLayout = true;
++    TabPage* pPage = GetTabPage(GetCurPageId());
++    if (pPage && pPage->IsVisible())
++    {
++        const double fDpi = GetDPIScaleFactor();
++        const Point aPos = pPage->GetPosPixel();
++        const hst::banner::Rect aPage{ aPos.X(), aPos.Y(),
++                                       GetOutputSizePixel().Width() - 2 * aPos.X(),
++                                       pPage->GetSizePixel().Height() };
++        const vcl::Window* pTop = GetSystemWindow();
++        const tools::Long nWindowWidth = pTop ? pTop->GetSizePixel().Width() : GetSizePixel().Width();
++        tools::Long nPageWidth = aPage.w;
++        if (hst::banner::visibleFor(nWindowWidth, aPage.h, fDpi))
++        {
++            const hst::banner::Rect aSlot = hst::banner::slotFor(aPage, fDpi);
++            nPageWidth = hst::banner::pageWidthBeside(aPage, aSlot, fDpi);
++            m_pHstBanner->Place(tools::Rectangle(Point(aSlot.x, aSlot.y), Size(aSlot.w, aSlot.h)));
++        }
++        else
++            m_pHstBanner->Place(tools::Rectangle());
++        if (nPageWidth > 0 && pPage->GetSizePixel().Width() != nPageWidth)
++            pPage->SetPosSizePixel(aPos, Size(nPageWidth, aPage.h));
++    }
++    else
++        m_pHstBanner->Place(tools::Rectangle());
++    m_bHstLayout = false;
++}
++
++IMPL_LINK(NotebookbarTabControl, HstChildEventHdl, VclWindowEvent&, rEvent, void)
++{
++    // The tab control re-allocates the current page at full width on resizes and tab switches.
++    // This event fires inside that allocation, which then continues with the full width: narrow
++    // the page only after it has finished.
++    const VclEventId nId = rEvent.GetId();
++    vcl::Window* pWindow = rEvent.GetWindow();
++    if ((nId == VclEventId::WindowResize || nId == VclEventId::WindowShow) && pWindow
++        && pWindow->GetParent() == this && dynamic_cast<TabPage*>(pWindow) && !m_pHstLayoutEvent)
++        m_pHstLayoutEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstDeferredLayoutHdl));
++}
++
++IMPL_LINK_NOARG(NotebookbarTabControl, HstDeferredLayoutHdl, void*, void)
++{
++    m_pHstLayoutEvent = nullptr;
++    HstLayoutBanner();
++}
++
++void NotebookbarTabControl::Resize()
++{
++    NotebookbarTabControlBase::Resize();
++    HstLayoutBanner();
+ }
+ 
+ void NotebookbarTabControl::ArrowStops( sal_uInt16 nCode )
+@@ -277,6 +381,7 @@
+         m_pListener = new ChangedUIEventListener( this );
+ 
+         m_bInitialized = true;
++        HstCreateBanner();
+     }
+     if (m_bInitialized && m_bInvalidate && pViewFrm)
+     {
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstBannerGeometry.hxx
+@@ -0,0 +1,94 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: geometry of the HASON TECH solution banner in the Tabbed notebookbar.
++// Plain integer arithmetic without LibreOffice types, so it can be unit tested on its own
++// (tests/unit/test_ribbon_banner_geometry.py compiles it from the patch with a test driver).
++//
++// The slot adapts to the ribbon, never the other way round: its height is the height of the
++// tab page that already holds the 2-row groups, its width keeps the 360:104 artwork ratio and
++// is capped at 360 logical px. Images of any pixel size are aspect-fitted into the slot.
++
++#include <algorithm>
++#include <cmath>
++
++namespace hst::banner
++{
++struct Rect
++{
++    long x = 0;
++    long y = 0;
++    long w = 0;
++    long h = 0;
++};
++
++constexpr long ART_WIDTH = 360; // logical px of the @1x artwork
++constexpr long ART_HEIGHT = 104;
++constexpr long MIN_WINDOW_WIDTH = 1280; // narrower windows keep the whole width for the groups
++constexpr long MIN_PAGE_HEIGHT = 60; // compact ribbons (one row) never show the banner
++
++inline long scaled(long nLogical, double fDpi) { return std::lround(nLogical * fDpi); }
++
++/** Whether the banner is shown for a top-level window of nWindowWidth pixels at fDpi. */
++inline bool visibleFor(long nWindowWidth, long nPageHeight, double fDpi)
++{
++    return nWindowWidth >= scaled(MIN_WINDOW_WIDTH, fDpi)
++           && nPageHeight >= scaled(MIN_PAGE_HEIGHT, fDpi);
++}
++
++/** Banner slot at the right end of the full tab page rectangle rPage (pixels). */
++inline Rect slotFor(const Rect& rPage, double fDpi)
++{
++    const long nVMargin = scaled(2, fDpi);
++    const long nRightMargin = scaled(4, fDpi);
++    Rect aSlot;
++    aSlot.h = std::max(0L, rPage.h - 2 * nVMargin);
++    aSlot.w = std::min(scaled(ART_WIDTH, fDpi), aSlot.h * ART_WIDTH / ART_HEIGHT);
++    aSlot.x = rPage.x + rPage.w - nRightMargin - aSlot.w;
++    aSlot.y = rPage.y + nVMargin;
++    return aSlot;
++}
++
++/** Width left to the groups of the page when the banner occupies rSlot. */
++inline long pageWidthBeside(const Rect& rPage, const Rect& rSlot, double fDpi)
++{
++    return std::max(0L, rSlot.x - scaled(8, fDpi) - rPage.x);
++}
++
++/** Aspect-fit an image of nImageW x nImageH into rBox, centred; never larger than rBox. */
++inline Rect fit(const Rect& rBox, long nImageW, long nImageH)
++{
++    Rect aResult = rBox;
++    if (nImageW <= 0 || nImageH <= 0 || rBox.w <= 0 || rBox.h <= 0)
++        return Rect{ rBox.x, rBox.y, 0, 0 };
++    // compare rBox.w / rBox.h with nImageW / nImageH without rounding
++    if (rBox.w * nImageH > nImageW * rBox.h)
++        aResult.w = std::max(1L, rBox.h * nImageW / nImageH); // box wider: full height
++    else
++        aResult.h = std::max(1L, rBox.w * nImageH / nImageW); // box taller: full width
++    aResult.x = rBox.x + (rBox.w - aResult.w) / 2;
++    aResult.y = rBox.y + (rBox.h - aResult.h) / 2;
++    return aResult;
++}
++
++/** Artwork variant (1, 2 or 3) for an image drawn nDeviceHeight device pixels high: the exact
++    variant when the size matches one, else the next larger one so that it is only ever
++    downscaled (high quality) and never upscaled. */
++inline int sourceScale(long nDeviceHeight)
++{
++    long nLevel = (nDeviceHeight + ART_HEIGHT - 1) / ART_HEIGHT;
++    if (nDeviceHeight % ART_HEIGHT != 0)
++        ++nLevel;
++    return static_cast<int>(std::clamp(nLevel, 1L, 3L));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstRibbonBanner.hxx
+@@ -0,0 +1,86 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <rtl/ref.hxx>
++#include <vcl/bitmap.hxx>
++#include <vcl/ctrl.hxx>
++#include <vcl/timer.hxx>
++
++#include <memory>
++
++namespace hst::banner
++{
++class FetchThread;
++struct Data;
++}
++
++/** HST Office: rotating HASON TECH solution banner at the right end of the Tabbed notebookbar
++    of Writer, Calc and Impress (see docs/BANNERS.md, "Ribbon widget").
++
++    A plain VCL control owned by NotebookbarTabControl, which positions it beside the 2-row
++    groups and gives the groups the remaining width. Content comes from the UNO service
++    org.hst.office.BannerFeed on a worker thread (installed defaults when it is unavailable);
++    results are posted to the main thread. There is no option to hide or disable it. */
++class HstRibbonBanner final : public Control
++{
++public:
++    explicit HstRibbonBanner(vcl::Window* pParent);
++    virtual ~HstRibbonBanner() override;
++    virtual void dispose() override;
++
++    /** Place the banner in the device-pixel rectangle rSlot of the parent (empty: hide). */
++    void Place(const tools::Rectangle& rSlot);
++
++    virtual void Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect) override;
++    virtual void MouseMove(const MouseEvent& rMEvt) override;
++    virtual void MouseButtonDown(const MouseEvent& rMEvt) override;
++    virtual void MouseButtonUp(const MouseEvent& rMEvt) override;
++    virtual void KeyInput(const KeyEvent& rKEvt) override;
++    virtual void GetFocus() override;
++    virtual void LoseFocus() override;
++    virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
++
++    /** Called on the main thread with a result of the worker (takes ownership). */
++    void Deliver(std::unique_ptr<hst::banner::Data> pData);
++
++private:
++    void Request(sal_Int32 nSlot);
++    void Activate();
++    double DeviceScale();
++    const Bitmap& Prepared(const Bitmap& rSource, Bitmap& rCache, const Size& rDevice);
++    void DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource, Bitmap& rCache,
++                 double fAlpha);
++    bool Paused() const { return mbHover || HasFocus(); }
++
++    DECL_LINK(RotateHdl, Timer*, void);
++    DECL_LINK(FadeHdl, Timer*, void);
++    DECL_LINK(DeliverHdl, void*, void);
++
++    rtl::Reference<hst::banner::FetchThread> mxThread;
++    Timer maRotateTimer;
++    Timer maFadeTimer;
++    OUString maId;
++    OUString maUrl;
++    Bitmap maImage; // decoded source variant of the current item
++    Bitmap maOld; // previous item while fading
++    Bitmap maImageScaled; // high-quality downscale of maImage for the current device size
++    Bitmap maOldScaled;
++    sal_Int32 mnSlot = 0;
++    sal_Int32 mnRotateSeconds = 10;
++    sal_Int32 mnFailures = 0;
++    int mnSourceScale = 0;
++    int mnFadeStep = 0;
++    bool mbHover = false;
++    bool mbPressed = false;
++    bool mbRequested = false;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstRibbonBanner.cxx
+@@ -0,0 +1,584 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: rotating HASON TECH solution banner in the Tabbed notebookbar (docs/BANNERS.md).
++
++#include "HstRibbonBanner.hxx"
++#include "HstBannerGeometry.hxx"
++
++#include <openuriexternally.hxx>
++
++#include <basegfx/matrix/b2dhommatrixtools.hxx>
++#include <boost/property_tree/json_parser.hpp>
++#include <com/sun/star/accessibility/AccessibleRole.hpp>
++#include <com/sun/star/beans/NamedValue.hpp>
++#include <com/sun/star/task/XJob.hpp>
++#include <com/sun/star/uno/XComponentContext.hpp>
++#include <comphelper/base64.hxx>
++#include <comphelper/processfactory.hxx>
++#include <config_folders.h>
++#include <config_vclplug.h>
++#include <osl/file.hxx>
++#include <rtl/bootstrap.hxx>
++#include <salhelper/thread.hxx>
++#include <tools/stream.hxx>
++#include <vcl/event.hxx>
++#include <vcl/graph.hxx>
++#include <vcl/graphicfilter.hxx>
++#include <vcl/ptrstyle.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/sysdata.hxx>
++#include <vcl/weld/Window.hxx>
++
++#include <algorithm>
++#include <sstream>
++#include <vector>
++
++#if USE_HEADLESS_CODE && !defined(MACOSX) && !defined(_WIN32)
++#include <dlfcn.h>
++#endif
++
++using namespace css;
++
++namespace hst::banner
++{
++namespace
++{
++constexpr sal_Int32 MAX_IMAGE_BYTES = 300 * 1024; // data-layer limit per image
++constexpr sal_Int32 MAX_MANIFEST_BYTES = 512 * 1024;
++constexpr int FADE_STEPS = 10;
++constexpr OUString EXTENSION_DIR
++    = u"$BRAND_BASE_DIR/" LIBO_SHARE_FOLDER "/extensions/hst-vietnamese-tools/"_ustr;
++}
++
++/** One rotation slot as delivered to the main thread. */
++struct Data
++{
++    OUString aId, aName, aTagline, aUrl;
++    std::vector<sal_uInt8> aImage;
++    sal_Int32 nRotateSeconds = 10;
++    sal_Int32 nSlot = 0;
++    int nScale = 1;
++    bool bOk = false;
++    bool bLast = true; // the worker posts nothing after this result
++};
++
++namespace
++{
++OUString fromUtf8(const std::string& rText)
++{
++    return OStringToOUString(rText, RTL_TEXTENCODING_UTF8);
++}
++
++bool readFile(const OUString& rUrl, std::string& rOut, sal_Int32 nLimit)
++{
++    osl::File aFile(rUrl);
++    if (aFile.open(osl_File_OpenFlag_Read) != osl::FileBase::E_None)
++        return false;
++    sal_uInt64 nSize = 0;
++    if (aFile.getSize(nSize) != osl::FileBase::E_None || nSize == 0
++        || nSize > static_cast<sal_uInt64>(nLimit))
++        return false;
++    rOut.resize(nSize);
++    sal_uInt64 nRead = 0;
++    return aFile.read(rOut.data(), nSize, nRead) == osl::FileBase::E_None && nRead == nSize;
++}
++
++/** The selected slot from the JSON of org.hst.office.BannerFeed (docs/BANNERS.md). */
++bool parseService(const OUString& rJson, Data& rData)
++{
++    std::stringstream aStream(std::string(OUStringToOString(rJson, RTL_TEXTENCODING_UTF8)));
++    boost::property_tree::ptree aTree;
++    boost::property_tree::read_json(aStream, aTree);
++    rData.nRotateSeconds = aTree.get<sal_Int32>("rotateSeconds", 10);
++    rData.nSlot = aTree.get<sal_Int32>("slot", 0);
++    const auto& rItems = aTree.get_child("items");
++    if (rItems.empty())
++        return false;
++    const auto& rItem = rItems.front().second;
++    rData.aId = fromUtf8(rItem.get<std::string>("id"));
++    rData.aName = fromUtf8(rItem.get<std::string>("name"));
++    rData.aTagline = fromUtf8(rItem.get<std::string>("tagline"));
++    rData.aUrl = fromUtf8(rItem.get<std::string>("click_url_with_utm"));
++    uno::Sequence<sal_Int8> aBytes;
++    comphelper::Base64::decode(aBytes, fromUtf8(rItem.get<std::string>("image_base64")));
++    if (aBytes.getLength() == 0 || aBytes.getLength() > MAX_IMAGE_BYTES)
++        return false;
++    rData.aImage.assign(aBytes.begin(), aBytes.end());
++    return rData.aUrl.startsWith("https://");
++}
++
++bool fromService(sal_Int32 nSlot, int nScale, Data& rData)
++{
++    try
++    {
++        const uno::Reference<uno::XComponentContext>& xContext
++            = comphelper::getProcessComponentContext();
++        uno::Reference<task::XJob> xFeed(xContext->getServiceManager()->createInstanceWithContext(
++                                             u"org.hst.office.BannerFeed"_ustr, xContext),
++                                         uno::UNO_QUERY);
++        if (!xFeed.is())
++            return false;
++        uno::Sequence<beans::NamedValue> aArgs{
++            { u"Scale"_ustr, uno::Any(static_cast<double>(nScale)) },
++            { u"Slot"_ustr, uno::Any(nSlot) } };
++        OUString aJson;
++        if (!(xFeed->execute(aArgs) >>= aJson) || aJson.isEmpty())
++            return false;
++        return parseService(aJson, rData);
++    }
++    catch (...)
++    {
++        return false; // service missing or failing: installed defaults
++    }
++}
++
++/** Click URL as the data layer builds it: the query is replaced by the shared UTM block. */
++OUString clickUrl(std::u16string_view aUrl, const OUString& rSource, const OUString& rCampaign)
++{
++    const size_t nCut = aUrl.find_first_of(u"?#");
++    return OUString::Concat(aUrl.substr(0, nCut)) + "?utm_source=" + rSource
++           + "&utm_medium=banner&utm_campaign=" + rCampaign;
++}
++
++/** Installed defaults straight from the bundled extension (service unavailable). */
++bool fromBundled(sal_Int32 nSlot, int nScale, Data& rData)
++{
++    try
++    {
++        OUString aDir(EXTENSION_DIR);
++        rtl::Bootstrap::expandMacros(aDir);
++        std::string aManifest, aSolutions;
++        if (!readFile(aDir + "data/banners.json", aManifest, MAX_MANIFEST_BYTES)
++            || !readFile(aDir + "data/solutions.json", aSolutions, MAX_MANIFEST_BYTES))
++            return false;
++        boost::property_tree::ptree aTree, aUtm;
++        std::stringstream aManifestStream(aManifest), aSolutionsStream(aSolutions);
++        boost::property_tree::read_json(aManifestStream, aTree);
++        boost::property_tree::read_json(aSolutionsStream, aUtm);
++        std::vector<const boost::property_tree::ptree*> aItems;
++        for (const auto& rChild : aTree.get_child("items"))
++            aItems.push_back(&rChild.second);
++        if (aItems.empty())
++            return false;
++        std::stable_sort(aItems.begin(), aItems.end(), [](const auto* a, const auto* b) {
++            const int nA = a->template get<int>("order", 0), nB = b->template get<int>("order", 0);
++            return nA != nB ? nA < nB
++                            : a->template get<std::string>("id") < b->template get<std::string>("id");
++        });
++        rData.nSlot = nSlot >= 0 ? nSlot % static_cast<sal_Int32>(aItems.size()) : 0;
++        const auto& rItem = *aItems[rData.nSlot];
++        const std::string aPath
++            = rItem.get<std::string>("image." + std::to_string(nScale) + "x.url");
++        if (aPath.rfind("banners/", 0) != 0 || aPath.find("..") != std::string::npos)
++            return false;
++        std::string aImage;
++        if (!readFile(aDir + fromUtf8(aPath), aImage, MAX_IMAGE_BYTES))
++            return false;
++        rData.aImage.assign(aImage.begin(), aImage.end());
++        rData.nRotateSeconds = aTree.get<sal_Int32>("rotateSeconds", 10);
++        rData.aId = fromUtf8(rItem.get<std::string>("id"));
++        rData.aName = fromUtf8(rItem.get<std::string>("name"));
++        rData.aTagline = fromUtf8(rItem.get<std::string>("tagline"));
++        rData.aUrl = clickUrl(fromUtf8(rItem.get<std::string>("url")),
++                              fromUtf8(aUtm.get<std::string>("utm.source")),
++                              fromUtf8(aUtm.get<std::string>("utm.campaign")));
++        return true;
++    }
++    catch (...)
++    {
++        return false;
++    }
++}
++
++/** Backing scale of the surface (gtk HiDPI, macOS Retina), on top of the VCL DPI factor. */
++double surfaceScale(const OutputDevice& rDevice)
++{
++#if defined(MACOSX)
++    (void)rDevice;
++    return 2.0; // Retina is the norm; Quartz downsamples the @2x art on other displays
++#elif USE_HEADLESS_CODE && !defined(_WIN32)
++    using GetScale = void (*)(void*, double*, double*);
++    static GetScale pGetScale
++        = reinterpret_cast<GetScale>(dlsym(RTLD_DEFAULT, "cairo_surface_get_device_scale"));
++    const SystemGraphicsData aData = rDevice.GetSystemGfxData();
++    double fX = 1.0, fY = 1.0;
++    if (pGetScale && aData.pSurface)
++        pGetScale(aData.pSurface, &fX, &fY);
++    return std::clamp(fY, 1.0, 3.0);
++#else
++    (void)rDevice;
++    return 1.0; // Windows: VCL pixels are device pixels (GetDPIScaleFactor)
++#endif
++}
++}
++
++class FetchThread final : public salhelper::Thread
++{
++public:
++    FetchThread(HstRibbonBanner* pBanner, sal_Int32 nSlot, int nScale, bool bBundledFirst)
++        : salhelper::Thread("HstRibbonBanner")
++        , mpBanner(pBanner)
++        , mnSlot(nSlot)
++        , mnScale(nScale)
++        , mbBundledFirst(bBundledFirst)
++    {
++    }
++
++private:
++    void execute() override
++    {
++        if (mbBundledFirst)
++        {
++            // first paint: installed defaults at once, then whatever the feed selects
++            auto pFirst = std::make_unique<Data>();
++            pFirst->nScale = mnScale;
++            pFirst->bLast = false;
++            pFirst->bOk = fromBundled(mnSlot, mnScale, *pFirst);
++            if (pFirst->bOk)
++                post(std::move(pFirst));
++        }
++        auto pData = std::make_unique<Data>();
++        pData->nScale = mnScale;
++        pData->bOk = fromService(mnSlot, mnScale, *pData);
++        if (!pData->bOk && !mbBundledFirst)
++        {
++            pData = std::make_unique<Data>();
++            pData->nScale = mnScale;
++            pData->bOk = fromBundled(mnSlot, mnScale, *pData);
++        }
++        post(std::move(pData));
++        SolarMutexGuard aGuard;
++        mpBanner.reset();
++    }
++
++    void post(std::unique_ptr<Data> pData)
++    {
++        SolarMutexGuard aGuard; // the banner cannot be disposed meanwhile
++        if (mpBanner && !mpBanner->isDisposed())
++            mpBanner->Deliver(std::move(pData));
++    }
++
++    VclPtr<HstRibbonBanner> mpBanner;
++    sal_Int32 mnSlot;
++    int mnScale;
++    bool mbBundledFirst;
++};
++}
++
++using namespace hst::banner;
++
++HstRibbonBanner::HstRibbonBanner(vcl::Window* pParent)
++    : Control(pParent, WB_TABSTOP)
++    , maRotateTimer("sfx2 HstRibbonBanner rotate")
++    , maFadeTimer("sfx2 HstRibbonBanner fade")
++{
++    SetPaintTransparent(true);
++    SetAccessibleRole(accessibility::AccessibleRole::HYPER_LINK);
++    SetPointer(PointerStyle::RefHand);
++    maRotateTimer.SetInvokeHandler(LINK(this, HstRibbonBanner, RotateHdl));
++    maRotateTimer.SetTimeout(mnRotateSeconds * 1000);
++    maFadeTimer.SetInvokeHandler(LINK(this, HstRibbonBanner, FadeHdl));
++    maFadeTimer.SetTimeout(30);
++}
++
++HstRibbonBanner::~HstRibbonBanner() { disposeOnce(); }
++
++void HstRibbonBanner::dispose()
++{
++    maRotateTimer.Stop();
++    maFadeTimer.Stop();
++    if (mxThread.is())
++    {
++        SolarMutexReleaser aReleaser; // the worker takes the SolarMutex to post its result
++        mxThread->join();
++    }
++    mxThread.clear();
++    Control::dispose();
++}
++
++double HstRibbonBanner::DeviceScale() { return GetDPIScaleFactor() * surfaceScale(*GetOutDev()); }
++
++void HstRibbonBanner::Request(sal_Int32 nSlot)
++{
++    if (mbRequested || isDisposed())
++        return;
++    // the variant that matches the fitted image height in device pixels
++    const Size aSize = GetOutputSizePixel();
++    const Rect aImage
++        = fit(Rect{ 0, 0, aSize.Width(), aSize.Height() }, ART_WIDTH, ART_HEIGHT);
++    const int nScale = sourceScale(std::lround(aImage.h * surfaceScale(*GetOutDev())));
++    mbRequested = true; // the previous worker has posted its last result
++    try
++    {
++        mxThread = new FetchThread(this, nSlot, nScale, maId.isEmpty());
++        mxThread->launch();
++    }
++    catch (const std::exception&)
++    {
++        // no thread available: never disturb editing, try again at the next interval
++        mxThread.clear();
++        mbRequested = false;
++        maRotateTimer.Start();
++    }
++}
++
++void HstRibbonBanner::Deliver(std::unique_ptr<Data> pData)
++{
++    // may run on the worker thread (SolarMutex held): hand over to the main loop
++    Application::PostUserEvent(LINK(this, HstRibbonBanner, DeliverHdl), pData.release(), true);
++}
++
++IMPL_LINK(HstRibbonBanner, DeliverHdl, void*, p, void)
++{
++    std::unique_ptr<Data> pData(static_cast<Data*>(p));
++    if (isDisposed())
++        return;
++    if (pData->bLast)
++        mbRequested = false;
++    if (!pData->bOk)
++    {
++        // nothing new (service and installed defaults unavailable): keep the current item
++        if (pData->bLast)
++            maRotateTimer.Start();
++        return;
++    }
++    Bitmap aBitmap;
++    {
++        // PNG, JPEG or WebP as verified by the data layer; decoder errors leave the banner as is
++        SvMemoryStream aStream(pData->aImage.data(), pData->aImage.size(), StreamMode::READ);
++        Graphic aGraphic;
++        if (GraphicFilter::GetGraphicFilter().ImportGraphic(aGraphic, u"", aStream) == ERRCODE_NONE)
++            aBitmap = aGraphic.GetBitmap();
++    }
++    if (aBitmap.IsEmpty())
++    {
++        // decoder error: try the next entry, without disturbing editing
++        if (pData->bLast && ++mnFailures < 3)
++            Request(pData->nSlot + 1); // try the next entry
++        else if (pData->bLast)
++            maRotateTimer.Start();
++        return;
++    }
++    mnFailures = 0;
++    mnSlot = pData->nSlot;
++    mnRotateSeconds = std::clamp<sal_Int32>(pData->nRotateSeconds, 5, 60);
++    if (pData->aId != maId && !maImage.IsEmpty() && MiscSettings::IsAnimatedOthersAllowed())
++    {
++        maOld = maImage;
++        maOldScaled = maImageScaled;
++        mnFadeStep = 1;
++        maFadeTimer.Start();
++    }
++    maImage = aBitmap;
++    maImageScaled = Bitmap();
++    mnSourceScale = pData->nScale;
++    maId = pData->aId;
++    maUrl = pData->aUrl;
++    const OUString aName = pData->aName + u" — " + pData->aTagline;
++    SetAccessibleName(aName);
++    SetQuickHelpText(aName);
++    Invalidate();
++    if (pData->bLast)
++    {
++        maRotateTimer.SetTimeout(mnRotateSeconds * 1000);
++        maRotateTimer.Start();
++    }
++}
++
++IMPL_LINK_NOARG(HstRibbonBanner, RotateHdl, Timer*, void)
++{
++    if (!IsReallyVisible() || Paused())
++    {
++        maRotateTimer.Start(); // try again after a full interval
++        return;
++    }
++    Request(mnSlot + 1);
++}
++
++IMPL_LINK_NOARG(HstRibbonBanner, FadeHdl, Timer*, void)
++{
++    if (++mnFadeStep >= FADE_STEPS)
++    {
++        mnFadeStep = 0;
++        maOld = Bitmap();
++        maOldScaled = Bitmap();
++    }
++    else
++        maFadeTimer.Start();
++    Invalidate();
++}
++
++void HstRibbonBanner::Place(const tools::Rectangle& rSlot)
++{
++    if (rSlot.IsEmpty())
++    {
++        if (IsVisible())
++            Hide();
++        maRotateTimer.Stop();
++        return;
++    }
++    const bool bResized = GetSizePixel() != rSlot.GetSize();
++    if (GetPosPixel() != rSlot.TopLeft() || bResized)
++        SetPosSizePixel(rSlot.TopLeft(), rSlot.GetSize());
++    if (!IsVisible())
++        Show();
++    const Size aSize = rSlot.GetSize();
++    const Rect aImage = fit(Rect{ 0, 0, aSize.Width(), aSize.Height() }, ART_WIDTH, ART_HEIGHT);
++    const int nScale = sourceScale(std::lround(aImage.h * surfaceScale(*GetOutDev())));
++    if (maId.isEmpty() || (bResized && nScale != mnSourceScale))
++        Request(mnSlot); // first content, or the same slot again for the new scale
++    else if (!maRotateTimer.IsActive() && !mbRequested)
++        maRotateTimer.Start();
++}
++
++const Bitmap& HstRibbonBanner::Prepared(const Bitmap& rSource, Bitmap& rCache, const Size& rDevice)
++{
++    if (rCache.IsEmpty() || rCache.GetSizePixel() != rDevice)
++    {
++        rCache = rSource;
++        if (rCache.GetSizePixel() != rDevice)
++            rCache.Scale(rDevice, BmpScaleFlag::BestQuality);
++    }
++    return rCache;
++}
++
++void HstRibbonBanner::DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource,
++                              Bitmap& rCache, double fAlpha)
++{
++    const Size aOut = GetOutputSizePixel();
++    const long nInset = scaled(3, GetDPIScaleFactor());
++    const Size aSourceSize = rSource.GetSizePixel();
++    // the image's own pixel size never changes the slot: aspect-fit, centred
++    const Rect aBox{ nInset, nInset, aOut.Width() - 2 * nInset, aOut.Height() - 2 * nInset };
++    const Rect aFit = fit(aBox, aSourceSize.Width(), aSourceSize.Height());
++    if (aFit.w <= 0 || aFit.h <= 0)
++        return;
++    const double fScale = surfaceScale(rRenderContext);
++    const Size aDevice(std::lround(aFit.w * fScale), std::lround(aFit.h * fScale));
++    const Bitmap& rDraw = Prepared(rSource, rCache, aDevice);
++    if (fAlpha >= 1.0)
++        rRenderContext.DrawBitmap(Point(aFit.x, aFit.y), Size(aFit.w, aFit.h), rDraw);
++    else
++        rRenderContext.DrawTransformedBitmapEx(
++            basegfx::utils::createScaleTranslateB2DHomMatrix(aFit.w, aFit.h, aFit.x, aFit.y),
++            rDraw, fAlpha);
++}
++
++void HstRibbonBanner::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle&)
++{
++    const StyleSettings& rStyle = rRenderContext.GetSettings().GetStyleSettings();
++    const tools::Rectangle aAll(Point(), GetOutputSizePixel());
++    const long nRadius = scaled(8, GetDPIScaleFactor());
++    rRenderContext.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    if (rStyle.GetWindowColor().IsDark() || rStyle.GetDialogColor().IsDark())
++    {
++        // the artwork is designed for light backgrounds: a light rounded card in dark mode
++        rRenderContext.SetLineColor();
++        rRenderContext.SetFillColor(Color(0xF4, 0xF6, 0xF9));
++        rRenderContext.DrawRect(aAll, nRadius, nRadius);
++    }
++    if (!maOld.IsEmpty() && mnFadeStep > 0)
++    {
++        DrawArt(rRenderContext, maOld, maOldScaled, 1.0);
++        if (!maImage.IsEmpty())
++            DrawArt(rRenderContext, maImage, maImageScaled,
++                    static_cast<double>(mnFadeStep) / FADE_STEPS);
++    }
++    else if (!maImage.IsEmpty())
++        DrawArt(rRenderContext, maImage, maImageScaled, 1.0);
++    if (HasFocus())
++    {
++        rRenderContext.SetFillColor();
++        rRenderContext.SetLineColor(rStyle.GetHighlightColor());
++        tools::Rectangle aRing(aAll);
++        aRing.AdjustRight(-1);
++        aRing.AdjustBottom(-1);
++        rRenderContext.DrawRect(aRing, nRadius, nRadius);
++        aRing.AdjustLeft(1);
++        aRing.AdjustTop(1);
++        aRing.AdjustRight(-1);
++        aRing.AdjustBottom(-1);
++        rRenderContext.DrawRect(aRing, nRadius, nRadius);
++    }
++    rRenderContext.Pop();
++}
++
++void HstRibbonBanner::Activate()
++{
++    if (!maUrl.isEmpty())
++        sfx2::openUriExternally(maUrl, true, GetFrameWeld());
++}
++
++void HstRibbonBanner::MouseMove(const MouseEvent& rMEvt)
++{
++    mbHover = !rMEvt.IsLeaveWindow(); // hover pauses the rotation
++    Control::MouseMove(rMEvt);
++}
++
++void HstRibbonBanner::MouseButtonDown(const MouseEvent& rMEvt)
++{
++    if (rMEvt.IsLeft())
++    {
++        mbPressed = true;
++        GrabFocus();
++        return;
++    }
++    Control::MouseButtonDown(rMEvt);
++}
++
++void HstRibbonBanner::MouseButtonUp(const MouseEvent& rMEvt)
++{
++    if (rMEvt.IsLeft() && mbPressed)
++    {
++        mbPressed = false;
++        if (tools::Rectangle(Point(), GetOutputSizePixel()).Contains(rMEvt.GetPosPixel()))
++            Activate();
++        return;
++    }
++    Control::MouseButtonUp(rMEvt);
++}
++
++void HstRibbonBanner::KeyInput(const KeyEvent& rKEvt)
++{
++    const vcl::KeyCode& rKey = rKEvt.GetKeyCode();
++    if (!rKey.GetModifier()
++        && (rKey.GetCode() == KEY_RETURN || rKey.GetCode() == KEY_SPACE))
++    {
++        Activate();
++        return;
++    }
++    Control::KeyInput(rKEvt);
++}
++
++void HstRibbonBanner::GetFocus()
++{
++    Control::GetFocus();
++    Invalidate(); // focus ring; focus pauses the rotation
++}
++
++void HstRibbonBanner::LoseFocus()
++{
++    Control::LoseFocus();
++    Invalidate();
++}
++
++void HstRibbonBanner::DataChanged(const DataChangedEvent& rDCEvt)
++{
++    Control::DataChanged(rDCEvt);
++    if (rDCEvt.GetType() == DataChangedEventType::SETTINGS)
++    {
++        maImageScaled = Bitmap();
++        maOldScaled = Bitmap();
++        Invalidate(); // light/dark card follows the theme
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

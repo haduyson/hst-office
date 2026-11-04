@@ -1,17 +1,16 @@
 # HASON TECH solution banners
 
 The shared banner set is available to Writer, Sheets (Calc) and Slides (Impress).
-The native ribbon widget is the next implementation step. This change supplies artwork,
-bundled content, the signed feed, profile cache and a registered UNO interface.
+It consists of artwork, bundled content, the signed feed, profile cache, a registered UNO interface
+and the [native ribbon widget](#ribbon-widget).
 There is no hide preference, administrator disable policy, per-app selection or telemetry.
 
 ## Artwork and regeneration
 
 [Preview at 1× and 2×](design/banners-preview.png) · [Writer placement](design/banner-on-writer.png)
 · [Logo sources and hashes](../assets/banners/SOURCES.md).
-The Writer image is a placement mockup on the supplied real screenshot: it reserves the
-right-hand slot and collapses the style gallery to one complete tile with its overflow
-control. It is not evidence of an implemented C++ widget.
+The Writer image is the approved placement mockup on a real screenshot; the implemented widget
+follows it, see [Ribbon widget](#ribbon-widget).
 
 Each card is 360×104 CSS px with an 8px corner radius, a thin tinted border and a light
 brand-colour background. PNG outputs are 360×104, 720×208 and 1080×312.
@@ -207,6 +206,42 @@ The service returns only the requested slot, with an aggregate **432 KiB** JSON 
 including its one base64 image and all metadata. This bound is independent of item count and
 weights. The header uses fixed-width JSON whitespace, so changing only weights does not change
 the response size for the same selected banner and scale.
+
+## Ribbon widget
+
+Implemented by [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banner.patch)
+(`sfx2/source/notebookbar/HstRibbonBanner.cxx`, `HstBannerGeometry.hxx`), a plain VCL control owned by
+`NotebookbarTabControl`, for `notebookbar.ui` of Writer, Calc and Impress only (not Draw or the compact variants).
+
+- **The slot adapts to the ribbon, never the reverse.** It is not part of the ribbon layout: height = height of
+  the tab page that already holds the 2-row groups minus 2 px margins per scale step; width = height × 360/104,
+  capped at 360 logical px; at the right end of the page, 4 px from the edge. The current page gets the remaining
+  width minus an 8 px gap, so groups fold into their `»` menu as usual. Ribbon and group heights do not change.
+- **Images never change the slot.** Any pixel size is aspect-fitted, centred, with a high-quality downscale cached
+  per device size. The requested variant is the exact @1x/@2x/@3x for the device height, else the next larger one.
+  Device scale = VCL DPI factor × cairo surface scale on gtk; 2 on macOS, where it cannot be queried from sfx2.
+- **Hidden below 1280 logical px of window width**; the page gets its full width back and rotation stops.
+- **Data:** a worker thread reads the installed defaults once for the first paint, then calls
+  `org.hst.office.BannerFeed`; the UI thread never touches Python, the cache or the network. Results are posted to
+  the main thread, which decodes the image. If the service fails, the widget reads `data/banners.json`,
+  `data/solutions.json` and `banners/*` of the installed extension directly, applying the same UTM rule.
+  A decoder error skips to the next entry, at most three times in a row.
+- **Rotation:** a main-thread timer requests `Slot + 1` every `rotateSeconds`; paused while hovered or focused; 300 ms
+  cross-fade, or a plain switch when `MiscSettings::IsAnimatedOthersAllowed()` is false (reduced motion).
+- **Activation:** click, Enter or Space opens `click_url_with_utm` through `sfx2::openUriExternally`.
+- **Accessibility:** focusable with a focus ring; role `HYPER_LINK`; accessible name and tooltip `<name> — <tagline>`.
+  VCL did not expose the notebookbar to assistive technology at all, so the patch reports it as a child of the
+  work window, like the menu bar (`vcl/source/window/accessibility.cxx`), and appends a link child after the page
+  tabs of a tab control (`vclxaccessibletabcontrol.cxx`). The whole ribbon is now reachable by screen readers.
+- **Dark mode:** when the window or dialog colour is dark, the artwork sits on a light rounded card (`#F4F6F9`).
+
+Checks: `tests/unit/test_ribbon_banner_geometry.py` compiles the geometry header from the patch.
+`tests/runtime/check-ribbon-banner.py` drives the real GUI under Xvfb and gtk3 (needs a running display, and a second
+one of at least 3000×1820 for `--display-hidpi`; `--baseline-instdir` compares with a build without the banner):
+
+```sh
+python3 tests/runtime/check-ribbon-banner.py --baseline-instdir /path/to/instdir-without-banner --display :93 --display-hidpi :94
+```
 
 ## Integration for the ribbon widget
 

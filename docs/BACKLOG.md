@@ -125,7 +125,7 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
       - Alt+F8 trong HST Writer mở hộp thoại macro như Word, thay phím chọn mở rộng (vẫn có ở ô chế độ chọn trên thanh trạng thái); Alt+F11 mở trình soạn VBA (chủ dự án duyệt 2026-11-04).
       - Word VBA trong beta.5: mục tiêu ≥20/24 trường hợp của `tests/runtime/vba_cases.py`; dự án VBA có mã chữ Việt mà bảng mã cũ không chứa được tự chuyển sang Windows-1258 khi lưu.
     - Trình xem PDF nhẹ, nhanh, giao diện phổ thông, có ký số PDF (thiết kế chủ dự án duyệt trước). *Đã làm (chờ chủ dự án duyệt ảnh):* HST PDF mở PDF 50/300 trang trong ~0,1 s (Draw 3–17 s), tìm, chép, in, ký số bằng USB Token có khung chữ ký, lưu bản sao. Còn: kiểm Windows/macOS. [Báo cáo](../plans/reports/pdf-viewer-261104-architecture-decision.md).
-    - Ô banner quảng cáo giải pháp HASON TECH, luân phiên 10 giây, bên phải ngang notebookbar (thiết kế chủ dự án duyệt trước). Artwork 6 giải pháp + feed ký riêng/cache/UNO đã có: [giao diện tích hợp](BANNERS.md), [preview](design/banners-preview.png). Còn đặt public key banner và triển khai widget C++ trong ribbon.
+    - Ô banner quảng cáo giải pháp HASON TECH, luân phiên 10 giây, bên phải ngang notebookbar (thiết kế chủ dự án duyệt trước). Artwork 6 giải pháp + feed ký riêng/cache/UNO đã có: [giao diện tích hợp](BANNERS.md), [preview](design/banners-preview.png). Widget C++ trong ribbon Writer/Sheets/Slides đã có (`hst-ribbon-banner.patch`, [ghi chú triển khai](BANNERS.md#ribbon-widget), `tests/runtime/check-ribbon-banner.py`). Còn kiểm tra trên Windows/macOS (HiDPI, trình đọc màn hình).
 - **v1.0.0:** chuyển repo sang tổ chức `hasontech` trước bản chính thức.
 
 ## Blockers và câu hỏi còn mở
