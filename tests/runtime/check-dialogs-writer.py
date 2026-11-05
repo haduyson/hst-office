@@ -10,6 +10,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dialogs_writer_border_cases import check_borders, check_page_border  # noqa: E402
 from dialogs_writer_other_cases import (check_hyperlink, check_page_number, check_page_setup,  # noqa: E402
                                         check_slide_properties, check_special_character, check_word_count)
 from dialogs_writer_paragraph_font_cases import check_font, check_paragraph  # noqa: E402
@@ -22,7 +23,8 @@ DIALOGS = {"paragraph": check_paragraph, "font": check_font, "word-count": check
            "page-setup": check_page_setup, "special-character": check_special_character, "page-number": check_page_number,
            "slide-properties": check_slide_properties, "table-properties": check_table_properties,
            "table-rows": check_table_row_navigation, "table-wrap": check_table_text_wrapping,
-           "picture": check_picture, "frame": check_frame_style_keeps_size}
+           "picture": check_picture, "frame": check_frame_style_keeps_size,
+           "borders": check_borders, "page-border": check_page_border}
 
 
 def main():

@@ -1,0 +1,925 @@
+HST Office: Word's Borders and Shading. One dialog with Borders, Page Border and Shading tabs, opened by both
+.uno:BorderDialog and .uno:BackgroundDialog. Selected text inside one paragraph starts on Apply to: Text.
+
+- Page Border edits the current page style, with Word's Apply to: whole document, this section, first page only,
+  all except first page. A section here is a page style, which is what a Word section becomes on import.
+- w:pgBorders w:display now round-trips. Import ignored it and export always wrote allPages.
+- Apply to Text writes the character border, shadow and background, so w:bdr and w:shd on the run in DOCX. The
+  export dropped a direct w:bdr, taking the run's own border for an inherited one.
+- SwDoc::ChgPageDesc copies the master's border to the first page format; it keeps the first page's own when
+  the page style is marked for first page only or all except first page.
+
+License: these upstream files remain under their original license (MPL-2.0); hst*.ui are new files under MPL-2.0.
+Test: tests/runtime/check-dialogs-writer.py borders page-border
+---
+--- a/sw/UIConfig_swriter.mk
++++ b/sw/UIConfig_swriter.mk
+@@ -196,6 +196,8 @@
+ 	sw/uiconfig/swriter/ui/insertsectiondialog \
+ 	sw/uiconfig/swriter/ui/insertscript \
+ 	sw/uiconfig/swriter/ui/hstframesizepage \
++	sw/uiconfig/swriter/ui/hstbordersdialog \
++	sw/uiconfig/swriter/ui/hstpageborderpage \
+ 	sw/uiconfig/swriter/ui/inserttable \
+ 	sw/uiconfig/swriter/ui/jumpposbox \
+ 	sw/uiconfig/swriter/ui/labeldialog \
+--- a/sw/source/core/doc/docdesc.cxx
++++ b/sw/source/core/doc/docdesc.cxx
+@@ -39,6 +39,10 @@
+ #include <ndole.hxx>
+ #include <mdiexp.hxx>
+ #include <doc.hxx>
++#include <editeng/boxitem.hxx>
++#include <editeng/shaditem.hxx>
++#include <frmatr.hxx>
++#include <svl/grabbagitem.hxx>
+ #include <IDocumentUndoRedo.hxx>
+ #include <IDocumentFieldsAccess.hxx>
+ #include <DocumentContentOperationsManager.hxx>
+@@ -152,6 +156,9 @@
+         // take over DrawingLayer FillStyles
+         XATTR_FILL_FIRST,               XATTR_FILL_LAST,                // [1014
+ 
++        // HST: page border art and Apply to, kept in the grab bag of the page formats.
++        RES_FRMATR_GRABBAG,             RES_FRMATR_GRABBAG,
++
+         0};
+ 
+     const SfxPoolItem* pItem;
+@@ -529,8 +536,19 @@
+         ::lcl_DescSetAttr(rChged.GetMaster(),
+                    const_cast<SwPageDesc&>(rChged).GetLeft());
+     }
++    // HST: Word's Apply to "first page only" and "all except first page": the first page format keeps
++    // the border it was given instead of the master's.
++    const bool bHstOwnFirstBorder = !rChged.IsFirstShared()
++        && rChged.GetMaster().GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag().contains(u"hstBorderApply"_ustr);
++    const SvxBoxItem aHstFirstBox(rChged.GetFirstMaster().GetBox());
++    const SvxShadowItem aHstFirstShadow(rChged.GetFirstMaster().GetShadow());
+     ::lcl_DescSetAttr(rChged.GetMaster(),
+                    const_cast<SwPageDesc&>(rChged).GetFirstMaster());
++    if (bHstOwnFirstBorder)
++    {
++        const_cast<SwPageDesc&>(rChged).GetFirstMaster().SetFormatAttr(aHstFirstBox);
++        const_cast<SwPageDesc&>(rChged).GetFirstMaster().SetFormatAttr(aHstFirstShadow);
++    }
+     ::lcl_DescSetAttr(rChged.GetLeft(),
+                    const_cast<SwPageDesc&>(rChged).GetFirstLeft());
+ 
+--- a/sw/source/filter/ww8/docxattributeoutput.cxx
++++ b/sw/source/filter/ww8/docxattributeoutput.cxx
+@@ -7570,10 +7570,27 @@
+     m_pSerializer->singleElementNS(XML_w, XML_titlePg);
+ }
+ 
+-void DocxAttributeOutput::SectionPageBorders( const SwFrameFormat* pFormat, const SwFrameFormat* /*pFirstPageFormat*/ )
++void DocxAttributeOutput::SectionPageBorders( const SwFrameFormat* pFormat, const SwFrameFormat* pFirstPageFormat )
+ {
+     // Output the margins
+ 
++    // HST: Word's Apply to. Only one of the two formats has a border when it is not on all pages.
++    const auto lcl_HasBorder = [](const SwFrameFormat& rFormat) {
++        const SvxBoxItem& rItem = rFormat.GetBox();
++        return rItem.GetTop() || rItem.GetBottom() || rItem.GetLeft() || rItem.GetRight();
++    };
++    const char* pDisplay = "allPages";
++    if (pFirstPageFormat && pFirstPageFormat != pFormat)
++    {
++        if (lcl_HasBorder(*pFirstPageFormat) && !lcl_HasBorder(*pFormat))
++        {
++            pDisplay = "firstPage";
++            pFormat = pFirstPageFormat;
++        }
++        else if (!lcl_HasBorder(*pFirstPageFormat) && lcl_HasBorder(*pFormat))
++            pDisplay = "notFirstPage";
++    }
++
+     const SvxBoxItem& rBox = pFormat->GetBox( );
+ 
+     const SvxBorderLine* pLeft = rBox.GetLeft( );
+@@ -7617,7 +7634,7 @@
+ 
+     // All distances are relative to the text margins
+     m_pSerializer->startElementNS(XML_w, XML_pgBorders,
+-        FSNS(XML_w, XML_display), "allPages",
++        FSNS(XML_w, XML_display), pDisplay,
+         FSNS(XML_w, XML_offsetFrom), aOutputBorderOptions.pDistances->bFromEdge ? "page" : "text");
+ 
+     std::map<SvxBoxItemLine, css::table::BorderLine2> aEmptyMap; // empty styles map
+@@ -8745,7 +8762,9 @@
+     {
+         if (const SvxBoxItem* pPoolItem = GetExport().m_pChpIter->HasTextItem(RES_CHRATR_BOX))
+         {
+-            pInherited = pPoolItem;
++            // HST: not the attribute being written, or w:bdr of a direct text border is lost.
++            if (*pPoolItem != rBox)
++                pInherited = pPoolItem;
+         }
+     }
+ 
+--- a/sw/source/ui/frmdlg/uiborder.cxx
++++ b/sw/source/ui/frmdlg/uiborder.cxx
+@@ -23,33 +23,232 @@
+ #include <svx/flagsdef.hxx>
+ #include <sfx2/sfxdlg.hxx>
+ #include <sfx2/tabdlg.hxx>
++#include <svl/eitem.hxx>
+ #include <svl/intitem.hxx>
++#include <vcl/tabs.hrc>
++#include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Dialog.hxx>
+-
++#include <editeng/boxitem.hxx>
++#include <editeng/brushitem.hxx>
++#include <editeng/shaditem.hxx>
++
++#include <cmdid.h>
++#include <svl/grabbagitem.hxx>
++#include <swmodule.hxx>
++#include <frmatr.hxx>
++#include <frmfmt.hxx>
++#include <hintids.hxx>
++#include <pagedesc.hxx>
+ #include <swtypes.hxx>
++#include <swundo.hxx>
+ #include <uiborder.hxx>
++#include <uitool.hxx>
++#include <view.hxx>
++#include <wrtsh.hxx>
+ #include <strings.hrc>
+ 
+-SwBorderDlg::SwBorderDlg(weld::Window* pParent, const SfxItemSet& rSet, SwBorderModes nType)
+-    : SfxSingleTabDialogController(pParent, &rSet)
++namespace
+ {
+-    m_xDialog->set_title(SwResId(STR_FRMUI_BORDER));
++constexpr TranslateId STR_HST_TAB_PAGE_BORDER = NC_("hstbordersdialog|pageborder", "Page Border");
++constexpr TranslateId STR_HST_TAB_SHADING = NC_("hstbordersdialog|shading", "Shading");
++
++/// The border page once more, on the current page style instead of the selection.
++class SwHstPageBorderPage final : public SfxTabPage
++{
++    std::unique_ptr<weld::Container> m_xArea;
++    std::unique_ptr<weld::ComboBox> m_xApplyLB;
++    SfxItemSet m_aPageSet;
++    SfxItemSet m_aOutSet;
++    std::unique_ptr<SfxTabPage> m_xBorderPage;
++    SwWrtShell* m_pShell;
++
++public:
++    SwHstPageBorderPage(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet& rSet)
++        : SfxTabPage(pPage, pController, u"modules/swriter/ui/hstpageborderpage.ui"_ustr, u"HstPageBorderPage"_ustr, &rSet)
++        , m_xArea(m_xBuilder->weld_container(u"hstpageborderarea"_ustr))
++        , m_xApplyLB(m_xBuilder->weld_combo_box(u"hstpageapplyto"_ustr))
++        , m_aPageSet(SfxItemSet::makeFixedSfxItemSet<RES_BOX, RES_SHADOW, SID_ATTR_BORDER_INNER, SID_ATTR_BORDER_INNER>(*rSet.GetPool()))
++        , m_aOutSet(m_aPageSet)
++        , m_pShell(::GetActiveWrtShell())
++    {
++        m_aOutSet.ClearItem();
++        const SwPageDesc& rDesc = m_pShell->GetPageDesc(m_pShell->GetCurPageDesc());
++        const SwFrameFormat& rShown = !rDesc.IsFirstShared() && !rDesc.GetMaster().GetBox().GetTop()
++                                              && !rDesc.GetMaster().GetBox().GetLeft()
++                                          ? rDesc.GetFirstMaster()
++                                          : rDesc.GetMaster();
++        m_aPageSet.Put(rShown.GetFormatAttr(RES_BOX));
++        m_aPageSet.Put(rShown.GetFormatAttr(RES_SHADOW));
++        ::PrepareBoxInfo(m_aPageSet, *m_pShell);
++        SvxBoxInfoItem aInfo(m_aPageSet.Get(SID_ATTR_BORDER_INNER));
++        aInfo.SetTable(false);
++        aInfo.SetMinDist(false);
++        m_aPageSet.Put(aInfo);
++
++        SfxAbstractDialogFactory* pFact = SfxAbstractDialogFactory::Create();
++        m_xBorderPage = (*pFact->GetTabPageCreatorFunc(RID_SVXPAGE_BORDER))(m_xArea.get(), pController, &m_aPageSet);
++        SfxAllItemSet aModes(*rSet.GetPool());
++        aModes.Put(SfxUInt16Item(SID_SWMODE_TYPE, static_cast<sal_uInt16>(SwBorderModes::PARA)));
++        m_xBorderPage->PageCreated(aModes);
++        m_xBorderPage->Reset(&m_aPageSet);
++        // What the page style has now: a border on the first page only or on the others only.
++        const SwPageDesc& rCurrent = m_pShell->GetPageDesc(m_pShell->GetCurPageDesc());
++        const auto lcl_HasBorder = [](const SwFrameFormat& rFormat) {
++            const SvxBoxItem& rItem = rFormat.GetBox();
++            return rItem.GetTop() || rItem.GetBottom() || rItem.GetLeft() || rItem.GetRight();
++        };
++        const bool bMaster = lcl_HasBorder(rCurrent.GetMaster());
++        const bool bFirst = lcl_HasBorder(rCurrent.GetFirstMaster());
++        m_xApplyLB->set_active(rCurrent.IsFirstShared() || bMaster == bFirst ? 1 : bFirst ? 2 : 3);
++        m_xApplyLB->save_value();
++    }
++
++    static std::unique_ptr<SfxTabPage> Create(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet* pSet)
++    {
++        return std::make_unique<SwHstPageBorderPage>(pPage, pController, *pSet);
++    }
++
++    virtual void Reset(const SfxItemSet*) override {}
++
++    // Nothing for the dialog's set, whose RES_BOX belongs to the selection.
++    virtual bool FillItemSet(SfxItemSet*) override
++    {
++        m_aOutSet.ClearItem();
++        m_xBorderPage->FillItemSet(&m_aOutSet);
++        return false;
++    }
++
++    /// Word's Apply to: 0 Whole document, 1 This section, 2 First page only, 3 All except first page.
++    /// A section here is a page style, which is what a Word section becomes on import.
++    void Apply()
++    {
++        const SvxBoxItem* pBox = m_aOutSet.GetItemIfSet(RES_BOX, false);
++        const SvxShadowItem* pShadow = m_aOutSet.GetItemIfSet(RES_SHADOW, false);
++        const int nApply = m_xApplyLB->get_active();
++        if (!pBox && !pShadow && !m_xApplyLB->get_value_changed_from_saved())
++            return;
++        const SvxBoxItem& rBox = pBox ? *pBox : m_aPageSet.Get(RES_BOX);
++        const SvxShadowItem& rShadow = pShadow ? *pShadow : m_aPageSet.Get(RES_SHADOW);
++        const size_t nCurrent = m_pShell->GetCurPageDesc();
++        m_pShell->StartUndo();
++        for (size_t n = 0; n < m_pShell->GetPageDescCnt(); ++n)
++        {
++            if (nApply != 0 && n != nCurrent)
++                continue;
++            SwPageDesc aDesc(m_pShell->GetPageDesc(n));
++            SwFrameFormat& rMaster = aDesc.GetMaster();
++            SwFrameFormat& rFirst = aDesc.GetFirstMaster();
++            rMaster.ResetFormatAttr(RES_BOX, RES_SHADOW);
++            rFirst.ResetFormatAttr(RES_BOX, RES_SHADOW);
++            // The first page's own format needs "different first page"; its header and footer
++            // content is copied from the other pages by SwDoc::ChgPageDesc.
++            if (nApply >= 2)
++                aDesc.ChgFirstShare(false);
++            std::map<OUString, css::uno::Any> aBag = rMaster.GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag();
++            if (nApply >= 2)
++                aBag[u"hstBorderApply"_ustr] <<= sal_Int32(nApply);
++            else
++                aBag.erase(u"hstBorderApply"_ustr);
++            rMaster.SetFormatAttr(SfxGrabBagItem(RES_FRMATR_GRABBAG, std::move(aBag)));
++            if (nApply != 2)
++            {
++                rMaster.SetFormatAttr(rBox);
++                rMaster.SetFormatAttr(rShadow);
++            }
++            if (nApply != 3)
++            {
++                rFirst.SetFormatAttr(rBox);
++                rFirst.SetFormatAttr(rShadow);
++            }
++            m_pShell->ChgPageDesc(n, aDesc);
++        }
++        m_pShell->EndUndo();
++    }
++};
++}
+ 
++SwBorderDlg::SwBorderDlg(weld::Window* pParent, const SfxItemSet& rSet, SwBorderModes nType)
++    : SfxTabDialogController(pParent, u"modules/swriter/ui/hstbordersdialog.ui"_ustr, u"HstBordersDialog"_ustr, &rSet)
++    , m_nType(nType)
++    , m_pShell(::GetActiveWrtShell())
++    , m_xApplyBox(m_xBuilder->weld_widget(u"hstapplybox"_ustr))
++    , m_xApplyLB(m_xBuilder->weld_combo_box(u"hstapplyto"_ustr))
++{
+     SfxAbstractDialogFactory* pFact = SfxAbstractDialogFactory::Create();
+-    ::CreateTabPage fnCreatePage = pFact->GetTabPageCreatorFunc(RID_SVXPAGE_BORDER);
++    AddTabPage(u"borders"_ustr, TabResId(RID_TAB_BORDER.aLabel), RID_SVXPAGE_BORDER,
++               RID_M + RID_TAB_BORDER.sIconName);
++    AddTabPage(u"hstpageborder"_ustr, SwResId(STR_HST_TAB_PAGE_BORDER), SwHstPageBorderPage::Create,
++               RID_M + u"pagesetup.png"_ustr);
++    AddTabPage(u"shading"_ustr, SwResId(STR_HST_TAB_SHADING), pFact->GetTabPageCreatorFunc(RID_SVXPAGE_BKG),
++               RID_M + RID_TAB_BACKGROUND.sIconName);
++
++    // Word: the Text choice needs selected text. 0 no choice, 1 paragraph first, 2 text first.
++    const SfxUInt16Item* pApply = rSet.GetItemIfSet(TypedWhichId<SfxUInt16Item>(FN_FORMAT_BORDER_DLG), false);
++    m_xApplyBox->set_visible(pApply && pApply->GetValue() != 0);
++    m_xApplyLB->set_active(pApply && pApply->GetValue() == 2 ? 1 : 0);
++    if (rSet.GetItemIfSet(TypedWhichId<SfxBoolItem>(FN_FORMAT_BACKGROUND_DLG), false))
++        SetCurPageId(u"shading"_ustr);
++}
++
++SwBorderDlg::~SwBorderDlg() {}
+ 
+-    if (fnCreatePage)
++void SwBorderDlg::PageCreated(const OUString& rId, SfxTabPage& rPage)
++{
++    SfxAllItemSet aSet(*GetInputSetImpl()->GetPool());
++    if (rId == "borders")
+     {
+-        std::unique_ptr<SfxTabPage> xNewPage = (*fnCreatePage)(get_content_area(), this, &rSet);
+-        SfxAllItemSet aSet(*(rSet.GetPool()));
+-        aSet.Put(SfxUInt16Item(SID_SWMODE_TYPE, static_cast<sal_uInt16>(nType)));
+-        if (SwBorderModes::TABLE == nType)
++        aSet.Put(SfxUInt16Item(SID_SWMODE_TYPE, static_cast<sal_uInt16>(m_nType)));
++        if (SwBorderModes::TABLE == m_nType)
+             aSet.Put(SfxUInt32Item(SID_FLAG_TYPE, SVX_HIDESHADOWCTL));
+-        xNewPage->PageCreated(aSet);
+-        SetTabPage(std::move(xNewPage));
++        rPage.PageCreated(aSet);
++    }
++    else if (rId == "shading")
++    {
++        rPage.PageCreated(aSet);
++        rPage.ActivatePage(*GetInputSetImpl());
+     }
+ }
+ 
+-SwBorderDlg::~SwBorderDlg() {}
++short SwBorderDlg::Ok()
++{
++    const short nRet = SfxTabDialogController::Ok();
++    if (auto* pPageBorder = dynamic_cast<SwHstPageBorderPage*>(GetTabPage(u"hstpageborder")))
++        pPageBorder->Apply();
++    if (!m_xApplyBox->get_visible() || m_xApplyLB->get_active() != 1)
++        return nRet;
++
++    // Text: the same border and shading as character attributes, for w:bdr and w:shd on the run.
++    auto* pOut = const_cast<SfxItemSet*>(GetOutputItemSet());
++    if (!pOut)
++        return nRet;
++    SfxItemSet aChar(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BOX, RES_CHRATR_BOX, RES_CHRATR_SHADOW,
++                                                     RES_CHRATR_SHADOW, RES_CHRATR_BACKGROUND,
++                                                     RES_CHRATR_BACKGROUND>(*pOut->GetPool()));
++    if (const SvxBoxItem* pBox = pOut->GetItemIfSet(RES_BOX, false))
++    {
++        SvxBoxItem aBox(*pBox);
++        aBox.SetWhich(RES_CHRATR_BOX);
++        aChar.Put(aBox);
++    }
++    if (const SvxShadowItem* pShadow = pOut->GetItemIfSet(RES_SHADOW, false))
++    {
++        SvxShadowItem aShadow(*pShadow);
++        aShadow.SetWhich(RES_CHRATR_SHADOW);
++        aChar.Put(aShadow);
++    }
++    if (const SvxBrushItem* pBrush = pOut->GetItemIfSet(RES_BACKGROUND, false))
++    {
++        SvxBrushItem aBrush(*pBrush);
++        aBrush.SetWhich(RES_CHRATR_BACKGROUND);
++        aChar.Put(aBrush);
++    }
++    pOut->ClearItem(RES_BOX);
++    pOut->ClearItem(RES_SHADOW);
++    pOut->ClearItem(RES_BACKGROUND);
++    pOut->ClearItem(SID_ATTR_BORDER_INNER);
++    if (aChar.Count())
++        m_pShell->SetAttrSet(aChar);
++    return nRet;
++}
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/inc/uiborder.hxx
++++ b/sw/source/uibase/inc/uiborder.hxx
+@@ -19,11 +19,25 @@
+ #ifndef INCLUDED_SW_SOURCE_UIBASE_INC_UIBORDER_HXX
+ #define INCLUDED_SW_SOURCE_UIBASE_INC_UIBORDER_HXX
+ 
+-#include <sfx2/basedlgs.hxx>
++#include <sfx2/tabdlg.hxx>
+ #include <svx/flagsdef.hxx>
++#include <vcl/weld/ComboBox.hxx>
++#include <vcl/weld/Widget.hxx>
+ 
+-class SwBorderDlg final : public SfxSingleTabDialogController
++class SwWrtShell;
++
++/// HST: Word's Borders and Shading: Borders, Page Border and Shading tabs. The page ids of the old
++/// single page dialogs live on: .uno:BorderDialog opens "borders", .uno:BackgroundDialog "shading".
++class SwBorderDlg final : public SfxTabDialogController
+ {
++    SwBorderModes m_nType;
++    SwWrtShell* m_pShell;
++    std::unique_ptr<weld::Widget> m_xApplyBox;
++    std::unique_ptr<weld::ComboBox> m_xApplyLB;
++
++    virtual void PageCreated(const OUString& rId, SfxTabPage& rPage) override;
++    virtual short Ok() override;
++
+ public:
+     // nType may be:
+     // SW_BORDER_MODE_PARA
+--- a/sw/source/uibase/shells/basesh.cxx
++++ b/sw/source/uibase/shells/basesh.cxx
+@@ -66,6 +66,7 @@
+ #include <swundo.hxx>
+ #include <fldbas.hxx>
+ #include <uitool.hxx>
++#include <wview.hxx>
+ #include <basesh.hxx>
+ #include <viewopt.hxx>
+ #include <fontcfg.hxx>
+@@ -3021,22 +3022,39 @@
+         }
+         break;
+         case FN_FORMAT_BORDER_DLG:
++        case FN_FORMAT_BACKGROUND_DLG:
+         {
++            // HST: one dialog as in Word, Borders and Shading; .uno:BackgroundDialog opens it on Shading.
++            SwModule::get()->PutItem(SfxUInt16Item(SID_ATTR_METRIC, static_cast<sal_uInt16>(::GetDfltMetric(dynamic_cast<SwWebView*>(&GetView()) != nullptr))));
+             SfxItemSet aSet(SfxItemSet::makeFixedSfxItemSet<
+-                RES_BOX, RES_SHADOW, SID_ATTR_BORDER_INNER, SID_ATTR_BORDER_INNER>(rSh.GetAttrPool()));
++                RES_BACKGROUND, RES_BACKGROUND,
++                RES_BOX, RES_SHADOW,
++                XATTR_FILL_FIRST, XATTR_FILL_LAST,
++                SID_ATTR_BORDER_INNER, SID_ATTR_BORDER_INNER,
++                FN_FORMAT_BORDER_DLG, FN_FORMAT_BORDER_DLG,
++                FN_FORMAT_BACKGROUND_DLG, FN_FORMAT_BACKGROUND_DLG>(rSh.GetAttrPool()));
+             ScopedVclPtr<SfxAbstractDialog> pDlg;
++            SwAbstractDialogFactory* pFact = SwAbstractDialogFactory::Create();
++            if (nSlot == FN_FORMAT_BACKGROUND_DLG)
++                aSet.Put(SfxBoolItem(FN_FORMAT_BACKGROUND_DLG, true));
+             // Table cell(s) selected?
+             if ( rSh.IsTableMode() )
+             {
+                 // Set border attributes Get/SetTabBorders()
+                 ::PrepareBoxInfo( aSet, rSh );
+                 rSh.GetTabBorders( aSet );
+-                SwAbstractDialogFactory* pFact = SwAbstractDialogFactory::Create();
++                // tdf#144843 calling GetBoxBackground *requires* an incarnation to be handed over
++                std::unique_ptr<SvxBrushItem> aBrush(std::make_unique<SvxBrushItem>(RES_BACKGROUND));
++                rSh.GetBoxBackground( aBrush );
++                aSet.Put( std::move(aBrush) );
+                 pDlg.disposeAndReset(pFact->CreateSwBorderDlg(pMDI, aSet, SwBorderModes::TABLE));
+                 if ( pDlg->Execute() == RET_OK )
+                 {
+-                    rSh.SetTabBorders( *pDlg->GetOutputItemSet() );
+                     pOutSet = pDlg->GetOutputItemSet();
++                    if ( pOutSet->GetItemState(RES_BOX) == SfxItemState::SET || pOutSet->GetItemState(SID_ATTR_BORDER_INNER) == SfxItemState::SET )
++                        rSh.SetTabBorders( *pOutSet );
++                    if ( const SvxBrushItem* pOutBrush = pOutSet->GetItemIfSet(RES_BACKGROUND, false) )
++                        rSh.SetBoxBackground( *pOutBrush );
+                 }
+             }
+             else if ( rSh.IsFrameSelected() )
+@@ -3044,14 +3062,14 @@
+                 // Set border attributes via Frame-Manager
+                 SwFlyFrameAttrMgr aMgr( false, &rSh, Frmmgr_Type::NONE, nullptr );
+                 aSet.Put( aMgr.GetAttrSet() );
++                rSh.GetFlyFrameAttr( aSet );
+ 
+-                SwAbstractDialogFactory* pFact = SwAbstractDialogFactory::Create();
+                 pDlg.disposeAndReset(pFact->CreateSwBorderDlg(pMDI, aSet, SwBorderModes::FRAME));
+                 if ( pDlg->Execute() == RET_OK )
+                 {
+-                    aMgr.SetAttrSet( *pDlg->GetOutputItemSet() );
+-                    aMgr.UpdateFlyFrame();
+                     pOutSet = pDlg->GetOutputItemSet();
++                    aMgr.SetAttrSet( *pOutSet );
++                    aMgr.UpdateFlyFrame();
+                 }
+             }
+             else
+@@ -3060,68 +3078,34 @@
+                 rSh.GetCurAttr( aSet );
+                 ::PrepareBoxInfo( aSet, rSh );
+ 
+-                SwAbstractDialogFactory* pFact = SwAbstractDialogFactory::Create();
+-                pDlg.disposeAndReset(pFact->CreateSwBorderDlg(pMDI, aSet, SwBorderModes::PARA));
+-                if ( pDlg->Execute() == RET_OK )
+-                {
+-                    rSh.SetAttrSet( *pDlg->GetOutputItemSet() );
+-                    pOutSet = pDlg->GetOutputItemSet();
+-                }
+-            }
+-            if(pOutSet)
+-            {
+-                rReq.Done(*pOutSet);
+-                bDone = true;
+-            }
+-        }
+-        break;
+-        case FN_FORMAT_BACKGROUND_DLG:
+-        {
+-            SfxItemSet aSet(SfxItemSet::makeFixedSfxItemSet<
+-                            RES_BACKGROUND, RES_BACKGROUND,
+-                            XATTR_FILL_FIRST, XATTR_FILL_LAST>(rSh.GetAttrPool()));
+-
+-            ScopedVclPtr<SfxAbstractDialog> pDlg;
+-            SwAbstractDialogFactory* pFact = SwAbstractDialogFactory::Create();
+-
+-            // Table cell(s) selected?
+-            if ( rSh.IsTableMode() )
+-            {
+-                // Get background attributes of the table and put it in the set
+-                // tdf#144843 calling GetBoxBackground *requires* an incarnation to be handed over
+-                std::unique_ptr<SvxBrushItem> aBrush(std::make_unique<SvxBrushItem>(RES_BACKGROUND));
+-                rSh.GetBoxBackground( aBrush );
+-                pDlg.disposeAndReset(pFact->CreateSwBackgroundDialog(pMDI, aSet));
+-                aSet.Put( std::move(aBrush) );
+-                if ( pDlg->Execute() == RET_OK )
+-                {
+-
+-                    rSh.SetBoxBackground( pDlg->GetOutputItemSet()->Get( RES_BACKGROUND ) );
+-                    pOutSet = pDlg->GetOutputItemSet();
+-                }
+-            }
+-            else if ( rSh.IsFrameSelected() )
+-            {
+-
+-                rSh.GetFlyFrameAttr( aSet );
+-
+-                pDlg.disposeAndReset(pFact->CreateSwBackgroundDialog(pMDI, aSet));
+-                if ( pDlg->Execute() == RET_OK )
+-                {
+-                    rSh.SetFlyFrameAttr(const_cast<SfxItemSet &>(*pDlg->GetOutputItemSet()) );
+-                    pOutSet = pDlg->GetOutputItemSet();
++                // Selected text inside one paragraph starts on Word's "Apply to: Text".
++                sal_uInt16 nApply = rSh.HasSelection() ? 1 : 0;
++                if (nApply && !rSh.IsMultiSelection() && !rSh.IsSelFullPara()
++                    && rSh.GetCursor()->GetPoint()->GetNode() == rSh.GetCursor()->GetMark()->GetNode())
++                {
++                    nApply = 2;
++                    SfxItemSet aChar(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BOX, RES_CHRATR_BOX, RES_CHRATR_SHADOW,
++                                                                     RES_CHRATR_SHADOW, RES_CHRATR_BACKGROUND,
++                                                                     RES_CHRATR_BACKGROUND>(rSh.GetAttrPool()));
++                    rSh.GetCurAttr(aChar);
++                    SvxBoxItem aBox(aChar.Get(RES_CHRATR_BOX));
++                    aBox.SetWhich(RES_BOX);
++                    aSet.Put(aBox);
++                    SvxShadowItem aShadow(aChar.Get(RES_CHRATR_SHADOW));
++                    aShadow.SetWhich(RES_SHADOW);
++                    aSet.Put(aShadow);
++                    SvxBrushItem aBrush(aChar.Get(RES_CHRATR_BACKGROUND));
++                    aBrush.SetWhich(RES_BACKGROUND);
++                    aSet.Put(aBrush);
+                 }
+-            }
+-            else
+-            {
+-                // Set border attributes Umrandungsattribute with the shell quite normal.
+-                rSh.GetCurAttr( aSet );
++                aSet.Put(SfxUInt16Item(FN_FORMAT_BORDER_DLG, nApply));
+ 
+-                pDlg.disposeAndReset(pFact->CreateSwBackgroundDialog(pMDI, aSet));
++                pDlg.disposeAndReset(pFact->CreateSwBorderDlg(pMDI, aSet, SwBorderModes::PARA));
+                 if ( pDlg->Execute() == RET_OK )
+                 {
+-                    rSh.SetAttrSet( *pDlg->GetOutputItemSet() );
+                     pOutSet = pDlg->GetOutputItemSet();
++                    if ( pOutSet->Count() )
++                        rSh.SetAttrSet( *pOutSet );
+                 }
+             }
+             if(pOutSet)
+--- a/sw/source/writerfilter/dmapper/PropertyMap.cxx
++++ b/sw/source/writerfilter/dmapper/PropertyMap.cxx
+@@ -79,6 +79,15 @@
+ #include <frozen/unordered_set.h>
+ 
+ #include <unoprnms.hxx>
++#include <doc.hxx>
++#include <SwStyleNameMapper.hxx>
++#include <svl/grabbagitem.hxx>
++#include <frmatr.hxx>
++#include <docsh.hxx>
++#include <hintids.hxx>
++#include <names.hxx>
++#include <pagedesc.hxx>
++#include <unotxdoc.hxx>
+ 
+ using namespace com::sun::star;
+ 
+@@ -2066,6 +2075,36 @@
+         }
+     }
+ 
++    // HST: w:display of w:pgBorders. Done here because the title page setting above decides whether
++    // the first page has a format of its own.
++    if (m_eBorderApply != BorderApply::ToAllInSection && !m_sPageStyleName.isEmpty())
++    {
++        SwDoc* pDoc = rDM_Impl.GetTextDocument()->GetDocShell()->GetDoc();
++        size_t nDesc = 0;
++        const ProgName aProgName(m_sPageStyleName);
++        const UIName aDescName = SwStyleNameMapper::GetUIName(
++            SwStyleNameMapper::GetPoolIdFromProgName(aProgName, SwGetPoolIdFromName::PageDesc), aProgName);
++        if (pDoc && pDoc->FindPageDesc(aDescName, &nDesc))
++        {
++            SwPageDesc aDesc(pDoc->GetPageDesc(nDesc));
++            SwFrameFormat& rMaster = aDesc.GetMaster();
++            SwFrameFormat& rFirst = aDesc.GetFirstMaster();
++            aDesc.ChgFirstShare(false);
++            std::map<OUString, css::uno::Any> aBag = rMaster.GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag();
++            aBag[u"hstBorderApply"_ustr] <<= sal_Int32(m_eBorderApply == BorderApply::ToFirstPageInSection ? 2 : 3);
++            rMaster.SetFormatAttr(SfxGrabBagItem(RES_FRMATR_GRABBAG, std::move(aBag)));
++            if (m_eBorderApply == BorderApply::ToFirstPageInSection)
++            {
++                rFirst.SetFormatAttr(rMaster.GetBox());
++                rFirst.SetFormatAttr(rMaster.GetShadow());
++                rMaster.ResetFormatAttr(RES_BOX, RES_SHADOW);
++            }
++            else
++                rFirst.ResetFormatAttr(RES_BOX, RES_SHADOW);
++            pDoc->ChgPageDesc(nDesc, aDesc);
++        }
++    }
++
+     // Now that the margins are known, resize relative width shapes because some shapes in LO do not support percentage-sizes
+     sal_Int32 nParagraphWidth = GetPageWidth() - m_nLeftMargin - m_nRightMargin;
+     if ( m_nColumnCount > 1 )
+--- a/sw/uiconfig/swriter/ui/hstbordersdialog.ui
++++ b/sw/uiconfig/swriter/ui/hstbordersdialog.ui
+@@ -0,0 +1,155 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- Generated with glade 3.40.0 -->
++<interface domain="sw">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkDialog" id="HstBordersDialog">
++    <property name="can-focus">False</property>
++    <property name="border-width">6</property>
++    <property name="title" translatable="yes" context="hstbordersdialog|HstBordersDialog">Borders and Shading</property>
++    <property name="resizable">False</property>
++    <property name="modal">True</property>
++    <property name="type-hint">dialog</property>
++    <child internal-child="vbox">
++      <object class="GtkBox" id="dialog-vbox1">
++        <property name="can-focus">False</property>
++        <property name="orientation">vertical</property>
++        <property name="spacing">12</property>
++        <child internal-child="action_area">
++          <object class="GtkButtonBox" id="dialog-action_area1">
++            <property name="can-focus">False</property>
++            <property name="layout-style">end</property>
++            <child>
++              <object class="GtkButton" id="reset">
++                <property name="label" translatable="yes" context="stock">_Reset</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="ok">
++                <property name="label" translatable="yes" context="stock">_OK</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="can-default">True</property>
++                <property name="has-default">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="cancel">
++                <property name="label" translatable="yes" context="stock">_Cancel</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="help">
++                <property name="label" translatable="yes" context="stock">_Help</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">3</property>
++                <property name="secondary">True</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="pack-type">end</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="hstapplybox">
++            <property name="can-focus">False</property>
++            <property name="halign">end</property>
++            <property name="spacing">6</property>
++            <child>
++              <object class="GtkLabel" id="hstapplylabel">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbordersdialog|hstapplylabel">Apply _to:</property>
++                <property name="use-underline">True</property>
++                <property name="mnemonic-widget">hstapplyto</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkComboBoxText" id="hstapplyto">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <items>
++                  <item translatable="yes" context="hstbordersdialog|hstapplyto">Paragraph</item>
++                  <item translatable="yes" context="hstbordersdialog|hstapplyto">Text</item>
++                </items>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="pack-type">end</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkNotebook" id="tabcontrol">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <property name="tab-pos">left</property>
++            <property name="scrollable">True</property>
++            <property name="group-name">icons</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++      </object>
++    </child>
++    <action-widgets>
++      <action-widget response="101">reset</action-widget>
++      <action-widget response="-5">ok</action-widget>
++      <action-widget response="-6">cancel</action-widget>
++      <action-widget response="-11">help</action-widget>
++    </action-widgets>
++  </object>
++</interface>
+--- a/sw/uiconfig/swriter/ui/hstpageborderpage.ui
++++ b/sw/uiconfig/swriter/ui/hstpageborderpage.ui
+@@ -0,0 +1,74 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<interface domain="sw">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkBox" id="HstPageBorderPage">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="vexpand">True</property>
++    <property name="orientation">vertical</property>
++    <property name="spacing">6</property>
++    <child>
++      <object class="GtkBox" id="hstpageborderarea">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="vexpand">True</property>
++        <property name="orientation">vertical</property>
++        <child>
++          <placeholder/>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">True</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkBox" id="hstpageapplybox">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="halign">end</property>
++        <property name="margin-end">6</property>
++        <property name="spacing">6</property>
++        <child>
++          <object class="GtkLabel" id="hstpageapplylabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hstpageborderpage|hstpageapplylabel">Appl_y to:</property>
++            <property name="use-underline">True</property>
++            <property name="mnemonic-widget">hstpageapplyto</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkComboBoxText" id="hstpageapplyto">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <items>
++              <item translatable="yes" context="hstpageborderpage|hstpageapplyto">Whole document</item>
++              <item translatable="yes" context="hstpageborderpage|hstpageapplyto">This section</item>
++              <item translatable="yes" context="hstpageborderpage|hstpageapplyto">This section - First page only</item>
++              <item translatable="yes" context="hstpageborderpage|hstpageapplyto">This section - All except first page</item>
++            </items>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">1</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -28845,6 +28845,72 @@
+ msgid "Change Name"
+ msgstr "Thay tên"
+ 
++#. HstBor
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstbordersdialog|HstBordersDialog"
++msgid "Borders and Shading"
++msgstr "Viền và Tô bóng"
++
++#. pagebo
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstbordersdialog|pageborder"
++msgid "Page Border"
++msgstr "Viền trang"
++
++#. shadin
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstbordersdialog|shading"
++msgid "Shading"
++msgstr "Tô bóng"
++
++#. hstapp
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstbordersdialog|hstapplylabel"
++msgid "Apply _to:"
++msgstr "Áp _dụng cho:"
++
++#. hstapp
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstbordersdialog|hstapplyto"
++msgid "Paragraph"
++msgstr "Đoạn văn"
++
++#. hstapp
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstbordersdialog|hstapplyto"
++msgid "Text"
++msgstr "Văn bản"
++
++#. hstpag
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstpageborderpage|hstpageapplylabel"
++msgid "Appl_y to:"
++msgstr "Áp dụng ch_o:"
++
++#. hstpag
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstpageborderpage|hstpageapplyto"
++msgid "Whole document"
++msgstr "Toàn bộ tài liệu"
++
++#. hstpag
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstpageborderpage|hstpageapplyto"
++msgid "This section"
++msgstr "Mục này"
++
++#. hstpag
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstpageborderpage|hstpageapplyto"
++msgid "This section - First page only"
++msgstr "Mục này - Chỉ trang đầu"
++
++#. hstpag
++#: sw/uiconfig/swriter/ui/hstbordersdialog.ui
++msgctxt "hstpageborderpage|hstpageapplyto"
++msgid "This section - All except first page"
++msgstr "Mục này - Tất cả trừ trang đầu"
++
+ #. NWjKW
+ #: sw/uiconfig/swriter/ui/rowheight.ui:15
+ msgctxt "rowheight|RowHeightDialog"
