@@ -1,0 +1,175 @@
+HST Office: package and select the sparse HST command icon themes.
+
+Reason: stock configure rejects hst; Automatic chooses a desktop theme; unknown
+ dark themes fall straight back to light Colibre. Keep SymbolStyle=auto and its
+existing profile precedence. Explicit choices and high contrast remain intact.
+Use the existing cross-platform icon override hook to build deterministic SVG
+archives; the standard postprocess package and ooo_images installer carry them.
+Dark also counts when a GTK theme is dark without its prefer-dark flag, or when a
+platform only names a dark theme. No VCL painting or widget metrics change. SVG-only preserves native HiDPI render.
+
+Generated against bf6ef2662401c7d6dce671ab4deb26ee0af3a7c1; no earlier series patch
+modifies these hunks. New selector test: make CppunitTest_vcl_app_test.
+License: upstream files remain MPL-2.0.
+---
+--- a/configure.ac
++++ b/configure.ac
+@@ -14572,18 +14572,30 @@
+ AC_MSG_CHECKING([which themes to include])
+ # if none given use default subset of available themes
+ if test "x$with_theme" = "x" -o "x$with_theme" = "xyes"; then
+-    with_theme="breeze breeze_dark breeze_dark_svg breeze_svg colibre colibre_svg colibre_dark colibre_dark_svg elementary elementary_svg karasa_jaga karasa_jaga_svg sifr sifr_svg sifr_dark sifr_dark_svg sukapura sukapura_dark sukapura_dark_svg sukapura_svg"
++    with_theme="hst hst_dark breeze breeze_dark breeze_dark_svg breeze_svg colibre colibre_svg colibre_dark colibre_dark_svg elementary elementary_svg karasa_jaga karasa_jaga_svg sifr sifr_svg sifr_dark sifr_dark_svg sukapura sukapura_dark sukapura_dark_svg sukapura_svg"
+ fi
+ 
+ WITH_THEMES=""
+ if test "x$with_theme" != "xno"; then
+     for theme in $with_theme; do
+         case $theme in
+-        breeze|breeze_dark|breeze_dark_svg|breeze_svg|colibre|colibre_svg|colibre_dark|colibre_dark_svg|elementary|elementary_svg|karasa_jaga|karasa_jaga_svg|sifr|sifr_svg|sifr_dark|sifr_dark_svg|sukapura|sukapura_dark|sukapura_dark_svg|sukapura_svg) WITH_THEMES="${WITH_THEMES:+$WITH_THEMES }$theme" ;;
++        hst|hst_dark|breeze|breeze_dark|breeze_dark_svg|breeze_svg|colibre|colibre_svg|colibre_dark|colibre_dark_svg|elementary|elementary_svg|karasa_jaga|karasa_jaga_svg|sifr|sifr_svg|sifr_dark|sifr_dark_svg|sukapura|sukapura_dark|sukapura_dark_svg|sukapura_svg) WITH_THEMES="${WITH_THEMES:+$WITH_THEMES }$theme" ;;
+         *) AC_MSG_ERROR([Unknown value for --with-theme: $theme]) ;;
+         esac
+     done
+ fi
++# HST's sparse command sets require the existing Colibre resources.
++for theme in $WITH_THEMES; do
++    case $theme in
++    hst|hst_dark)
++        for fallback in colibre colibre_dark; do
++            case " $WITH_THEMES " in
++            *" $fallback "*) ;;
++            *) AC_MSG_ERROR([HST icon themes require --with-theme to include colibre and colibre_dark]) ;;
++            esac
++        done ;;
++    esac
++done
+ AC_MSG_RESULT([$WITH_THEMES])
+ AC_SUBST([WITH_THEMES])
+ 
+--- a/postprocess/CustomTarget_images.mk
++++ b/postprocess/CustomTarget_images.mk
+@@ -65,6 +65,17 @@
+ 		rm -rf $${ILSTFILE})
+ 	$(call gb_Trace_EndRange,$(subst $(WORKDIR)/,,$@),PRL)
+ 
++# HST archives are built by scripts/brand/apply-icon-overrides.py before make.
++# Preserve deterministic ZIP metadata, all command aliases and the artwork licence.
++# Package_images.mk -> Repository.mk/ooo_images -> scp2 installs both archives on
++# Linux, Windows and macOS just like the other WITH_THEMES entries.
++hst_image_themes := $(filter hst hst_dark,$(WITH_THEMES))
++ifneq ($(strip $(hst_image_themes)),)
++$(addprefix $(packimages_DIR)/images_,$(addsuffix .zip,$(hst_image_themes))) : $(packimages_DIR)/images_%.zip : $(SRCDIR)/icon-themes/%/images.zip
++	$(call gb_Output_announce,$(subst $(WORKDIR)/,,$@),$(true),CPY,1)
++	cp $< $@
++endif
++
+ # turn the #defines foo "resource.png" of hlst into the final ilst format
+ $(packimages_DIR)/sourceimagelist.ilst : \
+ 		$(SRCDIR)/avmedia/inc/bitmaps.hlst \
+--- a/vcl/source/app/IconThemeSelector.cxx
++++ b/vcl/source/app/IconThemeSelector.cxx
+@@ -107,6 +107,15 @@
+ OUString IconThemeSelector::SelectIconThemeForDesktopEnvironment(
+     const std::vector<IconThemeInfo>& installedThemes, DesktopType eDesktop) const
+ {
++    // This method is used for Automatic only. SelectIconTheme still honours an
++    // explicit user selection and applies the existing high-contrast override.
++    // A platform that follows the theme colours only names a dark theme here.
++    const bool bPreferDark = mPreferDarkIconTheme || mPreferredIconTheme.endsWith("_dark")
++                             || mPreferredIconTheme.endsWith("_dark_svg");
++    const OUString aHstTheme = bPreferDark ? u"hst_dark"_ustr : u"hst"_ustr;
++    if (icon_theme_is_in_installed_themes(aHstTheme, installedThemes))
++        return aHstTheme;
++
+     if (!mPreferredIconTheme.isEmpty()) {
+         if (icon_theme_is_in_installed_themes(mPreferredIconTheme, installedThemes)) {
+             return mPreferredIconTheme;
+--- a/vcl/source/image/ImplImageTree.cxx
++++ b/vcl/source/image/ImplImageTree.cxx
+@@ -343,6 +343,8 @@
+ 
+     if (rsStyle == u"colibre" || rsStyle == u"helpimg")
+         sResult = "";
++    else if (rsStyle == u"hst_dark")
++        sResult = "colibre_dark";
+     else if (rsStyle == u"sifr" || rsStyle == u"breeze_dark")
+         sResult = "breeze";
+     else if (rsStyle == u"sifr_dark" )
+--- a/vcl/source/app/IconThemeInfo.cxx
++++ b/vcl/source/app/IconThemeInfo.cxx
+@@ -123,6 +123,9 @@
+     if (!bIsSvg && bIsDark)
+         bIsSvg = aDisplayName.endsWith("_svg", &aDisplayName);
+ 
++    if (aDisplayName == "hst")
++        aDisplayName = "HST";
++
+     // make the first letter uppercase
+     sal_Unicode firstLetter = aDisplayName[0];
+     if (rtl::isAsciiLowerCase(firstLetter))
+--- a/vcl/qa/cppunit/app/test_IconThemeSelector.cxx
++++ b/vcl/qa/cppunit/app/test_IconThemeSelector.cxx
+@@ -19,6 +19,7 @@
+ 
+ class IconThemeSelectorTest : public CppUnit::TestFixture
+ {
++    void HstAutomaticAndExplicitChoices();
+ #ifndef _WIN32 //default theme on Windows is Colibre independently from any desktop environment
+     void BreezeIsReturnedForKde5Desktop();
+     void ElementaryIsReturnedForGnomeDesktop();
+@@ -35,6 +36,7 @@
+ 
+     // Adds code needed to register the test suite
+     CPPUNIT_TEST_SUITE(IconThemeSelectorTest);
++    CPPUNIT_TEST(HstAutomaticAndExplicitChoices);
+ 
+ #ifndef _WIN32
+     CPPUNIT_TEST(BreezeIsReturnedForKde5Desktop);
+@@ -176,6 +178,34 @@
+ 
+ #endif
+ 
++void IconThemeSelectorTest::HstAutomaticAndExplicitChoices()
++{
++    std::vector<vcl::IconThemeInfo> themes;
++    for (const auto& id : { u"colibre"_ustr, u"hst"_ustr, u"hst_dark"_ustr })
++    {
++        vcl::IconThemeInfo info;
++        info.mThemeId = id;
++        themes.push_back(info);
++    }
++    vcl::IconThemeSelector selector;
++    selector.SetPreferredIconTheme(u"colibre"_ustr, false);
++    CPPUNIT_ASSERT_EQUAL(u"hst"_ustr,
++        selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
++    selector.SetPreferredIconTheme(u"colibre"_ustr, true);
++    CPPUNIT_ASSERT_EQUAL(u"hst_dark"_ustr,
++        selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
++    // Only the name of a dark theme, without the dark flag.
++    selector.SetPreferredIconTheme(u"colibre_dark"_ustr, false);
++    CPPUNIT_ASSERT_EQUAL(u"hst_dark"_ustr,
++        selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
++    CPPUNIT_ASSERT_EQUAL(u"colibre"_ustr, selector.SelectIconTheme(themes, u"colibre"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"hst"_ustr, selector.SelectIconTheme(themes, u"hst"_ustr));
++    // Reduced builds without HST retain upstream desktop selection.
++    themes.erase(themes.begin() + 1, themes.end());
++    CPPUNIT_ASSERT_EQUAL(u"colibre"_ustr,
++        selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
++}
++
+ // Put the test suite in the registry
+ CPPUNIT_TEST_SUITE_REGISTRATION(IconThemeSelectorTest);
+ 
+--- a/vcl/unx/gtk3/salnativewidgets-gtk.cxx
++++ b/vcl/unx/gtk3/salnativewidgets-gtk.cxx
+@@ -2680,7 +2680,8 @@
+                 "gtk-application-prefer-dark-theme", &bDarkIconTheme,
+                 nullptr );
+         OUString sIconThemeName(OUString::createFromAscii(pIconThemeName));
+-        aStyleSet.SetPreferredIconTheme(sIconThemeName, bDarkIconTheme);
++        // A dark GTK theme does not always set the prefer-dark flag, so look at its colour too.
++        aStyleSet.SetPreferredIconTheme(sIconThemeName, bDarkIconTheme || aBackColor.IsDark());
+         g_free( pIconThemeName );
+     }
+     else

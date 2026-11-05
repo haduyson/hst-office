@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+import subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 APP_ICONS = os.path.join(ROOT, "branding", "windows", "app-icons")
@@ -106,7 +107,15 @@ def main():
     for dst in leftover:
         print(f"error: upstream icon bytes still present: {dst}")
     print(f"icon overrides: {len(pairs)} targets, {copied} updated, {len(leftover)} upstream left")
-    return 1 if leftover else 0
+    if leftover:
+        return 1
+    # The same entry point is used by Linux, Windows/Cygwin and macOS builds.
+    # Generate the command themes after the application/document overrides.
+    command = [sys.executable, os.path.join(ROOT, "scripts", "brand", "build-hst-icon-theme.py"),
+               "--tree", os.path.abspath(args.tree)]
+    if args.check:
+        command.append("--check")
+    return subprocess.run(command, check=False).returncode
 
 
 if __name__ == "__main__":
