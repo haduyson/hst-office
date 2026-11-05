@@ -5,18 +5,17 @@ disposable container (no network, not root, read-only copy). The harness is in `
 
 ## Coverage
 
-| Measure | Baseline (only the IDE crash fix) | Latest full run, on an earlier build |
+| Measure | Baseline (only the IDE crash fix) | Batch 3 build |
 |---|---:|---:|
 | Macro files | 962 | 962 |
 | Blocked by safety policy | 55 | 55 |
-| Files reached | 861 loaded | 907 |
-| Procedures run | 2263 | 2324 |
-| Pass | 874 (38.6%) | 1159 (49.9%) |
-| Fail, not pass | 1389 | 1165 |
+| Files reached | 861 | 907 |
+| Procedures run | 2263 | 2418 |
+| Pass | 874 (38.6%) | 1289 (53.3%) |
+| Ended without returning (mostly compile errors) | n/a | 153 |
+| Timeout | 46 | 55 |
 
-The second column ran on a build with the first 10 of the 22 patches now in the series. It has none of batch 2: the compile fixes
-below, Excel objects, Word members. A new full run replaces it once the queued patches are built. The two columns ran
-different subsets of procedures, so compare the rates with care.
+More procedures run now because more modules compile; compare the rates with care.
 
 "Pass" means the procedure ended without an error. It is not proof of a correct result. Correctness is verified only where
 stated below.
@@ -52,17 +51,19 @@ stated below.
   mouse clicks; real clicks are covered only by `check-vba-form-events.py`.
 - Windows-only calls (Declare, Outlook, Word automation from Excel, WScript) do not run here and are counted as failures.
 
-## Top gaps, by procedures in the latest full run
+## Top gaps on the batch 3 build
 
-| Gap | Procedures | Files | State |
-|---|---:|---:|---|
-| Ended without returning, mostly modules that do not compile | 218 | 64 | most fixed in batch 2 and queued work; 10 of 70 sampled files still fail, bisecting |
-| Object variable not set, partly from compile failures and Windows-only objects | 102 | 56 | rerun pending |
-| Invalid object reference: `New` of a failed class or of Outlook, Internet Explorer, ADODB | 86 | 36 | follows the compile fixes; Windows-only ones stay |
-| Missing element raised (now Err 9): many name sheets a file lacks, not yet checked one by one | 116 | 50 | check pending |
-| Charts (ActiveChart, Charts.Add, Series Format, Legend), PivotCaches, QueryTables, SlicerCaches | not ranked | 15 to 35 each | open |
-| Word: Selection and Range Borders, ContentControls.Add, Windows | few files | few | open |
-| Form controls and events from real files | 11 of 30 handlers fail | 20 forms | partial rerun, open |
+| Gap | Procedures | Files |
+|---|---:|---:|
+| Ended without returning, mostly modules that still do not compile | 153 | 51 |
+| Err 9: sheet or element missing; mostly sheets the file lacks, not checked one by one | 137 | 58 |
+| Object variable not set | 132 | 69 |
+| Invalid object reference: `New` of Windows-only classes or of a class that did not compile | 78 | 33 |
+| Timeout | 55 | 39 |
+| Generic RuntimeException | 45 | 24 |
+| Windows API calls (Declare) other than Sleep and GetTickCount | 28 | 4 |
+| Control.BackColor not found | 24 | 7 |
+| Charts beyond SeriesCollection, PivotCaches, QueryTables, SlicerCaches | not ranked | 15 to 35 each |
 
 ## Corpus
 
