@@ -15,7 +15,7 @@ Survey: `dialogs-msoffice-survey-261104.md`. Check: `tests/runtime/check-dialogs
 | Slide Properties (shared page, Slides) | done: margins and paper tray hidden | ~0.5 / 2 | b656f5d |
 | Borders and Shading | not started | - / 13 | |
 | Insert Table (AutoFit) | not started | - / 6 | |
-| Table Properties (Row, Cell, Alt Text) | not started | - / 30.5 | |
+| Table Properties (Row, Column, Cell, Alt Text; Previous/Next Row, Text Wrapping) | done; Text Wrapping asks first because moving a table to or from a frame clears the undo history (core limit) | ~8 / 30.5 + 20 | COMMIT_TABLE |
 | Picture properties and Word wrap styles | not started | - / 18 | |
 | Tabs (standalone command, default tab stop) | not started | - / 4 | |
 | Find and Replace tabs | not started (survey: optional) | - / 16 | |

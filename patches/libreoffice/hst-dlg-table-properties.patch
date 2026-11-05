@@ -1,0 +1,2609 @@
+HST Office: Table Properties with Word's tabs. Table, Row, Column, Cell and Alt Text come first; the settings
+Word has elsewhere stay reachable behind them as Borders, Shading and Advanced (the old Text Flow page).
+
+- Row applies height and "allow row to break" to the selected rows, the current one without a selection.
+- Cell applies vertical alignment and margins to the selected cells and width to the current cell.
+- Alt Text is the table format's grab bag (tblCaption, tblDescription). It round-trips through w:tblCaption and
+  w:tblDescription in DOCX and through table:title and table:desc in ODF, and SetTableAttr makes it undoable.
+- Page ids table, columns, borders, background, textflow are unchanged, and so are the moved widgets' ids.
+
+License: these upstream files remain under their original license (MPL-2.0); hsttable* are new files under MPL-2.0.
+Test: tests/runtime/check-dialogs-writer.py table-properties table-rows table-wrap
+---
+--- a/sw/Library_swui.mk
++++ b/sw/Library_swui.mk
+@@ -163,6 +163,10 @@
+     sw/source/ui/table/mergetbl \
+     sw/source/ui/table/rowht \
+     sw/source/ui/table/splittbl \
++    sw/source/ui/table/hsttablealtpage \
++    sw/source/ui/table/hsttablecellpage \
++    sw/source/ui/table/hsttablerownav \
++    sw/source/ui/table/hsttablerowpage \
+     sw/source/ui/table/tabledlg \
+     sw/source/ui/utlui/swrenamexnameddlg \
+     sw/source/ui/utlui/copyfielddlg \
+--- a/sw/UIConfig_swriter.mk
++++ b/sw/UIConfig_swriter.mk
+@@ -309,6 +309,9 @@
+ 	sw/uiconfig/swriter/ui/tocstylespage \
+ 	sw/uiconfig/swriter/ui/tablecolumnpage \
+ 	sw/uiconfig/swriter/ui/tablepreviewdialog \
++	sw/uiconfig/swriter/ui/hsttablealtpage \
++	sw/uiconfig/swriter/ui/hsttablecellpage \
++	sw/uiconfig/swriter/ui/hsttablerowpage \
+ 	sw/uiconfig/swriter/ui/tableproperties \
+ 	sw/uiconfig/swriter/ui/tabletextflowpage \
+ 	sw/uiconfig/swriter/ui/templatedialog1 \
+--- a/sw/source/filter/ww8/docxtableexport.cxx
++++ b/sw/source/filter/ww8/docxtableexport.cxx
+@@ -175,6 +175,8 @@
+                                         FSNS(XML_w, XML_tblLayout),
+                                         FSNS(XML_w, XML_tblCellMar),
+                                         FSNS(XML_w, XML_tblLook),
++                                        FSNS(XML_w, XML_tblCaption),
++                                        FSNS(XML_w, XML_tblDescription),
+                                         FSNS(XML_w, XML_tblPrChange) };
+ 
+     // postpone the output so that we can later []
+@@ -411,6 +413,14 @@
+                 m_pSerializer->singleElementNS(XML_w, XML_tblpPr, attrListTablePos);
+             }
+         }
++        else if (rGrabBagElement.first == "tblCaption" || rGrabBagElement.first == "tblDescription")
++        {
++            // HST: the table's Alt Text. Not in ECMA-376 1st edition, which the default .docx filter
++            // reports as its version, but Word 2010 and later read and write it in such files.
++            m_pSerializer->singleElementNS(
++                XML_w, rGrabBagElement.first == "tblCaption" ? XML_tblCaption : XML_tblDescription,
++                FSNS(XML_w, XML_val), rGrabBagElement.second.get<OUString>());
++        }
+         else
+             SAL_WARN("sw.ww8", "DocxAttributeOutput::TableDefinition: unhandled property: "
+                                    << rGrabBagElement.first);
+--- a/sw/source/filter/xml/xmltble.cxx
++++ b/sw/source/filter/xml/xmltble.cxx
+@@ -55,6 +55,7 @@
+ #include <textboxhelper.hxx>
+ #include <SwStyleNameMapper.hxx>
+ #include <names.hxx>
++#include <svl/grabbagitem.hxx>
+ 
+ using namespace ::com::sun::star;
+ using namespace ::com::sun::star::uno;
+@@ -1135,6 +1136,20 @@
+ 
+     SvXMLElementExport aElem(*this, *oPrefix, XML_TABLE, true, true);
+ 
++    // HST: the table's Alt Text. ODF has table:title and table:desc as the first children.
++    if (const SwFrameFormat* pAltFormat = rTable.GetFrameFormat())
++    {
++        const auto& rGrabBag = pAltFormat->GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag();
++        for (const auto& [eToken, rKey] : { std::pair(XML_TITLE, u"tblCaption"_ustr), std::pair(XML_DESC, u"tblDescription"_ustr) })
++        {
++            auto it = rGrabBag.find(rKey);
++            if (it == rGrabBag.end())
++                continue;
++            SvXMLElementExport aAlt(*this, XML_NAMESPACE_TABLE, eToken, true, false);
++            Characters(it->second.get<OUString>());
++        }
++    }
++
+     // export DDE source (if this is a DDE table)
+     if ( auto pSwDdeTable = dynamic_cast<const SwDDETable*>( &rTable) )
+     {
+--- a/sw/source/filter/xml/xmltbli.cxx
++++ b/sw/source/filter/xml/xmltbli.cxx
+@@ -68,6 +68,8 @@
+ #include <SwStyleNameMapper.hxx>
+ #include <IDocumentSettingAccess.hxx>
+ #include <names.hxx>
++#include <svl/grabbagitem.hxx>
++#include <rtl/ustrbuf.hxx>
+ 
+ #include <algorithm>
+ #include <vector>
+@@ -1276,6 +1278,32 @@
+     GetImport().GetTextImport()->RedlineAdjustStartNodeCursor();
+ }
+ 
++namespace {
++
++/// HST: <table:title> and <table:desc> of a text table, the table's Alt Text.
++class SwXMLTableAltContext_Impl : public SvXMLImportContext
++{
++    SwTableNode* m_pTableNode;
++    OUString m_sKey;
++    OUStringBuffer m_aText;
++
++public:
++    SwXMLTableAltContext_Impl(SvXMLImport& rImport, SwTableNode* pTableNode, OUString sKey)
++        : SvXMLImportContext(rImport), m_pTableNode(pTableNode), m_sKey(std::move(sKey)) {}
++    virtual void SAL_CALL characters(const OUString& rChars) override { m_aText.append(rChars); }
++    virtual void SAL_CALL endFastElement(sal_Int32) override
++    {
++        if (!m_pTableNode || m_aText.isEmpty())
++            return;
++        SwFrameFormat* pFormat = m_pTableNode->GetTable().GetFrameFormat();
++        std::map<OUString, css::uno::Any> aBag = pFormat->GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag();
++        aBag[m_sKey] <<= m_aText.makeStringAndClear();
++        pFormat->SetFormatAttr(SfxGrabBagItem(RES_FRMATR_GRABBAG, std::move(aBag)));
++    }
++};
++
++}
++
+ css::uno::Reference<css::xml::sax::XFastContextHandler> SwXMLTableContext::createFastChildContext(
+     sal_Int32 nElement,
+     const Reference< xml::sax::XFastAttributeList > & xAttrList )
+@@ -1283,6 +1311,10 @@
+     bool bHeader = false;
+     switch (nElement)
+     {
++    case XML_ELEMENT(TABLE, XML_TITLE):
++        return new SwXMLTableAltContext_Impl(GetSwImport(), m_pTableNode, u"tblCaption"_ustr);
++    case XML_ELEMENT(TABLE, XML_DESC):
++        return new SwXMLTableAltContext_Impl(GetSwImport(), m_pTableNode, u"tblDescription"_ustr);
+     case XML_ELEMENT(TABLE, XML_TABLE_ROW):
+     case XML_ELEMENT(LO_EXT, XML_TABLE_ROW):
+         if( IsInsertRowPossible() )
+--- a/sw/source/ui/table/hsttablealtpage.cxx
++++ b/sw/source/ui/table/hsttablealtpage.cxx
+@@ -0,0 +1,77 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hsttablepages.hxx>
++
++#include <hintids.hxx>
++#include <svl/grabbagitem.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/Entry.hxx>
++#include <vcl/weld/TextView.hxx>
++
++namespace
++{
++OUString lcl_Value(const std::map<OUString, css::uno::Any>& rBag, const OUString& rKey)
++{
++    OUString sValue;
++    auto it = rBag.find(rKey);
++    if (it != rBag.end())
++        it->second >>= sValue;
++    return sValue;
++}
++
++void lcl_Store(std::map<OUString, css::uno::Any>& rBag, const OUString& rKey, const OUString& rValue)
++{
++    if (rValue.isEmpty())
++        rBag.erase(rKey);
++    else
++        rBag[rKey] <<= rValue;
++}
++}
++
++SwHstTableAltPage::SwHstTableAltPage(weld::Container* pPage, weld::DialogController* pController,
++                                     const SfxItemSet& rSet)
++    : SfxTabPage(pPage, pController, u"modules/swriter/ui/hsttablealtpage.ui"_ustr,
++                 u"HstTableAltPage"_ustr, &rSet)
++    , m_xTitleED(m_xBuilder->weld_entry(u"hstalttitle"_ustr))
++    , m_xDescTV(m_xBuilder->weld_text_view(u"hstaltdesc"_ustr))
++{
++    m_xDescTV->set_size_request(-1, m_xDescTV->get_height_rows(8));
++}
++
++std::unique_ptr<SfxTabPage> SwHstTableAltPage::Create(weld::Container* pPage,
++                                                      weld::DialogController* pController,
++                                                      const SfxItemSet* pSet)
++{
++    return std::make_unique<SwHstTableAltPage>(pPage, pController, *pSet);
++}
++
++void SwHstTableAltPage::Reset(const SfxItemSet* pSet)
++{
++    if (const SfxGrabBagItem* pBag = pSet->GetItemIfSet(RES_FRMATR_GRABBAG, false))
++    {
++        m_xTitleED->set_text(lcl_Value(pBag->GetGrabBag(), u"tblCaption"_ustr));
++        m_xDescTV->set_text(lcl_Value(pBag->GetGrabBag(), u"tblDescription"_ustr));
++    }
++    m_xTitleED->save_value();
++    m_xDescTV->save_value();
++}
++
++bool SwHstTableAltPage::FillItemSet(SfxItemSet* pSet)
++{
++    if (!m_xTitleED->get_value_changed_from_saved() && !m_xDescTV->get_value_changed_from_saved())
++        return false;
++    std::map<OUString, css::uno::Any> aBag;
++    if (const SfxGrabBagItem* pBag = GetItemSet().GetItemIfSet(RES_FRMATR_GRABBAG, false))
++        aBag = pBag->GetGrabBag();
++    lcl_Store(aBag, u"tblCaption"_ustr, m_xTitleED->get_text());
++    lcl_Store(aBag, u"tblDescription"_ustr, m_xDescTV->get_text());
++    pSet->Put(SfxGrabBagItem(RES_FRMATR_GRABBAG, std::move(aBag)));
++    return true;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/table/hsttablecellpage.cxx
++++ b/sw/source/ui/table/hsttablecellpage.cxx
+@@ -0,0 +1,95 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hsttablepages.hxx>
++
++#include <com/sun/star/text/VertOrientation.hpp>
++#include <editeng/boxitem.hxx>
++#include <hintids.hxx>
++#include <svl/intitem.hxx>
++#include <tools/fldunit.hxx>
++#include <vcl/weld/Builder.hxx>
++
++using namespace css;
++
++SwHstTableCellPage::SwHstTableCellPage(weld::Container* pPage, weld::DialogController* pController,
++                                       const SfxItemSet& rSet)
++    : SfxTabPage(pPage, pController, u"modules/swriter/ui/hsttablecellpage.ui"_ustr,
++                 u"HstTableCellPage"_ustr, &rSet)
++    , m_xSizeFrame(m_xBuilder->weld_widget(u"hstcellsizeframe"_ustr))
++    , m_xWidthMF(m_xBuilder->weld_metric_spin_button(u"hstcellwidth"_ustr, FieldUnit::CM))
++    , m_xVertOrientLB(m_xBuilder->weld_combo_box(u"vertorient"_ustr))
++    , m_xMarginsFrame(m_xBuilder->weld_widget(u"hstcellmarginsframe"_ustr))
++    , m_xTopMF(m_xBuilder->weld_metric_spin_button(u"hstcelltop"_ustr, FieldUnit::CM))
++    , m_xBottomMF(m_xBuilder->weld_metric_spin_button(u"hstcellbottom"_ustr, FieldUnit::CM))
++    , m_xLeftMF(m_xBuilder->weld_metric_spin_button(u"hstcellleft"_ustr, FieldUnit::CM))
++    , m_xRightMF(m_xBuilder->weld_metric_spin_button(u"hstcellright"_ustr, FieldUnit::CM))
++{
++    for (weld::MetricSpinButton* pField :
++         { m_xWidthMF.get(), m_xTopMF.get(), m_xBottomMF.get(), m_xLeftMF.get(), m_xRightMF.get() })
++        HstTableSetUnit(*pField);
++    m_xWidthMF->set_min(MINLAY, FieldUnit::TWIP);
++}
++
++std::unique_ptr<SfxTabPage> SwHstTableCellPage::Create(weld::Container* pPage,
++                                                       weld::DialogController* pController,
++                                                       const SfxItemSet* pSet)
++{
++    return std::make_unique<SwHstTableCellPage>(pPage, pController, *pSet);
++}
++
++void SwHstTableCellPage::Reset(const SfxItemSet* pSet)
++{
++    const SfxUInt32Item* pWidth = pSet->GetItemIfSet(FN_HST_CELL_WIDTH, false);
++    m_xSizeFrame->set_visible(pWidth != nullptr);
++    if (pWidth)
++        HstTableSetTwips(*m_xWidthMF, pWidth->GetValue());
++    const SvxBoxItem* pBox = pSet->GetItemIfSet(FN_HST_CELL_MARGINS, false);
++    m_xMarginsFrame->set_visible(pBox != nullptr);
++    if (pBox)
++    {
++        HstTableSetTwips(*m_xTopMF, pBox->GetDistance(SvxBoxItemLine::TOP));
++        HstTableSetTwips(*m_xBottomMF, pBox->GetDistance(SvxBoxItemLine::BOTTOM));
++        HstTableSetTwips(*m_xLeftMF, pBox->GetDistance(SvxBoxItemLine::LEFT));
++        HstTableSetTwips(*m_xRightMF, pBox->GetDistance(SvxBoxItemLine::RIGHT));
++    }
++    if (const SfxUInt16Item* pAlign = pSet->GetItemIfSet(FN_TABLE_SET_VERT_ALIGN, false))
++    {
++        const sal_uInt16 nAlign = pAlign->GetValue();
++        m_xVertOrientLB->set_active(
++            nAlign == text::VertOrientation::CENTER ? 1 : nAlign == text::VertOrientation::BOTTOM ? 2 : 0);
++    }
++    m_xVertOrientLB->save_value();
++}
++
++bool SwHstTableCellPage::FillItemSet(SfxItemSet* pSet)
++{
++    bool bModified = false;
++    if (m_xWidthMF->get_value_changed_from_saved())
++        bModified |= nullptr != pSet->Put(SfxUInt32Item(FN_HST_CELL_WIDTH, HstTableTwips(*m_xWidthMF)));
++    if (m_xTopMF->get_value_changed_from_saved() || m_xBottomMF->get_value_changed_from_saved()
++        || m_xLeftMF->get_value_changed_from_saved() || m_xRightMF->get_value_changed_from_saved())
++    {
++        SvxBoxItem aBox(FN_HST_CELL_MARGINS);
++        aBox.SetDistance(HstTableTwips(*m_xTopMF), SvxBoxItemLine::TOP);
++        aBox.SetDistance(HstTableTwips(*m_xBottomMF), SvxBoxItemLine::BOTTOM);
++        aBox.SetDistance(HstTableTwips(*m_xLeftMF), SvxBoxItemLine::LEFT);
++        aBox.SetDistance(HstTableTwips(*m_xRightMF), SvxBoxItemLine::RIGHT);
++        bModified |= nullptr != pSet->Put(aBox);
++    }
++    if (m_xVertOrientLB->get_value_changed_from_saved())
++    {
++        const int nPos = m_xVertOrientLB->get_active();
++        const sal_uInt16 nOrient = nPos == 1   ? text::VertOrientation::CENTER
++                                   : nPos == 2 ? text::VertOrientation::BOTTOM
++                                               : text::VertOrientation::NONE;
++        bModified |= nullptr != pSet->Put(SfxUInt16Item(FN_TABLE_SET_VERT_ALIGN, nOrient));
++    }
++    return bModified;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/table/hsttablerownav.cxx
++++ b/sw/source/ui/table/hsttablerownav.cxx
+@@ -0,0 +1,92 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hsttablepages.hxx>
++
++#include <fmtrowsplt.hxx>
++#include <frmfmt.hxx>
++#include <pam.hxx>
++#include <swmodule.hxx>
++#include <swtable.hxx>
++#include <swtypes.hxx>
++#include <wrtsh.hxx>
++
++// Previous Row and Next Row change nothing yet: as in the rest of the dialog, Cancel must leave the
++// document alone, and OK reaches the document through ItemSetToTableParam.
++void SwHstTableRowPage::InitRows()
++{
++    SwWrtShell* pShell = ::GetActiveWrtShell();
++    const bool bOneRow = pShell && pShell->IsCursorInTable() && !pShell->IsTableMode()
++                         && GetItemSet().GetItemState(FN_HST_ROW_HEIGHT, false) == SfxItemState::SET;
++    m_xPrevBtn->set_visible(bOneRow);
++    m_xNextBtn->set_visible(bOneRow);
++    m_xRowLabel->set_visible(bOneRow);
++    if (!bOneRow)
++        return;
++    const SwTable* pTable = SwTable::FindTable(pShell->GetTableFormat());
++    const SwTableBox* pBox = pShell->GetCursor()->GetPointNode().GetTableBox();
++    while (pBox && pBox->GetUpper()->GetUpper())
++        pBox = pBox->GetUpper()->GetUpper();
++    const SwTableLine* pCurrent = pBox ? pBox->GetUpper() : nullptr;
++    const SwTableLines& rLines = pTable->GetTabLines();
++    for (size_t i = 0; i < rLines.size(); ++i)
++    {
++        const SwTableLine* pLine = rLines[i];
++        const SwFormatFrameSize& rSize = pLine->GetFrameFormat()->GetFrameSize();
++        m_aRows.push_back({ pLine->GetTabBoxes()[0]->GetName(), rSize.GetHeightSizeType(),
++                            rSize.GetHeight(), pLine->GetFrameFormat()->GetRowSplit().GetValue() });
++        if (pLine == pCurrent)
++            m_nRow = i;
++    }
++    ShowRow();
++}
++
++void SwHstTableRowPage::ShowRow()
++{
++    if (m_nRow < 0)
++        return;
++    const RowState& rRow = m_aRows[m_nRow];
++    m_xRowLabel->set_label(m_sRowLabel.replaceFirst("%1", OUString::number(m_nRow + 1)));
++    const bool bFixed = rRow.eType == SwFrameSize::Fixed;
++    m_xHeightCB->set_active(bFixed || rRow.nHeight > MINLAY);
++    m_xRuleLB->set_active(bFixed ? 1 : 0);
++    if (rRow.nHeight >= MINLAY)
++        HstTableSetTwips(*m_xHeightMF, rRow.nHeight);
++    m_xSplitRowCB->set_active(rRow.bSplit);
++    HeightToggledHdl(*m_xHeightCB);
++    m_xPrevBtn->set_sensitive(m_nRow > 0);
++    m_xNextBtn->set_sensitive(m_nRow + 1 < static_cast<int>(m_aRows.size()));
++}
++
++void SwHstTableRowPage::StoreRow()
++{
++    RowState& rRow = m_aRows[m_nRow];
++    const SwFrameSize eType = !m_xHeightCB->get_active() ? SwFrameSize::Variable
++                              : m_xRuleLB->get_active() == 1 ? SwFrameSize::Fixed : SwFrameSize::Minimum;
++    const tools::Long nHeight = m_xHeightCB->get_active() ? HstTableTwips(*m_xHeightMF) : 0;
++    const bool bSameHeight = !m_xHeightCB->get_active() ? rRow.nHeight <= MINLAY && rRow.eType != SwFrameSize::Fixed
++                                                        : eType == rRow.eType && nHeight == rRow.nHeight;
++    if (bSameHeight && m_xSplitRowCB->get_active() == rRow.bSplit)
++        return;
++    rRow.eType = eType;
++    rRow.nHeight = nHeight;
++    rRow.bSplit = m_xSplitRowCB->get_active();
++    rRow.bChanged = true;
++}
++
++void SwHstTableRowPage::MoveRow(int nDelta)
++{
++    StoreRow();
++    m_bMoved = true;
++    m_nRow += nDelta;
++    ShowRow();
++}
++
++IMPL_LINK_NOARG(SwHstTableRowPage, PrevHdl, weld::Button&, void) { MoveRow(-1); }
++IMPL_LINK_NOARG(SwHstTableRowPage, NextHdl, weld::Button&, void) { MoveRow(1); }
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/table/hsttablerowpage.cxx
++++ b/sw/source/ui/table/hsttablerowpage.cxx
+@@ -0,0 +1,167 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hsttablepages.hxx>
++
++#include <fmtrowsplt.hxx>
++#include <frmfmt.hxx>
++#include <hintids.hxx>
++#include <pam.hxx>
++#include <rtl/ustrbuf.hxx>
++#include <sfx2/htmlmode.hxx>
++#include <svl/intitem.hxx>
++#include <svl/stritem.hxx>
++#include <svtools/unitconv.hxx>
++#include <svx/svxids.hrc>
++#include <swmodule.hxx>
++#include <swtable.hxx>
++#include <swtypes.hxx>
++#include <usrpref.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <wrtsh.hxx>
++
++void HstTableSetUnit(weld::MetricSpinButton& rField)
++{
++    ::SetFieldUnit(rField, SwModule::get()->GetUsrPref(false)->GetMetric());
++}
++
++sal_Int32 HstTableTwips(const weld::MetricSpinButton& rField)
++{
++    return rField.denormalize(rField.get_value(FieldUnit::TWIP));
++}
++
++void HstTableSetTwips(weld::MetricSpinButton& rField, sal_Int32 nValue)
++{
++    rField.set_value(rField.normalize(nValue), FieldUnit::TWIP);
++    rField.save_value();
++}
++
++SwHstTableRowPage::SwHstTableRowPage(weld::Container* pPage, weld::DialogController* pController,
++                                     const SfxItemSet& rSet)
++    : SfxTabPage(pPage, pController, u"modules/swriter/ui/hsttablerowpage.ui"_ustr,
++                 u"HstTableRowPage"_ustr, &rSet)
++    , m_xSizeFrame(m_xBuilder->weld_widget(u"hstrowsizeframe"_ustr))
++    , m_xHeightCB(m_xBuilder->weld_check_button(u"hstrowheighton"_ustr))
++    , m_xHeightMF(m_xBuilder->weld_metric_spin_button(u"hstrowheight"_ustr, FieldUnit::CM))
++    , m_xRuleLB(m_xBuilder->weld_combo_box(u"hstrowrule"_ustr))
++    , m_xSplitRowCB(m_xBuilder->weld_check_button(u"splitrow"_ustr))
++    , m_xHeadLineCB(m_xBuilder->weld_check_button(u"headline"_ustr))
++    , m_xRepeatHeader(m_xBuilder->weld_widget(u"repeatheader"_ustr))
++    , m_xRepeatHeaderNF(m_xBuilder->weld_spin_button(u"repeatheadernf"_ustr))
++    , m_xRowLabel(m_xBuilder->weld_label(u"hstrowlabel"_ustr))
++    , m_xPrevBtn(m_xBuilder->weld_button(u"hstprevrow"_ustr))
++    , m_xNextBtn(m_xBuilder->weld_button(u"hstnextrow"_ustr))
++{
++    m_sRowLabel = m_xRowLabel->get_label();
++    m_xPrevBtn->connect_clicked(LINK(this, SwHstTableRowPage, PrevHdl));
++    m_xNextBtn->connect_clicked(LINK(this, SwHstTableRowPage, NextHdl));
++    const SfxUInt16Item* pModeItem = rSet.GetItemIfSet(SID_HTML_MODE, false);
++    if (pModeItem && pModeItem->GetValue() & HTMLMODE_ON)
++        m_xSplitRowCB->hide();
++    HstTableSetUnit(*m_xHeightMF);
++    m_xHeightMF->set_min(MINLAY, FieldUnit::TWIP);
++    m_xHeightCB->connect_toggled(LINK(this, SwHstTableRowPage, HeightToggledHdl));
++    m_xHeadLineCB->connect_toggled(LINK(this, SwHstTableRowPage, HeadLineToggledHdl));
++}
++
++std::unique_ptr<SfxTabPage> SwHstTableRowPage::Create(weld::Container* pPage,
++                                                      weld::DialogController* pController,
++                                                      const SfxItemSet* pSet)
++{
++    return std::make_unique<SwHstTableRowPage>(pPage, pController, *pSet);
++}
++
++IMPL_LINK_NOARG(SwHstTableRowPage, HeightToggledHdl, weld::Toggleable&, void)
++{
++    bool bOn = m_xHeightCB->get_state() == TRISTATE_TRUE;
++    m_xHeightMF->set_sensitive(bOn);
++    m_xRuleLB->set_sensitive(bOn);
++}
++
++IMPL_LINK_NOARG(SwHstTableRowPage, HeadLineToggledHdl, weld::Toggleable&, void)
++{
++    m_xRepeatHeader->set_sensitive(m_xHeadLineCB->get_active());
++}
++
++void SwHstTableRowPage::Reset(const SfxItemSet* pSet)
++{
++    // The insert-from-database dialog has no table yet, so it has no row height to show.
++    SfxItemState eHeight = pSet->GetItemState(FN_HST_ROW_HEIGHT, false);
++    m_xSizeFrame->set_visible(eHeight != SfxItemState::DEFAULT);
++    m_xRuleLB->set_active(0);
++    m_xHeightCB->set_state(eHeight == SfxItemState::SET ? TRISTATE_FALSE : TRISTATE_INDET);
++    if (const SwFormatFrameSize* pSize = pSet->GetItemIfSet(FN_HST_ROW_HEIGHT, false))
++    {
++        const bool bFixed = pSize->GetHeightSizeType() == SwFrameSize::Fixed;
++        m_xHeightCB->set_active(bFixed || pSize->GetHeight() > MINLAY);
++        m_xRuleLB->set_active(bFixed ? 1 : 0);
++        HstTableSetTwips(*m_xHeightMF, pSize->GetHeight());
++    }
++    m_xHeightCB->save_state();
++    m_xRuleLB->save_value();
++    HeightToggledHdl(*m_xHeightCB);
++
++    if (const SwFormatRowSplit* pSplit = pSet->GetItemIfSet(RES_ROW_SPLIT, false))
++        m_xSplitRowCB->set_active(pSplit->GetValue());
++    else
++        m_xSplitRowCB->set_state(TRISTATE_INDET);
++    m_xSplitRowCB->save_state();
++
++    if (const SfxUInt16Item* pHeadline = pSet->GetItemIfSet(FN_PARAM_TABLE_HEADLINE, false))
++    {
++        sal_uInt16 nRepeat = pHeadline->GetValue();
++        m_xHeadLineCB->set_active(nRepeat > 0);
++        m_xRepeatHeaderNF->set_value(nRepeat);
++        m_xRepeatHeaderNF->set_min(1);
++    }
++    m_xHeadLineCB->save_state();
++    m_xRepeatHeaderNF->save_value();
++    HeadLineToggledHdl(*m_xHeadLineCB);
++    InitRows();
++}
++
++bool SwHstTableRowPage::FillItemSet(SfxItemSet* pSet)
++{
++    bool bModified = false;
++    if (m_bMoved)
++    {
++        StoreRow();
++        OUStringBuffer aEdits;
++        for (const RowState& rRow : m_aRows)
++            if (rRow.bChanged)
++                aEdits.append(rRow.sBoxName + "," + OUString::number(static_cast<int>(rRow.eType))
++                              + "," + OUString::number(rRow.nHeight) + ","
++                              + OUString::number(rRow.bSplit ? 1 : 0) + ";");
++        if (!aEdits.isEmpty())
++            bModified |= nullptr != pSet->Put(SfxStringItem(FN_HST_ROW_EDITS, aEdits.makeStringAndClear()));
++    }
++    else if (m_xHeightCB->get_state() != TRISTATE_INDET
++        && (m_xHeightCB->get_state_changed_from_saved() || m_xHeightMF->get_value_changed_from_saved()
++            || m_xRuleLB->get_value_changed_from_saved()))
++    {
++        SwFormatFrameSize aSize; // no height: the row fits its text, like Optimal Row Height
++        if (m_xHeightCB->get_active())
++        {
++            aSize.SetHeightSizeType(m_xRuleLB->get_active() == 1 ? SwFrameSize::Fixed
++                                                                 : SwFrameSize::Minimum);
++            aSize.SetHeight(HstTableTwips(*m_xHeightMF));
++        }
++        aSize.SetWhich(FN_HST_ROW_HEIGHT);
++        bModified |= nullptr != pSet->Put(aSize);
++    }
++    if (!m_bMoved && m_xSplitRowCB->get_state_changed_from_saved())
++        bModified |= nullptr != pSet->Put(SwFormatRowSplit(m_xSplitRowCB->get_active()));
++    if (m_xHeadLineCB->get_state_changed_from_saved()
++        || m_xRepeatHeaderNF->get_value_changed_from_saved())
++        bModified |= nullptr
++                     != pSet->Put(SfxUInt16Item(FN_PARAM_TABLE_HEADLINE,
++                                                m_xHeadLineCB->get_active()
++                                                    ? sal_uInt16(m_xRepeatHeaderNF->get_value())
++                                                    : 0));
++    return bModified;
++}
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/table/tabledlg.cxx
++++ b/sw/source/ui/table/tabledlg.cxx
+@@ -46,6 +46,7 @@
+ #include <viewopt.hxx>
+ #include <uitool.hxx>
+ #include <tabledlg.hxx>
++#include <hsttablepages.hxx>
+ #include "../../uibase/table/tablepg.hxx"
+ #include <tablemgr.hxx>
+ #include <pagedesc.hxx>
+@@ -96,6 +97,10 @@
+     , m_xBottomMF(m_xBuilder->weld_metric_spin_button(u"belowmf"_ustr, FieldUnit::CM))
+     , m_xTextDirectionLB(new svx::FrameDirectionListBox(m_xBuilder->weld_combo_box(u"textdirection"_ustr)))
+     , m_xProperties(m_xBuilder->weld_widget(u"properties"_ustr))
++    , m_xHstWrapFrame(m_xBuilder->weld_widget(u"hsttablewrapframe"_ustr))
++    , m_xHstWrapNoneRB(m_xBuilder->weld_radio_button(u"hsttablewrapnone"_ustr))
++    , m_xHstWrapAroundRB(m_xBuilder->weld_radio_button(u"hsttablewraparound"_ustr))
++    , m_xHstWrapPosBtn(m_xBuilder->weld_button(u"hsttablewrappos"_ustr))
+ {
+     m_xWidthMF->GetMetricFieldRange(m_nOrigWidthMin, m_nOrigWidthMax);
+     m_xLeftMF->GetMetricFieldRange(m_nOrigLeftMin, m_nOrigLeftMax);
+@@ -392,6 +397,9 @@
+ 
+ bool  SwFormatTablePage::FillItemSet( SfxItemSet* rCoreSet )
+ {
++    if (m_xHstWrapFrame->get_visible() && (m_bHstOpenPosition || m_xHstWrapAroundRB->get_state_changed_from_saved()))
++        rCoreSet->Put(SfxUInt16Item(FN_HST_TABLE_WRAP, m_bHstOpenPosition ? 2 : m_xHstWrapAroundRB->get_active() ? 1 : 0));
++
+     //Test if one of the controls still has the focus
+     if (m_xWidthMF->has_focus())
+         ModifyHdl(*m_xWidthMF->get());
+@@ -437,6 +445,18 @@
+ 
+ void  SwFormatTablePage::Reset( const SfxItemSet* )
+ {
++    // HST: Word's Text Wrapping, where this table can float at all.
++    const SfxItemSet& rHstSet = GetItemSet();
++    if (const SfxUInt16Item* pWrap = rHstSet.GetItemIfSet(FN_HST_TABLE_WRAP, false))
++    {
++        m_xHstWrapFrame->show();
++        (pWrap->GetValue() ? m_xHstWrapAroundRB : m_xHstWrapNoneRB)->set_active(true);
++        m_xHstWrapAroundRB->save_state();
++        m_xHstWrapPosBtn->set_sensitive(m_xHstWrapAroundRB->get_active());
++        m_xHstWrapAroundRB->connect_toggled(LINK(this, SwFormatTablePage, HstWrapToggledHdl));
++        m_xHstWrapPosBtn->connect_clicked(LINK(this, SwFormatTablePage, HstWrapPositionHdl));
++    }
++
+     const SfxItemSet& rSet = GetItemSet();
+ 
+     if(m_bHtmlMode)
+@@ -1222,21 +1242,52 @@
+ 
+ }
+ 
++IMPL_LINK_NOARG(SwFormatTablePage, HstWrapToggledHdl, weld::Toggleable&, void)
++{
++    m_xHstWrapPosBtn->set_sensitive(m_xHstWrapAroundRB->get_active());
++}
++
++// Word opens Table Positioning here. HST floats the table in a frame, so the frame's own dialog is
++// the position dialog: this tab's OK applies what is on the page, and the shell then opens it.
++IMPL_LINK_NOARG(SwFormatTablePage, HstWrapPositionHdl, weld::Button&, void)
++{
++    m_bHstOpenPosition = true;
++    GetDialogController()->getDialog()->response(RET_OK);
++}
++
++namespace
++{
++constexpr TranslateId STR_HST_TAB_ROW = NC_("hsttabledlg|row", "Row");
++constexpr TranslateId STR_HST_TAB_CELL = NC_("hsttabledlg|cell", "Cell");
++constexpr TranslateId STR_HST_TAB_ALT = NC_("hsttabledlg|alt", "Alt Text");
++constexpr TranslateId STR_HST_TAB_SHADING = NC_("hsttabledlg|shading", "Shading");
++constexpr TranslateId STR_HST_TAB_ADVANCED = NC_("hsttabledlg|advanced", "Advanced");
++}
++
+ SwTableTabDlg::SwTableTabDlg(weld::Window* pParent, const SfxItemSet* pItemSet, SwWrtShell* pSh)
+     : SfxTabDialogController(pParent, u"modules/swriter/ui/tableproperties.ui"_ustr, u"TablePropertiesDialog"_ustr, pItemSet)
+     , m_pShell(pSh)
+ {
+     SfxAbstractDialogFactory* pFact = SfxAbstractDialogFactory::Create();
++    // HST: tabs in Word's order (Table, Row, Column, Cell, Alt Text). Text Flow keeps its id as Advanced.
+     AddTabPage(u"table"_ustr, TabResId(RID_TAB_TABLE.aLabel), &SwFormatTablePage::Create,
+                RID_L + RID_TAB_TABLE.sIconName);
+-    AddTabPage(u"textflow"_ustr, TabResId(RID_TAB_TEXTFLOW.aLabel), &SwTextFlowPage::Create,
+-               RID_L + RID_TAB_TEXTFLOW.sIconName);
++    AddTabPage(u"hstrow"_ustr, SwResId(STR_HST_TAB_ROW), &SwHstTableRowPage::Create,
++               RID_L + u"setoptimalrowheight.png"_ustr);
+     AddTabPage(u"columns"_ustr, TabResId(RID_TAB_COLUMNS.aLabel), &SwTableColumnPage::Create,
+                RID_L + RID_TAB_COLUMNS.sIconName);
++    AddTabPage(u"hstcell"_ustr, SwResId(STR_HST_TAB_CELL), &SwHstTableCellPage::Create,
++               RID_L + u"entirecell.png"_ustr);
++    // The insert-from-database dialog has no table yet, so nothing to describe.
++    if (pItemSet && pItemSet->GetItemState(RES_FRMATR_GRABBAG, false) == SfxItemState::SET)
++        AddTabPage(u"hstalt"_ustr, SwResId(STR_HST_TAB_ALT), &SwHstTableAltPage::Create,
++                   RID_L + u"objecttitledescription.png"_ustr);
+     AddTabPage(u"borders"_ustr, TabResId(RID_TAB_BORDER.aLabel),
+                pFact->GetTabPageCreatorFunc(RID_SVXPAGE_BORDER), RID_L + RID_TAB_BORDER.sIconName);
+-    AddTabPage(u"background"_ustr, TabResId(RID_TAB_BACKGROUND.aLabel),
++    AddTabPage(u"background"_ustr, SwResId(STR_HST_TAB_SHADING),
+                pFact->GetTabPageCreatorFunc(RID_SVXPAGE_BKG), RID_L + RID_TAB_BACKGROUND.sIconName);
++    AddTabPage(u"textflow"_ustr, SwResId(STR_HST_TAB_ADVANCED), &SwTextFlowPage::Create,
++               RID_L + RID_TAB_TEXTFLOW.sIconName);
+ }
+ 
+ void  SwTableTabDlg::PageCreated(const OUString& rId, SfxTabPage& rPage)
+@@ -1277,13 +1328,8 @@
+     , m_xPageNoCB(m_xBuilder->weld_check_button(u"pagenoft"_ustr))
+     , m_xPageNoNF(m_xBuilder->weld_spin_button(u"pagenonf"_ustr))
+     , m_xSplitCB(m_xBuilder->weld_check_button(u"split"_ustr))
+-    , m_xSplitRowCB(m_xBuilder->weld_check_button(u"splitrow"_ustr))
+     , m_xKeepCB(m_xBuilder->weld_check_button(u"keep"_ustr))
+-    , m_xHeadLineCB(m_xBuilder->weld_check_button(u"headline"_ustr))
+-    , m_xRepeatHeaderCombo(m_xBuilder->weld_widget(u"repeatheader"_ustr))
+-    , m_xRepeatHeaderNF(m_xBuilder->weld_spin_button(u"repeatheadernf"_ustr))
+     , m_xTextDirectionLB(m_xBuilder->weld_combo_box(u"textorientation"_ustr))
+-    , m_xVertOrientLB(m_xBuilder->weld_combo_box(u"vertorient"_ustr))
+ {
+     m_xPgBrkCB->connect_toggled(LINK(this, SwTextFlowPage, PageBreakHdl_Impl));
+     m_xPgBrkBeforeRB->connect_toggled(
+@@ -1298,19 +1344,13 @@
+         LINK(this, SwTextFlowPage, PageBreakTypeHdl_Impl));
+     m_xPageNoCB->connect_toggled(
+         LINK(this, SwTextFlowPage, PageNoClickHdl_Impl));
+-    m_xSplitCB->connect_toggled(
+-        LINK(this, SwTextFlowPage, SplitHdl_Impl));
+-    m_xHeadLineCB->connect_toggled(LINK(this, SwTextFlowPage, HeadLineCBClickHdl));
+ 
+     const SfxUInt16Item *pModeItem = rSet.GetItemIfSet( SID_HTML_MODE, false );
+     if(pModeItem && pModeItem->GetValue() & HTMLMODE_ON)
+     {
+         m_xKeepCB->hide();
+         m_xSplitCB->hide();
+-        m_xSplitRowCB->hide();
+     }
+-
+-    HeadLineCBClickHdl(*m_xHeadLineCB);
+ }
+ 
+ SwTextFlowPage::~SwTextFlowPage()
+@@ -1327,22 +1367,12 @@
+ {
+     bool bModified = false;
+ 
+-    //Repeat Heading
+-    if (m_xHeadLineCB->get_state_changed_from_saved() ||
+-        m_xRepeatHeaderNF->get_value_changed_from_saved() )
+-    {
+-        bModified |= nullptr != rSet->Put(
+-            SfxUInt16Item(FN_PARAM_TABLE_HEADLINE, m_xHeadLineCB->get_active() ? sal_uInt16(m_xRepeatHeaderNF->get_value()) : 0));
+-    }
+     if (m_xKeepCB->get_state_changed_from_saved())
+         bModified |= nullptr != rSet->Put( SvxFormatKeepItem( m_xKeepCB->get_active(), RES_KEEP));
+ 
+     if (m_xSplitCB->get_state_changed_from_saved())
+         bModified |= nullptr != rSet->Put( SwFormatLayoutSplit( m_xSplitCB->get_active()));
+ 
+-    if (m_xSplitRowCB->get_state_changed_from_saved())
+-        bModified |= nullptr != rSet->Put( SwFormatRowSplit( m_xSplitRowCB->get_active()));
+-
+     const SvxFormatBreakItem* pBreak = GetOldItem( *rSet, RES_BREAK );
+     const SwFormatPageDesc* pDesc = GetOldItem( *rSet, RES_PAGEDESC );
+ 
+@@ -1420,19 +1450,6 @@
+           bModified |= nullptr != rSet->Put(SvxFrameDirectionItem(static_cast<SvxFrameDirection>(sId.toUInt32()), FN_TABLE_BOX_TEXTORIENTATION));
+     }
+ 
+-    if (m_xVertOrientLB->get_value_changed_from_saved())
+-    {
+-        sal_uInt16 nOrient = USHRT_MAX;
+-        switch (m_xVertOrientLB->get_active())
+-        {
+-            case 0 : nOrient = text::VertOrientation::NONE; break;
+-            case 1 : nOrient = text::VertOrientation::CENTER; break;
+-            case 2 : nOrient = text::VertOrientation::BOTTOM; break;
+-        }
+-        if (nOrient != USHRT_MAX)
+-            bModified |= nullptr != rSet->Put(SfxUInt16Item(FN_TABLE_SET_VERT_ALIGN, nOrient));
+-    }
+-
+     return bModified;
+ 
+ }
+@@ -1472,15 +1489,6 @@
+             m_xSplitCB->set_active(true);
+ 
+         m_xSplitCB->save_state();
+-        SplitHdl_Impl(*m_xSplitCB);
+-
+-        if(const SwFormatRowSplit* pSplitItem = rSet->GetItemIfSet( RES_ROW_SPLIT, false ))
+-        {
+-            m_xSplitRowCB->set_active( pSplitItem->GetValue() );
+-        }
+-        else
+-            m_xSplitRowCB->set_state(TRISTATE_INDET);
+-        m_xSplitRowCB->save_state();
+ 
+         if(m_bPageBreak)
+         {
+@@ -1590,34 +1598,12 @@
+         m_xPageCollLB->set_sensitive(false);
+     }
+ 
+-    if(const SfxUInt16Item* pHeadlineItem = rSet->GetItemIfSet( FN_PARAM_TABLE_HEADLINE, false ))
+-    {
+-        sal_uInt16 nRep = pHeadlineItem->GetValue();
+-        m_xHeadLineCB->set_active(nRep > 0);
+-        m_xHeadLineCB->save_state();
+-        m_xRepeatHeaderNF->set_value(nRep);
+-        m_xRepeatHeaderNF->set_min(1);
+-        m_xRepeatHeaderNF->save_value();
+-    }
+     if ( rSet->GetItemState(FN_TABLE_BOX_TEXTORIENTATION) > SfxItemState::DEFAULT )
+     {
+         SvxFrameDirection nDirection = rSet->Get(FN_TABLE_BOX_TEXTORIENTATION).GetValue();
+         m_xTextDirectionLB->set_active_id(OUString::number(static_cast<sal_uInt32>(nDirection)));
+     }
+ 
+-    if ( rSet->GetItemState(FN_TABLE_SET_VERT_ALIGN) > SfxItemState::DEFAULT )
+-    {
+-        sal_uInt16 nVert = rSet->Get(FN_TABLE_SET_VERT_ALIGN).GetValue();
+-        sal_uInt16 nPos = 0;
+-        switch(nVert)
+-        {
+-            case text::VertOrientation::NONE:     nPos = 0;   break;
+-            case text::VertOrientation::CENTER:   nPos = 1;   break;
+-            case text::VertOrientation::BOTTOM:   nPos = 2;   break;
+-        }
+-        m_xVertOrientLB->set_active(nPos);
+-    }
+-
+     m_xPageCollCB->save_state();
+     m_xPageCollLB->save_value();
+     m_xPgBrkCB->save_state();
+@@ -1628,9 +1614,6 @@
+     m_xPageNoCB->save_state();
+     m_xPageNoNF->save_value();
+     m_xTextDirectionLB->save_value();
+-    m_xVertOrientLB->save_value();
+-
+-    HeadLineCBClickHdl(*m_xHeadLineCB);
+ }
+ 
+ void SwTextFlowPage::SetShell(SwWrtShell* pSh)
+@@ -1747,16 +1730,6 @@
+     m_xPageNoNF->set_sensitive(m_xPageNoCB->get_active());
+ }
+ 
+-IMPL_LINK(SwTextFlowPage, SplitHdl_Impl, weld::Toggleable&, rBox, void)
+-{
+-    m_xSplitRowCB->set_sensitive(rBox.get_active());
+-}
+-
+-IMPL_LINK_NOARG(SwTextFlowPage, HeadLineCBClickHdl, weld::Toggleable&, void)
+-{
+-    m_xRepeatHeaderCombo->set_sensitive(m_xHeadLineCB->get_active());
+-}
+-
+ void SwTextFlowPage::DisablePageBreak()
+ {
+     m_bPageBreak = false;
+--- a/sw/source/uibase/docvw/UnfloatTableButton.cxx
++++ b/sw/source/uibase/docvw/UnfloatTableButton.cxx
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include <UnfloatTableButton.hxx>
++#include <hsttablepages.hxx>
+ #include <HeaderFooterWin.hxx>
+ 
+ #include <edtwin.hxx>
+@@ -98,6 +99,13 @@
+     assert(GetFrame()->IsFlyFrame());
+     // const_cast is needed because of bad design of ISwFrameControl and derived classes
+     SwFlyFrame* pFlyFrame = const_cast<SwFlyFrame*>(static_cast<const SwFlyFrame*>(GetFrame()));
++    HstUnfloatTableFrame(*pFlyFrame, GetEditWin()->GetView().GetWrtShell());
++}
++
++// HST: also Text Wrapping: None on the Table tab of Table Properties.
++void HstUnfloatTableFrame(SwFlyFrame& rFlyFrame, SwWrtShell& rWrtShell)
++{
++    SwFlyFrame* pFlyFrame = &rFlyFrame;
+ 
+     // Find the table inside the text frame
+     SwTabFrame* pTableFrame = nullptr;
+@@ -160,21 +168,22 @@
+         {
+             // First set the existing page desc for the table node
+             SfxItemSet aSet(SfxItemSet::makeFixedSfxItemSet<RES_PAGEDESC, RES_PAGEDESC>(
+-                GetEditWin()->GetView().GetWrtShell().GetAttrPool()));
++                rWrtShell.GetAttrPool()));
+             aSet.Put(SwFormatPageDesc(pPageDesc));
+             SwPaM aPaMTable(*pTableNode);
+             rDoc.getIDocumentContentOperations().InsertItemSet(
+-                aPaMTable, aSet, SetAttrMode::DEFAULT, GetPageFrame()->getRootFrame());
++                aPaMTable, aSet, SetAttrMode::DEFAULT, pFlyFrame->getRootFrame());
+ 
+             // Then remove pagedesc from the attributes of the text node
+             aSet.Put(SwFormatPageDesc(nullptr));
+             SwPaM aPaMTextNode(*pTextFrame->GetTextNodeFirst());
+             rDoc.getIDocumentContentOperations().InsertItemSet(
+-                aPaMTextNode, aSet, SetAttrMode::DEFAULT, GetPageFrame()->getRootFrame());
++                aPaMTextNode, aSet, SetAttrMode::DEFAULT, pFlyFrame->getRootFrame());
+         }
+     }
+ 
+-    SwWrtShell& rWrtShell = GetEditWin()->GetView().GetWrtShell();
++    // From the Table tab the cursor is in the table: the shell acts on a selected frame.
++    rWrtShell.SelectFlyFrame(*pFlyFrame);
+     rWrtShell.UnfloatFlyFrame();
+ 
+     rDoc.getIDocumentState().SetModified();
+--- a/sw/source/uibase/inc/hsttablepages.hxx
++++ b/sw/source/uibase/inc/hsttablepages.hxx
+@@ -0,0 +1,135 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <cmdid.h>
++#include <sfx2/tabdlg.hxx>
++#include <svl/typedwhich.hxx>
++#include <fmtfsize.hxx>
++#include <vcl/weld/Button.hxx>
++#include <vcl/weld/CheckButton.hxx>
++#include <vcl/weld/Label.hxx>
++#include <vcl/weld/ComboBox.hxx>
++#include <vcl/weld/Entry.hxx>
++#include <vcl/weld/MetricSpinButton.hxx>
++#include <vcl/weld/SpinButton.hxx>
++#include <vcl/weld/TextView.hxx>
++
++#include <vector>
++
++class SfxStringItem;
++class SfxUInt16Item;
++class SfxUInt32Item;
++class SvxBoxItem;
++
++// HST: the Row and Cell pages of Table Properties carry the current row and cell through these slots.
++// Word applies them to the selection, unlike the table-wide RES_FRM_SIZE and RES_BOX of the other pages.
++inline constexpr TypedWhichId<SwFormatFrameSize> FN_HST_ROW_HEIGHT(FN_TABLE_SET_ROW_HEIGHT);
++inline constexpr TypedWhichId<SfxUInt32Item> FN_HST_CELL_WIDTH(FN_TABLE_SET_COL_WIDTH);
++inline constexpr TypedWhichId<SvxBoxItem> FN_HST_CELL_MARGINS(FN_TABLE_ADJUST_CELLS);
++/// Word's Text Wrapping on the Table tab: 0 None, 1 Around, 2 Around and open its Position dialog.
++/// Absent where a table cannot float: in a frame, a header, a footer, or another table.
++inline constexpr TypedWhichId<SfxUInt16Item> FN_HST_TABLE_WRAP(FN_TABLE_BALANCE_CELLS);
++/// Rows changed through Previous Row and Next Row: "box name,type,height,split" joined by ";".
++inline constexpr TypedWhichId<SfxStringItem> FN_HST_ROW_EDITS(FN_TABLE_BALANCE_ROWS);
++
++class SwFlyFrame;
++class SwWrtShell;
++/// Moves the table of a floating-table frame back into the text. Clears the undo stack, see the definition.
++void HstUnfloatTableFrame(SwFlyFrame& rFlyFrame, SwWrtShell& rShell);
++
++void HstTableSetUnit(weld::MetricSpinButton& rField);
++sal_Int32 HstTableTwips(const weld::MetricSpinButton& rField);
++void HstTableSetTwips(weld::MetricSpinButton& rField, sal_Int32 nValue);
++
++/// Word's Row tab: height of the selected rows, break across pages, repeat as header row.
++class SwHstTableRowPage final : public SfxTabPage
++{
++    std::unique_ptr<weld::Widget> m_xSizeFrame;
++    std::unique_ptr<weld::CheckButton> m_xHeightCB;
++    std::unique_ptr<weld::MetricSpinButton> m_xHeightMF;
++    std::unique_ptr<weld::ComboBox> m_xRuleLB;
++    std::unique_ptr<weld::CheckButton> m_xSplitRowCB;
++    std::unique_ptr<weld::CheckButton> m_xHeadLineCB;
++    std::unique_ptr<weld::Widget> m_xRepeatHeader;
++    std::unique_ptr<weld::SpinButton> m_xRepeatHeaderNF;
++    std::unique_ptr<weld::Label> m_xRowLabel;
++    std::unique_ptr<weld::Button> m_xPrevBtn;
++    std::unique_ptr<weld::Button> m_xNextBtn;
++
++    /// What the page knows of each row of the table, for Previous Row and Next Row.
++    struct RowState
++    {
++        OUString sBoxName;
++        SwFrameSize eType;
++        tools::Long nHeight;
++        bool bSplit;
++        bool bChanged = false;
++    };
++    std::vector<RowState> m_aRows;
++    OUString m_sRowLabel;
++    int m_nRow = -1;
++    bool m_bMoved = false;
++
++    void InitRows();
++    void ShowRow();
++    void StoreRow();
++    void MoveRow(int nDelta);
++    DECL_LINK(PrevHdl, weld::Button&, void);
++    DECL_LINK(NextHdl, weld::Button&, void);
++    DECL_LINK(HeightToggledHdl, weld::Toggleable&, void);
++    DECL_LINK(HeadLineToggledHdl, weld::Toggleable&, void);
++
++public:
++    SwHstTableRowPage(weld::Container* pPage, weld::DialogController* pController,
++                      const SfxItemSet& rSet);
++    static std::unique_ptr<SfxTabPage> Create(weld::Container* pPage,
++                                              weld::DialogController* pController,
++                                              const SfxItemSet* pSet);
++    virtual bool FillItemSet(SfxItemSet* pSet) override;
++    virtual void Reset(const SfxItemSet* pSet) override;
++};
++
++/// Word's Cell tab: width of the current cell, vertical alignment, margins of the selected cells.
++class SwHstTableCellPage final : public SfxTabPage
++{
++    std::unique_ptr<weld::Widget> m_xSizeFrame;
++    std::unique_ptr<weld::MetricSpinButton> m_xWidthMF;
++    std::unique_ptr<weld::ComboBox> m_xVertOrientLB;
++    std::unique_ptr<weld::Widget> m_xMarginsFrame;
++    std::unique_ptr<weld::MetricSpinButton> m_xTopMF;
++    std::unique_ptr<weld::MetricSpinButton> m_xBottomMF;
++    std::unique_ptr<weld::MetricSpinButton> m_xLeftMF;
++    std::unique_ptr<weld::MetricSpinButton> m_xRightMF;
++
++public:
++    SwHstTableCellPage(weld::Container* pPage, weld::DialogController* pController,
++                       const SfxItemSet& rSet);
++    static std::unique_ptr<SfxTabPage> Create(weld::Container* pPage,
++                                              weld::DialogController* pController,
++                                              const SfxItemSet* pSet);
++    virtual bool FillItemSet(SfxItemSet* pSet) override;
++    virtual void Reset(const SfxItemSet* pSet) override;
++};
++
++/// Word's Alt Text tab: title and description, kept in the table format's grab bag.
++class SwHstTableAltPage final : public SfxTabPage
++{
++    std::unique_ptr<weld::Entry> m_xTitleED;
++    std::unique_ptr<weld::TextView> m_xDescTV;
++
++public:
++    SwHstTableAltPage(weld::Container* pPage, weld::DialogController* pController,
++                      const SfxItemSet& rSet);
++    static std::unique_ptr<SfxTabPage> Create(weld::Container* pPage,
++                                              weld::DialogController* pController,
++                                              const SfxItemSet* pSet);
++    virtual bool FillItemSet(SfxItemSet* pSet) override;
++    virtual void Reset(const SfxItemSet* pSet) override;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/shells/tabsh.cxx
++++ b/sw/source/uibase/shells/tabsh.cxx
+@@ -66,6 +66,19 @@
+ #include <inputwin.hxx>
+ #include <uiitems.hxx>
+ #include <tabsh.hxx>
++#include <hsttablepages.hxx>
++#include <svl/grabbagitem.hxx>
++#include <IDocumentUndoRedo.hxx>
++#include <strings.hrc>
++#include <swtypes.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/weld/MessageDialog.hxx>
++#include <o3tl/string_view.hxx>
++#include <fmtsrnd.hxx>
++#include <flyfrm.hxx>
++#include <frmmgr.hxx>
++#include <formatflysplit.hxx>
++#include <ftnfrm.hxx>
+ #include <swtablerep.hxx>
+ #include <tablemgr.hxx>
+ #include <cellatr.hxx>
+@@ -116,6 +129,7 @@
+ // #i29550#
+     RES_COLLAPSING_BORDERS,         RES_COLLAPSING_BORDERS,
+ // <-- collapsing borders
++    RES_FRMATR_GRABBAG,             RES_FRMATR_GRABBAG,
+     XATTR_FILL_FIRST,               XATTR_FILL_LAST,
+     SID_ATTR_BORDER_INNER,          SID_ATTR_BORDER_SHADOW,
+     SID_RULER_BORDERS,              SID_RULER_BORDERS,
+@@ -123,6 +137,9 @@
+ //  SID_BACKGRND_DESTINATION,       SID_BACKGRND_DESTINATION, // included into above
+ //  SID_HTML_MODE,                  SID_HTML_MODE, // included into above
+     FN_TABLE_REP,                   FN_TABLE_REP,
++    FN_TABLE_SET_ROW_HEIGHT,        FN_TABLE_SET_COL_WIDTH,
++    FN_TABLE_ADJUST_CELLS,          FN_TABLE_ADJUST_CELLS,
++    FN_TABLE_BALANCE_CELLS,         FN_TABLE_BALANCE_ROWS,
+     FN_TABLE_SET_VERT_ALIGN,        FN_TABLE_SET_VERT_ALIGN,
+     FN_TABLE_BOX_TEXTORIENTATION,   FN_TABLE_BOX_TEXTORIENTATION,
+     FN_PARAM_TABLE_NAME,            FN_PARAM_TABLE_NAME,
+@@ -181,6 +198,42 @@
+         rSet.Put(*aBoxDirection);
+     }
+ 
++    // HST: Word's Text Wrapping. A table already in another kind of frame, or in a header, a footer
++    // or a cell, stays out of it: there is nothing to float it in or back to.
++    {
++        const SwFrame* pHstFrame = rSh.GetCurrFrame();
++        const SwFlyFrame* pHstFly = pHstFrame ? pHstFrame->FindFlyFrame() : nullptr;
++        const bool bFloating = pHstFly && pHstFly->IsFlySplitAllowed();
++        if (bFloating || (pHstFrame && !pHstFly && !pHstFrame->IsInFootnote() && !pHstFrame->FindFooterOrHeader()
++                          && !pHstFrame->FindTabFrame()->GetUpper()->IsInTab()))
++            rSet.Put(SfxUInt16Item(FN_HST_TABLE_WRAP, bFloating ? 1 : 0));
++    }
++
++    // HST: what Word's Row and Cell tabs show is the current selection, not the whole table.
++    rSet.Put(pFormat->GetAttrSet().Get(RES_FRMATR_GRABBAG));
++    if (std::unique_ptr<SwFormatFrameSize> pRowHeight = rSh.GetRowHeight())
++    {
++        pRowHeight->SetWhich(FN_HST_ROW_HEIGHT);
++        rSet.Put(*pRowHeight);
++    }
++    else
++        rSet.InvalidateItem(FN_HST_ROW_HEIGHT);
++    std::unique_ptr<SwFormatRowSplit> pSplit = rSh.GetRowSplit();
++    if (pSplit)
++        rSet.Put(std::move(pSplit));
++    {
++        const size_t nCol = rSh.GetCurTabColNum();
++        const tools::Long nLeft = nCol ? aCols[nCol - 1] : aCols.GetLeft();
++        const tools::Long nRight = nCol < aCols.Count() ? aCols[nCol] : aCols.GetRight();
++        rSet.Put(SfxUInt32Item(FN_HST_CELL_WIDTH, nRight - nLeft));
++        SfxItemSet aCellSet(SfxItemSet::makeFixedSfxItemSet<RES_BOX, RES_BOX, SID_ATTR_BORDER_INNER, SID_ATTR_BORDER_INNER>(rSh.GetAttrPool()));
++        aCellSet.Put(SvxBoxInfoItem(SID_ATTR_BORDER_INNER));
++        rSh.GetTabBorders(aCellSet);
++        SvxBoxItem aMargins(aCellSet.Get(RES_BOX));
++        aMargins.SetWhich(FN_HST_CELL_MARGINS);
++        rSet.Put(aMargins);
++    }
++
+     bool bSelectAll = rSh.StartsWith_() == SwCursorShell::StartsWith::Table && rSh.ExtendedSelectedAll();
+     bool bTableSel = rSh.IsTableMode() || bSelectAll;
+     if(!bTableSel)
+@@ -209,11 +262,6 @@
+     rSet.Put(aBoxInfo);
+     rSh.GetTabBorders( rSet );
+ 
+-    //row split
+-    std::unique_ptr<SwFormatRowSplit> pSplit = rSh.GetRowSplit();
+-    if(pSplit)
+-        rSet.Put(std::move(pSplit));
+-
+     if(!bTableSel)
+     {
+         rSh.ClearMark();
+@@ -274,6 +322,64 @@
+     return pRep;
+ }
+ 
++constexpr TranslateId STR_HST_WRAP_CLEARS_UNDO
++    = NC_("hsttabledlg|wrapundo", "Changing the text wrapping of a table cannot be undone, and it clears the undo history of this document. Continue?");
++
++// HST: Word's Text Wrapping. Around puts the table in a splitting frame, the same model as a floating
++// table from DOCX, which exports as w:tblpPr. Moving a table between the text and a frame is not
++// undoable in this core: MakeFlyAndMove and the unfloat button both clear the undo stack.
++static void lcl_HstApplyTableWrap(SwWrtShell& rSh, sal_uInt16 nWrap)
++{
++    constexpr tools::Long HST_FLOAT_DISTANCE = 187; // twips, 0.13 inch: Word's default for a floating table
++    const SwFrame* pFrame = rSh.GetCurrFrame();
++    SwFlyFrame* pFly = pFrame ? const_cast<SwFlyFrame*>(pFrame->FindFlyFrame()) : nullptr;
++    const bool bFloating = pFly && pFly->IsFlySplitAllowed();
++    // The move cannot be undone and takes the document's undo history with it: ask first, if there is any.
++    if (bFloating == (nWrap == 0) && rSh.GetDoc()->GetIDocumentUndoRedo().GetUndoActionCount() > 0)
++    {
++        std::unique_ptr<weld::MessageDialog> xQuery(Application::CreateMessageDialog(
++            rSh.GetView().GetFrameWeld(), VclMessageType::Question, VclButtonsType::YesNo,
++            SwResId(STR_HST_WRAP_CLEARS_UNDO)));
++        if (xQuery->run() != RET_YES)
++            return;
++    }
++    if (nWrap == 0)
++    {
++        if (bFloating)
++            HstUnfloatTableFrame(*pFly, rSh);
++        return;
++    }
++    if (!bFloating)
++    {
++        rSh.GetView().GetViewFrame().GetDispatcher()->Execute(FN_TABLE_SELECT_ALL, SfxCallMode::SYNCHRON);
++        SwTabCols aCols;
++        rSh.GetTabCols(aCols);
++        SwFlyFrameAttrMgr aMgr(true, &rSh, Frmmgr_Type::TEXT, nullptr);
++        aMgr.SetAnchor(RndStdIds::FLY_AT_PARA);
++        aMgr.SetSize(Size(aCols.GetRight() - aCols.GetLeft(), MINLAY));
++        aMgr.SetHeightSizeType(SwFrameSize::Variable);
++        aMgr.SetLRSpace(HST_FLOAT_DISTANCE, HST_FLOAT_DISTANCE);
++        aMgr.SetAttrSet(SfxItemSet(aMgr.GetAttrSet()));
++        SfxItemSet aFly(aMgr.GetAttrSet());
++        aFly.Put(SwFormatSurround(css::text::WrapTextMode_PARALLEL));
++        aFly.Put(SwFormatFlySplit(true));
++        aFly.Put(SvxBoxItem(RES_BOX));
++        rSh.NewFlyFrame(aFly);
++    }
++    if (nWrap == 2)
++    {
++        if (!rSh.IsFrameSelected())
++            if (const SwFrameFormat* pFlyFormat = rSh.GetFlyFrameFormat())
++                rSh.GotoFly(pFlyFormat->GetName());
++        rSh.GetView().GetViewFrame().GetDispatcher()->Execute(FN_FORMAT_FRAME_DLG, SfxCallMode::ASYNCHRON);
++    }
++    else if (rSh.IsFrameSelected())
++    {
++        rSh.UnSelectFrame();
++        rSh.LeaveSelFrameMode();
++    }
++}
++
+ void ItemSetToTableParam( const SfxItemSet& rSet,
+                                 SwWrtShell &rSh )
+ {
+@@ -329,7 +435,11 @@
+             rSh.SetBoxDirection(aDirection);
+         }
+ 
+-        if(bBorder || bRowSplit)
++        // HST: Word's Row tab sets this on the selected rows, the current one without a selection.
++        if(bRowSplit)
++            rSh.SetRowSplit(*pSplit);
++
++        if(bBorder)
+         {
+             rSh.Push();
+             if(!bTableSel)
+@@ -339,11 +449,6 @@
+             if(bBorder)
+                 rSh.SetTabBorders( rSet );
+ 
+-            if(bRowSplit)
+-            {
+-                rSh.SetRowSplit(*pSplit);
+-            }
+-
+             if(!bTableSel)
+             {
+                 rSh.ClearMark();
+@@ -408,6 +513,74 @@
+     if( const SfxStringItem* pNameItem = rSet.GetItemIfSet( FN_PARAM_TABLE_NAME, false ))
+         rSh.SetTableName( *pFormat, UIName(pNameItem->GetValue()) );
+ 
++    if (const SwFormatFrameSize* pRowHeight = rSet.GetItemIfSet(FN_HST_ROW_HEIGHT, false))
++    {
++        SwFormatFrameSize aHeight(*pRowHeight);
++        aHeight.SetWhich(RES_FRM_SIZE);
++        rSh.SetRowHeight(aHeight);
++    }
++
++    if (const SvxBoxItem* pMargins = rSet.GetItemIfSet(FN_HST_CELL_MARGINS, false))
++    {
++        // Only the distances: with every line invalid, SetTabBorders keeps the borders.
++        SvxBoxItem aBox(*pMargins);
++        aBox.SetWhich(RES_BOX);
++        SvxBoxInfoItem aInfo(SID_ATTR_BORDER_INNER);
++        aInfo.SetValid(SvxBoxInfoItemValidFlags::ALL, false);
++        SfxItemSet aCellSet(SfxItemSet::makeFixedSfxItemSet<RES_BOX, RES_BOX, SID_ATTR_BORDER_INNER, SID_ATTR_BORDER_INNER>(rSh.GetAttrPool()));
++        aCellSet.Put(aBox);
++        aCellSet.Put(aInfo);
++        rSh.SetTabBorders(aCellSet);
++    }
++
++    // Rows edited through Previous Row and Next Row: the cursor visits each of them.
++    if (const SfxStringItem* pEdits = rSet.GetItemIfSet(FN_HST_ROW_EDITS, false))
++    {
++        rSh.Push();
++        const OUString aEdits = pEdits->GetValue();
++        for (sal_Int32 nPos = 0; nPos >= 0;)
++        {
++            const OUString aRow(o3tl::getToken(aEdits, 0, ';', nPos));
++            if (aRow.isEmpty())
++                break;
++            sal_Int32 nField = 0;
++            const OUString aBox(o3tl::getToken(aRow, 0, ',', nField));
++            const auto eType = static_cast<SwFrameSize>(o3tl::toInt32(o3tl::getToken(aRow, 0, ',', nField)));
++            const tools::Long nHeight = o3tl::toInt32(o3tl::getToken(aRow, 0, ',', nField));
++            const bool bSplit = o3tl::toInt32(o3tl::getToken(aRow, 0, ',', nField)) != 0;
++            if (!rSh.GetCursor()->GotoTableBox(aBox))
++                continue;
++            SwFormatFrameSize aHeight;
++            aHeight.SetHeightSizeType(eType);
++            aHeight.SetHeight(nHeight);
++            rSh.SetRowHeight(aHeight);
++            rSh.SetRowSplit(SwFormatRowSplit(bSplit));
++        }
++        rSh.Pop(SwCursorShell::PopMode::DeleteCurrent);
++    }
++
++    if (const SfxUInt32Item* pCellWidth = rSet.GetItemIfSet(FN_HST_CELL_WIDTH, false))
++    {
++        SwTabCols aCols;
++        rSh.GetTabCols(aCols);
++        const size_t nCol = rSh.GetCurTabColNum();
++        const tools::Long nLeft = nCol ? aCols[nCol - 1] : aCols.GetLeft();
++        const tools::Long nRight = nCol < aCols.Count() ? aCols[nCol] : aCols.GetRight();
++        // Word changes the selected cell only: the neighbour in this row takes up the difference.
++        const tools::Long nWanted = tools::Long(pCellWidth->GetValue());
++        if (nCol < aCols.Count())
++        {
++            const tools::Long nNext = nCol + 1 < aCols.Count() ? aCols[nCol + 1] : aCols.GetRight();
++            aCols[nCol] = std::clamp(nLeft + nWanted, nLeft + tools::Long(MINLAY), nNext - tools::Long(MINLAY));
++        }
++        else if (nCol > 0)
++        {
++            const tools::Long nPrev = nCol > 1 ? aCols[nCol - 2] : aCols.GetLeft();
++            aCols[nCol - 1] = std::clamp(nRight - nWanted, nPrev + tools::Long(MINLAY), nRight - tools::Long(MINLAY));
++        }
++        rSh.SetTabCols(aCols, true);
++    }
++
+     // Copy the chosen attributes in the ItemSet.
+     static const sal_uInt16 aIds[] =
+         {
+@@ -421,6 +594,7 @@
+             // #i29550#
+             RES_COLLAPSING_BORDERS,
+             // <-- collapsing borders
++            RES_FRMATR_GRABBAG,
+             0
+         };
+     const SfxPoolItem* pItem = nullptr;
+@@ -440,6 +614,9 @@
+ 
+     rSh.EndUndo( SwUndoId::TABLE_ATTR );
+     rSh.EndAllAction();
++
++    if (const SfxUInt16Item* pWrap = rSet.GetItemIfSet(FN_HST_TABLE_WRAP, false))
++        lcl_HstApplyTableWrap(rSh, pWrap->GetValue());
+ }
+ 
+ static void lcl_TabGetMaxLineWidth(const SvxBorderLine* pBorderLine, SvxBorderLine& rBorderLine)
+--- a/sw/source/uibase/table/tablepg.hxx
++++ b/sw/source/uibase/table/tablepg.hxx
+@@ -72,6 +72,13 @@
+ 
+     std::unique_ptr<svx::FrameDirectionListBox> m_xTextDirectionLB;
+     std::unique_ptr<weld::Widget> m_xProperties;
++    std::unique_ptr<weld::Widget> m_xHstWrapFrame;
++    std::unique_ptr<weld::RadioButton> m_xHstWrapNoneRB;
++    std::unique_ptr<weld::RadioButton> m_xHstWrapAroundRB;
++    std::unique_ptr<weld::Button> m_xHstWrapPosBtn;
++    bool m_bHstOpenPosition = false;
++    DECL_LINK(HstWrapToggledHdl, weld::Toggleable&, void);
++    DECL_LINK(HstWrapPositionHdl, weld::Button&, void);
+ 
+     sal_Int64 m_nOrigWidthMin;
+     sal_Int64 m_nOrigWidthMax;
+@@ -167,21 +174,14 @@
+     std::unique_ptr<weld::CheckButton> m_xPageNoCB;
+     std::unique_ptr<weld::SpinButton> m_xPageNoNF;
+     std::unique_ptr<weld::CheckButton> m_xSplitCB;
+-    std::unique_ptr<weld::CheckButton> m_xSplitRowCB;
+     std::unique_ptr<weld::CheckButton> m_xKeepCB;
+-    std::unique_ptr<weld::CheckButton> m_xHeadLineCB;
+-    std::unique_ptr<weld::Widget> m_xRepeatHeaderCombo;
+-    std::unique_ptr<weld::SpinButton> m_xRepeatHeaderNF;
+     std::unique_ptr<weld::ComboBox> m_xTextDirectionLB;
+-    std::unique_ptr<weld::ComboBox> m_xVertOrientLB;
+ 
+     DECL_LINK(PageBreakHdl_Impl, weld::Toggleable&, void);
+     DECL_LINK(ApplyCollClickHdl_Impl, weld::Toggleable&, void);
+     DECL_LINK(PageBreakPosHdl_Impl, weld::Toggleable&, void);
+     DECL_LINK(PageBreakTypeHdl_Impl, weld::Toggleable&, void);
+     DECL_LINK(PageNoClickHdl_Impl, weld::Toggleable&, void);
+-    DECL_LINK(SplitHdl_Impl, weld::Toggleable&, void);
+-    DECL_LINK(HeadLineCBClickHdl, weld::Toggleable&, void);
+ 
+ public:
+     SwTextFlowPage(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet& rSet);
+--- a/sw/source/writerfilter/dmapper/DomainMapperTableHandler.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapperTableHandler.cxx
+@@ -502,6 +502,16 @@
+         TagLogger::getInstance().endElement();
+ #endif
+ 
++        // HST: the table's Alt Text stays with the table format, read back by the export filters.
++        for (const auto& [ePropId, rKey] : { std::pair(PROP_TITLE, u"tblCaption"_ustr), std::pair(PROP_DESCRIPTION, u"tblDescription"_ustr) })
++        {
++            if (std::optional<PropertyMap::Property> oAlt = m_aTableProperties->getProperty(ePropId))
++            {
++                aGrabBag[rKey] = oAlt->second;
++                m_aTableProperties->Erase(ePropId);
++            }
++        }
++
+         if (!aGrabBag.empty())
+         {
+             m_aTableProperties->Insert( PROP_TABLE_INTEROP_GRAB_BAG, uno::Any( aGrabBag.getAsConstPropertyValueList() ) );
+--- a/sw/source/writerfilter/dmapper/DomainMapperTableManager.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapperTableManager.cxx
+@@ -404,10 +404,15 @@
+                 setCurrentGridAfter( nIntValue );
+                 break;
+             case NS_ooxml::LN_CT_TblPrBase_tblCaption:
+-                // To-Do: Not yet preserved
+-                break;
+             case NS_ooxml::LN_CT_TblPrBase_tblDescription:
+-                // To-Do: Not yet preserved
++                // HST: the table's Alt Text; DomainMapperTableHandler moves it to the grab bag.
++                if (pValue)
++                {
++                    TablePropertyMapPtr pPropMap(new TablePropertyMap);
++                    pPropMap->Insert(nSprmId == NS_ooxml::LN_CT_TblPrBase_tblCaption ? PROP_TITLE : PROP_DESCRIPTION,
++                                     uno::Any(pValue->getString()));
++                    insertTableProps(pPropMap);
++                }
+                 break;
+             case NS_ooxml::LN_CT_TrPrBase_tblCellSpacing:
+                 // To-Do: Not yet preserved
+--- a/sw/uiconfig/swriter/ui/formattablepage.ui
++++ b/sw/uiconfig/swriter/ui/formattablepage.ui
+@@ -569,6 +569,82 @@
+         <property name="top-attach">1</property>
+       </packing>
+     </child>
++    <child>
++      <object class="GtkFrame" id="hsttablewrapframe">
++        <property name="can-focus">False</property>
++        <property name="label-xalign">0</property>
++        <property name="shadow-type">none</property>
++        <child>
++          <object class="GtkBox" id="hsttablewrapbox">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="margin-start">12</property>
++            <property name="margin-top">6</property>
++            <property name="spacing">12</property>
++            <child>
++              <object class="GtkRadioButton" id="hsttablewrapnone">
++                <property name="label" translatable="yes" context="formattablepage|hsttablewrapnone">N_one</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="active">True</property>
++                <property name="draw-indicator">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkRadioButton" id="hsttablewraparound">
++                <property name="label" translatable="yes" context="formattablepage|hsttablewraparound">Aroun_d</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="draw-indicator">True</property>
++                <property name="group">hsttablewrapnone</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="hsttablewrappos">
++                <property name="label" translatable="yes" context="formattablepage|hsttablewrappos">P_osition...</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">2</property>
++              </packing>
++            </child>
++          </object>
++        </child>
++        <child type="label">
++          <object class="GtkLabel" id="hsttablewraplabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="formattablepage|hsttablewraplabel">Text Wrapping</property>
++            <attributes>
++              <attribute name="weight" value="bold"/>
++            </attributes>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="left-attach">0</property>
++        <property name="top-attach">2</property>
++      </packing>
++    </child>
+     <child internal-child="accessible">
+       <object class="AtkObject" id="FormatTablePage-atkobject">
+         <property name="AtkObject::accessible-description" translatable="yes" context="formattablepage|extended_tip|FormatTablePage">Specify the size, position, spacing, and alignment options for the selected table.</property>
+--- a/sw/uiconfig/swriter/ui/hsttablealtpage.ui
++++ b/sw/uiconfig/swriter/ui/hsttablealtpage.ui
+@@ -0,0 +1,106 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<interface domain="sw">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkGrid" id="HstTableAltPage">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="border-width">6</property>
++    <property name="row-spacing">12</property>
++    <child>
++      <object class="GtkFrame" id="hstaltframe">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="label-xalign">0</property>
++        <property name="shadow-type">none</property>
++        <child>
++          <object class="GtkGrid" id="hstaltgrid">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="margin-start">12</property>
++            <property name="margin-top">6</property>
++            <property name="hexpand">True</property>
++            <property name="row-spacing">6</property>
++            <child>
++              <object class="GtkLabel" id="hstalttitlelabel">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hsttablealtpage|hstalttitlelabel">_Title:</property>
++                <property name="use-underline">True</property>
++                <property name="mnemonic-widget">hstalttitle</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkEntry" id="hstalttitle">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="hexpand">True</property>
++                <property name="activates-default">True</property>
++                <property name="truncate-multiline">True</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="hstaltdesclabel">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hsttablealtpage|hstaltdesclabel">_Description:</property>
++                <property name="use-underline">True</property>
++                <property name="mnemonic-widget">hstaltdesc</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkScrolledWindow" id="hstaltdescscroll">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="hexpand">True</property>
++                <property name="vexpand">True</property>
++                <property name="shadow-type">in</property>
++                <child>
++                  <object class="GtkTextView" id="hstaltdesc">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="wrap-mode">word</property>
++                    <property name="accepts-tab">False</property>
++                  </object>
++                </child>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">3</property>
++              </packing>
++            </child>
++          </object>
++        </child>
++        <child type="label">
++          <object class="GtkLabel" id="hstaltlabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hsttablealtpage|hstaltlabel">Alt Text</property>
++            <attributes>
++              <attribute name="weight" value="bold"/>
++            </attributes>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="left-attach">0</property>
++        <property name="top-attach">0</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- a/sw/uiconfig/swriter/ui/hsttablecellpage.ui
++++ b/sw/uiconfig/swriter/ui/hsttablecellpage.ui
+@@ -0,0 +1,304 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<interface domain="sw">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkAdjustment" id="hstadjwidth">
++    <property name="upper">9999</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
++  <object class="GtkAdjustment" id="hstadjtop">
++    <property name="upper">99</property>
++    <property name="step-increment">0.1</property>
++    <property name="page-increment">1</property>
++  </object>
++  <object class="GtkAdjustment" id="hstadjbottom">
++    <property name="upper">99</property>
++    <property name="step-increment">0.1</property>
++    <property name="page-increment">1</property>
++  </object>
++  <object class="GtkAdjustment" id="hstadjleft">
++    <property name="upper">99</property>
++    <property name="step-increment">0.1</property>
++    <property name="page-increment">1</property>
++  </object>
++  <object class="GtkAdjustment" id="hstadjright">
++    <property name="upper">99</property>
++    <property name="step-increment">0.1</property>
++    <property name="page-increment">1</property>
++  </object>
++  <object class="GtkGrid" id="HstTableCellPage">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="border-width">6</property>
++    <property name="row-spacing">12</property>
++    <child>
++      <object class="GtkFrame" id="hstcellsizeframe">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="label-xalign">0</property>
++        <property name="shadow-type">none</property>
++        <child>
++          <object class="GtkGrid" id="hstcellsizegrid">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="margin-start">12</property>
++            <property name="margin-top">6</property>
++            <property name="row-spacing">6</property>
++            <property name="column-spacing">12</property>
++                <child>
++                  <object class="GtkLabel" id="hstcellwidthlabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hsttablecellpage|hstcellwidthlabel">Preferred _width:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">hstcellwidth</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSpinButton" id="hstcellwidth">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="adjustment">hstadjwidth</property>
++                    <property name="digits">2</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++          </object>
++        </child>
++        <child type="label">
++          <object class="GtkLabel" id="hstcellsizelabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hsttablecellpage|hstcellsizelabel">Size</property>
++            <attributes>
++              <attribute name="weight" value="bold"/>
++            </attributes>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="left-attach">0</property>
++        <property name="top-attach">0</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkFrame" id="hstcellvertframe">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="label-xalign">0</property>
++        <property name="shadow-type">none</property>
++        <child>
++          <object class="GtkGrid" id="hstcellvertgrid">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="margin-start">12</property>
++            <property name="margin-top">6</property>
++            <property name="row-spacing">6</property>
++            <property name="column-spacing">12</property>
++                <child>
++                  <object class="GtkLabel" id="hstcellvertlabel2">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hsttablecellpage|hstcellvertlabel2">Vertical _alignment:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">vertorient</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkComboBoxText" id="vertorient">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <items>
++                      <item translatable="yes" context="hsttablecellpage|vertorient">Top</item>
++                      <item translatable="yes" context="hsttablecellpage|vertorient">Center</item>
++                      <item translatable="yes" context="hsttablecellpage|vertorient">Bottom</item>
++                    </items>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++          </object>
++        </child>
++        <child type="label">
++          <object class="GtkLabel" id="hstcellvertlabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hsttablecellpage|hstcellvertlabel">Vertical Alignment</property>
++            <attributes>
++              <attribute name="weight" value="bold"/>
++            </attributes>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="left-attach">0</property>
++        <property name="top-attach">1</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkFrame" id="hstcellmarginsframe">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="label-xalign">0</property>
++        <property name="shadow-type">none</property>
++        <child>
++          <object class="GtkGrid" id="hstcellmargingrid">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="margin-start">12</property>
++            <property name="margin-top">6</property>
++            <property name="row-spacing">6</property>
++            <property name="column-spacing">12</property>
++                <child>
++                  <object class="GtkLabel" id="hstcelltoplabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hsttablecellpage|hstcelltoplabel">_Top:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">hstcelltop</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSpinButton" id="hstcelltop">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="adjustment">hstadjtop</property>
++                    <property name="digits">2</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="hstcellleftlabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hsttablecellpage|hstcellleftlabel">_Left:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">hstcellleft</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">2</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSpinButton" id="hstcellleft">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="adjustment">hstadjleft</property>
++                    <property name="digits">2</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">3</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="hstcellbottomlabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hsttablecellpage|hstcellbottomlabel">B_ottom:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">hstcellbottom</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSpinButton" id="hstcellbottom">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="adjustment">hstadjbottom</property>
++                    <property name="digits">2</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="hstcellrightlabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hsttablecellpage|hstcellrightlabel">_Right:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">hstcellright</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">2</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSpinButton" id="hstcellright">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="adjustment">hstadjright</property>
++                    <property name="digits">2</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">3</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++          </object>
++        </child>
++        <child type="label">
++          <object class="GtkLabel" id="hstcellmarginslabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hsttablecellpage|hstcellmarginslabel">Cell Margins</property>
++            <attributes>
++              <attribute name="weight" value="bold"/>
++            </attributes>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="left-attach">0</property>
++        <property name="top-attach">2</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- a/sw/uiconfig/swriter/ui/hsttablerowpage.ui
++++ b/sw/uiconfig/swriter/ui/hsttablerowpage.ui
+@@ -0,0 +1,268 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<interface domain="sw">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkAdjustment" id="hstadjheight">
++    <property name="upper">9999</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
++  <object class="GtkAdjustment" id="hstadjrepeat">
++    <property name="upper">100</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
++  <object class="GtkGrid" id="HstTableRowPage">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="border-width">6</property>
++    <property name="row-spacing">12</property>
++    <child>
++      <object class="GtkFrame" id="hstrowsizeframe">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="label-xalign">0</property>
++        <property name="shadow-type">none</property>
++        <child>
++          <object class="GtkGrid" id="hstrowsizegrid">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="margin-start">12</property>
++            <property name="margin-top">6</property>
++            <property name="row-spacing">6</property>
++            <property name="column-spacing">12</property>
++                <child>
++                  <object class="GtkCheckButton" id="hstrowheighton">
++                    <property name="label" translatable="yes" context="hsttablerowpage|hstrowheighton">_Specify height:</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                    <accessibility>
++                      <relation type="label-for" target="hstrowheight"/>
++                    </accessibility>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSpinButton" id="hstrowheight">
++                    <accessibility>
++                      <relation type="labelled-by" target="hstrowheighton"/>
++                    </accessibility>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="adjustment">hstadjheight</property>
++                    <property name="digits">2</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="hstrowrulelabel">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="hsttablerowpage|hstrowrulelabel">Row height _is:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">hstrowrule</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">2</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkComboBoxText" id="hstrowrule">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <items>
++                      <item translatable="yes" context="hsttablerowpage|hstrowrule">At least</item>
++                      <item translatable="yes" context="hsttablerowpage|hstrowrule">Exactly</item>
++                    </items>
++                  </object>
++                  <packing>
++                    <property name="left-attach">3</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++          </object>
++        </child>
++        <child type="label">
++          <object class="GtkLabel" id="hstrowsizelabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hsttablerowpage|hstrowsizelabel">Size</property>
++            <attributes>
++              <attribute name="weight" value="bold"/>
++            </attributes>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="left-attach">0</property>
++        <property name="top-attach">0</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkFrame" id="hstrowoptsframe">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="label-xalign">0</property>
++        <property name="shadow-type">none</property>
++        <child>
++          <object class="GtkGrid" id="hstrowoptsgrid">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="margin-start">12</property>
++            <property name="margin-top">6</property>
++            <property name="row-spacing">6</property>
++            <property name="column-spacing">12</property>
++                <child>
++                  <object class="GtkCheckButton" id="splitrow">
++                    <property name="label" translatable="yes" context="hsttablerowpage|splitrow">Allow row to _break across pages</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkCheckButton" id="headline">
++                    <property name="label" translatable="yes" context="hsttablerowpage|headline">Repeat as _header row at the top of each page</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkGrid" id="repeatheader">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="margin-start">18</property>
++                    <property name="column-spacing">6</property>
++                    <child>
++                      <object class="GtkLabel" id="hstrepeatfirst">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="label" translatable="yes" context="hsttablerowpage|hstrepeatfirst">_Number of first rows:</property>
++                        <property name="use-underline">True</property>
++                        <property name="mnemonic-widget">repeatheadernf</property>
++                      </object>
++                      <packing>
++                        <property name="left-attach">0</property>
++                        <property name="top-attach">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkSpinButton" id="repeatheadernf">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="activates-default">True</property>
++                        <property name="truncate-multiline">True</property>
++                        <property name="adjustment">hstadjrepeat</property>
++                      </object>
++                      <packing>
++                        <property name="left-attach">1</property>
++                        <property name="top-attach">0</property>
++                      </packing>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">3</property>
++                  </packing>
++                </child>
++          </object>
++        </child>
++        <child type="label">
++          <object class="GtkLabel" id="hstrowoptslabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hsttablerowpage|hstrowoptslabel">Options</property>
++            <attributes>
++              <attribute name="weight" value="bold"/>
++            </attributes>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="left-attach">0</property>
++        <property name="top-attach">1</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkBox" id="hstrownavbox">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="spacing">6</property>
++        <child>
++          <object class="GtkLabel" id="hstrowlabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="xalign">0</property>
++            <property name="label" translatable="yes" context="hsttablerowpage|hstrowlabel">Row %1:</property>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="hstprevrow">
++            <property name="label" translatable="yes" context="hsttablerowpage|hstprevrow">_Previous Row</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">True</property>
++            <property name="use-underline">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="hstnextrow">
++            <property name="label" translatable="yes" context="hsttablerowpage|hstnextrow">Ne_xt Row</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">True</property>
++            <property name="use-underline">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="left-attach">0</property>
++        <property name="top-attach">2</property>
++      </packing>
++    </child>
++    </object>
++</interface>
+--- a/sw/uiconfig/swriter/ui/tabletextflowpage.ui
++++ b/sw/uiconfig/swriter/ui/tabletextflowpage.ui
+@@ -8,12 +8,7 @@
+     <property name="step-increment">1</property>
+     <property name="page-increment">10</property>
+   </object>
+-  <object class="GtkAdjustment" id="adjustment2">
+-    <property name="upper">100</property>
+-    <property name="step-increment">1</property>
+-    <property name="page-increment">10</property>
+-  </object>
+-  <!-- n-columns=1 n-rows=2 -->
++  <!-- n-columns=1 n-rows=1 -->
+   <object class="GtkGrid" id="TableTextFlowPage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -281,27 +276,6 @@
+               </packing>
+             </child>
+             <child>
+-              <object class="GtkCheckButton" id="splitrow">
+-                <property name="label" translatable="yes" context="tabletextflowpage|splitrow">Allow row to break a_cross pages and columns</property>
+-                <property name="visible">True</property>
+-                <property name="can-focus">True</property>
+-                <property name="receives-default">False</property>
+-                <property name="margin-start">18</property>
+-                <property name="use-underline">True</property>
+-                <property name="inconsistent">True</property>
+-                <property name="draw-indicator">True</property>
+-                <child internal-child="accessible">
+-                  <object class="AtkObject" id="splitrow-atkobject">
+-                    <property name="AtkObject::accessible-description" translatable="yes" context="tabletextflowpage|extended_tip|splitrow">Allows a page break or column break inside a row of the table.</property>
+-                  </object>
+-                </child>
+-              </object>
+-              <packing>
+-                <property name="left-attach">0</property>
+-                <property name="top-attach">3</property>
+-              </packing>
+-            </child>
+-            <child>
+               <object class="GtkCheckButton" id="keep">
+                 <property name="label" translatable="yes" context="tabletextflowpage|keep">_Keep with next paragraph</property>
+                 <property name="visible">True</property>
+@@ -322,91 +296,6 @@
+             </child>
+             <child>
+               <!-- n-columns=2 n-rows=1 -->
+-              <object class="GtkGrid" id="grid1">
+-                <property name="visible">True</property>
+-                <property name="can-focus">False</property>
+-                <property name="column-spacing">24</property>
+-                <child>
+-                  <object class="GtkCheckButton" id="headline">
+-                    <property name="label" translatable="yes" context="tabletextflowpage|headline">R_epeat header</property>
+-                    <property name="visible">True</property>
+-                    <property name="can-focus">True</property>
+-                    <property name="receives-default">False</property>
+-                    <property name="use-underline">True</property>
+-                    <property name="draw-indicator">True</property>
+-                    <child internal-child="accessible">
+-                      <object class="AtkObject" id="headline-atkobject">
+-                        <property name="AtkObject::accessible-description" translatable="yes" context="tabletextflowpage|extended_tip|headline">Repeats the table header on a new page when the table spans more than one page.</property>
+-                      </object>
+-                    </child>
+-                  </object>
+-                  <packing>
+-                    <property name="left-attach">0</property>
+-                    <property name="top-attach">0</property>
+-                  </packing>
+-                </child>
+-                <child>
+-                  <!-- n-columns=3 n-rows=1 -->
+-                  <object class="GtkGrid" id="repeatheader">
+-                    <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
+-                    <property name="column-spacing">10</property>
+-                    <child>
+-                      <object class="GtkLabel" id="label38">
+-                        <property name="visible">True</property>
+-                        <property name="can-focus">False</property>
+-                        <property name="label" translatable="yes" context="tabletextflowpage|label38">The first </property>
+-                        <property name="use-underline">True</property>
+-                        <property name="mnemonic-widget">repeatheadernf</property>
+-                      </object>
+-                      <packing>
+-                        <property name="left-attach">0</property>
+-                        <property name="top-attach">0</property>
+-                      </packing>
+-                    </child>
+-                    <child>
+-                      <object class="GtkLabel" id="label39">
+-                        <property name="visible">True</property>
+-                        <property name="can-focus">False</property>
+-                        <property name="label" translatable="yes" context="tabletextflowpage|label39">rows</property>
+-                      </object>
+-                      <packing>
+-                        <property name="left-attach">2</property>
+-                        <property name="top-attach">0</property>
+-                      </packing>
+-                    </child>
+-                    <child>
+-                      <object class="GtkSpinButton" id="repeatheadernf">
+-                        <property name="visible">True</property>
+-                        <property name="can-focus">True</property>
+-                        <property name="activates-default">True</property>
+-                        <property name="truncate-multiline">True</property>
+-                        <property name="adjustment">adjustment2</property>
+-                        <child internal-child="accessible">
+-                          <object class="AtkObject" id="repeatheadernf-atkobject">
+-                            <property name="AtkObject::accessible-description" translatable="yes" context="tabletextflowpage|extended_tip|repeatheadernf">Enter the number of rows to include in the header.</property>
+-                          </object>
+-                        </child>
+-                      </object>
+-                      <packing>
+-                        <property name="left-attach">1</property>
+-                        <property name="top-attach">0</property>
+-                      </packing>
+-                    </child>
+-                  </object>
+-                  <packing>
+-                    <property name="left-attach">1</property>
+-                    <property name="top-attach">0</property>
+-                  </packing>
+-                </child>
+-              </object>
+-              <packing>
+-                <property name="left-attach">0</property>
+-                <property name="top-attach">5</property>
+-              </packing>
+-            </child>
+-            <child>
+-              <!-- n-columns=2 n-rows=1 -->
+               <object class="GtkGrid" id="grid23">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+@@ -469,71 +358,6 @@
+         <property name="top-attach">0</property>
+       </packing>
+     </child>
+-    <child>
+-      <object class="GtkFrame" id="frame9">
+-        <property name="visible">True</property>
+-        <property name="can-focus">False</property>
+-        <property name="label-xalign">0</property>
+-        <property name="shadow-type">none</property>
+-        <child>
+-          <!-- n-columns=2 n-rows=1 -->
+-          <object class="GtkGrid" id="grid24">
+-            <property name="visible">True</property>
+-            <property name="can-focus">False</property>
+-            <property name="margin-start">12</property>
+-            <property name="margin-top">6</property>
+-            <property name="column-spacing">12</property>
+-            <child>
+-              <object class="GtkLabel" id="label41">
+-                <property name="visible">True</property>
+-                <property name="can-focus">False</property>
+-                <property name="label" translatable="yes" context="tabletextflowpage|label41">_Vertical alignment</property>
+-                <property name="use-underline">True</property>
+-                <property name="mnemonic-widget">vertorient</property>
+-              </object>
+-              <packing>
+-                <property name="left-attach">0</property>
+-                <property name="top-attach">0</property>
+-              </packing>
+-            </child>
+-            <child>
+-              <object class="GtkComboBoxText" id="vertorient">
+-                <property name="visible">True</property>
+-                <property name="can-focus">False</property>
+-                <items>
+-                  <item id="0" translatable="yes" context="tabletextflowpage|liststore2">Top</item>
+-                  <item id="1" translatable="yes" context="tabletextflowpage|liststore2">Centered</item>
+-                  <item id="2" translatable="yes" context="tabletextflowpage|liststore2">Bottom</item>
+-                </items>
+-                <child internal-child="accessible">
+-                  <object class="AtkObject" id="vertorient-atkobject">
+-                    <property name="AtkObject::accessible-description" translatable="yes" context="tabletextflowpage|extended_tip|vertorient">Specify the vertical text alignment for the cells in the table.</property>
+-                  </object>
+-                </child>
+-              </object>
+-              <packing>
+-                <property name="left-attach">1</property>
+-                <property name="top-attach">0</property>
+-              </packing>
+-            </child>
+-          </object>
+-        </child>
+-        <child type="label">
+-          <object class="GtkLabel" id="label36">
+-            <property name="visible">True</property>
+-            <property name="can-focus">False</property>
+-            <property name="label" translatable="yes" context="tabletextflowpage|label36">Alignment</property>
+-            <attributes>
+-              <attribute name="weight" value="bold"/>
+-            </attributes>
+-          </object>
+-        </child>
+-      </object>
+-      <packing>
+-        <property name="left-attach">0</property>
+-        <property name="top-attach">1</property>
+-      </packing>
+-    </child>
+     <child internal-child="accessible">
+       <object class="AtkObject" id="TableTextFlowPage-atkobject">
+         <property name="AtkObject::accessible-description" translatable="yes" context="tabletextflowpage|extended_tip|TableTextFlowPage">Set the text flow options for the text before and after the table.</property>
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -30422,6 +30422,228 @@
+ msgid "Table Properties"
+ msgstr "Thuộc tính Bảng"
+ 
++#. row
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttabledlg|row"
++msgid "Row"
++msgstr "Hàng"
++
++#. cell
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttabledlg|cell"
++msgid "Cell"
++msgstr "Ô"
++
++#. alt
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttabledlg|alt"
++msgid "Alt Text"
++msgstr "Văn bản thay thế"
++
++#. shadin
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttabledlg|shading"
++msgid "Shading"
++msgstr "Tô bóng"
++
++#. advanc
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttabledlg|advanced"
++msgid "Advanced"
++msgstr "Nâng cao"
++
++#. hstrow
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|hstrowsizelabel"
++msgid "Size"
++msgstr "Kích cỡ"
++
++#. hstrow
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|hstrowheighton"
++msgid "_Specify height:"
++msgstr "Chỉ định _chiều cao:"
++
++#. hstrow
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|hstrowrulelabel"
++msgid "Row height _is:"
++msgstr "Chiều cao _hàng:"
++
++#. hstrow
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|hstrowrule"
++msgid "At least"
++msgstr "Tối thiểu"
++
++#. hstrow
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|hstrowrule"
++msgid "Exactly"
++msgstr "Chính xác"
++
++#. hstrow
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|hstrowoptslabel"
++msgid "Options"
++msgstr "Tùy chọn"
++
++#. splitr
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|splitrow"
++msgid "Allow row to _break across pages"
++msgstr "Cho phép _ngắt hàng trên các trang"
++
++#. headli
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|headline"
++msgid "Repeat as _header row at the top of each page"
++msgstr "_Lặp lại dưới dạng hàng tiêu đề ở đầu mỗi trang"
++
++#. hstrep
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|hstrepeatfirst"
++msgid "_Number of first rows:"
++msgstr "_Số hàng đầu:"
++
++#. hstcel
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|hstcellsizelabel"
++msgid "Size"
++msgstr "Kích cỡ"
++
++#. hstcel
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|hstcellwidthlabel"
++msgid "Preferred _width:"
++msgstr "Chiều rộng ư_a thích:"
++
++#. hstcel
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|hstcellvertlabel"
++msgid "Vertical Alignment"
++msgstr "Căn dọc"
++
++#. hstcel
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|hstcellvertlabel2"
++msgid "Vertical _alignment:"
++msgstr "Căn _nội dung ô:"
++
++#. vertor
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|vertorient"
++msgid "Top"
++msgstr "Trên cùng"
++
++#. vertor
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|vertorient"
++msgid "Center"
++msgstr "Giữa"
++
++#. vertor
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|vertorient"
++msgid "Bottom"
++msgstr "Dưới cùng"
++
++#. hstcel
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|hstcellmarginslabel"
++msgid "Cell Margins"
++msgstr "Lề ô"
++
++#. hstcel
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|hstcelltoplabel"
++msgid "_Top:"
++msgstr "_Trên cùng:"
++
++#. hstcel
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|hstcellbottomlabel"
++msgid "B_ottom:"
++msgstr "_Dưới cùng:"
++
++#. hstcel
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|hstcellleftlabel"
++msgid "_Left:"
++msgstr "T_rái:"
++
++#. hstcel
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablecellpage|hstcellrightlabel"
++msgid "_Right:"
++msgstr "_Phải:"
++
++#. hstalt
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablealtpage|hstaltlabel"
++msgid "Alt Text"
++msgstr "Văn bản thay thế"
++
++#. hstalt
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablealtpage|hstalttitlelabel"
++msgid "_Title:"
++msgstr "_Tiêu đề:"
++
++#. hstalt
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablealtpage|hstaltdesclabel"
++msgid "_Description:"
++msgstr "_Mô tả:"
++
++#. hstrow
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|hstrowlabel"
++msgid "Row %1:"
++msgstr "Hàng %1:"
++
++#. hstpre
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|hstprevrow"
++msgid "_Previous Row"
++msgstr "Hàng _Trước"
++
++#. hstnex
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttablerowpage|hstnextrow"
++msgid "Ne_xt Row"
++msgstr "Hàng Tiếp th_eo"
++
++#. hsttab
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "formattablepage|hsttablewraplabel"
++msgid "Text Wrapping"
++msgstr "Ngắt dòng văn bản"
++
++#. hsttab
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "formattablepage|hsttablewrapnone"
++msgid "N_one"
++msgstr "_Không có"
++
++#. hsttab
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "formattablepage|hsttablewraparound"
++msgid "Aroun_d"
++msgstr "_Xung quanh"
++
++#. hsttab
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "formattablepage|hsttablewrappos"
++msgid "P_osition..."
++msgstr "_Vị trí..."
++
++#. wrapun
++#: sw/uiconfig/swriter/ui/hsttable
++msgctxt "hsttabledlg|wrapundo"
++msgid "Changing the text wrapping of a table cannot be undone, and it clears the undo history of this document. Continue?"
++msgstr "Thao tác đổi kiểu ngắt dòng của bảng không hoàn tác được và sẽ xóa lịch sử Hoàn tác của tài liệu này. Tiếp tục?"
++
+ #. YVWhW
+ #: sw/uiconfig/swriter/ui/tabletextflowpage.ui:51
+ msgctxt "tabletextflowpage|break"
