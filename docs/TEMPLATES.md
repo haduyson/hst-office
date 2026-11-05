@@ -34,9 +34,10 @@ Trung. Còn lại trong danh sách mẫu, cùng 18 mẫu trên:
 
 - Writer: Mặc định, Hiện đại, Đơn giản (`styles/`).
 - Sheets: chỉ 6 mẫu HST; LibreOffice không có mẫu Sheets nào.
-- Slides: 23 nền trình chiếu `presnt/` tên tiếng Anh, chữ mẫu "Lorem Ipsum". Ảnh thu nhỏ và ảnh nhúng không có tên
-  LibreOffice; phần mô tả trong thuộc tính của Candy, Freshes, Grey Elegant, Growing Liberty, Yellow Idea ghi
-  "LibreOffice Impress Template" (giấy phép, tên tác giả). Chưa đổi: chờ chủ dự án quyết.
+- Slides: 23 nền trình chiếu `presnt/`, tên hiển thị đã dịch (Tổ ong, Kẹo…), chữ mẫu tiếng Latinh "Lorem Ipsum". Ảnh thu
+  nhỏ và ảnh nhúng không có tên LibreOffice; phần mô tả của Candy, Freshes, Grey Elegant, Growing Liberty, Yellow Idea ghi
+  "LibreOffice Impress Template" (kèm giấy phép, tên tác giả) và đi theo vào thuộc tính của tài liệu tạo từ mẫu. Chưa đổi:
+  chờ chủ dự án quyết.
 
 Kiểm tra: `tests/runtime/check-template-lists.py` (danh sách thật và ảnh chụp để nhìn).
 
