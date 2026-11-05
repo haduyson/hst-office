@@ -11,6 +11,10 @@
     <node oor:name="org.hst.office.vi.UpdateCheckJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.UpdateCheckJob</value></prop>
     </node>
+    <!-- after an abnormal exit: OnStartApp reads the recovery state, onFirstVisibleTask asks (hst_office/error_report_crash.py) -->
+    <node oor:name="org.hst.office.vi.CrashReportJob" oor:op="replace">
+      <prop oor:name="Service"><value>org.hst.office.vi.CrashReportJob</value></prop>
+    </node>
     <!-- after saving an Excel file: warn that VBA UserForms are not written (hst_office/vba_save_check.py) -->
     <node oor:name="org.hst.office.vi.VbaSaveCheckJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.VbaSaveCheckJob</value></prop>
@@ -22,6 +26,12 @@
         <node oor:name="org.hst.office.BannerStartup" oor:op="replace"/>
         <node oor:name="org.hst.office.vi.WelcomeJob" oor:op="replace"/>
         <node oor:name="org.hst.office.vi.UpdateCheckJob" oor:op="replace"/>
+        <node oor:name="org.hst.office.vi.CrashReportJob" oor:op="replace"/>
+      </node>
+    </node>
+    <node oor:name="OnStartApp" oor:op="fuse">
+      <node oor:name="JobList">
+        <node oor:name="org.hst.office.vi.CrashReportJob" oor:op="replace"/>
       </node>
     </node>
     <node oor:name="OnSaveDone" oor:op="fuse">

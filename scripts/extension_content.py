@@ -19,6 +19,7 @@ NETWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|
 BANNER_FETCH = "python/hst_office/banner_http.py"  # isolated, bounded HTTPS helper
 BANNER_DEADLINE = "python/hst_office/banner_fetch.py"  # fixed Python helper; no shell or network imports
 UPDATE_FETCH = "python/hst_office/update_fetch.py"
+ERROR_REPORT_HTTP = "python/hst_office/error_report_http.py"  # one POST of an error report, after the user's click
 UPDATE_DOWNLOAD = "python/hst_office/update_download.py"  # installer download after the user's click
 UPDATE_LAUNCH = "python/hst_office/update_launch.py"  # starts the external update helper
 USB_TOKEN_WORKER = "python/hst_office/usb_token_worker.py"
@@ -121,7 +122,7 @@ def check_content(zf, names, errors):
                 errors.append("%s: not an ASCII Windows .reg file" % name)
         if name.endswith(".py"):
             text = data.decode("utf-8")
-            if (USB_WORKER_IMPORT if name == USB_TOKEN_WORKER else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD, BANNER_FETCH) else UPDATE_LAUNCH_IMPORT
+            if (USB_WORKER_IMPORT if name == USB_TOKEN_WORKER else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD, BANNER_FETCH, ERROR_REPORT_HTTP) else UPDATE_LAUNCH_IMPORT
                     if name in (UPDATE_LAUNCH, USB_TOKEN_NSS, BANNER_DEADLINE) else NETWORK_IMPORT).search(text):
                 errors.append("network/process module imported in %s" % name)
             if text.count("\n") + 1 > MAX_LINES:

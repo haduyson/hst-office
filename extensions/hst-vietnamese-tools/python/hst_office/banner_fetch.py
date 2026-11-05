@@ -25,15 +25,17 @@ def interpreter():
     raise OSError("banner Python helper unavailable")
 
 
-def _run(payload, timeout):
-    """Bytes the private helper wrote before the wall-clock deadline; it is killed and reaped at expiry."""
+def _run(payload, timeout, helper="banner_http.py"):
+    """Bytes the private helper wrote before the wall-clock deadline; it is killed and reaped at expiry.
+
+    `helper` is a sibling module of this package: banner_http.py, or error_report_http.py for an error report."""
     deadline = time.monotonic() + timeout
     options = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.DEVNULL,
                "shell": False, "close_fds": True}
     if sys.platform == "win32":
         options["creationflags"] = subprocess.CREATE_NO_WINDOW
     # -I/-S excludes user site and environment imports. The installed helper adds only its own package.
-    with subprocess.Popen([interpreter(), "-I", "-S", str(Path(__file__).with_name("banner_http.py"))], **options) as proc:
+    with subprocess.Popen([interpreter(), "-I", "-S", str(Path(__file__).with_name(helper))], **options) as proc:
         try:
             data, _ = proc.communicate(payload, timeout=max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired as exc:

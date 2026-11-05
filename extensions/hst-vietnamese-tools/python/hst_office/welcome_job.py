@@ -78,6 +78,11 @@ def _post(ctx, callback):
     ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.AsyncCallback", ctx).addCallback(callback, None)
 
 
+def run_later(ctx, fn, turns=DEFER_TURNS):
+    """Run fn() on the main thread after `turns` further passes of the event loop (not inside a start-up job)."""
+    _post(ctx, _Later(ctx, fn, turns))
+
+
 def show_after_start_center(ctx, turns=DEFER_TURNS):
     """Show the welcome dialog once the event loop is back, not inside the job.
 
@@ -85,7 +90,7 @@ def show_after_start_center(ctx, turns=DEFER_TURNS):
     and painted; a modal dialog opened right there keeps the Start Center blank until it closes, so the
     office seems to load slowly after "Đóng". Posting the dialog to the main loop lets the Start Center
     finish first and appear behind the dialog."""
-    _post(ctx, _Later(ctx, lambda: show_welcome(ctx, "welcome"), turns))
+    run_later(ctx, lambda: show_welcome(ctx, "welcome"), turns)
 
 
 class WelcomeJob(unohelper.Base, XServiceInfo, XJob):

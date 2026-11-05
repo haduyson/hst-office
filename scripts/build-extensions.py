@@ -9,10 +9,12 @@ package (data/), the brand images of the welcome dialog and user guide into icon
 fixed timestamp and permissions, so two builds of the same tree are byte-identical.
 data/hst/release.json (release id, e.g. 1.0.0-beta.2; core must equal /VERSION) becomes data/release.json, read by
 the update check. --update-test-mode marks that copy so the update check accepts a local http://127.0.0.1 test
-server (HST_UPDATE_TEST_URL); never use it for release packages (scripts/check-extensions.py rejects them).
+server (HST_UPDATE_TEST_URL, and HST_ERROR_REPORT_TEST_URL for the error report); never use it for release packages
+(scripts/check-extensions.py rejects them). The copy also carries the numeric build (scripts/write-hst-version.py).
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -71,7 +73,10 @@ def release_json(test_mode=False):
     version = open(os.path.join(ROOT, "VERSION"), encoding="utf-8").read().strip()
     if release.split("+")[0].split("-")[0] != version:
         raise SystemExit("data/hst/release.json release %r does not match /VERSION %r" % (release, version))
-    stamp = {"release": release}
+    spec = importlib.util.spec_from_file_location("write_hst_version", os.path.join(ROOT, "scripts", "write-hst-version.py"))
+    versions = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(versions)
+    stamp = {"release": release, "build": versions.release_build(release)}  # error report: product.build
     if test_mode:
         stamp["update_test_mode"] = True
     return (json.dumps(stamp, sort_keys=True, indent=1) + "\n").encode("utf-8")

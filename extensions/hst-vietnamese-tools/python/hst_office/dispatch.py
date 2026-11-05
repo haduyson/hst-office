@@ -20,6 +20,7 @@ NEW_DOCUMENT = {"Nd30Wizard": ("com.sun.star.text.TextDocument", "private:factor
                 "ImportCsv": ("com.sun.star.sheet.SpreadsheetDocument", "private:factory/scalc")}
 SHOW_SOLUTIONS = "ShowSolutions"  # needs no document, so it also works in the Start Center
 USB_TOKEN = "SetupUsbToken"
+REPORT_ERROR = "ReportError"  # Trợ giúp ▸ Báo lỗi cho HASON TECH…; needs no document either
 
 
 def log_error(command):
@@ -51,7 +52,7 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
 
     def queryDispatch(self, url, target_frame_name, search_flags):
         return self if url.Protocol == PROTOCOL and (url.Path in COMMANDS or url.Path in ui_language.COMMANDS
-                                                    or url.Path in (SHOW_SOLUTIONS, USB_TOKEN)) else None
+                                                    or url.Path in (SHOW_SOLUTIONS, USB_TOKEN, REPORT_ERROR)) else None
 
     def queryDispatches(self, requests):
         return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in requests)
@@ -61,6 +62,13 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
             return usb_token.run(self.ctx, self.frame)
         if url.Path == SHOW_SOLUTIONS:
             return self._show_solutions()
+        if url.Path == REPORT_ERROR:
+            try:
+                from .error_report_dialog import run  # imported on use: start-up never loads the report code
+                run(self.ctx, self.frame)
+            except Exception:  # noqa: BLE001 - never raise into the office UI thread
+                log_error(url.Path)
+            return
         if url.Path in ui_language.COMMANDS:
             try:
                 ui_language.run(self.ctx, self.frame, url.Path)
