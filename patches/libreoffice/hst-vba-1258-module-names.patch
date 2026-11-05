@@ -1,0 +1,22 @@
+HST Office: Vietnamese module names in Windows-1258 projects can be called by name.
+
+The source text of a Windows-1258 project is composed on import, but the module name kept its
+combining marks, so `ModulTiếngViệt.TínhLương` in the code never found the module and the file's macros could
+not run. The module name is composed too; the stream name stays as stored.
+
+License: this upstream file remains under its original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/make_vietnamese_fixtures.py.
+---
+--- a/oox/source/ole/vbamodule.cxx
++++ b/oox/source/ole/vbamodule.cxx
+@@ -78,7 +78,9 @@
+                 maStreamName = aRecStrm.readCharArrayUC( nRecSize, meTextEnc );
+                 // Actually the stream name seems the best name to use
+                 // the VBA_ID_MODULENAME name can sometimes be the wrong case
+-                maName = maStreamName;
++                // HST: composed like the code that names it (ModulTiếngViệt.Sub in a Windows-1258 project);
++                // the stream keeps its stored name
++                maName = VbaHelper::composeSourceText( maStreamName, meTextEnc );
+             break;
+             case VBA_ID_MODULESTREAMNAMEUNICODE:
+             break;

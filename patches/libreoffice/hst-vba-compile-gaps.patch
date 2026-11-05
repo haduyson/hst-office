@@ -1,0 +1,59 @@
+HST Office: VBA syntax that stopped whole modules from compiling.
+
+One compile error stops every macro of a project, so these came first in the measurement on real files:
+- Function F() As Long(), Property Get P() As Double(): array return types.
+- Output, Binary, Random, Access, Read, Base, Compare, Explicit as names: VBA reserves them only inside
+  their statements.
+- Implements in worksheet, workbook and form modules, not only in class modules.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/regression_cases.py (compile cases).
+---
+--- a/basic/source/comp/dim.cxx
++++ b/basic/source/comp/dim.cxx
+@@ -1029,7 +1029,15 @@
+         }
+     }
+     TypeDecl( *pDef );
+-    if( eType != SbxVARIANT && pDef->GetType() != eType )
++    // HST: Function F() As Long(): VBA returns an array, which a Variant holds here
++    if( bVBASupportOn && pDef->IsDefinedAs() && Peek() == LPAREN )
++    {
++        Next();
++        TestToken( RPAREN );
++        pDef->SetTypeId( 0 );
++        pDef->SetType( SbxVARIANT );
++    }
++    else if( eType != SbxVARIANT && pDef->GetType() != eType )
+     {
+         Error( ERRCODE_BASIC_BAD_DECLARATION, aName );
+     }
+--- a/basic/source/comp/token.cxx
++++ b/basic/source/comp/token.cxx
+@@ -449,6 +449,14 @@
+         eCurTok = SYMBOL;
+         return eCurTok;
+     }
++    // HST: VBA does not reserve these outside their statements: Dim Output, ReDim Output(1), Base = 2
++    else if ( bVBASupportOn && !bInStatement && eCurTok != OPTION
++              && ( tp->t == OUTPUT || tp->t == BINARY || tp->t == RANDOM || tp->t == ACCESS || tp->t == READ
++                   || tp->t == BASE || tp->t == COMPARE || tp->t == BASIC_EXPLICIT ) )
++    {
++        eCurTok = SYMBOL;
++        return eCurTok;
++    }
+     // #i92642: Special LINE token handling -> SbiParser::Line()
+ 
+     // END IF, CASE, SUB, DEF, FUNCTION, TYPE, CLASS, WITH
+--- a/basic/source/comp/parser.cxx
++++ b/basic/source/comp/parser.cxx
+@@ -707,7 +707,8 @@
+ 
+ void SbiParser::Implements()
+ {
+-    if( !bClassModule )
++    // HST: in VBA, worksheet, workbook and form modules may implement an interface too
++    if( !bClassModule && !bVBASupportOn )
+     {
+         Error( ERRCODE_BASIC_UNEXPECTED, IMPLEMENTS );
+         return;

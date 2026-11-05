@@ -1,0 +1,372 @@
+HST Office: Word Range.Collapse, Duplicate, SetRange, MoveStart, MoveEnd, Paragraphs; First and Last.
+
+Range.Collapse is how Word macros walk a document after a Find, and did not exist. Range.Paragraphs was
+missing and Selection.Paragraphs only knew "the first paragraph". Paragraphs, Words and Sentences get
+First and Last, which upstream's testSentences expects.
+
+The new file is for HST Office under MPL-2.0, like the files around it.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/regression_cases.py, upstream testSentences.docm.
+---
+--- a/oovbaapi/UnoApi_oovbaapi.mk
++++ b/oovbaapi/UnoApi_oovbaapi.mk
+@@ -1109,6 +1109,7 @@
+ 	XStyles \
+ 	XSystem \
+ 	XTable \
++	XTextUnits \
+ 	XTableOfContents \
+ 	XTables \
+ 	XTablesOfContents \
+--- a/oovbaapi/ooo/vba/word/XRange.idl
++++ b/oovbaapi/ooo/vba/word/XRange.idl
+@@ -55,6 +55,13 @@
+     void InsertAfter( [in] string Text );
+     // HST: Range.Words / Range.Sentences and the Range.Bold / Range.Italic shortcuts
+     any Words( [in] any Index );
++    any Paragraphs( [in] any Index );
++    // HST: Range.Collapse, Duplicate, SetRange, MoveStart, MoveEnd
++    void Collapse( [in] any Direction );
++    [attribute, readonly] XRange Duplicate;
++    void SetRange( [in] long Start, [in] long End );
++    long MoveStart( [in] any Unit, [in] any Count );
++    long MoveEnd( [in] any Unit, [in] any Count );
+     any Sentences( [in] any Index );
+     [attribute] long Bold;
+     [attribute] long Italic;
+--- a/oovbaapi/ooo/vba/word/XParagraphs.idl
++++ b/oovbaapi/ooo/vba/word/XParagraphs.idl
+@@ -27,6 +27,9 @@
+ interface XParagraphs
+ {
+     interface ::ooo::vba::XCollection;
++    // HST
++    [attribute, readonly] any First;
++    [attribute, readonly] any Last;
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XTextUnits.idl
++++ b/oovbaapi/ooo/vba/word/XTextUnits.idl
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module word {
++
++interface XRange;
++
++/** HST: Words and Sentences of a document or range. */
++interface XTextUnits
++{
++    interface ::ooo::vba::XCollection;
++    [attribute, readonly] any First;
++    [attribute, readonly] any Last;
++};
++
++}; }; };
+--- a/sw/source/ui/vba/vbarange.cxx
++++ b/sw/source/ui/vba/vbarange.cxx
+@@ -17,6 +17,13 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "vbarange.hxx"
++#include "vbaparagraph.hxx"
++#include <com/sun/star/text/XParagraphCursor.hpp>
++#include <com/sun/star/text/XSentenceCursor.hpp>
++#include <com/sun/star/text/XTextRangeCompare.hpp>
++#include <com/sun/star/text/XWordCursor.hpp>
++#include <ooo/vba/word/WdCollapseDirection.hpp>
++#include <ooo/vba/word/WdUnits.hpp>
+ #include "vbatextunits.hxx"
+ #include <com/sun/star/awt/FontWeight.hpp>
+ #include <com/sun/star/awt/FontSlant.hpp>
+@@ -300,6 +307,103 @@
+     return rIndex.hasValue() ? xCol->Item( rIndex, uno::Any() ) : uno::Any( xCol );
+ }
+ 
++// HST: all the paragraphs the range touches
++uno::Any SAL_CALL
++SwVbaRange::Paragraphs( const uno::Any& rIndex )
++{
++    uno::Reference< XCollection > xCol( new SwVbaParagraphs( this, mxContext, mxTextDocument, getXTextRange() ) );
++    return rIndex.hasValue() ? xCol->Item( rIndex, uno::Any() ) : uno::Any( xCol );
++}
++
++void SAL_CALL
++SwVbaRange::Collapse( const uno::Any& rDirection )
++{
++    sal_Int32 nDirection = word::WdCollapseDirection::wdCollapseStart;
++    rDirection >>= nDirection;
++    if( nDirection == word::WdCollapseDirection::wdCollapseEnd )
++        mxTextCursor->collapseToEnd();
++    else
++        mxTextCursor->collapseToStart();
++}
++
++uno::Reference< word::XRange > SAL_CALL
++SwVbaRange::getDuplicate()
++{
++    return new SwVbaRange( mxParent, mxContext, mxTextDocument, mxTextCursor->getStart(), mxTextCursor->getEnd(), mxText );
++}
++
++void SAL_CALL
++SwVbaRange::SetRange( ::sal_Int32 nStart, ::sal_Int32 nEnd )
++{
++    setStart( nStart );
++    setEnd( nEnd );
++}
++
++sal_Int32 SwVbaRange::moveBound( bool bEnd, const uno::Any& rUnit, const uno::Any& rCount )
++{
++    sal_Int32 nUnit = word::WdUnits::wdCharacter, nCount = 1, nMoved = 0;
++    rUnit >>= nUnit;
++    rCount >>= nCount;
++    uno::Reference< text::XTextCursor > xCursor = mxText->createTextCursorByRange( bEnd ? mxTextCursor->getEnd() : mxTextCursor->getStart() );
++    uno::Reference< text::XWordCursor > xWord( xCursor, uno::UNO_QUERY_THROW );
++    uno::Reference< text::XSentenceCursor > xSentence( xCursor, uno::UNO_QUERY_THROW );
++    uno::Reference< text::XParagraphCursor > xParagraph( xCursor, uno::UNO_QUERY_THROW );
++    const bool bForward = nCount > 0;
++    for( sal_Int32 i = 0, n = bForward ? nCount : -nCount; i < n; ++i )
++    {
++        bool bDone = false;
++        switch( nUnit )
++        {
++            case word::WdUnits::wdWord:
++                bDone = bForward ? xWord->gotoNextWord( false ) : xWord->gotoPreviousWord( false );
++                break;
++            case word::WdUnits::wdSentence:
++                bDone = bForward ? xSentence->gotoNextSentence( false ) : xSentence->gotoPreviousSentence( false );
++                break;
++            case word::WdUnits::wdParagraph:
++                bDone = bForward ? xParagraph->gotoNextParagraph( false ) : xParagraph->gotoPreviousParagraph( false );
++                break;
++            case word::WdUnits::wdStory:
++                if( bForward )
++                    xCursor->gotoEnd( false );
++                else
++                    xCursor->gotoStart( false );
++                break;
++            default:
++                bDone = bForward ? xCursor->goRight( 1, false ) : xCursor->goLeft( 1, false );
++        }
++        if( !bDone )
++            break;
++        ++nMoved;
++    }
++    uno::Reference< text::XTextRange > xStart = bEnd ? mxTextCursor->getStart() : xCursor->getStart();
++    uno::Reference< text::XTextRange > xEnd = bEnd ? xCursor->getStart() : mxTextCursor->getEnd();
++    // the ends may not cross: the other end follows
++    uno::Reference< text::XTextRangeCompare > xCompare( mxText, uno::UNO_QUERY_THROW );
++    if( xCompare->compareRegionStarts( xStart, xEnd ) < 0 )
++    {
++        if( bEnd )
++            xStart = xEnd;
++        else
++            xEnd = xStart;
++    }
++    mxTextCursor->gotoRange( xStart, false );
++    mxTextCursor->gotoRange( xEnd, true );
++    return bForward ? nMoved : -nMoved;
++}
++
++::sal_Int32 SAL_CALL
++SwVbaRange::MoveStart( const uno::Any& rUnit, const uno::Any& rCount )
++{
++    return moveBound( false, rUnit, rCount );
++}
++
++::sal_Int32 SAL_CALL
++SwVbaRange::MoveEnd( const uno::Any& rUnit, const uno::Any& rCount )
++{
++    return moveBound( true, rUnit, rCount );
++}
++
+ // HST: Range.Bold / Range.Italic as in Word (True = -1, False = 0)
+ ::sal_Int32 SAL_CALL
+ SwVbaRange::getBold()
+--- a/sw/source/ui/vba/vbarange.hxx
++++ b/sw/source/ui/vba/vbarange.hxx
+@@ -46,6 +46,8 @@
+     void initialize( const css::uno::Reference< css::text::XTextRange >& rStart, const css::uno::Reference< css::text::XTextRange >& rEnd );
+     /// @throws css::uno::RuntimeException
+     void GetStyleInfo(OUString& aStyleName, OUString& aStyleType );
++    /// HST: moves one end of the range by units; returns how many it moved
++    sal_Int32 moveBound( bool bEnd, const css::uno::Any& rUnit, const css::uno::Any& rCount );
+ public:
+     /// @throws css::script::BasicErrorException
+     /// @throws css::uno::RuntimeException
+@@ -98,6 +100,12 @@
+     virtual void SAL_CALL InsertBefore( const OUString& rText ) override;
+     virtual void SAL_CALL InsertAfter( const OUString& rText ) override;
+     virtual css::uno::Any SAL_CALL Words( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL Paragraphs( const css::uno::Any& rIndex ) override;
++    virtual void SAL_CALL Collapse( const css::uno::Any& rDirection ) override;
++    virtual css::uno::Reference< ooo::vba::word::XRange > SAL_CALL getDuplicate() override;
++    virtual void SAL_CALL SetRange( ::sal_Int32 nStart, ::sal_Int32 nEnd ) override;
++    virtual ::sal_Int32 SAL_CALL MoveStart( const css::uno::Any& rUnit, const css::uno::Any& rCount ) override;
++    virtual ::sal_Int32 SAL_CALL MoveEnd( const css::uno::Any& rUnit, const css::uno::Any& rCount ) override;
+     virtual css::uno::Any SAL_CALL Sentences( const css::uno::Any& rIndex ) override;
+     virtual ::sal_Int32 SAL_CALL getBold() override;
+     virtual void SAL_CALL setBold( ::sal_Int32 nBold ) override;
+--- a/sw/source/ui/vba/vbaparagraph.cxx
++++ b/sw/source/ui/vba/vbaparagraph.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "vbaparagraph.hxx"
++#include <com/sun/star/text/XParagraphCursor.hpp>
+ #include "vbarange.hxx"
+ #include "vbaparagraphformat.hxx"
+ #include <com/sun/star/beans/XPropertySet.hpp>
+@@ -103,10 +104,13 @@
+ {
+ private:
+     uno::Reference< text::XTextDocument > mxTextDocument;
++    uno::Reference< container::XEnumerationAccess > mxScope; // HST: whole paragraphs of a range
+ 
+     /// @throws uno::RuntimeException
+     uno::Reference< container::XEnumeration > getEnumeration()
+     {
++        if( mxScope.is() )
++            return mxScope->createEnumeration();
+         uno::Reference< container::XEnumerationAccess > xParEnumAccess( mxTextDocument->getText(), uno::UNO_QUERY_THROW );
+         return xParEnumAccess->createEnumeration();
+     }
+@@ -116,6 +120,17 @@
+     explicit ParagraphCollectionHelper( uno::Reference< text::XTextDocument > xDocument ): mxTextDocument(std::move( xDocument ))
+     {
+     }
++    ParagraphCollectionHelper( uno::Reference< text::XTextDocument > xDocument, const uno::Reference< text::XTextRange >& xScope )
++        : mxTextDocument(std::move( xDocument ))
++    {
++        uno::Reference< text::XText > xText = xScope->getText();
++        uno::Reference< text::XParagraphCursor > xCursor( xText->createTextCursorByRange( xScope->getStart() ), uno::UNO_QUERY_THROW );
++        xCursor->gotoStartOfParagraph( false );
++        uno::Reference< text::XParagraphCursor > xEnd( xText->createTextCursorByRange( xScope->getEnd() ), uno::UNO_QUERY_THROW );
++        xEnd->gotoEndOfParagraph( false );
++        xCursor->gotoRange( xEnd->getEnd(), true );
++        mxScope.set( xCursor, uno::UNO_QUERY_THROW );
++    }
+     // XElementAccess
+     virtual uno::Type SAL_CALL getElementType(  ) override { return  cppu::UnoType<text::XTextRange>::get(); }
+     virtual sal_Bool SAL_CALL hasElements(  ) override { return true; }
+@@ -169,6 +184,17 @@
+ {
+ }
+ 
++SwVbaParagraphs::SwVbaParagraphs( const uno::Reference< XHelperInterface >& xParent,
++                                const uno::Reference< css::uno::XComponentContext > & xContext,
++                                const rtl::Reference< SwXTextDocument >& xDocument,
++                                const uno::Reference< text::XTextRange >& xScope )
++: SwVbaParagraphs_BASE( xParent, xContext, new ParagraphCollectionHelper( xDocument, xScope ) ), mxTextDocument( xDocument )
++{
++}
++
++uno::Any SAL_CALL SwVbaParagraphs::getFirst() { return Item( uno::Any( sal_Int32( 1 ) ), uno::Any() ); }
++uno::Any SAL_CALL SwVbaParagraphs::getLast() { return Item( uno::Any( getCount() ), uno::Any() ); }
++
+ // XEnumerationAccess
+ uno::Type
+ SwVbaParagraphs::getElementType()
+--- a/sw/source/ui/vba/vbaparagraph.hxx
++++ b/sw/source/ui/vba/vbaparagraph.hxx
+@@ -73,6 +73,13 @@
+     SwVbaParagraphs( const css::uno::Reference< ov::XHelperInterface >& xParent,
+                     const css::uno::Reference< css::uno::XComponentContext > & xContext,
+                     const rtl::Reference< SwXTextDocument >& xDocument );
++    /// HST: the paragraphs a range touches (Range.Paragraphs, Selection.Paragraphs)
++    SwVbaParagraphs( const css::uno::Reference< ov::XHelperInterface >& xParent,
++                    const css::uno::Reference< css::uno::XComponentContext > & xContext,
++                    const rtl::Reference< SwXTextDocument >& xDocument,
++                    const css::uno::Reference< css::text::XTextRange >& xScope );
++    virtual css::uno::Any SAL_CALL getFirst() override;
++    virtual css::uno::Any SAL_CALL getLast() override;
+ 
+     // XEnumerationAccess
+     virtual css::uno::Type SAL_CALL getElementType() override;
+--- a/sw/source/ui/vba/vbatextunits.cxx
++++ b/sw/source/ui/vba/vbatextunits.cxx
+@@ -135,6 +135,9 @@
+ {
+ }
+ 
++uno::Any SwVbaTextUnits::getFirst() { return Item(uno::Any(sal_Int32(1)), uno::Any()); }
++uno::Any SwVbaTextUnits::getLast() { return Item(uno::Any(getCount()), uno::Any()); }
++
+ uno::Type SwVbaTextUnits::getElementType() { return cppu::UnoType<word::XRange>::get(); }
+ 
+ uno::Reference<container::XEnumeration> SwVbaTextUnits::createEnumeration()
+--- a/sw/source/ui/vba/vbatextunits.hxx
++++ b/sw/source/ui/vba/vbatextunits.hxx
+@@ -10,12 +10,13 @@
+ 
+ #include <ooo/vba/XCollection.hpp>
+ #include <vbahelper/vbacollectionimpl.hxx>
++#include <ooo/vba/word/XTextUnits.hpp>
+ #include <rtl/ref.hxx>
+ #include <com/sun/star/text/XTextRange.hpp>
+ 
+ class SwXTextDocument;
+ 
+-typedef CollTestImplHelper<ooo::vba::XCollection> SwVbaTextUnits_BASE;
++typedef CollTestImplHelper<ooo::vba::word::XTextUnits> SwVbaTextUnits_BASE;
+ 
+ /// HST: ooo.vba.word.Words / ooo.vba.word.Sentences, e.g. ActiveDocument.Words.Count,
+ /// ActiveDocument.Sentences(1).Text. Each item is a Range; as in Word, a word includes the
+@@ -39,6 +40,10 @@
+                    const rtl::Reference<SwXTextDocument>& xTextDocument, Unit eUnit,
+                    const css::uno::Reference<css::text::XTextRange>& xScope);
+ 
++    // XTextUnits
++    css::uno::Any SAL_CALL getFirst() override;
++    css::uno::Any SAL_CALL getLast() override;
++
+     // XEnumerationAccess
+     css::uno::Type SAL_CALL getElementType() override;
+     css::uno::Reference<css::container::XEnumeration> SAL_CALL createEnumeration() override;
+--- a/sw/source/ui/vba/vbaselection.cxx
++++ b/sw/source/ui/vba/vbaselection.cxx
+@@ -1157,32 +1157,9 @@
+ uno::Any SAL_CALL
+ SwVbaSelection::Paragraphs( const uno::Any& aIndex )
+ {
+-    // Hacky implementation due to missing api ( and lack of knowledge )
+-    // we can only support a selection that is a single paragraph
+-    if ( !aIndex.hasValue() ) // currently we can't support multiple paragraphs in a selection
+-       throw uno::RuntimeException();
+-
+-    sal_Int32 nIndex = 0;
+-    aIndex >>= nIndex;
+-
+-    uno::Any aRet;
+-
+-    if ( nIndex != 1 )
+-       throw uno::RuntimeException();
+-
+-    uno::Reference< text::XTextRange > xTextRange = mxTextViewCursor->getStart();
+-    uno::Reference< text::XText > xText = xTextRange->getText();
+-    rtl::Reference< SwXTextCursor > xParaCursor = dynamic_cast<SwXTextCursor*>( xText->createTextCursor().get() );
+-    if (!xParaCursor)
+-        throw uno::RuntimeException();
+-    xParaCursor->gotoStartOfParagraph( false );
+-    xParaCursor->gotoStartOfParagraph( true );
+-
+-    uno::Reference< text::XTextRange > xParaRange( static_cast<text::XSentenceCursor*>(xParaCursor.get()) );
+-    uno::Reference< word::XParagraph > xParagraph = new SwVbaParagraph( mxParent, mxContext, mxModel, xParaRange );
+-
+-    aRet <<= xParagraph;
+-    return aRet;
++    // HST: every paragraph the selection touches, not only a first one
++    uno::Reference< XCollection > xCol( new SwVbaParagraphs( mxParent, mxContext, mxModel, mxTextViewCursor ) );
++    return aIndex.hasValue() ? xCol->Item( aIndex, uno::Any() ) : uno::Any( xCol );
+ }
+ 
+ OUString

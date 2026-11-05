@@ -1,0 +1,574 @@
+HST Office: more VBA syntax that stopped modules from compiling, from real files.
+
+- If x Then: y: the colon read as the end of the line, so End If was missing.
+- Optional w As Worksheet = Nothing.
+- Friend Sub, Friend Function, Friend Property.
+- Keywords as members of a Type (Type As String, Name As String).
+- A variable called Name: Name.Delete, Name = x.
+- AddressOf F compiles (value 0): it is only for Windows API calls, which do not run here.
+- Dim a(2) As Range gives Nothing elements: no object is made, and no error when the class is no class.
+- The status bar and caption of Application work while a file loads and macro functions in cells run; it crashed.
+
+- Public Event X(...) and RaiseEvent X(...) did not compile, so such a class module, and New on it, failed in every macro that uses it (3% of files). The event's handlers run in the objects whose WithEvents variable holds the object.
+- ThisWorkbook.Path & "\x" works on Linux and macOS: Open, Dir, Kill, Workbooks.Open, Documents.Open, SaveAs.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/language_cases.py.
+---
+--- a/basic/source/comp/dim.cxx
++++ b/basic/source/comp/dim.cxx
+@@ -46,7 +46,10 @@
+         Next();
+         bWithEvents = true;
+     }
+-    if( !TestSymbol() ) return nullptr;
++    // HST: a member of a Type may have a keyword's name, as Type As String
++    if( bInTypeMember && IsKwd( Peek() ) )
++        Next();
++    else if( !TestSymbol() ) return nullptr;
+     SbxDataType t = eScanType;
+     SbiSymDef* pDef = bConst ? new SbiConstDef( aSym ) : new SbiSymDef( aSym );
+     SbiExprListPtr pDim;
+@@ -254,6 +257,13 @@
+             DefProc( false, bPrivate );
+             return;
+         }
++        // HST: Public Event Changed(x As Double): only RaiseEvent uses the name
++        else if( eCurTok == SYMBOL && bVBASupportOn && GetSym().equalsIgnoreAsciiCase( "Event" ) )
++        {
++            while( !IsEoln( Next() ) )
++                ;
++            return;
++        }
+         else if( eCurTok == ENUM )
+         {
+             Next();
+@@ -633,7 +643,9 @@
+             break;
+ 
+             default:
++                bInTypeMember = bVBASupportOn;
+                 pElem.reset(VarDecl(&pDim, false, false));
++                bInTypeMember = false;
+                 if( !pElem )
+                     bDone = true;   // Error occurred
+         }
+@@ -991,7 +1003,15 @@
+                 if( eTok != COMMA && eTok != RPAREN )
+                 {
+                     bool bError2 = true;
+-                    if( bOptional && bCompatible && eTok == EQ )
++                    // HST: Optional w As Worksheet = Nothing
++                    if( bOptional && bVBASupportOn && eTok == EQ && Peek() == SYMBOL && GetSym().equalsIgnoreAsciiCase( "Nothing" ) )
++                    {
++                        Next();
++                        eTok = Next();
++                        if( eTok == COMMA || eTok == RPAREN )
++                            bError2 = false;
++                    }
++                    else if( bOptional && bCompatible && eTok == EQ )
+                     {
+                         {
+                             SbiConstExpression aDefaultExpr(this);
+--- a/basic/source/comp/loops.cxx
++++ b/basic/source/comp/loops.cxx
+@@ -41,7 +41,11 @@
+     SbiExpression aCond( this );
+     aCond.Gen();
+     TestToken( THEN );
+-    if( IsEoln( Next() ) )
++    // HST: If x Then: y is a single-line If in VBA; here the colon read as the end of the line
++    SbiToken eAfterThen = Next();
++    if( eAfterThen == EOS && bVBASupportOn && !IsEoln( Peek() ) )
++        eAfterThen = Next();
++    if( IsEoln( eAfterThen ) )
+     {
+         // At the end of each block a jump to ENDIF must be inserted,
+         // so that the condition is not evaluated again at ELSEIF.
+--- a/basic/source/comp/token.cxx
++++ b/basic/source/comp/token.cxx
+@@ -432,6 +432,16 @@
+         eCurTok = SYMBOL;
+         return eCurTok;
+     }
++    // HST: Name.Delete, Name = x with a variable called Name: statements these words start have no . or =
++    if( bStartOfLine && (tp->t == NAME || tp->t == LINE) && bVBASupportOn )
++    {
++        const sal_Unicode cNext = NextCharOnLine();
++        if( cNext == '.' || cNext == '=' || cNext == '(' )
++        {
++            eCurTok = SYMBOL;
++            return eCurTok;
++        }
++    }
+     else if( tp->t == TEXT )
+     {
+         eCurTok = SYMBOL;
+--- a/basic/source/comp/parser.cxx
++++ b/basic/source/comp/parser.cxx
+@@ -384,6 +384,24 @@
+             ePush = eCurTok;
+         }
+     }
++    // HST: Event Changed(x As Double) in a class module, RaiseEvent Changed(v) in its procedures
++    if( eCurTok == SYMBOL && bVBASupportOn && !pProc && GetSym().equalsIgnoreAsciiCase( "Event" ) )
++    {
++        while( !IsEoln( Next() ) )
++            ;
++        return true;
++    }
++    if( eCurTok == SYMBOL && bVBASupportOn && pProc && GetSym().equalsIgnoreAsciiCase( "RaiseEvent" ) )
++    {
++        RaiseEvent();
++        return true;
++    }
++    // HST: Friend Sub, Friend Function, Friend Property in class and form modules
++    if( eCurTok == SYMBOL && bVBASupportOn && !pProc && GetSym().equalsIgnoreAsciiCase( "Friend" ) )
++    {
++        Next();
++        return Parse();
++    }
+     // HST: Debug.Print a; b and Debug.Assert x: no Debug object exists, and the list is not an expression
+     if( eCurTok == SYMBOL && bVBASupportOn && pProc )
+     {
+--- a/basic/source/comp/io.cxx
++++ b/basic/source/comp/io.cxx
+@@ -93,6 +93,28 @@
+     }
+ }
+ 
++// HST: RaiseEvent Name(a, b) calls the runtime function with the arguments and then the name
++
++void SbiParser::RaiseEvent()
++{
++    Next(); // RaiseEvent
++    aGen.Statement();
++    if( !TestSymbol() )
++        return;
++    const OUString aEvent = aSym;
++    SbiExprListPtr pPar;
++    if( Peek() == LPAREN )
++        pPar = SbiExprList::ParseParameters( this );
++    if( pPar && pPar->GetSize() > 0 )
++        pPar->Gen( aGen );
++    else
++        aGen.Gen( SbiOpcode::ARGC_ );
++    aGen.Gen( SbiOpcode::SCONST_, aGblStrings.Add( aEvent ) );
++    aGen.Gen( SbiOpcode::ARGV_ );
++    aGen.Gen( SbiOpcode::RTL_, aGblStrings.Add( u"HstRaiseEvent"_ustr ), SbxVARIANT );
++    aGen.Gen( SbiOpcode::GET_ );
++}
++
+ // WRITE #chan, expr, ...
+ 
+ void SbiParser::Write()
+--- a/basic/source/comp/exprtree.cxx
++++ b/basic/source/comp/exprtree.cxx
+@@ -199,6 +199,18 @@
+     SbxDataType eType = (pKeywordSymbolInfo == nullptr) ? pParser->GetType() : pKeywordSymbolInfo->m_eSbxDataType;
+     SbiExprListPtr pPar;
+     std::unique_ptr<SbiExprListVector> pvMoreParLcl;
++    // HST: AddressOf F is only for Windows API calls, which do not run here: the value compiles
++    if( pKeywordSymbolInfo == nullptr && pParser->IsVBASupportOn() && aSym.equalsIgnoreAsciiCase( "AddressOf" ) && pParser->Peek() == SYMBOL )
++    {
++        pParser->Next();
++        while( pParser->Peek() == DOT )
++        {
++            pParser->Next();
++            pParser->Next();
++        }
++        pParser->UnlockColumn();
++        return std::make_unique<SbiExprNode>( 0.0, SbxLONG );
++    }
+     // HST: VBA.Len(x), VBA.Strings.Len(x), Interaction.MsgBox: the VBA library names its runtime functions
+     while( pKeywordSymbolInfo == nullptr && pParser->IsVBASupportOn() && pParser->Peek() == DOT
+            && lcl_isVbaLibraryName( aSym ) && !pParser->pPool->Find( aSym )
+--- a/basic/source/runtime/runtime.cxx
++++ b/basic/source/runtime/runtime.cxx
+@@ -1953,6 +1953,15 @@
+                 refVal->SetDeclareClassName( aDeclareClassName );
+                 refVal->SetComListener( xComListener, &rBasic );        // Hold reference
+             }
++            // HST: WithEvents on an object of a class module, for RaiseEvent
++            else if( SbxObject* pSource = dynamic_cast<SbClassModuleObject*>( pObj ) )
++            {
++                auto& rLinks = GetSbData()->aClassEventLinks;
++                SbxObjectRef xOwner = refVar->GetParent();
++                const OUString aVarName = refVar->GetName();
++                std::erase_if( rLinks, [&]( const auto& r ) { return std::get<1>( r ).get() == xOwner.get() && std::get<2>( r ) == aVarName; } );
++                rLinks.emplace_back( pSource, xOwner, aVarName );
++            }
+ 
+         }
+ 
+@@ -4592,7 +4601,9 @@
+             SbxObjectRef pClassObj = SbxBase::CreateObject(aClass);
+             if (!pClassObj)
+             {
+-                Error(ERRCODE_BASIC_INVALID_OBJECT);
++                // HST: Dim a(2) As Range: elements are Nothing until set, in VBA no object is made
++                if (!bVBAEnabled)
++                    Error(ERRCODE_BASIC_INVALID_OBJECT);
+                 break;
+             }
+             else
+--- a/basic/source/runtime/stdobj.cxx
++++ b/basic/source/runtime/stdobj.cxx
+@@ -479,6 +479,8 @@
+ { u"Hex",                           SbxSTRING,   1 | FUNCTION_,        SbRtl_Hex                  },
+     arg(u"number", SbxLONG),
+ 
++{ u"HstRaiseEvent",                 SbxEMPTY,        FUNCTION_ | COMPATONLY_, SbRtl_HstRaiseEvent },
++
+ { u"Hour",                          SbxINTEGER,  1 | FUNCTION_,        SbRtl_Hour                 },
+     arg(u"Date", SbxDATE),
+ 
+--- a/basic/source/runtime/methods.cxx
++++ b/basic/source/runtime/methods.cxx
+@@ -167,7 +167,12 @@
+ 
+     if( aFileURL.isEmpty() )
+     {
++#ifdef _WIN32
+         File::getFileURLFromSystemPath( aRelPath, aFileURL );
++#else
++        // HST: macros write ThisWorkbook.Path & "\data.txt": a separator on Linux and macOS too
++        File::getFileURLFromSystemPath( SbiRuntime::isVBAEnabled() ? aRelPath.replace( '\\', '/' ) : aRelPath, aFileURL );
++#endif
+     }
+ 
+     return aFileURL;
+--- a/basic/source/inc/parser.hxx
++++ b/basic/source/inc/parser.hxx
+@@ -70,6 +70,7 @@
+     short         nBase;            // OPTION BASE-value
+     bool          bExplicit;        // true: OPTION EXPLICIT
+     bool          bCompareText = false; // HST: OPTION COMPARE TEXT
++    bool          bInTypeMember = false; // HST: reading a member of a Type
+     bool          bClassModule;     // true: OPTION ClassModule
+     std::vector<OUString> aIfaceVector;     // Holds all interfaces implemented by a class module
+     std::vector<OUString> aRequiredTypes;   // Types used in Dim As New <type> outside subs
+@@ -122,6 +123,7 @@
+     void Option();                  // OPTION
+     void Print();                   // PRINT, PRINT #
+     void DebugStatement();          // HST: Debug.Print, Debug.Assert
++    void RaiseEvent();              // HST: RaiseEvent name(args)
+     void SubFunc();                 // SUB / FUNCTION
+     void Resume();                  // RESUME
+     void Return();                  // RETURN
+--- a/basic/source/inc/scanner.hxx
++++ b/basic/source/inc/scanner.hxx
+@@ -77,6 +77,14 @@
+     bool  IsCompatible() const      { return bCompatible; }
+     void  SetCompatible( bool b )   { bCompatible = b; }        // #118206
+     bool  IsVBASupportOn() const    { return bVBASupportOn; }
++    /// HST: the next character on the line after any blanks, 0 at its end
++    sal_Unicode NextCharOnLine() const
++    {
++        sal_Int32 n = nCol;
++        while( n < aLine.getLength() && aLine[n] == ' ' )
++            ++n;
++        return n < aLine.getLength() ? aLine[n] : 0;
++    }
+     bool  WhiteSpace() const        { return bSpaces; }
+     sal_Int32 GetErrors() const     { return nErrors; }
+     sal_Int32 GetLine() const       { return nLine;   }
+--- a/basic/source/inc/sbintern.hxx
++++ b/basic/source/inc/sbintern.hxx
+@@ -98,6 +98,9 @@
+     virtual SbxObjectRef CreateObject( const OUString& ) override;
+ };
+ 
++#include <tuple>
++#include <vector>
++
+ struct SbiGlobals
+ {
+     static SbiGlobals* pGlobals;
+@@ -131,6 +134,8 @@
+     bool            bBlockCompilerError;
+     bool            bQuietCompile = false; // HST: compile errors end the module's compile without a message
+     SbModule*       pStartedModule = nullptr; // HST: the module a macro starts in
++    /// HST: WithEvents links between class objects: source, owner of the variable, variable name
++    std::vector<std::tuple<SbxObjectRef, SbxObjectRef, OUString>> aClassEventLinks;
+     StarBASIC*      pMSOMacroRuntimLib; // Lib containing MSO Macro Runtime API entry symbols
+ 
+     SbiGlobals();
+--- a/basic/source/inc/rtlproto.hxx
++++ b/basic/source/inc/rtlproto.hxx
+@@ -90,6 +90,7 @@
+ extern void SbRtl_SLN(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_Space(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_Split(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
++extern void SbRtl_HstRaiseEvent(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_SaveSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_GetSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_DeleteSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+--- a/basic/source/classes/sbxvbasettings.cxx
++++ b/basic/source/classes/sbxvbasettings.cxx
+@@ -7,7 +7,7 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+  */
+ 
+-// HST: VBA's SaveSetting family and Filter. Windows keeps settings in the registry; here they are a
++// HST: VBA's SaveSetting family, Filter and RaiseEvent. Windows keeps settings in the registry; here they are a
+ // file in the user's profile, which is what a macro notices: they survive a restart.
+ 
+ #include <config_folders.h>
+@@ -15,6 +15,8 @@
+ #include <basic/sberrors.hxx>
+ #include <rtlproto.hxx>
+ #include <runtime.hxx>
++#include <sbintern.hxx>
++#include <basic/sbmeth.hxx>
+ #include <sbunoobj.hxx>
+ #include <comphelper/string.hxx>
+ #include <osl/file.hxx>
+@@ -75,6 +77,35 @@
+         aConfig.DeleteGroup(groupOf(rPar));
+ }
+ 
++// RaiseEvent: the handlers are <variable>_<event> in the objects whose WithEvents variable holds this one
++void SbRtl_HstRaiseEvent(StarBASIC*, SbxArray& rPar, bool)
++{
++    const sal_uInt32 nCount = rPar.Count();
++    SbiInstance* pInst = GetSbData()->pInst;
++    SbiRuntime* pRun = pInst ? pInst->pRun : nullptr;
++    if (nCount < 2 || !pRun)
++        return;
++    SbxObject* pSource = dynamic_cast<SbxObject*>(pRun->GetModule());
++    const OUString aEvent = rPar.Get(nCount - 1)->GetOUString();
++    const auto aLinks = GetSbData()->aClassEventLinks; // a handler may change them
++    for (const auto& [xSource, xOwner, aVariable] : aLinks)
++    {
++        if (xSource.get() != pSource || !xOwner.is())
++            continue;
++        SbMethod* pHandler = dynamic_cast<SbMethod*>(xOwner->Find(aVariable + "_" + aEvent, SbxClassType::Method));
++        if (!pHandler)
++            continue;
++        SbxArrayRef xArgs = new SbxArray;
++        xArgs->Put(pHandler, 0);
++        for (sal_uInt32 i = 1; i + 1 < nCount; ++i)
++            xArgs->Put(rPar.Get(i), i);
++        pHandler->SetParameters(xArgs.get());
++        SbxVariableRef xReturn = new SbxVariable;
++        pHandler->Call(xReturn.get());
++        pHandler->SetParameters(nullptr);
++    }
++}
++
+ void SbRtl_Filter(StarBASIC*, SbxArray& rPar, bool)
+ {
+     const sal_uInt32 nCount = rPar.Count();
+--- a/include/vbahelper/vbapath.hxx
++++ b/include/vbahelper/vbapath.hxx
+@@ -0,0 +1,27 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++
++namespace ooo::vba
++{
++/** HST: macros build paths as ThisWorkbook.Path & "\data.xlsx". On Linux and macOS that backslash is a separator too. */
++inline OUString vbaSystemPath(const OUString& rPath)
++{
++#ifdef _WIN32
++    return rPath;
++#else
++    return rPath.replace('\\', '/');
++#endif
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vbahelper/source/vbahelper/vbadocumentsbase.cxx
++++ b/vbahelper/source/vbahelper/vbadocumentsbase.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <vbahelper/vbapath.hxx>
+ #include <utility>
+ #include <vbahelper/vbadocumentsbase.hxx>
+ 
+@@ -296,7 +297,7 @@
+     if ( bIsURL )
+         aURL = rFileName;
+     else
+-        osl::FileBase::getFileURLFromSystemPath( rFileName, aURL );
++        osl::FileBase::getFileURLFromSystemPath( ooo::vba::vbaSystemPath( rFileName ), aURL );
+     uno::Reference< frame::XDesktop2 > xDesktop = frame::Desktop::create( mxContext );
+ 
+     uno::Sequence< beans::PropertyValue > sProps( rProps );
+--- a/vbahelper/source/vbahelper/vbaapplicationbase.cxx
++++ b/vbahelper/source/vbahelper/vbaapplicationbase.cxx
+@@ -190,6 +190,9 @@
+ VbaApplicationBase::getDisplayStatusBar()
+ {
+     uno::Reference< frame::XModel > xModel( getCurrentDocument(), uno::UNO_SET_THROW );
++    // HST: a macro function in a cell may run while the file loads, before the document has a view
++    if( !xModel->getCurrentController().is() )
++        return true;
+     uno::Reference< frame::XFrame > xFrame( xModel->getCurrentController()->getFrame(), uno::UNO_SET_THROW );
+     uno::Reference< beans::XPropertySet > xProps( xFrame, uno::UNO_QUERY_THROW );
+ 
+@@ -204,6 +207,8 @@
+ VbaApplicationBase::setDisplayStatusBar(sal_Bool bDisplayStatusBar)
+ {
+     uno::Reference< frame::XModel > xModel( getCurrentDocument(), uno::UNO_SET_THROW );
++    if( !xModel->getCurrentController().is() )
++        return;
+     uno::Reference< frame::XFrame > xFrame( xModel->getCurrentController()->getFrame(), uno::UNO_SET_THROW );
+     uno::Reference< beans::XPropertySet > xProps( xFrame, uno::UNO_QUERY_THROW );
+ 
+@@ -272,6 +277,8 @@
+     // No idea if this code, which uses APIs that apparently are related to StarBasic (check
+     // getCurrentDoc() in vbahelper.cxx), actually works any better.
+     uno::Reference< frame::XModel > xModel( getCurrentDocument(), uno::UNO_SET_THROW );
++    if( !xModel->getCurrentController().is() )
++        return OUString();
+     uno::Reference< frame::XFrame > xFrame( xModel->getCurrentController()->getFrame(), uno::UNO_SET_THROW );
+     return xFrame->getName();
+ }
+@@ -288,6 +295,8 @@
+     }
+ 
+     uno::Reference< frame::XModel > xModel( getCurrentDocument(), uno::UNO_SET_THROW );
++    if( !xModel->getCurrentController().is() )
++        return;
+     uno::Reference< frame::XFrame > xFrame( xModel->getCurrentController()->getFrame(), uno::UNO_SET_THROW );
+     xFrame->setName( sCaption );
+ }
+--- a/sc/source/ui/vba/vbaworkbooks.cxx
++++ b/sc/source/ui/vba/vbaworkbooks.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <vbahelper/vbapath.hxx>
+ #include <com/sun/star/sheet/XSpreadsheetDocument.hpp>
+ #include <com/sun/star/container/XEnumerationAccess.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
+@@ -202,7 +203,7 @@
+     if ( bIsURL )
+         aURL = rFileName;
+     else
+-        osl::FileBase::getFileURLFromSystemPath( rFileName, aURL );
++        osl::FileBase::getFileURLFromSystemPath( ooo::vba::vbaSystemPath( rFileName ), aURL );
+ 
+     uno::Sequence< beans::PropertyValue > sProps;
+ 
+--- a/sc/source/ui/vba/vbaworkbook.cxx
++++ b/sc/source/ui/vba/vbaworkbook.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <vbahelper/vbapath.hxx>
+ #include <sal/config.h>
+ 
+ #include <comphelper/propertyvalue.hxx>
+@@ -310,7 +311,7 @@
+ ScVbaWorkbook::SaveCopyAs( const OUString& sFileName )
+ {
+     OUString aURL;
+-    osl::FileBase::getFileURLFromSystemPath( sFileName, aURL );
++    osl::FileBase::getFileURLFromSystemPath( ooo::vba::vbaSystemPath( sFileName ), aURL );
+     uno::Reference< frame::XStorable > xStor( getModel(), uno::UNO_QUERY_THROW );
+     uno::Sequence<  beans::PropertyValue > storeProps{ comphelper::makePropertyValue(
+         u"FilterName"_ustr, SC_XL97_FILTER_NAME) };
+@@ -323,7 +324,7 @@
+     OUString sFileName;
+     FileName >>= sFileName;
+     OUString sURL;
+-    osl::FileBase::getFileURLFromSystemPath( sFileName, sURL );
++    osl::FileBase::getFileURLFromSystemPath( ooo::vba::vbaSystemPath( sFileName ), sURL );
+     // detect if there is no path then we need
+     // to use the current folder
+     INetURLObject aURL( sURL );
+@@ -340,7 +341,7 @@
+             uno::Reference< excel::XApplication > xApplication ( Application(),uno::UNO_QUERY_THROW );
+             OUString sWorkPath = xApplication->getDefaultFilePath();
+             OUString sWorkURL;
+-            osl::FileBase::getFileURLFromSystemPath( sWorkPath, sWorkURL );
++            osl::FileBase::getFileURLFromSystemPath( ooo::vba::vbaSystemPath( sWorkPath ), sWorkURL );
+             aURL.SetURL( sWorkURL );
+         }
+         else
+--- a/sc/source/ui/vba/vbaapplication.cxx
++++ b/sc/source/ui/vba/vbaapplication.cxx
+@@ -510,6 +510,9 @@
+     OUString sText;
+     bool bDefault = false;
+     uno::Reference< frame::XModel > xModel( getCurrentDocument(), uno::UNO_SET_THROW );
++    // HST: a macro function in a cell may run while the file loads, before the document has a view
++    if( !xModel->getCurrentController().is() )
++        return;
+     uno::Reference< task::XStatusIndicatorSupplier > xStatusIndicatorSupplier( xModel->getCurrentController(), uno::UNO_QUERY_THROW );
+     uno::Reference< task::XStatusIndicator > xStatusIndicator( xStatusIndicatorSupplier->getStatusIndicator(), uno::UNO_SET_THROW );
+     if( _statusbar >>= sText )
+--- a/sw/source/ui/vba/vbadocuments.cxx
++++ b/sw/source/ui/vba/vbadocuments.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <vbahelper/vbapath.hxx>
+ #include <com/sun/star/text/XTextDocument.hpp>
+ #include <com/sun/star/container/XEnumerationAccess.hpp>
+ 
+@@ -122,7 +123,7 @@
+     if ( bIsURL )
+         aURL = Filename;
+     else
+-        osl::FileBase::getFileURLFromSystemPath( Filename, aURL );
++        osl::FileBase::getFileURLFromSystemPath( ooo::vba::vbaSystemPath( Filename ), aURL );
+ 
+     uno::Reference <text::XTextDocument> xSpreadDoc( openDocument( Filename, ReadOnly, {}), uno::UNO_QUERY_THROW );
+     uno::Any aRet = getDocument( mxContext, dynamic_cast<SwXTextDocument*>(xSpreadDoc.get()), Application() );
+--- a/sw/source/ui/vba/vbadocument.cxx
++++ b/sw/source/ui/vba/vbadocument.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <vbahelper/vbapath.hxx>
+ #include <sal/config.h>
+ #include <sal/log.hxx>
+ 
+@@ -452,7 +453,7 @@
+     if ( bIsURL )
+         aURL = sTemplate;
+     else
+-        osl::FileBase::getFileURLFromSystemPath( sTemplate, aURL );
++        osl::FileBase::getFileURLFromSystemPath( ooo::vba::vbaSystemPath( sTemplate ), aURL );
+ 
+     uno::Reference<css::document::XDocumentPropertiesSupplier> const xDocPropSupp(
+             getModel(), uno::UNO_QUERY_THROW );
+@@ -595,7 +596,7 @@
+     OUString sFileName;
+     FileName >>= sFileName;
+     OUString sURL;
+-    osl::FileBase::getFileURLFromSystemPath( sFileName, sURL );
++    osl::FileBase::getFileURLFromSystemPath( ooo::vba::vbaSystemPath( sFileName ), sURL );
+ 
+     // Detect if there is no path then we need to use the current folder.
+     INetURLObject aURL( sURL );
+@@ -660,7 +661,7 @@
+     OUString sFileName;
+     FileName >>= sFileName;
+     OUString sURL;
+-    osl::FileBase::getFileURLFromSystemPath( sFileName, sURL );
++    osl::FileBase::getFileURLFromSystemPath( ooo::vba::vbaSystemPath( sFileName ), sURL );
+ 
+     uno::Sequence storeProps{ comphelper::makePropertyValue(u"FilterName"_ustr,
+                                                             u"writer_png_Export"_ustr) };

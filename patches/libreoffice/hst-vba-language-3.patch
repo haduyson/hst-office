@@ -1,0 +1,183 @@
+HST Office: more of VBA from real files: errors by number, .xlam, Debug.Print lists, Dictionary typed variables.
+
+- d(key) = value on Dim d As Dictionary failed with "object not set": the assignment went to the variable. 3.5% of files use As New Dictionary.
+- Worksheets("none"): "Subscript out of range", error 9, not error 1, so code that tests Err.Number works.
+- Debug.Print a; b runs through a function, as an expression statement failed at run time with a list.
+- A Type member called Name or Parent replaces the property every object has.
+- Public Event is read in any module position.
+- .xlam add-ins open.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/language_cases.py, regression_cases.py.
+---
+--- a/basic/source/comp/dim.cxx
++++ b/basic/source/comp/dim.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <basic/sberrors.hxx>
++#include <set>
+ #include <basic/sbstar.hxx>
+ #include <basic/sbx.hxx>
+ #include <sbunoobj.hxx>
+@@ -232,6 +233,14 @@
+         bConst = true;
+     }
+ 
++    // HST: Public Event Changed(x As Double): only RaiseEvent uses the name
++    if( !bConst && eCurTok == SYMBOL && bVBASupportOn && GetSym().equalsIgnoreAsciiCase( "Event" ) )
++    {
++        while( !IsEoln( Next() ) )
++            ;
++        return;
++    }
++
+     // #110004 It can also be a sub/function
+     if( !bConst && (eCurTok == SUB || eCurTok == FUNCTION || eCurTok == PROPERTY ||
+                     eCurTok == STATIC || eCurTok == ENUM || eCurTok == DECLARE || eCurTok == TYPE) )
+@@ -257,13 +266,6 @@
+             DefProc( false, bPrivate );
+             return;
+         }
+-        // HST: Public Event Changed(x As Double): only RaiseEvent uses the name
+-        else if( eCurTok == SYMBOL && bVBASupportOn && GetSym().equalsIgnoreAsciiCase( "Event" ) )
+-        {
+-            while( !IsEoln( Next() ) )
+-                ;
+-            return;
+-        }
+         else if( eCurTok == ENUM )
+         {
+             Next();
+@@ -623,6 +625,7 @@
+     }
+ 
+     SbxObject *pType = new SbxObject(aSym);
++    std::set<OUString> aDefinedMembers;
+ 
+     bool bDone = false;
+ 
+@@ -653,7 +656,15 @@
+         {
+             SbxArray *pTypeMembers = pType->GetProperties();
+             OUString aElemName = pElem->GetName();
+-            if( pTypeMembers->Find( aElemName, SbxClassType::DontCare) )
++            // HST: Name and Parent are properties of every object until the Type defines its own
++            SbxVariable* pExisting = pTypeMembers->Find( aElemName, SbxClassType::DontCare );
++            if( pExisting && bVBASupportOn && aDefinedMembers.insert( aElemName.toAsciiLowerCase() ).second )
++            {
++                pType->Remove( pExisting );
++                pExisting = nullptr;
++            }
++            aDefinedMembers.insert( aElemName.toAsciiLowerCase() );
++            if( pExisting )
+             {
+                 Error (ERRCODE_BASIC_VAR_DEFINED);
+             }
+--- a/basic/source/comp/parser.cxx
++++ b/basic/source/comp/parser.cxx
+@@ -572,7 +572,9 @@
+             if( pDef->GetType() == SbxOBJECT )
+             {
+                 eOp = SbiOpcode::SET_;
+-                if( pDef->GetTypeId() )
++                // HST: d(key) = value on a Dim d As Dictionary assigns the item, not the variable
++                SbiExprNode* pTarget = aVar.GetExprNode();
++                if( pDef->GetTypeId() && !( bVBASupportOn && pTarget && pTarget->GetParameters() ) )
+                 {
+                     aGen.Gen( SbiOpcode::SETCLASS_, pDef->GetTypeId() );
+                     return;
+--- a/basic/source/comp/io.cxx
++++ b/basic/source/comp/io.cxx
+@@ -81,16 +81,19 @@
+     aGen.Statement();
+     Next(); // .
+     Next(); // Print, Assert
++    aGen.Gen( SbiOpcode::ARGC_ );
+     while( !bAbort && !IsEoln( Peek() ) && Peek() != ELSE )
+     {
+         SbiExpression aExpr( this );
+         aExpr.Gen();
+-        aGen.Gen( SbiOpcode::GET_ );
++        aGen.Gen( SbiOpcode::ARGV_ );
+         if( Peek() == COMMA || Peek() == SEMICOLON )
+             Next();
+         else
+             break;
+     }
++    aGen.Gen( SbiOpcode::RTL_, aGblStrings.Add( u"HstDebugPrint"_ustr ), SbxVARIANT );
++    aGen.Gen( SbiOpcode::GET_ );
+ }
+ 
+ // HST: RaiseEvent Name(a, b) calls the runtime function with the arguments and then the name
+--- a/basic/source/inc/rtlproto.hxx
++++ b/basic/source/inc/rtlproto.hxx
+@@ -90,6 +90,7 @@
+ extern void SbRtl_SLN(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_Space(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_Split(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
++extern void SbRtl_HstDebugPrint(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_HstRaiseEvent(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_SaveSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_GetSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+--- a/basic/source/runtime/stdobj.cxx
++++ b/basic/source/runtime/stdobj.cxx
+@@ -479,6 +479,8 @@
+ { u"Hex",                           SbxSTRING,   1 | FUNCTION_,        SbRtl_Hex                  },
+     arg(u"number", SbxLONG),
+ 
++{ u"HstDebugPrint",                 SbxEMPTY,        FUNCTION_ | COMPATONLY_, SbRtl_HstDebugPrint },
++
+ { u"HstRaiseEvent",                 SbxEMPTY,        FUNCTION_ | COMPATONLY_, SbRtl_HstRaiseEvent },
+ 
+ { u"Hour",                          SbxINTEGER,  1 | FUNCTION_,        SbRtl_Hour                 },
+--- a/basic/source/classes/sbxvbasettings.cxx
++++ b/basic/source/classes/sbxvbasettings.cxx
+@@ -77,6 +77,9 @@
+         aConfig.DeleteGroup(groupOf(rPar));
+ }
+ 
++// Debug.Print, Debug.Assert: the arguments have been evaluated; nothing shows them
++void SbRtl_HstDebugPrint(StarBASIC*, SbxArray&, bool) {}
++
+ // RaiseEvent: the handlers are <variable>_<event> in the objects whose WithEvents variable holds this one
+ void SbRtl_HstRaiseEvent(StarBASIC*, SbxArray& rPar, bool)
+ {
+--- a/basic/source/classes/sbunoobj.cxx
++++ b/basic/source/classes/sbunoobj.cxx
+@@ -428,6 +428,13 @@
+     {
+         implHandleWrappedTargetException( _rCaughtException );
+     }
++    // HST: Worksheets("none") and the like: code handles VBA's "Subscript out of range" by its number
++    else if( SbiRuntime::isVBAEnabled()
++             && ( _rCaughtException.isExtractableTo( cppu::UnoType<NoSuchElementException>::get() )
++                  || _rCaughtException.isExtractableTo( cppu::UnoType<IndexOutOfBoundsException>::get() ) ) )
++    {
++        StarBASIC::Error( ERRCODE_BASIC_OUT_OF_RANGE );
++    }
+     else
+     {
+         StarBASIC::Error( ERRCODE_BASIC_EXCEPTION, implGetExceptionMsg( _rCaughtException ) );
+--- a/oox/source/core/filterdetect.cxx
++++ b/oox/source/core/filterdetect.cxx
+@@ -272,7 +272,7 @@
+         }
+     }
+ 
+-    if (rContentType == u"application/vnd.ms-excel.sheet.macroEnabled.main+xml")
++    if (rContentType == u"application/vnd.ms-excel.sheet.macroEnabled.main+xml" || rContentType == u"application/vnd.ms-excel.addin.macroEnabled.main+xml" /* HST: .xlam */)
+     {
+         switch (maOOXMLVariant)
+         {
+--- a/filter/source/config/fragments/types/MS_Excel_2007_VBA_XML.xcu
++++ b/filter/source/config/fragments/types/MS_Excel_2007_VBA_XML.xcu
+@@ -18,7 +18,7 @@
+ <node oor:name="MS Excel 2007 VBA XML" oor:op="replace" >
+     <prop oor:name="DetectService"><value>com.sun.star.comp.oox.FormatDetector</value></prop>
+     <prop oor:name="URLPattern"/>
+-    <prop oor:name="Extensions"><value>xlsm</value></prop>
++    <prop oor:name="Extensions"><value>xlsm xlam</value></prop>
+     <prop oor:name="MediaType"><value>application/vnd.ms-excel.sheet.macroEnabled.12</value></prop>
+     <prop oor:name="Preferred"><value>false</value></prop>
+     <prop oor:name="PreferredFilter"><value>Calc MS Excel 2007 VBA XML</value></prop>

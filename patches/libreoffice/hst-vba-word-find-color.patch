@@ -1,0 +1,158 @@
+HST Office: Word Find loops end, and Font.Color and ColorIndex give Word's colors.
+
+- While .Execute on a Range never ended: each search started again at the top of the found text. As in
+  Word, a range the search redefined, or a collapsed one, now searches on from its end; other ranges
+  are searched inside. This hung the office on testFontColor, and is how Word macros walk a document.
+- Font.Color is BGR in Word (wdColorRed = 255) but went to CharColor unconverted, so red text came out
+  blue. Font.ColorIndex used Excel's palette and failed on wdAuto; it now has WdColorIndex's values.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/regression_cases.py (FindLoop*, FontColor*); upstream testFontColor.docm.
+---
+--- a/sw/source/ui/vba/vbafind.cxx
++++ b/sw/source/ui/vba/vbafind.cxx
+@@ -124,9 +124,24 @@
+     }
+     else
+     {
+-        // HST: search inside the range (from its start), not after it.
+-        xFoundOne.set( mxModel->findNext( mxTextRange->getStart(), uno::Reference< util::XSearchDescriptor >( mxPropertyReplace, uno::UNO_QUERY_THROW ) ), uno::UNO_QUERY );
+-        if( xFoundOne.is() && !InRange( xFoundOne ) )
++        // HST: as in Word, a range the last search redefined, or a collapsed one, searches on from
++        // its end to the end of the document: While .Execute and Collapse wdCollapseEnd loops end.
++        // Any other range is searched inside, from its start.
++        uno::Reference< text::XTextRangeCompare > xTRC( mxTextRange->getText(), uno::UNO_QUERY_THROW );
++        const bool bCollapsed = xTRC->compareRegionStarts( mxTextRange->getStart(), mxTextRange->getEnd() ) == 0;
++        bool bContinues = bCollapsed;
++        if( !bCollapsed && mxLastFound.is() )
++        {
++            try
++            {
++                bContinues = InEqualRange( mxLastFound );
++            }
++            catch( const lang::IllegalArgumentException& ) // found in another text
++            {
++            }
++        }
++        xFoundOne.set( mxModel->findNext( bContinues ? mxTextRange->getEnd() : mxTextRange->getStart(), uno::Reference< util::XSearchDescriptor >( mxPropertyReplace, uno::UNO_QUERY_THROW ) ), uno::UNO_QUERY );
++        if( xFoundOne.is() && !bContinues && !InRange( xFoundOne ) )
+             xFoundOne.clear();
+     }
+ 
+@@ -206,6 +221,7 @@
+             {
+                 xRangeCursor->gotoRange( xFindOne->getStart(), false );
+                 xRangeCursor->gotoRange( xFindOne->getEnd(), true );
++                mxLastFound = xFindOne;
+                 result = true;
+             }
+             else
+--- a/sw/source/ui/vba/vbafind.hxx
++++ b/sw/source/ui/vba/vbafind.hxx
+@@ -40,6 +40,7 @@
+     css::uno::Reference< css::util::XPropertyReplace> mxPropertyReplace;
+     css::uno::Reference< css::text::XTextViewCursor> mxTVC;
+     css::uno::Reference< css::view::XSelectionSupplier> mxSelSupp;
++    css::uno::Reference< css::text::XTextRange > mxLastFound; // HST: for While .Execute loops on a Range
+     bool mbReplace;
+     sal_Int32 mnReplaceType;
+     sal_Int32 mnWrap;
+--- a/sw/source/ui/vba/vbafont.cxx
++++ b/sw/source/ui/vba/vbafont.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "vbafont.hxx"
++#include <iterator>
+ #include <com/sun/star/awt/FontUnderline.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/container/XIndexAccess.hpp>
+@@ -142,26 +143,62 @@
+     return u"SwVbaFont"_ustr;
+ }
+ 
++namespace
++{
++// HST: Word's WdColorIndex 1-16 (wdBlack ... wdGray25), as RGB; 0 is wdAuto. 17 and 18 are accepted and give black.
++constexpr sal_Int32 aWordColorIndex[] = { 0x000000, 0x0000FF, 0x00FFFF, 0x00FF00, 0xFF00FF, 0xFF0000, 0xFFFF00, 0xFFFFFF,
++                                          0x000080, 0x008080, 0x008000, 0x800080, 0x800000, 0x808000, 0x808080, 0xC0C0C0 };
++constexpr sal_Int32 nWdColorAutomatic = -16777216;
++constexpr sal_Int32 nAutoColor = -1;
++
++sal_Int32 lcl_swapRedBlue( sal_Int32 nColor )
++{
++    return ( nColor & 0xFF00FF00 ) | ( ( nColor & 0xFF ) << 16 ) | ( ( nColor >> 16 ) & 0xFF );
++}
++}
++
++// HST: Word's Font.Color is BGR, wdColorRed = 255, like Excel's; CharColor is RGB.
+ uno::Any SAL_CALL
+-SwVbaFont::getColorIndex()
++SwVbaFont::getColor()
++{
++    sal_Int32 nColor = nAutoColor;
++    mxFont->getPropertyValue( u"CharColor"_ustr ) >>= nColor;
++    return uno::Any( nColor == nAutoColor ? nWdColorAutomatic : lcl_swapRedBlue( nColor ) );
++}
++
++void SAL_CALL
++SwVbaFont::setColor( const uno::Any& _color )
+ {
+     sal_Int32 nColor = 0;
++    if ( !( _color >>= nColor ) )
++        throw uno::RuntimeException( u"Font.Color needs a number"_ustr );
++    mxFont->setPropertyValue( u"CharColor"_ustr, uno::Any( nColor == nWdColorAutomatic || nColor == nAutoColor ? nAutoColor : lcl_swapRedBlue( nColor ) ) );
++}
+ 
+-    getColor() >>= nColor;
+-    sal_Int32 nElems = mxPalette->getCount();
++uno::Any SAL_CALL
++SwVbaFont::getColorIndex()
++{
++    sal_Int32 nColor = nAutoColor;
++    mxFont->getPropertyValue( u"CharColor"_ustr ) >>= nColor;
++    for ( size_t i = 0; i < std::size( aWordColorIndex ); ++i )
++        if ( aWordColorIndex[i] == nColor )
++            return uno::Any( static_cast< sal_Int32 >( i + 1 ) );
++    return uno::Any( sal_Int32( 0 ) ); // wdAuto, also for colors outside the 16 of the index
++}
++
++void SAL_CALL
++SwVbaFont::setColorIndex( const uno::Any& _colorindex )
++{
+     sal_Int32 nIndex = 0;
+-    for ( sal_Int32 count=0; count<nElems; ++count )
+-    {
+-        sal_Int32 nPaletteColor = 0;
+-        mxPalette->getByIndex( count ) >>= nPaletteColor;
+-        if ( nPaletteColor == nColor )
+-        {
+-            nIndex = count;
+-            break;
+-        }
+-    }
+-    return uno::Any( nIndex );
++    _colorindex >>= nIndex;
++    if ( nIndex < 0 || nIndex > 18 )
++        throw uno::RuntimeException( u"Font.ColorIndex: value out of range"_ustr );
++    sal_Int32 nColor = nAutoColor;
++    if ( nIndex > 0 )
++        nColor = nIndex > 16 ? aWordColorIndex[0] : aWordColorIndex[nIndex - 1];
++    mxFont->setPropertyValue( u"CharColor"_ustr, uno::Any( nColor ) );
+ }
++
+ uno::Any SAL_CALL
+ SwVbaFont::getSubscript()
+ {
+--- a/sw/source/ui/vba/vbafont.hxx
++++ b/sw/source/ui/vba/vbafont.hxx
+@@ -32,6 +32,9 @@
+ 
+     // Attributes
+     virtual css::uno::Any SAL_CALL getColorIndex() override;
++    virtual void SAL_CALL setColorIndex( const css::uno::Any& _colorindex ) override;
++    virtual css::uno::Any SAL_CALL getColor() override;
++    virtual void SAL_CALL setColor( const css::uno::Any& _color ) override;
+     virtual css::uno::Any SAL_CALL getUnderline() override;
+     virtual void SAL_CALL setUnderline( const css::uno::Any& _underline ) override;
+     virtual css::uno::Any SAL_CALL getSubscript() override;

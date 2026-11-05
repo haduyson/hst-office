@@ -1,0 +1,46 @@
+HST Office: an error in a VBA module no longer crashes the office when the Basic IDE shows it.
+
+The IDE selects the module under its sub entry ("Microsoft Excel Objects", "Forms", ...) with
+ImpFindEntry, which started from a fresh iterator that points at nothing. The VCL plugins (Windows,
+gen, svp) dereference it, so a compile error or an uncaught runtime error in a real .xlsm or .docm
+ended the office; gtk3 only logged a warning. The search now starts from the library entry.
+
+License: this upstream file remains under its original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/ (regression file with a syntax error, run with the gen plugin).
+---
+--- a/basctl/source/basicide/bastype2.cxx
++++ b/basctl/source/basicide/bastype2.cxx
+@@ -545,9 +545,11 @@
+     }
+ }
+ 
+-std::unique_ptr<weld::TreeIter> SbTreeListBox::ImpFindEntry(std::u16string_view rText)
++std::unique_ptr<weld::TreeIter> SbTreeListBox::ImpFindEntry(const weld::TreeIter& rParent, std::u16string_view rText)
+ {
+-    std::unique_ptr<weld::TreeIter> pIter = m_xControl->make_iterator();
++    // HST: search below the library entry; a fresh iterator points nowhere and crashes the tree of
++    // the VCL plugins (Windows, gen, svp) when an error shows a VBA module, grouped under a sub entry.
++    std::unique_ptr<weld::TreeIter> pIter = m_xControl->make_iterator(&rParent);
+     bool bValidIter = m_xControl->iter_children(*pIter);
+     while (bValidIter)
+     {
+@@ -827,7 +829,7 @@
+                 if( !aLibSubName.isEmpty() )
+                 {
+                     m_xControl->expand_row(*xLibIter);
+-                    if (std::unique_ptr<weld::TreeIter> xSubLibIter = ImpFindEntry(aLibSubName))
++                    if (std::unique_ptr<weld::TreeIter> xSubLibIter = ImpFindEntry(*xCurIter, aLibSubName))
+                         m_xControl->copy_iterator(*xSubLibIter, *xCurIter);
+                 }
+                 const OUString& aName( aDesc.GetName() );
+--- a/basctl/source/inc/bastype2.hxx
++++ b/basctl/source/inc/bastype2.hxx
+@@ -192,7 +192,7 @@
+     void                    ImpCreateLibSubEntries(const weld::TreeIter& rLibRootEntry, const ScriptDocument& rDocument, const OUString& rLibName);
+     void                    ImpCreateLibSubEntriesInVBAMode(const weld::TreeIter& rLibRootEntry, const ScriptDocument& rDocument, const OUString& rLibName );
+     void                    ImpCreateLibSubSubEntriesInVBAMode(const weld::TreeIter& rLibRootEntry, const ScriptDocument& rDocument, const OUString& rLibName);
+-    std::unique_ptr<weld::TreeIter> ImpFindEntry(std::u16string_view rText);
++    std::unique_ptr<weld::TreeIter> ImpFindEntry(const weld::TreeIter& rParent, std::u16string_view rText);
+ 
+     // DocumentEventListener
+     virtual void onDocumentCreated( const ScriptDocument& _rDocument ) override;

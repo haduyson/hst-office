@@ -1,0 +1,853 @@
+HST Office: Worksheet.ListObjects: Excel tables in VBA; CommandBars no longer fails.
+
+7% of the macro files use tables. ListObjects, ListObject (Name, Range, DataBodyRange, HeaderRowRange,
+TotalsRowRange, ShowTotals, Resize, Unlist, Delete), ListColumns and ListRows (Count, by index or name,
+For Each, Add, Delete, Range, DataBodyRange) on the database ranges that Excel tables are imported to.
+ListObjects.Add makes one. TableStyle is kept, not drawn.
+
+Application.CommandBars failed in every document: the VBA context holds no singletons, so it is asked of
+the process context.
+
+The new files are for HST Office under MPL-2.0, like the files around them.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/regression_cases.py (ListObjects*, CommandBars*).
+---
+--- a/oovbaapi/UnoApi_oovbaapi.mk
++++ b/oovbaapi/UnoApi_oovbaapi.mk
+@@ -252,6 +252,12 @@
+ 	XHPageBreaks \
+ 	XHyperlink \
+ 	XHyperlinks \
++	XListColumn \
++	XListColumns \
++	XListObject \
++	XListObjects \
++	XListRow \
++	XListRows \
+ 	XInterior \
+ 	XLineObjects \
+     XlApplicationInternational \
+--- a/oovbaapi/ooo/vba/excel/XWorksheet.idl
++++ b/oovbaapi/ooo/vba/excel/XWorksheet.idl
+@@ -92,6 +92,7 @@
+     XRange Rows( [in] any Index );
+     XRange Columns( [in] any Index );
+     any Hyperlinks( [in] any Index );
++    any ListObjects( [in] any Index ); // HST
+     any Names( [in] any Index );
+ 
+     any Evaluate( [in] string Name );
+--- a/oovbaapi/ooo/vba/excel/XListColumn.idl
++++ b/oovbaapi/ooo/vba/excel/XListColumn.idl
+@@ -0,0 +1,24 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++interface XRange;
++
++interface XListColumn
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute] string Name;
++    [attribute, readonly] long Index;
++    [attribute, readonly] XRange Range;
++    [attribute, readonly] XRange DataBodyRange;
++    void Delete();
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XListColumns.idl
++++ b/oovbaapi/ooo/vba/excel/XListColumns.idl
+@@ -0,0 +1,20 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++interface XListColumn;
++
++interface XListColumns
++{
++    interface ::ooo::vba::XCollection;
++    XListColumn Add( [in] any Position, [in] any AlwaysInsert );
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XListObject.idl
++++ b/oovbaapi/ooo/vba/excel/XListObject.idl
+@@ -0,0 +1,34 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++interface XRange;
++
++/** HST: Excel tables; Excel's table is a database range here. */
++interface XListObject
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute] string Name;
++    [attribute] string DisplayName;
++    [attribute] any TableStyle;
++    [attribute, readonly] boolean ShowHeaders;
++    [attribute, readonly] boolean ShowTotals;
++    [attribute, readonly] XRange Range;
++    [attribute, readonly] XRange DataBodyRange;
++    [attribute, readonly] XRange HeaderRowRange;
++    [attribute, readonly] XRange TotalsRowRange;
++    any ListColumns( [in] any Index );
++    any ListRows( [in] any Index );
++    void Resize( [in] XRange Range );
++    void Unlist();
++    void Delete();
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XListObjects.idl
++++ b/oovbaapi/ooo/vba/excel/XListObjects.idl
+@@ -0,0 +1,21 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++interface XListObject;
++
++interface XListObjects
++{
++    interface ::ooo::vba::XCollection;
++    XListObject Add( [in] any SourceType, [in] any Source, [in] any LinkSource, [in] any XlListObjectHasHeaders,
++                     [in] any Destination, [in] any TableStyleName );
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XListRow.idl
++++ b/oovbaapi/ooo/vba/excel/XListRow.idl
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++interface XRange;
++
++interface XListRow
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute, readonly] long Index;
++    [attribute, readonly] XRange Range;
++    void Delete();
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XListRows.idl
++++ b/oovbaapi/ooo/vba/excel/XListRows.idl
+@@ -0,0 +1,20 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++interface XListRow;
++
++interface XListRows
++{
++    interface ::ooo::vba::XCollection;
++    XListRow Add( [in] any Position, [in] any AlwaysInsert );
++};
++
++}; }; };
+--- a/sc/Library_vbaobj.mk
++++ b/sc/Library_vbaobj.mk
+@@ -85,6 +85,9 @@
+ 	sc/source/ui/vba/vbaglobals \
+ 	sc/source/ui/vba/vbahyperlink \
+ 	sc/source/ui/vba/vbahyperlinks \
++	sc/source/ui/vba/vbalistcolumnsrows \
++	sc/source/ui/vba/vbalistobject \
++	sc/source/ui/vba/vbalisttable \
+ 	sc/source/ui/vba/vbainterior \
+ 	sc/source/ui/vba/vbalineshape \
+ 	sc/source/ui/vba/vbamenubar  \
+--- a/sc/source/ui/vba/vbaworksheet.cxx
++++ b/sc/source/ui/vba/vbaworksheet.cxx
+@@ -74,6 +74,7 @@
+ #include "vbapagebreaks.hxx"
+ #include "vbaworksheets.hxx"
+ #include "vbahyperlinks.hxx"
++#include "vbalistobject.hxx"
+ #include "vbasheetobjects.hxx"
+ #include <dbdata.hxx>
+ 
+@@ -756,6 +757,17 @@
+     return uno::Any( mxHlinks );
+ }
+ 
++// HST: Excel tables
++uno::Any SAL_CALL
++ScVbaWorksheet::ListObjects( const uno::Any& aIndex )
++{
++    uno::Reference< sheet::XCellRangeAddressable > xAddress( getSheet(), uno::UNO_QUERY_THROW );
++    uno::Reference< XCollection > xList( new ScVbaListObjects( this, mxContext, mxModel, xAddress->getRangeAddress().Sheet ) );
++    if ( aIndex.hasValue() )
++        return xList->Item( aIndex, uno::Any() );
++    return uno::Any( xList );
++}
++
+ uno::Any SAL_CALL
+ ScVbaWorksheet::Names( const css::uno::Any& aIndex )
+ {
+--- a/sc/source/ui/vba/vbaworksheet.hxx
++++ b/sc/source/ui/vba/vbaworksheet.hxx
+@@ -124,6 +124,7 @@
+     virtual css::uno::Any SAL_CALL PivotTables( const css::uno::Any& Index ) override;
+     virtual css::uno::Any SAL_CALL Comments( const css::uno::Any& Index ) override;
+     virtual css::uno::Any SAL_CALL Hyperlinks( const css::uno::Any& aIndex ) override;
++    virtual css::uno::Any SAL_CALL ListObjects( const css::uno::Any& aIndex ) override;
+     virtual css::uno::Any SAL_CALL Names( const css::uno::Any& aIndex ) override;
+ 
+     virtual css::uno::Any SAL_CALL OLEObjects( const css::uno::Any& Index ) override;
+--- a/sc/source/ui/vba/vbalistobject.hxx
++++ b/sc/source/ui/vba/vbalistobject.hxx
+@@ -0,0 +1,121 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Worksheet.ListObjects: Excel tables, which are database ranges here.
++
++#pragma once
++
++#include <ooo/vba/excel/XListObject.hpp>
++#include <ooo/vba/excel/XListObjects.hpp>
++#include <ooo/vba/excel/XListColumn.hpp>
++#include <ooo/vba/excel/XListColumns.hpp>
++#include <ooo/vba/excel/XListRow.hpp>
++#include <ooo/vba/excel/XListRows.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/sheet/XDatabaseRange.hpp>
++#include <com/sun/star/sheet/XDatabaseRanges.hpp>
++#include <com/sun/star/table/CellRangeAddress.hpp>
++#include <vbahelper/vbacollectionimpl.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++
++typedef InheritedHelperInterfaceWeakImpl<ov::excel::XListObject> ScVbaListObject_BASE;
++typedef CollTestImplHelper<ov::excel::XListObjects> ScVbaListObjects_BASE;
++typedef InheritedHelperInterfaceWeakImpl<ov::excel::XListColumn> ScVbaListColumn_BASE;
++typedef CollTestImplHelper<ov::excel::XListColumns> ScVbaListColumns_BASE;
++typedef InheritedHelperInterfaceWeakImpl<ov::excel::XListRow> ScVbaListRow_BASE;
++typedef CollTestImplHelper<ov::excel::XListRows> ScVbaListRows_BASE;
++
++/// What table columns and rows share: the table's cells, by address.
++class ScVbaListTable
++{
++protected:
++    css::uno::Reference<css::frame::XModel> mxModel;
++    OUString maName;
++    css::uno::Reference<css::sheet::XDatabaseRange> dbRange() const;
++
++public:
++    static css::uno::Reference<css::sheet::XDatabaseRanges> databaseRanges(const css::uno::Reference<css::frame::XModel>& xModel);
++    ScVbaListTable(css::uno::Reference<css::frame::XModel> xModel, OUString aName)
++        : mxModel(std::move(xModel))
++        , maName(std::move(aName))
++    {
++    }
++    css::table::CellRangeAddress area() const;
++    bool hasHeaders() const;
++    bool hasTotals() const;
++    /// first and last data row; first > last when the table has no data
++    sal_Int32 firstDataRow() const;
++    sal_Int32 lastDataRow() const;
++    css::uno::Reference<ov::excel::XRange> makeRange(const css::uno::Reference<ov::XHelperInterface>& xParent,
++                                                     const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                                                     sal_Int32 nCol1, sal_Int32 nRow1, sal_Int32 nCol2, sal_Int32 nRow2) const;
++    void setArea(const css::table::CellRangeAddress& rArea);
++    void insertCells(const css::table::CellRangeAddress& rCells, bool bDown);
++    void removeCells(const css::table::CellRangeAddress& rCells, bool bUp);
++    const OUString& name() const { return maName; }
++    void setName(const OUString& rName);
++    void remove();
++};
++
++class ScVbaListObject final : public ScVbaListObject_BASE, private ScVbaListTable
++{
++    css::uno::Any maStyle;
++
++public:
++    ScVbaListObject(const css::uno::Reference<ov::XHelperInterface>& xParent, const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                    const css::uno::Reference<css::frame::XModel>& xModel, const OUString& rName);
++    OUString SAL_CALL getName() override { return name(); }
++    void SAL_CALL setName(const OUString& rName) override { ScVbaListTable::setName(rName); }
++    OUString SAL_CALL getDisplayName() override { return name(); }
++    void SAL_CALL setDisplayName(const OUString& rName) override { ScVbaListTable::setName(rName); }
++    css::uno::Any SAL_CALL getTableStyle() override { return maStyle; }
++    void SAL_CALL setTableStyle(const css::uno::Any& rStyle) override { maStyle = rStyle; }
++    sal_Bool SAL_CALL getShowHeaders() override { return hasHeaders(); }
++    sal_Bool SAL_CALL getShowTotals() override { return hasTotals(); }
++    css::uno::Reference<ov::excel::XRange> SAL_CALL getRange() override;
++    css::uno::Reference<ov::excel::XRange> SAL_CALL getDataBodyRange() override;
++    css::uno::Reference<ov::excel::XRange> SAL_CALL getHeaderRowRange() override;
++    css::uno::Reference<ov::excel::XRange> SAL_CALL getTotalsRowRange() override;
++    css::uno::Any SAL_CALL ListColumns(const css::uno::Any& rIndex) override;
++    css::uno::Any SAL_CALL ListRows(const css::uno::Any& rIndex) override;
++    void SAL_CALL Resize(const css::uno::Reference<ov::excel::XRange>& xRange) override;
++    void SAL_CALL Unlist() override;
++    void SAL_CALL Delete() override;
++    OUString getServiceImplName() override { return u"ScVbaListObject"_ustr; }
++    css::uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.ListObject"_ustr }; }
++};
++
++class ScVbaListObjects final : public ScVbaListObjects_BASE
++{
++    css::uno::Reference<css::frame::XModel> mxModel;
++    sal_Int32 mnSheet;
++
++public:
++    ScVbaListObjects(const css::uno::Reference<ov::XHelperInterface>& xParent, const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                     const css::uno::Reference<css::frame::XModel>& xModel, sal_Int32 nSheet);
++    css::uno::Reference<ov::excel::XListObject> SAL_CALL Add(const css::uno::Any& rSourceType, const css::uno::Any& rSource, const css::uno::Any& rLinkSource,
++                                                             const css::uno::Any& rHasHeaders, const css::uno::Any& rDestination, const css::uno::Any& rStyle) override;
++    css::uno::Type SAL_CALL getElementType() override { return cppu::UnoType<ov::excel::XListObject>::get(); }
++    css::uno::Reference<css::container::XEnumeration> SAL_CALL createEnumeration() override;
++    css::uno::Any createCollectionObject(const css::uno::Any& rSource) override { return rSource; }
++    OUString getServiceImplName() override { return u"ScVbaListObjects"_ustr; }
++    css::uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.ListObjects"_ustr }; }
++};
++
++/// Index and name access over objects made once, for the collections above.
++css::uno::Reference<css::container::XIndexAccess> makeListItems(std::vector<css::uno::Any>&& rItems, std::vector<OUString>&& rNames);
++
++css::uno::Reference<ov::excel::XListColumns> makeListColumns(const css::uno::Reference<ov::XHelperInterface>& xParent,
++                                                             const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                                                             const css::uno::Reference<css::frame::XModel>& xModel, const OUString& rTable);
++css::uno::Reference<ov::excel::XListRows> makeListRows(const css::uno::Reference<ov::XHelperInterface>& xParent,
++                                                       const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                                                       const css::uno::Reference<css::frame::XModel>& xModel, const OUString& rTable);
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbalistobject.cxx
++++ b/sc/source/ui/vba/vbalistobject.cxx
+@@ -0,0 +1,137 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: one Excel table (ListObject) and the collection of a sheet's tables.
++
++#include "vbalistobject.hxx"
++#include "vbarange.hxx"
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XNameAccess.hpp>
++#include <com/sun/star/sheet/XCellRangeAddressable.hpp>
++#include <com/sun/star/sheet/XDatabaseRanges.hpp>
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++bool isTableName(const OUString& rName) { return !rName.startsWith("__Anonymous_Sheet_DB__"); }
++}
++
++ScVbaListObject::ScVbaListObject(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                 const uno::Reference<frame::XModel>& xModel, const OUString& rName)
++    : ScVbaListObject_BASE(xParent, xContext)
++    , ScVbaListTable(xModel, rName)
++{
++}
++
++uno::Reference<excel::XRange> SAL_CALL ScVbaListObject::getRange()
++{
++    const table::CellRangeAddress a = area();
++    return makeRange(this, mxContext, a.StartColumn, a.StartRow, a.EndColumn, a.EndRow);
++}
++
++uno::Reference<excel::XRange> SAL_CALL ScVbaListObject::getDataBodyRange()
++{
++    const table::CellRangeAddress a = area();
++    if (firstDataRow() > lastDataRow())
++        return {}; // Nothing, as in Excel for a table without rows
++    return makeRange(this, mxContext, a.StartColumn, firstDataRow(), a.EndColumn, lastDataRow());
++}
++
++uno::Reference<excel::XRange> SAL_CALL ScVbaListObject::getHeaderRowRange()
++{
++    const table::CellRangeAddress a = area();
++    return hasHeaders() ? makeRange(this, mxContext, a.StartColumn, a.StartRow, a.EndColumn, a.StartRow) : uno::Reference<excel::XRange>();
++}
++
++uno::Reference<excel::XRange> SAL_CALL ScVbaListObject::getTotalsRowRange()
++{
++    const table::CellRangeAddress a = area();
++    return hasTotals() ? makeRange(this, mxContext, a.StartColumn, a.EndRow, a.EndColumn, a.EndRow) : uno::Reference<excel::XRange>();
++}
++
++uno::Any SAL_CALL ScVbaListObject::ListColumns(const uno::Any& rIndex)
++{
++    uno::Reference<excel::XListColumns> xColumns = makeListColumns(this, mxContext, mxModel, name());
++    return rIndex.hasValue() ? xColumns->Item(rIndex, uno::Any()) : uno::Any(xColumns);
++}
++
++uno::Any SAL_CALL ScVbaListObject::ListRows(const uno::Any& rIndex)
++{
++    uno::Reference<excel::XListRows> xRows = makeListRows(this, mxContext, mxModel, name());
++    return rIndex.hasValue() ? xRows->Item(rIndex, uno::Any()) : uno::Any(xRows);
++}
++
++void SAL_CALL ScVbaListObject::Resize(const uno::Reference<excel::XRange>& xRange)
++{
++    uno::Reference<sheet::XCellRangeAddressable> xAddress(dynamic_cast<ScVbaRange&>(*xRange).getCellRange(), uno::UNO_QUERY_THROW);
++    setArea(xAddress->getRangeAddress());
++}
++
++void SAL_CALL ScVbaListObject::Unlist() { remove(); }
++
++void SAL_CALL ScVbaListObject::Delete()
++{
++    const table::CellRangeAddress a = area();
++    remove();
++    removeCells(a, true);
++}
++
++ScVbaListObjects::ScVbaListObjects(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                   const uno::Reference<frame::XModel>& xModel, sal_Int32 nSheet)
++    : ScVbaListObjects_BASE(xParent, xContext, [&]() {
++        std::vector<uno::Any> aItems;
++        std::vector<OUString> aNames;
++        uno::Reference<container::XNameAccess> xRanges(ScVbaListTable::databaseRanges(xModel), uno::UNO_QUERY_THROW);
++        for (const OUString& rName : xRanges->getElementNames())
++        {
++            uno::Reference<sheet::XDatabaseRange> xRange(xRanges->getByName(rName), uno::UNO_QUERY_THROW);
++            if (isTableName(rName) && xRange->getDataArea().Sheet == nSheet)
++            {
++                aItems.emplace_back(uno::Reference<excel::XListObject>(new ScVbaListObject(xParent, xContext, xModel, rName)));
++                aNames.push_back(rName);
++            }
++        }
++        return makeListItems(std::move(aItems), std::move(aNames));
++    }())
++    , mxModel(xModel)
++    , mnSheet(nSheet)
++{
++}
++
++uno::Reference<container::XEnumeration> SAL_CALL ScVbaListObjects::createEnumeration()
++{
++    return new SimpleIndexAccessToEnumeration(m_xIndexAccess);
++}
++
++uno::Reference<excel::XListObject> SAL_CALL ScVbaListObjects::Add(const uno::Any&, const uno::Any& rSource, const uno::Any&, const uno::Any& rHasHeaders, const uno::Any&, const uno::Any& rStyle)
++{
++    uno::Reference<excel::XRange> xSource;
++    rSource >>= xSource;
++    if (!xSource.is())
++        throw uno::RuntimeException(u"ListObjects.Add: Source needs a Range"_ustr);
++    uno::Reference<sheet::XCellRangeAddressable> xAddress(dynamic_cast<ScVbaRange&>(*xSource).getCellRange(), uno::UNO_QUERY_THROW);
++    uno::Reference<sheet::XDatabaseRanges> xRanges = ScVbaListTable::databaseRanges(mxModel);
++    OUString aName;
++    for (sal_Int32 n = 1; aName.isEmpty(); ++n)
++        if (!xRanges->hasByName("Table" + OUString::number(n)))
++            aName = "Table" + OUString::number(n);
++    xRanges->addNewByName(aName, xAddress->getRangeAddress());
++    sal_Int32 nHeaders = 1; // xlYes
++    rHasHeaders >>= nHeaders;
++    uno::Reference<beans::XPropertySet> xProps(uno::Reference<container::XNameAccess>(xRanges, uno::UNO_QUERY_THROW)->getByName(aName), uno::UNO_QUERY_THROW);
++    xProps->setPropertyValue(u"ContainsHeader"_ustr, uno::Any(nHeaders != 2)); // xlNo = 2
++    uno::Reference<excel::XListObject> xObject(new ScVbaListObject(mxParent, mxContext, mxModel, aName));
++    if (rStyle.hasValue())
++        xObject->setTableStyle(rStyle);
++    return xObject;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbalisttable.cxx
++++ b/sc/source/ui/vba/vbalisttable.cxx
+@@ -0,0 +1,142 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: the cells of an Excel table, which is a database range here.
++
++#include "vbalistobject.hxx"
++#include "vbarange.hxx"
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XNameAccess.hpp>
++#include <com/sun/star/container/XNamed.hpp>
++#include <com/sun/star/sheet/CellDeleteMode.hpp>
++#include <com/sun/star/sheet/CellInsertMode.hpp>
++#include <com/sun/star/sheet/XCellRangeMovement.hpp>
++#include <com/sun/star/sheet/XDatabaseRanges.hpp>
++#include <com/sun/star/sheet/XSpreadsheetDocument.hpp>
++#include <com/sun/star/table/XCellRange.hpp>
++#include <comphelper/sequence.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <o3tl/safeint.hxx>
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++class ListItems final : public cppu::WeakImplHelper<container::XIndexAccess, container::XNameAccess>
++{
++    std::vector<uno::Any> maItems;
++    std::vector<OUString> maNames;
++
++public:
++    ListItems(std::vector<uno::Any>&& rItems, std::vector<OUString>&& rNames)
++        : maItems(std::move(rItems))
++        , maNames(std::move(rNames))
++    {
++    }
++    sal_Int32 SAL_CALL getCount() override { return static_cast<sal_Int32>(maItems.size()); }
++    uno::Any SAL_CALL getByIndex(sal_Int32 nIndex) override
++    {
++        if (nIndex < 0 || o3tl::make_unsigned(nIndex) >= maItems.size())
++            throw lang::IndexOutOfBoundsException();
++        return maItems[nIndex];
++    }
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<uno::XInterface>::get(); }
++    sal_Bool SAL_CALL hasElements() override { return !maItems.empty(); }
++    uno::Any SAL_CALL getByName(const OUString& rName) override
++    {
++        for (size_t i = 0; i < maNames.size(); ++i)
++            if (maNames[i].equalsIgnoreAsciiCase(rName))
++                return maItems[i];
++        throw container::NoSuchElementException();
++    }
++    uno::Sequence<OUString> SAL_CALL getElementNames() override { return comphelper::containerToSequence(maNames); }
++    sal_Bool SAL_CALL hasByName(const OUString& rName) override
++    {
++        return std::any_of(maNames.begin(), maNames.end(), [&rName](const OUString& r) { return r.equalsIgnoreAsciiCase(rName); });
++    }
++};
++
++uno::Reference<table::XCellRange> sheetCells(const uno::Reference<frame::XModel>& xModel, sal_Int32 nSheet)
++{
++    uno::Reference<sheet::XSpreadsheetDocument> xDoc(xModel, uno::UNO_QUERY_THROW);
++    uno::Reference<container::XIndexAccess> xSheets(xDoc->getSheets(), uno::UNO_QUERY_THROW);
++    return uno::Reference<table::XCellRange>(xSheets->getByIndex(nSheet), uno::UNO_QUERY_THROW);
++}
++}
++
++uno::Reference<sheet::XDatabaseRanges> ScVbaListTable::databaseRanges(const uno::Reference<frame::XModel>& xModel)
++{
++    uno::Reference<beans::XPropertySet> xProps(xModel, uno::UNO_QUERY_THROW);
++    return uno::Reference<sheet::XDatabaseRanges>(xProps->getPropertyValue(u"DatabaseRanges"_ustr), uno::UNO_QUERY_THROW);
++}
++
++uno::Reference<sheet::XDatabaseRange> ScVbaListTable::dbRange() const
++{
++    uno::Reference<container::XNameAccess> xNames(databaseRanges(mxModel), uno::UNO_QUERY_THROW);
++    return uno::Reference<sheet::XDatabaseRange>(xNames->getByName(maName), uno::UNO_QUERY_THROW);
++}
++
++table::CellRangeAddress ScVbaListTable::area() const { return dbRange()->getDataArea(); }
++
++bool ScVbaListTable::hasHeaders() const
++{
++    uno::Reference<beans::XPropertySet> xProps(dbRange(), uno::UNO_QUERY_THROW);
++    bool bValue = true;
++    xProps->getPropertyValue(u"ContainsHeader"_ustr) >>= bValue;
++    return bValue;
++}
++
++bool ScVbaListTable::hasTotals() const
++{
++    uno::Reference<beans::XPropertySet> xProps(dbRange(), uno::UNO_QUERY_THROW);
++    bool bValue = false;
++    xProps->getPropertyValue(u"TotalsRow"_ustr) >>= bValue;
++    return bValue;
++}
++
++sal_Int32 ScVbaListTable::firstDataRow() const { return area().StartRow + (hasHeaders() ? 1 : 0); }
++sal_Int32 ScVbaListTable::lastDataRow() const { return area().EndRow - (hasTotals() ? 1 : 0); }
++
++uno::Reference<excel::XRange> ScVbaListTable::makeRange(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                                        sal_Int32 nCol1, sal_Int32 nRow1, sal_Int32 nCol2, sal_Int32 nRow2) const
++{
++    uno::Reference<table::XCellRange> xCells = sheetCells(mxModel, area().Sheet)->getCellRangeByPosition(nCol1, nRow1, nCol2, nRow2);
++    return new ScVbaRange(xParent, xContext, xCells);
++}
++
++void ScVbaListTable::setArea(const table::CellRangeAddress& rArea) { dbRange()->setDataArea(rArea); }
++
++void ScVbaListTable::insertCells(const table::CellRangeAddress& rCells, bool bDown)
++{
++    uno::Reference<sheet::XCellRangeMovement> xMove(sheetCells(mxModel, rCells.Sheet), uno::UNO_QUERY_THROW);
++    xMove->insertCells(rCells, bDown ? sheet::CellInsertMode_DOWN : sheet::CellInsertMode_RIGHT);
++}
++
++void ScVbaListTable::removeCells(const table::CellRangeAddress& rCells, bool bUp)
++{
++    uno::Reference<sheet::XCellRangeMovement> xMove(sheetCells(mxModel, rCells.Sheet), uno::UNO_QUERY_THROW);
++    xMove->removeRange(rCells, bUp ? sheet::CellDeleteMode_UP : sheet::CellDeleteMode_LEFT);
++}
++
++void ScVbaListTable::setName(const OUString& rName)
++{
++    uno::Reference<container::XNamed> xNamed(dbRange(), uno::UNO_QUERY_THROW);
++    xNamed->setName(rName);
++    maName = rName;
++}
++
++void ScVbaListTable::remove() { databaseRanges(mxModel)->removeByName(maName); }
++
++uno::Reference<container::XIndexAccess> makeListItems(std::vector<uno::Any>&& rItems, std::vector<OUString>&& rNames)
++{
++    return new ListItems(std::move(rItems), std::move(rNames));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbalistcolumnsrows.cxx
++++ b/sc/source/ui/vba/vbalistcolumnsrows.cxx
+@@ -0,0 +1,167 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: the columns and rows of an Excel table (ListColumns, ListRows).
++
++#include "vbalistobject.hxx"
++#include <ooo/vba/excel/XRange.hpp>
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++class ListColumn final : public ScVbaListColumn_BASE, private ScVbaListTable
++{
++    sal_Int32 mnIndex; // 0-based
++
++public:
++    ListColumn(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++               const uno::Reference<frame::XModel>& xModel, const OUString& rTable, sal_Int32 nIndex)
++        : ScVbaListColumn_BASE(xParent, xContext), ScVbaListTable(xModel, rTable), mnIndex(nIndex) {}
++    OUString SAL_CALL getName() override
++    {
++        const table::CellRangeAddress a = area();
++        return hasHeaders() ? makeRange(this, mxContext, a.StartColumn + mnIndex, a.StartRow, a.StartColumn + mnIndex, a.StartRow)->getValue().get<OUString>() : "Column" + OUString::number(mnIndex + 1);
++    }
++    void SAL_CALL setName(const OUString& rName) override
++    {
++        const table::CellRangeAddress a = area();
++        makeRange(this, mxContext, a.StartColumn + mnIndex, a.StartRow, a.StartColumn + mnIndex, a.StartRow)->setValue(uno::Any(rName));
++    }
++    sal_Int32 SAL_CALL getIndex() override { return mnIndex + 1; }
++    uno::Reference<excel::XRange> SAL_CALL getRange() override
++    {
++        const table::CellRangeAddress a = area();
++        return makeRange(this, mxContext, a.StartColumn + mnIndex, a.StartRow, a.StartColumn + mnIndex, a.EndRow);
++    }
++    uno::Reference<excel::XRange> SAL_CALL getDataBodyRange() override
++    {
++        const table::CellRangeAddress a = area();
++        return firstDataRow() > lastDataRow() ? uno::Reference<excel::XRange>() : makeRange(this, mxContext, a.StartColumn + mnIndex, firstDataRow(), a.StartColumn + mnIndex, lastDataRow());
++    }
++    void SAL_CALL Delete() override
++    {
++        table::CellRangeAddress a = area();
++        table::CellRangeAddress aCells(a.Sheet, a.StartColumn + mnIndex, a.StartRow, a.StartColumn + mnIndex, a.EndRow);
++        removeCells(aCells, false);
++    }
++    OUString getServiceImplName() override { return u"ListColumn"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.ListColumn"_ustr }; }
++};
++
++class ListRow final : public ScVbaListRow_BASE, private ScVbaListTable
++{
++    sal_Int32 mnIndex; // 0-based among the data rows
++
++public:
++    ListRow(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++            const uno::Reference<frame::XModel>& xModel, const OUString& rTable, sal_Int32 nIndex)
++        : ScVbaListRow_BASE(xParent, xContext), ScVbaListTable(xModel, rTable), mnIndex(nIndex) {}
++    sal_Int32 SAL_CALL getIndex() override { return mnIndex + 1; }
++    uno::Reference<excel::XRange> SAL_CALL getRange() override
++    {
++        const table::CellRangeAddress a = area();
++        return makeRange(this, mxContext, a.StartColumn, firstDataRow() + mnIndex, a.EndColumn, firstDataRow() + mnIndex);
++    }
++    void SAL_CALL Delete() override
++    {
++        const table::CellRangeAddress a = area();
++        removeCells(table::CellRangeAddress(a.Sheet, a.StartColumn, firstDataRow() + mnIndex, a.EndColumn, firstDataRow() + mnIndex), true);
++    }
++    OUString getServiceImplName() override { return u"ListRow"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.ListRow"_ustr }; }
++};
++
++class ListColumns final : public ScVbaListColumns_BASE, private ScVbaListTable
++{
++public:
++    ListColumns(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                const uno::Reference<frame::XModel>& xModel, const OUString& rTable, const uno::Reference<container::XIndexAccess>& xItems)
++        : ScVbaListColumns_BASE(xParent, xContext, xItems), ScVbaListTable(xModel, rTable) {}
++    uno::Reference<excel::XListColumn> SAL_CALL Add(const uno::Any& rPosition, const uno::Any&) override
++    {
++        table::CellRangeAddress a = area();
++        sal_Int32 nPosition = a.EndColumn - a.StartColumn + 2;
++        rPosition >>= nPosition;
++        const sal_Int32 nCol = a.StartColumn + nPosition - 1;
++        insertCells(table::CellRangeAddress(a.Sheet, nCol, a.StartRow, nCol, a.EndRow), false);
++        if (nCol > area().EndColumn)
++        {
++            a.EndColumn = nCol;
++            setArea(a);
++        }
++        uno::Reference<excel::XListColumn> xColumn(new ListColumn(mxParent, mxContext, mxModel, name(), nPosition - 1));
++        if (hasHeaders())
++            xColumn->setName("Column" + OUString::number(nPosition));
++        return xColumn;
++    }
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<excel::XListColumn>::get(); }
++    uno::Reference<container::XEnumeration> SAL_CALL createEnumeration() override { return new SimpleIndexAccessToEnumeration(m_xIndexAccess); }
++    uno::Any createCollectionObject(const uno::Any& rSource) override { return rSource; }
++    OUString getServiceImplName() override { return u"ListColumns"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.ListColumns"_ustr }; }
++};
++
++class ListRows final : public ScVbaListRows_BASE, private ScVbaListTable
++{
++public:
++    ListRows(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++             const uno::Reference<frame::XModel>& xModel, const OUString& rTable, const uno::Reference<container::XIndexAccess>& xItems)
++        : ScVbaListRows_BASE(xParent, xContext, xItems), ScVbaListTable(xModel, rTable) {}
++    uno::Reference<excel::XListRow> SAL_CALL Add(const uno::Any& rPosition, const uno::Any&) override
++    {
++        table::CellRangeAddress a = area();
++        sal_Int32 nPosition = lastDataRow() - firstDataRow() + 2;
++        rPosition >>= nPosition;
++        const sal_Int32 nRow = firstDataRow() + nPosition - 1;
++        const bool bAtEnd = nRow > a.EndRow;
++        insertCells(table::CellRangeAddress(a.Sheet, a.StartColumn, nRow, a.EndColumn, nRow), true);
++        if (bAtEnd)
++        {
++            a.EndRow = nRow;
++            setArea(a);
++        }
++        return new ListRow(mxParent, mxContext, mxModel, name(), nPosition - 1);
++    }
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<excel::XListRow>::get(); }
++    uno::Reference<container::XEnumeration> SAL_CALL createEnumeration() override { return new SimpleIndexAccessToEnumeration(m_xIndexAccess); }
++    uno::Any createCollectionObject(const uno::Any& rSource) override { return rSource; }
++    OUString getServiceImplName() override { return u"ListRows"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.ListRows"_ustr }; }
++};
++}
++
++uno::Reference<excel::XListColumns> makeListColumns(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                                    const uno::Reference<frame::XModel>& xModel, const OUString& rTable)
++{
++    ScVbaListTable aTable(xModel, rTable);
++    std::vector<uno::Any> aItems;
++    std::vector<OUString> aNames;
++    const table::CellRangeAddress a = aTable.area();
++    for (sal_Int32 i = 0; i <= a.EndColumn - a.StartColumn; ++i)
++    {
++        uno::Reference<excel::XListColumn> xColumn(new ListColumn(xParent, xContext, xModel, rTable, i));
++        aNames.push_back(xColumn->getName());
++        aItems.emplace_back(xColumn);
++    }
++    return new ListColumns(xParent, xContext, xModel, rTable, makeListItems(std::move(aItems), std::move(aNames)));
++}
++
++uno::Reference<excel::XListRows> makeListRows(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                              const uno::Reference<frame::XModel>& xModel, const OUString& rTable)
++{
++    ScVbaListTable aTable(xModel, rTable);
++    std::vector<uno::Any> aItems;
++    for (sal_Int32 i = 0; i <= aTable.lastDataRow() - aTable.firstDataRow(); ++i)
++        aItems.emplace_back(uno::Reference<excel::XListRow>(new ListRow(xParent, xContext, xModel, rTable, i)));
++    return new ListRows(xParent, xContext, xModel, rTable, makeListItems(std::move(aItems), {}));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vbahelper/source/vbahelper/vbacommandbarhelper.cxx
++++ b/vbahelper/source/vbahelper/vbacommandbarhelper.cxx
+@@ -19,6 +19,8 @@
+ #include "vbacommandbarhelper.hxx"
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/lang/XServiceInfo.hpp>
++// HST: the VBA context has no delegate, so it holds no singletons: CommandBars always failed
++#include <comphelper/processfactory.hxx>
+ #include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
+ #include <com/sun/star/ui/XUIConfigurationManagerSupplier.hpp>
+ #include <com/sun/star/ui/theWindowStateConfiguration.hpp>
+@@ -111,11 +113,11 @@
+     }
+ 
+     css::uno::Reference< css::ui::XModuleUIConfigurationManagerSupplier > xUICfgMgrSupp(
+-        css::ui::theModuleUIConfigurationManagerSupplier::get(mxContext) );
++        css::ui::theModuleUIConfigurationManagerSupplier::get(comphelper::getProcessComponentContext()) );
+ 
+     m_xAppCfgMgr.set( xUICfgMgrSupp->getUIConfigurationManager( maModuleId ), uno::UNO_SET_THROW );
+ 
+-    css::uno::Reference< css::container::XNameAccess > xNameAccess = css::ui::theWindowStateConfiguration::get( mxContext );
++    css::uno::Reference< css::container::XNameAccess > xNameAccess = css::ui::theWindowStateConfiguration::get( comphelper::getProcessComponentContext() );
+ 
+     m_xWindowState.set( xNameAccess->getByName( maModuleId ), uno::UNO_QUERY_THROW );
+ }

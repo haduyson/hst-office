@@ -1,0 +1,898 @@
+HST Office: VBScript.RegExp and Scripting.FileSystemObject on every platform.
+
+Measured on real macro files: 10% use FileSystemObject and 6% RegExp, and neither existed off Windows
+(CreateObject failed, New Scripting.FileSystemObject too). basic now has its own objects: RegExp
+(Pattern, Global, IgnoreCase, MultiLine, Test, Execute, Replace, Match and SubMatches, through ICU);
+FileSystemObject (exists, name helpers, File, Folder, Files, SubFolders, copy, move, delete, create,
+CreateTextFile, OpenTextFile) and TextStream. Backslash paths work on Linux and macOS. New
+VBA.Collection is the same as New Collection.
+The new files are for HST Office under MPL-2.0, like the files around them.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/regression_cases.py (regexp-*, fso-* cases).
+---
+--- a/basic/Library_sb.mk
++++ b/basic/Library_sb.mk
+@@ -75,6 +75,10 @@
+ 	basic/source/classes/sb \
+ 	basic/source/classes/sbunoobj \
+ 	basic/source/classes/sbxdictionary \
++	basic/source/classes/sbxregexp \
++	basic/source/classes/sbxtextstream \
++	basic/source/classes/sbxfso \
++	basic/source/classes/sbxfsitems \
+ 	basic/source/classes/sbxmod \
+ 	basic/source/comp/buffer \
+ 	basic/source/comp/codegen \
+--- a/basic/source/classes/sb.cxx
++++ b/basic/source/classes/sb.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <sb.hxx>
++#include <sbxscripting.hxx>
+ #include <o3tl/safeint.hxx>
+ #include <osl/diagnose.h>
+ #include <rtl/ustrbuf.hxx>
+@@ -446,7 +447,7 @@
+     {
+         return new SbModule( OUString() );
+     }
+-    else if( rClass.equalsIgnoreAsciiCase( "Collection" ) )
++    else if( rClass.equalsIgnoreAsciiCase( "Collection" ) || rClass.equalsIgnoreAsciiCase( "VBA.Collection" ) )
+     {
+         return new BasicCollection( u"Collection"_ustr );
+     }
+@@ -455,18 +456,15 @@
+     {
+         return new BasicDictionary( u"Dictionary"_ustr );
+     }
+-    else if( rClass.equalsIgnoreAsciiCase( "FileSystemObject" ) )
++    // HST: VBScript.RegExp and Scripting.FileSystemObject on every platform
++    else if( rClass.equalsIgnoreAsciiCase( "VBScript.RegExp" ) || rClass.equalsIgnoreAsciiCase( "RegExp" )
++             || rClass.equalsIgnoreAsciiCase( "VBScript_RegExp_55.RegExp" ) )
+     {
+-        try
+-        {
+-            Reference< XMultiServiceFactory > xFactory( comphelper::getProcessServiceFactory(), UNO_SET_THROW );
+-            OUString aServiceName(u"ooo.vba.FileSystemObject"_ustr);
+-            Reference< XInterface > xInterface( xFactory->createInstance( aServiceName ), UNO_SET_THROW );
+-            return new SbUnoObject( aServiceName, uno::Any( xInterface ) );
+-        }
+-        catch(const Exception& )
+-        {
+-        }
++        return new BasicRegExp;
++    }
++    else if( rClass.equalsIgnoreAsciiCase( "Scripting.FileSystemObject" ) || rClass.equalsIgnoreAsciiCase( "FileSystemObject" ) )
++    {
++        return new BasicFileSystemObject;
+     }
+     return nullptr;
+ }
+--- a/basic/source/classes/sbxdictionary.cxx
++++ b/basic/source/classes/sbxdictionary.cxx
+@@ -167,7 +167,7 @@
+     return pArray;
+ }
+ 
+-SbxDimArray* BasicDictionary::GetKeysArray() { return implArray(maKeys); }
++SbxDimArray* BasicDictionary::GetKeysArray() { return implArray(mbIterateItems ? maItems : maKeys); }
+ 
+ void BasicDictionary::implReturnArray(SbxVariable* pVar, SbxDimArray* pArray)
+ {
+--- a/basic/source/inc/sbunoobj.hxx
++++ b/basic/source/inc/sbunoobj.hxx
+@@ -372,6 +372,7 @@
+     std::vector<SbxVariableRef> maItems;
+     std::unordered_map<OUString, sal_Int32> maIndex; // normalized key -> position
+     sal_Int32 mnCompareMode; // 0 = vbBinaryCompare, 1 = vbTextCompare
++    bool mbIterateItems = false; // the collections of RegExp and FileSystemObject: For Each gives the items
+     static SbxInfoRef xAddInfo;
+     static SbxInfoRef xKeyInfo;
+ 
+@@ -391,6 +392,7 @@
+     SbxVariable* GetItemForKey( SbxVariable& rKey );
+     /// For Each k In d: the keys
+     SbxDimArray* GetKeysArray();
++    void SetIterateItems(bool bItems) { mbIterateItems = bItems; }
+ };
+ 
+ class VBAConstantHelper
+--- a/basic/source/inc/sbxscripting.hxx
++++ b/basic/source/inc/sbxscripting.hxx
+@@ -0,0 +1,105 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: VBScript.RegExp and Scripting.FileSystemObject for VBA code, on every platform.
++
++#pragma once
++
++#include <basic/sbx.hxx>
++#include <basic/sbxvar.hxx>
++#include <rtl/ustring.hxx>
++#include <rtl/ustrbuf.hxx>
++
++class BasicScriptingObject : public SbxObject
++{
++protected:
++    explicit BasicScriptingObject(const OUString& rClass)
++        : SbxObject(rClass)
++    {
++        SetType(SbxOBJECT);
++        SetFlag(SbxFlagBits::Fixed);
++        ResetFlag(SbxFlagBits::Write);
++    }
++    void addMethods(std::initializer_list<OUString> aNames);
++    void addProperties(std::initializer_list<OUString> aNames);
++    virtual void Notify(SfxBroadcaster& rBC, const SfxHint& rHint) override;
++    /** Handles the member; false lets SbxObject deal with it. rArgs holds the call's parameters from index 1. */
++    virtual bool call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool bWrite) = 0;
++    /** A VBA run-time error that On Error and Err.Number see. */
++    static void raise(sal_Int32 nNumber, const OUString& rMessage);
++};
++
++class BasicRegExp final : public BasicScriptingObject
++{
++    OUString maPattern;
++    bool mbGlobal = false;
++    bool mbIgnoreCase = false;
++    bool mbMultiLine = false;
++    SbxObject* implExecute(const OUString& rText);
++    OUString implReplace(const OUString& rText, const OUString& rWith);
++    bool implTest(const OUString& rText);
++    virtual bool call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool bWrite) override;
++
++public:
++    BasicRegExp();
++};
++
++class BasicFileSystemObject final : public BasicScriptingObject
++{
++    virtual bool call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool bWrite) override;
++
++public:
++    BasicFileSystemObject();
++};
++
++class BasicTextStream final : public BasicScriptingObject
++{
++    OUString maUrl;
++    OUString maText; // whole file when reading, pending text when writing
++    sal_Int32 mnPos = 0;
++    sal_Int32 mnLine = 1;
++    sal_Int32 mnColumn = 1;
++    bool mbWrite = false;
++    bool mbAppend = false;
++    bool mbUnicode = false;
++    bool mbOpen = true;
++    void implFlush();
++    virtual ~BasicTextStream() override;
++    virtual bool call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool bWrite) override;
++
++public:
++    /// nMode: 1 read, 2 write, 8 append; nFormat: -1 Unicode, 0 ANSI, -2 system default
++    BasicTextStream(const OUString& rUrl, sal_Int32 nMode, sal_Int32 nFormat);
++    bool isOpen() const { return mbOpen; }
++};
++
++/// The File and Folder objects: their lists are read when asked for.
++class BasicFileItem final : public BasicScriptingObject
++{
++    OUString maUrl;
++    bool mbFolder;
++    SbxObject* implList(bool bSubFolders) const;
++    virtual bool call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool bWrite) override;
++
++public:
++    BasicFileItem(const OUString& rUrl, bool bFolder);
++};
++
++namespace basic::scripting
++{
++/// file URL of a VBA path: backslashes count as separators, relative paths start at the current directory
++OUString pathToUrl(const OUString& rPath);
++OUString urlToPath(const OUString& rUrl);
++OUString nameOf(const OUString& rPath);
++bool isFile(const OUString& rUrl);
++bool isFolder(const OUString& rUrl);
++bool deleteTree(const OUString& rUrl);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/basic/source/classes/sbxregexp.cxx
++++ b/basic/source/classes/sbxregexp.cxx
+@@ -0,0 +1,194 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: VBScript.RegExp for VBA code, on ICU regular expressions, and the base of the scripting objects.
++
++#include <sbxscripting.hxx>
++#include <sbunoobj.hxx>
++#include <basic/sberrors.hxx>
++#include <errobject.hxx>
++#include <runtime.hxx>
++#include <sbintern.hxx>
++#include <unicode/regex.h>
++#include <memory>
++
++constexpr sal_Int32 nErrBadPattern = 5017; // Syntax error in regular expression
++
++void BasicScriptingObject::addMethods(std::initializer_list<OUString> aNames)
++{
++    for (const OUString& rName : aNames)
++        Make(rName, SbxClassType::Method, SbxVARIANT)->SetFlag(SbxFlagBits::DontStore);
++}
++
++void BasicScriptingObject::addProperties(std::initializer_list<OUString> aNames)
++{
++    for (const OUString& rName : aNames)
++        Make(rName, SbxClassType::Property, SbxVARIANT)->SetFlag(SbxFlagBits::DontStore);
++}
++
++void BasicScriptingObject::raise(sal_Int32 nNumber, const OUString& rMessage)
++{
++    if (SbiInstance* pInst = GetSbData()->pInst)
++    {
++        if (SbxErrObject* pErr = static_cast<SbxErrObject*>(SbxErrObject::getErrObject().get()))
++            pErr->setNumberAndDescription(nNumber, rMessage);
++        pInst->ErrorVB(nNumber, rMessage);
++    }
++    else
++        StarBASIC::Error(ERRCODE_BASIC_BAD_ARGUMENT);
++}
++
++void BasicScriptingObject::Notify(SfxBroadcaster& rCst, const SfxHint& rHint)
++{
++    const SbxHint* p = dynamic_cast<const SbxHint*>(&rHint);
++    if (!p)
++        return SbxObject::Notify(rCst, rHint);
++    const SfxHintId nId = p->GetId();
++    if (nId != SfxHintId::BasicDataWanted && nId != SfxHintId::BasicDataChanged)
++        return SbxObject::Notify(rCst, rHint);
++    SbxVariable* pVar = p->GetVar();
++    SbxArray* pArgs = pVar->GetParameters();
++    if (!call(pVar->GetName().toAsciiLowerCase(), *pVar, pArgs, pArgs ? pArgs->Count() : 0, nId == SfxHintId::BasicDataChanged))
++        SbxObject::Notify(rCst, rHint);
++}
++
++BasicRegExp::BasicRegExp()
++    : BasicScriptingObject(u"RegExp"_ustr)
++{
++    addMethods({ u"Test"_ustr, u"Execute"_ustr, u"Replace"_ustr });
++    addProperties({ u"Pattern"_ustr, u"Global"_ustr, u"IgnoreCase"_ustr, u"MultiLine"_ustr });
++}
++
++namespace
++{
++std::unique_ptr<icu::RegexMatcher> makeMatcher(const OUString& rPattern, const OUString& rText, bool bIgnoreCase, bool bMultiLine,
++                                               icu::UnicodeString& rHolder)
++{
++    UErrorCode nStatus = U_ZERO_ERROR;
++    uint32_t nFlags = (bIgnoreCase ? UREGEX_CASE_INSENSITIVE : 0) | (bMultiLine ? UREGEX_MULTILINE : 0);
++    rHolder = icu::UnicodeString(reinterpret_cast<const UChar*>(rText.getStr()), rText.getLength());
++    auto xMatcher = std::make_unique<icu::RegexMatcher>(
++        icu::UnicodeString(reinterpret_cast<const UChar*>(rPattern.getStr()), rPattern.getLength()), rHolder, nFlags, nStatus);
++    return U_FAILURE(nStatus) ? nullptr : std::move(xMatcher);
++}
++
++OUString toOUString(const icu::UnicodeString& rText)
++{
++    return OUString(reinterpret_cast<const sal_Unicode*>(rText.getBuffer()), rText.length());
++}
++
++/// "$&" and literal backslashes in a VBScript replacement, in ICU's syntax
++icu::UnicodeString replacementToIcu(const OUString& rWith)
++{
++    return icu::UnicodeString(reinterpret_cast<const UChar*>(rWith.replaceAll("\\", "\\\\").replaceAll("$&", "$0").getStr()));
++}
++
++SbxObject* makeMatch(icu::RegexMatcher& rMatcher)
++{
++    UErrorCode nStatus = U_ZERO_ERROR;
++    SbxObject* pMatch = new SbxObject(u"Match"_ustr);
++    pMatch->SetFlag(SbxFlagBits::Fixed);
++    pMatch->Make(u"Value"_ustr, SbxClassType::Property, SbxSTRING)->PutString(toOUString(rMatcher.group(nStatus)));
++    pMatch->Make(u"FirstIndex"_ustr, SbxClassType::Property, SbxLONG)->PutLong(rMatcher.start(nStatus));
++    pMatch->Make(u"Length"_ustr, SbxClassType::Property, SbxLONG)->PutLong(rMatcher.end(nStatus) - rMatcher.start(nStatus));
++    BasicDictionary* pSubs = new BasicDictionary(u"SubMatches"_ustr);
++    pSubs->SetIterateItems(true);
++    for (int32_t i = 1; i <= rMatcher.groupCount(); ++i)
++    {
++        SbxVariableRef xKey = new SbxVariable(SbxLONG);
++        xKey->PutLong(i - 1);
++        SbxVariable* pItem = pSubs->GetItemForKey(*xKey);
++        pItem->PutString(rMatcher.start(i, nStatus) < 0 ? OUString() : toOUString(rMatcher.group(i, nStatus)));
++    }
++    SbxVariable* pProp = pMatch->Make(u"SubMatches"_ustr, SbxClassType::Property, SbxOBJECT);
++    pProp->PutObject(pSubs);
++    pMatch->SetDfltProperty(u"Value"_ustr);
++    return pMatch;
++}
++}
++
++bool BasicRegExp::implTest(const OUString& rText)
++{
++    icu::UnicodeString aHolder;
++    auto xMatcher = makeMatcher(maPattern, rText, mbIgnoreCase, mbMultiLine, aHolder);
++    if (!xMatcher)
++    {
++        raise(nErrBadPattern, u"Syntax error in regular expression"_ustr);
++        return false;
++    }
++    UErrorCode nStatus = U_ZERO_ERROR;
++    return xMatcher->find(nStatus) && U_SUCCESS(nStatus);
++}
++
++SbxObject* BasicRegExp::implExecute(const OUString& rText)
++{
++    BasicDictionary* pMatches = new BasicDictionary(u"MatchCollection"_ustr);
++    pMatches->SetIterateItems(true);
++    icu::UnicodeString aHolder;
++    auto xMatcher = makeMatcher(maPattern, rText, mbIgnoreCase, mbMultiLine, aHolder);
++    if (!xMatcher)
++    {
++        raise(nErrBadPattern, u"Syntax error in regular expression"_ustr);
++        return pMatches;
++    }
++    UErrorCode nStatus = U_ZERO_ERROR;
++    sal_Int32 nCount = 0;
++    while (xMatcher->find(nStatus) && U_SUCCESS(nStatus))
++    {
++        SbxVariableRef xKey = new SbxVariable(SbxLONG);
++        xKey->PutLong(nCount++);
++        pMatches->GetItemForKey(*xKey)->PutObject(makeMatch(*xMatcher));
++        if (!mbGlobal)
++            break;
++    }
++    return pMatches;
++}
++
++OUString BasicRegExp::implReplace(const OUString& rText, const OUString& rWith)
++{
++    icu::UnicodeString aHolder;
++    auto xMatcher = makeMatcher(maPattern, rText, mbIgnoreCase, mbMultiLine, aHolder);
++    if (!xMatcher)
++    {
++        raise(nErrBadPattern, u"Syntax error in regular expression"_ustr);
++        return rText;
++    }
++    UErrorCode nStatus = U_ZERO_ERROR;
++    icu::UnicodeString aWith = replacementToIcu(rWith);
++    icu::UnicodeString aOut = mbGlobal ? xMatcher->replaceAll(aWith, nStatus) : xMatcher->replaceFirst(aWith, nStatus);
++    return U_SUCCESS(nStatus) ? toOUString(aOut) : rText;
++}
++
++bool BasicRegExp::call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool bWrite)
++{
++    if (rName == "pattern")
++        bWrite ? void(maPattern = rVar.GetOUString()) : void(rVar.PutString(maPattern));
++    else if (rName == "global")
++        bWrite ? void(mbGlobal = rVar.GetBool()) : void(rVar.PutBool(mbGlobal));
++    else if (rName == "ignorecase")
++        bWrite ? void(mbIgnoreCase = rVar.GetBool()) : void(rVar.PutBool(mbIgnoreCase));
++    else if (rName == "multiline")
++        bWrite ? void(mbMultiLine = rVar.GetBool()) : void(rVar.PutBool(mbMultiLine));
++    else if (rName == "test" && nArgs == 2)
++        rVar.PutBool(implTest(pArgs->Get(1)->GetOUString()));
++    else if (rName == "execute" && nArgs == 2)
++    {
++        SbxFlagBits nFlags = rVar.GetFlags();
++        rVar.ResetFlag(SbxFlagBits::Fixed);
++        rVar.PutObject(implExecute(pArgs->Get(1)->GetOUString()));
++        rVar.SetFlags(nFlags);
++    }
++    else if (rName == "replace" && nArgs == 3)
++        rVar.PutString(implReplace(pArgs->Get(1)->GetOUString(), pArgs->Get(2)->GetOUString()));
++    else
++        return false;
++    return true;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/basic/source/classes/sbxtextstream.cxx
++++ b/basic/source/classes/sbxtextstream.cxx
+@@ -0,0 +1,181 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Scripting.TextStream for VBA code. Reads the whole file; writes reach the file on Close.
++
++#include <sbxscripting.hxx>
++#include <basic/sberrors.hxx>
++#include <osl/file.hxx>
++#include <osl/thread.h>
++#include <rtl/textcvt.h>
++#include <vector>
++
++constexpr sal_Int32 nErrPastEnd = 62; // Input past end of file
++constexpr sal_Int32 nErrBadMode = 54; // Bad file mode
++
++namespace
++{
++std::vector<char> readFile(const OUString& rUrl)
++{
++    std::vector<char> aData;
++    osl::File aFile(rUrl);
++    if (aFile.open(osl_File_OpenFlag_Read) != osl::FileBase::E_None)
++        return aData;
++    sal_uInt64 nSize = 0;
++    aFile.getSize(nSize);
++    aData.resize(nSize);
++    sal_uInt64 nRead = 0;
++    aFile.read(aData.data(), nSize, nRead);
++    aData.resize(nRead);
++    return aData;
++}
++
++/// ANSI text is the system code page; on a UTF-8 system, a file that is not UTF-8 is Windows-1258
++OUString decode(const std::vector<char>& rData, bool bUnicode)
++{
++    const char* p = rData.data();
++    sal_Int32 n = static_cast<sal_Int32>(rData.size());
++    if (n >= 2 && static_cast<unsigned char>(p[0]) == 0xFF && static_cast<unsigned char>(p[1]) == 0xFE)
++        return OUString(reinterpret_cast<const sal_Unicode*>(p + 2), (n - 2) / 2);
++    if (bUnicode)
++        return OUString(reinterpret_cast<const sal_Unicode*>(p), n / 2);
++    if (n >= 3 && static_cast<unsigned char>(p[0]) == 0xEF && static_cast<unsigned char>(p[1]) == 0xBB && static_cast<unsigned char>(p[2]) == 0xBF)
++        return OUString(p + 3, n - 3, RTL_TEXTENCODING_UTF8);
++    rtl_TextEncoding eEnc = osl_getThreadTextEncoding();
++    OUString aOut;
++    if (eEnc == RTL_TEXTENCODING_UTF8
++        && !rtl_convertStringToUString(&aOut.pData, p, n, eEnc,
++                                       RTL_TEXTTOUNICODE_FLAGS_UNDEFINED_ERROR | RTL_TEXTTOUNICODE_FLAGS_MBUNDEFINED_ERROR
++                                           | RTL_TEXTTOUNICODE_FLAGS_INVALID_ERROR))
++        eEnc = RTL_TEXTENCODING_MS_1258;
++    else if (eEnc == RTL_TEXTENCODING_UTF8)
++        return aOut;
++    return OUString(p, n, eEnc);
++}
++}
++
++BasicTextStream::BasicTextStream(const OUString& rUrl, sal_Int32 nMode, sal_Int32 nFormat)
++    : BasicScriptingObject(u"TextStream"_ustr)
++    , maUrl(rUrl)
++    , mbWrite(nMode != 1)
++    , mbAppend(nMode == 8)
++    , mbUnicode(nFormat == -1)
++{
++    addMethods({ u"ReadLine"_ustr, u"ReadAll"_ustr, u"Read"_ustr, u"Write"_ustr, u"WriteLine"_ustr, u"WriteBlankLines"_ustr,
++                 u"Skip"_ustr, u"SkipLine"_ustr, u"Close"_ustr });
++    addProperties({ u"AtEndOfStream"_ustr, u"AtEndOfLine"_ustr, u"Line"_ustr, u"Column"_ustr });
++    if (!mbWrite)
++        maText = decode(readFile(rUrl), mbUnicode);
++    else if (!mbAppend)
++    {
++        // the file exists from the moment it is created, as with Windows
++        osl::File aFile(rUrl);
++        if (aFile.open(osl_File_OpenFlag_Create | osl_File_OpenFlag_Write) == osl::FileBase::E_EXIST)
++        {
++            osl::File::remove(rUrl);
++            aFile.open(osl_File_OpenFlag_Create | osl_File_OpenFlag_Write);
++        }
++        if (mbUnicode)
++        {
++            sal_uInt64 nDone = 0;
++            aFile.write("\xFF\xFE", 2, nDone);
++        }
++    }
++}
++
++BasicTextStream::~BasicTextStream()
++{
++    if (mbOpen)
++        implFlush();
++}
++
++void BasicTextStream::implFlush()
++{
++    if (!mbWrite || maText.isEmpty())
++        return;
++    osl::File aFile(maUrl);
++    if (aFile.open(osl_File_OpenFlag_Write) != osl::FileBase::E_None
++        && aFile.open(osl_File_OpenFlag_Create | osl_File_OpenFlag_Write) != osl::FileBase::E_None)
++        return;
++    sal_uInt64 nSize = 0;
++    aFile.getSize(nSize);
++    aFile.setPos(osl_Pos_Absolut, nSize);
++    sal_uInt64 nDone = 0;
++    if (mbUnicode)
++        aFile.write(maText.getStr(), maText.getLength() * sizeof(sal_Unicode), nDone);
++    else
++    {
++        OString aBytes = OUStringToOString(maText, osl_getThreadTextEncoding());
++        aFile.write(aBytes.getStr(), aBytes.getLength(), nDone);
++    }
++    maText.clear();
++}
++
++bool BasicTextStream::call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool)
++{
++    const sal_Int32 nLen = maText.getLength();
++    if (rName == "close")
++    {
++        implFlush();
++        mbOpen = false;
++    }
++    else if (rName == "write" || rName == "writeline" || rName == "writeblanklines")
++    {
++        if (!mbWrite)
++            raise(nErrBadMode, u"Bad file mode"_ustr);
++        else if (rName == "writeblanklines")
++            for (sal_Int32 i = 0, n = nArgs > 1 ? pArgs->Get(1)->GetLong() : 0; i < n; ++i)
++                maText += "\r\n";
++        else
++            maText += (nArgs > 1 ? pArgs->Get(1)->GetOUString() : OUString()) + (rName == "writeline" ? u"\r\n"_ustr : OUString());
++    }
++    else if (rName == "atendofstream")
++        rVar.PutBool(mnPos >= nLen);
++    else if (rName == "atendofline")
++        rVar.PutBool(mnPos >= nLen || maText[mnPos] == '\r' || maText[mnPos] == '\n');
++    else if (rName == "line")
++        rVar.PutLong(mnLine);
++    else if (rName == "column")
++        rVar.PutLong(mnColumn);
++    else if (mbWrite)
++        raise(nErrBadMode, u"Bad file mode"_ustr);
++    else if (rName == "readall")
++    {
++        rVar.PutString(maText.copy(mnPos));
++        mnPos = nLen;
++    }
++    else if (mnPos >= nLen && (rName == "readline" || rName == "read" || rName == "skipline"))
++        raise(nErrPastEnd, u"Input past end of file"_ustr);
++    else if (rName == "readline" || rName == "skipline")
++    {
++        sal_Int32 nEnd = mnPos;
++        while (nEnd < nLen && maText[nEnd] != '\r' && maText[nEnd] != '\n')
++            ++nEnd;
++        if (rName == "readline")
++            rVar.PutString(maText.copy(mnPos, nEnd - mnPos));
++        if (nEnd < nLen && maText[nEnd] == '\r' && nEnd + 1 < nLen && maText[nEnd + 1] == '\n')
++            ++nEnd;
++        mnPos = nEnd + 1;
++        ++mnLine;
++        mnColumn = 1;
++    }
++    else if ((rName == "read" || rName == "skip") && nArgs > 1)
++    {
++        sal_Int32 nCount = std::min(pArgs->Get(1)->GetLong(), nLen - mnPos);
++        if (rName == "read")
++            rVar.PutString(maText.copy(mnPos, nCount));
++        mnPos += nCount;
++        mnColumn += nCount;
++    }
++    else
++        return false;
++    return true;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/basic/source/classes/sbxfso.cxx
++++ b/basic/source/classes/sbxfso.cxx
+@@ -0,0 +1,128 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Scripting.FileSystemObject for VBA code, on every platform.
++
++#include <sbxscripting.hxx>
++#include <basic/sberrors.hxx>
++#include <osl/file.hxx>
++#include <comphelper/random.hxx>
++
++constexpr sal_Int32 nErrFileNotFound = 53;
++constexpr sal_Int32 nErrPathNotFound = 76;
++constexpr sal_Int32 nErrFileExists = 58;
++
++using namespace basic::scripting;
++
++BasicFileSystemObject::BasicFileSystemObject()
++    : BasicScriptingObject(u"FileSystemObject"_ustr)
++{
++    addMethods({ u"FileExists"_ustr, u"FolderExists"_ustr, u"GetFile"_ustr, u"GetFolder"_ustr, u"GetFileName"_ustr, u"GetBaseName"_ustr,
++                 u"GetExtensionName"_ustr, u"GetParentFolderName"_ustr, u"GetAbsolutePathName"_ustr, u"BuildPath"_ustr, u"GetTempName"_ustr,
++                 u"CreateFolder"_ustr, u"DeleteFile"_ustr, u"DeleteFolder"_ustr, u"CopyFile"_ustr, u"MoveFile"_ustr, u"CreateTextFile"_ustr,
++                 u"OpenTextFile"_ustr });
++}
++
++bool BasicFileSystemObject::call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool)
++{
++    const OUString aArg = nArgs > 1 ? pArgs->Get(1)->GetOUString() : OUString();
++    const OUString aUrl = nArgs > 1 ? pathToUrl(aArg) : OUString();
++    auto putObject = [&rVar](SbxObject* pObj) {
++        SbxFlagBits nFlags = rVar.GetFlags();
++        rVar.ResetFlag(SbxFlagBits::Fixed);
++        rVar.PutObject(pObj);
++        rVar.SetFlags(nFlags);
++    };
++    if (rName == "fileexists") rVar.PutBool(isFile(aUrl));
++    else if (rName == "folderexists") rVar.PutBool(isFolder(aUrl));
++    else if (rName == "getfilename") rVar.PutString(nameOf(aArg));
++    else if (rName == "getbasename" || rName == "getextensionname")
++    {
++        OUString aName = nameOf(aArg);
++        sal_Int32 nDot = aName.lastIndexOf('.');
++        if (rName == "getbasename")
++            rVar.PutString(nDot < 0 ? aName : aName.copy(0, nDot));
++        else
++            rVar.PutString(nDot < 0 ? OUString() : aName.copy(nDot + 1));
++    }
++    else if (rName == "getparentfoldername")
++    {
++        OUString aPath = aArg.replace('\\', '/');
++        sal_Int32 nCut = aPath.lastIndexOf('/');
++        rVar.PutString(nCut <= 0 ? OUString() : aArg.copy(0, nCut));
++    }
++    else if (rName == "getabsolutepathname") rVar.PutString(urlToPath(aUrl));
++    else if (rName == "buildpath" && nArgs > 2)
++    {
++#ifdef _WIN32
++        constexpr sal_Unicode cSep = '\\';
++#else
++        constexpr sal_Unicode cSep = '/';
++#endif
++        const bool bHasSep = aArg.endsWith("/") || aArg.endsWith("\\");
++        rVar.PutString(aArg + (bHasSep || aArg.isEmpty() ? OUString() : OUString(cSep)) + pArgs->Get(2)->GetOUString());
++    }
++    else if (rName == "gettempname") rVar.PutString("rad" + OUString::number(comphelper::rng::uniform_int_distribution(10000, 99999)) + ".tmp");
++    else if (rName == "getfile" || rName == "getfolder")
++    {
++        const bool bFolder = rName == "getfolder";
++        if (bFolder ? !isFolder(aUrl) : !isFile(aUrl))
++            raise(bFolder ? nErrPathNotFound : nErrFileNotFound, bFolder ? u"Path not found"_ustr : u"File not found"_ustr);
++        else
++            putObject(new BasicFileItem(aUrl, bFolder));
++    }
++    else if (rName == "createfolder")
++    {
++        if (osl::Directory::create(aUrl) == osl::FileBase::E_EXIST)
++            raise(nErrFileExists, u"File already exists"_ustr);
++        else
++            putObject(new BasicFileItem(aUrl, true));
++    }
++    else if (rName == "deletefile")
++    {
++        if (osl::File::remove(aUrl) != osl::FileBase::E_None)
++            raise(nErrFileNotFound, u"File not found"_ustr);
++    }
++    else if (rName == "deletefolder")
++    {
++        if (!deleteTree(aUrl))
++            raise(nErrPathNotFound, u"Path not found"_ustr);
++    }
++    else if ((rName == "copyfile" || rName == "movefile") && nArgs > 2)
++    {
++        OUString aDest = pathToUrl(pArgs->Get(2)->GetOUString());
++        if (isFolder(aDest))
++            aDest += (aDest.endsWith("/") ? u""_ustr : u"/"_ustr) + nameOf(aUrl);
++        if (rName == "copyfile" && nArgs > 3 && !pArgs->Get(3)->GetBool() && isFile(aDest))
++            raise(nErrFileExists, u"File already exists"_ustr);
++        else if ((rName == "copyfile" ? osl::File::copy(aUrl, aDest) : osl::File::move(aUrl, aDest)) != osl::FileBase::E_None)
++            raise(nErrFileNotFound, u"File not found"_ustr);
++    }
++    else if (rName == "createtextfile")
++    {
++        if (nArgs > 2 && !pArgs->Get(2)->GetBool() && isFile(aUrl))
++            raise(nErrFileExists, u"File already exists"_ustr);
++        else
++            putObject(new BasicTextStream(aUrl, 2, nArgs > 3 && pArgs->Get(3)->GetBool() ? -1 : 0));
++    }
++    else if (rName == "opentextfile")
++    {
++        const sal_Int32 nMode = nArgs > 2 ? pArgs->Get(2)->GetLong() : 1;
++        const bool bCreate = nArgs > 3 && pArgs->Get(3)->GetBool();
++        if (!isFile(aUrl) && !bCreate)
++            raise(nErrFileNotFound, u"File not found"_ustr);
++        else
++            putObject(new BasicTextStream(aUrl, nMode, nArgs > 4 ? pArgs->Get(4)->GetLong() : 0));
++    }
++    else
++        return false;
++    return true;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/basic/source/classes/sbxfsitems.cxx
++++ b/basic/source/classes/sbxfsitems.cxx
+@@ -0,0 +1,174 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: paths and the File and Folder objects of Scripting.FileSystemObject.
++
++#include <sbxscripting.hxx>
++#include <sbunoobj.hxx>
++#include <basic/sberrors.hxx>
++#include <osl/file.hxx>
++#include <osl/process.h>
++
++namespace basic::scripting
++{
++OUString pathToUrl(const OUString& rPath)
++{
++    OUString aPath = rPath;
++#ifndef _WIN32
++    aPath = aPath.replace('\\', '/');
++#endif
++    if (aPath.startsWithIgnoreAsciiCase("file:"))
++        return aPath;
++    OUString aBase, aUrl;
++    osl_getProcessWorkingDir(&aBase.pData);
++    if (osl::FileBase::getFileURLFromSystemPath(aPath, aUrl) != osl::FileBase::E_None)
++        aUrl = aPath;
++    OUString aAbs;
++    return osl::FileBase::getAbsoluteFileURL(aBase, aUrl, aAbs) == osl::FileBase::E_None ? aAbs : aUrl;
++}
++
++OUString urlToPath(const OUString& rUrl)
++{
++    OUString aPath;
++    return osl::FileBase::getSystemPathFromFileURL(rUrl, aPath) == osl::FileBase::E_None ? aPath : rUrl;
++}
++
++int itemKind(const OUString& rUrl) // 0 none, 1 file, 2 folder
++{
++    osl::DirectoryItem aItem;
++    if (osl::DirectoryItem::get(rUrl, aItem) != osl::FileBase::E_None)
++        return 0;
++    osl::FileStatus aStatus(osl_FileStatus_Mask_Type);
++    if (aItem.getFileStatus(aStatus) != osl::FileBase::E_None)
++        return 0;
++    return aStatus.getFileType() == osl::FileStatus::Directory ? 2 : 1;
++}
++
++bool deleteTree(const OUString& rUrl)
++{
++    osl::Directory aDir(rUrl);
++    if (aDir.open() != osl::FileBase::E_None)
++        return false;
++    osl::DirectoryItem aItem;
++    while (aDir.getNextItem(aItem) == osl::FileBase::E_None)
++    {
++        osl::FileStatus aStatus(osl_FileStatus_Mask_Type | osl_FileStatus_Mask_FileURL);
++        if (aItem.getFileStatus(aStatus) != osl::FileBase::E_None)
++            continue;
++        if (aStatus.getFileType() == osl::FileStatus::Directory)
++            deleteTree(aStatus.getFileURL());
++        else
++            osl::File::remove(aStatus.getFileURL());
++    }
++    aDir.close();
++    return osl::Directory::remove(rUrl) == osl::FileBase::E_None;
++}
++
++OUString nameOf(const OUString& rPath)
++{
++    OUString aPath = rPath.replace('\\', '/');
++    while (aPath.endsWith("/") && aPath.getLength() > 1)
++        aPath = aPath.copy(0, aPath.getLength() - 1);
++    return aPath.copy(aPath.lastIndexOf('/') + 1);
++}
++
++double oleDate(const TimeValue& rTime)
++{
++    TimeValue aLocal = rTime;
++    osl_getLocalTimeFromSystemTime(&rTime, &aLocal);
++    return aLocal.Seconds / 86400.0 + 25569.0;
++}
++
++bool isFile(const OUString& rUrl) { return itemKind(rUrl) == 1; }
++bool isFolder(const OUString& rUrl) { return itemKind(rUrl) == 2; }
++}
++
++using namespace basic::scripting;
++
++BasicFileItem::BasicFileItem(const OUString& rUrl, bool bFolder)
++    : BasicScriptingObject(bFolder ? u"Folder"_ustr : u"File"_ustr)
++    , maUrl(rUrl)
++    , mbFolder(bFolder)
++{
++    addProperties({ u"Name"_ustr, u"Path"_ustr, u"Size"_ustr, u"DateLastModified"_ustr, u"ParentFolder"_ustr, u"Type"_ustr });
++    addMethods({ u"Delete"_ustr });
++    if (bFolder)
++        addProperties({ u"Files"_ustr, u"SubFolders"_ustr });
++    SetDfltProperty(u"Path"_ustr);
++}
++
++SbxObject* BasicFileItem::implList(bool bSubFolders) const
++{
++    BasicDictionary* pList = new BasicDictionary(bSubFolders ? u"Folders"_ustr : u"Files"_ustr);
++    pList->SetIterateItems(true);
++    osl::Directory aDir(maUrl);
++    if (aDir.open() != osl::FileBase::E_None)
++        return pList;
++    osl::DirectoryItem aEntry;
++    while (aDir.getNextItem(aEntry) == osl::FileBase::E_None)
++    {
++        osl::FileStatus aStatus(osl_FileStatus_Mask_Type | osl_FileStatus_Mask_FileURL);
++        if (aEntry.getFileStatus(aStatus) != osl::FileBase::E_None
++            || (aStatus.getFileType() == osl::FileStatus::Directory) != bSubFolders)
++            continue;
++        SbxVariableRef xKey = new SbxVariable(SbxSTRING);
++        xKey->PutString(nameOf(aStatus.getFileURL()));
++        pList->GetItemForKey(*xKey)->PutObject(new BasicFileItem(aStatus.getFileURL(), bSubFolders));
++    }
++    return pList;
++}
++
++bool BasicFileItem::call(const OUString& rName, SbxVariable& rVar, SbxArray*, sal_uInt32, bool)
++{
++    auto putObject = [&rVar](SbxObject* pObj) {
++        SbxFlagBits nFlags = rVar.GetFlags();
++        rVar.ResetFlag(SbxFlagBits::Fixed);
++        rVar.PutObject(pObj);
++        rVar.SetFlags(nFlags);
++    };
++    const OUString aPath = urlToPath(maUrl);
++    if (rName == "name")
++        rVar.PutString(nameOf(aPath));
++    else if (rName == "path")
++        rVar.PutString(aPath);
++    else if (rName == "type")
++        rVar.PutString(mbFolder ? u"File folder"_ustr : u"File"_ustr);
++    else if (rName == "size" || rName == "datelastmodified")
++    {
++        osl::DirectoryItem aItem;
++        osl::FileStatus aStatus(osl_FileStatus_Mask_FileSize | osl_FileStatus_Mask_ModifyTime);
++        if (osl::DirectoryItem::get(maUrl, aItem) != osl::FileBase::E_None || aItem.getFileStatus(aStatus) != osl::FileBase::E_None)
++            raise(53, u"File not found"_ustr);
++        else if (rName == "size")
++            rVar.PutDouble(static_cast<double>(aStatus.getFileSize()));
++        else
++            rVar.PutDate(oleDate(aStatus.getModifyTime()));
++    }
++    else if (rName == "parentfolder")
++    {
++        sal_Int32 nCut = maUrl.lastIndexOf('/');
++        putObject(new BasicFileItem(maUrl.copy(0, nCut), true));
++    }
++    else if (rName == "files" && mbFolder)
++        putObject(implList(false));
++    else if (rName == "subfolders" && mbFolder)
++        putObject(implList(true));
++    else if (rName == "delete")
++    {
++        if (mbFolder)
++            deleteTree(maUrl);
++        else
++            osl::File::remove(maUrl);
++    }
++    else
++        return false;
++    return true;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

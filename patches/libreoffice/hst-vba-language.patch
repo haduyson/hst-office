@@ -1,0 +1,903 @@
+HST Office: VBA conditional compilation, Debug.Print, Option Compare Text, compile on demand.
+
+Found running real macro files; each one stopped or changed many macros:
+- #If, #ElseIf, #Else, #End If and #Const were skipped, so both branches compiled, and a Declare in each
+  branch of #If VBA7 stopped the module with "already defined" (20% of files use #If). Now only the
+  branch that applies compiles; VBA6, VBA7, Win32 and Win64 are true, as in 64-bit Office for Windows.
+- Debug.Print (18% of files) failed with "object not set" and Debug.Print a; b did not compile. The
+  expressions now run; the text goes nowhere, as there is no Immediate window. Debug.Assert too.
+- Option Compare Text had no effect on Like, =, <>, InStr and the other text functions.
+- One compile error in any module stopped every macro of the project. As in VBA's compile on demand, it now
+  only stops macros started from that module, which report it.
+
+
+Also from the same measurement:
+- Filter was missing.
+- SaveSetting, GetSetting, DeleteSetting keep settings in a file in the user profile.
+- FormatNumber groups digits by default, as in Excel.
+- Collection.Add with a key in use gives error 457.
+- Print # writes numbers with VBA's blanks: none before a minus sign, one after.
+- Match is a real object: Match.SubMatches(1) works.
+
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/language_cases.py, regression_cases.py.
+---
+--- a/basic/Library_sb.mk
++++ b/basic/Library_sb.mk
+@@ -76,12 +76,15 @@
+ 	basic/source/classes/sbunoobj \
+ 	basic/source/classes/sbxdictionary \
+ 	basic/source/classes/sbxregexp \
++	basic/source/classes/sbxscriptingobject \
++	basic/source/classes/sbxvbasettings \
+ 	basic/source/classes/sbxtextstream \
+ 	basic/source/classes/sbxfso \
+ 	basic/source/classes/sbxfsitems \
+ 	basic/source/classes/sbxmod \
+ 	basic/source/comp/buffer \
+ 	basic/source/comp/codegen \
++	basic/source/comp/conditional \
+ 	basic/source/comp/dim \
+ 	basic/source/comp/exprtree \
+ 	basic/source/comp/exprgen \
+--- a/basic/source/comp/conditional.cxx
++++ b/basic/source/comp/conditional.cxx
+@@ -0,0 +1,180 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: VBA conditional compilation. Both branches used to compile, so #If VBA7 and #If Win64 with a
++// Declare in each stopped the module with "already defined". Code sees 64-bit Office for Windows.
++
++#include <conditional.hxx>
++#include <rtl/character.hxx>
++#include <rtl/math.hxx>
++#include <string_view>
++
++namespace
++{
++/// Recursive descent over: Or Xor, And, Not, comparisons, parentheses, numbers, True False, names.
++class Evaluator
++{
++    std::u16string_view m;
++    size_t mn = 0;
++    const std::map<OUString, double>& mrConstants;
++
++    void skipSpace()
++    {
++        while (mn < m.size() && (m[mn] == ' ' || m[mn] == '\t'))
++            ++mn;
++    }
++
++    bool word(std::u16string_view rWord)
++    {
++        skipSpace();
++        if (m.size() - mn < rWord.size())
++            return false;
++        for (size_t i = 0; i < rWord.size(); ++i)
++            if (rtl::toAsciiLowerCase(m[mn + i]) != rWord[i])
++                return false;
++        size_t nEnd = mn + rWord.size();
++        if (rtl::isAsciiAlpha(rWord[0]) && nEnd < m.size() && (rtl::isAsciiAlphanumeric(m[nEnd]) || m[nEnd] == '_'))
++            return false;
++        mn = nEnd;
++        return true;
++    }
++
++    double atom()
++    {
++        if (word(u"("))
++        {
++            double f = orExpr();
++            word(u")");
++            return f;
++        }
++        skipSpace();
++        size_t nStart = mn;
++        if (mn < m.size() && rtl::isAsciiDigit(m[mn]))
++        {
++            while (mn < m.size() && (rtl::isAsciiDigit(m[mn]) || m[mn] == '.'))
++                ++mn;
++            return rtl::math::stringToDouble(OUString(m.substr(nStart, mn - nStart)), '.', ',');
++        }
++        while (mn < m.size() && (rtl::isAsciiAlphanumeric(m[mn]) || m[mn] == '_'))
++            ++mn;
++        OUString aName = OUString(m.substr(nStart, mn - nStart)).toAsciiLowerCase();
++        if (aName == "true")
++            return -1;
++        auto it = mrConstants.find(aName);
++        return it == mrConstants.end() ? 0 : it->second; // an undeclared name is False, like Empty
++    }
++
++    double unary()
++    {
++        if (word(u"not"))
++            return ~static_cast<int>(unary());
++        if (word(u"-"))
++            return -unary();
++        return atom();
++    }
++
++    double comparison()
++    {
++        double f = unary();
++        if (word(u"<>"))
++            return f != unary() ? -1 : 0;
++        if (word(u"<="))
++            return f <= unary() ? -1 : 0;
++        if (word(u">="))
++            return f >= unary() ? -1 : 0;
++        if (word(u"="))
++            return f == unary() ? -1 : 0;
++        if (word(u"<"))
++            return f < unary() ? -1 : 0;
++        if (word(u">"))
++            return f > unary() ? -1 : 0;
++        return f;
++    }
++
++    double andExpr()
++    {
++        double f = comparison();
++        while (word(u"and"))
++            f = static_cast<int>(f) & static_cast<int>(comparison());
++        return f;
++    }
++
++public:
++    Evaluator(std::u16string_view rExpr, const std::map<OUString, double>& rConstants)
++        : m(rExpr)
++        , mrConstants(rConstants)
++    {
++    }
++
++    double orExpr()
++    {
++        double f = andExpr();
++        while (true)
++        {
++            if (word(u"or"))
++                f = static_cast<int>(f) | static_cast<int>(andExpr());
++            else if (word(u"xor"))
++                f = static_cast<int>(f) ^ static_cast<int>(andExpr());
++            else
++                return f;
++        }
++    }
++};
++}
++
++SbiConditional::SbiConditional()
++{
++    for (const OUString& rName : { u"vba6"_ustr, u"vba7"_ustr, u"win32"_ustr, u"win64"_ustr })
++        maConstants[rName] = -1;
++}
++
++double SbiConditional::evaluate(std::u16string_view rExpr) const { return Evaluator(rExpr, maConstants).orExpr(); }
++
++bool SbiConditional::skipLine(const OUString& rLine)
++{
++    const bool bActive = maBlocks.empty() || (maBlocks.back().bActive && maBlocks.back().bParent);
++    OUString aLine = rLine.trim();
++    if (!aLine.startsWith("#"))
++        return !bActive;
++    // up to a comment, and without the Then
++    sal_Int32 nQuote = aLine.indexOf('\'');
++    if (nQuote >= 0)
++        aLine = aLine.copy(0, nQuote).trim();
++    OUString aLower = aLine.copy(1).trim().toAsciiLowerCase();
++    if (aLower.endsWith(" then"))
++        aLower = aLower.copy(0, aLower.getLength() - 5);
++    if (aLower.startsWith("if ") || aLower.startsWith("if("))
++    {
++        const bool bValue = bActive && evaluate(aLower.subView(2)) != 0;
++        maBlocks.push_back({ bValue, bValue, bActive });
++    }
++    else if ((aLower.startsWith("elseif ") || aLower.startsWith("elseif(")) && !maBlocks.empty())
++    {
++        Block& rBlock = maBlocks.back();
++        rBlock.bActive = !rBlock.bTaken && rBlock.bParent && evaluate(aLower.subView(6)) != 0;
++        rBlock.bTaken = rBlock.bTaken || rBlock.bActive;
++    }
++    else if (aLower == "else" && !maBlocks.empty())
++    {
++        Block& rBlock = maBlocks.back();
++        rBlock.bActive = !rBlock.bTaken;
++        rBlock.bTaken = true;
++    }
++    else if ((aLower.startsWith("end if") || aLower == "endif") && !maBlocks.empty())
++        maBlocks.pop_back();
++    else if (aLower.startsWith("const ") && bActive)
++    {
++        sal_Int32 nEq = aLower.indexOf('=');
++        if (nEq > 0)
++            maConstants[aLower.copy(6, nEq - 6).trim()] = evaluate(aLower.subView(nEq + 1));
++    }
++    return true;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/basic/source/inc/conditional.hxx
++++ b/basic/source/inc/conditional.hxx
+@@ -0,0 +1,38 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: VBA conditional compilation (#If, #ElseIf, #Else, #End If, #Const).
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <map>
++#include <vector>
++
++class SbiConditional
++{
++    struct Block
++    {
++        bool bActive; // this branch compiles
++        bool bTaken; // a branch of this #If has compiled
++        bool bParent; // the enclosing code compiles
++    };
++    std::vector<Block> maBlocks;
++    std::map<OUString, double> maConstants;
++
++    double evaluate(std::u16string_view rExpr) const;
++
++public:
++    SbiConditional();
++    /** Whether the line is a directive or lies in a branch that does not compile. Either way the
++        scanner sees an empty line, so line numbers stay those of the source. */
++    bool skipLine(const OUString& rLine);
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/basic/source/inc/scanner.hxx
++++ b/basic/source/inc/scanner.hxx
+@@ -20,6 +20,7 @@
+ #pragma once
+ 
+ #include <basic/sbxdef.hxx>
++#include <conditional.hxx>
+ #include <comphelper/errcode.hxx>
+ 
+ // The scanner is stand-alone, i. e. it can be used from everywhere.
+@@ -60,6 +61,7 @@
+     bool   bHash;                       // true: # has been read in
+     bool   bError;                      // true: generate error
+     bool   bCompatible;                 // true: OPTION compatible
++    SbiConditional maConditional;       // HST: #If, #Const
+     bool   bVBASupportOn;               // true: OPTION VBASupport 1 otherwise default False
+     bool   bPrevLineExtentsComment;     // true: Previous line is comment and ends on "... _"
+     bool   bClosingUnderscore;          // true: Closing underscore followed by end of line
+--- a/basic/source/comp/scanner.cxx
++++ b/basic/source/comp/scanner.cxx
+@@ -79,6 +79,13 @@
+         bAbort = true;
+         return;
+     }
++    // HST: a module the running macro did not start from, see StarBASIC::InitAllModules
++    if( GetSbData()->bQuietCompile )
++    {
++        bAbort = bError = true;
++        ++nErrors;
++        return;
++    }
+     if( !bError )
+     {
+         bool bRes = true;
+@@ -191,6 +198,9 @@
+     // tdf#149402 - check if line ends with a whitespace
+     bLineEndsWithWhitespace = (n > nEnd);
+     aLine = aBuf.copy(nBufPos, nEnd - nBufPos);
++    // HST: only the branch of #If that applies compiles
++    if (bVBASupportOn && maConditional.skipLine(aLine))
++        aLine.clear();
+ 
+     // Fast-forward past the line ending
+     if(n + 1 < nLen && aBuf[n] == '\r' && aBuf[n + 1] == '\n')
+--- a/basic/source/inc/sbintern.hxx
++++ b/basic/source/inc/sbintern.hxx
+@@ -129,6 +129,8 @@
+     OUString        aErrMsg;        // buffer for GetErrorText()
+     std::unique_ptr<::utl::TransliterationWrapper> pTransliterationWrapper;    // For StrComp
+     bool            bBlockCompilerError;
++    bool            bQuietCompile = false; // HST: compile errors end the module's compile without a message
++    SbModule*       pStartedModule = nullptr; // HST: the module a macro starts in
+     StarBASIC*      pMSOMacroRuntimLib; // Lib containing MSO Macro Runtime API entry symbols
+ 
+     SbiGlobals();
+--- a/basic/source/classes/sbxmod.cxx
++++ b/basic/source/classes/sbxmod.cxx
+@@ -1409,7 +1409,9 @@
+     if( !pBasic )
+         return;
+ 
++    GetSbData()->pStartedModule = this;
+     pBasic->InitAllModules();
++    GetSbData()->pStartedModule = nullptr;
+ 
+     SbxObject* pParent_ = pBasic->GetParent();
+     if( !pParent_ )
+--- a/basic/source/inc/parser.hxx
++++ b/basic/source/inc/parser.hxx
+@@ -69,6 +69,7 @@
+     SbiSymPool*   pPool;
+     short         nBase;            // OPTION BASE-value
+     bool          bExplicit;        // true: OPTION EXPLICIT
++    bool          bCompareText = false; // HST: OPTION COMPARE TEXT
+     bool          bClassModule;     // true: OPTION ClassModule
+     std::vector<OUString> aIfaceVector;     // Holds all interfaces implemented by a class module
+     std::vector<OUString> aRequiredTypes;   // Types used in Dim As New <type> outside subs
+@@ -120,6 +121,7 @@
+     void Open();                    // OPEN
+     void Option();                  // OPTION
+     void Print();                   // PRINT, PRINT #
++    void DebugStatement();          // HST: Debug.Print, Debug.Assert
+     void SubFunc();                 // SUB / FUNCTION
+     void Resume();                  // RESUME
+     void Return();                  // RETURN
+--- a/basic/source/comp/parser.cxx
++++ b/basic/source/comp/parser.cxx
+@@ -384,6 +384,22 @@
+             ePush = eCurTok;
+         }
+     }
++    // HST: Debug.Print a; b and Debug.Assert x: no Debug object exists, and the list is not an expression
++    if( eCurTok == SYMBOL && bVBASupportOn && pProc )
++    {
++        SbiTokenizer tokens( *this );
++        tokens.Next();
++        if( tokens.GetSym().equalsIgnoreAsciiCase( "Debug" ) && tokens.Peek() == DOT && !pPool->Find( u"Debug"_ustr ) )
++        {
++            tokens.Next();
++            tokens.Next();
++            if( tokens.GetSym().equalsIgnoreAsciiCase( "Print" ) || tokens.GetSym().equalsIgnoreAsciiCase( "Assert" ) )
++            {
++                DebugStatement();
++                return true;
++            }
++        }
++    }
+     // if there's a symbol, it's either a variable (LET)
+     // or a SUB-procedure (CALL without brackets)
+     // DOT for assignments in the WITH-block: .A=5
+@@ -787,6 +803,7 @@
+             }
+             else if( eTok == SYMBOL && GetSym().equalsIgnoreAsciiCase("text") )
+             {
++                bCompareText = true; // HST
+             }
+             else
+             {
+--- a/basic/source/comp/io.cxx
++++ b/basic/source/comp/io.cxx
+@@ -72,6 +72,27 @@
+         aGen.Gen( SbiOpcode::CHAN0_ );
+ }
+ 
++// HST: Debug.Print [expr {; | , expr}], Debug.Assert expr. The expressions run; the Immediate window
++// of the VBA editor does not exist here, so the text goes nowhere.
++
++void SbiParser::DebugStatement()
++{
++    Next(); // Debug
++    aGen.Statement();
++    Next(); // .
++    Next(); // Print, Assert
++    while( !bAbort && !IsEoln( Peek() ) && Peek() != ELSE )
++    {
++        SbiExpression aExpr( this );
++        aExpr.Gen();
++        aGen.Gen( SbiOpcode::GET_ );
++        if( Peek() == COMMA || Peek() == SEMICOLON )
++            Next();
++        else
++            break;
++    }
++}
++
+ // WRITE #chan, expr, ...
+ 
+ void SbiParser::Write()
+--- a/basic/source/comp/codegen.cxx
++++ b/basic/source/comp/codegen.cxx
+@@ -144,6 +144,8 @@
+     // OPTION BASE-Value:
+     p->nDimBase = pParser->nBase;
+     // OPTION take over the EXPLICIT-Flag
++    if( pParser->bCompareText ) // HST
++        p->SetFlag( SbiImageFlags::COMPARETEXT );
+     if( pParser->bExplicit )
+         p->SetFlag( SbiImageFlags::EXPLICIT );
+ 
+--- a/basic/source/runtime/runtime.cxx
++++ b/basic/source/runtime/runtime.cxx
+@@ -1388,6 +1388,16 @@
+         }
+ 
+     }
++    // HST: Option Compare Text
++    if( bVBAEnabled && IsImageFlag( SbiImageFlags::COMPARETEXT ) && p1->GetType() == SbxSTRING && p2->GetType() == SbxSTRING )
++    {
++        SbxVariableRef xFold1 = new SbxVariable( SbxSTRING );
++        xFold1->PutString( SbxVariable::NameToCaseInsensitiveName( p1->GetOUString() ) );
++        SbxVariableRef xFold2 = new SbxVariable( SbxSTRING );
++        xFold2->PutString( SbxVariable::NameToCaseInsensitiveName( p2->GetOUString() ) );
++        p1 = xFold1;
++        p2 = xFold2;
++    }
+     static SbxVariable* pTRUE = nullptr;
+     static SbxVariable* pFALSE = nullptr;
+     // why do this on non-windows ?
+@@ -2711,6 +2721,13 @@
+     if( p->GetType() >= SbxINTEGER && p->GetType() <= SbxDOUBLE )
+     {
+         s = " ";    // one blank before
++        // HST: VBA puts no blank before a minus sign, and one after every number
++        if( bVBAEnabled )
++        {
++            if( s1.startsWith( "-" ) )
++                s.clear();
++            s1 += " ";
++        }
+     }
+     s += s1;
+     pIosys->Write( s );
+--- a/basic/source/classes/sb.cxx
++++ b/basic/source/classes/sb.cxx
+@@ -1163,9 +1163,14 @@
+     SolarMutexGuard guard;
+ 
+     // Init own modules
++    // HST: VBA compiles on demand: an error in one module does not stop macros of the others. It
++    // is reported when the macro is started from that module.
+     for (const auto& pModule: pModules)
+     {
++        GetSbData()->bQuietCompile = GetSbData()->pStartedModule && pModule.get() != GetSbData()->pStartedModule
++                                     && pModule->IsVBASupport();
+         pModule->Compile();
++        GetSbData()->bQuietCompile = false;
+     }
+     // compile modules first then RunInit ( otherwise there is
+     // can be order dependency, e.g. classmodule A has a member
+@@ -2154,7 +2159,11 @@
+                 OUString aKey = pKey->GetOUString();
+                 if( implGetIndexForName( aKey ) != -1 )
+                 {
+-                    SetError( ERRCODE_BASIC_BAD_ARGUMENT );
++                    // HST: VBA's error for a key in use, which code handles by number
++                    if( SbiRuntime::isVBAEnabled() )
++                        BasicScriptingObject::raise( 457, u"This key is already associated with an element of this collection"_ustr );
++                    else
++                        SetError( ERRCODE_BASIC_BAD_ARGUMENT );
+                     return;
+                 }
+                 pNewItem->SetName( aKey );
+--- a/basic/source/runtime/stdobj.cxx
++++ b/basic/source/runtime/stdobj.cxx
+@@ -331,6 +331,11 @@
+     arg(u"Channel", SbxLONG),
+ 
+ { u"Ddeterminateall",               SbxNULL,         FUNCTION_,        SbRtl_DDETerminateAll      },
++{ u"DeleteSetting",                 SbxEMPTY,    3 | FUNCTION_ | COMPATONLY_, SbRtl_DeleteSetting },
++    arg(u"AppName",  SbxSTRING),
++    arg(u"Section",  SbxSTRING),
++    arg(u"Key",      SbxSTRING, OPT_),
++
+ { u"DimArray",                      SbxOBJECT,       FUNCTION_,        SbRtl_DimArray             },
+ { u"Dir",                           SbxSTRING,   2 | FUNCTION_,        SbRtl_Dir                  },
+     arg(u"Pathname",   SbxSTRING,  OPT_),
+@@ -383,6 +388,12 @@
+ { u"FileLen",                       SbxLONG,     1 | FUNCTION_,        SbRtl_FileLen              },
+     arg(u"filename", SbxSTRING),
+ 
++{ u"Filter",                        SbxOBJECT,   4 | FUNCTION_ | COMPATONLY_, SbRtl_Filter        },
++    arg(u"SourceArray", SbxOBJECT),
++    arg(u"Match",       SbxSTRING),
++    arg(u"Include",     SbxBOOL,    OPT_),
++    arg(u"Compare",     SbxINTEGER, OPT_),
++
+ { u"FindObject",                    SbxOBJECT,   1 | FUNCTION_,        SbRtl_FindObject           },
+     arg(u"Name", SbxSTRING),
+ 
+@@ -449,6 +460,12 @@
+ { u"GetGUIVersion",                 SbxLONG,         FUNCTION_,        SbRtl_GetGUIVersion        },
+ { u"GetPathSeparator",              SbxSTRING,       FUNCTION_,        SbRtl_GetPathSeparator     },
+ { u"GetProcessServiceManager",      SbxOBJECT,   0 | FUNCTION_,    SbRtl_GetProcessServiceManager },
++{ u"GetSetting",                    SbxSTRING,   4 | FUNCTION_ | COMPATONLY_, SbRtl_GetSetting    },
++    arg(u"AppName", SbxSTRING),
++    arg(u"Section", SbxSTRING),
++    arg(u"Key",     SbxSTRING),
++    arg(u"Default", SbxSTRING, OPT_),
++
+ { u"GetSolarVersion",               SbxLONG,         FUNCTION_,        SbRtl_GetSolarVersion      },
+ { u"GetSystemTicks",                SbxLONG,         FUNCTION_,        SbRtl_GetSystemTicks       },
+ { u"GetSystemType",                 SbxINTEGER,      FUNCTION_,        SbRtl_GetSystemType        },
+@@ -742,6 +759,12 @@
+     arg(u"object", SbxOBJECT),
+     arg(u"string", SbxSTRING),
+ 
++{ u"SaveSetting",                   SbxEMPTY,    4 | FUNCTION_ | COMPATONLY_, SbRtl_SaveSetting   },
++    arg(u"AppName", SbxSTRING),
++    arg(u"Section", SbxSTRING),
++    arg(u"Key",     SbxSTRING),
++    arg(u"Setting", SbxSTRING),
++
+ { u"Second",                        SbxINTEGER,   1 | FUNCTION_,       SbRtl_Second               },
+     arg(u"Date", SbxDATE),
+ 
+--- a/basic/source/runtime/methods.cxx
++++ b/basic/source/runtime/methods.cxx
+@@ -3128,12 +3128,15 @@
+         }
+     }
+ 
+-    bool bGroupDigits = false;
++    // HST: the default is the regional setting, which groups digits, as in Excel
++    bool bGroupDigits = true;
+     if (nArgCount > 5 && !rPar.Get(5)->IsEmpty())
+     {
+         switch (rPar.Get(5)->GetInteger())
+         {
+             case ooo::vba::VbTriState::vbFalse:
++                bGroupDigits = false;
++                break;
+             case ooo::vba::VbTriState::vbUseDefault:
+                 // do nothing
+                 break;
+--- a/basic/source/inc/rtlproto.hxx
++++ b/basic/source/inc/rtlproto.hxx
+@@ -90,6 +90,10 @@
+ extern void SbRtl_SLN(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_Space(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_Split(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
++extern void SbRtl_SaveSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
++extern void SbRtl_GetSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
++extern void SbRtl_DeleteSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
++extern void SbRtl_Filter(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_Sqr(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_Str(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_StrComp(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+--- a/basic/source/classes/sbxvbasettings.cxx
++++ b/basic/source/classes/sbxvbasettings.cxx
+@@ -0,0 +1,114 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: VBA's SaveSetting family and Filter. Windows keeps settings in the registry; here they are a
++// file in the user's profile, which is what a macro notices: they survive a restart.
++
++#include <config_folders.h>
++#include <basic/sbx.hxx>
++#include <basic/sberrors.hxx>
++#include <rtlproto.hxx>
++#include <runtime.hxx>
++#include <sbunoobj.hxx>
++#include <comphelper/string.hxx>
++#include <osl/file.hxx>
++#include <rtl/bootstrap.hxx>
++#include <rtl/uri.hxx>
++#include <tools/config.hxx>
++#include <unotools/charclass.hxx>
++
++namespace
++{
++OUString settingsFile()
++{
++    OUString aUrl = OUString::createFromAscii("${$BRAND_BASE_DIR/" LIBO_ETC_FOLDER "/" SAL_CONFIGFILE("bootstrap") "::UserInstallation}/user/vba-settings.ini");
++    rtl::Bootstrap::expandMacros(aUrl);
++    OUString aPath;
++    osl::FileBase::getSystemPathFromFileURL(aUrl, aPath);
++    return aPath;
++}
++
++OString groupOf(SbxArray& rPar)
++{
++    return OUStringToOString(OUString(rPar.Get(1)->GetOUString() + "\\" + rPar.Get(2)->GetOUString()), RTL_TEXTENCODING_UTF8);
++}
++
++OString keyOf(SbxArray& rPar) { return OUStringToOString(rPar.Get(3)->GetOUString(), RTL_TEXTENCODING_UTF8); }
++}
++
++void SbRtl_SaveSetting(StarBASIC*, SbxArray& rPar, bool)
++{
++    if (rPar.Count() != 5)
++        return StarBASIC::Error(ERRCODE_BASIC_BAD_ARGUMENT);
++    Config aConfig(settingsFile());
++    aConfig.SetGroup(groupOf(rPar));
++    aConfig.WriteKey(keyOf(rPar), OUStringToOString(rPar.Get(4)->GetOUString(), RTL_TEXTENCODING_UTF8));
++}
++
++void SbRtl_GetSetting(StarBASIC*, SbxArray& rPar, bool)
++{
++    if (rPar.Count() < 4)
++        return StarBASIC::Error(ERRCODE_BASIC_BAD_ARGUMENT);
++    Config aConfig(settingsFile());
++    aConfig.SetGroup(groupOf(rPar));
++    const OUString aDefault = rPar.Count() > 4 ? rPar.Get(4)->GetOUString() : OUString();
++    rPar.Get(0)->PutString(OStringToOUString(aConfig.ReadKey(keyOf(rPar), OUStringToOString(aDefault, RTL_TEXTENCODING_UTF8)), RTL_TEXTENCODING_UTF8));
++}
++
++void SbRtl_DeleteSetting(StarBASIC*, SbxArray& rPar, bool)
++{
++    if (rPar.Count() < 3)
++        return StarBASIC::Error(ERRCODE_BASIC_BAD_ARGUMENT);
++    Config aConfig(settingsFile());
++    if (rPar.Count() > 3)
++    {
++        aConfig.SetGroup(groupOf(rPar));
++        aConfig.DeleteKey(keyOf(rPar));
++    }
++    else
++        aConfig.DeleteGroup(groupOf(rPar));
++}
++
++void SbRtl_Filter(StarBASIC*, SbxArray& rPar, bool)
++{
++    const sal_uInt32 nCount = rPar.Count();
++    if (nCount < 3)
++        return StarBASIC::Error(ERRCODE_BASIC_BAD_ARGUMENT);
++    SbxDimArray* pSource = dynamic_cast<SbxDimArray*>(rPar.Get(1)->GetObject());
++    if (!pSource || pSource->GetDims() != 1)
++        return StarBASIC::Error(ERRCODE_BASIC_BAD_ARGUMENT);
++    const bool bInclude = nCount < 4 || rPar.Get(3)->GetBool();
++    const bool bText = nCount > 4 && rPar.Get(4)->GetInteger() == 1;
++    const auto fold = [bText](const OUString& r) { return bText ? SbxVariable::NameToCaseInsensitiveName(r) : r; };
++    const OUString aMatch = fold(rPar.Get(2)->GetOUString());
++    sal_Int32 nLower = 0, nUpper = -1;
++    pSource->GetDim(1, nLower, nUpper);
++    std::vector<OUString> aOut;
++    for (sal_Int32 i = nLower; i <= nUpper; ++i)
++    {
++        const OUString aItem = pSource->Get(&i)->GetOUString();
++        if ((fold(aItem).indexOf(aMatch) >= 0) == bInclude)
++            aOut.push_back(aItem);
++    }
++    SbxDimArray* pResult = new SbxDimArray(SbxVARIANT);
++    pResult->unoAddDim(0, static_cast<sal_Int32>(aOut.size()) - 1);
++    for (sal_Int32 i = 0; i < static_cast<sal_Int32>(aOut.size()); ++i)
++    {
++        SbxVariableRef xItem = new SbxVariable(SbxVARIANT);
++        xItem->PutString(aOut[i]);
++        pResult->Put(xItem.get(), &i);
++    }
++    SbxVariableRef xResult = rPar.Get(0);
++    SbxFlagBits nFlags = xResult->GetFlags();
++    xResult->ResetFlag(SbxFlagBits::Fixed);
++    xResult->PutObject(pResult);
++    xResult->SetFlags(nFlags);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/basic/source/classes/sbxscriptingobject.cxx
++++ b/basic/source/classes/sbxscriptingobject.cxx
+@@ -0,0 +1,56 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: the base of the VBScript.RegExp and Scripting objects: members by name, VBA run-time errors.
++
++#include <sbxscripting.hxx>
++#include <basic/sberrors.hxx>
++#include <errobject.hxx>
++#include <runtime.hxx>
++#include <sbintern.hxx>
++
++void BasicScriptingObject::addMethods(std::initializer_list<OUString> aNames)
++{
++    for (const OUString& rName : aNames)
++        Make(rName, SbxClassType::Method, SbxVARIANT)->SetFlag(SbxFlagBits::DontStore);
++}
++
++void BasicScriptingObject::addProperties(std::initializer_list<OUString> aNames)
++{
++    for (const OUString& rName : aNames)
++        Make(rName, SbxClassType::Property, SbxVARIANT)->SetFlag(SbxFlagBits::DontStore);
++}
++
++void BasicScriptingObject::raise(sal_Int32 nNumber, const OUString& rMessage)
++{
++    if (SbiInstance* pInst = GetSbData()->pInst)
++    {
++        if (SbxErrObject* pErr = static_cast<SbxErrObject*>(SbxErrObject::getErrObject().get()))
++            pErr->setNumberAndDescription(nNumber, rMessage);
++        pInst->ErrorVB(nNumber, rMessage);
++    }
++    else
++        StarBASIC::Error(ERRCODE_BASIC_BAD_ARGUMENT);
++}
++
++void BasicScriptingObject::Notify(SfxBroadcaster& rCst, const SfxHint& rHint)
++{
++    const SbxHint* p = dynamic_cast<const SbxHint*>(&rHint);
++    if (!p)
++        return SbxObject::Notify(rCst, rHint);
++    const SfxHintId nId = p->GetId();
++    if (nId != SfxHintId::BasicDataWanted && nId != SfxHintId::BasicDataChanged)
++        return SbxObject::Notify(rCst, rHint);
++    SbxVariable* pVar = p->GetVar();
++    SbxArray* pArgs = pVar->GetParameters();
++    if (!call(pVar->GetName().toAsciiLowerCase(), *pVar, pArgs, pArgs ? pArgs->Count() : 0, nId == SfxHintId::BasicDataChanged))
++        SbxObject::Notify(rCst, rHint);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/basic/source/classes/sbxregexp.cxx
++++ b/basic/source/classes/sbxregexp.cxx
+@@ -10,54 +10,12 @@
+ // HST: VBScript.RegExp for VBA code, on ICU regular expressions, and the base of the scripting objects.
+ 
+ #include <sbxscripting.hxx>
+-#include <sbunoobj.hxx>
+ #include <basic/sberrors.hxx>
+-#include <errobject.hxx>
+-#include <runtime.hxx>
+-#include <sbintern.hxx>
+ #include <unicode/regex.h>
+ #include <memory>
+ 
+ constexpr sal_Int32 nErrBadPattern = 5017; // Syntax error in regular expression
+ 
+-void BasicScriptingObject::addMethods(std::initializer_list<OUString> aNames)
+-{
+-    for (const OUString& rName : aNames)
+-        Make(rName, SbxClassType::Method, SbxVARIANT)->SetFlag(SbxFlagBits::DontStore);
+-}
+-
+-void BasicScriptingObject::addProperties(std::initializer_list<OUString> aNames)
+-{
+-    for (const OUString& rName : aNames)
+-        Make(rName, SbxClassType::Property, SbxVARIANT)->SetFlag(SbxFlagBits::DontStore);
+-}
+-
+-void BasicScriptingObject::raise(sal_Int32 nNumber, const OUString& rMessage)
+-{
+-    if (SbiInstance* pInst = GetSbData()->pInst)
+-    {
+-        if (SbxErrObject* pErr = static_cast<SbxErrObject*>(SbxErrObject::getErrObject().get()))
+-            pErr->setNumberAndDescription(nNumber, rMessage);
+-        pInst->ErrorVB(nNumber, rMessage);
+-    }
+-    else
+-        StarBASIC::Error(ERRCODE_BASIC_BAD_ARGUMENT);
+-}
+-
+-void BasicScriptingObject::Notify(SfxBroadcaster& rCst, const SfxHint& rHint)
+-{
+-    const SbxHint* p = dynamic_cast<const SbxHint*>(&rHint);
+-    if (!p)
+-        return SbxObject::Notify(rCst, rHint);
+-    const SfxHintId nId = p->GetId();
+-    if (nId != SfxHintId::BasicDataWanted && nId != SfxHintId::BasicDataChanged)
+-        return SbxObject::Notify(rCst, rHint);
+-    SbxVariable* pVar = p->GetVar();
+-    SbxArray* pArgs = pVar->GetParameters();
+-    if (!call(pVar->GetName().toAsciiLowerCase(), *pVar, pArgs, pArgs ? pArgs->Count() : 0, nId == SfxHintId::BasicDataChanged))
+-        SbxObject::Notify(rCst, rHint);
+-}
+-
+ BasicRegExp::BasicRegExp()
+     : BasicScriptingObject(u"RegExp"_ustr)
+ {
+@@ -92,25 +50,49 @@
+ SbxObject* makeMatch(icu::RegexMatcher& rMatcher)
+ {
+     UErrorCode nStatus = U_ZERO_ERROR;
+-    SbxObject* pMatch = new SbxObject(u"Match"_ustr);
+-    pMatch->SetFlag(SbxFlagBits::Fixed);
+-    pMatch->Make(u"Value"_ustr, SbxClassType::Property, SbxSTRING)->PutString(toOUString(rMatcher.group(nStatus)));
+-    pMatch->Make(u"FirstIndex"_ustr, SbxClassType::Property, SbxLONG)->PutLong(rMatcher.start(nStatus));
+-    pMatch->Make(u"Length"_ustr, SbxClassType::Property, SbxLONG)->PutLong(rMatcher.end(nStatus) - rMatcher.start(nStatus));
+     BasicDictionary* pSubs = new BasicDictionary(u"SubMatches"_ustr);
+     pSubs->SetIterateItems(true);
+     for (int32_t i = 1; i <= rMatcher.groupCount(); ++i)
+     {
+         SbxVariableRef xKey = new SbxVariable(SbxLONG);
+         xKey->PutLong(i - 1);
+-        SbxVariable* pItem = pSubs->GetItemForKey(*xKey);
+-        pItem->PutString(rMatcher.start(i, nStatus) < 0 ? OUString() : toOUString(rMatcher.group(i, nStatus)));
++        pSubs->GetItemForKey(*xKey)->PutString(rMatcher.start(i, nStatus) < 0 ? OUString() : toOUString(rMatcher.group(i, nStatus)));
+     }
+-    SbxVariable* pProp = pMatch->Make(u"SubMatches"_ustr, SbxClassType::Property, SbxOBJECT);
+-    pProp->PutObject(pSubs);
+-    pMatch->SetDfltProperty(u"Value"_ustr);
+-    return pMatch;
++    return new BasicRegExpMatch(toOUString(rMatcher.group(nStatus)), rMatcher.start(nStatus), rMatcher.end(nStatus) - rMatcher.start(nStatus), pSubs);
++}
++}
++
++BasicRegExpMatch::BasicRegExpMatch(const OUString& rValue, sal_Int32 nFirstIndex, sal_Int32 nLength, BasicDictionary* pSubMatches)
++    : BasicScriptingObject(u"Match"_ustr)
++    , maValue(rValue)
++    , mnFirstIndex(nFirstIndex)
++    , mnLength(nLength)
++    , mxSubMatches(pSubMatches)
++{
++    addProperties({ u"Value"_ustr, u"FirstIndex"_ustr, u"Length"_ustr, u"SubMatches"_ustr });
++    SetDfltProperty(u"Value"_ustr);
+ }
++
++bool BasicRegExpMatch::call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool)
++{
++    if (rName == "value")
++        rVar.PutString(maValue);
++    else if (rName == "firstindex")
++        rVar.PutLong(mnFirstIndex);
++    else if (rName == "length")
++        rVar.PutLong(mnLength);
++    else if (rName == "submatches" && nArgs > 1)
++        rVar.PutString(mxSubMatches->GetItemForKey(*pArgs->Get(1))->GetOUString());
++    else if (rName == "submatches")
++    {
++        SbxFlagBits nFlags = rVar.GetFlags();
++        rVar.ResetFlag(SbxFlagBits::Fixed);
++        rVar.PutObject(mxSubMatches.get());
++        rVar.SetFlags(nFlags);
++    }
++    else
++        return false;
++    return true;
+ }
+ 
+ bool BasicRegExp::implTest(const OUString& rText)
+--- a/basic/source/inc/sbxscripting.hxx
++++ b/basic/source/inc/sbxscripting.hxx
+@@ -12,6 +12,7 @@
+ #pragma once
+ 
+ #include <basic/sbx.hxx>
++#include <sbunoobj.hxx>
+ #include <basic/sbxvar.hxx>
+ #include <rtl/ustring.hxx>
+ #include <rtl/ustrbuf.hxx>
+@@ -31,10 +32,24 @@
+     virtual void Notify(SfxBroadcaster& rBC, const SfxHint& rHint) override;
+     /** Handles the member; false lets SbxObject deal with it. rArgs holds the call's parameters from index 1. */
+     virtual bool call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool bWrite) = 0;
++
++public:
+     /** A VBA run-time error that On Error and Err.Number see. */
+     static void raise(sal_Int32 nNumber, const OUString& rMessage);
+ };
+ 
++class BasicRegExpMatch final : public BasicScriptingObject
++{
++    OUString maValue;
++    sal_Int32 mnFirstIndex;
++    sal_Int32 mnLength;
++    tools::SvRef<BasicDictionary> mxSubMatches;
++    virtual bool call(const OUString& rName, SbxVariable& rVar, SbxArray* pArgs, sal_uInt32 nArgs, bool bWrite) override;
++
++public:
++    BasicRegExpMatch(const OUString& rValue, sal_Int32 nFirstIndex, sal_Int32 nLength, BasicDictionary* pSubMatches);
++};
++
+ class BasicRegExp final : public BasicScriptingObject
+ {
+     OUString maPattern;

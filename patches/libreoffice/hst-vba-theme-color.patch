@@ -1,0 +1,294 @@
+HST Office: Excel ThemeColor and TintAndShade give the color; Word Alignment works in Word's files.
+
+- Excel's macro recorder writes .ThemeColor and .TintAndShade for most colors (4% of files). On Interior they were
+  stubs: no error, no color. Font and Border did not have them. Now the default Office theme's colors, with
+  Excel's tint; a workbook's own theme is not read.
+- Reading Paragraph.Format.Alignment failed in documents where Word says jc "start" or "end".
+
+The new file is for HST Office under MPL-2.0, like the files around it.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/regression_cases.py, regression_word.py.
+---
+--- a/oovbaapi/ooo/vba/excel/XFont.idl
++++ b/oovbaapi/ooo/vba/excel/XFont.idl
+@@ -27,6 +27,8 @@
+     [attribute] any  StandardFont;
+     [attribute] any  FontStyle;
+     [attribute] any  OutlineFont;
++    [attribute] any  ThemeColor; // HST
++    [attribute] any  TintAndShade; // HST
+ };
+ 
+ 
+--- a/oovbaapi/ooo/vba/excel/XBorder.idl
++++ b/oovbaapi/ooo/vba/excel/XBorder.idl
+@@ -31,6 +31,7 @@
+     [attribute] any LineStyle;
+     [attribute] any Weight;
+     [attribute] any TintAndShade;
++    [attribute] any ThemeColor; // HST
+ };
+ 
+ 
+--- a/sc/source/ui/vba/vbathemecolor.hxx
++++ b/sc/source/ui/vba/vbathemecolor.hxx
+@@ -0,0 +1,53 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: ThemeColor and TintAndShade, which Excel's macro recorder writes for most colors. The colors
++// are those of the default Office theme; a workbook's own theme is not read here.
++
++#pragma once
++
++#include <sal/types.h>
++#include <algorithm>
++#include <cmath>
++
++namespace ScVbaTheme
++{
++/// RGB of an XlThemeColor (1-12); a value outside that gives -1
++inline sal_Int32 rgbOf(sal_Int32 nTheme)
++{
++    static constexpr sal_Int32 aColors[]
++        = { 0xFFFFFF, 0x000000, 0xE7E6E6, 0x44546A, 0x4472C4, 0xED7D31, 0xA5A5A5, 0xFFC000, 0x5B9BD5, 0x70AD47, 0x0563C1, 0x954F72 };
++    return nTheme >= 1 && nTheme <= 12 ? aColors[nTheme - 1] : -1;
++}
++
++/// Excel's tint: negative darkens, positive lightens, on the luminance
++inline sal_Int32 applyTint(sal_Int32 nRgb, double fTint)
++{
++    double r = ((nRgb >> 16) & 0xFF) / 255.0, g = ((nRgb >> 8) & 0xFF) / 255.0, b = (nRgb & 0xFF) / 255.0;
++    const double fMax = std::max({ r, g, b }), fMin = std::min({ r, g, b });
++    double h = 0, s = 0, l = (fMax + fMin) / 2;
++    if (fMax > fMin)
++    {
++        const double d = fMax - fMin;
++        s = l > 0.5 ? d / (2 - fMax - fMin) : d / (fMax + fMin);
++        h = fMax == r ? (g - b) / d + (g < b ? 6 : 0) : fMax == g ? (b - r) / d + 2 : (r - g) / d + 4;
++        h /= 6;
++    }
++    l = fTint < 0 ? l * (1 + fTint) : l * (1 - fTint) + fTint;
++    const auto channel = [&](double t) {
++        const double q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
++        t = t < 0 ? t + 1 : t > 1 ? t - 1 : t;
++        double v = t < 1.0 / 6 ? p + (q - p) * 6 * t : t < 0.5 ? q : t < 2.0 / 3 ? p + (q - p) * (2.0 / 3 - t) * 6 : p;
++        return static_cast<sal_Int32>(std::lround(std::clamp(v, 0.0, 1.0) * 255));
++    };
++    return (channel(h + 1.0 / 3) << 16) | (channel(h) << 8) | channel(h - 1.0 / 3);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbainterior.cxx
++++ b/sc/source/ui/vba/vbainterior.cxx
+@@ -27,6 +27,7 @@
+ #include <sal/macros.h>
+ 
+ #include "vbainterior.hxx"
++#include "vbathemecolor.hxx"
+ #include "vbapalette.hxx"
+ #include <document.hxx>
+ #include <docsh.hxx>
+@@ -369,26 +370,39 @@
+ 
+ }
+ 
++// HST: the fill the recorder writes in Excel 2007 and later
+ uno::Any SAL_CALL ScVbaInterior::getThemeColor()
+ {
+-    // Just a stub for now.
+-    return uno::Any(static_cast<sal_Int32>(0));
++    return uno::Any(m_nThemeColor);
+ }
+ 
+-void SAL_CALL ScVbaInterior::setThemeColor(const uno::Any& /*rAny*/)
++void SAL_CALL ScVbaInterior::setThemeColor(const uno::Any& rAny)
+ {
+-    // Just a stub for now.
++    sal_Int32 nTheme = 0;
++    rAny >>= nTheme;
++    const sal_Int32 nRgb = ScVbaTheme::rgbOf(nTheme);
++    if (nRgb < 0)
++        return;
++    m_nThemeColor = nTheme;
++    m_fTint = 0;
++    setColor(OORGBToXLRGB(uno::Any(nRgb)));
+ }
+ 
+ uno::Any SAL_CALL ScVbaInterior::getTintAndShade()
+ {
+-    // Just a stub for now.
+-    return uno::Any(static_cast<double>(0));
++    return uno::Any(m_fTint);
+ }
+ 
+-void SAL_CALL ScVbaInterior::setTintAndShade(const uno::Any& /*rAny*/)
++void SAL_CALL ScVbaInterior::setTintAndShade(const uno::Any& rAny)
+ {
+-    // Just a stub for now.
++    double fTint = 0;
++    if (!(rAny >>= fTint))
++        return;
++    m_fTint = fTint;
++    sal_Int32 nBase = ScVbaTheme::rgbOf(m_nThemeColor);
++    if (nBase < 0)
++        XLRGBToOORGB(getColor()) >>= nBase;
++    setColor(OORGBToXLRGB(uno::Any(ScVbaTheme::applyTint(nBase, fTint))));
+ }
+ 
+ uno::Any SAL_CALL ScVbaInterior::getPatternTintAndShade()
+--- a/sc/source/ui/vba/vbainterior.hxx
++++ b/sc/source/ui/vba/vbainterior.hxx
+@@ -38,6 +38,8 @@
+     ScDocument* m_pScDoc;
+     Color m_aPattColor;
+     sal_Int32 m_nPattern;
++    sal_Int32 m_nThemeColor = 0;
++    double m_fTint = 0;
+ 
+     css::uno::Reference< css::container::XIndexAccess > getPalette() const;
+     css::uno::Reference< css::container::XNameContainer > GetAttributeContainer();
+--- a/sc/source/ui/vba/vbafont.cxx
++++ b/sc/source/ui/vba/vbafont.cxx
+@@ -24,6 +24,7 @@
+ #include <o3tl/string_view.hxx>
+ #include "excelvbahelper.hxx"
+ #include "vbafont.hxx"
++#include "vbathemecolor.hxx"
+ #include "vbapalette.hxx"
+ #include <scitems.hxx>
+ #include <cellsuno.hxx>
+@@ -286,6 +287,35 @@
+             return aNULL();
+     return ScVbaFont_BASE::getName();
+ }
++// HST: ThemeColor, TintAndShade: see vbathemecolor.hxx
++uno::Any SAL_CALL ScVbaFont::getThemeColor() { return uno::Any(mnThemeColor); }
++
++void SAL_CALL ScVbaFont::setThemeColor(const uno::Any& rAny)
++{
++    sal_Int32 nTheme = 0;
++    rAny >>= nTheme;
++    const sal_Int32 nRgb = ScVbaTheme::rgbOf(nTheme);
++    if (nRgb < 0)
++        return;
++    mnThemeColor = nTheme;
++    mfTint = 0;
++    setColor(OORGBToXLRGB(uno::Any(nRgb)));
++}
++
++uno::Any SAL_CALL ScVbaFont::getTintAndShade() { return uno::Any(mfTint); }
++
++void SAL_CALL ScVbaFont::setTintAndShade(const uno::Any& rAny)
++{
++    double fTint = 0;
++    if (!(rAny >>= fTint))
++        return;
++    mfTint = fTint;
++    sal_Int32 nBase = ScVbaTheme::rgbOf(mnThemeColor);
++    if (nBase < 0)
++        XLRGBToOORGB(getColor()) >>= nBase;
++    setColor(OORGBToXLRGB(uno::Any(ScVbaTheme::applyTint(nBase, fTint))));
++}
++
+ uno::Any
+ ScVbaFont::getColor()
+ {
+--- a/sc/source/ui/vba/vbafont.hxx
++++ b/sc/source/ui/vba/vbafont.hxx
+@@ -36,6 +36,8 @@
+ 
+ class ScVbaFont : public ScVbaFont_BASE
+ {
++    sal_Int32 mnThemeColor = 0;
++    double mfTint = 0;
+     ScCellRangeObj* mpRangeObj;
+     SfxItemSet* GetDataSet();
+ 
+@@ -66,6 +68,10 @@
+     virtual css::uno::Any SAL_CALL getItalic() override;
+     virtual css::uno::Any SAL_CALL getName() override;
+     virtual css::uno::Any SAL_CALL getColor() override;
++    virtual css::uno::Any SAL_CALL getThemeColor() override;
++    virtual void SAL_CALL setThemeColor(const css::uno::Any& rAny) override;
++    virtual css::uno::Any SAL_CALL getTintAndShade() override;
++    virtual void SAL_CALL setTintAndShade(const css::uno::Any& rAny) override;
+     virtual css::uno::Any SAL_CALL getOutlineFont() override;
+     virtual void SAL_CALL setOutlineFont(const css::uno::Any& _outlinefont) override;
+     // XHelperInterface
+--- a/sc/source/ui/vba/vbaborders.cxx
++++ b/sc/source/ui/vba/vbaborders.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "vbaborders.hxx"
++#include "vbathemecolor.hxx"
+ 
+ #include <sal/macros.h>
+ #include <cppuhelper/implbase.hxx>
+@@ -58,6 +59,7 @@
+ private:
+     uno::Reference< beans::XPropertySet > m_xProps;
+     sal_Int32 m_LineType;
++    sal_Int32 mnThemeColor = 0;
+     ScVbaPalette m_Palette;
+     void setBorderLine( const table::BorderLine& rBorderLine )
+     {
+@@ -261,9 +263,27 @@
+ 
+     }
+ 
+-    void SAL_CALL setTintAndShade( const uno::Any& /*rAny*/ ) override
++    void SAL_CALL setTintAndShade( const uno::Any& rAny ) override
+     {
+-        // TODO implement
++        // HST: see vbathemecolor.hxx
++        double fTint = 0;
++        if ( !( rAny >>= fTint ) )
++            return;
++        sal_Int32 nBase = ScVbaTheme::rgbOf( mnThemeColor );
++        if ( nBase < 0 )
++            XLRGBToOORGB( getColor() ) >>= nBase;
++        setColor( OORGBToXLRGB( uno::Any( ScVbaTheme::applyTint( nBase, fTint ) ) ) );
++    }
++    uno::Any SAL_CALL getThemeColor() override { return uno::Any( mnThemeColor ); }
++    void SAL_CALL setThemeColor( const uno::Any& rAny ) override
++    {
++        sal_Int32 nTheme = 0;
++        rAny >>= nTheme;
++        const sal_Int32 nRgb = ScVbaTheme::rgbOf( nTheme );
++        if ( nRgb < 0 )
++            return;
++        mnThemeColor = nTheme;
++        setColor( OORGBToXLRGB( uno::Any( nRgb ) ) );
+     }
+     uno::Any SAL_CALL getTintAndShade() override
+     {
+--- a/sw/source/ui/vba/vbaparagraphformat.cxx
++++ b/sw/source/ui/vba/vbaparagraphformat.cxx
+@@ -541,9 +541,16 @@
+             wdAlignment = word::WdParagraphAlignment::wdAlignParagraphRight;
+             break;
+         }
++        // HST: Word files say "start" and "end" for most text: SvxAdjust::ParaStart = 5, ParaEnd = 6.
++        // Failing here stopped any macro that read Alignment in such a document.
++        case static_cast<style::ParagraphAdjust>(6):
++        {
++            wdAlignment = word::WdParagraphAlignment::wdAlignParagraphRight;
++            break;
++        }
+         default:
+         {
+-            DebugHelper::basicexception( ERRCODE_BASIC_BAD_PARAMETER, {} );
++            wdAlignment = word::WdParagraphAlignment::wdAlignParagraphLeft;
+         }
+     }
+     return wdAlignment;

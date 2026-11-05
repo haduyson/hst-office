@@ -1,0 +1,40 @@
+HST Office: Borders takes ThemeColor too, as Border does.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/object_model_excel.py.
+---
+--- a/sc/source/ui/vba/vbaborders.cxx
++++ b/sc/source/ui/vba/vbaborders.cxx
+@@ -583,6 +583,21 @@
+     // TODO implement
+ }
+ 
++// HST: all the borders of the range take the theme's color
++uno::Any SAL_CALL ScVbaBorders::getThemeColor()
++{
++    return uno::Any(sal_Int32(0));
++}
++
++void SAL_CALL ScVbaBorders::setThemeColor(const uno::Any& rAny)
++{
++    sal_Int32 nTheme = 0;
++    rAny >>= nTheme;
++    const sal_Int32 nRgb = ScVbaTheme::rgbOf(nTheme);
++    if (nRgb >= 0)
++        setColor(OORGBToXLRGB(uno::Any(nRgb)));
++}
++
+ void SAL_CALL ScVbaBorders::setWeight( const uno::Any& _weight )
+ {
+     sal_Int32 count = getCount();
+--- a/sc/source/ui/vba/vbaborders.hxx
++++ b/sc/source/ui/vba/vbaborders.hxx
+@@ -59,6 +59,8 @@
+     virtual void SAL_CALL setWeight( const  css::uno::Any& ) override;
+     virtual css::uno::Any SAL_CALL getTintAndShade() override;
+     virtual void SAL_CALL setTintAndShade( const  css::uno::Any& ) override;
++    virtual css::uno::Any SAL_CALL getThemeColor() override;
++    virtual void SAL_CALL setThemeColor(const css::uno::Any& rAny) override;
+     // xxxxBASE
+     virtual OUString getServiceImplName() override;
+     virtual css::uno::Sequence<OUString> getServiceNames() override;

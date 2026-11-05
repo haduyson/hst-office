@@ -1,0 +1,74 @@
+HST Office: VBA code can name the VBA library, and Chr gives a character on UTF-8 systems.
+
+13% of the macro files measured write VBA.Len, VBA.Left$ or Strings.Trim: those parts name the VBA
+library and its modules, and failed with "not found" or, under Option Explicit, stopped the whole module
+from compiling. The names are dropped while parsing, unless the code declares or has a module of
+that name.
+
+Chr(160) or Chr(233) gave U+FFFD on Linux and macOS: one byte is no text in UTF-8. Windows-1252 is
+used there; Windows keeps its ANSI code page.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba-corpus/regression_cases.py (rtl-* cases).
+---
+--- a/basic/source/comp/exprtree.cxx
++++ b/basic/source/comp/exprtree.cxx
+@@ -21,6 +21,8 @@
+ #include <memory>
+ #include <parser.hxx>
+ #include <basic/sberrors.hxx>
++#include <o3tl/string_view.hxx>
++#include <basic/sbstar.hxx>
+ #include <basic/sbmod.hxx>
+ #include <comphelper/SetFlagContextHelper.hxx>
+ #include <expr.hxx>
+@@ -151,6 +153,17 @@
+ 
+ // currently even keywords are allowed (because of Dflt properties of the same name)
+ 
++namespace
++{
++bool lcl_isVbaLibraryName( std::u16string_view rName )
++{
++    for( std::u16string_view aLib : { u"VBA", u"Strings", u"Interaction", u"Conversion", u"Information", u"DateTime", u"Math", u"FileSystem", u"Financial" } )
++        if( o3tl::equalsIgnoreAsciiCase( rName, aLib ) )
++            return true;
++    return false;
++}
++}
++
+ std::unique_ptr<SbiExprNode> SbiExpression::Term( const KeywordSymbolInfo* pKeywordSymbolInfo )
+ {
+     if( pParser->Peek() == DOT )
+@@ -186,6 +199,17 @@
+     SbxDataType eType = (pKeywordSymbolInfo == nullptr) ? pParser->GetType() : pKeywordSymbolInfo->m_eSbxDataType;
+     SbiExprListPtr pPar;
+     std::unique_ptr<SbiExprListVector> pvMoreParLcl;
++    // HST: VBA.Len(x), VBA.Strings.Len(x), Interaction.MsgBox: the VBA library names its runtime functions
++    while( pKeywordSymbolInfo == nullptr && pParser->IsVBASupportOn() && pParser->Peek() == DOT
++           && lcl_isVbaLibraryName( aSym ) && !pParser->pPool->Find( aSym )
++           && !( pParser->aGen.GetModule().GetParent()
++                 && dynamic_cast<StarBASIC&>( *pParser->aGen.GetModule().GetParent() ).FindModule( aSym ) ) )
++    {
++        pParser->Next();
++        eTok = pParser->Next();
++        aSym = pParser->GetSym();
++        eType = pParser->GetType();
++    }
+     // are there parameters following?
+     SbiToken eNextTok = pParser->Peek();
+     // is it a known parameter?
+--- a/basic/source/runtime/methods.cxx
++++ b/basic/source/runtime/methods.cxx
+@@ -318,7 +318,10 @@
+     if( !bChrW && SbiRuntime::isVBAEnabled() )
+     {
+         char c = static_cast<char>(pArg->GetByte());
+-        aStr = OUString(&c, 1, osl_getThreadTextEncoding());
++        // HST: Chr(160), Chr(233): one byte in the ANSI code page. On UTF-8 systems (Linux, macOS) it
++        // is not a character at all, so use Windows-1252, whose upper half VBA code relies on.
++        rtl_TextEncoding eEnc = osl_getThreadTextEncoding();
++        aStr = OUString(&c, 1, eEnc == RTL_TEXTENCODING_UTF8 ? RTL_TEXTENCODING_MS_1252 : eEnc);
+     }
+     else
+     {
