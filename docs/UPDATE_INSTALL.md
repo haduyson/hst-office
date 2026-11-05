@@ -19,7 +19,23 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
 4. Đồng ý: ghi tệp trợ giúp nhỏ vào cache, chạy tách rời, rồi đóng HST Office bằng đường terminate thông thường
    (tài liệu đã sửa vẫn hiện hộp hỏi lưu; chọn Hủy thì hủy cập nhật và dừng trợ giúp). Trợ giúp đợi tiến trình soffice
    thoát, **kiểm lại SHA256 ngay trước khi cài**, chạy bộ cài, xóa tệp nếu thành công, rồi mở lại HST Office (cả khi cài
-   lỗi: mở bản cũ). Nhật ký ở `update.log` trong thư mục cache.
+   lỗi: mở bản cũ). Nhật ký ở `update.log` trong thư mục cache, gồm cả đầu ra của `apt-get`/`pkcon`.
+5. Cài lỗi: trợ giúp ghi `update-result.json` cạnh `update.log`, rồi mở lại bản cũ. Lần khởi động đó, job khởi động
+   (`update_outcome.py`) đọc tệp, xóa ngay, rồi hiện một lần thông báo theo ngôn ngữ giao diện kèm nút **Tải về** và đường
+   dẫn nhật ký. Tệp chỉ nằm trên máy này, không gửi đi đâu.
+
+| `code` | Khi nào | Thông báo |
+|---|---|---|
+| `auth` | `pkexec` trả 127 (không được cấp quyền, không có tác nhân xác thực) | máy không cấp quyền quản trị |
+| `install` | bộ cài trả mã khác 0 (`apt-get` 100, `msiexec`, lỗi gắn dmg, đổi bản macOS) | bộ cài báo lỗi, kèm mã |
+| `verify` | SHA256 sai ngay trước khi cài; macOS: sai chữ ký, Team ID hoặc Gatekeeper | tệp không qua bước kiểm tra lần cuối |
+| `tool` | thiếu `pkexec`/`apt-get`/`pkcon` lúc cài (đã kiểm trước khi đóng, chỉ gặp khi máy đổi giữa chừng) | máy thiếu công cụ cài |
+| `wait` | HST Office không thoát trong 30 phút | HST Office không đóng hẳn |
+
+   Không ghi gì (không có thông báo) khi: cài thành công; chọn **Hủy** ở hộp hỏi lưu (trợ giúp dừng, **không** mở lại, vì
+   HST Office vẫn đang mở); người dùng tự từ chối ở hộp mật khẩu (`pkexec` 126, UAC bị từ chối hoặc `msiexec` 1602, macOS
+   lỗi `-128`), bản cũ vẫn được mở lại. Bản ghi có `from` (bản đang cài lúc thử) và `to`: nếu bản đang chạy khác `from`
+   (đã cài bằng cách khác) thì bản ghi bị bỏ qua.
 
 | Hệ điều hành | Cách cài |
 |---|---|
@@ -67,7 +83,12 @@ macOS; tài liệu quản trị do phần khóa cấu hình cập nhật nắm) 
 
 - Unit: `tests/unit/test_update_installer.py` (schema 2, hash/kích thước, chọn nền tảng, bộ sinh manifest),
   `test_update_prepare.py` (tải, kiểm, dùng lại, hủy, chính sách), `test_update_helper.py` (dòng lệnh trợ giúp mỗi hệ
-  điều hành; chạy thật tập lệnh sh với công cụ giả).
-- Runtime Linux: `python3 tests/runtime/check-update-install.py` (máy chủ cục bộ, .deb giả, bước cài chạy dry-run).
-- Windows: `tests/runtime/check-update-install-smoke.py` trong [windows-smoke.yml](../.github/workflows/windows-smoke.yml).
-- Chưa chạy thật trên Windows/macOS (không có máy); chưa thử cài `.deb` thật.
+  điều hành; chạy thật tập lệnh sh với công cụ giả), `test_update_outcome.py` (bản ghi cài lỗi, đọc một lần, Hủy không ghi
+  và không mở lại).
+- Runtime Linux: `python3 tests/runtime/check-update-install.py` (máy chủ cục bộ, .deb giả, bước cài chạy dry-run);
+  `python3 tests/runtime/check-update-outcome.py` (trợ giúp thật với `pkexec` giả trả 127, bản cũ mở lại và hiện thông báo
+  một lần; Hủy ở hộp hỏi lưu).
+- Windows: `tests/runtime/check-update-install-smoke.py` trong [windows-smoke.yml](../.github/workflows/windows-smoke.yml),
+  gồm cả bản ghi cài lỗi do PowerShell viết.
+- Chưa chạy thật trên Windows/macOS (không có máy): nhánh UAC, `msiexec`, `osascript`, `hdiutil` mới chỉ kiểm bằng nội dung
+  tập lệnh hoặc công cụ giả. Chưa thử cài `.deb` thật với `pkexec` thật cho nhánh lỗi (máy build không có polkit).

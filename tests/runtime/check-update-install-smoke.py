@@ -24,6 +24,7 @@ from hst_office import ed25519  # noqa: E402
 from hst_office import update_helper_cmd as cmd  # noqa: E402
 from hst_office import update_launch as launch  # noqa: E402
 from hst_office import update_logic as logic  # noqa: E402
+from hst_office import update_outcome as outcome  # noqa: E402
 from hst_office import update_prepare as prep  # noqa: E402
 
 SYSTEM = platform.system()
@@ -67,6 +68,12 @@ def main():
         check("helper logged the installer command", "DRYRUN install:" in text and expected in text)
         check("helper logged the relaunch", "DRYRUN relaunch" in text)
         check("dry run installed nothing and kept the file", os.path.isfile(result["path"]))
+        # A failed install leaves the record that the next start shows once (update_outcome), on every OS's helper.
+        failed_helper = cmd.build_helper(SYSTEM, pid=2147483000, installer=result["path"], sha256="0" * 64, soffice=soffice, log=log, dry_run=True,
+                                         app_dest=os.path.join(cache, "HST Office.app"), release_from="1.0.0-beta.3", release_to="9.9.9")
+        subprocess.run(cmd.argv(failed_helper, launch.write_helper(failed_helper, cache)), timeout=120, stdin=subprocess.DEVNULL)
+        recorded = outcome.take(os.path.dirname(result["path"]), "1.0.0-beta.3")
+        check("failed install recorded for the next start", bool(recorded) and recorded["code"] == "verify" and recorded["to"] == "9.9.9", str(recorded))
         with mock.patch.object(logic, "PUBLIC_KEY", ed25519.secret_to_public(fixtures.SEED)):
             server.publish({key: dict(entry[key], sha256="0" * 64)})
             try:

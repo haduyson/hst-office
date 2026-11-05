@@ -26,7 +26,18 @@ $ErrorActionPreference = 'Stop'
 function Write-Step([string]$Message) {
     Add-Content -LiteralPath $Log -Encoding UTF8 -Value ((Get-Date -Format o) + ' ' + $Message)
 }
+$state = Join-Path (Split-Path -Parent $Log) 'update-result.json'
+# The start-up job shows this once (update_outcome.py); it stays on this machine.
+function Write-Failure([string]$Reason, [int]$ExitCode) {
+    try {
+        $json = @{schema=1; code=$Reason; exit=$ExitCode; from='@FROM_RELEASE@'; to='@TO_RELEASE@'} | ConvertTo-Json -Compress
+        Set-Content -LiteralPath "$state.tmp" -Encoding ASCII -Value $json
+        Move-Item -LiteralPath "$state.tmp" -Destination $state -Force
+        Write-Step ("Recorded failure: $Reason ($ExitCode)")
+    } catch { Write-Step 'Failure not recorded' }
+}
 $code = 1
+$fail = 'wait'
 try {
     Write-Step "Waiting for process $ProcessId"
     $seconds = 0
@@ -39,11 +50,14 @@ try {
         $seconds++
     }
     Write-Step 'Process exited'
+    Remove-Item -LiteralPath $state -ErrorAction SilentlyContinue
+    $fail = 'verify'
     if (-not (Test-Path -LiteralPath $Installer -PathType Leaf)) {
         throw 'SHA256 verification failed: installer missing'
     }
     $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $Installer
     if ($hash.Hash -ine $Sha256) { throw 'SHA256 mismatch; installation skipped' }
+    $fail = 'install'
     if ($DryRun) {
         Write-Step ('DRYRUN install: msiexec.exe /i "' + $Installer + '" /passive /norestart')
         $code = 0
@@ -56,15 +70,21 @@ try {
                 $code = 0
                 Remove-Item -LiteralPath $Installer
                 Write-Step 'Deleted installer'
-            } else { $code = $result.ExitCode }
+            } else {
+                $code = $result.ExitCode
+                if ($code -eq 1602) { $fail = 'cancel' }  # the installer's own Cancel button
+            }
         } catch {
+            # Start-Process only fails here when the UAC question is declined: the user's choice.
             Write-Step 'Installer failed or UAC was declined; exit code 1'
             $code = 1
+            $fail = 'cancel'
         }
     }
 } catch {
     Write-Step ('Helper failed; exit code 1: ' + $_.Exception.Message)
 } finally {
+    if ($code -ne 0 -and $fail -ne 'cancel') { Write-Failure $fail $code }
     if ($DryRun) {
         Write-Step ('DRYRUN relaunch: Start-Process "' + $Soffice + '"')
     } elseif (Test-Path -LiteralPath $Soffice) {
@@ -102,8 +122,11 @@ def _path(value, windows=False, applescript=False):
     return value
 
 
-def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False, app_dest=None):
-    """Build a script and argv template without inspecting or changing the filesystem."""
+def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False, app_dest=None, release_from="", release_to=""):
+    """Build a script and argv template without inspecting or changing the filesystem.
+
+    release_from / release_to go into the failure record, so that update_outcome can name the version and ignore a
+    record made stale by an update installed some other way."""
     if system not in ("Windows", "Darwin", "Linux"):
         raise ValueError("unsupported system")
     if type(pid) is not int or pid <= 0 or pid > 2147483647:
@@ -112,6 +135,9 @@ def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False,
         raise ValueError("dry_run must be a bool")
     if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256):
         raise ValueError("sha256 must be 64 lowercase hexadecimal characters")
+    for release in (release_from, release_to):
+        if not isinstance(release, str) or not re.fullmatch(r"[0-9A-Za-z.+~-]{0,64}", release):
+            raise ValueError("release must be a version text")
     installer = _path(installer, system == "Windows", system == "Darwin")
     log = _path(log, system == "Windows")
     if system == "Darwin":
@@ -124,7 +150,8 @@ def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False,
         arguments = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                      "-WindowStyle", "Hidden", "-File", SCRIPT_PATH, "-ProcessId", str(pid),
                      "-Installer", installer, "-Soffice", target, "-Log", log, "-Sha256", sha256]
-        return {"name": "hst-update.ps1", "text": POWERSHELL, "encoding": "utf-8-sig",
+        text = POWERSHELL.replace("@FROM_RELEASE@", release_from).replace("@TO_RELEASE@", release_to)
+        return {"name": "hst-update.ps1", "text": text, "encoding": "utf-8-sig",
                 "argv_for": arguments + (["-DryRun"] if dry_run else [])}
     arguments = ["/bin/sh", SCRIPT_PATH, str(pid), installer, target, log, sha256]
     relaunch = "open " + shlex.quote(target) if system == "Darwin" else "nohup " + shlex.quote(target) + " >/dev/null 2>&1 &"
@@ -132,7 +159,8 @@ def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False,
     if system == "Darwin":
         controls = "|".join("*" + shlex.quote(chr(c)) + "*" for c in tuple(range(128, 160)) + (0x2028, 0x2029))
         text += mac_scripts.MAC_SWAP.replace("@TEAM_ID@", TEAM_ID).replace("@PATH_CONTROLS@", controls)
-    text += scripts.SETUP + "RELAUNCH=" + shlex.quote(relaunch) + "\n"
+    text += scripts.SETUP + "FROM_RELEASE=" + shlex.quote(release_from) + "\nTO_RELEASE=" + shlex.quote(release_to) + "\n"
+    text += "RELAUNCH=" + shlex.quote(relaunch) + "\n"
     text += "HASH_TOOLS=" + shlex.quote("shasum" if system == "Darwin" else "sha256sum shasum openssl") + "\n"
     if system == "Linux":
         text += "APT_COMMAND=" + shlex.quote("pkexec env DEBIAN_FRONTEND=noninteractive apt-get install -y " + shlex.quote(installer)) + "\n"

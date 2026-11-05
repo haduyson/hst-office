@@ -4,7 +4,8 @@
 Never silent: the download starts on the user's click, the install only after the user answers "Cập nhật ngay" to
 "Đóng HST Office để cập nhật?". Every failure ends in a message with "Tải về" (manual download in the browser).
 The office is closed through Desktop.terminate(), so modified documents get the standard save prompts and Cancel
-there aborts the update (the helper, started before terminate, is stopped then).
+there aborts the update (the helper, started before terminate, is stopped then, without relaunching anything).
+A failed install is reported at the next start (update_outcome).
 """
 import os
 import platform
@@ -31,16 +32,17 @@ def _size(n):
     return "%.1f MB" % (n / 1048576.0)
 
 
-def _ask(ctx, peer, title, text, buttons):
+def _ask(ctx, peer, title, text, buttons, text_height=28):
     """Modal question; `buttons` = [(label, key)]; returns the key of the clicked button or None (closed)."""
     from .dialogs import CANCEL, Dialog
-    dialog = Dialog(ctx, title, 300, 64)
-    dialog.label("message", text, 8, 8, 284, 28, wrap=True)
+    top = 16 + text_height
+    dialog = Dialog(ctx, title, 300, top + 20)
+    dialog.label("message", text, 8, 8, 284, text_height, wrap=True)
     keys, x = [], 8
     for index, (label, key) in enumerate(buttons):
         width = max(44, 8 + 5 * len(label))
         last = index == len(buttons) - 1
-        dialog.button("b%d" % index, label, 292 - width if last else x, 44, width, kind=CANCEL if last else None,
+        dialog.button("b%d" % index, label, 292 - width if last else x, top, width, kind=CANCEL if last else None,
                       default=index == 0, callback=None if last else (lambda k=key: (keys.append(k), dialog.end(1))))
         x += width + 4
     if dialog.execute(peer):
@@ -125,7 +127,7 @@ def launch_and_quit(ctx, result, info):
     soffice, bundle = office_paths(ctx, system)
     dry = info.get("test_mode") and bool(os.environ.get(DRY_RUN_ENV))
     helper = cmd.build_helper(system, pid=os.getpid(), installer=result["path"], sha256=result["entry"]["sha256"], soffice=soffice, log=launch.log_path(cache),
-                              dry_run=bool(dry), app_dest=bundle)
+                              dry_run=bool(dry), app_dest=bundle, release_from=info["release"], release_to=result["release"]["version"])
     if not update_config.settings(ctx)["AllowInstall"]:  # the policy may have changed since the click
         return
     proc, closing = launch.spawn(cmd.argv(helper, launch.write_helper(helper, cache)), system), False

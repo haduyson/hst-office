@@ -18,6 +18,7 @@ from com.sun.star.lang import XInitialization, XServiceInfo
 from com.sun.star.task import XJob
 
 from . import update_logic as logic
+from . import update_outcome
 from . import update_result as result
 from . import update_ui as ui
 from .update_fetch import UpdateError, fetch_channels
@@ -108,6 +109,7 @@ class UpdateCheckJob(unohelper.Base, XServiceInfo, XJob):
 
     def execute(self, arguments):
         try:
+            update_outcome.show_pending(self.ctx)
             automatic_check(self.ctx)
         except Exception:  # noqa: BLE001 - never block or break start-up
             traceback.print_exc()

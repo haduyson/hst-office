@@ -20,6 +20,12 @@ TEXTS = {
         "err_none": "Bản này không có gói cài đặt tự động cho hệ điều hành của bạn.",
         "err_tools": "Máy này thiếu công cụ cài đặt (Linux: pkexec và apt-get, hoặc pkcon; macOS/Windows: công cụ hệ thống). Hãy tải về và cài thủ công.",
         "err_launch": "Không khởi chạy được trình cập nhật. Hãy tải về và cài thủ công.",
+        "outcome_auth": "Chưa cài được %s: máy không cấp quyền quản trị để cài đặt.",
+        "outcome_install": "Chưa cài được %s: bộ cài báo lỗi (mã %d).",
+        "outcome_verify": "Chưa cài được %s: tệp cài đặt không vượt qua bước kiểm tra lần cuối nên đã bị bỏ qua.",
+        "outcome_tool": "Chưa cài được %s: máy thiếu công cụ cài đặt.",
+        "outcome_wait": "Chưa cài được %s: HST Office không đóng hẳn trong 30 phút.",
+        "outcome_next": "Bạn vẫn đang dùng bản cũ. Hãy thử lại sau, hoặc bấm Tải về để cài thủ công.\nChi tiết trong nhật ký: %s",
     },
     "en": {
         "title": "Check for Updates",
@@ -38,6 +44,12 @@ TEXTS = {
         "err_none": "This release has no automatic installer for your operating system.",
         "err_tools": "This computer lacks the installer tools (Linux: pkexec and apt-get, or pkcon; macOS/Windows: system tools). Download and install manually.",
         "err_launch": "The updater could not be started. Download and install manually.",
+        "outcome_auth": "%s was not installed: administrator permission was not granted.",
+        "outcome_install": "%s was not installed: the installer reported an error (code %d).",
+        "outcome_verify": "%s was not installed: the file failed the final check and was skipped.",
+        "outcome_tool": "%s was not installed: this computer lacks the installer tools.",
+        "outcome_wait": "%s was not installed: HST Office did not close within 30 minutes.",
+        "outcome_next": "You are still using the old version. Try again later, or click Download to install manually.\nDetails in the log: %s",
     },
 }
 

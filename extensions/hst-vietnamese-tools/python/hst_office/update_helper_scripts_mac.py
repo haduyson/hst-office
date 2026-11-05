@@ -82,7 +82,9 @@ install_update() {
     if [ "$count" -ne 1 ]; then log_step 'Image must contain exactly one app'; return 1; fi
     safe_path "$app" || { log_step 'Unsafe app path'; return 1; }
     log_step 'Verifying app signature, team and Gatekeeper assessment'
+    FAIL=verify
     verify "$app" && spctl --assess --type execute "$app" >/dev/null 2>&1 || return 1
+    FAIL=install
     if [ -w "${SOFFICE%/*}" ] && [ -w "$SOFFICE" ]; then
         # Shell quoting for runtime paths, equivalent to shlex.quote's single-quote escape.
         quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
@@ -98,7 +100,12 @@ install_update() {
             return 0
         fi
         log_step 'Requesting administrator privileges for swap'
-        osascript -e "$command"
+        answer=$(osascript -e "$command" 2>&1)
+        code=$?
+        log_step "Swap command exited with code $code: $answer"
+        # The password dialog was cancelled: the user's choice, not a failure to report.
+        case "$answer" in *'(-128)'*) FAIL=cancel ;; esac
+        return "$code"
     fi
 }
 '''
