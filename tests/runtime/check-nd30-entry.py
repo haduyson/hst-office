@@ -25,6 +25,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
+from nd30_entry_gui import walk, office_app, hst_menu, window_geometry, open_menu_screenshot, crop_window, crop_ribbon, wait_window, click_in_home_block, open_home_block  # noqa: E402
 
 ROWS = []
 ND30 = "Văn bản hành chính…"
@@ -43,91 +44,6 @@ def reexec_as_build_user():
     os.makedirs(OUT_DEFAULT, exist_ok=True)
     subprocess.run(["chown", "-R", user, OUT_DEFAULT], check=False)
     os.execvp("runuser", ["runuser", "-u", user, "--", "dbus-run-session", "--", sys.executable] + sys.argv)
-
-
-def walk(accessible, out=None, depth=0):
-    out = out if out is not None else []
-    try:
-        out.append((depth, accessible.getRoleName(), accessible.name, accessible))
-        for index in range(accessible.childCount):
-            walk(accessible.getChildAtIndex(index), out, depth + 1)
-    except Exception:  # noqa: BLE001 - a widget may vanish while walking
-        pass
-    return out
-
-
-def office_app():
-    import pyatspi
-    desktop = pyatspi.Registry.getDesktop(0)
-    for index in range(desktop.childCount):
-        app = desktop.getChildAtIndex(index)
-        if "office" in (app.name or "").lower():
-            return app
-    return None
-
-
-def hst_menu(app):
-    """(menu accessible, [item names]) of the HST menu in the current window, or (None, [])."""
-    nodes = walk(app)
-    for position, (depth, role, name, node) in enumerate(nodes):
-        if role == "menu" and name == "HST":
-            items = []
-            for later_depth, later_role, later_name, _ in nodes[position + 1:]:
-                if later_depth <= depth:
-                    break
-                if later_depth == depth + 1 and "item" in later_role and later_name:
-                    items.append(later_name)
-            return node, items
-    return None, []
-
-
-def window_geometry(wid, display):
-    info = subprocess.run(["xwininfo", "-display", display, "-id", wid], capture_output=True, text=True).stdout
-    values = [int(re.search(label + r":\s+(-?\d+)", info).group(1)) for label in
-              ("Absolute upper-left X", "Absolute upper-left Y", "Width", "Height")]
-    return tuple(values)
-
-
-def open_menu_screenshot(menu, office, args, target):
-    """Click the HST menu (position from AT-SPI) and save a screenshot of the open menu; never fails the run."""
-    import pyatspi
-    try:
-        box = menu.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
-        env = dict(os.environ, DISPLAY=args.display)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        subprocess.run(["xdotool", "mousemove", str(box.x + box.width // 2), str(box.y + box.height // 2), "click", "1"], env=env, check=False)
-        time.sleep(1.5)
-        hst_gui.screenshot(target, args.display)
-        subprocess.run(["xdotool", "key", "Escape"], env=env, check=False)
-        time.sleep(1)
-    except Exception as error:  # noqa: BLE001
-        print("menu screenshot skipped:", error)
-
-
-def crop_window(full, geometry, target):
-    from PIL import Image
-    x, y, width, height = geometry
-    Image.open(full).crop((max(x, 0), max(y, 0), x + width, y + height)).save(target)
-
-
-def crop_ribbon(full, geometry, target):
-    """Top of the Writer window (tabs and Home ribbon) with a red frame around the ND 30 button, for the help guide."""
-    from PIL import Image, ImageDraw
-    x, y, width, _height = geometry
-    image = Image.open(full).convert("RGB")
-    left = x + width - 150  # button measured on the 1366x768 test display
-    ImageDraw.Draw(image).rectangle((left, y + 122, x + width - 6, y + 148), outline=(220, 30, 30), width=3)
-    image.crop((x, y, x + width, y + 160)).save(target)
-
-
-def wait_window(office, pattern, timeout=40):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        for wid, name in hst_gui.toplevels(office.display, office.pid):
-            if re.search(pattern, name):
-                return wid, name
-        time.sleep(1)
-    return None, None
 
 
 def check_language(args, lang, label):
@@ -160,8 +76,7 @@ def check_language(args, lang, label):
         record(label + " Writer window found", wid is not None)
         if wid is not None:
             x, y, width, _height = window_geometry(wid, args.display)
-            # The button sits at the right end of the Home tab, below "Find & Replace" (measured on the 1366x768 test display).
-            subprocess.run(["xdotool", "mousemove", str(x + width - 70), str(y + 135), "click", "1"], env=dict(os.environ, DISPLAY=args.display), check=False)
+            click_in_home_block(office, args.display, 70)
             crop_ribbon(os.path.join(args.out, label + "-writer-ribbon.png"), (x, y, width, _height), os.path.join(shots, label + "-nd30-where.png"))
             dialog, name = wait_window(office, r"^Văn bản hành chính$", 30)
             record(label + " ribbon button opens the wizard (Vietnamese title)", dialog is not None and WIZARD_TITLE in (name or ""), name)

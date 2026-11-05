@@ -1,0 +1,613 @@
+HST Office: the right-hand block of a ribbon tab folds before its groups.
+
+The block with the tab menu and Find folds into its button as soon as the groups would not fit, so Paragraph and the
+other groups stay visible longer. The merged box reports the width of its hidden groups for that test.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -40,6 +40,9 @@
+ 
+     bool HasHiddenChildren() const;
+ 
++    /// HST Office: the width its hidden children would need, added to the requisition
++    tools::Long GetHiddenWidth() const;
++
+     Size calculateRequisition() const override;
+ 
+     void GetChildrenWithPriorities() override{};
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -132,6 +132,18 @@
+     return false;
+ }
+ 
++tools::Long PriorityMergedHBox::GetHiddenWidth() const
++{
++    tools::Long nWidth = 0;
++    for (int i = 0; i < GetChildCount(); i++)
++    {
++        vcl::Window* pWindow = GetChild(i);
++        if (pWindow && pWindow != m_pButton && pWindow->GetParent() == this && !pWindow->IsVisible())
++            nWidth += getLayoutRequisition(*pWindow).Width() + get_spacing();
++    }
++    return nWidth;
++}
++
+ Size PriorityMergedHBox::calculateRequisition() const
+ {
+     if (!m_bInitialized)
+--- a/vcl/source/control/PriorityHBox.cxx
++++ b/vcl/source/control/PriorityHBox.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include <vcl/layout.hxx>
+ #include <PriorityHBox.hxx>
++#include <PriorityMergedHBox.hxx>
+ #include <comphelper/lok.hxx>
+ 
+ namespace
+@@ -63,6 +64,11 @@
+     }
+ 
+     sal_uInt16 nVisibleChildren = 0;
++
++    bool bHasMerged = false;
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild && !bHasMerged;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        bHasMerged = dynamic_cast<const PriorityMergedHBox*>(pChild) != nullptr;
+ 
+     Size aSize;
+     for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
+@@ -85,7 +91,7 @@
+             nPrimaryDimension += pChild->get_padding() * 2;
+             setPrimaryDimension(aChildSize, nPrimaryDimension);
+         }
+-        else
++        else if (!bHasMerged) // HST Office: beside a merged box the block keeps its place, folded or not
+             setPrimaryDimension(aChildSize, 0);
+ 
+         accumulateMaxes(aChildSize, aSize);
+@@ -106,6 +112,15 @@
+ 
+     tools::Long nWidth = GetSizePixel().Width();
+     tools::Long nCurrentWidth = VclHBox::calculateRequisition().getWidth();
++
++    // HST Office: groups already folded by a merged child still count, or the block with a
++    // priority would come back as soon as they are hidden, and would never give way to them.
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (const PriorityMergedHBox* pMerged = dynamic_cast<const PriorityMergedHBox*>(pChild))
++            nCurrentWidth += pMerged->GetHiddenWidth();
++    }
+ 
+     // Hide lower priority controls
+     for (vcl::IPrioritable* pPrioritable : m_aSortedChildren)
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -3042,6 +3042,9 @@
+                         <property name="position">0</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -4077,6 +4080,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -5416,6 +5422,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -6478,6 +6487,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -7226,6 +7238,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -8360,6 +8375,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -9219,6 +9237,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -10412,6 +10433,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -11605,6 +11629,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -13612,6 +13639,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -14506,6 +14536,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -15358,6 +15391,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -15900,6 +15936,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -16683,6 +16722,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -16808,6 +16850,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -17226,6 +17271,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -2852,6 +2852,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -4355,6 +4358,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -5447,6 +5453,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -6170,6 +6179,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -8001,6 +8013,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -8725,6 +8740,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -9479,6 +9497,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -10708,6 +10729,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -12525,6 +12549,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -13299,6 +13326,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -13890,6 +13920,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -14388,6 +14421,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -15156,6 +15192,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -15270,6 +15309,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -15556,6 +15598,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+--- a/sd/uiconfig/simpress/ui/notebookbar.ui
++++ b/sd/uiconfig/simpress/ui/notebookbar.ui
+@@ -2950,6 +2950,9 @@
+                         <property name="position">0</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -3189,7 +3192,7 @@
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeDuplicatePage">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeDuplicatePage">
+@@ -3214,7 +3217,7 @@
+                             <property name="can-focus">False</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomePresentationLayout">
+@@ -4170,6 +4173,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -5604,6 +5610,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -5944,6 +5953,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -6600,6 +6612,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -7156,6 +7171,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -8299,6 +8317,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -9003,6 +9024,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -9954,6 +9978,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -11914,6 +11941,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -12614,6 +12644,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -13130,6 +13163,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -13898,6 +13934,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -14472,6 +14511,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -15048,6 +15090,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -15852,6 +15897,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -15966,6 +16014,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -16221,6 +16272,9 @@
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
++                    <style>
++                      <class name="priority-1"/>
++                    </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+--- a/vcl/source/control/DropdownBox.cxx
++++ b/vcl/source/control/DropdownBox.cxx
+@@ -100,7 +100,8 @@
+ 
+     m_pPopup->hideSeparators(true);
+ 
+-    m_pPopup->getBox()->set_height_request(GetSizePixel().Height());
++    // HST Office: the folded box is only as high as its button; the content needs the height of the page
++    m_pPopup->getBox()->set_height_request(GetParent() ? GetParent()->GetSizePixel().Height() : GetSizePixel().Height());
+ 
+     tools::Long x = GetPosPixel().getX();
+     tools::Long y = GetPosPixel().getY() + NOTEBOOK_HEADER_HEIGHT + GetSizePixel().Height();

@@ -226,7 +226,7 @@ Implemented by [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banne
 - **The slot adapts to the ribbon, never the reverse.** It is not part of the ribbon layout: height = height of
   the tab page that already holds the 2-row groups minus 2 px margins per scale step; width = height × 360/104,
   capped at 360 logical px; at the right end of the page, 4 px from the edge. The current page gets the remaining
-  width minus an 8 px gap, so groups fold into their `»` menu as usual. Ribbon and group heights do not change.
+  width minus an 8 px gap, so groups fold into their `»` menu as usual; the right-hand block of the tab folds first (`hst-ribbon-fold.patch`). Ribbon and group heights do not change.
 - **Images never change the slot.** Any pixel size is aspect-fitted, centred, with a high-quality downscale cached
   per device size. The requested variant is the exact @1x/@2x/@3x for the device height, else the next larger one.
   Device scale = VCL DPI factor × cairo surface scale on gtk; 2 on macOS, where it cannot be queried from sfx2.

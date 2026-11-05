@@ -24,6 +24,10 @@ LibreOffice 26.8.1.1 + các patch HST trước đó; "Sau" là HST Office 1.0.0-
 Trạng thái: **khớp** (đã đúng từ trước), **đổi** (patch này đổi/thêm), **một phần** (phím đúng
 nhưng lệnh HST làm khác một chút), **thiếu** (HST chưa có lệnh tương đương).
 
+## Mẹo phím (KeyTips)
+
+Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh; Esc lùi một bước; Alt+chữ mở thẳng thẻ (`hst-ribbon-keytips.patch`). Chữ của thẻ lấy từ trang phím tắt vi-vn của Microsoft: Word F H N G P S M R W L, Excel F H N P M A R W, PowerPoint F H N G K A S R W. Chữ của lệnh: bảng trong `sfx2/source/notebookbar/HstKeyTipTable.hxx`, lệnh ngoài bảng được gán chữ còn trống khi mở thẻ, nên có thể khác Office.
+
 ## HST Writer ↔ Word
 
 | Lệnh Microsoft | Win/Linux | macOS (Microsoft) | Trước (HST) | Sau (HST) | Trạng thái | Ghi chú / phím bị thay |

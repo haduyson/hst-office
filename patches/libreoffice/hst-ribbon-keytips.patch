@@ -1,0 +1,692 @@
+HST Office: KeyTips on the ribbon, as in Office.
+
+Alt alone shows key letters on the tabs, a letter opens the tab and shows the letters of its commands, a further letter
+runs the command, Esc goes back one level. Alt+letter opens the tab directly. The letters of Office are used where the
+same tab or command exists; the others get a free letter when the tab is shown.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/include/vcl/notebookbar/notebookbar.hxx
++++ b/include/vcl/notebookbar/notebookbar.hxx
+@@ -16,6 +16,7 @@
+ 
+ class NotebookBarContextChangeEventListener;
+ class NotebookbarContextControl;
++class CommandModKeyData;
+ class SfxViewShell;
+ struct NotebookBarAddonsItem;
+ 
+@@ -45,8 +46,13 @@
+ 
+     const OUString & GetUIFilePath() const { return m_sUIXMLDescription; }
+ 
++    /// HST Office: told about modifier key changes of the window, for the KeyTips.
++    void SetModKeyHdl(const Link<const CommandModKeyData&, void>& rLink) { m_aModKeyHdl = rLink; }
++    void NotifyModKey(const CommandModKeyData& rData) { m_aModKeyHdl.Call(rData); }
++
+ private:
+     VclPtr<SystemWindow> m_pSystemWindow;
++    Link<const CommandModKeyData&, void> m_aModKeyHdl;
+     rtl::Reference<NotebookBarContextChangeEventListener> m_pEventListener;
+     std::vector<NotebookbarContextControl*> m_pContextContainers;
+     const SfxViewShell* m_pViewShell;
+--- a/vcl/source/window/syswin.cxx
++++ b/vcl/source/window/syswin.cxx
+@@ -32,6 +32,8 @@
+ #include <vcl/layout.hxx>
+ #include <vcl/mnemonic.hxx>
+ #include <vcl/notebookbar/NotebookBarAddonsItem.hxx>
++#include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/commandevent.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/menu.hxx>
+@@ -183,7 +185,17 @@
+ bool SystemWindow::EventNotify( NotifyEvent& rNEvt )
+ {
+     if (rNEvt.GetType() == NotifyEventType::COMMAND)
++    {
+         ToggleMnemonicsOnHierarchy(*rNEvt.GetCommandEvent(), this);
++        // HST Office: Alt alone shows the KeyTips of the ribbon
++        // GetNotebookBar() casts the border window, which only a work window is sure to have: dialogs may have
++        // none, or another kind of window in that place.
++        const CommandEvent& rCommand = *rNEvt.GetCommandEvent();
++        if (rCommand.GetCommand() == CommandEventId::ModKeyChange && rCommand.GetModKeyData()
++            && GetType() == WindowType::WORKWINDOW && mpWindowImpl->mpBorderWindow
++            && mpWindowImpl->mpBorderWindow->GetType() == WindowType::BORDERWINDOW && GetNotebookBar())
++            GetNotebookBar()->NotifyModKey(*rCommand.GetModKeyData());
++    }
+ 
+     // capture KeyEvents for menu handling
+     if (rNEvt.GetType() == NotifyEventType::KEYINPUT ||
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -27,6 +27,7 @@
+ #include <notebookbar/NotebookbarTabControl.hxx>
+ #include "HstBannerGeometry.hxx"
+ #include "HstRibbonBanner.hxx"
++#include "HstRibbonKeyTips.hxx"
+ #include <vcl/event.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/vclevent.hxx>
+@@ -199,6 +200,7 @@
+                     && rFile.indexOf("/simpress/") < 0))
+                 return;
+             m_pHstBanner = VclPtr<HstRibbonBanner>::Create(this);
++            hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
+             AddChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+             HstLayoutBanner();
+             return;
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -259,6 +259,7 @@
+     sfx2/source/notebookbar/SfxNotebookBar \
+     sfx2/source/notebookbar/NotebookbarTabControl \
+     sfx2/source/notebookbar/HstRibbonBanner \
++    sfx2/source/notebookbar/HstRibbonKeyTips \
+     sfx2/source/notebookbar/HstChartCommands \
+     sfx2/source/notify/eventsupplier \
+     sfx2/source/notify/globalevents \
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -0,0 +1,450 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "HstRibbonKeyTips.hxx"
++#include "HstKeyTipTable.hxx"
++
++#include <com/sun/star/accessibility/AccessibleRole.hpp>
++#include <rtl/ustrbuf.hxx>
++#include <vcl/commandevent.hxx>
++#include <vcl/event.hxx>
++#include <vcl/dialoghelper.hxx>
++#include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/tabctrl.hxx>
++#include <vcl/tabpage.hxx>
++#include <vcl/toolbox.hxx>
++#include <vcl/vclevent.hxx>
++#include <vcl/window.hxx>
++
++#include <algorithm>
++#include <functional>
++#include <utility>
++#include <memory>
++
++namespace hst::keytips
++{
++namespace
++{
++/// The small label drawn over a tab or a command. It never takes the focus.
++class TipWindow final : public vcl::Window
++{
++public:
++    TipWindow(vcl::Window* pParent, const OUString& rTip, bool bEnabled)
++        : vcl::Window(pParent, 0)
++        , m_aTip(rTip)
++        , m_bEnabled(bEnabled)
++    {
++        SetPaintTransparent(false);
++        SetAccessibleRole(css::accessibility::AccessibleRole::LABEL);
++        SetAccessibleName(rTip);
++        vcl::Font aFont(GetSettings().GetStyleSettings().GetLabelFont());
++        aFont.SetWeight(WEIGHT_BOLD);
++        SetControlFont(aFont);
++        SetFont(aFont);
++    }
++
++    Size Measure()
++    {
++        const tools::Long nPad = GetTextHeight() / 3;
++        return Size(std::max(GetTextWidth(m_aTip) + 2 * nPad, GetTextHeight() + nPad),
++                    GetTextHeight() + nPad / 2);
++    }
++
++    virtual void Paint(vcl::RenderContext& rContext, const tools::Rectangle&) override
++    {
++        const StyleSettings& rStyle = rContext.GetSettings().GetStyleSettings();
++        const tools::Rectangle aRect(Point(), GetOutputSizePixel());
++        // the colours of an entry field: dark on light, and readable in a dark theme too
++        rContext.SetFillColor(rStyle.GetFieldColor());
++        rContext.SetLineColor(rStyle.GetShadowColor());
++        rContext.DrawRect(aRect);
++        rContext.SetFont(GetFont());
++        rContext.SetTextColor(m_bEnabled ? rStyle.GetFieldTextColor() : rStyle.GetDisableColor());
++        rContext.DrawText(aRect, m_aTip, DrawTextFlags::Center | DrawTextFlags::VCenter);
++    }
++
++private:
++    OUString m_aTip;
++    bool m_bEnabled;
++};
++
++/// A place on the ribbon that can show a tip and be activated.
++struct Target
++{
++    OUString aTip;
++    vcl::Window* pAnchor = nullptr; // coordinates of aRect
++    tools::Rectangle aRect;
++    bool bEnabled = true;
++    std::function<void()> aRun;
++    VclPtr<TipWindow> xTip;
++};
++
++class KeyTips
++{
++public:
++    KeyTips(TabControl& rTabs, NotebookBar& rBar, ToolBox* pQuickAccess, vcl::Window* pBanner)
++        : m_xTabs(&rTabs)
++        , m_xBar(&rBar)
++        , m_xQuick(pQuickAccess)
++        , m_xBanner(pBanner)
++    {
++        Application::AddKeyListener(LINK(this, KeyTips, KeyHdl));
++        Application::AddEventListener(LINK(this, KeyTips, AppEventHdl));
++        rBar.SetModKeyHdl(LINK(this, KeyTips, ModKeyHdl));
++        rTabs.AddEventListener(LINK(this, KeyTips, TabsEventHdl));
++    }
++
++private:
++    enum class Level { None, Tabs, Commands };
++
++    bool Mine(vcl::Window* pWindow) const
++    {
++        return pWindow && m_xTabs && m_xTabs->IsReallyVisible() && !m_xBar->IsInModalMode()
++               && pWindow->GetSystemWindow() == m_xTabs->GetSystemWindow()
++               && !vcl::IsInPopupMenuExecute();
++    }
++
++    void Clear()
++    {
++        for (Target& rTarget : m_aTargets)
++            rTarget.xTip.disposeAndClear();
++        m_aTargets.clear();
++        m_aTyped.clear();
++    }
++
++    void Close()
++    {
++        Clear();
++        m_eLevel = Level::None;
++    }
++
++    void Show(std::vector<Target>&& rTargets, const std::vector<std::string>& rPreferred)
++    {
++        Clear();
++        m_aTargets = std::move(rTargets);
++        const std::vector<std::string> aTips = assign(rPreferred);
++        const Size aBar = m_xBar->GetOutputSizePixel();
++        // The tab page is narrowed beside the banner after its children were placed: the overflow and menu
++        // buttons at its end can report a place under the banner. Tips stay on the page, side by side.
++        tools::Long nPageRight = aBar.Width();
++        if (m_eLevel == Level::Commands && m_xBanner && m_xBanner->IsVisible())
++            nPageRight = m_xBar->ScreenToOutputPixel(m_xBanner->OutputToScreenPixel(Point())).X();
++        tools::Long nEndTips = 0;
++        for (size_t i = 0; i < m_aTargets.size(); ++i)
++        {
++            Target& rTarget = m_aTargets[i];
++            rTarget.aTip = OUString::createFromAscii(aTips[i]);
++            rTarget.xTip = VclPtr<TipWindow>::Create(m_xBar.get(), rTarget.aTip, rTarget.bEnabled);
++            const Size aSize = rTarget.xTip->Measure();
++            // centred on the bottom edge of the command, inside the ribbon
++            const Point aBottom(rTarget.aRect.Center().X(), rTarget.aRect.Bottom());
++            const Point aOnBar = m_xBar->ScreenToOutputPixel(rTarget.pAnchor->OutputToScreenPixel(aBottom));
++            Point aPos(aOnBar.X() - aSize.Width() / 2, aOnBar.Y() - aSize.Height() / 2);
++            if (aPos.X() + aSize.Width() > nPageRight)
++            {
++                nEndTips += aSize.Width() + 2;
++                aPos.setX(nPageRight - nEndTips);
++            }
++            aPos.setX(std::clamp<tools::Long>(aPos.X(), 0, std::max<tools::Long>(0, aBar.Width() - aSize.Width())));
++            aPos.setY(std::clamp<tools::Long>(aPos.Y(), 0, std::max<tools::Long>(0, aBar.Height() - aSize.Height())));
++            rTarget.xTip->SetPosSizePixel(aPos, aSize);
++            rTarget.xTip->SetZOrder(nullptr, ZOrderFlags::First);
++            rTarget.xTip->Show(true, ShowFlags::NoFocusChange | ShowFlags::NoActivate);
++        }
++    }
++
++    void ShowTabs()
++    {
++        std::vector<Target> aTargets;
++        std::vector<std::string> aPreferred;
++        for (sal_uInt16 nPos = 0; nPos < m_xTabs->GetPageCount(); ++nPos)
++        {
++            const sal_uInt16 nId = m_xTabs->GetPageId(nPos);
++            const tools::Rectangle aRect = m_xTabs->GetTabBounds(nId);
++            if (aRect.GetWidth() <= 1) // pages hidden by the context have no tab
++                continue;
++            const OString aName = m_xTabs->GetPageName(nId).toUtf8();
++            aPreferred.emplace_back(lookup(std::begin(TAB_KEYS), std::end(TAB_KEYS), std::string_view(aName)));
++            Target aTarget;
++            aTarget.pAnchor = m_xTabs.get();
++            aTarget.aRect = aRect;
++            aTarget.aRun = [this, nId, bFile = aName == "FileLabel"] {
++                m_xTabs->SelectTabPage(nId);
++                if (bFile) // the handler of the File tab opens the full-window view
++                    Close();
++                else
++                    ShowCommands();
++            };
++            aTargets.push_back(std::move(aTarget));
++        }
++        // quick access buttons of the title row: digits, as the Quick Access Toolbar in Office
++        if (m_xQuick && m_xQuick->IsReallyVisible())
++        {
++            int nDigit = 1;
++            for (ToolBox::ImplToolItems::size_type i = 0; i < m_xQuick->GetItemCount() && nDigit < 10; ++i)
++                AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit++));
++        }
++        m_eLevel = Level::Tabs;
++        Show(std::move(aTargets), aPreferred);
++    }
++
++    void AddToolBoxItem(ToolBox& rBox, ToolBoxItemId nId, std::vector<Target>& rTargets,
++                        std::vector<std::string>& rPreferred, const std::string& rTip)
++    {
++        const tools::Rectangle aRect = rBox.GetItemRect(nId);
++        if (rBox.GetItemType(rBox.GetItemPos(nId)) != ToolBoxItemType::BUTTON || !rBox.IsItemVisible(nId)
++            || rBox.IsItemClipped(nId) || aRect.IsEmpty())
++            return;
++        Target aTarget;
++        aTarget.pAnchor = &rBox;
++        aTarget.aRect = aRect;
++        aTarget.bEnabled = rBox.IsItemEnabled(nId);
++        VclPtr<ToolBox> xBox(&rBox);
++        aTarget.aRun = [xBox, nId] {
++            if (vcl::Window* pItem = xBox->GetItemWindow(nId))
++                pItem->GrabFocus(); // font name, size: the field takes the typing, as in Office
++            else if (xBox->GetItemBits(nId) & ToolBoxItemBits::DROPDOWNONLY)
++                xBox->TriggerItemDropdown(nId);
++            else
++                xBox->TriggerItem(nId);
++        };
++        rPreferred.push_back(rTip);
++        rTargets.push_back(std::move(aTarget));
++    }
++
++    void CollectCommands(vcl::Window& rWindow, std::vector<Target>& rTargets, std::vector<std::string>& rPreferred)
++    {
++        for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
++             pChild = pChild->GetWindow(GetWindowType::Next))
++        {
++            if (!pChild->IsVisible())
++                continue;
++            if (ToolBox* pBox = dynamic_cast<ToolBox*>(pChild))
++            {
++                for (ToolBox::ImplToolItems::size_type i = 0; i < pBox->GetItemCount(); ++i)
++                {
++                    const ToolBoxItemId nId = pBox->GetItemId(i);
++                    OUString aCommand = pBox->GetItemCommand(nId);
++                    aCommand = aCommand.replaceFirst(".uno:", "");
++                    const OString aUtf8 = aCommand.toUtf8();
++                    AddToolBoxItem(*pBox, nId, rTargets, rPreferred,
++                                   std::string(lookup(std::begin(COMMAND_KEYS), std::end(COMMAND_KEYS),
++                                                      std::string_view(aUtf8))));
++                }
++            }
++            else if (pChild->GetType() == WindowType::PUSHBUTTON || pChild->GetType() == WindowType::MENUBUTTON)
++            {
++                // tab menu, overflow chevron: the button classes are private to vcl, so a click is posted
++                Target aTarget;
++                aTarget.pAnchor = pChild;
++                // these buttons can be allocated more width than they draw: the tip goes on their left end
++                const Size aSize = pChild->GetOutputSizePixel();
++                aTarget.aRect = tools::Rectangle(Point(), Size(std::min<tools::Long>(aSize.Width(), aSize.Height()), aSize.Height()));
++                aTarget.bEnabled = pChild->IsEnabled();
++                VclPtr<vcl::Window> xButton(pChild);
++                aTarget.aRun = [xButton] {
++                    const Point aCentre(xButton->GetOutputSizePixel().Width() / 2, xButton->GetOutputSizePixel().Height() / 2);
++                    const MouseEvent aDown(aCentre, 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT);
++                    const MouseEvent aUp(aCentre, 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT);
++                    Application::PostMouseEvent(VclEventId::WindowMouseButtonDown, xButton.get(), &aDown);
++                    Application::PostMouseEvent(VclEventId::WindowMouseButtonUp, xButton.get(), &aUp);
++                };
++                rPreferred.emplace_back();
++                rTargets.push_back(std::move(aTarget));
++            }
++            else
++                CollectCommands(*pChild, rTargets, rPreferred);
++        }
++    }
++
++    void ShowCommands()
++    {
++        std::vector<Target> aTargets;
++        std::vector<std::string> aPreferred;
++        if (TabPage* pPage = m_xTabs->GetTabPage(m_xTabs->GetCurPageId()))
++            CollectCommands(*pPage, aTargets, aPreferred);
++        m_eLevel = Level::Commands;
++        Show(std::move(aTargets), aPreferred);
++    }
++
++    /// A letter of the typed tip. Returns true when the key belonged to KeyTips.
++    bool Type(char cKey)
++    {
++        const OUString aTyped = m_aTyped + OUStringChar(cKey);
++        bool bAny = false;
++        for (const Target& rTarget : m_aTargets)
++            bAny = bAny || rTarget.aTip.startsWith(aTyped);
++        if (!bAny)
++            return true; // not a tip: ignored, the level stays open as in Office
++        m_aTyped = aTyped;
++        for (Target& rTarget : m_aTargets)
++        {
++            if (rTarget.aTip != aTyped)
++            {
++                rTarget.xTip->Show(rTarget.aTip.startsWith(aTyped), ShowFlags::NoFocusChange | ShowFlags::NoActivate);
++                continue;
++            }
++            if (!rTarget.bEnabled)
++                return true;
++            const std::function<void()> aRun = rTarget.aRun;
++            if (m_eLevel == Level::Commands)
++                Close();
++            aRun(); // tabs: goes on to the commands of the tab
++            return true;
++        }
++        return true;
++    }
++
++    static char LetterOf(const vcl::KeyCode& rKey)
++    {
++        const sal_uInt16 nCode = rKey.GetCode();
++        if (nCode >= KEY_A && nCode <= KEY_Z)
++            return static_cast<char>('A' + (nCode - KEY_A));
++        if (nCode >= KEY_0 && nCode <= KEY_9)
++            return static_cast<char>('0' + (nCode - KEY_0));
++        return 0;
++    }
++
++    DECL_LINK(KeyHdl, VclWindowEvent&, bool);
++    DECL_LINK(AppEventHdl, VclSimpleEvent&, void);
++    DECL_LINK(TabsEventHdl, VclWindowEvent&, void);
++    DECL_LINK(ModKeyHdl, const CommandModKeyData&, void);
++    DECL_LINK(DeleteHdl, void*, void);
++
++    VclPtr<TabControl> m_xTabs;
++    VclPtr<NotebookBar> m_xBar;
++    VclPtr<ToolBox> m_xQuick;
++    VclPtr<vcl::Window> m_xBanner;
++    std::vector<Target> m_aTargets;
++    OUString m_aTyped;
++    Level m_eLevel = Level::None;
++    bool m_bAltArmed = false;
++};
++
++IMPL_LINK(KeyTips, ModKeyHdl, const CommandModKeyData&, rData, void)
++{
++    if (!m_xTabs || !m_xTabs->IsReallyVisible())
++        return;
++    if (rData.IsDown())
++    {
++        m_bAltArmed = rData.IsMod2() && !rData.IsMod1() && !rData.IsLeftShift() && !rData.IsRightShift();
++        return;
++    }
++    // Alt released with no key in between
++    if (std::exchange(m_bAltArmed, false))
++    {
++        if (m_eLevel == Level::None)
++        {
++            if (!m_xBar->IsInModalMode() && !vcl::IsInPopupMenuExecute())
++                ShowTabs();
++        }
++        else
++            Close();
++    }
++}
++
++IMPL_LINK(KeyTips, KeyHdl, VclWindowEvent&, rEvent, bool)
++{
++    vcl::Window* pWindow = rEvent.GetWindow();
++    const KeyEvent* pKey = static_cast<const KeyEvent*>(rEvent.GetData());
++    if (!pKey || !Mine(pWindow))
++    {
++        if (m_eLevel != Level::None)
++            Close();
++        return false;
++    }
++    const vcl::KeyCode& rCode = pKey->GetKeyCode();
++    if (rEvent.GetId() == VclEventId::WindowKeyUp)
++        return m_eLevel != Level::None;
++    if (rEvent.GetId() != VclEventId::WindowKeyInput)
++        return false;
++    m_bAltArmed = false;
++
++    if (m_eLevel == Level::None)
++    {
++        // Alt+letter: the tab with that letter, then its commands. Other Alt keys are shortcuts.
++        const char cLetter = rCode.IsMod2() && !rCode.IsMod1() && !rCode.IsShift() ? LetterOf(rCode) : 0;
++        if (!cLetter || cLetter == 'F') // Alt+F has its own accelerator, the File view
++            return false;
++        ShowTabs();
++        const OUString aOne = OUString(OUStringChar(cLetter));
++        bool bTab = false;
++        for (const Target& rTarget : m_aTargets)
++            bTab = bTab || rTarget.aTip.startsWith(aOne);
++        if (bTab)
++            return Type(cLetter);
++        Close();
++        return false;
++    }
++    switch (rCode.GetCode())
++    {
++        case KEY_ESCAPE:
++            if (m_eLevel == Level::Commands)
++                ShowTabs();
++            else
++                Close();
++            return true;
++        case KEY_TAB: case KEY_LEFT: case KEY_RIGHT: case KEY_UP: case KEY_DOWN: case KEY_RETURN:
++            Close();
++            return false;
++        default:
++            break;
++    }
++    if (rCode.IsMod1())
++    {
++        Close();
++        return false;
++    }
++    if (const char cLetter = LetterOf(rCode))
++        return Type(cLetter);
++    return true;
++}
++
++IMPL_LINK(KeyTips, AppEventHdl, VclSimpleEvent&, rEvent, void)
++{
++    if (m_eLevel == Level::None)
++        return;
++    switch (rEvent.GetId())
++    {
++        case VclEventId::WindowMouseButtonDown:
++        case VclEventId::WindowResize:
++        case VclEventId::WindowDeactivate:
++        case VclEventId::WindowClose:
++            if (rEvent.GetId() == VclEventId::WindowMouseButtonDown
++                || static_cast<VclWindowEvent&>(rEvent).GetWindow() == m_xTabs->GetSystemWindow())
++                Close();
++            break;
++        default:
++            break;
++    }
++}
++
++IMPL_LINK(KeyTips, TabsEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() != VclEventId::ObjectDying)
++        return;
++    Close();
++    Application::RemoveKeyListener(LINK(this, KeyTips, KeyHdl));
++    Application::RemoveEventListener(LINK(this, KeyTips, AppEventHdl));
++    m_xBar->SetModKeyHdl(Link<const CommandModKeyData&, void>());
++    m_xTabs->RemoveEventListener(LINK(this, KeyTips, TabsEventHdl));
++    m_xTabs.reset();
++    Application::PostUserEvent(LINK(this, KeyTips, DeleteHdl));
++}
++
++IMPL_LINK_NOARG(KeyTips, DeleteHdl, void*, void) { delete this; }
++}
++
++void Attach(TabControl& rTabs, NotebookBar& rBar, ToolBox* pQuickAccess, vcl::Window* pBanner)
++{
++    new KeyTips(rTabs, rBar, pQuickAccess, pBanner); // deletes itself when the tab control is disposed
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.hxx
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++class NotebookBar;
++class TabControl;
++class ToolBox;
++namespace vcl { class Window; }
++
++namespace hst::keytips
++{
++/// Gives a ribbon its KeyTips: Alt alone shows key letters on the tabs, a letter opens that tab and
++/// shows the letters of its commands, a further letter runs the command, Esc goes back one level.
++/// Alt+letter opens the tab directly. The object lives as long as the tab control.
++void Attach(TabControl& rTabs, NotebookBar& rBar, ToolBox* pQuickAccess, vcl::Window* pBanner);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstKeyTipTable.hxx
+@@ -0,0 +1,122 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++// HST Office: key letters of the ribbon (KeyTips). Pure data and the assignment rule, without VCL
++// types, so that a unit test can compile this header on its own.
++//
++// Tab letters follow the access keys Microsoft documents for Word, Excel and PowerPoint. Command
++// letters follow the Office ribbon where the same command exists; every other command gets a free
++// letter when its tab is shown, so a key never needs to be listed here to work.
++
++#include <algorithm>
++#include <map>
++#include <set>
++#include <string>
++#include <string_view>
++#include <vector>
++
++namespace hst::keytips
++{
++struct Key
++{
++    std::string_view id;
++    std::string_view tip;
++};
++
++// Tab label ids of notebookbar.ui.
++inline constexpr Key TAB_KEYS[] = {
++    { "FileLabel", "F" },       { "HomeLabel", "H" },        { "InsertLabel", "N" },
++    { "DesignLabel", "G" },     { "LayoutLabel", "P" },      { "ReferencesLabel", "S" },
++    { "MailingsLabel", "M" },   { "ReviewLabel", "R" },      { "ViewLabel", "W" },
++    { "FunctionsLabel1", "M" }, { "DataLabel", "A" },        { "TransitionsLabel", "K" },
++    { "AnimationsLabel", "A" }, { "SlideShowLabel", "S" },   { "ToolsLabel", "L" },
++    { "DevLabel", "L" },        { "ExtensionLabel", "X" },   { "TableDesignLabel", "JT" },
++    { "TableLabel", "JL" },     { "ImageLabel", "JP" },      { "DrawLabel", "JD" },
++    { "ChartDesignLabel", "JC" }, { "ChartFormatLabel", "JO" }, { "ObjectLabel", "JB" },
++    { "MediaLabel", "JM" },     { "PrintLabel", "JI" },      { "FormLabel", "JF" },
++    { "MasterLabel", "JS" },    { "OutlineLabel", "JU" },    { "3DObjectLabel", "J3" },
++};
++
++// Commands, without ".uno:".
++inline constexpr Key COMMAND_KEYS[] = {
++    { "Paste", "V" },          { "Cut", "X" },            { "Copy", "C" },
++    { "FormatPaintbrush", "FP" }, { "CharFontName", "FF" }, { "FontHeight", "FS" },
++    { "Bold", "1" },           { "Italic", "2" },         { "Underline", "3" },
++    { "Strikeout", "4" },      { "SubScript", "5" },      { "SuperScript", "6" },
++    { "Grow", "FG" },          { "Shrink", "FK" },        { "Color", "FC" },
++    { "CharBackColor", "I" },  { "ResetAttributes", "E" }, { "DefaultBullet", "U" },
++    { "DefaultNumbering", "N" }, { "StartPara", "AL" },   { "CenterPara", "AC" },
++    { "EndPara", "AR" },       { "JustifyPara", "AJ" },   { "DecrementIndent", "AO" },
++    { "IncrementIndent", "AI" }, { "LineSpacing", "K" },  { "SearchDialog", "FD" },
++    { "InsertTable", "T" },    { "InsertGraphic", "P" },  { "HyperlinkDialog", "I" },
++    { "InsertPagebreak", "B" }, { "InsertObjectChart", "C" }, { "CharmapControl", "U" },
++    { "DrawText", "X" },       { "InsertAnnotation", "L" }, { "AutoSum", "U" },
++    { "SpellingAndGrammarDialog", "C" }, { "SpellDialog", "S" }, { "ThesaurusDialog", "E" },
++    { "PageMargin", "M" },     { "Orientation", "O" },    { "AttributePageSize", "SZ" },
++    { "PageColumnType", "J" }, { "InsertFootnote", "F" }, { "InsertEndnote", "E" },
++    { "Presentation", "B" },   { "PresentationCurrentSlide", "C" }, { "InsertSlide", "I" },
++    { "DataSort", "SS" },      { "SortAscending", "A" },  { "SortDescending", "D" },
++    { "DataFilterAutoFilter", "T" }, { "FreezePanes", "F" }, { "Zoom", "Q" },
++};
++
++/// Tip of a tab or command, or an empty view when it has none in the table.
++inline std::string_view lookup(const Key* pBegin, const Key* pEnd, std::string_view id)
++{
++    const Key* p = std::find_if(pBegin, pEnd, [id](const Key& k) { return k.id == id; });
++    return p == pEnd ? std::string_view() : p->tip;
++}
++
++/// One tip per id, in order, no tip being a prefix of another. preferred[i] may be empty or already
++/// taken; such ids get a free single letter, then Y1, Y2... (Y and Z stay reserved for that).
++inline std::vector<std::string> assign(const std::vector<std::string>& preferred)
++{
++    std::vector<std::string> result(preferred.size());
++    std::set<std::string> used;
++    const auto clashes = [&used](const std::string& tip) {
++        return std::any_of(used.begin(), used.end(), [&tip](const std::string& other) {
++            return other.starts_with(tip) || tip.starts_with(other);
++        });
++    };
++    for (size_t i = 0; i < preferred.size(); ++i)
++    {
++        if (!preferred[i].empty() && !clashes(preferred[i]))
++        {
++            result[i] = preferred[i];
++            used.insert(result[i]);
++        }
++    }
++    static constexpr std::string_view LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWX";
++    static constexpr std::string_view SECOND = "123456789ABCDEFGHIJKLMNOPQRSTUVWXZ";
++    size_t nLetter = 0, nSecond = 0;
++    char cFirst = 'Y';
++    for (std::string& tip : result)
++    {
++        if (!tip.empty())
++            continue;
++        while (nLetter < LETTERS.size() && tip.empty())
++        {
++            const std::string candidate(1, LETTERS[nLetter++]);
++            if (!clashes(candidate))
++                tip = candidate;
++        }
++        while (tip.empty())
++        {
++            if (nSecond == SECOND.size())
++            {
++                nSecond = 0;
++                cFirst = 'Z';
++            }
++            tip = std::string(1, cFirst) + SECOND[nSecond++];
++        }
++        used.insert(tip);
++    }
++    return result;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

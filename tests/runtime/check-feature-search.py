@@ -28,6 +28,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
+from feature_search_gui import xdo, walk, nodes, hst_menu, ribbon_box, popup_entry, results, search, close_popup  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("nd30_entry", os.path.join(HERE, "check-nd30-entry.py"))
 nd30 = importlib.util.module_from_spec(_spec)
@@ -58,84 +59,6 @@ def record(name, ok, detail=""):
     print("%s  %s  %s" % ("PASS" if ok else "FAIL", name, str(detail)[:300]), flush=True)
 
 
-def xdo(display, *args):
-    subprocess.run(["xdotool", *args], env=dict(os.environ, DISPLAY=display), check=False, timeout=20)
-
-
-def walk(node, out, depth=0):
-    """(depth, role, name, node) of the UI widgets; document content (a sheet exposes every cell) is skipped."""
-    try:
-        role = node.getRoleName()
-        out.append((depth, role, node.name, node))
-        if role.startswith("document") or node.childCount > 500:
-            return out
-        for index in range(node.childCount):
-            walk(node.getChildAtIndex(index), out, depth + 1)
-    except Exception:  # noqa: BLE001 - a widget may vanish while walking
-        pass
-    return out
-
-
-def nodes(app):
-    return walk(app, []) if app is not None else []
-
-
-def hst_menu(app):
-    """(menu accessible, [item names]) of the HST menu, like check-nd30-entry.py but with the pruned walk."""
-    found = nodes(app)
-    for position, (depth, role, name, node) in enumerate(found):
-        if role == "menu" and name == "HST":
-            items = []
-            for later_depth, later_role, later_name, _ in found[position + 1:]:
-                if later_depth <= depth:
-                    break
-                if later_depth == depth + 1 and "item" in later_role and later_name:
-                    items.append(later_name)
-            return node, items
-    return None, []
-
-
-def ribbon_box(office, factory):
-    """UITest state of the toolbox that holds the feature search button (first item), or None. The VCL
-    ribbon is not exposed through AT-SPI, the UITest service sees its widgets by .ui id."""
-    box = "SectionBottomHstNd30" if factory == "swriter" else "SectionBottomHstFeatureSearch"
-    for _ in range(10):  # the document window may take a moment to become the focused top window
-        top = office.service("org.libreoffice.uitest.UITest").getTopFocusWindow()
-        if box in top.getChildren():
-            return {p.Name: p.Value for p in top.getChild(box).getState()}
-        time.sleep(1)
-    return None
-
-
-def popup_entry(app):
-    """The search entry of the open popup (its placeholder makes it the only focused text entry), or None."""
-    import pyatspi
-    for _depth, role, _name, node in nodes(app):
-        if role == "text" and node.getState().contains(pyatspi.STATE_FOCUSED):
-            return node
-    return None
-
-
-def results(app):
-    """Labels of the result rows shown by the popup (table cells of its tree view)."""
-    return [name for _depth, role, name, _node in nodes(app) if role == "table cell" and name]
-
-
-def search(office, display, query, shot):
-    xdo(display, "key", "shift+Escape")
-    time.sleep(1.5)
-    xdo(display, "type", "--delay", "60", query)
-    time.sleep(2)
-    rows = results(nd30.office_app())
-    hst_gui.screenshot(shot, display)
-    return rows
-
-
-def close_popup(display):
-    xdo(display, "key", "Escape")
-    time.sleep(1)
-
-
 def check_language(args, lang, label):
     import uno  # noqa: F401
     subprocess.run(["xprop", "-display", args.display, "-root", "-remove", "AT_SPI_BUS"], check=False)
@@ -147,30 +70,23 @@ def check_language(args, lang, label):
             doc = office.load("private:factory/" + factory)
             time.sleep(7)
             office.raise_windows()
-            box = ribbon_box(office, factory)
+            # the block is folded at this width: its button, then the item on its bottom row
+            found = nd30.click_in_home_block(office, args.display, 200) if factory == "swriter" else nd30.open_home_block(office, args.display)
+            if factory == "simpress":  # the UITest service does not reach the Impress frame window under Xvfb
+                with open(os.path.join(args.instdir, "share/config/soffice.cfg/modules/simpress/ui/notebookbar.ui"), encoding="utf-8") as ui:
+                    found = 'id="Home-HstFeatureSearch"' in ui.read() or None
             hst_gui.screenshot(shot(app_name + "-ribbon"), args.display)
-            if box is None and factory == "simpress":
-                # The UITest service does not reach the Impress frame window under Xvfb (its focused top window
-                # is an empty helper window); fall back to the installed ribbon file, the screenshot shows it.
-                ui = open(os.path.join(args.instdir, "share/config/soffice.cfg/modules/simpress/ui/notebookbar.ui"),
-                          encoding="utf-8").read()
-                record("%s slides: installed Home tab has the feature search button (see %s)"
-                       % (label, os.path.basename(shot("slides-ribbon"))), 'id="Home-HstFeatureSearch"' in ui)
-            else:
-                record("%s %s: Home tab shows the feature search button" % (label, app_name),
-                       box is not None and box["ReallyVisible"] == "true" and int(box["ItemCount"]) >= 1, box)
+            record("%s %s: Home tab offers the feature search button" % (label, app_name), found is not None, found)
             if factory != "swriter":
+                close_popup(args.display)
                 doc.close(True)
                 time.sleep(2)
-        if box is not None:
-            bx, by = (int(v) for v in box["AbsPosition"].split("x"))  # screen coordinates (no window manager)
-            height = int(box["Size"].split("x")[1])
-            xdo(args.display, "mousemove", str(bx + 14), str(by + height // 2), "click", "1")  # first item's icon
-            time.sleep(1.5)
-            entry = popup_entry(nd30.office_app())
-            hst_gui.screenshot(shot("writer-button-popup"), args.display)
-            record(label + " writer: the ribbon button opens the search popup", entry is not None)
-            close_popup(args.display)
+        time.sleep(1.5)
+        entry = popup_entry(nd30.office_app())
+        hst_gui.screenshot(shot("writer-button-popup"), args.display)
+        record(label + " writer: the ribbon button opens the search popup", entry is not None)
+        close_popup(args.display)
+        close_popup(args.display)  # also the popup of the folded block
         # 2. Shift+Esc and searches
         for query, (what, ok, langs) in SEARCHES.items():
             if label not in langs:
