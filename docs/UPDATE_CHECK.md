@@ -31,7 +31,7 @@ HST Office tự biết khi có bản mới và báo cho người dùng kèm liê
 - **Thông báo:** thanh thông tin (infobar) trên Văn bản/Bảng tính/Trình chiếu: "Đã có HST Office X — bản mới."
   với [Tải về] [Xem điểm mới] [Bỏ qua phiên bản này]. Nếu lúc đó chỉ có Start Center, thông báo hiện ở tài liệu
   đầu tiên được mở. Liên kết mở bằng trình duyệt hệ thống.
-- **Menu:** HST ▸ Kiểm tra cập nhật…, tab Phần mở rộng của giao diện ribbon, và Trợ giúp ▸ Kiểm tra cập nhật HST Office…
+- **Menu:** HST ▸ Kiểm tra cập nhật…, Trợ giúp ▸ Kiểm tra cập nhật HST Office… (menu cổ điển) và mục cùng tên trong menu ≡ của giao diện ribbon, trên Về HST Office (`hst-ribbon-hst-commands.patch`)
   kiểm tra ngay (không phụ thuộc `AutoCheck`) và báo: đã mới nhất / có bản mới / không kiểm tra được.
 - Mọi chữ hiển thị là tiếng Việt ở mọi ngôn ngữ giao diện (nội dung hệ thống, theo chính sách sản phẩm).
 

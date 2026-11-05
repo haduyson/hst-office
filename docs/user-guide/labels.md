@@ -18,11 +18,17 @@ Slides: Trang chiếu → Trang chiếu mới · Bố trí (layouts panel) · B�
 Review: Theo dõi thay đổi
 Help menu: Trợ giúp → Trợ giúp HST Office (opens this guide, also F1) · Về HST Office · Thông tin giấy phép
 
-HST menu (menu bar "HST", and ribbon tab "Phần mở rộng"):
+HST menu (menu bar "HST"; every HST command) and ribbon tab "Phần mở rộng" (HST tools only):
 - Văn bản hành chính (NĐ 30)…   (Writer)
 - Chuyển TCVN3/VNI sang Unicode…   (Writer)
 - Định dạng ngày (dd/mm/yyyy) · Định dạng tiền VND · Định dạng phần trăm · Nhập CSV (UTF-8)…   (Sheets)
 - Giải pháp HASON TECH…   (all apps; shows the welcome window)
+
+Other HST commands on the ribbon (Office places; the HST menu also has them):
+- Macro VBA: tab "Nhà phát triển", group "Vĩ lệnh", first button   (Writer, Sheets)
+- Ngôn ngữ giao diện (drop-down: Tiếng Việt · English · Theo máy): tab "Xem lại", group "Ngôn ngữ"   (all apps)
+- Thiết lập USB Token…: Tập tin → Thông tin, button next to "Chữ ký số…"   (all apps)
+- Kiểm tra cập nhật HST Office…: ≡ button at the right end of the tab row, above "Về HST Office"; classic menu Trợ giúp → Kiểm tra cập nhật HST Office…
 
 ND30 wizard ("Văn bản hành chính (NĐ 30)"): Loại văn bản (Công văn, Thông báo, Quyết định, Tờ trình, Báo cáo, Giấy mời, Biên bản) · Cơ quan chủ quản · Cơ quan ban hành · Số · Ký hiệu · Địa danh · Ngày (prefilled with today, dd/mm/yyyy) · Trích yếu · Kính gửi (mỗi nơi một dòng) · Nội dung (mỗi đoạn một dòng) · Quyền hạn ký (TM., KT., Q., TL., TUQ.) · Chức vụ người ký · Họ tên người ký · Nơi nhận (mỗi nơi một dòng) · checkbox "Áp dụng khổ A4 và lề NĐ 30 cho kiểu trang hiện tại (không nằm trong Hoàn tác)" · checkbox "Số trang, ẩn ở trang 1 (xóa lịch sử Hoàn tác)" · panel "Xem trước (cập nhật khi bạn nhập)" · buttons "Chèn văn bản", "Hủy". Errors appear in red under the preview ("Vui lòng sửa: …") and "Chèn văn bản" is disabled until fixed. After inserting: message "Đã chèn văn bản. Dùng Hoàn tác (Ctrl+Z) để xóa trong một bước."
 
