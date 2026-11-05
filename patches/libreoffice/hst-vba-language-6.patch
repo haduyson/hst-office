@@ -1,0 +1,16 @@
+Subject: [PATCH] VBA: an object variable given a value keeps working
+
+The link for class events read an object from what an assignment set, which
+raised error 91 when d("a") = 1 stored a number through Dim d As Object.
+---
+--- a/basic/source/runtime/runtime.cxx
++++ b/basic/source/runtime/runtime.cxx
+@@ -1965,7 +1965,7 @@
+             *refVar = *refVal;
+         }
+         // HST: for RaiseEvent: an object of a class module set to a variable whose module has handlers
+-        if( bVBAEnabled && !dynamic_cast<SbProcedureProperty*>( refVar.get() ) )
++        if( bVBAEnabled && refVar->GetType() == SbxOBJECT && !dynamic_cast<SbProcedureProperty*>( refVar.get() ) )
+         {
+             if( SbxObject* pSource = dynamic_cast<SbClassModuleObject*>( refVar->GetObject() ) )
+             {

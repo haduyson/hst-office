@@ -1,0 +1,593 @@
+Subject: [PATCH] VBA: Shape OnAction and cells, AddPicture, AddTextbox in sheets, chart series
+
+Shape.OnAction, TopLeftCell, BottomRightCell, Shapes.AddPicture, a text box in
+a sheet, Range.Hyperlinks without a sheet parent, and Chart.SeriesCollection with
+NewSeries, Values, XValues, Name, AxisGroup and Delete.
+---
+--- a/oovbaapi/ooo/vba/msforms/XShape.idl
++++ b/oovbaapi/ooo/vba/msforms/XShape.idl
+@@ -38,6 +38,10 @@
+     [attribute] boolean LockAnchor;
+     [attribute] long RelativeHorizontalPosition;
+     [attribute] long RelativeVerticalPosition;
++    // HST: the macro a click runs, and the cells under the shape in a sheet
++    [attribute] string OnAction;
++    [attribute, readonly] any TopLeftCell;
++    [attribute, readonly] any BottomRightCell;
+ 
+     any TextFrame();
+     any WrapFormat();
+--- a/oovbaapi/ooo/vba/msforms/XShapes.idl
++++ b/oovbaapi/ooo/vba/msforms/XShapes.idl
+@@ -30,6 +30,7 @@
+     /*
+     helper::calc
+     */
++    any AddPicture( [in] string Filename, [in] any LinkToFile, [in] any SaveWithDocument, [in] double Left, [in] double Top, [in] double Width, [in] double Height );
+     any AddLine( [in] long StartX, [in] long StartY, [in] long endX, [in] long endY );
+     any AddShape([in] long ShapeType, [in] long StartX, [in] long StartY, [in] long endX, [in] long endY );
+     any AddTextbox([in] long Orientation, [in] long Left, [in] long Top, [in] long Width, [in] long Height );
+--- a/include/vbahelper/vbashape.hxx
++++ b/include/vbahelper/vbashape.hxx
+@@ -85,6 +85,11 @@
+     virtual void SAL_CALL setHeight(double _height) override;
+     virtual double SAL_CALL getWidth() override;
+     virtual void SAL_CALL setWidth(double _width) override;
++    // vbashapeextra.cxx
++    virtual OUString SAL_CALL getOnAction() override;
++    virtual void SAL_CALL setOnAction( const OUString& rMacro ) override;
++    virtual css::uno::Any SAL_CALL getTopLeftCell() override;
++    virtual css::uno::Any SAL_CALL getBottomRightCell() override;
+     virtual double SAL_CALL getLeft() override;
+     virtual void SAL_CALL setLeft( double _left ) override;
+     virtual double SAL_CALL getTop() override;
+--- a/include/vbahelper/vbashapes.hxx
++++ b/include/vbahelper/vbashapes.hxx
+@@ -83,6 +83,7 @@
+     virtual void SAL_CALL SelectAll() override;
+     //helper::calc
+     virtual css::uno::Any SAL_CALL AddLine( sal_Int32 StartX, sal_Int32 StartY, sal_Int32 endX, sal_Int32 endY ) override;
++    virtual css::uno::Any SAL_CALL AddPicture( const OUString& rFilename, const css::uno::Any& rLinkToFile, const css::uno::Any& rSaveWithDocument, double fLeft, double fTop, double fWidth, double fHeight ) override; // vbashapeextra.cxx
+     virtual css::uno::Any SAL_CALL AddShape( sal_Int32 _nType, sal_Int32 _nLeft, sal_Int32 _nTop, sal_Int32 _nWidth, sal_Int32 _nHeight ) override;
+     virtual css::uno::Any SAL_CALL AddTextbox( sal_Int32 _nOrientation, sal_Int32 _nLeft, sal_Int32 _nTop, sal_Int32 _nWidth, sal_Int32 _nHeight ) override;
+     virtual css::uno::Reference< ov::msforms::XShapeRange > SAL_CALL Range( const css::uno::Any& shapes ) override;
+--- a/vbahelper/source/vbahelper/vbashapes.cxx
++++ b/vbahelper/source/vbahelper/vbashapes.cxx
+@@ -342,7 +342,15 @@
+     {
+         return AddTextboxInWriter( _nLeft, _nTop, _nWidth, _nHeight );
+     }
+-    throw uno::RuntimeException( u"Not implemented"_ustr );
++    // HST: in a sheet, as a rectangle is added
++    uno::Reference< drawing::XShape > xShape( createShape( u"com.sun.star.drawing.TextShape"_ustr ), uno::UNO_SET_THROW );
++    m_xShapes->add( xShape );
++    setDefaultShapeProperties( xShape );
++    setShape_NameProperty( xShape, createName( u"Text Box" ) );
++    xShape->setPosition( awt::Point( Millimeter::getInHundredthsOfOneMillimeter( _nLeft ), Millimeter::getInHundredthsOfOneMillimeter( _nTop ) ) );
++    xShape->setSize( awt::Size( Millimeter::getInHundredthsOfOneMillimeter( _nWidth ), Millimeter::getInHundredthsOfOneMillimeter( _nHeight ) ) );
++    rtl::Reference<ScVbaShape> pScVbaShape = new ScVbaShape( getParent(), mxContext, xShape, m_xShapes, m_xModel, ScVbaShape::getType( xShape ) );
++    return uno::Any( uno::Reference< msforms::XShape >( pScVbaShape ) );
+ }
+ 
+ uno::Any
+--- a/vbahelper/source/vbahelper/vbashapeextra.cxx
++++ b/vbahelper/source/vbahelper/vbashapeextra.cxx
+@@ -0,0 +1,117 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Shape.OnAction, TopLeftCell, BottomRightCell and Shapes.AddPicture
++
++#include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XNameReplace.hpp>
++#include <com/sun/star/document/XEventsSupplier.hpp>
++#include <com/sun/star/graphic/GraphicProvider.hpp>
++#include <com/sun/star/drawing/XShape.hpp>
++#include <com/sun/star/drawing/XShapes.hpp>
++#include <com/sun/star/graphic/XGraphicProvider.hpp>
++#include <comphelper/propertyvalue.hxx>
++#include <filter/msfilter/msvbahelper.hxx>
++#include <ooo/vba/excel/XRange.hpp>
++#include <ooo/vba/excel/XWorksheet.hpp>
++#include <osl/file.hxx>
++#include <rtl/ref.hxx>
++#include <vbahelper/vbapath.hxx>
++#include <vbahelper/vbashape.hxx>
++#include <vbahelper/vbashapes.hxx>
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++const sal_Int32 nMaxRows = 1048576, nMaxColumns = 16384;
++
++/// the last row or column whose start is at or before the position in points
++sal_Int32 lcl_find(const uno::Reference<excel::XWorksheet>& xSheet, double fPos, bool bRow)
++{
++    sal_Int32 nLow = 1, nHigh = bRow ? nMaxRows : nMaxColumns;
++    while (nLow < nHigh)
++    {
++        const sal_Int32 nMiddle = (nLow + nHigh + 1) / 2;
++        uno::Reference<excel::XRange> xCell = xSheet->Cells(uno::Any(bRow ? nMiddle : sal_Int32(1)), uno::Any(bRow ? sal_Int32(1) : nMiddle));
++        double fStart = 0;
++        (bRow ? xCell->getTop() : xCell->getLeft()) >>= fStart;
++        if (fStart <= fPos)
++            nLow = nMiddle;
++        else
++            nHigh = nMiddle - 1;
++    }
++    return nLow;
++}
++
++uno::Any lcl_cellAt(const uno::Reference<XHelperInterface>& xParent, double fLeft, double fTop)
++{
++    uno::Reference<excel::XWorksheet> xSheet(xParent, uno::UNO_QUERY);
++    if (!xSheet.is())
++        return uno::Any(); // not in a sheet
++    return uno::Any(xSheet->Cells(uno::Any(lcl_find(xSheet, fTop, true)), uno::Any(lcl_find(xSheet, fLeft, false))));
++}
++}
++
++OUString SAL_CALL ScVbaShape::getOnAction()
++{
++    uno::Reference<document::XEventsSupplier> xSupplier(m_xShape, uno::UNO_QUERY_THROW);
++    uno::Sequence<beans::PropertyValue> aEvent;
++    xSupplier->getEvents()->getByName(u"OnClick"_ustr) >>= aEvent;
++    for (const beans::PropertyValue& rProp : aEvent)
++    {
++        OUString aUrl;
++        if (rProp.Name == "Script" && (rProp.Value >>= aUrl) && !aUrl.isEmpty())
++            return ooo::vba::extractMacroName(aUrl);
++    }
++    return OUString();
++}
++
++void SAL_CALL ScVbaShape::setOnAction(const OUString& rMacro)
++{
++    uno::Reference<document::XEventsSupplier> xSupplier(m_xShape, uno::UNO_QUERY_THROW);
++    uno::Sequence aEvent{ comphelper::makePropertyValue(u"EventType"_ustr, u"Script"_ustr),
++                          comphelper::makePropertyValue(u"Script"_ustr, rMacro.isEmpty() ? OUString() : ooo::vba::makeMacroURL(rMacro)) };
++    xSupplier->getEvents()->replaceByName(u"OnClick"_ustr, uno::Any(aEvent));
++}
++
++uno::Any SAL_CALL ScVbaShape::getTopLeftCell() { return lcl_cellAt(getParent(), getLeft(), getTop()); }
++
++uno::Any SAL_CALL ScVbaShape::getBottomRightCell() { return lcl_cellAt(getParent(), getLeft() + getWidth(), getTop() + getHeight()); }
++
++uno::Any SAL_CALL ScVbaShapes::AddPicture(const OUString& rFilename, const uno::Any&, const uno::Any&, double fLeft, double fTop, double fWidth, double fHeight)
++{
++    OUString aUrl;
++    if (osl::FileBase::getFileURLFromSystemPath(ooo::vba::vbaSystemPath(rFilename), aUrl) != osl::FileBase::E_None)
++        aUrl = rFilename;
++    uno::Reference<graphic::XGraphicProvider> xProvider = graphic::GraphicProvider::create(mxContext);
++    uno::Reference<graphic::XGraphic> xGraphic = xProvider->queryGraphic({ comphelper::makePropertyValue(u"URL"_ustr, aUrl) });
++    if (!xGraphic.is())
++        throw lang::IllegalArgumentException(u"Cannot load the picture "_ustr + rFilename, {}, 0);
++
++    uno::Reference<drawing::XShape> xShape(createShape(u"com.sun.star.drawing.GraphicObjectShape"_ustr), uno::UNO_SET_THROW);
++    m_xShapes->add(xShape);
++    setDefaultShapeProperties(xShape);
++    setShape_NameProperty(xShape, createName(u"Picture"));
++    uno::Reference<beans::XPropertySet>(xShape, uno::UNO_QUERY_THROW)->setPropertyValue(u"Graphic"_ustr, uno::Any(xGraphic));
++    rtl::Reference<ScVbaShape> pShape = new ScVbaShape(getParent(), mxContext, xShape, m_xShapes, m_xModel, ScVbaShape::getType(xShape));
++    pShape->setLeft(fLeft);
++    pShape->setTop(fTop);
++    // -1 keeps the size of the picture, which Excel allows
++    awt::Size aSize;
++    uno::Reference<beans::XPropertySet> xGraphicProps(xGraphic, uno::UNO_QUERY);
++    if (xGraphicProps.is())
++        xGraphicProps->getPropertyValue(u"Size100thMM"_ustr) >>= aSize;
++    pShape->setWidth(fWidth > 0 ? fWidth : aSize.Width * 72.0 / 2540.0);
++    pShape->setHeight(fHeight > 0 ? fHeight : aSize.Height * 72.0 / 2540.0);
++    return uno::Any(uno::Reference<msforms::XShape>(pShape));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vbahelper/Library_vbahelper.mk
++++ b/vbahelper/Library_vbahelper.mk
+@@ -79,6 +79,7 @@
+     vbahelper/source/vbahelper/vbapictureformat \
+     vbahelper/source/vbahelper/vbapropvalue \
+     vbahelper/source/vbahelper/vbashape \
++    vbahelper/source/vbahelper/vbashapeextra \
+     vbahelper/source/vbahelper/vbashaperange \
+     vbahelper/source/vbahelper/vbashapes \
+     vbahelper/source/vbahelper/vbatextframe \
+--- a/sc/source/ui/vba/vbarange.cxx
++++ b/sc/source/ui/vba/vbarange.cxx
+@@ -4842,7 +4842,7 @@
+         See vbahyperlinks.hxx for more details. */
+ 
+     // get the global hyperlink object of the sheet (sheet should always be the parent of a Range object)
+-    uno::Reference< excel::XWorksheet > xWorksheet( getParent(), uno::UNO_QUERY_THROW );
++    uno::Reference< excel::XWorksheet > xWorksheet( getWorksheet(), uno::UNO_SET_THROW ); // HST: Range("A1") has Application as parent
+     uno::Reference< excel::XHyperlinks > xSheetHlinks( xWorksheet->Hyperlinks( uno::Any() ), uno::UNO_QUERY_THROW );
+     ScVbaHyperlinksRef xScSheetHlinks( dynamic_cast< ScVbaHyperlinks* >( xSheetHlinks.get() ) );
+     if( !xScSheetHlinks.is() )
+--- a/oovbaapi/ooo/vba/excel/XSeries.idl
++++ b/oovbaapi/ooo/vba/excel/XSeries.idl
+@@ -27,10 +27,12 @@
+ {
+     interface ::ooo::vba::XHelperInterface;
+ 
+-    [attribute, readonly] string Name;
+-    any Series( [in] any Item );
+-    any Values ( [in] any Values );
+-    any XValues ( [in] any XValues );
++    // HST: Values and XValues take a Range or an address; a chart in a sheet takes no literal arrays
++    [attribute] any Name;
++    [attribute] any Values;
++    [attribute] any XValues;
++    [attribute] any AxisGroup;
++    void Delete();
+ };
+ 
+ 
+--- a/oovbaapi/ooo/vba/excel/XSeriesCollection.idl
++++ b/oovbaapi/ooo/vba/excel/XSeriesCollection.idl
+@@ -28,7 +28,6 @@
+     //XSeries Add( [in] any Source, [in] any RowCol, [in] any SeriesLabels,
+     //  [in] any CategoryLabels, [in] any Replace );
+     XSeries NewSeries();
+-    any XSeries( [in] any Item );
+ };
+ 
+ 
+--- a/sc/source/ui/vba/vbachart.cxx
++++ b/sc/source/ui/vba/vbachart.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "vbachart.hxx"
++#include "vbaseries.hxx"
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/lang/XMultiServiceFactory.hpp>
+ #include <com/sun/star/sheet/XCellRangeAddressable.hpp>
+@@ -95,9 +96,10 @@
+ }
+ 
+ uno::Any  SAL_CALL
+-ScVbaChart::SeriesCollection(const uno::Any&)
++ScVbaChart::SeriesCollection(const uno::Any& rItem)
+ {
+-    return uno::Any();
++    uno::Reference< XCollection > xSeries = ScVbaSeriesCollection::create( this, mxContext, mxChartDocument );
++    return rItem.hasValue() ? xSeries->Item( rItem, uno::Any() ) : uno::Any( xSeries );
+ }
+ 
+ ::sal_Int32 SAL_CALL
+--- a/sc/source/ui/vba/vbaseries.hxx
++++ b/sc/source/ui/vba/vbaseries.hxx
+@@ -0,0 +1,29 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <com/sun/star/chart/XChartDocument.hpp>
++#include <com/sun/star/chart2/XDataSeries.hpp>
++#include <com/sun/star/chart2/XDataSeriesContainer.hpp>
++#include <ooo/vba/XCollection.hpp>
++#include <ooo/vba/XHelperInterface.hpp>
++#include <ooo/vba/excel/XSeries.hpp>
++
++namespace ScVbaSeriesCollection
++{
++/// HST: Chart.SeriesCollection, on the series of the chart's first chart type
++css::uno::Reference<ooo::vba::XCollection> create(const css::uno::Reference<ooo::vba::XHelperInterface>& xParent,
++                                                  const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                                                  const css::uno::Reference<css::chart::XChartDocument>& xChart);
++css::uno::Reference<css::chart2::XDataSeriesContainer> container(const css::uno::Reference<css::chart::XChartDocument>& xChart);
++css::uno::Reference<ooo::vba::excel::XSeries> seriesObject(const css::uno::Reference<ooo::vba::XHelperInterface>& xParent,
++                                                           const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                                                           const css::uno::Reference<css::chart::XChartDocument>& xChart,
++                                                           const css::uno::Reference<css::chart2::XDataSeries>& xSeries);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbaseries.cxx
++++ b/sc/source/ui/vba/vbaseries.cxx
+@@ -0,0 +1,81 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <com/sun/star/chart2/XDataSeries.hpp>
++#include <com/sun/star/chart2/XDataSeriesContainer.hpp>
++#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <ooo/vba/excel/XSeries.hpp>
++#include <ooo/vba/excel/XSeriesCollection.hpp>
++#include <vbahelper/vbacollectionimpl.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++
++
++#include "vbaseries.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++class Live : public ::cppu::WeakImplHelper<container::XIndexAccess>
++{
++    uno::Reference<chart::XChartDocument> mxChart;
++
++public:
++    explicit Live(uno::Reference<chart::XChartDocument> xChart)
++        : mxChart(std::move(xChart))
++    {
++    }
++    sal_Int32 SAL_CALL getCount() override { return ScVbaSeriesCollection::container(mxChart)->getDataSeries().getLength(); }
++    uno::Any SAL_CALL getByIndex(sal_Int32 nIndex) override
++    {
++        const auto aAll = ScVbaSeriesCollection::container(mxChart)->getDataSeries();
++        if (nIndex < 0 || nIndex >= aAll.getLength())
++            throw lang::IndexOutOfBoundsException();
++        return uno::Any(aAll[nIndex]);
++    }
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<chart2::XDataSeries>::get(); }
++    sal_Bool SAL_CALL hasElements() override { return getCount() > 0; }
++};
++
++class Collection : public CollTestImplHelper<excel::XSeriesCollection>
++{
++    uno::Reference<chart::XChartDocument> mxChart;
++
++public:
++    Collection(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++               const uno::Reference<chart::XChartDocument>& xChart)
++        : CollTestImplHelper(xParent, xContext, new Live(xChart))
++        , mxChart(xChart)
++    {
++    }
++    uno::Reference<excel::XSeries> SAL_CALL NewSeries() override
++    {
++        uno::Reference<chart2::XDataSeries> xSeries(mxContext->getServiceManager()->createInstanceWithContext(u"com.sun.star.chart2.DataSeries"_ustr, mxContext), uno::UNO_QUERY_THROW);
++        ScVbaSeriesCollection::container(mxChart)->addDataSeries(xSeries);
++        return ScVbaSeriesCollection::seriesObject(mxParent, mxContext, mxChart, xSeries);
++    }
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<excel::XSeries>::get(); }
++    uno::Reference<container::XEnumeration> SAL_CALL createEnumeration() override { throw uno::RuntimeException(u"Not implemented"_ustr); }
++    uno::Any createCollectionObject(const uno::Any& aSource) override
++    {
++        uno::Reference<chart2::XDataSeries> xSeries(aSource, uno::UNO_QUERY_THROW);
++        return uno::Any(ScVbaSeriesCollection::seriesObject(mxParent, mxContext, mxChart, xSeries));
++    }
++    OUString getServiceImplName() override { return u"ScVbaSeriesCollection"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.SeriesCollection"_ustr }; }
++};
++}
++
++uno::Reference<XCollection> ScVbaSeriesCollection::create(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                                          const uno::Reference<chart::XChartDocument>& xChart)
++{
++    return new Collection(xParent, xContext, xChart);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbaseriesitem.cxx
++++ b/sc/source/ui/vba/vbaseriesitem.cxx
+@@ -0,0 +1,198 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/chart2/XChartDocument.hpp>
++#include <com/sun/star/chart2/XChartTypeContainer.hpp>
++#include <com/sun/star/chart2/XCoordinateSystemContainer.hpp>
++#include <com/sun/star/chart2/XDataSeries.hpp>
++#include <com/sun/star/chart2/XDataSeriesContainer.hpp>
++#include <com/sun/star/chart2/data/LabeledDataSequence.hpp>
++#include <com/sun/star/chart2/data/XDataSink.hpp>
++#include <com/sun/star/chart2/data/XDataSource.hpp>
++#include <comphelper/sequence.hxx>
++#include <ooo/vba/excel/XRange.hpp>
++#include <ooo/vba/excel/XSeries.hpp>
++#include <vbahelper/vbahelperinterface.hxx>
++
++#include <document.hxx>
++#include <rangelst.hxx>
++#include <utility>
++#include <vector>
++
++#include "vbarange.hxx"
++#include "vbaseries.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++uno::Reference<chart2::XDataSeriesContainer> ScVbaSeriesCollection::container(const uno::Reference<chart::XChartDocument>& xChart)
++{
++    uno::Reference<chart2::XChartDocument> xDoc(xChart, uno::UNO_QUERY_THROW);
++    uno::Reference<chart2::XCoordinateSystemContainer> xSystems(xDoc->getFirstDiagram(), uno::UNO_QUERY_THROW);
++    uno::Reference<chart2::XChartTypeContainer> xTypes(xSystems->getCoordinateSystems()[0], uno::UNO_QUERY_THROW);
++    return uno::Reference<chart2::XDataSeriesContainer>(xTypes->getChartTypes()[0], uno::UNO_QUERY_THROW);
++}
++
++namespace
++{
++/// how the chart's data provider writes a range or an Excel address
++OUString lcl_representation(const uno::Any& rValue)
++{
++    uno::Reference<excel::XRange> xRange;
++    OUString aAddress;
++    if ((rValue >>= xRange) && xRange.is())
++    {
++        ScVbaRange* pRange = dynamic_cast<ScVbaRange*>(xRange.get());
++        if (!pRange)
++            throw uno::RuntimeException(u"Not a range of this sheet"_ustr);
++        ScDocument& rDoc = pRange->getScDocument();
++        return pRange->getScRangeList()[0].Format(rDoc, ScRefFlags::RANGE_ABS_3D, ScAddress::Details(formula::FormulaGrammar::CONV_OOO));
++    }
++    if (rValue >>= aAddress)
++        return aAddress;
++    throw lang::IllegalArgumentException(u"A chart in a sheet takes its values from cells"_ustr, {}, 0);
++}
++
++class Series : public InheritedHelperInterfaceWeakImpl<excel::XSeries>
++{
++    uno::Reference<chart::XChartDocument> mxChart;
++    uno::Reference<chart2::XDataSeries> mxSeries;
++
++    uno::Reference<chart2::data::XLabeledDataSequence> find(std::u16string_view rRole)
++    {
++        uno::Reference<chart2::data::XDataSource> xSource(mxSeries, uno::UNO_QUERY_THROW);
++        for (const auto& xLabeled : xSource->getDataSequences())
++        {
++            uno::Reference<beans::XPropertySet> xProps(xLabeled->getValues(), uno::UNO_QUERY);
++            OUString aRole;
++            if (xProps.is() && (xProps->getPropertyValue(u"Role"_ustr) >>= aRole) && aRole == rRole)
++                return xLabeled;
++        }
++        return {};
++    }
++
++    uno::Reference<chart2::data::XDataSequence> make(const OUString& rRepresentation, const OUString& rRole)
++    {
++        uno::Reference<chart2::XChartDocument> xDoc(mxChart, uno::UNO_QUERY_THROW);
++        uno::Reference<chart2::data::XDataSequence> xSequence = xDoc->getDataProvider()->createDataSequenceByRangeRepresentation(rRepresentation);
++        if (!xSequence.is())
++            throw lang::IllegalArgumentException(u"No cells at "_ustr + rRepresentation, {}, 0);
++        uno::Reference<beans::XPropertySet>(xSequence, uno::UNO_QUERY_THROW)->setPropertyValue(u"Role"_ustr, uno::Any(rRole));
++        return xSequence;
++    }
++
++    /// replaces, or adds, the sequence of a role and keeps the others
++    void put(const OUString& rRole, const uno::Reference<chart2::data::XDataSequence>& xValues, const uno::Reference<chart2::data::XDataSequence>& xLabel)
++    {
++        uno::Reference<chart2::data::XDataSource> xSource(mxSeries, uno::UNO_QUERY_THROW);
++        std::vector<uno::Reference<chart2::data::XLabeledDataSequence>> aAll;
++        uno::Reference<chart2::data::XDataSequence> xKeepLabel = xLabel;
++        for (const auto& xLabeled : xSource->getDataSequences())
++        {
++            uno::Reference<beans::XPropertySet> xProps(xLabeled->getValues(), uno::UNO_QUERY);
++            OUString aRole;
++            if (xProps.is())
++                xProps->getPropertyValue(u"Role"_ustr) >>= aRole;
++            if (aRole == rRole)
++            {
++                if (!xKeepLabel.is())
++                    xKeepLabel = xLabeled->getLabel();
++            }
++            else
++                aAll.push_back(xLabeled);
++        }
++        uno::Reference<chart2::data::XLabeledDataSequence> xNew = chart2::data::LabeledDataSequence::create(mxContext);
++        xNew->setValues(xValues);
++        if (xKeepLabel.is())
++            xNew->setLabel(xKeepLabel);
++        aAll.push_back(xNew);
++        uno::Reference<chart2::data::XDataSink>(mxSeries, uno::UNO_QUERY_THROW)->setData(comphelper::containerToSequence(aAll));
++    }
++
++public:
++    Series(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++           uno::Reference<chart::XChartDocument> xChart, uno::Reference<chart2::XDataSeries> xSeries)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext)
++        , mxChart(std::move(xChart))
++        , mxSeries(std::move(xSeries))
++    {
++    }
++
++    uno::Any SAL_CALL getName() override
++    {
++        uno::Reference<chart2::data::XLabeledDataSequence> xValues = find(u"values-y");
++        if (xValues.is() && xValues->getLabel().is())
++        {
++            const uno::Sequence<uno::Any> aLabel = xValues->getLabel()->getData();
++            if (aLabel.hasElements())
++                return aLabel[0];
++        }
++        return uno::Any(OUString());
++    }
++
++    void SAL_CALL setName(const uno::Any& rValue) override
++    {
++        // a name that is no cell becomes a string the provider keeps, as Excel's ="Sales"
++        OUString aName;
++        uno::Reference<excel::XRange> xRange;
++        if (!(rValue >>= xRange) && (rValue >>= aName) && !aName.startsWith("="))
++            aName = "\"" + aName.replaceAll("\"", "\"\"") + "\"";
++        else
++            aName = lcl_representation(rValue);
++        uno::Reference<chart2::data::XLabeledDataSequence> xValues = find(u"values-y");
++        uno::Reference<chart2::data::XDataSequence> xLabel = make(aName, u"label"_ustr);
++        if (xValues.is())
++            put(u"values-y"_ustr, xValues->getValues(), xLabel);
++        else
++            throw uno::RuntimeException(u"Set Values before Name"_ustr);
++    }
++
++    uno::Any SAL_CALL getValues() override
++    {
++        uno::Reference<chart2::data::XLabeledDataSequence> xValues = find(u"values-y");
++        return xValues.is() ? uno::Any(xValues->getValues()->getData()) : uno::Any();
++    }
++
++    void SAL_CALL setValues(const uno::Any& rValue) override { put(u"values-y"_ustr, make(lcl_representation(rValue), u"values-y"_ustr), {}); }
++
++    uno::Any SAL_CALL getXValues() override
++    {
++        uno::Reference<chart2::data::XLabeledDataSequence> xValues = find(u"values-x");
++        return xValues.is() ? uno::Any(xValues->getValues()->getData()) : uno::Any();
++    }
++
++    void SAL_CALL setXValues(const uno::Any& rValue) override { put(u"values-x"_ustr, make(lcl_representation(rValue), u"values-x"_ustr), {}); }
++
++    uno::Any SAL_CALL getAxisGroup() override
++    {
++        sal_Int32 nAxis = 0;
++        uno::Reference<beans::XPropertySet>(mxSeries, uno::UNO_QUERY_THROW)->getPropertyValue(u"AttachedAxisIndex"_ustr) >>= nAxis;
++        return uno::Any(nAxis + 1);
++    }
++
++    void SAL_CALL setAxisGroup(const uno::Any& rValue) override
++    {
++        sal_Int32 nGroup = 1;
++        rValue >>= nGroup;
++        uno::Reference<beans::XPropertySet>(mxSeries, uno::UNO_QUERY_THROW)->setPropertyValue(u"AttachedAxisIndex"_ustr, uno::Any(nGroup - 1));
++    }
++
++    void SAL_CALL Delete() override { ScVbaSeriesCollection::container(mxChart)->removeDataSeries(mxSeries); }
++
++    OUString getServiceImplName() override { return u"ScVbaSeries"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.Series"_ustr }; }
++};
++}
++
++uno::Reference<excel::XSeries> ScVbaSeriesCollection::seriesObject(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                                                   const uno::Reference<chart::XChartDocument>& xChart, const uno::Reference<chart2::XDataSeries>& xSeries)
++{
++    return new Series(xParent, xContext, xChart, xSeries);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/Library_vbaobj.mk
++++ b/sc/Library_vbaobj.mk
+@@ -76,6 +76,8 @@
+ 	sc/source/ui/vba/vbachartobject \
+ 	sc/source/ui/vba/vbachartobjects \
+ 	sc/source/ui/vba/vbacharttitle \
++	sc/source/ui/vba/vbaseries \
++	sc/source/ui/vba/vbaseriesitem \
+ 	sc/source/ui/vba/vbacomment \
+ 	sc/source/ui/vba/vbacomments \
+ 	sc/source/ui/vba/vbacondition \

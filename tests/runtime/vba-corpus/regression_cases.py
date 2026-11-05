@@ -4,8 +4,13 @@
 make_regression_fixtures.py stores them in real VBA projects (.xlsm, .docm) and check-vba-corpus-regression.py runs them in the sandbox.
 """
 
+from regression_compile import COMPILE_2
+from regression_excel_objects import EXCEL_OBJECTS
 from regression_excel import CLASS_SHAPE, CLASS_SQUARE, CLASS_USE, CLASS_WATCH, COMPILE, TABLES
 from regression_word import WORD_ONLY
+from regression_word_more import WORD_DIALOGS, WORD_MEMBERS
+from regression_word_tables import WORD_TABLES
+from regression_excel_shapes import EXCEL_SHAPES, EXCEL_WORKBOOK
 
 CHECK = 'If {cond} Then {name} = "{what}": Exit Function\n'
 
@@ -125,10 +130,17 @@ FILES = [
     # name, kind, modules, expected results (module, function, want). A want of None only needs the office to survive.
     ("rtl-objects.xlsm", "calc", [("Cases", CALC_ONLY)], None),
     ("compile.xlsm", "calc", [("Cases", COMPILE)], None),
+    ("compile-2.xlsm", "calc", [("Cases", COMPILE_2)], None),
     ("classes.xlsm", "calc", [("IShape", CLASS_SHAPE), ("Square", CLASS_SQUARE), ("Watch", CLASS_WATCH), ("Cases", CLASS_USE)], [("Cases", f, "OK") for f in ("NewClassObjects", "ClassImplements", "ClassEvents")]),
     ("tables.xlsm", "calc", [("Cases", TABLES)], None),
+    ("excel-objects.xlsm", "calc", [("Cases", EXCEL_OBJECTS)], None),
     ("rtl-objects.docm", "writer", [("Cases", CALC_ONLY)], None),
     ("word-objects.docm", "writer", [("Cases", WORD_ONLY)], None),
+    ("word-members.docm", "writer", [("Cases", WORD_MEMBERS)], None),
+    ("word-tables.docm", "writer", [("Cases", WORD_TABLES)], None),
+    ("word-dialogs.docm", "writer", [("Cases", WORD_DIALOGS)], None),
+    ("excel-shapes.xlsm", "calc", [("Cases", EXCEL_SHAPES)], None),
+    ("excel-workbook.xlsm", "calc", [("Cases", EXCEL_WORKBOOK)], None),
     ("syntax-error.xlsm", "calc", [("Bad", SYNTAX_ERROR), ("Good", SYNTAX_OK)], [("Good", "StillThere", "OK")]),
     ("syntax-error.docm", "writer", [("Bad", SYNTAX_ERROR), ("Good", SYNTAX_OK)], [("Good", "StillThere", "OK")]),
 ]

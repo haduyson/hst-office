@@ -1,0 +1,152 @@
+Subject: [PATCH] VBA: FormatConditions.Add, RemoveDuplicates clears the rest, FileDialog.Filters items
+
+A format condition can be created from a Range, RemoveDuplicates empties the
+rows it frees, and Filters(i) gives Description and Extensions.
+---
+--- a/oovbaapi/ooo/vba/excel/XFileDialogFilter.idl
++++ b/oovbaapi/ooo/vba/excel/XFileDialogFilter.idl
+@@ -0,0 +1,21 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++
++module ooo { module vba { module excel {
++
++/** One entry of FileDialog.Filters. */
++interface XFileDialogFilter
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute, readonly] string Description;
++    [attribute, readonly] string Extensions;
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XFileDialogFilters.idl
++++ b/oovbaapi/ooo/vba/excel/XFileDialogFilters.idl
+@@ -7,13 +7,19 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+  */
+ 
++#include <com/sun/star/script/XDefaultMethod.idl>
++
+ module ooo { module vba { module excel {
+ 
+ /** HST: the file types of a FileDialog. */
++interface XFileDialogFilter;
++
+ interface XFileDialogFilters
+ {
+     interface ::ooo::vba::XHelperInterface;
++    interface ::com::sun::star::script::XDefaultMethod;
+     [attribute, readonly] long Count;
++    XFileDialogFilter Item( [in] long Index );
+     void Clear();
+     void Add( [in] string Description, [in] string Extensions, [in] any Position );
+ };
+--- a/oovbaapi/UnoApi_oovbaapi.mk
++++ b/oovbaapi/UnoApi_oovbaapi.mk
+@@ -241,6 +241,7 @@
+ 	XDialogs \
+ 	XDrawings \
+ 	XFileDialog \
++	XFileDialogFilter \
+ 	XFileDialogFilters \
+ 	XFileDialogSelectedItems \
+ 	XFont \
+--- a/sc/source/ui/vba/vbacondition.cxx
++++ b/sc/source/ui/vba/vbacondition.cxx
+@@ -37,7 +37,7 @@
+     : ScVbaCondition_BASE(xParent, xContext)
+     , mxSheetCondition(std::move(_xSheetCondition))
+ {
+-    mxAddressable.set(xParent, uno::UNO_QUERY_THROW);
++    mxAddressable.set(xParent, uno::UNO_QUERY); // HST: not a Range, its parent in Range.FormatConditions
+ }
+ 
+ template <typename... Ifc>
+--- a/sc/source/ui/vba/vbarangemore.cxx
++++ b/sc/source/ui/vba/vbarangemore.cxx
+@@ -15,6 +15,8 @@
+ #include "vbalistobject.hxx"
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/container/XNameAccess.hpp>
++#include <com/sun/star/sheet/CellFlags.hpp>
++#include <com/sun/star/sheet/XSheetOperation.hpp>
+ #include <com/sun/star/table/XCellRange.hpp>
+ #include <comphelper/sequence.hxx>
+ #include <com/sun/star/sheet/XArrayFormulaRange.hpp>
+@@ -137,9 +139,14 @@
+         if (bIsHeader || aSeen.insert(aKey.makeStringAndClear()).second)
+             aKept.push_back(aRows[nRow]);
+     }
+-    uno::Sequence<uno::Any> aEmpty(aRows[0].getLength());
+-    aKept.resize(aRows.getLength(), aEmpty);
+-    xData->setDataArray(comphelper::containerToSequence(aKept));
++    const sal_Int32 nColumns = aRows[0].getLength(), nKept = aKept.size();
++    uno::Reference<sheet::XCellRangeData> xTop(mxRange->getCellRangeByPosition(0, 0, nColumns - 1, nKept - 1), uno::UNO_QUERY_THROW);
++    xTop->setDataArray(comphelper::containerToSequence(aKept));
++    if (nKept < aRows.getLength())
++    {
++        uno::Reference<sheet::XSheetOperation> xRest(mxRange->getCellRangeByPosition(0, nKept, nColumns - 1, aRows.getLength() - 1), uno::UNO_QUERY_THROW);
++        xRest->clearContents(sheet::CellFlags::VALUE | sheet::CellFlags::DATETIME | sheet::CellFlags::STRING | sheet::CellFlags::FORMULA);
++    }
+ }
+ 
+ void SAL_CALL ScVbaRange::TextToColumns(const uno::Any& rDestination, const uno::Any&, const uno::Any&, const uno::Any& rConsecutive, const uno::Any& rTab, const uno::Any& rSemicolon,
+--- a/sc/source/ui/vba/vbafiledialogfilters.cxx
++++ b/sc/source/ui/vba/vbafiledialogfilters.cxx
+@@ -10,7 +10,10 @@
+ // HST: FileDialog.Filters: file types that Show offers.
+ 
+ #include "vbafiledialog.hxx"
++#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
++#include <ooo/vba/excel/XFileDialogFilter.hpp>
+ #include <ooo/vba/excel/XFileDialogFilters.hpp>
++#include <utility>
+ #include <rtl/ref.hxx>
+ #include <vbahelper/vbahelperinterface.hxx>
+ 
+@@ -19,6 +22,23 @@
+ 
+ namespace
+ {
++class Filter final : public InheritedHelperInterfaceWeakImpl<excel::XFileDialogFilter>
++{
++    std::pair<OUString, OUString> maEntry;
++
++public:
++    Filter(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++           std::pair<OUString, OUString> aEntry)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext)
++        , maEntry(std::move(aEntry))
++    {
++    }
++    OUString SAL_CALL getDescription() override { return maEntry.first; }
++    OUString SAL_CALL getExtensions() override { return maEntry.second; }
++    OUString getServiceImplName() override { return u"ScVbaFileDialogFilter"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.FileDialogFilter"_ustr }; }
++};
++
+ class Filters final : public InheritedHelperInterfaceWeakImpl<excel::XFileDialogFilters>
+ {
+     std::vector<std::pair<OUString, OUString>>& mrList;
+@@ -32,6 +52,13 @@
+     }
+     sal_Int32 SAL_CALL getCount() override { return static_cast<sal_Int32>(mrList.size()); }
+     void SAL_CALL Clear() override { mrList.clear(); }
++    OUString SAL_CALL getDefaultMethodName() override { return u"Item"_ustr; }
++    uno::Reference<excel::XFileDialogFilter> SAL_CALL Item(sal_Int32 nIndex) override
++    {
++        if (nIndex < 1 || nIndex > getCount())
++            throw lang::IndexOutOfBoundsException();
++        return new Filter(this, mxContext, mrList[nIndex - 1]);
++    }
+     void SAL_CALL Add(const OUString& rDescription, const OUString& rExtensions, const uno::Any&) override { mrList.emplace_back(rDescription, rExtensions); }
+     OUString getServiceImplName() override { return u"ScVbaFileDialogFilters"_ustr; }
+     uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.FileDialogFilters"_ustr }; }

@@ -45,6 +45,7 @@ CASES = [
     ("address_of", "Private Sub CallBack()\nEnd Sub\n", 'Dim p As Long\np = VBA.Int(AddressOf CallBack)\n' + want('p', '0') + 'r = "OK"'),
     ("as_new_default_index", "", 'Dim d As New Dictionary, e As Dictionary\nd("k") = 1\n' + want('d("k")', '1') + 'Set e = New Dictionary\ne("m") = 2\n' + want('e("m")', '2') + 'r = "OK"'),
     ("type_member_names", "Type Nut\n  Name As String\n  Parent As Long\nEnd Type\n", 'Dim n As Nut\nn.Name = "a"\nn.Parent = 2\n' + want('n.Name & n.Parent', '"a2"') + 'r = "OK"'),
+    ("windows_sleep", '#If VBA7 Then\nPrivate Declare PtrSafe Sub Sleep Lib "Kernel32.dll" (ByVal ms As Long)\nPrivate Declare PtrSafe Function GetTickCount Lib "kernel32" () As Long\n#End If\n', 'Dim a As Long\na = GetTickCount()\nSleep 60\nIf GetTickCount() - a < 50 Then r = "too short": Exit Function\nr = "OK"\n'),
     ("friend_class", "Friend Function Fr()\n  Fr = 1\nEnd Function\n", want('Fr()', '1') + 'r = "OK"'),
     ("file_io", "", 'Dim f As Integer, s As String, p As String\np = Environ("TMPDIR") & "\\io.txt"\nf = FreeFile\nOpen p For Output As #f\nPrint #f, "a"; 1\nWrite #f, "b", 2\nClose #f\nOpen p For Input As #f\nLine Input #f, s\n' + want('s', '"a 1 "') + 'Line Input #f, s\n' + want('s', '"""b"",2"') + want('EOF(f)', 'True') + 'Close #f\n' + want('FileLen(p) > 0', 'True') + want('Dir(p) <> ""', 'True') + 'Kill p\n' + want('Dir(p)', '""') + 'r = "OK"'),
 ]

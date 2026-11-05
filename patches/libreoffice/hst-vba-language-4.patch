@@ -1,0 +1,166 @@
+Subject: [PATCH] VBA: class events, interfaces, TypeName of classes, Err 9 on missing elements
+
+RaiseEvent reaches handlers of a variable whose module declares them, an
+object can be Set to an interface its class implements, TypeName gives the
+class name, every missing-element exception raises 9, and a Type may have
+members called Name or Parent.
+---
+--- a/basic/source/classes/sbunoobj.cxx
++++ b/basic/source/classes/sbunoobj.cxx
+@@ -360,6 +360,23 @@
+     return implGetExceptionMsg( e, cppu::UnoType<decltype(e)>::get().getTypeName() );
+ }
+ 
++// HST: Worksheets("none") and the like: code handles VBA's "Subscript out of range" by its number
++static bool lcl_isMissingElement( const Any& rException )
++{
++    return SbiRuntime::isVBAEnabled()
++           && ( rException.isExtractableTo( cppu::UnoType<NoSuchElementException>::get() )
++                || rException.isExtractableTo( cppu::UnoType<IndexOutOfBoundsException>::get() ) );
++}
++
++template< class EXCEPTION >
++static void lcl_raiseException( const EXCEPTION& e )
++{
++    if( lcl_isMissingElement( Any( e ) ) )
++        StarBASIC::Error( ERRCODE_BASIC_OUT_OF_RANGE );
++    else
++        StarBASIC::Error( ERRCODE_BASIC_EXCEPTION, implGetExceptionMsg( e ) );
++}
++
+ static void implHandleBasicErrorException( BasicErrorException const & e )
+ {
+     ErrCode nError = StarBASIC::GetSfxFromVBError( static_cast<sal_uInt16>(e.ErrorCode) );
+@@ -428,10 +445,7 @@
+     {
+         implHandleWrappedTargetException( _rCaughtException );
+     }
+-    // HST: Worksheets("none") and the like: code handles VBA's "Subscript out of range" by its number
+-    else if( SbiRuntime::isVBAEnabled()
+-             && ( _rCaughtException.isExtractableTo( cppu::UnoType<NoSuchElementException>::get() )
+-                  || _rCaughtException.isExtractableTo( cppu::UnoType<IndexOutOfBoundsException>::get() ) ) )
++    else if( lcl_isMissingElement( _rCaughtException ) )
+     {
+         StarBASIC::Error( ERRCODE_BASIC_OUT_OF_RANGE );
+     }
+@@ -2420,7 +2434,7 @@
+     }
+     catch( const RuntimeException& e )
+     {
+-        StarBASIC::Error( ERRCODE_BASIC_EXCEPTION, implGetExceptionMsg( e ) );
++        lcl_raiseException( e );
+     }
+ 
+     if( !mxUnoAccess.is() )
+@@ -2684,7 +2698,7 @@
+                 }
+                 catch( const NoSuchElementException& e )
+                 {
+-                    StarBASIC::Error( ERRCODE_BASIC_EXCEPTION, implGetExceptionMsg( e ) );
++                    lcl_raiseException( e );
+                 }
+                 catch( const Exception& )
+                 {
+@@ -2741,7 +2755,7 @@
+                 if( !pRes )
+                     pRes = new SbxVariable( SbxVARIANT );
+ 
+-                StarBASIC::Error( ERRCODE_BASIC_EXCEPTION, implGetExceptionMsg( e ) );
++                lcl_raiseException( e );
+             }
+         }
+     }
+--- a/basic/source/runtime/runtime.cxx
++++ b/basic/source/runtime/runtime.cxx
+@@ -1936,6 +1936,29 @@
+         }
+         // Handle withevents
+         bool bWithEvents = refVar->IsSet( SbxFlagBits::WithEvents );
++        // HST: for RaiseEvent: an object of a class module set to a variable whose module has handlers
++        if( bVBAEnabled )
++        {
++            if( SbxObject* pSource = dynamic_cast<SbClassModuleObject*>( refVal->GetObject() ) )
++            {
++                SbxObjectRef xOwner = refVar->GetParent();
++                const OUString aPrefix = refVar->GetName() + "_";
++                bool bHandlers = false;
++                if( SbModule* pOwner = dynamic_cast<SbModule*>( xOwner.get() ) )
++                {
++                    SbxArrayRef xMethods = pOwner->GetMethods();
++                    for( sal_uInt32 i = 0, nCount = xMethods->Count(); i < nCount && !bHandlers; ++i )
++                        bHandlers = xMethods->Get( i )->GetName().startsWithIgnoreAsciiCase( aPrefix );
++                }
++                if( bHandlers )
++                {
++                    auto& rLinks = GetSbData()->aClassEventLinks;
++                    const OUString aVarName = refVar->GetName();
++                    std::erase_if( rLinks, [&]( const auto& r ) { return std::get<1>( r ).get() == xOwner.get() && std::get<2>( r ) == aVarName; } );
++                    rLinks.emplace_back( pSource, xOwner, aVarName );
++                }
++            }
++        }
+         if ( bWithEvents )
+         {
+             Reference< XInterface > xComListener;
+@@ -1953,16 +1976,6 @@
+                 refVal->SetDeclareClassName( aDeclareClassName );
+                 refVal->SetComListener( xComListener, &rBasic );        // Hold reference
+             }
+-            // HST: WithEvents on an object of a class module, for RaiseEvent
+-            else if( SbxObject* pSource = dynamic_cast<SbClassModuleObject*>( pObj ) )
+-            {
+-                auto& rLinks = GetSbData()->aClassEventLinks;
+-                SbxObjectRef xOwner = refVar->GetParent();
+-                const OUString aVarName = refVar->GetName();
+-                std::erase_if( rLinks, [&]( const auto& r ) { return std::get<1>( r ).get() == xOwner.get() && std::get<2>( r ) == aVarName; } );
+-                rLinks.emplace_back( pSource, xOwner, aVarName );
+-            }
+-
+         }
+ 
+         // lhs is a property who's value is currently (Empty e.g. no broadcast yet)
+@@ -3413,7 +3426,12 @@
+         }
+         if( pObj )
+         {
+-            if( !implIsClass( pObj, aClass ) )
++            // HST: an object of a class module also is every interface its module implements
++            SbModule* pClassModule = nullptr;
++            if( bVBAEnabled && dynamic_cast<SbClassModuleObject*>( pObj ) )
++                pClassModule = rBasic.FindModule( pObj->GetClassName() );
++            const bool bImplements = pClassModule && pClassModule->pClassData && pClassModule->pClassData->mxIfaces->Find( aClass, SbxClassType::DontCare );
++            if( !bImplements && !implIsClass( pObj, aClass ) )
+             {
+                 SbUnoObject* pUnoObj(nullptr);
+                 if (bVBAEnabled || CodeCompleteOptions::IsExtendedTypeDeclaration())
+--- a/basic/source/comp/dim.cxx
++++ b/basic/source/comp/dim.cxx
+@@ -656,12 +656,13 @@
+         {
+             SbxArray *pTypeMembers = pType->GetProperties();
+             OUString aElemName = pElem->GetName();
+-            // HST: Name and Parent are properties of every object until the Type defines its own
++            // HST: Name and Parent are properties of every object: such a member is that property
+             SbxVariable* pExisting = pTypeMembers->Find( aElemName, SbxClassType::DontCare );
+             if( pExisting && bVBASupportOn && aDefinedMembers.insert( aElemName.toAsciiLowerCase() ).second )
+             {
+-                pType->Remove( pExisting );
+-                pExisting = nullptr;
++                if( !aElemName.equalsIgnoreAsciiCase( "Name" ) && !aElemName.equalsIgnoreAsciiCase( "Parent" ) )
++                    Error( ERRCODE_BASIC_VAR_DEFINED );
++                continue;
+             }
+             aDefinedMembers.insert( aElemName.toAsciiLowerCase() );
+             if( pExisting )
+--- a/basic/source/runtime/methods.cxx
++++ b/basic/source/runtime/methods.cxx
+@@ -3514,6 +3514,9 @@
+         }
+         else
+         {
++            // HST: TypeName of an object of a class module is the class
++            if ( SbxObject* pClassObj = dynamic_cast<SbClassModuleObject*>( pBaseObj ) )
++                return pClassObj->GetClassName();
+             SbUnoObject* pUnoObj = dynamic_cast<SbUnoObject*>( pVar  );
+             if ( !pUnoObj )
+             {

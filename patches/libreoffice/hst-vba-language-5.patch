@@ -1,0 +1,122 @@
+Subject: [PATCH] VBA: Set evaluates its right side once, Type members Name and Parent, Err 9
+
+The link for class events read the value before the assignment, which called
+CreateObject a second time and left the variable empty. A Type can have members
+called Name and Parent. A missing element thrown through invocation is Err 9.
+---
+--- a/basic/source/runtime/runtime.cxx
++++ b/basic/source/runtime/runtime.cxx
+@@ -1936,29 +1936,6 @@
+         }
+         // Handle withevents
+         bool bWithEvents = refVar->IsSet( SbxFlagBits::WithEvents );
+-        // HST: for RaiseEvent: an object of a class module set to a variable whose module has handlers
+-        if( bVBAEnabled )
+-        {
+-            if( SbxObject* pSource = dynamic_cast<SbClassModuleObject*>( refVal->GetObject() ) )
+-            {
+-                SbxObjectRef xOwner = refVar->GetParent();
+-                const OUString aPrefix = refVar->GetName() + "_";
+-                bool bHandlers = false;
+-                if( SbModule* pOwner = dynamic_cast<SbModule*>( xOwner.get() ) )
+-                {
+-                    SbxArrayRef xMethods = pOwner->GetMethods();
+-                    for( sal_uInt32 i = 0, nCount = xMethods->Count(); i < nCount && !bHandlers; ++i )
+-                        bHandlers = xMethods->Get( i )->GetName().startsWithIgnoreAsciiCase( aPrefix );
+-                }
+-                if( bHandlers )
+-                {
+-                    auto& rLinks = GetSbData()->aClassEventLinks;
+-                    const OUString aVarName = refVar->GetName();
+-                    std::erase_if( rLinks, [&]( const auto& r ) { return std::get<1>( r ).get() == xOwner.get() && std::get<2>( r ) == aVarName; } );
+-                    rLinks.emplace_back( pSource, xOwner, aVarName );
+-                }
+-            }
+-        }
+         if ( bWithEvents )
+         {
+             Reference< XInterface > xComListener;
+@@ -1987,6 +1964,29 @@
+         {
+             *refVar = *refVal;
+         }
++        // HST: for RaiseEvent: an object of a class module set to a variable whose module has handlers
++        if( bVBAEnabled && !dynamic_cast<SbProcedureProperty*>( refVar.get() ) )
++        {
++            if( SbxObject* pSource = dynamic_cast<SbClassModuleObject*>( refVar->GetObject() ) )
++            {
++                SbxObjectRef xOwner = refVar->GetParent();
++                const OUString aPrefix = refVar->GetName() + "_";
++                bool bHandlers = false;
++                if( SbModule* pOwner = dynamic_cast<SbModule*>( xOwner.get() ) )
++                {
++                    SbxArrayRef xMethods = pOwner->GetMethods();
++                    for( sal_uInt32 i = 0, nCount = xMethods->Count(); i < nCount && !bHandlers; ++i )
++                        bHandlers = xMethods->Get( i )->GetName().startsWithIgnoreAsciiCase( aPrefix );
++                }
++                if( bHandlers )
++                {
++                    auto& rLinks = GetSbData()->aClassEventLinks;
++                    const OUString aVarName = refVar->GetName();
++                    std::erase_if( rLinks, [&]( const auto& r ) { return std::get<1>( r ).get() == xOwner.get() && std::get<2>( r ) == aVarName; } );
++                    rLinks.emplace_back( pSource, xOwner, aVarName );
++                }
++            }
++        }
+         if ( bDimAsNew )
+         {
+             if( dynamic_cast<const SbxObject*>( refVar.get() ) == nullptr )
+--- a/basic/source/comp/dim.cxx
++++ b/basic/source/comp/dim.cxx
+@@ -625,7 +625,9 @@
+     }
+ 
+     SbxObject *pType = new SbxObject(aSym);
+-    std::set<OUString> aDefinedMembers;
++    // HST: every object has these two, a Type has only its members and may have ones of these names
++    pType->Remove( u"Name"_ustr, SbxClassType::DontCare );
++    pType->Remove( u"Parent"_ustr, SbxClassType::DontCare );
+ 
+     bool bDone = false;
+ 
+@@ -656,15 +658,7 @@
+         {
+             SbxArray *pTypeMembers = pType->GetProperties();
+             OUString aElemName = pElem->GetName();
+-            // HST: Name and Parent are properties of every object: such a member is that property
+             SbxVariable* pExisting = pTypeMembers->Find( aElemName, SbxClassType::DontCare );
+-            if( pExisting && bVBASupportOn && aDefinedMembers.insert( aElemName.toAsciiLowerCase() ).second )
+-            {
+-                if( !aElemName.equalsIgnoreAsciiCase( "Name" ) && !aElemName.equalsIgnoreAsciiCase( "Parent" ) )
+-                    Error( ERRCODE_BASIC_VAR_DEFINED );
+-                continue;
+-            }
+-            aDefinedMembers.insert( aElemName.toAsciiLowerCase() );
+             if( pExisting )
+             {
+                 Error (ERRCODE_BASIC_VAR_DEFINED);
+@@ -728,8 +722,6 @@
+         }
+     }
+ 
+-    pType->Remove( u"Name"_ustr, SbxClassType::DontCare );
+-    pType->Remove( u"Parent"_ustr, SbxClassType::DontCare );
+ 
+     rTypeArray->Insert(pType, rTypeArray->Count());
+ }
+--- a/basic/source/classes/sbunoobj.cxx
++++ b/basic/source/classes/sbunoobj.cxx
+@@ -429,6 +429,13 @@
+         implAppendExceptionMsg( aMessageBuf, *e, aExamine.getValueTypeName(), nLevel );
+     }
+ 
++    // HST: a missing element thrown through invocation is Subscript out of range as well
++    if ( nError == ERRCODE_BASIC_EXCEPTION && lcl_isMissingElement( aExamine ) )
++    {
++        StarBASIC::Error( ERRCODE_BASIC_OUT_OF_RANGE );
++        return;
++    }
++
+     StarBASIC::Error( nError, aMessageBuf.makeStringAndClear() );
+ }
+ 

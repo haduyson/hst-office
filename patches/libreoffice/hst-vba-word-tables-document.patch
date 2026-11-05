@@ -1,0 +1,2126 @@
+Subject: [PATCH] VBA: Word tables, notes, hyperlinks and Document members macros commonly use
+
+Rows and Columns Add, Delete, First, Last and Cells; Table.Range across cells;
+Style, Borders.Enable, widths; Cell Merge, Shading, VerticalAlignment; Footnotes,
+Endnotes, Hyperlinks; ExportAsFixedFormat, statistics, Undo, TrackRevisions;
+Paragraph Next and Previous; PageSetup paper; Variables create on write.
+---
+--- a/oovbaapi/ooo/vba/word/XTable.idl
++++ b/oovbaapi/ooo/vba/word/XTable.idl
+@@ -62,6 +62,11 @@
+     [attribute] float LeftPadding;
+     [attribute] float RightPadding;
+     [attribute] float TopPadding;
++    // HST
++    [attribute] any Style;
++    [attribute] any PreferredWidth;
++    [attribute] any PreferredWidthType;
++    void AutoFitBehavior( [in] long Behavior );
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XRow.idl
++++ b/oovbaapi/ooo/vba/word/XRow.idl
+@@ -28,6 +28,12 @@
+ 
+     void Select();
+     void SetHeight( [in] float RowHeight, [in] long HeightRule );
++    // HST
++    any Cells( [in] any Index );
++    [attribute, readonly] XRange Range;
++    [attribute] any HeadingFormat;
++    [attribute, readonly] long Index;
++    void Delete();
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XRows.idl
++++ b/oovbaapi/ooo/vba/word/XRows.idl
+@@ -35,6 +35,11 @@
+     void Delete();
+     void SetLeftIndent( [in] float LeftIndent, [in] long RulerStyle );
+     void Select();
++    // HST
++    any Add( [in] any BeforeRow );
++    [attribute, readonly] any First;
++    [attribute, readonly] any Last;
++    [attribute] any HeadingFormat;
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XColumn.idl
++++ b/oovbaapi/ooo/vba/word/XColumn.idl
+@@ -26,6 +26,10 @@
+     [attribute] long Width;
+ 
+     void Select();
++    // HST
++    any Cells( [in] any Index );
++    [attribute, readonly] long Index;
++    void Delete();
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XColumns.idl
++++ b/oovbaapi/ooo/vba/word/XColumns.idl
+@@ -31,6 +31,11 @@
+     [attribute] long Width;
+ 
+     void Select();
++    // HST
++    any Add( [in] any BeforeColumn );
++    [attribute, readonly] any First;
++    [attribute, readonly] any Last;
++    void Delete();
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XCell.idl
++++ b/oovbaapi/ooo/vba/word/XCell.idl
+@@ -20,6 +20,7 @@
+ module ooo {  module vba {  module word {
+ 
+ interface XRange;
++interface XShading;
+ interface XCell
+ {
+     interface ooo::vba::XHelperInterface;
+@@ -32,6 +33,13 @@
+ 
+     void SetWidth( [in] float ColumnWidth, [in] long RulerStyle );
+     void SetHeight( [in] float RowHeight, [in] long HeightRule );
++    // HST
++    void Merge( [in] any MergeTo );
++    void Select();
++    [attribute, readonly] XShading Shading;
++    [attribute, readonly] long RowIndex;
++    [attribute, readonly] long ColumnIndex;
++    [attribute] any VerticalAlignment;
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XCells.idl
++++ b/oovbaapi/ooo/vba/word/XCells.idl
+@@ -34,6 +34,8 @@
+ 
+     void SetWidth( [in] float ColumnWidth, [in] long RulerStyle );
+     void SetHeight( [in] float RowHeight, [in] long HeightRule );
++    // HST
++    void Merge( [in] any MergeTo );
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XBorders.idl
++++ b/oovbaapi/ooo/vba/word/XBorders.idl
+@@ -27,7 +27,9 @@
+ {
+     interface ooo::vba::XCollection;
+ 
+-    [attribute] boolean Shadow;
++    [attribute] boolean Shadow;    // HST
++    [attribute] any Enable;
++
+ };
+ 
+ 
+--- a/oovbaapi/ooo/vba/word/XShading.idl
++++ b/oovbaapi/ooo/vba/word/XShading.idl
+@@ -0,0 +1,24 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <ooo/vba/XHelperInterface.idl>
++
++module ooo { module vba { module word {
++
++/** HST: Word's Shading of a cell or a range: its background colour. */
++interface XShading
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute] any BackgroundPatternColor;
++    [attribute] any BackgroundPatternColorIndex;
++    [attribute] any ForegroundPatternColor;
++    [attribute] any Texture;
++};
++
++}; }; };
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/oovbaapi/ooo/vba/word/XRange.idl
++++ b/oovbaapi/ooo/vba/word/XRange.idl
+@@ -25,6 +25,7 @@
+ interface XFont;
+ interface XFind;
+ interface XListFormat;
++interface XShading;
+ interface XRange
+ {
+     interface ooo::vba::XHelperInterface;
+@@ -93,11 +94,13 @@
+     any Bookmarks( [in] any Index );
+     any Comments( [in] any Index );
+     any Characters( [in] any Index );
++    any Hyperlinks( [in] any Index );
+     long ComputeStatistics( [in] long Statistic, [in] any IncludeFootnotesAndEndnotes );
+     [attribute] any Underline;
+     [attribute] any HighlightColorIndex;
+     [attribute, readonly] long StoryLength;
+     [attribute, readonly] long StoryType;
++    [attribute, readonly] XShading Shading;
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XNote.idl
++++ b/oovbaapi/ooo/vba/word/XNote.idl
+@@ -0,0 +1,25 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <ooo/vba/XHelperInterface.idl>
++
++module ooo { module vba { module word {
++
++interface XRange;
++/** HST: a footnote or endnote. */
++interface XNote
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute, readonly] XRange Range;
++    [attribute, readonly] XRange Reference;
++    [attribute, readonly] long Index;
++    void Delete();
++};
++
++}; }; };
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/oovbaapi/ooo/vba/word/XNotes.idl
++++ b/oovbaapi/ooo/vba/word/XNotes.idl
+@@ -0,0 +1,23 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <ooo/vba/XCollection.idl>
++
++module ooo { module vba { module word {
++
++interface XRange;
++interface XNote;
++/** HST: Document.Footnotes, Document.Endnotes. */
++interface XNotes
++{
++    interface ::ooo::vba::XCollection;
++    XNote Add( [in] XRange Range, [in] any Reference, [in] any Text );
++};
++
++}; }; };
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/oovbaapi/ooo/vba/word/XHyperlink.idl
++++ b/oovbaapi/ooo/vba/word/XHyperlink.idl
+@@ -0,0 +1,26 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <ooo/vba/XHelperInterface.idl>
++
++module ooo { module vba { module word {
++
++interface XRange;
++/** HST: a hyperlink in the text. */
++interface XHyperlink
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute] string Address;
++    [attribute] string SubAddress;
++    [attribute] string TextToDisplay;
++    [attribute, readonly] XRange Range;
++    void Delete();
++};
++
++}; }; };
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/oovbaapi/ooo/vba/word/XHyperlinks.idl
++++ b/oovbaapi/ooo/vba/word/XHyperlinks.idl
+@@ -0,0 +1,23 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <ooo/vba/XCollection.idl>
++
++module ooo { module vba { module word {
++
++interface XRange;
++interface XHyperlink;
++/** HST: Document.Hyperlinks, Range.Hyperlinks. */
++interface XHyperlinks
++{
++    interface ::ooo::vba::XCollection;
++    XHyperlink Add( [in] any Anchor, [in] any Address, [in] any SubAddress, [in] any ScreenTip, [in] any TextToDisplay, [in] any Target );
++};
++
++}; }; };
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/oovbaapi/ooo/vba/word/XDocument.idl
++++ b/oovbaapi/ooo/vba/word/XDocument.idl
+@@ -70,6 +70,18 @@
+     void Close( [in] any SaveChanges, [in] any OriginalFormat, [in] any RouteDocument );
+     // This is a COLEAT-specific addition
+     void SavePreviewPngAs( [in] any FileName );
++    // HST: what real macros use most
++    any Characters( [in] any Index );
++    any Footnotes( [in] any Index );
++    any Endnotes( [in] any Index );
++    any Hyperlinks( [in] any Index );
++    [attribute] boolean TrackRevisions;
++    void SaveAs2( [in] any FileName, [in] any FileFormat, [in] any LockComments, [in] any Password, [in] any AddToRecentFiles, [in] any WritePassword, [in] any ReadOnlyRecommended, [in] any EmbedTrueTypeFonts, [in] any SaveNativePictureFormat, [in] any SaveFormsData, [in] any SaveAsAOCELetter, [in] any Encoding, [in] any InsertLineBreaks, [in] any AllowSubstitutions, [in] any LineEnding, [in] any AddBiDiMarks, [in] any CompatibilityMode );
++    void ExportAsFixedFormat( [in] string OutputFileName, [in] long ExportFormat, [in] any OpenAfterExport, [in] any OptimizeFor, [in] any Range, [in] any From, [in] any To, [in] any Item, [in] any IncludeDocProps, [in] any KeepIRM, [in] any CreateBookmarks, [in] any DocStructureTags, [in] any BitmapMissingFonts, [in] any UseISO19005_1 );
++    boolean Undo( [in] any Times );
++    boolean Redo( [in] any Times );
++    void Repaginate();
++    long ComputeStatistics( [in] long Statistic, [in] any IncludeFootnotesAndEndnotes );
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XApplication.idl
++++ b/oovbaapi/ooo/vba/word/XApplication.idl
+@@ -65,6 +65,10 @@
+     void ShowMe();
+     void Resize( [in] long Width, [in] long Height );
+     void Move( [in] long Left, [in] long Top );
++    // HST
++    [attribute] any DisplayAlerts;
++    [attribute] any UserName;
++    [attribute, readonly] string Path;
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XFont.idl
++++ b/oovbaapi/ooo/vba/word/XFont.idl
+@@ -23,6 +23,10 @@
+ 
+ interface XFont : com::sun::star::uno::XInterface
+ {
++    // HST
++    [attribute] any AllCaps;
++    [attribute] any SmallCaps;
++    [attribute] any Hidden;
+ };
+ 
+ 
+--- a/oovbaapi/ooo/vba/word/XParagraph.idl
++++ b/oovbaapi/ooo/vba/word/XParagraph.idl
+@@ -30,6 +30,10 @@
+     // HST: Word's Paragraph.Alignment and Paragraph.Format
+     [attribute] long Alignment;
+     [attribute, readonly] XParagraphFormat Format;
++    // HST
++    any Next( [in] any Count );
++    any Previous( [in] any Count );
++    [attribute] any OutlineLevel;
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XParagraphs.idl
++++ b/oovbaapi/ooo/vba/word/XParagraphs.idl
+@@ -30,6 +30,8 @@
+     // HST
+     [attribute, readonly] any First;
+     [attribute, readonly] any Last;
++    // HST
++    any Add( [in] any Range );
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XPageSetup.idl
++++ b/oovbaapi/ooo/vba/word/XPageSetup.idl
+@@ -31,6 +31,10 @@
+     [attribute] double FooterDistance;
+     [attribute] boolean DifferentFirstPageHeaderFooter;
+     [attribute] long SectionStart;
++    // HST
++    [attribute] double PageWidth;
++    [attribute] double PageHeight;
++    [attribute] long PaperSize;
+ };
+ 
+ 
+--- a/oovbaapi/ooo/vba/word/XSections.idl
++++ b/oovbaapi/ooo/vba/word/XSections.idl
+@@ -29,6 +29,8 @@
+     interface ::ooo::vba::XCollection;
+ 
+     any PageSetup();
++    // HST
++    any Add( [in] any Range, [in] any Start );
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/word/XStyles.idl
++++ b/oovbaapi/ooo/vba/word/XStyles.idl
+@@ -27,6 +27,8 @@
+ interface XStyles
+ {
+     interface ::ooo::vba::XCollection;
++    // HST
++    any Add( [in] string Name, [in] any Type );
+ };
+ 
+ }; }; };
+--- a/oovbaapi/UnoApi_oovbaapi.mk
++++ b/oovbaapi/UnoApi_oovbaapi.mk
+@@ -1114,6 +1114,11 @@
+ 	XStyle \
+ 	XStyles \
+ 	XSystem \
++	XHyperlink \
++	XHyperlinks \
++	XNote \
++	XNotes \
++	XShading \
+ 	XTable \
+ 	XTextUnits \
+ 	XTableOfContents \
+--- a/sw/Library_vbaswobj.mk
++++ b/sw/Library_vbaswobj.mk
+@@ -137,7 +137,15 @@
+     sw/source/ui/vba/vbatabstop \
+     sw/source/ui/vba/vbatabstops \
+     sw/source/ui/vba/vbaselection \
++    sw/source/ui/vba/vbadocumentmore \
++    sw/source/ui/vba/vbahyperlinks \
++    sw/source/ui/vba/vbaparagraphmore \
++    sw/source/ui/vba/vbanotes \
+     sw/source/ui/vba/vbaselectionmore \
++    sw/source/ui/vba/vbashading \
++    sw/source/ui/vba/vbarowcolumncell \
++    sw/source/ui/vba/vbatablemore \
++    sw/source/ui/vba/vbatablerange \
+     sw/source/ui/vba/vbasystem \
+     sw/source/ui/vba/vbainformationhelper \
+     sw/source/ui/vba/vbapagesetup \
+--- a/sw/source/ui/vba/vbatable.hxx
++++ b/sw/source/ui/vba/vbatable.hxx
+@@ -38,6 +38,7 @@
+ {
+     rtl::Reference< SwXTextDocument > mxTextDocument;
+     rtl::Reference< SwXTextTable > mxTextTable;
++    sal_Int32 mnPreferredWidthType = 3; // wdPreferredWidthPoints
+ public:
+     /// @throws css::uno::RuntimeException
+     SwVbaTable( const css::uno::Reference< ooo::vba::XHelperInterface >& rParent, const css::uno::Reference< css::uno::XComponentContext >& rContext, rtl::Reference< SwXTextDocument > xDocument, const rtl::Reference< SwXTextTable >& xTextTable);
+@@ -45,6 +46,14 @@
+     virtual void SAL_CALL Select(  ) override;
+     virtual void SAL_CALL Delete(  ) override;
+     virtual OUString SAL_CALL getName(  ) override;
++    // vbatablemore.cxx
++    virtual css::uno::Any SAL_CALL getStyle() override;
++    virtual void SAL_CALL setStyle( const css::uno::Any& rStyle ) override;
++    virtual css::uno::Any SAL_CALL getPreferredWidth() override;
++    virtual void SAL_CALL setPreferredWidth( const css::uno::Any& rWidth ) override;
++    virtual css::uno::Any SAL_CALL getPreferredWidthType() override;
++    virtual void SAL_CALL setPreferredWidthType( const css::uno::Any& rType ) override;
++    virtual void SAL_CALL AutoFitBehavior( ::sal_Int32 nBehavior ) override;
+     virtual css::uno::Any SAL_CALL Borders( const css::uno::Any& aIndex ) override;
+     virtual float SAL_CALL getBottomPadding(  ) override;
+     virtual void SAL_CALL setBottomPadding( float fValue ) override;
+--- a/sw/source/ui/vba/vbatable.cxx
++++ b/sw/source/ui/vba/vbatable.cxx
+@@ -55,11 +55,6 @@
+     mxTextTable = xTextTable;
+ }
+ 
+-uno::Reference< word::XRange > SAL_CALL
+-SwVbaTable::Range(  )
+-{
+-    return new SwVbaRange( mxParent, mxContext, mxTextDocument, mxTextTable->getAnchor() );
+-}
+ 
+ void SAL_CALL
+ SwVbaTable::Select(  )
+--- a/sw/source/ui/vba/vbarow.hxx
++++ b/sw/source/ui/vba/vbarow.hxx
+@@ -43,6 +43,13 @@
+     virtual ~SwVbaRow() override;
+ 
+     // Attributes
++    // vbarowcolumncell.cxx
++    virtual css::uno::Any SAL_CALL Cells( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Reference< ooo::vba::word::XRange > SAL_CALL getRange() override;
++    virtual css::uno::Any SAL_CALL getHeadingFormat() override;
++    virtual void SAL_CALL setHeadingFormat( const css::uno::Any& rValue ) override;
++    virtual ::sal_Int32 SAL_CALL getIndex() override { return mnIndex + 1; }
++    virtual void SAL_CALL Delete() override;
+     virtual css::uno::Any SAL_CALL getHeight() override;
+     virtual void SAL_CALL setHeight( const css::uno::Any& _height ) override;
+     virtual ::sal_Int32 SAL_CALL getHeightRule() override;
+--- a/sw/source/ui/vba/vbarows.hxx
++++ b/sw/source/ui/vba/vbarows.hxx
+@@ -49,6 +49,12 @@
+     void setIndentWithAdjustSameWidth( const css::uno::Reference< ooo::vba::word::XColumns >& xColumns, sal_Int32 indent );
+ 
+ public:
++    // vbarowcolumncell.cxx
++    virtual css::uno::Any SAL_CALL Add( const css::uno::Any& rBeforeRow ) override;
++    virtual css::uno::Any SAL_CALL getFirst() override;
++    virtual css::uno::Any SAL_CALL getLast() override;
++    virtual css::uno::Any SAL_CALL getHeadingFormat() override;
++    virtual void SAL_CALL setHeadingFormat( const css::uno::Any& rValue ) override;
+     /// @throws css::uno::RuntimeException
+     SwVbaRows( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext > & xContext, rtl::Reference< SwXTextTable >  xTextTable, const css::uno::Reference< css::table::XTableRows >& xTableRows );
+     /// @throws css::uno::RuntimeException
+--- a/sw/source/ui/vba/vbacolumn.hxx
++++ b/sw/source/ui/vba/vbacolumn.hxx
+@@ -39,6 +39,10 @@
+     SwVbaColumn( const css::uno::Reference< ooo::vba::XHelperInterface >& rParent, const css::uno::Reference< css::uno::XComponentContext >& rContext, css::uno::Reference< css::text::XTextTable >  xTextTable, sal_Int32 nIndex );
+     virtual ~SwVbaColumn() override;
+ 
++    // vbarowcolumncell.cxx
++    virtual css::uno::Any SAL_CALL Cells( const css::uno::Any& rIndex ) override;
++    virtual ::sal_Int32 SAL_CALL getIndex() override { return mnIndex + 1; }
++    virtual void SAL_CALL Delete() override;
+     // Methods
+     virtual sal_Int32 SAL_CALL getWidth() override;
+     virtual void SAL_CALL setWidth( sal_Int32 _width ) override;
+--- a/sw/source/ui/vba/vbacolumns.hxx
++++ b/sw/source/ui/vba/vbacolumns.hxx
+@@ -39,6 +39,11 @@
+     css::uno::Reference< ooo::vba::word::XColumn > getColumnAtIndex( sal_Int32 index );
+ 
+ public:
++    // vbarowcolumncell.cxx
++    virtual css::uno::Any SAL_CALL Add( const css::uno::Any& rBeforeColumn ) override;
++    virtual css::uno::Any SAL_CALL getFirst() override;
++    virtual css::uno::Any SAL_CALL getLast() override;
++    virtual void SAL_CALL Delete() override;
+     /// @throws css::uno::RuntimeException
+     SwVbaColumns( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext > & xContext, css::uno::Reference< css::text::XTextTable >  xTextTable, const css::uno::Reference< css::table::XTableColumns >& xTableColumns );
+     /// @throws css::uno::RuntimeException
+--- a/sw/source/ui/vba/vbacell.hxx
++++ b/sw/source/ui/vba/vbacell.hxx
+@@ -37,6 +37,16 @@
+     SwVbaCell( const css::uno::Reference< ooo::vba::XHelperInterface >& rParent, const css::uno::Reference< css::uno::XComponentContext >& rContext, css::uno::Reference< css::text::XTextTable >  xTextTable, sal_Int32 nColumn, sal_Int32 nRow );
+     virtual ~SwVbaCell() override;
+ 
++    sal_Int32 column() const { return mnColumn; }
++    sal_Int32 row() const { return mnRow; }
++    // vbarowcolumncell.cxx
++    virtual void SAL_CALL Merge( const css::uno::Any& rMergeTo ) override;
++    virtual void SAL_CALL Select() override;
++    virtual css::uno::Reference< ooo::vba::word::XShading > SAL_CALL getShading() override;
++    virtual ::sal_Int32 SAL_CALL getRowIndex() override { return mnRow + 1; }
++    virtual ::sal_Int32 SAL_CALL getColumnIndex() override { return mnColumn + 1; }
++    virtual css::uno::Any SAL_CALL getVerticalAlignment() override;
++    virtual void SAL_CALL setVerticalAlignment( const css::uno::Any& rValue ) override;
+     // Attributes
+     virtual ::sal_Int32 SAL_CALL getWidth() override;
+     virtual void SAL_CALL setWidth( ::sal_Int32 _width ) override;
+--- a/sw/source/ui/vba/vbacells.hxx
++++ b/sw/source/ui/vba/vbacells.hxx
+@@ -31,11 +31,14 @@
+     css::uno::Reference< css::text::XTextTable > mxTextTable;
+     sal_Int32 mnTop;
+     sal_Int32 mnBottom;
++    sal_Int32 mnLeft = 0;
++    sal_Int32 mnRight = 0;
+ 
+ public:
+     /// @throws css::uno::RuntimeException
+     SwVbaCells( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext > & xContext, const css::uno::Reference< css::text::XTextTable >& xTextTable, sal_Int32 nLeft, sal_Int32 nTop, sal_Int32 nRight, sal_Int32 nBottom );
+ 
++    virtual void SAL_CALL Merge( const css::uno::Any& rMergeTo ) override; // vbarowcolumncell.cxx
+     // Attributes
+     virtual ::sal_Int32 SAL_CALL getWidth() override;
+     virtual void SAL_CALL setWidth( ::sal_Int32 _width ) override;
+--- a/sw/source/ui/vba/vbacells.cxx
++++ b/sw/source/ui/vba/vbacells.cxx
+@@ -108,6 +108,8 @@
+ 
+ SwVbaCells::SwVbaCells( const uno::Reference< XHelperInterface >& xParent, const uno::Reference< uno::XComponentContext > & xContext, const uno::Reference< text::XTextTable >& xTextTable, sal_Int32 nLeft, sal_Int32 nTop, sal_Int32 nRight, sal_Int32 nBottom ) : SwVbaCells_BASE( xParent, xContext, uno::Reference< container::XIndexAccess >( new CellCollectionHelper( xParent, xContext, xTextTable, nLeft, nTop, nRight, nBottom ) ) ), mxTextTable( xTextTable ), mnTop( nTop ), mnBottom( nBottom )
+ {
++    mnLeft = nLeft;
++    mnRight = nRight;
+ }
+ 
+ ::sal_Int32 SAL_CALL SwVbaCells::getWidth()
+--- a/sw/source/ui/vba/vbaborders.hxx
++++ b/sw/source/ui/vba/vbaborders.hxx
+@@ -35,6 +35,8 @@
+ public:
+     SwVbaBorders( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext > & xContext, const css::uno::Reference< css::table::XCellRange >& xRange, VbaPalette const & rPalette );
+ 
++    virtual css::uno::Any SAL_CALL getEnable() override;
++    virtual void SAL_CALL setEnable( const css::uno::Any& rValue ) override;
+     // XEnumerationAccess
+     virtual css::uno::Type SAL_CALL getElementType() override;
+     virtual css::uno::Reference< css::container::XEnumeration > SAL_CALL createEnumeration() override;
+--- a/sw/source/ui/vba/vbashading.hxx
++++ b/sw/source/ui/vba/vbashading.hxx
+@@ -0,0 +1,38 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <ooo/vba/word/XShading.hpp>
++#include <vbahelper/vbahelperinterface.hxx>
++
++typedef InheritedHelperInterfaceWeakImpl<ooo::vba::word::XShading> SwVbaShading_BASE;
++
++/// HST: the background colour of a cell or a text range. Patterns are remembered, Writer has none to show.
++class SwVbaShading : public SwVbaShading_BASE
++{
++    css::uno::Reference<css::beans::XPropertySet> mxProps;
++    OUString maColorProperty;
++    css::uno::Any maForeground, maTexture;
++
++public:
++    SwVbaShading(const css::uno::Reference<ooo::vba::XHelperInterface>& xParent,
++                 const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                 css::uno::Reference<css::beans::XPropertySet> xProps, OUString aColorProperty);
++    css::uno::Any SAL_CALL getBackgroundPatternColor() override;
++    void SAL_CALL setBackgroundPatternColor(const css::uno::Any& rValue) override;
++    css::uno::Any SAL_CALL getBackgroundPatternColorIndex() override;
++    void SAL_CALL setBackgroundPatternColorIndex(const css::uno::Any& rValue) override;
++    css::uno::Any SAL_CALL getForegroundPatternColor() override { return maForeground; }
++    void SAL_CALL setForegroundPatternColor(const css::uno::Any& rValue) override { maForeground = rValue; }
++    css::uno::Any SAL_CALL getTexture() override { return maTexture; }
++    void SAL_CALL setTexture(const css::uno::Any& rValue) override { maTexture = rValue; }
++    OUString getServiceImplName() override { return u"SwVbaShading"_ustr; }
++    css::uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.word.Shading"_ustr }; }
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbashading.cxx
++++ b/sw/source/ui/vba/vbashading.cxx
+@@ -0,0 +1,74 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <utility>
++#include <vbahelper/vbahelper.hxx>
++
++#include "vbapalette.hxx"
++#include "vbashading.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++const sal_Int32 WD_COLOR_AUTOMATIC = -16777216;
++}
++
++SwVbaShading::SwVbaShading(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                           uno::Reference<beans::XPropertySet> xProps, OUString aColorProperty)
++    : SwVbaShading_BASE(xParent, xContext)
++    , mxProps(std::move(xProps))
++    , maColorProperty(std::move(aColorProperty))
++{
++}
++
++uno::Any SAL_CALL SwVbaShading::getBackgroundPatternColor()
++{
++    sal_Int32 nColor = -1;
++    mxProps->getPropertyValue(maColorProperty) >>= nColor;
++    return uno::Any(nColor == -1 ? WD_COLOR_AUTOMATIC : OORGBToXLRGB(nColor));
++}
++
++void SAL_CALL SwVbaShading::setBackgroundPatternColor(const uno::Any& rValue)
++{
++    sal_Int32 nColor = WD_COLOR_AUTOMATIC;
++    rValue >>= nColor;
++    mxProps->setPropertyValue(maColorProperty, uno::Any(nColor == WD_COLOR_AUTOMATIC ? sal_Int32(-1) : XLRGBToOORGB(nColor)));
++}
++
++uno::Any SAL_CALL SwVbaShading::getBackgroundPatternColorIndex()
++{
++    sal_Int32 nColor = -1;
++    mxProps->getPropertyValue(maColorProperty) >>= nColor;
++    if (nColor == -1)
++        return uno::Any(sal_Int32(0)); // wdAuto
++    VbaPalette aPalette;
++    const uno::Reference<container::XIndexAccess>& xPalette = aPalette.getPalette();
++    for (sal_Int32 i = 0; i < xPalette->getCount(); ++i)
++    {
++        sal_Int32 nEntry = 0;
++        if ((xPalette->getByIndex(i) >>= nEntry) && nEntry == nColor)
++            return uno::Any(i);
++    }
++    return uno::Any(sal_Int32(9999999)); // wdUndefined
++}
++
++void SAL_CALL SwVbaShading::setBackgroundPatternColorIndex(const uno::Any& rValue)
++{
++    sal_Int32 nIndex = 0, nColor = -1;
++    rValue >>= nIndex;
++    if (nIndex > 0)
++    {
++        VbaPalette aPalette;
++        aPalette.getPalette()->getByIndex(nIndex) >>= nColor;
++    }
++    mxProps->setPropertyValue(maColorProperty, uno::Any(nColor));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbatablerange.hxx
++++ b/sw/source/ui/vba/vbatablerange.hxx
+@@ -0,0 +1,37 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <com/sun/star/table/XCellRange.hpp>
++#include <com/sun/star/text/XTextTable.hpp>
++
++#include "vbarange.hxx"
++
++/// HST: the Range of whole rows of a table (Table.Range, Row.Range). A text cursor cannot span cells, the cell range can.
++class SwVbaTableRange final : public SwVbaRange
++{
++    css::uno::Reference<css::text::XTextTable> mxTable;
++    css::uno::Reference<css::table::XCellRange> mxCells;
++    sal_Int32 mnFirstRow, mnLastRow;
++
++public:
++    SwVbaTableRange(const css::uno::Reference<ooo::vba::XHelperInterface>& xParent,
++                    const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                    const rtl::Reference<SwXTextDocument>& xDocument,
++                    const css::uno::Reference<css::text::XTextTable>& xTable, sal_Int32 nFirstRow, sal_Int32 nLastRow);
++
++    OUString SAL_CALL getText() override;
++    css::uno::Reference<ooo::vba::word::XFont> SAL_CALL getFont() override;
++    css::uno::Reference<ooo::vba::word::XParagraphFormat> SAL_CALL getParagraphFormat() override;
++    void SAL_CALL Select() override;
++    sal_Int32 SAL_CALL Delete(const css::uno::Any& rUnit, const css::uno::Any& rCount) override;
++    css::uno::Any SAL_CALL Rows(const css::uno::Any& rIndex) override;
++    css::uno::Any SAL_CALL Columns(const css::uno::Any& rIndex) override;
++    css::uno::Any SAL_CALL Cells(const css::uno::Any& rIndex) override;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbatablerange.cxx
++++ b/sw/source/ui/vba/vbatablerange.cxx
+@@ -0,0 +1,127 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/table/XTableColumns.hpp>
++#include <com/sun/star/table/XTableRows.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/view/XSelectionSupplier.hpp>
++
++#include <rtl/ustrbuf.hxx>
++#include <unotbl.hxx>
++#include <unotxdoc.hxx>
++
++#include "vbacells.hxx"
++#include "vbacolumns.hxx"
++#include "vbafont.hxx"
++#include "vbapalette.hxx"
++#include "vbaparagraphformat.hxx"
++#include "vbarows.hxx"
++#include "vbatablehelper.hxx"
++#include "vbatablerange.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++uno::Reference<text::XText> lcl_firstCell(const uno::Reference<text::XTextTable>& xTable, sal_Int32 nRow)
++{
++    uno::Reference<table::XCellRange> xCells(xTable, uno::UNO_QUERY_THROW);
++    return uno::Reference<text::XText>(xCells->getCellByPosition(0, nRow), uno::UNO_QUERY_THROW);
++}
++
++uno::Any lcl_item(const uno::Reference<XCollection>& xCol, const uno::Any& rIndex)
++{
++    return rIndex.hasValue() ? xCol->Item(rIndex, uno::Any()) : uno::Any(xCol);
++}
++}
++
++SwVbaTableRange::SwVbaTableRange(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                 const rtl::Reference<SwXTextDocument>& xDocument, const uno::Reference<text::XTextTable>& xTable,
++                                 sal_Int32 nFirstRow, sal_Int32 nLastRow)
++    : SwVbaRange(xParent, xContext, xDocument, lcl_firstCell(xTable, nFirstRow)->getStart(), lcl_firstCell(xTable, nFirstRow)->getEnd(), lcl_firstCell(xTable, nFirstRow))
++    , mxTable(xTable)
++    , mnFirstRow(nFirstRow)
++    , mnLastRow(nLastRow)
++{
++    SwVbaTableHelper aHelper(xTable);
++    uno::Reference<table::XCellRange> xWhole(xTable, uno::UNO_QUERY_THROW);
++    mxCells = xWhole->getCellRangeByName("A" + OUString::number(nFirstRow + 1) + ":"
++                                         + SwVbaTableHelper::getColumnStr(aHelper.getTabColumnsCount(nLastRow) - 1) + OUString::number(nLastRow + 1));
++}
++
++OUString SAL_CALL SwVbaTableRange::getText()
++{
++    // as Word gives it: each cell ends with its marks, as does each row
++    OUStringBuffer aText;
++    uno::Reference<table::XCellRange> xWhole(mxTable, uno::UNO_QUERY_THROW);
++    SwVbaTableHelper aHelper(mxTable);
++    for (sal_Int32 nRow = mnFirstRow; nRow <= mnLastRow; ++nRow)
++    {
++        for (sal_Int32 nColumn = 0, n = aHelper.getTabColumnsCount(nRow); nColumn < n; ++nColumn)
++        {
++            uno::Reference<text::XText> xCell(xWhole->getCellByPosition(nColumn, nRow), uno::UNO_QUERY_THROW);
++            aText.append(xCell->getString() + u"\r\x0007");
++        }
++        aText.append(u"\r\x0007");
++    }
++    return aText.makeStringAndClear();
++}
++
++uno::Reference<word::XFont> SAL_CALL SwVbaTableRange::getFont()
++{
++    VbaPalette aColors;
++    return new SwVbaFont(this, mxContext, aColors.getPalette(), uno::Reference<beans::XPropertySet>(mxCells, uno::UNO_QUERY_THROW));
++}
++
++uno::Reference<word::XParagraphFormat> SAL_CALL SwVbaTableRange::getParagraphFormat()
++{
++    return new SwVbaParagraphFormat(this, mxContext, uno::Reference<beans::XPropertySet>(mxCells, uno::UNO_QUERY_THROW));
++}
++
++void SAL_CALL SwVbaTableRange::Select()
++{
++    uno::Reference<view::XSelectionSupplier> xSelection(getDocument()->getCurrentController(), uno::UNO_QUERY_THROW);
++    xSelection->select(uno::Any(mxCells));
++}
++
++sal_Int32 SAL_CALL SwVbaTableRange::Delete(const uno::Any&, const uno::Any&)
++{
++    // Word's Range.Delete empties the cells of a whole table or row and keeps them
++    sal_Int32 nGone = 0;
++    uno::Reference<table::XCellRange> xWhole(mxTable, uno::UNO_QUERY_THROW);
++    SwVbaTableHelper aHelper(mxTable);
++    for (sal_Int32 nRow = mnFirstRow; nRow <= mnLastRow; ++nRow)
++        for (sal_Int32 nColumn = 0, n = aHelper.getTabColumnsCount(nRow); nColumn < n; ++nColumn)
++        {
++            uno::Reference<text::XText> xCell(xWhole->getCellByPosition(nColumn, nRow), uno::UNO_QUERY_THROW);
++            nGone += xCell->getString().getLength();
++            xCell->setString(OUString());
++        }
++    return nGone;
++}
++
++uno::Any SAL_CALL SwVbaTableRange::Rows(const uno::Any& rIndex)
++{
++    rtl::Reference<SwXTextTable> xTable(dynamic_cast<SwXTextTable*>(mxTable.get()));
++    return lcl_item(new SwVbaRows(this, mxContext, xTable, xTable->getRows(), mnFirstRow, mnLastRow), rIndex);
++}
++
++uno::Any SAL_CALL SwVbaTableRange::Columns(const uno::Any& rIndex)
++{
++    return lcl_item(new SwVbaColumns(this, mxContext, mxTable, mxTable->getColumns()), rIndex);
++}
++
++uno::Any SAL_CALL SwVbaTableRange::Cells(const uno::Any& rIndex)
++{
++    SwVbaTableHelper aHelper(mxTable);
++    return lcl_item(new SwVbaCells(this, mxContext, mxTable, 0, mnFirstRow, aHelper.getTabColumnsCount(mnLastRow) - 1, mnLastRow), rIndex);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbatablemore.cxx
++++ b/sw/source/ui/vba/vbatablemore.cxx
+@@ -0,0 +1,121 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Word's Table: Range of all rows, Style, widths; Borders.Enable
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/text/HoriOrientation.hpp>
++#include <ooo/vba/word/WdAutoFitBehavior.hpp>
++#include <ooo/vba/word/WdBorderType.hpp>
++#include <ooo/vba/word/WdLineStyle.hpp>
++#include <ooo/vba/word/WdPreferredWidthType.hpp>
++#include <ooo/vba/word/XBorder.hpp>
++#include <ooo/vba/word/XRange.hpp>
++#include <tools/UnitConversion.hxx>
++
++#include <unotbl.hxx>
++#include <unotxdoc.hxx>
++
++#include "vbaborders.hxx"
++#include "vbatable.hxx"
++#include "vbatablerange.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++uno::Reference<word::XRange> SAL_CALL SwVbaTable::Range()
++{
++    uno::Reference<text::XTextTable> xTable(mxTextTable);
++    return new SwVbaTableRange(mxParent, mxContext, mxTextDocument, xTable, 0, mxTextTable->getRows()->getCount() - 1);
++}
++
++uno::Any SAL_CALL SwVbaTable::getStyle()
++{
++    uno::Reference<beans::XPropertySet> xProps(mxTextTable);
++    return xProps->getPropertyValue(u"TableTemplateName"_ustr);
++}
++
++void SAL_CALL SwVbaTable::setStyle(const uno::Any& rStyle)
++{
++    OUString aName;
++    rStyle >>= aName;
++    uno::Reference<beans::XPropertySet> xProps(mxTextTable);
++    xProps->setPropertyValue(u"TableTemplateName"_ustr, uno::Any(aName));
++    // Writer has no such style to draw from; Word's most used one is plain lines
++    if (aName.indexOf("Grid") >= 0)
++        uno::Reference<word::XBorders>(Borders(uno::Any()), uno::UNO_QUERY_THROW)->setEnable(uno::Any(true));
++}
++
++uno::Any SAL_CALL SwVbaTable::getPreferredWidth()
++{
++    uno::Reference<beans::XPropertySet> xProps(mxTextTable);
++    bool bRelative = false;
++    xProps->getPropertyValue(u"IsWidthRelative"_ustr) >>= bRelative;
++    sal_Int32 nValue = 0;
++    if (bRelative)
++    {
++        sal_Int16 nPercent = 0;
++        xProps->getPropertyValue(u"RelativeWidth"_ustr) >>= nPercent;
++        return uno::Any(static_cast<float>(nPercent));
++    }
++    xProps->getPropertyValue(u"Width"_ustr) >>= nValue;
++    return uno::Any(static_cast<float>(convertMm100ToPoint(nValue)));
++}
++
++void SAL_CALL SwVbaTable::setPreferredWidth(const uno::Any& rWidth)
++{
++    float fWidth = 0;
++    rWidth >>= fWidth;
++    uno::Reference<beans::XPropertySet> xProps(mxTextTable);
++    xProps->setPropertyValue(u"HoriOrient"_ustr, uno::Any(text::HoriOrientation::LEFT_AND_WIDTH));
++    if (mnPreferredWidthType == word::WdPreferredWidthType::wdPreferredWidthPercent)
++        xProps->setPropertyValue(u"RelativeWidth"_ustr, uno::Any(static_cast<sal_Int16>(fWidth)));
++    else
++        xProps->setPropertyValue(u"Width"_ustr, uno::Any(static_cast<sal_Int32>(convertPointToMm100(fWidth))));
++}
++
++uno::Any SAL_CALL SwVbaTable::getPreferredWidthType() { return uno::Any(mnPreferredWidthType); }
++
++void SAL_CALL SwVbaTable::setPreferredWidthType(const uno::Any& rType) { rType >>= mnPreferredWidthType; }
++
++void SAL_CALL SwVbaTable::AutoFitBehavior(sal_Int32 nBehavior)
++{
++    // to the window fills the width; to the content has no call to make, the table keeps its widths
++    if (nBehavior == word::WdAutoFitBehavior::wdAutoFitWindow)
++    {
++        uno::Reference<beans::XPropertySet> xProps(mxTextTable);
++        xProps->setPropertyValue(u"HoriOrient"_ustr, uno::Any(text::HoriOrientation::FULL));
++    }
++}
++
++uno::Any SAL_CALL SwVbaBorders::getEnable()
++{
++    uno::Reference<word::XBorder> xBorder(getItemByIntIndex(word::WdBorderType::wdBorderTop), uno::UNO_QUERY_THROW);
++    sal_Int32 nStyle = word::WdLineStyle::wdLineStyleNone;
++    xBorder->getLineStyle() >>= nStyle;
++    return uno::Any(nStyle != word::WdLineStyle::wdLineStyleNone);
++}
++
++void SAL_CALL SwVbaBorders::setEnable(const uno::Any& rValue)
++{
++    sal_Int32 nValue = 0;
++    bool bValue = false;
++    if (rValue >>= bValue)
++        nValue = bValue ? 1 : 0;
++    else
++        rValue >>= nValue;
++    const sal_Int32 nStyle = nValue == 0 ? word::WdLineStyle::wdLineStyleNone : word::WdLineStyle::wdLineStyleSingle;
++    static const sal_Int32 aSides[] = { word::WdBorderType::wdBorderTop, word::WdBorderType::wdBorderLeft, word::WdBorderType::wdBorderBottom,
++                                        word::WdBorderType::wdBorderRight, word::WdBorderType::wdBorderHorizontal, word::WdBorderType::wdBorderVertical };
++    for (sal_Int32 nSide : aSides)
++    {
++        uno::Reference<word::XBorder> xBorder(getItemByIntIndex(nSide), uno::UNO_QUERY_THROW);
++        xBorder->setLineStyle(uno::Any(nStyle));
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbarowcolumncell.cxx
++++ b/sw/source/ui/vba/vbarowcolumncell.cxx
+@@ -0,0 +1,187 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Word's rows, columns and cells: adding, deleting, what they contain, merging, shading
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/table/XCell.hpp>
++#include <com/sun/star/table/XCellRange.hpp>
++#include <com/sun/star/table/XTableColumns.hpp>
++#include <com/sun/star/table/XTableRows.hpp>
++#include <com/sun/star/text/VertOrientation.hpp>
++#include <com/sun/star/text/XTextTableCursor.hpp>
++#include <ooo/vba/word/WdCellVerticalAlignment.hpp>
++#include <ooo/vba/word/XRange.hpp>
++#include <vbahelper/vbahelper.hxx>
++
++#include <unotbl.hxx>
++#include <unotxdoc.hxx>
++
++#include "vbacell.hxx"
++#include "vbacells.hxx"
++#include "vbacolumn.hxx"
++#include "vbacolumns.hxx"
++#include "vbarow.hxx"
++#include "vbarows.hxx"
++#include "vbashading.hxx"
++#include "vbatablehelper.hxx"
++#include "vbatablerange.hxx"
++#include "wordvbahelper.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++uno::Any lcl_item(const uno::Reference<XCollection>& xCol, const uno::Any& rIndex)
++{
++    return rIndex.hasValue() ? xCol->Item(rIndex, uno::Any()) : uno::Any(xCol);
++}
++
++OUString lcl_name(sal_Int32 nColumn, sal_Int32 nRow) { return SwVbaTableHelper::getColumnStr(nColumn) + OUString::number(nRow + 1); }
++
++/// the index of the row or column to add before, or the end
++sal_Int32 lcl_before(const uno::Any& rBefore, sal_Int32 nCount)
++{
++    uno::Reference<word::XRow> xRow;
++    if ((rBefore >>= xRow) && xRow.is())
++        return xRow->getIndex() - 1;
++    uno::Reference<word::XColumn> xColumn;
++    if ((rBefore >>= xColumn) && xColumn.is())
++        return xColumn->getIndex() - 1;
++    return nCount;
++}
++
++void lcl_merge(const uno::Reference<text::XTextTable>& xTable, const OUString& rFrom, const OUString& rTo)
++{
++    uno::Reference<text::XTextTableCursor> xCursor = xTable->createCursorByCellName(rFrom);
++    xCursor->gotoCellByName(rTo, true);
++    xCursor->mergeRange();
++}
++}
++
++uno::Any SAL_CALL SwVbaRow::Cells(const uno::Any& rIndex)
++{
++    SwVbaTableHelper aHelper(mxTextTable);
++    return lcl_item(new SwVbaCells(this, mxContext, mxTextTable, 0, mnIndex, aHelper.getTabColumnsCount(mnIndex) - 1, mnIndex), rIndex);
++}
++
++uno::Reference<word::XRange> SAL_CALL SwVbaRow::getRange()
++{
++    return new SwVbaTableRange(this, mxContext, word::getCurrentWordDoc(mxContext), mxTextTable, mnIndex, mnIndex);
++}
++
++uno::Any SAL_CALL SwVbaRow::getHeadingFormat()
++{
++    uno::Reference<beans::XPropertySet> xProps(mxTextTable, uno::UNO_QUERY_THROW);
++    sal_Int32 nCount = 0;
++    xProps->getPropertyValue(u"HeaderRowCount"_ustr) >>= nCount;
++    return uno::Any(mnIndex < nCount);
++}
++
++void SAL_CALL SwVbaRow::setHeadingFormat(const uno::Any& rValue)
++{
++    bool bOn = false;
++    sal_Int32 nOn = 0;
++    if (!(rValue >>= bOn) && (rValue >>= nOn))
++        bOn = nOn != 0;
++    uno::Reference<beans::XPropertySet> xProps(mxTextTable, uno::UNO_QUERY_THROW);
++    xProps->setPropertyValue(u"RepeatHeadline"_ustr, uno::Any(bOn));
++    xProps->setPropertyValue(u"HeaderRowCount"_ustr, uno::Any(bOn ? mnIndex + 1 : sal_Int32(0)));
++}
++
++void SAL_CALL SwVbaRow::Delete() { mxTableRows->removeByIndex(mnIndex, 1); }
++
++uno::Any SAL_CALL SwVbaRows::Add(const uno::Any& rBeforeRow)
++{
++    const sal_Int32 nIndex = lcl_before(rBeforeRow, mxTableRows->getCount());
++    mxTableRows->insertByIndex(nIndex, 1);
++    return uno::Any(uno::Reference<word::XRow>(new SwVbaRow(this, mxContext, mxTextTable, nIndex)));
++}
++
++uno::Any SAL_CALL SwVbaRows::getFirst() { return Item(uno::Any(sal_Int32(1)), uno::Any()); }
++uno::Any SAL_CALL SwVbaRows::getLast() { return Item(uno::Any(getCount()), uno::Any()); }
++
++uno::Any SAL_CALL SwVbaRows::getHeadingFormat()
++{
++    return uno::Reference<word::XRow>(Item(uno::Any(sal_Int32(1)), uno::Any()), uno::UNO_QUERY_THROW)->getHeadingFormat();
++}
++
++void SAL_CALL SwVbaRows::setHeadingFormat(const uno::Any& rValue)
++{
++    uno::Reference<word::XRow>(Item(uno::Any(mnEndRowIndex - mnStartRowIndex + 1), uno::Any()), uno::UNO_QUERY_THROW)->setHeadingFormat(rValue);
++}
++
++uno::Any SAL_CALL SwVbaColumn::Cells(const uno::Any& rIndex)
++{
++    return lcl_item(new SwVbaCells(this, mxContext, mxTextTable, mnIndex, 0, mnIndex, mxTextTable->getRows()->getCount() - 1), rIndex);
++}
++
++void SAL_CALL SwVbaColumn::Delete() { mxTextTable->getColumns()->removeByIndex(mnIndex, 1); }
++
++uno::Any SAL_CALL SwVbaColumns::Add(const uno::Any& rBeforeColumn)
++{
++    uno::Reference<table::XTableColumns> xColumns = mxTextTable->getColumns();
++    const sal_Int32 nIndex = lcl_before(rBeforeColumn, xColumns->getCount());
++    xColumns->insertByIndex(nIndex, 1);
++    return uno::Any(uno::Reference<word::XColumn>(new SwVbaColumn(this, mxContext, mxTextTable, nIndex)));
++}
++
++uno::Any SAL_CALL SwVbaColumns::getFirst() { return Item(uno::Any(sal_Int32(1)), uno::Any()); }
++uno::Any SAL_CALL SwVbaColumns::getLast() { return Item(uno::Any(getCount()), uno::Any()); }
++
++void SAL_CALL SwVbaColumns::Delete()
++{
++    mxTextTable->getColumns()->removeByIndex(mnStartColumnIndex, mnEndColumnIndex - mnStartColumnIndex + 1);
++}
++
++void SAL_CALL SwVbaCell::Merge(const uno::Any& rMergeTo)
++{
++    uno::Reference<word::XCell> xOther;
++    rMergeTo >>= xOther;
++    auto pOther = dynamic_cast<SwVbaCell*>(xOther.get());
++    if (!pOther)
++        throw uno::RuntimeException(u"Merge needs a cell"_ustr);
++    lcl_merge(mxTextTable, lcl_name(mnColumn, mnRow), lcl_name(pOther->column(), pOther->row()));
++}
++
++void SAL_CALL SwVbaCells::Merge(const uno::Any&)
++{
++    lcl_merge(mxTextTable, lcl_name(mnLeft, mnTop), lcl_name(mnRight, mnBottom));
++}
++
++void SAL_CALL SwVbaCell::Select() { getRange()->Select(); }
++
++uno::Reference<word::XShading> SAL_CALL SwVbaCell::getShading()
++{
++    uno::Reference<table::XCellRange> xCells(mxTextTable, uno::UNO_QUERY_THROW);
++    return new SwVbaShading(this, mxContext, uno::Reference<beans::XPropertySet>(xCells->getCellByPosition(mnColumn, mnRow), uno::UNO_QUERY_THROW), u"BackColor"_ustr);
++}
++
++uno::Any SAL_CALL SwVbaCell::getVerticalAlignment()
++{
++    uno::Reference<table::XCellRange> xCells(mxTextTable, uno::UNO_QUERY_THROW);
++    uno::Reference<beans::XPropertySet> xProps(xCells->getCellByPosition(mnColumn, mnRow), uno::UNO_QUERY_THROW);
++    sal_Int16 nOrient = text::VertOrientation::TOP;
++    xProps->getPropertyValue(u"VertOrient"_ustr) >>= nOrient;
++    return uno::Any(nOrient == text::VertOrientation::CENTER   ? word::WdCellVerticalAlignment::wdCellAlignVerticalCenter
++                    : nOrient == text::VertOrientation::BOTTOM ? word::WdCellVerticalAlignment::wdCellAlignVerticalBottom
++                                                               : word::WdCellVerticalAlignment::wdCellAlignVerticalTop);
++}
++
++void SAL_CALL SwVbaCell::setVerticalAlignment(const uno::Any& rValue)
++{
++    sal_Int32 nAlign = 0;
++    rValue >>= nAlign;
++    uno::Reference<table::XCellRange> xCells(mxTextTable, uno::UNO_QUERY_THROW);
++    uno::Reference<beans::XPropertySet> xProps(xCells->getCellByPosition(mnColumn, mnRow), uno::UNO_QUERY_THROW);
++    xProps->setPropertyValue(u"VertOrient"_ustr, uno::Any(nAlign == word::WdCellVerticalAlignment::wdCellAlignVerticalCenter   ? text::VertOrientation::CENTER
++                                                          : nAlign == word::WdCellVerticalAlignment::wdCellAlignVerticalBottom ? text::VertOrientation::BOTTOM
++                                                                                                                               : text::VertOrientation::TOP));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbanotes.hxx
++++ b/sw/source/ui/vba/vbanotes.hxx
+@@ -0,0 +1,38 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <com/sun/star/text/XFootnote.hpp>
++#include <ooo/vba/word/XNote.hpp>
++#include <ooo/vba/word/XNotes.hpp>
++#include <rtl/ref.hxx>
++#include <vbahelper/vbacollectionimpl.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++
++class SwXTextDocument;
++
++/// HST: ooo.vba.word.Footnotes and Endnotes, one implementation
++class SwVbaNotes : public CollTestImplHelper<ooo::vba::word::XNotes>
++{
++    rtl::Reference<SwXTextDocument> mxTextDocument;
++    bool mbEndnotes;
++
++public:
++    SwVbaNotes(const css::uno::Reference<ov::XHelperInterface>& xParent,
++               const css::uno::Reference<css::uno::XComponentContext>& xContext,
++               const rtl::Reference<SwXTextDocument>& xTextDocument, bool bEndnotes);
++
++    css::uno::Reference<ooo::vba::word::XNote> SAL_CALL Add(const css::uno::Reference<ooo::vba::word::XRange>& rRange,
++                                                            const css::uno::Any& rReference, const css::uno::Any& rText) override;
++    css::uno::Type SAL_CALL getElementType() override;
++    css::uno::Reference<css::container::XEnumeration> SAL_CALL createEnumeration() override;
++    css::uno::Any createCollectionObject(const css::uno::Any& aSource) override;
++    OUString getServiceImplName() override;
++    css::uno::Sequence<OUString> getServiceNames() override;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbanotes.cxx
++++ b/sw/source/ui/vba/vbanotes.cxx
+@@ -0,0 +1,124 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/text/XEndnotesSupplier.hpp>
++#include <com/sun/star/text/XFootnotesSupplier.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/text/XTextContent.hpp>
++#include <ooo/vba/word/XRange.hpp>
++
++#include <unotxdoc.hxx>
++#include <utility>
++
++#include "vbanotes.hxx"
++#include "vbarange.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++class Note : public InheritedHelperInterfaceWeakImpl<word::XNote>
++{
++    rtl::Reference<SwXTextDocument> mxDoc;
++    uno::Reference<text::XFootnote> mxNote;
++    sal_Int32 mnIndex;
++
++public:
++    Note(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++         rtl::Reference<SwXTextDocument> xDoc, uno::Reference<text::XFootnote> xNote, sal_Int32 nIndex)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext)
++        , mxDoc(std::move(xDoc))
++        , mxNote(std::move(xNote))
++        , mnIndex(nIndex)
++    {
++    }
++    uno::Reference<word::XRange> SAL_CALL getRange() override
++    {
++        uno::Reference<text::XText> xText(mxNote, uno::UNO_QUERY_THROW);
++        return new SwVbaRange(this, mxContext, mxDoc, xText->getStart(), xText->getEnd(), xText);
++    }
++    uno::Reference<word::XRange> SAL_CALL getReference() override
++    {
++        uno::Reference<text::XTextRange> xAnchor = mxNote->getAnchor();
++        return new SwVbaRange(this, mxContext, mxDoc, xAnchor->getStart(), xAnchor->getEnd(), xAnchor->getText());
++    }
++    sal_Int32 SAL_CALL getIndex() override { return mnIndex; }
++    void SAL_CALL Delete() override { mxNote->getAnchor()->getText()->removeTextContent(mxNote); }
++    OUString getServiceImplName() override { return u"SwVbaNote"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.word.Footnote"_ustr }; }
++};
++
++uno::Reference<container::XIndexAccess> lcl_notes(const rtl::Reference<SwXTextDocument>& xDoc, bool bEndnotes)
++{
++    uno::Reference<uno::XInterface> xModel(static_cast<cppu::OWeakObject*>(xDoc.get()));
++    if (bEndnotes)
++        return uno::Reference<text::XEndnotesSupplier>(xModel, uno::UNO_QUERY_THROW)->getEndnotes();
++    return uno::Reference<text::XFootnotesSupplier>(xModel, uno::UNO_QUERY_THROW)->getFootnotes();
++}
++
++class NotesEnum : public EnumerationHelper_BASE
++{
++    uno::Reference<XCollection> mxCollection;
++    sal_Int32 mnIndex = 0;
++
++public:
++    explicit NotesEnum(uno::Reference<XCollection> xCollection)
++        : mxCollection(std::move(xCollection))
++    {
++    }
++    sal_Bool SAL_CALL hasMoreElements() override { return mnIndex < mxCollection->getCount(); }
++    uno::Any SAL_CALL nextElement() override
++    {
++        if (mnIndex < mxCollection->getCount())
++            return mxCollection->Item(uno::Any(++mnIndex), uno::Any());
++        throw container::NoSuchElementException();
++    }
++};
++}
++
++SwVbaNotes::SwVbaNotes(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                       const rtl::Reference<SwXTextDocument>& xTextDocument, bool bEndnotes)
++    : CollTestImplHelper(xParent, xContext, lcl_notes(xTextDocument, bEndnotes))
++    , mxTextDocument(xTextDocument)
++    , mbEndnotes(bEndnotes)
++{
++}
++
++uno::Reference<word::XNote> SAL_CALL SwVbaNotes::Add(const uno::Reference<word::XRange>& rRange, const uno::Any& rReference, const uno::Any& rText)
++{
++    uno::Reference<text::XFootnote> xNote(mxTextDocument->createInstance(mbEndnotes ? u"com.sun.star.text.Endnote"_ustr : u"com.sun.star.text.Footnote"_ustr), uno::UNO_QUERY_THROW);
++    OUString aLabel;
++    if (rReference >>= aLabel)
++        xNote->setLabel(aLabel);
++    uno::Reference<text::XTextRange> xPlace = dynamic_cast<SwVbaRange&>(*rRange).getXTextRange();
++    xPlace->getText()->insertTextContent(xPlace->getEnd(), xNote, false);
++    OUString aText;
++    if (rText >>= aText)
++        uno::Reference<text::XText>(xNote, uno::UNO_QUERY_THROW)->setString(aText);
++    return new Note(mxParent, mxContext, mxTextDocument, xNote, getCount());
++}
++
++uno::Type SwVbaNotes::getElementType() { return cppu::UnoType<word::XNote>::get(); }
++
++uno::Reference<container::XEnumeration> SwVbaNotes::createEnumeration() { return new NotesEnum(this); }
++
++uno::Any SwVbaNotes::createCollectionObject(const uno::Any& aSource)
++{
++    uno::Reference<text::XFootnote> xNote(aSource, uno::UNO_QUERY_THROW);
++    return uno::Any(uno::Reference<word::XNote>(new Note(mxParent, mxContext, mxTextDocument, xNote, 0)));
++}
++
++OUString SwVbaNotes::getServiceImplName() { return mbEndnotes ? u"SwVbaEndnotes"_ustr : u"SwVbaFootnotes"_ustr; }
++
++uno::Sequence<OUString> SwVbaNotes::getServiceNames()
++{
++    return { mbEndnotes ? u"ooo.vba.word.Endnotes"_ustr : u"ooo.vba.word.Footnotes"_ustr };
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbahyperlinks.hxx
++++ b/sw/source/ui/vba/vbahyperlinks.hxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <com/sun/star/text/XTextRange.hpp>
++#include <ooo/vba/word/XHyperlink.hpp>
++#include <ooo/vba/word/XHyperlinks.hpp>
++#include <rtl/ref.hxx>
++#include <vbahelper/vbacollectionimpl.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++
++class SwXTextDocument;
++
++/// HST: ooo.vba.word.Hyperlinks: the text portions of the document or a range that carry a link
++class SwVbaHyperlinks : public CollTestImplHelper<ooo::vba::word::XHyperlinks>
++{
++    rtl::Reference<SwXTextDocument> mxTextDocument;
++    css::uno::Reference<css::text::XTextRange> mxScope;
++
++public:
++    SwVbaHyperlinks(const css::uno::Reference<ov::XHelperInterface>& xParent,
++                    const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                    const rtl::Reference<SwXTextDocument>& xTextDocument,
++                    const css::uno::Reference<css::text::XTextRange>& xScope);
++
++    css::uno::Reference<ooo::vba::word::XHyperlink> SAL_CALL Add(const css::uno::Any& rAnchor, const css::uno::Any& rAddress, const css::uno::Any& rSubAddress,
++                                                                 const css::uno::Any& rScreenTip, const css::uno::Any& rTextToDisplay, const css::uno::Any& rTarget) override;
++    css::uno::Type SAL_CALL getElementType() override;
++    css::uno::Reference<css::container::XEnumeration> SAL_CALL createEnumeration() override;
++    css::uno::Any createCollectionObject(const css::uno::Any& aSource) override;
++    OUString getServiceImplName() override;
++    css::uno::Sequence<OUString> getServiceNames() override;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbahyperlinks.cxx
++++ b/sw/source/ui/vba/vbahyperlinks.cxx
+@@ -0,0 +1,187 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XEnumerationAccess.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/text/XTextCursor.hpp>
++#include <com/sun/star/text/XTextRangeCompare.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <ooo/vba/word/XRange.hpp>
++
++#include <unotxdoc.hxx>
++#include <utility>
++#include <vector>
++
++#include "vbahyperlinks.hxx"
++#include "vbarange.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++std::vector<uno::Reference<text::XTextRange>> lcl_links(const rtl::Reference<SwXTextDocument>& xDoc, const uno::Reference<text::XTextRange>& xScope)
++{
++    std::vector<uno::Reference<text::XTextRange>> aLinks;
++    uno::Reference<text::XText> xText = xScope.is() ? xScope->getText() : uno::Reference<text::XText>(xDoc->getText());
++    uno::Reference<text::XTextRangeCompare> xCompare(xText, uno::UNO_QUERY_THROW);
++    uno::Reference<container::XEnumerationAccess> xBody(xText, uno::UNO_QUERY_THROW);
++    uno::Reference<container::XEnumeration> xParagraphs = xBody->createEnumeration();
++    while (xParagraphs->hasMoreElements())
++    {
++        uno::Reference<container::XEnumerationAccess> xParagraph(xParagraphs->nextElement(), uno::UNO_QUERY);
++        if (!xParagraph.is())
++            continue; // a table
++        uno::Reference<container::XEnumeration> xPortions = xParagraph->createEnumeration();
++        while (xPortions->hasMoreElements())
++        {
++            uno::Reference<beans::XPropertySet> xPortion(xPortions->nextElement(), uno::UNO_QUERY_THROW);
++            OUString aUrl;
++            xPortion->getPropertyValue(u"HyperLinkURL"_ustr) >>= aUrl;
++            if (aUrl.isEmpty())
++                continue;
++            uno::Reference<text::XTextRange> xRange(xPortion, uno::UNO_QUERY_THROW);
++            if (xScope.is() && (xCompare->compareRegionStarts(xScope->getStart(), xRange) < 0 || xCompare->compareRegionEnds(xRange, xScope->getEnd()) < 0))
++                continue;
++            aLinks.push_back(xRange);
++        }
++    }
++    return aLinks;
++}
++
++class WordLinks : public ::cppu::WeakImplHelper<container::XIndexAccess>
++{
++    std::vector<uno::Reference<text::XTextRange>> maLinks;
++
++public:
++    explicit WordLinks(std::vector<uno::Reference<text::XTextRange>>&& rLinks)
++        : maLinks(std::move(rLinks))
++    {
++    }
++    sal_Int32 SAL_CALL getCount() override { return maLinks.size(); }
++    uno::Any SAL_CALL getByIndex(sal_Int32 nIndex) override
++    {
++        if (nIndex < 0 || nIndex >= getCount())
++            throw lang::IndexOutOfBoundsException();
++        return uno::Any(maLinks[nIndex]);
++    }
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<text::XTextRange>::get(); }
++    sal_Bool SAL_CALL hasElements() override { return !maLinks.empty(); }
++};
++
++class WordLink : public InheritedHelperInterfaceWeakImpl<word::XHyperlink>
++{
++    rtl::Reference<SwXTextDocument> mxDoc;
++    uno::Reference<text::XTextRange> mxRange;
++    uno::Reference<beans::XPropertySet> mxProps;
++
++    // the part after # is Word's SubAddress
++    OUString part(bool bSub)
++    {
++        OUString aUrl;
++        mxProps->getPropertyValue(u"HyperLinkURL"_ustr) >>= aUrl;
++        const sal_Int32 nHash = aUrl.indexOf('#');
++        return nHash < 0 ? (bSub ? OUString() : aUrl) : (bSub ? aUrl.copy(nHash + 1) : aUrl.copy(0, nHash));
++    }
++
++public:
++    WordLink(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++         rtl::Reference<SwXTextDocument> xDoc, const uno::Reference<text::XTextRange>& xRange)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext)
++        , mxDoc(std::move(xDoc))
++        , mxRange(xRange->getText()->createTextCursorByRange(xRange), uno::UNO_QUERY_THROW)
++        , mxProps(mxRange, uno::UNO_QUERY_THROW)
++    {
++    }
++    OUString SAL_CALL getAddress() override { return part(false); }
++    void SAL_CALL setAddress(const OUString& rAddress) override
++    {
++        const OUString aSub = part(true);
++        mxProps->setPropertyValue(u"HyperLinkURL"_ustr, uno::Any(aSub.isEmpty() ? rAddress : rAddress + "#" + aSub));
++    }
++    OUString SAL_CALL getSubAddress() override { return part(true); }
++    void SAL_CALL setSubAddress(const OUString& rSub) override
++    {
++        const OUString aAddress = part(false);
++        mxProps->setPropertyValue(u"HyperLinkURL"_ustr, uno::Any(rSub.isEmpty() ? aAddress : aAddress + "#" + rSub));
++    }
++    OUString SAL_CALL getTextToDisplay() override { return mxRange->getString(); }
++    void SAL_CALL setTextToDisplay(const OUString& rText) override { mxRange->setString(rText); }
++    uno::Reference<word::XRange> SAL_CALL getRange() override
++    {
++        return new SwVbaRange(this, mxContext, mxDoc, mxRange->getStart(), mxRange->getEnd(), mxRange->getText());
++    }
++    void SAL_CALL Delete() override { mxProps->setPropertyValue(u"HyperLinkURL"_ustr, uno::Any(OUString())); }
++    OUString getServiceImplName() override { return u"SwVbaHyperlink"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.word.Hyperlink"_ustr }; }
++};
++
++class LinksEnum : public EnumerationHelper_BASE
++{
++    uno::Reference<XCollection> mxCollection;
++    sal_Int32 mnIndex = 0;
++
++public:
++    explicit LinksEnum(uno::Reference<XCollection> xCollection)
++        : mxCollection(std::move(xCollection))
++    {
++    }
++    sal_Bool SAL_CALL hasMoreElements() override { return mnIndex < mxCollection->getCount(); }
++    uno::Any SAL_CALL nextElement() override
++    {
++        if (mnIndex < mxCollection->getCount())
++            return mxCollection->Item(uno::Any(++mnIndex), uno::Any());
++        throw container::NoSuchElementException();
++    }
++};
++}
++
++SwVbaHyperlinks::SwVbaHyperlinks(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                 const rtl::Reference<SwXTextDocument>& xTextDocument, const uno::Reference<text::XTextRange>& xScope)
++    : CollTestImplHelper(xParent, xContext, new WordLinks(lcl_links(xTextDocument, xScope)))
++    , mxTextDocument(xTextDocument)
++    , mxScope(xScope)
++{
++}
++
++uno::Reference<word::XHyperlink> SAL_CALL SwVbaHyperlinks::Add(const uno::Any& rAnchor, const uno::Any& rAddress, const uno::Any& rSubAddress, const uno::Any&,
++                                                               const uno::Any& rTextToDisplay, const uno::Any&)
++{
++    uno::Reference<word::XRange> xAnchor;
++    rAnchor >>= xAnchor;
++    if (!xAnchor.is())
++        throw uno::RuntimeException(u"Hyperlinks.Add needs a range"_ustr);
++    uno::Reference<text::XTextRange> xPlace = dynamic_cast<SwVbaRange&>(*xAnchor).getXTextRange();
++    OUString aAddress, aSub, aText;
++    rAddress >>= aAddress;
++    rSubAddress >>= aSub;
++    uno::Reference<text::XTextCursor> xCursor = xPlace->getText()->createTextCursorByRange(xPlace);
++    if ((rTextToDisplay >>= aText) && !aText.isEmpty())
++        xCursor->setString(aText);
++    else if (xCursor->isCollapsed())
++        xCursor->setString(aAddress);
++    uno::Reference<beans::XPropertySet>(xCursor, uno::UNO_QUERY_THROW)->setPropertyValue(u"HyperLinkURL"_ustr, uno::Any(aSub.isEmpty() ? aAddress : aAddress + "#" + aSub));
++    return new WordLink(mxParent, mxContext, mxTextDocument, xCursor);
++}
++
++uno::Type SwVbaHyperlinks::getElementType() { return cppu::UnoType<word::XHyperlink>::get(); }
++
++uno::Reference<container::XEnumeration> SwVbaHyperlinks::createEnumeration() { return new LinksEnum(this); }
++
++uno::Any SwVbaHyperlinks::createCollectionObject(const uno::Any& aSource)
++{
++    uno::Reference<text::XTextRange> xRange(aSource, uno::UNO_QUERY_THROW);
++    return uno::Any(uno::Reference<word::XHyperlink>(new WordLink(mxParent, mxContext, mxTextDocument, xRange)));
++}
++
++OUString SwVbaHyperlinks::getServiceImplName() { return u"SwVbaHyperlinks"_ustr; }
++
++uno::Sequence<OUString> SwVbaHyperlinks::getServiceNames() { return { u"ooo.vba.word.Hyperlinks"_ustr }; }
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbadocumentmore.cxx
++++ b/sw/source/ui/vba/vbadocumentmore.cxx
+@@ -0,0 +1,166 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: members of Word's Document, Application and Font that real macros use
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/document/XUndoManagerSupplier.hpp>
++#include <com/sun/star/frame/XStorable.hpp>
++#include <com/sun/star/style/CaseMap.hpp>
++#include <comphelper/propertyvalue.hxx>
++#include <ooo/vba/word/WdStatistic.hpp>
++#include <ooo/vba/word/XRange.hpp>
++#include <osl/file.hxx>
++#include <rtl/bootstrap.hxx>
++#include <unotools/useroptions.hxx>
++#include <vbahelper/vbapath.hxx>
++
++#include <unotxdoc.hxx>
++
++#include "vbaapplication.hxx"
++#include "vbadocument.hxx"
++#include "vbafont.hxx"
++#include "vbahyperlinks.hxx"
++#include "vbainformationhelper.hxx"
++#include "vbanotes.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++uno::Any lcl_item(const uno::Reference<XCollection>& xCol, const uno::Any& rIndex)
++{
++    return rIndex.hasValue() ? xCol->Item(rIndex, uno::Any()) : uno::Any(xCol);
++}
++
++bool lcl_isOn(const uno::Any& rValue)
++{
++    bool bOn = false;
++    sal_Int32 nOn = 0;
++    if (rValue >>= bOn)
++        return bOn;
++    return (rValue >>= nOn) && nOn != 0;
++}
++}
++
++uno::Any SAL_CALL SwVbaDocument::Characters(const uno::Any& rIndex) { return getContent()->Characters(rIndex); }
++uno::Any SAL_CALL SwVbaDocument::Footnotes(const uno::Any& rIndex) { return lcl_item(new SwVbaNotes(this, mxContext, mxTextDocument, false), rIndex); }
++uno::Any SAL_CALL SwVbaDocument::Endnotes(const uno::Any& rIndex) { return lcl_item(new SwVbaNotes(this, mxContext, mxTextDocument, true), rIndex); }
++uno::Any SAL_CALL SwVbaDocument::Hyperlinks(const uno::Any& rIndex) { return lcl_item(new SwVbaHyperlinks(this, mxContext, mxTextDocument, {}), rIndex); }
++
++sal_Bool SAL_CALL SwVbaDocument::getTrackRevisions()
++{
++    uno::Reference<beans::XPropertySet> xProps(getModel(), uno::UNO_QUERY_THROW);
++    bool bOn = false;
++    xProps->getPropertyValue(u"RecordChanges"_ustr) >>= bOn;
++    return bOn;
++}
++
++void SAL_CALL SwVbaDocument::setTrackRevisions(sal_Bool bTrack)
++{
++    uno::Reference<beans::XPropertySet> xProps(getModel(), uno::UNO_QUERY_THROW);
++    xProps->setPropertyValue(u"RecordChanges"_ustr, uno::Any(static_cast<bool>(bTrack)));
++}
++
++void SAL_CALL SwVbaDocument::SaveAs2(const uno::Any& FileName, const uno::Any& FileFormat, const uno::Any& LockComments, const uno::Any& Password, const uno::Any& AddToRecentFiles,
++                                     const uno::Any& WritePassword, const uno::Any& ReadOnlyRecommended, const uno::Any& EmbedTrueTypeFonts, const uno::Any& SaveNativePictureFormat,
++                                     const uno::Any& SaveFormsData, const uno::Any& SaveAsAOCELetter, const uno::Any& Encoding, const uno::Any& InsertLineBreaks, const uno::Any& AllowSubstitutions,
++                                     const uno::Any& LineEnding, const uno::Any& AddBiDiMarks, const uno::Any&)
++{
++    SaveAs(FileName, FileFormat, LockComments, Password, AddToRecentFiles, WritePassword, ReadOnlyRecommended, EmbedTrueTypeFonts, SaveNativePictureFormat, SaveFormsData,
++           SaveAsAOCELetter, Encoding, InsertLineBreaks, AllowSubstitutions, LineEnding, AddBiDiMarks);
++}
++
++void SAL_CALL SwVbaDocument::ExportAsFixedFormat(const OUString& OutputFileName, sal_Int32, const uno::Any&, const uno::Any&, const uno::Any&, const uno::Any&, const uno::Any&, const uno::Any&,
++                                                 const uno::Any&, const uno::Any&, const uno::Any&, const uno::Any&, const uno::Any&, const uno::Any&)
++{
++    // PDF of the whole document: the only format and range Writer's filter takes without its dialog
++    OUString aUrl;
++    osl::FileBase::getFileURLFromSystemPath(ooo::vba::vbaSystemPath(OutputFileName), aUrl);
++    uno::Sequence aProps{ comphelper::makePropertyValue(u"FilterName"_ustr, u"writer_pdf_Export"_ustr) };
++    uno::Reference<frame::XStorable>(getModel(), uno::UNO_QUERY_THROW)->storeToURL(aUrl, aProps);
++}
++
++sal_Bool SAL_CALL SwVbaDocument::Undo(const uno::Any& rTimes)
++{
++    sal_Int32 nTimes = 1;
++    rTimes >>= nTimes;
++    uno::Reference<document::XUndoManager> xUndo = uno::Reference<document::XUndoManagerSupplier>(getModel(), uno::UNO_QUERY_THROW)->getUndoManager();
++    bool bDone = false;
++    for (sal_Int32 i = 0; i < nTimes && xUndo->isUndoPossible(); ++i, bDone = true)
++        xUndo->undo();
++    return bDone;
++}
++
++sal_Bool SAL_CALL SwVbaDocument::Redo(const uno::Any& rTimes)
++{
++    sal_Int32 nTimes = 1;
++    rTimes >>= nTimes;
++    uno::Reference<document::XUndoManager> xUndo = uno::Reference<document::XUndoManagerSupplier>(getModel(), uno::UNO_QUERY_THROW)->getUndoManager();
++    bool bDone = false;
++    for (sal_Int32 i = 0; i < nTimes && xUndo->isRedoPossible(); ++i, bDone = true)
++        xUndo->redo();
++    return bDone;
++}
++
++void SAL_CALL SwVbaDocument::Repaginate() {} // Writer keeps its layout current
++
++sal_Int32 SAL_CALL SwVbaDocument::ComputeStatistics(sal_Int32 nStatistic, const uno::Any& rNotes)
++{
++    if (nStatistic == word::WdStatistic::wdStatisticPages)
++        return SwVbaInformationHelper::handleWdNumberOfPagesInDocument(mxTextDocument);
++    return getContent()->ComputeStatistics(nStatistic, rNotes);
++}
++
++uno::Any SAL_CALL SwVbaApplication::getUserName()
++{
++    return maUserName.hasValue() ? maUserName : uno::Any(SvtUserOptions().GetFullName());
++}
++
++OUString SAL_CALL SwVbaApplication::getPath()
++{
++    OUString aUrl(u"$BRAND_BASE_DIR/program"_ustr), aPath;
++    rtl::Bootstrap::expandMacros(aUrl);
++    osl::FileBase::getSystemPathFromFileURL(aUrl, aPath);
++    return aPath;
++}
++
++uno::Any SAL_CALL SwVbaFont::getAllCaps()
++{
++    sal_Int16 nMap = 0;
++    mxFont->getPropertyValue(u"CharCaseMap"_ustr) >>= nMap;
++    return uno::Any(nMap == style::CaseMap::UPPERCASE ? sal_Int32(-1) : sal_Int32(0));
++}
++
++void SAL_CALL SwVbaFont::setAllCaps(const uno::Any& rValue)
++{
++    mxFont->setPropertyValue(u"CharCaseMap"_ustr, uno::Any(lcl_isOn(rValue) ? style::CaseMap::UPPERCASE : style::CaseMap::NONE));
++}
++
++uno::Any SAL_CALL SwVbaFont::getSmallCaps()
++{
++    sal_Int16 nMap = 0;
++    mxFont->getPropertyValue(u"CharCaseMap"_ustr) >>= nMap;
++    return uno::Any(nMap == style::CaseMap::SMALLCAPS ? sal_Int32(-1) : sal_Int32(0));
++}
++
++void SAL_CALL SwVbaFont::setSmallCaps(const uno::Any& rValue)
++{
++    mxFont->setPropertyValue(u"CharCaseMap"_ustr, uno::Any(lcl_isOn(rValue) ? style::CaseMap::SMALLCAPS : style::CaseMap::NONE));
++}
++
++uno::Any SAL_CALL SwVbaFont::getHidden()
++{
++    bool bHidden = false;
++    mxFont->getPropertyValue(u"CharHidden"_ustr) >>= bHidden;
++    return uno::Any(bHidden ? sal_Int32(-1) : sal_Int32(0));
++}
++
++void SAL_CALL SwVbaFont::setHidden(const uno::Any& rValue) { mxFont->setPropertyValue(u"CharHidden"_ustr, uno::Any(lcl_isOn(rValue))); }
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbaparagraphmore.cxx
++++ b/sw/source/ui/vba/vbaparagraphmore.cxx
+@@ -0,0 +1,154 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Paragraph Next, Previous, OutlineLevel; Paragraphs.Add; PageSetup page size; Sections.Add; Styles.Add
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XNameContainer.hpp>
++#include <com/sun/star/style/XStyle.hpp>
++#include <com/sun/star/text/ControlCharacter.hpp>
++#include <com/sun/star/text/XParagraphCursor.hpp>
++#include <ooo/vba/word/WdBreakType.hpp>
++#include <ooo/vba/word/WdPaperSize.hpp>
++#include <ooo/vba/word/XRange.hpp>
++#include <tools/UnitConversion.hxx>
++
++#include <unostyle.hxx>
++#include <unotxdoc.hxx>
++
++#include "vbapagesetup.hxx"
++#include "vbaparagraph.hxx"
++#include "vbarange.hxx"
++#include "vbasections.hxx"
++#include "vbastyle.hxx"
++#include "vbastyles.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++uno::Any lcl_neighbour(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext, const rtl::Reference<SwXTextDocument>& xDocument,
++                       const uno::Reference<text::XTextRange>& xParagraph, const uno::Any& rCount, bool bForward)
++{
++    sal_Int32 nCount = 1;
++    rCount >>= nCount;
++    uno::Reference<text::XTextCursor> xCursor = xParagraph->getText()->createTextCursorByRange(bForward ? xParagraph->getEnd() : xParagraph->getStart());
++    uno::Reference<text::XParagraphCursor> xPara(xCursor, uno::UNO_QUERY_THROW);
++    for (sal_Int32 i = 0; i < nCount; ++i)
++        if (!(bForward ? xPara->gotoNextParagraph(false) : xPara->gotoPreviousParagraph(false)))
++            return uno::Any(); // Nothing as in Word
++    xPara->gotoStartOfParagraph(false);
++    xPara->gotoEndOfParagraph(true);
++    return uno::Any(uno::Reference<word::XParagraph>(new SwVbaParagraph(xParent, xContext, xDocument, xCursor)));
++}
++
++struct PaperSize
++{
++    sal_Int32 mnKind, mnWidth, mnHeight; // 1/100 mm
++};
++const PaperSize aPapers[] = { { word::WdPaperSize::wdPaperA3, 29700, 42000 },
++                              { word::WdPaperSize::wdPaperA4, 21000, 29700 },
++                              { word::WdPaperSize::wdPaperA5, 14800, 21000 },
++                              { word::WdPaperSize::wdPaperLetter, 21590, 27940 },
++                              { word::WdPaperSize::wdPaperLegal, 21590, 35560 } };
++}
++
++uno::Any SAL_CALL SwVbaParagraph::Next(const uno::Any& rCount) { return lcl_neighbour(mxParent, mxContext, mxTextDocument, mxTextRange, rCount, true); }
++uno::Any SAL_CALL SwVbaParagraph::Previous(const uno::Any& rCount) { return lcl_neighbour(mxParent, mxContext, mxTextDocument, mxTextRange, rCount, false); }
++
++uno::Any SAL_CALL SwVbaParagraph::getOutlineLevel()
++{
++    sal_Int16 nLevel = 0;
++    uno::Reference<beans::XPropertySet>(mxTextRange, uno::UNO_QUERY_THROW)->getPropertyValue(u"OutlineLevel"_ustr) >>= nLevel;
++    return uno::Any(nLevel == 0 ? sal_Int32(10) : sal_Int32(nLevel)); // wdOutlineLevelBodyText is 10
++}
++
++void SAL_CALL SwVbaParagraph::setOutlineLevel(const uno::Any& rValue)
++{
++    sal_Int32 nLevel = 10;
++    rValue >>= nLevel;
++    uno::Reference<beans::XPropertySet>(mxTextRange, uno::UNO_QUERY_THROW)->setPropertyValue(u"OutlineLevel"_ustr, uno::Any(static_cast<sal_Int16>(nLevel == 10 ? 0 : nLevel)));
++}
++
++uno::Any SAL_CALL SwVbaParagraphs::Add(const uno::Any& rRange)
++{
++    uno::Reference<word::XRange> xRange;
++    uno::Reference<text::XText> xText = mxTextDocument->getText();
++    uno::Reference<text::XTextRange> xPlace = xText->getEnd();
++    if ((rRange >>= xRange) && xRange.is())
++        xPlace = xRange->getXTextRange()->getEnd();
++    xPlace->getText()->insertControlCharacter(xPlace, text::ControlCharacter::PARAGRAPH_BREAK, false);
++    return Item(uno::Any(getCount()), uno::Any());
++}
++
++double SAL_CALL SwVbaPageSetup::getPageWidth()
++{
++    sal_Int32 nWidth = 0;
++    mxPageProps->getPropertyValue(u"Width"_ustr) >>= nWidth;
++    return convertMm100ToPoint<double>(nWidth);
++}
++
++void SAL_CALL SwVbaPageSetup::setPageWidth(double fWidth) { mxPageProps->setPropertyValue(u"Width"_ustr, uno::Any(static_cast<sal_Int32>(convertPointToMm100(fWidth)))); }
++
++double SAL_CALL SwVbaPageSetup::getPageHeight()
++{
++    sal_Int32 nHeight = 0;
++    mxPageProps->getPropertyValue(u"Height"_ustr) >>= nHeight;
++    return convertMm100ToPoint<double>(nHeight);
++}
++
++void SAL_CALL SwVbaPageSetup::setPageHeight(double fHeight) { mxPageProps->setPropertyValue(u"Height"_ustr, uno::Any(static_cast<sal_Int32>(convertPointToMm100(fHeight)))); }
++
++sal_Int32 SAL_CALL SwVbaPageSetup::getPaperSize()
++{
++    sal_Int32 nWidth = 0, nHeight = 0;
++    mxPageProps->getPropertyValue(u"Width"_ustr) >>= nWidth;
++    mxPageProps->getPropertyValue(u"Height"_ustr) >>= nHeight;
++    for (const PaperSize& rPaper : aPapers)
++        if ((std::abs(nWidth - rPaper.mnWidth) < 20 && std::abs(nHeight - rPaper.mnHeight) < 20) || (std::abs(nHeight - rPaper.mnWidth) < 20 && std::abs(nWidth - rPaper.mnHeight) < 20))
++            return rPaper.mnKind;
++    return word::WdPaperSize::wdPaperCustom;
++}
++
++void SAL_CALL SwVbaPageSetup::setPaperSize(sal_Int32 nSize)
++{
++    bool bLandscape = false;
++    mxPageProps->getPropertyValue(u"IsLandscape"_ustr) >>= bLandscape;
++    for (const PaperSize& rPaper : aPapers)
++        if (rPaper.mnKind == nSize)
++        {
++            mxPageProps->setPropertyValue(u"Width"_ustr, uno::Any(bLandscape ? rPaper.mnHeight : rPaper.mnWidth));
++            mxPageProps->setPropertyValue(u"Height"_ustr, uno::Any(bLandscape ? rPaper.mnWidth : rPaper.mnHeight));
++            return;
++        }
++    throw uno::RuntimeException(u"Not implemented for this paper size"_ustr);
++}
++
++uno::Any SAL_CALL SwVbaSections::Add(const uno::Any& rRange, const uno::Any& rStart)
++{
++    uno::Reference<word::XRange> xRange;
++    if (!(rRange >>= xRange) || !xRange.is())
++    {
++        uno::Reference<text::XText> xText = mxModel->getText();
++        xRange.set(new SwVbaRange(this, mxContext, mxModel, xText->getEnd(), xText->getEnd(), xText));
++    }
++    sal_Int32 nStart = word::WdBreakType::wdSectionBreakNextPage;
++    rStart >>= nStart;
++    xRange->InsertBreak(uno::Any(nStart));
++    return Item(uno::Any(getCount()), uno::Any());
++}
++
++uno::Any SAL_CALL SwVbaStyles::Add(const OUString& rName, const uno::Any&)
++{
++    rtl::Reference<SwXStyleFamily> xParagraphStyles = mxModel->getSwStyleFamilies()->GetParagraphStyles();
++    uno::Reference<style::XStyle> xStyle(mxModel->createInstance(u"com.sun.star.style.ParagraphStyle"_ustr), uno::UNO_QUERY_THROW);
++    xParagraphStyles->insertByName(rName, uno::Any(xStyle));
++    return Item(uno::Any(rName), uno::Any());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/ui/vba/vbarange.hxx
++++ b/sw/source/ui/vba/vbarange.hxx
+@@ -122,6 +122,8 @@
+     virtual css::uno::Reference< ooo::vba::word::XRange > SAL_CALL Next( const css::uno::Any& rUnit, const css::uno::Any& rCount ) override;
+     virtual css::uno::Reference< ooo::vba::word::XRange > SAL_CALL Previous( const css::uno::Any& rUnit, const css::uno::Any& rCount ) override;
+     virtual css::uno::Any SAL_CALL Characters( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL Hyperlinks( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Reference< ooo::vba::word::XShading > SAL_CALL getShading() override;
+     // vbarangeobjects.cxx
+     virtual void SAL_CALL Copy() override;
+     virtual void SAL_CALL Cut() override;
+--- a/sw/source/ui/vba/vbarangeobjects.cxx
++++ b/sw/source/ui/vba/vbarangeobjects.cxx
+@@ -19,7 +19,9 @@
+ #include "vbacells.hxx"
+ #include "vbacolumns.hxx"
+ #include "vbacomments.hxx"
++#include "vbahyperlinks.hxx"
+ #include "vbainlineshapes.hxx"
++#include "vbashading.hxx"
+ #include "vbarange.hxx"
+ #include "vbarows.hxx"
+ #include "vbatablehelper.hxx"
+@@ -103,6 +105,16 @@
+     return lcl_item(new SwVbaBookmarks(this, mxContext, SwVbaBookmarks::inRange(mxTextDocument, getXTextRange()), mxTextDocument), rIndex);
+ }
+ 
++uno::Any SAL_CALL SwVbaRange::Hyperlinks(const uno::Any& rIndex)
++{
++    return lcl_item(new SwVbaHyperlinks(this, mxContext, mxTextDocument, getXTextRange()), rIndex);
++}
++
++uno::Reference<word::XShading> SAL_CALL SwVbaRange::getShading()
++{
++    return new SwVbaShading(this, mxContext, uno::Reference<beans::XPropertySet>(mxTextCursor, uno::UNO_QUERY_THROW), u"CharBackColor"_ustr);
++}
++
+ uno::Any SAL_CALL SwVbaRange::Comments(const uno::Any& rIndex)
+ {
+     // the whole document's comments: enough to add one, its Count is not limited to the range
+--- a/sw/source/ui/vba/vbadocument.hxx
++++ b/sw/source/ui/vba/vbadocument.hxx
+@@ -69,6 +69,19 @@
+     virtual css::uno::Any SAL_CALL getAttachedTemplate() override;
+     virtual void SAL_CALL setAttachedTemplate( const css::uno::Any& _attachedtemplate ) override;
+     virtual css::uno::Any SAL_CALL Paragraphs( const css::uno::Any& rIndex ) override;
++    // vbadocumentmore.cxx
++    virtual css::uno::Any SAL_CALL Characters( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL Footnotes( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL Endnotes( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL Hyperlinks( const css::uno::Any& rIndex ) override;
++    virtual sal_Bool SAL_CALL getTrackRevisions() override;
++    virtual void SAL_CALL setTrackRevisions( sal_Bool bTrack ) override;
++    virtual void SAL_CALL SaveAs2( const css::uno::Any& FileName, const css::uno::Any& FileFormat, const css::uno::Any& LockComments, const css::uno::Any& Password, const css::uno::Any& AddToRecentFiles, const css::uno::Any& WritePassword, const css::uno::Any& ReadOnlyRecommended, const css::uno::Any& EmbedTrueTypeFonts, const css::uno::Any& SaveNativePictureFormat, const css::uno::Any& SaveFormsData, const css::uno::Any& SaveAsAOCELetter, const css::uno::Any& Encoding, const css::uno::Any& InsertLineBreaks, const css::uno::Any& AllowSubstitutions, const css::uno::Any& LineEnding, const css::uno::Any& AddBiDiMarks, const css::uno::Any& CompatibilityMode ) override;
++    virtual void SAL_CALL ExportAsFixedFormat( const OUString& OutputFileName, ::sal_Int32 ExportFormat, const css::uno::Any& OpenAfterExport, const css::uno::Any& OptimizeFor, const css::uno::Any& Range, const css::uno::Any& From, const css::uno::Any& To, const css::uno::Any& Item, const css::uno::Any& IncludeDocProps, const css::uno::Any& KeepIRM, const css::uno::Any& CreateBookmarks, const css::uno::Any& DocStructureTags, const css::uno::Any& BitmapMissingFonts, const css::uno::Any& UseISO19005_1 ) override;
++    virtual sal_Bool SAL_CALL Undo( const css::uno::Any& rTimes ) override;
++    virtual sal_Bool SAL_CALL Redo( const css::uno::Any& rTimes ) override;
++    virtual void SAL_CALL Repaginate() override;
++    virtual ::sal_Int32 SAL_CALL ComputeStatistics( ::sal_Int32 nStatistic, const css::uno::Any& rNotes ) override;
+     virtual css::uno::Any SAL_CALL Words( const css::uno::Any& rIndex ) override;
+     virtual css::uno::Any SAL_CALL Sentences( const css::uno::Any& rIndex ) override;
+     virtual css::uno::Any SAL_CALL InlineShapes( const css::uno::Any& rIndex ) override;
+--- a/sw/source/ui/vba/vbaapplication.hxx
++++ b/sw/source/ui/vba/vbaapplication.hxx
+@@ -59,10 +59,17 @@
+     void RemoveSink( sal_uInt32 nNumber );
+ 
+     rtl::Reference<SwVbaWindow> getActiveSwVbaWindow();
++    css::uno::Any maDisplayAlerts = css::uno::Any( sal_Int32( -1 ) ), maUserName; // for this session, as Excel's Application settings
+     css::uno::Reference< css::uno::XComponentContext > const & getContext() const;
+ 
+     // XApplication
+     virtual OUString SAL_CALL getName() override;
++    // vbadocumentmore.cxx
++    virtual css::uno::Any SAL_CALL getDisplayAlerts() override { return maDisplayAlerts; }
++    virtual void SAL_CALL setDisplayAlerts( const css::uno::Any& rValue ) override { maDisplayAlerts = rValue; }
++    virtual css::uno::Any SAL_CALL getUserName() override;
++    virtual void SAL_CALL setUserName( const css::uno::Any& rValue ) override { maUserName = rValue; }
++    virtual OUString SAL_CALL getPath() override;
+     virtual css::uno::Reference< ooo::vba::word::XSystem > SAL_CALL getSystem() override;
+     virtual css::uno::Reference< ov::word::XDocument > SAL_CALL getActiveDocument() override;
+     virtual css::uno::Reference< ov::word::XWindow > SAL_CALL getActiveWindow() override;
+--- a/sw/source/ui/vba/vbafont.hxx
++++ b/sw/source/ui/vba/vbafont.hxx
+@@ -30,6 +30,13 @@
+     /// @throws css::uno::RuntimeException
+     SwVbaFont( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext >& xContext, const css::uno::Reference< css::container::XIndexAccess >& xPalette, css::uno::Reference< css::beans::XPropertySet > const & xPropertySet );
+ 
++    // vbadocumentmore.cxx
++    virtual css::uno::Any SAL_CALL getAllCaps() override;
++    virtual void SAL_CALL setAllCaps( const css::uno::Any& rValue ) override;
++    virtual css::uno::Any SAL_CALL getSmallCaps() override;
++    virtual void SAL_CALL setSmallCaps( const css::uno::Any& rValue ) override;
++    virtual css::uno::Any SAL_CALL getHidden() override;
++    virtual void SAL_CALL setHidden( const css::uno::Any& rValue ) override;
+     // Attributes
+     virtual css::uno::Any SAL_CALL getColorIndex() override;
+     virtual void SAL_CALL setColorIndex( const css::uno::Any& _colorindex ) override;
+--- a/sw/source/ui/vba/vbaparagraph.hxx
++++ b/sw/source/ui/vba/vbaparagraph.hxx
+@@ -47,6 +47,11 @@
+                     css::uno::Reference< css::text::XTextRange > xTextRange );
+     virtual ~SwVbaParagraph() override;
+ 
++    // vbadocumentmore.cxx
++    virtual css::uno::Any SAL_CALL Next( const css::uno::Any& rCount ) override;
++    virtual css::uno::Any SAL_CALL Previous( const css::uno::Any& rCount ) override;
++    virtual css::uno::Any SAL_CALL getOutlineLevel() override;
++    virtual void SAL_CALL setOutlineLevel( const css::uno::Any& rValue ) override;
+     // XParagraph
+     virtual css::uno::Reference< ooo::vba::word::XRange > SAL_CALL getRange() override;
+     virtual css::uno::Any SAL_CALL getStyle() override;
+@@ -70,6 +75,8 @@
+     rtl::Reference< SwXTextDocument > mxTextDocument;
+ public:
+     /// @throws css::uno::RuntimeException
++    /// vbadocumentmore.cxx
++    virtual css::uno::Any SAL_CALL Add( const css::uno::Any& rRange ) override;
+     SwVbaParagraphs( const css::uno::Reference< ov::XHelperInterface >& xParent,
+                     const css::uno::Reference< css::uno::XComponentContext > & xContext,
+                     const rtl::Reference< SwXTextDocument >& xDocument );
+--- a/sw/source/ui/vba/vbapagesetup.hxx
++++ b/sw/source/ui/vba/vbapagesetup.hxx
+@@ -42,6 +42,13 @@
+     OUString getStyleOfFirstPage() const;
+ 
+ public:
++    // vbadocumentmore.cxx
++    virtual double SAL_CALL getPageWidth() override;
++    virtual void SAL_CALL setPageWidth( double fWidth ) override;
++    virtual double SAL_CALL getPageHeight() override;
++    virtual void SAL_CALL setPageHeight( double fHeight ) override;
++    virtual ::sal_Int32 SAL_CALL getPaperSize() override;
++    virtual void SAL_CALL setPaperSize( ::sal_Int32 nSize ) override;
+     /// @throws css::uno::RuntimeException
+     SwVbaPageSetup( const css::uno::Reference< ooo::vba::XHelperInterface >& xParent,
+                     const css::uno::Reference< css::uno::XComponentContext >& xContext,
+--- a/sw/source/ui/vba/vbasections.hxx
++++ b/sw/source/ui/vba/vbasections.hxx
+@@ -36,6 +36,7 @@
+     rtl::Reference< SwXTextDocument > mxModel;
+ 
+ public:
++    virtual css::uno::Any SAL_CALL Add( const css::uno::Any& rRange, const css::uno::Any& rStart ) override; // vbadocumentmore.cxx
+     SwVbaSections( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext > & xContext, const rtl::Reference< SwXTextDocument >& xModel );
+     SwVbaSections( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext > & xContext, const rtl::Reference< SwXTextDocument >& xModel, const css::uno::Reference< css::text::XTextRange >& xTextRange );
+ 
+--- a/sw/source/ui/vba/vbastyles.hxx
++++ b/sw/source/ui/vba/vbastyles.hxx
+@@ -33,6 +33,7 @@
+ {
+     rtl::Reference< SwXTextDocument > mxModel;
+ public:
++    virtual css::uno::Any SAL_CALL Add( const OUString& rName, const css::uno::Any& rType ) override; // vbadocumentmore.cxx
+     /// @throws css::script::BasicErrorException
+     /// @throws css::uno::RuntimeException
+     SwVbaStyles( const css::uno::Reference< ov::XHelperInterface >& xParent,
+--- a/sw/source/ui/vba/vbavariable.cxx
++++ b/sw/source/ui/vba/vbavariable.cxx
+@@ -17,6 +17,9 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "vbavariable.hxx"
++#include <com/sun/star/beans/PropertyAttribute.hpp>
++#include <com/sun/star/beans/XPropertyContainer.hpp>
++#include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/beans/PropertyValue.hpp>
+ #include <utility>
+@@ -58,6 +61,13 @@
+ {
+     // FIXME: fail to set the value if the new type of value is different from the original one.
+     uno::Reference< beans::XPropertySet > xProp( mxUserDefined, uno::UNO_QUERY_THROW );
++    // HST: Variables("new").Value = x creates it, as in Word
++    if( !xProp->getPropertySetInfo()->hasPropertyByName( maVariableName ) )
++    {
++        uno::Reference< beans::XPropertyContainer > xContainer( mxUserDefined, uno::UNO_QUERY_THROW );
++        xContainer->addProperty( maVariableName, beans::PropertyAttribute::MAYBEVOID | beans::PropertyAttribute::REMOVABLE, rValue );
++        return;
++    }
+     xProp->setPropertyValue( maVariableName, rValue );
+ }
+ 
+--- a/sw/source/ui/vba/vbavariables.hxx
++++ b/sw/source/ui/vba/vbavariables.hxx
+@@ -31,6 +31,8 @@
+     css::uno::Reference< css::beans::XPropertyAccess > mxUserDefined;
+ 
+ public:
++    /// HST: an unknown name gives a variable that a write creates and a read fails on
++    virtual css::uno::Any SAL_CALL Item( const css::uno::Any& rIndex1, const css::uno::Any& rIndex2 ) override;
+     SwVbaVariables( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext > & xContext, const css::uno::Reference< css::beans::XPropertyAccess >& rUserDefined );
+ 
+     // XEnumerationAccess
+--- a/sw/source/ui/vba/vbavariables.cxx
++++ b/sw/source/ui/vba/vbavariables.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "vbavariables.hxx"
++#include <com/sun/star/beans/XPropertySet.hpp>
+ #include "vbavariable.hxx"
+ #include <com/sun/star/beans/XPropertyContainer.hpp>
+ #include <com/sun/star/beans/PropertyAttribute.hpp>
+@@ -63,6 +64,15 @@
+ }
+ 
+ uno::Any SAL_CALL
++SwVbaVariables::Item( const uno::Any& rIndex1, const uno::Any& rIndex2 )
++{
++    OUString aName;
++    if( ( rIndex1 >>= aName ) && !uno::Reference< beans::XPropertySet >( mxUserDefined, uno::UNO_QUERY_THROW )->getPropertySetInfo()->hasPropertyByName( aName ) )
++        return uno::Any( uno::Reference< word::XVariable >( new SwVbaVariable( getParent(), mxContext, mxUserDefined, aName ) ) );
++    return SwVbaVariables_BASE::Item( rIndex1, rIndex2 );
++}
++
++uno::Any SAL_CALL
+ SwVbaVariables::Add( const OUString& rName, const uno::Any& rValue )
+ {
+     uno::Any aValue;

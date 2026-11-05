@@ -1,0 +1,267 @@
+Subject: [PATCH] VBA: compile If with Else after a call, Step and Property as names, numbered lines
+
+Else ends the arguments of a call without brackets, Step and Property are
+names outside their statements, numbered lines keep their own labels, With
+New, !field inside With, dates with blanks and times, Enum members as
+defaults, and the ordinal letters of Windows-1252 in names.
+---
+--- a/basic/source/comp/token.cxx
++++ b/basic/source/comp/token.cxx
+@@ -467,6 +467,19 @@
+         eCurTok = SYMBOL;
+         return eCurTok;
+     }
++    // HST: Dim step, a variable or property called Property: VBA reserves neither outside its statement
++    if( bVBASupportOn && tp->t == STEP
++        && !( bInForHeader && ( eCurTok == SYMBOL || eCurTok == NUMBER || eCurTok == RPAREN || eCurTok == FIXSTRING ) ) )
++    {
++        eCurTok = SYMBOL;
++        return eCurTok;
++    }
++    if( bVBASupportOn && tp->t == PROPERTY && !bAfterEnd && eCurTok != EXIT
++        && !NextWordOnLineIs( u"get" ) && !NextWordOnLineIs( u"let" ) && !NextWordOnLineIs( u"set" ) )
++    {
++        eCurTok = SYMBOL;
++        return eCurTok;
++    }
+     // #i92642: Special LINE token handling -> SbiParser::Line()
+ 
+     // END IF, CASE, SUB, DEF, FUNCTION, TYPE, CLASS, WITH
+@@ -481,7 +494,9 @@
+         OUString aOldSym = aSym;
+         SaveLine();             // save pLine in the scanner
+ 
++        bAfterEnd = true;
+         eCurTok = Peek();
++        bAfterEnd = false;
+         switch( eCurTok )
+         {
+         case IF:       Next(); eCurTok = ENDIF; break;
+@@ -569,9 +584,13 @@
+     }
+     else
+     {
+-        return ( eCurTok == NUMBER
+-                  && eScanType == SbxINTEGER
+-                  && nVal >= 0 );
++        // HST: labels of numbered lines by their number: the scanner gives a number no text
++        if( eCurTok == NUMBER && ( eScanType == SbxINTEGER || ( bVBASupportOn && eScanType == SbxLONG ) ) && nVal >= 0 )
++        {
++            aSym = OUString::number( static_cast<sal_Int64>( nVal ) );
++            return true;
++        }
++        return false;
+     }
+ }
+ 
+--- a/basic/source/comp/exprtree.cxx
++++ b/basic/source/comp/exprtree.cxx
+@@ -88,7 +88,8 @@
+         return false;
+     }
+     if ( eTok == NUMBER || eTok == MINUS || eTok == FIXSTRING ||
+-         eTok == SYMBOL || eTok == COMMA  || eTok == DOT || eTok == NOT || eTok == BYVAL )
++         eTok == SYMBOL || eTok == COMMA  || eTok == DOT || eTok == NOT || eTok == BYVAL
++         || ( eTok == EXCLAM && p->IsVBASupportOn() ) )
+     {
+         return true;
+     }
+@@ -166,7 +167,7 @@
+ 
+ std::unique_ptr<SbiExprNode> SbiExpression::Term( const KeywordSymbolInfo* pKeywordSymbolInfo )
+ {
+-    if( pParser->Peek() == DOT )
++    if( pParser->Peek() == DOT || ( pParser->Peek() == EXCLAM && pParser->IsVBASupportOn() ) )
+     {
+         SbiExprNode* pWithVar = pParser->GetWithVar();
+         // #26608: get to the node-chain's end to pass the correct object
+@@ -534,6 +535,7 @@
+             pRes = std::make_unique<SbiExprNode>( std::move(pRes), eTok, Like() );
+         }
+         break;
++    case EXCLAM:    // HST: !field inside With
+     case DOT:   // .with
+         pRes = Term(); break;
+     case NOT:
+@@ -882,6 +884,20 @@
+             }
+         }
+ 
++        // HST: Optional p As Kind = Kind.First: Enum members are constants of the module
++        if( !bIsBool && pExpr->eNodeType == SbxVARVAL && pExpr->aVar.pNext && pParser->IsVBASupportOn() )
++        {
++            SbiSymDef* pMember = pExpr->aVar.pNext->GetVar();
++            SbiSymDef* pFound = pMember ? pParser->pPool->Find( pMember->GetName() ) : nullptr;
++            if( SbiConstDef* pConst = pFound ? pFound->GetConstDef() : nullptr )
++            {
++                bIsBool = true; // no error below
++                pExpr = std::make_unique<SbiExprNode>( pConst->GetValue(), SbxLONG );
++                eType = SbxLONG;
++                nVal = pExpr->nVal;
++            }
++        }
++
+         if( !bIsBool )
+         {
+             pParser->Error( ERRCODE_BASIC_SYNTAX );
+@@ -1065,7 +1081,9 @@
+         eTok = pParser->Peek();
+         if( eTok != COMMA )
+         {
+-            if( ( pExprList->bBracket && eTok == RPAREN ) || SbiTokenizer::IsEoln( eTok ) )
++            // HST: If c Then MsgBox "a" Else MsgBox "b": Else ends what a call without brackets passes
++            if( ( pExprList->bBracket && eTok == RPAREN ) || SbiTokenizer::IsEoln( eTok )
++                || ( eTok == ELSE && pParser->IsVBASupportOn() ) )
+             {
+                 // tdf#80731
+                 if (SbiTokenizer::IsEoln(eTok) && pExprList->bBracket)
+--- a/basic/source/comp/scanner.cxx
++++ b/basic/source/comp/scanner.cxx
+@@ -229,6 +229,22 @@
+                        { return o3tl::matchIgnoreAsciiCase(directive, valid); });
+ }
+ 
++// HST: #1/2/2020 5:07 AM#: only such characters up to the closing #, which no file number statement has
++static bool lcl_isDateWithBlanks( std::u16string_view rLine, sal_Int32 nHash )
++{
++    size_t n = nHash + 1;
++    if( n >= rLine.size() || !rtl::isAsciiDigit( rLine[n] ) )
++        return false;
++    for( ; n < rLine.size() && rLine[n] != '#'; ++n )
++    {
++        const sal_Unicode c = rLine[n];
++        if( !rtl::isAsciiDigit( c ) && c != '/' && c != '-' && c != ':' && c != '.' && c != ' '
++            && c != 'A' && c != 'a' && c != 'P' && c != 'p' && c != 'M' && c != 'm' )
++            return false;
++    }
++    return n < rLine.size();
++}
++
+ bool SbiScanner::NextSym()
+ {
+     constexpr sal_Int32 BUF_SIZE = 80;
+@@ -273,7 +289,7 @@
+     if( bPrevLineExtentsComment )
+         goto PrevLineCommentLbl;
+ 
+-    if(nCol < aLine.getLength() && aLine[nCol] == '#')
++    if(nCol < aLine.getLength() && aLine[nCol] == '#' && !( bVBASupportOn && lcl_isDateWithBlanks( aLine, nCol ) ))
+     {
+         sal_Int32 nLineTempIdx = nLineIdx;
+         std::u16string_view candidate(aLine.subView(nCol + 1));
+@@ -649,7 +665,8 @@
+             if( bSuccess )
+             {
+                 SvNumFormatType nType_ = pFormatter->GetType(nIndex);
+-                if( !(nType_ & SvNumFormatType::DATE) )
++                // HST: #5:07 PM# is a date in VBA
++                if( !(nType_ & SvNumFormatType::DATE) && !( bVBASupportOn && (nType_ & SvNumFormatType::TIME) ) )
+                     bSuccess = false;
+             }
+ 
+--- a/basic/source/comp/parser.cxx
++++ b/basic/source/comp/parser.cxx
+@@ -421,7 +421,7 @@
+     // if there's a symbol, it's either a variable (LET)
+     // or a SUB-procedure (CALL without brackets)
+     // DOT for assignments in the WITH-block: .A=5
+-    if( eCurTok == SYMBOL || eCurTok == DOT )
++    if( eCurTok == SYMBOL || eCurTok == DOT || ( eCurTok == EXCLAM && bVBASupportOn ) )
+     {
+         if( !pProc )
+             Error( ERRCODE_BASIC_EXPECTED, SUB );
+--- a/basic/source/comp/loops.cxx
++++ b/basic/source/comp/loops.cxx
+@@ -246,6 +246,7 @@
+         SbiExpression aStartExpr( this );
+         aStartExpr.Gen();
+         TestToken( TO );
++        bInForHeader = true;
+         SbiExpression aStopExpr( this );
+         aStopExpr.Gen();
+         if( Peek() == STEP )
+@@ -259,6 +260,7 @@
+             SbiExpression aOne( this, 1, SbxINTEGER );
+             aOne.Gen();
+         }
++        bInForHeader = false;
+         TestEoln();
+         // The stack has all 4 elements now: variable, start, end, increment
+         // bind start value
+@@ -303,6 +305,16 @@
+         m_rParser.aGen.Gen(SbiOpcode::PUTC_);
+     }
+ 
++    /// HST: With New Class
++    WithLocalVar(SbiParser& rParser, sal_uInt32 nNewType)
++        : m_rParser(rParser)
++        , m_aWithParent(createLocalVar(rParser))
++    {
++        m_aWithParent.Gen();
++        m_rParser.aGen.Gen(SbiOpcode::CREATE_, m_aWithParent.GetExprNode()->GetVar()->GetId(), nNewType);
++        m_rParser.aGen.Gen(SbiOpcode::SET_);
++    }
++
+     ~WithLocalVar()
+     {
+         // {_with_library.module_offset} = Nothing
+@@ -344,6 +356,17 @@
+ 
+ void SbiParser::With()
+ {
++    if( bVBASupportOn && Peek() == NEW )
++    {
++        Next();
++        SbiSymDef aTypeDef( u""_ustr );
++        TypeDecl( aTypeDef, true );
++        WithLocalVar aNew( *this, aTypeDef.GetTypeId() );
++        OpenBlock( NIL, aNew.m_aWithParent.GetExprNode() );
++        StmntBlock( ENDWITH );
++        CloseBlock();
++        return;
++    }
+     SbiExpression aVar( this, SbOPERAND );
+ 
+     SbiExprNode *pNode = aVar.GetExprNode()->GetRealNode();
+--- a/basic/source/comp/basiccharclass.cxx
++++ b/basic/source/comp/basiccharclass.cxx
+@@ -27,8 +27,9 @@
+ bool BasicCharClass::isLetter( sal_Unicode c )
+ {
+   //All characters from C0 to FF are letters except D7 and F7
++  // HST: and the ordinals and micro sign Windows-1252 VBA names use: TextBoxNº
+   return (c < 0xFF ?
+-        ( (c >= 0xC0) && (c != 0xD7) && (c != 0xF7) ) :
++        ( ((c >= 0xC0) && (c != 0xD7) && (c != 0xF7)) || c == 0xAA || c == 0xB5 || c == 0xBA ) :
+         BasicCharClass::isLetterUnicode( c ));
+ }
+ 
+--- a/basic/source/inc/scanner.hxx
++++ b/basic/source/inc/scanner.hxx
+@@ -68,6 +68,8 @@
+     bool   bLineEndsWithWhitespace;     // true: Line ends with whitespace (BasicCharClass::isWhitespace)
+ 
+     bool   bInStatement;
++    bool   bInForHeader = false;        // HST: Step is a keyword only there
++    bool   bAfterEnd = false;           // HST: the word after End
+     void   GenError( ErrCode );
+ public:
+     SbiScanner( OUString , StarBASIC* = nullptr );
+@@ -85,6 +87,17 @@
+             ++n;
+         return n < aLine.getLength() ? aLine[n] : 0;
+     }
++    /// HST: is the next word on the line this one (lower case)?
++    bool NextWordOnLineIs( std::u16string_view aWord ) const
++    {
++        sal_Int32 n = nCol;
++        while( n < aLine.getLength() && aLine[n] == ' ' )
++            ++n;
++        const sal_Int32 nEnd = n + static_cast<sal_Int32>( aWord.size() );
++        if( !aLine.matchIgnoreAsciiCase( aWord, n ) )
++            return false;
++        return nEnd == aLine.getLength() || aLine[nEnd] == ' ';
++    }
+     bool  WhiteSpace() const        { return bSpaces; }
+     sal_Int32 GetErrors() const     { return nErrors; }
+     sal_Int32 GetLine() const       { return nLine;   }

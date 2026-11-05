@@ -1,0 +1,1322 @@
+Subject: [PATCH] VBA: Excel object members macros commonly use
+
+Evaluate with formulas, Worksheet.Sort, Worksheet.Tab, FindNext,
+FormatConditions, RemoveDuplicates, TextToColumns, FileDialog.Filters,
+Application settings and named InputBox arguments.
+---
+--- a/oovbaapi/ooo/vba/excel/XApplication.idl
++++ b/oovbaapi/ooo/vba/excel/XApplication.idl
+@@ -96,6 +96,33 @@
+     any MenuBars( [in] any aIndex );
+     any Rows( [in] any aIndex );
+     void Undo();
++    // HST
++    [attribute] any UserName;
++    [attribute] any Width;
++    [attribute] any Height;
++    [attribute] any Top;
++    [attribute] any ReferenceStyle;
++    [attribute] any MoveAfterReturn;
++    [attribute] any MoveAfterReturnDirection;
++    [attribute] any AskToUpdateLinks;
++    [attribute] any CalculateBeforeSave;
++    [attribute] any DecimalSeparator;
++    [attribute] any ThousandsSeparator;
++    [attribute] any UseSystemSeparators;
++    [attribute] any StandardFont;
++    [attribute] any StandardFontSize;
++    [attribute] any ShowToolTips;
++    [attribute] any MaxIterations;
++    [attribute] any DisplayCommentIndicator;
++    [attribute] any ActivePrinter;
++    [attribute, readonly] string Path;
++    [attribute, readonly] string Build;
++    void CalculateFull();
++    any ExecuteExcel4Macro( [in] string String );
++    void MacroOptions( [in] any Macro, [in] any Description, [in] any HasMenu, [in] any MenuText, [in] any HasShortcutKey, [in] any ShortcutKey, [in] any Category, [in] any StatusBar, [in] any HelpContextID, [in] any HelpFile );
++    void SendKeys( [in] any Keys, [in] any Wait );
++    any GetSaveAsFilename( [in] any InitialFilename, [in] any FileFilter, [in] any FilterIndex, [in] any Title, [in] any ButtonText );
++    any InputBox( [in] string Prompt, [in] any Title, [in] any Default, [in] any Left, [in] any Top, [in] any HelpFile, [in] any HelpContextID, [in] any Type );
+ };
+ 
+ }; }; };
+--- a/oovbaapi/ooo/vba/excel/XFileDialog.idl
++++ b/oovbaapi/ooo/vba/excel/XFileDialog.idl
+@@ -33,6 +33,11 @@
+     [attribute, readonly]  XFileDialogSelectedItems  SelectedItems;
+ 
+     long Show();
++    // HST
++    [attribute, readonly] XFileDialogFilters Filters;
++    [attribute] any FilterIndex;
++    [attribute] any ButtonName;
++    void Execute();
+ };
+ 
+ 
+--- a/oovbaapi/ooo/vba/excel/XFileDialogFilters.idl
++++ b/oovbaapi/ooo/vba/excel/XFileDialogFilters.idl
+@@ -0,0 +1,21 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++/** HST: the file types of a FileDialog. */
++interface XFileDialogFilters
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute, readonly] long Count;
++    void Clear();
++    void Add( [in] string Description, [in] string Extensions, [in] any Position );
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XRange.idl
++++ b/oovbaapi/ooo/vba/excel/XRange.idl
+@@ -78,6 +78,17 @@
+     XComment AddComment( [in] any Text );
+     void Clear();
+     void ClearComments();
++    // HST
++    void ClearNotes();
++    [attribute, readonly] double CountLarge;
++    [attribute, readonly] any HasArray;
++    [attribute, readonly] any ListObject;
++    [attribute, readonly] any FormatConditions;
++    string AddressLocal( [in] any RowAbsolute, [in] any ColumnAbsolute, [in] any ReferenceStyle, [in] any External, [in] any RelativeTo );
++    XRange FindNext( [in] any After );
++    XRange FindPrevious( [in] any After );
++    void RemoveDuplicates( [in] any Columns, [in] any Header );
++    void TextToColumns( [in] any Destination, [in] any DataType, [in] any TextQualifier, [in] any ConsecutiveDelimiter, [in] any Tab, [in] any Semicolon, [in] any Comma, [in] any Space, [in] any Other, [in] any OtherChar );
+     void ClearContents();
+     void ClearFormats();
+     any HasFormula();
+--- a/oovbaapi/ooo/vba/excel/XSort.idl
++++ b/oovbaapi/ooo/vba/excel/XSort.idl
+@@ -0,0 +1,29 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++interface XRange;
++interface XSortFields;
++
++/** HST: Worksheet.Sort, which Excel's macro recorder writes. */
++interface XSort
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute, readonly] XSortFields SortFields;
++    [attribute, readonly] XRange Rng;
++    [attribute] any Header;
++    [attribute] any MatchCase;
++    [attribute] any Orientation;
++    [attribute] any SortMethod;
++    void SetRange( [in] XRange Rng );
++    void Apply();
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XSortField.idl
++++ b/oovbaapi/ooo/vba/excel/XSortField.idl
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++interface XRange;
++
++/** HST: a field of Worksheet.Sort. */
++interface XSortField
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute] any Order;
++    [attribute, readonly] XRange Key;
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XSortFields.idl
++++ b/oovbaapi/ooo/vba/excel/XSortFields.idl
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++interface XSortField;
++
++interface XSortFields
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute, readonly] long Count;
++    void Clear();
++    XSortField Add( [in] any Key, [in] any SortOn, [in] any Order, [in] any CustomOrder, [in] any DataOption );
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XTab.idl
++++ b/oovbaapi/ooo/vba/excel/XTab.idl
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++module ooo { module vba { module excel {
++
++/** HST: Worksheet.Tab: the color of the sheet's tab. */
++interface XTab
++{
++    interface ::ooo::vba::XHelperInterface;
++    [attribute] any Color;
++    [attribute] any ColorIndex;
++    [attribute] any ThemeColor;
++    [attribute] any TintAndShade;
++};
++
++}; }; };
+--- a/oovbaapi/ooo/vba/excel/XWorksheet.idl
++++ b/oovbaapi/ooo/vba/excel/XWorksheet.idl
+@@ -93,6 +93,13 @@
+     XRange Columns( [in] any Index );
+     any Hyperlinks( [in] any Index );
+     any ListObjects( [in] any Index ); // HST
++    // HST
++    [attribute, readonly] XTab Tab;
++    [attribute, readonly] XSort Sort;
++    [attribute, readonly] boolean FilterMode;
++    [attribute, readonly] long Type;
++    void ShowAllData();
++    void ResetAllPageBreaks();
+     any Names( [in] any Index );
+ 
+     any Evaluate( [in] string Name );
+--- a/oovbaapi/UnoApi_oovbaapi.mk
++++ b/oovbaapi/UnoApi_oovbaapi.mk
+@@ -241,6 +241,7 @@
+ 	XDialogs \
+ 	XDrawings \
+ 	XFileDialog \
++	XFileDialogFilters \
+ 	XFileDialogSelectedItems \
+ 	XFont \
+ 	XFormat \
+@@ -253,6 +254,10 @@
+ 	XHyperlink \
+ 	XHyperlinks \
+ 	XListColumn \
++	XSort \
++	XSortField \
++	XSortFields \
++	XTab \
+ 	XListColumns \
+ 	XListObject \
+ 	XListObjects \
+--- a/sc/inc/simpleformulacalc.hxx
++++ b/sc/inc/simpleformulacalc.hxx
+@@ -13,12 +13,13 @@
+ #include <formula/grammar.hxx>
+ 
+ #include "address.hxx"
++#include "scdllapi.h"
+ #include "formularesult.hxx"
+ 
+ class ScDocument;
+ class ScTokenArray;
+ 
+-class ScSimpleFormulaCalculator
++class SC_DLLPUBLIC ScSimpleFormulaCalculator
+ {
+ private:
+     SvNumFormatType mnFormatType;
+--- a/sc/Library_vbaobj.mk
++++ b/sc/Library_vbaobj.mk
+@@ -60,6 +60,12 @@
+ $(eval $(call gb_Library_add_exception_objects,vbaobj,\
+ 	sc/source/ui/vba/excelvbahelper \
+ 	sc/source/ui/vba/vbaapplication \
++	sc/source/ui/vba/vbaapplicationsettings \
++	sc/source/ui/vba/vbaevaluate \
++	sc/source/ui/vba/vbafiledialogfilters \
++	sc/source/ui/vba/vbarangemore \
++	sc/source/ui/vba/vbasheetparts \
++	sc/source/ui/vba/vbasheetsort \
+ 	sc/source/ui/vba/vbaassistant \
+ 	sc/source/ui/vba/vbaaxes \
+ 	sc/source/ui/vba/vbaaxis \
+--- a/sc/source/ui/vba/vbaapplication.cxx
++++ b/sc/source/ui/vba/vbaapplication.cxx
+@@ -37,6 +37,7 @@
+ #include <ooo/vba/office/MsoFileDialogType.hpp>
+ 
+ #include "vbaapplication.hxx"
++#include "vbaevaluate.hxx"
+ #include "vbaworkbooks.hxx"
+ #include "vbaworkbook.hxx"
+ #include "vbarange.hxx"
+@@ -451,7 +452,15 @@
+     // I think ( like SIN(3) etc. ) need to investigate that
+     // named Ranges also? e.g. [MyRange] if so need a list of named ranges
+     uno::Any aVoid;
+-    return uno::Any( getActiveWorkbook()->getActiveSheet()->Range( uno::Any( Name ), aVoid ) );
++    // HST: what is no range or name is a formula: [1+1], Evaluate("SUM(B2:B3)")
++    try
++    {
++        return uno::Any( getActiveWorkbook()->getActiveSheet()->Range( uno::Any( Name ), aVoid ) );
++    }
++    catch ( const uno::RuntimeException& )
++    {
++        return ScVbaEvaluate::formula( getCurrentDocument(), getActiveWorkbook()->getActiveSheet()->getIndex() - 1, Name );
++    }
+ }
+ 
+ uno::Any
+--- a/sc/source/ui/vba/vbaapplication.hxx
++++ b/sc/source/ui/vba/vbaapplication.hxx
+@@ -149,6 +149,25 @@
+     virtual css::uno::Any SAL_CALL Rows( const css::uno::Any& aIndex ) override;
+     virtual css::uno::Any SAL_CALL Caller( const css::uno::Any& aIndex ) override;
+     virtual void SAL_CALL Undo() override;
++    // HST: vbaapplicationsettings.cxx
++#define HST_APP_SETTING( Name ) \
++    virtual css::uno::Any SAL_CALL get##Name() override; \
++    virtual void SAL_CALL set##Name( const css::uno::Any& rValue ) override;
++    HST_APP_SETTING( UserName ) HST_APP_SETTING( Width ) HST_APP_SETTING( Height ) HST_APP_SETTING( Top )
++    HST_APP_SETTING( ReferenceStyle ) HST_APP_SETTING( MoveAfterReturn ) HST_APP_SETTING( MoveAfterReturnDirection )
++    HST_APP_SETTING( AskToUpdateLinks ) HST_APP_SETTING( CalculateBeforeSave ) HST_APP_SETTING( DecimalSeparator )
++    HST_APP_SETTING( ThousandsSeparator ) HST_APP_SETTING( UseSystemSeparators ) HST_APP_SETTING( StandardFont )
++    HST_APP_SETTING( StandardFontSize ) HST_APP_SETTING( ShowToolTips ) HST_APP_SETTING( MaxIterations )
++    HST_APP_SETTING( DisplayCommentIndicator ) HST_APP_SETTING( ActivePrinter )
++#undef HST_APP_SETTING
++    virtual OUString SAL_CALL getPath() override;
++    virtual OUString SAL_CALL getBuild() override;
++    virtual void SAL_CALL CalculateFull() override;
++    virtual css::uno::Any SAL_CALL ExecuteExcel4Macro( const OUString& rString ) override;
++    virtual void SAL_CALL MacroOptions( const css::uno::Any&, const css::uno::Any&, const css::uno::Any&, const css::uno::Any&, const css::uno::Any&, const css::uno::Any&, const css::uno::Any&, const css::uno::Any&, const css::uno::Any&, const css::uno::Any& ) override;
++    virtual void SAL_CALL SendKeys( const css::uno::Any& rKeys, const css::uno::Any& rWait ) override;
++    virtual css::uno::Any SAL_CALL GetSaveAsFilename( const css::uno::Any& rInitialFilename, const css::uno::Any& rFileFilter, const css::uno::Any& rFilterIndex, const css::uno::Any& rTitle, const css::uno::Any& rButtonText ) override;
++    virtual css::uno::Any SAL_CALL InputBox( const OUString& rPrompt, const css::uno::Any& rTitle, const css::uno::Any& rDefault, const css::uno::Any& rLeft, const css::uno::Any& rTop, const css::uno::Any& rHelpFile, const css::uno::Any& rHelpContextID, const css::uno::Any& rType ) override;
+ 
+     // XHelperInterface
+     virtual OUString getServiceImplName() override;
+--- a/sc/source/ui/vba/vbaapplicationsettings.cxx
++++ b/sc/source/ui/vba/vbaapplicationsettings.cxx
+@@ -0,0 +1,151 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Application members macros read and set. The settings marked below are kept for the session and
++// have no other effect here; a macro that saves and restores them goes on working.
++
++#include "vbaapplication.hxx"
++#include <basic/sbx.hxx>
++#include <com/sun/star/ui/dialogs/ExecutableDialogResults.hpp>
++#include <com/sun/star/ui/dialogs/FilePicker.hpp>
++#include <com/sun/star/ui/dialogs/TemplateDescription.hpp>
++#include <com/sun/star/ui/dialogs/XFilePicker3.hpp>
++#include <osl/file.hxx>
++#include <osl/process.h>
++#include <rtl/bootstrap.hxx>
++#include <unotools/useroptions.hxx>
++#include <vbahelper/vbahelper.hxx>
++#include <vbahelper/vbapath.hxx>
++#include <map>
++#include "vbarange.hxx"
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++std::map<OUString, uno::Any>& settings()
++{
++    static std::map<OUString, uno::Any> aSettings;
++    return aSettings;
++}
++
++uno::Any setting(const OUString& rName, const uno::Any& rDefault)
++{
++    auto it = settings().find(rName);
++    return it == settings().end() ? rDefault : it->second;
++}
++}
++
++#define HST_SETTING(Name, Default)                                                                 \
++    uno::Any SAL_CALL ScVbaApplication::get##Name() { return setting(u"" #Name ""_ustr, uno::Any(Default)); } \
++    void SAL_CALL ScVbaApplication::set##Name(const uno::Any& rValue) { settings()[u"" #Name ""_ustr] = rValue; }
++
++HST_SETTING(Width, 1024.0)
++HST_SETTING(Height, 768.0)
++HST_SETTING(Top, 0.0)
++HST_SETTING(ReferenceStyle, sal_Int32(1)) // xlA1
++HST_SETTING(MoveAfterReturn, true)
++HST_SETTING(MoveAfterReturnDirection, sal_Int32(-4121)) // xlDown
++HST_SETTING(AskToUpdateLinks, true)
++HST_SETTING(CalculateBeforeSave, true)
++HST_SETTING(DecimalSeparator, u"."_ustr)
++HST_SETTING(ThousandsSeparator, u","_ustr)
++HST_SETTING(UseSystemSeparators, true)
++HST_SETTING(StandardFont, u"Calibri"_ustr)
++HST_SETTING(StandardFontSize, 11.0)
++HST_SETTING(ShowToolTips, true)
++HST_SETTING(MaxIterations, sal_Int32(100))
++HST_SETTING(DisplayCommentIndicator, sal_Int32(-1))
++HST_SETTING(ActivePrinter, OUString())
++#undef HST_SETTING
++
++uno::Any SAL_CALL ScVbaApplication::getUserName()
++{
++    const uno::Any aSet = setting(u"UserName"_ustr, uno::Any());
++    return aSet.hasValue() ? aSet : uno::Any(SvtUserOptions().GetFullName());
++}
++
++void SAL_CALL ScVbaApplication::setUserName(const uno::Any& rValue) { settings()[u"UserName"_ustr] = rValue; }
++
++OUString SAL_CALL ScVbaApplication::getPath()
++{
++    OUString aUrl(u"$BRAND_BASE_DIR/program"_ustr), aPath;
++    rtl::Bootstrap::expandMacros(aUrl);
++    osl::FileBase::getSystemPathFromFileURL(aUrl, aPath);
++    return aPath;
++}
++
++OUString SAL_CALL ScVbaApplication::getBuild() { return u"16000"_ustr; }
++
++void SAL_CALL ScVbaApplication::CalculateFull() { Calculate(); }
++
++// Only cells and toolbars are asked of it in real macros; those have other members here, so nothing runs.
++uno::Any SAL_CALL ScVbaApplication::ExecuteExcel4Macro(const OUString&) { return uno::Any(); }
++
++void SAL_CALL ScVbaApplication::MacroOptions(const uno::Any&, const uno::Any&, const uno::Any&, const uno::Any&, const uno::Any&, const uno::Any&,
++                                             const uno::Any&, const uno::Any&, const uno::Any&, const uno::Any&)
++{
++}
++
++void SAL_CALL ScVbaApplication::SendKeys(const uno::Any&, const uno::Any&) {}
++
++uno::Any SAL_CALL ScVbaApplication::GetSaveAsFilename(const uno::Any& rInitialFilename, const uno::Any&, const uno::Any&, const uno::Any& rTitle, const uno::Any&)
++{
++    uno::Reference<ui::dialogs::XFilePicker3> xPicker = ui::dialogs::FilePicker::createWithMode(mxContext, ui::dialogs::TemplateDescription::FILESAVE_SIMPLE);
++    OUString aText;
++    if (rTitle >>= aText)
++        xPicker->setTitle(aText);
++    if ((rInitialFilename >>= aText) && !aText.isEmpty())
++        xPicker->setDefaultName(aText);
++    if (xPicker->execute() != ui::dialogs::ExecutableDialogResults::OK || !xPicker->getSelectedFiles().hasElements())
++        return uno::Any(false);
++    OUString aPath;
++    osl::FileBase::getSystemPathFromFileURL(xPicker->getSelectedFiles()[0], aPath);
++    return uno::Any(aPath);
++}
++
++uno::Any SAL_CALL ScVbaApplication::InputBox(const OUString& rPrompt, const uno::Any& rTitle, const uno::Any& rDefault, const uno::Any&, const uno::Any&,
++                                             const uno::Any&, const uno::Any&, const uno::Any& rType)
++{
++    SbxArrayRef xArgs = new SbxArray;
++    SbxVariableRef xResult = new SbxVariable(SbxVARIANT);
++    xArgs->Put(xResult.get(), 0);
++    OUString aTitle, aDefault;
++    rTitle >>= aTitle;
++    if (!(rDefault >>= aDefault))
++    {
++        double fDefault = 0;
++        if (rDefault >>= fDefault)
++            aDefault = OUString::number(fDefault);
++    }
++    sal_uInt32 nIndex = 1;
++    for (const OUString& rArg : { rPrompt, aTitle, aDefault })
++    {
++        SbxVariableRef xArg = new SbxVariable(SbxSTRING);
++        xArg->PutString(rArg);
++        xArgs->Put(xArg.get(), nIndex++);
++    }
++    if (!executeRunTimeLibrary(u"InputBox", xArgs.get()))
++        return uno::Any(false);
++    const OUString aText = xResult->GetOUString();
++    if (aText.isEmpty())
++        return uno::Any(false); // Application.InputBox gives False on Cancel
++    sal_Int32 nType = 2;
++    rType >>= nType;
++    if (nType & 8) // a reference
++        return uno::Any(getActiveWorkbook()->getActiveSheet()->Range(uno::Any(aText), uno::Any()));
++    if (nType & 1)
++        return uno::Any(aText.toDouble());
++    if (nType & 4)
++        return uno::Any(aText.equalsIgnoreAsciiCase("true"));
++    return uno::Any(aText);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbaevaluate.cxx
++++ b/sc/source/ui/vba/vbaevaluate.cxx
+@@ -0,0 +1,32 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "vbaevaluate.hxx"
++#include "excelvbahelper.hxx"
++#include <docsh.hxx>
++#include <simpleformulacalc.hxx>
++#include <svl/sharedstring.hxx>
++
++using namespace ::com::sun::star;
++
++uno::Any ScVbaEvaluate::formula(const uno::Reference<frame::XModel>& xModel, sal_Int32 nSheet, const OUString& rFormula)
++{
++    ScDocShell* pDocShell = ooo::vba::excel::getDocShell(xModel);
++    if (!pDocShell)
++        throw uno::RuntimeException();
++    const OUString aFormula = rFormula.startsWith("=") ? rFormula : "=" + rFormula;
++    ScSimpleFormulaCalculator aCalc(pDocShell->GetDocument(), ScAddress(0, 0, static_cast<SCTAB>(nSheet)), aFormula, false,
++                                    formula::FormulaGrammar::GRAM_NATIVE_XL_A1);
++    aCalc.Calculate();
++    if (aCalc.GetErrCode() != FormulaError::NONE)
++        throw uno::RuntimeException(u"Evaluate: the formula gives an error"_ustr);
++    return aCalc.IsValue() ? uno::Any(aCalc.GetValue()) : uno::Any(aCalc.GetString().getString());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbaevaluate.hxx
++++ b/sc/source/ui/vba/vbaevaluate.hxx
+@@ -0,0 +1,21 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/uno/Any.hxx>
++
++namespace ScVbaEvaluate
++{
++/// HST: the value of a formula in Excel's syntax, as if in a cell of the sheet: Evaluate("SUM(B2:B3)"), [1+1]
++css::uno::Any formula(const css::uno::Reference<css::frame::XModel>& xModel, sal_Int32 nSheet, const OUString& rFormula);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbafiledialog.cxx
++++ b/sc/source/ui/vba/vbafiledialog.cxx
+@@ -88,17 +88,20 @@
+ 
+     switch (m_nType)
+     {
++        // HST: Open and SaveAs choose a file like the file picker; .Execute does not act on it
+         case office::MsoFileDialogType::msoFileDialogOpen:
+-            // TODO implement
+-            break;
+         case office::MsoFileDialogType::msoFileDialogSaveAs:
+-            // TODO implement
+-            break;
+         case office::MsoFileDialogType::msoFileDialogFilePicker:
+             {
+                 uno::Reference<ui::dialogs::XFilePicker3> xFilePicker =
+                         ui::dialogs::FilePicker::createWithMode(
+-                                mxContext, ui::dialogs::TemplateDescription::FILEOPEN_SIMPLE );
++                                mxContext, m_nType == office::MsoFileDialogType::msoFileDialogSaveAs ? ui::dialogs::TemplateDescription::FILESAVE_SIMPLE : ui::dialogs::TemplateDescription::FILEOPEN_SIMPLE );
++                if( !m_sTitle.isEmpty() )
++                    xFilePicker->setTitle( m_sTitle );
++                if( m_nType != office::MsoFileDialogType::msoFileDialogSaveAs )
++                    xFilePicker->setMultiSelectionMode( m_bMultiSelectMode );
++                for( const auto& [ rDescription, rExtensions ] : m_aFilters )
++                    xFilePicker->appendFilter( rDescription, rExtensions );
+ 
+                 if( !m_sInitialFileName.isEmpty() )
+                     xFilePicker->setDisplayDirectory( m_sInitialFileName );
+--- a/sc/source/ui/vba/vbafiledialog.hxx
++++ b/sc/source/ui/vba/vbafiledialog.hxx
+@@ -18,6 +18,9 @@
+  */
+ #pragma once
+ 
++#include <utility>
++#include <vector>
++
+ #include <ooo/vba/excel/XFileDialog.hpp>
+ #include <vbahelper/vbahelperinterface.hxx>
+ 
+@@ -35,6 +38,9 @@
+     OUString m_sInitialFileName;
+     bool m_bMultiSelectMode;
+     css::uno::Reference< ov::excel::XFileDialogSelectedItems> m_xItems;
++    std::vector< std::pair<OUString, OUString> > m_aFilters; // HST: description, extensions
++    sal_Int32 m_nFilterIndex = 1;
++    OUString m_sButtonName;
+ public:
+     ScVbaFileDialog( const css::uno::Reference< ov::XHelperInterface >& xParent,  const css::uno::Reference< css::uno::XComponentContext >& xContext, const sal_Int32 nType);
+ 
+@@ -48,6 +54,12 @@
+     virtual css::uno::Reference< ov::excel::XFileDialogSelectedItems > SAL_CALL getSelectedItems() override;
+ 
+     virtual sal_Int32 SAL_CALL Show() override;
++    virtual css::uno::Reference< ov::excel::XFileDialogFilters > SAL_CALL getFilters() override;
++    virtual css::uno::Any SAL_CALL getFilterIndex() override;
++    virtual void SAL_CALL setFilterIndex( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL getButtonName() override;
++    virtual void SAL_CALL setButtonName( const css::uno::Any& rName ) override;
++    virtual void SAL_CALL Execute() override;
+ 
+     //XHelperInterface
+     virtual OUString getServiceImplName() override;
+--- a/sc/source/ui/vba/vbafiledialogfilters.cxx
++++ b/sc/source/ui/vba/vbafiledialogfilters.cxx
+@@ -0,0 +1,53 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: FileDialog.Filters: file types that Show offers.
++
++#include "vbafiledialog.hxx"
++#include <ooo/vba/excel/XFileDialogFilters.hpp>
++#include <rtl/ref.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++class Filters final : public InheritedHelperInterfaceWeakImpl<excel::XFileDialogFilters>
++{
++    std::vector<std::pair<OUString, OUString>>& mrList;
++
++public:
++    Filters(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++            std::vector<std::pair<OUString, OUString>>& rList)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext)
++        , mrList(rList)
++    {
++    }
++    sal_Int32 SAL_CALL getCount() override { return static_cast<sal_Int32>(mrList.size()); }
++    void SAL_CALL Clear() override { mrList.clear(); }
++    void SAL_CALL Add(const OUString& rDescription, const OUString& rExtensions, const uno::Any&) override { mrList.emplace_back(rDescription, rExtensions); }
++    OUString getServiceImplName() override { return u"ScVbaFileDialogFilters"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.FileDialogFilters"_ustr }; }
++};
++}
++
++uno::Reference<excel::XFileDialogFilters> SAL_CALL ScVbaFileDialog::getFilters() { return new Filters(this, mxContext, m_aFilters); }
++
++uno::Any SAL_CALL ScVbaFileDialog::getFilterIndex() { return uno::Any(m_nFilterIndex); }
++
++void SAL_CALL ScVbaFileDialog::setFilterIndex(const uno::Any& rIndex) { rIndex >>= m_nFilterIndex; }
++
++uno::Any SAL_CALL ScVbaFileDialog::getButtonName() { return uno::Any(m_sButtonName); }
++
++void SAL_CALL ScVbaFileDialog::setButtonName(const uno::Any& rName) { rName >>= m_sButtonName; }
++
++void SAL_CALL ScVbaFileDialog::Execute() {}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbaformatconditions.cxx
++++ b/sc/source/ui/vba/vbaformatconditions.cxx
+@@ -32,6 +32,17 @@
+ using namespace ::ooo::vba;
+ using namespace ::com::sun::star;
+ 
++ScVbaFormatConditions::ScVbaFormatConditions( const uno::Reference< XHelperInterface >& xRange, const uno::Reference< uno::XComponentContext >& xContext,
++                                              const uno::Reference< sheet::XSheetConditionalEntries >& xEntries, const uno::Reference< frame::XModel >& xModel,
++                                              const uno::Reference< beans::XPropertySet >& xRangeProperties )
++    : CollTestImplHelper< excel::XFormatConditions >( xRange, xContext, uno::Reference< container::XIndexAccess >( xEntries, uno::UNO_QUERY_THROW ) )
++    , mxSheetConditionalEntries( xEntries )
++    , mxStyles( new ScVbaStyles( xRange, xContext, xModel ) )
++    , mxRangeParent( xRange, uno::UNO_QUERY_THROW )
++    , mxParentRangePropertySet( xRangeProperties )
++{
++}
++
+ void SAL_CALL
+ ScVbaFormatConditions::Delete(  )
+ {
+@@ -183,6 +194,7 @@
+         }
+         aProperty.Name = "StyleName";
+         aProperty.Value <<= sStyleName;
++        aPropertyValueVector.push_back( aProperty ); // HST: the condition needs its style
+ 
+         mxSheetConditionalEntries->addNew(comphelper::containerToSequence(aPropertyValueVector));
+         for (sal_Int32 i = mxSheetConditionalEntries->getCount()-1; i >= 0; i--)
+--- a/sc/source/ui/vba/vbaformatconditions.hxx
++++ b/sc/source/ui/vba/vbaformatconditions.hxx
+@@ -30,9 +30,6 @@
+ class ScVbaStyles;
+ class ScVbaFormatCondition;
+ 
+-// This class is used only as a target for casting, it seems,
+-// and no objects of this type are created as such, I think.
+-
+ class ScVbaFormatConditions: public CollTestImplHelper< ov::excel::XFormatConditions >
+ {
+     css::uno::Reference< css::sheet::XSheetConditionalEntries > mxSheetConditionalEntries;
+@@ -40,6 +37,10 @@
+     css::uno::Reference< ov::excel::XRange > mxRangeParent;
+     css::uno::Reference< css::beans::XPropertySet > mxParentRangePropertySet;
+ public:
++    /// HST: Range.FormatConditions
++    ScVbaFormatConditions( const css::uno::Reference< ov::XHelperInterface >& xRange, const css::uno::Reference< css::uno::XComponentContext >& xContext,
++                           const css::uno::Reference< css::sheet::XSheetConditionalEntries >& xEntries, const css::uno::Reference< css::frame::XModel >& xModel,
++                           const css::uno::Reference< css::beans::XPropertySet >& xRangeProperties );
+     /// @throws css::script::BasicErrorException
+     void notifyRange();
+     /// @throws css::script::BasicErrorException
+--- a/sc/source/ui/vba/vbarange.cxx
++++ b/sc/source/ui/vba/vbarange.cxx
+@@ -3183,6 +3183,15 @@
+ ScVbaRange::Find( const uno::Any& What, const uno::Any& After, const uno::Any& LookIn, const uno::Any& LookAt, const uno::Any& SearchOrder, const uno::Any& SearchDirection, const uno::Any& MatchCase, const uno::Any& /*MatchByte*/, const uno::Any& /*SearchFormat*/ )
+ {
+     // return a Range object that represents the first cell where that information is found.
++    // HST: FindNext and FindPrevious repeat it
++    {
++        FindMemory& rMemory = findMemory();
++        rMemory.aWhat = What;
++        rMemory.aLookIn = LookIn;
++        rMemory.aLookAt = LookAt;
++        rMemory.aOrder = SearchOrder;
++        rMemory.aMatchCase = MatchCase;
++    }
+     OUString sWhat;
+     sal_Int32 nWhat = 0;
+     double fWhat = 0.0;
+@@ -3328,6 +3337,7 @@
+             uno::Reference< excel::XRange > xResultRange = new ScVbaRange( mxParent, mxContext, xCellRange );
+             if( xResultRange.is() )
+             {
++                findMemory().xLast = xResultRange;
+                 return xResultRange;
+             }
+         }
+--- a/sc/source/ui/vba/vbarange.hxx
++++ b/sc/source/ui/vba/vbarange.hxx
+@@ -18,6 +18,8 @@
+  */
+ #pragma once
+ 
++#include <cppuhelper/weakref.hxx>
++
+ #include <ooo/vba/excel/XRange.hpp>
+ 
+ #include <com/sun/star/awt/Point.hpp>
+@@ -225,6 +227,25 @@
+     virtual css::uno::Reference< ov::excel::XComment > SAL_CALL AddComment( const css::uno::Any& Text ) override;
+     virtual void SAL_CALL Clear() override;
+     virtual void SAL_CALL ClearComments() override;
++    // HST: vbarangemore.cxx
++    virtual void SAL_CALL ClearNotes() override;
++    virtual double SAL_CALL getCountLarge() override;
++    virtual css::uno::Any SAL_CALL getHasArray() override;
++    virtual css::uno::Any SAL_CALL getListObject() override;
++    virtual css::uno::Any SAL_CALL getFormatConditions() override;
++    virtual OUString SAL_CALL AddressLocal( const css::uno::Any& RowAbsolute, const css::uno::Any& ColumnAbsolute, const css::uno::Any& ReferenceStyle, const css::uno::Any& External, const css::uno::Any& RelativeTo ) override;
++    virtual css::uno::Reference< ov::excel::XRange > SAL_CALL FindNext( const css::uno::Any& After ) override;
++    virtual css::uno::Reference< ov::excel::XRange > SAL_CALL FindPrevious( const css::uno::Any& After ) override;
++    virtual void SAL_CALL RemoveDuplicates( const css::uno::Any& Columns, const css::uno::Any& Header ) override;
++    virtual void SAL_CALL TextToColumns( const css::uno::Any& Destination, const css::uno::Any& DataType, const css::uno::Any& TextQualifier, const css::uno::Any& ConsecutiveDelimiter, const css::uno::Any& Tab, const css::uno::Any& Semicolon, const css::uno::Any& Comma, const css::uno::Any& Space, const css::uno::Any& Other, const css::uno::Any& OtherChar ) override;
++    /// what the last Find looked for, for FindNext and FindPrevious
++    struct FindMemory
++    {
++        css::uno::Any aWhat, aLookIn, aLookAt, aOrder, aMatchCase;
++        css::uno::WeakReference< ov::excel::XRange > xLast;
++    };
++    static FindMemory& findMemory();
++    css::uno::Reference< ov::excel::XRange > findAgain( const css::uno::Any& rAfter, sal_Int32 nDirection );
+     virtual void SAL_CALL ClearContents() override;
+     virtual void SAL_CALL ClearFormats() override;
+     virtual css::uno::Any SAL_CALL HasFormula() override;
+--- a/sc/source/ui/vba/vbarangemore.cxx
++++ b/sc/source/ui/vba/vbarangemore.cxx
+@@ -0,0 +1,193 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Range members from real macros: FindNext, RemoveDuplicates, TextToColumns and the small ones.
++
++#include "vbarange.hxx"
++#include "vbaformatconditions.hxx"
++#include <ooo/vba/excel/XFormatConditions.hpp>
++#include "vbalistobject.hxx"
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XNameAccess.hpp>
++#include <com/sun/star/table/XCellRange.hpp>
++#include <comphelper/sequence.hxx>
++#include <com/sun/star/sheet/XArrayFormulaRange.hpp>
++#include <com/sun/star/sheet/XCellRangeAddressable.hpp>
++#include <com/sun/star/sheet/XCellRangeData.hpp>
++#include <com/sun/star/sheet/XDatabaseRange.hpp>
++#include <com/sun/star/sheet/XSheetConditionalEntries.hpp>
++#include <ooo/vba/excel/XlSearchDirection.hpp>
++#include <ooo/vba/excel/XlYesNoGuess.hpp>
++#include <rtl/ustrbuf.hxx>
++#include <set>
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++ScVbaRange::FindMemory& ScVbaRange::findMemory()
++{
++    static FindMemory aMemory;
++    return aMemory;
++}
++
++uno::Reference<excel::XRange> ScVbaRange::findAgain(const uno::Any& rAfter, sal_Int32 nDirection)
++{
++    const FindMemory& rMemory = findMemory();
++    if (!rMemory.aWhat.hasValue())
++        return {};
++    uno::Any aAfter = rAfter;
++    if (!aAfter.hasValue())
++    {
++        uno::Reference<excel::XRange> xLast(rMemory.xLast);
++        if (xLast.is())
++            aAfter <<= xLast;
++    }
++    const uno::Any aWhat = rMemory.aWhat, aLookIn = rMemory.aLookIn, aLookAt = rMemory.aLookAt, aOrder = rMemory.aOrder, aCase = rMemory.aMatchCase;
++    return Find(aWhat, aAfter, aLookIn, aLookAt, aOrder, uno::Any(nDirection), aCase, uno::Any(), uno::Any());
++}
++
++uno::Reference<excel::XRange> SAL_CALL ScVbaRange::FindNext(const uno::Any& rAfter) { return findAgain(rAfter, excel::XlSearchDirection::xlNext); }
++
++uno::Reference<excel::XRange> SAL_CALL ScVbaRange::FindPrevious(const uno::Any& rAfter) { return findAgain(rAfter, excel::XlSearchDirection::xlPrevious); }
++
++void SAL_CALL ScVbaRange::ClearNotes() { ClearComments(); }
++
++double SAL_CALL ScVbaRange::getCountLarge() { return static_cast<double>(getCount()); }
++
++uno::Any SAL_CALL ScVbaRange::getHasArray()
++{
++    uno::Reference<sheet::XArrayFormulaRange> xArray(mxRange, uno::UNO_QUERY);
++    return uno::Any(xArray.is() && !xArray->getArrayFormula().isEmpty());
++}
++
++OUString SAL_CALL ScVbaRange::AddressLocal(const uno::Any& rRowAbsolute, const uno::Any& rColumnAbsolute, const uno::Any& rReferenceStyle, const uno::Any& rExternal, const uno::Any& rRelativeTo)
++{
++    return Address(rRowAbsolute, rColumnAbsolute, rReferenceStyle, rExternal, rRelativeTo);
++}
++
++uno::Any SAL_CALL ScVbaRange::getFormatConditions()
++{
++    uno::Reference<beans::XPropertySet> xProps(mxRange, uno::UNO_QUERY_THROW);
++    uno::Reference<sheet::XSheetConditionalEntries> xEntries(xProps->getPropertyValue(u"ConditionalFormat"_ustr), uno::UNO_QUERY_THROW);
++    uno::Reference<excel::XFormatConditions> xConditions(new ScVbaFormatConditions(uno::Reference<XHelperInterface>(this), mxContext, xEntries, getUnoModel(), xProps));
++    return uno::Any(xConditions);
++}
++
++uno::Any SAL_CALL ScVbaRange::getListObject()
++{
++    uno::Reference<sheet::XCellRangeAddressable> xAddressable(mxRange, uno::UNO_QUERY_THROW);
++    const table::CellRangeAddress aCell = xAddressable->getRangeAddress();
++    uno::Reference<container::XNameAccess> xRanges(ScVbaListTable::databaseRanges(getUnoModel()), uno::UNO_QUERY_THROW);
++    for (const OUString& rName : xRanges->getElementNames())
++    {
++        uno::Reference<sheet::XDatabaseRange> xRange(xRanges->getByName(rName), uno::UNO_QUERY_THROW);
++        const table::CellRangeAddress aArea = xRange->getDataArea();
++        if (!rName.startsWith("__Anonymous_Sheet_DB__") && aArea.Sheet == aCell.Sheet && aArea.StartColumn <= aCell.StartColumn && aCell.StartColumn <= aArea.EndColumn
++            && aArea.StartRow <= aCell.StartRow && aCell.StartRow <= aArea.EndRow)
++            return uno::Any(uno::Reference<excel::XListObject>(new ScVbaListObject(getParent(), mxContext, getUnoModel(), rName)));
++    }
++    return uno::Any(uno::Reference<excel::XListObject>());
++}
++
++void SAL_CALL ScVbaRange::RemoveDuplicates(const uno::Any& rColumns, const uno::Any& rHeader)
++{
++    uno::Reference<sheet::XCellRangeData> xData(mxRange, uno::UNO_QUERY_THROW);
++    const uno::Sequence<uno::Sequence<uno::Any>> aRows = xData->getDataArray();
++    if (!aRows.hasElements())
++        return;
++    std::vector<sal_Int32> aColumns;
++    sal_Int32 nColumn = 0;
++    uno::Sequence<uno::Any> aList;
++    if (rColumns >>= nColumn)
++        aColumns.push_back(nColumn - 1);
++    else if (rColumns >>= aList)
++    {
++        for (const uno::Any& rItem : aList)
++            if (rItem >>= nColumn)
++                aColumns.push_back(nColumn - 1);
++    }
++    if (aColumns.empty())
++        for (sal_Int32 i = 0; i < aRows[0].getLength(); ++i)
++            aColumns.push_back(i);
++    sal_Int32 nHeader = excel::XlYesNoGuess::xlNo;
++    rHeader >>= nHeader;
++    std::vector<uno::Sequence<uno::Any>> aKept;
++    std::set<OUString> aSeen;
++    for (sal_Int32 nRow = 0; nRow < aRows.getLength(); ++nRow)
++    {
++        OUStringBuffer aKey;
++        for (sal_Int32 i : aColumns)
++        {
++            if (i >= 0 && i < aRows[nRow].getLength())
++            {
++                OUString aText;
++                double fValue = 0;
++                if (!(aRows[nRow][i] >>= aText) && (aRows[nRow][i] >>= fValue))
++                    aText = OUString::number(fValue);
++                aKey.append(aText + u"\x0001");
++            }
++        }
++        const bool bIsHeader = nRow == 0 && nHeader == excel::XlYesNoGuess::xlYes;
++        if (bIsHeader || aSeen.insert(aKey.makeStringAndClear()).second)
++            aKept.push_back(aRows[nRow]);
++    }
++    uno::Sequence<uno::Any> aEmpty(aRows[0].getLength());
++    aKept.resize(aRows.getLength(), aEmpty);
++    xData->setDataArray(comphelper::containerToSequence(aKept));
++}
++
++void SAL_CALL ScVbaRange::TextToColumns(const uno::Any& rDestination, const uno::Any&, const uno::Any&, const uno::Any& rConsecutive, const uno::Any& rTab, const uno::Any& rSemicolon,
++                                        const uno::Any& rComma, const uno::Any& rSpace, const uno::Any& rOther, const uno::Any& rOtherChar)
++{
++    OUString aDelimiters;
++    const auto add = [&aDelimiters](const uno::Any& rOn, sal_Unicode c) {
++        bool bOn = false;
++        if ((rOn >>= bOn) && bOn)
++            aDelimiters += OUStringChar(c);
++    };
++    add(rTab, '\t');
++    add(rSemicolon, ';');
++    add(rComma, ',');
++    add(rSpace, ' ');
++    bool bOther = false;
++    OUString aOtherChar;
++    if ((rOther >>= bOther) && bOther && (rOtherChar >>= aOtherChar))
++        aDelimiters += aOtherChar;
++    bool bConsecutive = false;
++    rConsecutive >>= bConsecutive;
++    uno::Reference<excel::XRange> xFirst(this);
++    uno::Reference<excel::XRange> xDestination;
++    rDestination >>= xDestination;
++    if (!xDestination.is())
++        xDestination = xFirst;
++    const sal_Int32 nRows = Rows(uno::Any())->getCount();
++    for (sal_Int32 nRow = 1; nRow <= nRows; ++nRow)
++    {
++        uno::Reference<excel::XRange> xCell(Cells(uno::Any(nRow), uno::Any(sal_Int32(1))), uno::UNO_SET_THROW);
++        OUString aText;
++        xCell->getValue() >>= aText;
++        sal_Int32 nColumn = 1, nStart = 0;
++        for (sal_Int32 i = 0; i <= aText.getLength(); ++i)
++        {
++            if (i < aText.getLength() && aDelimiters.indexOf(aText[i]) < 0)
++                continue;
++            if (i > nStart || !bConsecutive)
++            {
++                const OUString aPart = aText.copy(nStart, i - nStart);
++                const double fValue = aPart.toDouble();
++                uno::Reference<excel::XRange> xTarget(xDestination->Cells(uno::Any(nRow), uno::Any(nColumn)), uno::UNO_SET_THROW);
++                xTarget->setValue(fValue != 0 || aPart == "0" ? uno::Any(fValue) : uno::Any(aPart));
++                ++nColumn;
++            }
++            nStart = i + 1;
++        }
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbasheetparts.cxx
++++ b/sc/source/ui/vba/vbasheetparts.cxx
+@@ -0,0 +1,120 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: small parts of a worksheet: the tab's color and the filter of the sheet.
++
++#include "vbasheetsort.hxx"
++#include "excelvbahelper.hxx"
++#include "vbapalette.hxx"
++#include "vbathemecolor.hxx"
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/sheet/TableFilterField2.hpp>
++#include <dbdata.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <queryparam.hxx>
++#include <tabvwsh.hxx>
++#include <vbahelper/vbahelper.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++#include <dbdocfun.hxx>
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++class Tab final : public InheritedHelperInterfaceWeakImpl<excel::XTab>
++{
++    uno::Reference<beans::XPropertySet> mxSheet;
++    sal_Int32 mnTheme = 0;
++
++public:
++    Tab(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext, const uno::Reference<sheet::XSpreadsheet>& xSheet)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext), mxSheet(xSheet, uno::UNO_QUERY_THROW) {}
++    uno::Any SAL_CALL getColor() override
++    {
++        sal_Int32 nColor = -1;
++        mxSheet->getPropertyValue(u"TabColor"_ustr) >>= nColor;
++        return nColor < 0 ? uno::Any(false) : OORGBToXLRGB(uno::Any(nColor));
++    }
++    void SAL_CALL setColor(const uno::Any& rColor) override
++    {
++        sal_Int32 nColor = 0;
++        if (rColor >>= nColor)
++            mxSheet->setPropertyValue(u"TabColor"_ustr, XLRGBToOORGB(rColor));
++        else
++            mxSheet->setPropertyValue(u"TabColor"_ustr, uno::Any(sal_Int32(-1))); // Tab.Color = False
++    }
++    uno::Any SAL_CALL getColorIndex() override { return uno::Any(sal_Int32(0)); }
++    void SAL_CALL setColorIndex(const uno::Any& rIndex) override
++    {
++        sal_Int32 nIndex = 0;
++        rIndex >>= nIndex;
++        ScVbaPalette aPalette(excel::getDocShell(ooo::vba::getCurrentExcelDoc(mxContext)));
++        uno::Reference<container::XIndexAccess> xPalette = aPalette.getDefaultPalette();
++        if (nIndex >= 1 && nIndex <= xPalette->getCount())
++            mxSheet->setPropertyValue(u"TabColor"_ustr, xPalette->getByIndex(nIndex - 1));
++        else
++            mxSheet->setPropertyValue(u"TabColor"_ustr, uno::Any(sal_Int32(-1)));
++    }
++    uno::Any SAL_CALL getThemeColor() override { return uno::Any(mnTheme); }
++    void SAL_CALL setThemeColor(const uno::Any& rTheme) override
++    {
++        rTheme >>= mnTheme;
++        const sal_Int32 nRgb = ScVbaTheme::rgbOf(mnTheme);
++        if (nRgb >= 0)
++            mxSheet->setPropertyValue(u"TabColor"_ustr, uno::Any(nRgb));
++    }
++    uno::Any SAL_CALL getTintAndShade() override { return uno::Any(0.0); }
++    void SAL_CALL setTintAndShade(const uno::Any& rTint) override
++    {
++        double fTint = 0;
++        sal_Int32 nBase = -1;
++        mxSheet->getPropertyValue(u"TabColor"_ustr) >>= nBase;
++        if ((rTint >>= fTint) && nBase >= 0)
++            mxSheet->setPropertyValue(u"TabColor"_ustr, uno::Any(ScVbaTheme::applyTint(nBase, fTint)));
++    }
++    OUString getServiceImplName() override { return u"ScVbaTab"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.Tab"_ustr }; }
++};
++
++ScDBData* sheetFilter(ScDocShell* pDocShell, sal_Int32 nSheet)
++{
++    return pDocShell ? pDocShell->GetDocument().GetAnonymousDBData(static_cast<SCTAB>(nSheet)) : nullptr;
++}
++}
++
++uno::Reference<excel::XTab> ScVbaSheetParts::makeTab(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                                     const uno::Reference<sheet::XSpreadsheet>& xSheet)
++{
++    return new Tab(xParent, xContext, xSheet);
++}
++
++bool ScVbaSheetParts::filterMode(const uno::Reference<frame::XModel>& xModel, sal_Int32 nSheet)
++{
++    ScDBData* pData = sheetFilter(excel::getDocShell(xModel), nSheet);
++    return pData && pData->HasQueryParam();
++}
++
++void ScVbaSheetParts::showAllData(const uno::Reference<frame::XModel>& xModel, sal_Int32 nSheet)
++{
++    ScDocShell* pDocShell = excel::getDocShell(xModel);
++    ScDBData* pData = sheetFilter(pDocShell, nSheet);
++    if (!pData || !pData->HasQueryParam())
++        return;
++    ScQueryParam aParam;
++    pData->GetQueryParam(aParam);
++    for (SCSIZE i = 0; i < aParam.GetEntryCount(); ++i)
++        aParam.GetEntry(i).bDoQuery = false;
++    ScDBDocFunc aFunc(*pDocShell);
++    aFunc.Query(static_cast<SCTAB>(nSheet), aParam, nullptr, true, false);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbasheetsort.cxx
++++ b/sc/source/ui/vba/vbasheetsort.cxx
+@@ -0,0 +1,127 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Worksheet.Sort: fields added one by one, then Apply, as Excel's macro recorder writes it. A worksheet
++// object is made anew at each access, so what was set is kept per document and sheet until Apply.
++
++#include "vbasheetsort.hxx"
++#include "vbarange.hxx"
++#include <cppuhelper/weakref.hxx>
++#include <ooo/vba/excel/XSortField.hpp>
++#include <ooo/vba/excel/XSortFields.hpp>
++#include <ooo/vba/excel/XlSortOrder.hpp>
++#include <ooo/vba/excel/XlYesNoGuess.hpp>
++#include <rtl/ref.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++#include <map>
++#include <vector>
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++struct Field
++{
++    uno::Reference<excel::XRange> xKey;
++    uno::Any aOrder;
++};
++
++struct State
++{
++    std::vector<Field> aFields;
++    uno::Reference<excel::XRange> xRange;
++    uno::Any aHeader = uno::Any(excel::XlYesNoGuess::xlNo);
++    uno::Any aMatchCase, aOrientation, aSortMethod;
++};
++
++State& stateOf(const uno::Reference<frame::XModel>& xModel, sal_Int32 nSheet)
++{
++    static std::map<std::pair<void*, sal_Int32>, State> aStates;
++    return aStates[{ xModel.get(), nSheet }];
++}
++
++class SortField final : public InheritedHelperInterfaceWeakImpl<excel::XSortField>
++{
++    uno::Reference<excel::XRange> mxKey;
++    uno::Any maOrder;
++
++public:
++    SortField(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext, uno::Reference<excel::XRange> xKey, uno::Any aOrder)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext), mxKey(std::move(xKey)), maOrder(std::move(aOrder)) {}
++    uno::Any SAL_CALL getOrder() override { return maOrder; }
++    void SAL_CALL setOrder(const uno::Any& rOrder) override { maOrder = rOrder; }
++    uno::Reference<excel::XRange> SAL_CALL getKey() override { return mxKey; }
++    OUString getServiceImplName() override { return u"ScVbaSortField"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.SortField"_ustr }; }
++};
++
++class SortFields final : public InheritedHelperInterfaceWeakImpl<excel::XSortFields>
++{
++    State& mrState;
++
++public:
++    SortFields(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext, State& rState)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext), mrState(rState) {}
++    sal_Int32 SAL_CALL getCount() override { return static_cast<sal_Int32>(mrState.aFields.size()); }
++    void SAL_CALL Clear() override { mrState.aFields.clear(); }
++    uno::Reference<excel::XSortField> SAL_CALL Add(const uno::Any& rKey, const uno::Any&, const uno::Any& rOrder, const uno::Any&, const uno::Any&) override
++    {
++        uno::Reference<excel::XRange> xKey;
++        if (!(rKey >>= xKey))
++            throw uno::RuntimeException(u"SortFields.Add needs a Key range"_ustr);
++        mrState.aFields.push_back({ xKey, rOrder });
++        return new SortField(this, mxContext, xKey, rOrder);
++    }
++    OUString getServiceImplName() override { return u"ScVbaSortFields"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.SortFields"_ustr }; }
++};
++
++class Sort final : public InheritedHelperInterfaceWeakImpl<excel::XSort>
++{
++    State& mrState;
++
++public:
++    Sort(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext, State& rState)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext), mrState(rState) {}
++    uno::Reference<excel::XSortFields> SAL_CALL getSortFields() override { return new SortFields(this, mxContext, mrState); }
++    uno::Reference<excel::XRange> SAL_CALL getRng() override { return mrState.xRange; }
++    uno::Any SAL_CALL getHeader() override { return mrState.aHeader; }
++    void SAL_CALL setHeader(const uno::Any& rValue) override { mrState.aHeader = rValue; }
++    uno::Any SAL_CALL getMatchCase() override { return mrState.aMatchCase; }
++    void SAL_CALL setMatchCase(const uno::Any& rValue) override { mrState.aMatchCase = rValue; }
++    uno::Any SAL_CALL getOrientation() override { return mrState.aOrientation; }
++    void SAL_CALL setOrientation(const uno::Any& rValue) override { mrState.aOrientation = rValue; }
++    uno::Any SAL_CALL getSortMethod() override { return mrState.aSortMethod; }
++    void SAL_CALL setSortMethod(const uno::Any& rValue) override { mrState.aSortMethod = rValue; }
++    void SAL_CALL SetRange(const uno::Reference<excel::XRange>& xRange) override { mrState.xRange = xRange; }
++    void SAL_CALL Apply() override
++    {
++        if (!mrState.xRange.is())
++            throw uno::RuntimeException(u"Sort.Apply: SetRange first"_ustr);
++        // the sort is stable: the last field first leaves the first field deciding
++        for (auto it = mrState.aFields.rbegin(); it != mrState.aFields.rend(); ++it)
++        {
++            uno::Any aOrder = it->aOrder.hasValue() ? it->aOrder : uno::Any(excel::XlSortOrder::xlAscending);
++            mrState.xRange->Sort(uno::Any(it->xKey), aOrder, uno::Any(), uno::Any(), uno::Any(), uno::Any(), uno::Any(), mrState.aHeader, uno::Any(),
++                                 mrState.aMatchCase, mrState.aOrientation, mrState.aSortMethod, uno::Any(), uno::Any(), uno::Any());
++        }
++    }
++    OUString getServiceImplName() override { return u"ScVbaSort"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.Sort"_ustr }; }
++};
++}
++
++uno::Reference<excel::XSort> ScVbaSheetParts::makeSort(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++                                                       const uno::Reference<frame::XModel>& xModel, sal_Int32 nSheet)
++{
++    return new Sort(xParent, xContext, stateOf(xModel, nSheet));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbasheetsort.hxx
++++ b/sc/source/ui/vba/vbasheetsort.hxx
+@@ -0,0 +1,29 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/sheet/XSpreadsheet.hpp>
++#include <com/sun/star/uno/XComponentContext.hpp>
++#include <ooo/vba/excel/XSort.hpp>
++#include <ooo/vba/excel/XTab.hpp>
++#include <ooo/vba/XHelperInterface.hpp>
++
++namespace ScVbaSheetParts
++{
++css::uno::Reference<ooo::vba::excel::XSort> makeSort(const css::uno::Reference<ooo::vba::XHelperInterface>& xParent, const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                                                     const css::uno::Reference<css::frame::XModel>& xModel, sal_Int32 nSheet);
++css::uno::Reference<ooo::vba::excel::XTab> makeTab(const css::uno::Reference<ooo::vba::XHelperInterface>& xParent, const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                                                   const css::uno::Reference<css::sheet::XSpreadsheet>& xSheet);
++bool filterMode(const css::uno::Reference<css::frame::XModel>& xModel, sal_Int32 nSheet);
++void showAllData(const css::uno::Reference<css::frame::XModel>& xModel, sal_Int32 nSheet);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbaworksheet.cxx
++++ b/sc/source/ui/vba/vbaworksheet.cxx
+@@ -22,6 +22,10 @@
+ #include <string_view>
+ 
+ #include "vbaworksheet.hxx"
++#include "vbaevaluate.hxx"
++#include <com/sun/star/sheet/XSheetPageBreak.hpp>
++#include <ooo/vba/excel/XlSheetType.hpp>
++#include "vbasheetsort.hxx"
+ #include "vbanames.hxx"
+ 
+ #include <com/sun/star/beans/XPropertySet.hpp>
+@@ -757,6 +761,18 @@
+     return uno::Any( mxHlinks );
+ }
+ 
++// HST
++uno::Reference< excel::XTab > SAL_CALL ScVbaWorksheet::getTab() { return ScVbaSheetParts::makeTab( this, mxContext, getSheet() ); }
++uno::Reference< excel::XSort > SAL_CALL ScVbaWorksheet::getSort() { return ScVbaSheetParts::makeSort( this, mxContext, getModel(), getSheetID() ); }
++sal_Bool SAL_CALL ScVbaWorksheet::getFilterMode() { return ScVbaSheetParts::filterMode( getModel(), getSheetID() ); }
++sal_Int32 SAL_CALL ScVbaWorksheet::getType() { return excel::XlSheetType::xlWorksheet; }
++void SAL_CALL ScVbaWorksheet::ShowAllData() { ScVbaSheetParts::showAllData( getModel(), getSheetID() ); }
++void SAL_CALL ScVbaWorksheet::ResetAllPageBreaks()
++{
++    uno::Reference< sheet::XSheetPageBreak > xBreaks( getSheet(), uno::UNO_QUERY_THROW );
++    xBreaks->removeAllManualPageBreaks();
++}
++
+ // HST: Excel tables
+ uno::Any SAL_CALL
+ ScVbaWorksheet::ListObjects( const uno::Any& aIndex )
+@@ -895,7 +911,15 @@
+     // I think ( like SIN(3) etc. ) need to investigate that
+     // named Ranges also? e.g. [MyRange] if so need a list of named ranges
+     uno::Any aVoid;
+-    return uno::Any( Range( uno::Any( Name ), aVoid ) );
++    // HST: see ScVbaApplication::Evaluate
++    try
++    {
++        return uno::Any( Range( uno::Any( Name ), aVoid ) );
++    }
++    catch ( const uno::RuntimeException& )
++    {
++        return ScVbaEvaluate::formula( getModel(), getSheetID(), Name );
++    }
+ }
+ 
+ uno::Reference< beans::XIntrospectionAccess > SAL_CALL
+--- a/sc/source/ui/vba/vbaworksheet.hxx
++++ b/sc/source/ui/vba/vbaworksheet.hxx
+@@ -125,6 +125,12 @@
+     virtual css::uno::Any SAL_CALL Comments( const css::uno::Any& Index ) override;
+     virtual css::uno::Any SAL_CALL Hyperlinks( const css::uno::Any& aIndex ) override;
+     virtual css::uno::Any SAL_CALL ListObjects( const css::uno::Any& aIndex ) override;
++    virtual css::uno::Reference< ov::excel::XTab > SAL_CALL getTab() override;
++    virtual css::uno::Reference< ov::excel::XSort > SAL_CALL getSort() override;
++    virtual sal_Bool SAL_CALL getFilterMode() override;
++    virtual sal_Int32 SAL_CALL getType() override;
++    virtual void SAL_CALL ShowAllData() override;
++    virtual void SAL_CALL ResetAllPageBreaks() override;
+     virtual css::uno::Any SAL_CALL Names( const css::uno::Any& aIndex ) override;
+ 
+     virtual css::uno::Any SAL_CALL OLEObjects( const css::uno::Any& Index ) override;
