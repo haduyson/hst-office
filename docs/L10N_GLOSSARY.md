@@ -143,7 +143,7 @@ Thẻ dùng chung (`include/vcl/tabs.hrc`) đổi một chỗ là đổi ở m�
 4. **Layout** (thẻ ribbon): Writer/Impress "Bố trí", Calc "Bố cục". Chọn một.
 5. **Home**: một số thanh Impress còn "Trang chủ" thay vì "Trang đầu".
 6. **File**: menu "Tập tin" trong khi tài liệu HST và hướng dẫn hay viết "tệp". Có đổi menu sang "Tệp" không?
-7. **Chart**: hộp thoại biểu đồ đã thống nhất "Biểu đồ"; menu Chèn còn "Đồ thị" (đổi menu phải dời phím truy cập).
+7. **Chart**: đã thống nhất "Biểu đồ" ở mọi `.po` có tiếng Anh là Chart, cả menu Chèn (`Biể~u đồ...`) và ribbon. "Đồ thị" chỉ còn cho nghĩa khác (đồ thị của hàm, bản đồ ảnh dịch cũ).
 8. **Selection / Master / Copy / Alignment**: `term-report.py` liệt kê ~400 khác biệt trong lớp AI, phần lớn là biến thể chấp nhận được ("Lựa chọn"/"Vùng chọn", "Trang chiếu mẫu"/"Trang cái", "Căn"/"Canh"). Cần người bản ngữ chốt từng cặp.
 9. Văn phong chung các hộp thoại Định dạng ô, Đoạn văn, Tìm và thay thế, In: chưa đọc lại toàn bộ bằng mắt người.
 
