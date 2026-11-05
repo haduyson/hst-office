@@ -11,7 +11,9 @@ Keys are sent with xdotool to the document window and the effect is read back ov
           Ctrl+M / Ctrl+Shift+M indent, Ctrl+T hanging indent, Ctrl+Shift+L bullets,
           Ctrl+Shift+> / < font size, Ctrl+= / Ctrl+Shift+= sub/superscript, Ctrl+Space clears
           character formatting, Ctrl+Shift+D double underline, Alt+Shift+D date field,
-          Ctrl+Shift+V paste text only, Ctrl+D Font dialog, F12 Save As dialog
+          Ctrl+Shift+V paste text only, Ctrl+Alt+C / Ctrl+Alt+V copy and paste formatting, Ctrl+Q removes
+          paragraph formatting and does not quit, Ctrl+Alt+M comment, Ctrl+Alt+Shift+V Paste Special,
+          Ctrl+D Font dialog, F12 Save As dialog
   Sheets  Alt+= AutoSum, Ctrl+R fill right, Ctrl+Shift+! $ % # @ ^ ~ number formats, Alt+Enter new
           line in the cell, Ctrl+Enter fills the selection, Shift+F11 new sheet, Ctrl+T table dialog
   Slides  Ctrl+M new slide, Ctrl+D / Ctrl+Shift+D duplicate slide, Ctrl+G group, Ctrl+Shift+G

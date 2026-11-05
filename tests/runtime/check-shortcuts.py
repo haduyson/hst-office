@@ -14,7 +14,7 @@ the test display has no window manager) and the effect is read back over UNO:
           Ctrl+N new document tab, Ctrl+Alt+, / Ctrl+Alt+. previous/next tab, Ctrl+W close tab
   Calc    Ctrl+B bold cell, Ctrl+1 Format Cells dialog, Ctrl+Z undo
   Impress F5 starts the slide show, Escape ends it
-  all     Ctrl+Q quits (unmodified documents, no prompt)
+  Sheets  Ctrl+Q quits (unmodified documents, no prompt); in Writer it removes paragraph formatting
 
 Alt+F4 and the title-bar X are window-manager actions and are not covered here
 (check-document-tabs.py sends the close request directly). Exit 1 when any check fails.
@@ -112,7 +112,8 @@ def run(args, lang):
             calc_checks(office, keys, tag)
             impress_checks(office, keys, tag)
         office.screenshot(os.path.join(os.path.abspath(args.out), f"{tag}-final.png"))
-        # Ctrl+Q with every document unmodified: no prompt, the process ends.
+        # Ctrl+Q in Sheets with every document unmodified: no prompt, the process ends.
+        office.load("private:factory/scalc")
         for comp in office.desktop().getComponents():
             try:
                 comp.setModified(False)

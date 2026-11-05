@@ -9,6 +9,7 @@ Giữ nguyên các phím riêng của HST: `Shift+Esc` / macOS `Option+Cmd+K` (T
 - Cài đặt: `patches/libreoffice/hst-msoffice-shortcuts.patch` (officecfg `Accelerators.xcu`,
   phím riêng cho macOS bằng `install:module="macosx"`, phím chỉ Windows/Linux bằng
   `install:module="unxwnt"`; Alt+Enter/Ctrl+Enter của Sheets sửa trong `sc`).
+  Lệnh mới và phím của chúng: `patches/libreoffice/hst-msoffice-format-keys.patch` (Writer).
 - Nguồn tham chiếu duy nhất: trang phím tắt Microsoft (đọc 2026-11-04):
   [Word](https://support.microsoft.com/en-us/office/keyboard-shortcuts-in-word-95ef89dd-7142-4b50-afb2-f762f663ceb2),
   [Excel](https://support.microsoft.com/en-us/office/keyboard-shortcuts-in-excel-1798d9d5-842a-42b8-9c99-9b7213f0040f),
@@ -42,14 +43,16 @@ nhưng lệnh HST làm khác một chút), **thiếu** (HST chưa có lệnh tư
 | Kiểu Normal | Ctrl+Shift+N | Cmd+Shift+N | Mẫu mới (Templates) | Kiểu đoạn mặc định | đổi | **Tạo từ mẫu** trong Writer còn ở Tập tin ▸ Mới ▸ Mẫu (Ctrl+Shift+N vẫn là Mẫu trong Sheets) |
 | Tiêu đề 1 / 2 / 3 | Ctrl+Alt+1 / 2 / 3 | Cmd+Option+1 / 2 / 3 | không có | Tiêu đề 1 / 2 / 3 | đổi | |
 | Ngắt trang | Ctrl+Enter | Cmd+Return | Ngắt trang | không đổi | khớp | |
-| Sao chép / dán định dạng | Ctrl+Alt+C / Ctrl+Alt+V (yêu cầu ghi Ctrl+Shift+C/V) | Cmd+Option+C / V | Ctrl+Alt+C = Chèn chú thích | không đổi | thiếu | HST chỉ có cọ "Sao chép định dạng" (một lần nhấp), chưa có lệnh chép/dán định dạng riêng |
-| Dán chỉ văn bản | Ctrl+Shift+V | — | Dán đặc biệt | Dán văn bản không định dạng | đổi | **Dán đặc biệt** chuyển sang Ctrl+Alt+V (phím Dán đặc biệt của Word các bản trước) |
+| Sao chép / dán định dạng | Ctrl+Alt+C / Ctrl+Alt+V | Cmd+Option+C / V | Ctrl+Alt+C = Chèn chú thích; Ctrl+Alt+V = Dán đặc biệt | Sao chép / dán định dạng văn bản | đổi | Định dạng ký tự và đoạn, cùng cơ chế với cọ "Sao chép định dạng" nhưng không vào chế độ chuột; bản chép giữ tới lần chép sau; chỉ chọn một phần đoạn thì chỉ dán định dạng ký tự. Chưa dán được sang tài liệu khác. **Chèn chú thích** và **Dán đặc biệt**: hai dòng dưới |
+| Chèn chú thích | Ctrl+Alt+M | Cmd+Option+A | Ctrl+Alt+C | Ctrl+Alt+M; macOS Cmd+Option+A | đổi | Sheets, Slides vẫn Ctrl+Alt+C (Excel, PowerPoint không dùng phím này cho định dạng) |
+| Dán đặc biệt | trang Word không ghi phím | Cmd+Control+V | Ctrl+Alt+V | Ctrl+Alt+Shift+V; macOS Cmd+Control+V | đổi | Trang Word cho Windows dành Ctrl+Alt+V cho dán định dạng. HST dùng Ctrl+Alt+Shift+V (trước đó trùng Ctrl+Shift+V), và còn trên ribbon, menu Sửa. Excel, PowerPoint vẫn Ctrl+Alt+V nên Sheets, Slides không đổi |
+| Dán chỉ văn bản | Ctrl+Shift+V | Cmd+Shift+V | Dán đặc biệt | Dán văn bản không định dạng | đổi | **Dán đặc biệt**: xem dòng trên |
 | Lặp lại thao tác | F4 | Cmd+Y | Thuộc tính hình ảnh | Lặp lại | đổi | **Thuộc tính hình ảnh** còn ở menu chuột phải / nhấp đúp vào hình |
 | Chính tả và ngữ pháp | F7 | Cmd+Option+L hoặc F7 | F7; macOS Cmd+Shift+; | thêm macOS Cmd+Option+L | khớp / đổi (macOS) | |
 | Lưu thành | F12 | Cmd+Shift+S | Đánh số (bật/tắt) | Lưu thành… (Win/Linux) | đổi | **Bật/tắt đánh số** còn trên ribbon/menu Định dạng; macOS F12 giữ Đánh số |
 | Đổi chữ hoa/thường | Shift+F3 | Shift+F3 | Xoay vòng kiểu chữ | không đổi | khớp | |
 | Xóa định dạng ký tự | Ctrl+Space | — | không có | Xóa định dạng trực tiếp (Win/Linux) | một phần | HST xóa cả định dạng đoạn trực tiếp; Ctrl+Space có thể bị bộ gõ (IBus/Fcitx) dùng để đổi bộ gõ trên Linux |
-| Xóa định dạng đoạn | Ctrl+Q | — | Thoát | không đổi | thiếu | HST chưa có lệnh chỉ xóa định dạng đoạn; Ctrl+Q vẫn là Thoát |
+| Xóa định dạng đoạn | Ctrl+Q | — | Thoát | Loại bỏ định dạng đoạn văn (Win/Linux) | đổi | Chỉ xóa định dạng đoạn trực tiếp, giữ định dạng ký tự, ngắt trang và kiểu trang. **Thoát** trong Writer dùng Alt+F4 hoặc menu Tập tin; macOS Cmd+Q vẫn là Thoát, trang Word cho Mac không ghi phím xóa định dạng đoạn nên macOS không có phím |
 | Chỉ số trên | Ctrl+Shift+= (+) | Cmd+Shift+= | Ctrl+Shift+P | Chỉ số trên (thêm) | đổi | Ctrl+Shift+P vẫn dùng được |
 | Chỉ số dưới | Ctrl+= | Cmd+= | Ctrl+Shift+B | Chỉ số dưới (thêm) | đổi | Ctrl+Shift+B vẫn dùng được. Trang Word hiện ghi chỉ số dưới là Ctrl+Shift+Minus; HST giữ Ctrl+Shift+- là gạch nối không ngắt |
 | Chèn trường ngày / giờ | Alt+Shift+D / T | Control+Shift+D / T | không có | Ngày / Giờ (thay đổi được) | đổi | |
@@ -104,14 +107,16 @@ nhưng lệnh HST làm khác một chút), **thiếu** (HST chưa có lệnh tư
 
 | | Khớp | Đổi | Một phần | Thiếu |
 |---|---|---|---|---|
-| Writer ↔ Word (29 dòng) | 9 | 16 | 2 | 2 |
+| Writer ↔ Word (31 dòng) | 9 | 20 | 2 | 0 |
 | Sheets ↔ Excel (25 dòng) | 15 | 9 | 1 | 0 |
 | Slides ↔ PowerPoint (8 dòng) | 3 | 4 | 1 | 0 |
-| **Tổng (62 dòng)** | **27** | **29** | **4** | **2** |
+| **Tổng (64 dòng)** | **27** | **33** | **4** | **0** |
 
-Dòng "khớp / đổi (macOS)" tính là khớp. Phần "thiếu" là lệnh Microsoft mà HST chưa có (không
-phải phím chưa gắn): chép/dán định dạng và xóa riêng định dạng đoạn (Ctrl+Q). Ngoài ra trong
-Sheets, F4 khi không sửa ô chưa lặp lại thao tác (ghi ở dòng F4).
+Dòng "khớp / đổi (macOS)" tính là khớp. Hiện không còn lệnh Microsoft nào trong các bảng trên mà HST
+chưa có; trong Sheets, F4 khi không sửa ô chưa lặp lại thao tác (ghi ở dòng F4).
+
+`Ctrl+Q` trong Sheets và Slides vẫn là Thoát: PowerPoint cũng vậy; Excel dùng phím này mở Phân tích nhanh
+(Quick Analysis), HST chưa có tính năng đó.
 
 ## Phím LibreOffice bị thay
 
@@ -124,7 +129,10 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Writer | Ctrl+1 / Ctrl+2 | Tiêu đề 1 / 2 | Ctrl+Alt+1 / 2 |
 | Writer | Ctrl+5 | Tiêu đề 5 | danh sách kiểu |
 | Writer | Ctrl+Shift+N | Mẫu mới (Templates) | Tập tin ▸ Mới ▸ Mẫu |
-| Writer | Ctrl+Shift+V | Dán đặc biệt | Ctrl+Alt+V |
+| Writer | Ctrl+Shift+V, rồi Ctrl+Alt+V | Dán đặc biệt | Ctrl+Alt+Shift+V (macOS Cmd+Control+V), ribbon, menu Sửa |
+| Writer | Ctrl+Alt+C | Chèn chú thích | Ctrl+Alt+M (macOS Cmd+Option+A), ribbon, menu Chèn |
+| Writer | Ctrl+Alt+Shift+V (Win/Linux) | Dán không định dạng | Ctrl+Shift+V |
+| Writer | Ctrl+Q (Win/Linux) | Thoát | Alt+F4, Tập tin ▸ Thoát |
 | Writer | F4 | Thuộc tính hình ảnh | menu chuột phải |
 | Writer | F12 (Win/Linux) | Bật/tắt đánh số | ribbon, Định dạng ▸ Dấu đầu dòng và đánh số |
 | Writer | Ctrl+M (Win/Linux) | Xóa định dạng trực tiếp | Ctrl+Space |
@@ -145,6 +153,8 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 
 ## Chưa xác minh
 
+- Alt+F4 đi qua trình quản lý cửa sổ / Windows nên máy kiểm tra (Xvfb, không có trình quản lý cửa sổ) không thử được.
+  Slides chưa có Ctrl+Shift+C/V của PowerPoint (sao chép / dán định dạng đối tượng); `Ctrl+Alt+C/V` chỉ có ở Writer.
 - macOS: mọi phím `install:module="macosx"` và phím ký hiệu (`Cmd+Shift+>`, `Control+Shift+#`,
   `Control+Shift+~`) chưa thử trên máy Mac; Option+Return trong Sheets đi qua cùng mã như Alt+Enter.
 - Windows: phím ký hiệu (`Ctrl+Shift+>`/`<`, `Ctrl+Shift+#`/`~`, `Ctrl+Shift+=`, `Ctrl+Shift+:`)

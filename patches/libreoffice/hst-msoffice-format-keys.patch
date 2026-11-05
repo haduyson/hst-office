@@ -1,0 +1,356 @@
+HST Office: Word's copy and paste formatting keys, and Ctrl+Q removes paragraph formatting in Writer.
+
+- .uno:HstCopyFormat, .uno:HstPasteFormat (Ctrl+Alt+C, Ctrl+Alt+V; macOS Cmd+Option+C, Cmd+Option+V): the character and
+  paragraph formats of the format paintbrush's SwFormatClipboard, without its mouse mode. What the keys copied lives in its
+  own instance, so the paintbrush's button and toggle are unaffected, and stays until the next copy.
+- .uno:HstResetParagraph (Ctrl+Q on Windows and Linux): the paragraph part of Clear Direct Formatting, keeping page breaks.
+  Quit stays on Alt+F4 and in the menu there, on Cmd+Q on macOS. Sheets and Slides keep Ctrl+Q.
+- Keys these replace: Insert Comment moves to Ctrl+Alt+M (macOS Cmd+Option+A), Word's keys. Paste Special has no published
+  Word key on Windows: Ctrl+Alt+Shift+V, which only repeated Ctrl+Shift+V; macOS Cmd+Control+V, Word's key.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-msoffice-shortcuts.py, docs/SHORTCUTS-MSOFFICE.md.
+---
+--- a/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
+@@ -6349,10 +6349,40 @@
+             <value xml:lang="en-US" install:module="macosx">.uno:InsertTimeFieldVar</value>
+           </prop>
+         </node>
++        <node oor:name="C_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:HstCopyFormat</value>
++          </prop>
++        </node>
+         <node oor:name="V_MOD1_MOD2" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:PasteSpecial</value>
++            <value xml:lang="en-US">.uno:HstPasteFormat</value>
++          </prop>
++        </node>
++        <node oor:name="Q_MOD1" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:HstResetParagraph</value>
++          </prop>
++        </node>
++        <node oor:name="M_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:InsertAnnotation</value>
++          </prop>
++        </node>
++        <node oor:name="A_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:InsertAnnotation</value>
++          </prop>
++        </node>
++        <node oor:name="V_MOD1_MOD3" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:PasteSpecial</value>
+           </prop>
+         </node>
+         <node oor:name="G_MOD1_MOD2" oor:op="replace">
+@@ -7321,7 +7351,8 @@
+         <node oor:name="V_SHIFT_MOD1_MOD2" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:PasteUnformatted</value>
++            <value xml:lang="en-US" install:module="unxwnt">.uno:PasteSpecial</value>
++            <value xml:lang="en-US" install:module="macosx">.uno:PasteUnformatted</value>
+           </prop>
+         </node>
+         <node oor:name="V_SHIFT_MOD1" oor:op="replace">
+--- a/officecfg/registry/data/org/openoffice/Office/UI/WriterCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/WriterCommands.xcu
+@@ -1665,6 +1665,30 @@
+           <value xml:lang="en-US">~Footnote/Endnote Settings...</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstCopyFormat" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Copy Text Formatting</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstPasteFormat" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Paste Text Formatting</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstResetParagraph" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Remove Paragraph Formatting</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:ResetAttributes" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Clear</value>
+--- a/sw/inc/cmdid.h
++++ b/sw/inc/cmdid.h
+@@ -961,6 +961,11 @@
+ #define         MID_12          0xf9
+ #define         MID_13          0xfa
+ 
++// HST: Word's Ctrl+Alt+C, Ctrl+Alt+V and Ctrl+Q
++#define FN_HST_COPY_FORMAT          (FN_FORMAT + 14)
++#define FN_HST_PASTE_FORMAT         (FN_FORMAT + 15)
++#define FN_HST_RESET_PARAGRAPH      (FN_FORMAT + 16)
++
+ #endif // INCLUDED_SW_INC_CMDID_H
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/sdi/_textsh.sdi
++++ b/sw/sdi/_textsh.sdi
+@@ -792,6 +792,12 @@
+         StateMethod = NoState ;
+         DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
+     ]
++    FN_HST_RESET_PARAGRAPH
++    [
++        ExecMethod = Execute ;
++        StateMethod = NoState ;
++        DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
++    ]
+     FN_GOTO_REFERENCE // status(final|play)
+     [
+         ExecMethod = Execute ;
+--- a/sw/sdi/_viewsh.sdi
++++ b/sw/sdi/_viewsh.sdi
+@@ -74,6 +74,17 @@
+         StateMethod = StateFormatPaintbrush ;
+         DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
+     ]
++    FN_HST_COPY_FORMAT
++    [
++        ExecMethod = ExecFormatPaintbrush ;
++        StateMethod = NoState ;
++    ]
++    FN_HST_PASTE_FORMAT
++    [
++        ExecMethod = ExecFormatPaintbrush ;
++        StateMethod = NoState ;
++        DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
++    ]
+     SID_CLEARHISTORY // status(final|play)
+     [
+         ExecMethod = Execute ;
+--- a/sw/sdi/swriter.sdi
++++ b/sw/sdi/swriter.sdi
+@@ -5470,6 +5470,57 @@
+     GroupId = SfxGroupId::Format;
+ ]
+ 
++SfxVoidItem HstCopyFormat FN_HST_COPY_FORMAT
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = TRUE,
++    ReadOnlyDoc = TRUE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
++SfxVoidItem HstPasteFormat FN_HST_PASTE_FORMAT
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = TRUE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
++SfxVoidItem HstResetParagraph FN_HST_RESET_PARAGRAPH
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = TRUE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
+ SfxVoidItem ResetTableProtection FN_TABLE_UNSET_READ_ONLY
+ ()
+ [
+--- a/sw/source/uibase/inc/formatclipboard.hxx
++++ b/sw/source/uibase/inc/formatclipboard.hxx
+@@ -68,7 +68,15 @@
+      */
+     void Erase();
+ 
++    /**
++     * What the keys (Ctrl+Alt+C) copied: same data, kept apart from this clipboard, whose content
++     * means the paintbrush is active. It stays until the next copy, like Word's.
++     */
++    SwFormatClipboard& KeyCopy();
++
+ private:
++    std::unique_ptr<SwFormatClipboard> m_pKeyCopy;
++
+     SelectionType m_nSelectionType;
+ 
+     /** automatic/named character attribute set */
+--- a/sw/source/uibase/shells/textsh1.cxx
++++ b/sw/source/uibase/shells/textsh1.cxx
+@@ -1286,6 +1286,42 @@
+             rReq.Done();
+             break;
+         }
++        case FN_HST_RESET_PARAGRAPH:
++        {
++            // Word's Ctrl+Q: the paragraph part of FN_FORMAT_RESET. Page breaks and page styles
++            // stay: they place the paragraph and can carry a section's page setup.
++            MakeAllOutlineContentTemporarilyVisible a(rWrtSh.GetDoc());
++            o3tl::sorted_vector<sal_uInt16> aAttribs;
++            static constexpr std::pair<sal_uInt16, sal_uInt16> aParagraphRange[] = {
++                { RES_FRMATR_BEGIN, RES_FRAMEDIR - 1 },
++                { RES_FRAMEDIR + 1, RES_FRMATR_END - 1 },
++                { RES_PARATR_BEGIN, RES_PARATR_END - 1 },
++            };
++            for (const auto& [nBegin, nEnd] : aParagraphRange)
++            {
++                for (sal_uInt16 i = nBegin; i <= nEnd; ++i)
++                    aAttribs.insert(i);
++            }
++            aAttribs.erase(RES_PAGEDESC);
++            aAttribs.erase(RES_BREAK);
++
++            // Whole paragraphs, however little is selected: ResetAttrs touches paragraph attributes
++            // only of paragraphs it covers from start to end, and a word's range would not do.
++            rWrtSh.StartAllAction();
++            rWrtSh.StartUndo(SwUndoId::RESETATTR);
++            for (const SwPaM& rCursor : rWrtSh.GetCursor()->GetRingContainer())
++            {
++                const auto [pStart, pEnd] = rCursor.StartEnd();
++                SwPaM aParagraphs(*pEnd, *pStart);
++                aParagraphs.GetPoint()->SetContent(0);
++                aParagraphs.GetMark()->SetContent(aParagraphs.GetMark()->GetNode().GetContentNode()->Len());
++                rWrtSh.GetDoc()->ResetAttrs(aParagraphs, false, aAttribs, true, rWrtSh.GetLayout());
++            }
++            rWrtSh.EndUndo(SwUndoId::RESETATTR);
++            rWrtSh.EndAllAction();
++            rReq.Done();
++            break;
++        }
+         case FN_INSERT_BREAK_DLG:
+         {
+             if ( pItem )
+--- a/sw/source/uibase/uiview/formatclipboard.cxx
++++ b/sw/source/uibase/uiview/formatclipboard.cxx
+@@ -602,6 +602,13 @@
+         Erase();
+ }
+ 
++SwFormatClipboard& SwFormatClipboard::KeyCopy()
++{
++    if (!m_pKeyCopy)
++        m_pKeyCopy.reset(new SwFormatClipboard);
++    return *m_pKeyCopy;
++}
++
+ void SwFormatClipboard::Erase()
+ {
+     m_nSelectionType = SelectionType::NONE;
+--- a/sw/source/uibase/uiview/view1.cxx
++++ b/sw/source/uibase/uiview/view1.cxx
+@@ -160,6 +160,26 @@
+     if(!m_pFormatClipboard)
+         return;
+ 
++    // Word's Ctrl+Alt+C and Ctrl+Alt+V: the paintbrush's formats, without its mouse mode.
++    if (rReq.GetSlot() == FN_HST_COPY_FORMAT)
++    {
++        SwWrtShell& rShell = GetWrtShell();
++        if (SwFormatClipboard::CanCopyThisType(rShell.GetSelectionType()))
++        {
++            m_pFormatClipboard->KeyCopy().Erase();
++            m_pFormatClipboard->KeyCopy().Copy(rShell, GetPool(), true);
++        }
++        return;
++    }
++    if (rReq.GetSlot() == FN_HST_PASTE_FORMAT)
++    {
++        SwWrtShell& rShell = GetWrtShell();
++        // As a paintbrush click: paragraph formats too, unless only part of a paragraph is selected.
++        const bool bNoParagraphFormats = rShell.HasSelection() && rShell.IsSelOnePara() && !rShell.IsSelFullPara();
++        m_pFormatClipboard->KeyCopy().Paste(rShell, GetDocShell()->GetStyleSheetPool(), false, bNoParagraphFormats);
++        return;
++    }
++
+     if( m_pFormatClipboard->HasContent() )
+     {
+         m_pFormatClipboard->Erase();
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -34901,6 +34901,36 @@
+ msgid "~Footnote/Endnote Settings..."
+ msgstr ""
+ 
++#. hstFC
++#: WriterCommands.xcu
++msgctxt ""
++"WriterCommands.xcu\n"
++"..WriterCommands.UserInterface.Commands..uno:HstCopyFormat\n"
++"Label\n"
++"value.text"
++msgid "Copy Text Formatting"
++msgstr "Sao chép định dạng văn bản"
++
++#. hstFP
++#: WriterCommands.xcu
++msgctxt ""
++"WriterCommands.xcu\n"
++"..WriterCommands.UserInterface.Commands..uno:HstPasteFormat\n"
++"Label\n"
++"value.text"
++msgid "Paste Text Formatting"
++msgstr "Dán định dạng văn bản"
++
++#. hstRP
++#: WriterCommands.xcu
++msgctxt ""
++"WriterCommands.xcu\n"
++"..WriterCommands.UserInterface.Commands..uno:HstResetParagraph\n"
++"Label\n"
++"value.text"
++msgid "Remove Paragraph Formatting"
++msgstr "Loại bỏ định dạng đoạn văn"
++
+ #. ZPvDo
+ #: WriterCommands.xcu
+ msgctxt ""

@@ -1,29 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """HST Writer part of check-msoffice-shortcuts.py: the Microsoft Word keys and their effect."""
+from msoffice_keys_format import format_keys
+from msoffice_keys_helpers import dialog_check, iterate as _iterate, text_field_count as _count
 from shortcut_keys import check, wait
-
-
-def dialog_check(office, keys, combo, name):
-    found = keys.dialog_after(combo)
-    check(f"{name} ({combo} opens a dialog)", found is not None)
-    if found:
-        print(f"      dialog title: {found[1]!r}")
-        keys.close_dialog(found[0])
-    office.raise_windows()
-
-
-def _iterate(text):
-    enum = text.createEnumeration()
-    while enum.hasMoreElements():
-        yield enum.nextElement()
-
-
-def _count(fields):
-    enum, n = fields.createEnumeration(), 0
-    while enum.hasMoreElements():
-        enum.nextElement()
-        n += 1
-    return n
 
 
 def writer_checks(office, keys):
@@ -36,6 +15,7 @@ def writer_checks(office, keys):
     text.insertString(cur, "Đoạn hai", False)
     wait(lambda: keys.doc_window() is not None, 20)
     office.raise_windows()
+    keys.send("ctrl+Home")  # the first key after the window appears can be lost
     ctrl = doc.getCurrentController()
     paras = lambda: list(_iterate(text))  # noqa: E731
     p1 = lambda: paras()[0]  # noqa: E731
@@ -114,6 +94,8 @@ def writer_checks(office, keys):
     fields_before = _count(doc.getTextFields())
     keys.send("alt+shift+d")
     check("Writer Alt+Shift+D inserts a date field", wait(lambda: _count(doc.getTextFields()) > fields_before, 5))
+
+    format_keys(office, keys, doc)
 
     dialog_check(office, keys, "ctrl+d", "Writer Ctrl+D Font dialog")
     dialog_check(office, keys, "F12", "Writer F12 Save As dialog")
