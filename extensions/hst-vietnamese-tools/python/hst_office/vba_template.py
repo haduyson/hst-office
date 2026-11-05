@@ -92,7 +92,7 @@ def same_text(a, b):
 
 
 # Dialog elements (xmlscript) of the controls HST can write into Excel and Word VBA projects.
-_FORM_CONTROLS = {"button", "text", "textfield", "checkbox", "radio", "radiogroup", "combobox", "menulist", "titledbox", "frame",
+_FORM_CONTROLS = {"button", "text", "textfield", "checkbox", "radio", "radiogroup", "combobox", "menulist", "titledbox", "frame", "frame",
                   "spinbutton", "scrollbar", "bulletinboard", "title", "menupopup", "menuitem", "styles", "style",
                   "window", "event", "listener-event"}
 
@@ -113,6 +113,14 @@ def unwritable_form_content(dialog_xml):
         elif tag in ("combobox", "menulist") and element.find(dialog_ns + "menupopup") is not None:
             list_items.append(control)
     return unwritable, list_items
+
+
+def bound_form_controls(dialog_xml):
+    """Controls bound to cells (ControlSource, RowSource of an Excel form): the export does not write these."""
+    import xml.etree.ElementTree as ET
+    dialog_ns = "{http://openoffice.org/2000/dialog}"
+    return [element.get(dialog_ns + "id") for element in ET.fromstring(dialog_xml).iter()
+            if element.get(dialog_ns + "linked-cell") or element.get(dialog_ns + "source-cell-range")]
 
 
 def is_excel_filter(name):

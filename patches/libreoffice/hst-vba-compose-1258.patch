@@ -1,0 +1,89 @@
+HST Office: Vietnamese text read from Windows-1258 VBA sources is composed (NFC).
+
+Windows-1258 stores most Vietnamese letters as a base letter and a combining mark, and the import
+kept them so: `If x = "Việt"` did not match the same text from a cell or a control. Module source and
+form captions from that code page are now composed on import. Saving converts back to the code page,
+so the bytes in the file do not change. Other code pages are not touched.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba-forms.py.
+---
+--- a/oox/Library_oox.mk
++++ b/oox/Library_oox.mk
+@@ -64,6 +64,8 @@
+ ))
+ 
+ $(eval $(call gb_Library_use_externals,oox,\
++    icu_headers \
++    icuuc \
+ 	boost_headers \
+ 	frozen \
+ ))
+--- a/include/oox/ole/vbahelper.hxx
++++ b/include/oox/ole/vbahelper.hxx
+@@ -54,6 +54,11 @@
+ /** Static helper functions for the VBA filters. */
+ namespace VbaHelper
+ {
++    /** HST: rText in composed form (NFC) when it was read from Windows-1258, which stores Vietnamese
++        letters with combining marks: `If x = "Việt"` must match text typed or read elsewhere.
++        Other code pages have no such sequences and are returned unchanged. */
++    OUString     composeSourceText( const OUString& rText, rtl_TextEncoding eTextEnc );
++
+     /** Reads the next record from the VBA directory stream 'dir'.
+ 
+         @param rnRecId  (out parameter) The record identifier of the new record.
+--- a/oox/source/ole/vbahelper.cxx
++++ b/oox/source/ole/vbahelper.cxx
+@@ -18,12 +18,29 @@
+  */
+ 
+ #include <oox/ole/vbahelper.hxx>
++#include <unicode/normalizer2.h>
++#include <unicode/unistr.h>
+ #include <osl/diagnose.h>
+ #include <o3tl/string_view.hxx>
+ #include <oox/helper/binaryinputstream.hxx>
+ 
+ namespace oox::ole {
+ 
++OUString VbaHelper::composeSourceText( const OUString& rText, rtl_TextEncoding eTextEnc )
++{
++    if( eTextEnc != RTL_TEXTENCODING_MS_1258 )
++        return rText;
++    UErrorCode nError = U_ZERO_ERROR;
++    const icu::Normalizer2* pNormalizer = icu::Normalizer2::getNFCInstance( nError );
++    if( U_FAILURE( nError ) || !pNormalizer )
++        return rText;
++    const icu::UnicodeString aSource( reinterpret_cast< const UChar* >( rText.getStr() ), rText.getLength() );
++    const icu::UnicodeString aResult = pNormalizer->normalize( aSource, nError );
++    if( U_FAILURE( nError ) )
++        return rText;
++    return OUString( reinterpret_cast< const sal_Unicode* >( aResult.getBuffer() ), aResult.length() );
++}
++
+ bool VbaHelper::readDirRecord( sal_uInt16& rnRecId, StreamDataSequence& rRecData, BinaryInputStream& rInStrm )
+ {
+     // read the record header
+--- a/oox/source/ole/vbamodule.cxx
++++ b/oox/source/ole/vbamodule.cxx
+@@ -183,7 +183,7 @@
+ 
+             while( !aVbaTextStrm.isEof() )
+             {
+-                OUString aCodeLine = aVbaTextStrm.readLine();
++                OUString aCodeLine = VbaHelper::composeSourceText( aVbaTextStrm.readLine(), meTextEnc );
+                 if( aCodeLine.match( "Attribute " ) )
+                 {
+                     // attribute
+--- a/oox/source/ole/vbacontrol.cxx
++++ b/oox/source/ole/vbacontrol.cxx
+@@ -832,7 +832,7 @@
+     bool bExitLoop = false;
+     while( !bExitLoop && !aFrameTextStrm.isEof() )
+     {
+-        aLine = aFrameTextStrm.readLine().trim();
++        aLine = VbaHelper::composeSourceText( aFrameTextStrm.readLine(), eTextEnc ).trim();
+         bExitLoop = aLine.equalsIgnoreAsciiCase( "End" );
+         if( !bExitLoop && VbaHelper::extractKeyValue( aKey, aValue, aLine ) )
+         {

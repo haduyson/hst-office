@@ -1,0 +1,125 @@
+HST Office: form macros run after reopening .ods and .odt.
+
+Calc stored the VBA mode in the document settings but not the project name, as Writer does. After
+reopening, the name was empty, UserForm1.Show asked for the dialog ".UserForm1" and failed with a
+Basic error, and VBA export could not find the project. The name is now stored as VBAProjectName;
+files saved before use a library named VBAProject.
+
+A library loaded on demand had a second problem, seen in .odt: loading replaces placeholder elements,
+and BasMgrContainerListenerImpl::elementReplaced() made the missing module without its module info.
+A form module became a plain module, and UserForm1.Caption failed with "property or method not found".
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba-form-events.py.
+---
+--- a/basic/source/basmgr/basmgr.cxx
++++ b/basic/source/basmgr/basmgr.cxx
+@@ -262,7 +262,17 @@
+     if( pMod )
+             pMod->SetSource( aMod );
+     else
++    {
++        // HST: loading a library replaces its placeholder elements, and a form module made without
++        // its module info is a plain module, so UserForm1 had no form. Only forms change here:
++        // other module types of a library loaded this way stay as they were.
++        uno::Reference< vba::XVBAModuleInfo > xVBAModuleInfo( Event.Source, uno::UNO_QUERY );
++        if ( xVBAModuleInfo.is() && xVBAModuleInfo->hasModuleInfo( aName )
++             && xVBAModuleInfo->getModuleInfo( aName ).ModuleType == ModuleType::FORM )
++            pLib->MakeModule( aName, xVBAModuleInfo->getModuleInfo( aName ), aMod );
++        else
+             pLib->MakeModule( aName, aMod );
++    }
+ 
+     pLib->SetModified( false );
+ }
+--- a/sc/source/filter/xml/xmlexprt.cxx
++++ b/sc/source/filter/xml/xmlexprt.cxx
+@@ -126,6 +126,7 @@
+ 
+ #include <comphelper/processfactory.hxx>
+ #include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/script/vba/XVBACompatibility.hpp>
+ #include <com/sun/star/container/XNamed.hpp>
+ #include <com/sun/star/drawing/XDrawPageSupplier.hpp>
+ #include <com/sun/star/form/XFormsSupplier2.hpp>
+@@ -5375,6 +5376,7 @@
+     }
+ 
+     bool bVBACompat = false;
++    OUString aVBAProjectName;
+     rtl::Reference<XMLCodeNameProvider> xCodeNameAccess;
+     OSL_ENSURE( pDoc, "ScXMLExport::GetConfigurationSettings - no ScDocument!" );
+     // tdf#71271 - add code names regardless of VBA compatibility mode
+@@ -5383,6 +5385,22 @@
+         // VBA compatibility mode
+         if (bVBACompat = pDoc->IsInVBAMode(); bVBACompat)
+             ++nPropsToAdd;
++        // HST: the VBA project name: form macros and VBA export find the project by it
++        if (bVBACompat)
++        {
++            try
++            {
++                uno::Reference<beans::XPropertySet> xModelProps(GetModel(), uno::UNO_QUERY_THROW);
++                uno::Reference<script::vba::XVBACompatibility> xVBA(
++                    xModelProps->getPropertyValue(u"BasicLibraries"_ustr), uno::UNO_QUERY_THROW);
++                aVBAProjectName = xVBA->getProjectName();
++            }
++            catch (const uno::Exception&)
++            {
++            }
++            if (!aVBAProjectName.isEmpty())
++                ++nPropsToAdd;
++        }
+ 
+         // code names
+         xCodeNameAccess = new XMLCodeNameProvider( pDoc );
+@@ -5410,6 +5428,12 @@
+         pProps[nCount].Value <<= bVBACompat;
+         ++nCount;
+     }
++    if( !aVBAProjectName.isEmpty() )
++    {
++        pProps[nCount].Name = "VBAProjectName";
++        pProps[nCount].Value <<= aVBAProjectName;
++        ++nCount;
++    }
+     if( xCodeNameAccess.is() )
+     {
+         pProps[nCount].Name = "ScriptConfiguration";
+--- a/sc/source/filter/xml/xmlimprt.cxx
++++ b/sc/source/filter/xml/xmlimprt.cxx
+@@ -770,7 +770,7 @@
+             }
+         }
+         // store the following items for later use (after document is loaded)
+-        else if ((aConfigProps[i].Name == "VBACompatibilityMode") || (aConfigProps[i].Name == "ScriptConfiguration"))
++        else if ((aConfigProps[i].Name == "VBACompatibilityMode") || (aConfigProps[i].Name == "VBAProjectName") || (aConfigProps[i].Name == "ScriptConfiguration"))
+         {
+             uno::Reference< beans::XPropertySet > xImportInfo = getImportInfo();
+             if (xImportInfo.is())
+--- a/sc/source/filter/xml/xmlwrap.cxx
++++ b/sc/source/filter/xml/xmlwrap.cxx
+@@ -305,6 +305,7 @@
+         { u"StreamName"_ustr, 0, ::cppu::UnoType<OUString>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
+         { u"BuildId"_ustr, 0, ::cppu::UnoType<OUString>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
+         { u"VBACompatibilityMode"_ustr, 0, cppu::UnoType<bool>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
++        { u"VBAProjectName"_ustr, 0, ::cppu::UnoType<OUString>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
+         { u"ScriptConfiguration"_ustr, 0, cppu::UnoType<container::XNameAccess>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0},
+         { u"OrganizerMode"_ustr, 0, cppu::UnoType<bool>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
+         { u"SourceStorage"_ustr, 0, cppu::UnoType<embed::XStorage>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
+@@ -567,6 +568,15 @@
+             {
+                 uno::Reference< script::vba::XVBACompatibility > xVBACompat( xModelSet->getPropertyValue(
+                     u"BasicLibraries"_ustr ), uno::UNO_QUERY_THROW );
++                // HST: before the mode, which enables the library named like the project. Files
++                // saved before this setting existed: Excel's and HST's default project name.
++                OUString aProjectName;
++                xInfoSet->getPropertyValue(u"VBAProjectName"_ustr) >>= aProjectName;
++                uno::Reference< container::XNameAccess > xLibraries( xVBACompat, uno::UNO_QUERY );
++                if ( aProjectName.isEmpty() && xLibraries.is() && xLibraries->hasByName(u"VBAProject"_ustr) )
++                    aProjectName = u"VBAProject"_ustr;
++                if ( !aProjectName.isEmpty() && xLibraries.is() && xLibraries->hasByName(aProjectName) )
++                    xVBACompat->setProjectName( aProjectName );
+                 xVBACompat->setVBACompatibilityMode( true );
+             }
+             catch( const uno::Exception& )

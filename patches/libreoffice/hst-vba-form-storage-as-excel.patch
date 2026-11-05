@@ -1,0 +1,34 @@
+HST Office: a UserForm's storage is written the way Excel writes it.
+
+Compared with a form saved by Excel: the form storage has no class id, and its \001CompObj has an
+empty class and no ProgID. The Forms class was an assumption from the specifications, not what Office
+produces. Frames keep their class: there is no Excel-made Frame to compare with here.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/vba_form_structure.py.
+---
+--- a/oox/source/ole/vbaformexport.cxx
++++ b/oox/source/ole/vbaformexport.cxx
+@@ -244,7 +244,10 @@
+     };
+     writeAnsi(pUserType);
+     writeAnsi("Embedded Object");
+-    writeAnsi(pProgId);
++    if (pProgId)
++        writeAnsi(pProgId);
++    else
++        rOut.WriteUInt32(0);
+     // Unicode marker and three empty Unicode strings
+     rOut.WriteUInt32(0x71B239F4).WriteUInt32(0).WriteUInt32(0).WriteUInt32(0);
+     xStream->Commit();
+@@ -637,8 +640,8 @@
+     }
+ 
+     rtl::Reference<SotStorage> xForm = rProjectRoot.OpenSotStorage(rForm, StreamMode::READWRITE | StreamMode::TRUNC);
+-    const SvGlobalName aFormClass(0xC62A69F0, 0x16DC, 0x11CE, 0x9E, 0x98, 0x00, 0xAA, 0x00, 0x57, 0x4A, 0x4F);
+-    lclPrepareStorage(*xForm, aFormClass, "Microsoft Forms 2.0 Form", "Forms.Form.1");
++    // as Excel writes it: no class on the storage, and a CompObj with an empty class and no ProgID
++    lclWriteCompObj(*xForm, SvGlobalName(), "Microsoft Forms 2.0 Form", nullptr);
+ 
+     // \003VBFrame: VB source text of the designer; sizes in twips, quotes doubled
+     const sal_Int32 nTwipsX = o3tl::convert(aSize.first, o3tl::Length::mm100, o3tl::Length::twip);

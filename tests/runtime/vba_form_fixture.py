@@ -26,7 +26,11 @@ BODY = """
 """
 EXTRA = '<dlg:img dlg:id="Image1" dlg:tab-index="10" dlg:left="190" dlg:top="8" dlg:width="20" dlg:height="20"/>\n'
 SHOW_CODE = OPTION_LINE + '\nSub ShowForm()\n  UserForm1.Show\nEnd Sub\n'
-CODE = OPTION_LINE + '\nFunction DocForm()\n  DocForm = UserForm1.Caption & "|" & UserForm1.TextBox1.Text & "|" & UserForm1.Label1.Caption\n  Unload UserForm1\nEnd Function\n'
+# A literal compared with text that did not pass through the code page: the control label is UTF-16 in
+# the file, the literal and the caption are Windows-1258.
+COMPOSED_CODE = ('\nFunction SameText()\n  SameText = (UserForm1.Label1.Caption = "Nhãn tiếng Việt") '
+                 '& "|" & (UserForm1.Caption = "Biểu mẫu HST") & "|" & (Len("Việt") = 4)\n  Unload UserForm1\nEnd Function\n')
+CODE = OPTION_LINE + COMPOSED_CODE + '\nFunction DocForm()\n  DocForm = UserForm1.Caption & "|" & UserForm1.TextBox1.Text & "|" & UserForm1.Label1.Caption\n  Unload UserForm1\nEnd Function\n'
 CLICK_TARGET = {"calc": 'Worksheets(1).Range("A1").Value', "writer": "ActiveDocument.Content.Text"}
 
 

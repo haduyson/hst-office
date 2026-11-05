@@ -6,7 +6,7 @@ Usage: python3 tests/runtime/check-vba-form-events.py [--instdir upstream/libreo
 
   - A dialog inserted in the editor is a UserForm that VBA code can use and show.
   - A real mouse click on CommandButton1 runs CommandButton1_Click, on a new form and on a form
-    reopened from .xlsm, .xls, .docm and .doc (the handler reads TextBox1 and writes to the document).
+    reopened from .xlsm, .xls, .docm, .doc, .ods and .odt (the handler reads TextBox1 and writes to the document).
   - Saving a form as an Office file warns (real Office did not accept the first forms).
 Exit 1 when any check fails.
 """
@@ -141,7 +141,8 @@ def check_click(office, kind, app, ext, filter_name):
     saver = threading.Thread(target=lambda: doc.storeAsURL(uno.systemPathToFileUrl(path), (pv("FilterName", filter_name),)), daemon=True)
     saver.start()
     warned = wait(lambda: window(office, HINT_TITLE) is not None, 15)
-    check(f"{label}: saving a form warns until real Office accepts it", warned)
+    expected = ext not in ("ods", "odt")
+    check(f"{label}: saving a form warns only for Office files, until real Office accepts it", bool(warned) == expected)
     if warned:
         keys(office, window(office, HINT_TITLE)[0], "Return")
     saver.join(30)
@@ -181,7 +182,8 @@ def main():
         check_userform(office, "scalc", "calc")
         check_userform(office, "swriter", "writer")
         for kind, app, ext, filter_name in (("scalc", "calc", "xlsm", "Calc MS Excel 2007 VBA XML"), ("scalc", "calc", "xls", "MS Excel 97"),
-                                            ("swriter", "writer", "docm", "MS Word 2007 XML VBA"), ("swriter", "writer", "doc", "MS Word 97")):
+                                            ("swriter", "writer", "docm", "MS Word 2007 XML VBA"), ("swriter", "writer", "doc", "MS Word 97"),
+                                            ("scalc", "calc", "ods", "calc8"), ("swriter", "writer", "odt", "writer8")):
             check_click(office, kind, app, ext, filter_name)
         check_warning(office, "scalc", "calc", "xlsm", "Calc MS Excel 2007 VBA XML")
         check_warning(office, "swriter", "writer", "docm", "MS Word 2007 XML VBA")

@@ -1,0 +1,176 @@
+HST Office: VBA projects are written with the records real Office files have.
+
+The owner's test of the first forms in real Office: Excel "The ActiveX Designer's Type information
+does not match what was saved", Word "Could not open macro storage". Compared with Office-made files
+and MS-OVBA:
+- MS Forms is a REFERENCECONTROL (2.3.5: the designer's type library MUST be referenced so), not a
+  REFERENCEREGISTERED.
+- A Word project has the document module ThisDocument and a reference to Normal.
+- A form's caption is also in the f stream as UTF-16 and it has a ShapeCookie.
+Whether Office accepts the result is not known yet: no Office here.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/oox/source/ole/vbaexport.cxx
++++ b/oox/source/ole/vbaexport.cxx
+@@ -20,7 +20,10 @@
+ 
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/script/XLibraryContainer.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/script/ModuleType.hpp>
+ #include <com/sun/star/script/vba/XVBAModuleInfo.hpp>
++#include <comphelper/scopeguard.hxx>
+ #include <com/sun/star/script/vba/XVBACompatibility.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
+ 
+@@ -628,14 +631,63 @@
+ }
+ 
+ // section 2.3.4.2.2
+-void writePROJECTREFERENCES(SvStream& rStrm, const rtl_TextEncoding eTextEncoding, bool bForms)
++// HST: 2.3.4.2.2.3 and 2.3.4.2.2.4. MS-OVBA 2.3.5: the type library of a designer MUST be referenced
++// with a REFERENCECONTROL. The values are those of Office-made files; Office rebuilds the extended
++// type library (.exd) on each machine, so its path in the file does not need to exist.
++void writeMSFormsREFERENCE(SvStream& rStrm, const rtl_TextEncoding eTextEncoding)
++{
++    static constexpr std::u16string_view aOriginal
++        = u"*\\G{0D452EE1-E08F-101A-852E-02608C4D0BB4}#2.0#0#C:\\Windows\\SysWOW64\\FM20.DLL#Microsoft Forms 2.0 Object Library";
++    static constexpr std::u16string_view aTwiddled = u"*\\G{00000000-0000-0000-0000-000000000000}#0.0#0##";
++    static constexpr std::u16string_view aExtended
++        = u"*\\G{7A4F2C10-5B3E-4D61-9A27-3E1C8B6D0F42}#2.0#0#C:\\Windows\\Temp\\VBE\\MSForms.exd#Microsoft Forms 2.0 Object Library";
++    static constexpr sal_uInt8 aTypeLib[16] = { 0xE1, 0x2E, 0x45, 0x0D, 0x8F, 0xE0, 0x1A, 0x10,
++                                                0x85, 0x2E, 0x02, 0x60, 0x8C, 0x4D, 0x0B, 0xB4 };
++    writeREFERENCENAME(rStrm, u"MSForms"_ustr, eTextEncoding);
++    rStrm.WriteUInt16(0x0033); // REFERENCEORIGINAL
++    rStrm.WriteUInt32(aOriginal.size());
++    exportString(rStrm, aOriginal, eTextEncoding);
++    rStrm.WriteUInt16(0x002F); // REFERENCECONTROL
++    rStrm.WriteUInt32(aTwiddled.size() + 10);
++    rStrm.WriteUInt32(aTwiddled.size());
++    exportString(rStrm, aTwiddled, eTextEncoding);
++    rStrm.WriteUInt32(0x00000000);
++    rStrm.WriteUInt16(0x0000);
++    writeREFERENCENAME(rStrm, u"MSForms"_ustr, eTextEncoding);
++    rStrm.WriteUInt16(0x0030);
++    rStrm.WriteUInt32(aExtended.size() + 30);
++    rStrm.WriteUInt32(aExtended.size());
++    exportString(rStrm, aExtended, eTextEncoding);
++    rStrm.WriteUInt32(0x00000000);
++    rStrm.WriteUInt16(0x0000);
++    rStrm.WriteBytes(aTypeLib, sizeof aTypeLib);
++    rStrm.WriteUInt32(0x00000001); // cookie
++}
++
++// HST: 2.3.4.2.2.6 REFERENCEPROJECT: the Normal template, which every Word project refers to
++void writeNormalREFERENCE(SvStream& rStrm, const rtl_TextEncoding eTextEncoding)
++{
++    static constexpr std::u16string_view aNormal = u"*\\CNormal";
++    writeREFERENCENAME(rStrm, u"Normal"_ustr, eTextEncoding);
++    rStrm.WriteUInt16(0x000E);
++    rStrm.WriteUInt32(4 + aNormal.size() + 4 + aNormal.size() + 4 + 2);
++    rStrm.WriteUInt32(aNormal.size());
++    exportString(rStrm, aNormal, eTextEncoding);
++    rStrm.WriteUInt32(aNormal.size());
++    exportString(rStrm, aNormal, eTextEncoding);
++    rStrm.WriteUInt32(0x65FC7811); // major version, as in Word-made files
++    rStrm.WriteUInt16(0x0004);
++}
++
++void writePROJECTREFERENCES(SvStream& rStrm, const rtl_TextEncoding eTextEncoding, bool bForms, bool bWord)
+ {
+-    // HST: UserForms use the MS Forms type library
+-    if (bForms)
+-        writeREFERENCE(rStrm, u"MSForms"_ustr, u"*\\G{0D452EE1-E08F-101A-852E-02608C4D0BB4}#2.0#0#C:\\Windows\\SysWOW64\\FM20.DLL#Microsoft Forms 2.0 Object Library", eTextEncoding);
+     // TODO: find out where these references are coming from
+     writeREFERENCE(rStrm, u"stdole"_ustr, u"*\\G{00020430-0000-0000-C000-000000000046}#2.0#0#C:\\Windows\\SysWOW64\\stdole2.tlb#OLE Automation", eTextEncoding);
++    if (bWord)
++        writeNormalREFERENCE(rStrm, eTextEncoding);
+     writeREFERENCE(rStrm, u"Office"_ustr, u"*\\G{2DF8D04C-5BFA-101B-BDE5-00AA0044DE52}#2.0#0#C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE14\\MSO.DLL#Microsoft Office 14.0 Object Library", eTextEncoding);
++    if (bForms)
++        writeMSFormsREFERENCE(rStrm, eTextEncoding);
+ }
+ 
+ // section 2.3.4.2.3.1
+@@ -777,7 +829,7 @@
+         for (const OUString& rName : xNameContainer->getElementNames())
+             bForms = bForms || (xInfo->hasModuleInfo(rName) && xInfo->getModuleInfo(rName).ModuleType == 3);
+     }
+-    writePROJECTREFERENCES(aDirStream, eTextEncoding, bForms);
++    writePROJECTREFERENCES(aDirStream, eTextEncoding, bForms, xNameContainer->hasByName(u"ThisDocument"_ustr));
+     writePROJECTMODULES(aDirStream, xNameContainer, rLibraryMap, eTextEncoding);
+     aDirStream.WriteUInt16(0x0010); // terminator
+     aDirStream.WriteUInt32(0x00000000); // reserved
+@@ -815,7 +867,18 @@
+     SvMemoryStream aModuleStream(4096, 4096);
+ 
+     exportString(aModuleStream, Concat2View("Attribute VB_Name = \"" + aElementName + "\"\r\n"), eTextEncoding);
+-    if (rInfo.ModuleType == 4)
++    if (rInfo.ModuleType == 4 && aElementName == "ThisDocument")
++    {
++        // HST: as in Word-made files
++        exportString(aModuleStream, u"Attribute VB_Base = \"1Normal.ThisDocument\"\r\n", eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_GlobalNameSpace = False\r\n", eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_Creatable = False\r\n", eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_PredeclaredId = True\r\n", eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_Exposed = True\r\n", eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_TemplateDerived = True\r\n", eTextEncoding);
++        exportString(aModuleStream, u"Attribute VB_Customizable = True\r\n", eTextEncoding);
++    }
++    else if (rInfo.ModuleType == 4)
+     {
+         if (isWorkbook(rInfo.ModuleObject))
+             exportString(aModuleStream, u"Attribute VB_Base = \"0{00020819-0000-0000-C000-000000000046}\"\r\n", eTextEncoding);
+@@ -1086,6 +1149,30 @@
+     if (!xNameContainer.is()) {
+         return;
+     }
++    // HST: every Word project has the document module ThisDocument; a project written in HST may not.
++    // It is only there for this export.
++    css::uno::Reference<css::script::vba::XVBAModuleInfo> xDocumentInfo(xNameContainer, css::uno::UNO_QUERY);
++    css::uno::Reference<css::lang::XServiceInfo> xModelInfo(mxModel, css::uno::UNO_QUERY);
++    const bool bAddThisDocument = xDocumentInfo.is() && xModelInfo.is()
++                                  && xModelInfo->supportsService(u"com.sun.star.text.TextDocument"_ustr)
++                                  && !xNameContainer->hasByName(u"ThisDocument"_ustr);
++    if (bAddThisDocument)
++    {
++        css::script::ModuleInfo aDocumentInfo;
++        aDocumentInfo.ModuleType = css::script::ModuleType::DOCUMENT;
++        xDocumentInfo->insertModuleInfo(u"ThisDocument"_ustr, aDocumentInfo);
++        xNameContainer->insertByName(u"ThisDocument"_ustr, css::uno::Any(OUString()));
++    }
++    comphelper::ScopeGuard aRemoveThisDocument(
++        [&]()
++        {
++            if (bAddThisDocument)
++            {
++                xNameContainer->removeByName(u"ThisDocument"_ustr);
++                if (xDocumentInfo->hasModuleInfo(u"ThisDocument"_ustr))
++                    xDocumentInfo->removeModuleInfo(u"ThisDocument"_ustr);
++            }
++        });
+     const css::uno::Sequence<OUString> aElementNames = xNameContainer->getElementNames();
+     sal_Int32 n = aElementNames.getLength(); // get the number of modules
+     // export the elements in the order MSO expects them
+--- a/oox/source/ole/vbaformexport.cxx
++++ b/oox/source/ole/vbaformexport.cxx
+@@ -518,7 +518,7 @@
+             aWriter.skipProperty(); // picture alignment
+             aWriter.skipProperty(); // picture tiling
+             aWriter.skipProperty(); // picture size mode
+-            aWriter.skipProperty(); // shape cookie
++            aWriter.writeIntProperty<sal_uInt32>(static_cast<sal_uInt32>(nNextId)); // shape cookie, as Office writes it
+             aWriter.writeIntProperty<sal_uInt32>(FORM_DRAWBUFFER);
+             aWriter.finalizeExport();
+         });
+@@ -657,7 +657,9 @@
+     xFrame->WriteBytes(aFrameBytes.getStr(), aFrameBytes.getLength());
+     xFrame->Commit();
+ 
+-    lclWriteContainer(*xForm, aRoots, aSize, OUString(), true, nBackColor, 0, nNextId);
++    // the caption also as UTF-16, the only form independent of the code page (MS-OFORMS FormDataBlock):
++    // \003VBFrame MUST be in the project's code page, which a Windows set to another language misreads
++    lclWriteContainer(*xForm, aRoots, aSize, aCaption, true, nBackColor, 0, nNextId);
+     xForm->Commit();
+ }
+ }

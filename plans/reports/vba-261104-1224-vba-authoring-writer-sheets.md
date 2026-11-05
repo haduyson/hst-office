@@ -240,7 +240,57 @@ Regressions after the change: settings 13/13, Sheets 43/43, Writer 28/28, upstre
 
 Measured: headless round trip 177/177 (`check-vba-forms.py`: .xlsm, .xls, .docm, .doc, .ods, .odt, saved twice, plus MiscControlTests.xls); GUI 24/24 (`check-vba-form-events.py`): a real mouse click runs `CommandButton1_Click` on a new form and on forms reopened from all four Office formats. `olevba` 0.60.2 (independent parser, scratch venv, not a project dependency) reads forms and code in all four. `tests/runtime/vba_form_structure.py` validates MS-CFB/MS-OVBA/MS-OFORMS structure.
 
-Limits: not opened in real Microsoft Office; fixed list items are not stored (Office has none; warned); other control types are left out (warned; a Word file that already had such a form keeps its original project, so code edits are not saved there; warned); Word form with such controls created new loses the control; captions and string literals read from Windows-1258 have combining marks, so a macro comparing them with composed text does not match; a form macro run after reopening .ods fails with a Basic error, cause not established; new .xls projects have no CODENAME records or ThisWorkbook module, unlike Excel's.
+Limits: not opened in real Microsoft Office; fixed list items are not stored (Office has none; warned); other control types are left out (warned; a Word file that already had such a form keeps its original project, so code edits are not saved there; warned); new .xls projects have no CODENAME records or ThisWorkbook module, unlike Excel's.
+
+### Form macros after reopening .ods and .odt (`hst-vba-ods-project-name.patch`)
+
+Both failed; the causes differ, and each was measured rather than inferred.
+- **.ods:** `libs.ProjectName` was empty after reopening. `SbUserFormModule::InitObject` builds the dialog URL from it (`vnd.sun.star.script:.UserForm1?location=document`), and VBA export finds the project by it. Calc stored the VBA mode in settings but not the name. It now stores `VBAProjectName`; older files use a library named `VBAProject`.
+- **.odt:** `UserForm1.Caption` gave Basic error 423, "Không tìm thấy thuộc tính hoặc phương thức: Caption". A gdb trace, with .ods as the control, showed `SbUserFormModule` was never constructed: `loadLibrary_Impl` replaces placeholder elements, and `BasMgrContainerListenerImpl::elementReplaced` called `MakeModule` without module info, so the form became a plain module. It now uses the info as `elementInserted` does. Two earlier theories about the order of Writer's settings were tested and failed; those edits were removed.
+
+### Composed Vietnamese text (`hst-vba-compose-1258.patch`) and stable saves (`hst-vba-stable-resave.patch`)
+
+Windows-1258 stores most Vietnamese letters as a base letter plus a combining mark, and the import kept them, so `If x = "Việt"` did not match text from a cell or control. Module source and form captions from that code page are now composed (NFC, ICU) on import; other code pages are not touched. Saving converts back to the code page, so the file's bytes do not change.
+
+Checking that exposed two defects, both fixed: each save added a blank line to every module (the import read the final line ending as one more line), and a form's `VB_Base` GUIDs were new on every save (now derived from the form name). The `ID=` line in the PROJECT stream is still new on every save, as in Office; it is not source text.
+
+### "Frame disposed" when closing the editor
+
+Not reproduced, cause not established. It was seen once, at `frame.close(True)` in the first attempt of an earlier run. Since then: no occurrence in about 19 logged closes in a stress probe (with a new dialog, with and without a delay, closing the editor or the document first), nor in any GUI suite run. The tolerance in `close_ide` was removed, so a recurrence fails the test with its message. `Frame::close` raises this from `checkDisposed` when the frame is already being disposed, so a race with a closing frame is plausible, but that is a guess. Apparent hangs in the probes were my time limits on a loaded machine; not proven beyond 5 clean consecutive rounds in a quiet period.
+
+### Real Office rejected the first forms (owner's test of `643c2eb`)
+
+Result in real Office on Windows: `form-calc.xlsm`/`.xls` open, form present, title garbled ("BiêÒu mâÞu HST"), running gives "The ActiveX Designer's Type information does not match what was saved. Unable to Load". `form-writer.docm`/`.doc` open, Alt+F11 gives "Could not open macro storage", no form.
+
+**`olevba`, `vba_form_structure.py` and HST round trips all passed on these files. They do not show that Office accepts a file, and neither does any result in this report that does not say "in real Office".**
+
+Compared with Office-made files and the specifications, not yet confirmed in Office:
+- Excel error, likely cause: MS Forms was a REFERENCEREGISTERED; MS-OVBA 2.3.5 says the designer's type library MUST be a REFERENCECONTROL, and Office-made files have it. No published cause was found: Microsoft's page only says the file is corrupt.
+- Word error, likely cause: no `ThisDocument` and no `Normal` reference, in every project HST wrote for Word, with or without forms. Upstream never wrote Word projects, it only copied them. Real files with only the `VBE` host line exist, so the `Word8.0` line is not it.
+- Caption: `\003VBFrame` MUST be in the project's code page (MS-OVBA 2.3.5), and the owner's Windows uses another one. `f` has a Caption that can be UTF-16; whether Office prefers it is unknown.
+- Damage found on the way: `.docm` replaced the project of real Word files on every save, even with no macro edits (`hst-vba-keep-word-project.patch`). In main since 2026-11-04, in no release. Fixed: every stream is kept; Save As asks first when macros were edited (owner's decision).
+
+Candidate fixes: `hst-vba-project-as-office.patch`, `hst-vba-form-storage-as-excel.patch`. Test files: `tests/fixtures/vba-office-probe/`. Forms saved to Office files warn until the results are in.
+
+Owner's results so far, in real Office: `1-plain-as-is.xlsm` works (plain Excel macros from HST work, without ThisWorkbook or sheet modules). `4-form-candidate.xlsm` and `6-form-caption-utf16-only.xlsm` still give the type-info error, so the reference record was not the cause, or not the only one. `2`, `3`, `5` `.docm`: the Macros list is empty, so `ThisDocument` and `Normal` did not fix Word. Second round (`w1` to `w3`, `x1` to `x5`) pending. **New macros in .docm/.doc do not work in real Word; forms do not load in real Excel.**
+
+Known limit: a kept Word project has all its streams, but the import's copy (`VbaProject::copyStorage`, upstream behaviour) drops the class of a Frame's storage. Whether Word minds is not known.
+
+Cell bindings of an imported Excel form (`RowSource`, `ControlSource`) are not written; the save warning names the controls.
+
+### Reference files
+
+Not in the repository unless noted; parsed as untrusted data, never opened in an application. `tests/runtime/vba_office_rules.py` must pass on these, and does:
+
+| File | Source | Saved by | Has |
+|---|---|---|---|
+| `oleform-PR314.docm` | oletools `tests/test-data/oleform` | Word 16 | 2 UserForms, Frame |
+| `SimpleMacro.docm`, `45690.docm`, `60158.docm` | Apache POI `test-data/document` | Word 12 | macros |
+| `45431.xlsm` | Apache POI `test-data/spreadsheet` | Excel 12 | macros |
+| `MiscControlTests.xls`, `CheckOptionToggleValue.xls` | LibreOffice `sc/qa/extras/testdocuments` (in the source tree) | Excel | UserForm |
+| `testVBA.docm`, `testFind.docm` | LibreOffice `sw/qa/core/data/docm` (in the source tree) | Word 14, 16 | macros |
+
+Licences of the POI and oletools test files were not checked one by one. Missing: an Excel-made `.xlsm` with a form, and a Word-made `.doc` with a VBA project.
 
 ## Macros and the default save format (`hst-macro-save-guard.patch`)
 

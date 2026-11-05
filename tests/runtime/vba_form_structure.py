@@ -2,9 +2,8 @@
 """Structural check of VBA UserForms in a saved file, against MS-CFB, MS-OVBA and MS-OFORMS (no Office needed).
 
 Usage: python3 tests/runtime/vba_form_structure.py FILE.xlsm|.docm|vbaProject.bin [...]
-Exit 1 when a rule fails. Prints one PASS/FAIL line per form. Python standard library only, so the
-Windows probe (scripts/windows/probe-excel-userform.ps1) can run it too. This validates the file
-structure only; it does not prove that Microsoft Office accepts the file.
+Exit 1 when a rule fails. Standard library only: the Windows probe runs it too. Checked against an
+Excel-made file; it validates structure only and does not prove that Microsoft Office accepts a file.
 """
 import os
 import re
@@ -12,10 +11,9 @@ import struct
 import sys
 import zipfile
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from vba_cfb import Cfb, decompress  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); from vba_cfb import Cfb, decompress  # noqa: E402,E702
 
-FORM_CLSID = "c62a69f0-16dc-11ce-9e98-00aa00574a4f"
+FORM_CLSID = "00000000-0000-0000-0000-000000000000"  # what Excel writes
 FRAME_CLSID = "6e182020-f460-11ce-9bcd-00aa00608e01"
 
 
@@ -36,13 +34,13 @@ def parse_site(data, offset, problems):
     mask = struct.unpack_from("<I", data, offset + 4)[0]
     pos = 8
 
-    def aligned(position, width):
-        return position + (width - (position % width)) % width
+    aligned = lambda position, width: position + (width - (position % width)) % width  # noqa: E731
     # fields in SitePropMask order: Name, Tag, ID, HelpContextID, BitFlags, ObjectStreamSize, TabIndex, ClsidCacheIndex
-    fields = [("name", 4), ("tag", 4), ("id", 4), ("help", 4), ("flags", 4), ("stream", 4), ("tab", 2), ("class", 2)]
+    fields = [("name", 4), ("tag", 4), ("id", 4), ("help", 4), ("flags", 4), ("stream", 4), ("tab", 2), ("class", 2),
+              ("position", 0), ("group", 2), ("padding", 0), ("tooltip", 4), ("license", 4), ("source", 4), ("rows", 4)]
     values = {}
     for bit, (key, width) in enumerate(fields):
-        if mask >> bit & 1:
+        if mask >> bit & 1 and width:
             pos = aligned(pos, width)
             values[key] = struct.unpack_from("<I" if width == 4 else "<H", data, start + pos)[0]
             pos += width
@@ -68,17 +66,27 @@ def check_container(cfb, entry, name, problems, expected_clsid):
     mask = struct.unpack_from("<I", data, 4)[0]
     if not mask >> 27 & 1:
         problems.append("%s: f without DrawBuffer" % name)
-    count = struct.unpack_from("<H", data, offset)[0]  # class table
-    if count:
-        problems.append("%s: unexpected class table" % name)
+    count = struct.unpack_from("<H", data, offset)[0]  # class table: Office lists non-standard controls
     offset += 2
+    for _ in range(count):
+        offset += 4 + struct.unpack_from("<H", data, offset + 2)[0]
     sites, size = struct.unpack_from("<II", data, offset)
     offset += 8
     if offset + size != len(data):
         problems.append("%s: f site data size %d, %d bytes left" % (name, size, len(data) - offset))
     anchor = offset
-    offset += 2 * sites
-    # depth/type pairs are padded to 4 bytes, counted from the site count field
+    # SiteDepthsAndTypes: depth, then a type, or a count (high bit) and a type, for a run of sites
+    seen = 0
+    while seen < sites:
+        offset += 1
+        run = data[offset]
+        offset += 1
+        if run & 0x80:
+            offset += 1
+            seen += run & 0x7F
+        else:
+            seen += 1
+    # padded to 4 bytes, counted from the site count field
     offset = anchor - 8 + ((offset - (anchor - 8) + 3) // 4 * 4)
     controls = []
     for _ in range(sites):
@@ -105,26 +113,45 @@ def check_container(cfb, entry, name, problems, expected_clsid):
     return controls
 
 
-def check_file(path):
-    """Returns (problems, {form: [control names]})."""
-    if path.lower().endswith(".bin"):
+def open_project(path):
+    """The compound file and the storage entry of the VBA project in a saved file."""
+    if path.lower().endswith(".bin") or not zipfile.is_zipfile(path):
         with open(path, "rb") as handle:
             raw = handle.read()
-    elif zipfile.is_zipfile(path):
-        with zipfile.ZipFile(path) as archive:
-            name = next(n for n in archive.namelist() if n.endswith("vbaProject.bin"))
-            raw = archive.read(name)
     else:
-        with open(path, "rb") as handle:
-            raw = handle.read()
+        with zipfile.ZipFile(path) as archive:
+            raw = archive.read(next(n for n in archive.namelist() if n.endswith("vbaProject.bin")))
     cfb = Cfb(raw)
     root = cfb.entries[0]
-    top = cfb.children(root)
-    # .xls: _VBA_PROJECT_CUR, .doc: Macros, .bin: the root itself
     for storage in ("_VBA_PROJECT_CUR", "Macros"):
-        if storage in top:
-            root = top[storage]
-            top = cfb.children(root)
+        if storage in cfb.children(root):
+            root = cfb.children(root)[storage]
+    return cfb, root
+
+
+def module_sources(path):
+    """{module stream: decompressed source bytes}, read from MODULEOFFSET in the dir stream."""
+    cfb, root = open_project(path)
+    vba = cfb.children(cfb.children(root)["VBA"])
+    directory = decompress(cfb.read(vba["dir"]))
+    sources, pos, stream = {}, 0, None
+    while pos + 6 <= len(directory):
+        record, size = struct.unpack_from("<HI", directory, pos)
+        if record == 0x0009:  # PROJECTVERSION: its Size field holds 4 but 6 bytes follow
+            size = 6
+        body = directory[pos + 6:pos + 6 + size]
+        if record == 0x001A:  # MODULESTREAMNAME
+            stream = body.decode("cp1252", "replace")
+        elif record == 0x0031 and stream in vba:  # MODULEOFFSET
+            sources[stream] = decompress(cfb.read(vba[stream])[struct.unpack("<I", body)[0]:])
+        pos += 6 + size
+    return sources
+
+
+def check_file(path):
+    """Returns (problems, {form: [control names]})."""
+    cfb, root = open_project(path)
+    top = cfb.children(root)
     problems = []
     for needed in ("PROJECT", "PROJECTwm", "VBA"):
         if needed not in top:

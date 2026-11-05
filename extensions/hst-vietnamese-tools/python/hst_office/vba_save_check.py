@@ -14,7 +14,7 @@ import unohelper
 from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
-from .vba_template import is_excel_filter, is_word_filter, unwritable_form_content
+from .vba_template import bound_form_controls, is_excel_filter, is_word_filter, unwritable_form_content
 
 JOB_NAME = "org.hst.office.vi.VbaSaveCheckJob"
 EVENTS = ("OnSaveDone", "OnSaveAsDone")
@@ -28,6 +28,8 @@ WORD_KEPT = ("Biểu mẫu VBA (UserForm) này có điều khiển chưa ghi đ�
 FORMS_NOT_VERIFIED = ("Biểu mẫu VBA (UserForm) trong tệp vừa lưu chưa dùng được chắc chắn trong Microsoft Office: "
                       "Excel hoặc Word có thể không mở được biểu mẫu hoặc macro. "
                       "Hãy giữ thêm một bản .ods hoặc .odt (Tập tin → Lưu thành…).")
+BOUND = ("Liên kết với ô (ControlSource, RowSource) của %s không được ghi vào tệp Office vừa lưu: "
+         "các điều khiển này sẽ không còn nối với bảng tính. Bản .ods vẫn giữ các liên kết này.")
 LIST_ITEMS = ("Các mục danh sách nhập sẵn của %s không được lưu trong tệp Office (Office nạp danh sách bằng mã, "
               "ví dụ AddItem trong UserForm_Initialize). Bản .ods/.odt vẫn giữ các mục này.")
 
@@ -65,8 +67,8 @@ def has_written_forms(doc, is_writer):
 
 
 def form_problems(doc):
-    """(controls that cannot be written, controls with fixed list items), as "Form.Control" names."""
-    unwritable, list_items = [], []
+    """(controls that cannot be written, with fixed list items, bound to cells), as "Form.Control" names."""
+    unwritable, list_items, bound = [], [], []
     libs = doc.BasicLibraries
     for library_name in libs.ElementNames:
         libs.loadLibrary(library_name)
@@ -80,7 +82,8 @@ def form_problems(doc):
                     lost, items = unwritable_form_content(xml)
                     unwritable += ["%s.%s" % (form, name) for name in lost]
                     list_items += ["%s.%s" % (form, name) for name in items]
-    return unwritable, list_items
+                    bound += ["%s.%s" % (form, name) for name in bound_form_controls(xml)]
+    return unwritable, list_items, bound
 
 
 def _argument(arguments, name):
@@ -99,7 +102,7 @@ def check(ctx, doc):
     is_writer = doc.supportsService("com.sun.star.text.TextDocument") and is_word_filter(filter_name)
     if not is_calc and not is_writer:
         return None
-    unwritable, list_items = form_problems(doc)
+    unwritable, list_items, bound = form_problems(doc)
     parts = []
     if has_written_forms(doc, is_writer):
         parts.append(FORMS_NOT_VERIFIED)
@@ -107,6 +110,8 @@ def check(ctx, doc):
         parts.append((EXCEL_LOST if is_calc else WORD_KEPT) % ", ".join(unwritable))
     if list_items:
         parts.append(LIST_ITEMS % ", ".join(list_items))
+    if bound:
+        parts.append(BOUND % ", ".join(bound))
     if not parts:
         return None
     text = "\n\n".join(parts)

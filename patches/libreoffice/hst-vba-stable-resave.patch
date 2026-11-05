@@ -1,0 +1,65 @@
+HST Office: saving an unchanged VBA project gives the same module bytes.
+
+Each save added a blank line to every module, because the import turned the final line ending into
+one more line, and a form's VB_Base GUIDs were new on every save. The import now stops at the end of
+the last line, and the GUIDs are derived from the form name.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba-forms.py.
+---
+--- a/oox/source/ole/vbaexport.cxx
++++ b/oox/source/ole/vbaexport.cxx
+@@ -34,6 +34,8 @@
+ #include <comphelper/random.hxx>
+ #include <comphelper/xmltools.hxx>
+ #include <utility>
++#include <cstdio>
++#include <rtl/digest.h>
+ #include <rtl/ref.hxx>
+ #include <rtl/tencinfo.h>
+ #include <osl/thread.h>
+@@ -791,6 +793,21 @@
+     aCompression.write();
+ }
+ 
++/// HST: a GUID that stays the same from save to save (name-based, in the layout of RFC 4122 version
++/// 3), so that saving an unchanged form gives the same module bytes.
++OUString lcl_stableGuid(std::u16string_view rName)
++{
++    const OString aName = OUStringToOString(rName, RTL_TEXTENCODING_UTF8);
++    sal_uInt8 a[RTL_DIGEST_LENGTH_MD5];
++    rtl_digest_MD5(aName.getStr(), aName.getLength(), a, RTL_DIGEST_LENGTH_MD5);
++    a[6] = (a[6] & 0x0F) | 0x30;
++    a[8] = (a[8] & 0x3F) | 0x80;
++    char aText[37];
++    snprintf(aText, sizeof aText, "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X",
++             a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]);
++    return OUString::createFromAscii(aText);
++}
++
+ // section 2.3.4.3 Module Stream
+ void exportModuleStream(SvStream& rStrm, const OUString& rSourceCode, const OUString& aElementName,
+                         css::script::ModuleInfo const& rInfo, const rtl_TextEncoding eTextEncoding)
+@@ -817,8 +834,8 @@
+         // HST: class and UserForm modules (MS-OVBA 2.4.3 ClassAttrs, DesignerAttrs)
+         const bool bForm = rInfo.ModuleType == 3;
+         exportString(aModuleStream,
+-                     bForm ? OUString("Attribute VB_Base = \"0{" + OStringToOUString(comphelper::xml::generateGUIDString(), RTL_TEXTENCODING_UTF8).copy(1, 36) + "}{"
+-                                      + OStringToOUString(comphelper::xml::generateGUIDString(), RTL_TEXTENCODING_UTF8).copy(1, 36) + "}\"\r\n")
++                     bForm ? OUString("Attribute VB_Base = \"0{" + lcl_stableGuid(OUString(aElementName + "/form")) + "}{"
++                                      + lcl_stableGuid(OUString(aElementName + "/instance")) + "}\"\r\n")
+                            : u"Attribute VB_Base = \"0{FCFB3D2A-A0FA-1068-A738-08002B3371B5}\"\r\n"_ustr,
+                      eTextEncoding);
+         exportString(aModuleStream, u"Attribute VB_GlobalNameSpace = False\r\n", eTextEncoding);
+--- a/oox/source/ole/vbamodule.cxx
++++ b/oox/source/ole/vbamodule.cxx
+@@ -184,6 +184,9 @@
+             while( !aVbaTextStrm.isEof() )
+             {
+                 OUString aCodeLine = VbaHelper::composeSourceText( aVbaTextStrm.readLine(), meTextEnc );
++                // HST: the line ending of the last line is not one more line: each save would add it
++                if( aCodeLine.isEmpty() && aVbaTextStrm.isEof() )
++                    break;
+                 if( aCodeLine.match( "Attribute " ) )
+                 {
+                     // attribute
