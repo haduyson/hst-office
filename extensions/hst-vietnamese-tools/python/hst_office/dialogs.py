@@ -72,6 +72,7 @@ class Dialog:
         self._watchers = []  # (control name, _Changed)
         self.result = 0
         self.on_oversize = None  # called with no arguments when the peer is larger than the screen work area
+        self.on_ready, self.on_closed = None, None  # called right after the peer exists / after the dialog has ended
 
     def _add(self, kind, name, x, y, w, h, **props):
         model = self.model.createInstance("com.sun.star.awt.UnoControl%sModel" % kind)
@@ -86,6 +87,10 @@ class Dialog:
     def edit(self, name, x, y, w, h=12, text="", multiline=False, readonly=False, help_text=""):
         return self._add("Edit", name, x, y, w, h, Text=text, MultiLine=multiline, VScroll=multiline, HScroll=False,
                          ReadOnly=readonly, HelpText=help_text or name, Tabstop=not readonly or multiline)
+
+    def plain_list(self, name, x, y, w, h, help_text=""):
+        """A list box that shows its rows (the Quick Search list); it never takes part in Tab order."""
+        return self._add("ListBox", name, x, y, w, h, Dropdown=False, Tabstop=False, HelpText=help_text or name)
 
     def listbox(self, name, x, y, w, items, selected=0, h=12, help_text=""):
         return self._add("ListBox", name, x, y, w, h, Dropdown=True, StringItemList=uno.Any("[]string", tuple(items)),
@@ -150,10 +155,14 @@ class Dialog:
                 control.addItemListener(listener)
             else:
                 control.addTextListener(listener)
+        if self.on_ready:
+            self.on_ready()
         try:
             self.dialog.execute()
             return self.result
         finally:
+            if self.on_closed:
+                self.on_closed()
             self.dialog.dispose()
 
 

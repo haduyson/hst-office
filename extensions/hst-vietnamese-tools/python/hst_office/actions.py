@@ -2,7 +2,7 @@
 """User-facing HST commands: gather UI input, call the logic modules, report results. One function per command."""
 import unohelper
 
-from . import convert_calc_action, csv_calc, encoding_writer, fonts, nd30_layout, nd30_writer, sheets, vba
+from . import convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_layout, nd30_open, nd30_writer, sheets, vba
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -41,6 +41,8 @@ def nd30_wizard(host):
     choice = Nd30Wizard(host.ctx, host.s).run(host.peer)
     if choice is None:
         return  # Cancel: nothing was written
+    if nd30.get_type(choice["type"]).get("module") == "sheets":  # a register opens as a new workbook
+        return nd30_open.open_register(host.ctx, choice["type"])
     layout = nd30_layout.build_layout(choice["type"], choice["fields"])
     result = nd30_writer.insert_layout(host.doc, cursor, layout, apply_page=choice["apply_page"], page_numbers=choice["page_numbers"],
                                        undo_title=host.s["undo"]["nd30"])

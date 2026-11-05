@@ -9,14 +9,15 @@ import datetime
 
 from . import nd30, nd30_layout, nd30_preview
 from .dialogs import Dialog, palette
+from .wizard_type_picker import TypePicker
 
 TOP = 14  # height of the description line above the form
-WIDTH, HEIGHT = 600, 300 + TOP  # about 700 px high with common Linux fonts: fits a 1366x768 screen
+WIDTH, HEIGHT = 570, 300 + TOP  # about 700 px high with common Linux fonts: fits a 1366x768 screen
 LABEL_X, LABEL_W = 8, 84
 FIELD_X, FIELD_W = 96, 200
 PREVIEW_X = FIELD_X + FIELD_W + 10
 PREVIEW_W = WIDTH - PREVIEW_X - 8
-PREVIEW_CHARS = 70
+PREVIEW_CHARS = 66
 MONO = "Liberation Mono;Consolas;Menlo;DejaVu Sans Mono;Courier New"  # all carry precomposed Vietnamese
 
 
@@ -24,10 +25,10 @@ class Nd30Wizard:
     def __init__(self, ctx, strings):
         self.s, self.s_nd = strings, strings["nd30"]
         self.data = nd30.rules()
-        self.types = [t["id"] for t in self.data["documentTypes"]]
         self.compact = False
         self.colours = palette(ctx)  # muted/error text readable on light and dark dialogs
         self.d = Dialog(ctx, self.s_nd["title"], WIDTH, HEIGHT)
+        self.picker = TypePicker(self.d, self.data["documentTypes"], self.s_nd["groups"], self.refresh)
         self._build()
         self.refresh()
 
@@ -42,7 +43,8 @@ class Nd30Wizard:
         d, s = self.d, self.s_nd
         self.d.label("description", s["description"], LABEL_X, 4, WIDTH - 2 * LABEL_X, 10, wrap=True).TextColor = self.colours["muted"]
         self._label("type", 8)
-        d.listbox("type", FIELD_X, 6 + TOP, FIELD_W, [t["label"] for t in self.data["documentTypes"]], help_text=s["type"])
+        d.edit("type", FIELD_X, 6 + TOP, FIELD_W - 14, text=self.picker.label_of(self.picker.current), help_text=s["typeSearchHelp"])
+        d.button("typeOpen", "▾", FIELD_X + FIELD_W - 13, 6 + TOP, 13, h=12, callback=self.picker.toggle)
         self._row("parentAgency", 22)
         self._row("agency", 38)
         self._label("number", 54)
@@ -78,8 +80,10 @@ class Nd30Wizard:
         status.TextColor = self.colours["error"]
         d.button("btnOk", s["insert"], WIDTH - 8 - 64 - 4 - 64, HEIGHT - 22, 64, callback=self._accept, default=True)
         d.button("btnCancel", self.s["common"]["cancel"], WIDTH - 8 - 64, HEIGHT - 22, 64, kind=2)
-        d.on_change(("type",) + nd30.FIELD_KEYS, self.refresh)
+        d.on_change(nd30.FIELD_KEYS, self.refresh)
         d.on_oversize = self._compact
+        d.plain_list("typeList", FIELD_X, 19 + TOP, FIELD_W, 150, help_text=s["typeSearchHelp"])  # last: drawn over the fields below
+        d.on_ready, d.on_closed = self.picker.attach, self.picker.detach
 
     def _compact(self):
         """Screen too small for the side-by-side layout (about 1200 px wide at 100% on Windows): drop the preview column.
@@ -103,11 +107,12 @@ class Nd30Wizard:
     def read(self):
         """(type_id, fields) from the form; date is normalised later by nd30.format_issue_date."""
         fields = {k: self.d.get(k) for k in nd30.FIELD_KEYS}
-        return self.types[max(0, self.d.get("type"))], fields
+        return self.picker.current, fields
 
     def set_fields(self, type_id=None, fields=None):
         if type_id:
-            self.d.select("type", self.types.index(type_id))
+            self.picker.current = type_id
+            self.d.set_text("type", self.picker.label_of(type_id))
         for key, value in (fields or {}).items():
             self.d.set_text(key, value)
         self.refresh()
@@ -135,6 +140,11 @@ class Nd30Wizard:
         if errs:
             return False
         type_id, fields = self.read()
+        register = nd30.get_type(type_id, self.data).get("module") == "sheets"
+        self.d.model.getByName("btnOk").Label = self.s_nd["openSheet" if register else "insert"]
+        if register:
+            self.d.set_text("preview", self.s_nd["registerNote"])
+            return True
         layout = nd30_layout.build_layout(type_id, fields, data=self.data)
         self.d.set_text("preview", nd30_preview.layout_to_preview(layout, PREVIEW_CHARS).replace("\n", "\r\n"))
         return True
