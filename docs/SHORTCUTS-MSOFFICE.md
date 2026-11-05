@@ -165,7 +165,8 @@ và `tests/runtime/check-defaults.py`.
 | Lề trang Writer | 2 cm mọi phía (mặc định LibreOffice, HST chưa từng chọn) | 2,54 cm mọi phía (Normal của Word) | `hst-defaults.patch` và BACKLOG không chọn lề chung. Lề NĐ 30 (20/20/30/15 mm) do trình soạn Văn bản hành chính đặt, không đổi |
 | Phông Writer | Times New Roman (NĐ 30, `hst-defaults.patch`) | không đổi | Đã được duyệt; Liberation Serif thay thế cùng số đo khi máy không có |
 | Phông Sheets, Slides | Liberation Sans | Calibri, không có thì Carlito (kèm trong bộ cài, cùng số đo) | Calibri là mặc định của Excel/PowerPoint 2007–2021; Carlito có đủ dấu tiếng Việt |
-| Cỡ chữ Sheets | 10 pt | không đổi | Excel dùng 11 pt; đổi cỡ làm đổi chiều cao hàng, chờ chủ dự án quyết |
+| Cỡ chữ Sheets | 10 pt | 11 pt cho bảng tính **mới** (kiểu Mặc định, `hst-sheets-default-font-size.patch`) | Như Excel (chủ dự án 2026-11-05). Tệp đã có giữ nguyên cỡ của tệp. Hàng trống theo cỡ chữ, cả ở trang tính thêm sau: khoảng 13,8 pt với Carlito (Excel 15 pt) |
+| Tên phông trong tệp lưu | | `.xlsx`, `.pptx` mới ghi `Calibri`, không ghi `Carlito`, kể cả máy không cài Calibri | Bộ lọc xuất tự đổi về tên Microsoft; đã kiểm tra thật trên máy không có Calibri (`tests/runtime/check-defaults.py`). Trong ứng dụng, ô phông chữ hiện `Carlito` khi máy không có Calibri |
 
 Khôi phục tự động vẫn lưu bản sao ODF (`ooSetupFactoryActualFilter`), không mất dữ liệu khi tài
 liệu đang là `.docx`. Tệp `.docx`/`.xlsx` không chứa macro: nếu đã viết macro hãy chọn `.docm`/`.xlsm`.
