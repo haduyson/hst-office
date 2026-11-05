@@ -1,0 +1,29 @@
+HST Office: the ribbon banner builds with MSVC. Size::Width()/Height() are tools::Long, 64-bit on Windows, and
+the banner geometry Rect holds long, so brace-initialising it narrows; the values are cast explicitly.
+
+License: these upstream files remain under their original license (MPL-2.0).
+
+--- a/sfx2/source/notebookbar/HstRibbonBanner.cxx
++++ b/sfx2/source/notebookbar/HstRibbonBanner.cxx
+@@ -359,8 +359,9 @@
+         return;
+     // the variant that matches the fitted image height in device pixels
+     const Size aSize = GetOutputSizePixel();
+-    const Rect aImage
+-        = fit(Rect{ 0, 0, aSize.Width(), aSize.Height() }, ART_WIDTH, ART_HEIGHT);
++    // Size is tools::Long (64-bit on Windows), Rect holds long: MSVC rejects the implicit narrowing.
++    const Rect aImage = fit(Rect{ 0, 0, static_cast<long>(aSize.Width()), static_cast<long>(aSize.Height()) },
++                            ART_WIDTH, ART_HEIGHT);
+     const int nScale = sourceScale(std::lround(aImage.h * surfaceScale(*GetOutDev())));
+     mbRequested = true; // the previous worker has posted its last result
+     try
+@@ -478,7 +479,8 @@
+     if (!IsVisible())
+         Show();
+     const Size aSize = rSlot.GetSize();
+-    const Rect aImage = fit(Rect{ 0, 0, aSize.Width(), aSize.Height() }, ART_WIDTH, ART_HEIGHT);
++    const Rect aImage = fit(Rect{ 0, 0, static_cast<long>(aSize.Width()), static_cast<long>(aSize.Height()) },
++                            ART_WIDTH, ART_HEIGHT);
+     const int nScale = sourceScale(std::lround(aImage.h * surfaceScale(*GetOutDev())));
+     if (maId.isEmpty() || (bResized && nScale != mnSourceScale))
+         Request(mnSlot); // first content, or the same slot again for the new scale
