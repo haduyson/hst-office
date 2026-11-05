@@ -1,0 +1,971 @@
+HST Office: Word's tabs on Find and Replace. Find hides the replace controls, Replace shows what the dialog always
+showed and is where it opens, and Go To, in Writer only, moves to a page, section, line, bookmark, comment, footnote,
+endnote, field, table, graphic, equation, object or heading: next, previous, a number, +n or -n, or a bookmark's name.
+
+- The strip only shows and hides existing controls, so searching, its options and its keys are as before, and the
+  dialog stays non-modal. In Writer the options expander reads Nâng cao.
+- .uno:NavElement gains the argument its slot already reads, so the dialog can choose what Writer browses by.
+
+License: these upstream files remain under their original license (MPL-2.0); hstfind* are new files, MPL-2.0.
+Test: tests/runtime/check-dialogs-writer.py find
+---
+--- a/include/svx/srchdlg.hxx
++++ b/include/svx/srchdlg.hxx
+@@ -103,6 +103,7 @@
+ };
+ 
+ class SvxSearchDialog;
++class HstFindTabs;
+ class SVX_DLLPUBLIC SvxSearchDialogWrapper final : public SfxChildWindow
+ {
+     std::shared_ptr<SvxSearchDialog> m_dialog;
+@@ -220,6 +221,7 @@
+     std::unique_ptr<weld::Button> m_xHelpBtn;
+     std::unique_ptr<weld::CheckButton> m_xIncludeDiacritics;
+     std::unique_ptr<weld::CheckButton> m_xIncludeKashida;
++    std::unique_ptr<HstFindTabs> m_xHstTabs;
+     std::unique_ptr<weld::Expander> m_xOtherOptionsExpander;
+     std::unique_ptr<weld::CheckButton> m_xSelectionBtn;
+     std::unique_ptr<weld::CheckButton> m_xRegExpBtn;
+--- a/solenv/sanitizers/ui/svx.suppr
++++ b/solenv/sanitizers/ui/svx.suppr
+@@ -79,3 +79,5 @@
+ svx/uiconfig/ui/sidebartextcolumnspanel.ui://GtkLabel[@id='labelPaddingSection'] orphan-label
+ svx/uiconfig/ui/sidebartexteffect.ui://GtkLabel[@id='lbTextGlow'] orphan-label
+ svx/uiconfig/ui/findreplacedialog.ui://GtkLabel[@id='searchlabel'] orphan-label
++svx/uiconfig/ui/findreplacedialog.ui://GtkLabel[@id='hstgotohint'] orphan-label
++svx/uiconfig/ui/findreplacedialog.ui://GtkLabel[@id='hstgotomessage'] orphan-label
+--- a/svx/Library_svx.mk
++++ b/svx/Library_svx.mk
+@@ -169,6 +169,8 @@
+     svx/source/dialog/SafeModeUI \
+     svx/source/dialog/SpellDialogChildWindow \
+     svx/source/dialog/srchctrl \
++    svx/source/dialog/hstfindgoto \
++    svx/source/dialog/hstfindtabs \
+     svx/source/dialog/srchdlg \
+     svx/source/dialog/strarray \
+     svx/source/dialog/svxbmpnumvalueset \
+--- a/svx/inc/hstfindtabs.hxx
++++ b/svx/inc/hstfindtabs.hxx
+@@ -0,0 +1,69 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <com/sun/star/frame/XFrame.hpp>
++#include <com/sun/star/text/XTextContent.hpp>
++#include <com/sun/star/text/XTextViewCursor.hpp>
++#include <rtl/ustring.hxx>
++#include <tools/link.hxx>
++#include <vcl/weld/Button.hxx>
++#include <vcl/weld/ComboBox.hxx>
++#include <vcl/weld/Dialog.hxx>
++#include <vcl/weld/Expander.hxx>
++#include <vcl/weld/Label.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/Notebook.hxx>
++#include <memory>
++
++class SfxBindings;
++
++/// Word's three tabs on Find and Replace. The strip only shows or hides the existing controls, so searching
++/// itself is untouched; Go To, in Writer only, moves the document's own view cursor.
++class HstFindTabs
++{
++public:
++    HstFindTabs(weld::Builder& rBuilder, weld::Dialog& rDialog, SfxBindings& rBindings);
++
++    /// After the dialog has shown its optional controls for this application.
++    void Refresh(bool bWriter, weld::Expander& rOptions);
++
++private:
++    void ApplyPage(const OUString& rPage);
++    void GoRelative(int nSteps);
++    void GoToValue();
++    void ShowContent(const css::uno::Reference<css::text::XTextViewCursor>& xCursor,
++                     const css::uno::Reference<css::text::XTextContent>& xContent);
++    bool Step(bool bNext);
++    void Say(const OUString& rText) { m_xMessage->set_label(rText); }
++    OUString Prompt(int nId) const { return m_xPrompts->get_text(nId); }
++    css::uno::Reference<css::frame::XFrame> Frame() const;
++    css::uno::Reference<css::text::XTextViewCursor> ViewCursor() const;
++    void Dispatch(const OUString& rCommand, sal_Int32 nMoveType = 0) const;
++
++    DECL_LINK(PageHdl, const OUString&, void);
++    DECL_LINK(WhatHdl, weld::ComboBox&, void);
++    DECL_LINK(ValueHdl, weld::ComboBox&, void);
++    DECL_LINK(PrevHdl, weld::Button&, void);
++    DECL_LINK(NextHdl, weld::Button&, void);
++    DECL_LINK(GoHdl, weld::Button&, void);
++    DECL_LINK(ActivateHdl, weld::ComboBox&, bool);
++
++    weld::Dialog& m_rDialog;
++    SfxBindings& m_rBindings;
++    bool m_bComponentShown = false;
++    bool m_bInGoTo = false;
++    OUString m_aPage = u"hsttabreplace"_ustr; ///< the page shown
++    std::unique_ptr<weld::Notebook> m_xTabs;
++    std::unique_ptr<weld::Widget> m_xSearchFrame, m_xReplaceFrame, m_xControls, m_xComponent, m_xOptions;
++    std::unique_ptr<weld::Widget> m_xReplace, m_xReplaceAll, m_xReplaceBack, m_xPanel;
++    std::unique_ptr<weld::ComboBox> m_xWhat, m_xValue, m_xPrompts;
++    std::unique_ptr<weld::Label> m_xPrompt, m_xMessage, m_xSearchLabel;
++    std::unique_ptr<weld::Button> m_xPrev, m_xNext, m_xGo;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/svx/source/dialog/hstfindgoto.cxx
++++ b/svx/source/dialog/hstfindgoto.cxx
+@@ -0,0 +1,199 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// The Go To tab of Find and Replace: Word's list of places, moving the document's own view cursor.
++
++#include <hstfindtabs.hxx>
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/container/XNameAccess.hpp>
++#include <com/sun/star/frame/DispatchHelper.hpp>
++#include <com/sun/star/frame/XController.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/text/XBookmarksSupplier.hpp>
++#include <com/sun/star/text/XEndnotesSupplier.hpp>
++#include <com/sun/star/text/XFootnotesSupplier.hpp>
++#include <com/sun/star/text/XPageCursor.hpp>
++#include <com/sun/star/text/XTextContent.hpp>
++#include <com/sun/star/text/XTextViewCursorSupplier.hpp>
++#include <com/sun/star/view/XViewCursor.hpp>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertysequence.hxx>
++#include <sfx2/bindings.hxx>
++#include <sfx2/dispatch.hxx>
++#include <sfx2/frame.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <cstdlib>
++
++using namespace css;
++
++namespace
++{
++// Word's list, in Word's order, and how Writer browses each. The numbers are Writer's NID_* values (workctrl.hxx).
++enum What { PAGE, SECTION, LINE, BOOKMARK, COMMENT, FOOTNOTE, ENDNOTE, FIELD, TABLE, GRAPHIC, EQUATION, OBJECT, HEADING };
++constexpr sal_Int32 aMoveType[] = { 20002, 20005, 0, 20006, 20013, 20011, 20011, 20019, 20000, 20007, 20008, 20008, 20009 };
++// Lines of the hidden list of prompts in the .ui file.
++enum Prompts { P_PAGE, P_SECTION, P_LINE, P_NAME, P_NUMBER, P_NOT_FOUND, P_ADVANCED };
++}
++
++uno::Reference<frame::XFrame> HstFindTabs::Frame() const
++{
++    SfxDispatcher* pDispatcher = m_rBindings.GetDispatcher();
++    SfxViewFrame* pFrame = pDispatcher ? pDispatcher->GetFrame() : nullptr;
++    return pFrame ? pFrame->GetFrame().GetFrameInterface() : nullptr;
++}
++
++uno::Reference<text::XTextViewCursor> HstFindTabs::ViewCursor() const
++{
++    uno::Reference<frame::XFrame> xFrame = Frame();
++    uno::Reference<text::XTextViewCursorSupplier> xSupplier(xFrame ? xFrame->getController() : nullptr, uno::UNO_QUERY);
++    return xSupplier ? xSupplier->getViewCursor() : nullptr;
++}
++
++void HstFindTabs::Dispatch(const OUString& rCommand, sal_Int32 nMoveType) const
++{
++    uno::Reference<frame::XDispatchProvider> xProvider(Frame(), uno::UNO_QUERY);
++    if (!xProvider)
++        return;
++    uno::Sequence<beans::PropertyValue> aArgs = nMoveType
++        ? comphelper::InitPropertySequence({ { "SynchronMode", uno::Any(true) }, { "NavElement", uno::Any(nMoveType) } })
++        : comphelper::InitPropertySequence({ { "SynchronMode", uno::Any(true) } });
++    frame::DispatchHelper::create(comphelper::getProcessComponentContext())
++        ->executeDispatch(xProvider, rCommand, u""_ustr, 0, aArgs);
++}
++
++/// One item on. False when Writer found none, or wrapped round the document: it reports that in the search label.
++bool HstFindTabs::Step(bool bNext)
++{
++    const int nWhat = m_xWhat->get_active();
++    uno::Reference<text::XTextViewCursor> xCursor = ViewCursor();
++    if (!xCursor)
++        return false;
++    if (nWhat == PAGE)
++    {
++        uno::Reference<text::XPageCursor> xPages(xCursor, uno::UNO_QUERY_THROW);
++        const sal_Int16 nPage = xPages->getPage();
++        return xPages->jumpToPage(nPage + (bNext ? 1 : -1)) && xPages->getPage() != nPage;
++    }
++    if (nWhat == LINE)
++    {
++        uno::Reference<view::XViewCursor> xLines(xCursor, uno::UNO_QUERY_THROW);
++        return bNext ? xLines->goDown(1, false) : xLines->goUp(1, false);
++    }
++    m_xSearchLabel->set_label(OUString());
++    Dispatch(u".uno:NavElement"_ustr, aMoveType[nWhat]);
++    Dispatch(bNext ? u".uno:ScrollToNext"_ustr : u".uno:ScrollToPrevious"_ustr);
++    return m_xSearchLabel->get_label().isEmpty();
++}
++
++void HstFindTabs::GoRelative(int nSteps)
++{
++    Say(OUString());
++    for (int i = 0; i < std::abs(nSteps); ++i)
++    {
++        if (!Step(nSteps > 0))
++        {
++            Say(m_xSearchLabel->get_label().isEmpty() ? Prompt(P_NOT_FOUND) : m_xSearchLabel->get_label());
++            return;
++        }
++    }
++}
++
++void HstFindTabs::ShowContent(const uno::Reference<text::XTextViewCursor>& xCursor,
++                              const uno::Reference<text::XTextContent>& xContent)
++{
++    if (xContent)
++        xCursor->gotoRange(xContent->getAnchor(), false);
++    else
++        Say(Prompt(P_NOT_FOUND));
++}
++
++void HstFindTabs::GoToValue()
++{
++    const OUString aValue = m_xValue->get_active_text().trim();
++    const int nWhat = m_xWhat->get_active();
++    uno::Reference<text::XTextViewCursor> xCursor = ViewCursor();
++    if (aValue.isEmpty() || !xCursor)
++        return;
++    Say(OUString());
++    uno::Reference<frame::XModel> xModel = Frame()->getController()->getModel();
++    if (nWhat == BOOKMARK)
++    {
++        uno::Reference<text::XBookmarksSupplier> xMarks(xModel, uno::UNO_QUERY);
++        uno::Reference<container::XNameAccess> xNames = xMarks ? xMarks->getBookmarks() : nullptr;
++        uno::Reference<text::XTextContent> xMark;
++        if (xNames && xNames->hasByName(aValue))
++            xNames->getByName(aValue) >>= xMark;
++        return ShowContent(xCursor, xMark);
++    }
++    const sal_Int32 nNumber = aValue.toInt32();
++    if (aValue[0] == '+' || aValue[0] == '-')
++        return GoRelative(nNumber);
++    if (nNumber <= 0)
++        return Say(Prompt(P_NOT_FOUND));
++    if (nWhat == PAGE)
++    {
++        uno::Reference<text::XPageCursor> xPages(xCursor, uno::UNO_QUERY_THROW);
++        // As in Word, a number past the end goes to the last page.
++        if (!xPages->jumpToPage(nNumber) || xPages->getPage() != nNumber)
++            xPages->jumpToLastPage();
++        return;
++    }
++    if (nWhat == FOOTNOTE || nWhat == ENDNOTE)
++    {
++        uno::Reference<text::XFootnotesSupplier> xFoot(xModel, uno::UNO_QUERY);
++        uno::Reference<text::XEndnotesSupplier> xEnd(xModel, uno::UNO_QUERY);
++        uno::Reference<container::XIndexAccess> xNotes = nWhat == FOOTNOTE ? xFoot->getFootnotes() : xEnd->getEndnotes();
++        uno::Reference<text::XTextContent> xNote;
++        if (nNumber <= xNotes->getCount())
++            xNotes->getByIndex(nNumber - 1) >>= xNote;
++        return ShowContent(xCursor, xNote);
++    }
++    // The Nth from the start of the document. What the start itself already is counts as the first.
++    uno::Reference<text::XTextRange> xWasAt = xCursor->getStart();
++    xCursor->gotoStart(false);
++    int nSteps = nNumber;
++    uno::Reference<beans::XPropertySet> xProps(xCursor, uno::UNO_QUERY);
++    if (nWhat == LINE || (nWhat == TABLE && xProps->getPropertyValue(u"TextTable"_ustr).hasValue())
++        || (nWhat == HEADING && xProps->getPropertyValue(u"OutlineLevel"_ustr).get<sal_Int16>() > 0))
++        --nSteps;
++    for (int i = 0; i < nSteps; ++i)
++    {
++        if (!Step(true))
++        {
++            xCursor->gotoRange(xWasAt, false);
++            return Say(Prompt(P_NOT_FOUND));
++        }
++    }
++}
++
++IMPL_LINK_NOARG(HstFindTabs, WhatHdl, weld::ComboBox&, void)
++{
++    const int nWhat = m_xWhat->get_active();
++    m_xValue->clear();
++    m_xValue->set_entry_text(OUString());
++    m_xGo->set_sensitive(false);
++    Say(OUString());
++    m_xPrompt->set_label(Prompt(nWhat == PAGE ? P_PAGE : nWhat == SECTION ? P_SECTION : nWhat == LINE ? P_LINE
++                                : nWhat == BOOKMARK ? P_NAME : P_NUMBER));
++    if (nWhat != BOOKMARK)
++        return;
++    uno::Reference<text::XBookmarksSupplier> xMarks(Frame()->getController()->getModel(), uno::UNO_QUERY);
++    if (xMarks)
++        for (const OUString& rName : xMarks->getBookmarks()->getElementNames())
++            m_xValue->append_text(rName);
++}
++
++IMPL_LINK_NOARG(HstFindTabs, ValueHdl, weld::ComboBox&, void) { m_xGo->set_sensitive(!m_xValue->get_active_text().trim().isEmpty()); }
++IMPL_LINK_NOARG(HstFindTabs, PrevHdl, weld::Button&, void) { GoRelative(-1); }
++IMPL_LINK_NOARG(HstFindTabs, NextHdl, weld::Button&, void) { GoRelative(1); }
++IMPL_LINK_NOARG(HstFindTabs, GoHdl, weld::Button&, void) { GoToValue(); }
++IMPL_LINK_NOARG(HstFindTabs, ActivateHdl, weld::ComboBox&, bool) { return GoToValue(), true; }
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/svx/source/dialog/hstfindtabs.cxx
++++ b/svx/source/dialog/hstfindtabs.cxx
+@@ -0,0 +1,101 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hstfindtabs.hxx>
++
++#include <comphelper/lok.hxx>
++
++namespace
++{
++// Lines of the hidden list of prompts in the .ui file.
++enum Prompts { P_PAGE, P_ADVANCED = 6 };
++constexpr int PAGE_ENTRY = 0;
++}
++
++HstFindTabs::HstFindTabs(weld::Builder& rBuilder, weld::Dialog& rDialog, SfxBindings& rBindings)
++    : m_rDialog(rDialog)
++    , m_rBindings(rBindings)
++    , m_xTabs(rBuilder.weld_notebook(u"hsttabs"_ustr))
++    , m_xSearchFrame(rBuilder.weld_widget(u"searchframe"_ustr))
++    , m_xReplaceFrame(rBuilder.weld_widget(u"replaceframe"_ustr))
++    , m_xControls(rBuilder.weld_widget(u"controlbox"_ustr))
++    , m_xComponent(rBuilder.weld_widget(u"componentframe"_ustr))
++    , m_xOptions(rBuilder.weld_widget(u"optionsgrid"_ustr))
++    , m_xReplace(rBuilder.weld_widget(u"replace"_ustr))
++    , m_xReplaceAll(rBuilder.weld_widget(u"replaceall"_ustr))
++    , m_xReplaceBack(rBuilder.weld_widget(u"replace_backwards"_ustr))
++    , m_xPanel(rBuilder.weld_widget(u"hstgotopanel"_ustr))
++    , m_xWhat(rBuilder.weld_combo_box(u"hstgotowhat"_ustr))
++    , m_xValue(rBuilder.weld_combo_box(u"hstgotovalue"_ustr))
++    , m_xPrompts(rBuilder.weld_combo_box(u"hstgotoprompts"_ustr))
++    , m_xPrompt(rBuilder.weld_label(u"hstgotoprompt"_ustr))
++    , m_xMessage(rBuilder.weld_label(u"hstgotomessage"_ustr))
++    , m_xSearchLabel(rBuilder.weld_label(u"searchlabel"_ustr))
++    , m_xPrev(rBuilder.weld_button(u"hstgotoprev"_ustr))
++    , m_xNext(rBuilder.weld_button(u"hstgotonext"_ustr))
++    , m_xGo(rBuilder.weld_button(u"hstgotogo"_ustr))
++{
++    m_xTabs->connect_enter_page(LINK(this, HstFindTabs, PageHdl));
++    m_xWhat->connect_changed(LINK(this, HstFindTabs, WhatHdl));
++    m_xValue->connect_changed(LINK(this, HstFindTabs, ValueHdl));
++    m_xValue->connect_entry_activate(LINK(this, HstFindTabs, ActivateHdl));
++    m_xPrev->connect_clicked(LINK(this, HstFindTabs, PrevHdl));
++    m_xNext->connect_clicked(LINK(this, HstFindTabs, NextHdl));
++    m_xGo->connect_clicked(LINK(this, HstFindTabs, GoHdl));
++    m_xWhat->set_active(PAGE_ENTRY);
++    m_xPrompt->set_label(Prompt(P_PAGE));
++    m_xGo->set_sensitive(false);
++    // As before this strip: the dialog comes up with both search and replace.
++    m_xTabs->set_current_page(u"hsttabreplace"_ustr);
++    if (comphelper::LibreOfficeKit::isActive())
++        m_xTabs->hide();
++}
++
++void HstFindTabs::Refresh(bool bWriter, weld::Expander& rOptions)
++{
++    if (!bWriter && m_xTabs->get_page_index(u"hsttabgoto"_ustr) != -1)
++    {
++        m_xTabs->remove_page(u"hsttabgoto"_ustr);
++        if (m_aPage == "hsttabgoto")
++            m_aPage = m_xTabs->get_current_page_ident();
++    }
++    if (bWriter)
++        rOptions.set_label(Prompt(P_ADVANCED));
++    ApplyPage(OUString());
++}
++
++void HstFindTabs::ApplyPage(const OUString& rPage)
++{
++    // gtk reports the page being entered before it becomes the current one, and hiding controls then can make the
++    // dialog refresh within that signal: keep the page from the signal rather than asking the strip.
++    if (!rPage.isEmpty())
++        m_aPage = rPage;
++    const OUString& aPage = m_aPage;
++    const bool bGoTo = aPage == "hsttabgoto";
++    const bool bReplace = aPage == "hsttabreplace";
++    if (bGoTo && !m_bInGoTo)
++        m_bComponentShown = m_xComponent->get_visible();
++    if (m_bInGoTo && !bGoTo)
++        m_xComponent->set_visible(m_bComponentShown);
++    else if (bGoTo)
++        m_xComponent->hide();
++    m_bInGoTo = bGoTo;
++
++    m_xPanel->set_visible(bGoTo);
++    m_xSearchFrame->set_visible(!bGoTo);
++    m_xControls->set_visible(!bGoTo);
++    m_xOptions->set_visible(!bGoTo);
++    m_xReplaceFrame->set_visible(bReplace);
++    m_xReplace->set_visible(bReplace);
++    m_xReplaceAll->set_visible(bReplace);
++    m_xReplaceBack->set_visible(bReplace);
++    m_rDialog.resize_to_request();
++}
++
++IMPL_LINK(HstFindTabs, PageHdl, const OUString&, rPage, void) { ApplyPage(rPage); }
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/svx/source/dialog/srchdlg.cxx
++++ b/svx/source/dialog/srchdlg.cxx
+@@ -53,6 +53,7 @@
+ #include <toolkit/helper/vclunohelper.hxx>
+ 
+ #include <svx/srchdlg.hxx>
++#include <hstfindtabs.hxx>
+ #include <svx/strarray.hxx>
+ 
+ #include <svx/strings.hrc>
+@@ -308,6 +309,8 @@
+         m_xSearchLB->grab_focus();
+     }
+ 
++    m_xHstTabs.reset(new HstFindTabs(*m_xBuilder, *m_xDialog, m_rBindings));
++
+     m_aPresentIdle.SetTimeout(50);
+     m_aPresentIdle.SetInvokeHandler(LINK(this, SvxSearchDialog, PresentTimeoutHdl_Impl));
+ 
+@@ -743,6 +746,8 @@
+         m_xAllSheetsCB->show();
+         m_xSearchFormattedCB->show();
+     }
++
++    m_xHstTabs->Refresh(bWriterApp, *m_xOtherOptionsExpander);
+ }
+ 
+ 
+--- a/svx/uiconfig/ui/findreplacedialog.ui
++++ b/svx/uiconfig/ui/findreplacedialog.ui
+@@ -64,6 +64,72 @@
+             <property name="orientation">vertical</property>
+             <property name="spacing">6</property>
+             <child>
++              <object class="GtkNotebook" id="hsttabs">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="show-border">False</property>
++                <child>
++                  <object class="GtkBox" id="hsttabfindpage">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                  </object>
++                </child>
++                <child type="tab">
++                  <object class="GtkLabel" id="hsttabfind">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="findreplacedialog|hsttabfindlabel">_Find</property>
++                    <property name="use-underline">True</property>
++                  </object>
++                  <packing>
++                    <property name="position">0</property>
++                    <property name="tab-fill">False</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkBox" id="hsttabreplacepage">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                  </object>
++                </child>
++                <child type="tab">
++                  <object class="GtkLabel" id="hsttabreplace">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="findreplacedialog|hsttabreplacelabel">Re_place</property>
++                    <property name="use-underline">True</property>
++                  </object>
++                  <packing>
++                    <property name="position">1</property>
++                    <property name="tab-fill">False</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkBox" id="hsttabgotopage">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                  </object>
++                </child>
++                <child type="tab">
++                  <object class="GtkLabel" id="hsttabgoto">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="findreplacedialog|hsttabgotolabel">_Go To</property>
++                    <property name="use-underline">True</property>
++                  </object>
++                  <packing>
++                    <property name="position">2</property>
++                    <property name="tab-fill">False</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
+               <object class="GtkFrame" id="searchframe">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+@@ -368,7 +434,7 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">0</property>
++                <property name="position">1</property>
+               </packing>
+             </child>
+             <child>
+@@ -500,7 +566,7 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">1</property>
++                <property name="position">2</property>
+               </packing>
+             </child>
+             <child>
+@@ -617,7 +683,7 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">2</property>
++                <property name="position">3</property>
+               </packing>
+             </child>
+             <child>
+@@ -705,7 +771,7 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">3</property>
++                <property name="position">4</property>
+               </packing>
+             </child>
+             <child>
+@@ -1244,7 +1310,204 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">4</property>
++                <property name="position">5</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkGrid" id="hstgotopanel">
++                <property name="can-focus">False</property>
++                <property name="row-spacing">6</property>
++                <property name="column-spacing">12</property>
++                <property name="margin-start">6</property>
++                <property name="margin-end">6</property>
++            <child>
++              <object class="GtkLabel" id="hstgotowhatlabel">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="findreplacedialog|hstgotowhatlabel">Go to _what:</property>
++                <property name="use-underline">True</property>
++                <property name="xalign">0</property>
++                <property name="mnemonic-widget">hstgotowhat</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">0</property>
++                <property name="width">1</property>
++              </packing>
++            </child>
++                <child>
++                  <object class="GtkComboBoxText" id="hstgotowhat">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="hexpand">True</property>
++                    <items>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat0">Page</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat1">Section</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat2">Line</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat3">Bookmark</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat4">Comment</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat5">Footnote</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat6">Endnote</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat7">Field</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat8">Table</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat9">Graphic</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat10">Equation</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat11">Object</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotowhat12">Heading</item>
++                    </items>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++            <child>
++              <object class="GtkLabel" id="hstgotoprompt">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="findreplacedialog|hstgotoprompt">Enter page _number:</property>
++                <property name="use-underline">True</property>
++                <property name="xalign">0</property>
++                <property name="mnemonic-widget">hstgotovalue</property>
++              </object>
++              <packing>
++                <property name="left-attach">1</property>
++                <property name="top-attach">0</property>
++                <property name="width">1</property>
++              </packing>
++            </child>
++                <child>
++                  <object class="GtkComboBoxText" id="hstgotovalue">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="hexpand">True</property>
++                    <property name="has-entry">True</property>
++                    <child internal-child="entry">
++                      <object class="GtkEntry">
++                        <property name="can-focus">True</property>
++                        <property name="activates-default">False</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++            <child>
++              <object class="GtkLabel" id="hstgotohint">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="findreplacedialog|hstgotohint">Enter + and - to move relative to the current location. Example: +4 will move forward four items.</property>
++                <property name="use-underline">True</property>
++                <property name="xalign">0</property>
++                <property name="wrap">True</property>
++                <property name="max-width-chars">60</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">2</property>
++                <property name="width">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="hstgotomessage">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label"></property>
++                <property name="use-underline">True</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">3</property>
++                <property name="width">2</property>
++              </packing>
++            </child>
++                <child>
++                  <object class="GtkButtonBox" id="hstgotobuttons">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="halign">end</property>
++                    <property name="spacing">6</property>
++                  <child>
++                    <object class="GtkButton" id="hstgotoprev">
++                      <property name="label" translatable="yes" context="findreplacedialog|hstgotoprev">Pre_vious</property>
++                      <property name="visible">True</property>
++                      <property name="can-focus">True</property>
++                      <property name="receives-default">True</property>
++                      <property name="use-underline">True</property>
++                    </object>
++                    <packing>
++                      <property name="expand">False</property>
++                      <property name="fill">True</property>
++                      <property name="position">0</property>
++                    </packing>
++                  </child>
++                  <child>
++                    <object class="GtkButton" id="hstgotonext">
++                      <property name="label" translatable="yes" context="findreplacedialog|hstgotonext">Ne_xt</property>
++                      <property name="visible">True</property>
++                      <property name="can-focus">True</property>
++                      <property name="receives-default">True</property>
++                      <property name="use-underline">True</property>
++                    </object>
++                    <packing>
++                      <property name="expand">False</property>
++                      <property name="fill">True</property>
++                      <property name="position">1</property>
++                    </packing>
++                  </child>
++                  <child>
++                    <object class="GtkButton" id="hstgotogo">
++                      <property name="label" translatable="yes" context="findreplacedialog|hstgotogo">Go _To</property>
++                      <property name="visible">True</property>
++                      <property name="can-focus">True</property>
++                      <property name="receives-default">True</property>
++                      <property name="use-underline">True</property>
++                    </object>
++                    <packing>
++                      <property name="expand">False</property>
++                      <property name="fill">True</property>
++                      <property name="position">2</property>
++                    </packing>
++                  </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">4</property>
++                    <property name="width">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkComboBoxText" id="hstgotoprompts">
++                    <property name="can-focus">False</property>
++                    <property name="no-show-all">True</property>
++                    <items>
++                  <item translatable="yes" context="findreplacedialog|hstgotoprompts0">Enter page _number:</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotoprompts1">Enter section _number:</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotoprompts2">Enter line _number:</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotoprompts3">Enter bookmark _name:</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotoprompts4">Enter _number:</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotoprompts5">Not found.</item>
++                  <item translatable="yes" context="findreplacedialog|hstgotoprompts6">_Advanced</item>
++                    </items>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="hstgotoprompts-atkobject">
++                        <property name="AtkObject::accessible-name" translatable="yes" context="findreplacedialog|hstgotoprompts-atkobject">Go To prompts</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">5</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">6</property>
+               </packing>
+             </child>
+           </object>
+--- a/sw/sdi/swriter.sdi
++++ b/sw/sdi/swriter.sdi
+@@ -8598,7 +8598,7 @@
+ ]
+ 
+ SfxVoidItem NavElement FN_NAV_ELEMENT
+-
++(SfxUInt32Item NavElement FN_NAV_ELEMENT)
+ [
+     AutoUpdate = TRUE,
+     FastCall = FALSE,
+--- a/translations/source/vi/svx/messages.po
++++ b/translations/source/vi/svx/messages.po
+@@ -17135,6 +17135,186 @@
+ msgid "Search icon"
+ msgstr ""
+ 
++#. hsttab
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hsttabfindlabel"
++msgid "_Find"
++msgstr "Tìm"
++
++#. hsttab
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hsttabreplacelabel"
++msgid "Re_place"
++msgstr "Thay thế"
++
++#. hsttab
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hsttabgotolabel"
++msgid "_Go To"
++msgstr "Đi Tới"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhatlabel"
++msgid "Go to _what:"
++msgstr "Đi tới cái gì:"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotoprompt"
++msgid "Enter page _number:"
++msgstr "Nhập số trang:"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotohint"
++msgid "Enter + and - to move relative to the current location. Example: +4 will move forward four items."
++msgstr "Nhập + và - để di chuyển so với vị trí hiện tại. Ví dụ: +4 sẽ di chuyển tiếp bốn mục."
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotoprev"
++msgid "Pre_vious"
++msgstr "Trước"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotonext"
++msgid "Ne_xt"
++msgstr "Tiếp theo"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotogo"
++msgid "Go _To"
++msgstr "Đi Tới"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotoprompts-atkobject"
++msgid "Go To prompts"
++msgstr "Lời nhắc Đi Tới"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat0"
++msgid "Page"
++msgstr "Trang"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat1"
++msgid "Section"
++msgstr "Phần"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat2"
++msgid "Line"
++msgstr "Dòng"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat3"
++msgid "Bookmark"
++msgstr "Thẻ đánh dấu"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat4"
++msgid "Comment"
++msgstr "Chú thích"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat5"
++msgid "Footnote"
++msgstr "Cước chú"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat6"
++msgid "Endnote"
++msgstr "Chú thích cuối"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat7"
++msgid "Field"
++msgstr "Trường"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat8"
++msgid "Table"
++msgstr "Bảng"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat9"
++msgid "Graphic"
++msgstr "Đồ họa"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat10"
++msgid "Equation"
++msgstr "Phương trình"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat11"
++msgid "Object"
++msgstr "Đối tượng"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotowhat12"
++msgid "Heading"
++msgstr "Đầu đề"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotoprompts0"
++msgid "Enter page _number:"
++msgstr "Nhập số trang:"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotoprompts1"
++msgid "Enter section _number:"
++msgstr "Nhập số phần:"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotoprompts2"
++msgid "Enter line _number:"
++msgstr "Nhập số dòng:"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotoprompts3"
++msgid "Enter bookmark _name:"
++msgstr "Nhập tên thẻ đánh dấu:"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotoprompts4"
++msgid "Enter _number:"
++msgstr "Nhập số thứ tự:"
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotoprompts5"
++msgid "Not found."
++msgstr "Không tìm thấy."
++
++#. hstgot
++#: svx/uiconfig/ui/findreplacedialog.ui
++msgctxt "findreplacedialog|hstgotoprompts6"
++msgid "_Advanced"
++msgstr "_Nâng cao"
++
+ #. L5FnC
+ #: svx/uiconfig/ui/findreplacedialog.ui:360
+ msgctxt "findreplacedialog|label1"

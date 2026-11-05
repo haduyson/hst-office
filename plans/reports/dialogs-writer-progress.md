@@ -19,5 +19,5 @@ Survey: `dialogs-msoffice-survey-261104.md`. Check: `tests/runtime/check-dialogs
 | Table Properties (Row, Column, Cell, Alt Text; Previous/Next Row, Text Wrapping) | done; Text Wrapping asks first because moving a table to or from a frame clears the undo history (core limit) | ~8 / 30.5 + 20 | b639a45 |
 | Picture properties and Word wrap styles | done: Position, Text Wrapping, Size at one tab level, 7 styles, same tabs for frames and objects; the Size tab shows the Position page's widgets (one class owns both) | ~6 / 18 + 5 | 7ce2e8b |
 | Paragraph Tabs | done: Format > Tab stops opens Paragraph on Tab (.uno:HstTabsDialog alias of .uno:ParagraphDialog?Page:string=tabs); Writer's page has Default tab stops, in DOCX settings | ~2 / 4 | 08b0610 |
-| Find and Replace tabs | not started (survey: optional) | - / 16 | |
+| Find and Replace tabs | done: Find, Replace, Go To (Writer only; 13 kinds of place, number, +n/-n, bookmark name); options under Nâng cao; non-modal; Sheets and Slides get Find and Replace with their own terms | ~5 / 16 | COMMIT_FIND |
 | Bullets and Numbering, Columns, Print, Export PDF | class (a) only in the survey: no b/c work | - / 0 | |
