@@ -88,6 +88,7 @@ do_patch() {
   python3 -B "$REPO/scripts/windows/msi-vietnamese-base.py" --tree "$SRC" || return 1
   # HST app icons (exe, shortcuts, taskbar, Programs and Features) and window icon in every theme.
   python3 -B "$REPO/scripts/brand/apply-icon-overrides.py" --tree "$SRC" || return 1
+  python3 -B "$REPO/scripts/templates/apply-presnt-vi.py" --tree "$SRC" || return 1
   # HST wizard artwork; Image_2.bmp is an unused upstream picture.
   local bin="$SRC/instsetoo_native/inc_common/windows/msi_templates/Binary"
   cp "$REPO/branding/windows/installer/Image.bmp" "$REPO/branding/windows/installer/Banner.bmp" "$bin/" || return 1

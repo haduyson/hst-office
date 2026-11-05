@@ -13,3 +13,13 @@
 Solution logos are HASON TECH/product marks; provenance and owner-requested derivative details: [banner sources](assets/banners/SOURCES.md).
 
 Mẫu HST không nhúng font, ảnh hay nội dung của bên thứ ba.
+
+Nền trình chiếu đi cùng LibreOffice giữ giấy phép và tác giả gốc, tên tác giả nằm trong thuộc tính "Người tạo" của mẫu. HST đã sửa tất cả 23 nền: thay ảnh thu nhỏ, bỏ chuỗi tên chương trình tạo tệp; Freshes còn đổi chữ mẫu sang tiếng Việt (`scripts/templates/apply-presnt-vi.py`). Năm nền sau có mô tả được bỏ, giấy phép chuyển sang thuộc tính "License"; mô tả gốc gồm cả nguồn ảnh và biểu tượng giữ nguyên văn ở [LICENSES/presentation-backgrounds.md](LICENSES/presentation-backgrounds.md):
+
+| Nền | Tác giả | Giấy phép |
+|---|---|---|
+| Candy | Ermin D. Alita, Annisa Aulia Rasyidah, Laila Muhdi, Cahyaning Asih, @li_Orch | CC BY-SA 4.0 |
+| Freshes | Risyad Rais | CC BY-SA 4.0 |
+| Grey Elegant | Ahmad Bayhaqi Saputra | CC BY-SA 4.0 |
+| Growing Liberty | Budi Aryo @tokofoss | CC BY-SA 4.0 |
+| Yellow Idea | Dwi Alita @ealita.id | CC BY-SA 4.0 |

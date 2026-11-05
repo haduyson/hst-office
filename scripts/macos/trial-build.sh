@@ -153,6 +153,7 @@ do_patch() {
   # Window/Start Center icons (icon themes, all platforms), then the macOS .icns sources:
   # app icon (main.icns) and document icons (generic-*/oasis-*.icns) from the HST artwork.
   "$PY" -B "$REPO/scripts/brand/apply-icon-overrides.py" --tree "$SRC" || return 1
+  "$PY" -B "$REPO/scripts/templates/apply-presnt-vi.py" --tree "$SRC" || return 1
   "$PY" -I "$REPO/scripts/macos/stage-macos-icons.py" --tree "$SRC" || return 1
 }
 

@@ -115,6 +115,7 @@ do_patch() {
   python3 -B "$REPO/scripts/dict/generate-vi-tone-variants.py" --apply --tree "$SRC" || return 1
   # HST icons in place of LibreOffice-shaped ones (same step as scripts/build-linux.sh).
   python3 -B "$REPO/scripts/brand/apply-icon-overrides.py" --tree "$SRC" || return 1
+  python3 -B "$REPO/scripts/templates/apply-presnt-vi.py" --tree "$SRC" || return 1
 }
 
 options() { # linux-x86_64.conf with this runner's branding dir and CPU count
