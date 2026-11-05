@@ -15,6 +15,7 @@ from hst_dialog_uitest import Checks, DialogHarness, click, select_entry, select
 from hst_sheets_dialog_checks import (check_accounting, check_format_cells_font_command,  # noqa: E402
                                       check_format_cells_tabs, check_merge_cells, close_welcome, new_sheet,
                                       type_text)
+from hst_sheets_page_scaling import check_page_scaling  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -128,6 +129,7 @@ CHECKS = {
     "merge-cells": check_merge_cells,
     "accounting": check_accounting,
     "page-setup": check_page_setup,
+    "page-scaling": check_page_scaling,
     "sort": check_sort,
 }
 

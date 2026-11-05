@@ -42,6 +42,9 @@ class DialogHarness:
                 time.sleep(1)
         raise AssertionError(f"document refused to close (focus: {state(self.ui.getTopFocusWindow()).get('ID')})")
 
+    def temp_url(self, name):
+        return "file://" + os.path.join(self.office.workdir, name)
+
     def wait_idle(self, seconds=1.0):
         time.sleep(seconds)
 
@@ -61,19 +64,6 @@ class DialogHarness:
                 click(top, "ok")
             time.sleep(0.5)
         raise AssertionError(f"{command}: dialog {dialog_id} did not open (focus: {state(top).get('ID')!r} {state(top).get('Text')!r} {state(top).get('WindowType')})")
-
-
-def writer_edit(ui):
-    """The document window, for typing. The first-run welcome is modal and can take the focus first."""
-    deadline = time.time() + 30
-    while time.time() < deadline:
-        top = ui.getTopFocusWindow()
-        if has_child(top, "writer_edit"):
-            return top.getChild("writer_edit")
-        if has_child(top, "ok"):
-            click(top, "ok")
-        time.sleep(0.5)
-    raise AssertionError("no document window")
 
 
 def props(**values):
