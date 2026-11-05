@@ -14,7 +14,8 @@ from dialogs_writer_art_cases import check_page_art  # noqa: E402
 from dialogs_writer_autofit_cases import check_autofit_large_table, check_autofit_typing  # noqa: E402
 from dialogs_writer_autofit_real_cases import check_autofit_real_documents  # noqa: E402
 from dialogs_writer_border_cases import check_borders, check_page_border  # noqa: E402
-from dialogs_writer_insert_cases import check_insert_table  # noqa: E402
+from dialogs_writer_find_cases import check_find_other_apps, check_find_tabs  # noqa: E402
+from dialogs_writer_insert_cases import check_insert_table, check_tabs  # noqa: E402
 from dialogs_writer_other_cases import (check_hyperlink, check_page_number, check_page_setup,  # noqa: E402
                                         check_slide_properties, check_special_character, check_word_count)
 from dialogs_writer_paragraph_font_cases import check_font, check_paragraph  # noqa: E402
@@ -29,7 +30,7 @@ DIALOGS = {"paragraph": check_paragraph, "font": check_font, "word-count": check
            "table-rows": check_table_row_navigation, "table-wrap": check_table_text_wrapping,
            "picture": check_picture, "frame": check_frame_style_keeps_size,
            "borders": check_borders, "page-border": check_page_border, "page-art": check_page_art,
-           "insert-table": check_insert_table, "autofit": check_autofit_typing, "autofit-large": check_autofit_large_table,
+           "insert-table": check_insert_table, "tabs": check_tabs, "find": check_find_tabs, "find-others": check_find_other_apps, "autofit": check_autofit_typing, "autofit-large": check_autofit_large_table,
            "autofit-real": check_autofit_real_documents}
 
 

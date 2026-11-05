@@ -19,6 +19,19 @@ def word_names(h):
     return names[names.index("apples"):]
 
 
+def pdf_page_png(path, work, stem):
+    """First page of a PDF or PostScript file as a PNG, by Ghostscript."""
+    target = os.path.join(work, stem + ".png")
+    subprocess.run(["gs", "-q", "-dBATCH", "-dNOPAUSE", "-sDEVICE=png16m", "-r72", "-dFirstPage=1", "-dLastPage=1", f"-sOutputFile={target}", path], check=True)
+    return target
+
+
+def red_pixels(png):
+    """Pixels in the art's apple red, counted by ImageMagick."""
+    done = subprocess.run(["convert", png, "-fill", "black", "+opaque", "#C62828", "-fill", "white", "-opaque", "#C62828", "-format", "%[fx:int(mean*w*h)]", "info:"], capture_output=True, text=True, check=True)
+    return int(done.stdout)
+
+
 def with_art(source, target, name, display="allPages"):
     """A copy of a DOCX with art on the sides of its page borders, as Word writes them: one name for all, or four."""
     names = [name] * 4 if isinstance(name, str) else name
@@ -66,6 +79,21 @@ def check_page_art(h, c):
         page_png(h, doc, png)
         c.equal(f"art: {name} is painted on the page", edge_colours(png) > 1, True)
         h.close_document(doc)
+
+    # What people send on: PDF export, and printing to a file.
+    source = os.path.join(work, "art-out.docx")
+    with_art(base, source, "apples")
+    doc = h.office.load("file://" + source)
+    h.wait_idle(0.5)
+    pdf = os.path.join(work, "art-apples.pdf")
+    doc.storeToURL("file://" + pdf, props(FilterName="writer_pdf_Export"))
+    c.equal("art: painted in PDF export", red_pixels(pdf_page_png(pdf, work, "art-pdf")) > 500, True)
+    printed = os.path.join(work, "art-printed.pdf")
+    doc.print(props(FileName="file://" + printed, Wait=True))
+    h.wait_idle(1)
+    c.equal("art: printing writes a file", os.path.exists(printed) and os.path.getsize(printed) > 0, True)
+    c.equal("art: painted in the printed file", red_pixels(pdf_page_png(printed, work, "art-printed")) > 500, True)
+    h.close_document(doc)
 
     # Every one of Word's names comes back as it was, four to a document.
     names = word_names(h)

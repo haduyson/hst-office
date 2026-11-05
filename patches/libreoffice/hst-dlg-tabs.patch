@@ -1,0 +1,241 @@
+HST Office: .uno:HstTabsDialog opens Paragraph on its Tabs page, and that page offers Word's default tab stops
+when Writer's Paragraph dialog shows it. .uno:ParagraphDialog gains the Page argument that SID_PARA_DLG already reads.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py tabs
+---
+--- a/cui/source/inc/tabstpge.hxx
++++ b/cui/source/inc/tabstpge.hxx
+@@ -91,6 +91,9 @@
+     TabWin_Impl    m_aCenterWin;
+     TabWin_Impl    m_aDezWin;
+ 
++    // HST: Word's Default tab stops, offered by Writer's Paragraph dialog only
++    std::unique_ptr<weld::Widget> m_xDefaultTabsFrame;
++    std::unique_ptr<weld::MetricSpinButton> m_xDefaultTabs;
+     // just to format the numbers, not shown
+     std::unique_ptr<weld::MetricSpinButton> m_xTabSpin;
+     // tabulators and positions
+--- a/cui/source/tabpages/tabstpge.cxx
++++ b/cui/source/tabpages/tabstpge.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <svl/eitem.hxx>
+ #include <svtools/ruler.hxx>
+ #include <svtools/unitconv.hxx>
+ #include <svx/svxids.hrc>
+@@ -66,6 +67,8 @@
+     , aCurrentTab(0)
+     , aNewTabs(std::make_unique<SvxTabStopItem>(0, 0, SvxTabAdjust::Left, GetWhich(SID_ATTR_TABSTOP)))
+     , nDefDist(0)
++    , m_xDefaultTabsFrame(m_xBuilder->weld_widget(u"hstdefaulttabsframe"_ustr))
++    , m_xDefaultTabs(m_xBuilder->weld_metric_spin_button(u"hstdefaulttabs"_ustr, FieldUnit::CM))
+     , m_xTabSpin(m_xBuilder->weld_metric_spin_button(u"SP_TABPOS"_ustr, FieldUnit::CM))
+     , m_xTabBox(m_xBuilder->weld_entry_tree_view(u"tabgrid"_ustr, u"ED_TABPOS"_ustr, u"LB_TABPOS"_ustr))
+     , m_xCenterTab(m_xBuilder->weld_radio_button(u"radiobuttonBTN_TABTYPE_CENTER"_ustr))
+@@ -107,6 +110,7 @@
+     // Set metric
+     FieldUnit eFUnit = GetModuleFieldUnit( rAttr );
+     SetFieldUnit(*m_xTabSpin, eFUnit);
++    SetFieldUnit(*m_xDefaultTabs, eFUnit);
+ 
+     // Initialize buttons
+     m_xNewBtn->connect_clicked(LINK(this,SvxTabulatorTabPage, NewHdl_Impl));
+@@ -156,6 +160,13 @@
+ {
+     bool bModified = false;
+ 
++    if (m_xDefaultTabsFrame->get_visible() && m_xDefaultTabs->get_value_changed_from_saved())
++    {
++        const MapUnit eDefaultUnit = rSet->GetPool()->GetMetric(GetWhich(SID_ATTR_TABSTOP));
++        rSet->Put(SfxUInt16Item(SID_ATTR_TABSTOP_DEFAULTS, GetCoreValue(*m_xDefaultTabs, eDefaultUnit)));
++        bModified = true;
++    }
++
+     // Put the controls' values in here
+     if (m_xNewBtn->get_sensitive())
+         NewHdl_Impl(nullptr);
+@@ -253,7 +264,11 @@
+     pItem = GetItem(*rSet, SID_ATTR_TABSTOP_DEFAULTS);
+ 
+     if (pItem)
++    {
+         nDefDist = OutputDevice::LogicToLogic(tools::Long(static_cast<const SfxUInt16Item*>(pItem)->GetValue()), eUnit, MapUnit::Map100thMM);
++        SetMetricValue(*m_xDefaultTabs, static_cast<const SfxUInt16Item*>(pItem)->GetValue(), eUnit);
++        m_xDefaultTabs->save_value();
++    }
+ 
+     // Tab pos currently selected
+     sal_uInt16 nTabPos = 0;
+@@ -667,6 +682,8 @@
+ 
+ void SvxTabulatorTabPage::PageCreated(const SfxAllItemSet& aSet)
+ {
++    if (aSet.GetItem<SfxBoolItem>(SID_ATTR_TABSTOP_DEFAULTS, false))
++        m_xDefaultTabsFrame->show();
+     const SfxUInt16Item* pControlItem = aSet.GetItem<SfxUInt16Item>(SID_SVXTABULATORTABPAGE_DISABLEFLAGS, false);
+     if (pControlItem)
+         DisableControls(static_cast<TabulatorDisableFlags>(pControlItem->GetValue()));
+--- a/cui/uiconfig/ui/paratabspage.ui
++++ b/cui/uiconfig/ui/paratabspage.ui
+@@ -8,6 +8,12 @@
+     <property name="step-increment">1</property>
+     <property name="page-increment">10</property>
+   </object>
++  <object class="GtkAdjustment" id="hstadjdefaulttabs">
++    <property name="lower">0.01</property>
++    <property name="upper">99.99</property>
++    <property name="step-increment">0.1</property>
++    <property name="page-increment">1</property>
++  </object>
+   <object class="GtkListStore" id="liststore1">
+     <columns>
+       <!-- column-name text -->
+@@ -495,6 +501,43 @@
+       </packing>
+     </child>
+     <child>
++      <object class="GtkFrame" id="hstdefaulttabsframe">
++        <property name="can-focus">False</property>
++        <property name="label-xalign">0</property>
++        <property name="shadow-type">none</property>
++        <child>
++          <object class="GtkSpinButton" id="hstdefaulttabs">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="valign">start</property>
++            <property name="margin-start">12</property>
++            <property name="margin-top">6</property>
++            <property name="truncate-multiline">True</property>
++            <property name="adjustment">hstadjdefaulttabs</property>
++            <property name="digits">2</property>
++          </object>
++        </child>
++        <child type="label">
++          <object class="GtkLabel" id="hstdefaulttabslabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="paratabspage|hstdefaulttabslabel">De_fault tab stops</property>
++            <property name="use-underline">True</property>
++            <property name="mnemonic-widget">hstdefaulttabs</property>
++            <property name="xalign">0</property>
++            <attributes>
++              <attribute name="weight" value="bold"/>
++            </attributes>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">3</property>
++      </packing>
++    </child>
++    <child>
+       <object class="GtkButtonBox" id="buttonbox1">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+@@ -559,7 +602,7 @@
+           <packing>
+             <property name="expand">True</property>
+             <property name="fill">True</property>
+-            <property name="position">3</property>
++            <property name="position">4</property>
+           </packing>
+         </child>
+         <child>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/WriterCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/WriterCommands.xcu
+@@ -3416,6 +3416,17 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstTabsDialog" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">T~abs...</value>
++        </prop>
++        <prop oor:name="TargetURL" oor:type="xs:string">
++          <value>.uno:ParagraphDialog?Page:string=tabs</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:ParagraphDialog-more" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Paragraph</value>
+--- a/svx/sdi/svx.sdi
++++ b/svx/sdi/svx.sdi
+@@ -6616,7 +6616,7 @@
+ 
+ 
+ SfxVoidItem ParagraphDialog SID_PARA_DLG
+-()
++(SfxStringItem Page SID_PARA_DLG)
+ [
+     AutoUpdate = FALSE,
+     FastCall = FALSE,
+--- a/sw/source/ui/chrdlg/pardlg.cxx
++++ b/sw/source/ui/chrdlg/pardlg.cxx
+@@ -179,6 +179,15 @@
+         aSet.Put (SfxUInt16Item(SID_SWMODE_TYPE,static_cast<sal_uInt16>(SwBorderModes::PARA)));
+         rPage.PageCreated(aSet);
+     }
++    else if (rId == "tabs")
++    {
++        // HST: Word's Tabs dialog has the document's default tab stops; textsh1 applies them.
++        if (!m_bDrawParaDlg)
++        {
++            aSet.Put(SfxBoolItem(SID_ATTR_TABSTOP_DEFAULTS, true));
++            rPage.PageCreated(aSet);
++        }
++    }
+     else if (rId == "indents")
+     {
+         aSet.Put(SfxUInt16Item(SID_SVXSTDPARAGRAPHTABPAGE_PAGEWIDTH,
+--- a/sw/uiconfig/swriter/menubar/menubar.xml
++++ b/sw/uiconfig/swriter/menubar/menubar.xml
+@@ -450,6 +450,7 @@
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:FontDialog"/>
+       <menu:menuitem menu:id=".uno:ParagraphDialog"/>
++      <menu:menuitem menu:id=".uno:HstTabsDialog"/>
+       <menu:menu menu:id=".uno:FormatBulletsMenu">
+         <menu:menupopup>
+           <menu:menuitem menu:id=".uno:RemoveBullets" menu:style="radio"/>
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -19313,6 +19313,12 @@
+ msgid "Line Spacing"
+ msgstr "GIãn cách dòng"
+ 
++#. hstdef
++#: cui/uiconfig/ui/paratabspage.ui
++msgctxt "paratabspage|hstdefaulttabslabel"
++msgid "De_fault tab stops"
++msgstr "Điểm dừng tab mặc địn_h"
++
+ #. pbs4W
+ #: cui/uiconfig/ui/paratabspage.ui:115
+ msgctxt "paratabspage|label1"
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -37955,6 +37955,16 @@
+ msgid "Character"
+ msgstr ""
+ 
++#. hstTb
++#: WriterCommands.xcu
++msgctxt ""
++"WriterCommands.xcu\n"
++"..WriterCommands.UserInterface.Commands..uno:HstTabsDialog\n"
++"Label\n"
++"value.text"
++msgid "T~abs..."
++msgstr "Điểm dừng ta~b..."
++
+ #. tTiVu
+ #: WriterCommands.xcu
+ msgctxt ""
