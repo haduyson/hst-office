@@ -1,0 +1,21 @@
+HST Office: Writer builds the ribbon only for a view of its own document.
+
+Defensive: an abort was seen once in SfxDispatcher::QueryState while a ribbon was being built from SwDocShell::GetState
+during a focus event, and its cause is not proven. With no view yet the state method fell back to SfxViewShell::Current(),
+which can belong to another document. Calc and Impress already use the view of their own document only.
+
+License: this upstream file remains under its original license (MPL-2.0).
+---
+--- a/sw/source/uibase/app/docsh.cxx
++++ b/sw/source/uibase/app/docsh.cxx
+@@ -1123,7 +1123,9 @@
+         case SID_NOTEBOOKBAR:
+         {
+             bool bVisible = false;
+-            if (SfxViewShell* pViewShell = GetView() ? GetView() : SfxViewShell::Current())
++            SfxViewShell* pViewShell = GetView() ? GetView() : SfxViewShell::Current();
++            // not another document's view while this one is still loading (a print preview is not a SwView)
++            if (pViewShell && pViewShell->GetObjectShell() == this)
+             {
+                 bVisible = sfx2::SfxNotebookBar::StateMethod(pViewShell->GetViewFrame().GetBindings(),
+                                                              u"modules/swriter/ui/");
