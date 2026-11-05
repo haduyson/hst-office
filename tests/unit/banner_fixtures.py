@@ -19,7 +19,10 @@ VERSION = "1.0.0-beta.5"
 
 def manifest():
     doc = json.loads((Path(ROOT) / "data/hst/banners.json").read_text())
-    doc["items"] = doc["items"][:2]
+    doc["generatedAt"] = "2026-11-04T00:00:00Z"  # Fixture clock, independent of artwork revisions.
+    # Keep the online campaign independent of the bundled rotation order.
+    items = {item["id"]: item for item in doc["items"]}
+    doc["items"] = [items[identifier] for identifier in ("aios", "echatbot")]
     doc["items"][0]["name"] = "Online AIOS"
     for item in doc["items"]:
         for spec in item["image"].values():

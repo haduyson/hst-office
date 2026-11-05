@@ -75,4 +75,4 @@ class DeadlineTests(unittest.TestCase):
             self.assertFalse(worker.is_alive())
             self.assertTrue(feed._lock.acquire(blocking=False))
             feed._lock.release()
-            self.assertEqual(len(feed.current()["items"]), 6)
+            self.assertEqual(len(feed.current()["items"]), 7)

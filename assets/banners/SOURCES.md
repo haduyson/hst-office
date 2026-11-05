@@ -73,6 +73,52 @@ includes both cards side by side at their actual ribbon size for visual review.
 HST SEO retains its separate blue palette. The official blue mark and dark wordmark
 are preserved. Social favicons use the same square mark on an opaque pale-moss canvas.
 
+## HASON TECH company banner (2026-11-05)
+
+The seventh card promotes the company itself, after the six product cards. Its copy is
+stored with the company palette in `brands.json`; `data/hst/solutions.json` remains the
+product catalogue. The chosen tagline **“Công nghệ tạo giá trị”** is the first part of
+the [homepage](https://hasontech.vn/) headline. The owner supplied the supporting copy
+**“Giải pháp chuyển đổi số toàn diện”**; CTA **“Khám phá hệ sinh thái →”** also comes from that page.
+Alternative taglines considered: “Chuyển đổi số – Dẫn tương lai” and “Hệ sinh thái công nghệ số”.
+No statistics, awards or customer claims are added.
+
+Content reference: supplied `build/hasontech-site/text.txt` and `index.html`.
+Palette reference: [homepage stylesheet](https://hasontech.vn/wp-content/themes/hason-tech/style.css?ver=3.0.54),
+retrieved over verified HTTPS on 2026-11-05, specifically `.hst-hero`, `.hst-h1`, `.hst-more`
+and `.hst-trust`. Its SHA-256 is `2e82d8c7960ea3dc3ef9df201b19141b9bae284e98e0bd398e08a547b29cdeb6`.
+Tokens: accent `#0072bc`, deep-blue ink `#004f8b`, body text `#11233a`, hero tint
+`#eef7ff`. Secondary text uses the family's `#526071`; the site's
+`#65758a` would reach only 4.34:1 on the tint. Ratios on white / tint respectively:
+
+| Colour | Use | Contrast |
+|---|---|---|
+| `#004f8b` | Company name, CTA | 8.43:1 / 7.78:1 |
+| `#11233a` | Tagline | 15.84:1 / 14.63:1 |
+| `#526071` | Supporting line, website | 6.42:1 / 5.93:1 |
+| `#0072bc` | Decorative accent | 5.08:1 / 4.69:1 |
+
+Three layouts were rendered and visually inspected at 1×, 2× and pixel-exact 3× zoom:
+the product-family layout, a company signature with a larger logo on the left, and a
+right-aligned logo layout. The owner selected variant A, the family layout: the small
+logo and company name share the first row, followed by the tagline and supporting line.
+The CTA sits bottom-left and `hasontech.vn` bottom-right. The logo uses a 38×30px
+contain box and copy uses 17px line spacing; the supporting line remains 12px regular
+and fits on one line. The complete original logo is proportionally scaled, without
+cropping, recolouring or redrawing; it matches
+`assets/brand/source/hasontech-logo-original.png` byte for byte. Vietnamese copy is
+12px or larger, with full diacritics and no clipping. Review-only artifacts are in
+`build/banner-hasontech/` (uncommitted): `variants.png` (original explorations),
+`final.png`, `final-zoom3x.png`, `rotation.png` (seven cards at 1×).
+Production images follow the contract's 360×104, 720×208 and 1080×312 sizes; the ribbon
+aspect-fits them inside its slot. The complete seven-card preview is `docs/design/banners-preview.png`.
+
+Before publication, configure `/hst-office/go/hasontech` to count and 302-redirect to
+`https://hasontech.vn/`, preserving the three documented UTM parameters. Upload all
+three company PNGs and publish the seven-card feed with a fresh UTC generation and
+detached signature atomically, after owner review. Only the unsigned publishing
+example is regenerated here; no deployed feed or signing key is changed.
+
 ## Font
 
 Be Vietnam Pro Regular, SemiBold and Bold, unmodified Google Fonts TTFs:

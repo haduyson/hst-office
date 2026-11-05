@@ -129,6 +129,11 @@ class BannerContractTests(unittest.TestCase):
     def test_bundle_copy_and_images(self):
         doc = schema.parse_manifest((Path(ROOT) / "data/hst/banners.json").read_bytes(), bundled=True)
         solutions = {s["id"]: s for s in load_data("solutions.json")["solutions"]}
+        company = json.loads((Path(ROOT) / "extensions/hst-vietnamese-tools/banners/brands.json").read_text())["hasontech"]
+        self.assertNotIn("hasontech", solutions)
+        solutions["hasontech"] = dict(id="hasontech", **company)
+        self.assertEqual(doc["items"][0]["id"], "hasontech")
+        self.assertEqual(doc["items"][0]["order"], 0)
         self.assertEqual({i["id"] for i in doc["items"]}, set(solutions))
         for item in doc["items"]:
             solution = solutions[item["id"]]

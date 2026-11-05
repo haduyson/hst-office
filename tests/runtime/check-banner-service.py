@@ -32,7 +32,7 @@ def snapshot_check(service, ctx=None):
             assert len(raw.encode("utf-8")) <= 432 * 1024
             result = json.loads(raw)
             assert result["rotateSeconds"] == 10 and len(result["items"]) == 1
-            assert result["slotCount"] == 6 and result["slot"] == slot
+            assert result["slotCount"] == len(expected) and result["slot"] == slot
             item = result["items"][0]
             assert item["id"] == identifier and item["name"] == expected[identifier]["name"]
             blob = base64.b64decode(item["image_base64"], validate=True)
@@ -50,7 +50,7 @@ def snapshot_check(service, ctx=None):
                 graphic = provider.queryGraphic((prop,))
                 assert graphic is not None and graphic.getType() > 0
                 assert (graphic.SizePixel.Width, graphic.SizePixel.Height) == (360 * level, 104 * level)
-        print("PASS UNO NamedValue / six bounded snapshots / six verified buffers at scale", scale)
+        print(f"PASS UNO NamedValue / {len(expected)} bounded snapshots / verified buffers at scale", scale)
 
 
 def boundary():

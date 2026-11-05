@@ -44,5 +44,6 @@ class SnapshotSecurityTests(FeedCase):
         feed = self.feed()
         with patch.object(feed, "refresh_async"), patch.object(feed, "current", side_effect=TypeError("race")):
             result = get_banners(feed)
-        self.assertEqual(len(result["items"]), 6)
+        self.assertEqual(len(result["items"]), 7)
+        self.assertEqual(result["items"][0]["id"], "hasontech")
         self.assertTrue(result["items"][0].image_bytes_for_scale(1).startswith(b"\x89PNG"))

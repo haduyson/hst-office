@@ -31,8 +31,9 @@ class BannerFeedTests(unittest.TestCase):
     def test_offline_uses_bundle(self):
         self.remote.offline = True
         feed = self.feed()
-        self.assertEqual(self.run_refresh(feed)["items"][0]["name"], "AIOS")
-        self.assertEqual(len(feed.current()["items"]), 6)
+        self.assertEqual(self.run_refresh(feed)["items"][0]["name"], "HASON TECH")
+        self.assertEqual(len(feed.current()["items"]), 7)
+        self.assertEqual(feed.current()["items"][0]["id"], "hasontech")
 
     def test_fresh_online_precedes_bundle(self):
         result = self.run_refresh(self.feed())
@@ -50,19 +51,19 @@ class BannerFeedTests(unittest.TestCase):
         self.run_refresh(self.feed())
         (Path(self.temp.name) / "hst-banners/current.json").write_bytes(b"bad")
         self.remote.offline = True
-        self.assertEqual(self.run_refresh(self.feed())["items"][0]["name"], "AIOS")
+        self.assertEqual(self.run_refresh(self.feed())["items"][0]["name"], "HASON TECH")
 
     def test_tampered_cached_image_rejected(self):
         self.run_refresh(self.feed())
         spec = self.remote.doc["items"][0]["image"]["1x"]
         cache.image_path(Path(self.temp.name) / "hst-banners", spec, ".png").write_bytes(b"corrupt")
         self.remote.offline = True
-        self.assertEqual(self.run_refresh(self.feed())["items"][0]["name"], "AIOS")
+        self.assertEqual(self.run_refresh(self.feed())["items"][0]["name"], "HASON TECH")
 
     def test_cached_signature_rechecked(self):
         self.run_refresh(self.feed())
         feed = BannerFeed(self.temp.name, VERSION, public_key=b"", fetcher=self.remote, clock=lambda: self.now)
-        self.assertEqual(self.run_refresh(feed)["items"][0]["name"], "AIOS")
+        self.assertEqual(self.run_refresh(feed)["items"][0]["name"], "HASON TECH")
 
     def test_failed_generation_does_not_replace_cache(self):
         feed = self.feed(); self.run_refresh(feed)
@@ -77,14 +78,14 @@ class BannerFeedTests(unittest.TestCase):
 
     def test_bad_image_leaves_bundle(self):
         self.remote.bad_image = True
-        self.assertEqual(self.run_refresh(self.feed())["items"][0]["name"], "AIOS")
+        self.assertEqual(self.run_refresh(self.feed())["items"][0]["name"], "HASON TECH")
         self.assertFalse((Path(self.temp.name) / "hst-banners/current.json").exists())
 
     def test_out_of_window_feed_falls_back(self):
         doc = manifest()
         for item in doc["items"]: item["startAt"] = "2026-11-05T00:00:00Z"
         feed = self.feed(Remote(doc))
-        self.assertEqual(self.run_refresh(feed)["items"][0]["name"], "AIOS")
+        self.assertEqual(self.run_refresh(feed)["items"][0]["name"], "HASON TECH")
         self.now += 86400
         self.assertEqual(feed.current()["items"][0]["name"], "Online AIOS")
 
@@ -102,7 +103,7 @@ class BannerFeedTests(unittest.TestCase):
     def test_version_window_falls_back(self):
         doc = manifest()
         for item in doc["items"]: item["minVersion"] = "2.0.0"
-        self.assertEqual(self.run_refresh(self.feed(Remote(doc)))["items"][0]["name"], "AIOS")
+        self.assertEqual(self.run_refresh(self.feed(Remote(doc)))["items"][0]["name"], "HASON TECH")
 
     def test_24_hour_throttle_including_restart_and_failure(self):
         self.remote.offline = True
@@ -135,7 +136,7 @@ class BannerFeedTests(unittest.TestCase):
         feed = self.feed(blocked)
         try:
             result = get_banners(feed)
-            self.assertEqual(result["items"][0]["name"], "AIOS")
+            self.assertEqual(result["items"][0]["name"], "HASON TECH")
             self.assertTrue(entered.wait(2))
             self.assertIsNone(feed.refresh_async())
         finally:

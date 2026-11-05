@@ -14,7 +14,13 @@ follows it, see [Ribbon widget](#ribbon-widget).
 
 Each card is 360×104 CSS px with an 8px corner radius, a thin tinted border and a light
 brand-colour background. PNG outputs are 360×104, 720×208 and 1080×312.
-Names and taglines come verbatim from [solutions.json](../data/hst/solutions.json).
+The six product names and taglines come verbatim from [solutions.json](../data/hst/solutions.json).
+The seventh card, HASON TECH itself, uses owner-approved copy and homepage palette tokens recorded in
+[brands.json](../extensions/hst-vietnamese-tools/banners/brands.json) and the logo sources document.
+It uses the family layout: a small, unmodified logo beside “HASON TECH”, followed by
+“Công nghệ tạo giá trị” and “Giải pháp chuyển đổi số toàn diện” on separate lines.
+“Khám phá hệ sinh thái →” sits bottom-left and “hasontech.vn” bottom-right;
+the minimum added-text contrast is 5.93:1.
 Be Vietnam Pro is bundled with its [OFL licence](../extensions/hst-vietnamese-tools/banners/fonts/OFL.txt).
 Names are 18px, taglines 12.5px, CTA and company endorsement 12px. The renderer asserts
 at least 4.5:1 contrast for all added text against both gradient endpoints, font readiness,
@@ -39,7 +45,7 @@ python3 -m venv .venv
 
 The [renderer](../scripts/brand/render-banners.py) uses the committed
 [HTML template](../extensions/hst-vietnamese-tools/banners/template.html), logos,
-fonts and palette. Rendering itself is offline. It writes 18 PNGs, both previews,
+fonts and palette. Rendering itself is offline. It writes 21 PNGs, both previews,
 the bundled manifest and the complete online example. `--check` compares regeneration
 byte-for-byte (use the pinned Playwright Chromium on Linux for the reference output).
 `generatedAt` for bundled artwork is intentionally fixed in the renderer; update it when
@@ -97,7 +103,7 @@ Publish at the three standard dimensions and retain ≥12px Vietnamese copy at 1
 The online example already contains correct sizes and hashes for the committed PNGs:
 copy `extensions/hst-vietnamese-tools/banners/*@?x.png` to the server's
 `/hst-office/banners/` directory, and use the example as `banners.json`.
-It lists all six current solutions; e.g. AIOS `image.2x.url` is
+It lists all six current solutions followed by the company card; e.g. AIOS `image.2x.url` is
 `https://system.hasontech.vn/hst-office/banners/aios@2x.png`.
 To change a campaign, update images, hashes, sizes, copy, order and optional windows together;
 set `generatedAt` to the new UTC publication timestamp. Upload immutable images first,
@@ -287,7 +293,7 @@ Otherwise the output is a UNO string containing JSON:
 {
   "rotateSeconds": 10,
   "slot": 0,
-  "slotCount": 6,
+  "slotCount": 7,
   "items": [{
     "id": "aios",
     "name": "AIOS",

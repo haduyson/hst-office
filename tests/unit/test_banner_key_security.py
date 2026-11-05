@@ -24,7 +24,7 @@ class KeySecurityTests(FeedCase):
                     verify.verify_manifest(data, forged, key)
                 remote = Remote()
                 with patch("hst_office.banner_store.load", side_effect=AssertionError("cache read")):
-                    self.assertEqual(len(self.refresh(self.feed(remote, key))["items"]), 6)
+                    self.assertEqual(len(self.refresh(self.feed(remote, key))["items"]), 7)
                 self.assertEqual(remote.calls, [])
                 self.assertFalse(self.root.exists())
 

@@ -20,7 +20,7 @@ class CacheSecurityTests(FeedCase):
         self.assertNotEqual(before, substitute)
         self.assertEqual(feed.current()["items"][0].image_bytes_for_scale(1), before)
         remote.offline = True
-        self.assertEqual(self.refresh(self.feed(remote))["items"][0]["name"], "AIOS")
+        self.assertEqual(self.refresh(self.feed(remote))["items"][0]["name"], "HASON TECH")
 
     def test_symlink_target_replacement_after_verification(self):
         remote = Remote()
@@ -34,7 +34,7 @@ class CacheSecurityTests(FeedCase):
         target.write_bytes(b"replaced")
         self.assertEqual(feed.current()["items"][0].image_bytes_for_scale(1), before)
         remote.offline = True
-        self.assertEqual(self.refresh(self.feed(remote))["items"][0]["name"], "AIOS")
+        self.assertEqual(self.refresh(self.feed(remote))["items"][0]["name"], "HASON TECH")
 
     def test_missing_images_do_not_erase_rollback_floor_on_restart(self):
         remote = Remote()
@@ -43,7 +43,7 @@ class CacheSecurityTests(FeedCase):
         self.now += 86400
         older = self.campaign("2026-11-03")
         before = (self.root / "current.json").read_bytes()
-        self.assertEqual(self.refresh(self.feed(older))["items"][0]["name"], "AIOS")
+        self.assertEqual(self.refresh(self.feed(older))["items"][0]["name"], "HASON TECH")
         self.assertEqual((self.root / "current.json").read_bytes(), before)
         self.assertEqual(len(older.calls), 2)
 

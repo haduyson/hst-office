@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ART = ROOT / "extensions/hst-vietnamese-tools/banners"
 DESIGN = ROOT / "docs/design"
 FONT = ART / "fonts"
-GENERATED_AT = "2026-11-04T00:01:00Z"
+GENERATED_AT = "2026-11-05T00:01:00Z"
 
 
 def luminance(color):
@@ -37,10 +37,15 @@ def contrast(a, b):
 
 
 def markup(solution, brand):
-    values = {key: html.escape(solution[key], quote=True) for key in ("name", "tagline")}
-    for color in (brand["ink"], "#25364a", "#526071"):
+    values = dict(text="#25364a", muted="#526071")
+    company = solution["id"] == "hasontech"
+    for color in (brand["ink"], brand["text"] if company else "#25364a", brand["muted"] if company else "#526071"):
         assert min(contrast(color, bg) for bg in ("#ffffff", brand["tint"])) >= 4.5
     values.update(brand)
+    values.update({key: html.escape(solution[key], quote=True) for key in ("name", "tagline")})
+    values.update(card_class="company" if company else "", owner="hasontech.vn" if company else "HASON TECH",
+                  cta=html.escape(brand.get("cta", "Tìm hiểu thêm →")),
+                  detail_html=('<br><span class="ecosystem">' + html.escape(brand["detail"]) + '</span>') if company else "")
     values.update(font_regular=(FONT / "BeVietnamPro-Regular.ttf").as_uri(),
                   font_semibold=(FONT / "BeVietnamPro-SemiBold.ttf").as_uri(),
                   font_bold=(FONT / "BeVietnamPro-Bold.ttf").as_uri(), logo_width=brand["logoWidth"],
@@ -57,12 +62,13 @@ def png_bytes(image):
 
 
 def preview(outputs, solutions):
-    sheet = Image.new("RGB", (1200, 1792), "#f2f5f8")
+    comparison_y = 150 + len(solutions) * 240
+    sheet = Image.new("RGB", (1200, comparison_y + 202), "#f2f5f8")
     draw = ImageDraw.Draw(sheet)
     bold = ImageFont.truetype(str(FONT / "BeVietnamPro-Bold.ttf"), 24)
     regular = ImageFont.truetype(str(FONT / "BeVietnamPro-Regular.ttf"), 14)
-    draw.text((32, 22), "HASON TECH · Banner giải pháp", font=bold, fill="#192d43")
-    draw.text((32, 60), "360 × 104 px · Nội dung chuẩn từ solutions.json · Chu kỳ 10 giây", font=regular, fill="#526071")
+    draw.text((32, 22), "HASON TECH · Banner công ty và giải pháp", font=bold, fill="#192d43")
+    draw.text((32, 60), "360 × 104 px · 6 giải pháp + HASON TECH · Chu kỳ 10 giây", font=regular, fill="#526071")
     draw.text((32, 94), "1× · Kích thước trên ribbon", font=regular, fill="#526071")
     draw.text((440, 94), "2× · Xuất ảnh cho màn hình mật độ cao", font=regular, fill="#526071")
     for n, solution in enumerate(solutions):
@@ -70,17 +76,19 @@ def preview(outputs, solutions):
         for scale, x in ((1, 32), (2, 440)):
             im = Image.open(io.BytesIO(outputs[ART / f'{solution["id"]}@{scale}x.png']))
             sheet.paste(im, (x, y), im)
-    draw.text((32, 1590), "HST Post / eChatbot · So sánh bảng màu", font=bold, fill="#192d43")
-    draw.text((32, 1628), "1× · Xanh lá cây đậm / Xanh ngọc đậm", font=regular, fill="#526071")
+    draw.text((32, comparison_y), "HST Post / eChatbot · So sánh bảng màu", font=bold, fill="#192d43")
+    draw.text((32, comparison_y + 38), "1× · Xanh lá cây đậm / Xanh ngọc đậm", font=regular, fill="#526071")
     for name, x in (("hst-post", 32), ("echatbot", 440)):
         im = Image.open(io.BytesIO(outputs[ART / f"{name}@1x.png"]))
-        sheet.paste(im, (x, 1660), im)
+        sheet.paste(im, (x, comparison_y + 70), im)
     return png_bytes(sheet)
 
 
 def render():
     solutions = json.loads((ROOT / "data/hst/solutions.json").read_text())["solutions"]
     brands = json.loads((ART / "brands.json").read_text())
+    # Company copy belongs to banner artwork, not the product-only welcome catalogue; it leads the rotation.
+    solutions.insert(0, dict(id="hasontech", **{k: brands["hasontech"][k] for k in ("name", "tagline")}))
     outputs, items = {}, []
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(args=["--allow-file-access-from-files"])

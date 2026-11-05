@@ -20,8 +20,10 @@ def check_banners(zf, names, errors):
             errors.append("stale bundled banners manifest")
         doc = parse_manifest(data, bundled=True)
         solutions = json.loads(zf.read("data/solutions.json"))["solutions"]
+        company = json.loads(zf.read("banners/brands.json"))["hasontech"]
+        solutions.append(dict(id="hasontech", **{k: company[k] for k in ("name", "tagline")}))
         if {i["id"]: i["tagline"] for i in doc["items"]} != {i["id"]: i["tagline"] for i in solutions}:
-            errors.append("banner taglines differ from solutions")
+            errors.append("banner taglines differ from solutions/company artwork")
         key = banner_key(zf)
         if key and (not valid_key(key) or key == UPDATE_KEY):
             errors.append("invalid or non-separate configured banner public key")
