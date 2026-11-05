@@ -18,17 +18,26 @@ def click(display, box):
     time.sleep(0.8)
 
 
-def office_app():
+def office_app(timeout=10.0):
+    """The office's AT-SPI application. It can drop out of the registry for a moment (seen right after a chart dialog
+    closes), so wait for it instead of returning None at once; None only when it stays away for `timeout` seconds."""
     import pyatspi
-    desktop = pyatspi.Registry.getDesktop(0)
-    apps = (desktop.getChildAtIndex(index) for index in range(desktop.childCount))
-    return next((app for app in apps if app and "office" in (app.name or "").lower()), None)
+    deadline = time.time() + timeout
+    while True:
+        desktop = pyatspi.Registry.getDesktop(0)
+        apps = (desktop.getChildAtIndex(index) for index in range(desktop.childCount))
+        found = next((app for app in apps if app and "office" in (app.name or "").lower()), None)
+        if found is not None or time.time() >= deadline:
+            return found
+        time.sleep(0.5)
 
 
 SKIP = ("document text", "document spreadsheet", "document presentation", "menu bar", "status bar", "ruler", "table")
 
 
 def walk(node, depth=0):
+    if node is None:  # no office application on the accessibility bus: nothing to walk
+        return
     yield node
     try:  # widgets come and go; the document itself is large and holds no part of the ribbon
         wanted = depth < 14 and node.getRoleName() not in SKIP
