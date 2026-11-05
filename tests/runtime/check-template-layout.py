@@ -25,8 +25,22 @@ import template_layout_measure as measure  # noqa: E402
 TOL = 0.15
 
 
-def checks(name, pdf, profile, fails, multipage):
+def _expected_numbers(pages, numbers):
+    """{page: number}: from 2 up; an attached document restarts at an unnumbered first page of its own."""
+    expected, restart = {}, None
+    for page in range(2, pages + 1):
+        if page not in numbers and restart is None:
+            restart = page
+            continue
+        expected[page] = str(page if restart is None else page - restart + 1)
+    return expected
+
+
+def checks(name, pdf, case, fails):
+    profile, multipage = case["profile"], case["multipage"]
     m = measure.measure(pdf)
+    if not case["paged"]:
+        return m
     top_low, top_high = profile["bodyTopMm"]
     margins = profile["defaultMarginsMm"]
     page_width = profile["pageSizeMm"]["width"]
@@ -43,9 +57,11 @@ def checks(name, pdf, profile, fails, multipage):
     centre = margins["left"] + (page_width - margins["left"] - margins["right"]) / 2
     if 1 in numbers:
         fails.append(f"{name}: page number shown on page 1")
-    for page in range(2, m["pages"] + 1):
-        if page not in numbers or numbers[page][0] != str(page):
-            fails.append(f"{name}: page {page} number missing: {numbers.get(page)}")
+    restarts = case["type"].get("attached")
+    expected = _expected_numbers(m["pages"], numbers) if restarts else {p: str(p) for p in range(2, m["pages"] + 1)}
+    for page, value in expected.items():
+        if page not in numbers or numbers[page][0] != value:
+            fails.append(f"{name}: page {page} number, wanted {value}: {numbers.get(page)}")
         elif abs(numbers[page][1] - centre) > 1.0 or numbers[page][2] > margins["top"] + TOL:
             fails.append(f"{name}: page {page} number misplaced: {numbers[page]}")
     return m
@@ -59,7 +75,7 @@ def run_case(office, case, out, fails, rows):
         p.Name, p.Value = name, value
         return p
     desktop = office.service("com.sun.star.frame.Desktop")
-    name, profile = case["name"], case["profile"]
+    name = case["name"]
     doc = case["open"](desktop, prop)
     base = os.path.join(out, name)
     pdf, docx, again = base + ".pdf", base + ".docx", base + ".docx.pdf"
@@ -75,7 +91,7 @@ def run_case(office, case, out, fails, rows):
         reopened.close(True)
     row = {"case": name}
     for label, path in (("pdf", pdf), ("docx", again)):
-        row[label] = checks(f"{name} {label}", path, profile, fails, case["multipage"])
+        row[label] = checks(f"{name} {label}", path, case, fails)
     if case["checkNumberRow"]:
         for label, path in (("pdf", pdf), ("docx", again)):
             offset = measure.number_date_offset(path)

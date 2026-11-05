@@ -39,9 +39,9 @@
 | Hàng số và ngày | Cùng một hàng của bảng đầu văn bản, cùng đường cơ sở dòng đầu | II.4c |
 | Đường kẻ | Tiêu ngữ: đúng dài dòng chữ; tên cơ quan, trích yếu: 40% dòng dài nhất sau khi xuống dòng | II.1b, II.2b, II.5b. Tính từ độ rộng ký tự Times New Roman (`data/vietnamese/font-metrics-times.json`) |
 
-## 4. Bảy loại văn bản hỗ trợ
+## 4. Loại văn bản hỗ trợ
 
-Công văn, Thông báo, Quyết định, Tờ trình, Báo cáo, Giấy mời, Biên bản. Mọi trường (tên cơ quan, số, ký hiệu, địa danh, ngày, trích yếu, nơi nhận, người ký) **do người dùng nhập**; nếu để trống, chèn placeholder dạng `[TÊN CƠ QUAN]`. Không tự điền tên cơ quan/người ký thật.
+Đủ 29 loại Điều 7 NĐ 30 và các mẫu, hồ sơ khác: xem [danh mục mẫu](TEMPLATES.md). Mọi trường (tên cơ quan, số, ký hiệu, địa danh, ngày, trích yếu, nơi nhận, người ký) **do người dùng nhập**; nếu để trống, chèn placeholder dạng `[TÊN CƠ QUAN BAN HÀNH]`. Không tự điền tên cơ quan/người ký thật.
 
 ## 5. Chuyển mã TCVN3 (ABC) / VNI → Unicode
 

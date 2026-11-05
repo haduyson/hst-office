@@ -24,6 +24,8 @@ class Preview(unittest.TestCase):
     def test_lines_fit_width(self):
         long = "Về việc " + "rất dài " * 30
         for t in nd30.rules()["documentTypes"]:
+            if t.get("module") == "sheets":
+                continue
             for row in self.preview(t["id"], {"summary": long, "body": long, "kinhGui": "A\nB"}, 60):
                 self.assertLessEqual(len(row), 60, row)
 

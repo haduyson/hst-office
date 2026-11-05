@@ -42,15 +42,15 @@ class TemplatesTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def test_all_eighteen_archives_and_catalog(self):
+    def test_all_archives_and_catalog(self):
         manifest = self.checker.check(self.directory / "first", self.catalog_path)
-        self.assertEqual(len(manifest["templates"]), 18)
+        self.assertEqual(len(manifest["templates"]), len(self.catalog["templates"]))
 
     def test_rebuilds_are_byte_identical_and_epoch_controls_metadata(self):
         with patch.dict(os.environ, SOURCE_DATE_EPOCH="1767225600"):
             self.generator.generate(self.directory / "second", self.catalog_path)
         files = [p for p in (self.directory / "first").rglob("*") if p.is_file()]
-        self.assertEqual(len(files), 37)
+        self.assertEqual(len(files), 2 * len(self.catalog["templates"]) + 1)
         for path in files:
             self.assertEqual(path.read_bytes(), (self.directory / "second" / path.relative_to(self.directory / "first")).read_bytes())
         with patch.dict(os.environ, SOURCE_DATE_EPOCH="1767312000"):

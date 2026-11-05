@@ -24,7 +24,7 @@ Quyết định nền: [ADR 0002](ADR/0002-libreoffice-standalone.md). Plan: [pl
 | Engine | LibreOffice 26.8.1.1 không fork lịch sử; chỉ áp patch tối thiểu có ghi lý do | MPL-2.0 (file gốc) |
 | Nhận diện | Tên `HST Office`, vendor `HASON TECH`, splash/About/Start Center/icon/desktop file | Asset HST (thương hiệu) |
 | Cấu hình mặc định | Tabbed UI, giao diện vi-VN khi OS tiếng Việt, A4, Times New Roman, tắt update/donate TDF, không telemetry | HST |
-| Tính năng Việt | Extension `hst-vietnamese-tools` (NĐ30, TCVN3/VNI→Unicode, VND/ngày/%, CSV UTF-8), 18 mẫu, từ điển `vi` | AGPL-3.0 / CC BY 4.0 / GPLv2 |
+| Tính năng Việt | Extension `hst-vietnamese-tools` (NĐ30, TCVN3/VNI→Unicode, VND/ngày/%, CSV UTF-8), 84 mẫu, từ điển `vi` | AGPL-3.0 / CC BY 4.0 / GPLv2 |
 | Đóng gói | `.deb` từ hệ thống EPM upstream; Windows `.msi`/macOS `.dmg` sau (blocked) | — |
 
 ## Nguyên tắc

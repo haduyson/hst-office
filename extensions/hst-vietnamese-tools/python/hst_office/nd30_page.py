@@ -101,3 +101,37 @@ def apply_page_layout(doc, cursor, margins_mm=None, page_numbers=True, profile="
     body_top = style.TopMargin + (style.HeaderHeight + style.HeaderBodyDistance if style.HeaderIsOn else 0)
     return {"pageStyle": name, "pageNumbers": page_numbers, "headerSkipped": header_skipped,
             "undoHistoryCleared": cleared, "bodyTopMm": body_top / MM}
+
+
+def apply_custom_page(doc, cursor, page):
+    """A form with its own paper (the envelope): size and margins only, no page number. Not undoable, see module doc."""
+    name, style = page_style_for(doc, cursor)
+    with undo_locked(doc):
+        for key, value in (("HeaderIsOn", False), ("IsLandscape", True), ("Width", mm(page["width"])), ("Height", mm(page["height"])), ("TopMargin", mm(page["top"])),
+                           ("BottomMargin", mm(page["bottom"])), ("LeftMargin", mm(page["left"])), ("RightMargin", mm(page["right"]))):
+            style.setPropertyValue(key, value)
+    return {"pageStyle": name, "pageNumbers": False, "headerSkipped": False, "undoHistoryCleared": False, "bodyTopMm": page["top"]}
+
+
+def section_style(doc, cursor):
+    """Page style of an attached document or annex: a copy of the current one, so it can number its pages from 1."""
+    name, style = page_style_for(doc, cursor)
+    target = "HST " + name + " kèm theo"
+    styles = doc.getStyleFamilies().getByName("PageStyles")
+    if not styles.hasByName(target):
+        with undo_locked(doc):
+            copy = doc.createInstance("com.sun.star.style.PageStyle")
+            styles.insertByName(target, copy)
+            for key in PROPERTIES:
+                copy.setPropertyValue(key, style.getPropertyValue(key))
+            _write_page_number(doc, copy, _profile_of(style))
+            style.FollowStyle = name
+            copy.FollowStyle = target
+    return target
+
+
+def _profile_of(style):
+    """Page number size follows the header already written: 13 pt only in the QPPL profile."""
+    header = style.HeaderText.createTextCursor()
+    header.gotoEnd(True)
+    return "qppl" if abs(header.CharHeight - 13) < 0.1 else "nd30"

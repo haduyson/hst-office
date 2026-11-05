@@ -22,7 +22,8 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXT_DIR = os.path.join(ROOT, "extensions")
-SHARED_DATA = ("nd30.json", "document-types.json", "skeletons-hanh-chinh.json", "font-metrics-times.json",
+SHARED_DATA = ("nd30.json", "qppl.json", "dang.json", "document-types.json", "skeletons-hanh-chinh.json", "skeletons-qppl.json",
+               "skeletons-dang.json", "skeletons-van-thu.json", "font-metrics-times.json",
                "number-formats.json", "encoding-maps.json", "provenance.json")
 # Brand images shown by the welcome dialog and the offline user guide (help/index.html): copied from
 # assets/brand at build time so the package always carries the current HST artwork.
@@ -33,12 +34,15 @@ BRAND_IMAGES = {
     "icons/hst-slides-64.png": "assets/brand/icons/hst-slides-64.png",
 }
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
-# The 18 HST templates (templates/*.json -> scripts/generate-templates.py) ship in the
+# The HST templates (templates/*.json -> scripts/generate-templates.py) ship in the
 # extension: Paths.xcu adds %origin%/template to the template paths, so the Template
 # Manager lists them on every OS without installer changes. Folder -> group shown in the UI.
 TEMPLATE_EXTENSION = "hst-vietnamese-tools"
 TEMPLATE_GROUPS = (
     ("writer", "hst-van-ban", "HST \u2014 V\u0103n b\u1ea3n h\u00e0nh ch\u00ednh"),
+    ("qppl", "hst-qppl", "HST \u2014 V\u0103n b\u1ea3n quy ph\u1ea1m ph\u00e1p lu\u1eadt"),
+    ("dang", "hst-dang", "HST \u2014 V\u0103n b\u1ea3n c\u1ee7a \u0110\u1ea3ng"),
+    ("van-thu", "hst-van-thu", "HST \u2014 Bi\u1ec3u m\u1eabu v\u0103n th\u01b0"),
     ("sheets", "hst-bang-tinh", "HST \u2014 B\u1ea3ng t\u00ednh"),
     ("slides", "hst-trinh-chieu", "HST \u2014 Tr\u00ecnh chi\u1ebfu"),
 )

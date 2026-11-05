@@ -76,7 +76,7 @@ def build(formats):
     return xml(root)
 
 
-def settings(sheet_name):
+def settings(sheet_name, frozen=4):
     root = document("settings")
     settings = node(root, "office:settings")
     view = node(settings, "config:config-item-set", {"config:name": "ooo:view-settings"})
@@ -86,7 +86,7 @@ def settings(sheet_name):
     node(entry, "config:config-item", {"config:name": "ActiveTable", "config:type": "string"}, sheet_name)
     tables = node(entry, "config:config-item-map-named", {"config:name": "Tables"})
     sheet = node(tables, "config:config-item-map-entry", {"config:name": sheet_name})
-    for name, value in {"VerticalSplitMode": 2, "VerticalSplitPosition": 4,
-                        "PositionBottom": 4, "ActiveSplitRange": 2}.items():
+    for name, value in {"VerticalSplitMode": 2, "VerticalSplitPosition": frozen,
+                        "PositionBottom": frozen, "ActiveSplitRange": 2}.items():
         node(sheet, "config:config-item", {"config:name": name, "config:type": "short" if "Mode" in name or name == "ActiveSplitRange" else "int"}, str(value))
     return xml(root)

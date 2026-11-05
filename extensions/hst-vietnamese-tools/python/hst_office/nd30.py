@@ -20,7 +20,7 @@ MAX_BODY = 100000
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 FIELD_KEYS = ("parentAgency", "agency", "number", "symbol", "place", "date", "summary", "kinhGui", "body",
               "signerAuthority", "signerTitle", "signerName", "secretaryName", "recipients", "contact")
-_PROFILE_FILES = {"nd30": "nd30.json"}
+_PROFILE_FILES = {"nd30": "nd30.json", "qppl": "qppl.json", "dang": "dang.json"}
 
 
 def rules():
@@ -96,7 +96,8 @@ def format_issue_date(text):
 
 def validate_fields(type_id, fields, data=None):
     """Return {'ok': bool, 'errors': [{'field','code'}]}; empty fields are fine (placeholders are used)."""
-    if get_type(type_id, data) is None:
+    kind = get_type(type_id, data)
+    if kind is None:
         return {"ok": False, "errors": [{"field": "type", "code": "unknown-type"}]}
     errors = []
     for key, raw in (fields or {}).items():
@@ -112,7 +113,8 @@ def validate_fields(type_id, fields, data=None):
     if number and not re.fullmatch(r"\d{1,6}", number):
         errors.append({"field": "number", "code": "number-digits-only"})
     symbol = fields.get("symbol") or ""
-    if isinstance(symbol, str) and re.search(r"[\s/]", symbol.strip()):
+    forbidden = r"\s" if kind["profile"] == "dang" else r"[\s/]"  # a Party symbol holds a slash: QĐ/TU
+    if isinstance(symbol, str) and re.search(forbidden, symbol.strip()):
         errors.append({"field": "symbol", "code": "symbol-no-space-or-slash"})
     date = fields.get("date") or ""
     if isinstance(date, str) and date.strip() and parse_date_input(date) is None:

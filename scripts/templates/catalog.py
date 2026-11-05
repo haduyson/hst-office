@@ -61,7 +61,8 @@ def safe_formula(formula):
         raise ValueError("Unsupported or external formula: " + formula)
 
 
-EXPECTED_COUNTS = {"writer": 7, "sheets": 6, "slides": 5}
+FOLDERS = {"writer", "sheets", "slides", "qppl", "dang", "van-thu"}
+EXPECTED_COUNTS = {"writer": 68, "sheets": 11, "slides": 5}
 
 
 def load(path=BASE / "templates/catalog.json"):
@@ -77,9 +78,10 @@ def load(path=BASE / "templates/catalog.json"):
     sources = {}
     for entry in entries:
         module, ident = entry["module"], entry["id"]
-        expected = {"source": f"{module}/{ident}.json", "output": f"{module}/{ident}.{EXT[module]}",
+        folder = entry["source"].split("/")[0]
+        expected = {"source": f"{folder}/{ident}.json", "output": f"{folder}/{ident}.{EXT[module]}",
                     "preview": f"previews/{ident}.svg"}
-        if any(entry[k] != v for k, v in expected.items()):
+        if folder not in FOLDERS or any(entry[k] != v for k, v in expected.items()):
             raise ValueError("Noncanonical catalog path: " + ident)
         source = read_json(path.parent / entry["source"])
         validate(source, schema, schema)
@@ -87,7 +89,7 @@ def load(path=BASE / "templates/catalog.json"):
             raise ValueError("Source identity does not match catalog")
         if module == "writer" and source["documentType"] != ident:
             raise ValueError("Writer document type does not match ID")
-        if module == "sheets":
+        if module == "sheets" and source.get("kind") != "register":
             for formula in list(source["totals"].values()) + [c["formula"] for c in source["columns"] if "formula" in c]:
                 safe_formula(formula)
         if module == "slides" and {s["layout"] for s in source["slides"]} != {"title", "content", "section", "table", "chart"}:

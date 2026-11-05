@@ -1,13 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Check that the 18 HST templates are listed by the Template Manager and create documents.
+"""Check that the HST templates are listed by the Template Manager and create documents.
 
 Usage: python3 tests/runtime/check-template-manager.py [--instdir upstream/libreoffice/instdir]
            [--out tests/output/template-manager] [--shots tests/output/screenshots-integration]
 
 The templates ship in the bundled HST extension (template/<group>/, Paths.xcu adds
 %origin%/template). With a fresh profile this asserts, over UNO:
-  - the template groups "HST — Văn bản hành chính" (7 .ott), "HST — Bảng tính" (6 .ots) and
-    "HST — Trình chiếu" (5 .otp) exist in com.sun.star.frame.DocumentTemplates;
+  - the template groups in GROUPS exist in com.sun.star.frame.DocumentTemplates;
   - every template has its Vietnamese title (dc:title of the template);
   - opening one of each kind AsTemplate gives a new, untitled document with the template text;
 and takes a screenshot of the Template Manager (File > New > Templates). Exit 1 on failure.
@@ -24,8 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 
 ROOT = hst_gui.ROOT
-GROUPS = {"HST — Văn bản hành chính": 7, "HST — Bảng tính": 6,
-          "HST — Trình chiếu": 5}
+GROUPS = {"HST — Văn bản hành chính": 37, "HST — Văn bản quy phạm pháp luật": 2, "HST — Văn bản của Đảng": 22,
+          "HST — Biểu mẫu văn thư": 12, "HST — Bảng tính": 6, "HST — Trình chiếu": 5}
 
 
 def main():

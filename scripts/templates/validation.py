@@ -8,6 +8,7 @@ from zipfile import ZIP_STORED, ZipFile
 import xml.etree.ElementTree as ET
 from .catalog import safe_formula
 from .odf import MIME, NS, q
+from .writer_layout import get_type
 
 
 def require(condition, message):
@@ -27,11 +28,14 @@ def check_archive(path, entry, source, rules):
         require(archive.read("mimetype").decode() == MIME[entry["module"]], "wrong ODF type")
         required = {"mimetype", "META-INF/manifest.xml", "content.xml", "styles.xml", "meta.xml"}
         allowed = required | ({"settings.xml"} if entry["module"] == "sheets" else set())
+        allowed |= {n for n in names if n == "Thumbnails/thumbnail.png"}
         if entry["module"] == "slides":
             allowed.add("Chart1/content.xml")
         require(set(names) == allowed, "unexpected or missing archive members (macros/fonts forbidden)")
         trees = {}
         for name in names[1:]:
+            if name.endswith(".png"):
+                continue
             raw = archive.read(name).decode("utf-8")
             require(unicodedata.normalize("NFC", raw) == raw and "\ufffd" not in raw, "damaged Unicode")
             require("<!DOCTYPE" not in raw and "<!ENTITY" not in raw, "DTD/entities forbidden")
@@ -75,38 +79,59 @@ def check_writer(content, styles, source, rules):
     layouts = styles.findall(".//style:page-layout", NS)
     require(len(layouts) == 1, "one page style for every page, so a DOCX round trip keeps the body top")
     props = layouts[0].find("style:page-layout-properties", NS)
+    require(styles.find(".//style:font-face[@style:name='Times New Roman']", NS) is not None, "Writer font declaration")
+    paragraphs = {p.get(q("text:style-name")): "".join(p.itertext()) for p in content.iter(q("text:p"))}
+    for name in paragraphs:
+        if name and name.startswith("Basis"):
+            text_props = _style_of(styles, name).find("style:text-properties", NS)
+            require(text_props.get(q("fo:font-style")) == ("normal" if rules.get("basisPlain") else "italic"), "căn cứ style of the profile")
+    kind = get_type(source["documentType"])
+    if kind["structure"] in ("envelope", "stamp"):
+        return
     require(props.get(q("fo:page-width")) == f'{size["width"]}mm', "Writer page width")
     require(props.get(q("fo:page-height")) == f'{size["height"]}mm', "Writer page height")
     for side in ("bottom", "left", "right"):
         require(props.get(q("fo:margin-" + side)) == f"{margins[side]}mm", "Writer margin " + side)
+        low, high = rules["marginRangesMm"][side]
+        require(low <= margins[side] <= high, "default margin outside the range of the profile: " + side)
     band = layouts[0].find("style:header-style/style:header-footer-properties", NS)
     top = float(props.get(q("fo:margin-top"))[:-2]) + float(band.get(q("svg:height"))[:-2]) + float(band.get(q("fo:margin-bottom"))[:-2])
     require(abs(top - margins["top"]) < 0.001, "the body must start at the top margin")
     require(band.get(q("fo:min-height")) is None, "a growing header would push the body down")
-    tables = {t.get(q("table:name")): t for t in content.findall(".//table:table", NS)}
-    table = next(iter(tables.values()))
+    for master in styles.iter(q("style:master-page")):
+        require(master.find("style:header-first", NS) is not None and master.find("style:header-first//text:page-number", NS) is None,
+                "first-page number must be hidden")
+        require(master.find("style:header//text:page-number", NS) is not None, "subsequent page number missing")
+    if kind.get("attached"):
+        require(any(m.get(q("style:name")) == "Attached" for m in styles.iter(q("style:master-page"))), "the attached document numbers its pages itself")
+    if kind["structure"] in ("annex", "copy", "esign-copy", "dang-copy", "attached-only") or kind.get("noHeader"):
+        return
+    table = content.find(".//table:table", NS)
     require(len(table.findall("table:table-column", NS)) == 2, "Writer header columns")
-    require(styles.find(".//style:font-face[@style:name='Times New Roman']", NS) is not None, "Writer font declaration")
-    master = styles.find(".//style:master-page[@style:name='Standard']", NS)
-    require(master.find("style:header-first", NS) is not None and master.find("style:header-first//text:page-number", NS) is None,
-            "first-page number must be hidden")
-    require(master.find("style:header//text:page-number", NS) is not None, "subsequent page number missing")
-    number_row = table.findall("table:table-row", NS)[1]
-    require(len(number_row.findall("table:table-cell", NS)) == 2, "number and date share a row")
-    paragraphs = {p.get(q("text:style-name")): "".join(p.itertext()) for p in content.iter(q("text:p"))}
-    require(any(n.startswith("Number") for n in paragraphs), "number row missing")
-    rules_found = [n for n in paragraphs if n.startswith("Rule") and _style_of(styles, n) is not None]
-    require(len(rules_found) >= 1, "ND30 rules missing")
-    for name in paragraphs:
-        if name.startswith("Basis"):
-            text_props = _style_of(styles, name).find("style:text-properties", NS)
-            require(text_props.get(q("fo:font-style")) == "italic", "căn cứ must be italic")
+    if not kind.get("noNumber"):
+        number_row = table.findall("table:table-row", NS)[1]
+        require(len(number_row.findall("table:table-cell", NS)) == 2, "number and date share a row")
+        require(any(n and n.startswith("Number") for n in paragraphs), "number row missing")
+    require(any(n and n.startswith("Rule") for n in paragraphs), "rule under the national heading missing")
     title = content.find(".//text:p[@text:style-name='TypeName']", NS)
-    official = source["documentType"] == "cong-van"
-    require((title is None) == official, "official-letter title layout")
+    require((title is None) == bool(kind.get("officialLetter") or kind.get("noTitle")), "title layout")
+
+
+def check_register(content, settings, source):
+    sheets = content.findall(".//table:table", NS)
+    require([s.get(q("table:name")) for s in sheets] == ["Bìa", "Sổ"], "register sheets")
+    require(source["coverTitle"] in "".join(sheets[0].itertext()), "register cover title")
+    headers = sheets[1].find("table:table-header-rows", NS)
+    require(len(headers) == 2, "register header rows repeat when printed")
+    cells = headers[0].findall("table:table-cell", NS)
+    require(["".join(c.itertext()) for c in cells] == [c["title"] for c in source["columns"]], "register columns")
+    require(["".join(c.itertext()) for c in headers[1]] == ["(%d)" % (i + 1) for i in range(len(cells))], "register column numbers")
+    require(sheets[1].get(q("table:print-ranges")), "print area missing")
 
 
 def check_sheet(content, settings, source):
+    if source.get("kind") == "register":
+        return check_register(content, settings, source)
     sheet = content.find(".//table:table", NS)
     require(sheet.get(q("table:name")) == source["sheetName"], "sheet name")
     require(sheet.get(q("table:print-ranges")), "print area missing")

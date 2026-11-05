@@ -15,8 +15,12 @@ SHORT = {"agency": "Sở A", "number": "12", "symbol": "SA", "place": "Tỉnh A"
          "kinhGui": "Sở B", "signerAuthority": "Giám đốc", "signerName": "Lê Mẫu", "body": "Nội dung ngắn."}
 
 
-def _body_top_profile(profile_data):
-    return {**profile_data, "bodyTopMm": profile_data["marginRangesMm"]["top"]}
+def _body_top_profile(profile_data, copy_rule=False):
+    """Where the first glyph may start: the top margin, plus the ink offset, plus the extra leading of a fixed line height."""
+    top = profile_data["defaultMarginsMm"]["top"]
+    typography = profile_data["typography"]
+    leading = max(0.0, typography.get("lineExactPt", 0) - 1.107 * typography["body"]) * 25.4 / 72
+    return {**profile_data, "bodyTopMm": [top, top + 0.3 + leading + 1.5 * copy_rule]}
 
 
 def _ott_doc(path, filler):
@@ -32,7 +36,7 @@ def _ott_doc(path, filler):
                         break
                 else:
                     previous = element
-            cursor = text.createTextCursorByRange(previous.getEnd())
+            cursor = text.createTextCursorByRange(previous.getEnd() if previous else text.getEnd())
             for index in range(70):
                 text.insertControlCharacter(cursor, 0, False)
                 text.insertString(cursor, "%02d. %s" % (index + 1, FILLER), False)
@@ -45,6 +49,13 @@ def _wizard_doc(type_id, fields):
         doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (prop("Hidden", True),))
         layout = nd30_layout.build_layout(type_id, fields)
         cursor = doc.getCurrentController().getViewCursor()
+        if layout.get("flow"):  # a copy goes on the document being copied
+            source = "dang-thong-bao" if layout["profile"] == "dang" else "thong-bao"
+            first = nd30_layout.build_layout(source, {"body": fields.get("body", "Nội dung ngắn.")})
+            nd30_writer.insert_layout(doc, cursor, first, apply_page=True, page_numbers=True)
+            layout = nd30_layout.build_layout(type_id, {**fields, "body": "Bản sao."})
+            if layout["flow"] == "append":
+                layout["blocks"] = [b for b in layout["blocks"] if b.get("role") != "Body"]  # the document above is the original
         result = nd30_writer.insert_layout(doc, cursor, layout, apply_page=True, page_numbers=True)
         if result["blockers"]:
             raise RuntimeError(result["blockers"])
@@ -56,6 +67,11 @@ def writer_types():
     return [t for t in nd30.rules()["documentTypes"] if t.get("module", "writer") == "writer"]
 
 
+def _paged(t):
+    """Forms with their own paper or a single box do not run over pages."""
+    return t["structure"] not in ("envelope", "stamp")
+
+
 def all_cases(templates, only):
     catalog = {e["id"]: e for e in __import__("json").load(open(os.path.join(templates, "manifest.json"), encoding="utf-8"))["templates"]}
     long_body = "\n".join("%02d. %s" % (i + 1, FILLER) for i in range(70))
@@ -63,11 +79,14 @@ def all_cases(templates, only):
         ident = t["id"]
         if only and ident not in only:
             continue
-        data = _body_top_profile(nd30.profile_rules(t["profile"]))
-        common = {"profile": data, "type": t, "checkNumberRow": not t.get("noDate")}
+        paged = _paged(t)
+        data = _body_top_profile(nd30.profile_rules(t["profile"]), t["structure"] in ("copy", "dang-copy"))  # a copy may open a page with its rule
+        common = {"profile": data, "type": t, "checkNumberRow": not t.get("noDate") and not t.get("noNumber") and not t.get("noHeader") and t["structure"] not in ("annex", "attached-only", "esign-copy"), "paged": paged}
         if ident in catalog:
-            yield {**common, "name": ident + "-ott", "multipage": True, "open": _ott_doc(os.path.join(templates, catalog[ident]["output"]), True),
-                   "ruleSource": None}
+            yield {**common, "name": ident + "-ott", "multipage": paged, "open": _ott_doc(os.path.join(templates, catalog[ident]["output"]), paged), "ruleSource": None}
+        if not paged:
+            yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, {}), "ruleSource": SHORT}
+            continue
         yield {**common, "name": ident + "-wizard-long", "multipage": True, "open": _wizard_doc(ident, {**LONG, "body": long_body}), "ruleSource": LONG}
         yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, SHORT), "ruleSource": SHORT}
 

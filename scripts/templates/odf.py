@@ -60,7 +60,7 @@ def epoch():
 def package(path, mime, parts):
     """Store all entries to avoid zlib-version differences and keep mimetype first."""
     manifest = node(None, "manifest:manifest", {"manifest:version": "1.3"})
-    entries = {"/": mime, **{n: "text/xml" for n in parts}}
+    entries = {"/": mime, **{n: "image/png" if n.endswith(".png") else "text/xml" for n in parts}}
     for name in parts:
         if name.endswith("/content.xml"):
             entries[name.removesuffix("content.xml")] = "application/vnd.oasis.opendocument.chart"
@@ -88,8 +88,12 @@ def metadata(entry):
     node(meta, "dc:title", text=entry["title"]["vi"])
     node(meta, "dc:description", text=entry["description"]["vi"])
     node(meta, "dc:language", text="vi-VN")
+    if entry.get("keywords"):
+        node(meta, "meta:keyword", text=entry["keywords"])
     node(meta, "meta:initial-creator", text="HST Office")
     node(meta, "meta:user-defined", {"meta:name": "License"}, "CC-BY-4.0")
+    if entry.get("basis"):
+        node(meta, "meta:user-defined", {"meta:name": "Căn cứ"}, entry["basis"])
     stamp = epoch().strftime("%Y-%m-%dT%H:%M:%SZ")
     node(meta, "meta:creation-date", text=stamp)
     node(meta, "dc:date", text=stamp)

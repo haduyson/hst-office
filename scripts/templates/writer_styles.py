@@ -39,6 +39,7 @@ class Styles:
         self.named = {}  # name -> (paragraph properties, text properties)
         self.keys = {}
         self.auto = {}
+        self.attached = False
 
     def paragraph(self, para):
         first = para["runs"][0]
@@ -53,9 +54,9 @@ class Styles:
             self.named[name] = (props, text)
         return self.keys[key]
 
-    def rule(self, side_mm):
-        name = "Rule%d" % round(side_mm * 100)
-        self.named[name] = ({"fo:margin-left": f"{side_mm:g}mm", "fo:margin-right": f"{side_mm:g}mm", "fo:margin-top": "0pt", "fo:margin-bottom": "0pt",
+    def rule(self, side_mm, after_pt=0):
+        name = "Rule%d_%d" % (round(side_mm * 100), after_pt)
+        self.named[name] = ({"fo:margin-left": f"{side_mm:g}mm", "fo:margin-right": f"{side_mm:g}mm", "fo:margin-top": "2pt", "fo:margin-bottom": f"{after_pt:g}pt",
                              "fo:text-indent": "0mm", "fo:line-height": "100%", "fo:border-bottom": RULE_WIDTH, "fo:padding": "0mm"}, {"fo:font-size": "1pt"})
         return name
 
@@ -79,14 +80,51 @@ class Styles:
             style(auto, self.auto[key], "table-cell", {"table-cell": {**border, "style:vertical-align": valign}})
         return self.auto[key]
 
-    def row(self, auto):
-        if "row" not in self.auto:
-            self.auto["row"] = "Row"
-            style(auto, "Row", "table-row", {"table-row": {"fo:keep-together": "always"}})
-        return "Row"
+    def section(self, para, auto):
+        """A paragraph that starts a new page and restarts the page numbers (an annex in the body of a circular)."""
+        name = "Section%d" % (len(self.auto) + 1)
+        self.auto[name] = name
+        self.attached = True
+        style(auto, name, "paragraph", {"paragraph": {**_props(para), "style:page-number": "1"}, "text": _text_props(para["runs"][0])},
+              {"style:parent-style-name": "Standard", "style:master-page-name": "Attached"})
+        return name
+
+    def row(self, auto, height=None):
+        key = ("row", height)
+        if key not in self.auto:
+            self.auto[key] = "Row%d" % (len(self.auto) + 1)
+            props = {"fo:keep-together": "always"}
+            if height:
+                props["style:min-row-height"] = f"{height:g}mm"
+            style(auto, self.auto[key], "table-row", {"table-row": props})
+        return self.auto[key]
 
 
-def build(rules, styles):
+def _page_layout(automatic, rules, page):
+    size, margins = rules["pageSizeMm"], rules["defaultMarginsMm"]
+    header_mm = rules["pageHeaderMm"]
+    layout = node(automatic, "style:page-layout", {"style:name": "Layout"})
+    if page:  # the envelope: its own size, no page number
+        node(layout, "style:page-layout-properties", {"fo:page-width": f'{page["width"]}mm', "fo:page-height": f'{page["height"]}mm', "style:print-orientation": "landscape",
+             **{f"fo:margin-{side}": f"{page[side]}mm" for side in ("top", "bottom", "left", "right")}})
+        return
+    # The body starts at the top margin: the header is the fixed-height band just above it (same as nd30_page).
+    edges = {**{f"fo:margin-{side}": f"{value}mm" for side, value in margins.items()}, "fo:margin-top": f'{margins["top"] - header_mm:g}mm'}
+    node(layout, "style:page-layout-properties", {"fo:page-width": f'{size["width"]}mm', "fo:page-height": f'{size["height"]}mm',
+         "style:print-orientation": "portrait", "style:num-format": "1", **edges})
+    band = node(layout, "style:header-style")
+    node(band, "style:header-footer-properties", {"svg:height": f"{header_mm}mm", "fo:margin-bottom": "0mm", "style:dynamic-spacing": "false"})
+
+
+def _master(masters, name, numbered):
+    master = node(masters, "style:master-page", {"style:name": name, "style:page-layout-name": "Layout"})
+    if numbered:
+        number = paragraph(node(master, "style:header"), name="PageNumber")
+        node(number, "text:page-number", {"text:select-page": "current"}, "2")
+        paragraph(node(master, "style:header-first"), name="PageNumber")
+
+
+def build(rules, styles, page=None):
     root = document("styles")
     fonts(root, writer=True)
     office = node(root, "office:styles")
@@ -94,23 +132,14 @@ def build(rules, styles):
     default = node(office, "style:default-style", {"style:family": "paragraph"})
     node(default, "style:text-properties", {"style:font-name": t["fontFamily"], "fo:font-size": f'{t["body"]}pt',
          "fo:language": "vi", "fo:country": "VN", "fo:color": "#000000"})
+    style(office, "Standard", "paragraph", {"paragraph": {"fo:margin-bottom": "0pt"}})
     for name, (props, text) in sorted(styles.named.items()):
         style(office, name, "paragraph", {"paragraph": props, "text": text})
     style(office, "PageNumber", "paragraph", {"paragraph": {"fo:text-align": "center", "fo:text-indent": "0mm", "fo:margin-bottom": "0pt"},
                                               "text": {"fo:font-size": f'{t["pageNumber"]}pt', "fo:font-weight": "normal", "fo:font-style": "normal"}})
-    automatic = node(root, "office:automatic-styles")
-    size, margins = rules["pageSizeMm"], rules["defaultMarginsMm"]
-    header_mm = rules["pageHeaderMm"]
-    layout = node(automatic, "style:page-layout", {"style:name": "Layout"})
-    # The body starts at the ND30 top margin: the header is the fixed-height band just above it (same as nd30_page).
-    page = {**{f"fo:margin-{side}": f"{value}mm" for side, value in margins.items()}, "fo:margin-top": f'{margins["top"] - header_mm:g}mm'}
-    node(layout, "style:page-layout-properties", {"fo:page-width": f'{size["width"]}mm', "fo:page-height": f'{size["height"]}mm',
-         "style:print-orientation": "portrait", "style:num-format": "1", **page})
-    band = node(layout, "style:header-style")
-    node(band, "style:header-footer-properties", {"svg:height": f"{header_mm}mm", "fo:margin-bottom": "0mm", "style:dynamic-spacing": "false"})
+    _page_layout(node(root, "office:automatic-styles"), rules, page)
     masters = node(root, "office:master-styles")
-    master = node(masters, "style:master-page", {"style:name": "Standard", "style:page-layout-name": "Layout"})
-    number = paragraph(node(master, "style:header"), name="PageNumber")
-    node(number, "text:page-number", {"text:select-page": "current"}, "2")
-    paragraph(node(master, "style:header-first"), name="PageNumber")
+    _master(masters, "Standard", not page)
+    if styles.attached:
+        _master(masters, "Attached", True)
     return xml(root)

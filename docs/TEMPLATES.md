@@ -1,6 +1,6 @@
 # Mẫu tiếng Việt của HST Office
 
-Bộ mẫu gồm **7 Writer `.ott`, 6 Sheets `.ots`, 5 Slides `.otp`**. Nguồn nội dung
+Bộ mẫu gồm **68 Writer `.ott`, 11 Sheets `.ots`, 5 Slides `.otp`** (84 mẫu). Nguồn nội dung
 là JSON; bộ sinh dùng Python standard library (`zipfile` và XML), không chạy
 LibreOffice, không tải tài nguyên và không nhúng phông chữ. Nội dung mẫu có giấy
 phép **CC BY 4.0**, ghi nhận HST Office; mã bộ sinh và kiểm tra có giấy phép
@@ -10,9 +10,19 @@ phép **CC BY 4.0**, ghi nhận HST Office; mã bộ sinh và kiểm tra có gi�
 
 | Ứng dụng | Mẫu |
 |---|---|
-| Writer | Công văn, Thông báo, Quyết định, Tờ trình, Báo cáo, Giấy mời, Biên bản |
+| Writer: Hành chính NĐ 30 (37) | Đủ 29 loại Điều 7; Quyết định gián tiếp (mẫu 1.3) kèm văn bản được ban hành, văn bản kèm theo dạng tệp điện tử riêng; phụ lục 2.1, 2.2; bản sao 3.1 (Sao y, Sao lục, Trích sao), 3.2 |
+| Writer: Quy phạm pháp luật (2) | Thông tư mẫu 14, mẫu 15 kèm Quy định/Quy chế/Điều lệ/Danh mục, theo NĐ 78/2025 sửa bởi NĐ 187/2025 |
+| Writer: Đảng (22) | Theo Quy định 399-QĐ/TW và Hướng dẫn 05-HD/VPTW: Nghị quyết, Quyết định, Chỉ thị, Kết luận, Quy chế, Quy định, Thông tri, Hướng dẫn, Thông báo, Thông cáo, Báo cáo, Kế hoạch, Chương trình, Đề án, Phương án, Tờ trình, Công văn, Biên bản, Giấy giới thiệu, Giấy mời, Phụ lục, Bản sao |
+| Writer: Biểu mẫu văn thư (7) | Bì văn bản, dấu “ĐẾN”, phiếu giải quyết văn bản đến, danh mục hồ sơ, mục lục hồ sơ, mục lục văn bản, biên bản giao nhận (Phụ lục IV, V NĐ 30) |
+| Sheets: sổ văn thư (5) | Sổ đăng ký văn bản đi, đến; sổ gửi bưu điện; sổ sử dụng bản lưu; sổ theo dõi giải quyết; mỗi tệp có trang bìa và trang sổ theo Phụ lục IV |
 | Sheets | Chấm công, Bảng lương, Dự toán, Thu chi, Thống kê, Danh sách |
 | Slides | Họp cơ quan, Báo cáo đơn vị, Giảng dạy, Hội nghị, Báo cáo doanh nghiệp |
+
+Mỗi hồ sơ quy tắc là một tệp riêng: [nd30.json](../data/vietnamese/nd30.json), [qppl.json](../data/vietnamese/qppl.json) (lề trên, dưới, phải 15–20, trái 30–35; số có năm; chức vụ và số trang cỡ 13), [dang.json](../data/vietnamese/dang.json) (lề cố định, giãn dòng 20 pt, tiêu đề “ĐẢNG CỘNG SẢN VIỆT NAM”, dấu sao, 5 gạch nối, số “Số 05-QĐ/TU”). `nd30.validate_margins` kiểm theo hồ sơ của loại văn bản. Loại văn bản và chỗ giữ chỗ ở [document-types.json](../data/vietnamese/document-types.json) và `data/vietnamese/skeletons-*.json`.
+
+**Không có mẫu trong nghị định:** Phụ lục III NĐ 30 không có mẫu riêng cho Hợp đồng, Bản ghi nhớ, Bản thỏa thuận, Thư công. Bốn mẫu này theo thể thức chung của Phụ lục I, không mang số mẫu; siêu dữ liệu `Căn cứ` của từng tệp và trang hướng dẫn nói rõ. Hướng dẫn 05 cũng không có mẫu nội dung riêng từng loại, chỉ có sơ đồ và bảng cỡ chữ. Cỡ phong bì không được nghị định quy định, HST chọn 220 × 110 mm.
+
+**Chưa làm theo quyết định của chủ dự án:** các mẫu VBQPPL khác của Phụ lục III NĐ 187: mẫu 01–13 và 16–26 (mẫu 26 là phụ lục; cách đánh số phụ lục La Mã và số trang riêng đã có khi gõ dòng “Phụ lục I” trong thân Thông tư). Văn bản Đảng chưa có mẫu: Cương lĩnh, Điều lệ, Chiến lược, Tuyên bố, Lời kêu gọi, Quy hoạch, Dự án; giấy tờ Giấy chứng nhận, Giấy đi đường, Giấy nghỉ phép, Phiếu chuyển, Phiếu gửi, Thư công (Điều 6 Quy định 399).
 
 [Danh mục nguồn](../templates/catalog.json) liên kết ID, ứng dụng, tiêu đề và mô tả
 vi/en, giấy phép, nguồn JSON, đường dẫn mẫu và thẻ danh mục. Các nguồn nằm trong
@@ -30,14 +40,15 @@ chưa được xác minh; bộ mẫu hỗ trợ trình bày, không chứng nh�
 
 `hst-templates-hst-only.patch` (chủ dự án 2026-11-05) không cài các mẫu tiếng Anh của LibreOffice (thư thương mại, danh
 thiếp, CV, sơ yếu) và `draw/bpmn.otg` (có tên LibreOffice); `hst-file-backstage-polish.patch` đã bỏ mẫu tiếng Nhật, tiếng
-Trung. Còn lại trong danh sách mẫu, cùng 18 mẫu trên:
+Trung. Còn lại trong danh sách mẫu, cùng các mẫu HST trên:
 
 - Writer: Mặc định, Hiện đại, Đơn giản (`styles/`).
 - Sheets: chỉ 6 mẫu HST; LibreOffice không có mẫu Sheets nào.
-- Slides: 23 nền trình chiếu `presnt/`, tên hiển thị đã dịch (Tổ ong, Kẹo…), chữ mẫu tiếng Latinh "Lorem Ipsum". Ảnh thu
-  nhỏ và ảnh nhúng không có tên LibreOffice; phần mô tả của Candy, Freshes, Grey Elegant, Growing Liberty, Yellow Idea ghi
-  "LibreOffice Impress Template" (kèm giấy phép, tên tác giả) và đi theo vào thuộc tính của tài liệu tạo từ mẫu. Chưa đổi:
-  chờ chủ dự án quyết.
+- Slides: 23 nền trình chiếu `presnt/`, tên hiển thị đã dịch (Tổ ong, Kẹo…).
+
+Bước `scripts/templates/apply-presnt-vi.py` trong mọi kịch bản build (cạnh `apply-icon-overrides.py`, chạy lại được, có `--check`) làm sạch cây nguồn: chữ Latinh chỉ còn nằm trong `Freshes/content.xml` và trong ảnh thu nhỏ của cả 23 nền (các nền khác có ô giữ chỗ trống); ảnh thu nhỏ mới ở `assets/templates/presnt-thumbnails/` có chữ tiếng Việt, tạo bởi `scripts/templates/render-thumbnails.py presnt`. Bỏ mô tả “LibreOffice Impress Template” của Candy, Freshes, Grey Elegant, Growing Liberty, Yellow Idea (giấy phép chuyển sang thuộc tính `License`, ghi nhận ở [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md)), bỏ `meta:generator` tên LibreOffice ở mọi nền, bỏ đường dẫn xuất Inkscape trong SVG của Blueprint Plans. Đã xem riêng từng ảnh nhúng PNG, JPG của từng nền (32 tệp, 8 SVG kiểm bằng nội dung): không có tên hay logo LibreOffice.
+
+Ảnh thu nhỏ của các mẫu HST ở `assets/templates/thumbnails/` là trang đầu thật của mẫu, render bằng `render-thumbnails.py catalog`; bộ sinh nhúng vào `Thumbnails/thumbnail.png`. Sau khi đổi bố cục cần render lại.
 
 Kiểm tra: `tests/runtime/check-template-lists.py` (danh sách thật và ảnh chụp để nhìn).
 
@@ -66,9 +77,9 @@ viên còn lại sắp xếp theo tên; toàn bộ dùng ZIP_STORED để tránh
 Ngày trong metadata lấy từ `SOURCE_DATE_EPOCH`; nếu thiếu, mặc định cố định là
 `1767225600` (2026-01-01 UTC). ZIP dùng cùng thời điểm UTC, giới hạn dưới là
 1980-01-01 và độ chính xác hai giây. Hai lần sinh cùng nguồn và epoch phải có
-cùng SHA-256 cho toàn bộ 37 tệp, kể cả manifest và thẻ danh mục.
+cùng SHA-256 cho mọi tệp, kể cả manifest và thẻ danh mục.
 
-Bộ kiểm tra xác nhận 18 tệp đúng tên, MIME, manifest, CRC, XML, Unicode NFC,
+Bộ kiểm tra xác nhận mọi tệp mẫu đúng tên, MIME, manifest, CRC, XML, Unicode NFC,
 hash, placeholder, công thức, khổ trang và cấu trúc bố cục. Nó từ chối macro,
 script, liên kết ngoài, tham chiếu nội bộ hỏng, phông nhúng và tệp lạ trong ZIP.
 Đây là kiểm tra cấu trúc theo hợp đồng dự án, không thay thế trình kiểm định
@@ -145,7 +156,7 @@ profile đang mở. Mỗi tiến trình có timeout, PID và lệnh trong log; t
 quá hạn được dừng theo process group và profile được dọn. Mỗi lần chạy dùng
 thư mục kết quả mới, không tái dùng tệp xuất cũ.
 
-Khi môi trường cho phép, harness mở đủ 18 mẫu, xuất PDF và DOCX/XLSX/PPTX, tạo
+Khi môi trường cho phép, harness mở đủ các mẫu, xuất PDF và DOCX/XLSX/PPTX, tạo
 bản chỉnh sửa riêng, lưu/mở lại ODF và mở lại OOXML. Nó kiểm tra chữ Việt trong
 PDF, số trang, A4/lề trong XML DOCX, master/notes/biểu đồ trong PPTX và tỷ lệ
 4:3. Với Sheets, dữ liệu thử nghiệm tách riêng tại
@@ -173,5 +184,13 @@ tệp vào `template/hst-van-ban/`, `template/hst-bang-tinh/`, `template/hst-tri
 của gói, cùng `template/groupuinames.xml` (tên nhóm hiển thị "HST — Văn bản hành chính",
 "HST — Bảng tính", "HST — Trình chiếu"). `Paths.xcu` của extension thêm `%origin%/template`
 vào đường dẫn mẫu, nên Trình quản lý mẫu (Trang bắt đầu → Mẫu, Tập tin → Mẫu) liệt kê
-18 mẫu. Dung lượng: gói `.oxt` thêm khoảng 54 KB, khi cài thêm khoảng 350 KB.
+đủ các nhóm, thêm `template/hst-qppl/` ("HST — Văn bản quy phạm pháp luật"), `template/hst-dang/` ("HST — Văn bản của Đảng"), `template/hst-van-thu/` ("HST — Biểu mẫu văn thư").
 Kiểm tra khi chạy: `tests/runtime/check-template-manager.py`.
+
+## Tìm mẫu
+
+Trình hướng dẫn **HST → Văn bản hành chính…**: ô *Loại văn bản* là ô tìm nhanh, lọc ngay khi gõ, không cần dấu (`cong van`, `gm`, `ttr`, `qd`), chia nhóm Hành chính, Quy phạm pháp luật, Đảng, Biểu mẫu văn thư; mũi tên lên xuống, Enter, Esc. Cách so khớp như **Tìm tính năng**: `nd30_search.fold` làm giống `foldForSearch` trong `hst-feature-search.patch`. Sổ văn thư mở thành bảng tính mới. **Tìm tính năng** chỉ liệt kê lệnh, nên mọi loại văn bản được thêm vào từ khóa của lệnh này trong `FeatureSearch.xcu`.
+
+Kiểm tra: `tests/unit/test_nd30_search.py`, `tests/runtime/check-nd30-search.py`.
+
+Trang **Mới** của Tập tin chỉ có ba ô mẫu và lưới `TemplateLocalView`, chưa có ô tìm. Nếu cần, thêm một ô nhập phía trên lưới và gọi `filterItems` như Trình quản lý mẫu; đây là thay đổi C++ và `.ui`, chưa làm.

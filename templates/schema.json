@@ -12,6 +12,9 @@
       "$ref": "#/$defs/sheets"
     },
     {
+      "$ref": "#/$defs/register"
+    },
+    {
       "$ref": "#/$defs/slides"
     }
   ],
@@ -110,6 +113,13 @@
                 "type": "string",
                 "minLength": 1,
                 "pattern": "^[a-f0-9]{64}$"
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1
+              },
+              "keywords": {
+                "type": "string"
               }
             },
             "required": [
@@ -370,6 +380,70 @@
         "module",
         "theme",
         "slides"
+      ],
+      "additionalProperties": false
+    },
+    "register": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "module": {
+          "const": "sheets"
+        },
+        "license": {
+          "const": "CC-BY-4.0"
+        },
+        "kind": {
+          "const": "register"
+        },
+        "coverTitle": {
+          "type": "string",
+          "minLength": 1
+        },
+        "numberRange": {
+          "enum": [
+            true,
+            false
+          ]
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "widthMm": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "title",
+              "widthMm"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 2,
+          "maxItems": 12
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "module",
+        "license",
+        "kind",
+        "coverTitle",
+        "columns"
       ],
       "additionalProperties": false
     }

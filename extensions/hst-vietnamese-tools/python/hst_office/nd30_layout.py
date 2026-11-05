@@ -5,102 +5,13 @@ blocks built here, so they cannot drift apart. Blocks are paragraphs and grids (
 Provenance: ported from archive/onlyoffice-plugin-first@e0517d71c813535087c401b2683bec0784d71fd8
 extensions/vn-admin-documents/logic/nd30-layout.js and re-validated against the annexes named in docs/TEMPLATES.md.
 """
-import re
-
+from . import nd30_forms, nd30_heading, nd30_party, nd30_signature
 from .data_files import load_data
-from .nd30 import format_issue_date, format_number, format_symbol, get_type, profile_rules
-from .nd30_blocks import body_blocks, lines_of, para, run
-from .nd30_metrics import ASCENT_EM, rule_for, text_width_mm
-from .nd30_signature import signature_blocks
+from .nd30 import get_type, profile_rules
+from .nd30_blocks import body_blocks, lines_of
 
-
-def value_of(fields, key, ph):
-    return str(fields.get(key) or "").strip() or ph[key]
-
-
-def number_text(t, fields, d):
-    ph = d["placeholders"]
-    number = format_number(fields.get("number")) or ph["number"]
-    symbol = str(fields.get("symbol") or "").strip()
-    if symbol:
-        return "Số: %s/%s" % (number, format_symbol(symbol, t.get("abbr", "")))
-    if t.get("officialLetter"):
-        return "Số: %s/%s-%s" % (number, ph["symbolAgency"], ph["symbolUnit"])
-    return "Số: %s/%s-%s" % (number, t.get("abbr", ""), ph["symbolAgency"])
-
-
-def _agency_cell(fields, d, cell_mm):
-    ph, T, R = d["placeholders"], d["typography"], d["ruleWidthMm"]
-    cell = []
-    if str(fields.get("parentAgency") or "").strip() or "_template" in fields:
-        cell.append(para([run(value_of(fields, "parentAgency", ph).upper(), T["parentAgency"])], role="ParentAgency"))
-    agency = value_of(fields, "agency", ph).upper()
-    cell.append(para([run(agency, T["agency"], bold=True)], role="Agency",
-                     rule_mm=rule_for(agency, T["agency"], True, cell_mm, R["agencyFraction"])))
-    return cell
-
-
-def _national_cell(d, cell_mm):
-    T = d["typography"]
-    motto = d["motto"]
-    return [para([run(d["nationalTitle"], T["nationalTitle"], bold=True)], role="NationalTitle"),
-            para([run(motto, T["motto"], bold=True)], role="Motto",
-                 rule_mm=round(min(text_width_mm(motto, T["motto"], True), cell_mm), 2))]
-
-
-def _date_para(fields, d):
-    ph, T = d["placeholders"], d["typography"]
-    date = format_issue_date(fields.get("date")) or ph["date"]
-    text = "%s, %s" % (value_of(fields, "place", ph), date)
-    return para([run(text, T["placeDate"], italic=True)], role="PlaceDate", spacing_before_pt=6)
-
-
-def _number_gap(T):
-    """Space above the number so its first line shares the baseline of the larger date, even when either one wraps."""
-    return round(6 + (T["placeDate"] - T["number"]) * ASCENT_EM, 2)
-
-
-def header_grid(t, fields, d, text_mm):
-    """Agency | national title, then number | date in one row so they share a baseline (II.4c), then the V/v of a letter."""
-    pct = d["layoutRules"]["headerWidthsPct"]
-    T = d["typography"]
-    left_mm, right_mm = text_mm * pct[0] / 100, text_mm * pct[1] / 100
-    date = [] if t.get("noDate") else [_date_para(fields, d)]
-    rows = [{"cells": [_agency_cell(fields, d, left_mm), _national_cell(d, right_mm)]},
-            {"cells": [[para([run(number_text(t, fields, d), T["number"])], role="Number", spacing_before_pt=_number_gap(T))], date]}]
-    if t.get("officialLetter"):
-        # "V/v" already means "về việc": drop a typed "Về việc"/"V/v" so it is not doubled.
-        summary = re.sub(r"^\s*(?:v/v|về việc)\s*:?\s*", "", value_of(fields, "summary", d["placeholders"]), flags=re.I)
-        rows.append({"cells": [[para([run("V/v " + summary, T["summaryOfficialLetter"])], role="OfficialSummary", spacing_before_pt=6)], []]})
-    return {"type": "grid", "name": "Header", "widthsPct": pct, "rows": rows}
-
-
-def _title(t, fields, d, text_mm):
-    ph, T, R = d["placeholders"], d["typography"], d["ruleWidthMm"]
-    summary = value_of(fields, "summary", ph)
-    if fields.get("summary") is None or not str(fields.get("summary")).strip() or not summary.lower().startswith("về việc"):
-        summary = t.get("summaryPrefix", "") + summary
-    return [para([run(t["typeName"], T["typeName"], bold=True)], role="TypeName", spacing_before_pt=12),
-            para([run(summary, T["summary"], bold=True)], role="Summary",
-                 rule_mm=rule_for(summary, T["summary"], True, text_mm, R["titleFraction"]))]
-
-
-def _addressee(fields, d, text_mm):
-    ph, T = d["placeholders"], d["typography"]
-    targets = lines_of(fields.get("kinhGui"))
-    size = T["kinhGui"]
-    if len(targets) <= 1:
-        return [para([run("Kính gửi: %s." % (targets[0] if targets else ph["kinhGui"]), size)], role="KinhGui",
-                     spacing_before_pt=12, spacing_after_pt=6)]
-    # Annex I, II.9b: one recipient per line, the dashes aligned under the colon of "Kinh gui:".
-    items = ["- %s%s" % (x, "." if i == len(targets) - 1 else ";") for i, x in enumerate(targets)]
-    label_mm = text_width_mm("Kính gửi", size)
-    widest = max(text_width_mm(x, size) for x in items)
-    left_mm = round(max(0.0, min((text_mm - label_mm - widest) / 2, text_mm / 3)), 2)
-    blocks = [para([run("Kính gửi:", size)], "left", role="KinhGui", spacing_before_pt=12, indent_left_mm=left_mm)]
-    blocks += [para([run(x, size)], "left", role="KinhGui", indent_left_mm=round(left_mm + label_mm, 2)) for x in items]
-    blocks[-1]["spacing_after_pt"] = 6
-    return blocks
+ATTACHED = {"qd": ("[TÊN LOẠI VĂN BẢN]", "(Kèm theo Quyết định số [số]/QĐ-[viết tắt CQ] ngày [ngày] tháng [tháng] năm [năm] của [cơ quan])"),
+            "tt": ("QUY ĐỊNH/QUY CHẾ/ĐIỀU LỆ/DANH MỤC", "(Kèm theo Thông tư số [số]/[năm]/TT-[viết tắt bộ])")}
 
 
 def skeleton(t):
@@ -108,26 +19,94 @@ def skeleton(t):
     return load_data("skeletons-%s.json" % t["group"])[t["id"]]
 
 
+def _body(t, fields, d):
+    return body_blocks(lines_of(fields.get("body")) or skeleton(t), d)
+
+
+def _attached(t, fields, d, text_mm):
+    """The document issued with a decision or circular (forms 1.3, 15): new page, its own page numbers from 1."""
+    title, reference = ATTACHED[t["attached"]]
+    head = {**t, "noNumber": True, "noDate": True}
+    sub = {**t, "typeName": title, "noSummary": False, "summaryFixed": "[Tên văn bản]", "subtitle": [[reference, True]]}
+    grid = nd30_heading.header_grid(head, fields, d, text_mm)
+    grid["new_section"] = True
+    if t["attached"] == "qd":
+        lines = skeleton({"group": t["group"], "id": "van-ban-kem-theo-qd-dien-tu"})
+    else:
+        lines = [x for x in skeleton({"group": t["group"], "id": "thong-tu"}) if not x.startswith(("Căn cứ", "Theo đề nghị", "@basis"))]
+    return [grid] + nd30_heading.title_blocks(sub, fields, d, text_mm) + body_blocks(lines, d)
+
+
+def _state_blocks(t, fields, d, text_mm):
+    H = nd30_heading
+    structure = t.get("structure")
+    blocks = []
+    if t.get("esign"):
+        blocks.append(H.esign_line())
+    if structure == "annex":
+        return blocks + H.annex_title(t, d, text_mm) + _body(t, fields, d)
+    if structure == "copy":
+        return _body(t, fields, d) + nd30_forms.copy_blocks(t, fields, d, text_mm)
+    if structure == "esign-copy":
+        return [nd30_forms.copy_esign_line()] + _body(t, fields, d)
+    if structure == "envelope":
+        return nd30_forms.envelope_blocks(fields, d)
+    if structure == "stamp":
+        return nd30_forms.stamp_blocks(fields, d)
+    if not t.get("noHeader"):
+        blocks.append(H.header_grid(t, fields, d, text_mm))
+    if not t.get("officialLetter") and not t.get("noTitle"):
+        blocks += H.title_blocks(t, fields, d, text_mm)
+    if t.get("kinhGui"):
+        blocks += H.addressee_blocks(t, fields, d, text_mm)
+    blocks += _body(t, fields, d)
+    if structure in ("form", "attached-only"):
+        return blocks
+    blocks += nd30_signature.signature_blocks(t, fields, d)
+    if t.get("attached"):
+        blocks += _attached(t, fields, d, text_mm)
+    return blocks
+
+
+def _party_blocks(t, fields, d, text_mm):
+    P = nd30_party
+    if t["structure"] == "annex":
+        return nd30_heading.annex_title(t, d, text_mm) + _body(t, fields, d)
+    if t["structure"] == "dang-copy":
+        return _body(t, fields, d) + P.copy_blocks(t, fields, d)
+    blocks = [P.header_grid(t, fields, d, text_mm)]
+    if not t.get("officialLetter"):
+        blocks += P.title_blocks(t, fields, d)
+    if t.get("kinhGui"):
+        blocks += P.addressee_blocks(t, fields, d)
+    return blocks + _body(t, fields, d) + P.signature_blocks(t, fields, d)
+
+
 def build_layout(type_id, fields=None, margins_mm=None, data=None, template=False):
-    """{'typeId', 'profile', 'textWidthMm', 'blocks'}; `template` keeps every optional placeholder for the .ott."""
+    """{'typeId', 'profile', 'textWidthMm', 'blocks', ...}; `template` keeps every optional placeholder for the .ott."""
     t = get_type(type_id, data)
     if t is None:
         raise ValueError("unknown-type")
+    if t.get("module") == "sheets":
+        raise ValueError("register-opens-as-sheet")
     d = profile_rules(t["profile"])
     fields = dict(fields or {})
-    m = margins_mm or d["defaultMarginsMm"]
-    text_mm = d["pageSizeMm"]["width"] - float(m["left"]) - float(m["right"])
+    page = nd30_forms.ENVELOPE if t["structure"] == "envelope" else None
+    m = margins_mm or page or d["defaultMarginsMm"]
+    width = page["width"] if page else d["pageSizeMm"]["width"]
+    text_mm = width - float(m["left"]) - float(m["right"])
     if template:
-        fields = {"kinhGui": "[Cơ quan, tổ chức nhận văn bản 1]\n[Cơ quan, tổ chức nhận văn bản 2]"} if t.get("officialLetter") else {}
+        fields = {"kinhGui": "[Cơ quan, tổ chức nhận văn bản 1]\n[Cơ quan, tổ chức nhận văn bản 2]"} if t.get("officialLetter") and t["profile"] == "nd30" else {}
         fields["_template"] = "1"
-    blocks = [header_grid(t, fields, d, text_mm)]
-    if not t.get("officialLetter"):
-        blocks += _title(t, fields, d, text_mm)
-    if t.get("kinhGui"):
-        blocks += _addressee(fields, d, text_mm)
-    blocks += body_blocks(lines_of(fields.get("body")) or skeleton(t), d["typography"])
-    blocks += signature_blocks(t, fields, d, text_mm)
-    return {"typeId": type_id, "profile": t["profile"], "textWidthMm": text_mm, "blocks": blocks}
+    build = _party_blocks if t["profile"] == "dang" else _state_blocks
+    result = {"typeId": type_id, "profile": t["profile"], "textWidthMm": text_mm, "blocks": build(t, fields, d, text_mm)}
+    if page:
+        result["page"] = page
+    if t["structure"] in ("copy", "dang-copy"):
+        result["flow"] = "append"  # a copy block goes under the document being copied
+    if t["structure"] == "esign-copy":
+        result["flow"] = "prepend"
+    return result
 
 
 def _cell_text(paragraphs):

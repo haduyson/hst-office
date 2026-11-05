@@ -6,7 +6,7 @@ Usage: python3 tests/runtime/check-template-lists.py [--instdir upstream/libreof
            [--out tests/output/template-lists] [--shots tests/output/screenshots-template-lists] [--display :97]
 
 Over UNO: the installed template files, the groups in com.sun.star.frame.DocumentTemplates and their titles. No upstream
-English sample and no Draw BPMN template; the three style templates and the 18 HST templates stay. Prints what is left
+English sample and no Draw BPMN template; the three style templates and the HST templates stay. Prints what is left
 per application and any template whose description names the upstream project (it reaches a new document's properties).
 Screenshots (Start Center, Template Manager, File view "Mới" of each application): a text search cannot see images, so a
 person opens them. Exit 1 when a check fails.
@@ -27,7 +27,8 @@ COMMAND = ".uno:HSTBackstage"
 GONE = ("officorr/Modern_business_letter_sans_serif.ott", "officorr/Modern_business_letter_serif.ott",
         "offimisc/Businesscard-with-logo.ott", "personal/CV.ott", "personal/Resume1page.ott", "draw/bpmn.otg")
 STAY = ("styles/Default.ott", "styles/Modern.ott", "styles/Simple.ott")
-HST_GROUPS = {"HST — Văn bản hành chính": 7, "HST — Bảng tính": 6, "HST — Trình chiếu": 5}
+HST_GROUPS = {"HST — Văn bản hành chính": 37, "HST — Văn bản quy phạm pháp luật": 2, "HST — Văn bản của Đảng": 22,
+              "HST — Biểu mẫu văn thư": 12, "HST — Bảng tính": 6, "HST — Trình chiếu": 5}
 APPS = (("swriter", "Writer"), ("scalc", "Sheets"), ("simpress", "Slides"))
 
 

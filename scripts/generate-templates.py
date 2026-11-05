@@ -5,7 +5,7 @@ import argparse
 import hashlib
 from pathlib import Path
 from xml.sax.saxutils import escape
-from templates import catalog, sheets, slides, writer
+from templates import catalog, sheets, sheets_register, slides, writer
 from templates.writer_layout import rules_for
 from templates.odf import BASE, MIME, epoch, json_bytes, metadata, package, read_json
 
@@ -43,11 +43,16 @@ def generate(out, catalog_path):
         module = entry["module"]
         if module == "writer":
             parts = writer.build(source, rules_for(source["documentType"]))
+        elif module == "sheets" and source.get("kind") == "register":
+            parts = sheets_register.build(source)
         elif module == "sheets":
             parts = sheets.build(source, formats)
         else:
             parts = slides.build(source)
         parts["meta.xml"] = metadata(entry)
+        thumbnail = BASE / "assets/templates/thumbnails" / (entry["id"] + ".png")
+        if thumbnail.is_file():  # rendered from the real document by scripts/templates/render-thumbnails.py
+            parts["Thumbnails/thumbnail.png"] = thumbnail.read_bytes()
         target = out / entry["output"]
         package(target, MIME[module], parts)
         card = out / entry["preview"]

@@ -5,5 +5,5 @@ import sys
 from .odf import BASE
 
 sys.path.insert(0, str(BASE / "extensions/hst-vietnamese-tools/python"))
-from hst_office.nd30 import rules_for  # noqa: E402,F401
+from hst_office.nd30 import get_type, rules_for  # noqa: E402,F401
 from hst_office.nd30_layout import build_layout, skeleton  # noqa: E402,F401
