@@ -1,0 +1,117 @@
+HST Office: new workbooks in Sheets use Excel's default size, 11 pt. Writer stays Times New Roman 12.
+
+- ScDocShell::InitNew: the Default cell style of a new document gets the size, not the pool default, so a file that states
+  no size keeps the old one and the user can still change the style. Filters also call InitNew before loading: they are
+  left out, since oox skips a size equal to the pool default and would keep 11 for a 10 pt file. The empty rows follow at once.
+- New sheets (ScDocFunc::InsertTable and the view's InsertTables, AppendTable, first-view sheets) get the same row height;
+  sheets created while importing are left to the import.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-defaults.py.
+---
+--- a/sc/source/ui/docshell/docfunc.cxx
++++ b/sc/source/ui/docshell/docfunc.cxx
+@@ -1238,6 +1238,9 @@
+ 
+     if (rDoc.InsertTab( nTab, rName ))
+     {
++        // HST: a new sheet's empty rows follow the default style, like the first sheet's.
++        if (!rDoc.IsImportingXML())
++            rDocShell.AdjustRowHeight(0, rDoc.MaxRow(), nTab);
+         if (bRecord)
+             rDocShell.GetUndoManager()->AddUndoAction(
+                         std::make_unique<ScUndoInsertTab>( rDocShell, nTab, bAppend, rName));
+--- a/sc/source/ui/docshell/docsh2.cxx
++++ b/sc/source/ui/docshell/docsh2.cxx
+@@ -17,7 +17,9 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <editeng/fhgtitem.hxx>
+ #include <rtl/bootstrap.hxx>
++#include <sfx2/docfile.hxx>
+ #include <osl/file.hxx>
+ #include <svx/drawitem.hxx>
+ #include <svl/asiancfg.hxx>
+@@ -29,6 +31,9 @@
+ #include <o3tl/unit_conversion.hxx>
+ 
+ #include <drwlayer.hxx>
++#include <globstr.hrc>
++#include <scitems.hxx>
++#include <scresid.hxx>
+ #include <stlpool.hxx>
+ #include <docsh.hxx>
+ #include <docfunc.hxx>
+@@ -58,6 +63,8 @@
+     // InitOptions sets the document languages, must be called before CreateStandardStyles
+     InitOptions(false);
+ 
++    const bool bNewWorkbook = GetMedium() && GetMedium()->GetName().isEmpty();
++
+     if (ScStyleSheetPool* pStyleSheetPool = m_pDocument->GetStyleSheetPool())
+     {
+         pStyleSheetPool->CreateStandardStyles();
+@@ -77,12 +84,29 @@
+             pOrcus->importODS_Styles(*m_pDocument, aPath);
+             pStyleSheetPool->setAllParaStandard();
+         }
++
++        // HST: new workbooks use Excel's size. In the style and not the pool default, so files that do
++        // not state a size keep the old one. Filters come through here too, before they load (their
++        // medium has a name), and leave the style alone where a file's size equals the pool default.
++        SfxStyleSheetBase* pDefault = bNewWorkbook
++            ? pStyleSheetPool->Find(ScResId(STR_STYLENAME_STANDARD), SfxStyleFamily::Para) : nullptr;
++        if (pDefault)
++        {
++            SfxItemSet& rSet = pDefault->GetItemSet();
++            rSet.Put(SvxFontHeightItem(220, 100, ATTR_FONT_HEIGHT));
++            rSet.Put(SvxFontHeightItem(220, 100, ATTR_CJK_FONT_HEIGHT));
++            rSet.Put(SvxFontHeightItem(220, 100, ATTR_CTL_FONT_HEIGHT));
++        }
+     }
+ 
+     //  SetDocumentModified is not allowed anymore in Load/InitNew!
+     InitItems();
+     CalcOutputFactor();
+ 
++    // HST: the empty rows follow the default style's size, as a change of that style makes them do.
++    if (bNewWorkbook)
++        AdjustRowHeight(0, m_pDocument->MaxRow(), 0);
++
+     return bRet;
+ }
+ 
+--- a/sc/source/ui/view/tabvwsh4.cxx
++++ b/sc/source/ui/view/tabvwsh4.cxx
+@@ -1668,7 +1668,10 @@
+                 SCTAB nInitTabCount = rOpt.GetInitTabCount();
+ 
+                 for (SCTAB i=1; i<nInitTabCount; i++)
++                {
+                     rDoc.MakeTable(i,false);
++                    pDocSh->AdjustRowHeight(0, rDoc.MaxRow(), i); // HST: as the first sheet's rows
++                }
+             }
+ 
+             pDocSh->SetEmpty( false );          // #i6232# make sure this is done only once
+--- a/sc/source/ui/view/viewfun2.cxx
++++ b/sc/source/ui/view/viewfun2.cxx
+@@ -2418,6 +2418,9 @@
+     }
+     if (rDoc.InsertTabs(nTab, aNames))
+     {
++        // HST: a new sheet's empty rows follow the default style, like the first sheet's.
++        for (SCTAB nNew = nTab; nNew < nTab + nCount; ++nNew)
++            pDocSh->AdjustRowHeight(0, rDoc.MaxRow(), nNew);
+         pDocSh->Broadcast( ScTablesHint( SC_TABS_INSERTED, nTab, nCount ) );
+         bFlag = true;
+     }
+@@ -2452,6 +2455,7 @@
+     if (rDoc.InsertTab( SC_TAB_APPEND, rName ))
+     {
+         SCTAB nTab = rDoc.GetTableCount()-1;
++        pDocSh->AdjustRowHeight(0, rDoc.MaxRow(), nTab);
+         if (bRecord)
+             pDocSh->GetUndoManager()->AddUndoAction(
+                         std::make_unique<ScUndoInsertTab>( *pDocSh, nTab, true, rName));

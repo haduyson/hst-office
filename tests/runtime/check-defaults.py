@@ -15,6 +15,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from defaults_new_documents import check_new_documents  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 EXPECTED = {
     # Asian and complex text layout options are hidden until turned on in Options.
@@ -132,6 +135,8 @@ def main():
         failed += not ok
         results["HelpRootURL expands to an installed file"] = {"actual": expanded, "status": "PASS" if ok else "FAIL"}
         print(f"{'PASS' if ok else 'FAIL'}  HelpRootURL expands to an installed file: {expanded}")
+        document_failures, _rows = check_new_documents(ctx, args.out)
+        failed += document_failures
     finally:
         proc.terminate()
         try:
