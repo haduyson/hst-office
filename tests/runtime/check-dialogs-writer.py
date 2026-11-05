@@ -11,7 +11,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dialogs_writer_art_cases import check_page_art  # noqa: E402
-from dialogs_writer_autofit_cases import check_autofit_large_table, check_autofit_real_documents, check_autofit_typing  # noqa: E402
+from dialogs_writer_autofit_cases import check_autofit_large_table, check_autofit_typing  # noqa: E402
+from dialogs_writer_autofit_real_cases import check_autofit_real_documents  # noqa: E402
 from dialogs_writer_border_cases import check_borders, check_page_border  # noqa: E402
 from dialogs_writer_insert_cases import check_insert_table  # noqa: E402
 from dialogs_writer_other_cases import (check_hyperlink, check_page_number, check_page_setup,  # noqa: E402
