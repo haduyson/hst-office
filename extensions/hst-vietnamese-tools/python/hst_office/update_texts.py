@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Update-check texts: Vietnamese or English following the office UI language (the other HST commands are always Vietnamese)."""
-import uno
 
 TEXTS = {
     "vi": {
@@ -56,6 +55,7 @@ TEXTS = {
 
 def ui_language(ctx):
     """'vi' when the office UI language is Vietnamese, else 'en'."""
+    import uno  # imported lazily: TEXTS is unit-tested without an office
     try:
         provider = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
         arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
@@ -67,4 +67,5 @@ def ui_language(ctx):
 
 
 def texts(ctx=None):
+    import uno  # imported lazily, as in ui_language
     return TEXTS[ui_language(ctx or uno.getComponentContext())]
