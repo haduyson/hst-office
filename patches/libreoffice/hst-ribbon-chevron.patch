@@ -1,0 +1,345 @@
+HST Office: the ribbon chevron shows only when a group is folded, and what it folds is reached from the keyboard.
+
+The chevron of a ribbon tab is a child of the box whose groups it folds. Once hidden it counted as a folded group, so
+the box showed it again with every group on the ribbon, and a click opened an empty popup. The groups to fold are now
+found from the width of all of them: when they all fit there is no chevron, otherwise the chevron keeps its place and
+the groups fold from the end. A KeyTip that opens the chevron or a folded tab menu puts KeyTips on the commands in
+the popup; Esc closes it.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -25,8 +25,8 @@
+ #include <PriorityMergedHBox.hxx>
+ #include <comphelper/lok.hxx>
+ 
+-#define DUMMY_WIDTH 50
+-#define BUTTON_WIDTH 30
++#include <utility>
++#include <vector>
+ 
+ /*
+ * PriorityMergedHBox is a VclHBox which hides its own children if there is no sufficient space.
+@@ -56,60 +56,54 @@
+         return VclHBox::Resize();
+     }
+ 
+-    tools::Long nWidth = GetSizePixel().Width();
+-    tools::Long nCurrentWidth = VclHBox::calculateRequisition().getWidth() + BUTTON_WIDTH;
+-
+-    // Hide lower priority controls
+-    for (int i = GetChildCount() - 1; i >= 0; i--)
+-    {
+-        vcl::Window* pWindow = GetChild(i);
+-
+-        if (nCurrentWidth <= nWidth)
+-            break;
+-
+-        if (pWindow && pWindow->GetParent() == this && pWindow->IsVisible())
+-        {
+-            tools::Long nWindowWidth = pWindow->GetOutputSizePixel().Width();
+-            if (!nWindowWidth)
+-                nWindowWidth = getLayoutRequisition(*pWindow).Width() + get_spacing();
+-
+-            if (nWindowWidth)
+-                nCurrentWidth -= nWindowWidth;
+-            else
+-                nCurrentWidth -= DUMMY_WIDTH;
+-            pWindow->Hide();
+-        }
++    // HST Office: the groups that are folded into the popup are found from the full width of every
++    // group, not from what the last layout left visible, and the chevron counts only when something is
++    // folded. The chevron, a child itself, was once taken for a folded group: it stayed on with all the
++    // groups shown and opened an empty popup.
++    if (m_pPopup && m_pPopup->getBox()->GetChildCount())
++    {
++        // the folded groups are in the open popup until it hands them back and lays this box out again
++        VclHBox::Resize();
++        return;
+     }
+ 
+-    // Show higher priority controls if we already have enough space
+-    for (int i = 0; i < GetChildCount(); i++)
++    const tools::Long nWidth = GetSizePixel().Width();
++    const tools::Long nSpacing = get_spacing();
++    std::vector<std::pair<vcl::Window*, tools::Long>> aGroups;
++    tools::Long nAll = 0;
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
+     {
+-        vcl::Window* pWindow = GetChild(i);
+-
+-        if (pWindow->GetParent() != this)
+-        {
++        if (pChild == m_pButton)
+             continue;
+-        }
+-
+-        if (pWindow && !pWindow->IsVisible())
++        const tools::Long nGroup = getLayoutRequisition(*pChild).Width() + pChild->get_padding() * 2;
++        nAll += (aGroups.empty() ? 0 : nSpacing) + nGroup;
++        aGroups.emplace_back(pChild, nGroup);
++    }
++
++    // everything fits: no chevron; otherwise the chevron's place is kept and the groups go from the end
++    const bool bFold = nAll > nWidth;
++    const tools::Long nRoom
++        = bFold ? nWidth - getLayoutRequisition(*m_pButton).Width() - m_pButton->get_padding() * 2 - nSpacing
++                : nWidth;
++    tools::Long nUsed = 0;
++    bool bFull = false;
++    for (const auto& [pGroup, nGroup] : aGroups)
++    {
++        const tools::Long nNext = nUsed + (nUsed ? nSpacing : 0) + nGroup;
++        bFull = bFull || nNext > nRoom;
++        if (bFull)
++            pGroup->Hide();
++        else
+         {
+-            pWindow->Show();
+-            nCurrentWidth += getLayoutRequisition(*pWindow).Width() + get_spacing();
+-
+-            if (nCurrentWidth > nWidth)
+-            {
+-                pWindow->Hide();
+-                break;
+-            }
++            pGroup->Show();
++            nUsed = nNext;
+         }
+     }
+ 
+-    VclHBox::Resize();
++    m_pButton->Show(bFold);
+ 
+-    if (HasHiddenChildren())
+-        m_pButton->Show();
+-    else
+-        m_pButton->Hide();
++    VclHBox::Resize();
+ }
+ 
+ void PriorityMergedHBox::dispose()
+@@ -125,7 +119,8 @@
+     for (int i = GetChildCount() - 1; i >= 0; i--)
+     {
+         vcl::Window* pWindow = GetChild(i);
+-        if (pWindow && pWindow->GetParent() == this && !pWindow->IsVisible())
++        // HST Office: the hidden chevron is not a folded group
++        if (pWindow && pWindow != m_pButton && pWindow->GetParent() == this && !pWindow->IsVisible())
+             return true;
+     }
+ 
+@@ -179,6 +174,13 @@
+     if (m_pPopup)
+         m_pPopup.disposeAndClear();
+ 
++    // HST Office: the chevron shows only while a group is folded; it never opens an empty popup
++    if (!HasHiddenChildren())
++    {
++        m_pButton->Hide();
++        return;
++    }
++
+     m_pPopup = VclPtr<NotebookbarPopup>::Create(this);
+ 
+     for (int i = 0; i < GetChildCount(); i++)
+--- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -16,8 +16,10 @@
+ #include <vcl/notebookbar/notebookbar.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/svapp.hxx>
++#include <vcl/syswin.hxx>
+ #include <vcl/tabctrl.hxx>
+ #include <vcl/tabpage.hxx>
++#include <vcl/timer.hxx>
+ #include <vcl/toolbox.hxx>
+ #include <vcl/vclevent.hxx>
+ #include <vcl/window.hxx>
+@@ -98,6 +100,8 @@
+         Application::AddEventListener(LINK(this, KeyTips, AppEventHdl));
+         rBar.SetModKeyHdl(LINK(this, KeyTips, ModKeyHdl));
+         rTabs.AddEventListener(LINK(this, KeyTips, TabsEventHdl));
++        m_aPopupTimer.SetTimeout(50);
++        m_aPopupTimer.SetInvokeHandler(LINK(this, KeyTips, PopupTimerHdl));
+     }
+ 
+ private:
+@@ -106,7 +110,8 @@
+     bool Mine(vcl::Window* pWindow) const
+     {
+         return pWindow && m_xTabs && m_xTabs->IsReallyVisible() && !m_xBar->IsInModalMode()
+-               && pWindow->GetSystemWindow() == m_xTabs->GetSystemWindow()
++               && (pWindow->GetSystemWindow() == m_xTabs->GetSystemWindow()
++                   || (m_xPopup && pWindow->GetSystemWindow() == m_xPopup.get()))
+                && !vcl::IsInPopupMenuExecute();
+     }
+ 
+@@ -121,30 +126,47 @@
+     void Close()
+     {
+         Clear();
++        m_xPopup.reset();
+         m_eLevel = Level::None;
+     }
+ 
++    /// The groups folded behind the chevron, or a folded tab menu, opened from a tip: their commands get tips
++    /// in the popup, so what does not fit on the ribbon is reached from the keyboard too.
++    void ShowPopupCommands(vcl::Window& rPopup)
++    {
++        std::vector<Target> aTargets;
++        std::vector<std::string> aPreferred;
++        CollectCommands(rPopup, aTargets, aPreferred);
++        if (aTargets.empty())
++            return;
++        m_xPopup = &rPopup;
++        m_eLevel = Level::Commands;
++        Show(std::move(aTargets), aPreferred);
++    }
++
+     void Show(std::vector<Target>&& rTargets, const std::vector<std::string>& rPreferred)
+     {
+         Clear();
+         m_aTargets = std::move(rTargets);
+         const std::vector<std::string> aTips = assign(rPreferred);
+-        const Size aBar = m_xBar->GetOutputSizePixel();
++        // the tips go on the ribbon, or on the popup whose commands they show
++        vcl::Window& rHost = m_xPopup ? *m_xPopup : *m_xBar;
++        const Size aBar = rHost.GetOutputSizePixel();
+         // The tab page is narrowed beside the banner after its children were placed: the overflow and menu
+         // buttons at its end can report a place under the banner. Tips stay on the page, side by side.
+         tools::Long nPageRight = aBar.Width();
+-        if (m_eLevel == Level::Commands && m_xBanner && m_xBanner->IsVisible())
++        if (m_eLevel == Level::Commands && !m_xPopup && m_xBanner && m_xBanner->IsVisible())
+             nPageRight = m_xBar->ScreenToOutputPixel(m_xBanner->OutputToScreenPixel(Point())).X();
+         tools::Long nEndTips = 0;
+         for (size_t i = 0; i < m_aTargets.size(); ++i)
+         {
+             Target& rTarget = m_aTargets[i];
+             rTarget.aTip = OUString::createFromAscii(aTips[i]);
+-            rTarget.xTip = VclPtr<TipWindow>::Create(m_xBar.get(), rTarget.aTip, rTarget.bEnabled);
++            rTarget.xTip = VclPtr<TipWindow>::Create(&rHost, rTarget.aTip, rTarget.bEnabled);
+             const Size aSize = rTarget.xTip->Measure();
+             // centred on the bottom edge of the command, inside the ribbon
+             const Point aBottom(rTarget.aRect.Center().X(), rTarget.aRect.Bottom());
+-            const Point aOnBar = m_xBar->ScreenToOutputPixel(rTarget.pAnchor->OutputToScreenPixel(aBottom));
++            const Point aOnBar = rHost.ScreenToOutputPixel(rTarget.pAnchor->OutputToScreenPixel(aBottom));
+             Point aPos(aOnBar.X() - aSize.Width() / 2, aOnBar.Y() - aSize.Height() / 2);
+             if (aPos.X() + aSize.Width() > nPageRight)
+             {
+@@ -248,12 +270,17 @@
+                 aTarget.aRect = tools::Rectangle(Point(), Size(std::min<tools::Long>(aSize.Width(), aSize.Height()), aSize.Height()));
+                 aTarget.bEnabled = pChild->IsEnabled();
+                 VclPtr<vcl::Window> xButton(pChild);
+-                aTarget.aRun = [xButton] {
++                aTarget.aRun = [this, xButton] {
+                     const Point aCentre(xButton->GetOutputSizePixel().Width() / 2, xButton->GetOutputSizePixel().Height() / 2);
+                     const MouseEvent aDown(aCentre, 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT);
+                     const MouseEvent aUp(aCentre, 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT);
+                     Application::PostMouseEvent(VclEventId::WindowMouseButtonDown, xButton.get(), &aDown);
+                     Application::PostMouseEvent(VclEventId::WindowMouseButtonUp, xButton.get(), &aUp);
++                    // a popup that the click opens gets the tips of its commands
++                    m_xShown.reset();
++                    m_nPopupTries = 0;
++                    m_bAwaitPopup = true;
++                    m_aPopupTimer.Start();
+                 };
+                 rPreferred.emplace_back();
+                 rTargets.push_back(std::move(aTarget));
+@@ -316,11 +343,17 @@
+     DECL_LINK(TabsEventHdl, VclWindowEvent&, void);
+     DECL_LINK(ModKeyHdl, const CommandModKeyData&, void);
+     DECL_LINK(DeleteHdl, void*, void);
++    DECL_LINK(PopupTimerHdl, Timer*, void);
+ 
+     VclPtr<TabControl> m_xTabs;
+     VclPtr<NotebookBar> m_xBar;
+     VclPtr<ToolBox> m_xQuick;
+     VclPtr<vcl::Window> m_xBanner;
++    VclPtr<vcl::Window> m_xPopup; // the popup that holds the tips, if any
++    VclPtr<vcl::Window> m_xShown; // the popup shown since a tip clicked a button
++    Timer m_aPopupTimer{ "hst::keytips popup" };
++    int m_nPopupTries = 0;
++    bool m_bAwaitPopup = false;
+     std::vector<Target> m_aTargets;
+     OUString m_aTyped;
+     Level m_eLevel = Level::None;
+@@ -385,6 +418,11 @@
+     switch (rCode.GetCode())
+     {
+         case KEY_ESCAPE:
++            if (m_xPopup)
++            {
++                Close();
++                return false; // the popup closes on its Esc
++            }
+             if (m_eLevel == Level::Commands)
+                 ShowTabs();
+             else
+@@ -408,8 +446,28 @@
+ 
+ IMPL_LINK(KeyTips, AppEventHdl, VclSimpleEvent&, rEvent, void)
+ {
++    if (m_bAwaitPopup && rEvent.GetId() == VclEventId::WindowShow)
++    {
++        vcl::Window* pShown = static_cast<VclWindowEvent&>(rEvent).GetWindow();
++        if (pShown && pShown->GetType() == WindowType::FLOATINGWINDOW)
++            m_xShown = pShown;
++    }
+     if (m_eLevel == Level::None)
+         return;
++    if (m_xPopup)
++    {
++        // tips in a popup: the main window losing the focus to the popup does not close them
++        const VclEventId nId = rEvent.GetId();
++        vcl::Window* pWindow = nId == VclEventId::WindowMouseButtonDown || nId == VclEventId::WindowHide
++                                       || nId == VclEventId::ObjectDying || nId == VclEventId::WindowClose
++                                   ? static_cast<VclWindowEvent&>(rEvent).GetWindow()
++                                   : nullptr;
++        if (nId == VclEventId::WindowMouseButtonDown
++            || ((nId == VclEventId::WindowHide || nId == VclEventId::ObjectDying) && pWindow == m_xPopup.get())
++            || (nId == VclEventId::WindowClose && pWindow == m_xTabs->GetSystemWindow()))
++            Close();
++        return;
++    }
+     switch (rEvent.GetId())
+     {
+         case VclEventId::WindowMouseButtonDown:
+@@ -430,6 +488,9 @@
+     if (rEvent.GetId() != VclEventId::ObjectDying)
+         return;
+     Close();
++    m_aPopupTimer.Stop();
++    m_bAwaitPopup = false;
++    m_xShown.reset();
+     Application::RemoveKeyListener(LINK(this, KeyTips, KeyHdl));
+     Application::RemoveEventListener(LINK(this, KeyTips, AppEventHdl));
+     m_xBar->SetModKeyHdl(Link<const CommandModKeyData&, void>());
+@@ -439,6 +500,25 @@
+ }
+ 
+ IMPL_LINK_NOARG(KeyTips, DeleteHdl, void*, void) { delete this; }
++
++IMPL_LINK_NOARG(KeyTips, PopupTimerHdl, Timer*, void)
++{
++    if (!m_bAwaitPopup || !m_xTabs)
++        return;
++    if (!m_xShown || !m_xShown->IsReallyVisible())
++    {
++        // the click is posted: the popup opens after it, laid out after it opens
++        if (++m_nPopupTries < 20)
++            m_aPopupTimer.Start();
++        else
++            m_bAwaitPopup = false;
++        return;
++    }
++    m_bAwaitPopup = false;
++    VclPtr<vcl::Window> xPopup = std::move(m_xShown);
++    if (m_eLevel == Level::None)
++        ShowPopupCommands(*xPopup);
++}
+ }
+ 
+ void Attach(TabControl& rTabs, NotebookBar& rBar, ToolBox* pQuickAccess, vcl::Window* pBanner)

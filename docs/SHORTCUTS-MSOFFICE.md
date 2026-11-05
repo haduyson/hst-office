@@ -26,7 +26,7 @@ nhưng lệnh HST làm khác một chút), **thiếu** (HST chưa có lệnh tư
 
 ## Mẹo phím (KeyTips)
 
-Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh; Esc lùi một bước; Alt+chữ mở thẳng thẻ (`hst-ribbon-keytips.patch`). Chữ của thẻ lấy từ trang phím tắt vi-vn của Microsoft: Word F H N G P S M R W L, Excel F H N P M A R W, PowerPoint F H N G K A S R W. Chữ của lệnh: bảng trong `sfx2/source/notebookbar/HstKeyTipTable.hxx`, lệnh ngoài bảng được gán chữ còn trống khi mở thẻ, nên có thể khác Office.
+Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh; Esc lùi một bước; Alt+chữ mở thẳng thẻ (`hst-ribbon-keytips.patch`). Chữ của thẻ lấy từ trang phím tắt vi-vn của Microsoft: Word F H N G P S M R W L, Excel F H N P M A R W, PowerPoint F H N G K A S R W. Chữ của lệnh: bảng trong `sfx2/source/notebookbar/HstKeyTipTable.hxx`, lệnh ngoài bảng được gán chữ còn trống khi mở thẻ, nên có thể khác Office. Nút » (các nhóm không đủ chỗ trên ribbon) và khối bên phải đã thu gọn cũng có chữ; mở chúng bằng chữ thì các lệnh trong khung hiện ra cũng có chữ, Esc đóng khung (`hst-ribbon-chevron.patch`).
 
 ## HST Writer ↔ Word
 
