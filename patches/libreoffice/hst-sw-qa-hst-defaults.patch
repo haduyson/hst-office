@@ -1,0 +1,41 @@
+HST Office: two upstream sw tests expect upstream's document defaults; they now expect HST's.
+
+- uiwriter7 testPropertyDefaults: the Writer default font is Times New Roman (hst-defaults.patch), so the document
+  default differs from the pool's static default that resetting falls back to (Liberation Serif, as upstream).
+- core_layout testGutterMarginPageBorder: the default page margins are Word's 2.54 cm (hst-msoffice-defaults.patch),
+  so the left border is 300 further right (2865). With upstream's 2 cm margin the test gives upstream's 2565.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: make CppunitTest_sw_uiwriter7 CppunitTest_sw_core_layout.
+
+--- a/sw/qa/core/layout/layout.cxx
++++ b/sw/qa/core/layout/layout.cxx
+@@ -453,7 +453,10 @@
+     // - Expected: 2565
+     // - Actual  : 1425
+     // Where 2565 is close to the left edge of the text area (2553).
+-    assertXPath(pXmlDoc, "//polyline[@style='solid']/point[1]", "x", u"2565");
++    // HST Office: the default page margins are Word's 2.54 cm instead of 2 cm
++    // (hst-msoffice-defaults.patch), which moves the text area and the border 300 to the right.
++    // With a 2 cm left margin the border is at 2565 here too.
++    assertXPath(pXmlDoc, "//polyline[@style='solid']/point[1]", "x", u"2865");
+ #endif
+ }
+ 
+--- a/sw/qa/extras/uiwriter/uiwriter7.cxx
++++ b/sw/qa/extras/uiwriter/uiwriter7.cxx
+@@ -1824,7 +1824,13 @@
+                          xPropSet->getPropertyValue(u"CharFontName"_ustr));
+     //resetting the value to default
+     xPropState->setPropertyToDefault(u"CharFontName"_ustr);
+-    CPPUNIT_ASSERT_EQUAL(xPropSet->getPropertyValue(u"CharFontName"_ustr), aCharFontName);
++    // HST Office: the Writer default font is Times New Roman (Writer.xcs DefaultFont, set by
++    // hst-defaults.patch), so it is the document's default here. Resetting that default falls
++    // back to the pool's static default, the first installed Western text font of VCL.xcu
++    // (Liberation Serif), which upstream also uses as the document default.
++    CPPUNIT_ASSERT_EQUAL(uno::Any(u"Times New Roman"_ustr), aCharFontName);
++    CPPUNIT_ASSERT_EQUAL(uno::Any(u"Liberation Serif"_ustr),
++                         xPropSet->getPropertyValue(u"CharFontName"_ustr));
+     //testing CharHeight from style::CharacterProperties
+     //getting property default
+     uno::Any aCharHeight = xPropState->getPropertyDefault(u"CharHeight"_ustr);
