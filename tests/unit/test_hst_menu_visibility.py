@@ -63,6 +63,25 @@ class MenuContractTest(unittest.TestCase):
     def test_csv_import_is_offered_in_every_module(self):
         self.assertTrue(ALL <= items("OfficeMenuBar")["org.hst.office.vi:ImportCsv"][0][1])
 
+    def test_extension_tab_keeps_only_the_hst_tools(self):
+        # Macro VBA (Developer tab), the UI language (Review tab), USB Token (File ▸ Info) and the update
+        # check (Help) sit where Office has them; the HST menu still offers all of them.
+        writer, calc = "com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"
+        ribbon = {url: entries[0][1] for url, entries in items("OfficeNotebookBar").items()}
+        vi = "org.hst.office.vi:"
+        self.assertEqual(set(ribbon), {vi + name for name in ("Nd30Wizard", "ConvertEncoding", "FormatDate", "FormatVnd",
+                                                              "FormatPercent", "ImportCsv", "ShowSolutions")})
+        self.assertEqual(ribbon[vi + "ConvertEncoding"], {writer})
+        for name in ("FormatDate", "FormatVnd", "FormatPercent", "ImportCsv"):
+            self.assertEqual(ribbon[vi + name], {calc}, name)
+        self.assertEqual(ribbon[vi + "Nd30Wizard"], ALL)
+        self.assertEqual(ribbon[vi + "ShowSolutions"], ALL)
+        menu = items("OfficeMenuBar")
+        for url in (vi + "SetupUsbToken", vi + "EditVba", UPDATE, vi + "UILanguageVi", vi + "UILanguageEn",
+                    vi + "UILanguageSystem"):
+            self.assertIn(url, menu)
+        self.assertIn(UPDATE, items("OfficeHelp"))
+
     def test_english_menu_strings_are_vietnamese(self):
         en, vi = (json.load(open(os.path.join(EXT, "locales", c + ".json"), encoding="utf-8")) for c in ("en", "vi"))
         self.assertEqual(en["menu"], vi["menu"])

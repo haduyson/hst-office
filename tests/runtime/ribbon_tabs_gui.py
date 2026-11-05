@@ -62,6 +62,36 @@ def visible_names():
     return [t[0] for t in ribbon_tabs()]
 
 
+def showing(node):
+    import pyatspi
+    try:
+        box = extents(node)
+        return node.getState().contains(pyatspi.STATE_SHOWING) and box[2] > 0 and box[3] > 0
+    except Exception:  # noqa: BLE001 - widgets come and go
+        return False
+
+
+def ribbon_nodes(roles, band=260):
+    """(name, role, box, node) of the showing nodes with one of `roles` in the ribbon band of the window."""
+    found = []
+    for node in walk(office_app()):
+        try:
+            role, name = node.getRoleName(), node.name or ""
+        except Exception:  # noqa: BLE001
+            continue
+        if role in roles and showing(node) and extents(node)[1] < band:
+            found.append((name, role, extents(node), node))
+    return found
+
+
+def open_tab(display, name):
+    tabs = {t[0]: t for t in ribbon_tabs()}
+    if name not in tabs:
+        return False
+    click(display, tabs[name][1])
+    return selected() == [name]
+
+
 def geometry():
     top, doc_tabs, banner = None, None, None
     for node in walk(office_app()):
