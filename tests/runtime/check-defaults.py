@@ -35,6 +35,10 @@ EXPECTED = {
     # Ribbon frame tint stays the upstream value: hst-ribbon-panel.patch keeps the tint to a thin frame.
     "org.openoffice.Office.Common/Misc/NotebookbarColorTransparency": 150,
     "org.openoffice.Office.Writer/DefaultFont/Standard": "Times New Roman",
+    # Both rulers, for aligning lines and margins (hst-writer-rulers-default.patch, tests/runtime/check-writer-rulers.py).
+    "org.openoffice.Office.Writer/Layout/Window/ShowRulers": True,
+    "org.openoffice.Office.Writer/Layout/Window/HorizontalRuler": True,
+    "org.openoffice.Office.Writer/Layout/Window/VerticalRuler": True,
     # Word, Excel and PowerPoint formats by default, no keep-format question for them; the question
     # stays on for legacy formats (hst-msoffice-defaults.patch, tests/runtime/check-msoffice-save-format.py).
     "org.openoffice.Setup/Office/Factories/com.sun.star.text.TextDocument/ooSetupFactoryDefaultFilter": "MS Word 2007 XML",
