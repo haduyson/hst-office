@@ -17,6 +17,23 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "tests", "fixtures", "vietnamese", "runtime"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+
+def use_office_pyuno(argv):
+    """Talk UNO through the tested office's own Python-UNO bridge, before anything imports uno.
+
+    A distribution's pyuno (an older LibreOffice in /usr/lib/python3) has another type library: on a Calc sheet
+    its bridge to the newer office disposes itself while the office keeps running. Same setup as hst_gui.setup_uno."""
+    soffice = next((a.split("=", 1)[1] for a in argv if a.startswith("--soffice=")), None)
+    if soffice is None and "--soffice" in argv and argv.index("--soffice") + 1 < len(argv):
+        soffice = argv[argv.index("--soffice") + 1]
+    if soffice:
+        import hst_gui
+        hst_gui.setup_uno(os.path.dirname(os.path.dirname(os.path.abspath(soffice))))
+
+
+use_office_pyuno(sys.argv)
 from lo_session import Session  # noqa: E402
 from recorder import Recorder  # noqa: E402
 import scenarios_calc  # noqa: E402
