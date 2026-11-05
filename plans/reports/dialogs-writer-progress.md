@@ -14,6 +14,7 @@ Survey: `dialogs-msoffice-survey-261104.md`. Check: `tests/runtime/check-dialogs
 | Insert Page Number | done (document start only, no per-section Continue) | ~1 / 6 | f10050d, f795098 |
 | Slide Properties (shared page, Slides) | done: margins and paper tray hidden | ~0.5 / 2 | b656f5d |
 | Borders and Shading | done: Borders, Page Border, Shading; Apply to Text or Paragraph; Page Border Apply to whole document, this section, first page only, all except first page, with w:display through DOCX. A section here is a page style | ~6 / 13 + 16 | COMMIT_BORDERS |
+| Page border art | done: all 164 Word names survive DOCX; 24 HST-drawn sets, each name maps to one; screen, print and PDF. Word draws its own art from the name, so pictures differ. ODT keeps only a plain line | ~5 / 44 | COMMIT_ART |
 | Insert Table (AutoFit) | not started | - / 6 | |
 | Table Properties (Row, Column, Cell, Alt Text; Previous/Next Row, Text Wrapping) | done; Text Wrapping asks first because moving a table to or from a frame clears the undo history (core limit) | ~8 / 30.5 + 20 | COMMIT_TABLE |
 | Picture properties and Word wrap styles | done: Position, Text Wrapping, Size at one tab level, 7 styles, same tabs for frames and objects; the Size tab shows the Position page's widgets (one class owns both) | ~6 / 18 + 5 | COMMIT_PICTURE |

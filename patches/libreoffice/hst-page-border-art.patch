@@ -1,0 +1,747 @@
+HST Office: Word's page border art. Every one of Word's 164 names survives a DOCX opened and saved, Page Border
+offers an Art list, and pages paint the art on screen, in print and in PDF.
+
+- Word writes only the name, size and colour; it draws its own art for the name. HST draws 24 sets of its own from
+  simple geometry in hstpageartsets.cxx, nothing copied or traced, and each of the 164 names maps to one of them.
+- The art is kept in the page formats' grab bag. A plain line of the art's width keeps the layout, painted over by
+  the art. ODF has no such element: a saved .odt keeps that plain line, and the art is lost there.
+
+License: these upstream files remain under their original license (MPL-2.0); hstpageart* are new files, MPL-2.0.
+Test: tests/runtime/check-dialogs-writer.py page-art
+---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -353,6 +353,8 @@
+     sw/source/core/layout/flypos \
+     sw/source/core/layout/frmtool \
+     sw/source/core/layout/ftnfrm \
++    sw/source/core/layout/hstpageart \
++    sw/source/core/layout/hstpageartsets \
+     sw/source/core/layout/hffrm \
+     sw/source/core/layout/layact \
+     sw/source/core/layout/laycache \
+--- a/sw/inc/hstpageart.hxx
++++ b/sw/inc/hstpageart.hxx
+@@ -0,0 +1,27 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL
++ * was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <swdllapi.h>
++#include <tools/color.hxx>
++
++class OutputDevice;
++class SwFrameFormat;
++class SwRect;
++namespace tools { class Rectangle; }
++
++/// HST: Word's page border art. Keys in the page format's grab bag, one for each side, "name;size in points".
++inline constexpr int HST_PAGE_ART_SETS = 24;
++inline constexpr OUString HST_PAGE_ART_KEYS[4] = { u"hstArtTop"_ustr, u"hstArtLeft"_ustr, u"hstArtBottom"_ustr, u"hstArtRight"_ustr };
++
++/// The set that draws one of Word's 164 names, -1 if it is not one of them.
++SW_DLLPUBLIC int HstPageArtSetOf(std::u16string_view rName);
++SW_DLLPUBLIC OUString HstPageArtToken(int nSet);
++SW_DLLPUBLIC OUString HstPageArtLabel(int nSet);
++SW_DLLPUBLIC void HstPageArtPaintTile(OutputDevice& rOut, int nSet, const tools::Rectangle& rTile, Color aBorderColor);
++/// Paints art instead of the border lines of a page; false if this format has none on any side.
++bool HstPageArtPaint(OutputDevice& rOut, const SwFrameFormat& rFormat, const SwRect& rBorderRect);
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/layout/hstpageart.cxx
++++ b/sw/source/core/layout/hstpageart.cxx
+@@ -0,0 +1,110 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL
++ * was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++#include "hstpageartsets.hxx"
++
++#include <basegfx/matrix/b2dhommatrixtools.hxx>
++#include <basegfx/polygon/b2dpolypolygon.hxx>
++#include <basegfx/polygon/b2dpolypolygontools.hxx>
++#include <editeng/borderline.hxx>
++#include <frmatr.hxx>
++#include <editeng/boxitem.hxx>
++#include <frmfmt.hxx>
++#include <hintids.hxx>
++#include <o3tl/string_view.hxx>
++#include <svl/grabbagitem.hxx>
++#include <swrect.hxx>
++#include <vcl/outdev.hxx>
++
++#include <algorithm>
++#include <vector>
++
++namespace
++{
++const std::vector<basegfx::B2DPolyPolygon>& lcl_Polygons()
++{
++    static const std::vector<basegfx::B2DPolyPolygon> aPolygons = [] {
++        std::vector<basegfx::B2DPolyPolygon> aAll(gHstPageArtPartCount);
++        for (size_t i = 0; i < gHstPageArtPartCount; ++i)
++            basegfx::utils::importFromSvgD(aAll[i], OUString(gHstPageArtParts[i].pPath), false, nullptr);
++        return aAll;
++    }();
++    return aPolygons;
++}
++}
++
++int HstPageArtSetOf(std::u16string_view rName)
++{
++    for (size_t i = 0; i < gHstPageArtNameCount; ++i)
++        if (rName == gHstPageArtNames[i].pName)
++            return gHstPageArtNames[i].nSet;
++    return -1;
++}
++
++OUString HstPageArtToken(int nSet) { return OUString(gHstPageArtSets[nSet].pToken); }
++OUString HstPageArtLabel(int nSet) { return OUString(gHstPageArtSets[nSet].pLabel); }
++
++void HstPageArtPaintTile(OutputDevice& rOut, int nSet, const tools::Rectangle& rTile, Color aBorderColor)
++{
++    const basegfx::B2DHomMatrix aMatrix = basegfx::utils::createScaleTranslateB2DHomMatrix(
++        rTile.GetWidth() / 1000.0, rTile.GetHeight() / 1000.0, rTile.Left(), rTile.Top());
++    const auto& rPolygons = lcl_Polygons();
++    for (size_t i = 0; i < gHstPageArtPartCount; ++i)
++    {
++        const HstPageArtPart& rPart = gHstPageArtParts[i];
++        if (rPart.nSet != nSet)
++            continue;
++        basegfx::B2DPolyPolygon aPolygon(rPolygons[i]);
++        aPolygon.transform(aMatrix);
++        rOut.SetLineColor();
++        rOut.SetFillColor(rPart.nColor < 0 ? aBorderColor : Color(ColorTransparency, rPart.nColor));
++        rOut.DrawPolyPolygon(aPolygon);
++    }
++}
++
++bool HstPageArtPaint(OutputDevice& rOut, const SwFrameFormat& rFormat, const SwRect& rBorderRect)
++{
++    const auto& rBag = rFormat.GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag();
++    const SvxBoxItem& rBox = rFormat.GetBox();
++    bool bPainted = false;
++    rOut.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    for (int nSide = 0; nSide < 4; ++nSide)
++    {
++        const auto it = rBag.find(HST_PAGE_ART_KEYS[nSide]);
++        const editeng::SvxBorderLine* pLine = nSide == 0   ? rBox.GetTop()
++                                              : nSide == 1 ? rBox.GetLeft()
++                                              : nSide == 2 ? rBox.GetBottom()
++                                                           : rBox.GetRight();
++        if (it == rBag.end() || !pLine)
++            continue; // no line here: this format has no border, the other one of the page style has
++        OUString sValue;
++        it->second >>= sValue;
++        sal_Int32 nIndex = 0;
++        const std::u16string_view aName = o3tl::getToken(sValue, 0, ';', nIndex);
++        const tools::Long nSize = std::max<sal_Int32>(1, o3tl::toInt32(o3tl::getToken(sValue, 0, ';', nIndex))) * 20;
++        const int nSet = HstPageArtSetOf(aName);
++        if (nSet < 0)
++            continue;
++        const bool bAcross = nSide == 0 || nSide == 2;
++        const tools::Long nLength = bAcross ? rBorderRect.Width() : rBorderRect.Height() - 2 * nSize;
++        const tools::Long nCount = std::max<tools::Long>(1, nLength / nSize);
++        for (tools::Long n = 0; n < nCount; ++n)
++        {
++            const tools::Long nStep = nLength * n / nCount, nNext = nLength * (n + 1) / nCount;
++            tools::Rectangle aTile;
++            if (bAcross)
++                aTile = tools::Rectangle(Point(rBorderRect.Left() + nStep, nSide == 0 ? rBorderRect.Top() : rBorderRect.Bottom() - nSize),
++                                         Size(nNext - nStep, nSize));
++            else
++                aTile = tools::Rectangle(Point(nSide == 1 ? rBorderRect.Left() : rBorderRect.Right() - nSize, rBorderRect.Top() + nSize + nStep),
++                                         Size(nSize, nNext - nStep));
++            HstPageArtPaintTile(rOut, nSet, aTile, pLine->GetColor());
++        }
++        bPainted = true;
++    }
++    rOut.Pop();
++    return bPainted;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/layout/hstpageartsets.cxx
++++ b/sw/source/core/layout/hstpageartsets.cxx
+@@ -0,0 +1,105 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL
++ * was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++// HST: page border art drawn for HST Office from simple geometry, in a 1000 x 1000 tile. Generated once by a
++// script from these shapes; no other artwork is copied or traced. Word's own art is not used: DOCX stores
++// only the name, and Word draws its own for that name.
++
++#include "hstpageartsets.hxx"
++
++const HstPageArtPart gHstPageArtParts[] = {
++    { 0, -1, u"M730 500L722 560L699 615L663 663L615 699L560 722L500 730L440 722L385 699L337 663L301 615L278 560L270 500L278 440L301 385L337 337L385 301L440 278L500 270L560 278L615 301L663 337L699 385L722 440Z" },
++    { 1, -1, u"M270 270L730 270L730 730L270 730Z" },
++    { 2, -1, u"M120 400L880 400L880 600L120 600Z" },
++    { 3, -1, u"M0 0L500 0L500 500L0 500ZM500 500L1000 500L1000 1000L500 1000Z" },
++    { 4, -1, u"M500 150L880 850L120 850Z" },
++    { 5, -1, u"M0 850L500 150L1000 850Z" },
++    { 6, -1, u"M67 784L250 325L500 825L750 325L933 784L1067 716L750 175L500 675L250 175L-67 716Z" },
++    { 7, -1, u"M250 200L450 500L250 800L50 500ZM750 200L950 500L750 800L550 500Z" },
++    { 8, -1, u"M500 90L600 382L909 387L662 573L753 868L500 690L247 868L338 573L91 387L400 382Z" },
++    { 9, 0xC62828, u"M500 382L501 371L511 339L535 297L576 255L633 227L699 220L766 238L824 279L863 338L876 406L863 476L824 545L766 609L699 669L633 726L576 779L535 827L511 866L501 891L500 900L499 891L489 866L465 827L424 779L367 726L301 669L234 609L176 545L137 476L124 406L137 338L176 279L234 238L301 220L367 227L424 255L465 297L489 339L499 371Z" },
++    { 10, 0xC62828, u"M840 580L828 668L794 750L740 820L670 874L588 908L500 920L412 908L330 874L260 820L206 750L172 668L160 580L172 492L206 410L260 340L330 286L412 252L500 240L588 252L670 286L740 340L794 410L828 492Z" },
++    { 10, 0x2E7D32, u"M500 240L640 90L760 170L600 280Z" },
++    { 10, 0x6D4C41, u"M475 130L525 130L525 260L475 260Z" },
++    { 11, 0xF9A825, u"M910 500L898 561L863 613L811 648L750 660L689 648L637 613L602 561L590 500L602 439L637 387L689 352L750 340L811 352L863 387L898 439ZM837 677L825 738L790 790L738 825L677 837L616 825L564 790L529 738L517 677L529 616L564 564L616 529L677 517L738 529L790 564L825 616ZM660 750L648 811L613 863L561 898L500 910L439 898L387 863L352 811L340 750L352 689L387 637L439 602L500 590L561 602L613 637L648 689ZM483 677L471 738L436 790L384 825L323 837L262 825L210 790L175 738L163 677L175 616L210 564L262 529L323 517L384 529L436 564L471 616ZM410 500L398 561L363 613L311 648L250 660L189 648L137 613L102 561L90 500L102 439L137 387L189 352L250 340L311 352L363 387L398 439ZM483 323L471 384L436 436L384 471L323 483L262 471L210 436L175 384L163 323L175 262L210 210L262 175L323 163L384 175L436 210L471 262ZM660 250L648 311L613 363L561 398L500 410L439 398L387 363L352 311L340 250L352 189L387 137L439 102L500 90L561 102L613 137L648 189ZM837 323L825 384L790 436L738 471L677 483L616 471L564 436L529 384L517 323L529 262L564 210L616 175L677 163L738 175L790 210L825 262Z" },
++    { 11, 0x6D4C41, u"M650 500L645 539L630 575L606 606L575 630L539 645L500 650L461 645L425 630L394 606L370 575L355 539L350 500L355 461L370 425L394 394L425 370L461 355L500 350L539 355L575 370L606 394L630 425L645 461Z" },
++    { 12, 0xEF6C00, u"M500 40L574 287L813 191L666 402L890 529L633 546L674 800L500 610L326 800L367 546L110 529L334 402L187 191L426 287Z" },
++    { 12, 0x6D4C41, u"M475 600L525 600L525 940L475 940Z" },
++    { 13, 0x2E7D32, u"M500 60L820 480L660 480L880 800L120 800L340 480L180 480Z" },
++    { 13, 0x6D4C41, u"M440 800L560 800L560 950L440 950Z" },
++    { 14, 0x1565C0, u"M500 540L930 540L930 460L500 460ZM465 520L680 892L750 852L535 480ZM465 480L250 852L320 892L535 520ZM500 460L70 460L70 540L500 540ZM535 480L320 108L250 148L465 520ZM535 520L750 148L680 108L465 480ZM750 520L900 520L900 480L750 480ZM707 642L836 717L856 683L727 608ZM608 727L683 856L717 836L642 707ZM480 750L480 900L520 900L520 750ZM358 707L283 836L317 856L392 727ZM273 608L144 683L164 717L293 642ZM250 480L100 480L100 520L250 520ZM293 358L164 283L144 317L273 392ZM392 273L317 144L283 164L358 293ZM520 250L520 100L480 100L480 250ZM642 293L717 164L683 144L608 273ZM727 392L856 317L836 283L707 358Z" },
++    { 15, 0xC62828, u"M800 370L790 448L760 520L712 582L650 630L578 660L500 670L422 660L350 630L288 582L240 520L210 448L200 370L210 292L240 220L288 158L350 110L422 80L500 70L578 80L650 110L712 158L760 220L790 292Z" },
++    { 15, -1, u"M485 667L455 802L516 965L544 955L485 798L515 673Z" },
++    { 16, -1, u"M480 760L475 799L460 835L436 866L405 890L369 905L330 910L291 905L255 890L224 866L200 835L185 799L180 760L185 721L200 685L224 654L255 630L291 615L330 610L369 615L405 630L436 654L460 685L475 721ZM450 130L510 130L510 770L450 770ZM450 130L780 250L780 400L450 280Z" },
++    { 17, 0xF9A825, u"M420 900L368 897L316 886L267 870L220 846L176 817L137 783L103 744L74 700L50 653L34 604L23 552L20 500L23 448L34 396L50 347L74 300L103 256L137 217L176 183L220 154L267 130L316 114L368 103L420 100L420 132L397 135L373 145L351 160L330 181L310 208L293 240L277 276L264 316L254 359L246 405L242 452L240 500L242 548L246 595L254 641L264 684L277 724L293 760L310 792L330 819L351 840L373 855L397 865L420 868Z" },
++    { 18, 0xF9A825, u"M740 500L732 562L708 620L670 670L620 708L562 732L500 740L438 732L380 708L330 670L292 620L268 562L260 500L268 438L292 380L330 330L380 292L438 268L500 260L562 268L620 292L670 330L708 380L732 438ZM800 535L960 535L960 465L800 465ZM742 680L881 760L916 700L777 620ZM620 777L700 916L760 881L680 742ZM465 800L465 960L535 960L535 800ZM320 742L240 881L300 916L380 777ZM223 620L84 700L119 760L258 680ZM200 465L40 465L40 535L200 535ZM258 320L119 240L84 300L223 380ZM380 223L300 84L240 119L320 258ZM535 200L535 40L465 40L465 200ZM680 258L760 119L700 84L620 223ZM777 380L916 300L881 240L742 320Z" },
++    { 19, -1, u"M-65 538L-14 625L39 708L97 779L165 832L250 855L335 832L403 779L461 708L514 625L565 538L614 452L661 379L703 326L735 300L750 295L765 300L797 326L839 379L886 452L935 538L1065 462L1014 375L961 292L903 221L835 168L750 145L665 168L597 221L539 292L486 375L435 462L386 548L339 621L297 674L265 700L250 705L235 700L203 674L161 621L114 548L65 462Z" },
++    { 20, -1, u"M860 500L853 570L833 638L799 700L755 755L700 799L638 833L570 853L500 860L430 853L362 833L300 799L245 755L201 700L167 638L147 570L140 500L147 430L167 362L201 300L245 245L300 201L362 167L430 147L500 140L570 147L638 167L700 201L755 245L799 300L833 362L853 430ZM730 500L726 545L712 588L691 628L663 663L628 691L588 712L545 726L500 730L455 726L412 712L372 691L337 663L309 628L288 588L274 545L270 500L274 455L288 412L309 372L337 337L372 309L412 288L455 274L500 270L545 274L588 288L628 309L663 337L691 372L712 412L726 455Z" },
++    { 21, -1, u"M-67 67L933 1067L1067 933L67 -67ZM67 1067L1067 67L933 -67L-67 933Z" },
++    { 22, 0x1565C0, u"M250 200L750 200L930 420L500 900L70 420Z" },
++    { 23, 0xC62828, u"M360 280L356 308L345 335L328 358L305 375L278 386L250 390L222 386L195 375L172 358L155 335L144 308L140 280L144 252L155 225L172 202L195 185L222 174L250 170L278 174L305 185L328 202L345 225L356 252Z" },
++    { 23, 0xF9A825, u"M600 180L800 180L800 380L600 380Z" },
++    { 23, 0x2E7D32, u"M500 480L720 840L280 840Z" },
++    { 23, 0x1565C0, u"M920 620L917 643L908 665L894 684L875 698L853 707L830 710L807 707L785 698L766 684L752 665L743 643L740 620L743 597L752 575L766 556L785 542L807 533L830 530L853 533L875 542L894 556L908 575L917 597Z" },
++};
++const size_t gHstPageArtPartCount = std::size(gHstPageArtParts);
++
++const HstPageArtSet gHstPageArtSets[HST_PAGE_ART_SETS] = {
++    { u"basicBlackDots", u"Chấm tròn" },
++    { u"basicBlackSquares", u"Ô vuông" },
++    { u"basicBlackDashes", u"Gạch ngang" },
++    { u"checkedBarBlack", u"Ô bàn cờ" },
++    { u"triangles", u"Tam giác" },
++    { u"sawtooth", u"Răng cưa" },
++    { u"zigZag", u"Dích dắc" },
++    { u"doubleDiamonds", u"Thoi đôi" },
++    { u"stars", u"Ngôi sao" },
++    { u"hearts", u"Trái tim" },
++    { u"apples", u"Quả táo" },
++    { u"flowersDaisies", u"Hoa cúc" },
++    { u"mapleLeaf", u"Lá phong" },
++    { u"trees", u"Cây thông" },
++    { u"snowflakes", u"Bông tuyết" },
++    { u"balloons3Colors", u"Bóng bay" },
++    { u"musicNotes", u"Nốt nhạc" },
++    { u"moons", u"Trăng khuyết" },
++    { u"sun", u"Mặt trời" },
++    { u"waveline", u"Sóng" },
++    { u"rings", u"Vòng tròn" },
++    { u"weavingBraid", u"Bện chéo" },
++    { u"gems", u"Đá quý" },
++    { u"confetti", u"Hoa giấy" },
++};
++
++// Word's 164 names (ST_Border), each with the set that draws it.
++const HstPageArtName gHstPageArtNames[] = {
++    { u"apples", 10 }, { u"archedScallops", 19 }, { u"babyPacifier", 1 }, { u"babyRattle", 1 }, { u"balloons3Colors", 15 }, { u"balloonsHotAir", 15 },
++    { u"basicBlackDashes", 2 }, { u"basicBlackDots", 0 }, { u"basicBlackSquares", 1 }, { u"basicThinLines", 2 }, { u"basicWhiteDashes", 2 }, { u"basicWhiteDots", 0 },
++    { u"basicWhiteSquares", 3 }, { u"basicWideInline", 2 }, { u"basicWideMidline", 2 }, { u"basicWideOutline", 2 }, { u"bats", 1 }, { u"birds", 1 },
++    { u"birdsFlight", 1 }, { u"cabins", 1 }, { u"cakeSlice", 1 }, { u"candyCorn", 1 }, { u"celticKnotwork", 21 }, { u"certificateBanner", 1 },
++    { u"chainLink", 20 }, { u"champagneBottle", 1 }, { u"checkedBarBlack", 3 }, { u"checkedBarColor", 3 }, { u"checkered", 3 }, { u"christmasTree", 14 },
++    { u"circlesLines", 20 }, { u"circlesRectangles", 20 }, { u"classicalWave", 19 }, { u"clocks", 20 }, { u"compass", 20 }, { u"confetti", 23 },
++    { u"confettiGrays", 23 }, { u"confettiOutline", 23 }, { u"confettiStreamers", 23 }, { u"confettiWhite", 23 }, { u"cornerTriangles", 4 }, { u"couponCutoutDashes", 2 },
++    { u"couponCutoutDots", 2 }, { u"crazyMaze", 6 }, { u"creaturesButterfly", 1 }, { u"creaturesFish", 1 }, { u"creaturesInsects", 1 }, { u"creaturesLadyBug", 1 },
++    { u"crossStitch", 21 }, { u"cup", 1 }, { u"decoArch", 19 }, { u"decoArchColor", 19 }, { u"decoBlocks", 3 }, { u"diamondsGray", 22 },
++    { u"doubleD", 0 }, { u"doubleDiamonds", 7 }, { u"earth1", 20 }, { u"earth2", 20 }, { u"eclipsingSquares1", 3 }, { u"eclipsingSquares2", 3 },
++    { u"eggsBlack", 1 }, { u"fans", 19 }, { u"film", 3 }, { u"firecrackers", 8 }, { u"flowersBlockPrint", 11 }, { u"flowersDaisies", 11 },
++    { u"flowersModern1", 11 }, { u"flowersModern2", 11 }, { u"flowersPansy", 11 }, { u"flowersRedRose", 11 }, { u"flowersRoses", 11 }, { u"flowersTeacup", 11 },
++    { u"flowersTiny", 11 }, { u"gems", 22 }, { u"gingerbreadMan", 1 }, { u"gradient", 23 }, { u"handmade1", 23 }, { u"handmade2", 23 },
++    { u"heartBalloon", 15 }, { u"heartGray", 9 }, { u"hearts", 9 }, { u"heebieJeebies", 21 }, { u"holly", 14 }, { u"houseFunky", 1 },
++    { u"hypnotic", 20 }, { u"iceCreamCones", 1 }, { u"lightBulb", 1 }, { u"lightning1", 6 }, { u"lightning2", 6 }, { u"mapPins", 1 },
++    { u"mapleLeaf", 12 }, { u"mapleMuffins", 10 }, { u"marquee", 5 }, { u"marqueeToothed", 5 }, { u"moons", 17 }, { u"mosaic", 23 },
++    { u"musicNotes", 16 }, { u"northwest", 6 }, { u"ovals", 20 }, { u"packages", 3 }, { u"palmsBlack", 13 }, { u"palmsColor", 13 },
++    { u"paperClips", 2 }, { u"papyrus", 1 }, { u"partyFavor", 15 }, { u"partyGlass", 15 }, { u"pencils", 2 }, { u"people", 1 },
++    { u"peopleWaving", 1 }, { u"peopleHats", 1 }, { u"poinsettias", 14 }, { u"postageStamp", 3 }, { u"pumpkin1", 10 }, { u"pushPinNote2", 1 },
++    { u"pushPinNote1", 1 }, { u"pyramids", 4 }, { u"pyramidsAbove", 4 }, { u"quadrants", 3 }, { u"rings", 20 }, { u"safari", 13 },
++    { u"sawtooth", 5 }, { u"sawtoothGray", 5 }, { u"scaredCat", 1 }, { u"seattle", 1 }, { u"shadowedSquares", 3 }, { u"sharksTeeth", 5 },
++    { u"shorebirdTracks", 1 }, { u"skyrocket", 8 }, { u"snowflakeFancy", 14 }, { u"snowflakes", 14 }, { u"sombrero", 1 }, { u"southwest", 6 },
++    { u"stars", 8 }, { u"starsTop", 8 }, { u"stars3d", 8 }, { u"starsBlack", 8 }, { u"starsShadowed", 8 }, { u"sun", 18 },
++    { u"swirligig", 19 }, { u"tornPaper", 5 }, { u"tornPaperBlack", 5 }, { u"trees", 13 }, { u"triangleParty", 15 }, { u"triangles", 4 },
++    { u"tribal1", 6 }, { u"tribal2", 6 }, { u"tribal3", 6 }, { u"tribal4", 6 }, { u"tribal5", 6 }, { u"tribal6", 6 },
++    { u"twistedLines1", 19 }, { u"twistedLines2", 19 }, { u"vine", 13 }, { u"waveline", 19 }, { u"weavingAngles", 21 }, { u"weavingBraid", 21 },
++    { u"weavingRibbon", 21 }, { u"weavingStrips", 21 }, { u"whiteFlowers", 11 }, { u"woodwork", 12 }, { u"xIllusions", 21 }, { u"zanyTriangles", 4 },
++    { u"zigZag", 6 }, { u"zigZagStitch", 6 },
++};
++const size_t gHstPageArtNameCount = std::size(gHstPageArtNames);
+--- a/sw/source/core/layout/hstpageartsets.hxx
++++ b/sw/source/core/layout/hstpageartsets.hxx
+@@ -0,0 +1,31 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL
++ * was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <hstpageart.hxx>
++
++struct HstPageArtPart
++{
++    int nSet;
++    sal_Int32 nColor; ///< -1: the border's colour
++    const char16_t* pPath;
++};
++struct HstPageArtSet
++{
++    const char16_t* pToken;
++    const char16_t* pLabel;
++};
++struct HstPageArtName
++{
++    const char16_t* pName;
++    int nSet;
++};
++extern const HstPageArtPart gHstPageArtParts[];
++extern const size_t gHstPageArtPartCount;
++extern const HstPageArtSet gHstPageArtSets[HST_PAGE_ART_SETS];
++extern const HstPageArtName gHstPageArtNames[];
++extern const size_t gHstPageArtNameCount;
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/layout/paintfrm.cxx
++++ b/sw/source/core/layout/paintfrm.cxx
+@@ -43,6 +43,7 @@
+ #include <swmodule.hxx>
+ #include <rootfrm.hxx>
+ #include <pagefrm.hxx>
++#include <hstpageart.hxx>
+ #include <section.hxx>
+ #include <sectfrm.hxx>
+ #include <viewimp.hxx>
+@@ -5620,6 +5621,13 @@
+     ::lcl_CalcBorderRect( aRect, this, rAttrs, true, gProp );
+     rAttrs.SetGetCacheLine( true );
+ 
++    // HST: Word's page border art takes the place of the page's border lines.
++    if (IsPageFrame() && HstPageArtPaint(*gProp.pSGlobalShell->GetOut(), *static_cast<const SwPageFrame*>(this)->GetFormat(), aRect))
++    {
++        rAttrs.SetGetCacheLine( false );
++        return;
++    }
++
+     if(bShadow)
+     {
+         PaintShadow(rRect, aRect, rAttrs);
+--- a/sw/source/filter/ww8/docxattributeoutput.cxx
++++ b/sw/source/filter/ww8/docxattributeoutput.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include <memory>
+ #include "docxattributeoutput.hxx"
++#include <hstpageart.hxx>
+ #include "docxhelper.hxx"
+ #include "docxsdrexport.hxx"
+ #include "docxexportfilter.hxx"
+@@ -7638,7 +7639,29 @@
+         FSNS(XML_w, XML_offsetFrom), aOutputBorderOptions.pDistances->bFromEdge ? "page" : "text");
+ 
+     std::map<SvxBoxItemLine, css::table::BorderLine2> aEmptyMap; // empty styles map
+-    impl_borders( m_pSerializer, rBox, aOutputBorderOptions, aEmptyMap );
++    // HST: Word's page border art: the name goes back as it came, Word draws its own art for it.
++    const auto& rArtBag = pFormat->GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag();
++    if (rArtBag.contains(HST_PAGE_ART_KEYS[0]))
++    {
++        const sal_Int32 aTokens[4] = { XML_top, XML_left, XML_bottom, XML_right };
++        const sal_Int32 aSpaces[4] = { aOutputBorderOptions.pDistances->nTop, aOutputBorderOptions.pDistances->nLeft,
++                                       aOutputBorderOptions.pDistances->nBottom, aOutputBorderOptions.pDistances->nRight };
++        for (int nSide = 0; nSide < 4; ++nSide)
++        {
++            OUString sArt;
++            rArtBag.at(HST_PAGE_ART_KEYS[nSide]) >>= sArt;
++            if (sArt.isEmpty())
++                continue;
++            sal_Int32 nIndex = 0;
++            const OUString sName(o3tl::getToken(sArt, 0, ';', nIndex));
++            const OUString sSize(o3tl::getToken(sArt, 0, ';', nIndex));
++            m_pSerializer->singleElementNS(XML_w, aTokens[nSide], FSNS(XML_w, XML_val), sName,
++                                           FSNS(XML_w, XML_sz), sSize, FSNS(XML_w, XML_space),
++                                           OString::number(aSpaces[nSide] / 20), FSNS(XML_w, XML_color), "auto");
++        }
++    }
++    else
++        impl_borders( m_pSerializer, rBox, aOutputBorderOptions, aEmptyMap );
+ 
+     m_pSerializer->endElementNS( XML_w, XML_pgBorders );
+ 
+--- a/sw/source/ui/frmdlg/uiborder.cxx
++++ b/sw/source/ui/frmdlg/uiborder.cxx
+@@ -33,6 +33,12 @@
+ #include <editeng/shaditem.hxx>
+ 
+ #include <cmdid.h>
++#include <hstpageart.hxx>
++#include <o3tl/enumrange.hxx>
++#include <o3tl/string_view.hxx>
++#include <svl/grabbagitem.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/weld/SpinButton.hxx>
+ #include <svl/grabbagitem.hxx>
+ #include <swmodule.hxx>
+ #include <frmatr.hxx>
+@@ -51,22 +57,28 @@
+ {
+ constexpr TranslateId STR_HST_TAB_PAGE_BORDER = NC_("hstbordersdialog|pageborder", "Page Border");
+ constexpr TranslateId STR_HST_TAB_SHADING = NC_("hstbordersdialog|shading", "Shading");
++constexpr TranslateId STR_HST_ART_NONE = NC_("hstbordersdialog|artnone", "(none)");
+ 
+ /// The border page once more, on the current page style instead of the selection.
+ class SwHstPageBorderPage final : public SfxTabPage
+ {
+     std::unique_ptr<weld::Container> m_xArea;
+     std::unique_ptr<weld::ComboBox> m_xApplyLB;
++    std::unique_ptr<weld::ComboBox> m_xArtLB;
++    std::unique_ptr<weld::SpinButton> m_xArtSizeNF;
+     SfxItemSet m_aPageSet;
+     SfxItemSet m_aOutSet;
+     std::unique_ptr<SfxTabPage> m_xBorderPage;
+     SwWrtShell* m_pShell;
++    OUString m_sOldArt;
+ 
+ public:
+     SwHstPageBorderPage(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet& rSet)
+         : SfxTabPage(pPage, pController, u"modules/swriter/ui/hstpageborderpage.ui"_ustr, u"HstPageBorderPage"_ustr, &rSet)
+         , m_xArea(m_xBuilder->weld_container(u"hstpageborderarea"_ustr))
+         , m_xApplyLB(m_xBuilder->weld_combo_box(u"hstpageapplyto"_ustr))
++        , m_xArtLB(m_xBuilder->weld_combo_box(u"hstpageart"_ustr))
++        , m_xArtSizeNF(m_xBuilder->weld_spin_button(u"hstpageartsize"_ustr))
+         , m_aPageSet(SfxItemSet::makeFixedSfxItemSet<RES_BOX, RES_SHADOW, SID_ATTR_BORDER_INNER, SID_ATTR_BORDER_INNER>(*rSet.GetPool()))
+         , m_aOutSet(m_aPageSet)
+         , m_pShell(::GetActiveWrtShell())
+@@ -101,6 +113,59 @@
+         const bool bFirst = lcl_HasBorder(rCurrent.GetFirstMaster());
+         m_xApplyLB->set_active(rCurrent.IsFirstShared() || bMaster == bFirst ? 1 : bFirst ? 2 : 3);
+         m_xApplyLB->save_value();
++        FillArt(rCurrent);
++    }
++
++    /// Word's Art list: each entry shows its tile. The name of an art the document came with is kept
++    /// when the choice does not change, also if another of Word's 164 names is drawn by this set.
++    void FillArt(const SwPageDesc& rDesc)
++    {
++        m_xArtLB->append(u"-1"_ustr, SwResId(STR_HST_ART_NONE));
++        ScopedVclPtrInstance<VirtualDevice> xDevice;
++        xDevice->SetOutputSizePixel(Size(24, 24));
++        for (int nSet = 0; nSet < HST_PAGE_ART_SETS; ++nSet)
++        {
++            xDevice->Erase();
++            HstPageArtPaintTile(*xDevice, nSet, tools::Rectangle(Point(2, 2), Size(20, 20)), COL_BLACK);
++            m_xArtLB->append(OUString::number(nSet), HstPageArtLabel(nSet), *xDevice);
++        }
++        m_xArtLB->set_active(0);
++        const auto& rBag = rDesc.GetMaster().GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag();
++        const auto it = rBag.find(HST_PAGE_ART_KEYS[0]);
++        if (it != rBag.end())
++        {
++            it->second >>= m_sOldArt;
++            sal_Int32 nIndex = 0;
++            const int nSet = HstPageArtSetOf(o3tl::getToken(m_sOldArt, 0, ';', nIndex));
++            m_xArtLB->set_active_id(OUString::number(nSet));
++            m_xArtSizeNF->set_value(o3tl::toInt32(o3tl::getToken(m_sOldArt, 0, ';', nIndex)));
++        }
++        m_xArtLB->save_value();
++        m_xArtSizeNF->save_value();
++    }
++
++    /// The art of the dialog as grab bag entries of one page format.
++    void ApplyArt(SwFrameFormat& rFormat)
++    {
++        std::map<OUString, css::uno::Any> aBag = rFormat.GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag();
++        const int nSet = m_xArtLB->get_active_id().toInt32();
++        OUString sArt;
++        if (nSet >= 0)
++        {
++            sal_Int32 nIndex = 0;
++            // Unchanged set: keep the document's own name, so that Word still draws what it had.
++            const bool bKeep = !m_xArtLB->get_value_changed_from_saved() && !m_sOldArt.isEmpty();
++            sArt = (bKeep ? OUString(o3tl::getToken(m_sOldArt, 0, ';', nIndex)) : HstPageArtToken(nSet)) + ";"
++                   + OUString::number(m_xArtSizeNF->get_value());
++        }
++        for (const OUString& rKey : HST_PAGE_ART_KEYS)
++        {
++            if (sArt.isEmpty())
++                aBag.erase(rKey);
++            else
++                aBag[rKey] <<= sArt;
++        }
++        rFormat.SetFormatAttr(SfxGrabBagItem(RES_FRMATR_GRABBAG, std::move(aBag)));
+     }
+ 
+     static std::unique_ptr<SfxTabPage> Create(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet* pSet)
+@@ -125,9 +190,22 @@
+         const SvxBoxItem* pBox = m_aOutSet.GetItemIfSet(RES_BOX, false);
+         const SvxShadowItem* pShadow = m_aOutSet.GetItemIfSet(RES_SHADOW, false);
+         const int nApply = m_xApplyLB->get_active();
+-        if (!pBox && !pShadow && !m_xApplyLB->get_value_changed_from_saved())
++        const bool bArtChanged = m_xArtLB->get_value_changed_from_saved() || m_xArtSizeNF->get_value_changed_from_saved();
++        if (!pBox && !pShadow && !bArtChanged && !m_xApplyLB->get_value_changed_from_saved())
+             return;
+-        const SvxBoxItem& rBox = pBox ? *pBox : m_aPageSet.Get(RES_BOX);
++        // Art draws on a plain line of its width on every side: the page keeps the room for it.
++        SvxBoxItem aArtBox(pBox ? *pBox : m_aPageSet.Get(RES_BOX));
++        if (m_xArtLB->get_active_id().toInt32() >= 0)
++        {
++            editeng::SvxBorderLine aLine(nullptr, m_xArtSizeNF->get_value() * 20);
++            for (SvxBoxItemLine eLine : o3tl::enumrange<SvxBoxItemLine>())
++            {
++                aArtBox.SetLine(&aLine, eLine);
++                if (!aArtBox.GetDistance(eLine))
++                    aArtBox.SetDistance(480, eLine); // Word's 24 pt from the page edge area
++            }
++        }
++        const SvxBoxItem& rBox = aArtBox;
+         const SvxShadowItem& rShadow = pShadow ? *pShadow : m_aPageSet.Get(RES_SHADOW);
+         const size_t nCurrent = m_pShell->GetCurPageDesc();
+         m_pShell->StartUndo();
+@@ -160,6 +238,8 @@
+                 rFirst.SetFormatAttr(rBox);
+                 rFirst.SetFormatAttr(rShadow);
+             }
++            ApplyArt(rMaster);
++            ApplyArt(rFirst);
+             m_pShell->ChgPageDesc(n, aDesc);
+         }
+         m_pShell->EndUndo();
+--- a/sw/source/writerfilter/dmapper/BorderHandler.hxx
++++ b/sw/source/writerfilter/dmapper/BorderHandler.hxx
+@@ -74,6 +74,7 @@
+     css::table::BorderLine2 getBorderLine();
+     sal_Int32                                   getLineDistance() const { return m_nLineDistance;}
+     sal_Int32                                   getLineType() const { return m_nLineType;}
++    sal_Int32                                   getLineWidth() const { return m_nLineWidth; }
+     bool                                        getShadow() const { return m_bShadow;}
+     void enableInteropGrabBag(const OUString& aName);
+     css::beans::PropertyValue getInteropGrabBag(const OUString& aName = OUString());
+--- a/sw/source/writerfilter/dmapper/PageBordersHandler.cxx
++++ b/sw/source/writerfilter/dmapper/PageBordersHandler.cxx
+@@ -19,6 +19,9 @@
+ 
+ #include "BorderHandler.hxx"
+ #include "PageBordersHandler.hxx"
++#include "TDefTableHandler.hxx"
++#include <com/sun/star/table/BorderLineStyle.hpp>
++#include <hstpageart.hxx>
+ 
+ #include <ooxml/resourceids.hxx>
+ 
+@@ -119,6 +122,16 @@
+                 aPgBorder.m_nDistance = pBorderHandler->getLineDistance( );
+                 aPgBorder.m_ePos = ePos;
+                 aPgBorder.m_bShadow = pBorderHandler->getShadow();
++                // HST: art has no border style of its own. A plain line of its width keeps the layout;
++                // SectionPropertyMap keeps the name for the export and the painting.
++                const OUString sArt = TDefTableHandler::getBorderTypeString(pBorderHandler->getLineType());
++                if (HstPageArtSetOf(sArt) >= 0)
++                {
++                    const sal_Int32 nPoints = (pBorderHandler->getLineWidth() * 2 + 4) / 5; // w:sz is in points for art
++                    aPgBorder.m_sArt = sArt + ";" + OUString::number(nPoints);
++                    aPgBorder.m_rLine.LineStyle = css::table::BorderLineStyle::SOLID;
++                    aPgBorder.m_rLine.LineWidth = aPgBorder.m_rLine.OuterLineWidth = nPoints * 35;
++                }
+                 if (pBorderHandler->getLineType() != NS_ooxml::LN_Value_ST_Border_none)
+                 {
+                     m_aBorders.push_back( aPgBorder );
+@@ -135,6 +148,7 @@
+     for (const PgBorder& rBorder : m_aBorders)
+     {
+         pSectContext->SetBorder( rBorder.m_ePos, rBorder.m_nDistance, rBorder.m_rLine, rBorder.m_bShadow );
++        pSectContext->SetHstBorderArt(rBorder.m_ePos, rBorder.m_sArt);
+     }
+     pSectContext->SetBorderApply(m_eBorderApply);
+     pSectContext->SetBorderOffsetFrom(m_eOffsetFrom);
+--- a/sw/source/writerfilter/dmapper/PageBordersHandler.hxx
++++ b/sw/source/writerfilter/dmapper/PageBordersHandler.hxx
+@@ -35,6 +35,7 @@
+     sal_Int32 m_nDistance;
+     BorderPosition m_ePos;
+     bool m_bShadow;
++    OUString m_sArt; ///< HST: "name;size in points" for Word's page border art
+ 
+     PgBorder();
+ };
+--- a/sw/source/writerfilter/dmapper/PropertyMap.cxx
++++ b/sw/source/writerfilter/dmapper/PropertyMap.cxx
+@@ -80,6 +80,8 @@
+ 
+ #include <unoprnms.hxx>
+ #include <doc.hxx>
++#include <hstpageart.hxx>
++#include <svl/grabbagitem.hxx>
+ #include <SwStyleNameMapper.hxx>
+ #include <svl/grabbagitem.hxx>
+ #include <frmatr.hxx>
+@@ -2075,6 +2077,30 @@
+         }
+     }
+ 
++    // HST: Word's page border art stays with the page formats. BorderPosition is left, right, top, bottom.
++    if (!m_sPageStyleName.isEmpty()
++        && (!m_sHstBorderArt[0].isEmpty() || !m_sHstBorderArt[1].isEmpty() || !m_sHstBorderArt[2].isEmpty() || !m_sHstBorderArt[3].isEmpty()))
++    {
++        SwDoc* pArtDoc = rDM_Impl.GetTextDocument()->GetDocShell()->GetDoc();
++        size_t nArtDesc = 0;
++        const ProgName aArtProgName(m_sPageStyleName);
++        const UIName aArtDescName = SwStyleNameMapper::GetUIName(
++            SwStyleNameMapper::GetPoolIdFromProgName(aArtProgName, SwGetPoolIdFromName::PageDesc), aArtProgName);
++        if (pArtDoc && pArtDoc->FindPageDesc(aArtDescName, &nArtDesc))
++        {
++            SwPageDesc aArtDesc(pArtDoc->GetPageDesc(nArtDesc));
++            std::map<OUString, css::uno::Any> aBag = aArtDesc.GetMaster().GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag();
++            aBag[HST_PAGE_ART_KEYS[0]] <<= m_sHstBorderArt[BORDER_TOP];
++            aBag[HST_PAGE_ART_KEYS[1]] <<= m_sHstBorderArt[BORDER_LEFT];
++            aBag[HST_PAGE_ART_KEYS[2]] <<= m_sHstBorderArt[BORDER_BOTTOM];
++            aBag[HST_PAGE_ART_KEYS[3]] <<= m_sHstBorderArt[BORDER_RIGHT];
++            const SfxGrabBagItem aItem(RES_FRMATR_GRABBAG, std::move(aBag));
++            aArtDesc.GetMaster().SetFormatAttr(aItem);
++            aArtDesc.GetFirstMaster().SetFormatAttr(aItem);
++            pArtDoc->ChgPageDesc(nArtDesc, aArtDesc);
++        }
++    }
++
+     // HST: w:display of w:pgBorders. Done here because the title page setting above decides whether
+     // the first page has a format of its own.
+     if (m_eBorderApply != BorderApply::ToAllInSection && !m_sPageStyleName.isEmpty())
+--- a/sw/source/writerfilter/dmapper/PropertyMap.hxx
++++ b/sw/source/writerfilter/dmapper/PropertyMap.hxx
+@@ -269,6 +269,7 @@
+     BorderApply                                     m_eBorderApply;
+     BorderOffsetFrom                                m_eBorderOffsetFrom;
+     bool                                            m_bBorderShadows[4];
++    OUString                                        m_sHstBorderArt[4];
+ 
+     bool                                            m_bTitlePage;
+     sal_Int16                                       m_nColumnCount;
+@@ -384,6 +385,7 @@
+     void InheritOrFinalizePageStyles( DomainMapper_Impl& rDM_Impl );
+ 
+     void SetBorder( BorderPosition ePos, sal_Int32 nLineDistance, const css::table::BorderLine2& rBorderLine, bool bShadow );
++    void SetHstBorderArt(BorderPosition ePos, const OUString& rArt) { m_sHstBorderArt[ePos] = rArt; }
+     void SetBorderApply( BorderApply nSet ) { m_eBorderApply = nSet; }
+     void SetBorderOffsetFrom( BorderOffsetFrom nSet ) { m_eBorderOffsetFrom = nSet; }
+ 
+--- a/sw/uiconfig/swriter/ui/hstpageborderpage.ui
++++ b/sw/uiconfig/swriter/ui/hstpageborderpage.ui
+@@ -1,6 +1,13 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <interface domain="sw">
+   <requires lib="gtk+" version="3.24"/>
++  <object class="GtkAdjustment" id="hstadjartsize">
++    <property name="lower">1</property>
++    <property name="upper">31</property>
++    <property name="value">12</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">5</property>
++  </object>
+   <object class="GtkBox" id="HstPageBorderPage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -33,6 +40,58 @@
+         <property name="margin-end">6</property>
+         <property name="spacing">6</property>
+         <child>
++          <object class="GtkLabel" id="hstpageartlabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hstpageborderpage|hstpageartlabel">_Art:</property>
++            <property name="use-underline">True</property>
++            <property name="mnemonic-widget">hstpageart</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkComboBoxText" id="hstpageart">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkLabel" id="hstpageartsizelabel">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hstpageborderpage|hstpageartsizelabel">_Width:</property>
++            <property name="use-underline">True</property>
++            <property name="mnemonic-widget">hstpageartsize</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkSpinButton" id="hstpageartsize">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="truncate-multiline">True</property>
++            <property name="adjustment">hstadjartsize</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">3</property>
++          </packing>
++        </child>
++        <child>
+           <object class="GtkLabel" id="hstpageapplylabel">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+@@ -43,7 +102,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">0</property>
++            <property name="position">4</property>
+           </packing>
+         </child>
+         <child>
+@@ -60,7 +119,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">1</property>
++            <property name="position">5</property>
+           </packing>
+         </child>
+       </object>
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -28911,6 +28911,24 @@
+ msgid "This section - All except first page"
+ msgstr "Mục này - Tất cả trừ trang đầu"
+ 
++#. artnon
++#: sw/uiconfig/swriter/ui/hstpageborderpage.ui
++msgctxt "hstbordersdialog|artnone"
++msgid "(none)"
++msgstr "(không có)"
++
++#. hstpag
++#: sw/uiconfig/swriter/ui/hstpageborderpage.ui
++msgctxt "hstpageborderpage|hstpageartlabel"
++msgid "_Art:"
++msgstr "_Nghệ thuật:"
++
++#. hstpag
++#: sw/uiconfig/swriter/ui/hstpageborderpage.ui
++msgctxt "hstpageborderpage|hstpageartsizelabel"
++msgid "_Width:"
++msgstr "Chiều _rộng:"
++
+ #. NWjKW
+ #: sw/uiconfig/swriter/ui/rowheight.ui:15
+ msgctxt "rowheight|RowHeightDialog"
