@@ -1,0 +1,43 @@
+HST Office: controls made in HST get room for their caption in Office.
+
+In real Excel and Word, the text of buttons, check boxes and option buttons on a form made in HST sat low and
+was clipped. Such controls name no font; they now get the height a Tahoma 8 caption needs in a bordered box
+at 96 and 120 DPI, about 18.7 pt (Office's own default is 18 pt). Controls read from an Office file name the
+font they had and keep their size.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba-forms.py.
+---
+--- a/oox/source/ole/vbaformexport.cxx
++++ b/oox/source/ole/vbaformexport.cxx
+@@ -185,11 +185,28 @@
+     PropertySet aPropSet(rNode.mxProps);
+     xModel->convertFromProperties(aPropSet, rConv);
+ 
+-    // A dialog control usually names no font, and an empty name leaves the choice to Forms, whose fallback
+-    // does not fit the control. Office-made forms name Tahoma, which has Vietnamese.
++    // A control made in HST names no font (one read from an Office file keeps the font it had), and an
++    // empty name leaves the choice to Forms, whose fallback does not fit the control. Office-made forms
++    // name Tahoma, which has Vietnamese. Such a control also gets the height a Tahoma 8 caption needs in a
++    // bordered box at 96 and 120 DPI (Office's own default is 18 pt): shorter ones showed the text low and
++    // clipped in real Excel and Word. Forms read from Office files are written with their sizes.
+     if (auto* pFont = dynamic_cast<AxFontDataModel*>(xModel.get()))
++    {
+         if (pFont->maFontData.maFontName.isEmpty())
++        {
+             pFont->maFontData.maFontName = u"Tahoma"_ustr;
++            constexpr sal_Int32 nMinTextHeight = 660; // 1/100 mm, about 18.7 pt
++            switch (rNode.mnClass)
++            {
++                case SITE_COMMANDBUTTON: case SITE_TOGGLEBUTTON: case SITE_CHECKBOX:
++                case SITE_OPTIONBUTTON: case SITE_TEXTBOX: case SITE_COMBOBOX:
++                    rNode.maSize.second = std::max(rNode.maSize.second, nMinTextHeight);
++                    break;
++                default:
++                    break;
++            }
++        }
++    }
+ 
+     if (auto* pMorph = dynamic_cast<AxMorphDataModelBase*>(xModel.get()))
+     {

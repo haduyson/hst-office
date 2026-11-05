@@ -270,11 +270,11 @@ Compared with Office-made files and the specifications, not yet confirmed in Off
 - Caption: `\003VBFrame` MUST be in the project's code page (MS-OVBA 2.3.5), and the owner's Windows uses another one. `f` has a Caption that can be UTF-16; whether Office prefers it is unknown.
 - Damage found on the way: `.docm` replaced the project of real Word files on every save, even with no macro edits (`hst-vba-keep-word-project.patch`). In main since 2026-11-04, in no release. Fixed: every stream is kept; Save As asks first when macros were edited (owner's decision).
 
-Candidate fixes: `hst-vba-project-as-office.patch`, `hst-vba-form-storage-as-excel.patch`. Test files: `tests/fixtures/vba-office-probe/`. Forms saved to Office files warn until the results are in.
+Candidate fixes: `hst-vba-project-as-office.patch`, `hst-vba-form-storage-as-excel.patch`. Test files: see `tests/fixtures/vba-office-probe/README.md`. Forms saved to Office files warn until the results are in.
 
 Owner's results so far, in real Office: `1-plain-as-is.xlsm` works (plain Excel macros from HST work, without ThisWorkbook or sheet modules). `4-form-candidate.xlsm` and `6-form-caption-utf16-only.xlsm` still give the type-info error, so the reference record was not the cause, or not the only one. `2`, `3`, `5` `.docm`: the Macros list is empty, so `ThisDocument` and `Normal` did not fix Word. Second round (`w1` to `w3`, `x1` to `x5`) pending. **New macros in .docm/.doc do not work in real Word; forms do not load in real Excel.**
 
-Known limit: a kept Word project has all its streams, but the import's copy (`VbaProject::copyStorage`, upstream behaviour) drops the class of a Frame's storage. Whether Word minds is not known.
+A kept project keeps the class of a Frame's storage (`hst-vba-kept-project-classes.patch`).
 
 Cell bindings of an imported Excel form (`RowSource`, `ControlSource`) are not written; the save warning names the controls.
 
@@ -291,6 +291,26 @@ Not in the repository unless noted; parsed as untrusted data, never opened in an
 | `testVBA.docm`, `testFind.docm` | LibreOffice `sw/qa/core/data/docm` (in the source tree) | Word 14, 16 | macros |
 
 Licences of the POI and oletools test files were not checked one by one. Missing: an Excel-made `.xlsm` with a form, and a Word-made `.doc` with a VBA project.
+
+### Real Office results and fixes (2026-11-05)
+
+Owner, Windows with English "Language for non-Unicode programs", one result per file. Only these runs prove anything about Office; olevba, the structure check and HST round trips do not.
+
+| File | Result |
+|---|---|
+| `x4` (Excel project, stub cache), `x5` (HST form, `MODULEPRIVATE`, no `TypeInfoVer`) | Form runs (F5): the stub cache is not the cause |
+| `y1` (rewritten only), `y2` (+`MODULEPRIVATE`) | "Type information does not match" |
+| `y3` (no `TypeInfoVer`) | Form runs: `TypeInfoVer = 1` is the cause. MS-OVBA: count of designer saves, default 0 |
+| `w1`, `w2` | Invalid control: `testFind.docm` has no macro Alt+F8 lists |
+| `w4` Word-made, `w5` HST package, `w6` Word package | Lists / empty / Word's list only: Word lists what `word/vbaData.xml` names |
+| `z1` new `.xlsm` form | Compiles, runs, click writes A1, survives save and reopen in Excel. Title garbled; button, check box, option text low and clipped |
+| `w8`, `w9` new `.docm` | Macros listed, compile, run; form and click work. Same clipping |
+
+Fixes, all in `16d044d` and after: `hst-vba-form-as-loaded-by-excel` (no `TypeInfoVer`, `MODULEPRIVATE`, no caption in `f`, Tahoma on controls), `hst-vba-word-macro-list` (`vbaData.xml`), `hst-vba-form-control-height` (controls made in HST get 660/100 mm, Office's default is 18 pt; controls read from Office files keep their size), `hst-vba-keep-excel-project` (an Office file keeps its project while macros and forms are unchanged and asks before edits would be lost), `hst-vba-macro-edit-detection` (typed, UNO, added or removed module and designer changes count as edits; loading does not), `hst-vba-kept-project-classes` (Frame storage class). Not seen in real Office: `f1`, `f2` (clipping), `n1.xls`, `n2.doc` (new forms in binary formats), `w9` saved again in Word.
+
+Owner decision, no real Office for now: new VBA still proposes the HST format and saving forms to Office files still warns; the help states that new forms in `.xls`/`.doc` are not verified and that the form title can show wrong text in the VBA editor on non-Vietnamese Windows. The probe files left the repository; `tests/fixtures/vba-office-probe/README.md` says where they are.
+
+Checked and not a bug: deleting every macro of a Word file, then Ctrl+S, first asks whether to keep the format (skipped while macros exist), then whether to save without the macro edits; the text is saved (`tests/runtime/check-vba-remove-all-macros.py`). `check-vba-editor` failed only when another office shared its display: 3 of 3 clean on its own display.
 
 ## Macros and the default save format (`hst-macro-save-guard.patch`)
 

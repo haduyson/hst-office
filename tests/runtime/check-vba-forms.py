@@ -32,6 +32,7 @@ check_vba = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(check_vba)
 BUILD_USER = os.environ.get("HST_BUILD_USER", "hstbuild")
 RESULTS = []
+TEXT_IN_BOX = ("button", "checkbox", "radio", "textfield", "combobox", "togglebutton")
 
 
 def check(name, ok, detail=""):
@@ -73,7 +74,9 @@ def check_saved(office, kind, app, ext, filt, out):
         check(f".{ext}: every control kept", not missing, missing)
         for name in set(before) & set(after):
             a, b = before[name], after[name]
-            near = all(abs(x - y) <= 2 for x, y in zip(a["box"], b["box"]))
+            # controls made in HST get the height a Tahoma 8 caption needs in a box: 660/100 mm, about 15 units
+            grown = (*a["box"][:3], max(a["box"][3], 15) if a["tag"] in TEXT_IN_BOX and ext not in ("ods", "odt") else a["box"][3])
+            near = all(abs(x - y) <= 2 for x, y in zip(grown, b["box"]))
             same = a["tag"] == b["tag"] and nfc(a["value"]) == nfc(b["value"]) and bool(a["checked"]) == bool(b["checked"])
             check(f".{ext}: {name} type, text and state", same, f"{a} -> {b}")
             check(f".{ext}: {name} geometry within 2 units", near, f"{a['box']} -> {b['box']}")
