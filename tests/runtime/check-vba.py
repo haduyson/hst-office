@@ -18,21 +18,18 @@ case marked "ok" fails or any config/round-trip expectation fails; "limited" cas
 import argparse
 import json
 import os
-import shutil
-import subprocess
 import sys
-import time
-import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "extensions/hst-vietnamese-tools/python"))
 import vba_cases  # noqa: E402
-from hst_office import vba, vba_template  # noqa: E402  (the code behind "Macro VBA")
+from hst_office import vba  # noqa: E402  (the code behind "Macro VBA")
+from vba_check_roundtrip import check_roundtrip  # noqa: E402
+from vba_check_support import (BUILD_USER, FIXTURES, ROWS, Office, case_module, compiles, config_value,  # noqa: E402,F401
+                               module_code, prepare, pv, reexec_as_build_user, record, run)
 
-BUILD_USER = os.environ.get("HST_BUILD_USER", "hstbuild")
-FIXTURES = os.path.join(ROOT, "upstream/libreoffice")
 WRITER_SUITES = [  # (fixture, module, function, status) from sw/qa/core/macros-test.cxx
     ("sw/qa/core/data/docm/testFind.docm", "Module1", "testAll", "ok"),
     ("sw/qa/core/data/docm/testDocumentRange.docm", "Module1", "testAll", "ok"),
@@ -44,134 +41,6 @@ WRITER_SUITES = [  # (fixture, module, function, status) from sw/qa/core/macros-
     ("sw/qa/core/data/docm/testWords.docm", "ThisDocument", "TestAll", "limited"),
     ("sw/qa/core/data/docm/testParagraphFormat.docm", "ThisDocument", "TestAll", "limited"),
 ]
-ROWS = []
-
-
-def record(group, name, ok, detail="", status="ok"):
-    """status ok: a failure fails the run; limited: known gap, a pass is flagged."""
-    ROWS.append(dict(group=group, name=name, passed=bool(ok), status=status, detail=str(detail)[:300]))
-    tag = "PASS" if ok else ("FAIL" if status == "ok" else "LIMIT")
-    if ok and status == "limited":
-        tag = "PASS(limited case now passes: update vba_cases.py/help)"
-    print(f"{tag:5} [{group}] {name}" + (f"  ({detail})" if detail and not ok else ""), flush=True)
-
-
-def reexec_as_build_user(out):
-    os.makedirs(out, exist_ok=True)
-    subprocess.run(["chown", "-R", BUILD_USER, out], check=True)
-    os.execvp("runuser", ["runuser", "-u", BUILD_USER, "--", sys.executable] + sys.argv)
-
-
-def pv(name, value):
-    from com.sun.star.beans import PropertyValue
-    prop = PropertyValue()
-    prop.Name, prop.Value = name, value
-    return prop
-
-
-class Office:
-    def __init__(self, program, out, port):
-        self.program, self.out, self.port = program, out, port
-        self.profile = os.path.join(out, f"profile-{port}")
-
-    def start(self):
-        shutil.rmtree(self.profile, ignore_errors=True)
-        env = {k: v for k, v in os.environ.items() if k != "URE_BOOTSTRAP"}
-        env.update(HOME=os.path.join(self.out, "home"), LANG="C.UTF-8", LC_ALL="C.UTF-8")
-        os.makedirs(env["HOME"], exist_ok=True)
-        args = [f"-env:UserInstallation=file://{self.profile}", "--norestore", "--headless", "--nologo"]
-        for _ in range(3):  # exit 81 = restart requested while the fresh profile is created
-            if subprocess.run([os.path.join(self.program, "soffice.bin"), "--terminate_after_init"] + args,
-                              env=env, timeout=180, check=False).returncode == 0:
-                break
-        self.proc = subprocess.Popen([os.path.join(self.program, "soffice")] + args
-                                     + [f"--accept=socket,host=127.0.0.1,port={self.port};urp;"], env=env)
-        import uno
-        local = uno.getComponentContext()
-        deadline = time.time() + 120
-        while True:
-            try:
-                resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
-                self.ctx = resolver.resolve(f"uno:socket,host=127.0.0.1,port={self.port};urp;StarOffice.ComponentContext")
-                break
-            except Exception:  # noqa: BLE001 - NoConnectException until soffice listens
-                if time.time() > deadline:
-                    raise
-                time.sleep(1)
-        time.sleep(2)
-        self.desktop = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", self.ctx)
-        return self
-
-    def stop(self):
-        try:
-            self.desktop.terminate()
-        except Exception:  # noqa: BLE001 - the bridge drops while soffice exits
-            pass
-        try:
-            self.proc.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            self.proc.terminate()
-            self.proc.wait(timeout=20)
-
-    def new(self, kind, hidden=False):
-        if hidden:
-            return self.desktop.loadComponentFromURL(f"private:factory/{kind}", "_blank", 0,
-                                                     (pv("Hidden", True), pv("MacroExecutionMode", 3)))
-        # Not Hidden: VBA objects such as Selection or End(xlDown) need the document view.
-        # MacroExecutionMode USE_CONFIG (3) as for File > New; the API default never runs cell UDFs.
-        return self.desktop.loadComponentFromURL(f"private:factory/{kind}", "_blank", 0, (pv("MacroExecutionMode", 3),))
-
-    def load(self, path, run_macros=True):
-        import uno
-        if path.startswith(FIXTURES + os.sep):
-            # Work on a copy: a lock file left next to a fixture by an ended office blocks loading it.
-            self.copies = getattr(self, "copies", 0) + 1  # unique name: an ended office may leave a lock
-            copy = os.path.join(self.out, "fixtures", f"{self.port}-{self.copies}-{os.path.basename(path)}")
-            os.makedirs(os.path.dirname(copy), exist_ok=True)
-            shutil.copyfile(path, copy)
-            path = copy
-        # ALWAYS_EXECUTE_NO_WARN = 4: the test opens its own files; users get the security prompt (config check).
-        return self.desktop.loadComponentFromURL(uno.systemPathToFileUrl(path), "_blank", 0,
-                                                 (pv("MacroExecutionMode", 4 if run_macros else 0),))
-
-
-def config_value(ctx, path):
-    node, key = path.rsplit("/", 1)
-    provider = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
-    return provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess", (pv("nodepath", node),)).getByName(key)
-
-
-def prepare(doc, kind):
-    """Prepare the document exactly as "Macro VBA" does; return its VBA library."""
-    library, _module, _code, _created = vba.prepare_document(doc, "calc" if kind == "scalc" else "writer")
-    return library, doc.BasicLibraries.getByName(library)
-
-
-def run(doc, library, module, function):
-    script = doc.getScriptProvider().getScript(
-        f"vnd.sun.star.script:{library}.{module}.{function}?language=Basic&location=document")
-    return script.invoke((), (), ())[0]
-
-
-def case_module(case):
-    body = "\n".join("  " + line for line in case["body"].splitlines())
-    return (f"{vba_template.OPTION_LINE}\nFunction T()\n  Dim r As Variant\n  On Error GoTo Fail\n{body}\n  T = CStr(r)\n"
-            f"  Exit Function\nFail:\n  T = \"ERR \" & Err.Number & \": \" & Err.Description\nEnd Function\n"
-            + case.get("extra", "") + "\n")
-
-
-def compiles(office, kind, code):
-    """A compile error opens an error box, which aborts a headless office when the document has a
-    view: compile first in a hidden document, where the failed call just returns nothing."""
-    doc = office.new(kind, hidden=True)
-    try:
-        name, library = prepare(doc, kind)
-        vba.add_module(library, "HstCompile", code.replace("Function T()", "Function T()\n  T = \"c\"\n  Exit Function", 1))
-        return run(doc, name, "HstCompile", "T") is not None
-    finally:
-        doc.close(True)
-
-
 def run_matrix(office, group, cases, kind, setup=None):
     for case in cases:
         if not compiles(office, kind, case_module(case)):
@@ -249,140 +118,6 @@ def check_config(office):
         except Exception as error:  # noqa: BLE001 - NoSuchElementException when unbound
             got = f"unbound ({type(error).__name__})"
         record("config", f"{module.rsplit('.', 1)[-1]} {name} -> {want}", got == want, f"got {got!r}")
-
-
-def module_code(doc, library, module):
-    libs = doc.BasicLibraries
-    if not libs.hasByName(library):
-        return None
-    libs.loadLibrary(library)
-    lib = libs.getByName(library)
-    return lib.getByName(module) if lib.hasByName(module) else None
-
-
-def check_roundtrip(office, out):
-    work = os.path.join(out, "files")
-    os.makedirs(work, exist_ok=True)
-    marker_calc = 'Function HstRoundTrip()\n  ActiveSheet.Range("A1").Value = 7\n  HstRoundTrip = "OK"\nEnd Function\n'
-    marker_writer = 'Function HstRoundTrip()\n  ActiveDocument.Range(0, 0).Text = "!"\n  HstRoundTrip = "OK"\nEnd Function\n'
-    for kind, ext, filt, marker, status in (
-            ("scalc", "xlsm", "Calc Office Open XML VBA", marker_calc, "ok"),
-            ("scalc", "ods", "calc8", marker_calc, "ok"),
-            ("scalc", "xls", "MS Excel 97", marker_calc, "ok"),
-            ("swriter", "docm", "MS Word 2007 XML VBA", marker_writer, "ok"),
-            ("swriter", "odt", "writer8", marker_writer, "ok"),
-            ("swriter", "doc", "MS Word 97", marker_writer, "ok")):
-        path = os.path.join(work, f"new-{kind}.{ext}")
-        doc = office.new(kind)
-        try:
-            project, library = prepare(doc, kind)
-            library.replaceByName("Module1", library.getByName("Module1") + "\n" + marker)
-            import uno
-            doc.storeToURL(uno.systemPathToFileUrl(path), (pv("FilterName", filt),))
-        finally:
-            doc.close(True)
-        doc = office.load(path)
-        try:
-            code = module_code(doc, project, "Module1") or ""
-            template = vba_template.module_text("calc" if kind == "scalc" else "writer")
-            kept = "HstRoundTrip" in code and vba_template.same_text(code.split("Function HstRoundTrip")[0], template)
-            result = run(doc, project, "Module1", "HstRoundTrip") if kept else None
-            record("roundtrip", f"new document -> .{ext}: module kept and runs", kept and result == "OK",
-                   f"kept={kept} result={result!r} libs={list(doc.BasicLibraries.ElementNames)}", status)
-        except Exception as error:  # noqa: BLE001
-            record("roundtrip", f"new document -> .{ext}: module kept and runs", False, repr(error), status)
-        finally:
-            doc.close(True)
-    # Existing Office files: edit a module, save back to the same format, reopen.
-    for fixture, ext, filt, module, edit in (
-            ("sc/qa/unit/data/xlsm/vba-user-function.xlsm", "xlsm", "Calc Office Open XML VBA", "Module1",
-             'Function HstEdited()\n  HstEdited = "OK"\nEnd Function\n'),
-            ("sw/qa/core/data/docm/testWords.docm", "docm", "MS Word 2007 XML VBA", "ThisDocument",
-             'Function HstEdited()\n  HstEdited = "OK"\nEnd Function\n')):
-        source = os.path.join(FIXTURES, fixture)
-        name = os.path.basename(fixture)
-        doc = office.load(source)
-        try:
-            libs = doc.BasicLibraries
-            library = libs.ProjectName
-            original = module_code(doc, library, module)
-            libs.getByName(library).replaceByName(module, original + "\n" + edit)
-            plain = os.path.join(work, "unchanged-" + name)
-            import uno
-            path = os.path.join(work, "edited-" + name)
-            doc.storeToURL(uno.systemPathToFileUrl(path), (pv("FilterName", filt),))
-        finally:
-            doc.close(True)
-        # Unchanged save keeps the original project.
-        doc = office.load(source)
-        try:
-            doc.storeToURL(uno.systemPathToFileUrl(plain), (pv("FilterName", filt),))
-        finally:
-            doc.close(True)
-        doc = office.load(plain)
-        try:
-            again = module_code(doc, doc.BasicLibraries.ProjectName, module) or ""
-            record("roundtrip", f"{name}: unchanged save keeps the original VBA", vba_template.same_text(again, original),
-                   f"before {original[:120]!r} after {again[:120]!r}")
-        finally:
-            doc.close(True)
-        doc = office.load(path)
-        try:
-            code = module_code(doc, doc.BasicLibraries.ProjectName, module) or ""
-            ok = "HstEdited" in code and run(doc, doc.BasicLibraries.ProjectName, module, "HstEdited") == "OK"
-            record("roundtrip", f"{name}: edited module saved back to .{ext}", ok, f"edit kept={'HstEdited' in code}")
-        except Exception as error:  # noqa: BLE001
-            record("roundtrip", f"{name}: edited module saved back to .{ext}", False, repr(error))
-        finally:
-            doc.close(True)
-    check_events(office, work)
-
-
-def check_events(office, work):
-    import uno
-    # Workbook_Open / Worksheet_Change live in the document modules of an Excel file.
-    source = os.path.join(FIXTURES, "sc/qa/extras/testdocuments/SimpleCopyPaste.xlsm")
-    path = os.path.join(work, "events.xlsm")
-    doc = office.load(source)
-    try:
-        lib = doc.BasicLibraries.getByName(doc.BasicLibraries.ProjectName)
-        lib.replaceByName("ThisWorkbook", lib.getByName("ThisWorkbook")
-                          + '\nPrivate Sub Workbook_Open()\n  Worksheets(1).Range("H1").Value = "mở"\nEnd Sub\n')
-        lib.replaceByName("Sheet1", lib.getByName("Sheet1")
-                          + '\nPrivate Sub Worksheet_Change(ByVal Target As Range)\n'
-                            '  If Target.Address = "$A$5" Then Range("H2").Value = Target.Value * 2\nEnd Sub\n')
-        doc.storeToURL(uno.systemPathToFileUrl(path), (pv("FilterName", "Calc Office Open XML VBA"),))
-    finally:
-        doc.close(True)
-    doc = office.load(path)
-    try:
-        sheet = doc.Sheets.getByIndex(0)
-        h1 = unicodedata.normalize("NFC", sheet.getCellRangeByName("H1").String)  # Windows-1258 decomposes some letters
-        record("events", "Workbook_Open runs when the .xlsm opens (macros allowed)", h1 != "", f"H1={h1!r}")
-        # This Excel project uses code page 1252: Vietnamese letters in its code cannot be stored.
-        # The fixture's project uses code page 1252: HST saves it in Windows-1258 so the letters survive.
-        record("events", "Vietnamese text in the code of an Excel project with a Western code page", h1 == "mở",
-               f"H1={h1!r}")
-        # Worksheet_Change follows edits made by the user, not UNO calls: see check-vba-editor.py.
-    finally:
-        doc.close(True)
-    # Document_Open in ThisDocument of a Word file, kept in .odt (edits are not written to .docm).
-    for ext, filt in (("odt", "writer8"), ("docm", "MS Word 2007 XML VBA")):
-        path = os.path.join(work, f"events.{ext}")
-        doc = office.load(os.path.join(FIXTURES, "sw/qa/core/data/docm/testWords.docm"))
-        try:
-            lib = doc.BasicLibraries.getByName(doc.BasicLibraries.ProjectName)
-            lib.replaceByName("ThisDocument", lib.getByName("ThisDocument")
-                              + '\nPrivate Sub Document_Open()\n  ActiveDocument.Range(0, 0).Text = "MỞ "\nEnd Sub\n')
-            doc.storeToURL(uno.systemPathToFileUrl(path), (pv("FilterName", filt),))
-        finally:
-            doc.close(True)
-        doc = office.load(path)
-        try:
-            text = unicodedata.normalize("NFC", doc.Text.String)
-            record("events", f"Document_Open runs when the .{ext} opens (macros allowed)", text.startswith("MỞ "), f"text={text[:20]!r}")
-        finally:
-            doc.close(True)
 
 
 def check_writer_suites(office):

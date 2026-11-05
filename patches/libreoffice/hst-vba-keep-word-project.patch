@@ -1,0 +1,101 @@
+HST Office: a VBA project read from a Word file is written back unchanged.
+
+The owner's test in real Word: a project written by VbaExport gives "Could not open macro storage".
+.docm replaced the project on every save, so saving a real Word file in HST, even with no macro
+edits, would lose its working macros; .doc did so after edits. The project read from the file is now
+copied. When macros were edited, the standard warning says the original code stays and the edits are
+not saved. Documents without a project of their own still get what HST writes: that output is not
+yet accepted by Word.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba-keep-word-project.py.
+---
+--- a/sw/source/filter/ww8/docxexport.cxx
++++ b/sw/source/filter/ww8/docxexport.cxx
+@@ -58,6 +58,8 @@
+ #include <oox/ole/olestorage.hxx>
+ #include <oox/ole/olehelper.hxx>
+ #include <oox/ole/vbaexport.hxx>
++#include <basic/basmgr.hxx>
++#include <svx/svxerr.hxx>
+ #include <sot/storage.hxx>
+ #include <sot/storinfo.hxx>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+@@ -1984,27 +1986,6 @@
+     }
+ }
+ 
+-namespace
+-{
+-/// HST: true when the stored original VBA project carries UserForms (designer storages besides
+-/// "VBA"), which oox::ole::VbaExport cannot write; such a project is saved back unchanged.
+-bool lcl_hasVbaDesignerStorages(const uno::Reference<io::XStream>& xMacrosStream)
+-{
+-    std::unique_ptr<SvStream> pIn(utl::UcbStreamHelper::CreateStream(xMacrosStream));
+-    if (!pIn)
+-        return true;
+-    rtl::Reference<SotStorage> xStorage(new SotStorage(*pIn));
+-    if (xStorage->GetError())
+-        return true;
+-    SvStorageInfoList aElements;
+-    xStorage->FillInfoList(&aElements);
+-    for (const SvStorageInfo& rElement : aElements)
+-        if (rElement.IsStorage() && rElement.GetName() != "VBA")
+-            return true;
+-    return false;
+-}
+-}
+-
+ bool DocxExport::WriteCurrentVBA()
+ {
+     uno::Reference<frame::XModel> xModel(m_rDoc.GetDocShell() ? m_rDoc.GetDocShell()->GetModel() : nullptr);
+@@ -2053,16 +2034,17 @@
+     uno::Reference<embed::XStorage> xDocumentStorage = m_xTextDoc->getDocumentStorage();
+     OUString aMacrosName(u"_MS_VBA_Macros"_ustr);
+     const bool bOriginal = xDocumentStorage.is() && xDocumentStorage->hasByName(aMacrosName);
+-    // HST: save the macros as they are now (written or edited in the Basic IDE), like Calc does for
+-    // .xlsm, unless the original project has UserForms that cannot be rewritten.
+-    // HST: VbaExport now writes UserForms too, except forms with control types it cannot write.
+-    uno::Reference<frame::XModel> xModelForForms(m_rDoc.GetDocShell() ? m_rDoc.GetDocShell()->GetModel() : nullptr);
+-    if (!bOriginal || !lcl_hasVbaDesignerStorages(xDocumentStorage->openStreamElement(aMacrosName, embed::ElementModes::READ))
+-        || VbaExport(xModelForForms).getUnsupportedFormControls().empty())
++    // HST: a project read from a file is written back unchanged: Word does not open a project written
++    // by VbaExport ("Could not open macro storage"), so replacing one would lose working macros.
++    // Macros edited in HST are not saved into such a file; the save check warns about that.
++    if (!bOriginal)
+     {
+-        if (WriteCurrentVBA() || !bOriginal)
+-            return;
++        WriteCurrentVBA();
++        return;
+     }
++    if (SfxObjectShell* pShell = m_rDoc.GetDocShell())
++        if (BasicManager* pBasicMan = pShell->GetBasicManager(); pBasicMan && pBasicMan->IsBasicModified())
++            pShell->SetError(ERRCODE_SVX_MODIFIED_VBASIC_STORAGE);
+ 
+     const sal_Int32 nOpenMode = embed::ElementModes::READ;
+     uno::Reference<io::XStream> xMacrosStream = xDocumentStorage->openStreamElement(aMacrosName, nOpenMode);
+--- a/sw/source/filter/ww8/wrtww8.cxx
++++ b/sw/source/filter/ww8/wrtww8.cxx
+@@ -4113,18 +4113,10 @@
+         {
+             // no original VBA project (a new document)
+         }
++        // HST: a project read from a file is written back unchanged: Word does not open a project
++        // written by VbaExport, so replacing one would lose working macros.
+         if ( xOriginal.is() && !xOriginal->GetError() )
+-        {
+-            BasicManager* pBasicMan = rDoc.GetBasicManager();
+-            if ( !pBasicMan || !pBasicMan->IsBasicModified() )
+-                return false; // unchanged: copy the original project
+-            SvStorageInfoList aElements;
+-            xOriginal->FillInfoList( &aElements );
+-            for ( const SvStorageInfo& rElement : aElements )
+-                if ( rElement.IsStorage() && rElement.GetName() != "VBA"
+-                     && !VbaExport( rDoc.GetModel() ).getUnsupportedFormControls().empty() )
+-                    return false; // UserForms with controls VbaExport cannot write
+-        }
++            return false;
+ 
+         rtl::Reference< SotStorage > xMacros = rStor.OpenSotStorage( rStorageName, StreamMode::READWRITE | StreamMode::TRUNC );
+         VbaExport aExport( rDoc.GetModel() );

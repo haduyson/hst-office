@@ -2,9 +2,10 @@
 """After saving as an Excel or Word file, tell the user what of the VBA UserForms was not written.
 
 The export writes UserForms with labels, text boxes, buttons, check boxes, option buttons, combo and
-list boxes, frames, spin buttons and scroll bars. Other controls cannot be written: an Excel file
-loses them; a Word file that already had such a form keeps its original VBA project, so code edits
-are not saved there. Fixed list items are not stored in Office files either. Runs as a job on OnSaveDone / OnSaveAsDone (Jobs.xcu);
+list boxes, frames, spin buttons and scroll bars, but real Office did not accept the first forms, so
+any form HST wrote gets a warning until that is verified. Other controls cannot be written and are
+left out. A Word file keeps the VBA project it was read with (Save As asks first when macros were
+edited). Fixed list items are not stored in Office files either. Runs as a job on OnSaveDone / OnSaveAsDone (Jobs.xcu);
 the message is Vietnamese (HST policy).
 """
 import traceback
@@ -22,10 +23,11 @@ TITLE = "Macro VBA"
 EXCEL_LOST = ("Tệp Excel vừa lưu không chứa các điều khiển sau trong biểu mẫu VBA (UserForm): %s.\n"
               "Mã VBA và các điều khiển khác vẫn được lưu. Để giữ đủ biểu mẫu, hãy lưu thêm một bản .ods "
               "(Tập tin → Lưu thành…).")
-WORD_KEPT = ("Biểu mẫu VBA (UserForm) của tệp Word này có điều khiển chưa ghi được: %s.\n"
-             "Nếu tệp vốn đã có biểu mẫu này, HST Office giữ nguyên dự án VBA gốc nên phần mã bạn vừa sửa không được "
-             "lưu vào tệp; nếu biểu mẫu mới được tạo trong HST, các điều khiển này bị bỏ khỏi tệp. "
-             "Để giữ đủ, hãy lưu thêm một bản .odt (Tập tin → Lưu thành…).")
+WORD_KEPT = ("Biểu mẫu VBA (UserForm) này có điều khiển chưa ghi được vào tệp Word: %s.\n"
+             "Các điều khiển này bị bỏ khỏi tệp. Để giữ đủ, hãy lưu thêm một bản .odt (Tập tin → Lưu thành…).")
+FORMS_NOT_VERIFIED = ("Biểu mẫu VBA (UserForm) trong tệp vừa lưu chưa dùng được chắc chắn trong Microsoft Office: "
+                      "Excel hoặc Word có thể không mở được biểu mẫu hoặc macro. "
+                      "Hãy giữ thêm một bản .ods hoặc .odt (Tập tin → Lưu thành…).")
 LIST_ITEMS = ("Các mục danh sách nhập sẵn của %s không được lưu trong tệp Office (Office nạp danh sách bằng mã, "
               "ví dụ AddItem trong UserForm_Initialize). Bản .ods/.odt vẫn giữ các mục này.")
 
@@ -45,6 +47,21 @@ def _dialog_xml(doc, library_name, form):
         data += bytes(chunk)
         if count < 65536:
             return data
+
+
+def has_written_forms(doc, is_writer):
+    """True when HST wrote the forms itself: a Word file keeps the project it was read with."""
+    if is_writer and doc.getDocumentStorage().hasByName("_MS_VBA_Macros"):
+        return False
+    libs = doc.BasicLibraries
+    for library_name in libs.ElementNames:
+        libs.loadLibrary(library_name)
+        library = libs.getByName(library_name)
+        if hasattr(library, "hasModuleInfo"):
+            for name in library.ElementNames:
+                if library.hasModuleInfo(name) and library.getModuleInfo(name).ModuleType == FORM_MODULE:
+                    return True
+    return False
 
 
 def form_problems(doc):
@@ -84,6 +101,8 @@ def check(ctx, doc):
         return None
     unwritable, list_items = form_problems(doc)
     parts = []
+    if has_written_forms(doc, is_writer):
+        parts.append(FORMS_NOT_VERIFIED)
     if unwritable:
         parts.append((EXCEL_LOST if is_calc else WORD_KEPT) % ", ".join(unwritable))
     if list_items:

@@ -7,7 +7,7 @@ Usage: python3 tests/runtime/check-vba-form-events.py [--instdir upstream/libreo
   - A dialog inserted in the editor is a UserForm that VBA code can use and show.
   - A real mouse click on CommandButton1 runs CommandButton1_Click, on a new form and on a form
     reopened from .xlsm, .xls, .docm and .doc (the handler reads TextBox1 and writes to the document).
-  - Saving a form with only common controls shows no warning; a form with an image control warns.
+  - Saving a form as an Office file warns (real Office did not accept the first forms).
 Exit 1 when any check fails.
 """
 import argparse
@@ -140,8 +140,8 @@ def check_click(office, kind, app, ext, filter_name):
     path = os.path.join(office.workdir, f"click-{app}.{ext}")
     saver = threading.Thread(target=lambda: doc.storeAsURL(uno.systemPathToFileUrl(path), (pv("FilterName", filter_name),)), daemon=True)
     saver.start()
-    warned = wait(lambda: window(office, HINT_TITLE) is not None, 6)
-    check(f"{label}: saving common controls shows no warning", not warned)
+    warned = wait(lambda: window(office, HINT_TITLE) is not None, 15)
+    check(f"{label}: saving a form warns until real Office accepts it", warned)
     if warned:
         keys(office, window(office, HINT_TITLE)[0], "Return")
     saver.join(30)

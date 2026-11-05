@@ -1,0 +1,101 @@
+HST Office: Save As asks before macro edits would not reach a Word file.
+
+Owner decision: a Word file keeps the VBA project it was read with, because Word does not open a
+project written by HST, and macros edited in HST do not reach it. Saving such a document as .docm or
+.doc now asks first: save without the macro edits, or choose another format.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sfx2/source/doc/guisaveas.cxx
++++ b/sfx2/source/doc/guisaveas.cxx
+@@ -40,6 +40,7 @@
+ #include <com/sun/star/script/XLibraryContainer.hpp>
+ #include <com/sun/star/script/vba/XVBACompatibility.hpp>
+ #include <o3tl/string_view.hxx>
++#include <basic/basmgr.hxx>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/beans/XPropertyContainer.hpp>
+ #include <com/sun/star/beans/PropertyAttribute.hpp>
+@@ -846,6 +847,22 @@
+     const DocumentMacros aMacros = lclGetDocumentMacros( m_xModel );
+     if ( !aMacros.bAny || rFilter.isEmpty() || !m_pOwner->GetFilterConfiguration()->hasByName( rFilter ) )
+         return true;
++    // Word files keep the VBA project they were read with: edits made here would not reach the file
++    if ( aMacros.bImportedVba && ( rFilter == u"MS Word 2007 XML VBA" || rFilter == u"Office Open XML Text VBA" || rFilter == u"MS Word 97" ) )
++    {
++        SfxObjectShell* pShell = SfxObjectShell::GetShellFromComponent( m_xModel );
++        BasicManager* pBasicManager = pShell ? pShell->GetBasicManager() : nullptr;
++        if ( !pBasicManager || !pBasicManager->IsBasicModified() )
++            return true;
++        std::unique_ptr< weld::MessageDialog > xEdited( Application::CreateMessageDialog(
++            SfxStoringHelper::GetModelWindow( m_xModel ), VclMessageType::Warning, VclButtonsType::NONE,
++            SfxResId( STR_HST_MACRO_EDITS_TEXT ) ) );
++        xEdited->set_title( SfxResId( STR_HST_MACRO_FORMAT_TITLE ) );
++        xEdited->add_button( SfxResId( STR_HST_MACRO_EDITS_LOSE ), RET_YES );
++        xEdited->add_button( SfxResId( STR_HST_MACRO_FORMAT_BACK ), RET_NO );
++        xEdited->set_default_response( RET_NO );
++        return xEdited->run() == RET_YES;
++    }
+     uno::Sequence< beans::PropertyValue > aProps;
+     m_pOwner->GetFilterConfiguration()->getByName( rFilter ) >>= aProps;
+     const ::comphelper::SequenceAsHashMap aPropsHM( aProps );
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -59,6 +59,8 @@
+ #define STR_HST_MACRO_FORMAT_HINT               NC_("STR_HST_MACRO_FORMAT_HINT", "To keep the macros, choose the format %FORMATNAME.")
+ #define STR_HST_MACRO_FORMAT_LOSE               NC_("STR_HST_MACRO_FORMAT_LOSE", "Save without Macros")
+ #define STR_HST_MACRO_FORMAT_BACK               NC_("STR_HST_MACRO_FORMAT_BACK", "Choose Another Format")
++#define STR_HST_MACRO_EDITS_TEXT                NC_("STR_HST_MACRO_EDITS_TEXT", "You edited the macros of this document, but this Word format keeps the original VBA project from the file: your macro edits will not be saved in it. To keep the edits, choose an OpenDocument format such as .odt.")
++#define STR_HST_MACRO_EDITS_LOSE                NC_("STR_HST_MACRO_EDITS_LOSE", "Save without the Macro Edits")
+ 
+ // Used in the title of a shared document.
+ #define STR_SHARED                              NC_("STR_SHARED", " (shared)")
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -6344,6 +6344,18 @@
+ msgid "Choose Another Format"
+ msgstr "Chọn định dạng khác"
+ 
++#. hstMacroEdits
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_MACRO_EDITS_TEXT"
++msgid "You edited the macros of this document, but this Word format keeps the original VBA project from the file: your macro edits will not be saved in it. To keep the edits, choose an OpenDocument format such as .odt."
++msgstr "Bạn đã sửa macro của tài liệu này, nhưng định dạng Word này giữ nguyên dự án VBA gốc trong tệp: phần sửa macro sẽ không được lưu vào tệp. Để giữ phần sửa, hãy chọn định dạng OpenDocument như .odt."
++
++#. hstMacroEdits
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_MACRO_EDITS_LOSE"
++msgid "Save without the Macro Edits"
++msgstr "Lưu, bỏ phần sửa macro"
++
+ #. EbijK
+ #: sfx2/uiconfig/ui/versionsofdialog.ui:332
+ msgctxt "versionsofdialog|label2"
+--- a/sw/source/filter/ww8/docxexport.cxx
++++ b/sw/source/filter/ww8/docxexport.cxx
+@@ -58,8 +58,6 @@
+ #include <oox/ole/olestorage.hxx>
+ #include <oox/ole/olehelper.hxx>
+ #include <oox/ole/vbaexport.hxx>
+-#include <basic/basmgr.hxx>
+-#include <svx/svxerr.hxx>
+ #include <sot/storage.hxx>
+ #include <sot/storinfo.hxx>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+@@ -2036,15 +2034,12 @@
+     const bool bOriginal = xDocumentStorage.is() && xDocumentStorage->hasByName(aMacrosName);
+     // HST: a project read from a file is written back unchanged: Word does not open a project written
+     // by VbaExport ("Could not open macro storage"), so replacing one would lose working macros.
+-    // Macros edited in HST are not saved into such a file; the save check warns about that.
++    // Macros edited in HST are not saved into such a file; Save As asks first (sfx2 guisaveas).
+     if (!bOriginal)
+     {
+         WriteCurrentVBA();
+         return;
+     }
+-    if (SfxObjectShell* pShell = m_rDoc.GetDocShell())
+-        if (BasicManager* pBasicMan = pShell->GetBasicManager(); pBasicMan && pBasicMan->IsBasicModified())
+-            pShell->SetError(ERRCODE_SVX_MODIFIED_VBASIC_STORAGE);
+ 
+     const sal_Int32 nOpenMode = embed::ElementModes::READ;
+     uno::Reference<io::XStream> xMacrosStream = xDocumentStorage->openStreamElement(aMacrosName, nOpenMode);
