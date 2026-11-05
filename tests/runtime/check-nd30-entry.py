@@ -16,11 +16,11 @@ dbus-run-session (AT-SPI needs a session bus).
 """
 import argparse
 import os
-import re
 import shutil
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -32,6 +32,21 @@ ND30 = "Văn bản hành chính…"
 WIZARD_TITLE = "Văn bản hành chính"
 DESCRIPTION = "Tuân thủ Nghị định số 30/2020/NĐ-CP của Chính phủ về công tác văn thư."
 ENGLISH_ITEMS = {"Check for Updates…"}  # the only HST menu item that follows the UI language
+
+
+def vietnamese_menu_titles():
+    """The Vietnamese titles the extension declares for its HST menu (Addons.xcu, xml:lang="vi").
+
+    A label such as "Macro VBA" has no diacritics yet is the Vietnamese label, so the menu is compared with
+    the declared titles instead of guessing the language from the letters."""
+    registry, xml = "{http://openoffice.org/2001/registry}", "{http://www.w3.org/XML/1998/namespace}"
+    tree = ET.parse(os.path.join(hst_gui.ROOT, "extensions", "hst-vietnamese-tools", "Addons.xcu"))
+    menu = next(n for n in tree.iter("node") if n.get(registry + "name") == "org.hst.office.vi")
+    titles = set()
+    for prop in menu.iter("prop"):
+        if prop.get(registry + "name") == "Title":
+            titles.update(v.text for v in prop.findall("value") if v.get(xml + "lang") == "vi" and v.text)
+    return titles
 
 
 def record(name, ok, detail=""):
@@ -65,7 +80,8 @@ def check_language(args, lang, label):
         time.sleep(6)
         menu, items = hst_menu(office_app())
         record(label + " Writer HST menu offers the ND 30 entry", ND30 in items, items)
-        others = [i for i in items if i not in ENGLISH_ITEMS and not re.search(r"[À-ỹ]|HST|CSV|HASON|NĐ", i)]
+        vietnamese = vietnamese_menu_titles()
+        others = [i for i in items if i not in ENGLISH_ITEMS and i not in vietnamese]
         record(label + " every HST menu item is Vietnamese except the update check", not others, others)
         if label == "en":
             record("en: the update check follows the UI language", "Check for Updates…" in items, items)
