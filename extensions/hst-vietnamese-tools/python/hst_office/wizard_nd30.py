@@ -140,7 +140,9 @@ class Nd30Wizard:
         if errs:
             return False
         type_id, fields = self.read()
-        register = nd30.get_type(type_id, self.data).get("module") == "sheets"
+        kind = nd30.get_type(type_id, self.data)
+        self.d.model.getByName("description").Label = self.s_nd["descriptions"][kind["profile"]]
+        register = kind.get("module") == "sheets"
         self.d.model.getByName("btnOk").Label = self.s_nd["openSheet" if register else "insert"]
         if register:
             self.d.set_text("preview", self.s_nd["registerNote"])
