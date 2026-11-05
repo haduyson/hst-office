@@ -78,7 +78,10 @@ def stage1():
     add('paste', p('M8 5H5v16h14V5h-3') + r(8, 2.5, 8, 5, 1.5) + p('M8 12h8m-8 4h6'), 'Clipboard with clipped paper')
     add('cut', c(6, 17.5, 3) + c(18, 17.5, 3) + p('m8 15 10-12M16 15 6 3'), 'Scissors, two separated finger loops')
     add('copy', r(8, 7, 12, 14, 1.5) + p('M5 17H3V3h12v1M11 11h6m-6 4h5'), 'Two overlapping sheets')
-    add('formatpaintbrush', p('M7 3h10v7H7zM17 6h3v8h-8v7H9v-9'), 'Paint roller and handle')
+    # Diagonal flat brush, handle up-right and filled bristles down-left, as users know it from Office.
+    add('formatpaintbrush', transform(r(10.5, -1, 3, 7.5, 1.5) + r(7.5, 6.5, 9, 4.5, .8)
+                                      + p('M7.5 11h9v7l-1.5 4h-6l-1.5-4z', fill='#E2B741'),
+                                      'rotate(45 12 12)'), 'Flat paintbrush with handle, ferrule and filled bristles')
     add('resetattributes', p('m3 15 9-11 8 6-9 11H8zm4 3 9-11M14 21h7'), 'Eraser and cleared baseline')
     add('clearcontents', r(3, 3, 18, 18, 1) + p('M3 9h18M9 3v18m4-8 5 5m0-5-5 5'), 'Cell grid with clear cross')
     add('bold', p('M7 3v18h6c7 0 7-9 0-9H7h5c6 0 6-9 0-9H7', stroke_width=2.4), 'Hand-drawn bold B')
