@@ -1,0 +1,89 @@
+HST Office: "macros were edited" means that.
+
+Saving keeps the VBA project read from a file while macros and forms are unchanged, and asks before edits
+would be lost, so BasicManager::IsBasicModified() must be right. It was not. Loading left it set, so a file
+with no edits looked edited; and elementReplaced, elementInserted and elementRemoved, which user edits pass
+through, cleared it, so an edit looked like none. Loading now clears it when it ends, a changed source,
+an added or removed module, and a form stored by the designer set it.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba-keep-word-project.py, tests/runtime/check-vba-save-format.py.
+---
+--- a/basic/source/basmgr/basmgr.cxx
++++ b/basic/source/basmgr/basmgr.cxx
+@@ -236,7 +236,8 @@
+                 }
+                 else
+                     pLib->MakeModule( aName, aMod );
+-                pLib->SetModified( false );
++                // HST: an edit, which saving must know about (loading clears this when it ends)
++                pLib->SetModified( true );
+             }
+         }
+     }
+@@ -260,7 +261,14 @@
+     Event.Element >>= aMod;
+ 
+     if( pMod )
+-            pMod->SetSource( aMod );
++    {
++        // HST: a different source is an edit, which saving must know about: IsBasicModified()
++        const bool bEdited = pMod->GetSource() != aMod;
++        const bool bWasModified = pLib->IsModified();
++        pMod->SetSource( aMod );
++        pLib->SetModified( bEdited || bWasModified );
++        return;
++    }
+     else
+     {
+         // HST: loading a library replaces its placeholder elements, and a form module made without
+@@ -300,7 +308,7 @@
+         if( pMod )
+         {
+             pLib->Remove( pMod );
+-            pLib->SetModified( false );
++            pLib->SetModified( true ); // HST: an edit, which saving must know about
+         }
+     }
+ }
+--- a/sfx2/source/doc/objmisc.cxx
++++ b/sfx2/source/doc/objmisc.cxx
+@@ -1141,6 +1141,16 @@
+         && !(pImpl->nFlagsInProgress & SfxLoadedFlags::MAINDOCUMENT ))
+     {
+         pImpl->nFlagsInProgress |= SfxLoadedFlags::MAINDOCUMENT;
++
++        // HST: building the macro libraries while loading is not an edit: IsBasicModified() is what
++        // tells saving whether the VBA project read from the file is still current
++        if ( pImpl->aBasicManager.isValid() )
++        {
++            if ( BasicManager* pBasicManager = pImpl->aBasicManager.get() )
++                for ( sal_uInt16 nLib = 0; nLib < pBasicManager->GetLibCount(); ++nLib )
++                    if ( StarBASIC* pLib = pBasicManager->GetLib( nLib ) )
++                        pLib->SetModified( false );
++        }
+         static_cast<SfxHeaderAttributes_Impl*>(GetHeaderAttributes())->SetAttributes();
+ 
+         pMedium->activateEmbeddedFonts();
+--- a/basctl/source/basicide/baside3.cxx
++++ b/basctl/source/basicide/baside3.cxx
+@@ -17,6 +17,8 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <basic/basmgr.hxx>
++#include <basic/sbstar.hxx>
+ #include <strings.hrc>
+ #include <helpids.h>
+ #include <iderid.hxx>
+@@ -1124,6 +1126,10 @@
+                     comphelper::getProcessComponentContext() );
+                 Reference< XInputStreamProvider > xISP = ::xmlscript::exportDialogModel( xDialogModel, xContext, GetDocument().isDocument() ? GetDocument().getDocument() : Reference< frame::XModel >() );
+                 xLib->replaceByName( GetName(), Any( xISP ) );
++                // HST: a file keeps the project it was read with unless saving knows that its forms changed
++                if ( BasicManager* pManager = GetDocument().getBasicManager() )
++                    if ( StarBASIC* pBasic = pManager->GetLib( GetLibName() ) )
++                        pBasic->SetModified( true );
+             }
+         }
+     }

@@ -1,0 +1,119 @@
+HST Office: a new .docm lists its macros in word/vbaData.xml.
+
+Word's Macros dialog names what vbaData.xml names, not what the project holds. The owner's test in real
+Word: Word's own project in a package without the part lists nothing; HST's project in Word's package
+does not list its own macro. Public Subs without parameters are written, outside Option Private Module,
+as Word writes them.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba-forms.py.
+---
+--- a/sw/source/filter/ww8/docxexport.cxx
++++ b/sw/source/filter/ww8/docxexport.cxx
+@@ -62,6 +62,8 @@
+ #include <sot/storinfo.hxx>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/script/XLibraryContainer.hpp>
++#include <com/sun/star/script/ModuleType.hpp>
++#include <com/sun/star/script/vba/XVBAModuleInfo.hpp>
+ #include <tools/stream.hxx>
+ #include <com/sun/star/script/vba/XVBACompatibility.hpp>
+ 
+@@ -1984,6 +1986,74 @@
+     }
+ }
+ 
++namespace
++{
++/// The procedures the Macros dialog shows: public Subs without parameters, outside Option Private Module
++std::vector<OUString> lclListedMacros(std::u16string_view aSource)
++{
++    std::vector<OUString> aNames;
++    const OUString aText(aSource);
++    sal_Int32 nIndex = 0;
++    do
++    {
++        if (aText.getToken(0, '\n', nIndex).trim().equalsIgnoreAsciiCase(u"option private module"))
++            return {};
++    } while (nIndex >= 0);
++    nIndex = 0;
++    do
++    {
++        const OUString aLine = aText.getToken(0, '\n', nIndex).trim();
++        sal_Int32 nAt = 0;
++        const auto lclSkip = [&aLine, &nAt](std::u16string_view aWord) {
++            if (!aLine.matchIgnoreAsciiCase(aWord, nAt))
++                return false;
++            nAt += aWord.size();
++            return true;
++        };
++        lclSkip(u"public ");
++        lclSkip(u"static ");
++        if (!lclSkip(u"sub "))
++            continue;
++        const sal_Int32 nOpen = aLine.indexOf('(', nAt);
++        const sal_Int32 nClose = aLine.indexOf(')', nAt);
++        if (nOpen < 0 || nClose < nOpen || !aLine.copy(nOpen + 1, nClose - nOpen - 1).trim().isEmpty())
++            continue;
++        const OUString aName = aLine.copy(nAt, nOpen - nAt).trim();
++        if (!aName.isEmpty())
++            aNames.push_back(aName);
++    } while (nIndex >= 0);
++    return aNames;
++}
++
++OString lclVbaDataXml(const OUString& rProject, const uno::Reference<container::XNameAccess>& xLibrary)
++{
++    uno::Reference<script::vba::XVBAModuleInfo> xInfo(xLibrary, uno::UNO_QUERY);
++    OStringBuffer aEntries;
++    for (const OUString& rModule : xLibrary->getElementNames())
++    {
++        if (xInfo.is() && xInfo->hasModuleInfo(rModule)
++            && xInfo->getModuleInfo(rModule).ModuleType != script::ModuleType::NORMAL
++            && xInfo->getModuleInfo(rModule).ModuleType != script::ModuleType::DOCUMENT)
++            continue;
++        OUString aSource;
++        xLibrary->getByName(rModule) >>= aSource;
++        for (const OUString& rMacro : lclListedMacros(aSource))
++        {
++            const OUString aName = rProject + "." + rModule + "." + rMacro;
++            aEntries.append("<wne:mcd wne:macroName=\""
++                            + OUStringToOString(aName.toAsciiUpperCase(), RTL_TEXTENCODING_UTF8)
++                            + "\" wne:name=\"" + OUStringToOString(aName, RTL_TEXTENCODING_UTF8)
++                            + "\" wne:bEncrypt=\"00\" wne:cmg=\"56\"/>");
++        }
++    }
++    if (aEntries.isEmpty())
++        return {};
++    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++           "<wne:vbaSuppData xmlns:wne=\"http://schemas.microsoft.com/office/word/2006/wordml\"><wne:mcds>"
++           + aEntries + "</wne:mcds></wne:vbaSuppData>";
++}
++}
++
+ bool DocxExport::WriteCurrentVBA()
+ {
+     uno::Reference<frame::XModel> xModel(m_rDoc.GetDocShell() ? m_rDoc.GetDocShell()->GetModel() : nullptr);
+@@ -2020,7 +2090,21 @@
+         pOut->WriteStream(aVbaStream);
+     }
+     m_rFilter.addRelation(m_pDocumentFS->getOutputStream(), oox::getRelationship(Relationship::VBAPROJECT), u"vbaProject.bin");
+-    // vbaData.xml (key bindings of the original project) is optional and would name stale macros: not written.
++    // Word's Macros dialog lists what vbaData.xml names, not what the project holds: without it the list is empty
++    const OString aData = lclVbaDataXml(aProject, xLibrary);
++    if (!aData.isEmpty())
++    {
++        uno::Reference<io::XStream> xDataStream(
++            GetFilter().openFragmentStream(u"word/vbaData.xml"_ustr, u"application/vnd.ms-word.vbaData+xml"_ustr),
++            uno::UNO_QUERY);
++        if (xDataStream.is())
++        {
++            std::unique_ptr<SvStream> pOut(utl::UcbStreamHelper::CreateStream(xDataStream));
++            pOut->WriteBytes(aData.getStr(), aData.getLength());
++            pOut.reset();
++            m_rFilter.addRelation(xProjectStream, oox::getRelationship(Relationship::WORDVBADATA), u"vbaData.xml");
++        }
++    }
+     return true;
+ }
+ 

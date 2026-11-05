@@ -1,0 +1,98 @@
+HST Office: the import's copy of a VBA project keeps the class of its storages.
+
+Saving keeps the project read from a .doc, .docm or .xls, from a copy made through StorageBase, which has
+names and bytes only: a Frame's storage lost its class. It is restored from the storage's CompObj, the same
+value in every Office-made form file looked at, and the CompObj stays byte for byte.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba-forms.py.
+---
+--- a/oox/source/ole/vbaproject.cxx
++++ b/oox/source/ole/vbaproject.cxx
+@@ -46,6 +46,11 @@
+ #include <oox/ole/vbainputstream.hxx>
+ #include <oox/ole/vbamodule.hxx>
+ #include <oox/token/properties.hxx>
++#include <sot/exchange.hxx>
++#include <sot/storage.hxx>
++#include <sot/storinfo.hxx>
++#include <tools/globname.hxx>
++#include <unotools/ucbstreamhelper.hxx>
+ #include <utility>
+ 
+ namespace oox::ole {
+@@ -553,6 +558,58 @@
+     }
+ }
+ 
++namespace {
++
++// A copy through StorageBase has names and bytes only, and a Frame's storage needs its class. Office
++// files have the class of a storage in its CompObj as well (MS-OLEDS 2.3.8), so it is read from there.
++void lclRestoreStorageClasses( SotStorage& rStorage )
++{
++    SvStorageInfoList aElements;
++    rStorage.FillInfoList( &aElements );
++    for( const SvStorageInfo& rElement : aElements )
++    {
++        if( !rElement.IsStorage() )
++            continue;
++        rtl::Reference< SotStorage > xChild = rStorage.OpenSotStorage( rElement.GetName(), StreamMode::STD_READWRITE );
++        if( !xChild.is() || xChild->GetError() != ERRCODE_NONE )
++            continue;
++        static constexpr OUString aCompObj = u"\001CompObj"_ustr;
++        if( xChild->IsStream( aCompObj ) )
++        {
++            std::vector< sal_uInt8 > aBytes;
++            {
++                rtl::Reference< SotStorageStream > xStream = xChild->OpenSotStream( aCompObj, StreamMode::STD_READ );
++                aBytes.resize( xStream->TellEnd() );
++                xStream->Seek( 0 );
++                aBytes.resize( xStream->ReadBytes( aBytes.data(), aBytes.size() ) );
++            }
++            SvGUID aId;
++            if( aBytes.size() >= 28 )
++            {
++                SvMemoryStream aRead( aBytes.data() + 12, 16, StreamMode::READ );
++                aRead.SetEndian( SvStreamEndian::LITTLE );
++                aRead.ReadUInt32( aId.Data1 ).ReadUInt16( aId.Data2 ).ReadUInt16( aId.Data3 );
++                aRead.ReadBytes( aId.Data4, 8 );
++                const SvGlobalName aName( aId );
++                if( aName != SvGlobalName() )
++                {
++                    // SetClass writes its own CompObj: the file's is put back as it was
++                    xChild->SetClass( aName, SotClipboardFormatId::NONE, OUString() );
++                    rtl::Reference< SotStorageStream > xStream = xChild->OpenSotStream( aCompObj, StreamMode::STD_READWRITE | StreamMode::TRUNC );
++                    xStream->Seek( 0 );
++                    xStream->WriteBytes( aBytes.data(), aBytes.size() );
++                    xStream->SetStreamSize( aBytes.size() );
++                    xStream->Commit();
++                }
++            }
++        }
++        lclRestoreStorageClasses( *xChild );
++        xChild->Commit();
++    }
++}
++
++} // namespace
++
+ void VbaProject::copyStorage( StorageBase& rVbaPrjStrg )
+ {
+     if( !mxContext.is() )
+@@ -568,6 +625,15 @@
+             OleStorage aDestStorage( mxContext, xDocStream, false );
+             rVbaPrjStrg.copyStorageToStorage( aDestStorage );
+             aDestStorage.commit();
++            if( std::unique_ptr< SvStream > pStream = utl::UcbStreamHelper::CreateStream( xDocStream ) )
++            {
++                rtl::Reference< SotStorage > xRoot = new SotStorage( *pStream );
++                if( xRoot->GetError() == ERRCODE_NONE )
++                {
++                    lclRestoreStorageClasses( *xRoot );
++                    xRoot->Commit();
++                }
++            }
+         }
+         Reference< XTransactedObject >( xDocStorage, UNO_QUERY_THROW )->commit();
+     }

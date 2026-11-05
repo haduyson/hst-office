@@ -8,6 +8,7 @@ import zipfile
 import msoffice_save_steps as steps
 from hst_office import vba
 from shortcut_keys import check, wait
+from vba_form_structure import open_project
 
 WARNING_TITLE = "Lưu tài liệu có macro"
 EXTENSIONS = (".docx", ".xlsx", ".pptx", ".docm", ".xlsm", ".pptm", ".odt", ".ods", ".odp")
@@ -79,7 +80,7 @@ def check_open_docx(office, keys, files):
         if picker:
             path = os.path.join(files, "tu-docx")
             type_name(keys, picker[0], path)
-            check("open .docx: Save As proposes .docm", wait(lambda: saved_as(path) == [".docm"], 15), str(saved_as(path)))
+            check("open .docx: Save As proposes .odt", wait(lambda: saved_as(path) == [".odt"], 15), str(saved_as(path)))
     steps.close(doc)
     doc, warned = open_with_new_macro(office, keys, url)
     if warned:
@@ -95,59 +96,69 @@ def check_named_file(office, keys, files):
     doc = office.load("private:factory/swriter")
     wait(lambda: keys.doc_window() is not None, 20)
     add_vba(doc, "writer")
-    path = os.path.join(files, "dich.docx")
-    args = (pv("URL", uno.systemPathToFileUrl(path)), pv("FilterName", "MS Word 2007 XML"))
+    path = os.path.join(files, "dich.docm")  # .docm too: real Word shows no macros in what HST writes
+    args = (pv("URL", uno.systemPathToFileUrl(path)), pv("FilterName", "MS Word 2007 XML VBA"))
     frame = doc.getCurrentController().getFrame()
     thread = threading.Thread(target=lambda: office.dispatch(frame, ".uno:SaveAs", args), daemon=True)
     thread.start()
     warned = wait(lambda: warning_window(keys) is not None, 15)
-    check("named .docx file: warns", warned, str(keys.windows()))
+    check("new VBA in a named .docm file: warns", warned, str(keys.windows()))
     if warned:
         press(keys, warning_window(keys), "Escape")
     thread.join(15)
-    check("named .docx file: going back writes nothing", not os.path.exists(path))
+    check("new VBA in a named .docm file: going back writes nothing", not os.path.exists(path))
     steps.close(doc)
 
 
+def project_streams(path):
+    cfb, root = open_project(path)
+
+    def walk(entry, prefix):
+        out = {}
+        for name, item in cfb.children(entry).items():
+            if item["type"] == 1:
+                out.update(walk(item, prefix + name + "/"))
+            else:
+                out[prefix + name] = cfb.read(item)
+        return out
+    return walk(root, "")
+
+
 def check_edited_word_file(office, keys, source, files):
-    """A Word-made .docm whose macros were edited here: asked before saving, and the project stays."""
+    """An Office-made file that keeps its project (Word, or Excel with a form), with edited macros."""
     import shutil
     import uno
-    path = os.path.join(files, "tu-word.docm")
+    label = "Office-made " + os.path.splitext(source)[1]
+    path = os.path.join(files, "tu-office" + os.path.splitext(source)[1])
     shutil.copyfile(source, path)
     subprocess.run(["chown", "hstbuild", path], check=False)
-    with zipfile.ZipFile(path) as package:
-        original = package.read("word/vbaProject.bin")
+    original = project_streams(path)
 
     def open_and_edit():
         doc = office.desktop().loadComponentFromURL(uno.systemPathToFileUrl(path), "_blank", 0, (pv("MacroExecutionMode", 4),))
         steps.focus_document(office, keys)
         libs = doc.BasicLibraries
         library = libs.getByName(libs.ProjectName)
-        name = library.ElementNames[0]
+        name = next(n for n in library.ElementNames if library.getModuleInfo(n).ModuleType == 1)
         library.replaceByName(name, library.getByName(name) + "\nSub HstEdited()\nEnd Sub\n")
         steps._touch(doc)
         office.raise_windows()
         keys.send("ctrl+s")
         return doc, wait(lambda: warning_window(keys) is not None, 10)
     doc, warned = open_and_edit()
-    check("Word-made .docm with edited macros: asked before saving", warned, str(keys.windows()))
+    check(f"{label} with edited macros: asked before saving", warned, str(keys.windows()))
     if warned:
         before = {w for w, _ in keys.windows()}
         press(keys, warning_window(keys), "Escape")
         picker = []
         wait(lambda: picker.extend(w for w, _ in keys.windows() if w not in before) or picker, 10)
-        check("Word-made .docm: going back opens Save As", bool(picker), str(keys.windows()))
+        check(f"{label}: going back opens Save As", bool(picker), str(keys.windows()))
         if picker:
             press(keys, picker[0], "Escape")
     steps.close(doc)
     doc, warned = open_and_edit()
     if warned:
         press(keys, warning_window(keys), "shift+Tab", "Return")
-        check("Word-made .docm: saving without the edits saves", wait(lambda: not doc.isModified(), 20), str(keys.windows()))
+        check(f"{label}: saving without the edits saves", wait(lambda: not doc.isModified(), 20), str(keys.windows()))
     steps.close(doc)
-    with zipfile.ZipFile(path) as package:
-        from vba_cfb import Cfb
-        new, old = Cfb(package.read("word/vbaProject.bin")), Cfb(original)
-    streams = lambda cfb: {e["name"]: cfb.read(e) for e in cfb.entries if e["type"] == 2}  # noqa: E731
-    check("Word-made .docm: the project's streams are unchanged", streams(new) == streams(old))
+    check(f"{label}: the project's streams are unchanged", project_streams(path) == original)

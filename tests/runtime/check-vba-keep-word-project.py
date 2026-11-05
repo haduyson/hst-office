@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Runtime check: a VBA project read from a real Word file is written back with every stream unchanged.
+"""Runtime check: a VBA project read from a real Office file is written back with every stream unchanged.
 
 Usage: python3 tests/runtime/check-vba-keep-word-project.py [--instdir upstream/libreoffice/instdir]
        [--out tests/output/vba-keep-word] [--port 22993]
 
 Word does not open a project written by VbaExport, so saving a Word-made .docm in HST must keep its
-vbaProject.bin, with the macros unchanged and also after they were edited in HST (which Writer warns
-about). This says nothing about what real Word does with any file.
+vbaProject.bin, with the macros unchanged and also after they were edited in HST (Save As asks first).
+Excel does not load forms VbaExport writes: an Excel file keeps its project when macros are unchanged,
+and when it has forms. Macros edited in an Excel file without forms are saved. This says nothing about
+what real Office does with any file.
 """
 import argparse
 import importlib.util
@@ -19,7 +21,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-from vba_cfb import Cfb  # noqa: E402
+from vba_form_structure import module_sources, open_project  # noqa: E402
 
 SPEC = importlib.util.spec_from_file_location("check_vba", os.path.join(HERE, "check-vba.py"))
 check_vba = importlib.util.module_from_spec(SPEC)
@@ -36,9 +38,8 @@ def check(name, ok, detail=""):
 
 
 def project_streams(path):
-    """{stream path: bytes}: the import rewrites the compound file around the same streams."""
-    with zipfile.ZipFile(path) as package:
-        cfb = Cfb(package.read("word/vbaProject.bin"))
+    """{stream path: bytes}: the import of .doc, .docm and .xls rewrites the compound file around the same streams."""
+    cfb, root = open_project(path)
 
     def walk(entry, prefix):
         out = {}
@@ -48,21 +49,26 @@ def project_streams(path):
             else:
                 out[prefix + name] = cfb.read(item)
         return out
-    return walk(cfb.entries[0], "")
+    return walk(root, "")
 
 
-def save_copy(office, source, out, edit):
+def project_part(path):
+    with zipfile.ZipFile(path) as package:
+        return package.read(next(n for n in package.namelist() if n.endswith("vbaProject.bin")))
+
+
+def save_copy(office, source, out, edit, filter_name="MS Word 2007 XML VBA", ext=""):
     import uno
     name = os.path.basename(source)
-    work = os.path.join(out, ("edited-" if edit else "plain-") + name)
+    work = os.path.join(out, ("edited-" if edit else "plain-") + name + ext)
     doc = office.load(source)
     try:
         if edit:
             libs = doc.BasicLibraries
             library = libs.getByName(libs.ProjectName)
-            module = library.ElementNames[0]
+            module = next(n for n in library.ElementNames if library.getModuleInfo(n).ModuleType == 1 or n == "ThisDocument")
             library.replaceByName(module, library.getByName(module) + "\nSub HstEdited()\nEnd Sub\n")
-        doc.storeToURL(uno.systemPathToFileUrl(work), (check_vba.pv("FilterName", "MS Word 2007 XML VBA"),))
+        doc.storeToURL(uno.systemPathToFileUrl(work), (check_vba.pv("FilterName", filter_name),))
     finally:
         doc.close(True)
     return work
@@ -90,6 +96,17 @@ def main():
             name = os.path.basename(rel)
             check(f"{name}: unchanged macros: every stream of the project kept", project_streams(save_copy(office, source, args.out, False)) == original)
             check(f"{name}: edited macros: original project kept", project_streams(save_copy(office, source, args.out, True)) == original)
+        xlsm, xls = ("Calc MS Excel 2007 VBA XML", ".xlsm"), ("MS Excel 97", ".xls")
+        form = os.path.join(ROOT, "upstream/libreoffice/sc/qa/extras/testdocuments/MiscControlTests.xls")
+        original = project_streams(form)
+        for filter_name, ext in (xlsm, xls):
+            check(f"Excel .xls with a form to {ext}: unchanged macros: project kept", project_streams(save_copy(office, form, args.out, False, filter_name, ext)) == original)
+            check(f"Excel .xls with a form to {ext}: edited macros: project kept", project_streams(save_copy(office, form, args.out, True, filter_name, ext)) == original)
+        plain = os.path.join(ROOT, "upstream/libreoffice/sc/qa/unit/data/xlsm/vba-user-function.xlsm")
+        same = save_copy(office, plain, args.out, False, *xlsm)
+        check("Excel .xlsm: unchanged macros: vbaProject.bin byte for byte", project_part(same) == project_part(plain))
+        edited = save_copy(office, plain, args.out, True, *xlsm)
+        check("Excel .xlsm without forms: edited macros are saved", any(b"HstEdited" in code for code in module_sources(edited).values()))
     finally:
         office.stop()
     shutil.rmtree(os.path.join(args.out, "__pycache__"), ignore_errors=True)

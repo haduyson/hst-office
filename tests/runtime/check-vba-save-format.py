@@ -5,10 +5,11 @@ Usage: python3 tests/runtime/check-vba-save-format.py [--instdir upstream/libreo
        [--out tests/output/vba-save-format] [--display :91] [--port 22989]
 
 New documents default to .docx/.xlsx/.pptx, which hold no macros. Each file is checked on disk:
-  - VBA in Writer/Sheets: Ctrl+S proposes .docm/.xlsm and the file has the project.
+  - VBA in Sheets: Ctrl+S proposes .xlsm and the file has the project. VBA in Writer: .odt, because real
+    Word shows no macros in a project HST writes; choosing .docm warns.
   - Plain Basic (VBA formats do not write it) and macros in Slides (.pptm only copies a project read
     from a file): Ctrl+S proposes .odt/.ods/.odp and the reopened file has the module.
-  - An open .docx that gained a macro: Ctrl+S warns; going back opens Save As on .docm; "Save without
+  - An open .docx that gained a macro: Ctrl+S warns; going back opens Save As on .odt; "Save without
     Macros" keeps .docx with no project.
   - Save As to a named .docx file: warns, and going back writes nothing.
   - No macros, or only comments: .docx with no warning.
@@ -76,7 +77,7 @@ def new_save(office, keys, files, case):
     return path + expected
 
 
-CASES = (("swriter", "writer", add_vba, "vba-writer", ".docm", "Writer VBA"),
+CASES = (("swriter", "writer", add_vba, "vba-writer", ".odt", "Writer VBA"),
          ("scalc", "calc", add_vba, "vba-calc", ".xlsm", "Sheets VBA"),
          ("swriter", "writer", add_basic, "basic-writer", ".odt", "Writer Basic"),
          ("scalc", "calc", add_basic, "basic-calc", ".ods", "Sheets Basic"),
@@ -92,9 +93,9 @@ def run(office, keys, files):
         label, expected = case[5], case[4]
         if not os.path.exists(path):
             continue
-        if expected in (".docm", ".xlsm"):
+        if expected == ".xlsm":
             check(f"{label}: the file has the VBA project", has_vba_project(path))
-        if expected in (".odt", ".ods", ".odp"):
+        if case[2] is add_basic:
             # the test's own file: without a macro mode the security prompt would wait for an answer
             doc = office.desktop().loadComponentFromURL(uno.systemPathToFileUrl(path), "_blank", 0,
                                                         (pv("MacroExecutionMode", 4),))
@@ -102,7 +103,9 @@ def run(office, keys, files):
             steps.close(doc)
     check_open_docx(office, keys, files)
     check_named_file(office, keys, files)
-    check_edited_word_file(office, keys, os.path.join(hst_gui.ROOT, "upstream/libreoffice/sw/qa/core/data/docm/testFind.docm"), files)
+    source = os.path.join(hst_gui.ROOT, "upstream/libreoffice")
+    check_edited_word_file(office, keys, os.path.join(source, "sw/qa/core/data/docm/testFind.docm"), files)
+    check_edited_word_file(office, keys, os.path.join(source, "sc/qa/extras/testdocuments/MiscControlTests.xls"), files)
 
 
 def main():

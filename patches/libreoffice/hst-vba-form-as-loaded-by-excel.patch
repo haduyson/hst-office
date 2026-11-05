@@ -1,0 +1,61 @@
+HST Office: UserForms as in the file real Excel ran.
+
+The owner's test in real Excel, same route for each: an HST form with TypeInfoVer = 1 in \003VBFrame gives
+"The ActiveX Designer's Type Information does not match what was saved", with or without MODULEPRIVATE;
+without TypeInfoVer it runs. MS-OVBA gives it as the count of saves of the designer, default 0, and a new
+form has none. MODULEPRIVATE is what Office-made form modules have. The caption in the f stream is gone:
+real Excel drew it as text inside the form, and the title comes from \003VBFrame in the project's code page.
+Controls that name no font now name Tahoma, as Office-made forms do: with an empty name the text sat low and
+clipped in real Excel and Word; whether the font alone cures that is being tested.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/oox/source/ole/vbaexport.cxx
++++ b/oox/source/ole/vbaexport.cxx
+@@ -784,6 +784,12 @@
+     writeMODULEHELPCONTEXT(rStrm);
+     writeMODULECOOKIE(rStrm);
+     writeMODULETYPE(rStrm, type);
++    if (type == 3)
++    {
++        // HST: 2.3.4.2.3.2.10 MODULEPRIVATE: Office-made form modules have it
++        rStrm.WriteUInt16(0x0028);
++        rStrm.WriteUInt32(0x00000000);
++    }
+     rStrm.WriteUInt16(0x002B); // terminator
+     rStrm.WriteUInt32(0x00000000); // reserved
+ }
+--- a/oox/source/ole/vbaformexport.cxx
++++ b/oox/source/ole/vbaformexport.cxx
+@@ -185,6 +185,12 @@
+     PropertySet aPropSet(rNode.mxProps);
+     xModel->convertFromProperties(aPropSet, rConv);
+ 
++    // A dialog control usually names no font, and an empty name leaves the choice to Forms, whose fallback
++    // does not fit the control. Office-made forms name Tahoma, which has Vietnamese.
++    if (auto* pFont = dynamic_cast<AxFontDataModel*>(xModel.get()))
++        if (pFont->maFontData.maFontName.isEmpty())
++            pFont->maFontData.maFontName = u"Tahoma"_ustr;
++
+     if (auto* pMorph = dynamic_cast<AxMorphDataModelBase*>(xModel.get()))
+     {
+         // properties the importer maps for dialog models but convertFromProperties() leaves out
+@@ -651,15 +657,14 @@
+                             + "\"\r\n   ClientHeight    =   " + OUString::number(nTwipsY)
+                             + "\r\n   ClientLeft      =   45\r\n   ClientTop       =   390"
+                             + "\r\n   ClientWidth     =   " + OUString::number(nTwipsX)
+-                            + "\r\n   StartUpPosition =   1  'CenterOwner\r\n   TypeInfoVer     =   1\r\nEnd\r\n";
++                            + "\r\n   StartUpPosition =   1  'CenterOwner\r\nEnd\r\n";
+     const OString aFrameBytes = OUStringToOString(aFrame, eTextEncoding);
+     rtl::Reference<SotStorageStream> xFrame = xForm->OpenSotStream(u"\003VBFrame"_ustr, StreamMode::READWRITE | StreamMode::TRUNC);
+     xFrame->WriteBytes(aFrameBytes.getStr(), aFrameBytes.getLength());
+     xFrame->Commit();
+ 
+-    // the caption also as UTF-16, the only form independent of the code page (MS-OFORMS FormDataBlock):
+-    // \003VBFrame MUST be in the project's code page, which a Windows set to another language misreads
+-    lclWriteContainer(*xForm, aRoots, aSize, aCaption, true, nBackColor, 0, nNextId);
++    // The title is only in \003VBFrame: real Excel shows a caption in the f stream as text inside the form
++    lclWriteContainer(*xForm, aRoots, aSize, OUString(), true, nBackColor, 0, nNextId);
+     xForm->Commit();
+ }
+ }

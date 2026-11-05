@@ -25,6 +25,7 @@ from hst_office import vba  # noqa: E402
 from hst_office.vba_template import project_name, unwritable_form_content  # noqa: E402
 import vba_form_structure  # noqa: E402
 from vba_form_fixture import BODY, EXTRA, add_form, controls_of, dialog_xml, read_dialog  # noqa: E402
+from vba_word_macro_list import check_word_macro_list  # noqa: E402
 
 SPEC = importlib.util.spec_from_file_location("check_vba", os.path.join(HERE, "check-vba.py"))
 check_vba = importlib.util.module_from_spec(SPEC)
@@ -92,10 +93,6 @@ def check_resaved(office, doc, app, ext, filt, out, first):
     path = os.path.join(out, f"form-{app}-again.{ext}")
     doc.storeToURL(uno.systemPathToFileUrl(path), (check_vba.pv("FilterName", filt),))
     problems, _forms = vba_form_structure.check_file(path)
-    # Known limit: a Word file keeps its project, but the import's copy (VbaProject::copyStorage, as
-    # upstream) drops the class of a Frame's storage. Streams are kept: check-vba-keep-word-project.py.
-    if ext in ("docm", "doc"):
-        problems = [problem for problem in problems if "storage CLSID" not in problem]
     check(f".{ext}: saved again: file structure", not problems, problems)
     first_path = os.path.join(out, f"form-{app}.{ext}")
     changed = [name for name, code in vba_form_structure.module_sources(first_path).items()
@@ -159,6 +156,7 @@ def main():
                                      ("swriter", "writer", "doc", "MS Word 97"), ("swriter", "writer", "odt", "writer8")):
             check_saved(office, kind, app, ext, filt, args.out)
         check_fixture(office, args.out)
+        check_word_macro_list(office, args.out, check, check_vba.pv, 'MS Word 2007 XML VBA')
     finally:
         office.stop()
     lost, _items = unwritable_form_content(dialog_xml(BODY + EXTRA))

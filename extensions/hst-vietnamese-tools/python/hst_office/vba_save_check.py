@@ -51,9 +51,9 @@ def _dialog_xml(doc, library_name, form):
             return data
 
 
-def has_written_forms(doc, is_writer):
-    """True when HST wrote the forms itself: a Word file keeps the project it was read with."""
-    if is_writer and doc.getDocumentStorage().hasByName("_MS_VBA_Macros"):
+def has_written_forms(doc):
+    """True when HST wrote the forms itself: a file keeps a project with forms it was read with."""
+    if doc.getDocumentStorage().hasByName("_MS_VBA_Macros"):
         return False
     libs = doc.BasicLibraries
     for library_name in libs.ElementNames:
@@ -102,9 +102,12 @@ def check(ctx, doc):
     is_writer = doc.supportsService("com.sun.star.text.TextDocument") and is_word_filter(filter_name)
     if not is_calc and not is_writer:
         return None
+    # A project kept from the file has every control, list and link it was read with
+    if doc.getDocumentStorage().hasByName("_MS_VBA_Macros"):
+        return None
     unwritable, list_items, bound = form_problems(doc)
     parts = []
-    if has_written_forms(doc, is_writer):
+    if has_written_forms(doc):
         parts.append(FORMS_NOT_VERIFIED)
     if unwritable:
         parts.append((EXCEL_LOST if is_calc else WORD_KEPT) % ", ".join(unwritable))

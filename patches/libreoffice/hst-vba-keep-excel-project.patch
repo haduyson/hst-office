@@ -1,0 +1,284 @@
+HST Office: real Excel files keep their VBA project; new Writer VBA proposes .odt.
+
+Every save of an .xlsm or .xls regenerated the project, in upstream and in every HST release, dropping
+the compiled cache, and a real form was lost or, with the form export, no longer loads in Excel. Now:
+- .xlsm import stores the project as it is in the file, as .xls import does already.
+- A project with unchanged macros is written back: an .xlsm to an .xlsm byte for byte.
+- A project with UserForms is written back also when macros were edited, because real Excel does not
+  load forms HST writes; Save As asks first, as it does for Word files. Edited macros without forms are
+  written as before: real Excel runs plain macros HST writes (owner's test).
+- Save As: real Word shows no macros in a project HST writes (owner's test), so new VBA in Writer
+  proposes .odt, and choosing .docm or .doc warns. A project read from a Word file stays.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba-keep-word-project.py, tests/runtime/check-vba-save-format.py.
+---
+--- a/sc/source/filter/oox/workbookfragment.cxx
++++ b/sc/source/filter/oox/workbookfragment.cxx
+@@ -82,6 +82,13 @@
+ #include <oox/ole/vbaproject.hxx>
+ 
+ #include <comphelper/processfactory.hxx>
++#include <comphelper/storagehelper.hxx>
++#include <com/sun/star/document/XStorageBasedDocument.hpp>
++#include <com/sun/star/embed/ElementModes.hpp>
++#include <com/sun/star/embed/XStorage.hpp>
++#include <com/sun/star/embed/XTransactedObject.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <officecfg/Office/Calc.hxx>
+ #include <officecfg/Office/Calc.hxx>
+ 
+ #include <xestream.hxx>
+@@ -543,6 +550,22 @@
+             StorageRef xPrjStrg = std::make_shared<::oox::ole::OleStorage>( getBaseFilter().getComponentContext(), xInStrm, false );
+             setVbaProjectStorage( xPrjStrg );
+             getBaseFilter().getVbaProject().readVbaModules( *xPrjStrg );
++            // HST: keep the project as it is in the file, so that saving can write it back unchanged
++            if( officecfg::Office::Calc::Filter::Import::VBA::Save::get() ) try
++            {
++                Reference< css::document::XStorageBasedDocument > xStorageDoc( getBaseFilter().getModel(), UNO_QUERY_THROW );
++                Reference< css::embed::XStorage > xDocStorage( xStorageDoc->getDocumentStorage(), UNO_SET_THROW );
++                {
++                    Reference< XOutputStream > xKept( xDocStorage->openStreamElement( u"_MS_VBA_Macros"_ustr,
++                        css::embed::ElementModes::SEEKABLE | css::embed::ElementModes::WRITE | css::embed::ElementModes::TRUNCATE ), UNO_QUERY_THROW );
++                    comphelper::OStorageHelper::CopyInputToOutput( getBaseFilter().openInputStream( aVbaFragmentPath ), xKept );
++                }
++                Reference< css::embed::XTransactedObject >( xDocStorage, UNO_QUERY_THROW )->commit();
++            }
++            catch( const Exception& )
++            {
++                TOOLS_WARN_EXCEPTION( "sc.filter", "keeping the VBA project" );
++            }
+         }
+     }
+ 
+--- a/sc/source/filter/inc/xestream.hxx
++++ b/sc/source/filter/inc/xestream.hxx
+@@ -282,6 +282,12 @@
+     static sax_fastparser::FSHelperPtr  WriteFontData( sax_fastparser::FSHelperPtr pStream, const XclFontData& rFontData, sal_Int32 nNameId );
+ };
+ 
++class SfxObjectShell;
++
++/** HST: true when saving writes the VBA project read from the file instead of generating one: its macros
++    are unchanged, or it has UserForms, which real Excel does not load when HST writes them. */
++bool XclExpKeepsOriginalVba( SfxObjectShell& rShell );
++
+ class XclExpXmlStream : public oox::core::XmlFilterBase
+ {
+ public:
+--- a/sc/source/filter/excel/xestream.cxx
++++ b/sc/source/filter/excel/xestream.cxx
+@@ -67,6 +67,9 @@
+ #include <oox/export/ColorExportUtils.hxx>
+ #include <formula/grammar.hxx>
+ #include <oox/ole/vbaexport.hxx>
++#include <basic/basmgr.hxx>
++#include <com/sun/star/embed/ElementModes.hpp>
++#include <com/sun/star/embed/XStorage.hpp>
+ #include <excelvbaproject.hxx>
+ #include <oox/export/shapes.hxx>
+ #include <xcl97rec.hxx>
+@@ -937,6 +940,24 @@
+     return pStream;
+ }
+ 
++bool XclExpKeepsOriginalVba( SfxObjectShell& rShell )
++{
++    try
++    {
++        css::uno::Reference<css::embed::XStorage> xDocStorage(rShell.GetStorage());
++        if (!xDocStorage.is() || !xDocStorage->hasByName(u"_MS_VBA_Macros"_ustr))
++            return false;
++        BasicManager* pBasicManager = rShell.GetBasicManager();
++        if (!pBasicManager || !pBasicManager->IsBasicModified())
++            return true;
++        return VbaExport(rShell.GetModel()).hasForms();
++    }
++    catch (const css::uno::Exception&)
++    {
++        return false;
++    }
++}
++
+ XclExpXmlStream::XclExpXmlStream( const uno::Reference< XComponentContext >& rCC, bool bExportVBA, bool bExportTemplate )
+     : XmlFilterBase( rCC ),
+       mpRoot( nullptr ),
+@@ -1136,7 +1157,17 @@
+                                     pWorkbookContentType,
+                                     oox::getRelationship(Relationship::OFFICEDOCUMENT) ) );
+ 
+-    if (mbExportVBA)
++    SfxObjectShell* pVbaShell = SfxObjectShell::GetShellFromComponent(getModel());
++    if (mbExportVBA && pVbaShell && XclExpKeepsOriginalVba(*pVbaShell))
++    {
++        css::uno::Reference<css::embed::XStorage> xDocStorage(pVbaShell->GetStorage());
++        css::uno::Reference<css::io::XStream> xKept(xDocStorage->openStreamElement(u"_MS_VBA_Macros"_ustr, css::embed::ElementModes::READ));
++        css::uno::Reference<css::io::XOutputStream> xVBAOutput =
++            openFragmentStream(u"xl/vbaProject.bin"_ustr, u"application/vnd.ms-office.vbaProject"_ustr);
++        comphelper::OStorageHelper::CopyInputToOutput(xKept->getInputStream(), xVBAOutput);
++        addRelation(GetCurrentStream()->getOutputStream(), oox::getRelationship(Relationship::VBAPROJECT), u"vbaProject.bin");
++    }
++    else if (mbExportVBA)
+     {
+         VbaExport aExport(getModel());
+         if (aExport.containsVBAProject())
+--- a/sc/source/filter/excel/expop2.cxx
++++ b/sc/source/filter/excel/expop2.cxx
+@@ -23,6 +23,7 @@
+ #include <filter/msfilter/svxmsbas.hxx>
+ #include <docsh.hxx>
+ #include <oox/ole/vbaexport.hxx>
++#include <xestream.hxx>
+ 
+ #include <scerrors.hxx>
+ 
+@@ -86,7 +87,13 @@
+         }
+     }
+ 
+-    if ( pDocShell && xRootStrg.is() && eVbaExportMode == VBAExportMode::FULL_EXPORT)
++    // HST: a project that stays as it was read: no question or error after saving, Save As asked first
++    if ( pDocShell && xRootStrg.is() && eVbaExportMode != VBAExportMode::NONE && XclExpKeepsOriginalVba( *pDocShell ) )
++    {
++        SvxImportMSVBasic aKeptImport( *pDocShell, *xRootStrg );
++        aKeptImport.SaveOrDelMSVBAStorage( true, EXC_STORAGE_VBA_PROJECT );
++    }
++    else if ( pDocShell && xRootStrg.is() && eVbaExportMode == VBAExportMode::FULL_EXPORT)
+     {
+         VbaExport aExport(pDocShell->GetModel());
+         if (aExport.containsVBAProject())
+--- a/sfx2/source/doc/guisaveas.cxx
++++ b/sfx2/source/doc/guisaveas.cxx
+@@ -38,7 +38,9 @@
+ #include <com/sun/star/document/XEmbeddedScripts.hpp>
+ #include <com/sun/star/document/XStorageBasedDocument.hpp>
+ #include <com/sun/star/script/XLibraryContainer.hpp>
++#include <com/sun/star/script/ModuleType.hpp>
+ #include <com/sun/star/script/vba/XVBACompatibility.hpp>
++#include <com/sun/star/script/vba/XVBAModuleInfo.hpp>
+ #include <o3tl/string_view.hxx>
+ #include <basic/basmgr.hxx>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+@@ -286,7 +288,8 @@
+ {
+     bool bAny = false; ///< there is macro code
+     bool bBasic = false; ///< code outside the VBA project: VBA formats do not write it, only ODF does
+-    bool bImportedVba = false; ///< the VBA project read from the file, which PowerPoint formats copy
++    bool bImportedVba = false; ///< the VBA project read from the file, which Office formats keep
++    bool bForms = false; ///< there is a UserForm
+ };
+ 
+ bool lclHasMacroCode(const OUString& rCode)
+@@ -317,6 +320,15 @@
+         if (!xNames.is())
+             return aMacros;
+         uno::Reference<script::vba::XVBACompatibility> xVba(xLibraries, uno::UNO_QUERY);
++        const auto hasForm = [](const uno::Reference<container::XNameAccess>& xNames_)
++        {
++            uno::Reference<script::vba::XVBAModuleInfo> xInfo(xNames_, uno::UNO_QUERY);
++            if (xInfo.is())
++                for (const OUString& rName : xNames_->getElementNames())
++                    if (xInfo->hasModuleInfo(rName) && xInfo->getModuleInfo(rName).ModuleType == script::ModuleType::FORM)
++                        return true;
++            return false;
++        };
+         const OUString aProject = xVba.is() && xVba->getVBACompatibilityMode() ? xVba->getProjectName() : OUString();
+         for (const OUString& rLibrary : xNames->getElementNames())
+         {
+@@ -325,6 +337,7 @@
+             uno::Reference<container::XNameAccess> xModules(xNames->getByName(rLibrary), uno::UNO_QUERY);
+             if (!xModules.is())
+                 continue;
++            aMacros.bForms = aMacros.bForms || hasForm(xModules);
+             for (const OUString& rModule : xModules->getElementNames())
+             {
+                 OUString aCode;
+@@ -356,13 +369,14 @@
+         return true;
+     if (rMacros.bBasic)
+         return false;
+-    if (rFilter == u"MS Word 97" || rFilter == u"MS Word 97 Vorlage" || rFilter == u"MS Word 2007 XML VBA"
+-        || rFilter == u"Office Open XML Text VBA" || rFilter == u"MS Excel 97"
+-        || rFilter == u"MS Excel 97 Vorlage/Template" || rFilter == u"Calc MS Excel 2007 VBA XML"
+-        || rFilter == u"Calc Office Open XML VBA")
++    if (rFilter == u"MS Excel 97" || rFilter == u"MS Excel 97 Vorlage/Template"
++        || rFilter == u"Calc MS Excel 2007 VBA XML" || rFilter == u"Calc Office Open XML VBA")
+         return true;
++    // Real Word shows no macros in a project HST writes (owner's test): only one read from a file stays
+     return rMacros.bImportedVba
+-           && (rFilter == u"Impress MS PowerPoint 2007 XML VBA" || rFilter == u"MS PowerPoint 97"
++           && (rFilter == u"MS Word 97" || rFilter == u"MS Word 97 Vorlage" || rFilter == u"MS Word 2007 XML VBA"
++               || rFilter == u"Office Open XML Text VBA"
++               || rFilter == u"Impress MS PowerPoint 2007 XML VBA" || rFilter == u"MS PowerPoint 97"
+                || rFilter == u"MS PowerPoint 97 Vorlage");
+ }
+ 
+@@ -370,7 +384,7 @@
+ OUString lclMacroKeepingFilter(const DocumentMacros& rMacros, std::u16string_view rDocService)
+ {
+     if (rDocService == u"com.sun.star.text.TextDocument")
+-        return rMacros.bBasic ? u"writer8"_ustr : u"MS Word 2007 XML VBA"_ustr;
++        return !rMacros.bBasic && rMacros.bImportedVba ? u"MS Word 2007 XML VBA"_ustr : u"writer8"_ustr;
+     if (rDocService == u"com.sun.star.sheet.SpreadsheetDocument")
+         return rMacros.bBasic ? u"calc8"_ustr : u"Calc MS Excel 2007 VBA XML"_ustr;
+     if (rDocService == u"com.sun.star.presentation.PresentationDocument")
+@@ -845,10 +859,13 @@
+          || GetDocProps().getUnpackedValueOrDefault( u"Hidden"_ustr, false ) )
+         return true;
+     const DocumentMacros aMacros = lclGetDocumentMacros( m_xModel );
+-    if ( !aMacros.bAny || rFilter.isEmpty() || !m_pOwner->GetFilterConfiguration()->hasByName( rFilter ) )
++    if ( rFilter.isEmpty() || !m_pOwner->GetFilterConfiguration()->hasByName( rFilter ) )
+         return true;
+-    // Word files keep the VBA project they were read with: edits made here would not reach the file
+-    if ( aMacros.bImportedVba && ( rFilter == u"MS Word 2007 XML VBA" || rFilter == u"Office Open XML Text VBA" || rFilter == u"MS Word 97" ) )
++    // Word files keep the VBA project they were read with, and so do Excel files with forms: edits
++    // made here would not reach the file
++    const bool bKeptWord = rFilter == u"MS Word 2007 XML VBA" || rFilter == u"Office Open XML Text VBA" || rFilter == u"MS Word 97";
++    const bool bKeptExcel = aMacros.bForms && ( rFilter == u"MS Excel 97" || rFilter == u"Calc MS Excel 2007 VBA XML" || rFilter == u"Calc Office Open XML VBA" );
++    if ( aMacros.bImportedVba && ( bKeptWord || bKeptExcel ) )
+     {
+         SfxObjectShell* pShell = SfxObjectShell::GetShellFromComponent( m_xModel );
+         BasicManager* pBasicManager = pShell ? pShell->GetBasicManager() : nullptr;
+@@ -856,13 +873,15 @@
+             return true;
+         std::unique_ptr< weld::MessageDialog > xEdited( Application::CreateMessageDialog(
+             SfxStoringHelper::GetModelWindow( m_xModel ), VclMessageType::Warning, VclButtonsType::NONE,
+-            SfxResId( STR_HST_MACRO_EDITS_TEXT ) ) );
++            SfxResId( bKeptWord ? STR_HST_MACRO_EDITS_TEXT : STR_HST_MACRO_EDITS_EXCEL ) ) );
+         xEdited->set_title( SfxResId( STR_HST_MACRO_FORMAT_TITLE ) );
+         xEdited->add_button( SfxResId( STR_HST_MACRO_EDITS_LOSE ), RET_YES );
+         xEdited->add_button( SfxResId( STR_HST_MACRO_FORMAT_BACK ), RET_NO );
+         xEdited->set_default_response( RET_NO );
+         return xEdited->run() == RET_YES;
+     }
++    if ( !aMacros.bAny )
++        return true;
+     uno::Sequence< beans::PropertyValue > aProps;
+     m_pOwner->GetFilterConfiguration()->getByName( rFilter ) >>= aProps;
+     const ::comphelper::SequenceAsHashMap aPropsHM( aProps );
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -60,6 +60,7 @@
+ #define STR_HST_MACRO_FORMAT_LOSE               NC_("STR_HST_MACRO_FORMAT_LOSE", "Save without Macros")
+ #define STR_HST_MACRO_FORMAT_BACK               NC_("STR_HST_MACRO_FORMAT_BACK", "Choose Another Format")
+ #define STR_HST_MACRO_EDITS_TEXT                NC_("STR_HST_MACRO_EDITS_TEXT", "You edited the macros of this document, but this Word format keeps the original VBA project from the file: your macro edits will not be saved in it. To keep the edits, choose an OpenDocument format such as .odt.")
++#define STR_HST_MACRO_EDITS_EXCEL               NC_("STR_HST_MACRO_EDITS_EXCEL", "You edited the macros of this workbook, but it has VBA UserForms, which HST Office cannot yet write in a form Excel can load. So this format keeps the original VBA project from the file: your macro edits will not be saved in it. To keep the edits, choose an OpenDocument format such as .ods.")
+ #define STR_HST_MACRO_EDITS_LOSE                NC_("STR_HST_MACRO_EDITS_LOSE", "Save without the Macro Edits")
+ 
+ // Used in the title of a shared document.
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -6352,6 +6352,12 @@
+ 
+ #. hstMacroEdits
+ #: include/sfx2/strings.hrc
++msgctxt "STR_HST_MACRO_EDITS_EXCEL"
++msgid "You edited the macros of this workbook, but it has VBA UserForms, which HST Office cannot yet write in a form Excel can load. So this format keeps the original VBA project from the file: your macro edits will not be saved in it. To keep the edits, choose an OpenDocument format such as .ods."
++msgstr "Bạn đã sửa macro của sổ tính này, nhưng sổ tính có biểu mẫu VBA (UserForm) mà HST Office chưa ghi được để Excel mở. Vì vậy định dạng này giữ nguyên dự án VBA gốc trong tệp: phần sửa macro sẽ không được lưu vào tệp. Để giữ phần sửa, hãy chọn định dạng OpenDocument như .ods."
++
++#. hstMacroEdits
++#: include/sfx2/strings.hrc
+ msgctxt "STR_HST_MACRO_EDITS_LOSE"
+ msgid "Save without the Macro Edits"
+ msgstr "Lưu, bỏ phần sửa macro"
