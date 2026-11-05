@@ -81,12 +81,19 @@ mới rồi **Save As** vào thư mục của người dùng. Không mở bản 
 lệnh Edit Template để nhập dữ liệu công việc. Giữ các trường trong `[...]` cho
 đến khi có dữ liệu thật; mẫu không tự đặt tên cơ quan, người ký hay ngày ký.
 
-Writer dùng A4, lề và cỡ chữ từ dữ liệu NĐ30, khai báo Times New Roman. Đầu trang
-là bảng hai cột không viền với quốc hiệu, tiêu ngữ, cơ quan, số và ngày. Các
-đường kẻ dưới cơ quan, tiêu ngữ và trích yếu là đường vector có chiều rộng theo
-dữ liệu chung. Công văn đặt `V/v` dưới số, không thêm tiêu đề “CÔNG VĂN”. Trang
-đầu không có số; các trang sau có trường số trang giữa lề trên. Biên bản có
-khối chủ trì và thư ký. Phông được khai báo nhưng không được phân phối kèm.
+Mẫu Writer và trình hướng dẫn dùng chung một bố cục: `hst_office.nd30_layout.build_layout()` tạo các khối, rồi
+`scripts/templates/writer.py` (ODF) hoặc `nd30_writer.py` (UNO) kết xuất, nên hai đường không thể lệch nhau. Một kiểu trang
+cho mọi trang: lề trang 10 mm cộng đầu trang cao cố định 10 mm, thân trang bắt đầu ở 20 mm ở trang 1 và các trang sau, cả
+PDF lẫn DOCX mở lại; số trang nằm trong dải đầu trang, giữa vùng chữ, trang đầu trống. Đầu văn bản là bảng không viền:
+cơ quan bên trái, quốc hiệu và tiêu ngữ bên phải, hàng sau là số và ngày (cùng đường cơ sở, kể cả khi xuống dòng), rồi `V/v`
+với Công văn. Đường kẻ là viền dưới đoạn văn, dài theo dòng chữ thật (`nd30_metrics.py`, bảng độ rộng trong
+`data/vietnamese/font-metrics-times.json`); với mẫu `.ott` đường kẻ tính theo chỗ giữ chỗ, sau khi điền tên thật cần chỉnh
+lại nếu lệch nhiều, còn trình hướng dẫn tính theo tên đã nhập. Biên bản theo mẫu 1.9: Thư ký bên trái, Chủ tọa bên phải,
+Nơi nhận bên dưới. Phông được khai báo nhưng không được phân phối kèm. Dấu chỉ mức độ khẩn là con dấu khắc sẵn đóng tay
+(Phụ lục I, Phần II.2.b), mẫu không sinh.
+
+Đo trên bản HST thật cho mọi loại Writer, nội dung nhiều trang: `tests/runtime/check-template-layout.py` (PDF, DOCX mở lại;
+thân trang, lề, số trang, hàng số và ngày, đường kẻ). Máy đo không có Times New Roman, dùng Liberation Serif (cùng độ rộng ký tự).
 
 Sheets dùng Liberation Sans, khai báo thêm Arial. Mỗi mẫu có năm dòng nhập,
 tiêu đề ở dòng 4, dữ liệu dòng 5–9 và tổng dòng 10. Bốn dòng đầu được cố định và

@@ -61,15 +61,18 @@ def safe_formula(formula):
         raise ValueError("Unsupported or external formula: " + formula)
 
 
+EXPECTED_COUNTS = {"writer": 7, "sheets": 6, "slides": 5}
+
+
 def load(path=BASE / "templates/catalog.json"):
     path = Path(path)
     catalog = read_json(path)
     schema = read_json(BASE / "templates/schema.json")
     validate(catalog, schema, schema)
     entries = catalog["templates"]
-    if Counter(e["module"] for e in entries) != {"writer": 7, "sheets": 6, "slides": 5}:
-        raise ValueError("Catalog must contain 7 Writer, 6 Sheets, 5 Slides templates")
-    if len({e["id"] for e in entries}) != 18:
+    if Counter(e["module"] for e in entries) != EXPECTED_COUNTS:
+        raise ValueError("Catalog must contain %s templates" % EXPECTED_COUNTS)
+    if len({e["id"] for e in entries}) != len(entries):
         raise ValueError("Template IDs must be unique")
     sources = {}
     for entry in entries:

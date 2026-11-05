@@ -66,24 +66,44 @@ def check_archive(path, entry, source, rules):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _style_of(styles, name):
+    return next((e for e in styles.iter(q("style:style")) if e.get(q("style:name")) == name), None)
+
+
 def check_writer(content, styles, source, rules):
-    for layout in styles.findall(".//style:page-layout-properties", NS):
-        size = rules["pageSizeMm"]
-        require(layout.get(q("fo:page-width")) == f'{size["width"]}mm', "Writer page width")
-        require(layout.get(q("fo:page-height")) == f'{size["height"]}mm', "Writer page height")
-        for side, value in rules["defaultMarginsMm"].items():
-            require(layout.get(q("fo:margin-" + side)) == f"{value}mm", "Writer margin " + side)
-    table = content.find(".//table:table", NS)
+    size, margins = rules["pageSizeMm"], rules["defaultMarginsMm"]
+    layouts = styles.findall(".//style:page-layout", NS)
+    require(len(layouts) == 1, "one page style for every page, so a DOCX round trip keeps the body top")
+    props = layouts[0].find("style:page-layout-properties", NS)
+    require(props.get(q("fo:page-width")) == f'{size["width"]}mm', "Writer page width")
+    require(props.get(q("fo:page-height")) == f'{size["height"]}mm', "Writer page height")
+    for side in ("bottom", "left", "right"):
+        require(props.get(q("fo:margin-" + side)) == f"{margins[side]}mm", "Writer margin " + side)
+    band = layouts[0].find("style:header-style/style:header-footer-properties", NS)
+    top = float(props.get(q("fo:margin-top"))[:-2]) + float(band.get(q("svg:height"))[:-2]) + float(band.get(q("fo:margin-bottom"))[:-2])
+    require(abs(top - margins["top"]) < 0.001, "the body must start at the top margin")
+    require(band.get(q("fo:min-height")) is None, "a growing header would push the body down")
+    tables = {t.get(q("table:name")): t for t in content.findall(".//table:table", NS)}
+    table = next(iter(tables.values()))
     require(len(table.findall("table:table-column", NS)) == 2, "Writer header columns")
     require(styles.find(".//style:font-face[@style:name='Times New Roman']", NS) is not None, "Writer font declaration")
-    first = styles.find(".//style:master-page[@style:name='FirstPage']", NS)
-    require(first is not None and first.find("style:header", NS) is None, "first-page number must be hidden")
-    require(styles.find(".//text:page-number", NS) is not None, "subsequent page number missing")
+    master = styles.find(".//style:master-page[@style:name='Standard']", NS)
+    require(master.find("style:header-first", NS) is not None and master.find("style:header-first//text:page-number", NS) is None,
+            "first-page number must be hidden")
+    require(master.find("style:header//text:page-number", NS) is not None, "subsequent page number missing")
+    number_row = table.findall("table:table-row", NS)[1]
+    require(len(number_row.findall("table:table-cell", NS)) == 2, "number and date share a row")
+    paragraphs = {p.get(q("text:style-name")): "".join(p.itertext()) for p in content.iter(q("text:p"))}
+    require(any(n.startswith("Number") for n in paragraphs), "number row missing")
+    rules_found = [n for n in paragraphs if n.startswith("Rule") and _style_of(styles, n) is not None]
+    require(len(rules_found) >= 1, "ND30 rules missing")
+    for name in paragraphs:
+        if name.startswith("Basis"):
+            text_props = _style_of(styles, name).find("style:text-properties", NS)
+            require(text_props.get(q("fo:font-style")) == "italic", "căn cứ must be italic")
     title = content.find(".//text:p[@text:style-name='TypeName']", NS)
-    official = source["id"] == "cong-van"
+    official = source["documentType"] == "cong-van"
     require((title is None) == official, "official-letter title layout")
-    require(len(content.findall(".//draw:line", NS)) == (2 if official else 3), "ND30 rules missing")
-    require(all(line in "".join(content.itertext()) for line in source["paragraphs"]), "Writer body missing")
 
 
 def check_sheet(content, settings, source):

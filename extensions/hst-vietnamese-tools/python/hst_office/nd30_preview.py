@@ -69,12 +69,12 @@ def layout_to_preview(layout, width=62):
             continue
         if block.get("spacing_before_pt", 0) >= 12:
             out.append("")
-        left_w = int(round((width - GAP) * block["widthsPct"][0] / 100.0))
-        right_w = width - GAP - left_w
-        left = _column(block["left"], left_w, text_mm * block["widthsPct"][0] / 100.0)
-        right = _column(block["right"], right_w, text_mm * block["widthsPct"][1] / 100.0)
-        for i in range(max(len(left), len(right))):
-            a = left[i] if i < len(left) else ""
-            b = right[i] if i < len(right) else ""
-            out.append((_align(a, left_w, "left") + " " * GAP + b).rstrip())
+        count = len(block["widthsPct"])
+        usable = width - GAP * (count - 1)
+        widths = [int(round(usable * pct / 100.0)) for pct in block["widthsPct"]]
+        for row in block["rows"]:
+            cells = [_column(cell, w, text_mm * pct / 100.0) for cell, w, pct in zip(row["cells"], widths, block["widthsPct"])]
+            for i in range(max(len(c) for c in cells)):
+                parts = [_align(c[i] if i < len(c) else "", w, "left") for c, w in zip(cells, widths)]
+                out.append((" " * GAP).join(parts).rstrip())
     return "\n".join(line.rstrip() for line in out)

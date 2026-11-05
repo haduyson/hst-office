@@ -61,7 +61,7 @@ class TemplatesTest(unittest.TestCase):
 
     def test_schema_rejects_unknown_fields_missing_layouts_and_decomposed_text(self):
         schema = read_json(BASE / "templates/schema.json")
-        for mutate in [lambda d: d.update(unknown=True), lambda d: d.pop("paragraphs"),
+        for mutate in [lambda d: d.update(unknown=True), lambda d: d.pop("documentType"),
                        lambda d: d.update(paragraphs=["Tie\u0302\u0301ng Vie\u0323\u0302t"])]:
             bad = copy.deepcopy(self.sources["cong-van"])
             mutate(bad)

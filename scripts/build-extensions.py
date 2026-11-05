@@ -22,7 +22,8 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXT_DIR = os.path.join(ROOT, "extensions")
-SHARED_DATA = ("nd30.json", "number-formats.json", "encoding-maps.json", "provenance.json")
+SHARED_DATA = ("nd30.json", "document-types.json", "skeletons-hanh-chinh.json", "font-metrics-times.json",
+               "number-formats.json", "encoding-maps.json", "provenance.json")
 # Brand images shown by the welcome dialog and the offline user guide (help/index.html): copied from
 # assets/brand at build time so the package always carries the current HST artwork.
 BRAND_IMAGES = {

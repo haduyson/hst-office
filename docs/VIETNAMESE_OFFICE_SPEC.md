@@ -31,9 +31,13 @@
 |---|---|---|
 | Lề trên/dưới/trái/phải | 20 / 20 / 30 / 15 mm | Giá trị nhỏ nhất trong khoảng, người dùng chỉnh được trong khoảng |
 | Cỡ chữ nội dung | 14 | Trong 13–14 |
-| Quốc hiệu / Tên cơ quan | 13 / 13 | Trong 12–13 |
+| Quốc hiệu / Tiêu ngữ / Địa danh và ngày | 13 / 14 / 14 | Bộ cỡ chữ ở chú thích 1 của bảng Phần I.V, Phụ lục I (trang PDF 32): cỡ trong một văn bản tăng, giảm phải thống nhất |
+| Tên cơ quan | 13 | Trong 12–13 |
 | Thụt đầu dòng | 1,27 cm | Một trong hai giá trị cho phép |
-| Giãn dòng / cách đoạn | 1,15 lines / 6 pt | Trong khoảng đơn–1,5; ≥6pt |
+| Giãn dòng / cách đoạn | 1,15 lines (`LineSpacingMode.PROP`, 115%) / 6 pt | Trong khoảng đơn–1,5; ≥6pt |
+| Đầu trang | Dải 10 mm ngay trên thân trang: lề trang 10 mm + đầu trang cao cố định 10 mm, thân bắt đầu ở 20 mm; số trang cỡ 14, giữa vùng chữ, ẩn ở trang 1 | Một kiểu trang cho mọi trang, cùng cách ở `.ott` và trình hướng dẫn, nên DOCX mở lại giữ nguyên thân trang |
+| Hàng số và ngày | Cùng một hàng của bảng đầu văn bản, cùng đường cơ sở dòng đầu | II.4c |
+| Đường kẻ | Tiêu ngữ: đúng dài dòng chữ; tên cơ quan, trích yếu: 40% dòng dài nhất sau khi xuống dòng | II.1b, II.2b, II.5b. Tính từ độ rộng ký tự Times New Roman (`data/vietnamese/font-metrics-times.json`) |
 
 ## 4. Bảy loại văn bản hỗ trợ
 

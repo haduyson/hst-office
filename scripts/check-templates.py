@@ -8,9 +8,10 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from templates.catalog import load, validate
+from templates.catalog import EXPECTED_COUNTS, load, validate
 from templates.odf import BASE, read_json
 from templates.validation import check_archive, require
+from templates.writer_layout import rules_for
 
 
 def digest(path):
@@ -28,12 +29,14 @@ def check(directory, catalog_path):
     require([e["id"] for e in catalog["templates"]] == [e["id"] for e in manifest["templates"]], "manifest IDs differ")
     expected = {e["output"] for e in catalog["templates"]}
     actual = {str(p.relative_to(directory)) for p in directory.rglob("*") if p.suffix in {".ott", ".ots", ".otp"}}
-    require(actual == expected and len(actual) == 18, "expected exactly 18 ODF templates")
+    require(actual == expected and len(actual) == sum(EXPECTED_COUNTS.values()), "unexpected set of ODF templates")
     for authored, entry in zip(catalog["templates"], manifest["templates"]):
         require(all(entry[k] == v for k, v in authored.items()), "manifest catalog differs")
         require(entry["sourceSha256"] == digest(catalog_path.parent / entry["source"]), "stale source " + entry["id"])
         require(entry["previewSha256"] == digest(directory / entry["preview"]), "preview hash mismatch")
-        result = check_archive(directory / entry["output"], entry, sources[entry["id"]], rules)
+        source = sources[entry["id"]]
+        profile = rules_for(source["documentType"]) if entry["module"] == "writer" else rules
+        result = check_archive(directory / entry["output"], entry, source, profile)
         require(entry["outputSha256"] == result, "template hash mismatch")
     return manifest
 
@@ -55,7 +58,7 @@ def main():
             for path in Path(tmp).rglob("*"):
                 if path.is_file():
                     require(path.read_bytes() == (directory / path.relative_to(tmp)).read_bytes(), "rebuild mismatch " + str(path))
-    print("PASS: 18 ODF templates; structure, Unicode, formulas, links and hashes" +
+    print(f"PASS: {len(manifest['templates'])} ODF templates; structure, Unicode, formulas, links and hashes" +
           ("; byte-identical rebuild" if args.rebuild_check else ""))
 
 

@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 from xml.sax.saxutils import escape
 from templates import catalog, sheets, slides, writer
+from templates.writer_layout import rules_for
 from templates.odf import BASE, MIME, epoch, json_bytes, metadata, package, read_json
 
 
@@ -41,7 +42,7 @@ def generate(out, catalog_path):
         source = sources[entry["id"]]
         module = entry["module"]
         if module == "writer":
-            parts = writer.build(source, rules)
+            parts = writer.build(source, rules_for(source["documentType"]))
         elif module == "sheets":
             parts = sheets.build(source, formats)
         else:

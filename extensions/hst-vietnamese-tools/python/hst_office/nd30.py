@@ -6,9 +6,9 @@ extensions/vn-admin-documents/logic/nd30-layout.js and nd30-validation.js, then 
 docs/VIETNAMESE_OFFICE_SPEC.md (Nghi dinh 30/2020/ND-CP, Phu luc I, Phan I). Legal validity in 2026 is
 UNVERIFIED (docs/BLOCKERS.md LEG-05): this is a presentation helper only.
 
-Deliberate deviations from the archive: rule widths come from the estimated text width (spec II.1b: the motto
-rule is as long as the line; II.2b/II.5b: 1/3-1/2 of the line) instead of fixed millimetres; the symbol is
-upper-cased (II.3c); dates accept dd/mm/yyyy as well as ISO input; control characters are rejected.
+Rule widths come from the real line (nd30_metrics); official abbreviations such as TTr, CTr and QyĐ keep their case in
+the symbol while everything else is upper-cased (II.3c); dates accept dd/mm/yyyy as well as ISO input; control
+characters are rejected.
 """
 import datetime
 import re
@@ -19,21 +19,54 @@ MAX_FIELD = 2000
 MAX_BODY = 100000
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 FIELD_KEYS = ("parentAgency", "agency", "number", "symbol", "place", "date", "summary", "kinhGui", "body",
-              "signerAuthority", "signerTitle", "signerName", "recipients")
+              "signerAuthority", "signerTitle", "signerName", "secretaryName", "recipients", "contact")
+_PROFILE_FILES = {"nd30": "nd30.json"}
 
 
 def rules():
-    return load_data("nd30.json")
+    data = dict(load_data("nd30.json"))
+    data["documentTypes"] = load_data("document-types.json")["types"]
+    return data
+
+
+def profile_rules(profile):
+    """The rule set of a profile: margins, typography, placeholders. Profiles never share a rule by accident."""
+    data = dict(load_data(_PROFILE_FILES[profile]))
+    data["documentTypes"] = load_data("document-types.json")["types"]
+    return data
+
+
+def rules_for(type_id):
+    t = get_type(type_id)
+    return profile_rules(t["profile"] if t else "nd30")
 
 
 def get_type(type_id, data=None):
-    return next((t for t in (data or rules())["documentTypes"] if t["id"] == type_id), None)
+    types = data["documentTypes"] if data else load_data("document-types.json")["types"]
+    return next((t for t in types if t["id"] == type_id), None)
 
 
 def format_number(number):
     """II.3c: numbers below 10 get a leading zero ('5' -> '05')."""
     n = str(number or "").strip()
     return "0" + n if re.fullmatch(r"\d", n) else n
+
+
+def official_abbreviations():
+    """Abbreviations with a fixed spelling in the annex (TTr, CTr, QyĐ, TrS), keyed by their upper-case form."""
+    extra = load_data("nd30.json")["layoutRules"].get("copyAbbreviations", ["SY", "SL", "TrS"])
+    names = [t["abbr"] for t in load_data("document-types.json")["types"] if t.get("abbr")] + extra
+    return {name.upper(): name for name in names}
+
+
+def format_symbol(symbol, abbr=""):
+    """Symbol in capitals except the official abbreviations; the type's abbreviation is added when it was left out."""
+    official = official_abbreviations()
+    groups = [g for g in str(symbol or "").strip().split("-") if g]
+    groups = [official.get(g.upper(), g.upper()) for g in groups]
+    if abbr and groups and groups[0] != abbr:
+        groups.insert(0, abbr)
+    return "-".join(groups)
 
 
 def parse_date_input(text):
@@ -75,22 +108,22 @@ def validate_fields(type_id, fields, data=None):
             errors.append({"field": key, "code": "too-long"})
         elif _CONTROL.search(raw):
             errors.append({"field": key, "code": "control-character"})
-    number = (fields.get("number") or "").strip()
+    number = str(fields.get("number") or "").strip() if isinstance(fields.get("number") or "", str) else ""
     if number and not re.fullmatch(r"\d{1,6}", number):
         errors.append({"field": "number", "code": "number-digits-only"})
-    symbol = (fields.get("symbol") or "").strip()
-    if symbol and re.search(r"[\s/]", symbol):
+    symbol = fields.get("symbol") or ""
+    if isinstance(symbol, str) and re.search(r"[\s/]", symbol.strip()):
         errors.append({"field": "symbol", "code": "symbol-no-space-or-slash"})
-    date = (fields.get("date") or "").strip()
-    if date and parse_date_input(date) is None:
+    date = fields.get("date") or ""
+    if isinstance(date, str) and date.strip() and parse_date_input(date) is None:
         errors.append({"field": "date", "code": "invalid-date"})
     return {"ok": not errors, "errors": errors}
 
 
 def validate_margins(margins_mm, data=None):
-    """I.3: top/bottom 20-25, left 30-35, right 15-20 mm. Non-numeric values are rejected."""
+    """Margins inside the ranges of the profile `data` (default ND30 I.3). Non-numeric values are rejected."""
     errors = []
-    for side, (low, high) in (data or rules())["marginRangesMm"].items():
+    for side, (low, high) in (data or load_data("nd30.json"))["marginRangesMm"].items():
         try:
             value = float((margins_mm or {})[side])
         except (KeyError, TypeError, ValueError):

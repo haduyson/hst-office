@@ -5,6 +5,8 @@ ADJUST = {"left": 0, "right": 1, "justify": 2, "center": 3}  # com.sun.star.styl
 NO_LINE = 32767  # com.sun.star.table.BorderLineStyle.NONE
 SOLID = 0
 PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter
+LINE_PROP, LINE_FIX = 0, 3  # com.sun.star.style.LineSpacingMode
+RULE_PT = 0.75
 
 
 def mm(value):
@@ -25,9 +27,19 @@ def border(width_pt=0.0):
     return line
 
 
+def line_spacing(block):
+    """Proportional (1.15 lines = 115%) or, for profiles that fix it, exact in points."""
+    import uno
+    spacing = uno.createUnoStruct("com.sun.star.style.LineSpacing")
+    if block.get("line_exact_pt"):
+        spacing.Mode, spacing.Height = LINE_FIX, pt_to_mm100(block["line_exact_pt"])
+    else:
+        spacing.Mode, spacing.Height = LINE_PROP, int(round(block.get("line_spacing", 1.0) * 100))
+    return spacing
+
+
 def format_paragraph(cur, block, cell_mm, bottom_rule=False):
     """Set every paragraph attribute explicitly: new paragraphs inherit the previous one's attributes."""
-    import uno
     cur.ParaAdjust = ADJUST[block.get("align", "left")]
     cur.ParaFirstLineIndent = mm(block.get("indent_first_mm", 0))
     cur.ParaTopMargin = pt_to_mm100(block.get("spacing_before_pt", 0))
@@ -36,11 +48,11 @@ def format_paragraph(cur, block, cell_mm, bottom_rule=False):
     if bottom_rule:
         side = max(0, mm((cell_mm - block["rule_mm"]) / 2.0))
     cur.ParaLeftMargin, cur.ParaRightMargin = side, side if bottom_rule else 0
-    spacing = uno.createUnoStruct("com.sun.star.style.LineSpacing")
-    spacing.Mode, spacing.Height = 1, int(round(block.get("line_spacing", 1.0) * 100))  # PROP, percent
-    cur.ParaLineSpacing = spacing
-    cur.BottomBorder = border(0.75) if bottom_rule else border()
-    cur.ParaKeepTogether = False
+    cur.ParaLineSpacing = line_spacing(block)
+    cur.BottomBorder = border(RULE_PT) if bottom_rule else border()
+    cur.TopBorder = border(RULE_PT) if block.get("top_rule") else border()
+    cur.TopBorderDistance = mm(1) if block.get("top_rule") else 0
+    cur.ParaKeepTogether = bool(block.get("keep_with_next"))
 
 
 def format_run(cur, run):
@@ -49,4 +61,5 @@ def format_run(cur, run):
     cur.CharHeight = float(run["size"])
     cur.CharWeight = 150.0 if run["bold"] else 100.0
     cur.CharPosture = uno.Enum("com.sun.star.awt.FontSlant", "ITALIC" if run["italic"] else "NONE")
+    cur.CharUnderline = 1 if run.get("underline") else 0
     cur.CharColor = 0
