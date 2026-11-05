@@ -26,6 +26,20 @@ tệp này từ tác vụ mẫu. Thể thức và giới hạn nghiệp vụ đ�
 [đặc tả tiếng Việt](VIETNAMESE_OFFICE_SPEC.md). Hiệu lực pháp lý của NĐ30 năm 2026
 chưa được xác minh; bộ mẫu hỗ trợ trình bày, không chứng nhận tính hợp lệ pháp lý.
 
+## Mẫu của LibreOffice còn lại
+
+`hst-templates-hst-only.patch` (chủ dự án 2026-11-05) không cài các mẫu tiếng Anh của LibreOffice (thư thương mại, danh
+thiếp, CV, sơ yếu) và `draw/bpmn.otg` (có tên LibreOffice); `hst-file-backstage-polish.patch` đã bỏ mẫu tiếng Nhật, tiếng
+Trung. Còn lại trong danh sách mẫu, cùng 18 mẫu trên:
+
+- Writer: Mặc định, Hiện đại, Đơn giản (`styles/`).
+- Sheets: chỉ 6 mẫu HST; LibreOffice không có mẫu Sheets nào.
+- Slides: 23 nền trình chiếu `presnt/` tên tiếng Anh, chữ mẫu "Lorem Ipsum". Ảnh thu nhỏ và ảnh nhúng không có tên
+  LibreOffice; phần mô tả trong thuộc tính của Candy, Freshes, Grey Elegant, Growing Liberty, Yellow Idea ghi
+  "LibreOffice Impress Template" (giấy phép, tên tác giả). Chưa đổi: chờ chủ dự án quyết.
+
+Kiểm tra: `tests/runtime/check-template-lists.py` (danh sách thật và ảnh chụp để nhìn).
+
 ## Sinh và kiểm tra
 
 Chạy từ thư mục gốc kho mã, với Python 3.12:
