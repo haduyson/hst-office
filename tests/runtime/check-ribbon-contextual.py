@@ -156,9 +156,7 @@ def check_app(app, args, port, image_url):
             record(f"[{app}] {kind}: contextual tab falls back", gui.selected() == ["Trang đầu"], gui.selected())
             gui.click(args.display, dict((t[0], t[1]) for t in gui.ribbon_tabs())["Chèn"])
     finally:
-        # No save prompt when the office terminates, also after a failed step: Desktop.terminate() would wait on
-        # the prompt for ever and the run would hang instead of reporting the failure.
-        try:
+        try:  # no save prompt at terminate, also after a failed step: terminate() would wait on it for ever
             doc.setModified(False)
         except Exception:  # noqa: BLE001 - no document yet, or the office is gone; stop() handles that
             pass
