@@ -46,7 +46,15 @@ def run(rec, session, oxt_path):
     menu = config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeMenuBar")
     rec.check("HST menu registered", menu.hasByName("org.hst.office.vi"), list(menu.getElementNames())[:5])
     sub = menu.getByName("org.hst.office.vi").getByName("Submenu")
-    rec.check("HST submenu has 8 commands (6 tools + solutions + update check)", len(sub.getElementNames()) == 8, sub.getElementNames())
+    # 6 tools, USB Token, UI language, VBA macros, feature search, then solutions and the update check last.
+    commands = [(sub.getByName(name).getPropertyValue("URL") or None) if sub.getByName(name).hasByName("URL") else None
+                for name in sub.getElementNames()]
+    expected = ["org.hst.office.vi:Nd30Wizard", "org.hst.office.vi:ConvertEncoding", "org.hst.office.vi:FormatDate",
+                "org.hst.office.vi:FormatVnd", "org.hst.office.vi:FormatPercent", "org.hst.office.vi:ImportCsv",
+                "org.hst.office.vi:SetupUsbToken", "org.hst.office.vi:EditVba", ".uno:CommandPopup",
+                "org.hst.office.vi:ShowSolutions", "org.hst.office.update:Check"]
+    rec.check("HST submenu has the 11 commands and the UI language submenu",
+              len(commands) == 12 and commands.count(None) == 1 and [c for c in commands if c] == expected, commands)
     # A floating "Add-ons" toolbar over the ribbon is deliberately not shipped (see Addons.xcu): the commands are in the menu and ribbon.
     rec.check("no floating HST toolbar", not config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeToolBar").hasByName("org.hst.office.vi.toolbar"))
     rec.check("HST ribbon (Extension tab) items registered", config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeNotebookBar").hasByName("org.hst.office.vi.notebookbar"))
