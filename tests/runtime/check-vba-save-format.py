@@ -12,6 +12,7 @@ New documents default to .docx/.xlsx/.pptx, which hold no macros. Each file is c
     Macros" keeps .docx with no project.
   - Save As to a named .docx file: warns, and going back writes nothing.
   - No macros, or only comments: .docx with no warning.
+  - A Word-made .docm with edited macros: asked before saving; its VBA project stays.
 Exit 1 when any check fails.
 """
 import argparse
@@ -26,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "extensi
 import hst_gui  # noqa: E402
 import msoffice_save_steps as steps  # noqa: E402
 from shortcut_keys import RESULTS, Keys, check, wait  # noqa: E402
-from vba_save_format_steps import (add_vba, check_named_file, check_open_docx, has_vba_project, press, pv,  # noqa: E402
+from vba_save_format_steps import (add_vba, check_edited_word_file, check_named_file, check_open_docx, has_vba_project, press, pv,  # noqa: E402
                                    saved_as, type_name, warning_window)
 
 
@@ -101,6 +102,7 @@ def run(office, keys, files):
             steps.close(doc)
     check_open_docx(office, keys, files)
     check_named_file(office, keys, files)
+    check_edited_word_file(office, keys, os.path.join(hst_gui.ROOT, "upstream/libreoffice/sw/qa/core/data/docm/testFind.docm"), files)
 
 
 def main():

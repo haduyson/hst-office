@@ -107,3 +107,47 @@ def check_named_file(office, keys, files):
     thread.join(15)
     check("named .docx file: going back writes nothing", not os.path.exists(path))
     steps.close(doc)
+
+
+def check_edited_word_file(office, keys, source, files):
+    """A Word-made .docm whose macros were edited here: asked before saving, and the project stays."""
+    import shutil
+    import uno
+    path = os.path.join(files, "tu-word.docm")
+    shutil.copyfile(source, path)
+    subprocess.run(["chown", "hstbuild", path], check=False)
+    with zipfile.ZipFile(path) as package:
+        original = package.read("word/vbaProject.bin")
+
+    def open_and_edit():
+        doc = office.desktop().loadComponentFromURL(uno.systemPathToFileUrl(path), "_blank", 0, (pv("MacroExecutionMode", 4),))
+        steps.focus_document(office, keys)
+        libs = doc.BasicLibraries
+        library = libs.getByName(libs.ProjectName)
+        name = library.ElementNames[0]
+        library.replaceByName(name, library.getByName(name) + "\nSub HstEdited()\nEnd Sub\n")
+        steps._touch(doc)
+        office.raise_windows()
+        keys.send("ctrl+s")
+        return doc, wait(lambda: warning_window(keys) is not None, 10)
+    doc, warned = open_and_edit()
+    check("Word-made .docm with edited macros: asked before saving", warned, str(keys.windows()))
+    if warned:
+        before = {w for w, _ in keys.windows()}
+        press(keys, warning_window(keys), "Escape")
+        picker = []
+        wait(lambda: picker.extend(w for w, _ in keys.windows() if w not in before) or picker, 10)
+        check("Word-made .docm: going back opens Save As", bool(picker), str(keys.windows()))
+        if picker:
+            press(keys, picker[0], "Escape")
+    steps.close(doc)
+    doc, warned = open_and_edit()
+    if warned:
+        press(keys, warning_window(keys), "shift+Tab", "Return")
+        check("Word-made .docm: saving without the edits saves", wait(lambda: not doc.isModified(), 20), str(keys.windows()))
+    steps.close(doc)
+    with zipfile.ZipFile(path) as package:
+        from vba_cfb import Cfb
+        new, old = Cfb(package.read("word/vbaProject.bin")), Cfb(original)
+    streams = lambda cfb: {e["name"]: cfb.read(e) for e in cfb.entries if e["type"] == 2}  # noqa: E731
+    check("Word-made .docm: the project's streams are unchanged", streams(new) == streams(old))
