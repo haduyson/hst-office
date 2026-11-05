@@ -1,0 +1,1229 @@
+HST Office: Insert Table with Word's AutoFit behaviour and Remember dimensions. Name, heading rows, split and
+table styles stay reachable under Advanced.
+
+License: these upstream files remain under their original license (MPL-2.0); hstinstableautofit.hxx is new, MPL-2.0.
+Test: tests/runtime/check-dialogs-writer.py insert-table autofit autofit-large autofit-real
+---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -823,6 +823,7 @@
+     sw/source/uibase/web/wtextsh \
+     sw/source/uibase/web/wview \
+     sw/source/uibase/wrtsh/delete \
++    sw/source/uibase/wrtsh/hsttableautofit \
+     sw/source/uibase/wrtsh/move \
+     sw/source/uibase/wrtsh/navmgr \
+     sw/source/uibase/wrtsh/select \
+--- a/sw/source/filter/ww8/docxtableexport.cxx
++++ b/sw/source/filter/ww8/docxtableexport.cxx
+@@ -238,17 +238,26 @@
+             widthType = "auto";
+     }
+ 
++    // HST: Word's AutoFit to Contents has no preferred table width. Import reads the pair back.
++    if (pTableFormat->GetAttrSet().GetItem<SfxGrabBagItem>(RES_FRMATR_GRABBAG)->GetGrabBag().contains(u"tblLayoutAutofit"_ustr))
++    {
++        nPageSize = 0;
++        widthType = "auto";
++    }
++
+     // Output the table preferred width
+     m_pSerializer->singleElementNS(XML_w, XML_tblW, FSNS(XML_w, XML_w), OString::number(nPageSize),
+                                    FSNS(XML_w, XML_type), widthType);
+ 
+-    // Disable layout autofit, as it does not exist in LibreOffice yet
+-    m_pSerializer->singleElementNS(XML_w, XML_tblLayout, FSNS(XML_w, XML_type), "fixed");
+-
+     // Look for the table style property in the table grab bag
+     const std::map<OUString, css::uno::Any>& rGrabBag
+         = pTableFormat->GetAttrSet().GetItem<SfxGrabBagItem>(RES_FRMATR_GRABBAG)->GetGrabBag();
+ 
++    // Disable layout autofit, as it does not exist in LibreOffice yet
++    // HST: except for a table inserted with Word's AutoFit to Contents, which Word lays out.
++    m_pSerializer->singleElementNS(XML_w, XML_tblLayout, FSNS(XML_w, XML_type),
++                                   rGrabBag.contains(u"tblLayoutAutofit"_ustr) ? "autofit" : "fixed");
++
+     // We should clear the TableStyle map. In case of Table inside multiple tables it contains the
+     // table border style of the previous table.
+     std::map<SvxBoxItemLine, css::table::BorderLine2>& rTableStyleConf = m_aTableStyleConfs.back();
+@@ -413,6 +422,10 @@
+                 m_pSerializer->singleElementNS(XML_w, XML_tblpPr, attrListTablePos);
+             }
+         }
++        else if (rGrabBagElement.first == "tblLayoutAutofit")
++        {
++            // written above as w:tblLayout
++        }
+         else if (rGrabBagElement.first == "tblCaption" || rGrabBagElement.first == "tblDescription")
+         {
+             // HST: the table's Alt Text. Not in ECMA-376 1st edition, which the default .docx filter
+--- a/sw/source/ui/table/instable.cxx
++++ b/sw/source/ui/table/instable.cxx
+@@ -27,6 +27,15 @@
+ #include <comphelper/lok.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Dialog.hxx>
++#include <o3tl/string_view.hxx>
++#include <svtools/unitconv.hxx>
++#include <unotools/viewoptions.hxx>
++#include <uitool.hxx>
++
++namespace
++{
++constexpr OUString HST_DIMENSIONS = u"HstInsertTableDimensions"_ustr;
++}
+ 
+ 
+ void SwInsTableDlg::GetValues( OUString& rName, sal_uInt16& rRow, sal_uInt16& rCol,
+@@ -84,7 +93,24 @@
+     , m_xLbFormat(m_xBuilder->weld_tree_view(u"formatlbinstable"_ustr))
+     , m_xWndPreview(new weld::CustomWeld(*m_xBuilder, u"previewinstable"_ustr, m_aWndPreview))
+     , m_xStyleFrame(m_xBuilder->weld_frame(u"stylesframe"_ustr))
+-{
++    , m_xFixedRB(m_xBuilder->weld_radio_button(u"hstautofixed"_ustr))
++    , m_xFixedAutoCB(m_xBuilder->weld_check_button(u"hstfixedauto"_ustr))
++    , m_xFixedWidthMF(m_xBuilder->weld_metric_spin_button(u"hstfixedwidth"_ustr, FieldUnit::CM))
++    , m_xContentsRB(m_xBuilder->weld_radio_button(u"hstautocontents"_ustr))
++    , m_xWindowRB(m_xBuilder->weld_radio_button(u"hstautowindow"_ustr))
++    , m_xRememberCB(m_xBuilder->weld_check_button(u"hstremember"_ustr))
++{
++    ::SetFieldUnit(*m_xFixedWidthMF, ::GetDfltMetric(false));
++    m_xFixedWidthMF->set_min(MINLAY, FieldUnit::TWIP);
++    m_xFixedWidthMF->set_value(m_xFixedWidthMF->normalize(1440), FieldUnit::TWIP);
++    Link<weld::Toggleable&, void> aAutoFit = LINK(this, SwInsTableDlg, HstAutoFitHdl);
++    m_xFixedRB->connect_toggled(aAutoFit);
++    m_xFixedAutoCB->connect_toggled(aAutoFit);
++    m_xContentsRB->connect_toggled(aAutoFit);
++    m_xWindowRB->connect_toggled(aAutoFit);
++    HstLoadDimensions();
++    HstAutoFitHdl(*m_xFixedRB);
++
+     if (comphelper::LibreOfficeKit::isActive())
+         m_xStyleFrame->hide();
+ 
+@@ -170,9 +196,68 @@
+     else
+         m_xTAutoFormat.reset(new SwTableAutoFormat((*m_xTableTable)[styleIdx]));
+ 
++    HstStoreDimensions();
+     m_xDialog->response(RET_OK);
+ }
+ 
++IMPL_LINK_NOARG(SwInsTableDlg, HstAutoFitHdl, weld::Toggleable&, void)
++{
++    m_xFixedAutoCB->set_sensitive(m_xFixedRB->get_active());
++    m_xFixedWidthMF->set_sensitive(m_xFixedRB->get_active() && !m_xFixedAutoCB->get_active());
++}
++
++SwHstInsTableAutoFit::Mode SwInsTableDlg::GetHstAutoFitMode() const
++{
++    return m_xContentsRB->get_active() ? Mode::Contents
++                                       : m_xWindowRB->get_active() ? Mode::Window : Mode::Fixed;
++}
++
++sal_Int32 SwInsTableDlg::GetHstFixedColumnWidth() const
++{
++    return m_xFixedAutoCB->get_active()
++               ? 0
++               : m_xFixedWidthMF->denormalize(m_xFixedWidthMF->get_value(FieldUnit::TWIP));
++}
++
++// Word's "Remember dimensions for new tables": kept in the user profile, not in a document.
++void SwInsTableDlg::HstLoadDimensions()
++{
++    SvtViewOptions aOptions(EViewType::Dialog, HST_DIMENSIONS);
++    if (!aOptions.Exists())
++        return;
++    OUString aData;
++    aOptions.GetUserItem(u"Dimensions"_ustr) >>= aData;
++    sal_Int32 nIndex = 0;
++    const sal_Int32 nCols = o3tl::toInt32(o3tl::getToken(aData, 0, ';', nIndex));
++    const sal_Int32 nRows = o3tl::toInt32(o3tl::getToken(aData, 0, ';', nIndex));
++    const sal_Int32 nMode = o3tl::toInt32(o3tl::getToken(aData, 0, ';', nIndex));
++    const sal_Int32 nWidth = o3tl::toInt32(o3tl::getToken(aData, 0, ';', nIndex));
++    if (nCols < 1 || nRows < 1)
++        return;
++    m_xColSpinButton->set_value(nCols);
++    m_xRowSpinButton->set_value(nRows);
++    (nMode == 1 ? m_xContentsRB : nMode == 2 ? m_xWindowRB : m_xFixedRB)->set_active(true);
++    m_xFixedAutoCB->set_active(nWidth == 0);
++    if (nWidth > 0)
++        m_xFixedWidthMF->set_value(m_xFixedWidthMF->normalize(nWidth), FieldUnit::TWIP);
++    m_xRememberCB->set_active(true);
++}
++
++void SwInsTableDlg::HstStoreDimensions()
++{
++    SvtViewOptions aOptions(EViewType::Dialog, HST_DIMENSIONS);
++    if (!m_xRememberCB->get_active())
++    {
++        aOptions.Delete();
++        return;
++    }
++    const OUString aData = OUString::number(m_xColSpinButton->get_value()) + ";"
++                           + OUString::number(m_xRowSpinButton->get_value()) + ";"
++                           + OUString::number(static_cast<int>(GetHstAutoFitMode())) + ";"
++                           + OUString::number(GetHstFixedColumnWidth());
++    aOptions.SetUserItem(u"Dimensions"_ustr, css::uno::Any(aData));
++}
++
+ IMPL_LINK( SwInsTableDlg, ModifyName, weld::Entry&, rEdit, void )
+ {
+     OUString sTableName = rEdit.get_text();
+--- a/sw/source/uibase/inc/hstinstableautofit.hxx
++++ b/sw/source/uibase/inc/hstinstableautofit.hxx
+@@ -0,0 +1,27 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <sal/types.h>
++
++/// HST: what Word's AutoFit behaviour chose in Insert Table, read by the shell in another library.
++class SAL_DLLPUBLIC_RTTI SwHstInsTableAutoFit
++{
++public:
++    enum class Mode
++    {
++        Fixed,
++        Contents,
++        Window
++    };
++    virtual ~SwHstInsTableAutoFit() = default;
++    virtual Mode GetHstAutoFitMode() const = 0;
++    /// Width of each column in twips for Mode::Fixed, 0 for "Auto".
++    virtual sal_Int32 GetHstFixedColumnWidth() const = 0;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/inc/hsttableautofit.hxx
++++ b/sw/source/uibase/inc/hsttableautofit.hxx
+@@ -0,0 +1,16 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++class SwWrtShell;
++
++/// HST: Word's AutoFit to Contents. Called on every cursor or text change: when the text of the current
++/// cell of a table marked "tblLayoutAutofit" changed, the columns are refitted a moment later.
++/// Tables are never touched on load or by moving the cursor, only after an edit in that cell.
++void HstTableAutoFitNotify(SwWrtShell& rShell);
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/inc/instable.hxx
++++ b/sw/source/uibase/inc/instable.hxx
+@@ -29,6 +29,8 @@
+ #include <vcl/weld/Entry.hxx>
+ #include <vcl/weld/Frame.hxx>
+ #include <vcl/weld/Label.hxx>
++#include <vcl/weld/MetricSpinButton.hxx>
++#include <vcl/weld/RadioButton.hxx>
+ #include <vcl/weld/SpinButton.hxx>
+ #include <vcl/weld/TreeView.hxx>
+ 
+@@ -37,9 +39,10 @@
+ #include <view.hxx>
+ #include <tblafmt.hxx>
+ #include <itabenum.hxx>
++#include "hstinstableautofit.hxx"
+ #include <memory>
+ 
+-class SwInsTableDlg final : public SfxDialogController
++class SwInsTableDlg final : public SfxDialogController, public SwHstInsTableAutoFit
+ {
+     TextFilter m_aTextFilter;
+ 
+@@ -64,6 +67,16 @@
+     std::unique_ptr<weld::TreeView> m_xLbFormat;
+     std::unique_ptr<weld::CustomWeld> m_xWndPreview;
+     std::unique_ptr<weld::Frame> m_xStyleFrame;
++    std::unique_ptr<weld::RadioButton> m_xFixedRB;
++    std::unique_ptr<weld::CheckButton> m_xFixedAutoCB;
++    std::unique_ptr<weld::MetricSpinButton> m_xFixedWidthMF;
++    std::unique_ptr<weld::RadioButton> m_xContentsRB;
++    std::unique_ptr<weld::RadioButton> m_xWindowRB;
++    std::unique_ptr<weld::CheckButton> m_xRememberCB;
++
++    DECL_LINK(HstAutoFitHdl, weld::Toggleable&, void);
++    void HstLoadDimensions();
++    void HstStoreDimensions();
+ 
+     void InitAutoTableFormat();
+ 
+@@ -82,6 +95,9 @@
+     void GetValues(OUString& rName, sal_uInt16& rRow, sal_uInt16& rCol,
+                    SwInsertTableOptions& rInsTableOpts, OUString& rTableAutoFormatName,
+                    std::unique_ptr<SwTableAutoFormat>& prTAFormat);
++
++    Mode GetHstAutoFitMode() const override;
++    sal_Int32 GetHstFixedColumnWidth() const override;
+ };
+ 
+ #endif
+--- a/sw/source/uibase/shells/basesh.cxx
++++ b/sw/source/uibase/shells/basesh.cxx
+@@ -93,6 +93,9 @@
+ #include <IDocumentUndoRedo.hxx>
+ #include <ThemeColorChanger.hxx>
+ #include <swabstdlg.hxx>
++#include <hstinstableautofit.hxx>
++#include <svl/grabbagitem.hxx>
++#include <tabcol.hxx>
+ #include <modcfg.hxx>
+ #include <svx/fmshell.hxx>
+ #include <SwRewriter.hxx>
+@@ -3268,6 +3271,40 @@
+     rTempView.AutoCaption(TABLE_CAP);
+ }
+ 
++// HST: Word's AutoFit behaviour, on the table just inserted, with the cursor still in it. Window is
++// what a new table already is: as wide as the text area, relative to it.
++static void lcl_HstApplyAutoFit(SwWrtShell& rSh, const SwHstInsTableAutoFit& rAutoFit, sal_uInt16 nCols)
++{
++    const SwHstInsTableAutoFit::Mode eMode = rAutoFit.GetHstAutoFitMode();
++    if (eMode == SwHstInsTableAutoFit::Mode::Window)
++        return;
++    SwTabCols aCols;
++    rSh.GetTabCols(aCols);
++    SwTwips nWidth = aCols.GetRight() - aCols.GetLeft();
++    if (rAutoFit.GetHstFixedColumnWidth() > 0 && eMode == SwHstInsTableAutoFit::Mode::Fixed)
++        nWidth = rAutoFit.GetHstFixedColumnWidth() * nCols;
++
++    SfxItemSet aSet(SfxItemSet::makeFixedSfxItemSet<RES_FRM_SIZE, RES_FRM_SIZE, RES_HORI_ORIENT, RES_HORI_ORIENT,
++                                                    RES_FRMATR_GRABBAG, RES_FRMATR_GRABBAG>(rSh.GetAttrPool()));
++    aSet.Put(SwFormatFrameSize(SwFrameSize::Variable, nWidth));
++    aSet.Put(SwFormatHoriOrient(0, text::HoriOrientation::LEFT));
++    if (eMode == SwHstInsTableAutoFit::Mode::Contents)
++    {
++        // Word then lays the table out by its content when it opens the DOCX.
++        std::map<OUString, css::uno::Any> aBag = rSh.GetTableFormat()->GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag();
++        aBag[u"tblLayoutAutofit"_ustr] <<= true;
++        aSet.Put(SfxGrabBagItem(RES_FRMATR_GRABBAG, std::move(aBag)));
++    }
++    rSh.SetTableAttr(aSet);
++
++    if (eMode == SwHstInsTableAutoFit::Mode::Contents)
++    {
++        rSh.GetView().GetViewFrame().GetDispatcher()->Execute(FN_TABLE_SELECT_ALL);
++        rSh.AdjustCellWidth(false, false);
++        rSh.ClearMark();
++    }
++}
++
+ void SwBaseShell::InsertTable( SfxRequest& _rRequest )
+ {
+     const SfxItemSet* pArgs = _rRequest.GetArgs();
+@@ -3372,6 +3409,8 @@
+                         if( nCols && nRows )
+                         {
+                             InsertTableImpl( rSh, rTempView, UIName(aTableName), nRows, nCols, aInsTableOpts, TableStyleName(aAutoName), pTAFormat );
++                            if (auto* pAutoFit = dynamic_cast<SwHstInsTableAutoFit*>(pAbstractDialog->getDialogController().get()))
++                                lcl_HstApplyAutoFit(rSh, *pAutoFit, nCols);
+                             EndUndo(rSh);
+                         }
+                     }
+--- a/sw/source/uibase/uiview/view.cxx
++++ b/sw/source/uibase/uiview/view.cxx
+@@ -84,6 +84,7 @@
+ #include <drawdoc.hxx>
+ #include <wdocsh.hxx>
+ #include <wrtsh.hxx>
++#include <hsttableautofit.hxx>
+ #include <barcfg.hxx>
+ #include <pview.hxx>
+ #include <swdtflvr.hxx>
+@@ -548,6 +549,8 @@
+ 
+ IMPL_LINK_NOARG(SwView, AttrChangedNotify, LinkParamNone*, void)
+ {
++    HstTableAutoFitNotify(GetWrtShell());
++
+     if ( GetEditWin().IsChainMode() )
+         GetEditWin().SetChainMode( false );
+ 
+--- a/sw/source/uibase/wrtsh/hsttableautofit.cxx
++++ b/sw/source/uibase/wrtsh/hsttableautofit.cxx
+@@ -0,0 +1,119 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hsttableautofit.hxx>
++
++#include <IDocumentUndoRedo.hxx>
++#include <UndoManager.hxx>
++#include <doc.hxx>
++#include <hintids.hxx>
++#include <ndtxt.hxx>
++#include <node.hxx>
++#include <pam.hxx>
++#include <swcrsr.hxx>
++#include <swmodule.hxx>
++#include <swtable.hxx>
++#include <frmfmt.hxx>
++#include <svl/grabbagitem.hxx>
++#include <tools/lazydelete.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/timer.hxx>
++#include <wrtsh.hxx>
++
++namespace
++{
++/// Typing pauses this long before a refit: each refit measures every cell and relays out the table.
++constexpr sal_uInt64 HST_REFIT_DELAY_MS = 150;
++
++struct AutoFitState
++{
++    Timer aTimer{ "sw::HstTableAutoFit" };
++    DECL_STATIC_LINK(AutoFitState, Refit, Timer*, void);
++    const void* pBox = nullptr; ///< only compared, never dereferenced: the box may be gone
++    sal_Int32 nLength = -1;
++};
++
++sal_Int32 lcl_CellLength(const SwStartNode& rStart)
++{
++    sal_Int32 nLength = 0;
++    const SwNodes& rNodes = rStart.GetNodes();
++    const SwNodeOffset nEnd = rStart.EndOfSectionIndex();
++    for (SwNodeOffset n = rStart.GetIndex() + 1; n < nEnd; ++n)
++        if (const SwTextNode* pText = rNodes[n]->GetTextNode())
++            nLength += pText->Len() + 1;
++    return nLength;
++}
++
++bool lcl_IsMarked(const SwTable& rTable)
++{
++    return rTable.GetFrameFormat()->GetAttrSet().Get(RES_FRMATR_GRABBAG).GetGrabBag().contains(
++        u"tblLayoutAutofit"_ustr);
++}
++
++IMPL_STATIC_LINK_NOARG(AutoFitState, Refit, Timer*, void)
++{
++    SwWrtShell* pShell = ::GetActiveWrtShell();
++    const SwTableNode* pNode = pShell ? pShell->IsCursorInTable() : nullptr;
++    if (!pNode || !lcl_IsMarked(pNode->GetTable()) || pShell->ActionPend()
++        || Application::IsInModalMode())
++        return;
++    const SwTableSortBoxes& rBoxes = pNode->GetTable().GetTabSortBoxes();
++    if (rBoxes.empty())
++        return;
++
++    SwDoc& rDoc = *pShell->GetDoc();
++    // A cursor of its own over the whole table: the user's selection and cursor stay where they are.
++    SwNodeIndex aStart(*rBoxes.front()->GetSttNd(), 1);
++    SwCursor aCursor(SwPosition(aStart), nullptr);
++    aCursor.SetMark();
++    SwNodeIndex aEnd(*rBoxes.back()->GetSttNd()->EndOfSectionNode(), -1);
++    aCursor.GetPoint()->Assign(aEnd);
++
++    // Not an undo step: undoing the typing leaves a changed length, which refits again.
++    ::sw::UndoGuard aUndoGuard(rDoc.GetIDocumentUndoRedo());
++    pShell->StartAllAction();
++    rDoc.AdjustCellWidth(aCursor, false, false);
++    pShell->EndAllAction();
++}
++
++AutoFitState& lcl_State()
++{
++    static tools::DeleteOnDeinit<AutoFitState> aState;
++    return *aState.get();
++}
++}
++
++void HstTableAutoFitNotify(SwWrtShell& rShell)
++{
++    const SwTableNode* pNode = rShell.IsCursorInTable();
++    AutoFitState& rState = lcl_State();
++    if (!pNode || !lcl_IsMarked(pNode->GetTable()))
++    {
++        rState.pBox = nullptr;
++        return;
++    }
++    const SwTableBox* pBox = rShell.GetCursor()->GetPointNode().GetTableBox();
++    const SwStartNode* pStart = pBox ? pBox->GetSttNd() : nullptr;
++    if (!pStart)
++        return;
++    const sal_Int32 nLength = lcl_CellLength(*pStart);
++    if (pBox != rState.pBox)
++    {
++        // Arriving in a cell only records it.
++        rState.pBox = pBox;
++        rState.nLength = nLength;
++        return;
++    }
++    if (nLength == rState.nLength)
++        return;
++    rState.nLength = nLength;
++    rState.aTimer.SetTimeout(HST_REFIT_DELAY_MS);
++    rState.aTimer.SetInvokeHandler(LINK(nullptr, AutoFitState, Refit));
++    rState.aTimer.Start();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/writerfilter/dmapper/DomainMapperTableHandler.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapperTableHandler.cxx
+@@ -512,6 +512,9 @@
+             }
+         }
+ 
++        if (m_rDMapper_Impl.getTableManager().IsHstAutoFitToContents())
++            aGrabBag[u"tblLayoutAutofit"_ustr] <<= true;
++
+         if (!aGrabBag.empty())
+         {
+             m_aTableProperties->Insert( PROP_TABLE_INTEROP_GRAB_BAG, uno::Any( aGrabBag.getAsConstPropertyValueList() ) );
+--- a/sw/source/writerfilter/dmapper/DomainMapperTableManager.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapperTableManager.cxx
+@@ -177,6 +177,7 @@
+                     }
+                     else
+                     {
++                        SetHstWidthAuto(pMeasureHandler->getUnit() == NS_ooxml::LN_Value_ST_TblWidth_auto);
+                         m_nTableWidth = pMeasureHandler->getMeasureValue();
+                         if( m_nTableWidth )
+                         {
+--- a/sw/source/writerfilter/dmapper/DomainMapperTableManager.hxx
++++ b/sw/source/writerfilter/dmapper/DomainMapperTableManager.hxx
+@@ -70,6 +70,8 @@
+     bool m_bTableSizeTypeInserted;
+     /// Table layout algorithm, IOW if we should consider fixed column width or not.
+     sal_uInt32 m_nLayoutType;
++    bool m_bHstLayoutAutofit = false;
++    bool m_bHstWidthAuto = false;
+     /// Collected table paragraphs for table style handling
+     std::stack< TableParagraphVectorPtr > m_aParagraphsToEndTable;
+ 
+@@ -131,6 +133,11 @@
+             m_aTmpTableProperties.back()->InsertProps(pProps.get());
+     };
+ 
++    /// HST: an explicit w:tblLayout autofit with an automatic w:tblW is AutoFit to Contents.
++    bool IsHstAutoFitToContents() const { return m_bHstLayoutAutofit && m_bHstWidthAuto; }
++    void SetHstLayoutAutofit(bool bSet) { m_bHstLayoutAutofit = bSet; }
++    void SetHstWidthAuto(bool bSet) { m_bHstWidthAuto = bSet; }
++
+     void SetLayoutType(sal_uInt32 nLayoutType)
+     {
+         m_nLayoutType = nLayoutType;
+--- a/sw/source/writerfilter/dmapper/TablePropertiesHandler.cxx
++++ b/sw/source/writerfilter/dmapper/TablePropertiesHandler.cxx
+@@ -213,6 +213,8 @@
+                 DomainMapperTableManager* pManager = dynamic_cast<DomainMapperTableManager*>(m_pTableManager);
+                 if (pManager)
+                     pManager->SetLayoutType(static_cast<sal_uInt32>(nIntValue));
++                if (pManager)
++                    pManager->SetHstLayoutAutofit(nIntValue == NS_ooxml::LN_Value_doc_ST_TblLayout_autofit);
+             }
+             break;
+             case NS_ooxml::LN_CT_TblPrEx_tblBorders:
+--- a/sw/uiconfig/swriter/ui/inserttable.ui
++++ b/sw/uiconfig/swriter/ui/inserttable.ui
+@@ -23,6 +23,11 @@
+     <property name="step-increment">1</property>
+     <property name="page-increment">10</property>
+   </object>
++  <object class="GtkAdjustment" id="hstadjfixed">
++    <property name="upper">99.99</property>
++    <property name="step-increment">0.1</property>
++    <property name="page-increment">1</property>
++  </object>
+   <object class="GtkTreeStore" id="liststore1">
+     <columns>
+       <!-- column-name text -->
+@@ -136,39 +141,6 @@
+                     <property name="row-spacing">6</property>
+                     <property name="column-spacing">12</property>
+                     <child>
+-                      <object class="GtkEntry" id="nameedit">
+-                        <property name="visible">True</property>
+-                        <property name="can-focus">True</property>
+-                        <property name="hexpand">True</property>
+-                        <property name="activates-default">True</property>
+-                        <property name="truncate-multiline">True</property>
+-                        <child internal-child="accessible">
+-                          <object class="AtkObject" id="nameedit-atkobject">
+-                            <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|nameedit">Enter a name for the table.</property>
+-                          </object>
+-                        </child>
+-                      </object>
+-                      <packing>
+-                        <property name="left-attach">1</property>
+-                        <property name="top-attach">0</property>
+-                        <property name="width">3</property>
+-                      </packing>
+-                    </child>
+-                    <child>
+-                      <object class="GtkLabel" id="label3">
+-                        <property name="visible">True</property>
+-                        <property name="can-focus">False</property>
+-                        <property name="label" translatable="yes" context="inserttable|label3">_Name:</property>
+-                        <property name="use-underline">True</property>
+-                        <property name="mnemonic-widget">nameedit</property>
+-                        <property name="xalign">0</property>
+-                      </object>
+-                      <packing>
+-                        <property name="left-attach">0</property>
+-                        <property name="top-attach">0</property>
+-                      </packing>
+-                    </child>
+-                    <child>
+                       <object class="GtkLabel" id="3">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+@@ -268,136 +240,105 @@
+               </packing>
+             </child>
+             <child>
+-              <object class="GtkFrame" id="frame2">
++              <object class="GtkFrame" id="hstautofitframe">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="hexpand">True</property>
+-                <property name="vexpand">True</property>
+                 <property name="label-xalign">0</property>
+                 <property name="shadow-type">none</property>
+                 <child>
+-                  <!-- n-columns=1 n-rows=4 -->
+-                  <object class="GtkGrid" id="grid4">
++                  <object class="GtkGrid" id="hstautofitgrid">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+-                    <property name="hexpand">True</property>
+-                    <property name="vexpand">True</property>
+                     <property name="row-spacing">6</property>
++                    <property name="column-spacing">12</property>
+                     <child>
+-                      <object class="GtkCheckButton" id="headercb">
+-                        <property name="label" translatable="yes" context="inserttable|headercb">Hea_der</property>
+-                        <property name="visible">True</property>
+-                        <property name="can-focus">True</property>
+-                        <property name="receives-default">False</property>
+-                        <property name="use-underline">True</property>
+-                        <property name="draw-indicator">True</property>
+-                        <child internal-child="accessible">
+-                          <object class="AtkObject" id="headercb-atkobject">
+-                            <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|headercb">Includes a header row in the table.</property>
+-                          </object>
+-                        </child>
+-                      </object>
+-                      <packing>
+-                        <property name="left-attach">0</property>
+-                        <property name="top-attach">0</property>
+-                      </packing>
++                  <object class="GtkRadioButton" id="hstautofixed">
++                    <property name="label" translatable="yes" context="inserttable|hstautofixed">_Fixed column width:</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                  <accessibility>
++                      <relation type="label-for" target="hstfixedwidth"/>
++                    </accessibility>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
+                     </child>
+                     <child>
+-                      <object class="GtkCheckButton" id="repeatcb">
+-                        <property name="label" translatable="yes" context="inserttable|repeatcb">Repeat header rows on new _pages</property>
+-                        <property name="visible">True</property>
+-                        <property name="sensitive">False</property>
+-                        <property name="can-focus">True</property>
+-                        <property name="receives-default">False</property>
+-                        <property name="margin-start">12</property>
+-                        <property name="use-underline">True</property>
+-                        <property name="active">True</property>
+-                        <property name="draw-indicator">True</property>
+-                        <child internal-child="accessible">
+-                          <object class="AtkObject" id="repeatcb-atkobject">
+-                            <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|repeatcb">Repeats the header of the table at the top of each subsequent page if the table spans more than one page.</property>
+-                          </object>
+-                        </child>
+-                      </object>
+-                      <packing>
+-                        <property name="left-attach">0</property>
+-                        <property name="top-attach">1</property>
+-                      </packing>
++                  <object class="GtkSpinButton" id="hstfixedwidth">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="activates-default">True</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="adjustment">hstadjfixed</property>
++                    <property name="digits">2</property>
++                    <accessibility>
++                      <relation type="labelled-by" target="hstautofixed"/>
++                    </accessibility>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">0</property>
++                  </packing>
+                     </child>
+                     <child>
+-                      <object class="GtkCheckButton" id="dontsplitcb">
+-                        <property name="label" translatable="yes" context="inserttable|dontsplitcb">Don’t _split table over pages</property>
+-                        <property name="visible">True</property>
+-                        <property name="can-focus">True</property>
+-                        <property name="receives-default">False</property>
+-                        <property name="use-underline">True</property>
+-                        <property name="draw-indicator">True</property>
+-                        <child internal-child="accessible">
+-                          <object class="AtkObject" id="dontsplitcb-atkobject">
+-                            <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|dontsplitcb">Prevents the table from spanning more than one page.</property>
+-                          </object>
+-                        </child>
+-                      </object>
+-                      <packing>
+-                        <property name="left-attach">0</property>
+-                        <property name="top-attach">3</property>
+-                      </packing>
++                  <object class="GtkCheckButton" id="hstfixedauto">
++                    <property name="label" translatable="yes" context="inserttable|hstfixedauto">A_uto</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="active">True</property>
++                    <property name="draw-indicator">True</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">2</property>
++                    <property name="top-attach">0</property>
++                  </packing>
+                     </child>
+                     <child>
+-                      <!-- n-columns=2 n-rows=1 -->
+-                      <object class="GtkGrid" id="repeatgroup">
+-                        <property name="visible">True</property>
+-                        <property name="can-focus">False</property>
+-                        <property name="valign">start</property>
+-                        <property name="margin-start">30</property>
+-                        <property name="column-spacing">12</property>
+-                        <child>
+-                          <object class="GtkSpinButton" id="repeatheaderspin">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="activates-default">True</property>
+-                            <property name="truncate-multiline">True</property>
+-                            <property name="adjustment">adjustment3</property>
+-                            <property name="value">1</property>
+-                            <child internal-child="accessible">
+-                              <object class="AtkObject" id="repeatheaderspin-atkobject">
+-                                <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|repeatheaderspin">Select the number of rows that you want to use for the header.</property>
+-                              </object>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="GtkLabel" id="repeatheaderafter">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="label" translatable="yes" context="inserttable|repeatheaderafter">Header ro_ws:</property>
+-                            <property name="use-underline">True</property>
+-                            <property name="mnemonic-widget">repeatheaderspin</property>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                      </object>
+-                      <packing>
+-                        <property name="left-attach">0</property>
+-                        <property name="top-attach">2</property>
+-                      </packing>
++                  <object class="GtkRadioButton" id="hstautocontents">
++                    <property name="label" translatable="yes" context="inserttable|hstautocontents">AutoFit to conten_ts</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                    <property name="group">hstautofixed</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                    </child>
++                    <child>
++                  <object class="GtkRadioButton" id="hstautowindow">
++                    <property name="label" translatable="yes" context="inserttable|hstautowindow">AutoFit to _window</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                    <property name="group">hstautofixed</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">2</property>
++                  </packing>
+                     </child>
+                   </object>
+                 </child>
+                 <child type="label">
+-                  <object class="GtkLabel" id="label2">
++                  <object class="GtkLabel" id="hstautofitlabel">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="inserttable|label2">Options</property>
++                    <property name="label" translatable="yes" context="inserttable|hstautofitlabel">AutoFit Behavior</property>
+                     <attributes>
+                       <attribute name="weight" value="bold"/>
+                     </attributes>
+@@ -411,102 +352,331 @@
+               </packing>
+             </child>
+             <child>
+-              <object class="GtkFrame" id="stylesframe">
++              <object class="GtkCheckButton" id="hstremember">
++                <property name="label" translatable="yes" context="inserttable|hstremember">R_emember dimensions for new tables</property>
+                 <property name="visible">True</property>
+-                <property name="can-focus">False</property>
+-                <property name="hexpand">True</property>
+-                <property name="vexpand">True</property>
+-                <property name="label-xalign">0</property>
+-                <property name="shadow-type">none</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="draw-indicator">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkExpander" id="hstadvanced">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
+                 <child>
+-                  <!-- n-columns=2 n-rows=1 -->
+-                  <object class="GtkGrid" id="grid1">
++                  <object class="GtkBox" id="hstadvancedbox">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+-                    <property name="hexpand">True</property>
+-                    <property name="vexpand">True</property>
+-                    <property name="row-spacing">6</property>
+-                    <property name="column-spacing">6</property>
++                    <property name="orientation">vertical</property>
++                    <property name="spacing">12</property>
+                     <child>
+-                      <object class="GtkDrawingArea" id="previewinstable">
++                      <object class="GtkFrame" id="frame2">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="hexpand">True</property>
+                         <property name="vexpand">True</property>
+-                        <child internal-child="accessible">
+-                          <object class="AtkObject" id="previewinstable-atkobject">
+-                            <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|previewinstable">Displays a preview of the current selection.</property>
++                        <property name="label-xalign">0</property>
++                        <property name="shadow-type">none</property>
++                        <child>
++                          <!-- n-columns=1 n-rows=4 -->
++                          <object class="GtkGrid" id="grid4">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="margin-start">12</property>
++                            <property name="margin-top">6</property>
++                            <property name="hexpand">True</property>
++                            <property name="vexpand">True</property>
++                            <property name="row-spacing">6</property>
++                            <child>
++                              <object class="GtkGrid" id="hstnamegrid">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="column-spacing">12</property>
++                                <child>
++                                  <object class="GtkLabel" id="label3">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">False</property>
++                                    <property name="label" translatable="yes" context="inserttable|label3">_Name:</property>
++                                    <property name="use-underline">True</property>
++                                    <property name="mnemonic-widget">nameedit</property>
++                                    <property name="xalign">0</property>
++                                  </object>
++                                  <packing>
++                                    <property name="left-attach">0</property>
++                                    <property name="top-attach">0</property>
++                                  </packing>
++                                </child>
++                                <child>
++                                  <object class="GtkEntry" id="nameedit">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">True</property>
++                                    <property name="hexpand">True</property>
++                                    <property name="activates-default">True</property>
++                                    <property name="truncate-multiline">True</property>
++                                    <child internal-child="accessible">
++                                      <object class="AtkObject" id="nameedit-atkobject">
++                                        <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|nameedit">Enter a name for the table.</property>
++                                      </object>
++                                    </child>
++                                  </object>
++                                  <packing>
++                                    <property name="left-attach">1</property>
++                                    <property name="top-attach">0</property>
++                                  </packing>
++                                </child>
++                              </object>
++                              <packing>
++                                <property name="left-attach">0</property>
++                                <property name="top-attach">4</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkCheckButton" id="headercb">
++                                <property name="label" translatable="yes" context="inserttable|headercb">Hea_der</property>
++                                <property name="visible">True</property>
++                                <property name="can-focus">True</property>
++                                <property name="receives-default">False</property>
++                                <property name="use-underline">True</property>
++                                <property name="draw-indicator">True</property>
++                                <child internal-child="accessible">
++                                  <object class="AtkObject" id="headercb-atkobject">
++                                    <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|headercb">Includes a header row in the table.</property>
++                                  </object>
++                                </child>
++                              </object>
++                              <packing>
++                                <property name="left-attach">0</property>
++                                <property name="top-attach">0</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkCheckButton" id="repeatcb">
++                                <property name="label" translatable="yes" context="inserttable|repeatcb">Repeat header rows on new _pages</property>
++                                <property name="visible">True</property>
++                                <property name="sensitive">False</property>
++                                <property name="can-focus">True</property>
++                                <property name="receives-default">False</property>
++                                <property name="margin-start">12</property>
++                                <property name="use-underline">True</property>
++                                <property name="active">True</property>
++                                <property name="draw-indicator">True</property>
++                                <child internal-child="accessible">
++                                  <object class="AtkObject" id="repeatcb-atkobject">
++                                    <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|repeatcb">Repeats the header of the table at the top of each subsequent page if the table spans more than one page.</property>
++                                  </object>
++                                </child>
++                              </object>
++                              <packing>
++                                <property name="left-attach">0</property>
++                                <property name="top-attach">1</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkCheckButton" id="dontsplitcb">
++                                <property name="label" translatable="yes" context="inserttable|dontsplitcb">Don’t _split table over pages</property>
++                                <property name="visible">True</property>
++                                <property name="can-focus">True</property>
++                                <property name="receives-default">False</property>
++                                <property name="use-underline">True</property>
++                                <property name="draw-indicator">True</property>
++                                <child internal-child="accessible">
++                                  <object class="AtkObject" id="dontsplitcb-atkobject">
++                                    <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|dontsplitcb">Prevents the table from spanning more than one page.</property>
++                                  </object>
++                                </child>
++                              </object>
++                              <packing>
++                                <property name="left-attach">0</property>
++                                <property name="top-attach">3</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <!-- n-columns=2 n-rows=1 -->
++                              <object class="GtkGrid" id="repeatgroup">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="valign">start</property>
++                                <property name="margin-start">30</property>
++                                <property name="column-spacing">12</property>
++                                <child>
++                                  <object class="GtkSpinButton" id="repeatheaderspin">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">True</property>
++                                    <property name="activates-default">True</property>
++                                    <property name="truncate-multiline">True</property>
++                                    <property name="adjustment">adjustment3</property>
++                                    <property name="value">1</property>
++                                    <child internal-child="accessible">
++                                      <object class="AtkObject" id="repeatheaderspin-atkobject">
++                                        <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|repeatheaderspin">Select the number of rows that you want to use for the header.</property>
++                                      </object>
++                                    </child>
++                                  </object>
++                                  <packing>
++                                    <property name="left-attach">1</property>
++                                    <property name="top-attach">0</property>
++                                  </packing>
++                                </child>
++                                <child>
++                                  <object class="GtkLabel" id="repeatheaderafter">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">False</property>
++                                    <property name="label" translatable="yes" context="inserttable|repeatheaderafter">Header ro_ws:</property>
++                                    <property name="use-underline">True</property>
++                                    <property name="mnemonic-widget">repeatheaderspin</property>
++                                  </object>
++                                  <packing>
++                                    <property name="left-attach">0</property>
++                                    <property name="top-attach">0</property>
++                                  </packing>
++                                </child>
++                              </object>
++                              <packing>
++                                <property name="left-attach">0</property>
++                                <property name="top-attach">2</property>
++                              </packing>
++                            </child>
++                          </object>
++                        </child>
++                        <child type="label">
++                          <object class="GtkLabel" id="label2">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="label" translatable="yes" context="inserttable|label2">Options</property>
++                            <attributes>
++                              <attribute name="weight" value="bold"/>
++                            </attributes>
+                           </object>
+                         </child>
+                       </object>
+                       <packing>
+-                        <property name="left-attach">1</property>
+-                        <property name="top-attach">0</property>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
+                       </packing>
+                     </child>
+                     <child>
+-                      <object class="GtkScrolledWindow">
++                      <object class="GtkFrame" id="stylesframe">
+                         <property name="visible">True</property>
+-                        <property name="can-focus">True</property>
++                        <property name="can-focus">False</property>
+                         <property name="hexpand">True</property>
+                         <property name="vexpand">True</property>
+-                        <property name="shadow-type">in</property>
++                        <property name="label-xalign">0</property>
++                        <property name="shadow-type">none</property>
+                         <child>
+-                          <object class="GtkTreeView" id="formatlbinstable">
++                          <!-- n-columns=2 n-rows=1 -->
++                          <object class="GtkGrid" id="grid1">
+                             <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="margin-start">12</property>
++                            <property name="margin-top">6</property>
+                             <property name="hexpand">True</property>
+                             <property name="vexpand">True</property>
+-                            <property name="model">liststore1</property>
+-                            <property name="headers-visible">False</property>
+-                            <property name="headers-clickable">False</property>
+-                            <property name="search-column">0</property>
+-                            <property name="show-expanders">False</property>
+-                            <child internal-child="selection">
+-                              <object class="GtkTreeSelection"/>
+-                            </child>
++                            <property name="row-spacing">6</property>
++                            <property name="column-spacing">6</property>
+                             <child>
+-                              <object class="GtkTreeViewColumn" id="treeviewcolumn1">
+-                                <child>
+-                                  <object class="GtkCellRendererText" id="cellrenderertext1"/>
+-                                  <attributes>
+-                                    <attribute name="text">0</attribute>
+-                                  </attributes>
++                              <object class="GtkDrawingArea" id="previewinstable">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="hexpand">True</property>
++                                <property name="vexpand">True</property>
++                                <child internal-child="accessible">
++                                  <object class="AtkObject" id="previewinstable-atkobject">
++                                    <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|previewinstable">Displays a preview of the current selection.</property>
++                                  </object>
+                                 </child>
+                               </object>
++                              <packing>
++                                <property name="left-attach">1</property>
++                                <property name="top-attach">0</property>
++                              </packing>
+                             </child>
+-                            <child internal-child="accessible">
+-                              <object class="AtkObject" id="formatlbinstable-atkobject">
+-                                <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|formatlbinstable">Select a predefined style for the new table.</property>
++                            <child>
++                              <object class="GtkScrolledWindow">
++                                <property name="visible">True</property>
++                                <property name="can-focus">True</property>
++                                <property name="hexpand">True</property>
++                                <property name="vexpand">True</property>
++                                <property name="shadow-type">in</property>
++                                <child>
++                                  <object class="GtkTreeView" id="formatlbinstable">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">True</property>
++                                    <property name="hexpand">True</property>
++                                    <property name="vexpand">True</property>
++                                    <property name="model">liststore1</property>
++                                    <property name="headers-visible">False</property>
++                                    <property name="headers-clickable">False</property>
++                                    <property name="search-column">0</property>
++                                    <property name="show-expanders">False</property>
++                                    <child internal-child="selection">
++                                      <object class="GtkTreeSelection"/>
++                                    </child>
++                                    <child>
++                                      <object class="GtkTreeViewColumn" id="treeviewcolumn1">
++                                        <child>
++                                          <object class="GtkCellRendererText" id="cellrenderertext1"/>
++                                          <attributes>
++                                            <attribute name="text">0</attribute>
++                                          </attributes>
++                                        </child>
++                                      </object>
++                                    </child>
++                                    <child internal-child="accessible">
++                                      <object class="AtkObject" id="formatlbinstable-atkobject">
++                                        <property name="AtkObject::accessible-description" translatable="yes" context="inserttable|extended_tip|formatlbinstable">Select a predefined style for the new table.</property>
++                                      </object>
++                                    </child>
++                                  </object>
++                                </child>
+                               </object>
++                              <packing>
++                                <property name="left-attach">0</property>
++                                <property name="top-attach">0</property>
++                              </packing>
+                             </child>
+                           </object>
+                         </child>
++                        <child type="label">
++                          <object class="GtkLabel" id="lbTableStyle">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="label" translatable="yes" context="inserttable|lbTableStyle">Styles</property>
++                            <attributes>
++                              <attribute name="weight" value="bold"/>
++                            </attributes>
++                          </object>
++                        </child>
+                       </object>
+                       <packing>
+-                        <property name="left-attach">0</property>
+-                        <property name="top-attach">0</property>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">2</property>
+                       </packing>
+                     </child>
+                   </object>
+                 </child>
+                 <child type="label">
+-                  <object class="GtkLabel" id="lbTableStyle">
++                  <object class="GtkLabel" id="hstadvancedlabel">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="inserttable|lbTableStyle">Styles</property>
+-                    <attributes>
+-                      <attribute name="weight" value="bold"/>
+-                    </attributes>
++                    <property name="label" translatable="yes" context="inserttable|hstadvancedlabel">_Advanced</property>
++                    <property name="use-underline">True</property>
+                   </object>
+                 </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">2</property>
++                <property name="position">3</property>
+               </packing>
+             </child>
+           </object>
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -19551,6 +19551,48 @@
+ msgid "Enter a name for the table."
+ msgstr ""
+ 
++#. hstaut
++#: sw/uiconfig/swriter/ui/inserttable.ui
++msgctxt "inserttable|hstautofitlabel"
++msgid "AutoFit Behavior"
++msgstr "Tự động Khớp Hành vi"
++
++#. hstaut
++#: sw/uiconfig/swriter/ui/inserttable.ui
++msgctxt "inserttable|hstautofixed"
++msgid "_Fixed column width:"
++msgstr "Độ rộng Cột Cố đị_nh:"
++
++#. hstfix
++#: sw/uiconfig/swriter/ui/inserttable.ui
++msgctxt "inserttable|hstfixedauto"
++msgid "A_uto"
++msgstr "Tự độ_ng"
++
++#. hstaut
++#: sw/uiconfig/swriter/ui/inserttable.ui
++msgctxt "inserttable|hstautocontents"
++msgid "AutoFit to conten_ts"
++msgstr "Tự Khớp Nội _dung"
++
++#. hstaut
++#: sw/uiconfig/swriter/ui/inserttable.ui
++msgctxt "inserttable|hstautowindow"
++msgid "AutoFit to _window"
++msgstr "Tự Khớp Cửa _sổ"
++
++#. hstrem
++#: sw/uiconfig/swriter/ui/inserttable.ui
++msgctxt "inserttable|hstremember"
++msgid "R_emember dimensions for new tables"
++msgstr "Nhớ kích cỡ cho bảng _mới"
++
++#. hstadv
++#: sw/uiconfig/swriter/ui/inserttable.ui
++msgctxt "inserttable|hstadvancedlabel"
++msgid "_Advanced"
++msgstr "Nâng c_ao"
++
+ #. nrFC2
+ #: sw/uiconfig/swriter/ui/inserttable.ui:161
+ msgctxt "inserttable|label3"
