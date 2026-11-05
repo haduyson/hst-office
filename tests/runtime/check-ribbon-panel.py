@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Check the ribbon look on a real GUI build: white panel with a thin light module-coloured frame.
+"""Check direction A on a real GUI build: white panel with a neutral native frame.
 
 Usage: python3 tests/runtime/check-ribbon-panel.py [--instdir upstream/libreoffice/instdir]
            [--out tests/output/ribbon-panel] [--display :97] [--plugin gtk3]
 Starts a fresh profile (see hst_gui), opens Writer, Sheets and Slides and asserts on the screenshot of each window:
-  - the frame at the left edge of the ribbon row is tinted in the module colour (Writer blue, Sheets green, Slides
-    orange) and light (every channel >= 110; the generic backend uses a darker dialog grey);
+  - the frame at the left edge is neutral and light (every channel >= 110);
   - the panel row next to it is mostly the theme's window colour (white), i.e. the tint does not fill the ribbon.
 Run it with --plugin gen as well: that backend draws the panel through TabControl::Paint (hst-ribbon-panel.patch),
 as macOS and Windows do. Screenshots go to --out. Exit 1 when a check fails.
@@ -21,9 +20,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 
 ROOT = hst_gui.ROOT
-MODULES = (("writer", "private:factory/swriter", lambda r, g, b: b > r + 25),
-           ("sheets", "private:factory/scalc", lambda r, g, b: g > r + 15 and g > b),
-           ("slides", "private:factory/simpress", lambda r, g, b: r > b + 15))
+MODULES = (("writer", "private:factory/swriter"),
+           ("sheets", "private:factory/scalc"),
+           ("slides", "private:factory/simpress"))
 
 
 def window_origin(display, wid):
@@ -47,27 +46,19 @@ def main():
                             lang="en_US.UTF-8").start()
     failed = 0
     try:
-        for name, url, hue_ok in MODULES:
+        for name, url in MODULES:
             doc = office.load(url)
             time.sleep(7)
             shot = office.screenshot(os.path.join(args.out, f"{args.plugin}-{name}.png"))
             wins = [w for w, n in hst_gui.toplevels(args.display, office.pid) if " — HST " in n]
             wx, wy = window_origin(args.display, wins[0]) if wins else (0, 0)
             img = Image.open(shot).convert("RGB")
-            frame = None  # first tinted pixel at the left edge of the ribbon rows
-            for y in range(wy + 60, wy + 260):
-                for x in range(wx, wx + 20):
-                    r, g, b = img.getpixel((x, y))
-                    if max(r, g, b) - min(r, g, b) >= 25 and hue_ok(r, g, b):
-                        frame = (x, y, (r, g, b))
-                        break
-                if frame:
-                    break
-            ok_frame = frame is not None and min(frame[2]) >= 110
-            row_y = frame[1] if frame else wy + 150
+            frame = (wx + 2, wy + 100, img.getpixel((wx + 2, wy + 100)))
+            ok_frame = min(frame[2]) >= 110 and max(frame[2]) - min(frame[2]) <= 10
+            row_y = wy + 150
             white = sum(1 for x in range(wx + 20, wx + 420) if min(img.getpixel((x, row_y))) >= 250)
             ok_panel = white >= 120
-            for label, ok, detail in ((f"{name}: light module-coloured frame", ok_frame, frame),
+            for label, ok, detail in ((f"{name}: light neutral frame", ok_frame, frame),
                                       (f"{name}: panel is window-coloured (white px in a 400 px row)", ok_panel, white)):
                 failed += not ok
                 print(f"{'PASS' if ok else 'FAIL'}  [{args.plugin}] {label}  {detail}")

@@ -32,8 +32,9 @@ EXPECTED = {
     # Enables the HASON TECH Start Center banner (hst-start-center-banner.patch); no donation UI exists.
     "org.openoffice.Office.Common/Misc/ShowDonation": True,
     "org.openoffice.Setup/Product/WhatsNew": False,
-    # Ribbon frame tint stays the upstream value: hst-ribbon-panel.patch keeps the tint to a thin frame.
-    "org.openoffice.Office.Common/Misc/NotebookbarColorTransparency": 150,
+    # Direction A uses the native neutral frame; an explicit profile value still wins.
+    "org.openoffice.Office.Common/Misc/NotebookbarColorTransparency": 255,
+    "org.openoffice.Office.Common/Misc/SymbolStyle": "auto",
     "org.openoffice.Office.Writer/DefaultFont/Standard": "Times New Roman",
     # Both rulers, for aligning lines and margins (hst-writer-rulers-default.patch, tests/runtime/check-writer-rulers.py).
     "org.openoffice.Office.Writer/Layout/Window/ShowRulers": True,
