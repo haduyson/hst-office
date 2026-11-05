@@ -16,7 +16,7 @@ Survey: `dialogs-msoffice-survey-261104.md`. Check: `tests/runtime/check-dialogs
 | Borders and Shading | not started | - / 13 | |
 | Insert Table (AutoFit) | not started | - / 6 | |
 | Table Properties (Row, Column, Cell, Alt Text; Previous/Next Row, Text Wrapping) | done; Text Wrapping asks first because moving a table to or from a frame clears the undo history (core limit) | ~8 / 30.5 + 20 | COMMIT_TABLE |
-| Picture properties and Word wrap styles | not started | - / 18 | |
+| Picture properties and Word wrap styles | done: Position, Text Wrapping, Size at one tab level, 7 styles, same tabs for frames and objects; the Size tab shows the Position page's widgets (one class owns both) | ~6 / 18 + 5 | COMMIT_PICTURE |
 | Tabs (standalone command, default tab stop) | not started | - / 4 | |
 | Find and Replace tabs | not started (survey: optional) | - / 16 | |
 | Bullets and Numbering, Columns, Print, Export PDF | class (a) only in the survey: no b/c work | - / 0 | |

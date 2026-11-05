@@ -15,8 +15,14 @@ class DialogHarness:
         self.display = display
         os.environ["HST_VCLPLUGIN"] = "svp"
         hst_gui.setup_uno(instdir)
-        self.office = hst_gui.Office(instdir, workdir, port, display=display)
+        # The automatic update check opens a modal dialog at any moment, blocking the checks.
+        no_update = [("/org.openoffice.Office.HSTUpdate", "AutoCheck", "false"),
+                     ("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", "false")]
+        self.office = hst_gui.Office(instdir, workdir, port, display=display, config=no_update)
         self.office.start()
+        # The seed in the profile can be read too early, and each new window then asks again; a modal
+        # welcome inside a load never returns. Settle it for good before the first document.
+        self.office.set_config("/org.hasontech.hstoffice.Welcome", "Shown", True)
         self.ui = self.office.service("com.sun.star.ui.test.UITest")
         # The only open document's controller vetoes close() here (also with no dialog ever opened);
         # with this one left open, the documents of each check close normally.
@@ -64,6 +70,19 @@ class DialogHarness:
                 click(top, "ok")
             time.sleep(0.5)
         raise AssertionError(f"{command}: dialog {dialog_id} did not open (focus: {state(top).get('ID')!r} {state(top).get('Text')!r} {state(top).get('WindowType')})")
+
+
+def writer_edit(ui):
+    """The document window, for typing. The first-run welcome is modal and can take the focus first."""
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        top = ui.getTopFocusWindow()
+        if has_child(top, "writer_edit"):
+            return top.getChild("writer_edit")
+        if has_child(top, "ok"):
+            click(top, "ok")
+        time.sleep(0.5)
+    raise AssertionError("no document window")
 
 
 def props(**values):
