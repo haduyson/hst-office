@@ -1,0 +1,205 @@
+Subject: [PATCH] VBA: Word text and paragraphs as in Word, FileDialog in Word, Find.Found
+
+Range.Text gives paragraph marks as vbCr, a paragraph range ends after its mark,
+Underline reads back as set, tables of a range are found, Application.FileDialog,
+Find.Found.
+---
+--- a/sw/source/ui/vba/vbafont.cxx
++++ b/sw/source/ui/vba/vbafont.cxx
+@@ -77,7 +77,7 @@
+         for ( auto const & index: UnderLineTable )
+         {
+             m_MSO2OOO[ index.nMSOConst ] = index.nOOOConst;
+-            m_OOO2MSO[ index.nOOOConst ] = index.nMSOConst;
++            m_OOO2MSO.emplace( index.nOOOConst, index.nMSOConst ); // HST: the first of those sharing a Writer value: wdUnderlineSingle
+         }
+     }
+ public:
+--- a/sw/source/ui/vba/vbarange.cxx
++++ b/sw/source/ui/vba/vbarange.cxx
+@@ -127,7 +127,8 @@
+ OUString SAL_CALL
+ SwVbaRange::getText()
+ {
+-    OUString aText = mxTextCursor->getString();
++    // HST: Word gives a paragraph mark as vbCr, whatever the line end of the system
++    OUString aText = mxTextCursor->getString().replaceAll("\r\n", "\r").replaceAll("\n", "\r");
+     sal_Int32 nLen = aText.getLength();
+ 
+     // FIXME: should add a line separator if the range includes the last paragraph
+--- a/sw/source/ui/vba/vbaparagraph.cxx
++++ b/sw/source/ui/vba/vbaparagraph.cxx
+@@ -17,6 +17,8 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "vbaparagraph.hxx"
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/text/XTextCursor.hpp>
+ #include <com/sun/star/text/XParagraphCursor.hpp>
+ #include "vbarange.hxx"
+ #include "vbaparagraphformat.hxx"
+@@ -44,7 +46,11 @@
+ uno::Reference< word::XRange > SAL_CALL
+ SwVbaParagraph::getRange( )
+ {
+-    return uno::Reference< word::XRange >( new SwVbaRange( this, mxContext, mxTextDocument, mxTextRange->getStart(), mxTextRange->getEnd(), mxTextRange->getText() ) );
++    // HST: as in Word a paragraph's range ends after its mark, so Range.Delete removes the paragraph
++    uno::Reference< text::XText > xText = mxTextRange->getText();
++    uno::Reference< text::XTextCursor > xEnd = xText->createTextCursorByRange( mxTextRange->getEnd() );
++    xEnd->goRight( 1, false );
++    return uno::Reference< word::XRange >( new SwVbaRange( this, mxContext, mxTextDocument, mxTextRange->getStart(), xEnd->getEnd(), xText ) );
+ }
+ 
+ uno::Any SAL_CALL
+--- a/sw/source/ui/vba/vbatables.cxx
++++ b/sw/source/ui/vba/vbatables.cxx
+@@ -85,11 +85,16 @@
+             for( sal_Int32 i = 0, nCount = xTables->getCount(); i < nCount; ++i )
+             {
+                 rtl::Reference< SwXTextTable > xTable = xTables->getTextTableByIndex( i );
+-                if( xTable->getAnchor()->getText() != xScope->getText() )
+-                    continue;
+-                const uno::Reference< text::XTextRange > xAnchor = xTable->getAnchor();
+-                if( xCompare->compareRegionStarts( xScope->getStart(), xAnchor ) >= 0 && xCompare->compareRegionEnds( xAnchor, xScope->getEnd() ) >= 0 )
+-                    mxTables.push_back( xTable );
++                try
++                {
++                    const uno::Reference< text::XTextRange > xAnchor = xTable->getAnchor();
++                    if( xCompare->compareRegionStarts( xScope->getStart(), xAnchor ) >= 0 && xCompare->compareRegionEnds( xAnchor, xScope->getEnd() ) >= 0 )
++                        mxTables.push_back( xTable );
++                }
++                catch( const lang::IllegalArgumentException& )
++                {
++                    // in another text: a header, a frame
++                }
+             }
+         }
+         m_cachePos = mxTables.begin();
+--- a/sw/source/ui/vba/vbabookmarks.cxx
++++ b/sw/source/ui/vba/vbabookmarks.cxx
+@@ -133,10 +133,15 @@
+         {
+             uno::Reference< text::XTextContent > xMark( xAll->getByIndex( i ), uno::UNO_QUERY_THROW );
+             uno::Reference< text::XTextRange > xAnchor = xMark->getAnchor();
+-            if( xAnchor->getText() == xScope->getText()
+-                && xCompare->compareRegionStarts( xScope->getStart(), xAnchor ) >= 0
+-                && xCompare->compareRegionEnds( xAnchor, xScope->getEnd() ) >= 0 )
+-                maBookmarks.push_back( xMark );
++            try
++            {
++                if( xCompare->compareRegionStarts( xScope->getStart(), xAnchor ) >= 0 && xCompare->compareRegionEnds( xAnchor, xScope->getEnd() ) >= 0 )
++                    maBookmarks.push_back( xMark );
++            }
++            catch( const lang::IllegalArgumentException& )
++            {
++                // in another text: a header, a frame
++            }
+         }
+     }
+     virtual sal_Int32 SAL_CALL getCount() override { return maBookmarks.size(); }
+--- a/sw/source/ui/vba/vbainlineshapes.cxx
++++ b/sw/source/ui/vba/vbainlineshapes.cxx
+@@ -57,10 +57,16 @@
+                 uno::Reference<text::XTextContent> xContent(xProps, uno::UNO_QUERY);
+                 uno::Reference<text::XTextRange> xAnchor = xContent.is() ? xContent->getAnchor() : nullptr;
+                 uno::Reference<text::XTextRangeCompare> xCompare(xScope->getText(), uno::UNO_QUERY);
+-                if (!xAnchor.is() || !xCompare.is() || xAnchor->getText() != xScope->getText()
+-                    || xCompare->compareRegionStarts(xScope->getStart(), xAnchor) < 0
+-                    || xCompare->compareRegionEnds(xAnchor, xScope->getEnd()) < 0)
+-                    continue;
++                try
++                {
++                    if (!xAnchor.is() || !xCompare.is() || xCompare->compareRegionStarts(xScope->getStart(), xAnchor) < 0
++                        || xCompare->compareRegionEnds(xAnchor, xScope->getEnd()) < 0)
++                        continue;
++                }
++                catch (const lang::IllegalArgumentException&)
++                {
++                    continue; // in another text
++                }
+             }
+             aShapes.push_back(xProps);
+         }
+--- a/oovbaapi/ooo/vba/word/XFind.idl
++++ b/oovbaapi/ooo/vba/word/XFind.idl
+@@ -56,6 +56,8 @@
+         [in] /* boolean */ any IgnoreSpace,
+         [in] /* boolean */ any IgnorePunct );
+     void ClearFormatting();
++    // HST
++    [attribute, readonly] boolean Found;
+ 
+ };
+ 
+--- a/oovbaapi/ooo/vba/word/XApplication.idl
++++ b/oovbaapi/ooo/vba/word/XApplication.idl
+@@ -69,6 +69,7 @@
+     [attribute] any DisplayAlerts;
+     [attribute] any UserName;
+     [attribute, readonly] string Path;
++    any FileDialog( [in] any DialogType );
+ };
+ 
+ }; }; };
+--- a/sw/source/ui/vba/vbafind.hxx
++++ b/sw/source/ui/vba/vbafind.hxx
+@@ -40,6 +40,7 @@
+     css::uno::Reference< css::util::XPropertyReplace> mxPropertyReplace;
+     css::uno::Reference< css::text::XTextViewCursor> mxTVC;
+     css::uno::Reference< css::view::XSelectionSupplier> mxSelSupp;
++    bool mbFound = false;
+     css::uno::Reference< css::text::XTextRange > mxLastFound; // HST: for While .Execute loops on a Range
+     bool mbReplace;
+     sal_Int32 mnReplaceType;
+@@ -75,6 +76,7 @@
+     // Attributes
+     virtual OUString SAL_CALL getText() override;
+     virtual void SAL_CALL setText( const OUString& _text ) override;
++    virtual sal_Bool SAL_CALL getFound() override { return mbFound; }
+     virtual css::uno::Any SAL_CALL getReplacement() override;
+     virtual void SAL_CALL setReplacement( const css::uno::Any& _replacement ) override;
+     virtual sal_Bool SAL_CALL getForward() override;
+--- a/sw/source/ui/vba/vbafind.cxx
++++ b/sw/source/ui/vba/vbafind.cxx
+@@ -443,6 +443,7 @@
+ 
+     result = SearchReplace();
+ 
++    mbFound = result;
+     return result;
+ }
+ 
+--- a/sw/source/ui/vba/vbaapplication.hxx
++++ b/sw/source/ui/vba/vbaapplication.hxx
+@@ -70,6 +70,7 @@
+     virtual css::uno::Any SAL_CALL getUserName() override;
+     virtual void SAL_CALL setUserName( const css::uno::Any& rValue ) override { maUserName = rValue; }
+     virtual OUString SAL_CALL getPath() override;
++    virtual css::uno::Any SAL_CALL FileDialog( const css::uno::Any& rDialogType ) override;
+     virtual css::uno::Reference< ooo::vba::word::XSystem > SAL_CALL getSystem() override;
+     virtual css::uno::Reference< ov::word::XDocument > SAL_CALL getActiveDocument() override;
+     virtual css::uno::Reference< ov::word::XWindow > SAL_CALL getActiveWindow() override;
+--- a/sw/source/ui/vba/vbadocumentmore.cxx
++++ b/sw/source/ui/vba/vbadocumentmore.cxx
+@@ -17,6 +17,7 @@
+ #include <osl/file.hxx>
+ #include <rtl/bootstrap.hxx>
+ #include <unotools/useroptions.hxx>
++#include <vbahelper/vbafiledialog.hxx>
+ #include <vbahelper/vbapath.hxx>
+ 
+ #include <unotxdoc.hxx>
+@@ -130,6 +131,13 @@
+     return aPath;
+ }
+ 
++uno::Any SAL_CALL SwVbaApplication::FileDialog(const uno::Any& rDialogType)
++{
++    sal_Int32 nType = 0;
++    rDialogType >>= nType;
++    return uno::Any(uno::Reference<excel::XFileDialog>(new ScVbaFileDialog(this, mxContext, nType)));
++}
++
+ uno::Any SAL_CALL SwVbaFont::getAllCaps()
+ {
+     sal_Int16 nMap = 0;

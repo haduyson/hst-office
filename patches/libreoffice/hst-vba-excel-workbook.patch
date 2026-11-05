@@ -1,0 +1,1514 @@
+Subject: [PATCH] VBA: Workbook properties, RefreshAll, sheet hyperlinks, FileDialog for both apps
+
+BuiltinDocumentProperties and CustomDocumentProperties, ReadOnly, RefreshAll,
+Protect Structure and Windows, Styles("Normal"), Next and Previous past the ends
+give Nothing, Norm_S_Dist finds NORM.S.DIST, a sheet lists its hyperlinks, a style's
+interior knows its document. The file dialog moves to vbahelper for Word to use.
+---
+--- a/oovbaapi/ooo/vba/excel/XWorkbook.idl
++++ b/oovbaapi/ooo/vba/excel/XWorkbook.idl
+@@ -39,7 +39,12 @@
+     any Names( [in] any Index );
+     any Colors( [in] any Index ) raises (com::sun::star::script::BasicErrorException);
+     void SaveCopyAs( [in] string Filename );
+-    void Protect( [in] any Password );
++    void Protect( [in] any Password, [in] any Structure, [in] any Windows );
++    // HST
++    [attribute, readonly] boolean ReadOnly;
++    void RefreshAll();
++    any BuiltinDocumentProperties( [in] any Index );
++    any CustomDocumentProperties( [in] any Index );
+     void SaveAs( [in] any FileName, [in] any FileFormat, [in] any Password,
+                  [in] any WriteResPassword, [in] any ReadOnlyRecommended,
+                  [in] any CreateBackup, [in] any AccessMode,
+--- a/sc/Library_vbaobj.mk
++++ b/sc/Library_vbaobj.mk
+@@ -62,7 +62,6 @@
+ 	sc/source/ui/vba/vbaapplication \
+ 	sc/source/ui/vba/vbaapplicationsettings \
+ 	sc/source/ui/vba/vbaevaluate \
+-	sc/source/ui/vba/vbafiledialogfilters \
+ 	sc/source/ui/vba/vbarangemore \
+ 	sc/source/ui/vba/vbasheetparts \
+ 	sc/source/ui/vba/vbasheetsort \
+@@ -84,8 +83,6 @@
+ 	sc/source/ui/vba/vbadialog \
+ 	sc/source/ui/vba/vbadialogs \
+ 	sc/source/ui/vba/vbaeventshelper \
+-	sc/source/ui/vba/vbafiledialog \
+-	sc/source/ui/vba/vbafiledialogitems \
+ 	sc/source/ui/vba/vbafont \
+ 	sc/source/ui/vba/vbaformat \
+ 	sc/source/ui/vba/vbaformatcondition \
+@@ -129,6 +126,7 @@
+ 	sc/source/ui/vba/vbawindow \
+ 	sc/source/ui/vba/vbawindows \
+ 	sc/source/ui/vba/vbaworkbook \
++	sc/source/ui/vba/vbaworkbookproperties \
+ 	sc/source/ui/vba/vbaworkbooks \
+ 	sc/source/ui/vba/vbaworksheet \
+ 	sc/source/ui/vba/vbaworksheets \
+--- a/sc/source/ui/vba/vbaworkbook.hxx
++++ b/sc/source/ui/vba/vbaworkbook.hxx
+@@ -54,7 +54,12 @@
+     virtual css::uno::Any SAL_CALL Sheets( const css::uno::Any& aIndex ) override;
+     virtual css::uno::Any SAL_CALL Windows( const css::uno::Any& aIndex ) override;
+     virtual void SAL_CALL Activate() override;
+-    virtual void SAL_CALL Protect( const css::uno::Any & aPassword ) override;
++    virtual void SAL_CALL Protect( const css::uno::Any & aPassword, const css::uno::Any& rStructure, const css::uno::Any& rWindows ) override;
++    virtual sal_Bool SAL_CALL getReadOnly() override;
++    virtual void SAL_CALL RefreshAll() override;
++    // vbaworkbookproperties.cxx
++    virtual css::uno::Any SAL_CALL BuiltinDocumentProperties( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL CustomDocumentProperties( const css::uno::Any& rIndex ) override;
+     virtual void SAL_CALL SaveAs( const css::uno::Any& FileName, const css::uno::Any& FileFormat, const css::uno::Any& Password, const css::uno::Any& WriteResPassword, const css::uno::Any& ReadOnlyRecommended, const css::uno::Any& CreateBackup, const css::uno::Any& AccessMode, const css::uno::Any& ConflictResolution, const css::uno::Any& AddToMru, const css::uno::Any& TextCodepage, const css::uno::Any& TextVisualLayout, const css::uno::Any& Local ) override;
+     virtual css::uno::Any SAL_CALL Names( const css::uno::Any& aIndex ) override;
+ 
+--- a/sc/source/ui/vba/vbaworkbook.cxx
++++ b/sc/source/ui/vba/vbaworkbook.cxx
+@@ -35,6 +35,14 @@
+ #include "vbaworksheet.hxx"
+ #include "vbaworksheets.hxx"
+ #include "vbaworkbook.hxx"
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/frame/XStorable.hpp>
++#include <com/sun/star/sheet/XCalculatable.hpp>
++#include <com/sun/star/sheet/XDataPilotTable.hpp>
++#include <com/sun/star/sheet/XDataPilotTablesSupplier.hpp>
++#include <com/sun/star/sheet/XSpreadsheetDocument.hpp>
++#include <com/sun/star/util/XRefreshable.hpp>
+ #include "vbawindows.hxx"
+ #include "vbastyles.hxx"
+ #include "excelvbahelper.hxx"
+@@ -256,11 +264,38 @@
+ }
+ 
+ void
+-ScVbaWorkbook::Protect( const uno::Any &aPassword )
++ScVbaWorkbook::Protect( const uno::Any &aPassword, const uno::Any&, const uno::Any& )
+ {
+     VbaDocumentBase::Protect( aPassword );
+ }
+ 
++sal_Bool SAL_CALL ScVbaWorkbook::getReadOnly()
++{
++    uno::Reference< frame::XStorable > xStorable( getModel(), uno::UNO_QUERY_THROW );
++    return xStorable->isReadonly();
++}
++
++void SAL_CALL ScVbaWorkbook::RefreshAll()
++{
++    // HST: database ranges from their sources, then pivot tables, then the formulas
++    uno::Reference< beans::XPropertySet > xModelProps( getModel(), uno::UNO_QUERY_THROW );
++    uno::Reference< container::XIndexAccess > xRanges( xModelProps->getPropertyValue( u"DatabaseRanges"_ustr ), uno::UNO_QUERY );
++    for( sal_Int32 i = 0, n = xRanges.is() ? xRanges->getCount() : 0; i < n; ++i )
++        if( uno::Reference< util::XRefreshable > xRefresh{ xRanges->getByIndex( i ), uno::UNO_QUERY } )
++            xRefresh->refresh();
++    uno::Reference< sheet::XSpreadsheetDocument > xDoc( getModel(), uno::UNO_QUERY_THROW );
++    uno::Reference< container::XIndexAccess > xSheets( xDoc->getSheets(), uno::UNO_QUERY_THROW );
++    for( sal_Int32 i = 0, n = xSheets->getCount(); i < n; ++i )
++    {
++        uno::Reference< sheet::XDataPilotTablesSupplier > xPivots( xSheets->getByIndex( i ), uno::UNO_QUERY );
++        uno::Reference< container::XIndexAccess > xTables( xPivots.is() ? xPivots->getDataPilotTables() : nullptr, uno::UNO_QUERY );
++        for( sal_Int32 j = 0, m = xTables.is() ? xTables->getCount() : 0; j < m; ++j )
++            if( uno::Reference< sheet::XDataPilotTable > xTable{ xTables->getByIndex( j ), uno::UNO_QUERY } )
++                xTable->refresh();
++    }
++    uno::Reference< sheet::XCalculatable >( getModel(), uno::UNO_QUERY_THROW )->calculateAll();
++}
++
+ sal_Bool
+ ScVbaWorkbook::getProtectStructure()
+ {
+--- a/sc/source/ui/vba/vbaworkbookproperties.cxx
++++ b/sc/source/ui/vba/vbaworkbookproperties.cxx
+@@ -0,0 +1,199 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: Workbook.BuiltinDocumentProperties and CustomDocumentProperties, read from and written to the document's properties
++
++#include <com/sun/star/beans/PropertyAttribute.hpp>
++#include <com/sun/star/beans/XPropertyContainer.hpp>
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/document/XDocumentProperties.hpp>
++#include <com/sun/star/document/XDocumentPropertiesSupplier.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <ooo/vba/XDocumentProperties.hpp>
++#include <ooo/vba/XDocumentProperty.hpp>
++#include <vbahelper/vbacollectionimpl.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++
++#include <utility>
++#include <vector>
++
++#include "vbaworkbook.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++const char* const aBuiltin[] = { "Title", "Subject", "Author", "Keywords", "Comments", "Template", "Last Author", "Application Name" };
++
++uno::Any lcl_read(const uno::Reference<document::XDocumentProperties>& xDoc, std::u16string_view rName)
++{
++    if (rName == u"Title") return uno::Any(xDoc->getTitle());
++    if (rName == u"Subject") return uno::Any(xDoc->getSubject());
++    if (rName == u"Author") return uno::Any(xDoc->getAuthor());
++    if (rName == u"Comments") return uno::Any(xDoc->getDescription());
++    if (rName == u"Template") return uno::Any(xDoc->getTemplateName());
++    if (rName == u"Last Author") return uno::Any(xDoc->getModifiedBy());
++    if (rName == u"Application Name") return uno::Any(xDoc->getGenerator());
++    if (rName == u"Keywords" && xDoc->getKeywords().hasElements())
++        return uno::Any(xDoc->getKeywords()[0]);
++    return uno::Any();
++}
++
++void lcl_write(const uno::Reference<document::XDocumentProperties>& xDoc, std::u16string_view rName, const uno::Any& rValue)
++{
++    OUString aText;
++    rValue >>= aText;
++    if (rName == u"Title") xDoc->setTitle(aText);
++    else if (rName == u"Subject") xDoc->setSubject(aText);
++    else if (rName == u"Author") xDoc->setAuthor(aText);
++    else if (rName == u"Comments") xDoc->setDescription(aText);
++    else if (rName == u"Last Author") xDoc->setModifiedBy(aText);
++    else if (rName == u"Keywords") xDoc->setKeywords({ aText });
++    else throw uno::RuntimeException(u"This document property cannot be set"_ustr);
++}
++
++class Property : public cppu::ImplInheritanceHelper<InheritedHelperInterfaceWeakImpl<XDocumentProperty>>
++{
++    uno::Reference<document::XDocumentProperties> mxDoc;
++    OUString maName;
++    bool mbCustom;
++
++    uno::Reference<beans::XPropertySet> custom() { return uno::Reference<beans::XPropertySet>(mxDoc->getUserDefinedProperties(), uno::UNO_QUERY_THROW); }
++
++public:
++    Property(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++             uno::Reference<document::XDocumentProperties> xDoc, OUString aName, bool bCustom)
++        : ImplInheritanceHelper(xParent, xContext)
++        , mxDoc(std::move(xDoc))
++        , maName(std::move(aName))
++        , mbCustom(bCustom)
++    {
++    }
++    OUString SAL_CALL getDefaultPropertyName() override { return u"Value"_ustr; }
++    void SAL_CALL Delete() override
++    {
++        if (!mbCustom)
++            throw uno::RuntimeException(u"A built-in property cannot be deleted"_ustr);
++        uno::Reference<beans::XPropertyContainer>(custom(), uno::UNO_QUERY_THROW)->removeProperty(maName);
++    }
++    OUString SAL_CALL getName() override { return maName; }
++    void SAL_CALL setName(const OUString&) override { throw uno::RuntimeException(u"Not implemented"_ustr); }
++    ::sal_Int8 SAL_CALL getType() override { return 4; } // msoPropertyTypeString
++    void SAL_CALL setType(::sal_Int8) override { throw uno::RuntimeException(u"Not implemented"_ustr); }
++    sal_Bool SAL_CALL getLinkToContent() override { return false; }
++    void SAL_CALL setLinkToContent(sal_Bool) override { throw uno::RuntimeException(u"Not implemented"_ustr); }
++    uno::Any SAL_CALL getValue() override { return mbCustom ? custom()->getPropertyValue(maName) : lcl_read(mxDoc, maName); }
++    void SAL_CALL setValue(const uno::Any& rValue) override
++    {
++        if (mbCustom)
++            custom()->setPropertyValue(maName, rValue);
++        else
++            lcl_write(mxDoc, maName, rValue);
++    }
++    OUString SAL_CALL getLinkSource() override { return OUString(); }
++    void SAL_CALL setLinkSource(const OUString&) override { throw uno::RuntimeException(u"Not implemented"_ustr); }
++    OUString getServiceImplName() override { return u"ScVbaDocumentProperty"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.DocumentProperty"_ustr }; }
++};
++
++class Names : public ::cppu::WeakImplHelper<container::XIndexAccess, container::XNameAccess>
++{
++    std::vector<OUString> maNames;
++
++public:
++    explicit Names(std::vector<OUString>&& rNames)
++        : maNames(std::move(rNames))
++    {
++    }
++    sal_Int32 SAL_CALL getCount() override { return maNames.size(); }
++    uno::Any SAL_CALL getByIndex(sal_Int32 nIndex) override
++    {
++        if (nIndex < 0 || nIndex >= getCount())
++            throw lang::IndexOutOfBoundsException();
++        return uno::Any(maNames[nIndex]);
++    }
++    uno::Any SAL_CALL getByName(const OUString& rName) override
++    {
++        for (const OUString& rOne : maNames)
++            if (rOne.equalsIgnoreAsciiCase(rName))
++                return uno::Any(rOne);
++        throw container::NoSuchElementException();
++    }
++    uno::Sequence<OUString> SAL_CALL getElementNames() override { return uno::Sequence<OUString>(maNames.data(), maNames.size()); }
++    sal_Bool SAL_CALL hasByName(const OUString& rName) override
++    {
++        for (const OUString& rOne : maNames)
++            if (rOne.equalsIgnoreAsciiCase(rName))
++                return true;
++        return false;
++    }
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<OUString>::get(); }
++    sal_Bool SAL_CALL hasElements() override { return !maNames.empty(); }
++};
++
++std::vector<OUString> lcl_names(const uno::Reference<document::XDocumentProperties>& xDoc, bool bCustom)
++{
++    std::vector<OUString> aNames;
++    if (bCustom)
++    {
++        uno::Reference<beans::XPropertySet> xSet(xDoc->getUserDefinedProperties(), uno::UNO_QUERY_THROW);
++        const uno::Sequence<beans::Property> aProps = xSet->getPropertySetInfo()->getProperties();
++        for (const beans::Property& rProp : aProps)
++            aNames.push_back(rProp.Name);
++    }
++    else
++        for (const char* pName : aBuiltin)
++            aNames.push_back(OUString::createFromAscii(pName));
++    return aNames;
++}
++
++class Properties : public CollTestImplHelper<XDocumentProperties>
++{
++    uno::Reference<document::XDocumentProperties> mxDoc;
++    bool mbCustom;
++
++public:
++    Properties(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++               const uno::Reference<document::XDocumentProperties>& xDoc, bool bCustom)
++        : CollTestImplHelper(xParent, xContext, new Names(lcl_names(xDoc, bCustom)))
++        , mxDoc(xDoc)
++        , mbCustom(bCustom)
++    {
++    }
++    uno::Reference<XDocumentProperty> SAL_CALL Add(const OUString& rName, sal_Bool, ::sal_Int8, const uno::Any& rValue, const uno::Any&) override
++    {
++        if (!mbCustom)
++            throw uno::RuntimeException(u"Add is for custom properties"_ustr);
++        uno::Reference<beans::XPropertyContainer> xSet(mxDoc->getUserDefinedProperties(), uno::UNO_SET_THROW);
++        xSet->addProperty(rName, beans::PropertyAttribute::REMOVABLE, rValue);
++        return new Property(mxParent, mxContext, mxDoc, rName, true);
++    }
++    uno::Type SAL_CALL getElementType() override { return cppu::UnoType<XDocumentProperty>::get(); }
++    uno::Reference<container::XEnumeration> SAL_CALL createEnumeration() override { throw uno::RuntimeException(u"Not implemented"_ustr); }
++    uno::Any createCollectionObject(const uno::Any& aSource) override
++    {
++        OUString aName;
++        aSource >>= aName;
++        return uno::Any(uno::Reference<XDocumentProperty>(new Property(mxParent, mxContext, mxDoc, aName, mbCustom)));
++    }
++    OUString getServiceImplName() override { return u"ScVbaDocumentProperties"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.DocumentProperties"_ustr }; }
++};
++
++uno::Any lcl_collection(ScVbaWorkbook* pBook, const uno::Reference<frame::XModel>& xModel, const uno::Reference<uno::XComponentContext>& xContext, const uno::Any& rIndex, bool bCustom)
++{
++    uno::Reference<document::XDocumentProperties> xDoc = uno::Reference<document::XDocumentPropertiesSupplier>(xModel, uno::UNO_QUERY_THROW)->getDocumentProperties();
++    uno::Reference<XCollection> xCol(new Properties(uno::Reference<XHelperInterface>(pBook), xContext, xDoc, bCustom));
++    return rIndex.hasValue() ? xCol->Item(rIndex, uno::Any()) : uno::Any(xCol);
++}
++}
++
++uno::Any SAL_CALL ScVbaWorkbook::BuiltinDocumentProperties(const uno::Any& rIndex) { return lcl_collection(this, getModel(), mxContext, rIndex, false); }
++uno::Any SAL_CALL ScVbaWorkbook::CustomDocumentProperties(const uno::Any& rIndex) { return lcl_collection(this, getModel(), mxContext, rIndex, true); }
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbaworksheet.cxx
++++ b/sc/source/ui/vba/vbaworksheet.cxx
+@@ -610,6 +610,8 @@
+     if ( !ScVbaWorksheets::nameExists (xSpreadDoc, getName(), nIdx ) )
+         return uno::Reference< excel::XWorksheet >();
+     nIdx = nIdx + offset;
++    if ( nIdx < 0 || nIdx >= xIndex->getCount() )
++        return uno::Reference< excel::XWorksheet >(); // HST: Next of the last sheet is Nothing
+     uno::Reference< sheet::XSpreadsheet > xSheet(xIndex->getByIndex(nIdx), uno::UNO_QUERY_THROW);
+     // parent will be the parent of 'this' worksheet
+     return new ScVbaWorksheet (getParent(), mxContext, xSheet, getModel());
+--- a/sc/source/ui/vba/vbastyles.hxx
++++ b/sc/source/ui/vba/vbastyles.hxx
+@@ -36,6 +36,8 @@
+     css::uno::Sequence< OUString > getStyleNames();
+     /// @throws css::script::BasicErrorException
+     void Delete(const OUString& _sStyleName);
++    /// HST: Styles("Normal") is what Writer and Calc call Default
++    virtual css::uno::Any SAL_CALL Item( const css::uno::Any& rIndex1, const css::uno::Any& rIndex2 ) override;
+     // XStyles
+      virtual css::uno::Reference< ov::excel::XStyle > SAL_CALL Add( const OUString& Name, const css::uno::Any& BasedOn ) override;
+     // XEnumerationAccess
+--- a/sc/source/ui/vba/vbastyles.cxx
++++ b/sc/source/ui/vba/vbastyles.cxx
+@@ -127,6 +127,14 @@
+     return new EnumWrapper( m_xIndexAccess, mxParent, mxContext, mxModel );
+ }
+ 
++uno::Any SAL_CALL ScVbaStyles::Item( const uno::Any& rIndex1, const uno::Any& rIndex2 )
++{
++    OUString aName;
++    if( ( rIndex1 >>= aName ) && aName.equalsIgnoreAsciiCase( "Normal" ) && !mxNameContainerCellStyles->hasByName( aName ) )
++        return ScVbaStyles_BASE::Item( uno::Any( u"Default"_ustr ), rIndex2 );
++    return ScVbaStyles_BASE::Item( rIndex1, rIndex2 );
++}
++
+ uno::Reference< excel::XStyle > SAL_CALL
+ ScVbaStyles::Add( const OUString& _sName, const uno::Any& _aBasedOn )
+ {
+--- a/sc/source/ui/vba/vbawsfunction.cxx
++++ b/sc/source/ui/vba/vbawsfunction.cxx
+@@ -70,8 +70,10 @@
+ }
+ 
+ uno::Any SAL_CALL
+-ScVbaWSFunction::invoke(const OUString& FunctionName, const uno::Sequence< uno::Any >& Params, uno::Sequence< sal_Int16 >& /*OutParamIndex*/, uno::Sequence< uno::Any >& /*OutParam*/)
++ScVbaWSFunction::invoke(const OUString& rFunctionName, const uno::Sequence< uno::Any >& Params, uno::Sequence< sal_Int16 >& /*OutParamIndex*/, uno::Sequence< uno::Any >& /*OutParam*/)
+ {
++    // HST: NORM.S.DIST is Norm_S_Dist from VBA
++    const OUString FunctionName = rFunctionName.replace('_', '.');
+     // create copy of parameters, replace Excel range objects with UNO range objects
+     uno::Sequence< uno::Any > aParamTemp( Params );
+     if( aParamTemp.hasElements() )
+@@ -254,7 +256,7 @@
+         // the function name contained in the com.sun.star.sheet.FunctionDescription service is alwayse localized.
+         // but the function name used in WorksheetFunction is a programmatic name (seems English).
+         // So m_xNameAccess->hasByName( Name ) may fail to find name when a function name has a localized name.
+-        if( ScCompiler::IsEnglishSymbol( Name ) )
++        if( ScCompiler::IsEnglishSymbol( Name.replace('_', '.') ) )
+             bIsFound = true;
+     }
+     catch( uno::Exception& /*e*/ )
+--- a/sc/source/ui/vba/vbaformat.cxx
++++ b/sc/source/ui/vba/vbaformat.cxx
+@@ -371,7 +371,9 @@
+ uno::Reference< excel::XInterior > SAL_CALL
+ ScVbaFormat< Ifc... >::Interior(  )
+ {
+-    return new ScVbaInterior( thisHelperIface(), ScVbaFormat_BASE::mxContext, mxPropertySet );
++    // HST: a style's interior needs the document for its colour index, too (FormatCondition.Interior)
++    ScDocShell* pShell = excel::getDocShell( mxModel );
++    return new ScVbaInterior( thisHelperIface(), ScVbaFormat_BASE::mxContext, mxPropertySet, pShell ? &pShell->GetDocument() : nullptr );
+ }
+ 
+ template< typename... Ifc >
+--- a/sc/source/ui/vba/vbahyperlinks.cxx
++++ b/sc/source/ui/vba/vbahyperlinks.cxx
+@@ -18,6 +18,15 @@
+  */
+ 
+ #include "vbahyperlinks.hxx"
++#include <com/sun/star/sheet/XSpreadsheetDocument.hpp>
++#include <com/sun/star/sheet/XSpreadsheets.hpp>
++#include <com/sun/star/table/XCellRange.hpp>
++#include <com/sun/star/text/textfield/Type.hpp>
++#include <ooo/vba/excel/XWorksheet.hpp>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <editeng/editobj.hxx>
++#include "excelvbahelper.hxx"
+ #include <algorithm>
+ #include <vector>
+ #include <cppuhelper/implbase.hxx>
+@@ -111,6 +120,7 @@
+ public:
+     /// @throws uno::RuntimeException
+     explicit ScVbaHlinkContainer();
++    void fillFromSheet( const uno::Reference< XHelperInterface >& rxSheet, const uno::Reference< uno::XComponentContext >& rxContext );
+     /// @throws uno::RuntimeException
+     explicit ScVbaHlinkContainer( const ScVbaHlinkContainerRef& rxSheetContainer, const ScRangeList& rScRanges );
+ 
+@@ -136,7 +146,35 @@
+ 
+ ScVbaHlinkContainer::ScVbaHlinkContainer()
+ {
+-    // TODO FIXME: fill with existing hyperlinks
++}
++
++// HST: the links already in a sheet, which is what a file and earlier Add calls leave
++void ScVbaHlinkContainer::fillFromSheet( const uno::Reference< XHelperInterface >& rxSheet, const uno::Reference< uno::XComponentContext >& rxContext )
++{
++    uno::Reference< excel::XWorksheet > xSheet( rxSheet, uno::UNO_QUERY );
++    uno::Reference< frame::XModel > xModel = ooo::vba::getCurrentExcelDoc( rxContext );
++    ScDocShell* pShell = xSheet.is() ? excel::getDocShell( xModel ) : nullptr;
++    if( !pShell )
++        return;
++    ScDocument& rDoc = pShell->GetDocument();
++    const SCTAB nTab = static_cast< SCTAB >( xSheet->getIndex() - 1 );
++    uno::Reference< sheet::XSpreadsheetDocument > xDoc( xModel, uno::UNO_QUERY_THROW );
++    uno::Reference< table::XCellRange > xCells( xDoc->getSheets()->getByName( xSheet->getName() ), uno::UNO_QUERY_THROW );
++    SCCOL nLastCol = 0;
++    SCROW nLastRow = 0;
++    rDoc.GetCellArea( nTab, nLastCol, nLastRow );
++    for( SCCOL nCol = 0; nCol <= nLastCol; ++nCol )
++        for( SCROW nRow = 0; nRow <= nLastRow; ++nRow )
++        {
++            const ScAddress aPos( nCol, nRow, nTab );
++            if( rDoc.GetCellType( aPos ) != CELLTYPE_EDIT )
++                continue;
++            const EditTextObject* pText = rDoc.GetEditText( aPos );
++            if( !pText || !pText->HasField( text::textfield::Type::URL ) )
++                continue;
++            uno::Sequence< uno::Any > aArgs{ uno::Any( rxSheet ), uno::Any( xCells->getCellByPosition( nCol, nRow ) ) };
++            maHlinks.emplace_back( new ScVbaHyperlink( aArgs, rxContext ) );
++        }
+ }
+ 
+ ScVbaHlinkContainer::ScVbaHlinkContainer( const ScVbaHlinkContainerRef& rxSheetContainer,
+@@ -198,6 +236,7 @@
+     detail::ScVbaHlinkContainerMember( new detail::ScVbaHlinkContainer ),
+     ScVbaHyperlinks_BASE( rxParent, rxContext, uno::Reference< container::XIndexAccess >( mxContainer ) )
+ {
++    mxContainer->fillFromSheet( rxParent, rxContext );
+ }
+ 
+ ScVbaHyperlinks::ScVbaHyperlinks( const uno::Reference< XHelperInterface >& rxParent,
+--- a/sc/source/ui/vba/vbaapplication.cxx
++++ b/sc/source/ui/vba/vbaapplication.cxx
+@@ -56,8 +56,8 @@
+ #include "vbaassistant.hxx"
+ #include <sc.hrc>
+ #include <macromgr.hxx>
+-#include "vbafiledialog.hxx"
+-#include "vbafiledialogitems.hxx"
++#include <vbahelper/vbafiledialog.hxx>
++#include <vbahelper/vbafiledialogitems.hxx>
+ 
+ #include <osl/file.hxx>
+ 
+--- a/sc/source/ui/vba/vbafiledialog.cxx
++++ /dev/null
+@@ -1,177 +0,0 @@
+-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+-/*
+- * This file is part of the LibreOffice project.
+- *
+- * This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- *
+- * This file incorporates work covered by the following license notice:
+- *
+- *   Licensed to the Apache Software Foundation (ASF) under one or more
+- *   contributor license agreements. See the NOTICE file distributed
+- *   with this work for additional information regarding copyright
+- *   ownership. The ASF licenses this file to you under the Apache
+- *   License, Version 2.0 (the "License"); you may not use this file
+- *   except in compliance with the License. You may obtain a copy of
+- *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+- */
+-
+-#include "vbafiledialog.hxx"
+-#include "vbafiledialogitems.hxx"
+-
+-#include <osl/file.hxx>
+-
+-#include <ooo/vba/office/MsoFileDialogType.hpp>
+-
+-#include <com/sun/star/ui/dialogs/FilePicker.hpp>
+-#include <com/sun/star/ui/dialogs/FolderPicker.hpp>
+-#include <com/sun/star/ui/dialogs/ExecutableDialogResults.hpp>
+-#include <com/sun/star/ui/dialogs/TemplateDescription.hpp>
+-
+-using namespace ::com::sun::star;
+-using namespace ::ooo::vba;
+-
+-ScVbaFileDialog::ScVbaFileDialog( const uno::Reference< XHelperInterface >& xParent, const uno::Reference< uno::XComponentContext >& xContext, const sal_Int32 nType )
+-    : ScVbaFileDialog_BASE( xParent, xContext)
+-    , m_nType(nType)
+-    , m_sTitle(u"FileDialog"_ustr)
+-    , m_bMultiSelectMode(false)
+-{}
+-
+-uno::Any
+-ScVbaFileDialog::getInitialFileName() { return uno::Any( m_sInitialFileName ); }
+-
+-void ScVbaFileDialog::setInitialFileName( const css::uno::Any& rName )
+-{
+-    OUString sDefaultPath;
+-
+-    if( rName >>= sDefaultPath )
+-    {
+-        OUString sDefaultURL;
+-        sal_Int32 eSuccess = osl::FileBase::getFileURLFromSystemPath(
+-                sDefaultPath, sDefaultURL ) ;
+-        if( eSuccess == osl::FileBase::RC::E_INVAL )
+-            m_sInitialFileName = sDefaultPath; // the user may gave it in URL form
+-        else
+-            m_sInitialFileName = sDefaultURL;
+-    }
+-}
+-
+-css::uno::Any ScVbaFileDialog::getTitle() { return uno::Any( m_sTitle ); }
+-
+-void ScVbaFileDialog::setTitle( const css::uno::Any& rTitle )
+-{
+-    rTitle >>= m_sTitle;
+-}
+-
+-uno::Any ScVbaFileDialog::getAllowMultiSelect()
+-{
+-    return uno::Any(m_bMultiSelectMode);
+-}
+-
+-void ScVbaFileDialog::setAllowMultiSelect(const uno::Any& rAllowMultiSelect)
+-{
+-    rAllowMultiSelect >>= m_bMultiSelectMode;
+-}
+-
+-uno::Reference< excel::XFileDialogSelectedItems > SAL_CALL ScVbaFileDialog::getSelectedItems()
+-{
+-    // TODO use InitialFileName when m_xItems is empty
+-    return m_xItems;
+-}
+-
+-sal_Int32 ScVbaFileDialog::Show()
+-{
+-    std::vector<OUString> sSelectedPaths;
+-    sal_Int32 nRet = -1;
+-
+-    switch (m_nType)
+-    {
+-        // HST: Open and SaveAs choose a file like the file picker; .Execute does not act on it
+-        case office::MsoFileDialogType::msoFileDialogOpen:
+-        case office::MsoFileDialogType::msoFileDialogSaveAs:
+-        case office::MsoFileDialogType::msoFileDialogFilePicker:
+-            {
+-                uno::Reference<ui::dialogs::XFilePicker3> xFilePicker =
+-                        ui::dialogs::FilePicker::createWithMode(
+-                                mxContext, m_nType == office::MsoFileDialogType::msoFileDialogSaveAs ? ui::dialogs::TemplateDescription::FILESAVE_SIMPLE : ui::dialogs::TemplateDescription::FILEOPEN_SIMPLE );
+-                if( !m_sTitle.isEmpty() )
+-                    xFilePicker->setTitle( m_sTitle );
+-                if( m_nType != office::MsoFileDialogType::msoFileDialogSaveAs )
+-                    xFilePicker->setMultiSelectionMode( m_bMultiSelectMode );
+-                for( const auto& [ rDescription, rExtensions ] : m_aFilters )
+-                    xFilePicker->appendFilter( rDescription, rExtensions );
+-
+-                if( !m_sInitialFileName.isEmpty() )
+-                    xFilePicker->setDisplayDirectory( m_sInitialFileName );
+-
+-                if( xFilePicker->execute() != ui::dialogs::ExecutableDialogResults::OK )
+-                {
+-                    nRet = 0; // cancel pressed
+-                    break;
+-                }
+-
+-                const uno::Sequence<OUString> aSelectedFiles = xFilePicker->getSelectedFiles();
+-                for( const auto& sURL : aSelectedFiles )
+-                {
+-                    OUString sPath;
+-                    osl::FileBase::getSystemPathFromFileURL(sURL, sPath);
+-
+-                    sSelectedPaths.push_back(sPath);
+-                }
+-            }
+-            break;
+-        case office::MsoFileDialogType::msoFileDialogFolderPicker:
+-            {
+-                uno::Reference< ui::dialogs::XFolderPicker2 > xFolderPicker =
+-                        ui::dialogs::FolderPicker::create(mxContext);
+-
+-                if( !m_sInitialFileName.isEmpty() )
+-                    xFolderPicker->setDisplayDirectory( m_sInitialFileName );
+-
+-                if( xFolderPicker->execute() != ui::dialogs::ExecutableDialogResults::OK )
+-                {
+-                    nRet = 0; // cancel pressed
+-                    break;
+-                }
+-
+-                OUString sURL = xFolderPicker->getDirectory();
+-
+-                if(!sURL.isEmpty())
+-                {
+-                    OUString sPath;
+-                    osl::FileBase::getSystemPathFromFileURL(sURL, sPath);
+-
+-                    sSelectedPaths.push_back(sPath);
+-                }
+-
+-            }
+-            break;
+-        default:
+-            throw uno::RuntimeException();
+-    }
+-
+-    m_xItems = css::uno::Reference< ov::excel::XFileDialogSelectedItems >(
+-            new ScVbaFileDialogSelectedItems(this, mxContext, std::move(sSelectedPaths)) );
+-    return nRet;
+-}
+-
+-// XHelperInterface
+-OUString
+-ScVbaFileDialog::getServiceImplName()
+-{
+-    return u"ScVbaFileDialog"_ustr;
+-}
+-
+-uno::Sequence<OUString>
+-ScVbaFileDialog::getServiceNames()
+-{
+-    static uno::Sequence< OUString > const aServiceNames
+-    {
+-        u"ooo.vba.FileDialog"_ustr
+-    };
+-    return aServiceNames;
+-}
+-
+-/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbafiledialog.hxx
++++ /dev/null
+@@ -1,70 +0,0 @@
+-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+-/*
+- * This file is part of the LibreOffice project.
+- *
+- * This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- *
+- * This file incorporates work covered by the following license notice:
+- *
+- *   Licensed to the Apache Software Foundation (ASF) under one or more
+- *   contributor license agreements. See the NOTICE file distributed
+- *   with this work for additional information regarding copyright
+- *   ownership. The ASF licenses this file to you under the Apache
+- *   License, Version 2.0 (the "License"); you may not use this file
+- *   except in compliance with the License. You may obtain a copy of
+- *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+- */
+-#pragma once
+-
+-#include <utility>
+-#include <vector>
+-
+-#include <ooo/vba/excel/XFileDialog.hpp>
+-#include <vbahelper/vbahelperinterface.hxx>
+-
+-namespace com::sun::star::uno { class XComponentContext; }
+-namespace ooo::vba { class XHelperInterface; }
+-namespace ooo::vba::excel { class XFileDialogSelectedItems; }
+-
+-typedef InheritedHelperInterfaceWeakImpl< ov::excel::XFileDialog > ScVbaFileDialog_BASE;
+-
+-class ScVbaFileDialog : public ScVbaFileDialog_BASE
+-{
+-private:
+-    sal_Int32 m_nType;
+-    OUString m_sTitle;
+-    OUString m_sInitialFileName;
+-    bool m_bMultiSelectMode;
+-    css::uno::Reference< ov::excel::XFileDialogSelectedItems> m_xItems;
+-    std::vector< std::pair<OUString, OUString> > m_aFilters; // HST: description, extensions
+-    sal_Int32 m_nFilterIndex = 1;
+-    OUString m_sButtonName;
+-public:
+-    ScVbaFileDialog( const css::uno::Reference< ov::XHelperInterface >& xParent,  const css::uno::Reference< css::uno::XComponentContext >& xContext, const sal_Int32 nType);
+-
+-    virtual css::uno::Any SAL_CALL getInitialFileName() override;
+-    virtual void SAL_CALL setInitialFileName( const css::uno::Any& rName ) override;
+-    virtual css::uno::Any SAL_CALL getTitle() override;
+-    virtual void SAL_CALL setTitle( const css::uno::Any& rTitle ) override;
+-    virtual css::uno::Any SAL_CALL getAllowMultiSelect() override;
+-    virtual void SAL_CALL setAllowMultiSelect(const css::uno::Any& rAllowMultiSelect) override;
+-
+-    virtual css::uno::Reference< ov::excel::XFileDialogSelectedItems > SAL_CALL getSelectedItems() override;
+-
+-    virtual sal_Int32 SAL_CALL Show() override;
+-    virtual css::uno::Reference< ov::excel::XFileDialogFilters > SAL_CALL getFilters() override;
+-    virtual css::uno::Any SAL_CALL getFilterIndex() override;
+-    virtual void SAL_CALL setFilterIndex( const css::uno::Any& rIndex ) override;
+-    virtual css::uno::Any SAL_CALL getButtonName() override;
+-    virtual void SAL_CALL setButtonName( const css::uno::Any& rName ) override;
+-    virtual void SAL_CALL Execute() override;
+-
+-    //XHelperInterface
+-    virtual OUString getServiceImplName() override;
+-    virtual css::uno::Sequence<OUString> getServiceNames() override;
+-};
+-
+-
+-/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbafiledialogfilters.cxx
++++ /dev/null
+@@ -1,80 +0,0 @@
+-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+-/*
+- * This file is part of the LibreOffice project.
+- *
+- * This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- */
+-
+-// HST: FileDialog.Filters: file types that Show offers.
+-
+-#include "vbafiledialog.hxx"
+-#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
+-#include <ooo/vba/excel/XFileDialogFilter.hpp>
+-#include <ooo/vba/excel/XFileDialogFilters.hpp>
+-#include <utility>
+-#include <rtl/ref.hxx>
+-#include <vbahelper/vbahelperinterface.hxx>
+-
+-using namespace ::ooo::vba;
+-using namespace ::com::sun::star;
+-
+-namespace
+-{
+-class Filter final : public InheritedHelperInterfaceWeakImpl<excel::XFileDialogFilter>
+-{
+-    std::pair<OUString, OUString> maEntry;
+-
+-public:
+-    Filter(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
+-           std::pair<OUString, OUString> aEntry)
+-        : InheritedHelperInterfaceWeakImpl(xParent, xContext)
+-        , maEntry(std::move(aEntry))
+-    {
+-    }
+-    OUString SAL_CALL getDescription() override { return maEntry.first; }
+-    OUString SAL_CALL getExtensions() override { return maEntry.second; }
+-    OUString getServiceImplName() override { return u"ScVbaFileDialogFilter"_ustr; }
+-    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.FileDialogFilter"_ustr }; }
+-};
+-
+-class Filters final : public InheritedHelperInterfaceWeakImpl<excel::XFileDialogFilters>
+-{
+-    std::vector<std::pair<OUString, OUString>>& mrList;
+-
+-public:
+-    Filters(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
+-            std::vector<std::pair<OUString, OUString>>& rList)
+-        : InheritedHelperInterfaceWeakImpl(xParent, xContext)
+-        , mrList(rList)
+-    {
+-    }
+-    sal_Int32 SAL_CALL getCount() override { return static_cast<sal_Int32>(mrList.size()); }
+-    void SAL_CALL Clear() override { mrList.clear(); }
+-    OUString SAL_CALL getDefaultMethodName() override { return u"Item"_ustr; }
+-    uno::Reference<excel::XFileDialogFilter> SAL_CALL Item(sal_Int32 nIndex) override
+-    {
+-        if (nIndex < 1 || nIndex > getCount())
+-            throw lang::IndexOutOfBoundsException();
+-        return new Filter(this, mxContext, mrList[nIndex - 1]);
+-    }
+-    void SAL_CALL Add(const OUString& rDescription, const OUString& rExtensions, const uno::Any&) override { mrList.emplace_back(rDescription, rExtensions); }
+-    OUString getServiceImplName() override { return u"ScVbaFileDialogFilters"_ustr; }
+-    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.FileDialogFilters"_ustr }; }
+-};
+-}
+-
+-uno::Reference<excel::XFileDialogFilters> SAL_CALL ScVbaFileDialog::getFilters() { return new Filters(this, mxContext, m_aFilters); }
+-
+-uno::Any SAL_CALL ScVbaFileDialog::getFilterIndex() { return uno::Any(m_nFilterIndex); }
+-
+-void SAL_CALL ScVbaFileDialog::setFilterIndex(const uno::Any& rIndex) { rIndex >>= m_nFilterIndex; }
+-
+-uno::Any SAL_CALL ScVbaFileDialog::getButtonName() { return uno::Any(m_sButtonName); }
+-
+-void SAL_CALL ScVbaFileDialog::setButtonName(const uno::Any& rName) { rName >>= m_sButtonName; }
+-
+-void SAL_CALL ScVbaFileDialog::Execute() {}
+-
+-/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbafiledialogitems.cxx
++++ /dev/null
+@@ -1,123 +0,0 @@
+-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+-/*
+- * This file is part of the LibreOffice project.
+- *
+- * This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- *
+- * This file incorporates work covered by the following license notice:
+- *
+- *   Licensed to the Apache Software Foundation (ASF) under one or more
+- *   contributor license agreements. See the NOTICE file distributed
+- *   with this work for additional information regarding copyright
+- *   ownership. The ASF licenses this file to you under the Apache
+- *   License, Version 2.0 (the "License"); you may not use this file
+- *   except in compliance with the License. You may obtain a copy of
+- *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+- */
+-
+-#include <o3tl/safeint.hxx>
+-
+-#include "vbafiledialogitems.hxx"
+-
+-using namespace ::com::sun::star;
+-using namespace ::ooo::vba;
+-
+-namespace {
+-
+-class FileDialogItemEnumeration : public ::cppu::WeakImplHelper< container::XEnumeration >
+-{
+-    std::vector< OUString > m_sItems;
+-    std::vector< OUString >::iterator mIt;
+-public:
+-    explicit FileDialogItemEnumeration( std::vector< OUString >&& rVector ) : m_sItems( std::move(rVector) ), mIt( m_sItems.begin() ) {}
+-    virtual sal_Bool SAL_CALL hasMoreElements() override
+-    {
+-        return ( mIt != m_sItems.end() );
+-    }
+-    virtual uno::Any SAL_CALL nextElement() override
+-    {
+-        if( !hasMoreElements() )
+-            throw container::NoSuchElementException();
+-        OUString sPath = *mIt++;
+-        return uno::Any( sPath );
+-    }
+-};
+-
+-}
+-
+-ScVbaFileDialogSelectedItems::ScVbaFileDialogSelectedItems(
+-        const css::uno::Reference< ov::XHelperInterface >& xParent
+-       ,const css::uno::Reference< css::uno::XComponentContext >& xContext
+-       ,std::vector< OUString >&& rItems)
+-    : FileDialogSelectedItems_BASE( xParent, xContext, uno::Reference< container::XIndexAccess>() )
+-    , m_sItems(std::move(rItems)) {}
+-
+-
+-// XEnumerationAccess
+-uno::Type SAL_CALL
+-ScVbaFileDialogSelectedItems::getElementType()
+-{
+-    return cppu::UnoType<OUString>::get();
+-}
+-
+-uno::Reference< container::XEnumeration >
+-ScVbaFileDialogSelectedItems::createEnumeration()
+-{
+-    return uno::Reference< container::XEnumeration >( new FileDialogItemEnumeration( std::vector(m_sItems) ) );
+-}
+-
+-uno::Any
+-ScVbaFileDialogSelectedItems::createCollectionObject( const uno::Any& aSource )
+-{
+-    sal_Int32 nPosition = -1;
+-    if (!(aSource >>= nPosition))
+-        throw uno::RuntimeException(u"not an sal_Int32"_ustr);
+-    if (nPosition < 0 || o3tl::make_unsigned(nPosition) >= m_sItems.size())
+-        throw uno::RuntimeException(u"out of range"_ustr);
+-
+-    OUString sPath = m_sItems[nPosition];
+-    return uno::Any( sPath );
+-}
+-
+-// Methods
+-uno::Any SAL_CALL
+-ScVbaFileDialogSelectedItems::Item( const uno::Any& aIndex, const uno::Any& /*aIndex*/ )
+-{
+-    sal_Int32 nPosition = -1;
+-    aIndex >>= nPosition;
+-
+-    --nPosition; // vba indexing starts with 1
+-
+-    if( nPosition < 0 || nPosition >= getCount() )
+-    {
+-        throw uno::RuntimeException();
+-    }
+-
+-    return createCollectionObject( uno::Any( nPosition ) );
+-}
+-
+-sal_Int32 ScVbaFileDialogSelectedItems::getCount()
+-{
+-    return m_sItems.size();
+-}
+-
+-// XHelperInterface
+-OUString
+-ScVbaFileDialogSelectedItems::getServiceImplName()
+-{
+-    return u"ScVbaFileDialogSelectedItems"_ustr;
+-}
+-
+-uno::Sequence<OUString>
+-ScVbaFileDialogSelectedItems::getServiceNames()
+-{
+-    static uno::Sequence< OUString > const aServiceNames
+-    {
+-        u"ooo.vba.FileDialogSelectedItems"_ustr
+-    };
+-    return aServiceNames;
+-}
+-
+-/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/vba/vbafiledialogitems.hxx
++++ /dev/null
+@@ -1,43 +0,0 @@
+-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+-/*
+- * This file is part of the LibreOffice project.
+- *
+- * This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- */
+-#pragma once
+-
+-#include <ooo/vba/excel/XFileDialogSelectedItems.hpp>
+-#include <vbahelper/vbacollectionimpl.hxx>
+-
+-typedef CollTestImplHelper< ov::excel::XFileDialogSelectedItems > FileDialogSelectedItems_BASE;
+-
+-class ScVbaFileDialogSelectedItems final : public FileDialogSelectedItems_BASE
+-{
+-    const std::vector<OUString> m_sItems;
+-public:
+-    std::vector<OUString> const& getItems()
+-    {
+-        return m_sItems;
+-    }
+-
+-    ScVbaFileDialogSelectedItems( const css::uno::Reference< ov::XHelperInterface >& xParent,
+-            const css::uno::Reference< css::uno::XComponentContext >& xContext,
+-            std::vector<OUString>&& sItems);
+-
+-    // XEnumerationAccess
+-    virtual css::uno::Type SAL_CALL getElementType() override;
+-    virtual css::uno::Reference< css::container::XEnumeration > SAL_CALL createEnumeration() override;
+-    virtual css::uno::Any createCollectionObject( const css::uno::Any& aSource ) override;
+-
+-    // Methods
+-    virtual css::uno::Any SAL_CALL Item( const css::uno::Any& Index, const css::uno::Any& /*Index2*/ ) override;
+-    virtual sal_Int32 SAL_CALL getCount() override;
+-
+-    // XHelperInterface
+-    virtual OUString getServiceImplName() override;
+-    virtual css::uno::Sequence<OUString> getServiceNames() override;
+-};
+-
+-/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vbahelper/Library_vbahelper.mk
++++ b/vbahelper/Library_vbahelper.mk
+@@ -80,6 +80,9 @@
+     vbahelper/source/vbahelper/vbapropvalue \
+     vbahelper/source/vbahelper/vbashape \
+     vbahelper/source/vbahelper/vbashapeextra \
++    vbahelper/source/vbahelper/vbafiledialog \
++    vbahelper/source/vbahelper/vbafiledialogfilters \
++    vbahelper/source/vbahelper/vbafiledialogitems \
+     vbahelper/source/vbahelper/vbashaperange \
+     vbahelper/source/vbahelper/vbashapes \
+     vbahelper/source/vbahelper/vbatextframe \
+--- a/include/vbahelper/vbafiledialog.hxx
++++ b/include/vbahelper/vbafiledialog.hxx
+@@ -0,0 +1,71 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ *
++ * This file incorporates work covered by the following license notice:
++ *
++ *   Licensed to the Apache Software Foundation (ASF) under one or more
++ *   contributor license agreements. See the NOTICE file distributed
++ *   with this work for additional information regarding copyright
++ *   ownership. The ASF licenses this file to you under the Apache
++ *   License, Version 2.0 (the "License"); you may not use this file
++ *   except in compliance with the License. You may obtain a copy of
++ *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
++ */
++#pragma once
++
++#include <utility>
++#include <vector>
++
++#include <ooo/vba/excel/XFileDialog.hpp>
++#include <vbahelper/vbadllapi.h>
++#include <vbahelper/vbahelperinterface.hxx>
++
++namespace com::sun::star::uno { class XComponentContext; }
++namespace ooo::vba { class XHelperInterface; }
++namespace ooo::vba::excel { class XFileDialogSelectedItems; }
++
++typedef InheritedHelperInterfaceWeakImpl< ov::excel::XFileDialog > ScVbaFileDialog_BASE;
++
++class VBAHELPER_DLLPUBLIC ScVbaFileDialog : public ScVbaFileDialog_BASE
++{
++private:
++    sal_Int32 m_nType;
++    OUString m_sTitle;
++    OUString m_sInitialFileName;
++    bool m_bMultiSelectMode;
++    css::uno::Reference< ov::excel::XFileDialogSelectedItems> m_xItems;
++    std::vector< std::pair<OUString, OUString> > m_aFilters; // HST: description, extensions
++    sal_Int32 m_nFilterIndex = 1;
++    OUString m_sButtonName;
++public:
++    ScVbaFileDialog( const css::uno::Reference< ov::XHelperInterface >& xParent,  const css::uno::Reference< css::uno::XComponentContext >& xContext, const sal_Int32 nType);
++
++    virtual css::uno::Any SAL_CALL getInitialFileName() override;
++    virtual void SAL_CALL setInitialFileName( const css::uno::Any& rName ) override;
++    virtual css::uno::Any SAL_CALL getTitle() override;
++    virtual void SAL_CALL setTitle( const css::uno::Any& rTitle ) override;
++    virtual css::uno::Any SAL_CALL getAllowMultiSelect() override;
++    virtual void SAL_CALL setAllowMultiSelect(const css::uno::Any& rAllowMultiSelect) override;
++
++    virtual css::uno::Reference< ov::excel::XFileDialogSelectedItems > SAL_CALL getSelectedItems() override;
++
++    virtual sal_Int32 SAL_CALL Show() override;
++    virtual css::uno::Reference< ov::excel::XFileDialogFilters > SAL_CALL getFilters() override;
++    virtual css::uno::Any SAL_CALL getFilterIndex() override;
++    virtual void SAL_CALL setFilterIndex( const css::uno::Any& rIndex ) override;
++    virtual css::uno::Any SAL_CALL getButtonName() override;
++    virtual void SAL_CALL setButtonName( const css::uno::Any& rName ) override;
++    virtual void SAL_CALL Execute() override;
++
++    //XHelperInterface
++    virtual OUString getServiceImplName() override;
++    virtual css::uno::Sequence<OUString> getServiceNames() override;
++};
++
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/vbahelper/vbafiledialogitems.hxx
++++ b/include/vbahelper/vbafiledialogitems.hxx
+@@ -0,0 +1,44 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <ooo/vba/excel/XFileDialogSelectedItems.hpp>
++#include <vbahelper/vbacollectionimpl.hxx>
++#include <vbahelper/vbadllapi.h>
++
++typedef CollTestImplHelper< ov::excel::XFileDialogSelectedItems > FileDialogSelectedItems_BASE;
++
++class VBAHELPER_DLLPUBLIC ScVbaFileDialogSelectedItems final : public FileDialogSelectedItems_BASE
++{
++    const std::vector<OUString> m_sItems;
++public:
++    std::vector<OUString> const& getItems()
++    {
++        return m_sItems;
++    }
++
++    ScVbaFileDialogSelectedItems( const css::uno::Reference< ov::XHelperInterface >& xParent,
++            const css::uno::Reference< css::uno::XComponentContext >& xContext,
++            std::vector<OUString>&& sItems);
++
++    // XEnumerationAccess
++    virtual css::uno::Type SAL_CALL getElementType() override;
++    virtual css::uno::Reference< css::container::XEnumeration > SAL_CALL createEnumeration() override;
++    virtual css::uno::Any createCollectionObject( const css::uno::Any& aSource ) override;
++
++    // Methods
++    virtual css::uno::Any SAL_CALL Item( const css::uno::Any& Index, const css::uno::Any& /*Index2*/ ) override;
++    virtual sal_Int32 SAL_CALL getCount() override;
++
++    // XHelperInterface
++    virtual OUString getServiceImplName() override;
++    virtual css::uno::Sequence<OUString> getServiceNames() override;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vbahelper/source/vbahelper/vbafiledialog.cxx
++++ b/vbahelper/source/vbahelper/vbafiledialog.cxx
+@@ -0,0 +1,177 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ *
++ * This file incorporates work covered by the following license notice:
++ *
++ *   Licensed to the Apache Software Foundation (ASF) under one or more
++ *   contributor license agreements. See the NOTICE file distributed
++ *   with this work for additional information regarding copyright
++ *   ownership. The ASF licenses this file to you under the Apache
++ *   License, Version 2.0 (the "License"); you may not use this file
++ *   except in compliance with the License. You may obtain a copy of
++ *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
++ */
++
++#include <vbahelper/vbafiledialog.hxx>
++#include <vbahelper/vbafiledialogitems.hxx>
++
++#include <osl/file.hxx>
++
++#include <ooo/vba/office/MsoFileDialogType.hpp>
++
++#include <com/sun/star/ui/dialogs/FilePicker.hpp>
++#include <com/sun/star/ui/dialogs/FolderPicker.hpp>
++#include <com/sun/star/ui/dialogs/ExecutableDialogResults.hpp>
++#include <com/sun/star/ui/dialogs/TemplateDescription.hpp>
++
++using namespace ::com::sun::star;
++using namespace ::ooo::vba;
++
++ScVbaFileDialog::ScVbaFileDialog( const uno::Reference< XHelperInterface >& xParent, const uno::Reference< uno::XComponentContext >& xContext, const sal_Int32 nType )
++    : ScVbaFileDialog_BASE( xParent, xContext)
++    , m_nType(nType)
++    , m_sTitle(u"FileDialog"_ustr)
++    , m_bMultiSelectMode(false)
++{}
++
++uno::Any
++ScVbaFileDialog::getInitialFileName() { return uno::Any( m_sInitialFileName ); }
++
++void ScVbaFileDialog::setInitialFileName( const css::uno::Any& rName )
++{
++    OUString sDefaultPath;
++
++    if( rName >>= sDefaultPath )
++    {
++        OUString sDefaultURL;
++        sal_Int32 eSuccess = osl::FileBase::getFileURLFromSystemPath(
++                sDefaultPath, sDefaultURL ) ;
++        if( eSuccess == osl::FileBase::RC::E_INVAL )
++            m_sInitialFileName = sDefaultPath; // the user may gave it in URL form
++        else
++            m_sInitialFileName = sDefaultURL;
++    }
++}
++
++css::uno::Any ScVbaFileDialog::getTitle() { return uno::Any( m_sTitle ); }
++
++void ScVbaFileDialog::setTitle( const css::uno::Any& rTitle )
++{
++    rTitle >>= m_sTitle;
++}
++
++uno::Any ScVbaFileDialog::getAllowMultiSelect()
++{
++    return uno::Any(m_bMultiSelectMode);
++}
++
++void ScVbaFileDialog::setAllowMultiSelect(const uno::Any& rAllowMultiSelect)
++{
++    rAllowMultiSelect >>= m_bMultiSelectMode;
++}
++
++uno::Reference< excel::XFileDialogSelectedItems > SAL_CALL ScVbaFileDialog::getSelectedItems()
++{
++    // TODO use InitialFileName when m_xItems is empty
++    return m_xItems;
++}
++
++sal_Int32 ScVbaFileDialog::Show()
++{
++    std::vector<OUString> sSelectedPaths;
++    sal_Int32 nRet = -1;
++
++    switch (m_nType)
++    {
++        // HST: Open and SaveAs choose a file like the file picker; .Execute does not act on it
++        case office::MsoFileDialogType::msoFileDialogOpen:
++        case office::MsoFileDialogType::msoFileDialogSaveAs:
++        case office::MsoFileDialogType::msoFileDialogFilePicker:
++            {
++                uno::Reference<ui::dialogs::XFilePicker3> xFilePicker =
++                        ui::dialogs::FilePicker::createWithMode(
++                                mxContext, m_nType == office::MsoFileDialogType::msoFileDialogSaveAs ? ui::dialogs::TemplateDescription::FILESAVE_SIMPLE : ui::dialogs::TemplateDescription::FILEOPEN_SIMPLE );
++                if( !m_sTitle.isEmpty() )
++                    xFilePicker->setTitle( m_sTitle );
++                if( m_nType != office::MsoFileDialogType::msoFileDialogSaveAs )
++                    xFilePicker->setMultiSelectionMode( m_bMultiSelectMode );
++                for( const auto& [ rDescription, rExtensions ] : m_aFilters )
++                    xFilePicker->appendFilter( rDescription, rExtensions );
++
++                if( !m_sInitialFileName.isEmpty() )
++                    xFilePicker->setDisplayDirectory( m_sInitialFileName );
++
++                if( xFilePicker->execute() != ui::dialogs::ExecutableDialogResults::OK )
++                {
++                    nRet = 0; // cancel pressed
++                    break;
++                }
++
++                const uno::Sequence<OUString> aSelectedFiles = xFilePicker->getSelectedFiles();
++                for( const auto& sURL : aSelectedFiles )
++                {
++                    OUString sPath;
++                    osl::FileBase::getSystemPathFromFileURL(sURL, sPath);
++
++                    sSelectedPaths.push_back(sPath);
++                }
++            }
++            break;
++        case office::MsoFileDialogType::msoFileDialogFolderPicker:
++            {
++                uno::Reference< ui::dialogs::XFolderPicker2 > xFolderPicker =
++                        ui::dialogs::FolderPicker::create(mxContext);
++
++                if( !m_sInitialFileName.isEmpty() )
++                    xFolderPicker->setDisplayDirectory( m_sInitialFileName );
++
++                if( xFolderPicker->execute() != ui::dialogs::ExecutableDialogResults::OK )
++                {
++                    nRet = 0; // cancel pressed
++                    break;
++                }
++
++                OUString sURL = xFolderPicker->getDirectory();
++
++                if(!sURL.isEmpty())
++                {
++                    OUString sPath;
++                    osl::FileBase::getSystemPathFromFileURL(sURL, sPath);
++
++                    sSelectedPaths.push_back(sPath);
++                }
++
++            }
++            break;
++        default:
++            throw uno::RuntimeException();
++    }
++
++    m_xItems = css::uno::Reference< ov::excel::XFileDialogSelectedItems >(
++            new ScVbaFileDialogSelectedItems(this, mxContext, std::move(sSelectedPaths)) );
++    return nRet;
++}
++
++// XHelperInterface
++OUString
++ScVbaFileDialog::getServiceImplName()
++{
++    return u"ScVbaFileDialog"_ustr;
++}
++
++uno::Sequence<OUString>
++ScVbaFileDialog::getServiceNames()
++{
++    static uno::Sequence< OUString > const aServiceNames
++    {
++        u"ooo.vba.FileDialog"_ustr
++    };
++    return aServiceNames;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vbahelper/source/vbahelper/vbafiledialogfilters.cxx
++++ b/vbahelper/source/vbahelper/vbafiledialogfilters.cxx
+@@ -0,0 +1,80 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: FileDialog.Filters: file types that Show offers.
++
++#include <vbahelper/vbafiledialog.hxx>
++#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
++#include <ooo/vba/excel/XFileDialogFilter.hpp>
++#include <ooo/vba/excel/XFileDialogFilters.hpp>
++#include <utility>
++#include <rtl/ref.hxx>
++#include <vbahelper/vbahelperinterface.hxx>
++
++using namespace ::ooo::vba;
++using namespace ::com::sun::star;
++
++namespace
++{
++class Filter final : public InheritedHelperInterfaceWeakImpl<excel::XFileDialogFilter>
++{
++    std::pair<OUString, OUString> maEntry;
++
++public:
++    Filter(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++           std::pair<OUString, OUString> aEntry)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext)
++        , maEntry(std::move(aEntry))
++    {
++    }
++    OUString SAL_CALL getDescription() override { return maEntry.first; }
++    OUString SAL_CALL getExtensions() override { return maEntry.second; }
++    OUString getServiceImplName() override { return u"ScVbaFileDialogFilter"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.FileDialogFilter"_ustr }; }
++};
++
++class Filters final : public InheritedHelperInterfaceWeakImpl<excel::XFileDialogFilters>
++{
++    std::vector<std::pair<OUString, OUString>>& mrList;
++
++public:
++    Filters(const uno::Reference<XHelperInterface>& xParent, const uno::Reference<uno::XComponentContext>& xContext,
++            std::vector<std::pair<OUString, OUString>>& rList)
++        : InheritedHelperInterfaceWeakImpl(xParent, xContext)
++        , mrList(rList)
++    {
++    }
++    sal_Int32 SAL_CALL getCount() override { return static_cast<sal_Int32>(mrList.size()); }
++    void SAL_CALL Clear() override { mrList.clear(); }
++    OUString SAL_CALL getDefaultMethodName() override { return u"Item"_ustr; }
++    uno::Reference<excel::XFileDialogFilter> SAL_CALL Item(sal_Int32 nIndex) override
++    {
++        if (nIndex < 1 || nIndex > getCount())
++            throw lang::IndexOutOfBoundsException();
++        return new Filter(this, mxContext, mrList[nIndex - 1]);
++    }
++    void SAL_CALL Add(const OUString& rDescription, const OUString& rExtensions, const uno::Any&) override { mrList.emplace_back(rDescription, rExtensions); }
++    OUString getServiceImplName() override { return u"ScVbaFileDialogFilters"_ustr; }
++    uno::Sequence<OUString> getServiceNames() override { return { u"ooo.vba.excel.FileDialogFilters"_ustr }; }
++};
++}
++
++uno::Reference<excel::XFileDialogFilters> SAL_CALL ScVbaFileDialog::getFilters() { return new Filters(this, mxContext, m_aFilters); }
++
++uno::Any SAL_CALL ScVbaFileDialog::getFilterIndex() { return uno::Any(m_nFilterIndex); }
++
++void SAL_CALL ScVbaFileDialog::setFilterIndex(const uno::Any& rIndex) { rIndex >>= m_nFilterIndex; }
++
++uno::Any SAL_CALL ScVbaFileDialog::getButtonName() { return uno::Any(m_sButtonName); }
++
++void SAL_CALL ScVbaFileDialog::setButtonName(const uno::Any& rName) { rName >>= m_sButtonName; }
++
++void SAL_CALL ScVbaFileDialog::Execute() {}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vbahelper/source/vbahelper/vbafiledialogitems.cxx
++++ b/vbahelper/source/vbahelper/vbafiledialogitems.cxx
+@@ -0,0 +1,123 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ *
++ * This file incorporates work covered by the following license notice:
++ *
++ *   Licensed to the Apache Software Foundation (ASF) under one or more
++ *   contributor license agreements. See the NOTICE file distributed
++ *   with this work for additional information regarding copyright
++ *   ownership. The ASF licenses this file to you under the Apache
++ *   License, Version 2.0 (the "License"); you may not use this file
++ *   except in compliance with the License. You may obtain a copy of
++ *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
++ */
++
++#include <o3tl/safeint.hxx>
++
++#include <vbahelper/vbafiledialogitems.hxx>
++
++using namespace ::com::sun::star;
++using namespace ::ooo::vba;
++
++namespace {
++
++class FileDialogItemEnumeration : public ::cppu::WeakImplHelper< container::XEnumeration >
++{
++    std::vector< OUString > m_sItems;
++    std::vector< OUString >::iterator mIt;
++public:
++    explicit FileDialogItemEnumeration( std::vector< OUString >&& rVector ) : m_sItems( std::move(rVector) ), mIt( m_sItems.begin() ) {}
++    virtual sal_Bool SAL_CALL hasMoreElements() override
++    {
++        return ( mIt != m_sItems.end() );
++    }
++    virtual uno::Any SAL_CALL nextElement() override
++    {
++        if( !hasMoreElements() )
++            throw container::NoSuchElementException();
++        OUString sPath = *mIt++;
++        return uno::Any( sPath );
++    }
++};
++
++}
++
++ScVbaFileDialogSelectedItems::ScVbaFileDialogSelectedItems(
++        const css::uno::Reference< ov::XHelperInterface >& xParent
++       ,const css::uno::Reference< css::uno::XComponentContext >& xContext
++       ,std::vector< OUString >&& rItems)
++    : FileDialogSelectedItems_BASE( xParent, xContext, uno::Reference< container::XIndexAccess>() )
++    , m_sItems(std::move(rItems)) {}
++
++
++// XEnumerationAccess
++uno::Type SAL_CALL
++ScVbaFileDialogSelectedItems::getElementType()
++{
++    return cppu::UnoType<OUString>::get();
++}
++
++uno::Reference< container::XEnumeration >
++ScVbaFileDialogSelectedItems::createEnumeration()
++{
++    return uno::Reference< container::XEnumeration >( new FileDialogItemEnumeration( std::vector(m_sItems) ) );
++}
++
++uno::Any
++ScVbaFileDialogSelectedItems::createCollectionObject( const uno::Any& aSource )
++{
++    sal_Int32 nPosition = -1;
++    if (!(aSource >>= nPosition))
++        throw uno::RuntimeException(u"not an sal_Int32"_ustr);
++    if (nPosition < 0 || o3tl::make_unsigned(nPosition) >= m_sItems.size())
++        throw uno::RuntimeException(u"out of range"_ustr);
++
++    OUString sPath = m_sItems[nPosition];
++    return uno::Any( sPath );
++}
++
++// Methods
++uno::Any SAL_CALL
++ScVbaFileDialogSelectedItems::Item( const uno::Any& aIndex, const uno::Any& /*aIndex*/ )
++{
++    sal_Int32 nPosition = -1;
++    aIndex >>= nPosition;
++
++    --nPosition; // vba indexing starts with 1
++
++    if( nPosition < 0 || nPosition >= getCount() )
++    {
++        throw uno::RuntimeException();
++    }
++
++    return createCollectionObject( uno::Any( nPosition ) );
++}
++
++sal_Int32 ScVbaFileDialogSelectedItems::getCount()
++{
++    return m_sItems.size();
++}
++
++// XHelperInterface
++OUString
++ScVbaFileDialogSelectedItems::getServiceImplName()
++{
++    return u"ScVbaFileDialogSelectedItems"_ustr;
++}
++
++uno::Sequence<OUString>
++ScVbaFileDialogSelectedItems::getServiceNames()
++{
++    static uno::Sequence< OUString > const aServiceNames
++    {
++        u"ooo.vba.FileDialogSelectedItems"_ustr
++    };
++    return aServiceNames;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

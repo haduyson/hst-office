@@ -124,4 +124,42 @@ Function ReDimOfMember()
     End With
     ReDimOfMember = "OK"
 End Function
+Private Function Echo(a As String) As String
+    Echo = a
+End Function
+Function ContinuedCall()
+    Dim r As String
+    r = Echo( _
+"chu")
+    Keep _
+"mot", r
+    ContinuedCall = IIf(r = "mot", "OK", r)
+End Function
+Private Sub Keep(a As String, ByRef r As String)
+    r = a
+End Sub
+Function DynamicDimensions()
+    Dim y() As Long, n As Long
+    n = 3
+    If n > 5 Then
+        ReDim y(1 To n)
+        y(1) = 1
+    Else
+        ReDim y(1 To n, 1 To 2)
+        y(1, 2) = 4
+    End If
+    DynamicDimensions = IIf(y(1, 2) = 4, "OK", "value")
+End Function
+Function QualifiedTypes()
+    Dim d As Scripting.Dictionary, c As VBA.Collection, f As Scripting.FileSystemObject, e As Object
+    Set d = New Scripting.Dictionary
+    If TypeName(d) <> "Dictionary" Then QualifiedTypes = "Dictionary " & TypeName(d): Exit Function
+    Set d = CreateObject("Scripting.Dictionary")
+    Set c = New VBA.Collection
+    If TypeName(c) <> "Collection" Then QualifiedTypes = "Collection " & TypeName(c): Exit Function
+    Set f = New Scripting.FileSystemObject
+    If TypeName(f) <> "FileSystemObject" Then QualifiedTypes = "FileSystemObject " & TypeName(f): Exit Function
+    Set e = CreateObject("VBScript.RegExp")
+    QualifiedTypes = IIf(TypeName(e) = "RegExp" Or TypeName(e) = "IRegExp2", "OK", "RegExp " & TypeName(e))
+End Function
 """

@@ -1,0 +1,55 @@
+Subject: [PATCH] VBA: Sleep and GetTickCount work without Windows
+
+The Windows calls macros declare most often, whatever the case of the library name.
+---
+--- a/basic/source/runtime/dllmgr-none.cxx
++++ b/basic/source/runtime/dllmgr-none.cxx
+@@ -19,6 +19,10 @@
+ 
+ #include <sal/config.h>
+ 
++#include <osl/thread.h>
++#include <osl/time.h>
++#include <rtl/ustring.hxx>
++
+ #include <basic/sberrors.hxx>
+ #include <basic/sbx.hxx>
+ #include <basic/sbxvar.hxx>
+@@ -81,6 +85,24 @@
+         sal_Int64 nStamp = aNow.Nanosec + aNow.Seconds * nNanoSecsPerSec;
+         return returnInt64InOutArg(pArgs, rRetVal, nStamp);
+     }
++    // HST: the Windows calls macros use most, where there is no Windows to call
++    else if (aFuncName == u"Sleep" || aFuncName == u"SleepEx")
++    {
++        if (!pArgs || pArgs->Count() < 2)
++            return ERRCODE_BASIC_BAD_ARGUMENT;
++        const sal_Int32 nMilliseconds = pArgs->Get(1)->GetLong();
++        if (nMilliseconds > 0)
++        {
++            TimeValue aWait{ static_cast<sal_uInt32>(nMilliseconds / 1000), static_cast<sal_uInt32>(nMilliseconds % 1000) * 1000000 };
++            osl_waitThread(&aWait);
++        }
++        return ERRCODE_NONE;
++    }
++    else if (aFuncName == u"GetTickCount" || aFuncName == u"GetTickCount64")
++    {
++        rRetVal.PutLong(static_cast<sal_Int32>(osl_getGlobalTimer() & 0x7fffffff));
++        return ERRCODE_NONE;
++    }
+     return ERRCODE_BASIC_NOT_IMPLEMENTED;
+ }
+ 
+@@ -91,7 +113,11 @@
+     SbxArray *pArgs, SbxVariable &rRetVal,
+     SAL_UNUSED_PARAMETER bool /* bCDecl */)
+ {
+-    if (aDllName == u"kernel32")
++    // HST: Windows does not mind the case or the extension of a library's name
++    OUString aLib = OUString(aDllName).toAsciiLowerCase();
++    if (aLib.endsWith(".dll"))
++        aLib = aLib.copy(0, aLib.getLength() - 4);
++    if (aLib == u"kernel32")
+         return builtin_kernel32(aFuncName, pArgs, rRetVal);
+     else
+         return ERRCODE_BASIC_NOT_IMPLEMENTED;

@@ -1,0 +1,374 @@
+Subject: [PATCH] VBA: class events reach handlers, more of what real code compiles, Style by name
+
+RaiseEvent passes its arguments, a property declared Any takes the value given,
+ReDim of an object member, Optional defaults of Null and Office constants, New as
+an argument, a call continued on the next line, dynamic arrays of differing
+dimensions, and Series.Values keeps the cells.
+---
+--- a/basic/source/comp/exprtree.cxx
++++ b/basic/source/comp/exprtree.cxx
+@@ -26,6 +26,7 @@
+ #include <basic/sbmod.hxx>
+ #include <comphelper/SetFlagContextHelper.hxx>
+ #include <expr.hxx>
++#include <sbunoobj.hxx>
+ 
+ SbiExpression::SbiExpression( SbiParser* p, SbiExprType t,
+     SbiExprMode eMode, const KeywordSymbolInfo* pKeywordSymbolInfo ) :
+@@ -89,7 +90,7 @@
+     }
+     if ( eTok == NUMBER || eTok == MINUS || eTok == FIXSTRING ||
+          eTok == SYMBOL || eTok == COMMA  || eTok == DOT || eTok == NOT || eTok == BYVAL
+-         || ( eTok == EXCLAM && p->IsVBASupportOn() ) )
++         || ( ( eTok == EXCLAM || eTok == NEW ) && p->IsVBASupportOn() ) ) // HST: !field in With, Foo New Bar
+     {
+         return true;
+     }
+@@ -884,6 +885,18 @@
+             }
+         }
+ 
++        // HST: Optional o As XlSortOrder = xlAscending, Const K = xlUp: Office's own constants
++        if( !bIsBool && pExpr->eNodeType == SbxVARVAL && !pExpr->aVar.pNext && pParser->IsVBASupportOn() )
++        {
++            if( SbxVariable* pOffice = VBAConstantHelper::instance().getVBAConstant( pExpr->GetVar()->GetName() ) )
++            {
++                bIsBool = true; // no error below
++                const double fValue = pOffice->GetDouble();
++                pExpr = std::make_unique<SbiExprNode>( fValue, SbxLONG );
++                eType = SbxLONG;
++                nVal = fValue;
++            }
++        }
+         // HST: Optional p As Kind = Kind.First: Enum members are constants of the module
+         if( !bIsBool && pExpr->eNodeType == SbxVARVAL && pExpr->aVar.pNext && pParser->IsVBASupportOn() )
+         {
+--- a/basic/source/comp/dim.cxx
++++ b/basic/source/comp/dim.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <basic/sberrors.hxx>
++#include <image.hxx>
+ #include <set>
+ #include <basic/sbstar.hxx>
+ #include <basic/sbx.hxx>
+@@ -203,6 +204,73 @@
+     DefVar( SbiOpcode::DIM_, pProc && bVBASupportOn && pProc->IsStatic() );
+ }
+ 
++void SbiParser::ReDimMember( bool bPreserve )
++{
++    aGen.Gen( SbiOpcode::ARGC_ );
++    // the object: the With block's, or a variable, then each member but the last
++    std::vector<OUString> aNames;
++    if( Peek() == DOT )
++    {
++        if( SbiExprNode* pWith = GetWithVar() )
++            pWith->Gen( aGen );
++        else
++            Error( ERRCODE_BASIC_UNEXPECTED, DOT );
++    }
++    else
++    {
++        Next();
++        SbiSymDef* pBase = pPool->Find( aSym );
++        if( !pBase )
++            pBase = aGlobals.Find( aSym );
++        if( !pBase )
++            pBase = pPool->AddSym( aSym );
++        SbiExpression aBase( this, *pBase );
++        aBase.Gen();
++    }
++    while( Peek() == DOT )
++    {
++        Next();
++        Next();
++        aNames.push_back( aSym );
++    }
++    for( size_t i = 0; i + 1 < aNames.size(); ++i )
++        aGen.Gen( SbiOpcode::ELEM_, aGblStrings.Add( aNames[i] ), SbxVARIANT );
++    aGen.Gen( SbiOpcode::ARGV_ );
++    aGen.Gen( SbiOpcode::SCONST_, aGblStrings.Add( aNames.empty() ? OUString() : aNames.back() ) );
++    aGen.Gen( SbiOpcode::ARGV_ );
++    SbiExpression aPreserve( this, bPreserve ? 1.0 : 0.0, SbxINTEGER );
++    aPreserve.Gen();
++    aGen.Gen( SbiOpcode::ARGV_ );
++    TestToken( LPAREN );
++    for( ;; )
++    {
++        SbiExpression aFirst( this );
++        if( Peek() == TO )
++        {
++            Next();
++            aFirst.Gen();
++            aGen.Gen( SbiOpcode::ARGV_ );
++            SbiExpression aSecond( this );
++            aSecond.Gen();
++        }
++        else
++        {
++            SbiExpression aBaseValue( this, static_cast<double>( nBase ), SbxLONG );
++            aBaseValue.Gen();
++            aGen.Gen( SbiOpcode::ARGV_ );
++            aFirst.Gen();
++        }
++        aGen.Gen( SbiOpcode::ARGV_ );
++        if( Peek() != COMMA )
++            break;
++        Next();
++    }
++    TestToken( RPAREN );
++    aGen.Gen( SbiOpcode::RTL_, aGblStrings.Add( u"HstReDimMember"_ustr ) | 0x8000, SbxVARIANT );
++    aGen.Gen( SbiOpcode::GET_ );
++    TestEoln();
++}
++
+ void SbiParser::DefVar( SbiOpcode eOp, bool bStatic )
+ {
+     SbiSymPool* pOldPool = pPool;
+@@ -310,6 +378,18 @@
+         aGen.Statement();   // catch up on static here
+     }
+ 
++    // HST: ReDim record.member(1 To n), ReDim .member(n)
++    if( bVBASupportOn && ( eOp == SbiOpcode::REDIM_ || eOp == SbiOpcode::REDIMP_ ) )
++    {
++        SbiTokenizer aAhead( *this );
++        const SbiToken eFirst = aAhead.Next();
++        if( eFirst == DOT || ( eFirst == SYMBOL && aAhead.Peek() == DOT ) )
++        {
++            ReDimMember( eOp == SbiOpcode::REDIMP_ );
++            return;
++        }
++    }
++
+     bool bDefined = false;
+     while( ( pDef = VarDecl( &pDim, bStatic, bConst ) ) != nullptr )
+     {
+@@ -436,7 +516,10 @@
+                     aExpr.Gen();
+                     aGen.Gen( SbiOpcode::REDIMP_ERASE_ );
+ 
+-                    pDef->SetDims( pDim->GetDims() );
++                    // HST: VBA checks dimensions at compile time for fixed arrays only: a dynamic array may
++                    // be redimensioned differently on another branch
++                    if( !bVBASupportOn )
++                        pDef->SetDims( pDim->GetDims() );
+                     SbiExpression aExpr2( this, *pDef, std::move(pDim) );
+                     aExpr2.Gen();
+                     aGen.Gen( SbiOpcode::DCREATE_REDIMP_, pDef->GetId(), pDef->GetTypeId() );
+@@ -451,7 +534,10 @@
+                         aGen.Gen(bVBASupportOn ? SbiOpcode::ERASE_CLEAR_ : SbiOpcode::ERASE_);
+                     }
+ 
+-                    pDef->SetDims( pDim->GetDims() );
++                    // HST: VBA checks dimensions at compile time for fixed arrays only: a dynamic array may
++                    // be redimensioned differently on another branch
++                    if( !bVBASupportOn )
++                        pDef->SetDims( pDim->GetDims() );
+                     SbiExpression aExpr2( this, *pDef, std::move(pDim) );
+                     aExpr2.Gen();
+                     aGen.Gen( SbiOpcode::DCREATE_, pDef->GetId(), pDef->GetTypeId() );
+@@ -1013,6 +1099,17 @@
+                         Next();
+                         eTok = Next();
+                         if( eTok == COMMA || eTok == RPAREN )
++                            bError2 = false;
++                    }
++                    // HST: Optional x = Null, Optional x = Empty
++                    else if( bOptional && bVBASupportOn && eTok == EQ && Peek() == SYMBOL
++                             && ( GetSym().equalsIgnoreAsciiCase( "Null" ) || GetSym().equalsIgnoreAsciiCase( "Empty" ) ) )
++                    {
++                        if( GetSym().equalsIgnoreAsciiCase( "Null" ) )
++                            pPar->SetDefaultId( aGblStrings.Add( SBI_DEFAULT_NULL ) );
++                        Next();
++                        eTok = Next();
++                        if( eTok == COMMA || eTok == RPAREN )
+                             bError2 = false;
+                     }
+                     else if( bOptional && bCompatible && eTok == EQ )
+--- a/basic/source/comp/scanner.cxx
++++ b/basic/source/comp/scanner.cxx
+@@ -746,6 +746,8 @@
+             // ^^^  <- spaces is legal in MSO VBA
+             bSpaces = false;
+         }
++        else if( bVBASupportOn )
++            bSpaces = true; // HST: MsgBox _ with its text at the start of the next line
+         return bRes;
+     }
+     else
+--- a/basic/source/comp/io.cxx
++++ b/basic/source/comp/io.cxx
+@@ -92,7 +92,7 @@
+         else
+             break;
+     }
+-    aGen.Gen( SbiOpcode::RTL_, aGblStrings.Add( u"HstDebugPrint"_ustr ), SbxVARIANT );
++    aGen.Gen( SbiOpcode::RTL_, aGblStrings.Add( u"HstDebugPrint"_ustr ) | 0x8000, SbxVARIANT );
+     aGen.Gen( SbiOpcode::GET_ );
+ }
+ 
+@@ -114,7 +114,7 @@
+         aGen.Gen( SbiOpcode::ARGC_ );
+     aGen.Gen( SbiOpcode::SCONST_, aGblStrings.Add( aEvent ) );
+     aGen.Gen( SbiOpcode::ARGV_ );
+-    aGen.Gen( SbiOpcode::RTL_, aGblStrings.Add( u"HstRaiseEvent"_ustr ), SbxVARIANT );
++    aGen.Gen( SbiOpcode::RTL_, aGblStrings.Add( u"HstRaiseEvent"_ustr ) | 0x8000, SbxVARIANT );
+     aGen.Gen( SbiOpcode::GET_ );
+ }
+ 
+--- a/basic/source/inc/image.hxx
++++ b/basic/source/inc/image.hxx
+@@ -28,6 +28,9 @@
+ // This class reads in the image that's been produced by the compiler
+ // and manages the access to the single elements.
+ 
++/// HST: what the image stores as the default of Optional x = Null
++inline constexpr OUString SBI_DEFAULT_NULL = u"\xFFFFNull"_ustr;
++
+ enum class SbiImageFlags
+ {
+     NONE          = 0,
+--- a/basic/source/inc/parser.hxx
++++ b/basic/source/inc/parser.hxx
+@@ -83,6 +83,7 @@
+     void SetCodeCompleting( bool b );
+     bool IsCodeCompleting() const { return bCodeCompleting;}
+     SbiExprNode* GetWithVar();
++    void ReDimMember( bool bPreserve ); // HST: ReDim of a member of an object
+ 
+     // from 31.3.1996, search symbol in the runtime-library
+     SbiSymDef* CheckRTLForSym( const OUString& rSym, SbxDataType eType );
+--- a/basic/source/inc/rtlproto.hxx
++++ b/basic/source/inc/rtlproto.hxx
+@@ -92,6 +92,7 @@
+ extern void SbRtl_Split(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_HstDebugPrint(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_HstRaiseEvent(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
++extern void SbRtl_HstReDimMember(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_SaveSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_GetSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+ extern void SbRtl_DeleteSetting(StarBASIC * pBasic, SbxArray & rPar, bool bWrite);
+--- a/basic/source/runtime/stdobj.cxx
++++ b/basic/source/runtime/stdobj.cxx
+@@ -482,6 +482,7 @@
+ { u"HstDebugPrint",                 SbxEMPTY,        FUNCTION_ | COMPATONLY_, SbRtl_HstDebugPrint },
+ 
+ { u"HstRaiseEvent",                 SbxEMPTY,        FUNCTION_ | COMPATONLY_, SbRtl_HstRaiseEvent },
++{ u"HstReDimMember",                SbxEMPTY,        FUNCTION_ | COMPATONLY_, SbRtl_HstReDimMember },
+ 
+ { u"Hour",                          SbxINTEGER,  1 | FUNCTION_,        SbRtl_Hour                 },
+     arg(u"Date", SbxDATE),
+--- a/basic/source/runtime/runtime.cxx
++++ b/basic/source/runtime/runtime.cxx
+@@ -62,6 +62,7 @@
+ #include <sb.hxx>
+ #include <sbintern.hxx>
+ #include <sbprop.hxx>
++#include <com/sun/star/lang/XServiceInfo.hpp>
+ #include <sbunoobj.hxx>
+ #include <basic/codecompletecache.hxx>
+ #include <memory>
+@@ -1739,7 +1740,21 @@
+                     refVar = pDflt;
+             }
+             else
++            {
+                 bObjAssign = true;
++                // HST: Range.Style = "Heading 1": a property declared Any takes the value itself, not
++                // the default member of the object it holds now, which would rename that style
++                SbUnoProperty* pUnoProp = dynamic_cast<SbUnoProperty*>( refVar.get() );
++                if ( pUnoProp && pUnoProp->getRealType() == SbxVARIANT && refVal->GetType() != SbxOBJECT )
++                    refVar->Clear();
++            }
++        }
++        // HST: Series.Values = Range(..) takes the cells: the chart keeps following them, as in Excel
++        if ( !bObjAssign && refVal->GetType() == SbxOBJECT && dynamic_cast<SbUnoProperty*>( refVar.get() ) )
++        {
++            SbUnoObject* pOwner = dynamic_cast<SbUnoObject*>( refVar->GetParent() );
++            uno::Reference< lang::XServiceInfo > xOwnerInfo( pOwner ? pOwner->getUnoAny() : uno::Any(), uno::UNO_QUERY );
++            bObjAssign = xOwnerInfo.is() && xOwnerInfo->supportsService( u"ooo.vba.excel.Series"_ustr );
+         }
+         if (  refVal->GetType() == SbxOBJECT  && !bObjAssign && ( dynamic_cast<const SbxMethod *>(refVal.get()) != nullptr || ! refVal->GetParent() ) )
+         {
+@@ -2324,6 +2339,35 @@
+ // TOS  = variable for the array
+ // argv = dimension information
+ 
++// HST: ReDim [Preserve] object.member(bounds): the parser passes the object, the member's name,
++// whether to preserve, and the bounds in pairs
++void SbRtl_HstReDimMember(StarBASIC*, SbxArray& rPar, bool)
++{
++    const sal_uInt32 nCount = rPar.Count();
++    if (nCount < 6 || (nCount & 1))
++        return StarBASIC::Error(ERRCODE_BASIC_BAD_ARGUMENT);
++    SbxObject* pObject = dynamic_cast<SbxObject*>(rPar.Get(1)->GetObject());
++    SbxVariable* pMember = pObject ? pObject->Find(rPar.Get(2)->GetOUString(), SbxClassType::DontCare) : nullptr;
++    if (!pMember)
++        return StarBASIC::Error(ERRCODE_BASIC_NO_METHOD, rPar.Get(2)->GetOUString());
++    SbxArrayRef xOld;
++    if (rPar.Get(3)->GetBool())
++        xOld = dynamic_cast<SbxDimArray*>(pMember->GetObject());
++    const SbxDataType eType = static_cast<SbxDataType>(pMember->GetType() & 0x0FFF);
++    SbxDimArray* pArray = new SbxDimArray(eType == SbxEMPTY ? SbxVARIANT : eType);
++    for (sal_uInt32 i = 4; i + 1 < nCount; i += 2)
++    {
++        const sal_Int32 nLower = rPar.Get(i)->GetLong(), nUpper = rPar.Get(i + 1)->GetLong();
++        if (nUpper < nLower)
++            return StarBASIC::Error(ERRCODE_BASIC_OUT_OF_RANGE);
++        pArray->AddDim(nLower, nUpper);
++    }
++    if (xOld.is())
++        implRestorePreservedArray(pArray, xOld);
++    pMember->SetFlag(SbxFlagBits::Write);
++    pMember->PutObject(pArray);
++}
++
+ void SbiRuntime::StepREDIMP()
+ {
+     SbxVariableRef refVar = PopVar();
+@@ -3382,6 +3426,9 @@
+     if( !aClass.isEmpty() )
+     {
+         bRet = pObj->IsClass( aClass );
++        // HST: Dim d As Scripting.Dictionary, As VBA.Collection, As VBScript_RegExp_55.RegExp
++        if( !bRet && isVBAEnabled() && aClass.indexOf( '.' ) > 0 )
++            bRet = pObj->IsClass( aClass.copy( aClass.lastIndexOf( '.' ) + 1 ) );
+         if( !bRet )
+             bRet = aClass.equalsIgnoreAsciiCase( "object" );
+         if( !bRet )
+@@ -4336,7 +4383,10 @@
+                         SbxDataType eTypeStr;
+                         OUString aDefaultStr = pImg->GetString( nDefaultId, &eTypeStr );
+                         pVar = new SbxVariable(pParam-> eType);
+-                        pVar->PutString( aDefaultStr );
++                        if ( aDefaultStr == SBI_DEFAULT_NULL )
++                            pVar->PutNull();
++                        else
++                            pVar->PutString( aDefaultStr );
+                         if (eTypeStr != SbxSTRING)
+                             pVar->Convert(eTypeStr);
+                         refParams->Put(pVar, nIdx);
+--- a/basic/source/runtime/methods.cxx
++++ b/basic/source/runtime/methods.cxx
+@@ -3514,9 +3514,15 @@
+         }
+         else
+         {
+-            // HST: TypeName of an object of a class module is the class
+-            if ( SbxObject* pClassObj = dynamic_cast<SbClassModuleObject*>( pBaseObj ) )
+-                return pClassObj->GetClassName();
++            // HST: TypeName of an object of a class module is the class, and so for Dictionary, Collection, RegExp
++            if ( SbxObject* pClassObj = dynamic_cast<SbxObject*>( pBaseObj ) )
++            {
++                if ( !dynamic_cast<SbUnoObject*>( pBaseObj ) && !pClassObj->GetClassName().isEmpty() )
++                {
++                    const OUString aClass = pClassObj->GetClassName();
++                    return aClass.copy( aClass.lastIndexOf( '.' ) + 1 );
++                }
++            }
+             SbUnoObject* pUnoObj = dynamic_cast<SbUnoObject*>( pVar  );
+             if ( !pUnoObj )
+             {

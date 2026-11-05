@@ -1,0 +1,356 @@
+Subject: [PATCH] VBA: TextBox, Label, list and UserForm members forms in real files set
+
+PasswordChar, ForeColor, SelStart, SelLength, SelText, ScrollBars, WordWrap,
+TextAlign, BackStyle, ColumnCount, ColumnWidths, ListRows, StartUpPosition,
+InsideWidth, InsideHeight.
+---
+--- a/oovbaapi/ooo/vba/msforms/XTextBox.idl
++++ b/oovbaapi/ooo/vba/msforms/XTextBox.idl
+@@ -36,6 +36,15 @@
+     [attribute] boolean Locked;
+     [attribute, readonly] long TextLength;
+     [attribute, readonly] XNewFont Font;
++    // HST
++    [attribute] long ForeColor;
++    [attribute] string PasswordChar;
++    [attribute] long SelStart;
++    [attribute] long SelLength;
++    [attribute] string SelText;
++    [attribute] long ScrollBars;
++    [attribute] boolean WordWrap;
++    [attribute] long TextAlign;
+ };
+ 
+ 
+--- a/oovbaapi/ooo/vba/msforms/XLabel.idl
++++ b/oovbaapi/ooo/vba/msforms/XLabel.idl
+@@ -31,6 +31,11 @@
+     [attribute] long BackColor;
+     [attribute] boolean AutoSize;
+     [attribute, readonly] XNewFont Font;
++    // HST
++    [attribute] long ForeColor;
++    [attribute] boolean WordWrap;
++    [attribute] long TextAlign;
++    [attribute] long BackStyle;
+ };
+ 
+ 
+--- a/oovbaapi/ooo/vba/msforms/XListBox.idl
++++ b/oovbaapi/ooo/vba/msforms/XListBox.idl
+@@ -37,6 +37,10 @@
+     void Clear();
+     any Selected( [in] long index );
+     any List( [in] any pvargIndex, [in] any pvarColumn );
++    // HST: remembered, a list here shows one column
++    [attribute] long ColumnCount;
++    [attribute] string ColumnWidths;
++    [attribute] long ListRows;
+ };
+ 
+ 
+--- a/oovbaapi/ooo/vba/msforms/XComboBox.idl
++++ b/oovbaapi/ooo/vba/msforms/XComboBox.idl
+@@ -46,6 +46,10 @@
+     void removeItem( [in] any index );
+     void Clear();
+     any List( [in] any pvargIndex, [in] any pvarColumn );
++    // HST: remembered, a list here shows one column
++    [attribute] long ColumnCount;
++    [attribute] string ColumnWidths;
++    [attribute] long ListRows;
+ };
+ 
+ 
+--- a/oovbaapi/ooo/vba/msforms/XUserForm.idl
++++ b/oovbaapi/ooo/vba/msforms/XUserForm.idl
+@@ -30,6 +30,10 @@
+     void RePaint();
+     void UnloadObject();
+     any Controls( [in] any index );
++    // HST
++    [attribute] long StartUpPosition;
++    [attribute, readonly] double InsideWidth;
++    [attribute, readonly] double InsideHeight;
+ };
+ }; }; };
+ 
+--- a/vbahelper/source/msforms/vbatextbox.hxx
++++ b/vbahelper/source/msforms/vbatextbox.hxx
+@@ -32,6 +32,23 @@
+     bool mbDialog;
+ public:
+     ScVbaTextBox( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext >& xContext, const css::uno::Reference< css::uno::XInterface >& xControl, const css::uno::Reference< css::frame::XModel >& xModel, std::unique_ptr<ov::AbstractGeometryAttributes> pGeomHelper, bool bDialog = false );
++    // vbacontrolmembers.cxx
++    virtual sal_Int32 SAL_CALL getForeColor() override;
++    virtual void SAL_CALL setForeColor( sal_Int32 nColor ) override;
++    virtual OUString SAL_CALL getPasswordChar() override;
++    virtual void SAL_CALL setPasswordChar( const OUString& rChar ) override;
++    virtual sal_Int32 SAL_CALL getSelStart() override;
++    virtual void SAL_CALL setSelStart( sal_Int32 nStart ) override;
++    virtual sal_Int32 SAL_CALL getSelLength() override;
++    virtual void SAL_CALL setSelLength( sal_Int32 nLength ) override;
++    virtual OUString SAL_CALL getSelText() override;
++    virtual void SAL_CALL setSelText( const OUString& rText ) override;
++    virtual sal_Int32 SAL_CALL getScrollBars() override;
++    virtual void SAL_CALL setScrollBars( sal_Int32 nBars ) override;
++    virtual sal_Bool SAL_CALL getWordWrap() override;
++    virtual void SAL_CALL setWordWrap( sal_Bool bWrap ) override;
++    virtual sal_Int32 SAL_CALL getTextAlign() override;
++    virtual void SAL_CALL setTextAlign( sal_Int32 nAlign ) override;
+    // Attributes
+     virtual css::uno::Any SAL_CALL getValue() override;
+     virtual void SAL_CALL setValue( const css::uno::Any& _value ) override;
+--- a/vbahelper/source/msforms/vbalabel.hxx
++++ b/vbahelper/source/msforms/vbalabel.hxx
+@@ -35,6 +35,15 @@
+    // Attributes
+     virtual css::uno::Any SAL_CALL getValue() override;
+     virtual void SAL_CALL setValue( const css::uno::Any& _value ) override;
++    // vbacontrolmembers.cxx
++    virtual sal_Int32 SAL_CALL getForeColor() override;
++    virtual void SAL_CALL setForeColor( sal_Int32 nColor ) override;
++    virtual sal_Bool SAL_CALL getWordWrap() override;
++    virtual void SAL_CALL setWordWrap( sal_Bool bWrap ) override;
++    virtual sal_Int32 SAL_CALL getTextAlign() override;
++    virtual void SAL_CALL setTextAlign( sal_Int32 nAlign ) override;
++    virtual sal_Int32 SAL_CALL getBackStyle() override;
++    virtual void SAL_CALL setBackStyle( sal_Int32 nStyle ) override;
+     virtual OUString SAL_CALL getCaption() override;
+     virtual void SAL_CALL setCaption( const OUString& _caption ) override;
+     virtual OUString SAL_CALL getAccelerator() override;
+--- a/vbahelper/source/msforms/vbalistbox.hxx
++++ b/vbahelper/source/msforms/vbalistbox.hxx
+@@ -40,6 +40,9 @@
+ 
+     sal_Int16 m_nIndex;
+ 
++    sal_Int32 mnColumnCount = 1;
++    sal_Int32 mnListRows = 8;
++    OUString maColumnWidths;
+ public:
+     ScVbaListBox( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext >& xContext, const css::uno::Reference< css::uno::XInterface >& xControl, const css::uno::Reference< css::frame::XModel >& xModel, std::unique_ptr<ov::AbstractGeometryAttributes> pGeomHelper );
+ 
+@@ -47,6 +50,13 @@
+     virtual css::uno::Any SAL_CALL getListIndex() override;
+     virtual void SAL_CALL setListIndex( const css::uno::Any& _value ) override;
+     virtual ::sal_Int32 SAL_CALL getListCount() override;
++    // remembered, a list here shows one column
++    virtual sal_Int32 SAL_CALL getColumnCount() override { return mnColumnCount; }
++    virtual void SAL_CALL setColumnCount( sal_Int32 nCount ) override { mnColumnCount = nCount; }
++    virtual OUString SAL_CALL getColumnWidths() override { return maColumnWidths; }
++    virtual void SAL_CALL setColumnWidths( const OUString& rWidths ) override { maColumnWidths = rWidths; }
++    virtual sal_Int32 SAL_CALL getListRows() override { return mnListRows; }
++    virtual void SAL_CALL setListRows( sal_Int32 nRows ) override { mnListRows = nRows; }
+     virtual css::uno::Any SAL_CALL getValue() override;
+     virtual void SAL_CALL setValue( const css::uno::Any& _value ) override;
+     virtual OUString SAL_CALL getText() override;
+--- a/vbahelper/source/msforms/vbacombobox.hxx
++++ b/vbahelper/source/msforms/vbacombobox.hxx
+@@ -38,6 +38,9 @@
+     ListControlHelper maListHelper;
+     OUString sSourceName;
+ 
++    sal_Int32 mnColumnCount = 1;
++    sal_Int32 mnListRows = 8;
++    OUString maColumnWidths;
+ public:
+     ScVbaComboBox( const css::uno::Reference< ov::XHelperInterface >& xParent, const css::uno::Reference< css::uno::XComponentContext >& xContext, const css::uno::Reference< css::uno::XInterface >& xControl, const css::uno::Reference< css::frame::XModel >& xModel, std::unique_ptr<ov::AbstractGeometryAttributes> pGeomHelper );
+ 
+@@ -45,6 +48,13 @@
+     virtual css::uno::Any SAL_CALL getListIndex() override;
+     virtual ::sal_Int32 SAL_CALL getListCount() override;
+     virtual void SAL_CALL setListIndex( const css::uno::Any& _value ) override;
++    // remembered, a list here shows one column
++    virtual sal_Int32 SAL_CALL getColumnCount() override { return mnColumnCount; }
++    virtual void SAL_CALL setColumnCount( sal_Int32 nCount ) override { mnColumnCount = nCount; }
++    virtual OUString SAL_CALL getColumnWidths() override { return maColumnWidths; }
++    virtual void SAL_CALL setColumnWidths( const OUString& rWidths ) override { maColumnWidths = rWidths; }
++    virtual sal_Int32 SAL_CALL getListRows() override { return mnListRows; }
++    virtual void SAL_CALL setListRows( sal_Int32 nRows ) override { mnListRows = nRows; }
+     virtual css::uno::Any SAL_CALL getValue() override;
+     virtual void SAL_CALL setValue( const css::uno::Any& _value ) override;
+     virtual OUString SAL_CALL getText() override;
+--- a/vbahelper/source/msforms/vbauserform.hxx
++++ b/vbahelper/source/msforms/vbauserform.hxx
+@@ -34,6 +34,7 @@
+ private:
+     css::uno::Reference< css::awt::XDialog > m_xDialog;
+     bool mbDispose;
++    sal_Int32 mnStartUpPosition = 1; // fmStartUpPositionCenterOwner; remembered, the dialog places itself
+     OUString m_sLibName;
+ protected:
+ public:
+@@ -43,6 +44,10 @@
+     virtual ~ScVbaUserForm() override;
+     static css::uno::Reference< css::awt::XControl > nestedSearch( const OUString& aPropertyName, css::uno::Reference< css::awt::XControlContainer > const & xContainer );
+     // XUserForm
++    virtual sal_Int32 SAL_CALL getStartUpPosition() override { return mnStartUpPosition; }
++    virtual void SAL_CALL setStartUpPosition( sal_Int32 nPosition ) override { mnStartUpPosition = nPosition; }
++    virtual double SAL_CALL getInsideWidth() override { return getInnerWidth(); }
++    virtual double SAL_CALL getInsideHeight() override { return getInnerHeight(); }
+     virtual void SAL_CALL RePaint(  ) override;
+     virtual void SAL_CALL Show(  ) override;
+     virtual void SAL_CALL setValue( const OUString& aPropertyName, const css::uno::Any& aValue ) override;
+--- a/vbahelper/source/msforms/vbacontrolmembers.cxx
++++ b/vbahelper/source/msforms/vbacontrolmembers.cxx
+@@ -0,0 +1,149 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST: members of TextBox and Label that forms in real files set
++
++#include <com/sun/star/awt/Selection.hpp>
++#include <com/sun/star/awt/XTextComponent.hpp>
++
++#include "vbalabel.hxx"
++#include "vbatextbox.hxx"
++
++using namespace ::ooo::vba;
++using namespace css;
++
++namespace
++{
++const sal_Int32 fmScrollBarsHorizontal = 1, fmScrollBarsVertical = 2;
++
++// Windows-style values to those of the toolkit model
++sal_Int32 lcl_textAlign(const uno::Reference<beans::XPropertySet>& xProps)
++{
++    sal_Int16 nAlign = 0;
++    xProps->getPropertyValue(u"Align"_ustr) >>= nAlign;
++    return nAlign + 1; // fmTextAlignLeft is 1, Center 2, Right 3
++}
++
++void lcl_setTextAlign(const uno::Reference<beans::XPropertySet>& xProps, sal_Int32 nAlign)
++{
++    xProps->setPropertyValue(u"Align"_ustr, uno::Any(static_cast<sal_Int16>(nAlign - 1)));
++}
++
++void lcl_setColor(const uno::Reference<beans::XPropertySet>& xProps, sal_Int32 nColor)
++{
++    xProps->setPropertyValue(u"TextColor"_ustr, uno::Any(OORGBToXLRGB(nColor)));
++}
++}
++
++sal_Int32 SAL_CALL ScVbaTextBox::getForeColor() { return ScVbaControl::getForeColor(); }
++void SAL_CALL ScVbaTextBox::setForeColor(sal_Int32 nColor) { lcl_setColor(m_xProps, nColor); }
++
++OUString SAL_CALL ScVbaTextBox::getPasswordChar()
++{
++    sal_Int16 nChar = 0;
++    m_xProps->getPropertyValue(u"EchoChar"_ustr) >>= nChar;
++    return nChar ? OUString(static_cast<sal_Unicode>(nChar)) : OUString();
++}
++
++void SAL_CALL ScVbaTextBox::setPasswordChar(const OUString& rChar)
++{
++    m_xProps->setPropertyValue(u"EchoChar"_ustr, uno::Any(static_cast<sal_Int16>(rChar.isEmpty() ? 0 : rChar[0])));
++}
++
++sal_Int32 SAL_CALL ScVbaTextBox::getSelStart()
++{
++    uno::Reference<awt::XTextComponent> xText(m_xControl, uno::UNO_QUERY_THROW);
++    return xText->getSelection().Min;
++}
++
++void SAL_CALL ScVbaTextBox::setSelStart(sal_Int32 nStart)
++{
++    uno::Reference<awt::XTextComponent> xText(m_xControl, uno::UNO_QUERY_THROW);
++    const awt::Selection aOld = xText->getSelection();
++    xText->setSelection(awt::Selection(nStart, nStart + aOld.Max - aOld.Min));
++}
++
++sal_Int32 SAL_CALL ScVbaTextBox::getSelLength()
++{
++    uno::Reference<awt::XTextComponent> xText(m_xControl, uno::UNO_QUERY_THROW);
++    const awt::Selection aOld = xText->getSelection();
++    return aOld.Max - aOld.Min;
++}
++
++void SAL_CALL ScVbaTextBox::setSelLength(sal_Int32 nLength)
++{
++    uno::Reference<awt::XTextComponent> xText(m_xControl, uno::UNO_QUERY_THROW);
++    const awt::Selection aOld = xText->getSelection();
++    xText->setSelection(awt::Selection(aOld.Min, aOld.Min + nLength));
++}
++
++OUString SAL_CALL ScVbaTextBox::getSelText()
++{
++    return uno::Reference<awt::XTextComponent>(m_xControl, uno::UNO_QUERY_THROW)->getSelectedText();
++}
++
++void SAL_CALL ScVbaTextBox::setSelText(const OUString& rText)
++{
++    uno::Reference<awt::XTextComponent> xText(m_xControl, uno::UNO_QUERY_THROW);
++    xText->insertText(xText->getSelection(), rText);
++}
++
++sal_Int32 SAL_CALL ScVbaTextBox::getScrollBars()
++{
++    bool bHorizontal = false, bVertical = false;
++    m_xProps->getPropertyValue(u"HScroll"_ustr) >>= bHorizontal;
++    m_xProps->getPropertyValue(u"VScroll"_ustr) >>= bVertical;
++    return (bHorizontal ? fmScrollBarsHorizontal : 0) | (bVertical ? fmScrollBarsVertical : 0);
++}
++
++void SAL_CALL ScVbaTextBox::setScrollBars(sal_Int32 nBars)
++{
++    m_xProps->setPropertyValue(u"HScroll"_ustr, uno::Any((nBars & fmScrollBarsHorizontal) != 0));
++    m_xProps->setPropertyValue(u"VScroll"_ustr, uno::Any((nBars & fmScrollBarsVertical) != 0));
++}
++
++sal_Bool SAL_CALL ScVbaTextBox::getWordWrap()
++{
++    bool bHard = false;
++    m_xProps->getPropertyValue(u"HardLineBreaks"_ustr) >>= bHard;
++    return !bHard;
++}
++
++void SAL_CALL ScVbaTextBox::setWordWrap(sal_Bool bWrap) { m_xProps->setPropertyValue(u"HardLineBreaks"_ustr, uno::Any(!bWrap)); }
++
++sal_Int32 SAL_CALL ScVbaTextBox::getTextAlign() { return lcl_textAlign(m_xProps); }
++void SAL_CALL ScVbaTextBox::setTextAlign(sal_Int32 nAlign) { lcl_setTextAlign(m_xProps, nAlign); }
++
++sal_Int32 SAL_CALL ScVbaLabel::getForeColor() { return ScVbaControl::getForeColor(); }
++void SAL_CALL ScVbaLabel::setForeColor(sal_Int32 nColor) { lcl_setColor(m_xProps, nColor); }
++
++sal_Bool SAL_CALL ScVbaLabel::getWordWrap()
++{
++    bool bWrap = false;
++    m_xProps->getPropertyValue(u"MultiLine"_ustr) >>= bWrap;
++    return bWrap;
++}
++
++void SAL_CALL ScVbaLabel::setWordWrap(sal_Bool bWrap) { m_xProps->setPropertyValue(u"MultiLine"_ustr, uno::Any(static_cast<bool>(bWrap))); }
++
++sal_Int32 SAL_CALL ScVbaLabel::getTextAlign() { return lcl_textAlign(m_xProps); }
++void SAL_CALL ScVbaLabel::setTextAlign(sal_Int32 nAlign) { lcl_setTextAlign(m_xProps, nAlign); }
++
++sal_Int32 SAL_CALL ScVbaLabel::getBackStyle()
++{
++    sal_Int32 nColor = -1;
++    m_xProps->getPropertyValue(u"BackgroundColor"_ustr) >>= nColor;
++    return nColor == -1 ? 0 : 1; // fmBackStyleTransparent, fmBackStyleOpaque
++}
++
++void SAL_CALL ScVbaLabel::setBackStyle(sal_Int32 nStyle)
++{
++    if (nStyle == 0)
++        m_xProps->setPropertyValue(u"BackgroundColor"_ustr, uno::Any());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vbahelper/Library_msforms.mk
++++ b/vbahelper/Library_msforms.mk
+@@ -62,6 +62,7 @@
+     vbahelper/source/msforms/vbacheckbox \
+     vbahelper/source/msforms/vbacombobox \
+     vbahelper/source/msforms/vbacontrol \
++    vbahelper/source/msforms/vbacontrolmembers \
+     vbahelper/source/msforms/vbacontrols \
+     vbahelper/source/msforms/vbaframe \
+     vbahelper/source/msforms/vbaimage \

@@ -30,15 +30,17 @@ stated below.
    Selection moves, clipboard, contents, Word tables, notes, hyperlinks, Document members; Shape OnAction and cells, AddPicture,
    chart series. A regression in this batch made `d("a") = 1` on `Dim d As Object` fail with Err 91 for two builds; the fix is
    in this batch.
+3. Class events with arguments, ReDim of members, Null and Office-constant defaults, New as an argument, continued calls,
+   qualified types (`As Scripting.Dictionary`), Word text and paragraph marks, Style by name, FileDialog in Word, Find.Found,
+   Workbook properties and RefreshAll, sheet hyperlinks, Sleep and GetTickCount, form control members.
 
 ## Verified
 
 - Upstream `sw/qa` Word VBA suites: 29 of 37 assertions at baseline, 34 of 37 now. The rest: testSentences expects a
   trailing vbCr on `Last`, testWords is inconsistent upstream, testParagraphFormat is being rechecked.
-- Regression cases, one per fix, in `tests/runtime/check-vba-corpus-regression.py`: 96 of 109 pass on the batch 2 build. The other
-  13: Word text and paragraph marks, Style by name, tables of a range, underline read back, FormatCondition.Interior, Series.Values,
-  sheet hyperlinks, Workbook members, WorksheetFunction names and Sleep have fixes queued for batch 3; class events
-  (`RaiseEvent` reaching `WithEvents` handlers) are still open.
+- Regression cases, one per fix, in `tests/runtime/check-vba-corpus-regression.py`: 113 of 116 pass on the batch 3 build,
+  class events included. Open: Range.ComputeStatistics word count, Document members (an interface attribute throws),
+  Series.Name from a cell address.
 - Open: the office ended in 1 of 3 full regression runs, at a different case each time (FsoNames, ParagraphsOfRangeAndSelection, static_private); cause not found yet.
 - Vietnamese identifiers and strings in cp1258 and cp1252 modules: 6 of 6.
 - Scripting.Dictionary, FileSystemObject and RegExp through CreateObject and early binding.
