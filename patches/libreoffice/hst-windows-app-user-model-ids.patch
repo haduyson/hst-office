@@ -1,0 +1,375 @@
+HST Office on Windows: own AppUserModelIDs, so taskbar groups, pinned items and jump lists are not shared with LibreOffice.
+
+Both suites used TheDocumentFoundation.LibreOffice.<Module> as the Windows AppUserModelID. With both
+installed, the taskbar grouped their windows together, a pinned item could start the other suite,
+and the jump lists (recent documents) mixed both suites' files.
+
+Every place that sets or consumes the id now uses HASONTECH.HSTOffice.<Module> (Writer, Calc,
+Impress, Draw, Math, Base, Startcenter, SafeMode):
+- framework titlebarupdate: the per-module id set on each window (vcl/win salframe property store);
+- vcl/win salinst: SHAddToRecentDocs (SHARD_APPIDINFO), so recent documents go to the HST jump list;
+- shell/source/win32 jumplist: the jump-list API;
+- scp2: the Start menu shortcuts' System.AppUserModel.ID and the ProgIDs' AppUserModelID values, so
+  pinned shortcuts and file-type activations match the running windows.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/framework/source/helper/titlebarupdate.cxx
++++ b/framework/source/helper/titlebarupdate.cxx
+@@ -146,7 +146,7 @@
+             sDesktopName = "Startcenter";
+ #if defined(_WIN32)
+         // We use a hardcoded product name matching the registry keys so applications can be associated with file types
+-        sApplicationID = "TheDocumentFoundation.LibreOffice." + sDesktopName;
++        sApplicationID = "HASONTECH.HSTOffice." + sDesktopName;
+ #else
+         // HST Office: the launcher id (vn.hasontech.hstoffice-<module>, the launchers' StartupWMClass),
+         // not "<product>-<module>", so HST windows never take LibreOffice's launcher.
+--- a/scp2/inc/macros.inc
++++ b/scp2/inc/macros.inc
+@@ -277,7 +277,7 @@
+         ModuleID = modid; \
+         Subkey = STRING(CONCAT2(HSTOffice.,name)); \
+         Name = STRING(AppUserModelID); \
+-        Value = STRING(CONCAT2(TheDocumentFoundation.LibreOffice.,doc_type)); \
++        Value = STRING(CONCAT2(HASONTECH.HSTOffice.,doc_type)); \
+     End
+ 
+ #define REGISTRY_ENTRY_ICON(name,modid,icon_id) \
+--- a/scp2/source/base/folderitem_base.scp
++++ b/scp2/source/base/folderitem_base.scp
+@@ -35,6 +35,6 @@
+ FolderItemProperty gid_Fip_Sbase_AppID
+     ShortcutID = gid_Folderitem_Sbase;
+     Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Base";
++    Value = "HASONTECH.HSTOffice.Base";
+ End
+ #endif
+--- a/scp2/source/base/registryitem_base.scp
++++ b/scp2/source/base/registryitem_base.scp
+@@ -83,7 +83,7 @@
+     ModuleID = gid_Module_Prg_Base_Bin;
+     Subkey = "HSTOffice.DatabaseDocument.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Base";
++    Value = "HASONTECH.HSTOffice.Base";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Databasedocument_1_FriendlyTypeName
+--- a/scp2/source/calc/folderitem_calc.scp
++++ b/scp2/source/calc/folderitem_calc.scp
+@@ -35,6 +35,6 @@
+ FolderItemProperty gid_Fip_Scalc_AppID
+     ShortcutID = gid_Folderitem_Scalc;
+     Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Calc";
++    Value = "HASONTECH.HSTOffice.Calc";
+ End
+ #endif
+--- a/scp2/source/calc/registryitem_calc.scp
++++ b/scp2/source/calc/registryitem_calc.scp
+@@ -282,7 +282,7 @@
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = "soffice.StarCalcDocument.6";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Calc";
++    Value = "HASONTECH.HSTOffice.Calc";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starcalcdocument_6_FriendlyTypeName
+@@ -395,7 +395,7 @@
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = "soffice.StarCalcTemplate.6";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Calc";
++    Value = "HASONTECH.HSTOffice.Calc";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starcalctemplate_6_FriendlyTypeName
+@@ -700,7 +700,7 @@
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = "HSTOffice.CalcDocument.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Calc";
++    Value = "HASONTECH.HSTOffice.Calc";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_FriendlyTypeName
+@@ -918,7 +918,7 @@
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = "HSTOffice.CalcTemplate.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Calc";
++    Value = "HASONTECH.HSTOffice.Calc";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1_FriendlyTypeName
+--- a/scp2/source/draw/folderitem_draw.scp
++++ b/scp2/source/draw/folderitem_draw.scp
+@@ -35,6 +35,6 @@
+ FolderItemProperty gid_Fip_Sdraw_AppID
+     ShortcutID = gid_Folderitem_Sdraw;
+     Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Draw";
++    Value = "HASONTECH.HSTOffice.Draw";
+ End
+ #endif
+--- a/scp2/source/draw/registryitem_draw.scp
++++ b/scp2/source/draw/registryitem_draw.scp
+@@ -282,7 +282,7 @@
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = "soffice.StarDrawDocument.6";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Draw";
++    Value = "HASONTECH.HSTOffice.Draw";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Stardrawdocument_6_FriendlyTypeName
+@@ -395,7 +395,7 @@
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = "soffice.StarDrawTemplate.6";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Draw";
++    Value = "HASONTECH.HSTOffice.Draw";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Stardrawtemplate_6_FriendlyTypeName
+@@ -699,7 +699,7 @@
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = "HSTOffice.DrawDocument.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Draw";
++    Value = "HASONTECH.HSTOffice.Draw";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_FriendlyTypeName
+@@ -902,7 +902,7 @@
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = "HSTOffice.DrawTemplate.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Draw";
++    Value = "HASONTECH.HSTOffice.Draw";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1_FriendlyTypeName
+--- a/scp2/source/impress/folderitem_impress.scp
++++ b/scp2/source/impress/folderitem_impress.scp
+@@ -35,6 +35,6 @@
+ FolderItemProperty gid_Fip_Simpress_AppID
+     ShortcutID = gid_Folderitem_Simpress;
+     Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Impress";
++    Value = "HASONTECH.HSTOffice.Impress";
+ End
+ #endif
+--- a/scp2/source/impress/registryitem_impress.scp
++++ b/scp2/source/impress/registryitem_impress.scp
+@@ -282,7 +282,7 @@
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = "soffice.StarImpressDocument.6";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Impress";
++    Value = "HASONTECH.HSTOffice.Impress";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starimpressdocument_6_FriendlyTypeName
+@@ -409,7 +409,7 @@
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = "soffice.StarImpressTemplate.6";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Impress";
++    Value = "HASONTECH.HSTOffice.Impress";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starimpresstemplate_6_FriendlyTypeName
+@@ -714,7 +714,7 @@
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = "HSTOffice.ImpressDocument.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Impress";
++    Value = "HASONTECH.HSTOffice.Impress";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_FriendlyTypeName
+@@ -931,7 +931,7 @@
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = "HSTOffice.ImpressTemplate.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Impress";
++    Value = "HASONTECH.HSTOffice.Impress";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1_FriendlyTypeName
+--- a/scp2/source/math/folderitem_math.scp
++++ b/scp2/source/math/folderitem_math.scp
+@@ -35,6 +35,6 @@
+ FolderItemProperty gid_Fip_Smath_AppID
+     ShortcutID = gid_Folderitem_Smath;
+     Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Math";
++    Value = "HASONTECH.HSTOffice.Math";
+ End
+ #endif
+--- a/scp2/source/math/registryitem_math.scp
++++ b/scp2/source/math/registryitem_math.scp
+@@ -281,7 +281,7 @@
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Subkey = "soffice.StarMathDocument.6";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Math";
++    Value = "HASONTECH.HSTOffice.Math";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starmathdocument_6_FriendlyTypeName
+@@ -557,7 +557,7 @@
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Subkey = "HSTOffice.MathDocument.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Math";
++    Value = "HASONTECH.HSTOffice.Math";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_FriendlyTypeName
+--- a/scp2/source/ooo/folderitem_ooo.scp
++++ b/scp2/source/ooo/folderitem_ooo.scp
+@@ -38,7 +38,7 @@
+ FolderItemProperty gid_Fip_LibreOffice_AppID
+     ShortcutID = gid_Folderitem_LibreOffice;
+     Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Startcenter";
++    Value = "HASONTECH.HSTOffice.Startcenter";
+ End
+ 
+ FolderItem gid_Folderitem_Soffice_Desktop
+@@ -63,7 +63,7 @@
+ FolderItemProperty gid_Fip_Soffice_Desktop_AppID
+     ShortcutID = gid_Folderitem_Soffice_Desktop;
+     Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Startcenter";
++    Value = "HASONTECH.HSTOffice.Startcenter";
+ End
+ 
+ FolderItem gid_Folderitem_LibreOffice_SafeMode
+@@ -86,5 +86,5 @@
+ FolderItemProperty gid_Fip_LibreOffice_SafeMode
+     ShortcutID = gid_Folderitem_LibreOffice_SafeMode;
+     Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.SafeMode";
++    Value = "HASONTECH.HSTOffice.SafeMode";
+ End
+--- a/scp2/source/writer/folderitem_writer.scp
++++ b/scp2/source/writer/folderitem_writer.scp
+@@ -35,6 +35,6 @@
+ FolderItemProperty gid_Fip_Swriter_AppID
+     ShortcutID = gid_Folderitem_Swriter;
+     Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Writer";
++    Value = "HASONTECH.HSTOffice.Writer";
+ End
+ #endif
+--- a/scp2/source/writer/registryitem_writer.scp
++++ b/scp2/source/writer/registryitem_writer.scp
+@@ -282,7 +282,7 @@
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "soffice.StarWriterDocument.6";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Writer";
++    Value = "HASONTECH.HSTOffice.Writer";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starwriterdocument_6_FriendlyTypeName
+@@ -402,7 +402,7 @@
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "soffice.StarWriterGlobalDocument.6";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Writer";
++    Value = "HASONTECH.HSTOffice.Writer";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starwriterglobaldocument_6_FriendlyTypeName
+@@ -488,7 +488,7 @@
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "soffice.StarWriterTemplate.6";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Writer";
++    Value = "HASONTECH.HSTOffice.Writer";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starwritertemplate_6_FriendlyTypeName
+@@ -847,7 +847,7 @@
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.WriterDocument.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Writer";
++    Value = "HASONTECH.HSTOffice.Writer";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_FriendlyTypeName
+@@ -1096,7 +1096,7 @@
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.WriterTemplate.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Writer";
++    Value = "HASONTECH.HSTOffice.Writer";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writertemplate_1_FriendlyTypeName
+@@ -1246,7 +1246,7 @@
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.WriterGlobalDocument.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Writer";
++    Value = "HASONTECH.HSTOffice.Writer";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1_FriendlyTypeName
+@@ -1396,7 +1396,7 @@
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.WriterWebTemplate.1";
+     Name = "AppUserModelID";
+-    Value = "TheDocumentFoundation.LibreOffice.Writer";
++    Value = "HASONTECH.HSTOffice.Writer";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1_FriendlyTypeName
+--- a/shell/source/win32/jumplist/JumpList.cxx
++++ b/shell/source/win32/jumplist/JumpList.cxx
+@@ -132,7 +132,7 @@
+             "'Math', 'Base', 'Startcenter'.",
+             getXWeak(), 1);
+     }
+-    OUString sApplicationID("TheDocumentFoundation.LibreOffice." + sApplication);
++    OUString sApplicationID("HASONTECH.HSTOffice." + sApplication);
+ 
+     try
+     {
+@@ -419,7 +419,7 @@
+             "'Math', 'Base', 'Startcenter'.",
+             getXWeak(), 1);
+     }
+-    OUString sApplicationID("TheDocumentFoundation.LibreOffice." + sApplication);
++    OUString sApplicationID("HASONTECH.HSTOffice." + sApplication);
+ 
+     try
+     {
+@@ -444,7 +444,7 @@
+             "'Math', 'Base', 'Startcenter'.",
+             getXWeak(), 1);
+     }
+-    OUString sApplicationID("TheDocumentFoundation.LibreOffice." + sApplication);
++    OUString sApplicationID("HASONTECH.HSTOffice." + sApplication);
+ 
+     std::vector<JumpListItem> removedItems;
+     try
+--- a/vcl/win/app/salinst.cxx
++++ b/vcl/win/app/salinst.cxx
+@@ -771,7 +771,7 @@
+ 
+             if ( !sApplicationName.isEmpty() )
+             {
+-                OUString sApplicationID("TheDocumentFoundation.LibreOffice." + sApplicationName);
++                OUString sApplicationID("HASONTECH.HSTOffice." + sApplicationName);
+ 
+                 SHARDAPPIDINFO info;
+                 info.psi = pShellItem;

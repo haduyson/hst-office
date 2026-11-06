@@ -80,6 +80,12 @@ jobs:
           echo "HST_INSTALL=$(cygpath -w "$install_dir")" >> "$GITHUB_ENV"
           echo "installed at $install_dir"
           find "$install_dir/program" -maxdepth 1 \( -iname 'python*' -o -iname 'pyuno*' \) | head -n 20
+      - name: Taskbar ids - Start menu shortcuts and ProgIDs carry HST Office's own AppUserModelIDs
+        if: ${{ matrix.scenario == 'commands' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File scripts/windows/check-app-user-model-ids.ps1 -Install "$HST_INSTALL"
       - name: Overlay the extension built from this commit
         if: ${{ matrix.scenario == 'commands' && inputs.overlay_extension }}
         shell: bash
