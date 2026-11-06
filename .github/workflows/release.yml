@@ -41,6 +41,11 @@ on:
         required: true
         type: boolean
         default: true
+      draft:
+        description: "Create the release as a draft (visible only to maintainers; no public download links)"
+        required: true
+        type: boolean
+        default: false
       append:
         description: "Add platforms to an existing release (same commit), e.g. macOS after Windows/Linux"
         required: true
@@ -65,6 +70,7 @@ jobs:
       TAG: ${{ inputs.tag }}
       PRERELEASE: ${{ inputs.prerelease }}
       APPEND: ${{ inputs.append }}
+      DRAFT: ${{ inputs.draft }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -135,6 +141,7 @@ jobs:
           else
             flags=()
             [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+            [ "$DRAFT" = "true" ] && flags+=(--draft)
             cp "docs/releases/$TAG.md" notes.md
             if [ -n "$note" ]; then printf '\n%s\n' "$note" >> notes.md; fi
             gh release create "$TAG" --target "$TARGET" --title "HST Office $TAG" \
