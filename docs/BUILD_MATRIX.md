@@ -50,3 +50,22 @@ Thứ tự phiên bản Debian: epoch `1:` và dấu `~` cho bản thử. Không
 `1.0.0-2` (gói beta.4 đã phát hành) và apt không bao giờ nâng cấp lên nó. Với epoch:
 `1.0.0-2 < 1:1.0.0~beta.4.1-1 < 1:1.0.0~beta.5-1 < 1:1.0.0~rc.1-1 < 1:1.0.0-1 < 1:1.0.1-1`.
 Epoch không thể bỏ đi nữa; bản chính thức phải là `1:1.0.0-1` (`scripts/linux/make-single-deb.py`, `deb_version`).
+
+## Mã MSI trên Windows (UpgradeCode)
+
+UpgradeCode của HST Office là **`{A1751BCB-2603-4428-A5DE-419B438ECFBC}`**. **Không bao giờ đổi mã này**: mọi bộ cài
+HST về sau nhận ra và thay bản đang cài nhờ nó; đổi mã thì bản cũ không được gỡ và Programs and Features có hai mục.
+Mã nằm trong `codes_hst.txt` do [`hst-msi-upgradecode.patch`](../patches/libreoffice/hst-msi-upgradecode.patch) thêm
+(`CODEFILENAME` của sản phẩm HSTOffice). ProductCode thì installer tạo mới mỗi lần build, nên mỗi bản phát hành là
+một major upgrade như upstream.
+
+- Đến beta.4, MSI dùng UpgradeCode của LibreOffice (`{4B17E523-5D91-4E69-BD96-7FD81CFA81BB}`, ProductVersion
+  `1.0.0.1`). Windows Installer vì vậy coi mọi LibreOffice đã cài là "HST Office mới hơn" và không cho cài; cài
+  LibreOffice sau đó cũng gỡ mất HST Office.
+- Từ beta.5, bảng Upgrade có thêm một dòng trên mã của LibreOffice chỉ để **gỡ** các bản beta cũ đó: phiên bản
+  `1.0.0.0` (gồm) đến `1.0.1.0` (không gồm), thuộc tính 257, `OLDPRODUCTS`. Windows Installer chỉ so ba trường đầu
+  của phiên bản, và LibreOffice cho Windows bắt đầu từ 3.3, nên dòng này không bao giờ khớp một bản LibreOffice.
+  Dòng phát hiện bản mới hơn (`NEWPRODUCTS`) chỉ dùng mã của HST.
+- Kiểm tra: `scripts/check-msi-upgrade.py` (Quality CI, đọc patch) và `scripts/check-msi-upgrade.py --msi <tệp>`
+  (đọc bảng Upgrade và Property của MSI đã build; workflow Windows smoke chạy bước này và thử cài cạnh LibreOffice,
+  nâng cấp từ beta.4).

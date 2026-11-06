@@ -1,0 +1,80 @@
+HST Office: own Windows Installer UpgradeCode, and removal of the betas installed under LibreOffice's.
+
+The HSTOffice product set no CODEFILENAME, so its MSI used LibreOffice's UpgradeCode from
+codes.txt. Windows Installer then took every installed LibreOffice (3.3 and later, all above
+1.0.0) for a newer HST Office and refused to install, and a later LibreOffice install would
+remove HST Office as an older LibreOffice.
+
+- codes_hst.txt holds HST Office's own UpgradeCode, which must never change. The ProductCode
+  stays generated per build, so every release is a major upgrade as upstream does.
+- HST Office 1.0.0 beta 1 to 4 were installed under LibreOffice's code (ProductVersion 1.0.0.1).
+  New product variables LEGACYUPGRADECODE / LEGACYUPGRADEVERSIONMIN / LEGACYUPGRADEVERSIONMAX
+  add one Upgrade row that removes those during the upgrade, limited to [1.0.0.0, 1.0.1.0).
+  Windows Installer compares only the first three version fields, and LibreOffice for Windows
+  never had an MSI below 3.3, so the row matches HST's 1.0.0.x and no LibreOffice. It uses the
+  OLDPRODUCTS property, so RemoveExistingProducts and the install-path migration see the old
+  beta as they see an earlier release under the new code; it is never a NEWPRODUCTS (downgrade)
+  row, so an installed LibreOffice cannot block the installation.
+
+License: modified upstream files keep their license (MPL-2.0); codes_hst.txt is new HST data
+under the same license as the file next to it (MPL-2.0).
+
+--- a/instsetoo_native/util/openoffice.lst.in
++++ b/instsetoo_native/util/openoffice.lst.in
+@@ -101,12 +101,16 @@
+             LICENSENAME @LICENSE@
+             ROOTMODULEGID gid_Module_Root
+             GLOBALPATCHFILEGID gid_File_Txt_Patchfiles
+             SPELLCHECKERFILE spellchecker_selection.txt
+             CHANGETARGETDIR 1
+             PATCHCODEFILE ooo_patchcodes.txt
++            CODEFILENAME codes_hst.txt
++            LEGACYUPGRADECODE {4B17E523-5D91-4E69-BD96-7FD81CFA81BB}
++            LEGACYUPGRADEVERSIONMIN 1.0.0.0
++            LEGACYUPGRADEVERSIONMAX 1.0.1.0
+         }
+         active          1
+         compression     5
+         script          setup_osl
+         downloadname    HSTOffice_{productversion}_{os}_install_{languages}
+         langpackdownloadname    HSTOffice_{productversion}_languagepack_{os}_install_{languages}
+--- a/solenv/bin/modules/installer/windows/upgrade.pm
++++ b/solenv/bin/modules/installer/windows/upgrade.pm
+@@ -48,6 +48,22 @@
+     $newline = $installer::globals::upgradecode . "\t" . $installer::globals::msiproductversion . "\t" . "\t" . "\t" . "2" . "\t" . "\t" . "NEWPRODUCTS" . "\n";
+     push(@upgradetable, $newline);
+ 
++    # Builds installed under another UpgradeCode (LEGACYUPGRADECODE) are removed too, but only
++    # inside [LEGACYUPGRADEVERSIONMIN, LEGACYUPGRADEVERSIONMAX): the range must not reach any
++    # version of the product that owns that code. They are only removed, never detected as newer.
++    if ( $allvariableshashref->{'LEGACYUPGRADECODE'} )
++    {
++        my $legacycode = $allvariableshashref->{'LEGACYUPGRADECODE'};
++        my $legacymin = $allvariableshashref->{'LEGACYUPGRADEVERSIONMIN'} // "";
++        my $legacymax = $allvariableshashref->{'LEGACYUPGRADEVERSIONMAX'} // "";
++        if ( $legacycode !~ /^\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}$/ ) { installer::exiter::exit_program("ERROR: LEGACYUPGRADECODE is not an uppercase GUID in braces: $legacycode", "create_upgrade_table"); }
++        if ( uc($legacycode) eq uc($installer::globals::upgradecode) ) { installer::exiter::exit_program("ERROR: LEGACYUPGRADECODE equals the UpgradeCode", "create_upgrade_table"); }
++        if (( $legacymin !~ /^\d+\.\d+\.\d+\.\d+$/ ) || ( $legacymax !~ /^\d+\.\d+\.\d+\.\d+$/ )) { installer::exiter::exit_program("ERROR: LEGACYUPGRADEVERSIONMIN/MAX must both be set as a.b.c.d", "create_upgrade_table"); }
++        # 257 = msidbUpgradeAttributesMigrateFeatures (1) + msidbUpgradeAttributesVersionMinInclusive (256); the maximum is exclusive.
++        $newline = $legacycode . "\t" . $legacymin . "\t" . $legacymax . "\t" . "\t" . "257" . "\t" . "\t" . "OLDPRODUCTS" . "\n";
++        push(@upgradetable, $newline);
++    }
++
+     # Saving the file
+ 
+     my $upgradetablename = $basedir . $installer::globals::separator . "Upgrade.idt";
+--- /dev/null
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/codes_hst.txt
+@@ -0,0 +1,12 @@
++#
++# HST Office Windows installer codes (product HSTOffice, CODEFILENAME in openoffice.lst.in).
++#
++# The UpgradeCode identifies HST Office to Windows Installer across all releases. It must never
++# change: every later HST MSI finds and replaces the installed one through it, and it must stay
++# different from LibreOffice's code in codes.txt so that the two can be installed side by side.
++# The ProductCode is not listed here: the installer generates a new one for each build, so
++# every release is a major upgrade.
++#
++
++[UPGRADECODE]
++en-US = "{A1751BCB-2603-4428-A5DE-419B438ECFBC}"
