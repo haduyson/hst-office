@@ -5,7 +5,11 @@
 #                       registered with one Programs and Features entry each, keep their own ProgIDs, open
 #                       commands and UNO install path, and both start. HST Office is then uninstalled:
 #                       LibreOffice keeps its ProgIDs, .docx and install path, and still starts.
-#   hst-first:          the same with HST Office first; LibreOffice is uninstalled and HST Office keeps its own.
+#                       LibreOffice's App Paths, vnd.libreoffice.command scheme, Explorer extension class ids
+#                       and legacy ProgIDs are unchanged by HST Office's install and uninstall
+#                       (smoke-coexist-registry.ps1).
+#   hst-first:          the same with HST Office first; LibreOffice is uninstalled and HST Office keeps its own;
+#                       HST Office alone writes none of LibreOffice's names.
 #   upgrade-from-beta4: OtherMsi is the HST Office beta.4 MSI (LibreOffice's UpgradeCode). After the new
 #                       MSI, beta.4 is gone, one HST Office entry is left, and it starts from the same folder.
 param(
@@ -19,6 +23,7 @@ $HstCode = '{A1751BCB-2603-4428-A5DE-419B438ECFBC}'   # docs/BUILD_MATRIX.md, ne
 $LibreOfficeCode = '{4B17E523-5D91-4E69-BD96-7FD81CFA81BB}'
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 $installer = New-Object -ComObject WindowsInstaller.Installer
+. (Join-Path $PSScriptRoot 'smoke-coexist-registry.ps1')
 
 function Get-ComProperty($Object, [string]$Name, [object[]]$Arguments) {
     # Parameterized COM property; the leading comma keeps a returned list from being unrolled.
@@ -103,6 +108,7 @@ function Show-State([string]$Label) {
         libreoffice_code = @(Get-Related $LibreOfficeCode)
         arp = @((@(Get-ArpEntries 'HST Office') + @(Get-ArpEntries 'LibreOffice')) | Select-Object DisplayName, DisplayVersion, PSChildName)
         registry = Get-Associations
+        coexist = Get-CoexistRegistry
     }
     $json = $state | ConvertTo-Json -Depth 4
     Set-Content -LiteralPath (Join-Path $Out "state-$Label.json") -Value $json -Encoding UTF8
@@ -139,6 +145,8 @@ if ($Scenario -ne 'upgrade-from-beta4') {
     if ($first -eq 'hst-office') {
         Assert (-not $alone.registry.lo_odt_open -and -not $alone.registry.lo_install_path) 'HST Office alone writes no LibreOffice ProgID or install path'
         Assert-Owns $alone.registry 'hst' $alone.hst[0].Location
+        Assert-NoLibreOfficeNames $alone.coexist
+        Assert-HstCoexistKeys $alone.coexist $alone.hst[0].Location
     }
     Install-Msi $msi[$second] $second
     $both = Show-State 'after-both'
@@ -150,6 +158,10 @@ if ($Scenario -ne 'upgrade-from-beta4') {
     Assert ($hst -and $hst -ne $lo) 'separate install folders'
     Assert-Owns $both.registry 'lo' $lo
     Assert-Owns $both.registry 'hst' $hst
+    Assert-LibreOfficeRegistered $both.coexist $lo
+    Assert-HstCoexistKeys $both.coexist $hst
+    if ($first -eq 'libreoffice') { Assert-Kept $alone.coexist $both.coexist 'lo_' "installing HST Office leaves LibreOffice's App Paths, URI scheme, class ids and legacy ProgIDs" }
+    else { Assert-Kept $alone.coexist $both.coexist 'hst_' "installing LibreOffice leaves HST Office's legacy ProgIDs, Office URI ProgID and class ids" }
     # .docx: the second suite never takes a format the first already owns.
     Write-Host ".docx default after $($first): $($alone.registry.docx_default)"
     Assert ($both.registry.docx_default -eq $alone.registry.docx_default) ".docx keeps its owner after the second install ($($both.registry.docx_default))"
@@ -162,11 +174,14 @@ if ($Scenario -ne 'upgrade-from-beta4') {
     if ($first -eq 'libreoffice') {
         Assert ($left.hst.Count -eq 0 -and $left.libreoffice_code.Count -eq 1) 'only LibreOffice is left'
         Assert-Owns $left.registry 'lo' $lo
+        Assert-Kept $alone.coexist $left.coexist 'lo_' "uninstalling HST Office leaves LibreOffice's App Paths, URI scheme, class ids and legacy ProgIDs"
+        Assert-Kept $alone.coexist $left.coexist 'hst_' 'uninstalling HST Office removes its own class ids and ProgIDs'
         Assert ($left.registry.docx_default -eq $alone.registry.docx_default) ".docx keeps LibreOffice's setting ($($left.registry.docx_default))"
         Assert-Starts $lo 'LibreOffice 26\.8' 'libreoffice-after-uninstall'
     } else {
         Assert ($left.libreoffice_code.Count -eq 0 -and $left.hst.Count -eq 1) 'only HST Office is left'
         Assert-Owns $left.registry 'hst' $hst
+        Assert-Kept $alone.coexist $left.coexist 'hst_' "uninstalling LibreOffice leaves HST Office's legacy ProgIDs, Office URI ProgID and class ids"
         Assert ($left.registry.docx_default -eq $alone.registry.docx_default) ".docx keeps HST Office's setting ($($left.registry.docx_default))"
         Assert-Starts $hst 'HST Office' 'hst-office-after-uninstall'
     }
@@ -183,6 +198,9 @@ if ($Scenario -ne 'upgrade-from-beta4') {
     $arp = Get-ArpEntries 'HST Office'
     Assert ($arp.Count -eq 1 -and $arp[0].DisplayVersion -eq $after.hst[0].Version) "one HST Office entry in Programs and Features ($($arp.DisplayVersion -join ', '))"
     Assert ($after.hst[0].Location.TrimEnd('\') -eq $before.libreoffice_code[0].Location.TrimEnd('\')) 'installed in the beta.4 folder'
+    # beta.4 wrote under Software\LibreOffice; its removal deletes the values, an empty key may stay behind.
+    Assert-NoLibreOfficeNames $after.coexist @('lo_software_key', 'lo_classes_software_key')
+    Assert-HstCoexistKeys $after.coexist $after.hst[0].Location
     Assert-Starts $after.hst[0].Location 'HST Office' 'hst-office'
 }
 Write-Host "Scenario $Scenario passed"
