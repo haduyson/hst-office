@@ -64,7 +64,9 @@ jobs:
           if [ -n "$RUN_ID" ] && [ ! -f SHA256SUMS ]; then
             echo "no SHA256SUMS in the build artifact; checksum not verified"
           else
-            grep -F "  ${msis[0]}" SHA256SUMS > msi.sha256 || { echo "${msis[0]} is not in SHA256SUMS" >&2; exit 1; }
+            # "<hash>  <name>" or, in binary mode, "<hash> *<name>"
+            awk -v n="${msis[0]}" '$2 == n || $2 == "*" n' SHA256SUMS > msi.sha256
+            [ -s msi.sha256 ] || { echo "${msis[0]} is not in SHA256SUMS" >&2; exit 1; }
             sha256sum -c msi.sha256
           fi
           echo "MSI_NAME=${msis[0]}" >> "$GITHUB_ENV"
