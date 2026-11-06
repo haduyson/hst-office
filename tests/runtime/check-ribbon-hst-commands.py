@@ -4,7 +4,7 @@
 Usage: python3 tests/runtime/check-ribbon-hst-commands.py [--instdir DIR] [--display :79] [--shots DIR] [--apps writer,calc,impress]
 On a running X display, per app at 1485x900: Xem lại ▸ Ngôn ngữ has the "Ngôn ngữ giao diện" drop-down (Tiếng Việt /
 English / Theo máy); Nhà phát triển has "Macro VBA" first in Writer and Sheets (Slides has no VBA, see vba.py);
-Phần mở rộng shows only that app's HST tools; Tập tin ▸ Thông tin has "Thiết lập USB Token…" right of "Chữ ký số…";
+Phần mở rộng shows only that app's HST tools; Tệp tin ▸ Thông tin has "Thiết lập USB Token…" right of "Chữ ký số…";
 the ≡ menu has the update check before About; the moved commands resolve on the document frame.
 Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json; --shots saves one PNG per tab.
 """
@@ -98,7 +98,7 @@ def check_extension_tab(args, office, app):
 
 def check_backstage(args, office, app):
     tabs = {t[0]: t for t in gui.ribbon_tabs()}
-    gui.click(args.display, tabs["Tập tin"][1])
+    gui.click(args.display, tabs["Tệp tin"][1])
     time.sleep(2.5)
     info = [n for n in gui.ribbon_nodes(BUTTONS + ("list item", "page tab", "radio button"), band=2000) if n[0] == "Thông tin"]
     if not record(f"[{app}] File view has 'Thông tin'", bool(info)):

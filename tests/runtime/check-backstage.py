@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Runtime check of the full-window File view ("Trang Tập tin", .uno:HSTBackstage) on GTK3 in the vi UI.
+"""Runtime check of the full-window File view ("Trang Tệp tin", .uno:HSTBackstage) on GTK3 in the vi UI.
 
 Usage (needs a running X display; never started or stopped here; runs the office as the build user):
     python3 tests/runtime/check-backstage.py [--instdir upstream/libreoffice/instdir]

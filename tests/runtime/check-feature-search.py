@@ -39,7 +39,7 @@ OUT_DEFAULT = os.path.join(os.path.dirname(HERE), "output", "feature-search")
 HST_ITEM = "Tìm tính năng…"  # the HST menu is Vietnamese in every UI language
 # query -> (description, predicate over the result labels)
 SEARCHES = {
-    "chu ky": ("finds Tập tin ▸ … Chữ ký số", lambda rows: any(r.startswith("Tập tin ▸") and "Chữ ký số" in r for r in rows), {"vi"}),
+    "chu ky": ("finds Tệp tin ▸ … Chữ ký số", lambda rows: any(r.startswith("Tệp tin ▸") and "Chữ ký số" in r for r in rows), {"vi"}),
     "dinh dang": ("finds a Định dạng command first", lambda rows: bool(rows) and "Định dạng" in rows[0], {"vi"}),
     "đinh dang": ("đ = d", lambda rows: bool(rows) and "Định dạng" in rows[0], {"vi"}),
     "chuyen tcvn": ("finds HST ▸ Chuyển TCVN3/VNI sang Unicode...",

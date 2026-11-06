@@ -22,12 +22,12 @@ FORM_MODULE = 3  # com.sun.star.script.ModuleType.FORM
 TITLE = "Macro VBA"
 EXCEL_LOST = ("Tệp Excel vừa lưu không chứa các điều khiển sau trong biểu mẫu VBA (UserForm): %s.\n"
               "Mã VBA và các điều khiển khác vẫn được lưu. Để giữ đủ biểu mẫu, hãy lưu thêm một bản .ods "
-              "(Tập tin → Lưu thành…).")
+              "(Tệp tin → Lưu thành…).")
 WORD_KEPT = ("Biểu mẫu VBA (UserForm) này có điều khiển chưa ghi được vào tệp Word: %s.\n"
-             "Các điều khiển này bị bỏ khỏi tệp. Để giữ đủ, hãy lưu thêm một bản .odt (Tập tin → Lưu thành…).")
+             "Các điều khiển này bị bỏ khỏi tệp. Để giữ đủ, hãy lưu thêm một bản .odt (Tệp tin → Lưu thành…).")
 FORMS_NOT_VERIFIED = ("Biểu mẫu VBA (UserForm) trong tệp vừa lưu chưa dùng được chắc chắn trong Microsoft Office: "
                       "Excel hoặc Word có thể không mở được biểu mẫu hoặc macro. "
-                      "Hãy giữ thêm một bản .ods hoặc .odt (Tập tin → Lưu thành…).")
+                      "Hãy giữ thêm một bản .ods hoặc .odt (Tệp tin → Lưu thành…).")
 BOUND = ("Liên kết với ô (ControlSource, RowSource) của %s không được ghi vào tệp Office vừa lưu: "
          "các điều khiển này sẽ không còn nối với bảng tính. Bản .ods vẫn giữ các liên kết này.")
 LIST_ITEMS = ("Các mục danh sách nhập sẵn của %s không được lưu trong tệp Office (Office nạp danh sách bằng mã, "

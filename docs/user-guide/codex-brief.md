@@ -12,7 +12,7 @@ Work only inside this folder. Inputs:
   menu paths, buttons, shortcuts or behaviour. If a page needs a fact you do not have, leave it out.
 - `labels.md`: the exact Vietnamese UI labels of the product. Use them verbatim (same spelling,
   diacritics, capitalisation) when you name a tab, menu, command, dialog or button. Write menu paths
-  as `<span class="menu">Tập tin → Lưu thành…</span>`.
+  as `<span class="menu">Tệp tin → Lưu thành…</span>`.
 - `images/*.png` and `images/README.md`: real screenshots of HST Office in Vietnamese, with a
   description of each. Look at them. Use each where it helps (most pages one or two images); do not
   describe anything in an image that you cannot see in it.
@@ -58,7 +58,7 @@ the product shows them (file extensions such as .docx are fine).
 | trinh-chieu.html | Trình chiếu | new slides, layouts, content, running the show (F5, Shift+F5, Esc), transitions |
 | nd30.html | Văn bản hành chính theo NĐ 30 | the wizard step by step, live preview, insert, Undo, page options, warning |
 | chuyen-ma.html | Chuyển TCVN3/VNI sang Unicode | steps, what is kept, Undo |
-| dinh-dang-office.html | Lưu tệp Word, Excel, PowerPoint | open, Lưu thành…, Kiểu tập tin, always-save-as option, compatibility note |
+| dinh-dang-office.html | Lưu tệp Word, Excel, PowerPoint | open, Lưu thành…, Kiểu tệp tin, always-save-as option, compatibility note |
 | phan-mo-rong.html | Cài phần mở rộng từ tệp | Công cụ → Phần mở rộng…, Thêm…, Gỡ bỏ, responsibility note |
 | phim-tat.html | Phím tắt thường dùng | the shortcut table from facts (+ macOS ⌘ note) |
 | meo-hay.html | Mẹo và câu hỏi thường gặp | short Q&A built only from facts (e.g. document from old font, file from Word looks different, where is the HST menu) |

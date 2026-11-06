@@ -44,7 +44,7 @@ TEXT = {
     "statusbar": [("Average: 20 / Sum: 60", "Trung bình: 20 / Tổng: 60", 0.85), ("Average", "Trung bình", 1),
                   ("Count", "Đếm", 1), ("Maximum", "Tối đa", 1), ("Minimum", "Tối thiểu", 1), ("Sum", "Tổng", 1)],
     "sum_sheets": [("Sum (A1:A3)", "Tổng (A1:A3)", 0.95), ("Sheet1", "Trang 1", 0.9), ("Sheet2", "Trang 2", 0.9)],
-    "toolbarmode": [("File", "Tập tin", 0.7), ("Edit", "Sửa", 0.8), ("View", "Xem", 0.8), ("Styles", "Kiểu", 1),
+    "toolbarmode": [("File", "Tệp tin", 0.7), ("Edit", "Sửa", 0.8), ("View", "Xem", 0.8), ("Styles", "Kiểu", 1),
                     ("Home", "Trang đầu", 0.62), ("Inser", "Chèn", 0.8), ("Cut", "Cắt", 1), ("Copy", "Chép", 1),
                     ("Paste", "Dán", 1)],
 }

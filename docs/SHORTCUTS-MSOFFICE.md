@@ -4,7 +4,7 @@ Chủ dự án (2026-11-04): HST Office dùng phím tắt của Microsoft Office
 Việt Nam đã quen; khi trùng thì phím của Microsoft Office được ưu tiên hơn phím của LibreOffice.
 Giữ nguyên các phím riêng của HST: `Shift+Esc` / macOS `Option+Cmd+K` (Tìm tính năng,
 `hst-feature-search.patch`), `Alt+F11` (Macro VBA), `Alt+F8` (hộp thoại Macro) —
-`extensions/hst-vietnamese-tools/Accelerators.xcu`; `Ctrl+Alt+.` / `Ctrl+Alt+,` (thẻ tài liệu). `Alt+F` mở Tập tin (`hst-file-backstage.patch`, như thẻ File của Office) không bị patch này đụng tới.
+`extensions/hst-vietnamese-tools/Accelerators.xcu`; `Ctrl+Alt+.` / `Ctrl+Alt+,` (thẻ tài liệu). `Alt+F` mở Tệp tin (`hst-file-backstage.patch`, như thẻ File của Office) không bị patch này đụng tới.
 
 - Cài đặt: `patches/libreoffice/hst-msoffice-shortcuts.patch` (officecfg `Accelerators.xcu`,
   phím riêng cho macOS bằng `install:module="macosx"`, phím chỉ Windows/Linux bằng
@@ -44,7 +44,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Gạch dưới kép | Ctrl+Shift+D | Cmd+Shift+D | Đoạn phải-sang-trái | Gạch dưới kép | đổi | **Đoạn phải-sang-trái** chỉ còn trên menu Định dạng |
 | Giãn dòng đơn / đôi / 1,5 | Ctrl+1 / 2 / 5 | Cmd+1 / 2 / 5 | Tiêu đề 1 / 2 / 5 | Giãn dòng 1 / 2 / 1,5 | đổi | **Tiêu đề 1, 2** chuyển sang Ctrl+Alt+1, 2; **Tiêu đề 5** chỉ còn ở danh sách kiểu (Ctrl+3, Ctrl+4 vẫn là Tiêu đề 3, 4) |
 | Danh sách dấu đầu dòng | Ctrl+Shift+L | Cmd+Shift+L | không có | Bật/tắt dấu đầu dòng | đổi | Shift+F12 vẫn dùng được |
-| Kiểu Normal | Ctrl+Shift+N | Cmd+Shift+N | Mẫu mới (Templates) | Kiểu đoạn mặc định | đổi | **Tạo từ mẫu** trong Writer còn ở Tập tin ▸ Mới ▸ Mẫu (Ctrl+Shift+N vẫn là Mẫu trong Sheets) |
+| Kiểu Normal | Ctrl+Shift+N | Cmd+Shift+N | Mẫu mới (Templates) | Kiểu đoạn mặc định | đổi | **Tạo từ mẫu** trong Writer còn ở Tệp tin ▸ Mới ▸ Mẫu (Ctrl+Shift+N vẫn là Mẫu trong Sheets) |
 | Tiêu đề 1 / 2 / 3 | Ctrl+Alt+1 / 2 / 3 | Cmd+Option+1 / 2 / 3 | không có | Tiêu đề 1 / 2 / 3 | đổi | |
 | Ngắt trang | Ctrl+Enter | Cmd+Return | Ngắt trang | không đổi | khớp | |
 | Sao chép / dán định dạng | Ctrl+Alt+C / Ctrl+Alt+V | Cmd+Option+C / V | Ctrl+Alt+C = Chèn chú thích; Ctrl+Alt+V = Dán đặc biệt | Sao chép / dán định dạng văn bản | đổi | Định dạng ký tự và đoạn, cùng cơ chế với cọ "Sao chép định dạng" nhưng không vào chế độ chuột; bản chép giữ tới lần chép sau; chỉ chọn một phần đoạn thì chỉ dán định dạng ký tự. Chưa dán được sang tài liệu khác. **Chèn chú thích** và **Dán đặc biệt**: hai dòng dưới |
@@ -56,7 +56,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Lưu thành | F12 | Cmd+Shift+S | Đánh số (bật/tắt) | Lưu thành… (Win/Linux) | đổi | **Bật/tắt đánh số** còn trên ribbon/menu Định dạng; macOS F12 giữ Đánh số |
 | Đổi chữ hoa/thường | Shift+F3 | Shift+F3 | Xoay vòng kiểu chữ | không đổi | khớp | |
 | Xóa định dạng ký tự | Ctrl+Space | — | không có | Xóa định dạng trực tiếp (Win/Linux) | một phần | HST xóa cả định dạng đoạn trực tiếp; Ctrl+Space có thể bị bộ gõ (IBus/Fcitx) dùng để đổi bộ gõ trên Linux |
-| Xóa định dạng đoạn | Ctrl+Q | — | Thoát | Loại bỏ định dạng đoạn văn (Win/Linux) | đổi | Chỉ xóa định dạng đoạn trực tiếp, giữ định dạng ký tự, ngắt trang và kiểu trang. **Thoát** trong Writer dùng Alt+F4 hoặc menu Tập tin; macOS Cmd+Q vẫn là Thoát, trang Word cho Mac không ghi phím xóa định dạng đoạn nên macOS không có phím |
+| Xóa định dạng đoạn | Ctrl+Q | — | Thoát | Loại bỏ định dạng đoạn văn (Win/Linux) | đổi | Chỉ xóa định dạng đoạn trực tiếp, giữ định dạng ký tự, ngắt trang và kiểu trang. **Thoát** trong Writer dùng Alt+F4 hoặc menu Tệp tin; macOS Cmd+Q vẫn là Thoát, trang Word cho Mac không ghi phím xóa định dạng đoạn nên macOS không có phím |
 | Chỉ số trên | Ctrl+Shift+= (+) | Cmd+Shift+= | Ctrl+Shift+P | Chỉ số trên (thêm) | đổi | Ctrl+Shift+P vẫn dùng được |
 | Chỉ số dưới | Ctrl+= | Cmd+= | Ctrl+Shift+B | Chỉ số dưới (thêm) | đổi | Ctrl+Shift+B vẫn dùng được. Trang Word hiện ghi chỉ số dưới là Ctrl+Shift+Minus; HST giữ Ctrl+Shift+- là gạch nối không ngắt |
 | Chèn trường ngày / giờ | Alt+Shift+D / T | Control+Shift+D / T | không có | Ngày / Giờ (thay đổi được) | đổi | |
@@ -88,7 +88,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Chọn cả cột / cả hàng | Ctrl+Space / Shift+Space | Control+Space / Shift+Space | như Excel | không đổi | khớp | |
 | Xóa ô / Chèn ô | Ctrl+- / Ctrl+Shift++ | Cmd+- / Control+Shift+= | Ctrl+- / Ctrl++ | thêm `Ctrl+Shift+=`; macOS Control+Shift+= | khớp / đổi (macOS) | |
 | Trang tính trước / sau | Ctrl+PgUp / PgDn | Option+←/→ | Ctrl+PgUp / PgDn | không đổi | khớp (Win/Linux) | macOS chưa đổi, chưa thử |
-| Chèn trang tính mới | Shift+F11 | Shift+F11 | Lưu thành mẫu | Chèn trang tính (không hộp thoại) | một phần | Excel chèn trước trang hiện tại, HST chèn ở cuối. **Lưu thành mẫu** còn ở Tập tin ▸ Mẫu |
+| Chèn trang tính mới | Shift+F11 | Shift+F11 | Lưu thành mẫu | Chèn trang tính (không hộp thoại) | một phần | Excel chèn trước trang hiện tại, HST chèn ở cuối. **Lưu thành mẫu** còn ở Tệp tin ▸ Mẫu |
 | Xuống dòng trong ô | Alt+Enter | Option+Return | Ctrl+Enter (Alt+Enter = điền vùng chọn) | Alt+Enter | đổi | **Điền vùng chọn** chuyển sang Ctrl+Enter (phím Excel); trong ô nhập công thức Shift+Enter vẫn xuống dòng |
 | Mở rộng vùng chọn | Ctrl+Shift+mũi tên | Cmd+Shift+mũi tên | như Excel | không đổi | khớp | |
 | Tính lại | F9 | F9 | Tính lại | không đổi | khớp | |
@@ -100,7 +100,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 |---|---|---|---|---|---|---|
 | Trình chiếu từ đầu | F5 | Cmd+Shift+Return | F5 | thêm macOS Cmd+Shift+Return | khớp / đổi (macOS) | |
 | Trình chiếu từ trang hiện tại | Shift+F5 | — | Shift+F5 | không đổi | khớp | Trang PowerPoint đọc ngày 2026-11-04 không ghi phím này |
-| Trang chiếu mới | Ctrl+M | Cmd+Shift+N | Ctrl+M | thêm macOS Cmd+Shift+N | khớp / đổi (macOS) | macOS: **Mẫu mới** trong Slides còn ở Tập tin ▸ Mới ▸ Mẫu |
+| Trang chiếu mới | Ctrl+M | Cmd+Shift+N | Ctrl+M | thêm macOS Cmd+Shift+N | khớp / đổi (macOS) | macOS: **Mẫu mới** trong Slides còn ở Tệp tin ▸ Mới ▸ Mẫu |
 | Nhân đôi đối tượng | Ctrl+D | Control+D | không có | Nhân đôi trang chiếu | một phần | HST nhân đôi trang chiếu; nhân đôi đối tượng dùng Shift+F3 (hộp thoại Nhân bản) |
 | Bản sao trang chiếu | Ctrl+Shift+D | Cmd+Shift+D | không có | Nhân đôi trang chiếu | đổi | |
 | Nhóm | Ctrl+G | Cmd+Option+G | Ctrl+Shift+G | Ctrl+G; macOS Cmd+Option+G | đổi | |
@@ -132,11 +132,11 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Writer | Ctrl+Shift+D | Đoạn phải-sang-trái | menu Định dạng |
 | Writer | Ctrl+1 / Ctrl+2 | Tiêu đề 1 / 2 | Ctrl+Alt+1 / 2 |
 | Writer | Ctrl+5 | Tiêu đề 5 | danh sách kiểu |
-| Writer | Ctrl+Shift+N | Mẫu mới (Templates) | Tập tin ▸ Mới ▸ Mẫu |
+| Writer | Ctrl+Shift+N | Mẫu mới (Templates) | Tệp tin ▸ Mới ▸ Mẫu |
 | Writer | Ctrl+Shift+V, rồi Ctrl+Alt+V | Dán đặc biệt | Ctrl+Alt+Shift+V (macOS Cmd+Control+V), ribbon, menu Sửa |
 | Writer | Ctrl+Alt+C | Chèn chú thích | Ctrl+Alt+M (macOS Cmd+Option+A), ribbon, menu Chèn |
 | Writer | Ctrl+Alt+Shift+V (Win/Linux) | Dán không định dạng | Ctrl+Shift+V |
-| Writer | Ctrl+Q (Win/Linux) | Thoát | Alt+F4, Tập tin ▸ Thoát |
+| Writer | Ctrl+Q (Win/Linux) | Thoát | Alt+F4, Tệp tin ▸ Thoát |
 | Writer | F4 | Thuộc tính hình ảnh | menu chuột phải |
 | Writer | F12 (Win/Linux) | Bật/tắt đánh số | ribbon, Định dạng ▸ Dấu đầu dòng và đánh số |
 | Writer | Ctrl+M (Win/Linux) | Xóa định dạng trực tiếp | Ctrl+Space |
@@ -145,7 +145,7 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Sheets | Ctrl+R | Căn phải | ribbon |
 | Sheets | Ctrl+Shift+2 | Định dạng Khoa học | Ctrl+Shift+6 (^) |
 | Sheets | Ctrl+Shift+6 | Định dạng Chuẩn | Ctrl+Shift+` (~) |
-| Sheets | Shift+F11 | Lưu thành mẫu | Tập tin ▸ Mẫu |
+| Sheets | Shift+F11 | Lưu thành mẫu | Tệp tin ▸ Mẫu |
 | Sheets | F12 (Win/Linux) | Nhóm | Dữ liệu ▸ Nhóm và Phác thảo |
 | Sheets | Alt+Enter | Điền vùng chọn | Ctrl+Enter |
 | Sheets | Ctrl+Enter (trong ô) | Xuống dòng | Alt+Enter |
@@ -153,7 +153,7 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Sheets | Cmd+Shift+T (macOS) | Ô Tên | bấm vào ô Tên |
 | Sheets | Cmd+; (macOS) | Ngày hiện tại | Control+; |
 | Slides | Ctrl+Shift+G | Nhóm | Ctrl+G |
-| Slides | Cmd+Shift+N (macOS) | Mẫu mới | Tập tin ▸ Mới ▸ Mẫu |
+| Slides | Cmd+Shift+N (macOS) | Mẫu mới | Tệp tin ▸ Mới ▸ Mẫu |
 
 ## Chưa xác minh
 

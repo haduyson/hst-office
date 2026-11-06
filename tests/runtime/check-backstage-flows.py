@@ -124,7 +124,7 @@ def check_classic(office, frame, out):
     mode.Name, mode.Value = "Mode", "Default"
     office.dispatch(frame, ".uno:ToolbarMode", (mode,))
     time.sleep(3)
-    gui.record("the classic menu bar has Tập tin", bool(named("Tập tin", "menu")))
+    gui.record("the classic menu bar has Tệp tin", bool(named("Tệp tin", "menu")))
     gui.xdo(display, "key", "alt+t")
     time.sleep(1.5)
     hst_gui.screenshot(os.path.join(out, "menu-tap-tin.png"), display)

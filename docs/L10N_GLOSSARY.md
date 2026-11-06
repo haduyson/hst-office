@@ -28,9 +28,9 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 | Page Style | Kiểu dáng trang | |
 | Header / Footer | Đầu trang / Chân trang | |
 | Home (thẻ ribbon) | Trang đầu | |
-| File (menu) | Tập tin | giữ theo bản dịch lõi |
+| File / file (menu, thẻ ribbon, mọi chuỗi) | Tệp tin / tệp tin | quyết định của chủ dự án (2026-11-06): thay cho "tập tin" ở mọi chỗ, giữ chữ hoa và phím tắt (T). Lõi và lớp AI được đổi khi build bằng `replacements` trong [`vi-glossary.json`](../data/l10n/vi-glossary.json) ([`vi_terms.py`](../scripts/l10n/vi_terms.py), chạy trong `apply-overrides.py`); chuỗi do patch HST thêm phải tự viết "Tệp tin". "Tệp" trơn vẫn dùng được trong câu ("Mở tệp…") |
 | Certificate | Chứng thư số | quyết định của chủ dự án (2026-11-01): thuật ngữ pháp lý của Luật Giao dịch điện tử và cách gọi của VNPT-CA, Viettel-CA. Nhãn ngắn được viết "chứng thư" khi đã rõ là chứng thư số ("Lựa chọn chứng thư", "Xem chứng thư…", "Cấp bởi"); câu đầy đủ dùng "chứng thư số". Không dùng "chứng chỉ", "chứng nhận" trong ký số. Chứng chỉ SSL của trang web (uui) chưa đổi |
-| Thẻ ribbon theo Microsoft (2026-11-04) | Bố cục (Layout, Writer), Bố trí Trang (Page Layout, Sheets), Công thức, Dữ liệu, Tham khảo (References), Gửi thư, Thiết kế, Chuyển tiếp, Hoạt hình, Nhà phát triển | nguồn: support.microsoft.com/vi-vn trang phím tắt Word, Excel, PowerPoint; `Tệp` và `Trang chủ` của Microsoft vẫn giữ `Tập tin`, `Trang đầu` của HST. Tên nhóm chưa tìm thấy trong trang vi-vn mang `UNVERIFIED` trong `reason` của `l10n/vi-overrides.jsonl` |
+| Thẻ ribbon theo Microsoft (2026-11-04) | Bố cục (Layout, Writer), Bố trí Trang (Page Layout, Sheets), Công thức, Dữ liệu, Tham khảo (References), Gửi thư, Thiết kế, Chuyển tiếp, Hoạt hình, Nhà phát triển | nguồn: support.microsoft.com/vi-vn trang phím tắt Word, Excel, PowerPoint; `Tệp` và `Trang chủ` của Microsoft vẫn giữ `Tệp tin`, `Trang đầu` của HST. Tên nhóm chưa tìm thấy trong trang vi-vn mang `UNVERIFIED` trong `reason` của `l10n/vi-overrides.jsonl` |
 | KeyTips | Mẹo phím | nguồn: support.microsoft.com/vi-vn trang phím tắt Word, Excel |
 | Search Commands (Shift+Esc) | Tìm tính năng… | quyết định của chủ dự án (2026-11-04): ô tìm lệnh theo tên, gõ không dấu cũng được; có ở Trợ giúp, menu HST và thẻ Trang đầu. Ô nhập ghi "Gõ tên tính năng, không dấu cũng được". Không dùng "Tìm lệnh" |
 | Cancel / Yes / No | Hủy / Có / Không | viết "Hủy", không "Huỷ"; không dùng "Thôi", "Đồng ý" cho Yes |
@@ -43,7 +43,7 @@ Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`
 
 86 dòng trong `l10n/vi-overrides.jsonl` (mỗi dòng có `reason`) cho menu, thẻ ribbon và hộp thoại hay dùng:
 
-- "Save As" → **Lưu thành…** (trước là "Lưu mới…") ở menu Tập tin, sfx2, uui, Writer; "Luôn lưu thành:" trong Tùy chọn → Tải/Lưu (khôi phục phím tắt).
+- "Save As" → **Lưu thành…** (trước là "Lưu mới…") ở menu Tệp tin, sfx2, uui, Writer; "Luôn lưu thành:" trong Tùy chọn → Tải/Lưu (khôi phục phím tắt).
 - "Save" → **Lưu** thay cho "Cất" (Tùy chọn, hộp thoại tệp đang mở).
 - Trình chiếu: "Chiếu ảnh"/"ảnh chiếu" → **Trình chiếu**/**trang chiếu** (menu Trình chiếu, ẩn/hiện, sắp xếp, trang chiếu tóm tắt, trình chiếu tùy chọn…); "Insert Slide" trước dịch nhầm thành "Chế độ chèn"; "Handouts" → "Bản phát tay".
 - Bảng tính: "Pivot Table" từng dịch là "Bộ lọc" → **Bảng tổng hợp**; "Insert Columns" dịch nhầm "Chèn dòng" → **Chèn cột**; "Insert Rows" → **Chèn hàng**; các lệnh chuyển trang tính.
@@ -75,7 +75,7 @@ Mục không có `~` (menu HST trong `Addons.xcu`) do VCL tự gán chữ còn t
 
 | Menu chính (cả 4 ứng dụng) | Phím | | Thẻ ribbon (Writer/Calc/Impress) | Phím |
 |---|---|---|---|---|
-| Tập tin | T | | Tập tin | T |
+| Tệp tin | T | | Tệp tin | T |
 | Chỉnh sửa | S | | Trang đầu | R |
 | Xem | X | | Chèn | C |
 | Chèn | C | | Bố trí / Bố cục | B |
@@ -107,7 +107,7 @@ dựng menu/ribbon từ cây nguồn (hoặc từ [`l10n/access-keys-snapshot.js
 khi không có cây, như trên CI), thêm menu HST đọc trực tiếp từ `Addons.xcu` (không nằm trong snapshot), rồi áp
 `vi-overrides.jsonl`. Các trùng lặp
 không tránh được nếu không đổi chữ nằm trong [`l10n/access-keys-exceptions.json`](../l10n/access-keys-exceptions.json)
-(22 mục, ví dụ Tập tin: "Mở từ xa"/"Xuất" cùng X; Calc → Trang tính 5 cặp; Bảng → Chọn → "Ô" không có chữ
+(22 mục, ví dụ Tệp tin: "Mở từ xa"/"Xuất" cùng X; Calc → Trang tính 5 cặp; Bảng → Chọn → "Ô" không có chữ
 ASCII), chờ người bản ngữ quyết định. Phím ít quen cần duyệt: Hoàn tác=O, Sao chép=P, In=N, Thoát=O, Tìm=M (Calc/Impress/Draw).
 
 **Khi báo "snapshot stale"** (đã đổi menubar `.xml`, `notebookbar.ui`, `*Commands.xcu` hoặc nhãn tiếng Anh trong
@@ -143,7 +143,7 @@ Thẻ dùng chung (`include/vcl/tabs.hrc`) đổi một chỗ là đổi ở m�
 3. ~~**Certificate**~~: đã chốt "chứng thư số" (xem bảng thuật ngữ cốt lõi).
 4. **Layout** (thẻ ribbon): Writer/Impress "Bố trí", Calc "Bố cục". Chọn một.
 5. **Home**: một số thanh Impress còn "Trang chủ" thay vì "Trang đầu".
-6. **File**: menu "Tập tin" trong khi tài liệu HST và hướng dẫn hay viết "tệp". Có đổi menu sang "Tệp" không?
+6. ~~**File**~~: đã chốt "Tệp tin" (chủ dự án, 2026-11-06; xem bảng thuật ngữ cốt lõi).
 7. **Chart**: đã thống nhất "Biểu đồ" ở mọi `.po` có tiếng Anh là Chart, cả menu Chèn (`Biể~u đồ...`) và ribbon. "Đồ thị" chỉ còn cho nghĩa khác (đồ thị của hàm, bản đồ ảnh dịch cũ).
 8. **Selection / Master / Copy / Alignment**: `term-report.py` liệt kê ~400 khác biệt trong lớp AI, phần lớn là biến thể chấp nhận được ("Lựa chọn"/"Vùng chọn", "Trang chiếu mẫu"/"Trang cái", "Căn"/"Canh"). Cần người bản ngữ chốt từng cặp.
 9. Văn phong chung các hộp thoại Định dạng ô, Đoạn văn, Tìm và thay thế, In: chưa đọc lại toàn bộ bằng mắt người.

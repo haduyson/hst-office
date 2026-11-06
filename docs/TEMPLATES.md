@@ -183,7 +183,7 @@ Bộ mẫu đi kèm extension `hst-vietnamese-tools` (mọi hệ điều hành, 
 tệp vào `template/hst-van-ban/`, `template/hst-bang-tinh/`, `template/hst-trinh-chieu/`
 của gói, cùng `template/groupuinames.xml` (tên nhóm hiển thị "HST — Văn bản hành chính",
 "HST — Bảng tính", "HST — Trình chiếu"). `Paths.xcu` của extension thêm `%origin%/template`
-vào đường dẫn mẫu, nên Trình quản lý mẫu (Trang bắt đầu → Mẫu, Tập tin → Mẫu) liệt kê
+vào đường dẫn mẫu, nên Trình quản lý mẫu (Trang bắt đầu → Mẫu, Tệp tin → Mẫu) liệt kê
 đủ các nhóm, thêm `template/hst-qppl/` ("HST — Văn bản quy phạm pháp luật"), `template/hst-dang/` ("HST — Văn bản của Đảng"), `template/hst-van-thu/` ("HST — Biểu mẫu văn thư").
 Kiểm tra khi chạy: `tests/runtime/check-template-manager.py`.
 
@@ -193,4 +193,4 @@ Trình hướng dẫn **HST → Văn bản hành chính…**: ô *Loại văn b�
 
 Kiểm tra: `tests/unit/test_nd30_search.py`, `tests/runtime/check-nd30-search.py`.
 
-Trang **Mới** của Tập tin chỉ có ba ô mẫu và lưới `TemplateLocalView`, chưa có ô tìm. Nếu cần, thêm một ô nhập phía trên lưới và gọi `filterItems` như Trình quản lý mẫu; đây là thay đổi C++ và `.ui`, chưa làm.
+Trang **Mới** của Tệp tin chỉ có ba ô mẫu và lưới `TemplateLocalView`, chưa có ô tìm. Nếu cần, thêm một ô nhập phía trên lưới và gọi `filterItems` như Trình quản lý mẫu; đây là thay đổi C++ và `.ui`, chưa làm.

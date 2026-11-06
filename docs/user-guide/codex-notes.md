@@ -8,7 +8,7 @@ Hướng dẫn chỉ sử dụng `facts.html`, `labels.md` và 17 ảnh chụp �
 - Chưa có hộp thoại sắp xếp hoặc lọc. Hướng dẫn chỉ nêu thẻ Dữ liệu và các nhãn Sắp xếp…, Lọc tự động; không suy đoán các bước chọn khóa, phạm vi hay thứ tự.
 - Chưa có ảnh thẻ Chèn để xác định lệnh đánh số trang thông thường hoặc các bước chọn vị trí ảnh, kích thước bảng. Hướng dẫn dừng ở thẻ hoặc lệnh đã được xác nhận.
 - Ảnh kiểu trang đang mở mục Chung, chưa thể hiện các ô đặt khổ giấy và lề. Hướng dẫn nêu đường dẫn đã xác nhận, không mô tả các điều khiển chưa thấy.
-- Chưa có ảnh Tải/Lưu → Chung hoặc hộp thoại lưu tệp. Đường dẫn, trường Kiểu tập tin: và Luôn lưu thành: dựa trên nguồn chữ; ảnh options.png chỉ minh họa vị trí Tải/Lưu trong cây tùy chọn, không minh họa thiết lập Luôn lưu thành:.
+- Chưa có ảnh Tải/Lưu → Chung hoặc hộp thoại lưu tệp. Đường dẫn, trường Kiểu tệp tin: và Luôn lưu thành: dựa trên nguồn chữ; ảnh options.png chỉ minh họa vị trí Tải/Lưu trong cây tùy chọn, không minh họa thiết lập Luôn lưu thành:.
 - Chưa có ảnh bảng hiệu ứng trình chiếu hoặc quy trình cài phần mở rộng. Hướng dẫn chỉ dùng thao tác có trong nguồn chữ, không thêm tên hiệu ứng, thiết lập thời gian hay hộp thoại xác nhận.
 - Chưa có bằng chứng về hàm hoặc phép tính ngoài SUM và phép nhân trong ví dụ nguồn. Trang công thức không mở rộng sang các hàm và phép tính khác.
 - Chưa có nút kết thúc hộp thoại chọn nơi lưu PDF trong ảnh. Hướng dẫn chỉ mô tả phạm vi xuất và nút Xuất đã thấy.

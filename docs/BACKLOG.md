@@ -111,7 +111,7 @@ Bảng cũ được lưu tại Git main `577f620`, [plan plugin-first](../plans/
   - Chưa rõ nguyên nhân: một lần soffice dừng (signal 6) trong `SfxDispatcher::QueryState` khi ribbon được dựng từ `SwDocShell::GetState` lúc đang nạp tài liệu (báo 2026-11-05). Không tái hiện được: 0/450 lần khởi động có mở tài liệu (thêm 180 lần khởi động thường chưa chắc đã qua hộp thoại chào mừng). `hst-writer-ribbon-own-view.patch` là chốt phòng thủ, chưa chứng minh là sửa đúng; mở lại nếu gặp lần nữa.
   - Thẻ theo vùng chọn (bảng, ảnh, biểu đồ, hình vẽ; `hst-ribbon-contextual.patch`, `tests/runtime/check-ribbon-contextual.py`) và Mẹo phím Alt (`hst-ribbon-keytips.patch`, `tests/runtime/check-ribbon-keytips.py`): đã làm, chỉ thử trên gtk3 Linux. Chưa thử Windows/macOS; Option trên macOS và bộ gõ tiếng Việt (IBus, Unikey) có thể chặn phím, chưa thử.
   - *Sửa lỗi sau beta.4 (đã làm):*
-  - macOS: nút "+" → "Mở tệp…" → chọn tệp làm ứng dụng treo lâu rồi màn hình trắng; phải dùng Tập tin ▸ Mở trên thanh menu mới mở được. Kiểm tra cùng đường đi trên Windows/Linux và thêm vào bài kiểm tra tab.
+  - macOS: nút "+" → "Mở tệp…" → chọn tệp làm ứng dụng treo lâu rồi màn hình trắng; phải dùng Tệp tin ▸ Mở trên thanh menu mới mở được. Kiểm tra cùng đường đi trên Windows/Linux và thêm vào bài kiểm tra tab.
   - Ribbon: nền trắng + viền mảnh màu nhạt theo ứng dụng (giống hình writer-home.png trên Linux) trên cả 3 hệ điều hành.
   - Kiểm tra chính tả tắt sẵn khi mới cài; sửa gạch đỏ sai chữ tiếng Việt (NFD + hai cách bỏ dấu); trang F1 "Kiểm tra chính tả" và "Làm việc với PDF".
   - Menu "+" dùng nhãn "HST Writer — Văn bản / Document"… như cột Tạo ở Start Center.

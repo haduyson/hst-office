@@ -20,7 +20,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 
-HEAD, TAIL = ["Tập tin", "Trang đầu", "Chèn"], ["Xem lại", "Xem", "Phần mở rộng", "Nhà phát triển"]
+HEAD, TAIL = ["Tệp tin", "Trang đầu", "Chèn"], ["Xem lại", "Xem", "Phần mở rộng", "Nhà phát triển"]
 TABS = {"writer": HEAD + ["Thiết kế", "Bố cục", "Tham khảo", "Gửi thư"] + TAIL,
         "calc": HEAD + ["Bố trí Trang", "Công thức", "Dữ liệu"] + TAIL,
         "impress": HEAD + ["Thiết kế", "Chuyển tiếp", "Hoạt hình", "Trình chiếu"] + TAIL}
@@ -136,7 +136,7 @@ def check_app(app, args, port):
         names = [t[0] for t in tabs]
         record(f"[{app}] tab order and names", names == TABS[app], names)
         for name, box, _sel, _node in tabs:
-            if name == "Tập tin":  # opens the File view, see check-backstage.py
+            if name == "Tệp tin":  # opens the File view, see check-backstage.py
                 continue
             click(args.display, box)
             if args.shots:
