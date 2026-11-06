@@ -42,7 +42,7 @@ TEXT = {
     "crash_title": "HST Office",
     "crash_question": "Lần trước HST Office bị đóng đột ngột. Gửi thông tin cho HASON TECH để sửa lỗi?",
     "crash_note": "Bạn sẽ xem lại nội dung trước khi gửi. Tài liệu và tên tệp của bạn không được gửi.",
-    "crash_send": "Gửi…",
+    "crash_send": "Gửi",
     "crash_no": "Không",
     "crash_never": "Không hỏi lại",
 }

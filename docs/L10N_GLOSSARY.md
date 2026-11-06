@@ -17,7 +17,7 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 | Slide | Trang chiếu | không dùng "ảnh chiếu", "hình chiếu" |
 | Slide Show | Trình chiếu | |
 | Handouts | Bản phát tay | |
-| Save / Save As | Lưu / Lưu thành… | không dùng "Cất", "Lưu mới" |
+| Save / Save As | Lưu / Lưu thành | không dùng "Cất", "Lưu mới" |
 | Undo / Redo | Hoàn tác / Làm lại | |
 | Copy / Cut / Paste | Sao chép / Cắt / Dán | "Chép" chỉ khi chỗ hẹp (đã có trong bản gốc) |
 | Comment | Chú thích | không dùng "bình luận", "đánh giá" |
@@ -28,11 +28,12 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 | Page Style | Kiểu dáng trang | |
 | Header / Footer | Đầu trang / Chân trang | |
 | Home (thẻ ribbon) | Trang đầu | |
-| File / file (menu, thẻ ribbon, mọi chuỗi) | Tệp tin / tệp tin | quyết định của chủ dự án (2026-11-06): thay cho "tập tin" ở mọi chỗ, giữ chữ hoa và phím tắt (T). Lõi và lớp AI được đổi khi build bằng `replacements` trong [`vi-glossary.json`](../data/l10n/vi-glossary.json) ([`vi_terms.py`](../scripts/l10n/vi_terms.py), chạy trong `apply-overrides.py`); chuỗi do patch HST thêm phải tự viết "Tệp tin". "Tệp" trơn vẫn dùng được trong câu ("Mở tệp…") |
-| Certificate | Chứng thư số | quyết định của chủ dự án (2026-11-01): thuật ngữ pháp lý của Luật Giao dịch điện tử và cách gọi của VNPT-CA, Viettel-CA. Nhãn ngắn được viết "chứng thư" khi đã rõ là chứng thư số ("Lựa chọn chứng thư", "Xem chứng thư…", "Cấp bởi"); câu đầy đủ dùng "chứng thư số". Không dùng "chứng chỉ", "chứng nhận" trong ký số. Chứng chỉ SSL của trang web (uui) chưa đổi |
+| File / file (menu, thẻ ribbon, mọi chuỗi) | Tệp tin / tệp tin | quyết định của chủ dự án (2026-11-06): thay cho "tập tin" ở mọi chỗ, giữ chữ hoa và phím tắt (T). Lõi và lớp AI được đổi khi build bằng `replacements` trong [`vi-glossary.json`](../data/l10n/vi-glossary.json) ([`vi_terms.py`](../scripts/l10n/vi_terms.py), chạy trong `apply-overrides.py`); chuỗi do patch HST thêm phải tự viết "Tệp tin". "Tệp" trơn vẫn dùng được trong câu ("Mở tệp") |
+| Certificate | Chứng thư số | quyết định của chủ dự án (2026-11-01): thuật ngữ pháp lý của Luật Giao dịch điện tử và cách gọi của VNPT-CA, Viettel-CA. Nhãn ngắn được viết "chứng thư" khi đã rõ là chứng thư số ("Lựa chọn chứng thư", "Xem chứng thư", "Cấp bởi"); câu đầy đủ dùng "chứng thư số". Không dùng "chứng chỉ", "chứng nhận" trong ký số. Chứng chỉ SSL của trang web (uui) chưa đổi |
 | Thẻ ribbon theo Microsoft (2026-11-04) | Bố cục (Layout, Writer), Bố trí Trang (Page Layout, Sheets), Công thức, Dữ liệu, Tham khảo (References), Gửi thư, Thiết kế, Chuyển tiếp, Hoạt hình, Nhà phát triển | nguồn: support.microsoft.com/vi-vn trang phím tắt Word, Excel, PowerPoint; `Tệp` và `Trang chủ` của Microsoft vẫn giữ `Tệp tin`, `Trang đầu` của HST. Tên nhóm chưa tìm thấy trong trang vi-vn mang `UNVERIFIED` trong `reason` của `l10n/vi-overrides.jsonl` |
 | KeyTips | Mẹo phím | nguồn: support.microsoft.com/vi-vn trang phím tắt Word, Excel |
-| Search Commands (Shift+Esc) | Tìm tính năng… | quyết định của chủ dự án (2026-11-04): ô tìm lệnh theo tên, gõ không dấu cũng được; có ở Trợ giúp, menu HST và thẻ Trang đầu. Ô nhập ghi "Gõ tên tính năng, không dấu cũng được". Không dùng "Tìm lệnh" |
+| Search Commands (Shift+Esc) | Tìm tính năng | quyết định của chủ dự án (2026-11-04): ô tìm lệnh theo tên, gõ không dấu cũng được; có ở Trợ giúp, menu HST và thẻ Trang đầu. Ô nhập ghi "Gõ tên tính năng, không dấu cũng được". Không dùng "Tìm lệnh" |
+| Dấu "..." / "…" cuối nhãn | không dùng | quyết định của chủ dự án (2026-11-06): "chỗ nào không bị cắt bớt chữ thì đừng hiện '...'". Nhãn mở hộp thoại cũng viết trơn ("Thuộc tính", "Lưu thành", "Chữ ký số"). Giữ "…" ở chữ báo đang làm ("Đang tải…", "Đợi…"), câu và thông báo, chỗ "…" thay phần bị lược ("1, 2, 3, ..."). Áp khi build bằng [`vi_ellipsis.py`](../scripts/l10n/vi_ellipsis.py) (ngoại lệ: [`vi-ellipsis-keep.json`](../data/l10n/vi-ellipsis-keep.json)); tiếng Anh giữ nguyên |
 | Cancel / Yes / No | Hủy / Có / Không | viết "Hủy", không "Huỷ"; không dùng "Thôi", "Đồng ý" cho Yes |
 | Dấu thanh trên oa/oe/uy | Xóa, hòa, khỏe, hủy, Tùy | kiểu mới: thanh đặt trên nguyên âm đầu khi vần đứng cuối âm tiết (không "Xoá", "hoà", "huỷ", "Tuỳ"); `apply-overrides.py` tự sửa mọi `.po` tiếng Việt khi build ([`vi_tone.py`](../scripts/l10n/vi_tone.py)); nếu chữ phím tắt nằm trên nguyên âm mang dấu thì dời sang chữ ASCII kế bên ("Xó~a") |
 
@@ -43,13 +44,13 @@ Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`
 
 86 dòng trong `l10n/vi-overrides.jsonl` (mỗi dòng có `reason`) cho menu, thẻ ribbon và hộp thoại hay dùng:
 
-- "Save As" → **Lưu thành…** (trước là "Lưu mới…") ở menu Tệp tin, sfx2, uui, Writer; "Luôn lưu thành:" trong Tùy chọn → Tải/Lưu (khôi phục phím tắt).
+- "Save As" → **Lưu thành** (trước là "Lưu mới") ở menu Tệp tin, sfx2, uui, Writer; "Luôn lưu thành:" trong Tùy chọn → Tải/Lưu (khôi phục phím tắt).
 - "Save" → **Lưu** thay cho "Cất" (Tùy chọn, hộp thoại tệp đang mở).
 - Trình chiếu: "Chiếu ảnh"/"ảnh chiếu" → **Trình chiếu**/**trang chiếu** (menu Trình chiếu, ẩn/hiện, sắp xếp, trang chiếu tóm tắt, trình chiếu tùy chọn…); "Insert Slide" trước dịch nhầm thành "Chế độ chèn"; "Handouts" → "Bản phát tay".
 - Bảng tính: "Pivot Table" từng dịch là "Bộ lọc" → **Bảng tổng hợp**; "Insert Columns" dịch nhầm "Chèn dòng" → **Chèn cột**; "Insert Rows" → **Chèn hàng**; các lệnh chuyển trang tính.
 - Chú thích (Comment) thống nhất; Hoàn tác (Undo) thống nhất, sửa một chú giải bị trộn câu.
 - Lỗi chính tả/dấu: "Tranh tính", "Vản bản cuối trang", "Định đạng"; chú giải hộp thoại In ghi nhầm "Tạo một tài liệu chủ mới."
-- Lỗi viết hoa "GIãn cách…", "GIá" (11 chuỗi); hộp thoại Đoạn văn: dấu hai chấm và phím tắt nhãn khoảng cách đoạn; Trang bắt đầu: "…để tạo mới một cái" → "…để tạo tài liệu mới".
+- Lỗi viết hoa "GIãn cách", "GIá" (11 chuỗi); hộp thoại Đoạn văn: dấu hai chấm và phím tắt nhãn khoảng cách đoạn; Trang bắt đầu: "…để tạo mới một cái" → "…để tạo tài liệu mới".
 - Lớp AI (`l10n/vi/`): 3 chuỗi "Lưu dưới dạng …" → "Lưu thành …".
 
 ## Hộp thoại chữ ký số và nút chuẩn (beta.4.1)
@@ -144,7 +145,7 @@ Thẻ dùng chung (`include/vcl/tabs.hrc`) đổi một chỗ là đổi ở m�
 4. **Layout** (thẻ ribbon): Writer/Impress "Bố trí", Calc "Bố cục". Chọn một.
 5. **Home**: một số thanh Impress còn "Trang chủ" thay vì "Trang đầu".
 6. ~~**File**~~: đã chốt "Tệp tin" (chủ dự án, 2026-11-06; xem bảng thuật ngữ cốt lõi).
-7. **Chart**: đã thống nhất "Biểu đồ" ở mọi `.po` có tiếng Anh là Chart, cả menu Chèn (`Biể~u đồ...`) và ribbon. "Đồ thị" chỉ còn cho nghĩa khác (đồ thị của hàm, bản đồ ảnh dịch cũ).
+7. **Chart**: đã thống nhất "Biểu đồ" ở mọi `.po` có tiếng Anh là Chart, cả menu Chèn (`Biể~u đồ`) và ribbon. "Đồ thị" chỉ còn cho nghĩa khác (đồ thị của hàm, bản đồ ảnh dịch cũ).
 8. **Selection / Master / Copy / Alignment**: `term-report.py` liệt kê ~400 khác biệt trong lớp AI, phần lớn là biến thể chấp nhận được ("Lựa chọn"/"Vùng chọn", "Trang chiếu mẫu"/"Trang cái", "Căn"/"Canh"). Cần người bản ngữ chốt từng cặp.
 9. Văn phong chung các hộp thoại Định dạng ô, Đoạn văn, Tìm và thay thế, In: chưa đọc lại toàn bộ bằng mắt người.
 

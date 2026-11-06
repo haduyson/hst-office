@@ -106,10 +106,10 @@ def patch_lines(patches):
     return keep
 
 
-def normalize_terms(tree, patches):
-    """Glossary-wide replacements (File is "tệp tin") in every Vietnamese .po, after the overrides."""
+def normalize_tree(tree, patches, label, normalize):
+    """Run normalize(path, rel, keep_lines) -> (changed, kept) on every Vietnamese .po; lines that an HST
+    patch adds or keeps as context are passed as keep_lines and must stay. msgfmt checks each changed file."""
     root = os.path.join(tree, "translations", "source", "vi")
-    pairs = load_pairs()
     keep = patch_lines(patches)
     files = lines = kept = errors = 0
     for folder, _dirs, names in os.walk(root):
@@ -120,19 +120,25 @@ def normalize_terms(tree, patches):
             rel = os.path.relpath(path, root)
             with open(path, encoding="utf-8") as handle:
                 before = handle.read()
-            count, left = normalize_po(path, pairs, frozenset(keep.get(rel, ())))
+            count, left = normalize(path, rel, frozenset(keep.get(rel, ())))
             if left:
-                print(f"warning: {rel}: {left} lines come from an HST patch; fix the patch text instead")
+                print(f"warning: {rel}: {left} {label} lines come from an HST patch; fix the patch text instead")
                 kept += left
             if not count:
                 continue
             result = subprocess.run(["msgfmt", "--check", "-o", os.devnull, path], capture_output=True, text=True)
             if result.returncode:
-                print(f"error: msgfmt rejects {rel} after term replacement:\n{result.stderr}")
+                print(f"error: msgfmt rejects {rel} after {label}:\n{result.stderr}")
                 with open(path, "w", encoding="utf-8") as handle:
                     handle.write(before)
                 errors += 1
                 continue
             files, lines = files + 1, lines + count
-    print(f"terms: {lines} lines in {files} files replaced, {kept} left to patches, {errors} errors")
+    print(f"{label}: {lines} lines in {files} files changed, {kept} left to patches, {errors} errors")
     return 1 if errors else 0
+
+
+def normalize_terms(tree, patches):
+    """Glossary-wide replacements (File is "tệp tin") in every Vietnamese .po, after the overrides."""
+    pairs = load_pairs()
+    return normalize_tree(tree, patches, "terms", lambda path, _rel, keep: normalize_po(path, pairs, keep))

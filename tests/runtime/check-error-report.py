@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Runtime check of Trợ giúp ▸ Báo lỗi cho HASON TECH… in a real HST Office (soffice runs as hstbuild, never root).
+"""Runtime check of Trợ giúp ▸ Báo lỗi cho HASON TECH in a real HST Office (soffice runs as hstbuild, never root).
 
 Usage: python3 tests/runtime/check-error-report.py [--instdir upstream/libreoffice/instdir]
            [--out tests/output/error-report-runtime] [--shots tests/output/screenshots-error-report] [--display :75]
@@ -10,7 +10,7 @@ fake server of tests/unit/error_report_fake_server.py (HST_ERROR_REPORT_TEST_URL
   2. the dialog opens (light and dark), the preview shows the JSON, Gửi sends the payload typed in, without
      diagnostics; with the box ticked, systemInfo and the filtered HST log come along, free of profile paths;
   3. a 503 answer offers the e-mail fallback;
-  4. Crashed = true in the profile: the next start asks once; Gửi… opens the dialog with kind=crash.
+  4. Crashed = true in the profile: the next start asks once; Gửi opens the dialog with kind=crash.
 The Xvfb display must already run; it is never started or stopped here. Exit 1 when a check fails.
 """
 import argparse

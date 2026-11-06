@@ -193,7 +193,7 @@ Kiểm tra khi chạy: `tests/runtime/check-template-manager.py`.
 
 ## Tìm mẫu
 
-Trình hướng dẫn **HST → Văn bản hành chính…**: ô *Loại văn bản* là ô tìm nhanh, lọc ngay khi gõ, không cần dấu (`cong van`, `gm`, `ttr`, `qd`), chia nhóm Hành chính, Quy phạm pháp luật, Đảng, Biểu mẫu văn thư; mũi tên lên xuống, Enter, Esc. Cách so khớp như **Tìm tính năng**: `nd30_search.fold` làm giống `foldForSearch` trong `hst-feature-search.patch`. Sổ văn thư mở thành bảng tính mới. **Tìm tính năng** chỉ liệt kê lệnh, nên mọi loại văn bản được thêm vào từ khóa của lệnh này trong `FeatureSearch.xcu`.
+Trình hướng dẫn **HST → Văn bản hành chính**: ô *Loại văn bản* là ô tìm nhanh, lọc ngay khi gõ, không cần dấu (`cong van`, `gm`, `ttr`, `qd`), chia nhóm Hành chính, Quy phạm pháp luật, Đảng, Biểu mẫu văn thư; mũi tên lên xuống, Enter, Esc. Cách so khớp như **Tìm tính năng**: `nd30_search.fold` làm giống `foldForSearch` trong `hst-feature-search.patch`. Sổ văn thư mở thành bảng tính mới. **Tìm tính năng** chỉ liệt kê lệnh, nên mọi loại văn bản được thêm vào từ khóa của lệnh này trong `FeatureSearch.xcu`.
 
 Kiểm tra: `tests/unit/test_nd30_search.py`, `tests/runtime/check-nd30-search.py`.
 

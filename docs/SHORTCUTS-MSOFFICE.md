@@ -40,7 +40,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Chèn siêu liên kết | Ctrl+K | Cmd+K | Ctrl+K | không đổi | khớp | |
 | Tăng / giảm cỡ chữ | Ctrl+Shift+> / < | Cmd+Shift+> / < | không có | Phóng to / Thu nhỏ chữ | đổi | gắn cả hai mã phím (`GREATER`/`POINT`, `LESS`/`COMMA`) cho mọi bàn phím |
 | Tăng / giảm 1 pt | Ctrl+] / [ | Cmd+] / [ | Phóng to / Thu nhỏ chữ | không đổi | một phần | HST nhảy theo dãy cỡ chữ, không đúng 1 pt |
-| Hộp thoại Phông chữ | Ctrl+D | Cmd+D | Gạch dưới kép | Ký tự… (Phông chữ) | đổi | **Gạch dưới kép** chuyển sang Ctrl+Shift+D (phím Word) |
+| Hộp thoại Phông chữ | Ctrl+D | Cmd+D | Gạch dưới kép | Ký tự (Phông chữ) | đổi | **Gạch dưới kép** chuyển sang Ctrl+Shift+D (phím Word) |
 | Gạch dưới kép | Ctrl+Shift+D | Cmd+Shift+D | Đoạn phải-sang-trái | Gạch dưới kép | đổi | **Đoạn phải-sang-trái** chỉ còn trên menu Định dạng |
 | Giãn dòng đơn / đôi / 1,5 | Ctrl+1 / 2 / 5 | Cmd+1 / 2 / 5 | Tiêu đề 1 / 2 / 5 | Giãn dòng 1 / 2 / 1,5 | đổi | **Tiêu đề 1, 2** chuyển sang Ctrl+Alt+1, 2; **Tiêu đề 5** chỉ còn ở danh sách kiểu (Ctrl+3, Ctrl+4 vẫn là Tiêu đề 3, 4) |
 | Danh sách dấu đầu dòng | Ctrl+Shift+L | Cmd+Shift+L | không có | Bật/tắt dấu đầu dòng | đổi | Shift+F12 vẫn dùng được |
@@ -53,7 +53,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Dán chỉ văn bản | Ctrl+Shift+V | Cmd+Shift+V | Dán đặc biệt | Dán văn bản không định dạng | đổi | **Dán đặc biệt**: xem dòng trên |
 | Lặp lại thao tác | F4 | Cmd+Y | Thuộc tính hình ảnh | Lặp lại | đổi | **Thuộc tính hình ảnh** còn ở menu chuột phải / nhấp đúp vào hình |
 | Chính tả và ngữ pháp | F7 | Cmd+Option+L hoặc F7 | F7; macOS Cmd+Shift+; | thêm macOS Cmd+Option+L | khớp / đổi (macOS) | |
-| Lưu thành | F12 | Cmd+Shift+S | Đánh số (bật/tắt) | Lưu thành… (Win/Linux) | đổi | **Bật/tắt đánh số** còn trên ribbon/menu Định dạng; macOS F12 giữ Đánh số |
+| Lưu thành | F12 | Cmd+Shift+S | Đánh số (bật/tắt) | Lưu thành (Win/Linux) | đổi | **Bật/tắt đánh số** còn trên ribbon/menu Định dạng; macOS F12 giữ Đánh số |
 | Đổi chữ hoa/thường | Shift+F3 | Shift+F3 | Xoay vòng kiểu chữ | không đổi | khớp | |
 | Xóa định dạng ký tự | Ctrl+Space | — | không có | Xóa định dạng trực tiếp (Win/Linux) | một phần | HST xóa cả định dạng đoạn trực tiếp; Ctrl+Space có thể bị bộ gõ (IBus/Fcitx) dùng để đổi bộ gõ trên Linux |
 | Xóa định dạng đoạn | Ctrl+Q | — | Thoát | Loại bỏ định dạng đoạn văn (Win/Linux) | đổi | Chỉ xóa định dạng đoạn trực tiếp, giữ định dạng ký tự, ngắt trang và kiểu trang. **Thoát** trong Writer dùng Alt+F4 hoặc menu Tệp tin; macOS Cmd+Q vẫn là Thoát, trang Word cho Mac không ghi phím xóa định dạng đoạn nên macOS không có phím |
@@ -92,7 +92,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Xuống dòng trong ô | Alt+Enter | Option+Return | Ctrl+Enter (Alt+Enter = điền vùng chọn) | Alt+Enter | đổi | **Điền vùng chọn** chuyển sang Ctrl+Enter (phím Excel); trong ô nhập công thức Shift+Enter vẫn xuống dòng |
 | Mở rộng vùng chọn | Ctrl+Shift+mũi tên | Cmd+Shift+mũi tên | như Excel | không đổi | khớp | |
 | Tính lại | F9 | F9 | Tính lại | không đổi | khớp | |
-| Lưu thành | F12 | Cmd+Shift+S | Nhóm (Group) | Lưu thành… (Win/Linux) | đổi | **Nhóm** còn ở Dữ liệu ▸ Nhóm và Phác thảo; macOS F12 giữ Nhóm |
+| Lưu thành | F12 | Cmd+Shift+S | Nhóm (Group) | Lưu thành (Win/Linux) | đổi | **Nhóm** còn ở Dữ liệu ▸ Nhóm và Phác thảo; macOS F12 giữ Nhóm |
 
 ## HST Slides ↔ PowerPoint
 
@@ -105,7 +105,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Bản sao trang chiếu | Ctrl+Shift+D | Cmd+Shift+D | không có | Nhân đôi trang chiếu | đổi | |
 | Nhóm | Ctrl+G | Cmd+Option+G | Ctrl+Shift+G | Ctrl+G; macOS Cmd+Option+G | đổi | |
 | Bỏ nhóm | Ctrl+Shift+G | Cmd+Option+Shift+G | Ctrl+Alt+Shift+G | Ctrl+Shift+G (Ctrl+Alt+Shift+G vẫn dùng được) | đổi | **Nhóm** (Ctrl+Shift+G) chuyển sang Ctrl+G |
-| Lưu thành | F12 | Cmd+Shift+S | không có | Lưu thành… (Win/Linux) | đổi | |
+| Lưu thành | F12 | Cmd+Shift+S | không có | Lưu thành (Win/Linux) | đổi | |
 
 ## Tổng hợp
 

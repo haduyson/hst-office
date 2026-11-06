@@ -111,7 +111,7 @@ def ask(ctx, frame=None, show=None, open_report=None):
 
 
 def _question(ctx, parent_peer):
-    """Gửi… / Không / Không hỏi lại; Không has the focus, Enter and Esc mean Không."""
+    """Gửi / Không / Không hỏi lại; Không has the focus, Enter and Esc mean Không."""
     from .dialogs import Dialog, palette
     dialog = Dialog(ctx, TEXT["crash_title"], 280, 62)
     dialog.label("question", TEXT["crash_question"], 8, 8, 264, 18, wrap=True)

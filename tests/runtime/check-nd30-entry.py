@@ -7,7 +7,7 @@ Usage (needs a running X display; never started or stopped here; runs the office
         [--display :92] [--shots <dir>]   # --shots keeps the two help-guide screenshots (nd30-where.png, nd30-wizard.png)
 
 Per UI language:
-  1. Start Center: the HST menu (read through AT-SPI, GTK3 menubar) offers "Văn bản hành chính…" and the CSV import.
+  1. Start Center: the HST menu (read through AT-SPI, GTK3 menubar) offers "Văn bản hành chính" and the CSV import.
   2. Writer: the HST menu offers it too; the Home tab of the ribbon shows the "Văn bản hành chính" button
      (a click on it opens the wizard, whose title and labels are Vietnamese in every UI language).
   3. Language rule: in the en UI only the update check is English; every other HST menu item stays Vietnamese.
@@ -28,7 +28,7 @@ import hst_gui  # noqa: E402
 from nd30_entry_gui import walk, office_app, hst_menu, window_geometry, open_menu_screenshot, crop_window, crop_ribbon, wait_window, click_in_home_block, open_home_block  # noqa: E402
 
 ROWS = []
-ND30 = "Văn bản hành chính…"
+ND30 = "Văn bản hành chính"
 WIZARD_TITLE = "Văn bản hành chính"
 DESCRIPTION = "Tuân thủ Nghị định số 30/2020/NĐ-CP của Chính phủ về công tác văn thư."
 ENGLISH_ITEMS = {"Check for Updates…"}  # the only HST menu item that follows the UI language

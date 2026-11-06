@@ -13,7 +13,7 @@ POLICY = {'flags', 'manufacturerid', 'librarydescription', 'cryptotokendescripti
           'fipsslotdescription', 'fipstokendescription', 'minpwlen'}
 UPDATES = {'updatedir', 'updatecertprefix', 'updatekeyprefix', 'updateid', 'updatetokendescription'}
 REFUSAL = ("Tham số mô-đun NSS nội bộ chưa hỗ trợ chuyển kho an toàn; chưa thay đổi kho chứng thư. "
-           "Hãy chọn một kho NSS SQL mới trong Bảo mật → Chứng chỉ… rồi thử lại.")
+           "Hãy chọn một kho NSS SQL mới trong Bảo mật → Chứng chỉ rồi thử lại.")
 
 
 def quote(value):

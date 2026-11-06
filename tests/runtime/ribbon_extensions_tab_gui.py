@@ -11,7 +11,7 @@ import time
 import ribbon_tabs_gui as gui
 
 VI = "org.hst.office.vi:"
-MOVED = {"Kiểm tra cập nhật…", "Thiết lập USB Token…", "Macro VBA", "Ngôn ngữ giao diện"}
+MOVED = {"Kiểm tra cập nhật", "Thiết lập USB Token", "Macro VBA", "Ngôn ngữ giao diện"}
 BUTTONS = ("push button", "toggle button", "push button menu", "menu button")
 
 

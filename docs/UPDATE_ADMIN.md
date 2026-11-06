@@ -15,7 +15,7 @@ Cách kiểm tra cập nhật hoạt động: [UPDATE_CHECK](UPDATE_CHECK.md). C
 | Thuộc tính | Kiểu | Mặc định | Ý nghĩa |
 |---|---|---|---|
 | `AutoCheck` | boolean | `true` | Tự kiểm tra khi khởi động |
-| `ManualCheck` | boolean | `true` | Cho phép mục menu "Kiểm tra cập nhật…". `false`: mục menu bị làm mờ, HST Office không bao giờ liên hệ máy chủ cập nhật |
+| `ManualCheck` | boolean | `true` | Cho phép mục menu "Kiểm tra cập nhật". `false`: mục menu bị làm mờ, HST Office không bao giờ liên hệ máy chủ cập nhật |
 | `CheckIntervalHours` | int | `24` | Khoảng cách tối thiểu giữa hai lần tự kiểm tra, tính bằng giờ (1–8760) |
 | `AllowInstall` | boolean | `true` | Hiện nút "Cập nhật ngay". `false`: chỉ còn "Tải về" thủ công |
 | `Channel` | string | rỗng | Kênh phát hành. Rỗng: theo bản đang cài (bản beta thấy beta và chính thức). `stable`: chỉ bản chính thức. `beta`: cả beta |
@@ -181,7 +181,7 @@ người dùng ghi đè hồ sơ cả máy). `defaults write` vào `/Library/Pre
 - Công cụ ▸ Tùy chọn ▸ HST Office/Nâng cao ▸ Trình soạn cấu hình chuyên gia, tìm `HSTUpdate`: thuộc tính bị khóa
   không sửa được.
 - Hộp kiểm "Tự động kiểm tra cập nhật khi khởi động" trong hộp thoại kiểm tra cập nhật bị làm mờ khi `AutoCheck` bị
-  khóa; mục menu "Kiểm tra cập nhật…" và nút cùng tên trên tab ribbon "Phần mở rộng" bị làm mờ khi `ManualCheck` = `false`.
+  khóa; mục menu "Kiểm tra cập nhật" và nút cùng tên trên tab ribbon "Phần mở rộng" bị làm mờ khi `ManualCheck` = `false`.
 - Kiểm thử tự động trên Linux: `tests/runtime/check-update-lock.py`.
 - Tệp mẫu: `tests/runtime/check-update-policy.py` (Linux: `--instdir`, chép từng `.xcd` vào bản sao instdir), bước
   "Update-lock templates" của [windows-smoke.yml](../.github/workflows/windows-smoke.yml) (`reg import` từng `.reg` trên

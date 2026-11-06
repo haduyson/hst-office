@@ -9,7 +9,8 @@ a patch (the translation key follows the source); a rerun finds the new msgid an
 escaped .po form (\\n, \\") like the rows merged by merge-vi.py. Run it after merge-vi.py
 so the overrides win. Then every Vietnamese .po gets the glossary-wide replacements of
 data/l10n/vi-glossary.json "replacements" (vi_terms.py: File is "tệp tin"; lines that an HST patch adds
-or keeps as context are left to the patch) and new-style oa/oe/uy tones (vi_tone.py:
+or keeps as context are left to the patch), no trailing ellipsis on labels (vi_ellipsis.py, exceptions in
+data/l10n/vi-ellipsis-keep.json) and new-style oa/oe/uy tones (vi_tone.py:
 Xoá -> Xóa, huỷ -> hủy). It also copies the Vietnamese tip-of-the-day images of l10n/vi-tipoftheday/
 (scripts/l10n/build-tip-images.py) over extras/source/tipoftheday and icon-themes/*/res. Idempotent; every changed file must pass `msgfmt --check`; a key that
 no longer exists in the tree is an error (the upstream string changed).
@@ -29,6 +30,7 @@ sys.path.insert(0, HERE)
 from po_io import fill_po, parse_po  # noqa: E402
 from vi_tone import normalize_po  # noqa: E402
 from vi_terms import normalize_terms  # noqa: E402
+from vi_ellipsis import normalize_ellipsis  # noqa: E402
 
 REQUIRED = ("file", "msgctxt", "msgid", "msgstr", "reason")
 
@@ -156,7 +158,8 @@ def main():
     parser.add_argument("--patches", default=os.path.join(ROOT, "patches", "libreoffice"))
     args = parser.parse_args()
     status = apply(args.tree, args.overrides)
-    return (status | normalize_terms(args.tree, args.patches) | normalize_tones(args.tree)
+    return (status | normalize_terms(args.tree, args.patches) | normalize_ellipsis(args.tree, args.patches)
+            | normalize_tones(args.tree)
             | apply_tip_images(args.tree, args.tip_images))
 
 

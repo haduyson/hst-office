@@ -10,7 +10,7 @@ Chủ dự án yêu cầu HST Office là **bộ office riêng** (tên app, splas
 
 ## Quyết định
 
-- Engine: **LibreOffice 26.8.1.1** (tag `libreoffice-26.8.1.1`, commit `bf6ef266…`), build **từ source** đã kiểm chữ ký GPG ([lock](../../upstream/libreoffice-lock.json)). Nhánh 26.2 bị loại vì TDF kết thúc hỗ trợ ngày 2026-11-30.
+- Engine: **LibreOffice 26.8.1.1** (tag `libreoffice-26.8.1.1`, commit `bf6ef266`), build **từ source** đã kiểm chữ ký GPG ([lock](../../upstream/libreoffice-lock.json)). Nhánh 26.2 bị loại vì TDF kết thúc hỗ trợ ngày 2026-11-30.
 - Rebrand bằng tuỳ chọn upstream: `--with-product-name="HST Office"`, `--with-vendor="HASON TECH"`, `--with-branding=<HST images>`, cộng patch nhỏ cho chuỗi About/credits/desktop. Ba module hiển thị là HST Writer / HST Sheets / HST Slides.
 - Giao diện mặc định: **Tabbed** (NotebookBar, giống Ribbon); người dùng vẫn chuyển được sang thanh công cụ cổ điển.
 - Tính năng Việt chuyển sang dạng native: extension Python-UNO tích hợp sẵn (NĐ30, chuyển mã TCVN3/VNI, định dạng VND/ngày, CSV), 18 mẫu ODF, từ điển chính tả `vi` của upstream.

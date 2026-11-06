@@ -7,7 +7,7 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
 
 ## Luồng
 
-1. Nút có trên thanh thông tin và hộp thoại HST ▸ Kiểm tra cập nhật… khi manifest có bộ cài cho hệ điều hành này
+1. Nút có trên thanh thông tin và hộp thoại HST ▸ Kiểm tra cập nhật khi manifest có bộ cài cho hệ điều hành này
    (`windows`, `linux`, `macos-arm`, `macos-intel`) và quản trị viên không tắt `AllowInstall`.
 2. Bấm: luồng nền tải lại manifest và **kiểm lại chữ ký Ed25519**, chọn bộ cài, tải về thư mục cache của người dùng
    (Windows `%LOCALAPPDATA%\HSTOffice\update`, macOS `~/Library/Caches/HSTOffice/update`, Linux

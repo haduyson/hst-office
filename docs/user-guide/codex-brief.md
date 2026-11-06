@@ -12,7 +12,7 @@ Work only inside this folder. Inputs:
   menu paths, buttons, shortcuts or behaviour. If a page needs a fact you do not have, leave it out.
 - `labels.md`: the exact Vietnamese UI labels of the product. Use them verbatim (same spelling,
   diacritics, capitalisation) when you name a tab, menu, command, dialog or button. Write menu paths
-  as `<span class="menu">Tệp tin → Lưu thành…</span>`.
+  as `<span class="menu">Tệp tin → Lưu thành</span>`.
 - `images/*.png` and `images/README.md`: real screenshots of HST Office in Vietnamese, with a
   description of each. Look at them. Use each where it helps (most pages one or two images); do not
   describe anything in an image that you cannot see in it.
@@ -47,19 +47,19 @@ the product shows them (file extensions such as .docx are fine).
 |---|---|---|
 | index.html | Hướng dẫn sử dụng HST Office | welcome, "Miễn phí vĩnh viễn", the 3 apps, grouped table of contents linking every page, F1 tip |
 | bat-dau.html | Bắt đầu | Trang bắt đầu, create/open files, defaults (A4, Times New Roman), Vietnamese UI and spell check, no account/Internet/data collection |
-| giao-dien.html | Giao diện theo thẻ | tabs, Thanh bên, switching to classic menus via Xem → Giao diện người dùng… |
+| giao-dien.html | Giao diện theo thẻ | tabs, Thanh bên, switching to classic menus via Xem → Giao diện người dùng |
 | van-ban-soan-thao.html | Văn bản: soạn thảo và định dạng | text, character formatting, paragraph dialog, paragraph styles |
 | van-ban-bang-hinh.html | Văn bản: bảng, hình ảnh, tìm kiếm | insert table, images, find & replace, spelling |
 | van-ban-trang-in.html | Văn bản: trang, in và PDF | page style, margins, header/footer/page numbers, print, export PDF |
 | bang-tinh-co-ban.html | Bảng tính: làm quen | sheets, rows, columns, cells, entering data |
 | bang-tinh-cong-thuc.html | Bảng tính: công thức | =, SUM and the Tổng button, simple arithmetic (only what facts give) |
-| bang-tinh-dinh-dang.html | Bảng tính: định dạng và sắp xếp | Định dạng ô…, HST VND/date/percent commands, sorting |
+| bang-tinh-dinh-dang.html | Bảng tính: định dạng và sắp xếp | Định dạng ô, HST VND/date/percent commands, sorting |
 | bang-tinh-csv.html | Bảng tính: nhập CSV (UTF-8) | the HST CSV import |
 | trinh-chieu.html | Trình chiếu | new slides, layouts, content, running the show (F5, Shift+F5, Esc), transitions |
 | nd30.html | Văn bản hành chính theo NĐ 30 | the wizard step by step, live preview, insert, Undo, page options, warning |
 | chuyen-ma.html | Chuyển TCVN3/VNI sang Unicode | steps, what is kept, Undo |
-| dinh-dang-office.html | Lưu tệp Word, Excel, PowerPoint | open, Lưu thành…, Kiểu tệp tin, always-save-as option, compatibility note |
-| phan-mo-rong.html | Cài phần mở rộng từ tệp | Công cụ → Phần mở rộng…, Thêm…, Gỡ bỏ, responsibility note |
+| dinh-dang-office.html | Lưu tệp Word, Excel, PowerPoint | open, Lưu thành, Kiểu tệp tin, always-save-as option, compatibility note |
+| phan-mo-rong.html | Cài phần mở rộng từ tệp | Công cụ → Phần mở rộng, Thêm, Gỡ bỏ, responsibility note |
 | phim-tat.html | Phím tắt thường dùng | the shortcut table from facts (+ macOS ⌘ note) |
 | meo-hay.html | Mẹo và câu hỏi thường gặp | short Q&A built only from facts (e.g. document from old font, file from Word looks different, where is the HST menu) |
 | lien-he.html | Hỗ trợ và liên hệ | HASON TECH, Miễn phí vĩnh viễn, contact, how to report a problem |

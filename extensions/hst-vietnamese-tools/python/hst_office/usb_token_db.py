@@ -38,7 +38,7 @@ def profile_in(root):
 
 def normalize(value):
     if value.startswith("dbm:"):
-        raise SetupError("Kho NSS cũ (dbm) chưa được hỗ trợ. Hãy chọn kho NSS SQL trong Bảo mật → Chứng chỉ…")
+        raise SetupError("Kho NSS cũ (dbm) chưa được hỗ trợ. Hãy chọn kho NSS SQL trong Bảo mật → Chứng chỉ")
     path = Path(value)
     if not path.is_absolute():
         raise SetupError("Đường dẫn kho chứng thư phải là đường dẫn tuyệt đối.")
@@ -75,7 +75,7 @@ def user_database(path, create=True):
     if os.geteuid() == 0:
         raise SetupError("Hãy chạy HST Office bằng tài khoản người dùng thông thường.")
     if (path / "secmod.db").exists() or ((path / "cert8.db").exists() and not (path / "cert9.db").exists()):
-        raise SetupError("Kho chứng thư dùng định dạng NSS cũ. Hãy chọn kho NSS SQL trong Bảo mật → Chứng chỉ…")
+        raise SetupError("Kho chứng thư dùng định dạng NSS cũ. Hãy chọn kho NSS SQL trong Bảo mật → Chứng chỉ")
     ancestor = path
     while not ancestor.exists():
         ancestor = ancestor.parent

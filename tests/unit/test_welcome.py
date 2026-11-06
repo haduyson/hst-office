@@ -70,7 +70,7 @@ class Locales(unittest.TestCase):
         vi, en = (json.load(open(os.path.join(base, c + ".json"), encoding="utf-8")) for c in ("vi", "en"))
         self.assertEqual(set(vi["welcome"]), set(en["welcome"]))
         self.assertEqual(vi["welcome"]["title"], "HST Office chào đón bạn")
-        self.assertEqual(vi["menu"]["solutions"], "Giải pháp HASON TECH...")
+        self.assertEqual(vi["menu"]["solutions"], "Giải pháp HASON TECH")
 
 
 if __name__ == "__main__":

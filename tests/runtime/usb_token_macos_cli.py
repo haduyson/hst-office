@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Native macOS run of HST ▸ Thiết lập USB Token… in a real HST Office.app, signing with SoftHSM2.
+"""Native macOS run of HST ▸ Thiết lập USB Token in a real HST Office.app, signing with SoftHSM2.
 
 macOS counterpart of check-usb-token-setup.py (no platform override: real Darwin, bundled NSS
 and Python). SoftHSM2 plays the VNPT-CA driver through HST_USB_TOKEN_TEST_ROOT

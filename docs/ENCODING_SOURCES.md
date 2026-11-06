@@ -19,7 +19,7 @@ Chỉ là ánh xạ mã ký tự (dữ kiện); không sao chép văn bản củ
 - **VNI Windows**: chữ + byte dấu (ví dụ `a`+`ø` = à); `Đ đ Ơ ơ Ư ư Ĩ ĩ Ị ị Ỉ ỉ Ỵ ỵ` là byte đơn. Khớp theo chuỗi dài nhất; dấu chữ hoa (0xC0–0xDF) và chữ thường (0xE0–0xFF) không trộn.
 - Văn bản có chữ Việt Unicode ngoài Latin‑1 (ví dụ `ộ`, `ệ`, `ơ`) được coi là *đã Unicode* và giữ nguyên cả đoạn (tránh làm hỏng). Từ chỉ chứa ký tự Latin‑1 (`hòa`) là mơ hồ: người dùng phải chọn bảng mã, xem trước, hoặc bỏ chọn.
 - Nhận diện (`encoding_detect.suggest`) chỉ **gợi ý** kèm độ tin cậy (kiểm tra âm tiết tiếng Việt hợp lệ sau khi chuyển); không bao giờ tự áp dụng.
-- Font cũ (`.Vn…`, `VNI-…`) được thay bằng font Unicode (`Times New Roman`/`Arial`) để kết quả đọc được.
+- Font cũ (`.Vn`, `VNI-…`) được thay bằng font Unicode (`Times New Roman`/`Arial`) để kết quả đọc được.
 
 ## Vector chuẩn (golden vectors)
 

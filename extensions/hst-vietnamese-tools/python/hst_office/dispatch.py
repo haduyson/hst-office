@@ -20,7 +20,7 @@ NEW_DOCUMENT = {"Nd30Wizard": ("com.sun.star.text.TextDocument", "private:factor
                 "ImportCsv": ("com.sun.star.sheet.SpreadsheetDocument", "private:factory/scalc")}
 SHOW_SOLUTIONS = "ShowSolutions"  # needs no document, so it also works in the Start Center
 USB_TOKEN = "SetupUsbToken"
-REPORT_ERROR = "ReportError"  # Trợ giúp ▸ Báo lỗi cho HASON TECH…; needs no document either
+REPORT_ERROR = "ReportError"  # Trợ giúp ▸ Báo lỗi cho HASON TECH; needs no document either
 
 
 def log_error(command):

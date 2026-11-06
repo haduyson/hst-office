@@ -90,10 +90,10 @@ class DetectionTest(unittest.TestCase):
         self.assertEqual(len(matches), 1)
         node = matches[0]
         self.assertEqual([v.text for v in node.findall("prop[@%sname='Title']/value" % ns)],
-                         ["Thiết lập USB Token…"] * 3)
+                         ["Thiết lập USB Token"] * 3)
         self.assertIn("StartModule", node.find("prop[@%sname='Context']/value" % ns).text)
         for language in ("en", "vi"):
-            self.assertEqual(load_locale(language)["menu"]["usbToken"], "Thiết lập USB Token…")
+            self.assertEqual(load_locale(language)["menu"]["usbToken"], "Thiết lập USB Token")
 
     def test_catalog_alias_cannot_override_explicit_exclusion(self):
         primary = self.touch("usr/lib/libcastle.so.1.0.0")

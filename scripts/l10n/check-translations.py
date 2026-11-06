@@ -7,12 +7,16 @@ Errors (always fail): empty msgstr, changed placeholders (%PRODUCTNAME, %FOO,
 $(ARG1), %1, %s/%d, {name}, XML tags, \\n count), unescaped double quotes.
 Warnings (fail only with --strict): accelerator (~ or _ mnemonic) count
 mismatch, msgstr identical to a multi-word English msgid, whitespace or
-ellipsis/colon mismatch.
+colon mismatch, a label that ends with "..."/"…" (scripts/l10n/vi_ellipsis.py: the Vietnamese UI shows no
+ellipsis unless the text is cut; status text and the listed exceptions keep it).
 """
 import json
 import os
 import re
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from vi_ellipsis import category  # noqa: E402
 
 PLACEHOLDER = re.compile(r"%PRODUCTNAME|%[A-Z][A-Z0-9_]+%?|\$\([A-Z0-9_]+\)|%\d+|%[sdiu]|\{[A-Za-z0-9_]+\}|"
                          r"</?(?!(?:None|All|Default|Unknown)>)[A-Za-z][A-Za-z0-9:_-]*(?:\s[^>]*)?/?>|\\n|\\t|\$[A-Z][A-Z0-9_]+\$?|#[0-9]")
@@ -44,9 +48,10 @@ def check_row(row):
         warnings.append("identical to English")
     if src.strip() != src and dst.strip() == dst:
         warnings.append("surrounding whitespace dropped")
-    for mark in ("...", "…", ":"):
-        if src.rstrip().endswith(mark) != dst.rstrip().endswith(mark):
-            warnings.append(f"ending '{mark}' differs")
+    if src.rstrip().endswith(":") != dst.rstrip().endswith(":"):
+        warnings.append("ending ':' differs")
+    if category(row.get("file", ""), row.get("msgctxt", ""), src, dst) == "label":
+        warnings.append("label ends with an ellipsis")
     return errors, warnings
 
 

@@ -5,7 +5,7 @@ Usage: python3 tests/runtime/check-ribbon-hst-commands.py [--instdir DIR] [--dis
 On a running X display, per app at 1485x900: Xem lại ▸ Ngôn ngữ has the "Ngôn ngữ giao diện" drop-down (Tiếng Việt /
 English / Theo máy); Nhà phát triển has "Macro VBA" first in Writer and Sheets (Slides has no VBA, see vba.py);
 Phần mở rộng has that app's groups of large HST buttons (ribbon_extensions_tab_gui.py); Tệp tin ▸ Thông tin has
-"Thiết lập USB Token…" right of "Chữ ký số…"; the ≡ menu has the update check before About; the moved commands and
+"Thiết lập USB Token" right of "Chữ ký số"; the ≡ menu has the update check before About; the moved commands and
 the Extensions tab commands resolve on the document frame.
 Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json; --shots saves one PNG per tab.
 """
@@ -91,10 +91,10 @@ def check_backstage(args, office, app):
     time.sleep(1.5)
     buttons = {n[0]: n for n in gui.ribbon_nodes(BUTTONS, band=2000)}
     shot(args, office, f"{app}-tap-tin-thong-tin")
-    token, sign = buttons.get("Thiết lập USB Token…"), buttons.get("Chữ ký số…")
-    record(f"[{app}] Thông tin has 'Thiết lập USB Token…'", token is not None, sorted(buttons))
+    token, sign = buttons.get("Thiết lập USB Token"), buttons.get("Chữ ký số")
+    record(f"[{app}] Thông tin has 'Thiết lập USB Token'", token is not None, sorted(buttons))
     if token and sign:
-        record(f"[{app}] 'Thiết lập USB Token…' sits right of 'Chữ ký số…'",
+        record(f"[{app}] 'Thiết lập USB Token' sits right of 'Chữ ký số'",
                token[2][0] > sign[2][0] and abs(token[2][1] - sign[2][1]) < 5, (sign[2], token[2]))
     gui.xdo(args.display, "key", "Escape")
     time.sleep(1.5)

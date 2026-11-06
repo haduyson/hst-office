@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Update check entry points: the start-up job (Jobs.xcu, onFirstVisibleTask) and the org.hst.office.update:
-command handler (menu "Kiểm tra cập nhật…" and the infobar buttons).
+command handler (menu "Kiểm tra cập nhật" and the infobar buttons).
 
 Start-up: only when AutoCheck is on and the last successful check is 24 h old. A daemon thread fetches and verifies
 the manifest (update_fetch), so start-up is never blocked or slowed. A failure is logged (stderr), shows nothing and

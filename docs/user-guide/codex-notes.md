@@ -5,7 +5,7 @@ Hướng dẫn chỉ sử dụng `facts.html`, `labels.md` và 17 ảnh chụp �
 ## Thông tin chưa có và phần đã lược bỏ
 
 - Chưa có ảnh hoặc mô tả chi tiết cách nhập dữ liệu vào ô, xác nhận dữ liệu và thêm, đổi tên, xóa trang tính. Trang làm quen chỉ giới thiệu hàng, cột, ô và thao tác nhập cơ bản; không bổ sung các lệnh hay phím tắt chưa được cung cấp.
-- Chưa có hộp thoại sắp xếp hoặc lọc. Hướng dẫn chỉ nêu thẻ Dữ liệu và các nhãn Sắp xếp…, Lọc tự động; không suy đoán các bước chọn khóa, phạm vi hay thứ tự.
+- Chưa có hộp thoại sắp xếp hoặc lọc. Hướng dẫn chỉ nêu thẻ Dữ liệu và các nhãn Sắp xếp, Lọc tự động; không suy đoán các bước chọn khóa, phạm vi hay thứ tự.
 - Chưa có ảnh thẻ Chèn để xác định lệnh đánh số trang thông thường hoặc các bước chọn vị trí ảnh, kích thước bảng. Hướng dẫn dừng ở thẻ hoặc lệnh đã được xác nhận.
 - Ảnh kiểu trang đang mở mục Chung, chưa thể hiện các ô đặt khổ giấy và lề. Hướng dẫn nêu đường dẫn đã xác nhận, không mô tả các điều khiển chưa thấy.
 - Chưa có ảnh Tải/Lưu → Chung hoặc hộp thoại lưu tệp. Đường dẫn, trường Kiểu tệp tin: và Luôn lưu thành: dựa trên nguồn chữ; ảnh options.png chỉ minh họa vị trí Tải/Lưu trong cây tùy chọn, không minh họa thiết lập Luôn lưu thành:.

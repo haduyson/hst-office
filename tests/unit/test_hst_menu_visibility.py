@@ -45,7 +45,7 @@ class MenuContractTest(unittest.TestCase):
     def test_nd30_is_offered_everywhere_in_vietnamese(self):
         menu = items("OfficeMenuBar")["org.hst.office.vi:Nd30Wizard"][0]
         self.assertTrue((ALL | {"com.sun.star.frame.StartModule"}) <= menu[1])
-        self.assertEqual({v for v in menu[0].values()}, {"Văn bản hành chính…"})
+        self.assertEqual({v for v in menu[0].values()}, {"Văn bản hành chính"})
         self.assertEqual(set(menu[0]), {"", "en-US", "vi"})
 
     def test_every_hst_label_is_vietnamese_except_the_update_check(self):
@@ -54,16 +54,22 @@ class MenuContractTest(unittest.TestCase):
                 for titles, _ in entries:
                     if url == UPDATE:
                         self.assertEqual(titles["en-US"], "Check for Updates…")
-                        self.assertEqual(titles["vi"], "Kiểm tra cập nhật…")
+                        self.assertEqual(titles["vi"], "Kiểm tra cập nhật")
                     else:
                         self.assertEqual(titles["en-US"], titles["vi"], url)
 
-    def test_menu_dialog_commands_keep_the_ellipsis(self):
-        # In the HST menu "…" tells that a dialog opens; the Extensions tab buttons name the tool without it
-        # (tests/unit/test_ribbon_extensions_tab.py).
+    def test_vietnamese_labels_have_no_trailing_ellipsis(self):
+        # Owner rule 2026-11-06: no "..."/"…" unless the text is cut, in the HST menu and on the ribbon alike
+        # (scripts/l10n/vi_ellipsis.py). Only the English "Check for Updates…" of the English UI keeps it.
+        root = ET.parse(os.path.join(EXT, "Addons.xcu")).getroot()
+        for value in root.iter("value"):
+            text, lang = value.text or "", value.get(XML + "lang") or ""
+            if lang == "en-US" and text.replace("…", "").isascii() or not text.strip():
+                continue
+            self.assertFalse(text.rstrip().endswith(("...", "…")), text)
         menu = items("OfficeMenuBar")
         for name in ("ConvertEncoding", "ImportCsv", "ShowSolutions"):
-            self.assertTrue(menu["org.hst.office.vi:" + name][0][0]["vi"].endswith(("...", "…")), name)
+            self.assertFalse(menu["org.hst.office.vi:" + name][0][0]["vi"].endswith(("...", "…")), name)
 
     def test_csv_import_is_offered_in_every_module(self):
         self.assertTrue(ALL <= items("OfficeMenuBar")["org.hst.office.vi:ImportCsv"][0][1])

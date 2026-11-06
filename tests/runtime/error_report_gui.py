@@ -13,7 +13,7 @@ import hst_gui
 ROOT = hst_gui.ROOT
 EXT = "hst-vietnamese-tools"
 COMMAND = "org.hst.office.vi:ReportError"
-LABEL = "Báo lỗi cho HASON TECH…"
+LABEL = "Báo lỗi cho HASON TECH"
 TITLE = "Báo lỗi cho HASON TECH"
 PATCH = os.path.join(ROOT, "patches", "libreoffice", "hst-error-report-menu.patch")
 POPUPS = {"swriter": "sw/uiconfig/swriter", "scalc": "sc/uiconfig/scalc", "simpress": "sd/uiconfig/simpress"}

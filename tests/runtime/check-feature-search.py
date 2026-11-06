@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Runtime check of "Tìm tính năng…" (feature search, .uno:CommandPopup) in the vi and en UI.
+"""Runtime check of "Tìm tính năng" (feature search, .uno:CommandPopup) in the vi and en UI.
 
 Usage (needs a running X display; never started or stopped here; runs the office as the build user):
     python3 tests/runtime/check-feature-search.py [--instdir upstream/libreoffice/instdir]
@@ -9,10 +9,10 @@ Usage (needs a running X display; never started or stopped here; runs the office
 Per UI language, read through AT-SPI (GTK3) with screenshots kept in --out:
   1. Writer, Sheets, Slides: the Home tab of the ribbon has the feature search button; in Writer a click opens the
      search popup.
-  2. Writer: Shift+Esc opens it; searches typed without diacritics find accented labels ("chu ky" -> "Chữ ký số…",
+  2. Writer: Shift+Esc opens it; searches typed without diacritics find accented labels ("chu ky" -> "Chữ ký số",
      "dinh dang" -> "Định dạng"), the HST add-on commands ("van ban hanh chinh", "chuyen tcvn", "usb") and "đ" = "d";
      Enter on the "van ban hanh chinh" result opens the ND 30 wizard (add-on commands are dispatched).
-  3. Writer with the classic menu bar: the HST menu offers "Tìm tính năng…" right before the last two items.
+  3. Writer with the classic menu bar: the HST menu offers "Tìm tính năng" right before the last two items.
 Exit status 1 on any FAIL. When started as root the script re-executes itself as the build user under
 dbus-run-session (AT-SPI needs a session bus).
 """
@@ -36,21 +36,21 @@ _spec.loader.exec_module(nd30)
 
 ROWS = []
 OUT_DEFAULT = os.path.join(os.path.dirname(HERE), "output", "feature-search")
-HST_ITEM = "Tìm tính năng…"  # the HST menu is Vietnamese in every UI language
+HST_ITEM = "Tìm tính năng"  # the HST menu is Vietnamese in every UI language
 # query -> (description, predicate over the result labels)
 SEARCHES = {
     "chu ky": ("finds Tệp tin ▸ … Chữ ký số", lambda rows: any(r.startswith("Tệp tin ▸") and "Chữ ký số" in r for r in rows), {"vi"}),
     "dinh dang": ("finds a Định dạng command first", lambda rows: bool(rows) and "Định dạng" in rows[0], {"vi"}),
     "đinh dang": ("đ = d", lambda rows: bool(rows) and "Định dạng" in rows[0], {"vi"}),
-    "chuyen tcvn": ("finds HST ▸ Chuyển TCVN3/VNI sang Unicode...",
-                    lambda rows: "HST ▸ Chuyển TCVN3/VNI sang Unicode..." in rows, {"vi", "en"}),
-    "chuyen ma": ("keyword finds HST ▸ Chuyển TCVN3/VNI sang Unicode...",
-                  lambda rows: "HST ▸ Chuyển TCVN3/VNI sang Unicode..." in rows, {"vi", "en"}),
-    "cong van": ("keyword finds HST ▸ Văn bản hành chính…", lambda rows: "HST ▸ Văn bản hành chính…" in rows, {"vi"}),
+    "chuyen tcvn": ("finds HST ▸ Chuyển TCVN3/VNI sang Unicode",
+                    lambda rows: "HST ▸ Chuyển TCVN3/VNI sang Unicode" in rows, {"vi", "en"}),
+    "chuyen ma": ("keyword finds HST ▸ Chuyển TCVN3/VNI sang Unicode",
+                  lambda rows: "HST ▸ Chuyển TCVN3/VNI sang Unicode" in rows, {"vi", "en"}),
+    "cong van": ("keyword finds HST ▸ Văn bản hành chính", lambda rows: "HST ▸ Văn bản hành chính" in rows, {"vi"}),
     "vba": ("finds HST ▸ Macro VBA", lambda rows: bool(rows) and rows[0] == "HST ▸ Macro VBA", {"vi", "en"}),
-    "usb": ("finds HST ▸ Thiết lập USB Token…", lambda rows: "HST ▸ Thiết lập USB Token…" in rows, {"vi", "en"}),
+    "usb": ("finds HST ▸ Thiết lập USB Token", lambda rows: "HST ▸ Thiết lập USB Token" in rows, {"vi", "en"}),
     "digital sig": ("finds Digital Signatures", lambda rows: any("Digital Signature" in r for r in rows), {"en"}),
-    "van ban hanh chinh": ("finds HST ▸ Văn bản hành chính…", lambda rows: "HST ▸ Văn bản hành chính…" in rows, {"vi", "en"}),
+    "van ban hanh chinh": ("finds HST ▸ Văn bản hành chính", lambda rows: "HST ▸ Văn bản hành chính" in rows, {"vi", "en"}),
 }
 
 
@@ -94,7 +94,7 @@ def check_language(args, lang, label):
             rows = search(office, args.display, query, shot("search-" + re.sub(r"\W+", "-", query)))
             record("%s Shift+Esc %r %s" % (label, query, what), ok(rows), rows[:8])
             if query == "van ban hanh chinh" and ok(rows):
-                for _ in range(rows.index("HST ▸ Văn bản hành chính…")):
+                for _ in range(rows.index("HST ▸ Văn bản hành chính")):
                     xdo(args.display, "key", "Down")
                     time.sleep(0.3)
                 xdo(args.display, "key", "Return")
