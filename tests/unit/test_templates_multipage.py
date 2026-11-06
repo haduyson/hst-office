@@ -3,7 +3,7 @@
 
 The runtime check tests/runtime/check-templates-multipage.py measures real exports; these guard the causes it found:
 a table carrying space Word cannot keep, a page break carried by a table (lost in .doc), an empty closing paragraph
-that spills onto a blank last page, and a
+that spills onto a blank last page, contact details after the signature (Decree 30 puts them on page 1), and a
 register print range that stops printing the entries typed below it.
 """
 import json
@@ -77,6 +77,15 @@ class PortableBlocks(unittest.TestCase):
         grid = next(b for b in blocks if b.get("name") == "Signature")
         for cell in grid["rows"][0]["cells"]:
             self.assertEqual(cell[0].get("spacing_before_pt", 0), before)
+
+    def test_official_letter_contact_goes_to_the_first_page_footer(self):
+        """Decree 30, Annex I, Part I, III.4: contact details on the first page of the document."""
+        for entry in WRITER_TYPES:
+            t = get_type(entry["id"])
+            blocks, footer = portable_blocks(build_layout(entry["id"], template=True))
+            self.assertFalse(any(b.get("role") == "Contact" for b in blocks), entry["id"])
+            if t.get("officialLetter") and t["profile"] in RULES["contactOnFirstPage"]:
+                self.assertEqual([b["role"] for b in footer], ["Contact"], entry["id"])
 
 
 class GeneratedTemplates(unittest.TestCase):
