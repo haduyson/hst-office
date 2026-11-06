@@ -12,8 +12,8 @@ Usage: python3 tests/runtime/check-no-libreoffice-ui.py [--instdir upstream/libr
     (LICENSE.html / LICENSE) and in the Help > License Information dialog source.
 (d) No "github" (any case) in installed UI resources: .mo catalogues, registry .xcd, menubar /
     notebookbar / dialog definitions under share/config, the HST extension. Allow-listed with a
-    reason: the licence documents (third-party sections) and the bundled third-party dictionary
-    extensions (their authors' project pages).
+    reason: the licence documents (third-party sections), the bundled third-party dictionary
+    extensions (their authors' project pages) and the exact non-visible lines in ALLOWED_GITHUB.
 (e) No link to an online extension catalogue (extensions.libreoffice.org, hub.libreoffice.org/extensions)
     in the same resources, except the licence documents and the third-party dictionary extensions.
 Exit 1 when any check fails.
@@ -97,6 +97,30 @@ def check_licence(instdir, src, failures):
 UI_ROOTS = ("share/registry", "share/config", "share/extensions/hst-vietnamese-tools")
 UI_SUFFIXES = (".xcd", ".xml", ".ui", ".xcu", ".xcs", ".txt", ".json", ".py", ".xdl")
 ALLOWED_FILES = (("share/extensions/dict-", "bundled third-party dictionary extensions: authors' project pages"),)
+EXT = "share/extensions/hst-vietnamese-tools/"
+# (exact file, line pattern, reason): non-visible "github" lines that are allowed; any other line fails.
+ALLOWED_GITHUB = (
+    (EXT + "banners/fonts/OFL.txt", r"^Copyright 2021 The Be Vietnam Pro Project Authors \(https://github\.com/bettergui/BeVietnamPro\),$",
+     "SIL OFL licence text of the bundled banner font; the copyright line must stay verbatim"),
+    (EXT + "data/pkcs11-modules.json", r'^\s*"source": "https://github\.com/(PeculiarVentures/webcrypto-local|OpenSC/OpenSC)/',
+     "provenance note of the USB-token library table; read by code, never shown"),
+    (EXT + "python/hst_office/update_download.py", r"^\(hasontech\.vn or the project's GitHub release assets\); redirects only",
+     "module docstring of the updater download code"),
+    (EXT + "python/hst_office/update_installer.py", r'^_GITHUB_PATH = "/haduyson/hst-office/releases/download/"$',
+     "updater: installers may come from this project's release downloads"),
+    (EXT + "python/hst_office/update_installer.py", r'^_REDIRECT_HOSTS = \("github\.com", "objects\.githubusercontent\.com", '
+     r'"release-assets\.githubusercontent\.com",$|^\s+"github-releases\.githubusercontent\.com"\)$',
+     "updater: release-download redirect hosts the installer download may follow"),
+    (EXT + "python/hst_office/update_installer.py", r'^\s+or \(parts\.hostname == "github\.com" and parts\.path\.startswith\(_GITHUB_PATH\)\)\)$',
+     "updater: the host check that applies _GITHUB_PATH"),
+    (EXT + "python/hst_office/update_installer.py", "^    \"\"\"(Accept a direct installer on HST or this project's GitHub releases"
+     "|Allow only HST and GitHub's release delivery hosts after the initial URL)\\.\"\"\"$",
+     "updater: docstrings of the two URL checks above"),
+)
+
+
+def github_allowed(rel, line):
+    return any(rel == path and re.search(pattern, line) for path, pattern, _ in ALLOWED_GITHUB)
 
 
 def check_links(instdir, failures):
@@ -112,10 +136,10 @@ def check_links(instdir, failures):
                     content = handle.read()
                 scanned += 1
                 for label, pattern in (("github", GITHUB), ("extension catalogue", CATALOGUE)):
-                    match = pattern.search(content)
-                    if match:
-                        hits += 1
-                        failures.append(f"{rel}: {label} reference {content[max(0, match.start() - 30):match.end() + 40]!r}")
+                    for line in content.splitlines():
+                        if pattern.search(line) and not (label == "github" and github_allowed(rel, line)):
+                            hits += 1
+                            failures.append(f"{rel}: {label} reference {line.strip()[:110]!r}")
     print(f"links: {scanned} resource files scanned, {hits} github/catalogue references")
 
 
