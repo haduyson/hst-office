@@ -5,7 +5,6 @@
 Writes editable SVG masters; generate.py exports those masters, independently.
 Artwork emitted by this script is CC-BY-4.0; script is AGPL-3.0-only.
 """
-from html import escape
 from pathlib import Path
 import argparse
 import json
@@ -160,30 +159,8 @@ def stage1():
     add('duplicateslide',r(7,8,15,12,1)+p('M4 16H2V3h16v2M10 12h9'),'Two slides')
     add('presentationlayout',slide()+p('M6 8h12M6 12h5v3H6zm8 0h4v3h-4'),'Slide title and two content panes')
     add('presentation',slide()+p('M12 18v4m-5 0h10m-7-15 6 4-6 4z'),'Presentation screen with play')
-
-
-def write(stage):
-    selected = json.loads((ROOT/'metadata/families.json').read_text())
-    for f in selected:
-        if f['stage'] != stage or f.get('skip'):
-            continue
-        name = f['glyph']
-        if name not in GLYPHS:
-            raise ValueError('Missing drawing: '+name)
-        body, concept = GLYPHS[name]
-        svg = f'''<?xml version="1.0" encoding="UTF-8"?>
-<!-- SPDX-License-Identifier: CC-BY-4.0; Copyright 2026 HASON TECH -->
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-  <title>HST {escape(name)}</title>
-  <desc>{escape(concept)}. Original HST geometry; 24-unit grid.</desc>
-  <g fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
-    {body}
-  </g>
-</svg>
-'''
-        path=ROOT/'glyphs'/f'stage-{stage}'/(name+'.svg')
-        path.parent.mkdir(parents=True,exist_ok=True)
-        path.write_text(svg)
+    from drawing_extension_tab import hst_commands
+    hst_commands()
 
 
 if __name__ == '__main__':
@@ -198,4 +175,5 @@ if __name__ == '__main__':
         assert review['complete'] and review['source_glyphs'] == 78
         from stage2 import stage2
         stage2()
+    from drawing_masters import write
     write(args.stage)

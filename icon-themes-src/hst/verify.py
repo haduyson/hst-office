@@ -24,7 +24,9 @@ def main():
     rows=list(csv.DictReader((REPO/'docs/design/ribbon-look/icon-inventory.csv').open()))
     rows=[r for r in rows if r['class'] in ('GtkToolButton','GtkMenuToolButton','GtkToggleToolButton','toolbaritem') and r['kind']=='candidate']
     candidates={r['command'] for r in rows}
-    covered={cmd for f in active for cmd in f['commands']}
+    # Extensions tab buttons of the bundled HST extension are drawn here too, outside the inventory.
+    tab=[f for f in active if f.get('extension_tab')]
+    covered={cmd for f in active if not f.get('extension_tab') for cmd in f['commands']}
     excluded={cmd for f in families for cmd in f.get('skipped_commands',[])}
     assert covered.isdisjoint(excluded)
     if report['through_stage']==2:
@@ -33,7 +35,8 @@ def main():
     else:
         home={r['command'] for r in rows if r['scope'] in ('Home','Quick access')}
         assert len(home)==85 and home<=covered
-    assert sum(f['stage']==1 for f in active)==78
+    assert sum(f['stage']==1 and not f.get('extension_tab') for f in active)==78
+    assert all(f['stage']==1 for f in tab) and len(tab)==10
     for row in rows:
         if row['command'] not in covered:
             continue
@@ -93,7 +96,7 @@ def main():
             assert alphas[0]==alphas[1], ('Light/dark geometry mismatch',f['glyph'],size)
     assert not clipped, ('Clipped strokes',clipped)
     duplicates={str(s):[names for names in groups.values() if len(names)>1] for s,groups in raster_hashes.items()}
-    result=dict(passed=True,inventory_candidates=len(candidates),static_commands_covered=len(covered),non_static_commands_skipped=sorted(excluded),source_glyphs=len(active),stage_1_sources=78,stage_2_sources=sum(f['stage']==2 for f in active),missing_static_command_mappings=[],clipped_glyphs=clipped,identical_raster_groups=duplicates,light_dark_alpha_equal=True,alias_targets_exist=True,manifest_paths_unique=True,runtime_tested=False)
+    result=dict(passed=True,inventory_candidates=len(candidates),static_commands_covered=len(covered),non_static_commands_skipped=sorted(excluded),source_glyphs=len(active),stage_1_sources=78,extension_tab_sources=len(tab),stage_2_sources=sum(f['stage']==2 for f in active),missing_static_command_mappings=[],clipped_glyphs=clipped,identical_raster_groups=duplicates,light_dark_alpha_equal=True,alias_targets_exist=True,manifest_paths_unique=True,runtime_tested=False)
     (ROOT/'verification.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
     print(json.dumps(result,ensure_ascii=False,indent=2))
 

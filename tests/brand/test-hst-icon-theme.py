@@ -53,7 +53,8 @@ class HstThemeTest(unittest.TestCase):
         for family in families:
             if family.get("skip"):
                 continue
-            commands.update(family["commands"])
+            if not family.get("extension_tab"):
+                commands.update(family["commands"])
             for key in family["keys"]:
                 for size in (16, 24, 32):
                     request = builder.sized(key, size)
@@ -63,6 +64,28 @@ class HstThemeTest(unittest.TestCase):
         for number in (10863, 10864, 10868, 10869):
             self.assertIn(links[f"svx/res/sc{number}.png"] if f"svx/res/sc{number}.png" in links
                           else links[f"res/sc{number}.png"], files)
+
+    def test_extension_tab_commands_have_their_own_glyphs(self):
+        # VCL names a command image after the path of its URL: org.hst.office.vi:SplitName -> splitname.
+        names = ("convertencoding", "numbertowords", "formatdate", "formatvnd", "importcsv", "removediacritics",
+                 "splitname", "sortbygivenname", "deleteblankrows", "showsolutions")
+        reused = {"formatpercent": "numberformatpercent", "nd30wizard": "insertdoc"}
+        for theme in builder.PALETTES:
+            files = builder.resources(theme)
+            links = dict(line.split() for line in files["links.txt"].decode().splitlines() if not line.startswith("#"))
+            colour = builder.PALETTES[theme].encode()
+            for name in names:
+                for size in (16, 24, 32):
+                    key = builder.svg_key(builder.sized(f"cmd/{name}.png", size))
+                    self.assertIn(key, files)
+                    self.assertIn(colour, files[key])
+                    self.assertEqual(links[key[:-4] + ".png"], key)
+            for name, target in reused.items():
+                for size in (16, 24, 32):
+                    self.assertEqual(links[builder.sized(f"cmd/{name}.png", size)],
+                                     builder.svg_key(builder.sized(f"cmd/{target}.png", size)))
+            masters = {files[builder.svg_key(builder.sized(f"cmd/{name}.png", 32))] for name in names}
+            self.assertEqual(len(masters), len(names))
 
     def test_check_is_read_only_and_stale_output_is_removed(self):
         with tempfile.TemporaryDirectory() as tmp:
