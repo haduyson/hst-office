@@ -67,12 +67,15 @@ một major upgrade như upstream.
   `1.0.0.0` (gồm) đến `1.0.1.0` (không gồm), thuộc tính 257, `OLDPRODUCTS`. Windows Installer chỉ so ba trường đầu
   của phiên bản, và LibreOffice cho Windows bắt đầu từ 3.3, nên dòng này không bao giờ khớp một bản LibreOffice.
   Dòng phát hiện bản mới hơn (`NEWPRODUCTS`) chỉ dùng mã của HST.
-- GUID của các component tính bằng MD5(tên component + `COMPONENTGUIDSEED`), đặt trong
-  [`hst-msi-component-guids.patch`](../patches/libreoffice/hst-msi-component-guids.patch) (`1.0-hst2`). Beta 1–4
-  dùng hạt `1.0` và tệp .exe/.dll mang phiên bản 26.8.1.1, cao hơn `1.0.0.500` của beta.5: nếu dùng chung GUID,
-  Windows Installer bỏ qua các component đó rồi gỡ mất tệp của beta.4 (khoảng 170 tệp, gồm `soffice.bin`). Giữ
-  nguyên hạt khi phiên bản tệp chỉ tăng; chỉ đổi hạt nếu phiên bản tệp khóa (key file) buộc phải giảm. Không dùng
-  `REINSTALLMODE`: nó áp cho cả gói và có thể thay bộ VC runtime mới hơn của hệ thống bằng bản cũ hơn.
+- Beta 1–4 đóng dấu các tệp .exe/.dll của HST là 26.8.1.1, cao hơn `1.0.0.500` của beta.5. Windows Installer bỏ qua
+  component nào có tệp khóa (key file) trên máy mang phiên bản cao hơn bảng File, bất kể GUID, rồi `RemoveExistingProducts`
+  xóa bản của beta.4: 177 tệp (gồm `soffice.bin`, `soffice.com`) mất sau khi nâng cấp. Sửa bằng
+  [`hst-msi-file-version-floor.patch`](../patches/libreoffice/hst-msi-file-version-floor.patch): biến `FILEVERSIONFLOOR`
+  (`26.8.1.2`) nâng phiên bản ghi trong bảng File của các tệp thực thi thấp hơn mức đó; bản thân tệp vẫn giữ phiên bản
+  `1.0.0.x`. Không áp cho merge module (VC runtime) và phông chữ. Tác dụng phụ: Repair luôn chép lại các tệp này.
+  [`hst-msi-component-guids.patch`](../patches/libreoffice/hst-msi-component-guids.patch) (GUID component mới, hạt
+  `COMPONENTGUIDSEED`) vẫn giữ nhưng một mình nó không đủ. Không dùng `REINSTALLMODE`: nó áp cho cả gói và có thể thay
+  bộ VC runtime mới hơn của hệ thống bằng bản cũ hơn.
 - ProgID riêng và đường dẫn UNO riêng ([`hst-windows-own-progids.patch`](../patches/libreoffice/hst-windows-own-progids.patch)):
   ProgID loại tệp là `HSTOffice.*` (ví dụ `HSTOffice.WriterDocument.1`, `HSTOffice.Docx`), đường dẫn cài cho UNO ở
   `HKLM\Software\HASON TECH\HST Office\UNO\InstallPath`. Custom action `LookForRegisteredExtensions` chỉ nhận định dạng

@@ -116,6 +116,41 @@ function Show-State([string]$Label) {
     return $state
 }
 
+function Invoke-Com($Object, [string]$Name, [object[]]$Arguments) {
+    , ($Object.GetType().InvokeMember($Name, [Reflection.BindingFlags]::InvokeMethod, $null, $Object, $Arguments))
+}
+
+function Assert-AllFiles([string]$Msi, [string]$ProductCode, [string]$Name) {
+    # Every file of every component the product registered must be on disk; list all missing ones, then fail.
+    $db = Invoke-Com $installer 'OpenDatabase' @($Msi, 0)
+    $view = Invoke-Com $db 'OpenView' @('SELECT `File`.`FileName`, `Component`.`ComponentId` FROM `File`, `Component` WHERE `File`.`Component_` = `Component`.`Component`')
+    Invoke-Com $view 'Execute' @() | Out-Null
+    $dirs = @{}; $missing = New-Object System.Collections.Generic.List[string]; $checked = 0; $unregistered = 0
+    while ($true) {
+        $rec = Invoke-Com $view 'Fetch' @()
+        if (-not $rec) { break }
+        $file = (Get-ComProperty $rec 'StringData' @(1)).Split('|')[-1]
+        $id = Get-ComProperty $rec 'StringData' @(2)
+        if (-not $dirs.ContainsKey($id)) {
+            $kp = "$(Get-ComProperty $installer 'ComponentPath' @($ProductCode, $id))"
+            # A file key path gives its folder; a folder key path ends with '\'; registry key paths and unregistered components give none.
+            $dirs[$id] = if ($kp -match '^[A-Za-z]:\\.*\\$') { $kp } elseif ($kp -match '^[A-Za-z]:\\') { (Split-Path -Parent $kp) + '\' } else { '' }
+        }
+        if (-not $dirs[$id]) { $unregistered++; continue }
+        $checked++
+        $path = $dirs[$id] + $file
+        if (-not (Test-Path -LiteralPath $path)) { $missing.Add($path) }
+    }
+    Invoke-Com $view 'Close' @() | Out-Null
+    $list = Join-Path $Out "$Name-missing-files.txt"
+    Set-Content -LiteralPath $list -Value ($missing -join "`r`n") -Encoding UTF8
+    if ($missing.Count) {
+        Write-Host "MISSING ($($missing.Count) of $checked files of registered components; list in $list):"
+        $missing | ForEach-Object { Write-Host "  $_" }
+    }
+    Assert ($missing.Count -eq 0) "$Name has all $checked files of its registered components ($unregistered files in components not installed here)"
+}
+
 function Assert-Starts([string]$Location, [string]$Expect, [string]$Name) {
     # soffice.com waits for the office and prints to the console; a headless conversion proves it starts and works.
     $exe = Join-Path $Location 'program\soffice.com'
@@ -147,6 +182,7 @@ if ($Scenario -ne 'upgrade-from-beta4') {
         Assert-Owns $alone.registry 'hst' $alone.hst[0].Location
         Assert-NoLibreOfficeNames $alone.coexist
         Assert-HstCoexistKeys $alone.coexist $alone.hst[0].Location
+        Assert-AllFiles $HstMsi $alone.hst[0].ProductCode 'hst-office'
     }
     Install-Msi $msi[$second] $second
     $both = Show-State 'after-both'
@@ -165,6 +201,7 @@ if ($Scenario -ne 'upgrade-from-beta4') {
     # .docx: the second suite never takes a format the first already owns.
     Write-Host ".docx default after $($first): $($alone.registry.docx_default)"
     Assert ($both.registry.docx_default -eq $alone.registry.docx_default) ".docx keeps its owner after the second install ($($both.registry.docx_default))"
+    Assert-AllFiles $HstMsi $both.hst[0].ProductCode 'hst-office-with-libreoffice'
     Assert-Starts $lo 'LibreOffice 26\.8' 'libreoffice'
     Assert-Starts $hst 'HST Office' 'hst-office'
     # Uninstall the second suite: the first keeps everything it registered.
@@ -181,6 +218,7 @@ if ($Scenario -ne 'upgrade-from-beta4') {
     } else {
         Assert ($left.libreoffice_code.Count -eq 0 -and $left.hst.Count -eq 1) 'only HST Office is left'
         Assert-Owns $left.registry 'hst' $hst
+        Assert-AllFiles $HstMsi $left.hst[0].ProductCode 'hst-office-after-uninstall'
         Assert-Kept $alone.coexist $left.coexist 'hst_' "uninstalling LibreOffice leaves HST Office's legacy ProgIDs, Office URI ProgID and class ids"
         Assert ($left.registry.docx_default -eq $alone.registry.docx_default) ".docx keeps HST Office's setting ($($left.registry.docx_default))"
         Assert-Starts $hst 'HST Office' 'hst-office-after-uninstall'
@@ -201,6 +239,7 @@ if ($Scenario -ne 'upgrade-from-beta4') {
     # beta.4 wrote under Software\LibreOffice; its removal deletes the values, an empty key may stay behind.
     Assert-NoLibreOfficeNames $after.coexist @('lo_software_key', 'lo_classes_software_key')
     Assert-HstCoexistKeys $after.coexist $after.hst[0].Location
+    Assert-AllFiles $HstMsi $after.hst[0].ProductCode 'hst-office-after-upgrade'
     Assert-Starts $after.hst[0].Location 'HST Office' 'hst-office'
 }
 Write-Host "Scenario $Scenario passed"
