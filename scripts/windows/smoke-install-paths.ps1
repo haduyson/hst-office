@@ -51,7 +51,9 @@ function Assert([bool]$Condition, [string]$Message) {
 
 function Install-Msi([string]$Msi, [string]$Name) {
     $log = Join-Path $Out "$Name-install.log"
-    $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/i', "`"$Msi`"", '/qn', '/norestart', '/l*v', "`"$log`""
+    # Wait for msiexec itself only: -Wait would also wait for applications the Restart Manager restarts (Explorer).
+    $p = Start-Process msiexec.exe -PassThru -ArgumentList '/i', "`"$Msi`"", '/qn', '/norestart', '/l*v', "`"$log`""
+    if (-not $p.WaitForExit(1200000)) { throw "FAIL: $Name did not finish installing within 20 minutes (log $log)" }
     Assert ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) "$Name installs (msiexec exit $($p.ExitCode), log $log)"
 }
 
@@ -75,8 +77,11 @@ function Assert-Starts([string]$Location, [string]$Expect, [string]$Name) {
     $work = Join-Path $Out $Name
     New-Item -ItemType Directory -Force -Path $work | Out-Null
     $profileUrl = 'file:///' + ((Join-Path $work 'profile') -replace '\\', '/')
-    $version = & $exe --version 2>&1 | Out-String
-    Write-Host "$Name --version: $($version.Trim())"
+    $v = Start-Process $exe -PassThru -NoNewWindow -ArgumentList '--version' -RedirectStandardOutput (Join-Path $work 'version.txt') -RedirectStandardError (Join-Path $work 'version.err')
+    if (-not $v.WaitForExit(120000)) { $v.Kill(); throw "FAIL: $Name --version did not return within 2 minutes" }
+    $version = Get-Content -LiteralPath (Join-Path $work 'version.txt') -Raw
+    $version = "$version".Trim()
+    Write-Host "$Name --version: $version"
     Assert ($version -match $Expect) "$Name reports '$Expect' from its own program folder"
     $doc = Join-Path $work 'start.txt'
     Set-Content -LiteralPath $doc -Value "$Name started" -Encoding UTF8
