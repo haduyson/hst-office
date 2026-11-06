@@ -137,6 +137,30 @@ jobs:
           set -eu
           HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --verify
           { echo '```'; cat "$HST_WORK/artifacts/dmg-verify.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload unsigned dmg
+        if: ${{ inputs.mode == 'full' && success() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hst-office-macos-${{ matrix.arch }}-dmg-${{ github.run_id }}
+          path: /Users/runner/hst/dmg/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Check coexistence with the official LibreOffice
+        # After the dmg upload, so a clash fails the job (and skips signing) but keeps the dmg for diagnosis.
+        if: ${{ inputs.mode == 'full' && success() && matrix.arch == 'arm64' }}
+        shell: bash
+        env:
+          LO_DMG_URL: https://download.documentfoundation.org/libreoffice/stable/26.8.2/mac/aarch64/LibreOffice_26.8.2_MacOS_aarch64.dmg
+          LO_DMG_SHA256: 9f24fe83ab1ed5c95eb3df580119f32932f713e577feeac02bf619fb00749b55
+        run: |
+          set -eu
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/LibreOffice.dmg" "$LO_DMG_URL"
+          echo "$LO_DMG_SHA256  $RUNNER_TEMP/LibreOffice.dmg" | shasum -a 256 -c -
+          dmg=$(find "$HST_WORK/dmg" -name '*.dmg' -print -quit)
+          rc=0
+          bash scripts/macos/coexist-probe.sh "$dmg" "$RUNNER_TEMP/LibreOffice.dmg" "$HST_WORK/artifacts/coexist" || rc=$?
+          cat "$HST_WORK/artifacts/coexist/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
       - name: Summarize metrics
         if: ${{ always() }}
         shell: bash
@@ -151,14 +175,6 @@ jobs:
           path: /Users/runner/hst/artifacts/
           if-no-files-found: error
           retention-days: 7
-      - name: Upload unsigned dmg
-        if: ${{ inputs.mode == 'full' && success() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: hst-office-macos-${{ matrix.arch }}-dmg-${{ github.run_id }}
-          path: /Users/runner/hst/dmg/
-          if-no-files-found: error
-          retention-days: 14
   sign:
     # Optional Developer ID signing + notarization. Secrets live only here, behind the
     # "macos-signing" environment (the owner can require reviewers). Without the secrets the

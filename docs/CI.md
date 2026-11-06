@@ -85,6 +85,8 @@ tiếng Việt, icon HST), `--configure` (`linux-x86_64.conf`, thay branding và
 runner), `--fetch`, `--build` (một `make`, gồm cả bộ cài `.deb`), `--package`.
 [free-runner-disk.sh](../scripts/linux/free-runner-disk.sh) xóa toolchain không dùng trước khi build
 ở `/mnt/hst`. `--build` dừng make và báo lỗi khi tới hạn 330 phút kể từ đầu job hoặc đĩa trống dưới 3 GiB.
+Sau `--package`, [check-coexistence.sh](../scripts/linux/check-coexistence.sh) cài gói cạnh LibreOffice của
+Ubuntu 24.04 trong container và kiểm hai bộ chạy song song (log trong artifact `linux-evidence-<run_id>/coexistence/`).
 
 ```bash
 gh workflow run desktop-linux.yml                 # full: build + gói .deb
@@ -170,7 +172,14 @@ Homebrew). Phiên bản HST lấy từ `/VERSION` và `data/hst/release.json` (h
   thoại giấy phép. Icon ứng dụng và tài liệu (`main.icns`, `generic-*`, `oasis-*`) do
   [stage-macos-icons.py](../scripts/macos/stage-macos-icons.py) dựng từ ảnh HST. Bước `--verify` gắn dmg,
   kiểm tên `HST Office.app`, bundle ID `vn.hasontech.hstoffice`, kiến trúc, icon, bố cục, chuỗi Info.plist
-  và catalog `.mo` tiếng Việt.
+  và catalog `.mo` tiếng Việt, và bằng [check-coexist-plists.py](../scripts/macos/check-coexist-plists.py)
+  rằng bundle không khai báo gì trùng LibreOffice (không export UTI của bộ khác, không `LSHandlerRank`
+  Owner, không URL scheme `vnd.libreoffice.*`/`vnd.sun.star.*`, plug-in Spotlight/Quick Look mang id HST).
+- Sau khi tải dmg lên, job arm64 chạy [coexist-probe.sh](../scripts/macos/coexist-probe.sh): cài LibreOffice
+  chính thức (dmg ghim URL và SHA-256) rồi HST vào `/Applications`, kiểm ứng dụng mặc định (`duti -x`,
+  LaunchServices) không đổi khi cài/gỡ HST, hai ứng dụng chạy cùng lúc (`lsappinfo`, cửa sổ), `open -a`
+  mở tệp đúng ứng dụng được chọn, profile riêng, gỡ bên nào bên kia vẫn chạy. Kết quả trong
+  `macos-build-arm64-<run_id>/coexist/summary.md`; lỗi làm job đỏ (dmg chưa ký vẫn được tải lên).
 - Artifact: `macos-build-<arch>-<run_id>` (log/số đo, luôn tải, 7 ngày) và
   `hst-office-macos-<arch>-dmg-<run_id>` (`HSTOffice_<release>_macOS_<arch>.dmg` + `SHA256SUMS`, chỉ khi
   thành công, 14 ngày). Kiểm tra cục bộ: [preflight-local.sh](../scripts/macos/preflight-local.sh) (trong `ci-quality.sh`).
