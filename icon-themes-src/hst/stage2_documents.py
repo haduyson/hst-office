@@ -82,7 +82,9 @@ def documents():
     add('editheaderandfooter',r(4,2,16,20,1)+p('M7 6h10M7 18h10M7 9h10M7 15h10'),'Header and footer bands')
     for name, at_top in [('insertfootnote',False),('insertendnote',True)]:
         add(name,page()+p('M8 8h8M8 12h5M8 17h8')+p('M3 3v4m-1-2h2' if at_top else 'M20 17v5m-2-2h4'),'Endnote' if at_top else 'Footnote')
-    add('insertcaptiondialog',image_frame()+p('M7 18h10'),'Image with caption line')
+    # Caption text sits under the picture, outside its frame: an image alone reads as Chèn ảnh.
+    add('insertcaptiondialog',r(4,2.5,16,12,1.5)+c(8.5,6.5,1.3)+p('m4 13 4.5-4 3 2.5 3-3.5 5.5 5M3 18.5h18M6 22h12'),
+        'Small picture above two caption text lines')
     add('insertsection',page()+r(7,10,10,7)+p('M8 6h5'),'Document section rectangle')
     add('insertbreak',p('M3 3h18v6H3zM3 15h18v6H3zM3 12h4m3 0h4m3 0h4'),'Manual break between blocks')
     add('insertpagebreak',p('M5 2h14v7H5zM5 15h14v7H5zM2 12h20m-3-2 3 2-3 2'),'Page break arrow between pages')

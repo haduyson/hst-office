@@ -117,7 +117,10 @@ def stage1():
         add(name,p('M10 3h11M10 7h8M10 17h11M10 21h8')+arrow('down' if inward else 'up',5,6,6)+arrow('up' if inward else 'down',5,18,6),'Paragraph gap '+('decrease' if inward else 'increase'))
     add('backgroundcolor',p('m3 12 9-9 8 8-9 9zm1 0h15M9 2l5 5m6 8s-4 4-2 6c3 3 6-1 2-6'),'Fill bucket with droplet')
     add('searchdialog', c(8,8,5)+p('m12 12 4 4M4 20h17m-3-3 3 3-3 3'),'Find and replace arrow')
-    add('recsearch',p('m3 6 6 6-6 6m9 0h9M14 6h6'),'Command prompt')
+    # Tìm tính năng and the sidebar's Tìm deck share this key. A shell prompt read as a terminal or macro
+    # console; a magnifier over menu lines searches commands and stays apart from Tìm và thay thế (magnifier + arrow).
+    add('recsearch',p('M3 4.5h11M3 9.5h7M3 14.5h5')+c(15.5,13.5,4.5)+p('m18.8 16.8 3.7 3.7'),
+        'Magnifier over menu lines: find a feature')
     add('insertdoc',page()+p('M8 12h8m-8 4h6'),'Administrative document')
     add('menubar',r(3,4,18,16,2)+p('M3 9h18M7 6.5h1m3 0h1m3 0h1'),'Window with menu strip')
     add('open',p('M3 8V3h7l3 4h7v3M3 10h19l-4 11H3z'),'Open folder')

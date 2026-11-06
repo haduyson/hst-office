@@ -25,7 +25,8 @@ def tables_and_data():
         add(name,body,'Insert after '+('column' if col else 'row'))
     add('borderdialog',r(3,3,18,18)+r(7,7,10,10),'Outer and inner borders')
     add('linestyle',p('M3 5h18M3 11h4m3 0h4m3 0h4M3 17h18M3 20h18'),'Border samples: solid, dashed and double')
-    add('framelinecolor',r(3,3,18,18)+p('M7 17 12 6l5 11M9 13h6'),'Border colour symbol, neutral static base')
+    # Border colour: a frame and a pen over the dynamic swatch row, like xlinecolor. A boxed A read as a text box or font colour.
+    add('framelinecolor',r(2.5,2.5,10,10,1)+p('M11 19v-3l7.5-7.5 3 3L14 19zM16 10l3 3M4 22h16'),'Frame and pen, neutral base for the dynamic swatch')
     add('xlinecolor',p('M5 15 16 4l4 4L9 19H5ZM14 6l4 4M4 22h16'),'Line colour pencil, neutral base for the dynamic swatch')
     add('formatline',p('M3 5h18M3 12h9M3 19h9')+small_pen(),'Edit line attributes')
     add('freezepanes',r(3,3,18,18)+p('M3 9h18M9 3v18M13 14h7m-3.5-3.5v7m-2.5-6 5 5m-5 0 5-5'),'Frozen pane with small snow crystal')
