@@ -44,7 +44,7 @@ def hunks():
 class AppUserModelIds(unittest.TestCase):
     def test_appended_to_the_series(self):
         series = (ROOT / "patches/libreoffice/series").read_text(encoding="utf-8").split()
-        self.assertEqual(series[-1], PATCH.name)
+        self.assertIn(PATCH.name, series)
 
     def test_every_upstream_id_is_replaced_one_for_one(self):
         patched = hunks()

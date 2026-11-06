@@ -1,0 +1,1146 @@
+HST Office on Windows: own class IDs for its Explorer extensions and search filter.
+
+HST's shlxthdl.dll, propertyhdl.dll and ooofilt.dll used LibreOffice's class IDs: the infotip,
+column, property sheet and thumbnail handlers, the property handler, the indexing filter and its
+persistent handler. With both suites installed, HKCR\CLSID\{...}\InprocServer32 pointed to the DLL
+of the suite installed last, and uninstalling either deleted the class registration, so the other
+lost thumbnails, infotips, the Details pane properties and search of ODF content.
+
+- New class IDs in the code (shell/inc/shlxthdl.hxx, propertyhdl.hxx, ooofilt.hxx) and in every
+  scp2 entry (CLSID keys, Shell Extensions\Approved, ColumnHandlers, PropertySheetHandlers,
+  PersistentHandler, PropertyHandlers):
+    infotip         {087B3AE3-E237-4467-B8DB-5A38AB959AC9} -> {2A30C089-4A9F-4456-9E48-AEB9FF0012A3}
+    column          {C52AF81D-F7A0-4AAB-8E87-F80A60CCD396} -> {0643B6EE-B40D-4AA5-AC91-6849F83692BD}
+    property sheet  {63542C48-9552-494A-84F7-73AA6A7C99C1} -> {9A9E8777-D20C-40AD-826C-085F05B40FA6}
+    thumbnail       {3B092F0C-7696-40E3-A80F-68D74DA84210} -> {BC84498F-C467-4BD6-9876-D44924DA54D0}
+    property        {AE424E85-F6DF-4910-A6A9-438797986431} -> {A5B95EEC-7757-43B4-A663-634CF2E9A67A}
+    filter          {7BC0E710-5703-45BE-A29D-5D46D8B39262} -> {A0914CEA-1A1D-4B82-A200-FE2818319A03}
+    persistent      {7BC0E713-5703-45BE-A29D-5D46D8B39262} -> {11AF517D-5B69-4366-92C2-C1C3B7493418}
+- The infotip and thumbnail handlers are attached to HST's own ProgIDs (HSTOffice.*\shellex)
+  instead of the shared .odt/.ods/... extension keys, so HST no longer overwrites or deletes the
+  handlers LibreOffice attaches to those extensions. Windows only reads the search persistent
+  handler and the property handler per extension; these stay on the extension, where the last
+  installer wins (like the .odt default).
+- Unchanged on purpose: the OLE embedding class IDs (documents store them) and Microsoft's
+  interface IDs (IFilter, IQueryInfo, IExtractImage).
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/scp2/inc/macros.inc
++++ b/scp2/inc/macros.inc
+@@ -414,7 +414,7 @@
+         ParentID = PREDEFINED_HKEY_LOCAL_MACHINE; \
+         ModuleID = gid_Module_Optional_Winexplorerext; \
+         Subkey = STRING(CONCAT2(SOFTWARE\Microsoft\Windows\CurrentVersion\PropertySystem\PropertyHandlers\.,extension)); \
+-        Value = "{AE424E85-F6DF-4910-A6A9-438797986431}"; \
++        Value = "{A5B95EEC-7757-43B4-A663-634CF2E9A67A}"; \
+     End
+ 
+ #else
+--- a/scp2/source/base/registryitem_base.scp
++++ b/scp2/source/base/registryitem_base.scp
+@@ -31,21 +31,21 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Base_Bin;
+     Subkey = ".odb\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Odb_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Base_Bin;
+-    Subkey = ".odb\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.DatabaseDocument.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_DatabaseDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Base_Bin;
+     Subkey = "HSTOffice.DatabaseDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Odb_Contenttype
+--- a/scp2/source/calc/registryitem_calc.scp
++++ b/scp2/source/calc/registryitem_calc.scp
+@@ -452,56 +452,56 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = ".sxc\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxc_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = ".sxc\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.StarCalcDocument.6\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxc_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = ".sxc\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.StarCalcDocument.6\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_StarCalcDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = "HSTOffice.StarCalcDocument.6\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Stc_PersistentHandler
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = ".stc\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Stc_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = ".stc\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.StarCalcTemplate.6\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Stc_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = ".stc\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.StarCalcTemplate.6\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_StarCalcTemplate_6_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = "HSTOffice.StarCalcTemplate.6\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Stc
+@@ -594,28 +594,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = ".ods\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Ods_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = ".ods\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.CalcDocument.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Ods_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = ".ods\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.CalcDocument.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_CalcDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = "HSTOffice.CalcDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem__Ods
+@@ -860,28 +860,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = ".ots\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Ots_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = ".ots\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.CalcTemplate.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Ots_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = ".ots\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.CalcTemplate.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_CalcTemplate_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = "HSTOffice.CalcTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Ots
+--- a/scp2/source/draw/registryitem_draw.scp
++++ b/scp2/source/draw/registryitem_draw.scp
+@@ -452,28 +452,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = ".std\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Std_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = ".std\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.StarDrawTemplate.6\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Std_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = ".std\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.StarDrawTemplate.6\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_StarDrawTemplate_6_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = "HSTOffice.StarDrawTemplate.6\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Std
+@@ -513,28 +513,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = ".sxd\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxd_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = ".sxd\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.StarDrawDocument.6\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxd_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = ".sxd\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.StarDrawDocument.6\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_StarDrawDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = "HSTOffice.StarDrawDocument.6\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxd_Contenttype
+@@ -593,28 +593,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = ".odg\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Odg_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = ".odg\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.DrawDocument.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Odg_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = ".odg\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.DrawDocument.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_DrawDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = "HSTOffice.DrawDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Odg_Contenttype
+@@ -844,28 +844,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = ".otg\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Otg_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = ".otg\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.DrawTemplate.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Otg_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = ".otg\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.DrawTemplate.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_DrawTemplate_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = "HSTOffice.DrawTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Otg
+--- a/scp2/source/impress/registryitem_impress.scp
++++ b/scp2/source/impress/registryitem_impress.scp
+@@ -473,28 +473,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = ".sti\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Sti_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = ".sti\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.StarImpressTemplate.6\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Sti_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = ".sti\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.StarImpressTemplate.6\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_StarImpressTemplate_6_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = "HSTOffice.StarImpressTemplate.6\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Sti_Contenttype
+@@ -527,28 +527,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = ".sxi\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxi_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = ".sxi\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.StarImpressDocument.6\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxi_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = ".sxi\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.StarImpressDocument.6\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_StarImpressDocument_6_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = "HSTOffice.StarImpressDocument.6\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxi_Contenttype
+@@ -607,28 +607,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = ".odp\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Odp_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = ".odp\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.ImpressDocument.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Odp_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = ".odp\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.ImpressDocument.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_ImpressDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = "HSTOffice.ImpressDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem__Odp
+@@ -873,28 +873,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = ".otp\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Otp_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = ".otp\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.ImpressTemplate.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Otp_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = ".otp\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.ImpressTemplate.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_ImpressTemplate_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = "HSTOffice.ImpressTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Otp
+--- a/scp2/source/math/registryitem_math.scp
++++ b/scp2/source/math/registryitem_math.scp
+@@ -379,28 +379,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Subkey = ".sxm\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxm_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = ".sxm\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.StarMathDocument.6\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxm_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = ".sxm\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.StarMathDocument.6\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_StarMathDocument_6_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Subkey = "HSTOffice.StarMathDocument.6\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxm_Contenttype
+@@ -459,28 +459,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Subkey = ".odf\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Odf_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = ".odf\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.MathDocument.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Odf_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = ".odf\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.MathDocument.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_MathDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Subkey = "HSTOffice.MathDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Odf_Contenttype
+--- a/scp2/source/winexplorerext/registryitem_winexplorerext.scp
++++ b/scp2/source/winexplorerext/registryitem_winexplorerext.scp
+@@ -21,26 +21,26 @@
+ 
+ // Begin registry items for the Infotip handler
+ 
+-RegistryItem gid_Regitem_Clsid_087B3AE3_E237_4467_B8DB_5A38AB959AC9_InProcServer32
++RegistryItem gid_Regitem_Clsid_2A30C089_4A9F_4456_9E48_AEB9FF0012A3_InProcServer32
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{087B3AE3-E237-4467-B8DB-5A38AB959AC9}\InprocServer32";
++    Subkey = "CLSID\{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}\InprocServer32";
+     Value = "[INSTALLLOCATION]program\shlxthdl\shlxthdl.dll";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_087B3AE3_E237_4467_B8DB_5A38AB959AC9_InProcServer32_TM
++RegistryItem gid_Regitem_Clsid_2A30C089_4A9F_4456_9E48_AEB9FF0012A3_InProcServer32_TM
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{087B3AE3-E237-4467-B8DB-5A38AB959AC9}\InprocServer32";
++    Subkey = "CLSID\{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}\InprocServer32";
+     Name = "ThreadingModel";
+     Value = "Apartment";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_087B3AE3_E237_4467_B8DB_5A38AB959AC9_Approved
++RegistryItem gid_Regitem_Clsid_2A30C089_4A9F_4456_9E48_AEB9FF0012A3_Approved
+     ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+     Subkey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved";
+-    Name = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Name = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+     Value = "%PRODUCTNAME Infotip Handler";
+ End
+ 
+@@ -48,27 +48,27 @@
+ 
+ // Begin registry items for the Thumbnail viewer
+ 
+-RegistryItem gid_Regitem_Clsid_3B092F0C_7696_40E3_A80F_68D74DA84210_InProcServer32
++RegistryItem gid_Regitem_Clsid_BC84498F_C467_4BD6_9876_D44924DA54D0_InProcServer32
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{3B092F0C-7696-40E3-A80F-68D74DA84210}\InprocServer32";
++    Subkey = "CLSID\{BC84498F-C467-4BD6-9876-D44924DA54D0}\InprocServer32";
+     Value = "[INSTALLLOCATION]program\shlxthdl\shlxthdl.dll";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_3B092F0C_7696_40E3_A80F_68D74DA84210_InProcServer32_TM
++RegistryItem gid_Regitem_Clsid_BC84498F_C467_4BD6_9876_D44924DA54D0_InProcServer32_TM
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{3B092F0C-7696-40E3-A80F-68D74DA84210}\InprocServer32";
++    Subkey = "CLSID\{BC84498F-C467-4BD6-9876-D44924DA54D0}\InprocServer32";
+     Name = "ThreadingModel";
+     Value = "Apartment";
+     Val64 = "Apartment";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_3B092F0C_7696_40E3_A80F_68D74DA84210_Approved
++RegistryItem gid_Regitem_Clsid_BC84498F_C467_4BD6_9876_D44924DA54D0_Approved
+     ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+     Subkey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved";
+-    Name = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Name = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+     Value = "%PRODUCTNAME Thumbnail Viewer";
+ End
+ 
+@@ -76,33 +76,33 @@
+ 
+ // Begin registry items for the Column handler
+ 
+-RegistryItem gid_Regitem_Folder_shellex_ColHandl_C52AF81D_F7A0_4AAB_8E87_F80A60CCD396
++RegistryItem gid_Regitem_Folder_shellex_ColHandl_0643B6EE_B40D_4AA5_AC91_6849F83692BD
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "Folder\shellex\ColumnHandlers\{C52AF81D-F7A0-4AAB-8E87-F80A60CCD396}";
++    Subkey = "Folder\shellex\ColumnHandlers\{0643B6EE-B40D-4AA5-AC91-6849F83692BD}";
+     Value = "%PRODUCTNAME Column Handler";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_C52AF81D_F7A0_4AAB_8E87_F80A60CCD396_InProcServer32
++RegistryItem gid_Regitem_Clsid_0643B6EE_B40D_4AA5_AC91_6849F83692BD_InProcServer32
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{C52AF81D-F7A0-4AAB-8E87-F80A60CCD396}\InprocServer32";
++    Subkey = "CLSID\{0643B6EE-B40D-4AA5-AC91-6849F83692BD}\InprocServer32";
+     Value = "[INSTALLLOCATION]program\shlxthdl\shlxthdl.dll";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_C52AF81D_F7A0_4AAB_8E87_F80A60CCD396_InProcServer32_TM
++RegistryItem gid_Regitem_Clsid_0643B6EE_B40D_4AA5_AC91_6849F83692BD_InProcServer32_TM
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{C52AF81D-F7A0-4AAB-8E87-F80A60CCD396}\InprocServer32";
++    Subkey = "CLSID\{0643B6EE-B40D-4AA5-AC91-6849F83692BD}\InprocServer32";
+     Name = "ThreadingModel";
+     Value = "Apartment";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_C52AF81D_F7A0_4AAB_8E87_F80A60CCD396_Approved
++RegistryItem gid_Regitem_Clsid_0643B6EE_B40D_4AA5_AC91_6849F83692BD_Approved
+     ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+     Subkey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved";
+-    Name = "{C52AF81D-F7A0-4AAB-8E87-F80A60CCD396}";
++    Name = "{0643B6EE-B40D-4AA5-AC91-6849F83692BD}";
+     Value = "%PRODUCTNAME Column Handler";
+ End
+ 
+@@ -110,67 +110,67 @@
+ 
+ // Begin registry items for the MS Indexing server filter component
+ 
+-RegistryItem gid_Regitem_Clsid_7BC0E710_5703_45BE_A29D_5D46D8B39262
++RegistryItem gid_Regitem_Clsid_A0914CEA_1A1D_4B82_A200_FE2818319A03
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{7BC0E710-5703-45BE-A29D-5D46D8B39262}";
++    Subkey = "CLSID\{A0914CEA-1A1D-4B82-A200-FE2818319A03}";
+     Value = "OpenDocument Format Filter";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_7BC0E710_5703_45BE_A29D_5D46D8B39262_InProcServer32
++RegistryItem gid_Regitem_Clsid_A0914CEA_1A1D_4B82_A200_FE2818319A03_InProcServer32
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{7BC0E710-5703-45BE-A29D-5D46D8B39262}\InprocServer32";
++    Subkey = "CLSID\{A0914CEA-1A1D-4B82-A200-FE2818319A03}\InprocServer32";
+     Value = "[INSTALLLOCATION]program\shlxthdl\ooofilt.dll";
+     Val64 = "[INSTALLLOCATION]program\shlxthdl\ooofilt_x64.dll";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_7BC0E710_5703_45BE_A29D_5D46D8B39262_InProcServer32_TM
++RegistryItem gid_Regitem_Clsid_A0914CEA_1A1D_4B82_A200_FE2818319A03_InProcServer32_TM
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{7BC0E710-5703-45BE-A29D-5D46D8B39262}\InprocServer32";
++    Subkey = "CLSID\{A0914CEA-1A1D-4B82-A200-FE2818319A03}\InprocServer32";
+     Name = "ThreadingModel";
+     Value = "Apartment";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_7BC0E713_5703_45BE_A29D_5D46D8B39262
++RegistryItem gid_Regitem_Clsid_11AF517D_5B69_4366_92C2_C1C3B7493418
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Subkey = "CLSID\{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+     Value = "OpenDocument Format Persistent Handler";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_7BC0E713_5703_45BE_A29D_5D46D8B39262_PersistentAddinsReg
++RegistryItem gid_Regitem_Clsid_11AF517D_5B69_4366_92C2_C1C3B7493418_PersistentAddinsReg
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{7BC0E713-5703-45BE-A29D-5D46D8B39262}\PersistentAddinsRegistered\{89BCB740-6119-101A-BCB7-00DD010655AF}";
+-    Value = "{7BC0E710-5703-45BE-A29D-5D46D8B39262}";
++    Subkey = "CLSID\{11AF517D-5B69-4366-92C2-C1C3B7493418}\PersistentAddinsRegistered\{89BCB740-6119-101A-BCB7-00DD010655AF}";
++    Value = "{A0914CEA-1A1D-4B82-A200-FE2818319A03}";
+ End
+ 
+ // End registry items for the MS Indexing server filter component
+ 
+ // Begin registry entries for the PropertySheet handler
+ 
+-RegistryItem gid_Regitem_Clsid_63542C48_9552_494A_84F7_73AA6A7C99C1_InProcServer32
++RegistryItem gid_Regitem_Clsid_9A9E8777_D20C_40AD_826C_085F05B40FA6_InProcServer32
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{63542C48-9552-494A-84F7-73AA6A7C99C1}\InprocServer32";
++    Subkey = "CLSID\{9A9E8777-D20C-40AD-826C-085F05B40FA6}\InprocServer32";
+     Value = "[INSTALLLOCATION]program\shlxthdl\shlxthdl.dll";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_63542C48_9552_494A_84F7_73AA6A7C99C1_InProcServer32_TM
++RegistryItem gid_Regitem_Clsid_9A9E8777_D20C_40AD_826C_085F05B40FA6_InProcServer32_TM
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{63542C48-9552-494A-84F7-73AA6A7C99C1}\InprocServer32";
++    Subkey = "CLSID\{9A9E8777-D20C-40AD-826C-085F05B40FA6}\InprocServer32";
+     Name = "ThreadingModel";
+     Value = "Apartment";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_63542C48_9552_494A_84F7_73AA6A7C99C1_Approved
++RegistryItem gid_Regitem_Clsid_9A9E8777_D20C_40AD_826C_085F05B40FA6_Approved
+     ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+     Subkey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved";
+-    Name = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Name = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+     Value = "%PRODUCTNAME Property Sheet Handler";
+ End
+ 
+@@ -178,41 +178,41 @@
+ 
+ // Begin registry entries for the Property handler
+ 
+-RegistryItem gid_Regitem_Clsid_AE424E85_F6DF_4910_A6A9_438797986431_PropHdl
++RegistryItem gid_Regitem_Clsid_A5B95EEC_7757_43B4_A663_634CF2E9A67A_PropHdl
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{AE424E85-F6DF-4910-A6A9-438797986431}";
++    Subkey = "CLSID\{A5B95EEC-7757-43B4-A663-634CF2E9A67A}";
+     Value = "%PRODUCTNAME Property Handler";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_AE424E85_F6DF_4910_A6A9_438797986431_EnableShareDenyWrite
++RegistryItem gid_Regitem_Clsid_A5B95EEC_7757_43B4_A663_634CF2E9A67A_EnableShareDenyWrite
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{AE424E85-F6DF-4910-A6A9-438797986431}";
++    Subkey = "CLSID\{A5B95EEC-7757-43B4-A663-634CF2E9A67A}";
+     Name = "EnableShareDenyNone";
+     Value = "#1";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_AE424E85_F6DF_4910_A6A9_438797986431_InProcServer32
++RegistryItem gid_Regitem_Clsid_A5B95EEC_7757_43B4_A663_634CF2E9A67A_InProcServer32
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{AE424E85-F6DF-4910-A6A9-438797986431}\InprocServer32";
++    Subkey = "CLSID\{A5B95EEC-7757-43B4-A663-634CF2E9A67A}\InprocServer32";
+     Value = "[INSTALLLOCATION]program\shlxthdl\propertyhdl.dll";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_AE424E85_F6DF_4910_A6A9_438797986431_InProcServer32_TM
++RegistryItem gid_Regitem_Clsid_A5B95EEC_7757_43B4_A663_634CF2E9A67A_InProcServer32_TM
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "CLSID\{AE424E85-F6DF-4910-A6A9-438797986431}\InprocServer32";
++    Subkey = "CLSID\{A5B95EEC-7757-43B4-A663-634CF2E9A67A}\InprocServer32";
+     Name = "ThreadingModel";
+     Value = "Apartment";
+ End
+ 
+-RegistryItem gid_Regitem_Clsid_AE424E85_F6DF_4910_A6A9_438797986431_Approved
++RegistryItem gid_Regitem_Clsid_A5B95EEC_7757_43B4_A663_634CF2E9A67A_Approved
+     ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+     Subkey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved";
+-    Name = "{AE424E85-F6DF-4910-A6A9-438797986431}";
++    Name = "{A5B95EEC-7757-43B4-A663-634CF2E9A67A}";
+     Value = "%PRODUCTNAME Property Handler";
+ End
+ 
+--- a/scp2/source/writer/registryitem_writer.scp
++++ b/scp2/source/writer/registryitem_writer.scp
+@@ -380,7 +380,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.StarWriterGlobalDocument.6\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starwriterglobaldocument_6
+@@ -466,7 +466,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.StarWriterTemplate.6\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starwritertemplate_6
+@@ -545,21 +545,21 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".stw\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Stw_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".stw\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.StarWriterTemplate.6\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Stw_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".stw\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.StarWriterTemplate.6\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_Stw
+@@ -599,21 +599,21 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".sxg\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxg_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".sxg\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.StarWriterGlobalDocument.6\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxg_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".sxg\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.StarWriterGlobalDocument.6\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxg
+@@ -661,21 +661,21 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".sxw\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxw_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".sxw\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.StarWriterDocument.6\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxw_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".sxw\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.StarWriterDocument.6\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_Sxw_Contenttype
+@@ -698,7 +698,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.StarWriterDocument.6\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem__Sxw
+@@ -741,28 +741,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".odt\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Odt_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".odt\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.WriterDocument.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Odt_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".odt\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.WriterDocument.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_WriterDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.WriterDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem__Odt
+@@ -1030,28 +1030,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".ott\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Ott_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".ott\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.WriterTemplate.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Ott_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".ott\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.WriterTemplate.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_WriterTemplate_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.WriterTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Ott
+@@ -1173,28 +1173,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".odm\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Odm_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".odm\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.WriterGlobalDocument.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Odm_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".odm\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.WriterGlobalDocument.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_WriterGlobalDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.WriterGlobalDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Odm
+@@ -1323,28 +1323,28 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".oth\PersistentHandler";
+-    Value = "{7BC0E713-5703-45BE-A29D-5D46D8B39262}";
++    Value = "{11AF517D-5B69-4366-92C2-C1C3B7493418}";
+ End
+ 
+ RegistryItem gid_Regitem_Oth_Shellex_00021500_0000_0000_C000_000000000046
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".oth\shellex\{00021500-0000-0000-C000-000000000046}";
+-    Value = "{087B3AE3-E237-4467-B8DB-5A38AB959AC9}";
++    Subkey = "HSTOffice.WriterWebTemplate.1\shellex\{00021500-0000-0000-C000-000000000046}";
++    Value = "{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}";
+ End
+ 
+ RegistryItem gid_Regitem_Oth_Shellex_BB2E617C_0920_11D1_9A0B_00C04FC2D6C1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".oth\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
+-    Value = "{3B092F0C-7696-40E3-A80F-68D74DA84210}";
++    Subkey = "HSTOffice.WriterWebTemplate.1\shellex\{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}";
++    Value = "{BC84498F-C467-4BD6-9876-D44924DA54D0}";
+ End
+ 
+ RegistryItem gid_Regitem_WriterWebTemplate_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "HSTOffice.WriterWebTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
+-    Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
++    Value = "{9A9E8777-D20C-40AD-826C-085F05B40FA6}";
+ End
+ 
+ RegistryItem gid_Regitem_Oth
+--- a/shell/inc/propertyhdl.hxx
++++ b/shell/inc/propertyhdl.hxx
+@@ -22,9 +22,9 @@
+ 
+ #include <shlobj.h>
+ 
+-// {AE424E85-F6DF-4910-A6A9-438797986431}
++// {A5B95EEC-7757-43B4-A663-634CF2E9A67A}
+ const CLSID CLSID_PROPERTY_HANDLER =
+-{ 0xae424e85, 0xf6df, 0x4910, { 0xa6, 0xa9, 0x43, 0x87, 0x97, 0x98, 0x64, 0x31 } };
++{ 0xa5b95eec, 0x7757, 0x43b4, { 0xa6, 0x63, 0x63, 0x4c, 0xf2, 0xe9, 0xa6, 0x7a } };
+ 
+ class CMetaInfoReader;
+ 
+--- a/shell/inc/shlxthdl.hxx
++++ b/shell/inc/shlxthdl.hxx
+@@ -22,21 +22,21 @@
+ 
+ #include <objbase.h>
+ 
+-// {087B3AE3-E237-4467-B8DB-5A38AB959AC9}
++// {2A30C089-4A9F-4456-9E48-AEB9FF0012A3}
+ const CLSID CLSID_INFOTIP_HANDLER
+-    = { 0x87b3ae3, 0xe237, 0x4467, { 0xb8, 0xdb, 0x5a, 0x38, 0xab, 0x95, 0x9a, 0xc9 } };
++    = { 0x2a30c089, 0x4a9f, 0x4456, { 0x9e, 0x48, 0xae, 0xb9, 0xff, 0x00, 0x12, 0xa3 } };
+ 
+-// {C52AF81D-F7A0-4aab-8E87-F80A60CCD396}
++// {0643B6EE-B40D-4AA5-AC91-6849F83692BD}
+ const CLSID CLSID_COLUMN_HANDLER
+-    = { 0xc52af81d, 0xf7a0, 0x4aab, { 0x8e, 0x87, 0xf8, 0xa, 0x60, 0xcc, 0xd3, 0x96 } };
++    = { 0x0643b6ee, 0xb40d, 0x4aa5, { 0xac, 0x91, 0x68, 0x49, 0xf8, 0x36, 0x92, 0xbd } };
+ 
+-// {63542C48-9552-494a-84F7-73AA6A7C99C1}
++// {9A9E8777-D20C-40AD-826C-085F05B40FA6}
+ const CLSID CLSID_PROPERTYSHEET_HANDLER
+-    = { 0x63542c48, 0x9552, 0x494a, { 0x84, 0xf7, 0x73, 0xaa, 0x6a, 0x7c, 0x99, 0xc1 } };
++    = { 0x9a9e8777, 0xd20c, 0x40ad, { 0x82, 0x6c, 0x08, 0x5f, 0x05, 0xb4, 0x0f, 0xa6 } };
+ 
+-// {3B092F0C-7696-40e3-A80F-68D74DA84210}
++// {BC84498F-C467-4BD6-9876-D44924DA54D0}
+ const CLSID CLSID_THUMBVIEWER_HANDLER
+-    = { 0x3b092f0c, 0x7696, 0x40e3, { 0xa8, 0xf, 0x68, 0xd7, 0x4d, 0xa8, 0x42, 0x10 } };
++    = { 0xbc84498f, 0xc467, 0x4bd6, { 0x98, 0x76, 0xd4, 0x49, 0x24, 0xda, 0x54, 0xd0 } };
+ 
+ extern HINSTANCE g_hModule;
+ 
+--- a/shell/source/win32/shlxthandler/ooofilt/ooofilt.hxx
++++ b/shell/source/win32/shlxthandler/ooofilt/ooofilt.hxx
+@@ -40,19 +40,16 @@
+ //  Purpose:    Implements interfaces of LibreOffice filter
+ 
+ // OooFilter Class ID
+-// {7BC0E710-5703-45be-A29D-5D46D8B39262}
++// {A0914CEA-1A1D-4B82-A200-FE2818319A03}
+ GUID const CLSID_COooFilter =
+ {
+-    0x7bc0e710,
+-    0x5703,
+-    0x45be,
+-    { 0xa2, 0x9d, 0x5d, 0x46, 0xd8, 0xb3, 0x92, 0x62 }
++    0xa0914cea, 0x1a1d, 0x4b82, { 0xa2, 0x00, 0xfe, 0x28, 0x18, 0x31, 0x9a, 0x03 }
+ };
+ 
+ // LibreOffice Persistent Handler Class ID
+-// {7BC0E713-5703-45be-A29D-5D46D8B39262}
++// {11AF517D-5B69-4366-92C2-C1C3B7493418}
+ const CLSID CLSID_PERSISTENT_HANDLER =
+-{0x7bc0e713, 0x5703, 0x45be, {0xa2, 0x9d, 0x5d, 0x46, 0xd8, 0xb3, 0x92, 0x62}};
++{0x11af517d, 0x5b69, 0x4366, { 0x92, 0xc2, 0xc1, 0xc3, 0xb7, 0x49, 0x34, 0x18 }};
+ 
+ // LibreOffice Persistent Handler Addin Registered Class ID
+ // {89BCB740-6119-101A-BCB7-00DD010655AF}
+@@ -60,9 +57,9 @@
+ {0x89bcb740, 0x6119, 0x101a, {0xbc, 0xb7, 0x00, 0xdd, 0x01, 0x06, 0x55, 0xaf}};
+ 
+ // LibreOffice Filter Handler Class ID
+-// {7BC0E710-5703-45be-A29D-5D46D8B39262}
++// {A0914CEA-1A1D-4B82-A200-FE2818319A03}
+ const CLSID CLSID_FILTER_HANDLER =
+-{0x7bc0e710, 0x5703, 0x45be, {0xa2, 0x9d, 0x5d, 0x46, 0xd8, 0xb3, 0x92, 0x62}};
++{0xa0914cea, 0x1a1d, 0x4b82, { 0xa2, 0x00, 0xfe, 0x28, 0x18, 0x31, 0x9a, 0x03 }};
+ 
+ enum class FilterState
+ {

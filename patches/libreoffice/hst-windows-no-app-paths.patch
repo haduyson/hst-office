@@ -1,0 +1,193 @@
+HST Office on Windows: no App Paths entries for the program names it shares with LibreOffice.
+
+The MSI wrote HKLM\Software\Microsoft\Windows\CurrentVersion\App Paths\soffice.exe, swriter.exe,
+scalc.exe, simpress.exe, sdraw.exe, smath.exe, sbase.exe and unopkg.exe. Both suites ship programs
+with these names, so the one installed last took "Run > soffice" and every ShellExecute of the bare
+name, and uninstalling either deleted the entries the other had written. HST Office registers none
+of them now; its shortcuts, file types and updater all use the full program path.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/scp2/source/base/registryitem_base.scp
++++ b/scp2/source/base/registryitem_base.scp
+@@ -153,21 +153,6 @@
+     Styles = ();
+ End
+ 
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Sbase_Exe
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\sbase.exe";
+-    ModuleID = gid_Module_Prg_Base_Bin;
+-    Value = "<progpath>\program\sbase.exe";
+-End
+-
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Sbase_Exepath
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\sbase.exe";
+-    ModuleID = gid_Module_Prg_Base_Bin;
+-    Name = "Path";
+-    Value = "<progpath>";
+-End
+-
+ // registering the property handler for the supported file types
+ 
+ REGISTER_PROPERTY_HANDLER_FOR_EXTENSION( odb )
+--- a/scp2/source/calc/registryitem_calc.scp
++++ b/scp2/source/calc/registryitem_calc.scp
+@@ -1228,21 +1228,6 @@
+ End
+ 
+ 
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Scalc_Exe
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\scalc.exe";
+-    ModuleID = gid_Module_Prg_Calc_Bin;
+-    Value = "<progpath>\program\scalc.exe";
+-End
+-
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Scalc_Exepath
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\scalc.exe";
+-    ModuleID = gid_Module_Prg_Calc_Bin;
+-    Name = "Path";
+-    Value = "<progpath>";
+-End
+-
+ // registering the property handler for the supported file types
+ 
+ REGISTER_PROPERTY_HANDLER_FOR_EXTENSION( ods )
+--- a/scp2/source/draw/registryitem_draw.scp
++++ b/scp2/source/draw/registryitem_draw.scp
+@@ -1030,21 +1030,6 @@
+     Styles = ();
+ End
+ 
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Sdraw_Exe
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\sdraw.exe";
+-    ModuleID = gid_Module_Prg_Draw_Bin;
+-    Value = "<progpath>\program\sdraw.exe";
+-End
+-
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Sdraw_Exepath
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\sdraw.exe";
+-    ModuleID = gid_Module_Prg_Draw_Bin;
+-    Name = "Path";
+-    Value = "<progpath>";
+-End
+-
+ // registering the property handler for the supported file types
+ 
+ REGISTER_PROPERTY_HANDLER_FOR_EXTENSION( odg )
+--- a/scp2/source/impress/registryitem_impress.scp
++++ b/scp2/source/impress/registryitem_impress.scp
+@@ -1077,21 +1077,6 @@
+     Styles = ();
+ End
+ 
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Simpress_Exe
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\simpress.exe";
+-    ModuleID = gid_Module_Prg_Impress_Bin;
+-    Value = "<progpath>\program\simpress.exe";
+-End
+-
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Simpress_Exepath
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\simpress.exe";
+-    ModuleID = gid_Module_Prg_Impress_Bin;
+-    Name = "Path";
+-    Value = "<progpath>";
+-End
+-
+ // registering the property handler for the supported file types
+ 
+ REGISTER_PROPERTY_HANDLER_FOR_EXTENSION( odp )
+--- a/scp2/source/math/registryitem_math.scp
++++ b/scp2/source/math/registryitem_math.scp
+@@ -701,21 +701,6 @@
+     Styles = ();
+ End
+ 
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Smath_Exe
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\smath.exe";
+-    ModuleID = gid_Module_Prg_Math_Bin;
+-    Value = "<progpath>\program\smath.exe";
+-End
+-
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Smath_Exepath
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\smath.exe";
+-    ModuleID = gid_Module_Prg_Math_Bin;
+-    Name = "Path";
+-    Value = "<progpath>";
+-End
+-
+ // registering the property handler for the supported file types
+ 
+ REGISTER_PROPERTY_HANDLER_FOR_EXTENSION( odf )
+--- a/scp2/source/ooo/registryitem_ooo.scp
++++ b/scp2/source/ooo/registryitem_ooo.scp
+@@ -145,36 +145,6 @@
+     REG_VALUE_LNG(SO60_CONFIGFILE)
+ End
+ 
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Soffice_Exe
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\soffice.exe";
+-    ModuleID = gid_Module_Root;
+-    Value = "<progpath>\program\soffice.exe";
+-End
+-
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Soffice_Exepath
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\soffice.exe";
+-    ModuleID = gid_Module_Root;
+-    Name = "Path";
+-    Value = "<progpath>";
+-End
+-
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Unopkg_Exe
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\unopkg.exe";
+-    ModuleID = gid_Module_Root;
+-    Value = "<progpath>\program\unopkg.exe";
+-End
+-
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Unopkg_Exepath
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\unopkg.exe";
+-    ModuleID = gid_Module_Root;
+-    Name = "Path";
+-    Value = "<progpath>";
+-End
+-
+ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Staroffice_Displayname
+     ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+     Subkey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\%PRODUCTNAME %PRODUCTVERSION";
+--- a/scp2/source/writer/registryitem_writer.scp
++++ b/scp2/source/writer/registryitem_writer.scp
+@@ -1704,21 +1704,6 @@
+     Styles = ();
+ End
+ 
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Swriter_Exe
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\swriter.exe";
+-    ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Value = "<progpath>\program\swriter.exe";
+-End
+-
+-RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Apppaths_Swriter_Exepath
+-    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\Microsoft\Windows\CurrentVersion\App Paths\swriter.exe";
+-    ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Name = "Path";
+-    Value = "<progpath>";
+-End
+-
+ // registering the property handler for the supported file types
+ 
+ REGISTER_PROPERTY_HANDLER_FOR_EXTENSION( odt )

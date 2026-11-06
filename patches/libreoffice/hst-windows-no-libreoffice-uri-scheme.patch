@@ -1,0 +1,88 @@
+HST Office on Windows: does not register LibreOffice's vnd.libreoffice.command URI scheme.
+
+The MSI registered HKCR\vnd.libreoffice.command as a URL protocol opening HST's soffice.exe and
+named it in Capabilities\URLAssociations. With both suites installed, the last installer took the
+scheme, and uninstalling either deleted it. Nothing in HST Office (help, start center, extensions,
+links in documents) needs the scheme from Windows.
+
+- The vnd.libreoffice.command protocol key and its URLAssociations entry are gone.
+- The Office URI schemes (ms-word, ms-excel, ms-powerpoint, ms-visio) in HST's Capabilities point
+  to the new ProgID HSTOffice.OfficeURI (open command, icon; no "URL Protocol" value, so it is not
+  a scheme itself). The conditional ms-* protocol keys are unchanged.
+- The office still accepts vnd.libreoffice.command: URIs on its command line (desktop cmdlineargs).
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/scp2/source/calc/registryitem_calc.scp
++++ b/scp2/source/calc/registryitem_calc.scp
+@@ -1284,4 +1284,4 @@
+ 
+ // registering ms-excel URI scheme handler
+ CONDITIONAL_REGISTER_URI_HANDLER( ms-excel, ms_excel, gid_Module_Prg_Calc_MSO_Reg, SELECT_EXCEL )
+-REGISTRY_ENTRY_CAPABILITIES_URL(ms-excel, ms_excel, gid_Module_Prg_Calc_MSO_Reg, vnd.libreoffice.command)
++REGISTRY_ENTRY_CAPABILITIES_URL(ms-excel, ms_excel, gid_Module_Prg_Calc_MSO_Reg, HSTOffice.OfficeURI)
+--- a/scp2/source/draw/registryitem_draw.scp
++++ b/scp2/source/draw/registryitem_draw.scp
+@@ -1083,4 +1083,4 @@
+ 
+ // registering ms-visio URI scheme handler
+ CONDITIONAL_REGISTER_URI_HANDLER( ms-visio, ms_visio, gid_Module_Prg_Draw_MSO_Reg, SELECT_VISIO )
+-REGISTRY_ENTRY_CAPABILITIES_URL(ms-visio, ms_visio, gid_Module_Prg_Draw_MSO_Reg, vnd.libreoffice.command)
++REGISTRY_ENTRY_CAPABILITIES_URL(ms-visio, ms_visio, gid_Module_Prg_Draw_MSO_Reg, HSTOffice.OfficeURI)
+--- a/scp2/source/impress/registryitem_impress.scp
++++ b/scp2/source/impress/registryitem_impress.scp
+@@ -1129,4 +1129,4 @@
+ 
+ // registering ms-powerpoint URI scheme handler
+ CONDITIONAL_REGISTER_URI_HANDLER( ms-powerpoint, ms_powerpoint, gid_Module_Prg_Impress_MSO_Reg, SELECT_POWERPOINT )
+-REGISTRY_ENTRY_CAPABILITIES_URL(ms-powerpoint, ms_powerpoint, gid_Module_Prg_Impress_MSO_Reg, vnd.libreoffice.command)
++REGISTRY_ENTRY_CAPABILITIES_URL(ms-powerpoint, ms_powerpoint, gid_Module_Prg_Impress_MSO_Reg, HSTOffice.OfficeURI)
+--- a/scp2/source/ooo/registryitem_ooo.scp
++++ b/scp2/source/ooo/registryitem_ooo.scp
+@@ -647,6 +647,35 @@
+ 	Styles = ();
+ End
+ 
+-// registering vnd.libreoffice.command URI scheme handler
+-REGISTER_URI_HANDLER( vnd.libreoffice.command, vnd_libreoffice_command, gid_Module_Root )
+-REGISTRY_ENTRY_CAPABILITIES_URL(vnd.libreoffice.command, vnd_libreoffice_command, gid_Module_Root, vnd.libreoffice.command)
++// HST Office does not register LibreOffice's vnd.libreoffice.command URI scheme with Windows (the
++// office still understands it on its command line). HSTOffice.OfficeURI is the ProgID behind the
++// Capabilities URLAssociations of the Office URI schemes (ms-word, ms-excel, ...); it is not a URI
++// scheme itself (no "URL Protocol" value).
++RegistryItem gid_Regitem_HSTOffice_OfficeURI
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Root;
++    Subkey = "HSTOffice.OfficeURI";
++    Value = "%PRODUCTNAME URI";
++End
++
++RegistryItem gid_Regitem_HSTOffice_OfficeURI_UseOriginalUrlEncoding
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Root;
++    Subkey = "HSTOffice.OfficeURI";
++    Name = "UseOriginalUrlEncoding";
++    Value = "#1";
++End
++
++RegistryItem gid_Regitem_HSTOffice_OfficeURI_DefaultIcon
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Root;
++    Subkey = "HSTOffice.OfficeURI\DefaultIcon";
++    Value = "<progpath>\program\soffice.bin,0";
++End
++
++RegistryItem gid_Regitem_HSTOffice_OfficeURI_shell_open_command
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Root;
++    Subkey = "HSTOffice.OfficeURI\shell\open\command";
++    Value = "\"<progpath>\program\soffice.exe\" \"%1\"";
++End
+--- a/scp2/source/writer/registryitem_writer.scp
++++ b/scp2/source/writer/registryitem_writer.scp
+@@ -1752,4 +1752,4 @@
+ 
+ // registering ms-word URI scheme handler
+ CONDITIONAL_REGISTER_URI_HANDLER( ms-word, ms_word, gid_Module_Prg_Wrt_MSO_Reg, SELECT_WORD )
+-REGISTRY_ENTRY_CAPABILITIES_URL(ms-word, ms_word, gid_Module_Prg_Wrt_MSO_Reg, vnd.libreoffice.command)
++REGISTRY_ENTRY_CAPABILITIES_URL(ms-word, ms_word, gid_Module_Prg_Wrt_MSO_Reg, HSTOffice.OfficeURI)

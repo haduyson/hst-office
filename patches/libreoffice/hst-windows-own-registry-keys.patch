@@ -1,0 +1,127 @@
+HST Office on Windows: no registry key under LibreOffice's name, no LibreOffice publisher text.
+
+The MSI wrote HKLM\Software\LibreOffice\Layers\URE\1 (a value LibreOffice writes too, so the last
+installer owned it and an uninstall deleted it), Software\LibreOffice\Layers\HST Office\1.0,
+Software\LibreOffice\Layers\Basis\1.0, Software\LibreOffice\HST Office\1.0 and
+HKCR\Software\LibreOffice\HST Office. Its legacy uninstall key (Uninstall\HST Office 1.0, no
+DisplayName) named "The Document Foundation for the LibreOffice Community" as publisher and
+libreoffice.org as help, about and update links.
+
+- These keys are under Software\HASON TECH\ (%MANUFACTURER) now.
+- The legacy uninstall key names HASON TECH and the same hasontech.vn link as the MSI's ARP
+  properties.
+- The MigrateInstallPath custom action is unchanged: it finds HST Office's install folder under
+  Software\HASON TECH\HST Office\1.0\<UpgradeCode> first, and still reads the old
+  Software\LibreOffice\Layers\HST Office key that beta 1-4 wrote, so their folder is kept.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/scp2/source/ooo/registryitem_ooo.scp
++++ b/scp2/source/ooo/registryitem_ooo.scp
+@@ -178,7 +178,7 @@
+     ModuleID = gid_Module_Root;
+     Subkey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\%PRODUCTNAME %PRODUCTVERSION";
+     Name = "HelpLink";
+-    Value = "http://www.libreoffice.org";
++    Value = "https://hasontech.vn/?utm_source=hst-office&utm_medium=installer&utm_campaign=hst-office-1-0";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Staroffice_Modifypath
+@@ -194,7 +194,7 @@
+     ModuleID = gid_Module_Root;
+     Subkey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\%PRODUCTNAME %PRODUCTVERSION";
+     Name = "Publisher";
+-    Value = "The Document Foundation for the LibreOffice Community";
++    Value = "%MANUFACTURER";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Staroffice_Uninstallstring
+@@ -210,7 +210,7 @@
+     ModuleID = gid_Module_Root;
+     Subkey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\%PRODUCTNAME %PRODUCTVERSION";
+     Name = "URLInfoAbout";
+-    Value = "http://www.libreoffice.org/";
++    Value = "https://hasontech.vn/?utm_source=hst-office&utm_medium=installer&utm_campaign=hst-office-1-0";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Staroffice_Urlupdateinfo
+@@ -218,12 +218,12 @@
+     ModuleID = gid_Module_Root;
+     Subkey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\%PRODUCTNAME %PRODUCTVERSION";
+     Name = "URLUpdateInfo";
+-    Value = "http://download.libreoffice.org";
++    Value = "https://hasontech.vn/?utm_source=hst-office&utm_medium=installer&utm_campaign=hst-office-1-0";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Openoffice_Productname_Productversion_Path
+ 	ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\LibreOffice\%PRODUCTNAME\%PRODUCTVERSION";
++    Subkey = "Software\%MANUFACTURER\%PRODUCTNAME\%PRODUCTVERSION";
+ 	ModuleID = gid_Module_Root;
+ 	Name = "Path";
+ 	Value = "<progpath>\program\soffice.exe";
+@@ -249,7 +249,7 @@
+ 
+ RegistryItem gid_Regitem_Software_OpenOfficeorg_Ooobaseversion_Install
+ 	ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\LibreOffice\${REGISTRYLAYERNAME}\%PRODUCTNAME\%BRANDPACKAGEVERSION";
++    Subkey = "Software\%MANUFACTURER\${REGISTRYLAYERNAME}\%PRODUCTNAME\%BRANDPACKAGEVERSION";
+ 	ModuleID = gid_Module_Root;
+ 	Name = "INSTALLLOCATION";
+ 	Value = "[INSTALLLOCATION]";
+@@ -294,7 +294,7 @@
+ 
+ RegistryItem gid_Regitem_Software_OpenOfficeorg_Ooobaseversion_Officeinstall
+ 	ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\LibreOffice\${REGISTRYLAYERNAME}\%PRODUCTNAME\%BRANDPACKAGEVERSION";
++    Subkey = "Software\%MANUFACTURER\${REGISTRYLAYERNAME}\%PRODUCTNAME\%BRANDPACKAGEVERSION";
+ 	ModuleID = gid_Module_Root;
+ 	Name = "OFFICEINSTALLLOCATION";
+ 	Value = "[INSTALLLOCATION]";
+@@ -321,7 +321,7 @@
+ 
+ RegistryItem gid_Regitem_Software_OpenOfficeorg_Ooobaseversion_Basisinstall
+ 	ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\LibreOffice\${REGISTRYLAYERNAME}\Basis\%PRODUCTVERSION";
++    Subkey = "Software\%MANUFACTURER\${REGISTRYLAYERNAME}\Basis\%PRODUCTVERSION";
+ 	ModuleID = gid_Module_Root;
+ 	Name = "BASISINSTALLLOCATION";
+ 	Value = "[INSTALLLOCATION]";
+@@ -330,7 +330,7 @@
+ 
+ RegistryItem gid_Regitem_Software_OpenOfficeorg_Ooobaseversion_Layer_Basisinstall
+ 	ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\LibreOffice\${REGISTRYLAYERNAME}\%PRODUCTNAME\%BRANDPACKAGEVERSION";
++    Subkey = "Software\%MANUFACTURER\${REGISTRYLAYERNAME}\%PRODUCTNAME\%BRANDPACKAGEVERSION";
+ 	ModuleID = gid_Module_Root;
+ 	Name = "BASISINSTALLLOCATION";
+ 	Value = "[INSTALLLOCATION]";
+@@ -357,7 +357,7 @@
+ 
+ RegistryItem gid_Regitem_Software_OpenOfficeorg_Ooobaseversion_Ureinstall
+ 	ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\LibreOffice\${REGISTRYLAYERNAME}\URE\%URELAYERVERSION";
++    Subkey = "Software\%MANUFACTURER\${REGISTRYLAYERNAME}\URE\%URELAYERVERSION";
+ 	ModuleID = gid_Module_Root;
+ 	Name = "UREINSTALLLOCATION";
+ 	Value = "[INSTALLLOCATION]URE\\";
+@@ -366,7 +366,7 @@
+ 
+ RegistryItem gid_Regitem_Software_OpenOfficeorg_Ooobaseversion_Layer_Ureinstall
+ 	ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\LibreOffice\${REGISTRYLAYERNAME}\%PRODUCTNAME\%BRANDPACKAGEVERSION";
++    Subkey = "Software\%MANUFACTURER\${REGISTRYLAYERNAME}\%PRODUCTNAME\%BRANDPACKAGEVERSION";
+ 	ModuleID = gid_Module_Root;
+ 	Name = "UREINSTALLLOCATION";
+ 	Value = "[INSTALLLOCATION]URE\\";
+--- a/scp2/source/ooo/ure.scp
++++ b/scp2/source/ooo/ure.scp
+@@ -229,7 +229,7 @@
+ RegistryItem gid_Regitem_Path
+     ModuleID = gid_Module_Root;
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "Software\LibreOffice\%PRODUCTNAME";
++    Subkey = "Software\%MANUFACTURER\%PRODUCTNAME";
+     Name = "Path";
+     Value = "[INSTALLLOCATION]";
+ End
