@@ -181,6 +181,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           # Upgrade and Property tables: HST Office's own UpgradeCode, bounded removal of the LibreOffice-coded betas.
           python -I -W ignore::DeprecationWarning scripts/check-msi-upgrade.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-upgrade-rules.txt"
+          # Registry table: no App Paths, LibreOffice URI scheme, ProgID, Explorer class id or Software\LibreOffice key.
+          python -I -W ignore::DeprecationWarning scripts/check-msi-coexist.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-coexist-rules.txt"
       - name: Download the other installer (LibreOffice or HST beta.4)
         if: ${{ matrix.scenario != 'commands' }}
         shell: bash
