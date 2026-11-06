@@ -95,6 +95,7 @@ package() {
   done
   ls "$split"/*.deb >/dev/null 2>&1 || { echo "package: no .deb produced"; exit 1; }
   python3 -I "$ROOT/scripts/linux/make-single-deb.py" "$split" "$dist"
+  python3 -I "$ROOT/scripts/linux/check-desktop-entries.py" "$dist"/*.deb
   rm -rf "$split"
   ls -l "$dist"
 }

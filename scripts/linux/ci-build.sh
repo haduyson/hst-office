@@ -207,6 +207,7 @@ do_package() { # HSTOffice_<release>_Linux_x86-64.deb (ONE installable package) 
   [ "$n" -gt 0 ] || { echo "package: no .deb produced"; return 1; }
   # Graphical installers open one file: merge the split set (see make-single-deb.py).
   TMPDIR="$WORK" python3 -I "$REPO/scripts/linux/make-single-deb.py" "$split" "$out" || return 1
+  python3 -I "$REPO/scripts/linux/check-desktop-entries.py" "$out"/*.deb || return 1
   rm -rf "$split"
   (cd "$out" && sha256sum -c SHA256SUMS) || return 1
 }
