@@ -101,18 +101,34 @@ jobs:
           export UNO_PATH="$HST_INSTALL\\program"
           files=extensions/hst-vietnamese-tools/help/files
           out="$(cygpath -w "$RUNNER_TEMP/out/update-policy")"
-          key='HKLM\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate'
-          probe() { timeout 600 "$install/program/python.exe" tests/runtime/check-update-policy.py --soffice "$HST_INSTALL\\program\\soffice.exe" --profile "$1" --source core --out "$out"; }
+          key='HKLM\SOFTWARE\Policies\HASON TECH\HST Office\org.openoffice.Office.HSTUpdate'
+          # LibreOffice's policy key, which HST Office read up to beta.4: only its HSTUpdate subtree (the beta.4 templates)
+          # may still apply, and only while HST Office's own key has no HSTUpdate subtree.
+          old='HKLM\SOFTWARE\Policies\LibreOffice'
+          foreign=/org.openoffice.Office.Common/Misc/ShowTipOfTheDay
+          reg() { MSYS2_ARG_CONV_EXCL='*' reg.exe "$@"; }
+          lock() { reg add "$1" /v Value /t REG_SZ /d "$2" /f && reg add "$1" /v Final /t REG_DWORD /d 1 /f; }
+          probe() { timeout 600 "$install/program/python.exe" tests/runtime/check-update-policy.py --soffice "$HST_INSTALL\\program\\soffice.exe" --profile "$1" --source core --out "$out" --ignored "$foreign" "${@:2}"; }
           probe none
-          # one template after the other: each .reg replaces the previous lock ("nothing else locked" checks it)
+          # a LibreOffice policy must not reach HST Office; a beta.4 update lock under the old key still does
+          lock "$old\org.openoffice.Office.Common\Misc\ShowTipOfTheDay" false
+          lock "$old\org.openoffice.Office.HSTUpdate\AllowInstall" false
+          probe chi-tai-ve --label old-key-update-lock
+          # one template after the other: each .reg replaces the previous lock and hides the old key's ("nothing else
+          # locked": kenh-chinh-thuc fails if the old AllowInstall lock leaked through)
           for name in tat-kiem-tra chi-tai-ve kenh-chinh-thuc; do
-            MSYS2_ARG_CONV_EXCL='*' reg.exe import "$(cygpath -w "$files/hst-office-$name.reg")"
-            MSYS2_ARG_CONV_EXCL='*' reg.exe query "$key" /s
+            reg import "$(cygpath -w "$files/hst-office-$name.reg")"
+            reg query "$key" /s
             probe "$name"
           done
-          MSYS2_ARG_CONV_EXCL='*' reg.exe import "$(cygpath -w "$files/hst-office-go-khoa.reg")"
-          if MSYS2_ARG_CONV_EXCL='*' reg.exe query "$key" >/dev/null 2>&1; then echo "hst-office-go-khoa.reg left the lock in place" >&2; exit 1; fi
+          reg import "$(cygpath -w "$files/hst-office-go-khoa.reg")"
+          for prop in AutoCheck ManualCheck AllowInstall Channel; do
+            if reg query "$key\\$prop" >/dev/null 2>&1; then echo "hst-office-go-khoa.reg left the $prop lock in place" >&2; exit 1; fi
+          done
+          reg query "$key" >/dev/null || { echo "hst-office-go-khoa.reg did not leave the empty key that hides the old lock" >&2; exit 1; }
           probe none
+          reg delete "$old" /f
+          reg delete "$key" /f
       - name: Smoke-test every HST command in the installed office
         if: ${{ matrix.scenario == 'commands' && !inputs.update_policy_only }}
         shell: bash

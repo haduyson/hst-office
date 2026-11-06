@@ -14,136 +14,47 @@ Each run starts the office headless with a fresh profile and a UNO socket and ch
     the template's values and reports exactly the template's settings as locked;
   - --source core (.xcd, Windows registry): each property is finalized (read-only) with that value, the other
     settings are not, and a user write is refused; --source managed (macOS): no core property is finalized;
-  - the HST command org.hst.office.update:Check reports IsEnabled = ManualCheck (menu and ribbon entry greyed out).
+  - the HST command org.hst.office.update:Check reports IsEnabled = ManualCheck (menu and ribbon entry greyed out);
+  - --ignored /node/path/Prop (repeatable): that property is not finalized, i.e. a lock CI set where HST Office must
+    not read it (Windows: another suite's policy key) has no effect.
 Results: <out>/<profile>.json. Exit status 1 when a check fails.
 """
 import argparse
-import importlib.util
 import json
 import os
 import shutil
 import subprocess
 import sys
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)  # also when loaded by file path from another probe
+from update_policy_office import (  # noqa: E402 - after the path setup
+    BUILD_USER, READONLY, command_enabled, core_node, extension_dir, load_file, start_office, stop_office)
+
 ROOT = os.path.dirname(os.path.dirname(HERE))
 TEMPLATES = os.path.join(ROOT, "extensions", "hst-vietnamese-tools", "help", "files")
-CORE = "/org.openoffice.Office.HSTUpdate"
-READONLY = 16
-BUILD_USER = os.environ.get("HST_BUILD_USER", "hstbuild")
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # the Windows console is cp1252
-
-
-def load_file(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 PROFILES = load_file("build_update_policy", os.path.join(ROOT, "scripts", "release", "build-update-policy-oxt.py")).PROFILES
 
 
-def extension_dir(soffice):
-    """The bundled HST extension next to `soffice` (Linux/Windows program/, macOS Contents/MacOS/)."""
-    base = os.path.dirname(os.path.dirname(os.path.abspath(soffice)))
-    for path in (os.path.join(base, "share", "extensions", "hst-vietnamese-tools"),
-                 os.path.join(base, "Resources", "extensions", "hst-vietnamese-tools")):
-        if os.path.isdir(path):
-            return path
-    return None
-
-
-def start_office(soffice, work, port):
-    import uno
-    profile = os.path.join(work, "profile")
-    shutil.rmtree(profile, ignore_errors=True)
-    os.makedirs(os.path.join(work, "home"), exist_ok=True)
-    args = [soffice, "--headless", "--norestore", "--nologo", "--nodefault", "--nolockcheck",
-            "-env:UserInstallation=" + uno.systemPathToFileUrl(profile), "--accept=socket,host=127.0.0.1,port=%d;urp;" % port]
-    if sys.platform.startswith("linux") and os.geteuid() == 0:  # never run the office as root
-        subprocess.run(["chown", "-R", BUILD_USER, work], check=True)
-        args = ["runuser", "-u", BUILD_USER, "--", "env", "HOME=" + os.path.join(work, "home")] + args
-    env = {k: v for k, v in os.environ.items() if k not in ("URE_BOOTSTRAP", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE")}  # this probe's, not the office's
-    for _ in range(3):  # a fresh profile makes the office restart itself once: initialise it first
-        if subprocess.run(args[:-1] + ["--terminate_after_init"], env=env, timeout=300, check=False,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-            break
-    proc = subprocess.Popen(args, stdout=open(os.path.join(work, "soffice.out"), "w"),
-                            stderr=open(os.path.join(work, "soffice.err"), "w"), env=env)
-    local = uno.getComponentContext()
-    resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
-    for _ in range(150):
-        try:
-            return proc, resolver.resolve("uno:socket,host=127.0.0.1,port=%d;urp;StarOffice.ComponentContext" % port)
-        except Exception:  # noqa: BLE001 - not listening yet (a fresh profile restarts once)
-            time.sleep(1)
-    proc.kill()
-    raise RuntimeError("UNO socket did not open in 150 s")
-
-
-def stop_office(proc, ctx, work):
-    try:
-        ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).terminate()
-    except Exception:  # noqa: BLE001 - the bridge closes while the office quits
-        pass
-    try:
-        proc.wait(60)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-    if sys.platform.startswith("linux"):  # only this run's office: matched by its own profile path
-        subprocess.run(["pkill", "-f", "UserInstallation=file://" + os.path.join(work, "profile")], check=False)
-
-
-def core_node(ctx):
-    import uno
-    arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-    arg.Name, arg.Value = "nodepath", CORE
-    provider = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
-    return provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess", (arg,))
-
-
-def command_enabled(ctx, frame, command):
-    """IsEnabled that the HST protocol handler reports for `command` (what the menu and the ribbon show)."""
-    import uno
-    import unohelper
-    from com.sun.star.frame import XStatusListener
-    states = []
-
-    class Listener(unohelper.Base, XStatusListener):
-        def statusChanged(self, event):
-            states.append(event.IsEnabled)
-
-        def disposing(self, event):
-            pass
-
-    url = uno.createUnoStruct("com.sun.star.util.URL")
-    url.Complete = command
-    _ok, url = ctx.ServiceManager.createInstanceWithContext("com.sun.star.util.URLTransformer", ctx).parseStrict(url)
-    dispatch = frame.queryDispatch(url, "", 0)
-    if dispatch is None:
-        return None
-    dispatch.addStatusListener(Listener(), url)
-    time.sleep(1)
-    return states[-1] if states else None
-
-
-def probe(soffice, name, source, out, port):
+def probe(soffice, name, source, out, port, ignored=(), label=None):
     import uno
     results = []
+    label = label or name
 
-    def record(label, ok, detail=""):
-        results.append({"check": label, "status": "PASS" if ok else "FAIL", "detail": str(detail)})
-        print("%-4s [%s/%s] %s%s" % ("PASS" if ok else "FAIL", name, source, label, (" (%s)" % detail) if detail else ""), flush=True)
+    def record(check, ok, detail=""):
+        results.append({"check": check, "status": "PASS" if ok else "FAIL", "detail": str(detail)})
+        print("%-4s [%s/%s] %s%s" % ("PASS" if ok else "FAIL", label, source, check, (" (%s)" % detail) if detail else ""), flush=True)
 
     ext = extension_dir(soffice)
     cfg = load_file("update_config", os.path.join(ext or os.path.join(ROOT, "extensions", "hst-vietnamese-tools"),
                                                   "python", "hst_office", "update_config.py"))
     expected = {} if name == "none" else {k: cfg.normalize(k, {"true": True, "false": False}.get(v, v))
                                            for k, v in PROFILES[name][0]}
-    work = os.path.join(out, "run-" + name)
+    work = os.path.join(out, "run-" + label)
     os.makedirs(work, exist_ok=True)
     proc, ctx = start_office(soffice, work, port)
     try:
@@ -176,6 +87,13 @@ def probe(soffice, name, source, out, port):
                     record("user change of %s refused" % key, cfg.normalize(key, core_node(ctx).getPropertyValue(key)) == expected[key])
             else:
                 record("no core property finalized (the lock comes from the profile)", not final, sorted(final))
+        for path in ignored:
+            parent, prop = path.rsplit("/", 1)
+            try:
+                final = core_node(ctx, parent).getPropertySetInfo().getPropertyByName(prop).Attributes & READONLY
+                record("lock of %s not applied" % path, not final)
+            except Exception as error:  # noqa: BLE001 - a wrong path is a failed check, not a crash
+                record("lock of %s not applied" % path, False, error)
         arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
         arg.Name, arg.Value = "Hidden", True
         desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
@@ -191,8 +109,8 @@ def probe(soffice, name, source, out, port):
         record("probe ran", False, repr(error))
     finally:
         stop_office(proc, ctx, work)
-    with open(os.path.join(out, name + ".json"), "w", encoding="utf-8") as fh:
-        json.dump({"profile": name, "source": source, "results": results}, fh, ensure_ascii=False, indent=1)
+    with open(os.path.join(out, label + ".json"), "w", encoding="utf-8") as fh:
+        json.dump({"profile": label, "source": source, "results": results}, fh, ensure_ascii=False, indent=1)
     return [r for r in results if r["status"] == "FAIL"]
 
 
@@ -231,6 +149,9 @@ def main():
     ap.add_argument("--source", default="core", choices=("core", "managed"))
     ap.add_argument("--out", default=os.path.join(ROOT, "tests", "output", "update-policy"))
     ap.add_argument("--port", type=int, default=22861)
+    ap.add_argument("--ignored", action="append", default=[], metavar="/NODE/PATH/PROP",
+                    help="a property that a lock CI set elsewhere must leave unlocked (repeatable)")
+    ap.add_argument("--label", help="name of this run's results (default: the profile)")
     args = ap.parse_args()
     args.out = os.path.abspath(args.out)
     os.makedirs(args.out, exist_ok=True)
@@ -240,7 +161,7 @@ def main():
         os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, "fundamentalrc")
         failed = linux_tree(args.instdir, args.out, args.port)
     elif args.soffice:
-        failed = probe(args.soffice, args.profile, args.source, args.out, args.port)
+        failed = probe(args.soffice, args.profile, args.source, args.out, args.port, args.ignored, args.label)
     else:
         ap.error("--instdir or --soffice is required")
     print("update policy: %d failed check(s)" % len(failed))
