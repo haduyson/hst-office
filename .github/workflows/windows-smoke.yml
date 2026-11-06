@@ -19,6 +19,10 @@ on:
         description: 'Only check the update-lock .reg templates of the user guide (skip the command smoke and Update now)'
         type: boolean
         default: false
+      install_paths:
+        description: 'Also install next to LibreOffice and over HST beta.4 (needs an MSI with HST Office''s own UpgradeCode, beta.5 on)'
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -31,6 +35,20 @@ jobs:
     permissions:
       contents: read
       actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # commands: the MSI alone, every HST command and the update helper.
+        # libreoffice-first: the official LibreOffice MSI first, then HST Office; both stay installed and both start.
+        # upgrade-from-beta4: HST beta.4 (installed under LibreOffice's UpgradeCode), then the new MSI; beta.4 is
+        # replaced and Programs and Features has one HST Office entry. Each scenario runs on a fresh runner.
+        scenario: ${{ fromJSON(inputs.install_paths && '["commands","libreoffice-first","upgrade-from-beta4"]' || '["commands"]') }}
+    env:
+      # Current LibreOffice stable for Windows x64 (26.8.2.2), GPG-signed by the LibreOffice build key
+      # C2839ECAD9408FBE9531C3E9F434A1EFAFEEAEA3; the archive keeps the same file after stable/ moves on.
+      LO_MSI_URL: https://download.documentfoundation.org/libreoffice/stable/26.8.2/win/x86_64/LibreOffice_26.8.2_Win_x86-64.msi
+      LO_MSI_ARCHIVE_URL: https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.2.2/win/x86_64/LibreOffice_26.8.2.2_Win_x86-64.msi
+      LO_MSI_SHA256: ff4b911403b67ee9e6249f820f9782c44bb32c94fdaa45b0da53a8e419e5307a
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -46,38 +64,15 @@ jobs:
           RUN_ID: ${{ inputs.run_id }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/msi"
-          # Installer names carry the release id (HSTOffice_1.0.0-beta.5_Win_...; up to beta.4: HSTOffice_1.0.0_Win_...):
-          # take the one MSI that was downloaded, check it against SHA256SUMS and pass its name on.
-          if [ -n "$RUN_ID" ]; then
-            [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "bad run id" >&2; exit 1; }
-            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n "hst-office-windows-msi-$RUN_ID" --dir "$RUNNER_TEMP/msi"
-          else
-            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/msi" \
-              --pattern 'HSTOffice_*_Win_x86-64_en-US_vi.msi' --pattern SHA256SUMS
-          fi
-          ls -l "$RUNNER_TEMP/msi"
-          cd "$RUNNER_TEMP/msi"
-          shopt -s nullglob
-          msis=(HSTOffice_*_Win_x86-64_en-US_vi.msi)
-          [ "${#msis[@]}" -eq 1 ] || { echo "expected one installer, found ${#msis[@]}" >&2; exit 1; }
-          if [ -n "$RUN_ID" ] && [ ! -f SHA256SUMS ]; then
-            echo "no SHA256SUMS in the build artifact; checksum not verified"
-          else
-            # "<hash>  <name>" or, in binary mode, "<hash> *<name>"
-            awk -v n="${msis[0]}" '$2 == n || $2 == "*" n' SHA256SUMS > msi.sha256
-            [ -s msi.sha256 ] || { echo "${msis[0]} is not in SHA256SUMS" >&2; exit 1; }
-            sha256sum -c msi.sha256
-          fi
-          echo "MSI_NAME=${msis[0]}" >> "$GITHUB_ENV"
+          bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/msi" HST_MSI
       - name: Install the MSI silently
+        if: ${{ matrix.scenario == 'commands' }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/out"
-          msi="$(cygpath -w "$RUNNER_TEMP/msi/$MSI_NAME")"
           log="$(cygpath -w "$RUNNER_TEMP/out/msi-install.log")"
-          MSYS2_ARG_CONV_EXCL='*' msiexec.exe /i "$msi" /qn /norestart /l*v "$log"
+          MSYS2_ARG_CONV_EXCL='*' msiexec.exe /i "$HST_MSI" /qn /norestart /l*v "$log"
           soffice="$(find '/c/Program Files' -maxdepth 4 -iname soffice.exe | head -n 1)"
           [ -n "$soffice" ] || { echo "soffice.exe not found after install" >&2; exit 1; }
           install_dir="$(dirname "$(dirname "$soffice")")"
@@ -85,7 +80,7 @@ jobs:
           echo "installed at $install_dir"
           find "$install_dir/program" -maxdepth 1 \( -iname 'python*' -o -iname 'pyuno*' \) | head -n 20
       - name: Overlay the extension built from this commit
-        if: ${{ inputs.overlay_extension }}
+        if: ${{ matrix.scenario == 'commands' && inputs.overlay_extension }}
         shell: bash
         run: |
           set -euo pipefail
@@ -96,6 +91,7 @@ jobs:
           python -I -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$RUNNER_TEMP/oxt/hst-vietnamese-tools.oxt" "$target"
           echo "overlaid $target"
       - name: Update-lock templates - import each .reg of the user guide and check the lock
+        if: ${{ matrix.scenario == 'commands' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -117,7 +113,7 @@ jobs:
           if MSYS2_ARG_CONV_EXCL='*' reg.exe query "$key" >/dev/null 2>&1; then echo "hst-office-go-khoa.reg left the lock in place" >&2; exit 1; fi
           probe none
       - name: Smoke-test every HST command in the installed office
-        if: ${{ !inputs.update_policy_only }}
+        if: ${{ matrix.scenario == 'commands' && !inputs.update_policy_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -126,13 +122,13 @@ jobs:
           export UNO_PATH="$HST_INSTALL\\program"
           timeout 900 "$install/program/python.exe" tests/runtime/check-windows-smoke.py --install "$HST_INSTALL" --out "$RUNNER_TEMP/out/smoke" --screenshots "$RUNNER_TEMP/out/screens"
       - name: Update now - download, verify and dry-run the msiexec helper
-        if: ${{ !inputs.update_policy_only }}
+        if: ${{ matrix.scenario == 'commands' && !inputs.update_policy_only }}
         shell: bash
         run: |
           set -euo pipefail
           python -I tests/runtime/check-update-install-smoke.py
       - name: Collect diagnostics
-        if: ${{ always() }}
+        if: ${{ always() && matrix.scenario == 'commands' }}
         shell: bash
         run: |
           set -eu
@@ -147,10 +143,52 @@ jobs:
             python -I -X utf8 -c "import json,sys; r=json.load(open(sys.argv[1], encoding='utf-8')); print('\n'.join('%s %s %s' % (x['status'], r.get('profile', 'smoke'), x['check']) for x in r['results']))" "$results" >> "$GITHUB_STEP_SUMMARY"
           done
       - name: Upload smoke evidence
-        if: ${{ always() }}
+        if: ${{ always() && matrix.scenario == 'commands' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-smoke-${{ github.run_id }}
+          path: ${{ runner.temp }}\out\
+          if-no-files-found: error
+          retention-days: 7
+      - name: Check the MSI upgrade rules
+        if: ${{ matrix.scenario != 'commands' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/out"
+          # Upgrade and Property tables: HST Office's own UpgradeCode, bounded removal of the LibreOffice-coded betas.
+          python -I -W ignore::DeprecationWarning scripts/check-msi-upgrade.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-upgrade-rules.txt"
+      - name: Download the first installer
+        if: ${{ matrix.scenario != 'commands' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -euo pipefail
+          if [ "$SCENARIO" = libreoffice-first ]; then
+            mkdir -p "$RUNNER_TEMP/first"
+            cd "$RUNNER_TEMP/first"
+            msi=LibreOffice_26.8.2_Win_x86-64.msi
+            curl -fsSL --retry 3 -o "$msi" "$LO_MSI_URL" || curl -fsSL --retry 3 -o "$msi" "$LO_MSI_ARCHIVE_URL"
+            echo "$LO_MSI_SHA256  $msi" | sha256sum -c
+            echo "FIRST_MSI=$(cygpath -w "$PWD/$msi")" >> "$GITHUB_ENV"
+          else
+            RUN_ID='' RELEASE_TAG=v1.0.0-beta.4 bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/first" FIRST_MSI
+          fi
+      - name: Install both and check them
+        if: ${{ matrix.scenario != 'commands' }}
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File scripts/windows/smoke-install-paths.ps1 -Scenario "$SCENARIO" -HstMsi "$HST_MSI" -FirstMsi "$FIRST_MSI" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
+      - name: Upload install-path evidence
+        if: ${{ always() && matrix.scenario != 'commands' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-install-paths-${{ matrix.scenario }}-${{ github.run_id }}
           path: ${{ runner.temp }}\out\
           if-no-files-found: error
           retention-days: 7
