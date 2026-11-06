@@ -262,3 +262,11 @@ NĐ30 nói gì: Phụ lục I, Phần I, II.7 (thẩm quyền, chức vụ, họ
 |---|---|
 | `a541bdc` | Thông tin liên hệ Công văn ở chân trang 1 (đã duyệt) |
 | (chưa commit) | `/tmp/claude-0/-home-office/9b7a3a59-b584-43cf-95a7-4b248497ec7a/scratchpad/template-audit/print-blank-pages-off.patch` — tắt in trang trống tự chèn, chờ xác nhận |
+
+### Quyết định của chủ dự án (06/11/2026, 21:4x)
+
+1. Trang trống tự động chèn khi in: **giữ như hiện nay** (vẫn in). Không commit `print-blank-pages-off.patch`.
+2. Giữ đoạn cuối nội dung cùng khối chữ ký: **không áp dụng**. Lý do: trang 1 để trống một khoảng lớn khiến người đọc tưởng văn bản đã hết.
+3. Văn bản Đảng in hai mặt: làm ở **1.0.0** theo đề xuất trên: chỉ dùng lề đối xứng khi người dùng chọn in hai mặt.
+
+beta.5 không có thay đổi nào khác từ đợt rà soát này.
