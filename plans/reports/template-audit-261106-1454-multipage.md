@@ -225,3 +225,40 @@ Sổ đăng ký: 5/5 sổ "5: in 30/120 dòng" → đạt (120/120, tiêu đề 
 2. Có muốn giữ 2 dòng cuối thân văn bản cùng trang chữ ký (không phải quy tắc)?
 3. Trang trống LibreOffice tự chèn trước văn bản kèm theo khi in: chấp nhận hay patch lõi?
 4. Văn bản Đảng in hai mặt: thêm tùy chọn lề đối xứng (15/30 mặt sau)?
+
+## Bổ sung 06/11/2026 tối (theo trả lời của chủ dự án 20:59)
+
+### 1. Thông tin liên hệ Công văn ở chân trang 1 — đã áp dụng
+
+Commit `a541bdc` fix(templates): thông tin liên hệ thành chân trang riêng của trang 1 (dải 10 mm trong lề dưới, kẻ ngang hết vùng chữ, 11 pt); thân văn bản vẫn kết thúc ở 20 mm mọi trang; các trang sau không có. Hàm `portable_blocks` chuyển sang mô-đun mới `nd30_portable.py` (giới hạn 199 dòng). Kiểm chứng: `check-templates.py` PASS 84; runtime `check-templates.py` PASS (cong-van, thong-bao, bien-ban); `check-templates-multipage.py` PASS 40/40 trường hợp (cong-van, thong-bao, bien-ban, quyet-dinh-gian-tiep; 1–5 trang; mẫu + wizard + quét); quality suite 91 lệnh, 0 lỗi. Wizard có điền thông tin liên hệ: chân trang đầu có nội dung, thân không còn dòng đó, DOCX `w:footer=567 w:bottom=1134` (đo trực tiếp).
+
+### 2. "Giữ 2 dòng cuối nội dung cùng khối chữ ký" — chưa áp dụng, có ảnh minh họa
+
+Ảnh: `/tmp/claude-0/-home-office/9b7a3a59-b584-43cf-95a7-4b248497ec7a/scratchpad/ribbon-shots/img/keep-with-signature.png` (mẫu Công văn thật, nội dung chỉnh để khối chữ ký vừa rơi sang trang 2). Trái "HIỆN NAY": nội dung hết ở trang 1, trang 2 chỉ có Nơi nhận và khối chữ ký. Phải "NẾU ÁP DỤNG QUY TẮC": đoạn cuối của nội dung sang trang 2 cùng khối chữ ký.
+
+Lưu ý kỹ thuật: Writer thực hiện "giữ với đoạn sau" bằng cách chuyển **cả đoạn cuối** (trong ảnh là 4 dòng), không cắt đúng 2 dòng; Word cho phép tách đoạn và chỉ chuyển 2 dòng cuối (có kiểm soát dòng mồ côi). Muốn đúng "2 dòng" trên Writer phải dùng cách khác (tách đoạn), không làm trong beta.5.
+
+NĐ30 nói gì: Phụ lục I, Phần I, II.7 (thẩm quyền, chức vụ, họ tên, chữ ký), II.8 (dấu, chữ ký số cơ quan), II.9 (nơi nhận) — trang PDF 26–28 của bản ký — **không có điều khoản nào** yêu cầu trang chữ ký phải có nội dung văn bản hay cấm khối chữ ký đứng riêng một trang. Hướng dẫn 05-HD/VPTW cũng không có. Đây là thói quen trình bày (tránh ký vào trang không có nội dung), không phải quy tắc pháp lý.
+
+### 3. Trang trống tự động chèn khi in — khuyến nghị TẮT, đã chuẩn bị, chưa commit
+
+- **Vì sao Writer chèn:** (a) đánh số trang bắt đầu lại ở số lẻ mà rơi vào trang chẵn: Writer chèn một trang trống để trang "số 1" là trang phải (`sw/source/core/layout/pagechg.cxx`, `sw::IsRightPageByNumber`), kể cả khi kiểu trang dùng "trái và phải"; (b) kiểu trang chỉ trang phải/chỉ trang trái (ví dụ bộ nhập DOCX biến ngắt phần "Odd page"/"Even page" thành kiểu trang chỉ phải/chỉ trái, `sw/source/writerfilter/dmapper/PropertyMap.cxx` `CreateEvenOddPageStyleCopy`). Tùy chọn `/org.openoffice.Office.Writer/Print/EmptyPages` ("In trang trống tự động chèn") mặc định **bật**; xuất PDF thì mặc định bỏ các trang này (`IsSkipEmptyPages=true`) nên PDF và bản in khác nhau.
+- **Word:** không chèn trang khi đánh số lại (`w:pgNumType w:start`); chỉ ngắt phần "Odd/Even page" mới tạo trang trống, và Word in trang đó.
+- **Mẫu HST bị ảnh hưởng:** 2 loại có văn bản kèm theo đánh số lại từ 1: `quyet-dinh-gian-tiep` (mẫu 1.3), `thong-tu-ban-hanh` (mẫu 15): khi phần chính có số trang lẻ, Writer có 3 trang (1 trống), PDF 2 trang. In thử (in ra tệp, đo bằng pdfinfo): **bật = 3 tờ, tắt = 2 tờ**. 66 loại còn lại không sinh trang trống. Với .docx thường gặp trong hành chính (phụ lục/văn bản kèm theo đánh số riêng) cũng xảy ra như vậy khi mở bằng HST.
+- **In hai mặt:** tắt thì tài liệu có ngắt "Odd page" thật (sách, báo cáo dàn trang hai mặt — ít gặp trong văn bản hành chính) mất tờ trống, phần đó bắt đầu ở mặt sau và các mặt trước/sau lệch từ đó; bật (như hiện nay) thì văn bản kèm theo/phụ lục bị chèn tờ trắng mà Word không có. Đặt lại được ở hộp thoại In (trang Writer) hoặc Công cụ ▸ Tùy chọn ▸ Writer ▸ In.
+- **Khuyến nghị:** TẮT mặc định — đúng với Word và với trường hợp phổ biến của văn bản hành chính; ghi chú ở trợ giúp. Cách triệt để hơn cho 1.0.0: patch lõi chỉ bỏ trang trống do đánh số lại khi kiểu trang là "trái và phải" (giữ trang trống của ngắt Odd/Even như Word).
+- **Đã chuẩn bị (không phải patch lõi):** `extensions/hst-vietnamese-tools/PrintDefaults.xcu` (lớp cấu hình của phần mở rộng, người dùng ghi đè được) + dòng trong `META-INF/manifest.xml`: `/tmp/claude-0/-home-office/9b7a3a59-b584-43cf-95a7-4b248497ec7a/scratchpad/template-audit/print-blank-pages-off.patch` (áp dụng sạch trên main). Đã thử: cài vào bản office thử, giá trị đọc được = false, in `quyet-dinh-gian-tiep` ra 2 tờ. **Chưa commit** — chờ xác nhận.
+
+### 4. Văn bản Đảng in hai mặt — chỉ nghiên cứu
+
+- **Quy tắc hiện hành:** Hướng dẫn 05-HD/VPTW ngày 27/5/2026 (thay 36-HD/VPTW ngày 04/3/2018, Phần III.1), Phần II, IV.4: "4.1. Văn bản của Đảng trình bày theo chiều dọc… Lề trên 20 mm, lề dưới 20 mm, lề trái 30 mm, lề phải 15 mm. 4.2. **Trường hợp văn bản in hai mặt**, mặt sau vùng trình bày như sau: lề trên 20 mm, lề dưới 20 mm, lề trái 15 mm, lề phải 30 mm." IV.5.1: số trang giữa, cách mép trên 10 mm, không hiện ở trang 1. 36-HD/VPTW có cùng giá trị (theo trích dẫn tại thuvienphapluat.vn: "Với văn bản in hai mặt, lề trái của mặt sau là 15 mm").
+- **Kết luận:** quy định **không bắt buộc in hai mặt**; chỉ quy định lề mặt sau *nếu* in hai mặt (lề đối xứng: gáy 30 mm). Lề đối xứng mà in một mặt thì các trang chẵn có lề trái 15 mm — sai 4.1. Vì vậy lề đối xứng phải đi cùng việc chọn in hai mặt.
+- **Mặc định in hai mặt theo mẫu:** LibreOffice không có thuộc tính "in hai mặt" trong ODF/DOCX. Chế độ hai mặt nằm trong JobSetup của máy in (`PrinterSetup` trong `settings.xml`, gắn tên và driver máy in): máy khác hoặc máy in khác thì bị bỏ qua; `com.sun.star.view.PrintOptions` và `PrinterDescriptor` cũng không có thuộc tính hai mặt. Không mang được mặc định hai mặt theo mẫu một cách khả chuyển. Lề đối xứng thì mang được: ODF `style:page-usage="mirrored"`, DOCX `w:mirrorMargins`.
+- **Đề xuất cho 1.0.0 (không làm bây giờ):** kiểu trang Đảng đối xứng (trong 30 / ngoài 15) bật khi người dùng chọn "In hai mặt" trong phần HST (một bước hỏi lúc in hoặc lệnh riêng), còn chế độ hai mặt của máy in do hộp thoại In/driver quyết định.
+
+### Commit bổ sung
+
+| Commit | Nội dung |
+|---|---|
+| `a541bdc` | Thông tin liên hệ Công văn ở chân trang 1 (đã duyệt) |
+| (chưa commit) | `/tmp/claude-0/-home-office/9b7a3a59-b584-43cf-95a7-4b248497ec7a/scratchpad/template-audit/print-blank-pages-off.patch` — tắt in trang trống tự chèn, chờ xác nhận |
