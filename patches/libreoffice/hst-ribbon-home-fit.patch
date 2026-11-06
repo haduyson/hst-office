@@ -1,0 +1,2292 @@
+HST Office: the Home tab keeps its "Kiểu" group beside the banner; its right-hand block is the group "Công cụ".
+
+- Writer, Sheets, Slides notebookbar.ui, Home: the right-hand block (the per-tab menu and the HST commands)
+  becomes a group of left-aligned rows with the caption "Công cụ": "Trang đầu ▾" (menu unchanged), then
+  Writer "Văn bản hành chính", Sheets sort/filter, Slides "Trình chiếu", then "Tìm tính năng". It is about
+  half as wide as before and still folds first into its button. "Tìm và thay thế" moves to an icon-only button
+  after the indent buttons of the paragraph group (Sheets: alignment group); the "Trang đầu" menu also offers
+  "Tìm tính năng".
+- Sheets, Home: "Có điều kiện" and "Kiểu dáng bảng" are two small buttons stacked, as Excel's narrow Styles
+  group, so the group needs about half its former width.
+- svx style gallery (Writer, Home ▸ Kiểu): the view needs one preview and takes the width the ribbon has left,
+  so it shows as many previews as fit instead of the group folding; the page buttons are a narrow column.
+  With one preview it shows the current style. A name wider than a preview wraps to two centred lines, and
+  large heading fonts are capped so two lines fit.
+- vcl builder: a ribbon label with the same words as the command label but a line break or no trailing "…" is
+  shown instead of it ("Tìm tính năng" for "Tìm tính năng…"); other .ui labels never replace a command label.
+- vi translations: the caption "Công cụ". solenv a11y suppressions: the two new items without a label of their
+  own (Find & Replace icon, the menu entry) take the command's label at runtime, as their neighbours.
+No new collapse engine: the groups still fold from the end through the existing PriorityMergedHBox.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_ribbon_home_tools.py, tests/runtime/check-ribbon-home-fit.py.
+---
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -861,120 +861,128 @@
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SelectAll</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SelectionModeDefault">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SelectionModeDefault</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SelectionModeBlock">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SelectionModeBlock</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SelectTextMode">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SelectTextMode</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-ShadowCursor">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ShadowCursor</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkSeparatorMenuItem" id="MenuHome-separator6">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-FocusToFindbar">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">vnd.sun.star.findbar:FocusToFindbar</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SearchDialog">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SearchDialog</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-GotoPage">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:GotoPage</property>
+       </object>
+     </child>
++    <child>
++      <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc), also on the Home tab -->
++      <object class="GtkMenuItem" id="MenuHome-HstFeatureSearch">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:CommandPopup</property>
++      </object>
++    </child>
+   </object>
+   <object class="GtkMenu" id="Menu Image">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-ImageCrop">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:Crop</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-ExternalEdit">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ExternalEdit</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-ChangePicture">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ChangePicture</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-CompressGraphic">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:CompressGraphic</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-SaveGraphic">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SaveGraphic</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkSeparatorMenuItem" id="MenuImage-separator1">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-FormatArea">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:FormatArea</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-ImageMapDialog">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ImageMapDialog</property>
+       </object>
+     </child>
+     <child>
+@@ -3717,120 +3725,132 @@
+                                 <property name="can-focus">False</property>
+                                 <property name="halign">center</property>
+                                 <property name="hexpand">True</property>
+                                 <property name="action-name">.uno:JustifyPara</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeIndentation">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeIncrementIndent">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="halign">center</property>
+                                 <property name="hexpand">True</property>
+                                 <property name="action-name">.uno:IncrementIndent</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeDecrementIndent">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="halign">center</property>
+                                 <property name="hexpand">True</property>
+                                 <property name="action-name">.uno:DecrementIndent</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeHangingIndent">
+                                 <property name="can-focus">False</property>
+                                 <property name="halign">center</property>
+                                 <property name="hexpand">True</property>
+                                 <property name="action-name">.uno:HangingIndent</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
++                            <child>
++                              <!-- HST Office: Find & Replace (Ctrl+H), icon only, as in Office's Home tab -->
++                              <object class="GtkToolButton" id="btnHomeHstSearchDialog">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:SearchDialog</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeOrientation">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeParaLeftToRight">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:ParaLeftToRight</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeParaRightToLeft">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:ParaRightToLeft</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeSpacing">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeParaspaceIncrease">
+                                 <property name="can-focus">False</property>
+                                 <property name="halign">center</property>
+                                 <property name="hexpand">True</property>
+                                 <property name="action-name">.uno:ParaspaceIncrease</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeParaspaceDecrease">
+@@ -3944,225 +3964,235 @@
+                             <property name="margin-start">3</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeStylesPreview">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="hexpand">True</property>
+                             <property name="vexpand">True</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeStylesPreview">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:StylesPreview</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">True</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">2</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+                           <relation type="labelled-by" target="lbHomeStyle"/>
+                         </accessibility>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+                         <property name="position">3</property>
+                       </packing>
+                     </child>
+                   </object>
+                   <packing>
+                     <property name="expand">True</property>
+                     <property name="fill">True</property>
+                     <property name="position">0</property>
+                   </packing>
+                 </child>
+                 <child>
+                   <object class="sfxlo-DropdownBox" id="Home-Menu">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="halign">end</property>
+                     <property name="valign">center</property>
+                     <property name="vexpand">True</property>
+                     <child>
+-                      <object class="GtkBox" id="PasteBox1">
++                      <!-- HST Office: the right-hand block of Home is the group "Công cụ": the tab menu, then the HST
++                           commands in rows of small buttons, with a caption as the other groups. Find & Replace sits in
++                           the paragraph group; the tab menu also offers it. -->
++                      <!-- n-columns=2 n-rows=4 -->
++                      <object class="GtkGrid" id="gdHomeHstTools">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="valign">center</property>
++                        <property name="valign">fill</property>
+                         <property name="vexpand">True</property>
+-                        <property name="orientation">vertical</property>
++                        <property name="margin-start">3</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="column-spacing">4</property>
+                         <child>
+                           <object class="svtlo-ManagedMenuButton" id="Home-HomeButton:Menu Home">
+                             <property name="label" translatable="yes" context="TabbedWriter|HomeMenuButton">_Home</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="focus-on-click">False</property>
+                             <property name="receives-default">False</property>
+-                            <property name="halign">end</property>
++                            <property name="halign">start</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+                             <property name="relief">none</property>
+                             <property name="use-underline">True</property>
+                           </object>
+                           <packing>
+-                            <property name="expand">False</property>
+-                            <property name="fill">True</property>
+-                            <property name="position">0</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="SectionBottom10">
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeHstToolsNd30">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="halign">end</property>
++                            <property name="halign">start</property>
+                             <property name="valign">center</property>
+-                            <property name="hexpand">True</property>
+-                            <property name="vexpand">True</property>
+                             <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+                             <property name="icon_size">1</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="Home-FocusToFindbar">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="valign">center</property>
+-                                <property name="action-name">.uno:SearchDialog</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="expand">False</property>
+-                            <property name="fill">True</property>
+-                            <property name="position">1</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <!-- HST Office: Decree 30 wizard of the bundled HST extension (always Vietnamese) -->
+-                          <object class="sfxlo-NotebookbarToolBox" id="SectionBottomHstNd30">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="halign">end</property>
+-                            <property name="valign">center</property>
+-                            <property name="hexpand">True</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <property name="icon_size">1</property>
+-                            <child>
+-                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc) -->
+-                              <object class="GtkToolButton" id="Home-HstFeatureSearch">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="valign">center</property>
+-                                <!-- fallback only: the toolbox shows the label of the command ("Tìm tính năng…" in vi) -->
+-                                <property name="label">Search Commands</property>
+-                                <property name="action-name">.uno:CommandPopup</property>
+-                                <property name="icon-name">cmd/lc_recsearch.png</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+                             <child>
+                               <object class="GtkToolButton" id="Home-HstNd30Wizard">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="valign">center</property>
+                                 <property name="label">Văn bản hành chính</property>
+                                 <property name="tooltip-text">Văn bản hành chính (Nghị định 30/2020/NĐ-CP)</property>
+                                 <property name="action-name">org.hst.office.vi:Nd30Wizard</property>
+                                 <property name="icon-name">cmd/lc_insertdoc.png</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="expand">False</property>
+-                            <property name="fill">True</property>
+-                            <property name="position">2</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeHstToolsSearch">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="halign">start</property>
++                            <property name="valign">center</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">1</property>
++                            <child>
++                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc); the label drops the "…" of the command (builder.cxx) -->
++                              <object class="GtkToolButton" id="Home-HstFeatureSearch">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="valign">center</property>
++                                <property name="label">Tìm tính năng</property>
++                                <property name="action-name">.uno:CommandPopup</property>
++                                <property name="icon-name">cmd/lc_recsearch.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkLabel" id="lbHomeHstTools">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedWriter|labelHomeHstTools">Tools</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdHomeHstTools"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbHomeHstTools"/>
++                        </accessibility>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
+                     <style>
+                       <class name="priority-1"/>
+                     </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">False</property>
+                     <property name="pack-type">end</property>
+                     <property name="position">1</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+                 <property name="position">1</property>
+               </packing>
+             </child>
+             <child type="tab">
+               <object class="GtkLabel" id="HomeLabel">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="label" translatable="yes" context="TabbedWriter|HomeTabLabel">~Home</property>
+                 <property name="use-underline">True</property>
+                 <style>
+                   <class name="context-default"/>
+                   <class name="context-any"/>
+                   <class name="context-Text"/>
+                   <class name="context-DrawText"/>
+                 </style>
+               </object>
+               <packing>
+                 <property name="position">1</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+             <child>
+               <object class="sfxlo-PriorityHBox" id="Insert Tab">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <child>
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbInsert">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <child>
+                       <!-- n-columns=3 n-rows=3 -->
+                       <object class="GtkGrid" id="gdInsertPage">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">6</property>
+                         <property name="margin-end">3</property>
+                         <property name="margin-top">6</property>
+                         <property name="margin-bottom">6</property>
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">3</property>
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -1037,120 +1037,128 @@
+       <object class="GtkMenuItem" id="MenuHome-InsertRLM">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:InsertRLM</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkSeparatorMenuItem" id="MenuHome-separator5">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SelectAlld">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SelectAll</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SelectRow">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SelectRow</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SelectColumn">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SelectColumn</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SelectData">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SelectData</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkSeparatorMenuItem" id="MenuHome-separator6">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-FocusToFindbar">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">vnd.sun.star.findbar:FocusToFindbar</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SearchDialog">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SearchDialog</property>
+       </object>
+     </child>
++    <child>
++      <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc), also on the Home tab -->
++      <object class="GtkMenuItem" id="MenuHome-HstFeatureSearch">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:CommandPopup</property>
++      </object>
++    </child>
+   </object>
+   <object class="GtkMenu" id="Menu Image">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-Crop">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:Crop</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-ExternalEdit">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ExternalEdit</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-ChangePicture">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ChangePicture</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-CompressGraphic">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:CompressGraphic</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-SaveGraphic">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SaveGraphic</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkSeparatorMenuItem" id="separator29">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-OriginalSize">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:OriginalSize</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-FitCellSize">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:FitCellSize</property>
+       </object>
+     </child>
+     <child>
+@@ -3494,120 +3502,132 @@
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:AlignRight</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeSpacingIndentation">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkMenuToolButton" id="btnHomeSpacing">
+                                 <property name="can-focus">False</property>
+                                 <property name="is-important">True</property>
+                                 <property name="action-name">.uno:Spacing</property>
+                                 <property name="use-underline">True</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeIncrementIndent">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="is-important">True</property>
+                                 <property name="action-name">.uno:IncrementIndent</property>
+                                 <property name="use-underline">True</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeDecrementIndent">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="is-important">True</property>
+                                 <property name="action-name">.uno:DecrementIndent</property>
+                                 <property name="use-underline">True</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
++                            <child>
++                              <!-- HST Office: Find & Replace (Ctrl+H), icon only, as in Office's Home tab -->
++                              <object class="GtkToolButton" id="btnHomeHstSearchDialog">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:SearchDialog</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeParaLeftToRight">
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:ParaLeftToRight</property>
+                                 <property name="use-underline">True</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeAlignBlock">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeAlignBlock">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:AlignBlock</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeWrapRTL">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeWrapText">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:WrapText</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+@@ -3770,209 +3790,209 @@
+                                 <property name="hexpand">True</property>
+                                 <property name="action-name">.uno:NumberFormatDecimal</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">False</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeNumberDecimals">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeNumberFormatIncDecimals">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:NumberFormatIncDecimals</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeNumberFormatDecDecimals">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:NumberFormatDecDecimals</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+                           <relation type="labelled-by" target="lbHomeNumber"/>
+                         </accessibility>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+                         <property name="position">3</property>
+                       </packing>
+                     </child>
+                     <child>
++                      <!-- HST Office: two small buttons stacked (Excel's narrow Styles group), so the group stays
++                           beside the banner at 1485 px -->
+                       <object class="GtkGrid" id="gdHomeStyles">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">3</property>
+                         <property name="margin-end">6</property>
+                         <property name="margin-top">6</property>
+                         <property name="margin-bottom">6</property>
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">4</property>
+                         <child>
+                           <object class="GtkLabel" id="lbHomeStyles">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="valign">end</property>
+                             <property name="vexpand">True</property>
+                             <property name="label" translatable="yes" context="TabbedCalc|labelHomeStyles">Styles</property>
+                             <attributes>
+                               <attribute name="style" value="normal"/>
+                               <attribute name="scale" value="0.9"/>
+                             </attributes>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">2</property>
++                            <property name="width">1</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeConditionalFormatMenu">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both</property>
++                            <property name="halign">start</property>
++                            <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+-                            <property name="icon_size">3</property>
++                            <property name="icon_size">1</property>
+                             <child>
+                               <object class="GtkMenuToolButton" id="btnHomeConditionalFormatMenu">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:ConditionalFormatMenu</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">False</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxLayoutAutoFormat">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both</property>
++                            <property name="halign">start</property>
++                            <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+-                            <property name="icon_size">3</property>
++                            <property name="icon_size">1</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnLayoutAutoFormat">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:AutoFormat</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+                           <relation type="labelled-by" target="lbHomeStyles"/>
+                         </accessibility>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+                         <property name="position">4</property>
+                       </packing>
+                     </child>
+                     <child>
+                       <!-- n-columns=4 n-rows=3 -->
+                       <object class="GtkGrid" id="gdHomeCells">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">3</property>
+                         <property name="margin-end">6</property>
+                         <property name="margin-top">6</property>
+                         <property name="margin-bottom">6</property>
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">4</property>
+                         <child>
+                           <object class="GtkLabel" id="lbHomeCells">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="valign">end</property>
+                             <property name="vexpand">True</property>
+                             <property name="label" translatable="yes" context="TabbedCalc|labelHomeCells">Cells</property>
+                             <attributes>
+                               <attribute name="style" value="normal"/>
+                               <attribute name="scale" value="0.9"/>
+                             </attributes>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxLayoutInsert">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+@@ -4216,231 +4236,244 @@
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+                             <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHstClearContents3">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="label">ClearContents</property>
+                                 <property name="action-name">.uno:ClearContents</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+                           <relation type="labelled-by" target="lbHomeEditing"/>
+                         </accessibility>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+                         <property name="position">6</property>
+                       </packing>
+                     </child>
+                   </object>
+                   <packing>
+                     <property name="expand">True</property>
+                     <property name="fill">True</property>
+                     <property name="position">0</property>
+                   </packing>
+                 </child>
+                 <child>
+                   <object class="sfxlo-DropdownBox" id="Home-Menu">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="halign">end</property>
+                     <property name="valign">center</property>
+                     <property name="vexpand">True</property>
+                     <child>
+-                      <object class="GtkBox" id="PasteBox1">
++                      <!-- HST Office: the right-hand block of Home is the group "Công cụ": the tab menu, then the HST
++                           commands in rows of small buttons, with a caption as the other groups. Find & Replace sits in
++                           the paragraph group; the tab menu also offers it. -->
++                      <!-- n-columns=2 n-rows=4 -->
++                      <object class="GtkGrid" id="gdHomeHstTools">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="valign">center</property>
++                        <property name="valign">fill</property>
+                         <property name="vexpand">True</property>
+-                        <property name="orientation">vertical</property>
++                        <property name="margin-start">3</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="column-spacing">4</property>
+                         <child>
+                           <object class="svtlo-ManagedMenuButton" id="Home-HomeButton:Menu Home">
+                             <property name="label" translatable="yes" context="TabbedCalc|HomeMenuButton">_Home</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="focus-on-click">False</property>
+                             <property name="receives-default">False</property>
+-                            <property name="halign">end</property>
++                            <property name="halign">start</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+                             <property name="relief">none</property>
+                             <property name="use-underline">True</property>
+                           </object>
+                           <packing>
+-                            <property name="expand">False</property>
+-                            <property name="fill">True</property>
+-                            <property name="position">0</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="SectionBottom10">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <property name="icon_size">1</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHomeSearchDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:SearchDialog</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeSortAscending1">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="valign">center</property>
+                                 <property name="action-name">.uno:SortAscending</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeDataFilterAutoFilter1">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="valign">center</property>
+                                 <property name="action-name">.uno:DataFilterAutoFilter</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="expand">False</property>
+-                            <property name="fill">True</property>
+-                            <property name="position">1</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <!-- HST Office: feature search row (.uno:CommandPopup, Shift+Esc) -->
+-                          <object class="sfxlo-NotebookbarToolBox" id="SectionBottomHstFeatureSearch">
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeHstToolsSearch">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="halign">end</property>
++                            <property name="halign">start</property>
+                             <property name="valign">center</property>
+-                            <property name="hexpand">True</property>
+-                            <property name="vexpand">True</property>
+                             <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+                             <property name="icon_size">1</property>
+                             <child>
+-                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc) -->
++                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc); the label drops the "…" of the command (builder.cxx) -->
+                               <object class="GtkToolButton" id="Home-HstFeatureSearch">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="valign">center</property>
+-                                <!-- fallback only: the toolbox shows the label of the command ("Tìm tính năng…" in vi) -->
+-                                <property name="label">Search Commands</property>
++                                <property name="label">Tìm tính năng</property>
+                                 <property name="action-name">.uno:CommandPopup</property>
+                                 <property name="icon-name">cmd/lc_recsearch.png</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="expand">False</property>
+-                            <property name="fill">True</property>
+-                            <property name="position">2</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
++                        <child>
++                          <object class="GtkLabel" id="lbHomeHstTools">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedCalc|labelHomeHstTools">Tools</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdHomeHstTools"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbHomeHstTools"/>
++                        </accessibility>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
+                     <style>
+                       <class name="priority-1"/>
+                     </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">False</property>
+                     <property name="pack-type">end</property>
+                     <property name="position">7</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+                 <property name="position">1</property>
+               </packing>
+             </child>
+             <child type="tab">
+               <object class="GtkLabel" id="HomeLabel">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="label" translatable="yes" context="TabbedCalc|HomeTabLabel">~Home</property>
+                 <property name="use-underline">True</property>
+                 <style>
+                   <class name="context-default"/>
+                   <class name="context-any"/>
+                   <class name="context-Text"/>
+                   <class name="context-DrawText"/>
+                 </style>
+               </object>
+               <packing>
+                 <property name="position">1</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+             <child>
+               <object class="sfxlo-PriorityHBox" id="phbInsert">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <child>
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbInsert">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="valign">center</property>
+                     <child>
+                       <!-- n-columns=3 n-rows=3 -->
+                       <object class="GtkGrid" id="gdInsertPivotTable">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">6</property>
+                         <property name="margin-end">3</property>
+                         <property name="margin-top">6</property>
+                         <property name="margin-bottom">6</property>
+                         <property name="row-spacing">3</property>
+--- a/sd/uiconfig/simpress/ui/notebookbar.ui
++++ b/sd/uiconfig/simpress/ui/notebookbar.ui
+@@ -975,120 +975,128 @@
+     <child>
+       <object class="GtkSeparatorMenuItem" id="MenuHome-separator5">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkRadioMenuItem" id="MenuHome-ParaLeftToRight">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ParaLeftToRight</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkRadioMenuItem" id="MenuHome-ParaRightToLeft">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ParaRightToLeft</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkSeparatorMenuItem" id="MenuHome-separator6">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SelectAll">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SelectAll</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkSeparatorMenuItem" id="MenuHome-separator7">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-FocusToFindbar">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">vnd.sun.star.findbar:FocusToFindbar</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-SearchDialog">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SearchDialog</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuHome-RestoreEditingView">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:RestoreEditingView</property>
+       </object>
+     </child>
++    <child>
++      <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc), also on the Home tab -->
++      <object class="GtkMenuItem" id="MenuHome-HstFeatureSearch">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:CommandPopup</property>
++      </object>
++    </child>
+   </object>
+   <object class="GtkMenu" id="Menu Image">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-ImageCrop">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:Crop</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-ExternalEdit">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ExternalEdit</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-ChangePicture">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ChangePicture</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-CompressGraphic">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:CompressGraphic</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-SaveGraphic">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:SaveGraphic</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkSeparatorMenuItem" id="separator62">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-OriginalSize">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:OriginalSize</property>
+       </object>
+     </child>
+     <child>
+       <object class="GtkMenuItem" id="MenuImage-ImageMapDialog">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="action-name">.uno:ImageMapDialog</property>
+       </object>
+     </child>
+     <child>
+@@ -3748,120 +3756,132 @@
+                                 <property name="halign">center</property>
+                                 <property name="hexpand">True</property>
+                                 <property name="action-name">.uno:JustifyPara</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeIndentation">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeIncrementIndent">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="halign">center</property>
+                                 <property name="hexpand">True</property>
+                                 <property name="action-name">.uno:IncrementIndent</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeDecrementIndent">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="halign">center</property>
+                                 <property name="hexpand">True</property>
+                                 <property name="action-name">.uno:DecrementIndent</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeHangingIndent">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="halign">center</property>
+                                 <property name="hexpand">True</property>
+                                 <property name="action-name">.uno:HangingIndent</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
++                            <child>
++                              <!-- HST Office: Find & Replace (Ctrl+H), icon only, as in Office's Home tab -->
++                              <object class="GtkToolButton" id="btnHomeHstSearchDialog">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:SearchDialog</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeLTRRTL">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeParaLeftToRight">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:ParaLeftToRight</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeParaRightToLeft">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:ParaRightToLeft</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHomeSpacing">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkMenuToolButton" id="btnHomeLineSpacing">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="halign">end</property>
+                                 <property name="action-name">.uno:LineSpacing</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">False</property>
+                               </packing>
+                             </child>
+                             <child>
+                               <object class="GtkToolButton" id="btnHomeParaspaceIncrease">
+@@ -4041,221 +4061,233 @@
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+                             <property name="toolbar-style">both</property>
+                             <property name="show-arrow">False</property>
+                             <property name="icon_size">3</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnLayoutToggleObjectRotateMode">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="action-name">.uno:ToggleObjectRotateMode</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">2</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+                           <relation type="labelled-by" target="lbHomeDrawing"/>
+                         </accessibility>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+                         <property name="position">4</property>
+                       </packing>
+                     </child>
+                   </object>
+                   <packing>
+                     <property name="expand">True</property>
+                     <property name="fill">True</property>
+                     <property name="position">0</property>
+                   </packing>
+                 </child>
+                 <child>
+                   <object class="sfxlo-DropdownBox" id="Home-Menu">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="halign">end</property>
+                     <property name="valign">center</property>
+                     <property name="vexpand">True</property>
+                     <child>
+-                      <object class="GtkBox" id="PasteBox1">
++                      <!-- HST Office: the right-hand block of Home is the group "Công cụ": the tab menu, then the HST
++                           commands in rows of small buttons, with a caption as the other groups. Find & Replace sits in
++                           the paragraph group; the tab menu also offers it. -->
++                      <!-- n-columns=2 n-rows=4 -->
++                      <object class="GtkGrid" id="gdHomeHstTools">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="valign">center</property>
++                        <property name="valign">fill</property>
+                         <property name="vexpand">True</property>
+-                        <property name="orientation">vertical</property>
++                        <property name="margin-start">3</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="column-spacing">4</property>
+                         <child>
+                           <object class="svtlo-ManagedMenuButton" id="Home-HomeButton:Menu Home">
+                             <property name="label" translatable="yes" context="TabbedImpress|HomeMenuButton">_Home</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="focus-on-click">False</property>
+                             <property name="receives-default">False</property>
+-                            <property name="halign">end</property>
++                            <property name="halign">start</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+                             <property name="relief">none</property>
+                             <property name="use-underline">True</property>
+                           </object>
+                           <packing>
+-                            <property name="expand">False</property>
+-                            <property name="fill">True</property>
+-                            <property name="position">0</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="SectionBottom10">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="halign">end</property>
+                             <property name="valign">center</property>
+-                            <property name="hexpand">True</property>
++                            <property name="halign">start</property>
+                             <property name="vexpand">True</property>
+                             <property name="toolbar-style">icons</property>
+                             <property name="show-arrow">False</property>
+                             <property name="icon_size">1</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="Home-SearchDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:SearchDialog</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+                             <child>
+                               <object class="GtkToolButton" id="Home-Findbar">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="valign">center</property>
+                                 <property name="action-name">.uno:Presentation</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="expand">False</property>
+-                            <property name="fill">True</property>
+-                            <property name="position">1</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <!-- HST Office: feature search row (.uno:CommandPopup, Shift+Esc) -->
+-                          <object class="sfxlo-NotebookbarToolBox" id="SectionBottomHstFeatureSearch">
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeHstToolsSearch">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="halign">end</property>
++                            <property name="halign">start</property>
+                             <property name="valign">center</property>
+-                            <property name="hexpand">True</property>
+-                            <property name="vexpand">True</property>
+                             <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+                             <property name="icon_size">1</property>
+                             <child>
+-                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc) -->
++                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc); the label drops the "…" of the command (builder.cxx) -->
+                               <object class="GtkToolButton" id="Home-HstFeatureSearch">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+                                 <property name="valign">center</property>
+-                                <!-- fallback only: the toolbox shows the label of the command ("Tìm tính năng…" in vi) -->
+-                                <property name="label">Search Commands</property>
++                                <property name="label">Tìm tính năng</property>
+                                 <property name="action-name">.uno:CommandPopup</property>
+                                 <property name="icon-name">cmd/lc_recsearch.png</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="expand">False</property>
+-                            <property name="fill">True</property>
+-                            <property name="position">2</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
++                        <child>
++                          <object class="GtkLabel" id="lbHomeHstTools">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedImpress|labelHomeHstTools">Tools</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdHomeHstTools"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbHomeHstTools"/>
++                        </accessibility>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+                         <property name="position">2</property>
+                       </packing>
+                     </child>
+                     <style>
+                       <class name="priority-1"/>
+                     </style>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">False</property>
+                     <property name="pack-type">end</property>
+                     <property name="position">1</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+                 <property name="position">1</property>
+               </packing>
+             </child>
+             <child type="tab">
+               <object class="GtkLabel" id="HomeLabel">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="label" translatable="yes" context="TabbedImpress|HomeTabLabel">~Home</property>
+                 <property name="use-underline">True</property>
+                 <style>
+                   <class name="context-default"/>
+                   <class name="context-any"/>
+                   <class name="context-Text"/>
+                   <class name="context-DrawText"/>
+                   <class name="context-TextObject"/>
+                 </style>
+               </object>
+               <packing>
+                 <property name="position">1</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+             <child>
+               <object class="sfxlo-PriorityHBox" id="Insert">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <child>
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbInsert">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="valign">center</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <!-- n-columns=5 n-rows=3 -->
+                       <object class="GtkGrid" id="gdInsertSlide">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">6</property>
+                         <property name="margin-end">3</property>
+                         <property name="margin-top">6</property>
+--- a/solenv/sanitizers/ui/modules/swriter.suppr
++++ b/solenv/sanitizers/ui/modules/swriter.suppr
+@@ -548,3 +548,5 @@ sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnToolsMacroDialog']
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnToolsMailMergeWizard'] button-no-label
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnToolsInsertEnvelope'] button-no-label
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnToolsSendMail'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHome-HstFeatureSearch'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHomeHstSearchDialog'] button-no-label
+--- a/solenv/sanitizers/ui/modules/scalc.suppr
++++ b/solenv/sanitizers/ui/modules/scalc.suppr
+@@ -757,3 +757,5 @@ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuToolButton[@id='btnDrawExtrusion3DC
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuToolButton[@id='btnDrawExtrusionSurfaceFloater'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuToolButton[@id='btnObjectXLineStyle'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuToolButton[@id='btnMediaAnchorMenu'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHome-HstFeatureSearch'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHomeHstSearchDialog'] button-no-label
+--- a/solenv/sanitizers/ui/modules/simpress.suppr
++++ b/solenv/sanitizers/ui/modules/simpress.suppr
+@@ -665,3 +665,5 @@ sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnDrawFormatUngroup
+ sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHomeInsertSlide'] button-no-label
+ sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHomeDuplicatePage'] button-no-label
+ sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHomePresentationLayout'] button-no-label
++sd/uiconfig/simpress/ui/notebookbar.ui://GtkMenuItem[@id='MenuHome-HstFeatureSearch'] button-no-label
++sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHomeHstSearchDialog'] button-no-label
+--- a/svx/uiconfig/ui/stylespreview.ui
++++ b/svx/uiconfig/ui/stylespreview.ui
+@@ -1,121 +1,149 @@
+ <?xml version='1.0' encoding='UTF-8'?>
+ <!-- Created with Cambalache 1.0 -->
+ <!-- Generated with glade 3.40.0 -->
+ <interface domain="svx">
+   <!-- interface-name stylespreview.ui -->
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkTreeStore" id="liststore1">
+     <columns>
+       <!-- column-name expander -->
+       <column type="GdkPixbuf"/>
+       <!-- column-name id -->
+       <column type="gchararray"/>
+       <!-- column-name tooltip -->
+       <column type="gchararray"/>
+     </columns>
+   </object>
+   <object class="GtkBox" id="ApplyStyleBox">
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="spacing">6</property>
+     <property name="visible">True</property>
+     <child>
+       <object class="GtkBox">
+         <property name="can-focus">False</property>
+         <property name="spacing">0</property>
+         <property name="visible">True</property>
+         <!-- HST Office: one row of style previews, exactly as tall as the row (no clipped
+              second row, no scrollbar); the buttons on the right page through the styles
+-             and open the Styles deck. Rows/pages are filled by StylesPreviewWindow.cxx. -->
++             and open the Styles deck. Rows/pages are filled by StylesPreviewWindow.cxx.
++             The view needs one preview and takes the width the ribbon has left (more
++             previews); the buttons are a narrow column, as in Office. -->
+         <child>
+           <object class="GtkScrolledWindow" id="stylesscroll">
+             <property name="can-focus">True</property>
+             <property name="height-request">60</property>
+             <property name="hscrollbar-policy">external</property>
+-            <property name="min-content-width">212</property>
++            <property name="min-content-width">106</property>
+             <property name="shadow-type">in</property>
+             <property name="valign">center</property>
+             <property name="visible">True</property>
+             <property name="vscrollbar-policy">external</property>
+-            <property name="width-request">212</property>
++            <property name="width-request">106</property>
+             <child>
+               <object class="GtkIconView" id="stylesview">
+                 <property name="can-focus">True</property>
+                 <property name="column-spacing">0</property>
+                 <property name="item-padding">3</property>
+                 <property name="item-width">100</property>
+                 <property name="margin">0</property>
+                 <property name="model">liststore1</property>
+                 <property name="pixbuf-column">0</property>
+                 <property name="row-spacing">0</property>
+                 <property name="visible">True</property>
+                 <property name="tooltip-column">2</property>
+               </object>
+             </child>
+           </object>
+           <packing>
+             <property name="expand">True</property>
+             <property name="fill">True</property>
+             <property name="position">0</property>
+           </packing>
+         </child>
+         <child>
+-          <object class="GtkButton" id="prevstyles">
+-            <property name="label">◂</property>
++          <object class="GtkBox" id="stylesbuttons">
+             <property name="can-focus">False</property>
+-            <property name="receives-default">False</property>
+-            <property name="relief">none</property>
+-            <property name="tooltip-text" translatable="yes" context="stylespreview|prevstyles">Previous Styles</property>
++            <property name="orientation">vertical</property>
++            <property name="spacing">0</property>
+             <property name="valign">center</property>
+-            <property name="height-request">60</property>
+             <property name="visible">True</property>
++            <child>
++              <object class="GtkButton" id="prevstyles">
++                <property name="label">◂</property>
++                <property name="can-focus">False</property>
++                <property name="receives-default">False</property>
++                <property name="relief">none</property>
++                <property name="tooltip-text" translatable="yes" context="stylespreview|prevstyles">Previous Styles</property>
++                <property name="valign">center</property>
++                <property name="height-request">20</property>
++                <property name="width-request">18</property>
++                <property name="visible">True</property>
++                <style>
++                  <class name="small-button"/>
++                </style>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="nextstyles">
++                <property name="label">▸</property>
++                <property name="can-focus">False</property>
++                <property name="receives-default">False</property>
++                <property name="relief">none</property>
++                <property name="tooltip-text" translatable="yes" context="stylespreview|nextstyles">Next Styles</property>
++                <property name="valign">center</property>
++                <property name="height-request">20</property>
++                <property name="width-request">18</property>
++                <property name="visible">True</property>
++                <style>
++                  <class name="small-button"/>
++                </style>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="morestyles">
++                <property name="label">▾</property>
++                <property name="can-focus">False</property>
++                <property name="receives-default">False</property>
++                <property name="relief">none</property>
++                <property name="tooltip-text" translatable="yes" context="stylespreview|morestyles">All Styles</property>
++                <property name="valign">center</property>
++                <property name="height-request">20</property>
++                <property name="width-request">18</property>
++                <property name="visible">True</property>
++                <style>
++                  <class name="small-button"/>
++                </style>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">2</property>
++              </packing>
++            </child>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+             <property name="position">1</property>
+           </packing>
+         </child>
+-        <child>
+-          <object class="GtkButton" id="nextstyles">
+-            <property name="label">▸</property>
+-            <property name="can-focus">False</property>
+-            <property name="receives-default">False</property>
+-            <property name="relief">none</property>
+-            <property name="tooltip-text" translatable="yes" context="stylespreview|nextstyles">Next Styles</property>
+-            <property name="valign">center</property>
+-            <property name="height-request">60</property>
+-            <property name="visible">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">2</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="morestyles">
+-            <property name="label">▾</property>
+-            <property name="can-focus">False</property>
+-            <property name="receives-default">False</property>
+-            <property name="relief">none</property>
+-            <property name="tooltip-text" translatable="yes" context="stylespreview|morestyles">All Styles</property>
+-            <property name="valign">center</property>
+-            <property name="height-request">60</property>
+-            <property name="visible">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">3</property>
+-          </packing>
+-        </child>
+       </object>
+       <packing>
+         <property name="expand">True</property>
+         <property name="fill">True</property>
+         <property name="position">0</property>
+       </packing>
+     </child>
+   </object>
+ </interface>
+--- a/svx/source/inc/StylesPreviewWindow.hxx
++++ b/svx/source/inc/StylesPreviewWindow.hxx
+@@ -67,6 +67,8 @@ public:
+ class StyleItemController
+ {
+     static constexpr unsigned LEFT_MARGIN = 8;
++    // HST Office: highest font of a preview, in pixels, so a two-line name fits its 52 px
++    static constexpr tools::Long MAX_PREVIEW_FONT_HEIGHT = 20;
+ 
+     SfxStyleFamily m_eStyleFamily;
+     StylePreviewDescriptor m_aStyleName;
+@@ -147,6 +149,7 @@ private:
+     void UpdateSelection();
+     void ShowPage();
+     size_t CalcPageSize() const;
++    void ShowCurrentStyleInSingleView();
+     bool Command(const CommandEvent& rEvent);
+ };
+ 
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -347,6 +347,9 @@ void StyleItemController::DrawEntry(vcl::RenderContext& rRenderContext)
+     {
+         Size aFontSize(0, pFontHeightItem->GetHeight());
+         Size aPixelSize(rRenderContext.LogicToPixel(aFontSize, MapMode(pShell->GetMapUnit())));
++        // HST Office: a long name takes two lines of the preview; big headings are capped so two fit
++        if (aPixelSize.Height() > MAX_PREVIEW_FONT_HEIGHT)
++            aPixelSize.setHeight(MAX_PREVIEW_FONT_HEIGHT);
+ 
+         SvxFont aFont = GetFontFromItems(pFontItem, aPixelSize, pItemSet);
+         rRenderContext.SetFont(aFont);
+@@ -415,6 +418,19 @@ void StyleItemController::DrawHighlight(vcl::RenderContext& rRenderContext, Colo
+ 
+ void StyleItemController::DrawText(vcl::RenderContext& rRenderContext)
+ {
++    // HST Office: a name wider than the preview (Vietnamese style names are long, e.g. "Kiểu dáng đoạn
++    // văn mặc định") wraps to centred lines instead of being cut off.
++    const tools::Long nInner = rRenderContext.GetOutputSizePixel().Width() - 2 * LEFT_MARGIN;
++    if (rRenderContext.GetTextWidth(m_aStyleName.translatedName) > nInner)
++    {
++        const tools::Rectangle aRect(Point(LEFT_MARGIN, 0),
++                                     Size(nInner, rRenderContext.GetOutputSizePixel().Height()));
++        rRenderContext.DrawText(aRect, m_aStyleName.translatedName,
++                                DrawTextFlags::MultiLine | DrawTextFlags::WordBreak
++                                    | DrawTextFlags::Center | DrawTextFlags::VCenter
++                                    | DrawTextFlags::EndEllipsis);
++        return;
++    }
+     const SalLayoutGlyphs* layoutGlyphs = SalLayoutGlyphsCache::self()->GetLayoutGlyphs(
+         &rRenderContext, m_aStyleName.translatedName);
+     tools::Rectangle aTextRect;
+@@ -508,7 +524,29 @@ IMPL_LINK(StylesPreviewWindow_Base, ViewSizeHdl, const Size&, rSize, void)
+         return;
+     m_nViewWidth = rSize.Width();
+     if (CalcPageSize() != m_nPageSize)
+-        ShowPage();
++    {
++        ShowCurrentStyleInSingleView();
++        // HST Office: refill after this size allocation; changing the items while the view is being
++        // allocated left it empty when the ribbon grew from one preview to several.
++        RequestStylesListUpdate();
++    }
++}
++
++// HST Office: on a narrow ribbon the view holds one preview; it is the current style's, so the
++// gallery still tells which style the cursor is in.
++void StylesPreviewWindow_Base::ShowCurrentStyleInSingleView()
++{
++    if (CalcPageSize() != 1)
++        return;
++    for (StylePreviewList::size_type i = 0; i < m_aAllStyles.size(); ++i)
++    {
++        if (m_aAllStyles[i].commonName == m_sSelectedStyle
++            || m_aAllStyles[i].translatedName == m_sSelectedStyle)
++        {
++            m_nFirstVisible = i;
++            return;
++        }
++    }
+ }
+ 
+ IMPL_LINK(StylesPreviewWindow_Base, PageHdl, weld::Button&, rButton, void)
+@@ -555,6 +593,8 @@ void StylesPreviewWindow_Base::ShowPage()
+         nIndex++;
+     }
+     m_xStylesView->thaw();
++    // HST Office: lay the new items out for the current width (the page size follows the width)
++    m_xStylesView->queue_resize();
+ 
+     m_xPrevButton->set_sensitive(m_nFirstVisible > 0);
+     m_xNextButton->set_sensitive(nEnd < m_aAllStyles.size());
+@@ -582,8 +622,15 @@ StylesPreviewWindow_Base::~StylesPreviewWindow_Base()
+ 
+ void StylesPreviewWindow_Base::Select(const OUString& rStyleName)
+ {
++    const bool bChanged = m_sSelectedStyle != rStyleName;
+     m_sSelectedStyle = rStyleName;
+ 
++    if (bChanged && m_nPageSize == 1 && m_xStylesView)
++    {
++        ShowCurrentStyleInSingleView();
++        ShowPage(); // also updates the selection
++        return;
++    }
+     UpdateSelection();
+ }
+ 
+--- a/vcl/source/window/builder.cxx
++++ b/vcl/source/window/builder.cxx
+@@ -735,6 +735,22 @@ namespace
+         return extractBoolEntry(rMap, u"clickable"_ustr, false);
+     }
+ 
++    // HST: the words of a label without mnemonic marks, line breaks or a trailing ellipsis
++    OUString hstLabelWords(const OUString& rLabel)
++    {
++        OUString aWords = rLabel.replaceAll("~", "").replaceAll("_", "").replace('\n', ' ').trim();
++        if (aWords.endsWith(u"\u2026"))
++            aWords = aWords.copy(0, aWords.getLength() - 1);
++        else if (aWords.endsWith("..."))
++            aWords = aWords.copy(0, aWords.getLength() - 3);
++        return aWords.trim();
++    }
++
++    bool hstSameWords(const OUString& rUiLabel, const OUString& rCommandLabel)
++    {
++        return hstLabelWords(rUiLabel) == hstLabelWords(rCommandLabel);
++    }
++
+     void setupFromActionName(Button *pButton, VclBuilder::stringmap &rMap, const css::uno::Reference<css::frame::XFrame>& rFrame)
+     {
+         if (!rFrame.is())
+@@ -1683,8 +1699,15 @@ VclPtr<vcl::Window> VclBuilder::makeObject(vcl::Window *pParent, const OUString
+                 nItemId = pToolBox->GetItemId(aCommand);
+                 // HST: commands of bundled extensions (e.g. org.hst.office.vi:*) have no entry in the
+                 // command descriptions, so the label written in the .ui file is the only one available.
++                const OUString sUiLabel(extractLabel(rMap));
+                 if (pToolBox->GetItemText(nItemId).isEmpty())
+-                    pToolBox->SetItemText(nItemId, extractLabel(rMap));
++                    pToolBox->SetItemText(nItemId, sUiLabel);
++                // HST: a ribbon label with the words of the command label, but a line break or no trailing
++                // "…", is shown instead (two-line large buttons; "Tìm tính năng" for "Tìm tính năng…"). Other
++                // .ui labels, e.g. English fallbacks, never replace the translated command label.
++                else if (!sUiLabel.isEmpty() && sUiLabel != pToolBox->GetItemText(nItemId)
++                         && hstSameWords(sUiLabel, pToolBox->GetItemText(nItemId)))
++                    pToolBox->SetItemText(nItemId, sUiLabel);
+                 // HST: the line break of a two-line label (large ribbon buttons) is layout only; the
+                 // accessible name reads the label as one line.
+                 const OUString& rText = pToolBox->GetItemText(nItemId);
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -23076,6 +23076,12 @@ msgctxt "TabbedWriter|labelReviewHstLanguage"
+ msgid "Language"
+ msgstr "Ngôn ngữ"
+ 
++#. hstRB
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|labelHomeHstTools"
++msgid "Tools"
++msgstr "Công cụ"
++
+ #. D6GdF
+ #: sw/uiconfig/swriter/ui/notebookbar.ui:2425
+ msgctxt "TabbedWriter|labelFileNew"
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -27908,6 +27908,12 @@ msgctxt "TabbedCalc|labelReviewHstLanguage"
+ msgid "Language"
+ msgstr "Ngôn ngữ"
+ 
++#. hstRB
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|labelHomeHstTools"
++msgid "Tools"
++msgstr "Công cụ"
++
+ #. gnd7N
+ #: sc/uiconfig/scalc/ui/notebookbar.ui:2271
+ msgctxt "TabbedCalc|labelFileNew"
+--- a/translations/source/vi/sd/messages.po
++++ b/translations/source/vi/sd/messages.po
+@@ -7333,6 +7333,12 @@ msgctxt "TabbedImpress|labelReviewHstLanguage"
+ msgid "Language"
+ msgstr "Ngôn ngữ"
+ 
++#. hstRB
++#: sd/uiconfig/simpress/ui/notebookbar.ui
++msgctxt "TabbedImpress|labelHomeHstTools"
++msgid "Tools"
++msgstr "Công cụ"
++
+ #. 6RHNA
+ #: sd/uiconfig/simpress/ui/notebookbar.ui:2355
+ msgctxt "TabbedImpress|labelFileNew"

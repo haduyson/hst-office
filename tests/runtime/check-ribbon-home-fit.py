@@ -2,11 +2,15 @@
 """Check what the Home tab of Writer, Sheets and Slides shows at 1366 and 1485 px, next to the banner (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-ribbon-home-fit.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]
-The X display must already run, at least 1485 px wide. Per app and width:
+The X display must already run, at least 2400 px wide. Per app and width:
   - Clone Formatting and Clear show as icons (no wider than ICON_MAX) and keep their accessible names;
   - their commands still have a label, from which the tooltip comes; hovering shows it (see --shots);
   - the banner is on screen, inside the window;
-  - the groups named in MUST_SHOW have a visible caption: Sheets' Number and Slides' Paragraph at 1366.
+  - the groups named in MUST_SHOW have a visible caption: Sheets' Number and Slides' Paragraph at 1366, Writer's
+    "Kiểu" (Styles) at 1366 and 1485 and Sheets' at 1485, beside the banner;
+  - Find & Replace is a button of the paragraph group (Sheets: alignment); at 1920 px the group "Công cụ" has the
+    tab menu, the HST commands and "Tìm tính năng" in rows, and the tab menu offers "Tìm tính năng"
+    (ribbon_home_tools_gui.py).
 Prints the visible group captions per width. Exit 1 when a check fails.
 """
 import argparse
@@ -19,6 +23,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
+import ribbon_home_tools_gui as tools  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location(
     "ribbon_tabs", os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-ribbon-tabs.py"))
@@ -29,8 +34,11 @@ ICON_MAX = 40  # an icon with its button padding; the same button with its text 
 PAINTBRUSH = "Sao chép định dạng"
 CLEAR = {"writer": "Xóa", "calc": "Xóa", "impress": "Xóa"}
 CAPTION_BAND = (95, 165)  # the caption row of a ribbon page, y relative to the window
-MUST_SHOW = {("calc", 1366): ["Số"], ("impress", 1366): ["Đoạn văn"], ("writer", 1366): ["Đoạn văn"]}
+# Sheets' Kiểu folds at 1366: it needs about 120 px that only narrower Font/Number boxes (1.0.0) would free.
+MUST_SHOW = {("calc", 1366): ["Số"], ("impress", 1366): ["Đoạn văn"], ("writer", 1366): ["Đoạn văn", "Kiểu"],
+             ("calc", 1485): ["Kiểu"], ("writer", 1485): ["Kiểu"]}
 WIDTHS = (1366, 1485)
+WIDE = {"writer": 1920, "calc": 2400, "impress": 1920}  # nothing folds: the whole "Công cụ" group shows
 
 
 def showing(node):
@@ -73,6 +81,8 @@ def check_app(app, args, port):
             print(f"[{app} {width}] banner: {banner}; buttons: {json.dumps({k: v[0] for k, v in buttons.items()})}", flush=True)
             for group in MUST_SHOW.get((app, width), []):
                 tabs.record(f"[{app} {width}] group '{group}' shows", group in captions, captions)
+            caption_boxes = [(n, b) for n, b in labels if b[3] < 30]
+            tools.check_find_in_paragraph(tabs, app, width, caption_boxes)
             for name in (PAINTBRUSH, CLEAR[app]):
                 box = buttons.get(name, ((0, 0, 0, 0),))[0]
                 tabs.record(f"[{app} {width}] '{name}' accessible and icon-only", 0 < box[2] <= ICON_MAX, box)
@@ -87,6 +97,13 @@ def check_app(app, args, port):
                 office.screenshot(os.path.join(args.shots, f"home-fit-{app}-{width}-tooltip.png"))
                 tabs.xdo(args.display, "mousemove", str(width // 2), "600")
                 time.sleep(0.5)
+        tabs.xdo(args.display, "windowsize", wid, str(WIDE[app]), "900")
+        time.sleep(4)
+        labels, _buttons, _banner = measure(WIDE[app])
+        tools.check_tools_group(tabs, args, app, WIDE[app], [(n, b) for n, b in labels if b[3] < 30])
+        tools.check_menu_has_search(tabs, args, app)
+        if args.shots:
+            office.screenshot(os.path.join(args.shots, f"home-fit-{app}-{WIDE[app]}.png"))
     finally:
         office.stop()
 

@@ -20,7 +20,7 @@ import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 
 GROUPS = ["Bảng tạm", "Phông chữ", "Đoạn văn", "Kiểu"]  # Writer's Home tab, left to right
-WIDTHS = list(range(1600, 1440, -5))
+WIDTHS = list(range(1400, 1285, -5))  # Kiểu keeps one preview down to about 1345 px beside the banner
 ROWS = []
 
 
