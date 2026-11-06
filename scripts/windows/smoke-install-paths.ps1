@@ -16,8 +16,9 @@
 #                       the new MSI installs: every file present, own UpgradeCode, keys, taskbar ids, it starts.
 #   upgrade-from-beta4: informational, expected to fail: the new MSI installed over beta.4. Beta.4's files carry
 #                       a higher version (26.8.1.1) than the new ones (1.0.0.x), so Windows Installer skips them
-#                       and then removes beta.4's copies. The run records the result and every missing file
-#                       but exits 0.
+#                       and then removes beta.4's copies. The result and every missing file are recorded without
+#                       failing the run. Then the recovery users are told to follow, which must pass: uninstall the
+#                       broken install (msiexec /x), list leftovers, install again, every file present, it starts.
 param(
     [Parameter(Mandatory=$true)][ValidateSet('libreoffice-first', 'hst-first', 'uninstall-beta4-then-install', 'upgrade-from-beta4')][string]$Scenario,
     [Parameter(Mandatory=$true)][string]$HstMsi,
@@ -126,48 +127,86 @@ function Invoke-Com($Object, [string]$Name, [object[]]$Arguments) {
     , ($Object.GetType().InvokeMember($Name, [Reflection.BindingFlags]::InvokeMethod, $null, $Object, $Arguments))
 }
 
-function Assert-AllFiles([string]$Msi, [string]$ProductCode, [string]$Name) {
-    # Every file of every component the product registered must be on disk; list all missing ones, then fail.
-    $db = Invoke-Com $installer 'OpenDatabase' @($Msi, 0)
-    $view = Invoke-Com $db 'OpenView' @('SELECT `File`.`FileName`, `Component`.`ComponentId` FROM `File`, `Component` WHERE `File`.`Component_` = `Component`.`Component`')
+function Get-MsiRows($Db, [string]$Sql, [int]$Columns) {
+    $view = Invoke-Com $Db 'OpenView' @($Sql)
     Invoke-Com $view 'Execute' @() | Out-Null
-    $dirs = @{}; $missing = New-Object System.Collections.Generic.List[string]; $checked = 0; $unregistered = 0
+    $rows = New-Object System.Collections.Generic.List[object]
     while ($true) {
         $rec = Invoke-Com $view 'Fetch' @()
         if (-not $rec) { break }
-        $file = (Get-ComProperty $rec 'StringData' @(1)).Split('|')[-1]
-        $id = Get-ComProperty $rec 'StringData' @(2)
-        if (-not $dirs.ContainsKey($id)) {
-            $kp = "$(Get-ComProperty $installer 'ComponentPath' @($ProductCode, $id))"
-            # A file key path gives its folder; a folder key path ends with '\'; registry key paths and unregistered components give none.
-            $dirs[$id] = if ($kp -match '^[A-Za-z]:\\.*\\$') { $kp } elseif ($kp -match '^[A-Za-z]:\\') { (Split-Path -Parent $kp) + '\' } else { '' }
-        }
-        if (-not $dirs[$id]) { $unregistered++; continue }
-        $checked++
-        $path = $dirs[$id] + $file
-        if (-not (Test-Path -LiteralPath $path)) { $missing.Add($path) }
+        $rows.Add(@(1..$Columns | ForEach-Object { "$(Get-ComProperty $rec 'StringData' @($_))" }))
     }
     Invoke-Com $view 'Close' @() | Out-Null
+    return , $rows
+}
+
+function Assert-AllFiles([string]$Msi, [string]$ProductCode, [string]$Name) {
+    # Every file the product should have under its install folder must be on disk; list all missing ones, then fail.
+    # Expected: components Windows Installer registered for the product, plus unconditional components of a feature
+    # installed locally (an upgrade can skip those, so they need not be registered). Folders come from the MSI's
+    # Directory table; GAC assemblies and components outside the install folder (fonts, system files) are skipped.
+    $db = Invoke-Com $installer 'OpenDatabase' @($Msi, 0)
+    $root = "$(Get-ComProperty $installer 'ProductInfo' @($ProductCode, 'InstallLocation'))"
+    if (-not $root.EndsWith('\')) { $root += '\' }
+    $dirs = @{}
+    foreach ($d in (Get-MsiRows $db 'SELECT `Directory`, `Directory_Parent`, `DefaultDir` FROM `Directory`' 3)) { $dirs[$d[0]] = $d }
+    $resolved = @{ 'INSTALLLOCATION' = $root }
+    function Resolve-Dir([string]$Id) {
+        if ($resolved.ContainsKey($Id)) { return $resolved[$Id] }
+        $row = $dirs[$Id]
+        if (-not $row -or -not $row[1] -or $row[1] -eq $Id) { $resolved[$Id] = $null; return $null }
+        $parent = Resolve-Dir $row[1]
+        $target = ($row[2].Split(':')[0]).Split('|')[-1]
+        $resolved[$Id] = if ($null -eq $parent) { $null } elseif ($target -eq '.') { $parent } else { $parent + $target + '\' }
+        return $resolved[$Id]
+    }
+    $gac = @{}
+    foreach ($a in (Get-MsiRows $db 'SELECT `Component_`, `File_Application` FROM `MsiAssembly`' 2)) { if (-not $a[1]) { $gac[$a[0]] = $true } }
+    $local = @{}
+    foreach ($f in (Get-MsiRows $db 'SELECT `Feature_`, `Component_` FROM `FeatureComponents`' 2)) {
+        if ((Get-ComProperty $installer 'FeatureState' @($ProductCode, $f[0])) -eq 3) { $local[$f[1]] = $true }
+    }
+    $components = @{}
+    foreach ($c in (Get-MsiRows $db 'SELECT `Component`, `ComponentId`, `Directory_`, `Condition` FROM `Component`' 4)) { $components[$c[0]] = $c }
+    $missing = New-Object System.Collections.Generic.List[string]; $checked = 0; $skipped = 0; $unregistered = 0; $state = @{}
+    foreach ($f in (Get-MsiRows $db 'SELECT `Component_`, `FileName` FROM `File`' 2)) {
+        $c = $components[$f[0]]
+        $dir = Resolve-Dir $c[2]
+        if ($gac.ContainsKey($c[0]) -or -not $dir) { $skipped++; continue }
+        if (-not $state.ContainsKey($c[0])) { $state[$c[0]] = "$(Get-ComProperty $installer 'ComponentPath' @($ProductCode, $c[1]))" -ne '' }
+        $registered = $state[$c[0]]
+        if (-not $registered -and ($c[3] -or -not $local.ContainsKey($c[0]))) { $skipped++; continue }
+        if (-not $registered) { $unregistered++ }
+        $checked++
+        $path = $dir + $f[1].Split('|')[-1]
+        if (-not (Test-Path -LiteralPath $path)) { $missing.Add($path) }
+    }
     $list = Join-Path $Out "$Name-missing-files.txt"
     Set-Content -LiteralPath $list -Value ($missing -join "`r`n") -Encoding UTF8
     if ($missing.Count) {
-        Write-Host "MISSING ($($missing.Count) of $checked files of registered components; list in $list):"
+        Write-Host "MISSING ($($missing.Count) of $checked files; list in $list):"
         $missing | ForEach-Object { Write-Host "  $_" }
     }
-    Assert ($missing.Count -eq 0) "$Name has all $checked files of its registered components ($unregistered files in components not installed here)"
+    Assert ($missing.Count -eq 0) "$Name has all $checked files under $root ($unregistered of them in unregistered components; $skipped files outside the folder, in the GAC or not selected)"
+}
+
+function Show-Leftovers([string]$Location, [string]$Label) {
+    # Files left in the install folder and HST registry keys left after an uninstall; returns the files.
+    $files = @(if ($Location -and (Test-Path -LiteralPath $Location)) { Get-ChildItem -LiteralPath $Location -Recurse -File -Force | ForEach-Object FullName })
+    $keys = @('HKEY_LOCAL_MACHINE\SOFTWARE\HASON TECH\HST Office', 'HKEY_LOCAL_MACHINE\SOFTWARE\LibreOffice\Layers\HST Office',
+              'HKEY_LOCAL_MACHINE\SOFTWARE\LibreOffice\HST Office') | Where-Object { Test-Path -LiteralPath "Registry::$_" }
+    $leftovers = @($files) + @($keys | ForEach-Object { "registry: $_" })
+    Set-Content -LiteralPath (Join-Path $Out "$Label-leftovers.txt") -Value ($leftovers -join "`r`n") -Encoding UTF8
+    Write-Host "Leftovers after $($Label): $($leftovers.Count)"
+    $leftovers | ForEach-Object { Write-Host "  $_" }
+    return , $files
 }
 
 function Assert-BetaRemoved($State, [string]$Location) {
     # After msiexec /x of beta.4: list every leftover; fail only on those that would break the new install
     # (a product still registered, a Programs and Features entry, or executables left in the program folder,
     # whose higher version would keep the new ones from being installed).
-    $files = @(if ($Location -and (Test-Path -LiteralPath $Location)) { Get-ChildItem -LiteralPath $Location -Recurse -File -Force | ForEach-Object FullName })
-    $keys = @('HKEY_LOCAL_MACHINE\SOFTWARE\HASON TECH\HST Office', 'HKEY_LOCAL_MACHINE\SOFTWARE\LibreOffice\Layers\HST Office',
-              'HKEY_LOCAL_MACHINE\SOFTWARE\LibreOffice\HST Office') | Where-Object { Test-Path -LiteralPath "Registry::$_" }
-    $leftovers = @($files) + @($keys | ForEach-Object { "registry: $_" })
-    Set-Content -LiteralPath (Join-Path $Out 'beta4-leftovers.txt') -Value ($leftovers -join "`r`n") -Encoding UTF8
-    Write-Host "Leftovers after uninstalling beta.4: $($leftovers.Count)"
-    $leftovers | ForEach-Object { Write-Host "  $_" }
+    $files = Show-Leftovers $Location 'beta4-uninstall'
     Assert ($State.libreoffice_code.Count -eq 0 -and $State.hst.Count -eq 0) 'no HST Office product is registered after uninstalling beta.4'
     Assert ((Get-ArpEntries 'HST Office').Count -eq 0) 'no HST Office entry is left in Programs and Features'
     $binaries = @($files | Where-Object { $_ -match '\.(exe|dll|com|bin|pyd)$' })
@@ -195,7 +234,7 @@ function Assert-Starts([string]$Location, [string]$Expect, [string]$Name) {
     Assert (Test-Path -LiteralPath (Join-Path $work 'start.pdf')) "$Name starts and converts a document (exit $($p.ExitCode))"
 }
 
-if ($Scenario -ne 'upgrade-from-beta4') {
+if ($Scenario -in 'libreoffice-first', 'hst-first') {
     $first, $second = if ($Scenario -eq 'libreoffice-first') { 'libreoffice', 'hst-office' } else { 'hst-office', 'libreoffice' }
     $msi = @{ 'libreoffice' = $OtherMsi; 'hst-office' = $HstMsi }
     Install-Msi $msi[$first] $first
@@ -288,6 +327,24 @@ if ($Scenario -ne 'upgrade-from-beta4') {
     Write-Host $result
     Set-Content -LiteralPath (Join-Path $Out 'informational-result.txt') -Value $result -Encoding UTF8
     if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "upgrade-from-beta4 (informational): $result" -Encoding UTF8 }
-    exit 0
+    # Recovery, as users are told: uninstall the broken install from Settings > Apps (msiexec /x), then install again.
+    # This leg must pass.
+    $broken = Show-State 'before-recovery'
+    Assert ($broken.hst.Count -eq 1) 'the over-installed HST Office is registered under its own UpgradeCode'
+    $loc = $broken.hst[0].Location
+    Uninstall-Product $broken.hst[0].ProductCode 'hst-office-broken'
+    $gone = Show-State 'after-recovery-uninstall'
+    Show-Leftovers $loc 'recovery-uninstall' | Out-Null
+    Assert ($gone.libreoffice_code.Count -eq 0) "no beta.4 product is still registered ($($gone.libreoffice_code.Count))"
+    Assert ($gone.hst.Count -eq 0 -and (Get-ArpEntries 'HST Office').Count -eq 0) 'no HST Office product or Programs and Features entry is left'
+    Install-Msi $HstMsi 'hst-office-reinstall'
+    $again = Show-State 'after-recovery-install'
+    Assert ($again.hst.Count -eq 1) 'the reinstalled HST Office is registered'
+    Assert-AllFiles $HstMsi $again.hst[0].ProductCode 'hst-office-after-recovery'
+    Assert-Starts $again.hst[0].Location 'HST Office' 'hst-office-after-recovery'
+    $recovery = 'PASSED: uninstall from Settings > Apps, then installing again, gives a complete HST Office'
+    Write-Host $recovery
+    Set-Content -LiteralPath (Join-Path $Out 'recovery-result.txt') -Value $recovery -Encoding UTF8
+    if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "upgrade-from-beta4 recovery: $recovery" -Encoding UTF8 }
 }
 Write-Host "Scenario $Scenario passed"
