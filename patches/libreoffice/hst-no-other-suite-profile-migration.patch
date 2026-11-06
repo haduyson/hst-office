@@ -1,0 +1,24 @@
+HST Office: the first start never reads the profile of another office suite.
+
+Upstream migrates settings, extensions and macros on the first start from an older LibreOffice 3,
+OpenOffice.org 2/3 or StarOffice 8 profile it finds (~/.config/libreoffice/3, ~/.libreoffice/3,
+~/Library/Application Support/LibreOffice/3, %APPDATA%\LibreOffice\3, ...). HST is a separate
+product with its own profile, so the list of versions to migrate from is empty: HST starts with
+a fresh profile and never touches another suite's.
+
+License: these upstream files remain under their original license (MPL-2.0).
+
+--- a/officecfg/registry/data/org/openoffice/Setup.xcu
++++ b/officecfg/registry/data/org/openoffice/Setup.xcu
+@@ -780,8 +780,10 @@
+         <prop oor:name="Priority">
+           <value>10</value>
+         </prop>
++        <!-- HST Office: no profile of another office suite (LibreOffice, OpenOffice.org, StarOffice)
++             is searched for or copied on the first start; HST keeps only its own profile. -->
+         <prop oor:name="VersionIdentifiers">
+-          <value oor:separator=",">Libreoffice 3=libreoffice/3,Openoffice.org 3=openoffice.org/3,OpenOffice.org 2=openoffice.org2,StarOffice 8=staroffice8,StarSuite 8=starsuite8</value>
++          <value/>
+         </prop>
+         <node oor:name="MigrationSteps">
+           <node oor:name="Datasources" oor:op="replace">

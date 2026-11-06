@@ -1,0 +1,290 @@
+HST Office on Linux: own launcher ids, window classes and app ids, never LibreOffice's.
+
+With a distribution LibreOffice installed beside HST:
+- both used the window class (X11 WM_CLASS) and Wayland app_id libreoffice-<module> and HST's
+  launchers declared StartupWMClass=libreoffice-*, so the desktop shell grouped HST windows under
+  LibreOffice's launcher and icon, and LibreOffice's under HST's;
+- update-desktop-database lists the handlers of a MIME type sorted by launcher id, and without a
+  configured default GLib (GNOME, Cinnamon, Xfce) and xdg-mime open a file with the first one:
+  hst-office1.0-writer.desktop sorted before libreoffice-writer.desktop, so installing HST made it
+  the default application for ODF and OOXML files in place of LibreOffice.
+Now the launchers and application icons are vn.hasontech.hstoffice-<module> (DESKTOPID.hst_office,
+the AppStream component id), which sorts after every LibreOffice id; the window class, the Wayland
+app_id and the window icon are that same id (include/hst_desktop_id.h) and each launcher's
+StartupWMClass. KDE orders handlers by InitialPreference: HST's is 4, one below LibreOffice's 5.
+The start center no longer claims LibreOffice's own URL schemes (vnd.libreoffice.cmis/command,
+vnd.sun.star.webdav/webdavs); the Microsoft Office ms-* schemes and .oxt stay.
+HST stays under Open With and is the default where no other suite is installed. The commands,
+install root (/opt/hst-office1.0) and package names are unchanged; macOS and Windows keep their
+own identifiers.
+
+License: these upstream files remain under their original license (MPL-2.0); include/hst_desktop_id.h
+is new and under MPL-2.0 like the files that use it.
+
+--- /dev/null
++++ b/include/hst_desktop_id.h
+@@ -0,0 +1,18 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office on Linux: the launchers are /usr/share/applications/<id>-<module>.desktop and the
++// application icons <id>-<module>, with <id> = DESKTOPID.hst_office of sysui/productlist.mk. The
++// window class (X11 WM_CLASS), the Wayland app_id and the window icon use the same names, so a
++// desktop shell maps every HST window to its own launcher, never to libreoffice-<module>.desktop
++// of a LibreOffice installed beside HST. The reverse-DNS id also sorts after every LibreOffice
++// launcher id, so the MIME cache does not put HST first (see sysui/productlist.mk).
++#define HST_DESKTOP_ID_PREFIX "vn.hasontech.hstoffice"
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab cinoptions=b1,g0,N-s cinkeys+=0=break: */
+--- a/vcl/source/app/IconHelper.cxx
++++ b/vcl/source/app/IconHelper.cxx
+@@ -12,24 +12,38 @@
+ 
+ #include <vcl/bitmaps.hlst>
+ 
++#if defined UNX && !defined MACOSX
++#include <hst_desktop_id.h>
++#endif
++
++// Window icon and Wayland app_id of a module: the id of its launcher (.desktop file).
++static OUString lcl_appIconName(const char* pModule)
++{
++#if defined UNX && !defined MACOSX
++    return OUString::createFromAscii(HST_DESKTOP_ID_PREFIX "-") + OUString::createFromAscii(pModule);
++#else
++    return u"libreoffice-"_ustr + OUString::createFromAscii(pModule);
++#endif
++}
++
+ OUString IconHelper::GetAppIconName(sal_uInt16 nIcon)
+ {
+     switch (nIcon)
+     {
+         case SV_ICON_ID_TEXT:
+-            return u"libreoffice-writer"_ustr;
++            return lcl_appIconName("writer");
+         case SV_ICON_ID_SPREADSHEET:
+-            return u"libreoffice-calc"_ustr;
++            return lcl_appIconName("calc");
+         case SV_ICON_ID_DRAWING:
+-            return u"libreoffice-draw"_ustr;
++            return lcl_appIconName("draw");
+         case SV_ICON_ID_PRESENTATION:
+-            return u"libreoffice-impress"_ustr;
++            return lcl_appIconName("impress");
+         case SV_ICON_ID_DATABASE:
+-            return u"libreoffice-base"_ustr;
++            return lcl_appIconName("base");
+         case SV_ICON_ID_FORMULA:
+-            return u"libreoffice-math"_ustr;
++            return lcl_appIconName("math");
+         default:
+-            return u"libreoffice-startcenter"_ustr;
++            return lcl_appIconName("startcenter");
+     }
+ }
+ 
+--- a/framework/source/helper/titlebarupdate.cxx
++++ b/framework/source/helper/titlebarupdate.cxx
+@@ -36,6 +36,9 @@
+ #include <vcl/svapp.hxx>
+ #include <vcl/wrkwin.hxx>
+ #include <comphelper/diagnose_ex.hxx>
++#if !defined(MACOSX) && !defined(_WIN32)
++#include <hst_desktop_id.h>
++#endif
+ 
+ namespace framework{
+ 
+@@ -145,7 +148,9 @@
+         // We use a hardcoded product name matching the registry keys so applications can be associated with file types
+         sApplicationID = "TheDocumentFoundation.LibreOffice." + sDesktopName;
+ #else
+-        sApplicationID = utl::ConfigManager::getProductName().toAsciiLowerCase() + "-" + sDesktopName.toAsciiLowerCase();
++        // HST Office: the launcher id (vn.hasontech.hstoffice-<module>, the launchers' StartupWMClass),
++        // not "<product>-<module>", so HST windows never take LibreOffice's launcher.
++        sApplicationID = OUString::createFromAscii(HST_DESKTOP_ID_PREFIX "-") + sDesktopName.toAsciiLowerCase();
+ #endif
+     }
+     catch(const css::uno::Exception&)
+--- a/vcl/unx/gtk3/gtkframe.cxx
++++ b/vcl/unx/gtk3/gtkframe.cxx
+@@ -2013,7 +2013,7 @@
+         if (bAppIdImmutable)
+         {
+             OString sOrigName(g_get_prgname());
+-            g_set_prgname("libreoffice-startcenter");
++            g_set_prgname(IconHelper::GetAppIconName(SV_ICON_ID_OFFICE).toUtf8().getStr());
+             gtk_widget_set_visible(m_pWindow, true);
+             g_set_prgname(sOrigName.getStr());
+         }
+--- a/sysui/productlist.mk
++++ b/sysui/productlist.mk
+@@ -25,6 +25,12 @@
+ DEBNAME.hst_office := hst-office
+ # Text substituted for %PRODUCTNAME in launcher names: "HST Writer", "HST Sheets", ...
+ DESKTOPNAME.hst_office := HST
++# Launcher and application icon id prefix: <id>-writer.desktop, icon <id>-writer; also the window
++# class and Wayland app_id (include/hst_desktop_id.h). update-desktop-database lists the handlers of
++# a MIME type sorted by id and, without a configured default, GLib and xdg-mime take the first: an
++# id after every LibreOffice one (libreoffice-*, libreoffice26.8-*, org.libreoffice.LibreOffice.*)
++# keeps an installed LibreOffice the default application; HST is offered under "Open With".
++DESKTOPID.hst_office := vn.hasontech.hstoffice
+ 
+ # HST brand icon set installed as the application icons (see desktop/share/create_tree.sh).
+ HST_ICON_DIR ?= $(abspath $(SRCDIR)/../../assets/brand/icons)
+--- a/sysui/CustomTarget_share.mk
++++ b/sysui/CustomTarget_share.mk
+@@ -147,7 +147,8 @@
+ 	$(call gb_Trace_StartRange,$(subst $(WORKDIR)/,,$@),CAT)
+ 	echo "#!/bin/sh" > $@
+ 	echo "PREFIX=$(UNIXFILENAME.$*)" >> $@
+-	echo "ICON_PREFIX=$(UNIXFILENAME.$*)" >> $@
++	echo "ICON_PREFIX=$(or $(DESKTOPID.$*),$(UNIXFILENAME.$*))" >> $@
++	echo "DESKTOP_PREFIX=$(or $(DESKTOPID.$*),$(UNIXFILENAME.$*))" >> $@
+ 	echo "ICON_SOURCE_DIR=$(SRCDIR)/sysui/desktop/icons" >> $@
+ 	echo "HST_ICON_DIR='$(HST_ICON_DIR)'" >> $@
+ 	echo "APPDATA_SOURCE_DIR=$(SRCDIR)/sysui/desktop/appstream-appdata" >> $@
+@@ -208,7 +209,7 @@
+ 	$(call gb_Trace_StartRange,$(subst $(WORKDIR)/,,$@),PRL)
+ 	$(PERL) $(share_SRCDIR)/share/brand.pl -p '$(DESKTOPNAME.$*)' -u $(UNIXFILENAME.$*) \
+ 		$(brand_URIPARAM) \
+-		--iconprefix '$${UNIXBASISROOTNAME}-' $(LAUNCHERS) $(share_WORKDIR)/$*
++		--iconprefix '$(or $(DESKTOPID.$*),$${UNIXBASISROOTNAME})-' $(LAUNCHERS) $(share_WORKDIR)/$*
+ 	$(call gb_ExternalExecutable_get_command,python) $(share_TRANSLATE) -p '$(PRODUCTNAME.$*)$(PKGVERSIONSHORT)' -d $(share_WORKDIR)/$* \
+ 		--ext "desktop" $(share_WORKDIR)/launcher.ulf
+ 	touch $@
+--- a/sysui/CustomTarget_deb.mk
++++ b/sysui/CustomTarget_deb.mk
+@@ -43,7 +43,7 @@
+ 	mkdir -p $(deb_WORKDIR)/$*/usr/lib/menu
+ 	cd $(gb_CustomTarget_workdir)/sysui/share/$* \
+ 		&& DESTDIR=$(deb_WORKDIR)/$* \
+-		ICON_PREFIX=$(UNIXFILENAME.$*) \
++		ICON_PREFIX=$(or $(DESKTOPID.$*),$(UNIXFILENAME.$*)) \
+ 		BINDIR=/usr/bin \
+ 		KDEMAINDIR=/usr \
+ 		PREFIXDIR=/usr \
+@@ -51,7 +51,7 @@
+ 	sed $(deb_SRCDIR)/openoffice.org-debian-menus \
+ 		-e 's/%PRODUCTNAME/$(PRODUCTNAME.$*) $(PKGVERSIONSHORT)/' \
+ 		-e 's/%PREFIX/$(UNIXFILENAME.$*)/' \
+-		-e 's/%ICONPREFIX/$(UNIXFILENAME.$*)/' \
++		-e 's/%ICONPREFIX/$(or $(DESKTOPID.$*),$(UNIXFILENAME.$*))/' \
+ 		> $(deb_WORKDIR)/$*/usr/lib/menu/$*$(PKGVERSIONSHORT)
+ 	echo "Package: $(DEBNAME.$*)$(PKGVERSIONSHORT)-debian-menus" >$@
+ 	cat $< | tr -d "\015" | \
+--- a/sysui/desktop/share/create_tree.sh
++++ b/sysui/desktop/share/create_tree.sh
+@@ -90,7 +90,7 @@
+ 
+ mkdir -p "${DESTDIR}/${PREFIXDIR}/share/applications"
+ for i in `cat launcherlist`; do
+-  ln -sf "${office_root}/share/xdg/${i}" "${DESTDIR}/${PREFIXDIR}/share/applications/${PREFIX}-${i}"
++  ln -sf "${office_root}/share/xdg/${i}" "${DESTDIR}/${PREFIXDIR}/share/applications/${DESKTOP_PREFIX:-${PREFIX}}-${i}"
+ done
+ 
+ # HST Office ships no appstream metainfo: the upstream files carry the LibreOffice
+--- a/sysui/desktop/menus/base.desktop
++++ b/sysui/desktop/menus/base.desktop
+@@ -29,8 +29,8 @@
+ StartupNotify=true
+ X-GIO-NoFuse=true
+ Keywords=Data;SQL;
+-InitialPreference=5
+-StartupWMClass=libreoffice-base
++InitialPreference=4
++StartupWMClass=vn.hasontech.hstoffice-base
+ X-KDE-Protocols=file,http,webdav,webdavs
+ 
+ Actions=NewDocument;
+--- a/sysui/desktop/menus/calc.desktop
++++ b/sysui/desktop/menus/calc.desktop
+@@ -30,8 +30,8 @@
+ StartupNotify=true
+ X-GIO-NoFuse=true
+ Keywords=Accounting;Stats;OpenDocument Spreadsheet;Chart;Microsoft Excel;Microsoft Works;ods;xls;xlsx;
+-InitialPreference=5
+-StartupWMClass=libreoffice-calc
++InitialPreference=4
++StartupWMClass=vn.hasontech.hstoffice-calc
+ X-KDE-Protocols=file,http,webdav,webdavs
+ 
+ Actions=NewDocument;
+--- a/sysui/desktop/menus/draw.desktop
++++ b/sysui/desktop/menus/draw.desktop
+@@ -29,8 +29,8 @@
+ StartupNotify=true
+ X-GIO-NoFuse=true
+ Keywords=Vector;Schema;Diagram;Layout;OpenDocument Graphics;Microsoft Publisher;Microsoft Visio;Corel Draw;cdr;odg;svg;pdf;vsd;
+-InitialPreference=5
+-StartupWMClass=libreoffice-draw
++InitialPreference=4
++StartupWMClass=vn.hasontech.hstoffice-draw
+ X-KDE-Protocols=file,http,webdav,webdavs
+ 
+ Actions=NewDocument;
+--- a/sysui/desktop/menus/impress.desktop
++++ b/sysui/desktop/menus/impress.desktop
+@@ -30,8 +30,8 @@
+ StartupNotify=true
+ X-GIO-NoFuse=true
+ Keywords=Slideshow;Slides;OpenDocument Presentation;Microsoft PowerPoint;Microsoft Works;odp;ppt;pptx;
+-InitialPreference=5
+-StartupWMClass=libreoffice-impress
++InitialPreference=4
++StartupWMClass=vn.hasontech.hstoffice-impress
+ X-KDE-Protocols=file,http,webdav,webdavs
+ 
+ Actions=NewDocument;
+--- a/sysui/desktop/menus/math.desktop
++++ b/sysui/desktop/menus/math.desktop
+@@ -30,8 +30,8 @@
+ StartupNotify=true
+ X-GIO-NoFuse=true
+ Keywords=Equation;OpenDocument Formula;Formula;odf;MathML;
+-InitialPreference=5
+-StartupWMClass=libreoffice-math
++InitialPreference=4
++StartupWMClass=vn.hasontech.hstoffice-math
+ X-KDE-Protocols=file,http,webdav,webdavs
+ 
+ Actions=NewDocument;
+--- a/sysui/desktop/menus/startcenter.desktop
++++ b/sysui/desktop/menus/startcenter.desktop
+@@ -23,14 +23,14 @@
+ Type=Application
+ Categories=Office;X-Red-Hat-Base;X-SuSE-Core-Office;
+ Exec=${UNIXBASISROOTNAME} %%FILE%%
+-MimeType=application/vnd.openofficeorg.extension;x-scheme-handler/vnd.libreoffice.cmis;x-scheme-handler/vnd.sun.star.webdav;x-scheme-handler/vnd.sun.star.webdavs;x-scheme-handler/vnd.libreoffice.command;x-scheme-handler/ms-word;x-scheme-handler/ms-powerpoint;x-scheme-handler/ms-excel;x-scheme-handler/ms-visio;x-scheme-handler/ms-access;
++MimeType=application/vnd.openofficeorg.extension;x-scheme-handler/ms-word;x-scheme-handler/ms-powerpoint;x-scheme-handler/ms-excel;x-scheme-handler/ms-visio;x-scheme-handler/ms-access;
+ Name=%PRODUCTNAME Office
+ Name[vi]=%PRODUCTNAME Office
+ GenericName=Office
+ Comment=Launch applications to create text documents, spreadsheets, presentations, drawings, formulas, and databases, or open recently used documents.
+ StartupNotify=true
+ X-GIO-NoFuse=true
+-StartupWMClass=libreoffice-startcenter
++StartupWMClass=vn.hasontech.hstoffice-startcenter
+ X-KDE-Protocols=file,http,webdav,webdavs
+ 
+ ##Define Actions
+--- a/sysui/desktop/menus/writer.desktop
++++ b/sysui/desktop/menus/writer.desktop
+@@ -30,8 +30,8 @@
+ StartupNotify=true
+ X-GIO-NoFuse=true
+ Keywords=Text;Letter;Fax;Document;OpenDocument Text;Microsoft Word;Microsoft Works;Lotus WordPro;CV;odt;doc;docx;rtf;
+-InitialPreference=5
+-StartupWMClass=libreoffice-writer
++InitialPreference=4
++StartupWMClass=vn.hasontech.hstoffice-writer
+ X-KDE-Protocols=file,http,webdav,webdavs
+ 
+ Actions=NewDocument;

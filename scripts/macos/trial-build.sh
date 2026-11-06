@@ -319,6 +319,9 @@ do_verify() { # mount the dmg read-only and check product identity and Vietnames
     [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleGetInfoString' "$plist")" = "HST Office $HST_RELEASE" ] || { echo "FAIL: CFBundleGetInfoString is not the release id"; bad=1; }
     [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = vn.hasontech.hstoffice ] || { echo "FAIL: bundle id"; bad=1; }
     [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = "HST Office" ] || { echo "FAIL: bundle name"; bad=1; }
+    # Nothing that clashes with an installed LibreOffice: exported UTIs, Owner ranks, URL schemes,
+    # Spotlight/Quick Look plug-in ids, profile ("FAIL ..." lines fail the stage).
+    echo "coexistence with LibreOffice:"; "$PY" "$REPO/scripts/macos/check-coexist-plists.py" --hst "$app" || echo "FAIL: coexistence check (exit $?)"
     echo "architectures: $(lipo -archs "$app/Contents/MacOS/soffice")"
     lipo -archs "$app/Contents/MacOS/soffice" | grep -qw "$ARCH" || { echo "FAIL: soffice is not $ARCH"; bad=1; }
     echo "vi resources:"; find "$app/Contents/Resources" -maxdepth 3 \( -path '*/resource/vi' -o -name 'vi.lproj' \) | head -20

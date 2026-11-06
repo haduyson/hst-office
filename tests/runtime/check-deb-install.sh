@@ -96,19 +96,19 @@ CONF="$(dpkg-query -W -f='${Conflicts}${Replaces}${Provides}\n' $PKGS | tr ',' '
 dpkg-query -W -f='${Package} ${Version} ${Maintainer}\n' hst-office | sed 's/^/INFO maintainer /'
 step desktop
 DESK="$(echo "$OWNED" | grep -E '^/usr/share/applications/.*\.desktop$')"
-ICONS="$(echo "$OWNED" | grep -cE '^/usr/share/icons/hicolor/.*/apps/hst-office@HSTV_RE@-(writer|calc|impress)\.png$')"
+ICONS="$(echo "$OWNED" | grep -cE '^/usr/share/icons/hicolor/.*/apps/vn\.hasontech\.hstoffice-(writer|calc|impress)\.png$')"
 echo "INFO desktop-files $(echo "$DESK" | wc -l) app-icon-files $ICONS"
 [ "$ICONS" -ge 9 ] && echo "PASS app-icons-installed" || { echo "FAIL app icons missing ($ICONS)"; exit 24; }
 for want in "Name=HST Writer" "Name=HST Sheets" "Name=HST Slides" "Name=HST Office"; do
   grep -lq "^$want\$" $DESK 2>/dev/null && echo "PASS launcher '$want'" || { echo "FAIL launcher '$want' missing"; exit 25; }
 done
 for w in writer calc impress; do
-  grep -q "^Icon=hst-office@HSTV@-$w\$" /usr/share/applications/hst-office@HSTV@-$w.desktop || { echo "FAIL icon name $w"; exit 26; }
-  cmp -s /usr/share/icons/hicolor/48x48/apps/hst-office@HSTV@-$w.png /usr/share/icons/hicolor/48x48/apps/hst-office@HSTV@-writer.png && [ "$w" != writer ] && { echo "FAIL $w icon identical to writer"; exit 26; }
+  grep -q "^Icon=vn.hasontech.hstoffice-$w\$" /usr/share/applications/vn.hasontech.hstoffice-$w.desktop || { echo "FAIL icon name $w"; exit 26; }
+  cmp -s /usr/share/icons/hicolor/48x48/apps/vn.hasontech.hstoffice-$w.png /usr/share/icons/hicolor/48x48/apps/vn.hasontech.hstoffice-writer.png && [ "$w" != writer ] && { echo "FAIL $w icon identical to writer"; exit 26; }
 done
 echo "PASS icon-names"
 command -v hst-office >/dev/null && command -v hst-office@HSTV@ >/dev/null && echo "PASS commands-on-path ($(command -v hst-office))" || { echo "FAIL hst-office not on PATH"; exit 27; }
-WEXEC="$(sed -n 's/^Exec=//p' /usr/share/applications/hst-office@HSTV@-writer.desktop | head -1)"
+WEXEC="$(sed -n 's/^Exec=//p' /usr/share/applications/vn.hasontech.hstoffice-writer.desktop | head -1)"
 echo "INFO writer-exec $WEXEC"
 case "$WEXEC" in hst-office@HSTV@\ --writer*) echo "PASS writer-exec-name" ;; *) echo "FAIL unexpected Exec $WEXEC"; exit 28 ;; esac
 "$BIN" --version | sed -n 's/^\(.\+\)$/INFO version \1/p'
@@ -189,15 +189,15 @@ step coexist-simulate
 SIM="$(apt-get -s install libreoffice-writer 2>&1 || true)"
 grep -E '^Remv .*hst-office' <<<"$SIM" && { echo "FAIL official LibreOffice would remove HST packages"; exit 29; } || echo "PASS coexist-no-hst-removal"
 grep -q '^Inst libreoffice-writer' <<<"$SIM" && echo "PASS coexist-official-installable" || { echo "FAIL could not simulate libreoffice-writer install"; echo "$SIM" | tail -5; exit 29; }
-grep -q 'hst-office' /usr/share/applications/mimeinfo.cache 2>/dev/null && echo "PASS desktop-database-has-hst" || echo "INFO desktop-database-has-no-hst (desktop-file-utils missing?)"
+grep -q 'vn\.hasontech\.hstoffice-' /usr/share/applications/mimeinfo.cache 2>/dev/null && echo "PASS desktop-database-has-hst" || echo "INFO desktop-database-has-no-hst (desktop-file-utils missing?)"
 step remove
 if [ "$MODE" = pkcon ]; then { command -v pkcon >/dev/null && pkcon -y remove hst-office || pkgcli -y remove hst-office; } >/tmp/remove.log 2>&1 || { tail -20 /tmp/remove.log; echo "FAIL pkcon remove"; exit 45; }
 else apt-get remove -y -qq $PKGS >/dev/null; fi
 [ "$(dpkg-query -W -f='${db:Status-Abbrev}' hst-office)" = "rc " ] || [ "$(dpkg-query -W -f='${db:Status-Abbrev}' hst-office)" = "un " ] \
   && echo "PASS removed-no-config-leftover-state" || { echo "FAIL state after remove: $(dpkg-query -W -f='${db:Status-Abbrev}' hst-office)"; exit 46; }
-test ! -e /opt/hst-office1.0 && ! ls /usr/share/applications | grep -q hst-office && ! command -v hst-office >/dev/null && ! ls /usr/share/icons/hicolor/*/apps 2>/dev/null | grep -q hst-office \
-  && echo "PASS remove-clean (/opt, launchers, icons, PATH)" || { echo "FAIL leftovers after remove"; ls /opt /usr/share/applications | grep hst || true; exit 47; }
-! grep -q 'hst-office' /usr/share/applications/mimeinfo.cache 2>/dev/null && echo "PASS desktop-database-cleaned" || { echo "FAIL mimeinfo.cache still lists hst-office"; exit 48; }
+test ! -e /opt/hst-office1.0 && ! ls /usr/share/applications | grep -qE 'hst-office|hasontech' && ! command -v hst-office >/dev/null && ! ls /usr/share/icons/hicolor/*/apps 2>/dev/null | grep -qE 'hst-office|hasontech' \
+  && echo "PASS remove-clean (/opt, launchers, icons, PATH)" || { echo "FAIL leftovers after remove"; ls /opt /usr/share/applications | grep -E 'hst|hasontech' || true; exit 47; }
+! grep -qE 'hst-office|hasontech' /usr/share/applications/mimeinfo.cache 2>/dev/null && echo "PASS desktop-database-cleaned" || { echo "FAIL mimeinfo.cache still lists HST launchers"; exit 48; }
 step purge
 # Removed local packages are unknown to apt, so purge the dpkg records directly.
 dpkg --purge $(dpkg-query -W -f='${Package}\n' 'hst-office*' 2>/dev/null || true) >/tmp/purge.log 2>&1 || { tail -5 /tmp/purge.log; echo "FAIL purge"; exit 18; }
@@ -208,8 +208,8 @@ su tester -c "test -s ~/Documents/keep.txt && test -s ~/Documents/keep.odt && te
 [ "$(su tester -c 'find ~/.config -maxdepth 2 -type d | wc -l')" = "$PROFILE_COUNT" ] \
   && echo "PASS user-profile-kept" || { echo "FAIL user profile changed by purge"; exit 14; }
 test ! -e "$BIN" && echo "PASS binaries-removed" || { echo "FAIL binaries left after purge"; exit 15; }
-! ls /opt | grep -q hst-office && ! ls /usr/share/applications | grep -q hst-office && ! command -v hst-office >/dev/null \
-  && echo "PASS no-leftover-files" || { echo "FAIL leftovers after purge"; ls /opt /usr/share/applications | grep hst || true; exit 16; }
+! ls /opt | grep -q hst-office && ! ls /usr/share/applications | grep -qE 'hst-office|hasontech' && ! command -v hst-office >/dev/null \
+  && echo "PASS no-leftover-files" || { echo "FAIL leftovers after purge"; ls /opt /usr/share/applications | grep -E 'hst|hasontech' || true; exit 16; }
 step reinstall; apt-get install -y -qq /pkg/hst.deb >/dev/null 2>&1 && "$BIN" --version >/dev/null && echo "PASS reinstall"
 su tester -c "cd ~/Documents && hst-office --headless --convert-to pdf keep.odt >/dev/null 2>&1 && test -s keep.pdf" && echo "PASS convert-after-reinstall" || { echo "FAIL convert after reinstall"; exit 17; }
 INSIDE

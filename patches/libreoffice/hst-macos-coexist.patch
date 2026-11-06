@@ -1,0 +1,359 @@
+HST Office on macOS: no declaration that clashes with an installed LibreOffice.
+
+- Info.plist: the ODF, OpenOffice.org and extension types are imported, not exported (LibreOffice
+  exports them; two exports of one type conflict); their document types are LSHandlerRank Default
+  instead of Owner, so installing HST does not take the default application from LibreOffice
+  (HST stays under Open With, and is the default where no owner is installed); LibreOffice's URL
+  schemes vnd.libreoffice.cmis/command and vnd.sun.star.webdav(s) are dropped (the Microsoft
+  Office ms-* schemes stay); CFBundleSignature is ???? instead of LibreOffice's LibO.
+- Spotlight importer: own bundle id vn.hasontech.hstoffice.mdimporter and CFPlugIn factory UUID
+  instead of LibreOffice's org.libreoffice.mdimporter / A3FCC88D-..., so both importers stay
+  registered. The Quick Look extensions already derive their ids from the bundle id.
+
+License: these upstream files remain under their original license (MPL-2.0).
+
+--- a/sysui/desktop/macosx/Info.plist.in
++++ b/sysui/desktop/macosx/Info.plist.in
+@@ -21,7 +21,10 @@
+ <dict>
+     <key>CFBundleDevelopmentRegion</key>
+     <string>English</string>
+-    <key>UTExportedTypeDeclarations</key>
++    <!-- HST Office imports every type it opens: the ODF, OpenOffice.org and extension types belong to
++         their own suites (LibreOffice exports them), so a second export would make two conflicting
++         declarations of one type when both suites are installed. -->
++    <key>UTImportedTypeDeclarations</key>
+     <array>
+         <!-- Writer documents -->
+         <dict>
+@@ -744,10 +747,6 @@
+             <key>UTTypeIconFile</key>
+             <string>generic-extension.icns</string>
+         </dict>
+-    </array>
+-
+-    <key>UTImportedTypeDeclarations</key>
+-    <array>
+         <!-- Microsoft Word Template -->
+         <dict>
+             <key>UTTypeConformsTo</key>
+@@ -1554,20 +1553,13 @@
+ 
+     <key>CFBundleURLTypes</key>
+     <array>
+-        <dict>
+-            <key>CFBundleURLName</key>
+-            <string>@PRODUCTNAME@ CMIS</string>
+-            <key>CFBundleURLSchemes</key>
+-            <array>
+-                <string>vnd.libreoffice.cmis</string>
+-            </array>
+-        </dict>
++        <!-- HST Office: LibreOffice's own schemes (vnd.libreoffice.*, vnd.sun.star.webdav*) stay with
++             LibreOffice; the Microsoft Office URI schemes are shared by every office suite. -->
+         <dict>
+             <key>CFBundleURLName</key>
+             <string>@PRODUCTNAME@</string>
+             <key>CFBundleURLSchemes</key>
+             <array>
+-                <string>vnd.libreoffice.command</string>
+                 <string>ms-word</string>
+                 <string>ms-powerpoint</string>
+                 <string>ms-excel</string>
+@@ -1575,17 +1567,10 @@
+                 <string>ms-access</string>
+             </array>
+         </dict>
+-        <dict>
+-            <key>CFBundleURLName</key>
+-            <string>@PRODUCTNAME@ WebDav</string>
+-            <key>CFBundleURLSchemes</key>
+-            <array>
+-                <string>vnd.sun.star.webdav</string>
+-                <string>vnd.sun.star.webdavs</string>
+-            </array>
+-        </dict>
+     </array>
+ 
++    <!-- HST Office: LSHandlerRank Default (not Owner) for the ODF/OpenOffice.org types, so installing HST
++         next to LibreOffice leaves LibreOffice the default for them until the user chooses otherwise. -->
+     <key>CFBundleDocumentTypes</key>
+     <array>
+         <dict>
+@@ -1607,7 +1592,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.text</string>
+@@ -1619,7 +1604,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.text</string>
+@@ -1631,7 +1616,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.spreadsheet</string>
+@@ -1643,7 +1628,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.spreadsheet</string>
+@@ -1655,7 +1640,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.presentation</string>
+@@ -1667,7 +1652,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.presentation</string>
+@@ -1679,7 +1664,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.graphics</string>
+@@ -1691,7 +1676,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.graphics</string>
+@@ -1703,7 +1688,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.chart</string>
+@@ -1715,7 +1700,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.text-master</string>
+@@ -1727,7 +1712,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.text-master</string>
+@@ -1739,7 +1724,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.formula</string>
+@@ -1751,7 +1736,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.formula</string>
+@@ -1763,7 +1748,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.text-template</string>
+@@ -1775,7 +1760,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.text-template</string>
+@@ -1787,7 +1772,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.text-master-template</string>
+@@ -1799,7 +1784,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.spreadsheet-template</string>
+@@ -1811,7 +1796,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.spreadsheet-template</string>
+@@ -1823,7 +1808,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.presentation-template</string>
+@@ -1835,7 +1820,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.presentation-template</string>
+@@ -1847,7 +1832,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.graphics-template</string>
+@@ -1859,7 +1844,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.graphics-template</string>
+@@ -1871,7 +1856,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.database</string>
+@@ -1883,7 +1868,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.extension</string>
+@@ -1902,7 +1887,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Owner</string>
++            <string>Default</string>
+         </dict>
+         <dict>
+             <key>CFBundleTypeName</key>
+@@ -2000,7 +1985,7 @@
+     <key>CFBundlePackageType</key>
+     <string>APPL</string>
+     <key>CFBundleSignature</key>
+-    <string>LibO</string>
++    <string>????</string>
+     <key>LSRequiresCarbon</key>
+     <string>1</string>
+     <key>NSPrincipalClass</key>
+--- a/extensions/source/macosx/spotlight/mdimporter/Info.plist
++++ b/extensions/source/macosx/spotlight/mdimporter/Info.plist
+@@ -58,8 +58,10 @@
+     <string>OOoSpotlightImporter</string>
+     <key>CFBundleIconFile</key>
+     <string></string>
++    <!-- HST Office: own bundle id and factory UUID (main.m PLUGIN_ID), distinct from LibreOffice's
++         importer, so Spotlight keeps both when both suites are installed. -->
+     <key>CFBundleIdentifier</key>
+-    <string>org.libreoffice.mdimporter</string>
++    <string>vn.hasontech.hstoffice.mdimporter</string>
+     <key>CFBundleInfoDictionaryVersion</key>
+     <string>6.0</string>
+     <key>CFBundleVersion</key>
+@@ -70,14 +72,14 @@
+     <string>NO</string>
+     <key>CFPlugInFactories</key>
+     <dict>
+-        <key>A3FCC88D-B9A6-4364-8B93-92123C8A2D18</key>
++        <key>82F385A2-7B27-450D-9836-EA4DC4E6E9F9</key>
+         <string>MetadataImporterPluginFactory</string>
+     </dict>
+     <key>CFPlugInTypes</key>
+     <dict>
+         <key>8B08C4BF-415B-11D8-B3F9-0003936726FC</key>
+         <array>
+-            <string>A3FCC88D-B9A6-4364-8B93-92123C8A2D18</string>
++            <string>82F385A2-7B27-450D-9836-EA4DC4E6E9F9</string>
+         </array>
+     </dict>
+     <key>CFPlugInUnloadFunction</key>
+--- a/extensions/source/macosx/spotlight/main.m
++++ b/extensions/source/macosx/spotlight/main.m
+@@ -40,7 +40,8 @@
+ //    constants
+ 
+ 
+-#define PLUGIN_ID "A3FCC88D-B9A6-4364-8B93-92123C8A2D18"
++// HST Office: own factory UUID (mdimporter/Info.plist CFPlugInFactories), not LibreOffice's.
++#define PLUGIN_ID "82F385A2-7B27-450D-9836-EA4DC4E6E9F9"
+ 
+ //
+ // Below is the generic glue code for all plug-ins.
