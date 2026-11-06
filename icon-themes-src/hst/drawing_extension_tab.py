@@ -5,11 +5,17 @@ Same construction desk and pen as Stage 1 (drawing.py). Artwork is CC-BY-4.0; sc
 """
 from drawing import add, p, r, c
 
+ACCENT = '#2F7DD1'  # HST blue, the same in the light and dark theme
+
 
 def hst_commands():
     # Large 32 px buttons; the contours stay open and few, so they also read at 16 px.
-    add('convertencoding', p('m2 21 4-11 4 11M3.3 17.5h5.4M14 21l4-11 4 11M15.3 17.5h5.4M16 7l2-2 2 2M3 4.5h7m-2.5-2.5 2.5 2.5-2.5 2.5'),
-        'Plain A converted to A with circumflex: legacy Vietnamese text to Unicode')
+    # Owner's choice (2026-11-06): legacy bytes (grey boxes) become Vietnamese letters (HST blue) on the same line.
+    add('convertencoding', p('M2.5 4.5h4v5h-4zM9 4.5h4v5H9z', stroke_opacity='.5') + p('M17.5 3.5v7m-2.5-2.5 2.5 2.5 2.5-2.5')
+        + '<g stroke="' + ACCENT + '">' + p('M4.5 17.5a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0M9 15.2c.9 0 1.5-.6 1.5-1.4'
+                                            'M14 17.5h5a2.5 2.5 0 1 0-.8 1.9M14.8 13.2l1.7-1.7 1.7 1.7') + '</g>'
+        + p('M2.5 22h19'),
+        'Legacy byte boxes (grey) turned into the Vietnamese letters o-horn and e-circumflex (blue) on a text line')
     add('numbertowords', p('M3 4.5 5 3v7M8 5c0-2.6 4-2.6 4 0 0 1.8-4 3-4 5h4M14.5 6.5h6.5m-2.5-2.5 2.5 2.5-2.5 2.5M3 14h18M3 17.5h18M3 21h11'),
         'Digits 1 2 turned into lines of words')
     add('formatdate', r(3, 5, 18, 16, 2)+p('M3 10h18M8 3v4M16 3v4M7 14h1.5m2.75 0h1.5m2.75 0h1.5M7 17.5h1.5m2.75 0h1.5'),
