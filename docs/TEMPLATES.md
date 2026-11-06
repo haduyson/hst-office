@@ -159,7 +159,11 @@ thư mục kết quả mới, không tái dùng tệp xuất cũ.
 Khi môi trường cho phép, harness mở đủ các mẫu, xuất PDF và DOCX/XLSX/PPTX, tạo
 bản chỉnh sửa riêng, lưu/mở lại ODF và mở lại OOXML. Nó kiểm tra chữ Việt trong
 PDF, số trang, A4/lề trong XML DOCX, master/notes/biểu đồ trong PPTX và tỷ lệ
-4:3. Với Sheets, dữ liệu thử nghiệm tách riêng tại
+4:3. Yêu cầu riêng của từng loại (quốc hiệu–tiêu ngữ hay tiêu đề Đảng, số/ký
+hiệu, nơi nhận/kính gửi, chữ ký, đoạn giữ chỗ để sửa, khổ giấy và lề theo hồ
+sơ NĐ30/VBQPPL/Đảng, sổ đăng ký) nằm trong bảng
+[requirements.json](../tests/fixtures/templates/requirements.json); mẫu nào
+trong catalog không có mục trong bảng thì FAIL. Với Sheets, dữ liệu thử nghiệm tách riêng tại
 [expected.json](../tests/fixtures/templates/expected.json); kết quả công thức
 được đọc từ XLSX do LibreOffice tính lại, gồm dữ liệu trống, số khác 0, số âm và
 nhánh chia cho 0. Không coi giá trị cache ban đầu trong OTS là bằng chứng tính.

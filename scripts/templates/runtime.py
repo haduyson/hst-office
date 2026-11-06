@@ -13,7 +13,8 @@ class RuntimeBlocked(RuntimeError):
     pass
 
 
-def socket_probe(directory):
+def socket_probe(directory=None):
+    """LibreOffice binds its pipe in the system temp dir; a deep worktree path would exceed the 108-byte AF_UNIX limit."""
     try:
         with tempfile.TemporaryDirectory(prefix="ipc-", dir=directory) as tmp:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
