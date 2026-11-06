@@ -140,7 +140,8 @@ jobs:
           MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe /IM oosplash.exe 2>&1 || echo "no office process was left running"
           mkdir -p "$RUNNER_TEMP/out/smoke"
           cp -r "$(cygpath -u "$HST_INSTALL")/share/extensions/hst-vietnamese-tools" "$RUNNER_TEMP/out/extension-as-installed" || echo "extension directory missing"
-          find "$RUNNER_TEMP/out" -type f | head -n 100
+          # sed reads the whole listing: head would close the pipe early and pipefail turns that SIGPIPE into a failure
+          find "$RUNNER_TEMP/out" -type f | sed -n '1,100p'
           for results in "$RUNNER_TEMP"/out/smoke/smoke-results.json "$RUNNER_TEMP"/out/update-policy/*.json; do
             [ -f "$results" ] || continue
             python -I -X utf8 -c "import json,sys; r=json.load(open(sys.argv[1], encoding='utf-8')); print('\n'.join('%s %s %s' % (x['status'], r.get('profile', 'smoke'), x['check']) for x in r['results']))" "$results" >> "$GITHUB_STEP_SUMMARY"
