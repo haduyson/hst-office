@@ -173,11 +173,12 @@ Homebrew). Phiên bản HST lấy từ `/VERSION` và `data/hst/release.json` (h
   [stage-macos-icons.py](../scripts/macos/stage-macos-icons.py) dựng từ ảnh HST. Bước `--verify` gắn dmg,
   kiểm tên `HST Office.app`, bundle ID `vn.hasontech.hstoffice`, kiến trúc, icon, bố cục, chuỗi Info.plist
   và catalog `.mo` tiếng Việt, và bằng [check-coexist-plists.py](../scripts/macos/check-coexist-plists.py)
-  rằng bundle không khai báo gì trùng LibreOffice (không export UTI của bộ khác, không `LSHandlerRank`
-  Owner, không URL scheme `vnd.libreoffice.*`/`vnd.sun.star.*`, plug-in Spotlight/Quick Look mang id HST).
+  rằng bundle không khai báo gì trùng LibreOffice (không export UTI của bộ khác, không URL scheme
+  `vnd.libreoffice.*`/`vnd.sun.star.*`, plug-in Spotlight/Quick Look mang id HST).
 - Sau khi tải dmg lên, job arm64 chạy [coexist-probe.sh](../scripts/macos/coexist-probe.sh): cài LibreOffice
-  chính thức (dmg ghim URL và SHA-256) rồi HST vào `/Applications`, kiểm ứng dụng mặc định (`duti -x`,
-  LaunchServices) không đổi khi cài/gỡ HST, hai ứng dụng chạy cùng lúc (`lsappinfo`, cửa sổ), `open -a`
+  chính thức (dmg ghim URL và SHA-256) rồi HST vào `/Applications`, ghi ứng dụng mặc định (`duti -x`,
+  LaunchServices) khi cài/gỡ HST (scheme riêng của LibreOffice phải giữ nguyên; loại tệp cả hai cùng nhận,
+  như ODF với hạng Owner và OOXML, chỉ báo WARN vì LaunchServices tự chọn một), hai ứng dụng chạy cùng lúc (`lsappinfo`, cửa sổ), `open -a`
   mở tệp đúng ứng dụng được chọn, profile riêng, gỡ bên nào bên kia vẫn chạy. Kết quả trong
   `macos-build-arm64-<run_id>/coexist/summary.md`; lỗi làm job đỏ (dmg chưa ký vẫn được tải lên).
 - Artifact: `macos-build-<arch>-<run_id>` (log/số đo, luôn tải, 7 ngày) và

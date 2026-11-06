@@ -5,10 +5,9 @@
 # Installs LibreOffice, then HST, into /Applications and fails when
 #   - the bundles clash (scripts/macos/check-coexist-plists.py: bundle ids, names, profiles, exported
 #     UTIs, URL schemes, Spotlight/Quick Look plug-in ids);
-#   - installing or removing HST changes the default application (duti -x, LaunchServices) of a
-#     type LibreOffice declares as its own (LSHandlerRank Owner: ODF). Types both suites only
-#     open (Alternate: OOXML, the ms-* schemes) are reported as WARN: LaunchServices breaks that
-#     tie by itself, HST cannot rank below Alternate and stay in Open With;
+#   - installing or removing HST hands LibreOffice's own URL scheme (vnd.libreoffice.command) to HST.
+#     A changed default of a document type or ms-* scheme is a WARN: both suites claim them at the
+#     same rank (ODF Owner, owner decision 2026-11-06; OOXML Alternate) and LaunchServices picks one;
 #   - both cannot run at once as separate processes (lsappinfo) with their own windows, or a file
 #     opened with one ("open -a") is opened by the other (its lock file names the owner's profile);
 #   - their profiles are not separate, or removing either leaves the other unable to start.
@@ -43,29 +42,20 @@ record() { # record <label>: default handler of every extension and scheme (Laun
   local e; for e in "${EXTS[@]}"; do printf 'duti %s: %s\n' "$e" "$(duti -x "$e" 2>&1 | tr '\n' ' ')"; done >> "$out/defaults-$1.txt"
 }
 
-same_defaults() { # same_defaults <label> <record> <baseline record>: FAIL for a LibreOffice-owned type, WARN otherwise
+same_defaults() { # same_defaults <label> <record> <baseline record>: FAIL for a key in lo-owned.txt, WARN otherwise
   local label="$1" line key changed=0; shift
   if [ ! -s "$out/defaults-$1.txt" ] || [ ! -s "$out/defaults-$2.txt" ]; then fail "$label: no record defaults-$1/$2"; return; fi
   if cmp -s "$out/defaults-$1.txt" "$out/defaults-$2.txt"; then pass "$label: default applications as with $2 ($(grep -c . "$out/defaults-$2.txt") entries)"; return; fi
   while IFS= read -r line; do
     key="${line%% *}"; changed=1
-    if grep -qxF "$key" "$out/lo-owned.txt"; then fail "$label: default of a LibreOffice-owned type changed: $line (was: $(grep -F "$key " "$out/defaults-$2.txt" | head -1))"
-    else log "- WARN $label: default of a type both only open (Alternate) changed: $line (was: $(grep -F "$key " "$out/defaults-$2.txt" | head -1))"; fi
+    if grep -qxF "$key" "$out/lo-owned.txt"; then fail "$label: LibreOffice's own scheme changed: $line (was: $(grep -F "$key " "$out/defaults-$2.txt" | head -1))"
+    else log "- WARN $label: default of a type both suites claim changed (either is acceptable): $line (was: $(grep -F "$key " "$out/defaults-$2.txt" | head -1))"; fi
   done < <(comm -13 <(sort "$out/defaults-$2.txt") <(sort "$out/defaults-$1.txt") | grep -v '^duti ')
   [ "$changed" -eq 1 ] || pass "$label: default applications as with $2 (duti output only)"
 }
 
-lo_owned() { # ext:<e> keys whose UTI LibreOffice claims with LSHandlerRank Owner
-  python3 - "$LO_APP/Contents/Info.plist" "$out/defaults-lo.txt" > "$out/lo-owned.txt" <<'PY'
-import plistlib, re, sys
-info = plistlib.load(open(sys.argv[1], "rb"))
-owned = {t for d in info.get("CFBundleDocumentTypes", []) if d.get("LSHandlerRank") == "Owner" for t in d.get("LSItemContentTypes", [])}
-for line in open(sys.argv[2]):
-    m = re.match(r"(ext:\S+) .* uti=(\S+)", line)
-    if m and m.group(2) in owned:
-        print(m.group(1))
-PY
-  echo scheme:vnd.libreoffice.command >> "$out/lo-owned.txt"   # its own URL scheme
+lo_owned() { # keys only LibreOffice may handle: its own URL scheme
+  echo scheme:vnd.libreoffice.command > "$out/lo-owned.txt"
 }
 
 first_launch() { # first_launch <app> <bundle id>: seed the profile, start once, quit (LaunchServices settles)
@@ -151,7 +141,6 @@ LO_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LO_APP/Content
 first_launch "$LO_APP" "$LO_ID"
 record lo
 lo_owned
-log "LibreOffice-owned types: $(tr '\n' ' ' < "$out/lo-owned.txt")"
 log "LibreOffice $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$LO_APP/Contents/Info.plist") ($LO_ID)"
 install_app "$hst_dmg" "HST Office.app"
 HST_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$HST_APP/Contents/Info.plist")"

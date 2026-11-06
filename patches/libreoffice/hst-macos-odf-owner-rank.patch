@@ -1,0 +1,255 @@
+HST Office on macOS: the ODF and OpenOffice.org types keep LSHandlerRank Owner (owner decision 2026-11-06).
+
+hst-macos-coexist.patch lowered them to Default so an installed LibreOffice stays their default;
+the owner prefers that a Mac with only HST opens .odt with HST (TextEdit took it at Default). The
+types stay imported, not exported; with both suites installed LaunchServices picks one of the two
+Owners and the other stays under Open With.
+
+License: these upstream files remain under their original license (MPL-2.0).
+
+--- a/sysui/desktop/macosx/Info.plist.in
++++ b/sysui/desktop/macosx/Info.plist.in
+@@ -23,7 +23,8 @@
+     <string>English</string>
+     <!-- HST Office imports every type it opens: the ODF, OpenOffice.org and extension types belong to
+          their own suites (LibreOffice exports them), so a second export would make two conflicting
+-         declarations of one type when both suites are installed. -->
++         declarations of one type when both suites are installed. HST still opens them as their Owner
++         (CFBundleDocumentTypes below), so a Mac with only HST opens them with HST. -->
+     <key>UTImportedTypeDeclarations</key>
+     <array>
+         <!-- Writer documents -->
+@@ -1569,8 +1570,6 @@
+         </dict>
+     </array>
+ 
+-    <!-- HST Office: LSHandlerRank Default (not Owner) for the ODF/OpenOffice.org types, so installing HST
+-         next to LibreOffice leaves LibreOffice the default for them until the user chooses otherwise. -->
+     <key>CFBundleDocumentTypes</key>
+     <array>
+         <dict>
+@@ -1592,7 +1591,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.text</string>
+@@ -1604,7 +1603,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.text</string>
+@@ -1616,7 +1615,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.spreadsheet</string>
+@@ -1628,7 +1627,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.spreadsheet</string>
+@@ -1640,7 +1639,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.presentation</string>
+@@ -1652,7 +1651,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.presentation</string>
+@@ -1664,7 +1663,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.graphics</string>
+@@ -1676,7 +1675,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.graphics</string>
+@@ -1688,7 +1687,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.chart</string>
+@@ -1700,7 +1699,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.text-master</string>
+@@ -1712,7 +1711,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.text-master</string>
+@@ -1724,7 +1723,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.formula</string>
+@@ -1736,7 +1735,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.formula</string>
+@@ -1748,7 +1747,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.text-template</string>
+@@ -1760,7 +1759,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.text-template</string>
+@@ -1772,7 +1771,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.text-master-template</string>
+@@ -1784,7 +1783,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.spreadsheet-template</string>
+@@ -1796,7 +1795,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.spreadsheet-template</string>
+@@ -1808,7 +1807,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.presentation-template</string>
+@@ -1820,7 +1819,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.presentation-template</string>
+@@ -1832,7 +1831,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.graphics-template</string>
+@@ -1844,7 +1843,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.graphics-template</string>
+@@ -1856,7 +1855,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.oasis-open.opendocument.database</string>
+@@ -1868,7 +1867,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+             <key>LSItemContentTypes</key>
+             <array>
+                 <string>org.openoffice.extension</string>
+@@ -1887,7 +1886,7 @@
+             <key>CFBundleTypeRole</key>
+             <string>Editor</string>
+             <key>LSHandlerRank</key>
+-            <string>Default</string>
++            <string>Owner</string>
+         </dict>
+         <dict>
+             <key>CFBundleTypeName</key>

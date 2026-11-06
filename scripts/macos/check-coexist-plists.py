@@ -7,8 +7,8 @@ Rules for HST alone (every build, scripts/macos/trial-build.sh --verify):
   - its bundle id and CFBundleSignature are not LibreOffice's;
   - it exports no uniform type identifier (UTI) outside its own bundle id: types it does not own (ODF,
     OpenOffice.org, .oxt) are imported, so the system keeps the owner's single declaration;
-  - no document type claims LSHandlerRank Owner, so installing HST never takes the default
-    application from the suite that owns the format (it stays a normal "Open With" choice);
+  - LSHandlerRank is not checked: HST claims the ODF types as Owner so a Mac with only HST opens them
+    (owner decision 2026-11-06); with LibreOffice installed too, LaunchServices picks one of them;
   - no URL scheme in LibreOffice's vnd.libreoffice.* / vnd.sun.star.* namespaces;
   - every Spotlight importer and app extension inside it has a bundle id under HST's bundle id;
   - its profile (bootstraprc UserInstallation) is not LibreOffice's.
@@ -43,10 +43,6 @@ class Bundle:
 
     def exported(self):
         return {t.get("UTTypeIdentifier", "") for t in self.info.get("UTExportedTypeDeclarations", [])}
-
-    def owner_types(self):
-        return {ct for doc in self.info.get("CFBundleDocumentTypes", []) if doc.get("LSHandlerRank") == "Owner"
-                for ct in doc.get("LSItemContentTypes", [])}
 
     def schemes(self):
         return {s.lower() for url in self.info.get("CFBundleURLTypes", []) for s in url.get("CFBundleURLSchemes", [])}
@@ -91,8 +87,6 @@ def check(hst, lo=None):
     rule(hst.info.get("CFBundleSignature") != "LibO", f"CFBundleSignature {hst.info.get('CFBundleSignature')!r} is not LibreOffice's")
     foreign = sorted(t for t in hst.exported() if not own(t, hst.id))
     rule(not foreign, "exports no UTI it does not own" + (f": exports {', '.join(foreign)}" if foreign else ""))
-    owner = sorted(t for t in hst.owner_types() if not own(t, hst.id))
-    rule(not owner, "claims no LSHandlerRank Owner" + (f": Owner of {', '.join(owner)}" if owner else ""))
     upstream = sorted(s for s in hst.schemes() if UPSTREAM_SCHEME.match(s))
     rule(not upstream, "no LibreOffice URL scheme" + (f": {', '.join(upstream)}" if upstream else ""))
     plugins = hst.plugins()

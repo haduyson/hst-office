@@ -29,7 +29,7 @@ def lo_info():
 
 def hst_info():
     return {"CFBundleIdentifier": "vn.hasontech.hstoffice", "CFBundleName": "HST Office", "CFBundleSignature": "????",
-            "UTImportedTypeDeclarations": [{"UTTypeIdentifier": ODT}], "CFBundleDocumentTypes": [doc_type("Default", ODT)],
+            "UTImportedTypeDeclarations": [{"UTTypeIdentifier": ODT}], "CFBundleDocumentTypes": [doc_type("Owner", ODT)],
             "CFBundleURLTypes": [{"CFBundleURLSchemes": ["ms-word", "ms-excel"]}]}
 
 
@@ -69,17 +69,17 @@ class CoexistPlistTest(unittest.TestCase):
 
     def test_libreoffice_bundle_fails_every_hst_rule(self):
         failed = " | ".join(self.failed(self.lo))
-        for word in ("bundle id", "CFBundleSignature", "exports", "Owner", "URL scheme", "plug-ins", "profile"):
+        for word in ("bundle id", "CFBundleSignature", "exports", "URL scheme", "plug-ins", "profile"):
             self.assertIn(word, failed)
 
-    def test_exported_foreign_type_and_owner_rank_fail(self):
+    def test_exported_foreign_type_fails_and_owner_rank_is_allowed(self):
         info = hst_info()
         info["UTExportedTypeDeclarations"] = [{"UTTypeIdentifier": ODT}, {"UTTypeIdentifier": "vn.hasontech.hstoffice.x"}]
         info["CFBundleDocumentTypes"] = [doc_type("Owner", ODT)]
         failed = " | ".join(self.failed(self.hst(info), self.lo))
         self.assertIn(f"exports {ODT}", failed)
         self.assertNotIn("vn.hasontech.hstoffice.x", failed)  # HST may export its own types
-        self.assertIn(f"Owner of {ODT}", failed)
+        self.assertNotIn("Owner", failed)  # Owner of an imported type is HST's choice
         self.assertIn(f"no UTI exported by both: {ODT}", failed)
 
     def test_libreoffice_scheme_and_plugin_clash_fail(self):
