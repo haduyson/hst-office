@@ -42,7 +42,7 @@ def check_new(office, frame, interceptor, out):
                sorted({group for _name, group in rows})[:6])
     samples = os.path.join(office.program, "..", "share", "template", "common", "l10n")
     gui.record("the upstream language samples are not installed", not os.path.exists(samples))
-    gui.press(gui.view_items()["Quản lý mẫu…"])
+    gui.press(gui.view_items()["Quản lý mẫu"])
     gui.record("New: Manage Templates opens the Templates dialog", gui.expect_call(interceptor, ".uno:NewDoc"))
     gui.record("New: Manage Templates closed the panel", gui.wait_state(False))
     # a template opens as a new untitled document
@@ -97,3 +97,16 @@ def check_keyboard(office, frame, out):
                "%s -> %s" % (first, gui.focused_name()))
     gui.xdo(display, "key", "Escape")
     gui.record("Esc closes the panel", gui.wait_state(False))
+
+
+def check_info_and_label(office, frame):
+    """Info shows a dash for an empty value; the command reads "Bảng Tệp tin" (feature search, customize dialogs)."""
+    gui.reopen(office, frame)
+    gui.press(gui.view_items()["Thông tin"])
+    time.sleep(0.8)
+    gui.record("Info shows a dash for an empty value", bool(named("—", "label")))
+    gui.xdo(office.display, "key", "Escape")
+    gui.wait_state(False)
+    commands = office.service("com.sun.star.frame.UICommandDescription").getByName("com.sun.star.text.TextDocument")
+    label = {p.Name: p.Value for p in commands.getByName(".uno:HSTBackstage")}.get("Label")
+    gui.record('the command label is "Bảng Tệp tin"', label == "Bảng Tệp tin", label)

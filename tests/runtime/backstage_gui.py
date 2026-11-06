@@ -49,9 +49,9 @@ def showing(found):
 
 
 def view_items():
-    """Showing push buttons by name; the panel is open when all of the left column shows."""
+    """Showing push buttons by name without a trailing ellipsis; the panel is open when the whole left column shows."""
     found = showing(walk(nd30.office_app(), []))
-    return {name: node for role, name, node in found if role == "push button" and name}
+    return {name.rstrip("…."): node for role, name, node in found if role == "push button" and name}
 
 
 def is_open():

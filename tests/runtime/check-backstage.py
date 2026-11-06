@@ -45,7 +45,7 @@ COMMAND_ITEMS = {
     "Tùy chọn": ".uno:OptionsTreeDialog",
 }
 # item name -> a label that only its page shows
-PAGE_ITEMS = {"Mới": "Quản lý mẫu…", "Mở": "Duyệt…", "Thông tin": "Thuộc tính…", "Lưu thành": "Duyệt…", "Trang chủ": "Tạo mới"}
+PAGE_ITEMS = {"Mới": "Quản lý mẫu", "Mở": "Duyệt", "Thông tin": "Thuộc tính", "Lưu thành": "Duyệt", "Trang chủ": "Tạo mới"}
 APPS = (("swriter", "Writer", ".docx", "MS Word 2007 XML"),
         ("scalc", "Sheets", ".xlsx", "Calc MS Excel 2007 XML"),
         ("simpress", "Slides", ".pptx", "Impress MS PowerPoint 2007 XML"))
@@ -135,8 +135,8 @@ def check_app(office, args, factory, label, recent_name, shots):
             press(view_items()[name])
             record("%s: %s runs %s" % (label, name, command), expect_call(interceptor, command))
             record("%s: %s closed the panel" % (label, name), wait_state(False))
-        for page, button, command in (("Mở", "Duyệt…", ".uno:Open"), ("Lưu thành", "Duyệt…", ".uno:SaveAs"),
-                                      ("Thông tin", "Thuộc tính…", ".uno:SetDocumentProperties")):
+        for page, button, command in (("Mở", "Duyệt", ".uno:Open"), ("Lưu thành", "Duyệt", ".uno:SaveAs"),
+                                      ("Thông tin", "Thuộc tính", ".uno:SetDocumentProperties")):
             office.dispatch(frame, COMMAND)
             wait_state(True)
             press(view_items()[page])

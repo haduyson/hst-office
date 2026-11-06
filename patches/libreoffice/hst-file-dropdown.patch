@@ -17,6 +17,7 @@ that drops down under the ribbon, like a menu:
   runs; the focus goes back to the document. The "←" item is gone: the footer says how to close the panel.
 - Same 12 items, order and labels in the left column, now a light column with the command icons (a drawn house for
   Home) and the selection marked by a bar in the application colour; top edge in the application colour.
+- The .uno:HSTBackstage label is "Bảng Tệp tin" (the panel, not a page). Info shows "—" for an empty value.
 - Compact pages: four tiles on Home, narrower recent lists, and on New a list of this application's templates (all
   template folders, as the Templates dialog lists them) instead of the thumbnail gallery; Manage Templates… and
   Browse… open the full dialogs. Info keeps Properties…, Digital Signatures… and USB Token Setup….
@@ -885,7 +886,31 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
  }
  
  void BackstageWindow::ShowPage(Page ePage)
-@@ -715,54 +699,67 @@
+@@ -690,14 +674,16 @@
+ void BackstageWindow::FillInfoPage()
+ {
+     BackstageDocumentInfo aInfo = GetDocumentInfo(m_xFrame);
+-    m_xInfoName->set_label(aInfo.aName);
+-    m_xInfoType->set_label(aInfo.aType);
++    // an empty value reads as a dash, so its row does not look unfinished
++    auto value = [](const OUString& rValue) { return rValue.isEmpty() ? u"—"_ustr : rValue; };
++    m_xInfoName->set_label(value(aInfo.aName));
++    m_xInfoType->set_label(value(aInfo.aType));
+     m_xInfoPath->set_label(aInfo.aFolder.isEmpty() ? SfxResId(STR_HST_BS_NOT_SAVED) : aInfo.aFolder);
+-    m_xInfoSize->set_label(aInfo.aSize);
+-    m_xInfoCreated->set_label(aInfo.aCreated);
+-    m_xInfoModified->set_label(aInfo.aModified);
+-    m_xInfoAuthor->set_label(aInfo.aAuthor);
+-    m_xInfoSignature->set_label(aInfo.aSignature);
++    m_xInfoSize->set_label(value(aInfo.aSize));
++    m_xInfoCreated->set_label(value(aInfo.aCreated));
++    m_xInfoModified->set_label(value(aInfo.aModified));
++    m_xInfoAuthor->set_label(value(aInfo.aAuthor));
++    m_xInfoSignature->set_label(value(aInfo.aSignature));
+ }
+ 
+ void BackstageWindow::FillSaveAsPage()
+@@ -715,54 +701,67 @@
          m_xFormatList->select(0);
  }
  
@@ -984,7 +1009,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
      m_aNav[m_nSelectedNav].xButton->grab_focus();
  }
  
-@@ -771,9 +768,12 @@
+@@ -771,9 +770,12 @@
      if (!m_bOpen)
          return;
      m_bOpen = false;
@@ -1000,7 +1025,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
      for (SfxViewFrame* pFrame = SfxViewFrame::GetFirst(); pFrame; pFrame = SfxViewFrame::GetNext(*pFrame))
      {
          if (pFrame->GetFrame().GetFrameInterface() == m_xFrame)
-@@ -786,6 +786,15 @@
+@@ -786,6 +788,15 @@
      }
  }
  
@@ -1016,7 +1041,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
  void BackstageWindow::CloseAndDispatch(const OUString& rCommand,
                                         const uno::Sequence<beans::PropertyValue>& rArgs)
  {
-@@ -835,11 +844,26 @@
+@@ -835,11 +846,26 @@
                         [](const NavItem& rItem) { return rItem.xButton->has_focus(); });
  }
  
@@ -1046,7 +1071,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
          const sal_uInt16 nCode = rKey.GetCode();
          if (nCode == KEY_ESCAPE && !rKey.GetModifier())
          {
-@@ -863,20 +887,8 @@
+@@ -863,20 +889,8 @@
                      FocusNavItem(INT_MAX);
                      return true;
                  case KEY_RIGHT:
@@ -1068,7 +1093,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                  default:
                      break;
              }
-@@ -898,7 +910,7 @@
+@@ -898,7 +912,7 @@
              }
          }
  
@@ -1077,7 +1102,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
          if (!m_xAccExec)
          {
              m_xAccExec = svt::AcceleratorExecute::createAcceleratorHelper();
-@@ -915,15 +927,7 @@
+@@ -915,15 +929,7 @@
              return true;
          }
      }
@@ -1094,7 +1119,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
  }
  
  IMPL_LINK(BackstageWindow, NavClickHdl, weld::Button&, rButton, void)
-@@ -933,9 +937,7 @@
+@@ -933,9 +939,7 @@
          if (rItem.xButton.get() == &rButton)
              aId = rItem.aId;
  
@@ -1105,7 +1130,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
          ShowPage(Page::Home);
      else if (aId == "navnew")
          ShowPage(Page::New);
-@@ -1118,7 +1120,7 @@
+@@ -1118,7 +1122,7 @@
      BackstageDocumentInfo aInfo = GetDocumentInfo(m_xFrame, false);
      const OUString aExtension = pFilter->GetDefaultExtension().replaceFirst("*.", "");
      sfx2::FileDialogHelper aDialog(ui::dialogs::TemplateDescription::FILESAVE_AUTOEXTENSION,
@@ -1114,7 +1139,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
      aDialog.AddFilter(pFilter->GetUIName(), pFilter->GetWildcard().getGlob());
      aDialog.SetCurrentFilter(pFilter->GetUIName());
      if (!aInfo.aFolderURL.isEmpty())
-@@ -1133,23 +1135,12 @@
+@@ -1133,23 +1137,12 @@
                          comphelper::makePropertyValue(u"FilterName"_ustr, aFilterName) });
  }
  
@@ -2298,3 +2323,14 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
  #. hstBS
  #: sfx2/uiconfig/ui/hstbackstage.ui
  msgctxt "hstbackstage|opentitle"
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -16866,7 +16866,7 @@
+ "Label\n"
+ "value.text"
+ msgid "File View"
+-msgstr "Trang Tệp tin"
++msgstr "Bảng Tệp tin"
+ 
+ #. hstRB
+ #: GenericCommands.xcu
