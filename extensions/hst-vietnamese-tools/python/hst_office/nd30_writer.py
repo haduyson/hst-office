@@ -49,9 +49,9 @@ def _write_paragraphs(text, cur, paragraphs, cell_mm):
                 cur.collapseToEnd()
 
 
-def uno_page_before():
+def uno_page_before(kind="PAGE_BEFORE"):
     import uno
-    return uno.Enum("com.sun.star.style.BreakType", "PAGE_BEFORE")
+    return uno.Enum("com.sun.star.style.BreakType", kind)
 
 
 def _plain_cell(cell, valign, borders):
@@ -148,7 +148,7 @@ def _write_blocks(doc, text, cur, layout, blocks, section_style):
         _write_paragraphs(text, cur, [block], text_mm)
         text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
         if block.get("new_section"):
-            cur.BreakType = uno_break_none()
+            cur.BreakType = uno_page_before("NONE")
 
 
 def _shrink_end(doc, text, cur, blocks):
@@ -166,12 +166,7 @@ def _shrink_end(doc, text, cur, blocks):
     format_paragraph(probe, {"align": "left"}, 0)
     probe.CharHeight = 1.0
     if blocks[-1]["type"] == "paragraph" and probe.gotoPreviousParagraph(False):
-        probe.ParaKeepTogether = True  # keep with next
-
-
-def uno_break_none():
-    import uno
-    return uno.Enum("com.sun.star.style.BreakType", "NONE")
+        probe.ParaKeepTogether, probe.ParaBottomMargin = True, 0  # its space below would push the end paragraph over
 
 
 def insert_layout(doc, view_cursor, layout, margins_mm=None, apply_page=False, page_numbers=True,
