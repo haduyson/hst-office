@@ -41,9 +41,11 @@ jobs:
         # commands: the MSI alone, every HST command and the update helper.
         # libreoffice-first / hst-first: the official LibreOffice MSI and HST Office in either order; both keep their own
         # ProgIDs, open commands and UNO install path and both start; uninstalling the second leaves the first intact.
-        # upgrade-from-beta4: HST beta.4 (installed under LibreOffice's UpgradeCode), then the new MSI; beta.4 is
-        # replaced and Programs and Features has one HST Office entry. Each scenario runs on a fresh runner.
-        scenario: ${{ fromJSON(inputs.install_paths && '["commands","libreoffice-first","hst-first","upgrade-from-beta4"]' || '["commands"]') }}
+        # uninstall-beta4-then-install: HST beta.4 installed, uninstalled (msiexec /x), then the new MSI: the path
+        # beta 1-4 users follow. upgrade-from-beta4: informational, expected to fail (installing over beta.4 drops the
+        # executables whose beta.4 version is higher); it records every missing file and never fails the run.
+        # Each scenario runs on a fresh runner.
+        scenario: ${{ fromJSON(inputs.install_paths && '["commands","libreoffice-first","hst-first","uninstall-beta4-then-install","upgrade-from-beta4"]' || '["commands"]') }}
     env:
       # Current LibreOffice stable for Windows x64 (26.8.2.2), GPG-signed by the LibreOffice build key
       # C2839ECAD9408FBE9531C3E9F434A1EFAFEEAEA3; the archive keeps the same file after stable/ moves on.
@@ -184,8 +186,6 @@ jobs:
           python -I -W ignore::DeprecationWarning scripts/check-msi-upgrade.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-upgrade-rules.txt"
           # Registry table: no App Paths, LibreOffice URI scheme, ProgID, Explorer class id or Software\LibreOffice key.
           python -I -W ignore::DeprecationWarning scripts/check-msi-coexist.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-coexist-rules.txt"
-          # File table: no executable listed at or below beta 1-4's 26.8.1.1, or the upgrade from beta 1-4 drops it.
-          python -I -W ignore::DeprecationWarning scripts/check-msi-file-versions.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-file-versions.txt"
       - name: Download the other installer (LibreOffice or HST beta.4)
         if: ${{ matrix.scenario != 'commands' }}
         shell: bash
@@ -194,7 +194,7 @@ jobs:
           SCENARIO: ${{ matrix.scenario }}
         run: |
           set -euo pipefail
-          if [ "$SCENARIO" != upgrade-from-beta4 ]; then
+          if [ "$SCENARIO" = libreoffice-first ] || [ "$SCENARIO" = hst-first ]; then
             mkdir -p "$RUNNER_TEMP/first"
             cd "$RUNNER_TEMP/first"
             msi=LibreOffice_26.8.2_Win_x86-64.msi

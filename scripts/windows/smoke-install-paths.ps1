@@ -10,10 +10,16 @@
 #                       (smoke-coexist-registry.ps1).
 #   hst-first:          the same with HST Office first; LibreOffice is uninstalled and HST Office keeps its own;
 #                       HST Office alone writes none of LibreOffice's names.
-#   upgrade-from-beta4: OtherMsi is the HST Office beta.4 MSI (LibreOffice's UpgradeCode). After the new
-#                       MSI, beta.4 is gone, one HST Office entry is left, and it starts from the same folder.
+#   uninstall-beta4-then-install: OtherMsi is the HST Office beta.4 MSI (LibreOffice's UpgradeCode). It is
+#                       installed, then uninstalled with msiexec /x (the documented path for beta 1-4 users);
+#                       leftovers are listed and fail the run only when they would break the new install. Then
+#                       the new MSI installs: every file present, own UpgradeCode, keys, taskbar ids, it starts.
+#   upgrade-from-beta4: informational, expected to fail: the new MSI installed over beta.4. Beta.4's files carry
+#                       a higher version (26.8.1.1) than the new ones (1.0.0.x), so Windows Installer skips them
+#                       and then removes beta.4's copies. The run records the result and every missing file
+#                       but exits 0.
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('libreoffice-first', 'hst-first', 'upgrade-from-beta4')][string]$Scenario,
+    [Parameter(Mandatory=$true)][ValidateSet('libreoffice-first', 'hst-first', 'uninstall-beta4-then-install', 'upgrade-from-beta4')][string]$Scenario,
     [Parameter(Mandatory=$true)][string]$HstMsi,
     [Parameter(Mandatory=$true)][string]$OtherMsi,
     [Parameter(Mandatory=$true)][string]$Out
@@ -151,6 +157,23 @@ function Assert-AllFiles([string]$Msi, [string]$ProductCode, [string]$Name) {
     Assert ($missing.Count -eq 0) "$Name has all $checked files of its registered components ($unregistered files in components not installed here)"
 }
 
+function Assert-BetaRemoved($State, [string]$Location) {
+    # After msiexec /x of beta.4: list every leftover; fail only on those that would break the new install
+    # (a product still registered, a Programs and Features entry, or executables left in the program folder,
+    # whose higher version would keep the new ones from being installed).
+    $files = @(if ($Location -and (Test-Path -LiteralPath $Location)) { Get-ChildItem -LiteralPath $Location -Recurse -File -Force | ForEach-Object FullName })
+    $keys = @('HKEY_LOCAL_MACHINE\SOFTWARE\HASON TECH\HST Office', 'HKEY_LOCAL_MACHINE\SOFTWARE\LibreOffice\Layers\HST Office',
+              'HKEY_LOCAL_MACHINE\SOFTWARE\LibreOffice\HST Office') | Where-Object { Test-Path -LiteralPath "Registry::$_" }
+    $leftovers = @($files) + @($keys | ForEach-Object { "registry: $_" })
+    Set-Content -LiteralPath (Join-Path $Out 'beta4-leftovers.txt') -Value ($leftovers -join "`r`n") -Encoding UTF8
+    Write-Host "Leftovers after uninstalling beta.4: $($leftovers.Count)"
+    $leftovers | ForEach-Object { Write-Host "  $_" }
+    Assert ($State.libreoffice_code.Count -eq 0 -and $State.hst.Count -eq 0) 'no HST Office product is registered after uninstalling beta.4'
+    Assert ((Get-ArpEntries 'HST Office').Count -eq 0) 'no HST Office entry is left in Programs and Features'
+    $binaries = @($files | Where-Object { $_ -match '\.(exe|dll|com|bin|pyd)$' })
+    Assert ($binaries.Count -eq 0) "no program files left in $Location ($($binaries.Count): $($binaries -join ', '))"
+}
+
 function Assert-Starts([string]$Location, [string]$Expect, [string]$Name) {
     # soffice.com waits for the office and prints to the console; a headless conversion proves it starts and works.
     $exe = Join-Path $Location 'program\soffice.com'
@@ -225,21 +248,46 @@ if ($Scenario -ne 'upgrade-from-beta4') {
     }
     # .odt: each suite registers ODF unconditionally, so the last installer owns it and an uninstall clears it (recorded only).
     Write-Host ".odt default: alone=$($alone.registry.odt_default) both=$($both.registry.odt_default) after uninstall=$($left.registry.odt_default)"
-} else {
+} elseif ($Scenario -eq 'uninstall-beta4-then-install') {
     Install-Msi $OtherMsi 'hst-office-beta4'
     $before = Show-State 'after-beta4'
     Assert ($before.libreoffice_code.Count -eq 1 -and $before.libreoffice_code[0].Version -eq '1.0.0.1' -and $before.libreoffice_code[0].Name -like 'HST Office*') 'beta.4 is installed under LibreOffice''s UpgradeCode as 1.0.0.1'
+    $beta = $before.libreoffice_code[0]
+    Uninstall-Product $beta.ProductCode 'hst-office-beta4'
+    $clean = Show-State 'after-beta4-uninstall'
+    Assert-BetaRemoved $clean $beta.Location
     Install-Msi $HstMsi 'hst-office'
     $after = Show-State 'after-hst-office'
-    Assert ($after.libreoffice_code.Count -eq 0) 'beta.4 was removed by the new installer'
-    Assert ($after.hst.Count -eq 1) 'the new HST Office is installed under its own UpgradeCode'
+    Assert ($after.hst.Count -eq 1 -and $after.libreoffice_code.Count -eq 0) 'the new HST Office is installed under its own UpgradeCode'
     $arp = Get-ArpEntries 'HST Office'
     Assert ($arp.Count -eq 1 -and $arp[0].DisplayVersion -eq $after.hst[0].Version) "one HST Office entry in Programs and Features ($($arp.DisplayVersion -join ', '))"
-    Assert ($after.hst[0].Location.TrimEnd('\') -eq $before.libreoffice_code[0].Location.TrimEnd('\')) 'installed in the beta.4 folder'
-    # beta.4 wrote under Software\LibreOffice; its removal deletes the values, an empty key may stay behind.
+    $loc = $after.hst[0].Location
     Assert-NoLibreOfficeNames $after.coexist @('lo_software_key', 'lo_classes_software_key')
-    Assert-HstCoexistKeys $after.coexist $after.hst[0].Location
-    Assert-AllFiles $HstMsi $after.hst[0].ProductCode 'hst-office-after-upgrade'
-    Assert-Starts $after.hst[0].Location 'HST Office' 'hst-office'
+    Assert-HstCoexistKeys $after.coexist $loc
+    Assert-Owns $after.registry 'hst' $loc
+    Assert-AllFiles $HstMsi $after.hst[0].ProductCode 'hst-office-after-beta4-uninstall'
+    & (Join-Path $PSScriptRoot 'check-app-user-model-ids.ps1') -Install $loc
+    Assert-Starts $loc 'HST Office' 'hst-office'
+} else {
+    # Informational: documents what happens to users who install over beta.4; never fails the run.
+    try {
+        Install-Msi $OtherMsi 'hst-office-beta4'
+        $before = Show-State 'after-beta4'
+        Assert ($before.libreoffice_code.Count -eq 1 -and $before.libreoffice_code[0].Version -eq '1.0.0.1') 'beta.4 is installed under LibreOffice''s UpgradeCode as 1.0.0.1'
+        Install-Msi $HstMsi 'hst-office'
+        $after = Show-State 'after-hst-office'
+        Assert ($after.libreoffice_code.Count -eq 0) 'beta.4 was removed by the new installer'
+        Assert ($after.hst.Count -eq 1) 'the new HST Office is installed under its own UpgradeCode'
+        Assert ($after.hst[0].Location.TrimEnd('\') -eq $before.libreoffice_code[0].Location.TrimEnd('\')) 'installed in the beta.4 folder'
+        Assert-AllFiles $HstMsi $after.hst[0].ProductCode 'hst-office-after-upgrade'
+        Assert-Starts $after.hst[0].Location 'HST Office' 'hst-office'
+        $result = 'PASSED: installing over beta.4 left a complete HST Office'
+    } catch {
+        $result = "EXPECTED FAILURE (informational): $($_.Exception.Message)"
+    }
+    Write-Host $result
+    Set-Content -LiteralPath (Join-Path $Out 'informational-result.txt') -Value $result -Encoding UTF8
+    if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "upgrade-from-beta4 (informational): $result" -Encoding UTF8 }
+    exit 0
 }
 Write-Host "Scenario $Scenario passed"
