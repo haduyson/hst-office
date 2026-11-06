@@ -45,3 +45,11 @@ Một bản phát hành chỉ được đánh dấu sẵn sàng khi **mọi mụ
 - [ ] Nền tảng nào build xong thì gửi ngay cho phiên quản lý website: tag, tên tệp, kích thước, SHA256. Website tải tệp về `tai/<release>/`, kiểm tra `sha256sum -c`, rồi chuyển `/tai/windows|linux|macos-arm|macos-intel` và `/tai/sha256`.
 - [ ] Khi đủ cả ba hệ điều hành: tạo và ký `update/latest.json` + `update/latest-2.json` (`generate-update-manifest.py`, `sign-update-manifest.py`), gửi kèm; website cập nhật nhãn phiên bản, `/diem-moi/`, dòng hỗ trợ, đồng bộ hướng dẫn (`sync-help.py --ref v<release>`) và đăng manifest — một lần.
 - [ ] Kiểm tra lại: 4 link `/tai/*` trả đúng tệp từ office.hasontech.vn, manifest báo đúng phiên bản.
+
+### Chỉ phát hành tệp trên office.hasontech.vn, không đưa link GitHub cho người dùng
+
+- [ ] Tạo bản phát hành **nháp** trước: `release.yml` với `draft=true` và các run id đã kiểm thử (bản nháp không công khai, chưa có tag).
+- [ ] Tải tệp từ bản nháp: `gh release download v<release> -D <thư mục>` (nhanh hơn tải artifact), rồi `sha256sum -c SHA256SUMS` và đối chiếu từng mã với artifact của run đã kiểm thử.
+- [ ] Đưa tệp lên hosting: `tai/<release>/` cùng `tai/SHA256SUMS`, chuyển `/tai/<nền tảng>`, rồi kiểm tra bằng HEAD (không GET) từng link.
+- [ ] Mọi chỗ người dùng thấy (trang tải về, `/diem-moi/`, ghi chú phát hành, `installers[].url` của nguồn cập nhật) chỉ trỏ tới `https://office.hasontech.vn/tai/...`, không bao giờ tới github.com.
+- [ ] Khi bộ cài Windows không cài đè được bản cũ: nguồn cập nhật **không** có `installers.windows` và `downloads.windows` trỏ tới `https://office.hasontech.vn/#tai-ve`, để bản cũ trên Windows chỉ báo có bản mới, không chạy bộ cài.
