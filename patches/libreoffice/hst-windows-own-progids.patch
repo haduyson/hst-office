@@ -1,0 +1,2455 @@
+HST Office on Windows: own file-type ProgIDs and UNO install-path key, so it does not take over LibreOffice's.
+
+The MSI registered LibreOffice's ProgID names (LibreOffice.WriterDocument.1, LibreOffice.Docx, ...)
+and wrote HKLM\Software\LibreOffice\UNO\InstallPath. With both suites installed, the one installed
+last owned the other's open commands and install path, and uninstalling either deleted the keys the
+other relied on.
+
+- scp2: every file-type ProgID is HSTOffice.<name> (keys, CurVer, OpenWithProgids, conditional .ext
+  defaults, the Capabilities FileAssociations/MimeAssociations behind RegisteredApplications).
+  The AppUserModelIDs and the OLE class IDs are unchanged.
+- The UNO install path is HKLM\Software\HASON TECH\HST Office\UNO\InstallPath; every reader in the
+  tree (cppuhelper findsofficepath, cli_ure native bootstrap, the Windows default-app check) reads it.
+  The disabled ODK loaders are not changed.
+- LookForRegisteredExtensions takes a Microsoft Office format only when no application, WordPad or
+  HST Office itself owns it; a LibreOffice.* default now belongs to LibreOffice. The saved previous
+  association is HSTBackupAssociation(Deref), separate from LibreOffice's LOBackupAssociation.
+- The default-app check and the shell extension's self-registration table use the HST ProgIDs.
+- Unchanged on purpose: OLE storage type names written into documents (embedserv, msfilter, oox).
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/cli_ure/source/native/native_bootstrap.cxx
++++ b/cli_ure/source/native/native_bootstrap.cxx
+@@ -28,7 +28,7 @@
+ #include <windows.h>
+ #include <delayimp.h>
+ 
+-#define INSTALL_PATH L"Software\\LibreOffice\\UNO\\InstallPath"
++#define INSTALL_PATH L"Software\\HASON TECH\\HST Office\\UNO\\InstallPath"
+ #define UNO_PATH L"UNO_PATH"
+ 
+ namespace {
+@@ -73,7 +73,7 @@
+ /* Returns the path to the program folder of the brand layer,
+    for example C:/Program Files/LibreOffice/program
+    This path is either obtained from the environment variable UNO_PATH
+-   or the registry item "Software\\LibreOffice\\UNO\\InstallPath"
++   or the registry item "Software\\HASON TECH\\HST Office\\UNO\\InstallPath"
+    either in HKEY_CURRENT_USER or HKEY_LOCAL_MACHINE
+    The return value must be freed with delete[]
+ */
+--- a/cppuhelper/source/findsofficepath.c
++++ b/cppuhelper/source/findsofficepath.c
+@@ -100,7 +100,7 @@
+         return wcsdup(env);
+     }
+ 
+-    const wchar_t* SUBKEYNAME = L"Software\\LibreOffice\\UNO\\InstallPath";
++    const wchar_t* SUBKEYNAME = L"Software\\HASON TECH\\HST Office\\UNO\\InstallPath";
+ 
+     /* read the key's default value from HKEY_CURRENT_USER */
+     wchar_t* path = getPathFromRegistryKey( HKEY_CURRENT_USER, SUBKEYNAME );
+--- a/scp2/inc/macros.inc
++++ b/scp2/inc/macros.inc
+@@ -231,7 +231,7 @@
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+         Subkey = STRING(CONCAT3(.,key,\OpenWithProgIDs)); \
+-        Name = STRING(CONCAT2(LibreOffice.,name)); \
++        Name = STRING(CONCAT2(HSTOffice.,name)); \
+         Value = " "; \
+     End
+ 
+@@ -240,7 +240,7 @@
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+         Subkey = STRING(CONCAT3(.,key,\OpenWithProgIDs)); \
+-        Name = STRING(CONCAT2(LibreOffice.,name)); \
++        Name = STRING(CONCAT2(HSTOffice.,name)); \
+         Value = " "; \
+     End
+ 
+@@ -249,7 +249,7 @@
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = gid_Module_Root_Reg_##name; \
+         Subkey = STRING(CONCAT2(.,key)); \
+-        Value = STRING(CONCAT2(LibreOffice.,name)); \
++        Value = STRING(CONCAT2(HSTOffice.,name)); \
+         ComponentCondition = STRING(CONCAT3(REGISTER_,cond,=1)); \
+     End
+ 
+@@ -267,7 +267,7 @@
+     RegistryItem CONCAT2(gid_Regitem_Openoffice_,name) \
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+-        Subkey = STRING(CONCAT2(LibreOffice.,name)); \
++        Subkey = STRING(CONCAT2(HSTOffice.,name)); \
+         REG_VALUE_LNG(disp_name) \
+     End
+ 
+@@ -275,7 +275,7 @@
+     RegistryItem CONCAT3(gid_Regitem_Openoffice_,name,_AppUserModelID) \
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+-        Subkey = STRING(CONCAT2(LibreOffice.,name)); \
++        Subkey = STRING(CONCAT2(HSTOffice.,name)); \
+         Name = STRING(AppUserModelID); \
+         Value = STRING(CONCAT2(TheDocumentFoundation.LibreOffice.,doc_type)); \
+     End
+@@ -284,7 +284,7 @@
+     RegistryItem CONCAT3(gid_Regitem_Openoffice_,name,_Defaulticon) \
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+-        Subkey = STRING(CONCAT3(LibreOffice.,name,\DefaultIcon)); \
++        Subkey = STRING(CONCAT3(HSTOffice.,name,\DefaultIcon)); \
+         Value = "<progpath>\program\soffice.bin," STRING(icon_id); \
+     End
+ 
+@@ -292,7 +292,7 @@
+     RegistryItem CONCAT3(gid_Regitem_Openoffice_,name,_Shell) \
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+-        Subkey = STRING(CONCAT3(LibreOffice.,name,\shell)); \
++        Subkey = STRING(CONCAT3(HSTOffice.,name,\shell)); \
+         Value = STRING(default); \
+     End
+ 
+@@ -300,13 +300,13 @@
+     RegistryItem CONCAT3(gid_Regitem_Openoffice_,name,_Shell_New) \
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+-        Subkey = STRING(CONCAT3(LibreOffice.,name,\shell\new)); \
++        Subkey = STRING(CONCAT3(HSTOffice.,name,\shell\new)); \
+         REG_VALUE_LNG(NEW) \
+     End \
+     RegistryItem CONCAT3(gid_Regitem_Openoffice_,name,_Shell_New_Command) \
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+-        Subkey = STRING(CONCAT3(LibreOffice.,name,\shell\new\command)); \
++        Subkey = STRING(CONCAT3(HSTOffice.,name,\shell\new\command)); \
+         Value = "\"" STRING(progpath_program_app) "\" -n \"%1\""; \
+     End
+ 
+@@ -317,7 +317,7 @@
+     RegistryItem CONCAT3(gid_Regitem_Openoffice_,name,_Shell_Open_Command) \
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+-        Subkey = STRING(CONCAT3(LibreOffice.,name,\shell\open\command)); \
++        Subkey = STRING(CONCAT3(HSTOffice.,name,\shell\open\command)); \
+         Value = "\"" STRING(progpath_program_app) "\" -o \"%1\""; \
+     End
+ 
+@@ -328,7 +328,7 @@
+     RegistryItem CONCAT3(gid_Regitem_Openoffice_,name,_Shell_Print_Command) \
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+-        Subkey = STRING(CONCAT3(LibreOffice.,name,\shell\print\command)); \
++        Subkey = STRING(CONCAT3(HSTOffice.,name,\shell\print\command)); \
+         Value = "\"" STRING(progpath_program_app) "\" -p \"%1\""; \
+     End
+ 
+@@ -339,7 +339,7 @@
+     RegistryItem CONCAT3(gid_Regitem_Openoffice_,name,_Shell_Printto_Command) \
+         ParentID = PREDEFINED_HKEY_CLASSES_ROOT; \
+         ModuleID = modid; \
+-        Subkey = STRING(CONCAT3(LibreOffice.,name,\shell\printto\command)); \
++        Subkey = STRING(CONCAT3(HSTOffice.,name,\shell\printto\command)); \
+         Value = "\"" STRING(progpath_program_app) "\" -pt \"%2\" \"%1\""; \
+     End
+ 
+@@ -352,7 +352,7 @@
+         ModuleID = modid; \
+         Subkey = STRING(Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations); \
+         Name = STRING(CONCAT2(.,key)); \
+-        Value = STRING(CONCAT2(LibreOffice.,name)); \
++        Value = STRING(CONCAT2(HSTOffice.,name)); \
+         Styles = (); \
+     End
+ 
+@@ -362,7 +362,7 @@
+         ModuleID = modid; \
+         Subkey = STRING(Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations); \
+         Name = STRING(CONCAT2(.,key)); \
+-        Value = STRING(CONCAT2(LibreOffice.,name)); \
++        Value = STRING(CONCAT2(HSTOffice.,name)); \
+         Styles = (); \
+     End
+ 
+--- a/scp2/source/base/registryitem_base.scp
++++ b/scp2/source/base/registryitem_base.scp
+@@ -24,7 +24,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".odb";
+     ModuleID = gid_Module_Prg_Base_Bin;
+-    Value = "LibreOffice.DatabaseDocument.1";
++    Value = "HSTOffice.DatabaseDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Odb_PersistentHandler
+@@ -44,7 +44,7 @@
+ RegistryItem gid_Regitem_DatabaseDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Base_Bin;
+-    Subkey = "LibreOffice.DatabaseDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.DatabaseDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -66,14 +66,14 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_Databasedocument_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DatabaseDocument.1";
++    Subkey = "HSTOffice.DatabaseDocument.1";
+     ModuleID = gid_Module_Prg_Base_Bin;
+     REG_VALUE_LNG(OO_DATABASE)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Databasedocument_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DatabaseDocument.1\DefaultIcon";
++    Subkey = "HSTOffice.DatabaseDocument.1\DefaultIcon";
+     ModuleID = gid_Module_Prg_Base_Bin;
+     Value = "<progpath>\program\soffice.bin,11";
+ End
+@@ -81,7 +81,7 @@
+ RegistryItem gid_Regitem_Openoffice_Databasedocument_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Base_Bin;
+-    Subkey = "LibreOffice.DatabaseDocument.1";
++    Subkey = "HSTOffice.DatabaseDocument.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Base";
+ End
+@@ -89,7 +89,7 @@
+ RegistryItem gid_Regitem_Openoffice_Databasedocument_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Base_Bin;
+-    Subkey = "LibreOffice.DatabaseDocument.1";
++    Subkey = "HSTOffice.DatabaseDocument.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_DATABASE)
+ End
+@@ -98,7 +98,7 @@
+ RegistryItem gid_Regitem_odb_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.DatabaseDocument.1";
++    Subkey = "HSTOffice.DatabaseDocument.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -114,21 +114,21 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_Databasedocument_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DatabaseDocument.1\shell";
++    Subkey = "HSTOffice.DatabaseDocument.1\shell";
+     ModuleID = gid_Module_Prg_Base_Bin;
+     Value = "open";
+ End
+ 
+ // RegistryItem gid_Regitem_Openoffice_Databasedocument_1_Shell_Open_Command
+ //     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-//     Subkey = "LibreOffice.DatabaseDocument.1\shell\open\command";
++//     Subkey = "HSTOffice.DatabaseDocument.1\shell\open\command";
+ //     ModuleID = gid_Module_Prg_Base_Bin;
+ //     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+ // End
+ 
+ RegistryItem gid_Regitem_Openoffice_Databasedocument_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DatabaseDocument.1\shell\open\command";
++    Subkey = "HSTOffice.DatabaseDocument.1\shell\open\command";
+     ModuleID = gid_Module_Prg_Base_Bin;
+     Value = "\"<progpath>\program\sbase.exe\" -o \"%1\"";
+     Styles = ();
+@@ -140,7 +140,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".odb\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Base_Bin;
+-    Name = "LibreOffice.DatabaseDocument.1";
++    Name = "HSTOffice.DatabaseDocument.1";
+     Value = " ";
+ End
+ 
+@@ -149,7 +149,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Base_Bin;
+     Name = ".odb";
+-    Value = "LibreOffice.DatabaseDocument.1";
++    Value = "HSTOffice.DatabaseDocument.1";
+     Styles = ();
+ End
+ 
+--- a/scp2/source/calc/registryitem_calc.scp
++++ b/scp2/source/calc/registryitem_calc.scp
+@@ -219,7 +219,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = "CLSID\{7FA8AE11-B3E3-4D88-AABF-255526CD1CE8}\ProgID";
+-    Value = "LibreOffice.CalcDocument.1";
++    Value = "HSTOffice.CalcDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__7fa8ae11_B3e3_4d88_Aabf_255526cd1ce8__Programmable
+@@ -253,7 +253,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = "CLSID\{7FA8AE11-B3E3-4D88-AABF-255526CD1CE8}\VersionIndependentProgID";
+-    Value = "LibreOffice.CalcDocument.1";
++    Value = "HSTOffice.CalcDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starcalcdocument_6
+@@ -614,7 +614,7 @@
+ RegistryItem gid_Regitem_CalcDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.CalcDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -622,7 +622,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = ".ods";
+-    Value = "LibreOffice.CalcDocument.1";
++    Value = "HSTOffice.CalcDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Manufacturer_Productname_Productversion_Capabilities_FileAssociations_ods
+@@ -630,7 +630,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Name = ".ods";
+-    Value = "LibreOffice.CalcDocument.1";
++    Value = "HSTOffice.CalcDocument.1";
+     Styles = ();
+ End
+ 
+@@ -639,7 +639,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\MimeAssociations";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Name = "application/vnd.oasis.opendocument.spreadsheet";
+-    Value = "LibreOffice.CalcDocument.1";
++    Value = "HSTOffice.CalcDocument.1";
+     Styles = ();
+ End
+ 
+@@ -662,7 +662,7 @@
+ RegistryItem gid_Regitem_Ods_Openoffice_Calcdocument_1_Shellnew
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = ".ods\LibreOffice.CalcDocument.1\ShellNew";
++    Subkey = ".ods\HSTOffice.CalcDocument.1\ShellNew";
+     Name = "FileName";
+     Value = "<progpath>\share\template\shellnew\soffice.ods";
+ End
+@@ -670,35 +670,35 @@
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_Curver
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument\CurVer";
+-    Value = "LibreOffice.CalcDocument.1";
++    Subkey = "HSTOffice.CalcDocument\CurVer";
++    Value = "HSTOffice.CalcDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1";
++    Subkey = "HSTOffice.CalcDocument.1";
+     REG_VALUE_LNG(OO_CALC)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Clsid
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\CLSID";
++    Subkey = "HSTOffice.CalcDocument.1\CLSID";
+     Value = "{7FA8AE11-B3E3-4D88-AABF-255526CD1CE8}";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\DefaultIcon";
++    Subkey = "HSTOffice.CalcDocument.1\DefaultIcon";
+     Value = "<progpath>\program\soffice.bin,3";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1";
++    Subkey = "HSTOffice.CalcDocument.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Calc";
+ End
+@@ -706,7 +706,7 @@
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1";
++    Subkey = "HSTOffice.CalcDocument.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_CALC)
+ End
+@@ -715,7 +715,7 @@
+ RegistryItem gid_Regitem_ods_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.CalcDocument.1";
++    Subkey = "HSTOffice.CalcDocument.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -732,62 +732,62 @@
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Insertable
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\Insertable";
++    Subkey = "HSTOffice.CalcDocument.1\Insertable";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Protocol_Stdfileediting_Server
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\protocol\StdFileEditing\server";
++    Subkey = "HSTOffice.CalcDocument.1\protocol\StdFileEditing\server";
+     Value = "<progpath>\program\soffice.exe";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Protocol_Stdfileediting_Verb_0
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\protocol\StdFileEditing\verb\0";
++    Subkey = "HSTOffice.CalcDocument.1\protocol\StdFileEditing\verb\0";
+     Value = "&Edit";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Protocol_Stdfileediting_Verb__1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\protocol\StdFileEditing\verb\-1";
++    Subkey = "HSTOffice.CalcDocument.1\protocol\StdFileEditing\verb\-1";
+     Value = "&Show";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Protocol_Stdfileediting_Verb__2
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\protocol\StdFileEditing\verb\-2";
++    Subkey = "HSTOffice.CalcDocument.1\protocol\StdFileEditing\verb\-2";
+     Value = "&Open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\shell";
++    Subkey = "HSTOffice.CalcDocument.1\shell";
+     Value = "open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\shell\new";
++    Subkey = "HSTOffice.CalcDocument.1\shell\new";
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\shell\new\command";
++    Subkey = "HSTOffice.CalcDocument.1\shell\new\command";
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\shell\open\command";
++    Subkey = "HSTOffice.CalcDocument.1\shell\open\command";
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+     Styles = ();
+ End
+@@ -795,14 +795,14 @@
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\shell\print\command";
++    Subkey = "HSTOffice.CalcDocument.1\shell\print\command";
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calcdocument_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcDocument.1\shell\printto\command";
++    Subkey = "HSTOffice.CalcDocument.1\shell\printto\command";
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+ 
+@@ -827,7 +827,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Subkey = ".fods";
+-    Value = "LibreOffice.CalcDocument.1";
++    Value = "HSTOffice.CalcDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Manufacturer_Productname_Productversion_Capabilities_FileAssociations_fods
+@@ -835,7 +835,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Root;
+     Name = ".fods";
+-    Value = "LibreOffice.CalcDocument.1";
++    Value = "HSTOffice.CalcDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Fods_Contenttype
+@@ -880,7 +880,7 @@
+ RegistryItem gid_Regitem_CalcTemplate_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.CalcTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -888,7 +888,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".ots";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Value = "LibreOffice.CalcTemplate.1";
++    Value = "HSTOffice.CalcTemplate.1";
+ End
+ 
+ RegistryItem gid_Regitem_Ots_Contenttype
+@@ -901,14 +901,14 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.CalcTemplate.1";
++    Subkey = "HSTOffice.CalcTemplate.1";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     REG_VALUE_LNG(OO_CALC_TEMPLATE)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.CalcTemplate.1\DefaultIcon";
++    Subkey = "HSTOffice.CalcTemplate.1\DefaultIcon";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Value = "<progpath>\program\soffice.bin,4";
+ End
+@@ -916,7 +916,7 @@
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcTemplate.1";
++    Subkey = "HSTOffice.CalcTemplate.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Calc";
+ End
+@@ -924,7 +924,7 @@
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "LibreOffice.CalcTemplate.1";
++    Subkey = "HSTOffice.CalcTemplate.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_CALC_TEMPLATE)
+ End
+@@ -933,7 +933,7 @@
+ RegistryItem gid_Regitem_ots_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.CalcTemplate.1";
++    Subkey = "HSTOffice.CalcTemplate.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -949,42 +949,42 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.CalcTemplate.1\shell";
++    Subkey = "HSTOffice.CalcTemplate.1\shell";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Value = "new";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.CalcTemplate.1\shell\new";
++    Subkey = "HSTOffice.CalcTemplate.1\shell\new";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.CalcTemplate.1\shell\new\command";
++    Subkey = "HSTOffice.CalcTemplate.1\shell\new\command";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.CalcTemplate.1\shell\open\command";
++    Subkey = "HSTOffice.CalcTemplate.1\shell\open\command";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.CalcTemplate.1\shell\print\command";
++    Subkey = "HSTOffice.CalcTemplate.1\shell\print\command";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Calctemplate_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.CalcTemplate.1\shell\printto\command";
++    Subkey = "HSTOffice.CalcTemplate.1\shell\printto\command";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+@@ -996,7 +996,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".ods\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Name = "LibreOffice.CalcDocument.1";
++    Name = "HSTOffice.CalcDocument.1";
+     Value = " ";
+ End
+ 
+@@ -1005,7 +1005,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".ots\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Name = "LibreOffice.CalcTemplate.1";
++    Name = "HSTOffice.CalcTemplate.1";
+     Value = " ";
+ End
+ 
+--- a/scp2/source/draw/registryitem_draw.scp
++++ b/scp2/source/draw/registryitem_draw.scp
+@@ -219,7 +219,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = "CLSID\{448BB771-CFE2-47C4-BCDF-1FBF378E202C}\ProgID";
+-    Value = "LibreOffice.DrawDocument.1";
++    Value = "HSTOffice.DrawDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__448bb771_Cfe2_47c4_Bcdf_1fbf378e202c__Programmable
+@@ -253,7 +253,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = "CLSID\{448BB771-CFE2-47C4-BCDF-1FBF378E202C}\VersionIndependentProgID";
+-    Value = "LibreOffice.DrawDocument.1";
++    Value = "HSTOffice.DrawDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Stardrawdocument_6
+@@ -613,7 +613,7 @@
+ RegistryItem gid_Regitem_DrawDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.DrawDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -637,7 +637,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = ".odg";
+-    Value = "LibreOffice.DrawDocument.1";
++    Value = "HSTOffice.DrawDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Manufacturer_Productname_Productversion_Capabilities_FileAssociations_odg
+@@ -645,7 +645,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Name = ".odg";
+-    Value = "LibreOffice.DrawDocument.1";
++    Value = "HSTOffice.DrawDocument.1";
+     Styles = ();
+ End
+ 
+@@ -654,50 +654,50 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\MimeAssociations";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Name = "application/vnd.oasis.opendocument.graphics";
+-    Value = "LibreOffice.DrawDocument.1";
++    Value = "HSTOffice.DrawDocument.1";
+     Styles = ();
+ End
+ 
+ RegistryItem gid_Regitem_Odg_Openoffice_Drawdocument_1_Shellnew
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = ".odg\LibreOffice.DrawDocument.1\ShellNew";
++    Subkey = ".odg\HSTOffice.DrawDocument.1\ShellNew";
+     Name = "FileName";
+     Value = "<progpath>\share\template\shellnew\soffice.odg";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_Curver
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DrawDocument\CurVer";
++    Subkey = "HSTOffice.DrawDocument\CurVer";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Value = "LibreOffice.DrawDocument.1";
++    Value = "HSTOffice.DrawDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1";
++    Subkey = "HSTOffice.DrawDocument.1";
+     REG_VALUE_LNG(OO_DRAW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_Clsid
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\CLSID";
++    Subkey = "HSTOffice.DrawDocument.1\CLSID";
+     Value = "{448BB771-CFE2-47C4-BCDF-1FBF378E202C}";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\DefaultIcon";
++    Subkey = "HSTOffice.DrawDocument.1\DefaultIcon";
+     Value = "<progpath>\program\soffice.bin,5";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1";
++    Subkey = "HSTOffice.DrawDocument.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Draw";
+ End
+@@ -705,7 +705,7 @@
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1";
++    Subkey = "HSTOffice.DrawDocument.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_DRAW)
+ End
+@@ -714,7 +714,7 @@
+ RegistryItem gid_Regitem_odg_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.DrawDocument.1";
++    Subkey = "HSTOffice.DrawDocument.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -731,28 +731,28 @@
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\shell";
++    Subkey = "HSTOffice.DrawDocument.1\shell";
+     Value = "open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\shell\new";
++    Subkey = "HSTOffice.DrawDocument.1\shell\new";
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\shell\new\command";
++    Subkey = "HSTOffice.DrawDocument.1\shell\new\command";
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\shell\open\command";
++    Subkey = "HSTOffice.DrawDocument.1\shell\open\command";
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+     Styles = ();
+ End
+@@ -760,48 +760,48 @@
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\shell\print\command";
++    Subkey = "HSTOffice.DrawDocument.1\shell\print\command";
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawdocument_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\shell\printto\command";
++    Subkey = "HSTOffice.DrawDocument.1\shell\printto\command";
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawingdocument_1_Insertable
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\Insertable";
++    Subkey = "HSTOffice.DrawDocument.1\Insertable";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawingdocument_1_Protocol_Stdfileediting_Server
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\protocol\StdFileEditing\server";
++    Subkey = "HSTOffice.DrawDocument.1\protocol\StdFileEditing\server";
+     Value = "<progpath>\program\soffice.exe";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawingdocument_1_Protocol_Stdfileediting_Verb_0
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\protocol\StdFileEditing\verb\0";
++    Subkey = "HSTOffice.DrawDocument.1\protocol\StdFileEditing\verb\0";
+     Value = "&Edit";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawingdocument_1_Protocol_Stdfileediting_Verb__1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\protocol\StdFileEditing\verb\-1";
++    Subkey = "HSTOffice.DrawDocument.1\protocol\StdFileEditing\verb\-1";
+     Value = "&Show";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawingdocument_1_Protocol_Stdfileediting_Verb__2
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawDocument.1\protocol\StdFileEditing\verb\-2";
++    Subkey = "HSTOffice.DrawDocument.1\protocol\StdFileEditing\verb\-2";
+     Value = "&Open";
+ End
+ 
+@@ -819,7 +819,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Subkey = ".fodg";
+-    Value = "LibreOffice.DrawDocument.1";
++    Value = "HSTOffice.DrawDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Manufacturer_Productname_Productversion_Capabilities_FileAssociations_fodg
+@@ -827,7 +827,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Root;
+     Name = ".fodg";
+-    Value = "LibreOffice.DrawDocument.1";
++    Value = "HSTOffice.DrawDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_fodg_KindMap
+@@ -864,7 +864,7 @@
+ RegistryItem gid_Regitem_DrawTemplate_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.DrawTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -872,7 +872,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".otg";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Value = "LibreOffice.DrawTemplate.1";
++    Value = "HSTOffice.DrawTemplate.1";
+ End
+ 
+ RegistryItem gid_Regitem_Otg_Contenttype
+@@ -885,14 +885,14 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DrawTemplate.1";
++    Subkey = "HSTOffice.DrawTemplate.1";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     REG_VALUE_LNG(OO_DRAW_TEMPLATE)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DrawTemplate.1\DefaultIcon";
++    Subkey = "HSTOffice.DrawTemplate.1\DefaultIcon";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Value = "<progpath>\program\soffice.bin,6";
+ End
+@@ -900,7 +900,7 @@
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawTemplate.1";
++    Subkey = "HSTOffice.DrawTemplate.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Draw";
+ End
+@@ -908,7 +908,7 @@
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Subkey = "LibreOffice.DrawTemplate.1";
++    Subkey = "HSTOffice.DrawTemplate.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_DRAW_TEMPLATE)
+ End
+@@ -917,7 +917,7 @@
+ RegistryItem gid_Regitem_otg_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.DrawTemplate.1";
++    Subkey = "HSTOffice.DrawTemplate.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -933,42 +933,42 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DrawTemplate.1\shell";
++    Subkey = "HSTOffice.DrawTemplate.1\shell";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Value = "new";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DrawTemplate.1\shell\new";
++    Subkey = "HSTOffice.DrawTemplate.1\shell\new";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DrawTemplate.1\shell\new\command";
++    Subkey = "HSTOffice.DrawTemplate.1\shell\new\command";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DrawTemplate.1\shell\open\command";
++    Subkey = "HSTOffice.DrawTemplate.1\shell\open\command";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DrawTemplate.1\shell\print\command";
++    Subkey = "HSTOffice.DrawTemplate.1\shell\print\command";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Drawtemplate_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.DrawTemplate.1\shell\printto\command";
++    Subkey = "HSTOffice.DrawTemplate.1\shell\printto\command";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+@@ -980,7 +980,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".odg\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Name = "LibreOffice.DrawDocument.1";
++    Name = "HSTOffice.DrawDocument.1";
+     Value = " ";
+ End
+ 
+@@ -989,7 +989,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".otg\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+-    Name = "LibreOffice.DrawTemplate.1";
++    Name = "HSTOffice.DrawTemplate.1";
+     Value = " ";
+ End
+ 
+@@ -1017,7 +1017,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Draw_Bin;
+     Name = ".otg";
+-    Value = "LibreOffice.DrawTemplate.1";
++    Value = "HSTOffice.DrawTemplate.1";
+     Styles = ();
+ End
+ 
+--- a/scp2/source/impress/registryitem_impress.scp
++++ b/scp2/source/impress/registryitem_impress.scp
+@@ -219,7 +219,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = "CLSID\{EE5D1EA4-D445-4289-B2FC-55FC93693917}\ProgID";
+-    Value = "LibreOffice.ImpressDocument.1";
++    Value = "HSTOffice.ImpressDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__Ee5d1ea4_D445_4289_B2fc_55fc93693917__Programmable
+@@ -253,7 +253,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = "CLSID\{EE5D1EA4-D445-4289-B2FC-55FC93693917}\VersionIndependentProgID";
+-    Value = "LibreOffice.ImpressDocument.1";
++    Value = "HSTOffice.ImpressDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starimpressdocument_6
+@@ -627,7 +627,7 @@
+ RegistryItem gid_Regitem_ImpressDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.ImpressDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -635,7 +635,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = ".odp";
+-    Value = "LibreOffice.ImpressDocument.1";
++    Value = "HSTOffice.ImpressDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Manufacturer_Productname_Productversion_Capabilities_FileAssociations_odp
+@@ -643,7 +643,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Name = ".odp";
+-    Value = "LibreOffice.ImpressDocument.1";
++    Value = "HSTOffice.ImpressDocument.1";
+     Styles = ();
+ End
+ 
+@@ -652,7 +652,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\MimeAssociations";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Name = "application/vnd.oasis.opendocument.presentation";
+-    Value = "LibreOffice.ImpressDocument.1";
++    Value = "HSTOffice.ImpressDocument.1";
+     Styles = ();
+ End
+ 
+@@ -676,7 +676,7 @@
+ RegistryItem gid_Regitem_Odp_Openoffice_Impressdocument_1_Shellnew
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = ".odp\LibreOffice.ImpressDocument.1\ShellNew";
++    Subkey = ".odp\HSTOffice.ImpressDocument.1\ShellNew";
+     Name = "FileName";
+     Value = "<progpath>\share\template\shellnew\soffice.odp";
+ End
+@@ -685,34 +685,34 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = "soffice.StarImpressDocument\CurVer";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Value = "LibreOffice.ImpressDocument.1";
++    Value = "HSTOffice.ImpressDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1";
++    Subkey = "HSTOffice.ImpressDocument.1";
+     REG_VALUE_LNG(OO_PRESENT)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Clsid
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\CLSID";
++    Subkey = "HSTOffice.ImpressDocument.1\CLSID";
+     Value = "{EE5D1EA4-D445-4289-B2FC-55FC93693917}";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\DefaultIcon";
++    Subkey = "HSTOffice.ImpressDocument.1\DefaultIcon";
+     Value = "<progpath>\program\soffice.bin,7";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1";
++    Subkey = "HSTOffice.ImpressDocument.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Impress";
+ End
+@@ -720,7 +720,7 @@
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1";
++    Subkey = "HSTOffice.ImpressDocument.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_PRESENT)
+ End
+@@ -729,7 +729,7 @@
+ RegistryItem gid_Regitem_odp_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.ImpressDocument.1";
++    Subkey = "HSTOffice.ImpressDocument.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -746,62 +746,62 @@
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Insertable
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\Insertable";
++    Subkey = "HSTOffice.ImpressDocument.1\Insertable";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Protocol_Stdfileediting_Server
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\protocol\StdFileEditing\server";
++    Subkey = "HSTOffice.ImpressDocument.1\protocol\StdFileEditing\server";
+     Value = "<progpath>\program\soffice.exe";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Protocol_Stdfileediting_Verb_0
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\protocol\StdFileEditing\verb\0";
++    Subkey = "HSTOffice.ImpressDocument.1\protocol\StdFileEditing\verb\0";
+     Value = "&Edit";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Protocol_Stdfileediting_Verb__1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\protocol\StdFileEditing\verb\-1";
++    Subkey = "HSTOffice.ImpressDocument.1\protocol\StdFileEditing\verb\-1";
+     Value = "&Show";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Protocol_Stdfileediting_Verb__2
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\protocol\StdFileEditing\verb\-2";
++    Subkey = "HSTOffice.ImpressDocument.1\protocol\StdFileEditing\verb\-2";
+     Value = "&Open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\shell";
++    Subkey = "HSTOffice.ImpressDocument.1\shell";
+     Value = "open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\shell\new";
++    Subkey = "HSTOffice.ImpressDocument.1\shell\new";
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\shell\new\command";
++    Subkey = "HSTOffice.ImpressDocument.1\shell\new\command";
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\shell\open\command";
++    Subkey = "HSTOffice.ImpressDocument.1\shell\open\command";
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+     Styles = ();
+ End
+@@ -809,28 +809,28 @@
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\shell\print\command";
++    Subkey = "HSTOffice.ImpressDocument.1\shell\print\command";
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\shell\printto\command";
++    Subkey = "HSTOffice.ImpressDocument.1\shell\printto\command";
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Shell_Show
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\shell\show";
++    Subkey = "HSTOffice.ImpressDocument.1\shell\show";
+     REG_VALUE_LNG(SO60_SHOW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impressdocument_1_Shell_Show_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressDocument.1\shell\show\command";
++    Subkey = "HSTOffice.ImpressDocument.1\shell\show\command";
+     Value = "\"<progpath>\program\soffice.exe\" -show \"%1\"";
+ End
+ 
+@@ -840,7 +840,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Subkey = ".fodp";
+-    Value = "LibreOffice.ImpressDocument.1";
++    Value = "HSTOffice.ImpressDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Manufacturer_Productname_Productversion_Capabilities_FileAssociations_fodp
+@@ -848,7 +848,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Root;
+     Name = ".fodp";
+-    Value = "LibreOffice.ImpressDocument.1";
++    Value = "HSTOffice.ImpressDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Fodp_Contenttype
+@@ -893,7 +893,7 @@
+ RegistryItem gid_Regitem_ImpressTemplate_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.ImpressTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -901,7 +901,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".otp";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Value = "LibreOffice.ImpressTemplate.1";
++    Value = "HSTOffice.ImpressTemplate.1";
+ End
+ 
+ RegistryItem gid_Regitem_Otp_Contenttype
+@@ -914,14 +914,14 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.ImpressTemplate.1";
++    Subkey = "HSTOffice.ImpressTemplate.1";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     REG_VALUE_LNG(OO_PRESENT_TEMPLATE)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.ImpressTemplate.1\DefaultIcon";
++    Subkey = "HSTOffice.ImpressTemplate.1\DefaultIcon";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Value = "<progpath>\program\soffice.bin,8";
+ End
+@@ -929,7 +929,7 @@
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressTemplate.1";
++    Subkey = "HSTOffice.ImpressTemplate.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Impress";
+ End
+@@ -937,7 +937,7 @@
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Subkey = "LibreOffice.ImpressTemplate.1";
++    Subkey = "HSTOffice.ImpressTemplate.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_PRESENT_TEMPLATE)
+ End
+@@ -946,7 +946,7 @@
+ RegistryItem gid_Regitem_otp_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.ImpressTemplate.1";
++    Subkey = "HSTOffice.ImpressTemplate.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -962,42 +962,42 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.ImpressTemplate.1\shell";
++    Subkey = "HSTOffice.ImpressTemplate.1\shell";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Value = "new";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.ImpressTemplate.1\shell\new";
++    Subkey = "HSTOffice.ImpressTemplate.1\shell\new";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.ImpressTemplate.1\shell\new\command";
++    Subkey = "HSTOffice.ImpressTemplate.1\shell\new\command";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.ImpressTemplate.1\shell\open\command";
++    Subkey = "HSTOffice.ImpressTemplate.1\shell\open\command";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.ImpressTemplate.1\shell\print\command";
++    Subkey = "HSTOffice.ImpressTemplate.1\shell\print\command";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Impresstemplate_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.ImpressTemplate.1\shell\printto\command";
++    Subkey = "HSTOffice.ImpressTemplate.1\shell\printto\command";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+@@ -1009,7 +1009,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".odp\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Name = "LibreOffice.ImpressDocument.1";
++    Name = "HSTOffice.ImpressDocument.1";
+     Value = " ";
+ End
+ 
+@@ -1018,7 +1018,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".otp\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Name = "LibreOffice.ImpressTemplate.1";
++    Name = "HSTOffice.ImpressTemplate.1";
+     Value = " ";
+ End
+ 
+@@ -1054,7 +1054,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".odg\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+-    Name = "LibreOffice.ImpressDocument.1";
++    Name = "HSTOffice.ImpressDocument.1";
+     Value = " ";
+ End
+ 
+@@ -1064,7 +1064,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Impress_Bin;
+     Name = ".otp";
+-    Value = "LibreOffice.ImpressTemplate.1";
++    Value = "HSTOffice.ImpressTemplate.1";
+     Styles = ();
+ End
+ 
+--- a/scp2/source/math/registryitem_math.scp
++++ b/scp2/source/math/registryitem_math.scp
+@@ -218,7 +218,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Subkey = "CLSID\{D2D59CD1-0A6A-4D36-AE20-47817077D57C}\ProgID";
+-    Value = "LibreOffice.MathDocument.1";
++    Value = "HSTOffice.MathDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__D2d59cd1_0a6a_4d36_Ae20_47817077d57c__Programmable
+@@ -252,7 +252,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Subkey = "CLSID\{D2D59CD1-0A6A-4D36-AE20-47817077D57C}\VersionIndependentProgID";
+-    Value = "LibreOffice.MathDocument.1";
++    Value = "HSTOffice.MathDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starmathdocument_6
+@@ -479,7 +479,7 @@
+ RegistryItem gid_Regitem_MathDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.MathDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -503,7 +503,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Subkey = ".odf";
+-    Value = "LibreOffice.MathDocument.1";
++    Value = "HSTOffice.MathDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Manufacturer_Productname_Productversion_Capabilities_FileAssociations_odf
+@@ -511,7 +511,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Name = ".odf";
+-    Value = "LibreOffice.MathDocument.1";
++    Value = "HSTOffice.MathDocument.1";
+     Styles = ();
+ End
+ 
+@@ -520,42 +520,42 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\MimeAssociations";
+     ModuleID = gid_Module_Prg_Math_Bin;
+     Name = "application/vnd.oasis.opendocument.formula";
+-    Value = "LibreOffice.MathDocument.1";
++    Value = "HSTOffice.MathDocument.1";
+     Styles = ();
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_Curver
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.MathDocument\CurVer";
++    Subkey = "HSTOffice.MathDocument\CurVer";
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Value = "LibreOffice.MathDocument.1";
++    Value = "HSTOffice.MathDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1";
++    Subkey = "HSTOffice.MathDocument.1";
+     REG_VALUE_LNG(OO_FORMULA)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Clsid
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\CLSID";
++    Subkey = "HSTOffice.MathDocument.1\CLSID";
+     Value = "{D2D59CD1-0A6A-4D36-AE20-47817077D57C}";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\DefaultIcon";
++    Subkey = "HSTOffice.MathDocument.1\DefaultIcon";
+     Value = "<progpath>\program\soffice.bin,12";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1";
++    Subkey = "HSTOffice.MathDocument.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Math";
+ End
+@@ -563,7 +563,7 @@
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1";
++    Subkey = "HSTOffice.MathDocument.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_FORMULA)
+ End
+@@ -572,7 +572,7 @@
+ RegistryItem gid_Regitem_odf_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.MathDocument.1";
++    Subkey = "HSTOffice.MathDocument.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -589,62 +589,62 @@
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Insertable
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\Insertable";
++    Subkey = "HSTOffice.MathDocument.1\Insertable";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Protocol_Stdfileediting_Server
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\protocol\StdFileEditing\server";
++    Subkey = "HSTOffice.MathDocument.1\protocol\StdFileEditing\server";
+     Value = "<progpath>\program\soffice.exe";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Protocol_Stdfileediting_Verb_0
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\protocol\StdFileEditing\verb\0";
++    Subkey = "HSTOffice.MathDocument.1\protocol\StdFileEditing\verb\0";
+     Value = "&Edit";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Protocol_Stdfileediting_Verb__1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\protocol\StdFileEditing\verb\-1";
++    Subkey = "HSTOffice.MathDocument.1\protocol\StdFileEditing\verb\-1";
+     Value = "&Show";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Protocol_Stdfileediting_Verb__2
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\protocol\StdFileEditing\verb\-2";
++    Subkey = "HSTOffice.MathDocument.1\protocol\StdFileEditing\verb\-2";
+     Value = "&Open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\shell";
++    Subkey = "HSTOffice.MathDocument.1\shell";
+     Value = "open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\shell\new";
++    Subkey = "HSTOffice.MathDocument.1\shell\new";
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\shell\new\command";
++    Subkey = "HSTOffice.MathDocument.1\shell\new\command";
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\shell\open\command";
++    Subkey = "HSTOffice.MathDocument.1\shell\open\command";
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+     Styles = ();
+ End
+@@ -652,14 +652,14 @@
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\shell\print\command";
++    Subkey = "HSTOffice.MathDocument.1\shell\print\command";
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Mathdocument_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Subkey = "LibreOffice.MathDocument.1\shell\printto\command";
++    Subkey = "HSTOffice.MathDocument.1\shell\printto\command";
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+ 
+@@ -670,7 +670,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".odf\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Math_Bin;
+-    Name = "LibreOffice.MathDocument.1";
++    Name = "HSTOffice.MathDocument.1";
+     Value = " ";
+ End
+ 
+--- a/scp2/source/ooo/registryitem_ooo.scp
++++ b/scp2/source/ooo/registryitem_ooo.scp
+@@ -519,14 +519,14 @@
+ 
+ RegistryItem gid_Regitem_Software_Openofficeorg_Uno_Installpath
+     ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\LibreOffice\UNO\InstallPath";
++    Subkey = "Software\HASON TECH\HST Office\UNO\InstallPath";
+     ModuleID = gid_Module_Root;
+     Value  = "<progpath>\program";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Openofficeorg_Uno_Installpath_Branded
+     ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+-    Subkey = "Software\LibreOffice\UNO\InstallPath";
++    Subkey = "Software\HASON TECH\HST Office\UNO\InstallPath";
+     ModuleID = gid_Module_Root;
+     Name = "%PRODUCTNAME %PRODUCTVERSION";
+     Value  = "<progpath>\program";
+--- a/scp2/source/writer/registryitem_writer.scp
++++ b/scp2/source/writer/registryitem_writer.scp
+@@ -219,7 +219,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "CLSID\{F616B81F-7BB8-4F22-B8A5-47428D59F8AD}\ProgID";
+-    Value = "LibreOffice.WriterDocument.1";
++    Value = "HSTOffice.WriterDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__F616b81f_7bb8_4f22_B8a5_47428d59f8ad__Programmable
+@@ -253,7 +253,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = "CLSID\{F616B81F-7BB8-4F22-B8A5-47428D59F8AD}\VersionIndependentProgID";
+-    Value = "LibreOffice.WriterDocument.1";
++    Value = "HSTOffice.WriterDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Soffice_Starwriterdocument_6
+@@ -761,7 +761,7 @@
+ RegistryItem gid_Regitem_WriterDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.WriterDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -769,7 +769,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".odt";
+-    Value = "LibreOffice.WriterDocument.1";
++    Value = "HSTOffice.WriterDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Manufacturer_Productname_Productversion_Capabilities_FileAssociations_odt
+@@ -777,7 +777,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Name = ".odt";
+-    Value = "LibreOffice.WriterDocument.1";
++    Value = "HSTOffice.WriterDocument.1";
+     Styles = ();
+ End
+ 
+@@ -786,7 +786,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\MimeAssociations";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Name = "application/vnd.oasis.opendocument.text";
+-    Value = "LibreOffice.WriterDocument.1";
++    Value = "HSTOffice.WriterDocument.1";
+     Styles = ();
+ End
+ 
+@@ -809,7 +809,7 @@
+ RegistryItem gid_Regitem_Odt_Openoffice_Writerdocument_1_Shellnew
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = ".odt\LibreOffice.WriterDocument.1\ShellNew";
++    Subkey = ".odt\HSTOffice.WriterDocument.1\ShellNew";
+     Name = "FileName";
+     Value = "<progpath>\share\template\shellnew\soffice.odt";
+ End
+@@ -817,35 +817,35 @@
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_Curver
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument\CurVer";
+-    Value = "LibreOffice.WriterDocument.1";
++    Subkey = "HSTOffice.WriterDocument\CurVer";
++    Value = "HSTOffice.WriterDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1";
++    Subkey = "HSTOffice.WriterDocument.1";
+     REG_VALUE_LNG(OO_WRITER)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Clsid
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\CLSID";
++    Subkey = "HSTOffice.WriterDocument.1\CLSID";
+     Value = "{F616B81F-7BB8-4F22-B8A5-47428D59F8AD}";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\DefaultIcon";
++    Subkey = "HSTOffice.WriterDocument.1\DefaultIcon";
+     Value = "<progpath>\program\soffice.bin,1";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1";
++    Subkey = "HSTOffice.WriterDocument.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Writer";
+ End
+@@ -853,7 +853,7 @@
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1";
++    Subkey = "HSTOffice.WriterDocument.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_WRITER)
+ End
+@@ -861,14 +861,14 @@
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Insertable
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\Insertable";
++    Subkey = "HSTOffice.WriterDocument.1\Insertable";
+ End
+ 
+ #ifdef _MSC_VER
+ RegistryItem gid_Regitem_odt_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.WriterDocument.1";
++    Subkey = "HSTOffice.WriterDocument.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -885,56 +885,56 @@
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Protocol_Stdfileediting_Server
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\protocol\StdFileEditing\server";
++    Subkey = "HSTOffice.WriterDocument.1\protocol\StdFileEditing\server";
+     Value = "<progpath>\program\soffice.exe";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Protocol_Stdfileediting_Verb_0
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\protocol\StdFileEditing\verb\0";
++    Subkey = "HSTOffice.WriterDocument.1\protocol\StdFileEditing\verb\0";
+     Value = "&Edit";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Protocol_Stdfileediting_Verb__1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\protocol\StdFileEditing\verb\-1";
++    Subkey = "HSTOffice.WriterDocument.1\protocol\StdFileEditing\verb\-1";
+     Value = "&Show";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Protocol_Stdfileediting_Verb__2
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\protocol\StdFileEditing\verb\-2";
++    Subkey = "HSTOffice.WriterDocument.1\protocol\StdFileEditing\verb\-2";
+     Value = "&Open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\shell";
++    Subkey = "HSTOffice.WriterDocument.1\shell";
+     Value = "open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\shell\new";
++    Subkey = "HSTOffice.WriterDocument.1\shell\new";
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\shell\new\command";
++    Subkey = "HSTOffice.WriterDocument.1\shell\new\command";
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\shell\open\command";
++    Subkey = "HSTOffice.WriterDocument.1\shell\open\command";
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+     Styles = ();
+ End
+@@ -942,14 +942,14 @@
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\shell\print\command";
++    Subkey = "HSTOffice.WriterDocument.1\shell\print\command";
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerdocument_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterDocument.1\shell\printto\command";
++    Subkey = "HSTOffice.WriterDocument.1\shell\printto\command";
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+ 
+@@ -957,21 +957,21 @@
+ RegistryItem gid_Regitem_Openoffice_Writerwebdocument_Curver
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterWebDocument\CurVer";
+-    Value = "LibreOffice.WriterWebDocument.1";
++    Subkey = "HSTOffice.WriterWebDocument\CurVer";
++    Value = "HSTOffice.WriterWebDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerwebdocument_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterWebDocument.1";
++    Subkey = "HSTOffice.WriterWebDocument.1";
+     REG_VALUE_LNG(OO_WRITER)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerwebdocument_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterWebDocument.1\shell\open\command";
++    Subkey = "HSTOffice.WriterWebDocument.1\shell\open\command";
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+     Styles = ();
+ End
+@@ -997,7 +997,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".fodt";
+-    Value = "LibreOffice.WriterDocument.1";
++    Value = "HSTOffice.WriterDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Software_Manufacturer_Productname_Productversion_Capabilities_FileAssociations_fodt
+@@ -1005,7 +1005,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Root;
+     Name = ".fodt";
+-    Value = "LibreOffice.WriterDocument.1";
++    Value = "HSTOffice.WriterDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Fodt_Contenttype
+@@ -1050,7 +1050,7 @@
+ RegistryItem gid_Regitem_WriterTemplate_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.WriterTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -1058,7 +1058,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".ott";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Value = "LibreOffice.WriterTemplate.1";
++    Value = "HSTOffice.WriterTemplate.1";
+ End
+ 
+ RegistryItem gid_Regitem_Ott_Contenttype
+@@ -1079,14 +1079,14 @@
+ 
+ RegistryItem gid_Regitem_Soffice_Starwritertemplate_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterTemplate.1";
++    Subkey = "HSTOffice.WriterTemplate.1";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     REG_VALUE_LNG(OO_WRITER_TEMPLATE)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writertemplate_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterTemplate.1\DefaultIcon";
++    Subkey = "HSTOffice.WriterTemplate.1\DefaultIcon";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "<progpath>\program\soffice.bin,2";
+ End
+@@ -1094,7 +1094,7 @@
+ RegistryItem gid_Regitem_Openoffice_Writertemplate_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterTemplate.1";
++    Subkey = "HSTOffice.WriterTemplate.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Writer";
+ End
+@@ -1102,7 +1102,7 @@
+ RegistryItem gid_Regitem_Openoffice_Writertemplate_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterTemplate.1";
++    Subkey = "HSTOffice.WriterTemplate.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_WRITER_TEMPLATE)
+ End
+@@ -1111,7 +1111,7 @@
+ RegistryItem gid_Regitem_ott_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.WriterTemplate.1";
++    Subkey = "HSTOffice.WriterTemplate.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -1128,41 +1128,41 @@
+ RegistryItem gid_Regitem_Openoffice_Writertemplate_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterTemplate.1\shell";
++    Subkey = "HSTOffice.WriterTemplate.1\shell";
+     Value = "new";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writertemplate_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterTemplate.1\shell\new";
++    Subkey = "HSTOffice.WriterTemplate.1\shell\new";
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writertemplate_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterTemplate.1\shell\new\command";
++    Subkey = "HSTOffice.WriterTemplate.1\shell\new\command";
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writertemplate_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterTemplate.1\shell\open\command";
++    Subkey = "HSTOffice.WriterTemplate.1\shell\open\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writertemplate_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterTemplate.1\shell\print\command";
++    Subkey = "HSTOffice.WriterTemplate.1\shell\print\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writertemplate_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterTemplate.1\shell\printto\command";
++    Subkey = "HSTOffice.WriterTemplate.1\shell\printto\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+@@ -1193,7 +1193,7 @@
+ RegistryItem gid_Regitem_WriterGlobalDocument_1_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.WriterGlobalDocument.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -1201,7 +1201,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".odm";
+-    Value = "LibreOffice.WriterGlobalDocument.1";
++    Value = "HSTOffice.WriterGlobalDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Odm_Contenttype
+@@ -1222,21 +1222,21 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_Curver
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterGlobalDocument\CurVer";
++    Subkey = "HSTOffice.WriterGlobalDocument\CurVer";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Value = "LibreOffice.WriterGlobalDocument.1";
++    Value = "HSTOffice.WriterGlobalDocument.1";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1";
++    Subkey = "HSTOffice.WriterGlobalDocument.1";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     REG_VALUE_LNG(OO_MASTERDOC)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1\DefaultIcon";
++    Subkey = "HSTOffice.WriterGlobalDocument.1\DefaultIcon";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "<progpath>\program\soffice.bin,9";
+ End
+@@ -1244,7 +1244,7 @@
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1";
++    Subkey = "HSTOffice.WriterGlobalDocument.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Writer";
+ End
+@@ -1252,7 +1252,7 @@
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1";
++    Subkey = "HSTOffice.WriterGlobalDocument.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_MASTERDOC)
+ End
+@@ -1261,7 +1261,7 @@
+ RegistryItem gid_Regitem_odm_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1";
++    Subkey = "HSTOffice.WriterGlobalDocument.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -1277,42 +1277,42 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1\shell";
++    Subkey = "HSTOffice.WriterGlobalDocument.1\shell";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1\shell\new";
++    Subkey = "HSTOffice.WriterGlobalDocument.1\shell\new";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1\shell\new\command";
++    Subkey = "HSTOffice.WriterGlobalDocument.1\shell\new\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1\shell\open\command";
++    Subkey = "HSTOffice.WriterGlobalDocument.1\shell\open\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1\shell\print\command";
++    Subkey = "HSTOffice.WriterGlobalDocument.1\shell\print\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_Writerglobaldocument_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterGlobalDocument.1\shell\printto\command";
++    Subkey = "HSTOffice.WriterGlobalDocument.1\shell\printto\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+@@ -1343,7 +1343,7 @@
+ RegistryItem gid_Regitem_WriterWebTemplate_Shellex_PropertySheetHandlers_MyPropSheet1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterWebTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
++    Subkey = "HSTOffice.WriterWebTemplate.1\shellex\PropertySheetHandlers\MyPropSheet1";
+     Value = "{63542C48-9552-494A-84F7-73AA6A7C99C1}";
+ End
+ 
+@@ -1351,7 +1351,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Subkey = ".oth";
+-    Value = "LibreOffice.WriterWebTemplate.1";
++    Value = "HSTOffice.WriterWebTemplate.1";
+ End
+ 
+ RegistryItem gid_Regitem_Oth_Contenttype
+@@ -1372,21 +1372,21 @@
+ 
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_Curver
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterWebTemplate\CurVer";
++    Subkey = "HSTOffice.WriterWebTemplate\CurVer";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Value = "LibreOffice.WriterWebTemplate.1";
++    Value = "HSTOffice.WriterWebTemplate.1";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterWebTemplate.1";
++    Subkey = "HSTOffice.WriterWebTemplate.1";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     REG_VALUE_LNG(OO_WEBDOC)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1_Defaulticon
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterWebTemplate.1\DefaultIcon";
++    Subkey = "HSTOffice.WriterWebTemplate.1\DefaultIcon";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "<progpath>\program\soffice.bin,10";
+ End
+@@ -1394,7 +1394,7 @@
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1_AppUserModelID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterWebTemplate.1";
++    Subkey = "HSTOffice.WriterWebTemplate.1";
+     Name = "AppUserModelID";
+     Value = "TheDocumentFoundation.LibreOffice.Writer";
+ End
+@@ -1402,49 +1402,49 @@
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1_FriendlyTypeName
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "LibreOffice.WriterWebTemplate.1";
++    Subkey = "HSTOffice.WriterWebTemplate.1";
+     Name = "FriendlyTypeName";
+     REG_VALUE_LNG(OO_WEBDOC)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1_Shell
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterWebTemplate.1\shell";
++    Subkey = "HSTOffice.WriterWebTemplate.1\shell";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "open";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1_Shell_New
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterWebTemplate.1\shell\new";
++    Subkey = "HSTOffice.WriterWebTemplate.1\shell\new";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     REG_VALUE_LNG(NEW)
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1_Shell_New_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterWebTemplate.1\shell\new\command";
++    Subkey = "HSTOffice.WriterWebTemplate.1\shell\new\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -n \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1_Shell_Open_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterWebTemplate.1\shell\open\command";
++    Subkey = "HSTOffice.WriterWebTemplate.1\shell\open\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -o \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1_Shell_Print_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterWebTemplate.1\shell\print\command";
++    Subkey = "HSTOffice.WriterWebTemplate.1\shell\print\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -p \"%1\"";
+ End
+ 
+ RegistryItem gid_Regitem_Openoffice_WriterWebTemplate_1_Shell_Printto_Command
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "LibreOffice.WriterWebTemplate.1\shell\printto\command";
++    Subkey = "HSTOffice.WriterWebTemplate.1\shell\printto\command";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Value = "\"<progpath>\program\soffice.exe\" -pt \"%2\" \"%1\"";
+ End
+@@ -1453,7 +1453,7 @@
+ RegistryItem gid_Regitem_oth_FullDetails
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Optional_Winexplorerext;
+-    Subkey = "LibreOffice.WriterWebTemplate.1";
++    Subkey = "HSTOffice.WriterWebTemplate.1";
+     Name = "FullDetails";
+     Value = "prop:System.PropGroup.Description;System.Title;System.Author;System.Subject;System.Keywords;System.Comment;System.PropGroup.FileSystem;System.ItemNameDisplay;System.ItemType;System.ItemFolderPathDisplay;System.Size;System.DateCreated;System.DateModified;System.FileAttributes;System.ComputerName";
+ End
+@@ -1474,7 +1474,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".odt\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Name = "LibreOffice.WriterDocument.1";
++    Name = "HSTOffice.WriterDocument.1";
+     Value = " ";
+ End
+ 
+@@ -1483,7 +1483,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".ott\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Name = "LibreOffice.WriterTemplate.1";
++    Name = "HSTOffice.WriterTemplate.1";
+     Value = " ";
+ End
+ 
+@@ -1492,7 +1492,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".oth\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Name = "LibreOffice.WriterWebTemplate.1";
++    Name = "HSTOffice.WriterWebTemplate.1";
+     Value = " ";
+ End
+ 
+@@ -1501,7 +1501,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".odm\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Name = "LibreOffice.WriterGlobalDocument.1";
++    Name = "HSTOffice.WriterGlobalDocument.1";
+     Value = " ";
+ End
+ 
+@@ -1573,7 +1573,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".wps\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Name = "LibreOffice.WriterDocument.1";
++    Name = "HSTOffice.WriterDocument.1";
+     Value = " ";
+ End
+ 
+@@ -1582,7 +1582,7 @@
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     Subkey = ".wri\OpenWithProgIDs";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Name = "LibreOffice.WriterDocument.1";
++    Name = "HSTOffice.WriterDocument.1";
+     Value = " ";
+ End
+ 
+@@ -1610,7 +1610,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Name = ".ott";
+-    Value = "LibreOffice.WriterTemplate.1";
++    Value = "HSTOffice.WriterTemplate.1";
+     Styles = ();
+ End
+ 
+@@ -1691,7 +1691,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Name = ".oth";
+-    Value = "LibreOffice.WriterWebTemplate.1";
++    Value = "HSTOffice.WriterWebTemplate.1";
+     Styles = ();
+ End
+ 
+@@ -1700,7 +1700,7 @@
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME%PRODUCTADDON\%PRODUCTVERSION\Capabilities\FileAssociations";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+     Name = ".odm";
+-    Value = "LibreOffice.WriterGlobalDocument.1";
++    Value = "HSTOffice.WriterGlobalDocument.1";
+     Styles = ();
+ End
+ 
+--- a/setup_native/source/win32/customactions/reg4allmsdoc/reg4allmsi.cxx
++++ b/setup_native/source/win32/customactions/reg4allmsdoc/reg4allmsi.cxx
+@@ -110,12 +110,8 @@
+             {   // We will replace registration for WordPad (alas, on XP only) FIXME
+                 bRet = true;
+             }
+-            else if ( wcsncmp( szBuffer, L"LibreOffice.", 12 ) == 0 )
+-            {   // We will replace registration for our own types, too
+-                bRet = true;
+-            }
+-            else if ( wcsncmp( szBuffer, L"lostub.", 7 ) == 0 )
+-            {   // We will replace registration for lostub, too
++            else if ( wcsncmp( szBuffer, L"HSTOffice.", 10 ) == 0 )
++            {   // We will replace registration for our own types, too (HST Office's; LibreOffice's belong to LibreOffice)
+                 bRet = true;
+             }
+             else // we have a default value -> do not register, see fdo#39791
+@@ -189,10 +185,10 @@
+             szBuffer[nSize/sizeof(*szBuffer)] = L'\0';
+ 
+             // No need to save associations for our own types
+-            if ( wcsncmp( szBuffer, L"LibreOffice.", 12 ) != 0 )
++            if ( wcsncmp( szBuffer, L"HSTOffice.", 10 ) != 0 )
+             {
+                 // Save the old association
+-                RegSetValueExW( hKey, L"LOBackupAssociation", 0,
++                RegSetValueExW( hKey, L"HSTBackupAssociation", 0,
+                                 REG_SZ, reinterpret_cast<LPBYTE>(szBuffer), nSize );
+                 // Also save what the old association means, just so we can try to verify
+                 // if/when restoring it that the old application still exists
+@@ -205,7 +201,7 @@
+                     lResult = RegQueryValueExW( hKey2, L"", nullptr, nullptr, reinterpret_cast<LPBYTE>(szBuffer), &nSize );
+                     if ( ERROR_SUCCESS == lResult )
+                     {
+-                        RegSetValueExW( hKey, L"LOBackupAssociationDeref", 0,
++                        RegSetValueExW( hKey, L"HSTBackupAssociationDeref", 0,
+                                         REG_SZ, reinterpret_cast<LPBYTE>(szBuffer), nSize );
+                     }
+                     RegCloseKey( hKey2 );
+@@ -461,7 +457,7 @@
+         WCHAR   szBuffer[1024];
+         DWORD   nSize = sizeof( szBuffer );
+ 
+-        lResult = RegQueryValueExW( hKey, L"LOBackupAssociation", nullptr, nullptr,
++        lResult = RegQueryValueExW( hKey, L"HSTBackupAssociation", nullptr, nullptr,
+                                     reinterpret_cast<LPBYTE>(szBuffer), &nSize );
+         if ( ERROR_SUCCESS == lResult )
+         {
+@@ -481,7 +477,7 @@
+                     DWORD  nSize3 = sizeof( szBuffer3 );
+ 
+                     // Try to verify that the old association is OK to restore
+-                    lResult = RegQueryValueExW( hKey, L"LOBackupAssociationDeref", nullptr, nullptr,
++                    lResult = RegQueryValueExW( hKey, L"HSTBackupAssociationDeref", nullptr, nullptr,
+                                                 reinterpret_cast<LPBYTE>(szBuffer3), &nSize3 );
+                     if ( ERROR_SUCCESS == lResult )
+                     {
+@@ -494,9 +490,9 @@
+                 }
+                 RegCloseKey( hKey2 );
+             }
+-            RegDeleteValueW( hKey, L"LOBackupAssociation" );
++            RegDeleteValueW( hKey, L"HSTBackupAssociation" );
+         }
+-        RegDeleteValueW( hKey, L"LOBackupAssociationDeref" );
++        RegDeleteValueW( hKey, L"HSTBackupAssociationDeref" );
+         RegCloseKey( hKey );
+     }
+ }
+--- a/shell/source/win32/shlxthandler/util/fileextensions.cxx
++++ b/shell/source/win32/shlxthandler/util/fileextensions.cxx
+@@ -42,18 +42,18 @@
+     { ".std", L".std", L"soffice.StarDrawTemplate.6"         },
+     { ".sti", L".sti", L"soffice.StarImpressTemplate.6"      },
+     { ".stc", L".stc", L"soffice.StarCalcTemplate.6"         },
+-    { ".odt", L".odt", L"LibreOffice.WriterDocument.1"       },
+-    { ".ott", L".ott", L"LibreOffice.WriterTemplate.1"       },
+-    { ".odm", L".odm", L"LibreOffice.WriterGlobalDocument.1" },
+-    { ".oth", L".oth", L"LibreOffice.WriterWebTemplate.1"    },
+-    { ".ods", L".ods", L"LibreOffice.CalcDocument.1"         },
+-    { ".ots", L".ots", L"LibreOffice.CalcTemplate.1"         },
+-    { ".odg", L".odg", L"LibreOffice.DrawDocument.1"         },
+-    { ".otg", L".otg", L"LibreOffice.DrawTemplate.1"         },
+-    { ".odp", L".odp", L"LibreOffice.ImpressDocument.1"      },
+-    { ".otp", L".otp", L"LibreOffice.ImpressTemplate.1"      },
+-    { ".odf", L".odf", L"LibreOffice.MathDocument.1"         },
+-    { ".odb", L".odb", L"LibreOffice.DatabaseDocument.1"     }
++    { ".odt", L".odt", L"HSTOffice.WriterDocument.1"       },
++    { ".ott", L".ott", L"HSTOffice.WriterTemplate.1"       },
++    { ".odm", L".odm", L"HSTOffice.WriterGlobalDocument.1" },
++    { ".oth", L".oth", L"HSTOffice.WriterWebTemplate.1"    },
++    { ".ods", L".ods", L"HSTOffice.CalcDocument.1"         },
++    { ".ots", L".ots", L"HSTOffice.CalcTemplate.1"         },
++    { ".odg", L".odg", L"HSTOffice.DrawDocument.1"         },
++    { ".otg", L".otg", L"HSTOffice.DrawTemplate.1"         },
++    { ".odp", L".odp", L"HSTOffice.ImpressDocument.1"      },
++    { ".otp", L".otp", L"HSTOffice.ImpressTemplate.1"      },
++    { ".odf", L".odf", L"HSTOffice.MathDocument.1"         },
++    { ".odb", L".odb", L"HSTOffice.DatabaseDocument.1"     }
+     };
+ 
+ 
+--- a/vcl/win/app/fileregistration.cxx
++++ b/vcl/win/app/fileregistration.cxx
+@@ -73,7 +73,7 @@
+ 
+ static bool IsDefaultAppInstalledInReg()
+ {
+-    const wchar_t* keyPath = L"SOFTWARE\\LibreOffice\\UNO\\InstallPath";
++    const wchar_t* keyPath = L"SOFTWARE\\HASON TECH\\HST Office\\UNO\\InstallPath";
+ 
+     WCHAR szRegPath[EXTENDED_MAX_PATH];
+     DWORD cbData = sizeof(szRegPath);
+@@ -151,9 +151,9 @@
+     }
+ 
+     static const std::pair<LPCWSTR, LPCWSTR> formats[] = {
+-        { L".odp", L"LibreOffice.ImpressDocument.1" },
+-        { L".odt", L"LibreOffice.WriterDocument.1" },
+-        { L".ods", L"LibreOffice.CalcDocument.1" },
++        { L".odp", L"HSTOffice.ImpressDocument.1" },
++        { L".odt", L"HSTOffice.WriterDocument.1" },
++        { L".ods", L"HSTOffice.CalcDocument.1" },
+     };
+     OUString aNonDefaults;
+ 

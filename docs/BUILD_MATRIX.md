@@ -73,6 +73,15 @@ một major upgrade như upstream.
   Windows Installer bỏ qua các component đó rồi gỡ mất tệp của beta.4 (khoảng 170 tệp, gồm `soffice.bin`). Giữ
   nguyên hạt khi phiên bản tệp chỉ tăng; chỉ đổi hạt nếu phiên bản tệp khóa (key file) buộc phải giảm. Không dùng
   `REINSTALLMODE`: nó áp cho cả gói và có thể thay bộ VC runtime mới hơn của hệ thống bằng bản cũ hơn.
+- ProgID riêng và đường dẫn UNO riêng ([`hst-windows-own-progids.patch`](../patches/libreoffice/hst-windows-own-progids.patch)):
+  ProgID loại tệp là `HSTOffice.*` (ví dụ `HSTOffice.WriterDocument.1`, `HSTOffice.Docx`), đường dẫn cài cho UNO ở
+  `HKLM\Software\HASON TECH\HST Office\UNO\InstallPath`. Custom action `LookForRegisteredExtensions` chỉ nhận định dạng
+  Office chưa ai giữ, của WordPad hoặc của chính HST, không lấy của LibreOffice. Giữ nguyên: AppUserModelID, CLSID OLE
+  và tên kiểu lưu trữ OLE ghi vào tài liệu. Mặc định `.odt`/`.ods`/`.odp` vẫn là của bộ cài sau cùng, và gỡ một bộ sẽ xóa
+  giá trị mặc định đó (ProgID và lệnh mở của bộ còn lại không bị ảnh hưởng).
+- Beta 1–4 ghi ProgID `LibreOffice.*` và `Software\LibreOffice\UNO\InstallPath`, trùng LibreOffice. Gỡ bản beta (kể cả
+  khi cài beta.5 lên) xóa các khóa đó, nên LibreOffice cài cùng máy mất lệnh mở tệp cho tới khi chạy Repair LibreOffice
+  (ghi trong ghi chú phát hành beta.5).
 - Kiểm tra: `scripts/check-msi-upgrade.py` (Quality CI, đọc patch) và `scripts/check-msi-upgrade.py --msi <tệp>`
   (đọc bảng Upgrade và Property của MSI đã build; workflow Windows smoke chạy bước này và thử cài cạnh LibreOffice,
   nâng cấp từ beta.4).
