@@ -100,6 +100,10 @@ một major upgrade như upstream.
   - Khóa `Software\LibreOffice\…` (Layers, URE, Path) chuyển sang `Software\HASON TECH\…`; khóa gỡ cài đặt cũ ghi
     nhà phát hành HASON TECH ([`hst-windows-own-registry-keys.patch`](../patches/libreoffice/hst-windows-own-registry-keys.patch)).
     Custom action `MigrateInstallPath` vẫn đọc khóa Layers cũ để giữ thư mục cài của beta 1–4.
+  - ProgID của gói phần mở rộng `.oxt` là `HSTOffice.Extension.1` thay cho `office.Extension.1`
+    ([`hst-windows-own-extension-progid.patch`](../patches/libreoffice/hst-windows-own-extension-progid.patch)).
+  - Giữ nguyên có chủ đích (tên API tự động hóa mà script bên ngoài gọi): `com.sun.star.ServiceManager`,
+    `Writer.Application`, `Calc.Application`, `AppID\soffice.exe` và CLSID tương ứng; bộ cài sau cùng phục vụ chúng.
 - Beta 1–4 ghi ProgID `LibreOffice.*` và `Software\LibreOffice\UNO\InstallPath`, trùng LibreOffice. Gỡ bản beta (kể cả
   khi cài beta.5 lên) xóa các khóa đó, nên LibreOffice cài cùng máy mất lệnh mở tệp cho tới khi chạy Repair LibreOffice
   (ghi trong ghi chú phát hành beta.5).

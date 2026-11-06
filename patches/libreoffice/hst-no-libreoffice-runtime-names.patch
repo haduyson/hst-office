@@ -1,0 +1,32 @@
+HST Office: no LibreOffice name left in the installed version file or the Linux splash window.
+
+- version.ini/versionrc: ExtensionUpdateURL is empty instead of LibreOffice's extension update
+  service. HST Office never checks extensions online (hst-extensions.patch makes the check a
+  no-op), so nothing reads it; the file no longer names the other suite's server.
+- Linux (X11) splash window: its title is "HST Office" instead of "LibreOffice", the name a
+  task bar or window list shows while the office starts.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/desktop/unx/source/splashx.c
++++ b/desktop/unx/source/splashx.c
+@@ -463,7 +463,7 @@
+ {
+     Window root_win;
+     XGCValues values;
+-    const char* name = "LibreOffice";
++    const char* name = "HST Office";
+     const char* icon = "icon"; // FIXME
+     XSizeHints size_hints;
+ 
+--- a/instsetoo_native/CustomTarget_setup.mk
++++ b/instsetoo_native/CustomTarget_setup.mk
+@@ -182,7 +182,7 @@
+ [Version]
+ AllLanguages=$(if $(gb_WITH_LANG),$(gb_WITH_LANG),en-US)
+ buildid=$(shell cd $(SRCDIR) && git log -1 --format=%H)
+-ExtensionUpdateURL=https://updateexte.libreoffice.org/ExtensionUpdateService/check.Update
++ExtensionUpdateURL=
+ UpdateChannel=$(if $(ENABLE_ONLINE_UPDATE_MAR),LOOnlineUpdater)
+ ReferenceOOoMajorMinor=4.1
+ UpdateID=$(PRODUCTNAME)_$(LIBO_VERSION_MAJOR)_en-US

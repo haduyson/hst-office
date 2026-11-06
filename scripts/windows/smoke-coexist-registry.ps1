@@ -23,6 +23,7 @@ function Get-CoexistRegistry {
     foreach ($n in $AppNames) { $r["lo_app_path_$n"] = Get-RegDefault "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\$n.exe" }
     $r.lo_uri_open = Get-RegDefault 'HKEY_CLASSES_ROOT\vnd.libreoffice.command\shell\open\command'
     $r.lo_sxw_open = Get-RegDefault 'HKEY_CLASSES_ROOT\soffice.StarWriterDocument.6\shell\open\command'
+    $r.lo_oxt_open = Get-RegDefault 'HKEY_CLASSES_ROOT\office.Extension.1\shell\open\command'
     foreach ($k in $LoClsids.Keys) { $r["lo_clsid_$k"] = Get-RegDefault "HKEY_CLASSES_ROOT\CLSID\$($LoClsids[$k])\InprocServer32" }
     $ure = Get-Item -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\LibreOffice\Layers\URE\1' -ErrorAction SilentlyContinue
     $r.lo_layer_ure = if ($ure) { $ure.GetValue('UREINSTALLLOCATION') } else { $null }
@@ -30,6 +31,7 @@ function Get-CoexistRegistry {
     $r.lo_classes_software_key = if (Test-Path -LiteralPath 'Registry::HKEY_CLASSES_ROOT\Software\LibreOffice') { 'present' } else { $null }
     $r.hst_sxw_open = Get-RegDefault 'HKEY_CLASSES_ROOT\HSTOffice.StarWriterDocument.6\shell\open\command'
     $r.hst_office_uri_open = Get-RegDefault 'HKEY_CLASSES_ROOT\HSTOffice.OfficeURI\shell\open\command'
+    $r.hst_oxt_open = Get-RegDefault 'HKEY_CLASSES_ROOT\HSTOffice.Extension.1\shell\open\command'
     $r.hst_odt_thumbnail = Get-RegDefault "HKEY_CLASSES_ROOT\HSTOffice.WriterDocument.1\shellex\$ExtractImage"
     foreach ($k in $HstClsids.Keys) { $r["hst_clsid_$k"] = Get-RegDefault "HKEY_CLASSES_ROOT\CLSID\$($HstClsids[$k])\InprocServer32" }
     $r.odt_thumbnail = Get-RegDefault "HKEY_CLASSES_ROOT\.odt\shellex\$ExtractImage"
@@ -40,7 +42,7 @@ function Get-CoexistRegistry {
 function Assert-HstCoexistKeys([System.Collections.IDictionary]$Reg, [string]$Location) {
     # HST Office's own legacy ProgID, Office URI ProgID and every Explorer extension class point into its program folder.
     $program = (Join-Path $Location 'program').TrimEnd('\')
-    foreach ($k in @('hst_sxw_open', 'hst_office_uri_open') + @($HstClsids.Keys | ForEach-Object { "hst_clsid_$_" })) {
+    foreach ($k in @('hst_sxw_open', 'hst_office_uri_open', 'hst_oxt_open') + @($HstClsids.Keys | ForEach-Object { "hst_clsid_$_" })) {
         Assert ($Reg[$k] -and $Reg[$k].IndexOf($program, [StringComparison]::OrdinalIgnoreCase) -ge 0) "$k is in $program ($($Reg[$k]))"
     }
     Assert ($Reg.hst_odt_thumbnail -eq $HstClsids.thumbnail) "HSTOffice.WriterDocument.1 has HST Office's thumbnail handler ($($Reg.hst_odt_thumbnail))"

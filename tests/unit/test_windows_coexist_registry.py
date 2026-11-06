@@ -12,8 +12,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "patches/libreoffice"
-LEGACY, APP_PATHS, URI, SHELLEXT, KEYS = (DIR / f"hst-windows-{n}.patch" for n in (
-    "own-legacy-progids", "no-app-paths", "no-libreoffice-uri-scheme", "own-shell-extension-clsids", "own-registry-keys"))
+LEGACY, APP_PATHS, URI, SHELLEXT, KEYS, OXT = (DIR / f"hst-windows-{n}.patch" for n in (
+    "own-legacy-progids", "no-app-paths", "no-libreoffice-uri-scheme", "own-shell-extension-clsids", "own-registry-keys",
+    "own-extension-progid"))
+RUNTIME = DIR / "hst-no-libreoffice-runtime-names.patch"
 # LibreOffice's class id -> HST Office's (shell/inc/shlxthdl.hxx, propertyhdl.hxx, ooofilt.hxx)
 CLSIDS = {
     "087B3AE3-E237-4467-B8DB-5A38AB959AC9": "2A30C089-4A9F-4456-9E48-AEB9FF0012A3",  # infotip
@@ -53,9 +55,9 @@ def guid_of(initializer):
 class CoexistRegistry(unittest.TestCase):
     def test_appended_in_order(self):
         series = [n for n in (DIR / "series").read_text(encoding="utf-8").split() if not n.startswith("#")]
-        names = [p.name for p in (LEGACY, APP_PATHS, URI, SHELLEXT, KEYS)]
+        names = [p.name for p in (LEGACY, APP_PATHS, URI, SHELLEXT, KEYS, OXT, RUNTIME)]
         start = series.index(names[0])
-        self.assertEqual(series[start:start + 5], names)
+        self.assertEqual(series[start:start + len(names)], names)
         self.assertLess(series.index("hst-windows-app-user-model-ids.patch"), start)
 
     def test_legacy_progids_renamed_one_for_one(self):
@@ -114,7 +116,7 @@ class CoexistRegistry(unittest.TestCase):
         self.assertEqual(len(moved), 43)  # 22 infotip + 21 thumbnail slots
 
     def test_ole_embedding_clsids_unchanged(self):
-        for patch in (LEGACY, APP_PATHS, URI, SHELLEXT, KEYS):
+        for patch in (LEGACY, APP_PATHS, URI, SHELLEXT, KEYS, OXT):
             for path, (removed, added, _new) in hunks(patch).items():
                 ole = lambda lines: sorted(re.findall(r'CLSID\\\{([0-9A-Fa-f-]{36})\}', "\n".join(lines)))
                 old_ole = [g for g in ole(removed) if g.upper() not in CLSIDS]
@@ -131,6 +133,16 @@ class CoexistRegistry(unittest.TestCase):
             self.assertNotIn(word, added)
         self.assertNotIn("migrateinstallpath", "\n".join(patched))  # still reads beta 1-4's old Layers key
 
+    def test_extension_package_progid(self):
+        (removed, added, _new), = hunks(OXT).values()
+        self.assertEqual(sum("office.Extension" in line for line in removed), 9)
+        self.assertEqual([line.replace("office.Extension", "HSTOffice.Extension") for line in removed], added)
+
+    def test_runtime_names(self):
+        patched = hunks(RUNTIME)
+        self.assertEqual(patched["instsetoo_native/CustomTarget_setup.mk"][1], ["ExtensionUpdateURL="])
+        self.assertEqual(patched["desktop/unx/source/splashx.c"][1], ['    const char* name = "HST Office";'])
+
     @unittest.skipUnless(os.environ.get("HST_LO_SRC"), "HST_LO_SRC (a patched tree) not set")
     def test_patched_tree_shares_nothing(self):
         tree = Path(os.environ["HST_LO_SRC"])
@@ -145,7 +157,7 @@ class CoexistRegistry(unittest.TestCase):
                 left += [f"{rel}: {g}" for g in CLSIDS if g in upper]
                 if path.suffix in (".scp", ".inc"):
                     text = re.sub(r"//[^\n]*", "", text)
-                    left += [f"{rel}: {m}" for m in re.findall(r"soffice\.Star\w*|App Paths\\\w+|vnd\.libreoffice\.\w+(?=[ ,)])|Software\\LibreOffice\\|The Document Foundation", text)]
+                    left += [f"{rel}: {m}" for m in re.findall(r"soffice\.Star\w*|App Paths\\\w+|vnd\.libreoffice\.\w+(?=[ ,)])|Software\\LibreOffice\\|The Document Foundation|(?<![\w.])office\.Extension", text)]
                 elif "soffice.Star" in text:
                     left.append(f"{rel}: soffice.Star")
         self.assertEqual(left, [])
