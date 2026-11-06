@@ -2,6 +2,7 @@
 // LaunchServices and window facts for scripts/macos/coexist-probe.sh.
 //   coexist-probe-helper defaults <ext>... [-- <url-scheme>...]   one "<ext|scheme> <bundle id> <app path>" line each
 //   coexist-probe-helper windows <pid>                           number of on-screen normal windows of the process
+//   coexist-probe-helper copies <bundle id>                      path of every registered copy of the app
 import AppKit
 import UniformTypeIdentifiers
 
@@ -29,7 +30,10 @@ case "windows":
     guard args.count == 2, let pid = Int(args[1]) else { exit(64) }
     let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
     print(list.filter { ($0[kCGWindowOwnerPID as String] as? Int) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }.count)
+case "copies":
+    guard args.count == 2 else { exit(64) }
+    for url in NSWorkspace.shared.urlsForApplications(withBundleIdentifier: args[1]) { print(url.path) }
 default:
-    FileHandle.standardError.write("usage: coexist-probe-helper defaults <ext>... [-- <scheme>...] | windows <pid>\n".data(using: .utf8)!)
+    FileHandle.standardError.write("usage: coexist-probe-helper defaults <ext>... [-- <scheme>...] | windows <pid> | copies <bundle id>\n".data(using: .utf8)!)
     exit(64)
 }

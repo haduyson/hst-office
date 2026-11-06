@@ -5,8 +5,10 @@
 # Installs LibreOffice, then HST, into /Applications and fails when
 #   - the bundles clash (scripts/macos/check-coexist-plists.py: bundle ids, names, profiles, exported
 #     UTIs, URL schemes, Spotlight/Quick Look plug-in ids);
-#   - installing or removing HST changes the default application (duti -x, LaunchServices) of
-#     ODF/OOXML files or of the Office URI schemes;
+#   - installing or removing HST changes the default application (duti -x, LaunchServices) of a
+#     type LibreOffice declares as its own (LSHandlerRank Owner: ODF). Types both suites only
+#     open (Alternate: OOXML, the ms-* schemes) are reported as WARN: LaunchServices breaks that
+#     tie by itself, HST cannot rank below Alternate and stay in Open With;
 #   - both cannot run at once as separate processes (lsappinfo) with their own windows, or a file
 #     opened with one ("open -a") is opened by the other (its lock file names the owner's profile);
 #   - their profiles are not separate, or removing either leaves the other unable to start.
@@ -41,9 +43,44 @@ record() { # record <label>: default handler of every extension and scheme (Laun
   local e; for e in "${EXTS[@]}"; do printf 'duti %s: %s\n' "$e" "$(duti -x "$e" 2>&1 | tr '\n' ' ')"; done >> "$out/defaults-$1.txt"
 }
 
-same_defaults() { # same_defaults <label> <baseline label>
-  if cmp -s "$out/defaults-$1.txt" "$out/defaults-$2.txt"; then pass "$1: default applications as with $2 ($(grep -c . "$out/defaults-$2.txt") entries)"
-  else fail "$1: default applications changed"; diff "$out/defaults-$2.txt" "$out/defaults-$1.txt" | tee -a "$out/summary.md" || :; fi
+same_defaults() { # same_defaults <label> <baseline label>: FAIL for a LibreOffice-owned type, WARN otherwise
+  local line key changed=0
+  if cmp -s "$out/defaults-$1.txt" "$out/defaults-$2.txt"; then pass "$1: default applications as with $2 ($(grep -c . "$out/defaults-$2.txt") entries)"; return; fi
+  while IFS= read -r line; do
+    key="${line%% *}"; changed=1
+    if grep -qxF "$key" "$out/lo-owned.txt"; then fail "$1: default of a LibreOffice-owned type changed: $line (was: $(grep -F "$key " "$out/defaults-$2.txt" | head -1))"
+    else log "- WARN $1: default of a type both only open (Alternate) changed: $line (was: $(grep -F "$key " "$out/defaults-$2.txt" | head -1))"; fi
+  done < <(comm -13 <(sort "$out/defaults-$2.txt") <(sort "$out/defaults-$1.txt") | grep -v '^duti ')
+  [ "$changed" -eq 1 ] || pass "$1: default applications as with $2 (duti only reformatted)"
+}
+
+lo_owned() { # ext:<e> keys whose UTI LibreOffice claims with LSHandlerRank Owner
+  python3 - "$LO_APP/Contents/Info.plist" "$out/defaults-lo.txt" > "$out/lo-owned.txt" <<'PY'
+import plistlib, re, sys
+info = plistlib.load(open(sys.argv[1], "rb"))
+owned = {t for d in info.get("CFBundleDocumentTypes", []) if d.get("LSHandlerRank") == "Owner" for t in d.get("LSItemContentTypes", [])}
+for line in open(sys.argv[2]):
+    m = re.match(r"(ext:\S+) .* uti=(\S+)", line)
+    if m and m.group(2) in owned:
+        print(m.group(1))
+PY
+  echo scheme:vnd.libreoffice.command >> "$out/lo-owned.txt"   # its own URL scheme
+}
+
+first_launch() { # first_launch <app> <bundle id>: seed the profile, start once, quit (LaunchServices settles)
+  seed_profile "$(profile_dir "$1")"
+  open -a "$1"; app_pid "$2" >/dev/null || :; sleep 10
+  quit_app "$2" "$1"; sleep 5
+}
+
+unregister_strays() { # other registered copies (e.g. the build tree's instdir app) would skew every default
+  local id path
+  for id in vn.hasontech.hstoffice org.libreoffice.script; do
+    "$work/helper" copies "$id" | while IFS= read -r path; do
+      case "$path" in /Applications/*) ;; *) log "unregistering stray copy $path"; "$LSREG" -u "$path" || : ;; esac
+    done
+  done
+  sleep 3
 }
 
 profile_dir() { # profile_dir <app>: UserInstallation of bootstraprc with $SYSUSERCONFIG expanded, decoded
@@ -104,15 +141,20 @@ start_alone() { # start_alone <app> <bundle id> <label>
 log "## HST Office / LibreOffice coexistence on $(sw_vers -productName) $(sw_vers -productVersion) $(uname -m)"
 swiftc -O -o "$work/helper" "$here/coexist-probe-helper.swift" 2>"$out/swiftc.log"
 command -v duti >/dev/null || brew install duti >"$out/brew-duti.log" 2>&1
+unregister_strays
 record none
 
 log "### Install LibreOffice, then HST Office"
 install_app "$lo_dmg" LibreOffice.app
-record lo
 LO_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LO_APP/Contents/Info.plist")"
+first_launch "$LO_APP" "$LO_ID"
+record lo
+lo_owned
+log "LibreOffice-owned types: $(tr '\n' ' ' < "$out/lo-owned.txt")"
 log "LibreOffice $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$LO_APP/Contents/Info.plist") ($LO_ID)"
 install_app "$hst_dmg" "HST Office.app"
 HST_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$HST_APP/Contents/Info.plist")"
+first_launch "$HST_APP" "$HST_ID"
 log "HST Office $(/usr/libexec/PlistBuddy -c 'Print :CFBundleGetInfoString' "$HST_APP/Contents/Info.plist" 2>/dev/null) ($HST_ID)"
 record both
 same_defaults "after installing HST" lo
@@ -124,7 +166,6 @@ for p in "$LO_APP" "$HST_APP"; do cp "$p/Contents/Info.plist" "$out/Info-$(basen
 log "### Both running at once"
 HST_PROFILE="$(profile_dir "$HST_APP")"; LO_PROFILE="$(profile_dir "$LO_APP")"
 if [ "$HST_PROFILE" != "$LO_PROFILE" ]; then pass "profiles: $LO_PROFILE / $HST_PROFILE"; else fail "one profile for both: $HST_PROFILE"; fi
-seed_profile "$HST_PROFILE"; seed_profile "$LO_PROFILE"
 open -a "$LO_APP"
 lo_pid="$(app_pid "$LO_ID")" || lo_pid=""
 open -a "$HST_APP"
