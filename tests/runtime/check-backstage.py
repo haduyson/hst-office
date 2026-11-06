@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Runtime check of the full-window File view ("Trang Tệp tin", .uno:HSTBackstage) on GTK3 in the vi UI.
+"""Runtime check of the File panel ("Tệp tin", .uno:HSTBackstage, a drop-down panel) on GTK3 in the vi UI.
 
 Usage (needs a running X display; never started or stopped here; runs the office as the build user):
     python3 tests/runtime/check-backstage.py [--instdir upstream/libreoffice/instdir]
@@ -8,11 +8,10 @@ Usage (needs a running X display; never started or stopped here; runs the office
 
 In HST Writer, HST Sheets and HST Slides, read through AT-SPI with a dispatch interceptor that records and swallows the
 commands of the left column (so no dialog or document close really happens):
-  1. the File tab of the ribbon and Alt+F open the view; Esc and the back item return to the document;
-  2. every item of the left column has its Vietnamese accessible name and triggers its command or shows its page;
-  3. the arrow keys move along the left column, Enter activates;
-  4. the recent list shows a file saved in this session;
-  5. opening time (target: under 150 ms; the first open also creates the window).
+  1. the File tab and Alt+F open the panel; Esc, a click outside and Alt+F close it;
+  2. guardrails while open: the ribbon shows, the panel starts at its bottom edge, the document shows beside it, and
+     the panel is a window of its own; 3. every item of the left column has its Vietnamese name and runs its command
+     (closing the panel) or shows its page; 4. arrows and Enter; 5. the recent list; 6. reopen under 150 ms.
 --shots DIR also keeps the approval screenshots. Exit status 1 on any FAIL. When started as root the script re-executes
 itself as the build user under dbus-run-session (AT-SPI needs a session bus).
 """
@@ -27,16 +26,15 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
-from backstage_gui import (ALL_ITEMS, COMMAND, ROWS, close_document, dark_shot, expect_call, focused_name, is_open,  # noqa: E402
-                           make_interceptor, nd30, open_ms, press, record, seed_recent, showing, view_items, wait_state,
-                           walk, xdo)
+from backstage_gui import (ALL_ITEMS, COMMAND, ROWS, close_document, dark_shot, expect_call, focused_name,  # noqa: E402
+                           is_open, make_interceptor, nd30, open_ms, press, record, seed_recent, showing, view_items,
+                           wait_state, walk, xdo)
+from backstage_guardrails import click_file_tab, extents, guardrails  # noqa: E402
 
 OUT_DEFAULT = os.path.join(os.path.dirname(HERE), "output", "backstage")
 TARGET_MS = 150
-# ribbon File tab, relative to the document window: right of the shortcut icons (see the ribbon screenshots)
-FILE_TAB = (252, 25)
 
-# item name -> command, swallowed by the interceptor; the view closes first
+# item name -> command, swallowed by the interceptor; the panel closes first
 COMMAND_ITEMS = {
     "Lưu": ".uno:Save",
     "In": ".uno:Print",
@@ -64,7 +62,6 @@ def check_app(office, args, factory, label, recent_name, shots):
     try:
         record(label + ": closed at the start", not is_open())
 
-        # timing, first open creates the window
         times = []
         for _ in range(6):
             times.append(open_ms(office, frame))
@@ -77,22 +74,32 @@ def check_app(office, args, factory, label, recent_name, shots):
         record("%s: reopen under %d ms" % (label, TARGET_MS), later < TARGET_MS,
                "median %.0f ms, %s" % (later, " ".join("%.0f" % t for t in times)))
 
-        # the File tab of the ribbon
         window = hst_gui.toplevels(display, office.pid)
         if window:
             xdo(display, "windowfocus", window[0][0])
-            xdo(display, "mousemove", "--window", window[0][0], str(FILE_TAB[0]), str(FILE_TAB[1]), "click", "1")
-        record(label + ": the File tab opens the view", wait_state(True))
+        record(label + ": the ribbon has the File tab", click_file_tab(display))
+        record(label + ": the File tab opens the panel", wait_state(True))
         items = view_items()
         record(label + ": left column names", all(name in items for name in ALL_ITEMS),
                sorted(set(ALL_ITEMS) - set(items)))
+        order = sorted((extents(items[name])[1], name) for name in ALL_ITEMS if name in items)
+        record(label + ": left column order", [name for _y, name in order] == ALL_ITEMS, [name for _y, name in order])
+        box = guardrails(label)
+        if shots and box:
+            hst_gui.screenshot(os.path.join(shots, "bang-tep-tin-%s.png" % label.lower()), display)
         xdo(display, "key", "Escape")
         record(label + ": Esc returns to the document", wait_state(False))
+
+        # a click outside the panel (on the document, right of it) closes it
+        office.dispatch(frame, COMMAND)
+        if wait_state(True) and box:
+            xdo(display, "mousemove", str(box[0] + box[2] + 120), str(box[1] + box[3] // 2), "click", "1")
+            record(label + ": a click outside closes the panel", wait_state(False))
 
         # Alt+F, arrows, Enter
         xdo(display, "key", "alt+f")
         opened = wait_state(True)
-        record(label + ": Alt+F opens the view", opened)
+        record(label + ": Alt+F opens the panel", opened)
         if opened:
             time.sleep(0.3)
             first = focused_name()
@@ -105,13 +112,7 @@ def check_app(office, args, factory, label, recent_name, shots):
             time.sleep(0.5)
             record(label + ": Enter activates the item", PAGE_ITEMS["Mới"] in view_items())
             xdo(display, "key", "alt+f")
-            record(label + ": Alt+F closes the view", wait_state(False))
-
-        # back item
-        office.dispatch(frame, COMMAND)
-        wait_state(True)
-        press(view_items()["Quay lại tài liệu"])
-        record(label + ": the back item returns to the document", wait_state(False))
+            record(label + ": Alt+F closes the panel", wait_state(False))
 
         # pages
         office.dispatch(frame, COMMAND)
@@ -124,7 +125,7 @@ def check_app(office, args, factory, label, recent_name, shots):
         record(label + ": the recent list shows the saved file", recent_name in found, recent_name)
         if shots:
             hst_gui.screenshot(os.path.join(shots, "trang-chu-%s.png" % label.lower()), display)
-        press(view_items()["Quay lại tài liệu"])
+        xdo(display, "key", "Escape")
         wait_state(False)
 
         # commands
@@ -133,7 +134,7 @@ def check_app(office, args, factory, label, recent_name, shots):
             wait_state(True)
             press(view_items()[name])
             record("%s: %s runs %s" % (label, name, command), expect_call(interceptor, command))
-            record("%s: %s returned to the document" % (label, name), wait_state(False))
+            record("%s: %s closed the panel" % (label, name), wait_state(False))
         for page, button, command in (("Mở", "Duyệt…", ".uno:Open"), ("Lưu thành", "Duyệt…", ".uno:SaveAs"),
                                       ("Thông tin", "Thuộc tính…", ".uno:SetDocumentProperties")):
             office.dispatch(frame, COMMAND)

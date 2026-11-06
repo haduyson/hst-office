@@ -1,0 +1,1797 @@
+HST Office: the File tab opens a drop-down panel ("Tệp tin") instead of the full-window File view.
+
+The File view no longer hides the ribbon and no longer covers the document. It is a panel in a window of its own
+that drops down under the ribbon, like a menu:
+
+- sfx2/source/backstage/hstbackstagewindow.*: BackstageWindow is now the content of a weld::Popover (GtkPopover
+  "HstFilePanel" in hstbackstage.ui), built for the document's top-level window and shown with popup_at_rect. GTK
+  shows it in a popup window of its own under X11 (GtkInstancePopover) and as a GtkPopover under Wayland; the other
+  VCL plugins (Windows, macOS, gen, Qt) show it in a floating popup window (SalInstancePopover). Its top edge is the
+  bottom edge of the NotebookBar (the top of the document area without one), 8 px from the window's left edge; about
+  780 x 580 at 100 %, scaled with the UI scale and kept inside the window and the screen below the ribbon, so it never
+  opens upwards over the ribbon.
+- Nothing of the frame is hidden or replaced: SetRibbonVisible, the child window over the client area and its resize
+  handling are gone. The document stays on screen and live. The panel shows no image of the document; print preview
+  stays in the Print dialog.
+- It closes on Esc and on a click outside (the popover's own light dismiss), on Alt+F, and before any of its commands
+  runs; the focus goes back to the document. The "←" item is gone: the footer says how to close the panel.
+- Same 12 items, order and labels in the left column, now a light column with the command icons (a drawn house for
+  Home) and the selection marked by a bar in the application colour; top edge in the application colour.
+- Compact pages: four tiles on Home, narrower recent lists, and on New a list of this application's templates (all
+  template folders, as the Templates dialog lists them) instead of the thumbnail gallery; Manage Templates… and
+  Browse… open the full dialogs. Info keeps Properties…, Digital Signatures… and USB Token Setup….
+- sfx2/source/backstage/hstbackstage.cxx: the panels are kept per frame (created on first use, removed when the frame
+  is disposed) instead of being found among the children of the container window.
+- Keyboard: the key handling of the former PreNotify is a key-press handler of the panel (arrows, Home, End, Right
+  into the page, the frame's shortcuts). Widgets that the code hides are no-show-all, because the GTK popup window
+  shows its contents with show_all.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
+---
+--- a/sfx2/inc/backstage/hstbackstage.hxx
++++ b/sfx2/inc/backstage/hstbackstage.hxx
+@@ -13,23 +13,24 @@
+ #include <com/sun/star/frame/XFrame.hpp>
+ #include <rtl/ustring.hxx>
+ 
+-/* HST Office: the full-window "File" view (backstage).
++/* HST Office: the File panel ("Tệp tin"), a drop-down panel.
+ 
+-   The view is a child window that covers the client area of the document's frame window while
+-   the ribbon is hidden; it is created on first use only (no startup cost) and reused afterwards.
+-   It opens from the ribbon's File tab and from the .uno:HSTBackstage command (Alt+F); Esc, the
+-   back button and the command itself return to the document. */
++   The panel is a popover in a floating window of its own, opened under the ribbon with its top
++   edge on the bottom edge of the ribbon; the ribbon and the document stay visible and live. It is
++   created on first use only (no startup cost) and reused afterwards. It opens from the ribbon's
++   File tab and from the .uno:HSTBackstage command (Alt+F); Esc, a click outside, any of its
++   commands and the command itself close it. */
+ namespace sfx2::hst
+ {
+ inline constexpr OUString BACKSTAGE_COMMAND = u".uno:HSTBackstage"_ustr;
+ 
+-/// Open the view over the given frame, or close it when it is open.
++/// Open the panel of the given frame, or close it when it is open.
+ void ToggleBackstage(const css::uno::Reference<css::frame::XFrame>& rxFrame);
+ 
+-/// Close the view of this frame if it is open; returns whether it was open.
++/// Close the panel of this frame if it is open; returns whether it was open.
+ bool CloseBackstage(const css::uno::Reference<css::frame::XFrame>& rxFrame);
+ 
+-/** Make the ribbon's File tab open the view (once per process; cheap: one application event
++/** Make the ribbon's File tab open the panel (once per process; cheap: one application event
+     listener that reacts to tab page activations of notebookbar tab controls only). */
+ void InstallFileTabHandler();
+ 
+--- a/sfx2/source/backstage/hstbackstage.cxx
++++ b/sfx2/source/backstage/hstbackstage.cxx
+@@ -12,8 +12,13 @@
+ 
+ #include <sfx2/viewfrm.hxx>
+ 
++#include <algorithm>
++#include <memory>
++#include <vector>
++
+ #include <com/sun/star/frame/FeatureStateEvent.hpp>
+ #include <com/sun/star/frame/XStatusListener.hpp>
++#include <com/sun/star/lang/XEventListener.hpp>
+ #include <cppuhelper/implbase.hxx>
+ #include <cppuhelper/weakref.hxx>
+ #include <sal/log.hxx>
+@@ -35,21 +40,47 @@
+     return rxFrame.is() ? VCLUnoHelper::GetWindow(rxFrame->getContainerWindow()) : nullptr;
+ }
+ 
+-/// The backstage child of the frame's container window, if it was created already.
+-BackstageWindow* lcl_findBackstage(vcl::Window* pContainer)
++/// The File panels of the frames, each created on first use and kept until its frame goes away.
++/// Never destroyed at exit: by then the frames are gone, and a panel must not outlive VCL.
++std::vector<std::unique_ptr<BackstageWindow>>& lcl_panels()
+ {
+-    if (!pContainer)
+-        return nullptr;
+-    for (vcl::Window* pChild = pContainer->GetWindow(GetWindowType::FirstChild); pChild;
+-         pChild = pChild->GetWindow(GetWindowType::Next))
+-    {
+-        if (auto* pBackstage = dynamic_cast<BackstageWindow*>(pChild))
+-            if (!pBackstage->isDisposed())
+-                return pBackstage;
+-    }
++    static auto* pPanels = new std::vector<std::unique_ptr<BackstageWindow>>;
++    return *pPanels;
++}
++
++BackstageWindow* lcl_findBackstage(const uno::Reference<frame::XFrame>& rxFrame)
++{
++    for (const std::unique_ptr<BackstageWindow>& rPanel : lcl_panels())
++        if (rPanel->GetFrame() == rxFrame)
++            return rPanel.get();
+     return nullptr;
+ }
+ 
++void lcl_removeBackstage(const uno::Reference<frame::XFrame>& rxFrame)
++{
++    std::vector<std::unique_ptr<BackstageWindow>>& rPanels = lcl_panels();
++    auto it = std::find_if(rPanels.begin(), rPanels.end(),
++                           [&rxFrame](const std::unique_ptr<BackstageWindow>& rPanel)
++                           { return rPanel->GetFrame() == rxFrame; });
++    if (it == rPanels.end())
++        return;
++    // out of the list first: closing the panel may call back into this file
++    std::unique_ptr<BackstageWindow> xPanel(std::move(*it));
++    rPanels.erase(it);
++    xPanel.reset();
++}
++
++/// Removes the panel of a frame when the frame goes away, while its windows are still intact.
++class FrameDisposeListener final : public cppu::WeakImplHelper<lang::XEventListener>
++{
++public:
++    void SAL_CALL disposing(const lang::EventObject& rEvent) override
++    {
++        SolarMutexGuard aGuard;
++        lcl_removeBackstage(uno::Reference<frame::XFrame>(rEvent.Source, uno::UNO_QUERY));
++    }
++};
++
+ /// The frame of a ribbon widget. The ribbon is a child of the border window around the frame's
+ /// container window, not of the container window, so GetSystemWindow() does not reach it.
+ uno::Reference<frame::XFrame> lcl_frameOfRibbonWidget(const vcl::Window* pWindow)
+@@ -71,16 +102,16 @@
+     std::unique_ptr<uno::WeakReference<frame::XFrame>> xWeak(
+         static_cast<uno::WeakReference<frame::XFrame>*>(pArg));
+     uno::Reference<frame::XFrame> xFrame(*xWeak);
+-    vcl::Window* pContainer = lcl_containerWindow(xFrame);
+-    BackstageWindow* pBackstage = lcl_findBackstage(pContainer);
+-    if (pContainer && !(pBackstage && pBackstage->IsOpen()))
++    BackstageWindow* pBackstage = xFrame.is() ? lcl_findBackstage(xFrame) : nullptr;
++    if (xFrame.is() && !(pBackstage && pBackstage->IsOpen()))
+         ToggleBackstage(xFrame);
+ }
+ 
+ /* The ribbon's File tab: TabControl::SelectTabPage (user selection only: click, keyboard,
+    access key, wheel) reports TabpageDeactivate with the old page, then TabpageActivate with the
+    new one. When the new page is the File tab ("FileLabel" in the Writer, Calc and Impress
+-   notebookbar .ui files) the previous tab is selected again and the File view opens.
++   notebookbar .ui files) the previous tab is selected again and the File panel opens: the File
++   tab never shows ribbon content of its own.
+    Scrolling the wheel over the tabs (the pointer is over the tab strip, not on the File tab)
+    only skips the File tab. */
+ sal_uInt16 g_nPrevPageId = 0;
+@@ -121,7 +152,7 @@
+         xWeak.release();
+ }
+ 
+-/// .uno:HSTBackstage of one frame: opens or closes the File view; always enabled.
++/// .uno:HSTBackstage of one frame: opens or closes the File panel; always enabled.
+ class BackstageDispatch final : public cppu::WeakImplHelper<frame::XDispatch>
+ {
+     uno::WeakReference<frame::XFrame> m_xFrame;
+@@ -160,24 +191,27 @@
+ void ToggleBackstage(const uno::Reference<frame::XFrame>& rxFrame)
+ {
+     vcl::Window* pContainer = lcl_containerWindow(rxFrame);
+-    if (!pContainer)
++    if (!pContainer || !pContainer->GetFrameWeld())
+         return;
+-    BackstageWindow* pBackstage = lcl_findBackstage(pContainer);
++    BackstageWindow* pBackstage = lcl_findBackstage(rxFrame);
+     if (pBackstage && pBackstage->IsOpen())
+     {
+         pBackstage->Close();
+         return;
+     }
+-    if (pBackstage && pBackstage->ShowsCurrentDocument())
++    if (pBackstage && pBackstage->ShowsCurrentDocument()
++        && pBackstage->GetFrameWeld() == pContainer->GetFrameWeld())
+     {
+         pBackstage->Open();
+         return;
+     }
+     if (pBackstage)
+-        pBackstage->disposeOnce();
+-    // created on first use; the container window keeps it (and disposes it with the frame)
+-    VclPtr<BackstageWindow> xNew = VclPtr<BackstageWindow>::Create(pContainer, rxFrame);
+-    xNew->Open();
++        lcl_removeBackstage(rxFrame); // the frame now holds another kind of document
++    else
++        rxFrame->addEventListener(new FrameDisposeListener);
++    // created on first use (no startup cost) and reused afterwards
++    lcl_panels().push_back(std::make_unique<BackstageWindow>(pContainer, rxFrame));
++    lcl_panels().back()->Open();
+ }
+ 
+ void InstallFileTabHandler()
+@@ -191,7 +225,7 @@
+ 
+ bool CloseBackstage(const uno::Reference<frame::XFrame>& rxFrame)
+ {
+-    BackstageWindow* pBackstage = lcl_findBackstage(lcl_containerWindow(rxFrame));
++    BackstageWindow* pBackstage = lcl_findBackstage(rxFrame);
+     if (!pBackstage || !pBackstage->IsOpen())
+         return false;
+     pBackstage->Close();
+--- a/sfx2/source/backstage/hstbackstagedata.cxx
++++ b/sfx2/source/backstage/hstbackstagedata.cxx
+@@ -24,9 +24,11 @@
+ #include <osl/file.hxx>
+ #include <sfx2/docfile.hxx>
+ #include <sfx2/docfilt.hxx>
++#include <sfx2/doctempl.hxx>
+ #include <sfx2/objsh.hxx>
+ #include <sfx2/sfxresid.hxx>
+ #include <sfx2/signaturestate.hxx>
++#include <sfx2/templatelocalview.hxx>
+ #include <svtools/imagemgr.hxx>
+ #include <tools/urlobj.hxx>
+ #include <unotools/historyoptions.hxx>
+@@ -239,6 +241,33 @@
+     return aChoices;
+ }
+ 
++std::vector<BackstageTemplate> GetTemplateList(BackstageApp eApp)
++{
++    const FILTER_APPLICATION eFilter = eApp == BackstageApp::Writer    ? FILTER_APPLICATION::WRITER
++                                       : eApp == BackstageApp::Calc    ? FILTER_APPLICATION::CALC
++                                       : eApp == BackstageApp::Impress ? FILTER_APPLICATION::IMPRESS
++                                                                       : FILTER_APPLICATION::DRAW;
++    const ViewFilter_Application aFilter(eFilter);
++    std::vector<BackstageTemplate> aTemplates;
++    // the same source and folder order as the Templates dialog
++    SfxDocumentTemplates aDocTemplates;
++    for (sal_uInt16 nRegion = 0; nRegion < aDocTemplates.GetRegionCount(); ++nRegion)
++    {
++        const OUString aGroup = aDocTemplates.GetFullRegionName(nRegion);
++        for (sal_uInt16 nEntry = 0; nEntry < aDocTemplates.GetCount(nRegion); ++nEntry)
++        {
++            OUString aPath = aDocTemplates.GetPath(nRegion, nEntry);
++            if (!aFilter.isValid(aPath))
++                continue;
++            BackstageTemplate aTemplate{ aDocTemplates.GetName(nRegion, nEntry), std::move(aPath),
++                                         BackstageTemplate::Kind::Template };
++            aTemplate.aGroup = aGroup;
++            aTemplates.push_back(std::move(aTemplate));
++        }
++    }
++    return aTemplates;
++}
++
+ OUString FormatRecentDate(const DateTime& rWhen, const DateTime& rNow)
+ {
+     if (rWhen.IsEmpty())
+--- a/sfx2/source/backstage/hstbackstagedata.hxx
++++ b/sfx2/source/backstage/hstbackstagedata.hxx
+@@ -42,6 +42,7 @@
+     OUString aTitle;
+     OUString aTarget;
+     Kind eKind;
++    OUString aGroup = {}; // the template folder (GetTemplateList)
+ };
+ 
+ struct BackstageRecentFile
+@@ -80,6 +81,10 @@
+ /// templates of the application that are installed.
+ std::vector<BackstageTemplate> GetNewDocumentChoices(BackstageApp eApp);
+ 
++/// Every installed template of the application, folder by folder, as the Templates dialog lists
++/// them (the compact list of the New page).
++std::vector<BackstageTemplate> GetTemplateList(BackstageApp eApp);
++
+ /// The recent documents list (most recent first) with dates of the files on disk.
+ std::vector<BackstageRecentFile> GetRecentFiles();
+ 
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -16,7 +16,6 @@
+ 
+ #include <backstage/hstbackstage.hrc>
+ #include <backstage/hstbackstage.hxx>
+-#include <templateviewitem.hxx>
+ 
+ #include <com/sun/star/document/MacroExecMode.hpp>
+ #include <com/sun/star/document/UpdateDocMode.hpp>
+@@ -24,7 +23,6 @@
+ #include <com/sun/star/frame/XController.hpp>
+ #include <com/sun/star/frame/XDispatchProvider.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
+-#include <com/sun/star/lang/XEventListener.hpp>
+ #include <com/sun/star/lang/XServiceInfo.hpp>
+ #include <com/sun/star/task/InteractionHandler.hpp>
+ #include <com/sun/star/ui/dialogs/TemplateDescription.hpp>
+@@ -32,23 +30,23 @@
+ #include <comphelper/processfactory.hxx>
+ #include <comphelper/propertyvalue.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+-#include <cppuhelper/implbase.hxx>
+ #include <sfx2/docfilt.hxx>
+ #include <sfx2/filedlghelper.hxx>
+ #include <sfx2/sfxresid.hxx>
+-#include <sfx2/templatelocalview.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <sfx2/viewsh.hxx>
++#include <toolkit/helper/vclunohelper.hxx>
++#include <tools/poly.hxx>
+ #include <tools/urlobj.hxx>
+ #include <unotools/historyoptions.hxx>
+ #include <vcl/commandevent.hxx>
++#include <vcl/commandinfoprovider.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/notebookbar/notebookbar.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/syswin.hxx>
+ #include <vcl/virdev.hxx>
+-#include <vcl/vclevent.hxx>
+ #include <o3tl/safeint.hxx>
+ 
+ using namespace css;
+@@ -63,11 +61,17 @@
+ constexpr Color IMPRESS_COLOR(0xe7, 0x57, 0x29);
+ constexpr Color OTHER_COLOR(0x5b, 0x6b, 0x7f);
+ 
+-constexpr tools::Long NAV_ITEM_HEIGHT = 44;
+-constexpr tools::Long NAV_TEXT_INDENT = 24;
+-constexpr tools::Long TILE_WIDTH = 150;
+-constexpr tools::Long TILE_HEIGHT = 190;
+-constexpr tools::Long GALLERY_ITEM_SIZE = 192;
++// sizes at 100 %, scaled with the UI scale (BackstageWindow::Scaled)
++constexpr tools::Long PANEL_WIDTH = 780;
++constexpr tools::Long PANEL_HEIGHT = 580;
++constexpr tools::Long PANEL_INSET = 8; // from the left edge of the ribbon, and kept free below the panel
++constexpr tools::Long NAV_ITEM_HEIGHT = 36;
++constexpr tools::Long NAV_ICON_INDENT = 14;
++constexpr tools::Long NAV_TEXT_INDENT = 44;
++constexpr tools::Long NAV_ACCENT_WIDTH = 3;
++constexpr tools::Long TILE_WIDTH = 88;
++constexpr tools::Long TILE_HEIGHT = 112;
++constexpr size_t HOME_TILES = 4;
+ 
+ double lcl_luminance(const Color& rColor)
+ {
+@@ -170,84 +174,26 @@
+     }
+ }
+ 
+-/// The template gallery of the New page: like the Start Center's, one click opens a template, but
+-/// in the colours of this page and not the Start Center's configured background.
+-class BackstageTemplateView final : public TemplateLocalView
+-{
+-public:
+-    BackstageTemplateView(std::unique_ptr<weld::ScrolledWindow> xWindow, std::unique_ptr<weld::Menu> xMenu)
+-        : TemplateLocalView(std::move(xWindow), std::move(xMenu))
+-    {
+-        mbAllowMultiSelection = false;
+-        setItemDimensions(GALLERY_ITEM_SIZE, GALLERY_ITEM_SIZE, 30, 5);
+-        updateThumbnailDimensions(GALLERY_ITEM_SIZE);
+-        mfHighlightTransparence = 0.75;
+-        BackstageTemplateView::UpdateColors(Application::GetSettings().GetStyleSettings());
+-    }
+-
+-    void showAllTemplates() override
+-    {
+-        mnCurRegionId = 0;
+-        insertItems(maAllTemplates, false);
+-    }
+-
+-    bool MouseButtonDown(const MouseEvent& rMEvt) override
+-    {
+-        if (rMEvt.IsLeft() && rMEvt.GetClicks() == 1)
+-        {
+-            ThumbnailViewItem* pItem = ImplGetItem(ImplGetItem(rMEvt.GetPosPixel()));
+-            if (auto* pTemplate = dynamic_cast<TemplateViewItem*>(pItem))
+-                maOpenTemplateHdl.Call(pTemplate->getPath());
+-            return true;
+-        }
+-        return TemplateLocalView::MouseButtonDown(rMEvt);
+-    }
+-
+-protected:
+-    void UpdateColors(const StyleSettings& rSettings) override
+-    {
+-        TemplateLocalView::UpdateColors(rSettings);
+-        maFillColor = rSettings.GetWindowColor();
+-        maTextColor = rSettings.GetWindowTextColor();
+-    }
+-};
+-
+-/// Disposes the view when its frame goes away, while the frame's container window is still
+-/// intact: a child must not be disposed from inside its parent's Window::dispose().
+-class FrameDisposeListener final : public cppu::WeakImplHelper<lang::XEventListener>
+-{
+-    VclPtr<vcl::Window> m_xWindow;
+-
+-public:
+-    explicit FrameDisposeListener(vcl::Window* pWindow)
+-        : m_xWindow(pWindow)
+-    {
+-    }
+-    void SAL_CALL disposing(const lang::EventObject&) override
+-    {
+-        SolarMutexGuard aGuard;
+-        if (m_xWindow)
+-            m_xWindow.disposeAndClear();
+-    }
+-};
+-
+ /// Paint the page preview of a "create new" tile: a page with a thin border; the
+-/// administrative document also shows the national motto heading.
+-void lcl_paintTile(VirtualDevice& rDev, bool bNd30, bool bBlank)
++/// administrative document also shows the national motto heading. A generic page, never an
++/// image of the current document.
++void lcl_paintTile(VirtualDevice& rDev, bool bNd30, bool bBlank, float fScale)
+ {
+     const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
+     const bool bDark = rStyle.GetWindowColor().IsDark();
+-    rDev.SetOutputSizePixel(Size(TILE_WIDTH, TILE_HEIGHT));
++    auto px = [fScale](tools::Long n) { return static_cast<tools::Long>(n * fScale + 0.5); };
++    const tools::Long nWidth = px(TILE_WIDTH), nHeight = px(TILE_HEIGHT);
++    rDev.SetOutputSizePixel(Size(nWidth, nHeight));
+     rDev.SetBackground(Wallpaper(rStyle.GetWindowColor()));
+     rDev.Erase();
+     // the page stays white in dark mode (it is the paper), with a softer border
+     rDev.SetLineColor(bDark ? Color(0x5f, 0x63, 0x68) : Color(0xcf, 0xd6, 0xe0));
+     rDev.SetFillColor(bBlank ? COL_WHITE : Color(0xf7, 0xf8, 0xfa));
+-    rDev.DrawRect(tools::Rectangle(Point(0, 0), Size(TILE_WIDTH, TILE_HEIGHT)));
++    rDev.DrawRect(tools::Rectangle(Point(0, 0), Size(nWidth, nHeight)));
+     if (bNd30)
+     {
+         vcl::Font aFont(rStyle.GetAppFont());
+-        aFont.SetFontHeight(7);
++        aFont.SetFontHeight(px(5));
+         aFont.SetWeight(WEIGHT_BOLD);
+         aFont.SetColor(Color(0x1d, 0x24, 0x33));
+         rDev.SetFont(aFont);
+@@ -255,31 +201,82 @@
+         const OUString aLine1(u"CỘNG HÒA XÃ HỘI"_ustr);
+         const OUString aLine2(u"CHỦ NGHĨA VIỆT NAM"_ustr);
+         const tools::Long nH = rDev.GetTextHeight();
+-        rDev.DrawText(Point((TILE_WIDTH - rDev.GetTextWidth(aLine1)) / 2, 22), aLine1);
+-        rDev.DrawText(Point((TILE_WIDTH - rDev.GetTextWidth(aLine2)) / 2, 22 + nH), aLine2);
++        rDev.DrawText(Point((nWidth - rDev.GetTextWidth(aLine1)) / 2, px(12)), aLine1);
++        rDev.DrawText(Point((nWidth - rDev.GetTextWidth(aLine2)) / 2, px(12) + nH), aLine2);
+         rDev.SetLineColor(Color(0x1d, 0x24, 0x33));
+-        rDev.DrawLine(Point(TILE_WIDTH / 2 - 22, 26 + 2 * nH), Point(TILE_WIDTH / 2 + 22, 26 + 2 * nH));
++        rDev.DrawLine(Point(nWidth / 2 - px(14), px(14) + 2 * nH), Point(nWidth / 2 + px(14), px(14) + 2 * nH));
+         // text lines of the body
+         rDev.SetLineColor(Color(0xcf, 0xd6, 0xe0));
+-        for (tools::Long y = 60; y < TILE_HEIGHT - 20; y += 9)
+-            rDev.DrawLine(Point(16, y), Point(TILE_WIDTH - 16, y));
++        for (tools::Long y = px(36); y < nHeight - px(12); y += px(6))
++            rDev.DrawLine(Point(px(10), y), Point(nWidth - px(10), y));
+     }
+ }
++
++/// A house outline in a square of nSize pixels, the icon of the Home item.
++void lcl_drawHouse(OutputDevice& rDev, const Point& rTopLeft, tools::Long nSize, const Color& rColor)
++{
++    const tools::Long x = rTopLeft.X(), y = rTopLeft.Y();
++    auto at = [&](double fX, double fY) {
++        return Point(x + static_cast<tools::Long>(fX * nSize), y + static_cast<tools::Long>(fY * nSize));
++    };
++    rDev.SetLineColor(rColor);
++    rDev.SetFillColor();
++    const Point aOutline[] = { at(0.06, 0.5), at(0.5, 0.1), at(0.94, 0.5) };
++    rDev.DrawPolyLine(tools::Polygon(3, aOutline));
++    const Point aBody[] = { at(0.2, 0.38), at(0.2, 0.92), at(0.8, 0.92), at(0.8, 0.38) };
++    rDev.DrawPolyLine(tools::Polygon(4, aBody));
++    rDev.DrawRect(tools::Rectangle(at(0.42, 0.62), at(0.58, 0.92)));
++}
++
++/// The icon of a left-column item: the icon of the command it runs (or of its page), from the
++/// icon theme of the frame (so the dark theme gets its own).
++OUString lcl_navIconCommand(std::u16string_view rId)
++{
++    if (rId == u"navnew")
++        return u".uno:AddDirect"_ustr;
++    if (rId == u"navopen")
++        return u".uno:Open"_ustr;
++    if (rId == u"navinfo")
++        return u".uno:SetDocumentProperties"_ustr;
++    if (rId == u"navsave")
++        return u".uno:Save"_ustr;
++    if (rId == u"navsaveas")
++        return u".uno:SaveAs"_ustr;
++    if (rId == u"navprint")
++        return u".uno:Print"_ustr;
++    if (rId == u"navpdf")
++        return u".uno:ExportDirectToPDF"_ustr;
++    if (rId == u"navsign")
++        return u".uno:Signature"_ustr;
++    if (rId == u"navclose")
++        return u".uno:CloseDoc"_ustr;
++    if (rId == u"navabout")
++        return u".uno:About"_ustr;
++    if (rId == u"navoptions")
++        return u".uno:OptionsTreeDialog"_ustr;
++    return OUString();
++}
+ }
+ 
+-BackstageWindow::BackstageWindow(vcl::Window* pParent, uno::Reference<frame::XFrame> xFrame)
+-    : InterimItemWindow(pParent, u"sfx/ui/hstbackstage.ui"_ustr, u"HstBackstage"_ustr, false)
+-    , m_xFrame(std::move(xFrame))
+-    , m_xParent(pParent)
++BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::XFrame> xFrame)
++    : m_xFrame(std::move(xFrame))
++    , m_pFrameWeld(pContainer->GetFrameWeld())
++    // the panel's widgets belong to the document's top-level window, they are not a part of it:
++    // the popover is shown in a window of its own
++    , m_xBuilder(Application::CreateBuilder(m_pFrameWeld, u"sfx/ui/hstbackstage.ui"_ustr))
+     , m_eApp(lcl_detectApp(m_xFrame))
+     , m_aNavColor(lcl_navColor(m_eApp))
+     , m_ePage(Page::Home)
+     , m_bOpen(false)
+     , m_bNewPageInitialized(false)
+-    , m_bRibbonHidden(false)
+-    , m_nSelectedNav(1)
++    , m_nSelectedNav(0)
+     , m_nHoverNav(-1)
+     , m_nNavWidth(0)
++    , m_fScale(std::max(1.0f, pContainer->GetDPIScaleFactor()))
++    , m_xPopover(m_xBuilder->weld_popover(u"HstFilePanel"_ustr))
++    , m_xPanel(m_xBuilder->weld_container(u"HstBackstage"_ustr))
++    , m_xAccent(m_xBuilder->weld_container(u"accent"_ustr))
++    , m_xShortcut(m_xBuilder->weld_label(u"shortcut"_ustr))
+     , m_xNavBox(m_xBuilder->weld_container(u"nav"_ustr))
+     , m_xNavSeparator(m_xBuilder->weld_container(u"navsep"_ustr))
+     , m_xContent(m_xBuilder->weld_container(u"content"_ustr))
+@@ -299,6 +296,7 @@
+     , m_xNewBlank(m_xBuilder->weld_button(u"newblank"_ustr))
+     , m_xNewNd30(m_xBuilder->weld_button(u"newnd30"_ustr))
+     , m_xNewManage(m_xBuilder->weld_button(u"newmanage"_ustr))
++    , m_xNewList(m_xBuilder->weld_tree_view(u"newlist"_ustr))
+     , m_xOpenBrowse(m_xBuilder->weld_button(u"openbrowse"_ustr))
+     , m_xOpenList(m_xBuilder->weld_tree_view(u"openlist"_ustr))
+     , m_xInfoName(m_xBuilder->weld_label(u"infoname"_ustr))
+@@ -318,9 +316,6 @@
+     , m_pPendingSaveAs(nullptr)
+     , m_pPendingMenu(nullptr)
+ {
+-    SetPaintTransparent(false);
+-    SetStyle(GetStyle() | WB_DIALOGCONTROL);
+-
+     InitNavigation();
+     InitHomePage();
+ 
+@@ -333,12 +328,16 @@
+         pList->connect_item_activated(LINK(this, BackstageWindow, RecentActivatedHdl));
+         pList->connect_command(LINK(this, BackstageWindow, RecentCommandHdl));
+         pList->connect_query_tooltip(LINK(this, BackstageWindow, RecentTooltipHdl));
++        // compact: name, the last two folders and the date fit the width of the panel
+         const int nWidth = pList->get_approximate_digit_width();
+-        pList->set_column_fixed_widths({ nWidth * 4, nWidth * 40, nWidth * 46, nWidth * 18 });
+-        pList->set_size_request(-1, pList->get_height_rows(6));
++        pList->set_column_fixed_widths({ nWidth * 4, nWidth * 30, nWidth * 18, nWidth * 17 });
++        pList->set_size_request(-1, pList->get_height_rows(4));
+     }
+     m_xFormatList->connect_item_activated(LINK(this, BackstageWindow, FormatActivatedHdl));
+-    m_xFormatList->set_size_request(-1, m_xFormatList->get_height_rows(8));
++    m_xFormatList->set_size_request(-1, m_xFormatList->get_height_rows(5));
++    m_xNewList->connect_item_activated(LINK(this, BackstageWindow, TemplateActivatedHdl));
++    m_xNewList->set_column_fixed_widths({ static_cast<int>(m_xNewList->get_approximate_digit_width() * 42) });
++    m_xNewList->set_size_request(-1, m_xNewList->get_height_rows(5));
+ 
+     m_xMoreTemplates->connect_activate_link(LINK(this, BackstageWindow, MoreTemplatesHdl));
+     for (weld::Button* pButton :
+@@ -352,19 +351,25 @@
+     m_xNewNd30->set_label(SfxResId(STR_HST_BS_ND30));
+     m_xNewNd30->set_visible(m_eApp == BackstageApp::Writer);
+ 
++#ifdef MACOSX
++    m_xShortcut->hide(); // Alt+F is not bound on macOS, where Option+F types a character
++#endif
++    m_xPanel->connect_key_press(LINK(this, BackstageWindow, KeyPressHdl));
++    m_xPopover->connect_closed(LINK(this, BackstageWindow, PopoverClosedHdl));
++
+     ApplyColors();
+     ShowPage(Page::Home);
+-
+-    m_xParent->AddEventListener(LINK(this, BackstageWindow, ParentEventHdl));
+-    m_xFrame->addEventListener(new FrameDisposeListener(this));
+ }
+ 
+ bool BackstageWindow::ShowsCurrentDocument() const { return m_eApp == lcl_detectApp(m_xFrame); }
+ 
+-BackstageWindow::~BackstageWindow() { disposeOnce(); }
+-
+-void BackstageWindow::dispose()
++BackstageWindow::~BackstageWindow()
+ {
++    if (m_bOpen)
++    {
++        m_bOpen = false;
++        m_xPopover->popdown();
++    }
+     if (m_pPendingSaveAs)
+     {
+         Application::RemoveUserEvent(m_pPendingSaveAs);
+@@ -375,75 +380,23 @@
+         Application::RemoveUserEvent(m_pPendingMenu);
+         m_pPendingMenu = nullptr;
+     }
+-    if (m_xParent)
+-        m_xParent->RemoveEventListener(LINK(this, BackstageWindow, ParentEventHdl));
+-    if (m_bRibbonHidden)
+-        SetRibbonVisible(true);
+-    m_xParent.reset();
+-    m_xAccExec.reset();
+-    m_aNav.clear();
+-    m_aTiles.clear();
+-    m_aTitles.clear();
+-    m_xNavBox.reset();
+-    m_xNavSeparator.reset();
+-    m_xContent.reset();
+-    m_xPageHome.reset();
+-    m_xPageNew.reset();
+-    m_xPageOpen.reset();
+-    m_xPageInfo.reset();
+-    m_xPageSaveAs.reset();
+-    m_xGreeting.reset();
+-    m_xMoreTemplates.reset();
+-    m_xRecentTabs.reset();
+-    m_xRecentList.reset();
+-    m_xPinnedList.reset();
+-    m_xRecentEmpty.reset();
+-    m_xPinnedEmpty.reset();
+-    m_xRecentMenu.reset();
+-    m_xNewBlank.reset();
+-    m_xNewNd30.reset();
+-    m_xNewManage.reset();
+-    m_xTemplateViewWin.reset();
+-    m_xTemplateView.reset();
+-    m_xOpenBrowse.reset();
+-    m_xOpenList.reset();
+-    m_xInfoName.reset();
+-    m_xInfoType.reset();
+-    m_xInfoPath.reset();
+-    m_xInfoSize.reset();
+-    m_xInfoCreated.reset();
+-    m_xInfoModified.reset();
+-    m_xInfoAuthor.reset();
+-    m_xInfoSignature.reset();
+-    m_xInfoProperties.reset();
+-    m_xInfoSign.reset();
+-    m_xInfoUsbToken.reset();
+-    m_xSaveAsFolder.reset();
+-    m_xFormatList.reset();
+-    m_xSaveAsBrowse.reset();
+-    m_xFrame.clear();
+-    InterimItemWindow::dispose();
+ }
+ 
+ void BackstageWindow::InitNavigation()
+ {
+-    static constexpr std::pair<OUString, bool> aIds[]
+-        = { { u"navback"_ustr, true },    { u"navhome"_ustr, false },  { u"navnew"_ustr, false },
+-            { u"navopen"_ustr, false },   { u"navinfo"_ustr, false },  { u"navsave"_ustr, false },
+-            { u"navsaveas"_ustr, false }, { u"navprint"_ustr, false }, { u"navpdf"_ustr, false },
+-            { u"navsign"_ustr, false },   { u"navclose"_ustr, false }, { u"navabout"_ustr, false },
+-            { u"navoptions"_ustr, false } };
+-    for (const auto& [rId, bLarge] : aIds)
++    static constexpr OUString aIds[]
++        = { u"navhome"_ustr,  u"navnew"_ustr,   u"navopen"_ustr,  u"navinfo"_ustr,
++            u"navsave"_ustr,  u"navsaveas"_ustr, u"navprint"_ustr, u"navpdf"_ustr,
++            u"navsign"_ustr,  u"navclose"_ustr, u"navabout"_ustr, u"navoptions"_ustr };
++    for (const OUString& rId : aIds)
+     {
+         NavItem aItem;
+         aItem.aId = rId;
+         aItem.xButton = m_xBuilder->weld_button(rId);
+-        aItem.bLarge = bLarge;
+-        // the text is drawn into the custom button image (white on the application colour);
+-        // the translated label stays the accessible name
++        // the icon and the text are drawn into the custom button image; the translated label
++        // stays the accessible name
+         aItem.aText = aItem.xButton->get_label();
+-        if (!bLarge)
+-            aItem.xButton->set_accessible_name(aItem.aText);
++        aItem.xButton->set_accessible_name(aItem.aText);
+         aItem.xButton->set_label(OUString());
+         aItem.xButton->connect_clicked(LINK(this, BackstageWindow, NavClickHdl));
+         aItem.xHover.reset(new NavHover(*this, m_aNav.size()));
+@@ -452,31 +405,35 @@
+     }
+ }
+ 
++tools::Long BackstageWindow::Scaled(tools::Long nPixels) const
++{
++    return static_cast<tools::Long>(nPixels * m_fScale + 0.5);
++}
++
+ tools::Long BackstageWindow::GetNavWidth()
+ {
+     if (m_nNavWidth)
+         return m_nNavWidth;
+-    // wide enough for the longest item, at least 220 pixels like the design
+-    m_nNavWidth = 220;
++    // wide enough for the longest item, at least 200 pixels like the design
++    m_nNavWidth = Scaled(200);
+     if (!m_aNav.empty())
+     {
+         ScopedVclPtr<VirtualDevice> xDev = m_aNav.front().xButton->create_virtual_device();
+-        vcl::Font aFont(GetNavFont(false, *xDev));
++        vcl::Font aFont(GetNavFont(*xDev));
+         aFont.SetWeight(WEIGHT_BOLD); // the selected item
+         xDev->SetFont(aFont);
+         for (const NavItem& rItem : m_aNav)
+-            if (!rItem.bLarge)
+-                m_nNavWidth = std::max(m_nNavWidth, xDev->GetTextWidth(rItem.aText) + 2 * NAV_TEXT_INDENT);
++            m_nNavWidth = std::max(m_nNavWidth, xDev->GetTextWidth(rItem.aText) + Scaled(NAV_TEXT_INDENT + 16));
+     }
+     return m_nNavWidth;
+ }
+ 
+-vcl::Font BackstageWindow::GetNavFont(bool bLarge, const OutputDevice& rDevice) const
++vcl::Font BackstageWindow::GetNavFont(const OutputDevice& rDevice) const
+ {
+     // the style font height is in points, the virtual device draws in pixels
+     vcl::Font aFont(Application::GetSettings().GetStyleSettings().GetLabelFont());
+     const double fPixels = aFont.GetFontHeight() * rDevice.GetDPIY() / 72.0;
+-    aFont.SetFontHeight(fPixels * (bLarge ? 1.8 : 1.15));
++    aFont.SetFontHeight(fPixels * 1.05);
+     return aFont;
+ }
+ 
+@@ -485,24 +442,41 @@
+     NavItem& rItem = m_aNav[nIndex];
+     const bool bSelected = static_cast<int>(nIndex) == m_nSelectedNav;
+     const tools::Long nWidth = GetNavWidth();
++    const tools::Long nHeight = Scaled(NAV_ITEM_HEIGHT);
+     ScopedVclPtr<VirtualDevice> xDev = rItem.xButton->create_virtual_device();
+-    xDev->SetOutputSizePixel(Size(nWidth, NAV_ITEM_HEIGHT));
+-    Color aBack(m_aNavColor);
++    xDev->SetOutputSizePixel(Size(nWidth, nHeight));
++    // a light column: the selected item is tinted with the application colour and marked by a
++    // bar in that colour on its left edge, the hovered one is tinted more lightly
++    Color aBack(m_aNavBack);
+     if (bSelected)
+-        aBack.Merge(COL_WHITE, 210); // about 18 % white over the application colour
++        aBack.Merge(m_aAccent, 220);
+     else if (static_cast<int>(nIndex) == m_nHoverNav)
+-        aBack.Merge(COL_WHITE, 232); // about 9 % white
++        aBack.Merge(m_aAccent, 238);
+     xDev->SetBackground(Wallpaper(aBack));
+     xDev->Erase();
+-    vcl::Font aFont(GetNavFont(rItem.bLarge, *xDev));
++    if (bSelected)
++    {
++        xDev->SetLineColor();
++        xDev->SetFillColor(m_aAccent);
++        xDev->DrawRect(tools::Rectangle(Point(0, 0), Size(Scaled(NAV_ACCENT_WIDTH), nHeight)));
++    }
++    const Color aText(Application::GetSettings().GetStyleSettings().GetWindowTextColor());
++    if (rItem.aId == "navhome") // Home runs no command, and the icon themes have no house
++        lcl_drawHouse(*xDev, Point(Scaled(NAV_ICON_INDENT), (nHeight - Scaled(16)) / 2), Scaled(16), aText);
++    else if (!rItem.aIcon.GetSizePixel().IsEmpty())
++    {
++        const Size aIcon(rItem.aIcon.GetSizePixel());
++        xDev->DrawImage(Point(Scaled(NAV_ICON_INDENT), (nHeight - aIcon.Height()) / 2), rItem.aIcon);
++    }
++    vcl::Font aFont(GetNavFont(*xDev));
+     if (bSelected)
+         aFont.SetWeight(WEIGHT_BOLD);
+-    aFont.SetColor(COL_WHITE);
++    aFont.SetColor(aText);
+     xDev->SetFont(aFont);
+-    xDev->SetTextColor(COL_WHITE);
+-    const tools::Long nTextY = (NAV_ITEM_HEIGHT - xDev->GetTextHeight()) / 2;
+-    xDev->DrawText(Point(NAV_TEXT_INDENT, nTextY), rItem.aText);
+-    rItem.xButton->set_size_request(nWidth, NAV_ITEM_HEIGHT);
++    xDev->SetTextColor(aText);
++    const tools::Long nTextY = (nHeight - xDev->GetTextHeight()) / 2;
++    xDev->DrawText(Point(Scaled(NAV_TEXT_INDENT), nTextY), rItem.aText);
++    rItem.xButton->set_size_request(nWidth, nHeight);
+     rItem.xButton->set_custom_button(xDev.get());
+ }
+ 
+@@ -542,24 +516,36 @@
+ 
+ void BackstageWindow::ApplyColors()
+ {
++    // called on every open, so a theme change (light, dark) between two opens is followed
+     const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
+-    m_xNavBox->set_background(m_aNavColor);
+-    Color aSeparator(m_aNavColor);
+-    aSeparator.Merge(COL_WHITE, 190);
++    const Color aWindow(rStyle.GetWindowColor());
++    const bool bDark = aWindow.IsDark();
++    m_aAccent = m_aNavColor;
++    if (bDark)
++        m_aAccent.Merge(COL_WHITE, 150); // the darkened colour is too dark on a dark window
++    m_aNavBack = aWindow;
++    m_aNavBack.Merge(bDark ? COL_WHITE : m_aNavColor, 244);
++    m_xNavBox->set_background(m_aNavBack);
++    Color aSeparator(m_aNavBack);
++    aSeparator.Merge(rStyle.GetWindowTextColor(), 215);
+     m_xNavSeparator->set_background(aSeparator);
+-    m_xContent->set_background(rStyle.GetWindowColor());
+-    SetBackground(rStyle.GetWindowColor());
++    m_xAccent->set_background(m_aAccent);
++    m_xContent->set_background(aWindow);
++    m_xPanel->set_background(aWindow);
++    for (NavItem& rItem : m_aNav)
++        if (rItem.aId != "navhome")
++            rItem.aIcon = vcl::CommandInfoProvider::GetImageForCommand(lcl_navIconCommand(rItem.aId), m_xFrame);
+     PaintNavItems();
+ 
+     vcl::Font aTitle(rStyle.GetLabelFont());
+-    aTitle.SetFontHeight(aTitle.GetFontHeight() * 2.2);
++    aTitle.SetFontHeight(aTitle.GetFontHeight() * 1.6);
+     aTitle.SetWeight(WEIGHT_SEMIBOLD);
+     m_xGreeting->set_font(aTitle);
+     for (size_t i = 0; i < m_aTitles.size(); ++i)
+     {
+         vcl::Font aFont(rStyle.GetLabelFont());
+         // the first four are page titles, the others section headings
+-        aFont.SetFontHeight(aFont.GetFontHeight() * (i < 4 ? 2.2 : 1.1));
++        aFont.SetFontHeight(aFont.GetFontHeight() * (i < 4 ? 1.6 : 1.05));
+         aFont.SetWeight(i < 4 ? WEIGHT_SEMIBOLD : WEIGHT_BOLD);
+         m_aTitles[i]->set_font(aFont);
+     }
+@@ -571,20 +557,20 @@
+ void BackstageWindow::PaintTile(TemplateTile& rTile)
+ {
+     ScopedVclPtr<VirtualDevice> xDev = rTile.xButton->create_virtual_device();
+-    lcl_paintTile(*xDev, rTile.bNd30, rTile.bBlank);
++    lcl_paintTile(*xDev, rTile.bNd30, rTile.bBlank, m_fScale);
+     rTile.xButton->set_image(xDev.get());
+ }
+ 
+ void BackstageWindow::InitHomePage()
+ {
+     std::vector<BackstageTemplate> aTemplates = GetNewDocumentChoices(m_eApp);
+-    for (size_t i = 0; i < 5; ++i)
++    for (size_t i = 0; i < 5; ++i) // the .ui has five tiles; the compact page shows HOME_TILES
+     {
+         TemplateTile aTile;
+         aTile.xBox = m_xBuilder->weld_container(u"tilebox"_ustr + OUString::number(i));
+         aTile.xButton = m_xBuilder->weld_button(u"tile"_ustr + OUString::number(i));
+         aTile.xLabel = m_xBuilder->weld_label(u"tilelabel"_ustr + OUString::number(i));
+-        if (i >= aTemplates.size())
++        if (i >= aTemplates.size() || i >= HOME_TILES)
+         {
+             aTile.xBox->hide();
+             m_aTiles.push_back(std::move(aTile));
+@@ -608,18 +594,16 @@
+     if (m_bNewPageInitialized)
+         return;
+     m_bNewPageInitialized = true;
+-    m_xTemplateView.reset(new BackstageTemplateView(m_xBuilder->weld_scrolled_window(u"scrolllocal"_ustr, true),
+-                                                  m_xBuilder->weld_menu(u"localmenu"_ustr)));
+-    m_xTemplateViewWin.reset(new weld::CustomWeld(*m_xBuilder, u"local_view"_ustr, *m_xTemplateView));
+-    m_xTemplateView->setOpenTemplateHdl(LINK(this, BackstageWindow, OpenTemplateHdl));
+-    m_xTemplateView->ShowTooltips(true);
+-    m_xTemplateView->Populate();
+-    const FILTER_APPLICATION eFilter = m_eApp == BackstageApp::Writer    ? FILTER_APPLICATION::WRITER
+-                                       : m_eApp == BackstageApp::Calc    ? FILTER_APPLICATION::CALC
+-                                       : m_eApp == BackstageApp::Impress ? FILTER_APPLICATION::IMPRESS
+-                                                                         : FILTER_APPLICATION::DRAW;
+-    m_xTemplateView->filterItems(ViewFilter_Application(eFilter));
+-    m_xTemplateView->showAllTemplates();
++    // a compact list of the templates; the Templates dialog (Manage Templates…) has them all with
++    // previews and categories
++    m_xNewList->freeze();
++    m_xNewList->clear();
++    for (const BackstageTemplate& rTemplate : GetTemplateList(m_eApp))
++    {
++        m_xNewList->append(rTemplate.aTarget, rTemplate.aTitle);
++        m_xNewList->set_text(m_xNewList->n_children() - 1, rTemplate.aGroup, 1);
++    }
++    m_xNewList->thaw();
+ }
+ 
+ void BackstageWindow::ShowPage(Page ePage)
+@@ -715,54 +699,59 @@
+         m_xFormatList->select(0);
+ }
+ 
+-void BackstageWindow::LayoutToParent()
++bool BackstageWindow::GetPlacement(tools::Rectangle& rAnchor, Size& rSize) const
+ {
+-    if (!m_xParent)
+-        return;
+-    SetPosSizePixel(Point(0, 0), m_xParent->GetOutputSizePixel());
+-}
+-
+-void BackstageWindow::SetRibbonVisible(bool bVisible)
+-{
+-    SystemWindow* pSysWin = m_xParent ? m_xParent->GetSystemWindow() : nullptr;
+-    if (!pSysWin)
+-        return;
+-    const VclPtr<NotebookBar>& pNotebookBar = pSysWin->GetNotebookBar();
+-    if (!pNotebookBar)
+-        return;
+-    if (bVisible && m_bRibbonHidden)
+-    {
+-        m_bRibbonHidden = false;
+-        pNotebookBar->Show();
+-        pNotebookBar->GetParent()->Resize();
+-    }
+-    else if (!bVisible && pNotebookBar->IsVisible())
+-    {
+-        m_bRibbonHidden = true;
+-        pNotebookBar->Hide();
+-        pNotebookBar->GetParent()->Resize();
+-    }
++    vcl::Window* pContainer = VCLUnoHelper::GetWindow(m_xFrame->getContainerWindow());
++    vcl::Window* pFrameWindow = pContainer ? pContainer->GetFrameWindow() : nullptr;
++    if (!pFrameWindow)
++        return false;
++    // the panel drops down from the bottom edge of the ribbon (from the top of the document area
++    // when the ribbon is not used), so it covers no part of the ribbon
++    SystemWindow* pSysWin = pContainer->GetSystemWindow();
++    NotebookBar* pRibbon = pSysWin ? pSysWin->GetNotebookBar().get() : nullptr;
++    const AbsoluteScreenPixelPoint aEdge
++        = pRibbon && pRibbon->IsReallyVisible()
++              ? pRibbon->OutputToAbsoluteScreenPixel(Point(0, pRibbon->GetOutputSizePixel().Height()))
++              : pContainer->OutputToAbsoluteScreenPixel(Point(0, 0));
++    const Point aTop = pFrameWindow->AbsoluteScreenToOutputPixel(aEdge);
++    const Size aFrame = pFrameWindow->GetOutputSizePixel();
++    const AbsoluteScreenPixelRectangle aScreen = pFrameWindow->GetDesktopRectPixel();
++    // about 780 × 580 at 100 %, smaller in a small window: the panel stays inside the window and
++    // on the screen below the ribbon, so it never has to open upwards over the ribbon
++    const tools::Long nInset = Scaled(PANEL_INSET);
++    const tools::Long nWidth = std::min(Scaled(PANEL_WIDTH), aFrame.Width() - 2 * nInset);
++    const tools::Long nHeight = std::min({ Scaled(PANEL_HEIGHT), aFrame.Height() - aTop.Y() - nInset,
++                                           aScreen.Bottom() - aEdge.Y() - nInset });
++    if (nWidth <= 0 || nHeight <= 0)
++        return false;
++    rSize = Size(nWidth, nHeight);
++    // a one pixel high anchor on the first row below the ribbon: the panel opens under it
++    rAnchor = tools::Rectangle(Point(aTop.X() + nInset, aTop.Y()), Size(1, 1));
++    return true;
+ }
+ 
+ void BackstageWindow::Open()
+ {
+     if (m_bOpen)
+         return;
++    tools::Rectangle aAnchor;
++    Size aSize;
++    if (!m_pFrameWeld || !GetPlacement(aAnchor, aSize))
++        return;
+     m_bOpen = true;
+-    SetNavHover(-1); // the pointer left the item when the view closed
++    SetNavHover(-1); // the pointer left the item when the panel closed
+ 
+     const int nHour = GetCurrentHour();
+     m_xGreeting->set_label(SfxResId(nHour < 12   ? STR_HST_BS_MORNING
+                                     : nHour < 18 ? STR_HST_BS_AFTERNOON
+                                                  : STR_HST_BS_EVENING));
++    ApplyColors();
+     FillRecentLists();
+     ShowPage(Page::Home);
+     m_xRecentTabs->set_current_page(0);
+ 
+-    SetRibbonVisible(false);
+-    LayoutToParent();
+-    SetZOrder(nullptr, ZOrderFlags::First);
+-    Show();
++    m_xPanel->set_size_request(aSize.Width(), aSize.Height());
++    m_xPopover->popup_at_rect(m_pFrameWeld, aAnchor, weld::Placement::Under);
+     m_aNav[m_nSelectedNav].xButton->grab_focus();
+ }
+ 
+@@ -771,9 +760,12 @@
+     if (!m_bOpen)
+         return;
+     m_bOpen = false;
+-    Hide();
+-    SetRibbonVisible(true);
+-    // focus back to the document
++    m_xPopover->popdown();
++    FocusDocument();
++}
++
++void BackstageWindow::FocusDocument()
++{
+     for (SfxViewFrame* pFrame = SfxViewFrame::GetFirst(); pFrame; pFrame = SfxViewFrame::GetNext(*pFrame))
+     {
+         if (pFrame->GetFrame().GetFrameInterface() == m_xFrame)
+@@ -786,6 +778,15 @@
+     }
+ }
+ 
++// Esc and a click outside close the popover by themselves
++IMPL_LINK_NOARG(BackstageWindow, PopoverClosedHdl, weld::Popover&, void)
++{
++    if (!m_bOpen)
++        return; // closed by Close()
++    m_bOpen = false;
++    FocusDocument();
++}
++
+ void BackstageWindow::CloseAndDispatch(const OUString& rCommand,
+                                        const uno::Sequence<beans::PropertyValue>& rArgs)
+ {
+@@ -835,11 +836,26 @@
+                        [](const NavItem& rItem) { return rItem.xButton->has_focus(); });
+ }
+ 
+-bool BackstageWindow::PreNotify(NotifyEvent& rNEvt)
++void BackstageWindow::FocusPage()
++{
++    // into the page: the first tile on Home, else the page's first control
++    if (m_ePage == Page::Home && !m_aTiles.empty())
++        m_aTiles.front().xButton->grab_focus();
++    else if (m_ePage == Page::Open)
++        m_xOpenBrowse->grab_focus();
++    else if (m_ePage == Page::SaveAs)
++        m_xFormatList->grab_focus();
++    else if (m_ePage == Page::Info)
++        m_xInfoProperties->grab_focus();
++    else if (m_ePage == Page::New)
++        m_xNewBlank->grab_focus();
++}
++
++IMPL_LINK(BackstageWindow, KeyPressHdl, const KeyEvent&, rKEvt, bool)
+ {
+-    if (m_bOpen && rNEvt.GetType() == NotifyEventType::KEYINPUT)
++    if (m_bOpen)
+     {
+-        const vcl::KeyCode& rKey = rNEvt.GetKeyEvent()->GetKeyCode();
++        const vcl::KeyCode& rKey = rKEvt.GetKeyCode();
+         const sal_uInt16 nCode = rKey.GetCode();
+         if (nCode == KEY_ESCAPE && !rKey.GetModifier())
+         {
+@@ -863,20 +879,8 @@
+                     FocusNavItem(INT_MAX);
+                     return true;
+                 case KEY_RIGHT:
+-                {
+-                    // into the page: the first tile on Home, else the page's first control
+-                    if (m_ePage == Page::Home && !m_aTiles.empty())
+-                        m_aTiles.front().xButton->grab_focus();
+-                    else if (m_ePage == Page::Open)
+-                        m_xOpenBrowse->grab_focus();
+-                    else if (m_ePage == Page::SaveAs)
+-                        m_xFormatList->grab_focus();
+-                    else if (m_ePage == Page::Info)
+-                        m_xInfoProperties->grab_focus();
+-                    else if (m_ePage == Page::New)
+-                        m_xNewBlank->grab_focus();
++                    FocusPage();
+                     return true;
+-                }
+                 default:
+                     break;
+             }
+@@ -898,7 +902,7 @@
+             }
+         }
+ 
+-        // the frame's shortcuts (Alt+F closes this view, Ctrl+S saves, Ctrl+P prints...)
++        // the frame's shortcuts (Alt+F closes the panel, Ctrl+S saves, Ctrl+P prints...)
+         if (!m_xAccExec)
+         {
+             m_xAccExec = svt::AcceleratorExecute::createAcceleratorHelper();
+@@ -915,15 +919,7 @@
+             return true;
+         }
+     }
+-    return InterimItemWindow::PreNotify(rNEvt);
+-}
+-
+-void BackstageWindow::DataChanged(const DataChangedEvent& rDCEvt)
+-{
+-    InterimItemWindow::DataChanged(rDCEvt);
+-    if (rDCEvt.GetType() == DataChangedEventType::SETTINGS
+-        && (rDCEvt.GetFlags() & AllSettingsFlags::STYLE))
+-        ApplyColors();
++    return false;
+ }
+ 
+ IMPL_LINK(BackstageWindow, NavClickHdl, weld::Button&, rButton, void)
+@@ -933,9 +929,7 @@
+         if (rItem.xButton.get() == &rButton)
+             aId = rItem.aId;
+ 
+-    if (aId == "navback")
+-        Close();
+-    else if (aId == "navhome")
++    if (aId == "navhome")
+         ShowPage(Page::Home);
+     else if (aId == "navnew")
+         ShowPage(Page::New);
+@@ -1118,7 +1112,7 @@
+     BackstageDocumentInfo aInfo = GetDocumentInfo(m_xFrame, false);
+     const OUString aExtension = pFilter->GetDefaultExtension().replaceFirst("*.", "");
+     sfx2::FileDialogHelper aDialog(ui::dialogs::TemplateDescription::FILESAVE_AUTOEXTENSION,
+-                                   FileDialogFlags::NONE, GetFrameWeld());
++                                   FileDialogFlags::NONE, m_pFrameWeld);
+     aDialog.AddFilter(pFilter->GetUIName(), pFilter->GetWildcard().getGlob());
+     aDialog.SetCurrentFilter(pFilter->GetUIName());
+     if (!aInfo.aFolderURL.isEmpty())
+@@ -1133,23 +1127,12 @@
+                         comphelper::makePropertyValue(u"FilterName"_ustr, aFilterName) });
+ }
+ 
+-IMPL_LINK(BackstageWindow, OpenTemplateHdl, const OUString&, rTemplateURL, void)
++IMPL_LINK(BackstageWindow, TemplateActivatedHdl, const weld::TreeIter&, rIter, bool)
+ {
+-    OpenDocumentURL(rTemplateURL, true);
++    OpenDocumentURL(m_xNewList->get_id(rIter), true);
++    return true;
+ }
+ 
+-IMPL_LINK(BackstageWindow, ParentEventHdl, VclWindowEvent&, rEvent, void)
+-{
+-    if (rEvent.GetId() == VclEventId::ObjectDying)
+-    {
+-        // normally gone already (FrameDisposeListener); nothing may touch the dying parent
+-        m_xParent->RemoveEventListener(LINK(this, BackstageWindow, ParentEventHdl));
+-        m_bRibbonHidden = false;
+-        m_xParent.reset();
+-    }
+-    else if (rEvent.GetId() == VclEventId::WindowResize && m_bOpen)
+-        LayoutToParent();
+-}
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -18,8 +18,10 @@
+ #include <com/sun/star/frame/XFrame.hpp>
+ #include <svtools/acceleratorexecute.hxx>
+ #include <tools/color.hxx>
+-#include <vcl/InterimItemWindow.hxx>
++#include <tools/gen.hxx>
++#include <tools/link.hxx>
+ #include <vcl/font.hxx>
++#include <vcl/image.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Button.hxx>
+ #include <vcl/weld/Container.hxx>
+@@ -27,39 +29,46 @@
+ #include <vcl/weld/LinkButton.hxx>
+ #include <vcl/weld/Menu.hxx>
+ #include <vcl/weld/Notebook.hxx>
++#include <vcl/weld/Popover.hxx>
+ #include <vcl/weld/TreeView.hxx>
+-#include <vcl/weld/customweld.hxx>
+ 
++class KeyEvent;
+ class MouseEvent;
+-class TemplateLocalView;
+-class VclWindowEvent;
++class OutputDevice;
+ struct ImplSVEvent;
++namespace vcl
++{
++class Window;
++}
+ 
+ namespace sfx2::hst
+ {
+-/* HST Office: full-window File view (backstage) of one document frame.
++/* HST Office: the File panel ("Tệp tin") of one document frame, a drop-down panel.
+ 
+-   A child of the frame's container window that covers its whole client area; the ribbon is
+-   hidden while it is shown. Left: navigation in the application colour; right: the page of the
+-   selected navigation item. Commands are dispatched to the frame after the view is closed. */
+-class BackstageWindow final : public InterimItemWindow
++   The panel is a popover: its own floating window (a popup window under X11, Windows and macOS),
++   opened under the ribbon's File tab with its top edge on the bottom edge of the ribbon. The
++   ribbon and the document stay visible and live; nothing of the frame is hidden, collapsed or
++   replaced, and the panel shows no image of the document. Left: the navigation; right: the page
++   of the selected item. It closes on Esc, on a click outside and when one of its commands runs;
++   commands are dispatched to the frame after it closed. */
++class BackstageWindow final
+ {
+ public:
+-    BackstageWindow(vcl::Window* pParent, css::uno::Reference<css::frame::XFrame> xFrame);
+-    virtual ~BackstageWindow() override;
+-    virtual void dispose() override;
++    BackstageWindow(vcl::Window* pContainer, css::uno::Reference<css::frame::XFrame> xFrame);
++    ~BackstageWindow();
++    BackstageWindow(const BackstageWindow&) = delete;
++    BackstageWindow& operator=(const BackstageWindow&) = delete;
+ 
+-    /// Refresh the data (recent files) and show the window over the frame.
++    /// Refresh the data (recent files) and drop the panel down under the ribbon.
+     void Open();
+-    /// Hide the window, show the ribbon again and give the focus back to the document.
++    /// Close the panel and give the focus back to the document.
+     void Close();
+     bool IsOpen() const { return m_bOpen; }
+     /// False when the frame now holds a document of another application (a reused frame).
+     bool ShowsCurrentDocument() const;
+     const css::uno::Reference<css::frame::XFrame>& GetFrame() const { return m_xFrame; }
+-
+-    virtual bool PreNotify(NotifyEvent& rNEvt) override;
+-    virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
++    /// The top-level window of the frame the panel was made for.
++    const weld::Window* GetFrameWeld() const { return m_pFrameWeld; }
+ 
+ private:
+     enum class Page
+@@ -92,7 +101,7 @@
+         OUString aId;
+         std::unique_ptr<weld::Button> xButton;
+         OUString aText;
+-        bool bLarge = false; // the back arrow
++        Image aIcon;
+     };
+ 
+     struct TemplateTile
+@@ -111,8 +120,9 @@
+     void PaintTile(TemplateTile& rTile);
+     void InitNewPage();
+     void ApplyColors();
++    tools::Long Scaled(tools::Long nPixels) const;
+     tools::Long GetNavWidth();
+-    vcl::Font GetNavFont(bool bLarge, const OutputDevice& rDevice) const;
++    vcl::Font GetNavFont(const OutputDevice& rDevice) const;
+     void PaintNavItem(size_t nIndex);
+     void PaintNavItems();
+     void SetNavHover(int nIndex);
+@@ -123,9 +133,11 @@
+                                bool bPinnedOnly);
+     void FillInfoPage();
+     void FillSaveAsPage();
+-    void LayoutToParent();
+-    void SetRibbonVisible(bool bVisible);
++    /// Where the panel drops down (in the frame window) and its size; false without a frame window.
++    bool GetPlacement(tools::Rectangle& rAnchor, Size& rSize) const;
+     void FocusNavItem(int nDelta);
++    void FocusPage();
++    void FocusDocument();
+     bool IsNavFocused() const;
+     weld::TreeView* GetActiveRecentList() const;
+     void ShowRecentMenu(weld::TreeView& rList, const weld::TreeIter& rIter,
+@@ -147,22 +159,30 @@
+     DECL_LINK(RecentTooltipHdl, const weld::TreeIter&, OUString);
+     DECL_LINK(FormatActivatedHdl, const weld::TreeIter&, bool);
+     DECL_LINK(SaveAsFormatHdl, void*, void);
+-    DECL_LINK(OpenTemplateHdl, const OUString&, void);
+-    DECL_LINK(ParentEventHdl, VclWindowEvent&, void);
++    DECL_LINK(TemplateActivatedHdl, const weld::TreeIter&, bool);
++    DECL_LINK(KeyPressHdl, const KeyEvent&, bool);
++    DECL_LINK(PopoverClosedHdl, weld::Popover&, void);
+ 
+     css::uno::Reference<css::frame::XFrame> m_xFrame;
+-    VclPtr<vcl::Window> m_xParent;
++    weld::Window* m_pFrameWeld; // owned by the frame window, which outlives this panel
++    std::unique_ptr<weld::Builder> m_xBuilder;
+     BackstageApp m_eApp;
+-    Color m_aNavColor;
++    Color m_aNavColor; // the application colour, dark enough for white text
++    Color m_aAccent; // the selection bar and the top edge of the panel
++    Color m_aNavBack; // the left column
+     Page m_ePage;
+     bool m_bOpen;
+     bool m_bNewPageInitialized;
+-    bool m_bRibbonHidden;
+     int m_nSelectedNav;
+     int m_nHoverNav;
+     tools::Long m_nNavWidth;
++    float m_fScale;
+     std::unique_ptr<svt::AcceleratorExecute> m_xAccExec;
+ 
++    std::unique_ptr<weld::Popover> m_xPopover;
++    std::unique_ptr<weld::Container> m_xPanel;
++    std::unique_ptr<weld::Container> m_xAccent;
++    std::unique_ptr<weld::Label> m_xShortcut;
+     std::unique_ptr<weld::Container> m_xNavBox;
+     std::unique_ptr<weld::Container> m_xNavSeparator;
+     std::unique_ptr<weld::Container> m_xContent;
+@@ -187,8 +207,7 @@
+     std::unique_ptr<weld::Button> m_xNewBlank;
+     std::unique_ptr<weld::Button> m_xNewNd30;
+     std::unique_ptr<weld::Button> m_xNewManage;
+-    std::unique_ptr<TemplateLocalView> m_xTemplateView;
+-    std::unique_ptr<weld::CustomWeld> m_xTemplateViewWin;
++    std::unique_ptr<weld::TreeView> m_xNewList;
+ 
+     std::unique_ptr<weld::Button> m_xOpenBrowse;
+     std::unique_ptr<weld::TreeView> m_xOpenList;
+--- a/sfx2/uiconfig/ui/hstbackstage.ui
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -1,5 +1,5 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+-<!-- HST Office: full-window File view (backstage), see sfx2/source/backstage/hstbackstagewindow.cxx -->
++<!-- HST Office: the File panel, a drop-down popover under the ribbon, see sfx2/source/backstage/hstbackstagewindow.cxx -->
+ <interface domain="sfx">
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkImage" id="tileimg0">
+@@ -58,9 +58,12 @@
+       <column type="gchararray"/>
+     </columns>
+   </object>
+-  <object class="GtkMenu" id="localmenu">
+-    <property name="visible">True</property>
+-    <property name="can-focus">False</property>
++  <object class="GtkListStore" id="newstore">
++    <columns>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++      <column type="gchararray"/>
++    </columns>
+   </object>
+   <object class="GtkMenu" id="recentmenu">
+     <property name="visible">True</property>
+@@ -98,6 +101,27 @@
+       </object>
+     </child>
+   </object>
++  <object class="GtkPopover" id="HstFilePanel">
++    <property name="can-focus">False</property>
++    <property name="position">bottom</property>
++    <child>
++  <object class="GtkBox" id="panel">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="orientation">vertical</property>
++    <child>
++      <object class="GtkBox" id="accent">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="height-request">3</property>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++    <child>
+   <object class="GtkBox" id="HstBackstage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -109,29 +133,8 @@
+         <property name="can-focus">False</property>
+         <property name="vexpand">True</property>
+         <property name="orientation">vertical</property>
+-        <property name="spacing">2</property>
+-        <property name="margin-top">12</property>
+-        <property name="margin-bottom">12</property>
+-        <child>
+-          <object class="GtkButton" id="navback">
+-            <property name="label" translatable="yes" context="hstbackstage|navback">←</property>
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="relief">none</property>
+-            <property name="halign">start</property>
+-            <child internal-child="accessible">
+-              <object class="AtkObject" id="navback-atkobject">
+-                <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|navback-atkobject">Back to Document</property>
+-              </object>
+-            </child>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">0</property>
+-          </packing>
+-        </child>
++        <property name="margin-top">8</property>
++        <property name="margin-bottom">8</property>
+         <child>
+           <object class="GtkButton" id="navhome">
+             <property name="label" translatable="yes" context="hstbackstage|navhome">Home</property>
+@@ -182,10 +185,10 @@
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+             <property name="height-request">1</property>
+-            <property name="margin-start">24</property>
+-            <property name="margin-end">24</property>
+-            <property name="margin-top">8</property>
+-            <property name="margin-bottom">8</property>
++            <property name="margin-start">14</property>
++            <property name="margin-end">14</property>
++            <property name="margin-top">6</property>
++            <property name="margin-bottom">6</property>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+@@ -354,18 +357,18 @@
+         <property name="hexpand">True</property>
+         <property name="vexpand">True</property>
+         <property name="orientation">vertical</property>
+-        <property name="margin-start">56</property>
+-        <property name="margin-end">56</property>
+-        <property name="margin-top">36</property>
+-        <property name="margin-bottom">24</property>
++        <property name="margin-start">24</property>
++        <property name="margin-end">24</property>
++        <property name="margin-top">16</property>
+         <child>
+           <object class="GtkBox" id="pagehome">
+             <property name="visible">True</property>
++            <property name="no-show-all">True</property>
+             <property name="can-focus">False</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">16</property>
++            <property name="spacing">10</property>
+             <child>
+               <object class="GtkLabel" id="greeting">
+                 <property name="visible">True</property>
+@@ -396,14 +399,15 @@
+               <object class="GtkBox" id="tiles">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="spacing">18</property>
++                <property name="spacing">10</property>
+                 <child>
+                   <object class="GtkBox" id="tilebox0">
+                     <property name="visible">True</property>
++                    <property name="no-show-all">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="orientation">vertical</property>
+                     <property name="spacing">6</property>
+-                    <property name="width-request">154</property>
++                    <property name="width-request">92</property>
+                     <child>
+                       <object class="GtkButton" id="tile0">
+                         <property name="visible">True</property>
+@@ -425,7 +429,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="xalign">0</property>
+                         <property name="wrap">True</property>
+-                        <property name="max-width-chars">22</property>
++                        <property name="max-width-chars">12</property>
+                         <property name="margin-start">4</property>
+                         <property name="mnemonic-widget">tile0</property>
+                       </object>
+@@ -445,10 +449,11 @@
+                 <child>
+                   <object class="GtkBox" id="tilebox1">
+                     <property name="visible">True</property>
++                    <property name="no-show-all">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="orientation">vertical</property>
+                     <property name="spacing">6</property>
+-                    <property name="width-request">154</property>
++                    <property name="width-request">92</property>
+                     <child>
+                       <object class="GtkButton" id="tile1">
+                         <property name="visible">True</property>
+@@ -470,7 +475,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="xalign">0</property>
+                         <property name="wrap">True</property>
+-                        <property name="max-width-chars">22</property>
++                        <property name="max-width-chars">12</property>
+                         <property name="margin-start">4</property>
+                         <property name="mnemonic-widget">tile1</property>
+                       </object>
+@@ -490,10 +495,11 @@
+                 <child>
+                   <object class="GtkBox" id="tilebox2">
+                     <property name="visible">True</property>
++                    <property name="no-show-all">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="orientation">vertical</property>
+                     <property name="spacing">6</property>
+-                    <property name="width-request">154</property>
++                    <property name="width-request">92</property>
+                     <child>
+                       <object class="GtkButton" id="tile2">
+                         <property name="visible">True</property>
+@@ -515,7 +521,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="xalign">0</property>
+                         <property name="wrap">True</property>
+-                        <property name="max-width-chars">22</property>
++                        <property name="max-width-chars">12</property>
+                         <property name="margin-start">4</property>
+                         <property name="mnemonic-widget">tile2</property>
+                       </object>
+@@ -535,10 +541,11 @@
+                 <child>
+                   <object class="GtkBox" id="tilebox3">
+                     <property name="visible">True</property>
++                    <property name="no-show-all">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="orientation">vertical</property>
+                     <property name="spacing">6</property>
+-                    <property name="width-request">154</property>
++                    <property name="width-request">92</property>
+                     <child>
+                       <object class="GtkButton" id="tile3">
+                         <property name="visible">True</property>
+@@ -560,7 +567,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="xalign">0</property>
+                         <property name="wrap">True</property>
+-                        <property name="max-width-chars">22</property>
++                        <property name="max-width-chars">12</property>
+                         <property name="margin-start">4</property>
+                         <property name="mnemonic-widget">tile3</property>
+                       </object>
+@@ -580,10 +587,11 @@
+                 <child>
+                   <object class="GtkBox" id="tilebox4">
+                     <property name="visible">True</property>
++                    <property name="no-show-all">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="orientation">vertical</property>
+                     <property name="spacing">6</property>
+-                    <property name="width-request">154</property>
++                    <property name="width-request">92</property>
+                     <child>
+                       <object class="GtkButton" id="tile4">
+                         <property name="visible">True</property>
+@@ -605,7 +613,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="xalign">0</property>
+                         <property name="wrap">True</property>
+-                        <property name="max-width-chars">22</property>
++                        <property name="max-width-chars">12</property>
+                         <property name="margin-start">4</property>
+                         <property name="mnemonic-widget">tile4</property>
+                       </object>
+@@ -662,6 +670,7 @@
+                     <child>
+                       <object class="GtkLabel" id="recentempty">
+                         <property name="visible">True</property>
++                        <property name="no-show-all">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="label"/>
+                         <property name="xalign">0</property>
+@@ -795,6 +804,7 @@
+                     <child>
+                       <object class="GtkLabel" id="pinnedempty">
+                         <property name="visible">True</property>
++                        <property name="no-show-all">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="label"/>
+                         <property name="xalign">0</property>
+@@ -939,11 +949,12 @@
+         <child>
+           <object class="GtkBox" id="pagenew">
+             <property name="visible">False</property>
++            <property name="no-show-all">True</property>
+             <property name="can-focus">False</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">18</property>
++            <property name="spacing">12</property>
+             <child>
+               <object class="GtkLabel" id="newtitle">
+                 <property name="visible">True</property>
+@@ -979,6 +990,7 @@
+                   <object class="GtkButton" id="newnd30">
+                     <property name="label"/>
+                     <property name="visible">True</property>
++                    <property name="no-show-all">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">False</property>
+                   </object>
+@@ -1009,32 +1021,56 @@
+               </packing>
+             </child>
+             <child>
+-              <object class="GtkScrolledWindow" id="scrolllocal">
++              <object class="GtkScrolledWindow" id="newlistscroll">
+                 <property name="visible">True</property>
+                 <property name="can-focus">True</property>
+                 <property name="hexpand">True</property>
+                 <property name="vexpand">True</property>
+                 <property name="shadow-type">in</property>
+                 <child>
+-                  <object class="GtkViewport">
++                  <object class="GtkTreeView" id="newlist">
+                     <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">True</property>
+                     <property name="hexpand">True</property>
+                     <property name="vexpand">True</property>
++                    <property name="model">newstore</property>
++                    <property name="search-column">0</property>
++                    <property name="show-expanders">False</property>
++                    <child internal-child="selection">
++                      <object class="GtkTreeSelection" id="newlist-selection"/>
++                    </child>
+                     <child>
+-                      <object class="GtkDrawingArea" id="local_view">
+-                        <property name="visible">True</property>
+-                        <property name="can-focus">True</property>
+-                        <property name="events">GDK_BUTTON_MOTION_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_STRUCTURE_MASK</property>
+-                        <property name="hexpand">True</property>
+-                        <property name="vexpand">True</property>
+-                        <child internal-child="accessible">
+-                          <object class="AtkObject" id="local_view-atkobject">
+-                            <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|local_view-atkobject">Templates</property>
+-                          </object>
++                      <object class="GtkTreeViewColumn" id="newlistc0">
++                        <property name="resizable">True</property>
++                        <property name="spacing">6</property>
++                        <property name="title" translatable="yes" context="hstbackstage|newlistcol0">Template</property>
++                        <child>
++                          <object class="GtkCellRendererText" id="newlistr0"/>
++                          <attributes>
++                            <attribute name="text">0</attribute>
++                          </attributes>
++                        </child>
++                      </object>
++                    </child>
++                    <child>
++                      <object class="GtkTreeViewColumn" id="newlistc1">
++                        <property name="resizable">True</property>
++                        <property name="spacing">6</property>
++                        <property name="title" translatable="yes" context="hstbackstage|newlistcol1">Category</property>
++                        <child>
++                          <object class="GtkCellRendererText" id="newlistr1"/>
++                          <attributes>
++                            <attribute name="text">1</attribute>
++                          </attributes>
+                         </child>
+                       </object>
+                     </child>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="newlist-atkobject">
++                        <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|newlist-atkobject">Templates</property>
++                      </object>
++                    </child>
+                   </object>
+                 </child>
+               </object>
+@@ -1054,11 +1090,12 @@
+         <child>
+           <object class="GtkBox" id="pageopen">
+             <property name="visible">False</property>
++            <property name="no-show-all">True</property>
+             <property name="can-focus">False</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">18</property>
++            <property name="spacing">12</property>
+             <child>
+               <object class="GtkLabel" id="opentitle">
+                 <property name="visible">True</property>
+@@ -1221,11 +1258,12 @@
+         <child>
+           <object class="GtkBox" id="pageinfo">
+             <property name="visible">False</property>
++            <property name="no-show-all">True</property>
+             <property name="can-focus">False</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">18</property>
++            <property name="spacing">12</property>
+             <child>
+               <object class="GtkLabel" id="infotitle">
+                 <property name="visible">True</property>
+@@ -1530,11 +1568,12 @@
+         <child>
+           <object class="GtkBox" id="pagesaveas">
+             <property name="visible">False</property>
++            <property name="no-show-all">True</property>
+             <property name="can-focus">False</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">18</property>
++            <property name="spacing">12</property>
+             <child>
+               <object class="GtkLabel" id="saveastitle">
+                 <property name="visible">True</property>
+@@ -1655,6 +1694,59 @@
+             <property name="position">4</property>
+           </packing>
+         </child>
++        <child>
++          <object class="GtkSeparator" id="footerline">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="margin-top">8</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">5</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="footer">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="spacing">12</property>
++            <property name="margin-top">8</property>
++            <property name="margin-bottom">10</property>
++            <child>
++              <object class="GtkLabel" id="hint">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|hint">Press Esc or click outside to return to the document</property>
++                <property name="xalign">0</property>
++                <property name="ellipsize">end</property>
++              </object>
++              <packing>
++                <property name="expand">True</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="shortcut">
++                <property name="visible">True</property>
++                <property name="no-show-all">True</property>
++                <property name="can-focus">False</property>
++                <property name="label">Alt+F</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">6</property>
++          </packing>
++        </child>
+       </object>
+       <packing>
+         <property name="expand">True</property>
+@@ -1663,4 +1755,18 @@
+       </packing>
+     </child>
+   </object>
++      <packing>
++        <property name="expand">True</property>
++        <property name="fill">True</property>
++        <property name="position">1</property>
++      </packing>
++    </child>
++    <child internal-child="accessible">
++      <object class="AtkObject" id="panel-atkobject">
++        <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|panel-atkobject">File</property>
++      </object>
++    </child>
++  </object>
++    </child>
++  </object>
+ </interface>
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -6004,6 +6004,36 @@
+ msgid "Templates"
+ msgstr "Mẫu"
+ 
++#. hstFP
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|panel-atkobject"
++msgid "File"
++msgstr "Tệp tin"
++
++#. hstFP
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|hint"
++msgid "Press Esc or click outside to return to the document"
++msgstr "Esc hoặc bấm ra ngoài để quay lại tài liệu"
++
++#. hstFP
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|newlistcol0"
++msgid "Template"
++msgstr "Mẫu"
++
++#. hstFP
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|newlistcol1"
++msgid "Category"
++msgstr "Nhóm"
++
++#. hstFP
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|newlist-atkobject"
++msgid "Templates"
++msgstr "Mẫu"
++
+ #. hstBS
+ #: sfx2/uiconfig/ui/hstbackstage.ui
+ msgctxt "hstbackstage|opentitle"

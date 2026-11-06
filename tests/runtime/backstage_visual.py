@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Pixel checks of check-backstage-flows.py on screenshots of the File view."""
+"""Pixel checks of check-backstage-flows.py on screenshots of the File panel."""
 import os
 import subprocess
 import time

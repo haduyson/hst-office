@@ -8,7 +8,7 @@ Usage: python3 tests/runtime/check-template-lists.py [--instdir upstream/libreof
 Over UNO: the installed template files, the groups in com.sun.star.frame.DocumentTemplates and their titles. No upstream
 English sample and no Draw BPMN template; the three style templates and the HST templates stay. Prints what is left
 per application and any template whose description names the upstream project (it reaches a new document's properties).
-Screenshots (Start Center, Template Manager, File view "Mới" of each application): a text search cannot see images, so a
+Screenshots (Start Center, Template Manager, File panel "Mới" of each application): a text search cannot see images, so a
 person opens them. Exit 1 when a check fails.
 """
 import argparse
@@ -97,13 +97,12 @@ def shot_lists(office, args, check):
         home = os.path.join(args.shots, f"file-view-home-{label.lower()}.png")
         moi = os.path.join(args.shots, f"file-view-moi-{label.lower()}.png")
         hst_gui.screenshot(home, args.display)
-        wid = [w for w, n in hst_gui.toplevels(args.display, office.pid) if n.endswith("HST " + label)][-1]
-        # "Mới" is the second item of the left column, at this place of the window in every application
-        subprocess.run(["xdotool", "mousemove", "--window", wid, "60", "126", "click", "1"], env=env, check=False, timeout=10)
+        # the panel opens with the focus on its first item; "Mới" is the second
+        subprocess.run(["xdotool", "key", "Down", "Return"], env=env, check=False, timeout=10)
         time.sleep(3)
         hst_gui.screenshot(moi, args.display)
         with open(home, "rb") as first, open(moi, "rb") as second:
-            check(f"{label}: File view Mới opens", first.read() != second.read())
+            check(f"{label}: File panel Mới opens", first.read() != second.read())
         office.dispatch(frame, COMMAND)
         time.sleep(1)
         doc.setModified(False)

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Helpers of check-backstage.py: AT-SPI access to the File view, a recording dispatch interceptor, test documents."""
+"""Helpers of check-backstage.py: AT-SPI access to the File panel, a recording dispatch interceptor, test documents."""
 import importlib.util
 import os
 import subprocess
@@ -16,8 +16,8 @@ _spec.loader.exec_module(nd30)
 
 ROWS = []
 COMMAND = ".uno:HSTBackstage"
-ALL_ITEMS = ["Quay lại tài liệu", "Trang chủ", "Mới", "Mở", "Thông tin", "Lưu", "Lưu thành", "In", "Xuất PDF", "Ký số",
-             "Đóng", "Giới thiệu HST Office", "Tùy chọn"]
+ALL_ITEMS = ["Trang chủ", "Mới", "Mở", "Thông tin", "Lưu", "Lưu thành", "In", "Xuất PDF", "Ký số", "Đóng",
+             "Giới thiệu HST Office", "Tùy chọn"]
 
 
 def record(name, ok, detail=""):
@@ -49,7 +49,7 @@ def showing(found):
 
 
 def view_items():
-    """Showing push buttons by name; the view is open when all of the left column shows."""
+    """Showing push buttons by name; the panel is open when all of the left column shows."""
     found = showing(walk(nd30.office_app(), []))
     return {name: node for role, name, node in found if role == "push button" and name}
 
@@ -90,7 +90,7 @@ def make_interceptor(stubbed):
     from com.sun.star.frame import XDispatch, XDispatchProviderInterceptor
 
     class Interceptor(unohelper.Base, XDispatchProviderInterceptor, XDispatch):
-        """Records the commands of the view and swallows them, so no dialog opens and no document closes."""
+        """Records the commands of the panel and swallows them, so no dialog opens and no document closes."""
 
         def __init__(self):
             self.calls = []
@@ -139,7 +139,7 @@ def expect_call(interceptor, command, timeout=5):
 
 
 def open_ms(office, frame):
-    """Milliseconds of one .uno:HSTBackstage dispatch that opens the view (includes the UNO round trip)."""
+    """Milliseconds of one .uno:HSTBackstage dispatch that opens the panel (includes the UNO round trip)."""
     start = time.perf_counter()
     office.dispatch(frame, COMMAND)
     return (time.perf_counter() - start) * 1000
