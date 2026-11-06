@@ -17,7 +17,7 @@ from generate import ROOT, REPO, PALETTES, SIZES, sized, export_svg
 def main():
     report=json.loads((ROOT/'validation.json').read_text())
     families=json.loads((ROOT/'metadata/families.json').read_text())
-    active=[f for f in families if f['stage']<=report['through_stage'] and not f.get('skip')]
+    active=[f for f in families if f['stage']<=report['through_stage'] and not f.get('skip') and not f.get('trademark')]
     manifest=list(csv.DictReader((ROOT/'manifest.csv').open()))
     index={r['file']:r for r in manifest}
     assert len(index)==len(manifest), 'Duplicate manifest path'
@@ -36,7 +36,7 @@ def main():
         home={r['command'] for r in rows if r['scope'] in ('Home','Quick access')}
         assert len(home)==85 and home<=covered
     assert sum(f['stage']==1 and not f.get('extension_tab') for f in active)==78
-    assert all(f['stage']==1 for f in tab) and len(tab)==10
+    assert all(f['stage']==1 for f in tab) and len(tab)==9
     for row in rows:
         if row['command'] not in covered:
             continue

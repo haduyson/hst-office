@@ -11,7 +11,15 @@ Cách ghi công đề nghị: “HST Ribbon Icons — HASON TECH, 2026, CC BY 4.
 kèm liên kết đến bộ nguồn này và
 [giấy phép CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 Khi sửa hình, ghi rõ đã chỉnh sửa. Giấy phép artwork không cấp quyền thương hiệu.
-Bộ này không chứa logo HST, logo Microsoft hoặc logo LibreOffice.
+Bộ glyph này không chứa logo HST, logo Microsoft hoặc logo LibreOffice.
+
+Ngoại lệ trong gói `images_hst*.zip`: `res/mainapp_*` và nút “Giải pháp HASON TECH”
+(`cmd/sc_showsolutions.svg`, `cmd/lc_showsolutions.svg`, `cmd/32/showsolutions.svg`)
+dùng dấu HASON TECH. Nguồn của nút là
+[hasontech-mark.svg](../../branding/icon-themes/hasontech-mark.svg), cùng hình dấu
+trong `res/mainapp_*`, tô màu xanh thương hiệu. Đây là **nhãn hiệu của HASON TECH**,
+không thuộc CC BY 4.0; `COPYING.txt` trong gói ghi rõ ngoại lệ này
+(xem [NOTICE.md](../../NOTICE.md)).
 
 Các script Python, cấu hình và bảng ánh xạ mới của HST dùng **AGPL-3.0-only**,
 phù hợp quy ước cho mã mới/generator trong [NOTICE.md](../../NOTICE.md),

@@ -9,7 +9,8 @@ from drawing import ROOT, GLYPHS
 def write(stage):
     selected = json.loads((ROOT/'metadata/families.json').read_text())
     for f in selected:
-        if f['stage'] != stage or f.get('skip'):
+        # Trademark masters live in branding/, outside the CC BY glyph set.
+        if f['stage'] != stage or f.get('skip') or f.get('trademark'):
             continue
         name = f['glyph']
         if name not in GLYPHS:

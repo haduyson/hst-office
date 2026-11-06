@@ -19,6 +19,9 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "icon-themes-src/hst"
 PALETTES = {"hst": "#294159", "hst_dark": "#DBE7F1"}
+# Families with a "trademark" master show the HASON TECH mark in its brand blue: #0072BB is the
+# official colour, #1A91CF the light end of the same app-icon gradient, legible on the dark ribbon.
+MARK_COLOURS = {"hst": "#0072BB", "hst_dark": "#1A91CF"}
 SIZES = (16, 24, 32)
 
 
@@ -41,14 +44,17 @@ def resources(theme):
     for family in families:
         if family.get("skip"):
             continue
-        master = SOURCE / f'glyphs/stage-{family["stage"]}/{family["glyph"]}.svg'
+        if family.get("trademark"):
+            master, colour = ROOT / family["trademark"], MARK_COLOURS[theme]
+        else:
+            master, colour = SOURCE / f'glyphs/stage-{family["stage"]}/{family["glyph"]}.svg', PALETTES[theme]
         source = master.read_text(encoding="utf-8")
         xml = ET.fromstring(source)
         if xml.get("viewBox") != "0 0 24 24":
             raise ValueError(f"Unexpected viewBox: {master}")
         for size in SIZES:
             target = svg_key(sized(family["family"], size))
-            svg = source.replace("currentColor", PALETTES[theme]).replace(
+            svg = source.replace("currentColor", colour).replace(
                 'width="24" height="24"', f'width="{size}" height="{size}"', 1)
             files[target] = svg.encode("utf-8")
             keys = [sized(key, size) for key in family["keys"]]
@@ -90,12 +96,15 @@ def resources(theme):
     files["COPYING.txt"] = (
         "HST Ribbon Icons — HASON TECH, 2026, CC BY 4.0\n"
         "Copyright (c) 2026 Công ty TNHH Công nghệ Hà Sơn (HASON TECH).\n"
-        "Command glyphs: original HST artwork, see LICENSE-CC-BY-4.0.txt.\n"
+        "Command glyphs: original HST artwork, see LICENSE-CC-BY-4.0.txt, except the marks below.\n"
         "Source: https://github.com/haduyson/hst-office/tree/main/icon-themes-src/hst\n"
         "Licence: https://creativecommons.org/licenses/by/4.0/\n"
         "Changes: palette and logical viewport exports from the original masters.\n"
         "res/mainapp_*: existing HST Office application marks, copied unchanged from\n"
         "branding/icon-themes; these are HASON TECH trademarks, not CC BY glyphs.\n"
+        "cmd/sc_showsolutions.svg, cmd/lc_showsolutions.svg, cmd/32/showsolutions.svg:\n"
+        "the HASON TECH mark of res/mainapp_* in brand blue (branding/icon-themes/\n"
+        "hasontech-mark.svg); a HASON TECH trademark, not a CC BY glyph.\n"
         "The artwork and source licences grant no trademark rights (see product NOTICE).\n"
         "Generator and mapping code: AGPL-3.0-only, in the source repository.\n"
     ).encode("utf-8")

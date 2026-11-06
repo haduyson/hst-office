@@ -73,8 +73,9 @@ class HstThemeTest(unittest.TestCase):
         for theme in builder.PALETTES:
             files = builder.resources(theme)
             links = dict(line.split() for line in files["links.txt"].decode().splitlines() if not line.startswith("#"))
-            colour = builder.PALETTES[theme].encode()
             for name in names:
+                # Giải pháp HASON TECH shows the company mark in brand blue, not the glyph ink.
+                colour = (builder.MARK_COLOURS if name == "showsolutions" else builder.PALETTES)[theme].encode()
                 for size in (16, 24, 32):
                     key = builder.svg_key(builder.sized(f"cmd/{name}.png", size))
                     self.assertIn(key, files)
@@ -86,6 +87,24 @@ class HstThemeTest(unittest.TestCase):
                                      builder.svg_key(builder.sized(f"cmd/{target}.png", size)))
             masters = {files[builder.svg_key(builder.sized(f"cmd/{name}.png", 32))] for name in names}
             self.assertEqual(len(masters), len(names))
+
+    def test_solutions_button_is_the_trademark_mark_outside_cc_by(self):
+        def polygons(path):
+            return [n.get("points") for n in ET.parse(ROOT / path).iter("{http://www.w3.org/2000/svg}polygon")]
+        mark = "branding/icon-themes/hasontech-mark.svg"
+        self.assertEqual(polygons(mark), polygons("branding/icons/app/hst-office.svg"))
+        families = json.loads((builder.SOURCE / "metadata/families.json").read_text())
+        self.assertEqual([f["glyph"] for f in families if f.get("trademark")], ["showsolutions"])
+        self.assertFalse((builder.SOURCE / "glyphs/stage-1/showsolutions.svg").exists())
+        for theme in builder.PALETTES:
+            files = builder.resources(theme)
+            svg = files["cmd/32/showsolutions.svg"]
+            self.assertNotIn(b"CC-BY", svg)
+            self.assertNotIn(b"currentColor", svg)
+            self.assertEqual(ET.fromstring(svg).get("width"), "32")
+            copying = files["COPYING.txt"].decode()
+            self.assertIn("cmd/32/showsolutions.svg", copying)
+            self.assertIn("not a CC BY glyph", copying)
 
     def test_check_is_read_only_and_stale_output_is_removed(self):
         with tempfile.TemporaryDirectory() as tmp:

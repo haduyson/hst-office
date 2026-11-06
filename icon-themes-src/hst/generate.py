@@ -83,7 +83,9 @@ def main():
         assert sha((REPO/path).read_bytes()) == digest, 'Input changed: '+path
     all_families = json.loads((ROOT/'metadata/families.json').read_text())
     coverage_tables(all_families,args.through_stage)
-    families = [f for f in all_families if f['stage'] <= args.through_stage and not f.get('skip')]
+    families = [f for f in all_families if f['stage'] <= args.through_stage and not f.get('skip')
+                # Trademark masters (branding/) are not CC BY glyphs; build-hst-icon-theme.py ships them.
+                and not f.get('trademark')]
     # These two directories contain generated output only, never the masters.
     # Clearing them makes a stage-1 export after stage 2 unambiguous too.
     for generated in ('themes','contact-sheets'):

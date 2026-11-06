@@ -32,5 +32,5 @@ def hst_commands():
         'Person beside a downward sort arrow')
     add('deleteblankrows', r(3, 3, 13, 18, 1)+p('M3 9h13M3 15h13M6 6h7M6 18h7M18.5 12h4'),
         'Table whose empty middle row is removed')
-    add('showsolutions', p('M12 3 2.5 20.5h19ZM9 13h6M6.8 17h10.4'),
-        'Triangular HASON TECH mark with two bars')
+    # Giải pháp HASON TECH (showsolutions) is not drawn here: it shows the HASON TECH trademark
+    # (branding/icon-themes/hasontech-mark.svg, the "trademark" master in families.json), outside CC BY.
