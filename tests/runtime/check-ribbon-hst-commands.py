@@ -23,10 +23,10 @@ VI = "org.hst.office.vi:"
 LANGUAGE_ITEMS = ["Tiếng Việt", "English", "Theo máy"]
 MOVED = {"Kiểm tra cập nhật…", "Thiết lập USB Token…", "Macro VBA", "Ngôn ngữ giao diện"}
 EXTENSION_TAB = {
-    "writer": {"Văn bản hành chính", "Chuyển TCVN3/VNI sang Unicode...", "Giải pháp HASON TECH..."},
+    "writer": {"Văn bản hành chính", "Chuyển TCVN3/VNI sang Unicode", "Giải pháp HASON TECH"},
     "calc": {"Văn bản hành chính", "Định dạng ngày (dd/mm/yyyy)", "Định dạng tiền VND", "Định dạng phần trăm",
-             "Nhập CSV (UTF-8)...", "Giải pháp HASON TECH..."},
-    "impress": {"Văn bản hành chính", "Giải pháp HASON TECH..."},
+             "Nhập CSV (UTF-8)", "Giải pháp HASON TECH"},
+    "impress": {"Văn bản hành chính", "Giải pháp HASON TECH"},
 }
 # Every tool name the Extension tab can show, to tell its items from the rest of the ribbon.
 KNOWN = set().union(*EXTENSION_TAB.values()) | MOVED

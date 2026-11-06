@@ -60,6 +60,15 @@ class MenuContractTest(unittest.TestCase):
                     else:
                         self.assertEqual(titles["en-US"], titles["vi"], url)
 
+    def test_extension_tab_labels_have_no_ellipsis_while_menu_dialog_commands_keep_it(self):
+        # A ribbon button names the tool; in the HST menu "…" still tells that a dialog opens.
+        for titles, _ in (e for entries in items("OfficeNotebookBar").values() for e in entries):
+            for title in titles.values():
+                self.assertFalse(title.endswith(("...", "…")), title)
+        menu = items("OfficeMenuBar")
+        for name in ("ConvertEncoding", "ImportCsv", "ShowSolutions"):
+            self.assertTrue(menu["org.hst.office.vi:" + name][0][0]["vi"].endswith(("...", "…")), name)
+
     def test_csv_import_is_offered_in_every_module(self):
         self.assertTrue(ALL <= items("OfficeMenuBar")["org.hst.office.vi:ImportCsv"][0][1])
 
