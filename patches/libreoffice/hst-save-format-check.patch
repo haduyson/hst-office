@@ -1,0 +1,91 @@
+HST Office: one optional check of the target format before a document is saved (Sheets functions in Excel files).
+
+Cells that use the HST Sheets functions (DOCSO, DOCTIEN, BODAU, TACHHO, TACHTEN) show #NAME? in
+Microsoft Excel. Jobs on OnSave/OnSaveAs cannot cancel a save and do not see the format chosen
+in the Save As dialog, so the save code now asks the bundled extension's service
+org.hst.office.vi.SaveFormatCheck (an XJob: Model, FilterName; returns false to cancel) right
+before storing: on Save, and on Save As / Save a Copy after the file and filter options dialogs
+(not for PDF or EPUB export). The extension warns and offers "Đổi thành chữ rồi lưu" / "Vẫn lưu" /
+"Hủy". Without the service, or when it fails, saving works as before. API saves, hidden documents
+and headless runs are not affected.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vietnamese-utilities.py.
+---
+--- a/sfx2/source/doc/guisaveas.cxx
++++ b/sfx2/source/doc/guisaveas.cxx
+@@ -76,6 +76,7 @@
+ #include <tools/urlobj.hxx>
+ #include <tools/json_writer.hxx>
+ #include <comphelper/processfactory.hxx>
++#include <com/sun/star/task/XJob.hpp>
+ #include <comphelper/propertysequence.hxx>
+ #include <comphelper/propertyvalue.hxx>
+ #include <comphelper/sequenceashashmap.hxx>
+@@ -454,6 +455,8 @@
+     bool ConfirmMacroFormat( const OUString& rFilter );
+     /// HST: the properties of the format to propose instead of rFilter, empty when rFilter keeps the macros
+     uno::Sequence< beans::PropertyValue > GetMacroFilterInsteadOf( const OUString& rFilter );
++    /// HST: false when the bundled extension's check of the target format (org.hst.office.vi.SaveFormatCheck) cancels
++    bool ConfirmHstFormat( const OUString& rFilter );
+     sal_Int8 CheckStateForSave();
+ 
+     sal_Int8 CheckFilter( const OUString& );
+@@ -907,6 +910,31 @@
+     return xBox->run() == RET_YES;
+ }
+ 
++bool ModelData_Impl::ConfirmHstFormat( const OUString& rFilter )
++{
++    // HST: the bundled extension may ask the user before a format that loses part of the document (Sheets cells that
++    // use HST functions, in an Excel file); it may convert those cells for the saved copy. Optional service: when it
++    // is missing or fails, the document is stored as before. API saves, hidden documents and headless runs are skipped.
++    if ( rFilter.isEmpty() || Application::IsHeadlessModeEnabled() || comphelper::LibreOfficeKit::isActive()
++         || GetDocProps().getUnpackedValueOrDefault( u"Hidden"_ustr, false ) )
++        return true;
++    try
++    {
++        uno::Reference< task::XJob > xCheck(
++            comphelper::getProcessServiceFactory()->createInstance( u"org.hst.office.vi.SaveFormatCheck"_ustr ), uno::UNO_QUERY );
++        if ( !xCheck.is() )
++            return true;
++        bool bProceed = true;
++        xCheck->execute( { { u"Model"_ustr, uno::Any( m_xModel ) }, { u"FilterName"_ustr, uno::Any( rFilter ) } } ) >>= bProceed;
++        return bProceed;
++    }
++    catch ( const uno::Exception& )
++    {
++        TOOLS_WARN_EXCEPTION( "sfx.doc", "HST save format check failed; saving anyway" );
++        return true;
++    }
++}
++
+ sal_Int8 ModelData_Impl::CheckSaveAcceptable( sal_Int8 nCurStatus )
+ {
+     sal_Int8 nResult = nCurStatus;
+@@ -1764,6 +1792,11 @@
+ 
+     if ( m_nStoreMode & SAVE_REQUESTED && nStatusSave == STATUS_SAVE )
+     {
++        if ( !aModelData.ConfirmHstFormat( aModelData.GetDocProps().getUnpackedValueOrDefault( aFilterNameString, OUString() ) ) )
++            throw task::ErrorCodeIOException(
++                u"SfxStoringHelper::GUIStoreModel: ERRCODE_IO_ABORT"_ustr,
++                uno::Reference< uno::XInterface >(), sal_uInt32(ERRCODE_IO_ABORT));
++
+         // Document properties can contain streams that should be freed before storing
+         aModelData.FreeDocumentProps();
+ 
+@@ -2003,6 +2036,13 @@
+         }
+     }
+ 
++    // HST: the last check of the chosen format (after the file and filter options dialogs)
++    if ( !( nStoreMode & PDFEXPORT_REQUESTED ) && !( nStoreMode & EPUBEXPORT_REQUESTED )
++         && !aModelData.ConfirmHstFormat( aFilterName ) )
++        throw task::ErrorCodeIOException(
++            u"SfxStoringHelper::GUIStoreModel: ERRCODE_IO_ABORT"_ustr,
++            uno::Reference< uno::XInterface >(), sal_uInt32(ERRCODE_IO_ABORT));
++
+     // so the arguments will not change any more and can be stored to the main location
+     aArgsSequence = aModelData.GetMediaDescr().getAsConstPropertyValueList();
+ 

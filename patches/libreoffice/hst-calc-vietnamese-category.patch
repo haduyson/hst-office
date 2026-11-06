@@ -1,0 +1,103 @@
+HST Office: a "Vietnamese" ("Tiếng Việt") function category in HST Sheets.
+
+The bundled extension adds the Sheets functions DOCSO, DOCTIEN, BODAU, TACHHO and TACHTEN
+(CalcAddIns.xcu, Category "Vietnamese"). Add-in categories are a fixed list in the core, so
+they would land in "Add-in" next to unrelated functions. This adds category 12 "Vietnamese"
+after "Add-in" in the Function Wizard and in the Functions sidebar list; an add-in naming any
+other category still falls back to "Add-in". Built-in functions are unchanged.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vietnamese-utilities.py.
+---
+--- a/sc/inc/compiler.hrc
++++ b/sc/inc/compiler.hrc
+@@ -35,7 +35,8 @@
+     NC_("RID_FUNCTION_CATEGORIES", "Statistical"),
+     NC_("RID_FUNCTION_CATEGORIES", "Spreadsheet"),
+     NC_("RID_FUNCTION_CATEGORIES", "Text"),
+-    NC_("RID_FUNCTION_CATEGORIES", "Add-in")
++    NC_("RID_FUNCTION_CATEGORIES", "Add-in"),
++    NC_("RID_FUNCTION_CATEGORIES", "Vietnamese")
+ };
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/inc/funcdesc.hxx
++++ b/sc/inc/funcdesc.hxx
+@@ -31,7 +31,7 @@
+ #include <unordered_set>
+ #include <memory>
+ 
+-#define MAX_FUNCCAT 12  /* maximum number of categories for functions */
++#define MAX_FUNCCAT 13  /* maximum number of categories for functions */
+ #define LRU_MAX 10 /* maximal number of last recently used functions */
+ 
+ /**
+@@ -301,7 +301,7 @@
+     sal_uInt32 m_nCategory; /**< index number of this category */
+ };
+ 
+-#define SC_FUNCGROUP_COUNT  ID_FUNCTION_GRP_ADDINS
++#define SC_FUNCGROUP_COUNT  ID_FUNCTION_GRP_VIETNAMESE
+ /**
+   Stores spreadsheet functions in categories, including a cumulative ('All') category and makes them accessible.
+ */
+--- a/sc/inc/scfuncs.hxx
++++ b/sc/inc/scfuncs.hxx
+@@ -29,5 +29,7 @@
+ #define ID_FUNCTION_GRP_TABLE       9
+ #define ID_FUNCTION_GRP_TEXT        10
+ #define ID_FUNCTION_GRP_ADDINS      11
++// HST Office: the Vietnamese functions of the bundled extension (DOCSO, DOCTIEN, ...), Category "Vietnamese" in CalcAddIns.xcu
++#define ID_FUNCTION_GRP_VIETNAMESE  12
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/tool/addincol.cxx
++++ b/sc/source/core/tool/addincol.cxx
+@@ -342,7 +342,8 @@
+         "Statistical",      // ID_FUNCTION_GRP_STATISTIC
+         "Spreadsheet",      // ID_FUNCTION_GRP_TABLE
+         "Text",             // ID_FUNCTION_GRP_TEXT
+-        "Add-In"            // ID_FUNCTION_GRP_ADDINS
++        "Add-In",           // ID_FUNCTION_GRP_ADDINS
++        "Vietnamese"        // ID_FUNCTION_GRP_VIETNAMESE (HST Office)
+     };
+     for (sal_uInt16 i=0; i<SC_FUNCGROUP_COUNT; i++)
+         if ( o3tl::equalsAscii( rName, aFuncNames[i] ) )
+--- a/sc/uiconfig/scalc/ui/functionpanel.ui
++++ b/sc/uiconfig/scalc/ui/functionpanel.ui
+@@ -80,6 +80,7 @@
+                       <item translatable="yes" context="functionpanel|category">Spreadsheet</item>
+                       <item translatable="yes" context="functionpanel|category">Text</item>
+                       <item translatable="yes" context="functionpanel|category">Add-in</item>
++                      <item translatable="yes" context="functionpanel|category">Vietnamese</item>
+                     </items>
+                     <child internal-child="accessible">
+                       <object class="AtkObject" id="category-atkobject">
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -82,6 +82,12 @@
+ msgid "Add-in"
+ msgstr "Phần bổ trợ"
+ 
++#. hstVietnameseCategory
++#: sc/inc/compiler.hrc
++msgctxt "RID_FUNCTION_CATEGORIES"
++msgid "Vietnamese"
++msgstr "Tiếng Việt"
++
+ #. wH3TZ
+ msgctxt "stock"
+ msgid "_Add"
+@@ -25642,6 +25648,12 @@
+ msgid "Add-in"
+ msgstr "Phần bổ trợ"
+ 
++#. hstVietnameseCategory
++#: sc/uiconfig/scalc/ui/functionpanel.ui
++msgctxt "functionpanel|category"
++msgid "Vietnamese"
++msgstr "Tiếng Việt"
++
+ #. uYn9C
+ #: sc/uiconfig/scalc/ui/functionpanel.ui:86
+ msgctxt "functionpanel|category-atkobject"

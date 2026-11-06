@@ -5,11 +5,12 @@ import re
 
 from .data_files import load_data
 
-KINDS = ("date", "vnd", "percent", "integer")
+KINDS = ("date", "dateLong", "monthYear", "dateDash", "vnd", "percent", "integer")
 # number-formats.json codes use en-US separators (',' thousands, '.' decimals) even though the format is registered
 # for vi-VN: LibreOffice reads codes in the separators of the locale they are added for, so they must be converted.
 CODE_LOCALE = "en-US"
-_CODE = re.compile(r"[0#,.%/\-:\[\]$₫A-Za-z0-9 ]+")
+# format characters, plus quoted literal text ("ngày "DD" tháng "MM" năm "YYYY)
+_CODE = re.compile(r'(?:[0#,.%/\-:\[\]$₫A-Za-z0-9 ]|"[^"\\]*")+')
 CELL_VALUE, CELL_DATETIME, CELL_STRING, CELL_FORMULA = 1, 2, 4, 16  # com.sun.star.sheet.CellFlags
 
 

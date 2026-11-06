@@ -15,6 +15,7 @@ from hst_office.welcome_job import JOB_NAME, WelcomeJob  # noqa: E402
 from hst_office.update_job import HANDLER_NAME, JOB_NAME as UPDATE_JOB_NAME, UpdateCheckJob, UpdateHandler  # noqa: E402
 from hst_office.error_report_crash import JOB_NAME as CRASH_JOB_NAME, CrashReportJob  # noqa: E402
 from hst_office.vba_save_check import JOB_NAME as VBA_SAVE_JOB_NAME, VbaSaveCheckJob  # noqa: E402
+from hst_office.save_format_check import SERVICE_NAME as SAVE_CHECK_NAME, SaveFormatCheck  # noqa: E402
 
 from hst_office.banner_uno import BannerService, BannerStartup, SERVICE_NAME, _START_NAME  # noqa: E402
 
@@ -25,5 +26,16 @@ g_ImplementationHelper.addImplementation(UpdateCheckJob, UPDATE_JOB_NAME, ("com.
 g_ImplementationHelper.addImplementation(UpdateHandler, HANDLER_NAME, ("com.sun.star.frame.ProtocolHandler",))
 g_ImplementationHelper.addImplementation(CrashReportJob, CRASH_JOB_NAME, ("com.sun.star.task.Job",))
 g_ImplementationHelper.addImplementation(VbaSaveCheckJob, VBA_SAVE_JOB_NAME, ("com.sun.star.task.Job",))
+# asked by the core before an Excel file is written (hst-save-format-check.patch)
+g_ImplementationHelper.addImplementation(SaveFormatCheck, SAVE_CHECK_NAME, (SAVE_CHECK_NAME,))
 g_ImplementationHelper.addImplementation(BannerService, SERVICE_NAME, (SERVICE_NAME, "com.sun.star.task.Job"))
 g_ImplementationHelper.addImplementation(BannerStartup, _START_NAME, (_START_NAME, "com.sun.star.task.Job"))
+
+# Sheets functions: their interface type comes from types/hst-calc-functions.rdb. Should it be missing, only the
+# functions are lost, never the other HST services of this component.
+try:
+    from hst_office.calc_functions import SERVICES as CALC_SERVICES, implementation as _calc_functions  # noqa: E402
+    g_ImplementationHelper.addImplementation(_calc_functions(), CALC_SERVICES[0], CALC_SERVICES)
+except Exception:  # noqa: BLE001 - see above
+    import traceback
+    traceback.print_exc()

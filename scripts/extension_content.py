@@ -27,7 +27,7 @@ USB_TOKEN_NSS = "python/hst_office/usb_token_nss.py"  # local NSS tools only; no
 UPDATE_LAUNCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|ctypes)\b", re.M)
 USB_WORKER_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess)\b", re.M)
 UPDATE_FETCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|ftplib|smtplib|requests|xmlrpc|subprocess|ctypes)\b", re.M)
-MEDIA = ("application/vnd.sun.star.uno-component;type=Python", "application/vnd.sun.star.configuration-data", "application/vnd.sun.star.configuration-schema")
+MEDIA = ("application/vnd.sun.star.uno-component;type=Python", "application/vnd.sun.star.uno-typelibrary;type=RDB", "application/vnd.sun.star.configuration-data", "application/vnd.sun.star.configuration-schema")
 MAX_LINES = 199
 # Downloadable update-lock templates of the user guide (help/cap-nhat.html), made by build-update-policy-oxt.py.
 HELP_FILES = ("help/files/", (".reg", ".xcd", ".mobileconfig"))

@@ -49,7 +49,7 @@ TEMPLATE_GROUPS = (
     ("slides", "hst-trinh-chieu", "HST \u2014 Tr\u00ecnh chi\u1ebfu"),
 )
 SKIP_DIRS = {"__pycache__", ".git"}
-SKIP_SUFFIX = (".pyc", ".pyo", "~")
+SKIP_SUFFIX = (".pyc", ".pyo", "~", ".idl")  # IDL source: the compiled types/*.rdb is packaged
 
 
 def notices_text():

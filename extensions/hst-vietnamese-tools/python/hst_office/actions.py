@@ -2,7 +2,8 @@
 """User-facing HST commands: gather UI input, call the logic modules, report results. One function per command."""
 import unohelper
 
-from . import convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_layout, nd30_open, nd30_writer, sheets, vba
+from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_layout, nd30_open, nd30_writer,
+               blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -136,12 +137,28 @@ def import_csv(host):
     host.say(host.s["csv"]["imported"] % (result["cells"], result["range"]))
 
 
+def sheet_utility(command):
+    """A Sheets utility of vietnamese_calc run on the current cell selection (nothing in other modules)."""
+    def run(host):
+        if host.is_calc():
+            command(host, _cell_selection(host))
+    return run
+
+
 COMMANDS = {
     "Nd30Wizard": nd30_wizard,
     "ConvertEncoding": convert_encoding,
     "FormatDate": lambda h: apply_format(h, "date"),
+    "FormatDateLong": lambda h: apply_format(h, "dateLong"),
+    "FormatMonthYear": lambda h: apply_format(h, "monthYear"),
+    "FormatDateDash": lambda h: apply_format(h, "dateDash"),
     "FormatVnd": lambda h: apply_format(h, "vnd"),
     "FormatPercent": lambda h: apply_format(h, "percent"),
     "ImportCsv": import_csv,
     "EditVba": vba.run,
+    "NumberToWords": number_words_action.run,
+    "RemoveDiacritics": sheet_utility(vietnamese_calc.remove_diacritics),
+    "SplitName": sheet_utility(vietnamese_calc.split_name),
+    "SortByGivenName": sheet_utility(vietnamese_calc.sort_by_given_name),
+    "DeleteBlankRows": sheet_utility(blank_rows_calc.delete_blank_rows),
 }
