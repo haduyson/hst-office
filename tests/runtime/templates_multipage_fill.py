@@ -29,21 +29,12 @@ FILTERS = {"pdf": "writer_pdf_Export", "odt": "writer8", "docx": "MS Word 2007 X
 
 def props(**kw):
     from com.sun.star.beans import PropertyValue
-    out = []
-    for key, value in kw.items():
-        item = PropertyValue()
-        item.Name, item.Value = key, value
-        out.append(item)
-    return tuple(out)
+    return tuple(PropertyValue(Name=key, Value=value) for key, value in kw.items())
 
 
 def url(path):
     import uno
     return uno.systemPathToFileUrl(os.path.abspath(path))
-
-
-def role(name):
-    return re.sub(r"\d+$", "", name or "")
 
 
 class Document:
@@ -59,7 +50,7 @@ class Document:
         return out
 
     def role_of(self, x):
-        return self.roles.get(x.getString(), "") if self.roles else role(x.ParaStyleName)
+        return self.roles.get(x.getString(), "") if self.roles else re.sub(r"\d+$", "", x.ParaStyleName or "")
 
     def pages(self):
         return self.doc.getCurrentController().PageCount
@@ -144,11 +135,8 @@ class Filler:
             rows = self.table.getRows()
             n = rows.getCount()
             rows.insertByIndex(n, 1)
-            for c in range(self.table.getColumns().getCount()):
-                try:
-                    self.table.getCellByPosition(c, n).setString(str(self.count + 1) if c == 0 else "Hồ sơ số %d về công tác văn thư năm 2026" % (self.count + 1))
-                except Exception:
-                    pass
+            for c in range(self.table.getColumns().getCount()):  # every column of the new row exists: no merged cells
+                self.table.getCellByPosition(c, n).setString(str(self.count + 1) if c == 0 else "Hồ sơ số %d về công tác văn thư năm 2026" % (self.count + 1))
         else:
             self.text.insertControlCharacter(self.cursor, 0, False)  # PARAGRAPH_BREAK
             self.text.insertString(self.cursor, text or PARAS[self.count % len(PARAS)], False)
