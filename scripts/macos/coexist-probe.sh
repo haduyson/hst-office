@@ -43,15 +43,16 @@ record() { # record <label>: default handler of every extension and scheme (Laun
   local e; for e in "${EXTS[@]}"; do printf 'duti %s: %s\n' "$e" "$(duti -x "$e" 2>&1 | tr '\n' ' ')"; done >> "$out/defaults-$1.txt"
 }
 
-same_defaults() { # same_defaults <label> <baseline label>: FAIL for a LibreOffice-owned type, WARN otherwise
-  local line key changed=0
-  if cmp -s "$out/defaults-$1.txt" "$out/defaults-$2.txt"; then pass "$1: default applications as with $2 ($(grep -c . "$out/defaults-$2.txt") entries)"; return; fi
+same_defaults() { # same_defaults <label> <record> <baseline record>: FAIL for a LibreOffice-owned type, WARN otherwise
+  local label="$1" line key changed=0; shift
+  if [ ! -s "$out/defaults-$1.txt" ] || [ ! -s "$out/defaults-$2.txt" ]; then fail "$label: no record defaults-$1/$2"; return; fi
+  if cmp -s "$out/defaults-$1.txt" "$out/defaults-$2.txt"; then pass "$label: default applications as with $2 ($(grep -c . "$out/defaults-$2.txt") entries)"; return; fi
   while IFS= read -r line; do
     key="${line%% *}"; changed=1
-    if grep -qxF "$key" "$out/lo-owned.txt"; then fail "$1: default of a LibreOffice-owned type changed: $line (was: $(grep -F "$key " "$out/defaults-$2.txt" | head -1))"
-    else log "- WARN $1: default of a type both only open (Alternate) changed: $line (was: $(grep -F "$key " "$out/defaults-$2.txt" | head -1))"; fi
+    if grep -qxF "$key" "$out/lo-owned.txt"; then fail "$label: default of a LibreOffice-owned type changed: $line (was: $(grep -F "$key " "$out/defaults-$2.txt" | head -1))"
+    else log "- WARN $label: default of a type both only open (Alternate) changed: $line (was: $(grep -F "$key " "$out/defaults-$2.txt" | head -1))"; fi
   done < <(comm -13 <(sort "$out/defaults-$2.txt") <(sort "$out/defaults-$1.txt") | grep -v '^duti ')
-  [ "$changed" -eq 1 ] || pass "$1: default applications as with $2 (duti only reformatted)"
+  [ "$changed" -eq 1 ] || pass "$label: default applications as with $2 (duti output only)"
 }
 
 lo_owned() { # ext:<e> keys whose UTI LibreOffice claims with LSHandlerRank Owner
@@ -157,7 +158,7 @@ HST_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$HST_APP/Conte
 first_launch "$HST_APP" "$HST_ID"
 log "HST Office $(/usr/libexec/PlistBuddy -c 'Print :CFBundleGetInfoString' "$HST_APP/Contents/Info.plist" 2>/dev/null) ($HST_ID)"
 record both
-same_defaults "after installing HST" lo
+same_defaults "after installing HST" both lo
 if python3 "$here/check-coexist-plists.py" --hst "$HST_APP" --lo "$LO_APP" > "$out/plists.txt"; then pass "bundle declarations do not clash ($(grep -c '^PASS' "$out/plists.txt") rules)"
 else fail "bundle declarations clash:"; grep '^FAIL' "$out/plists.txt" | tee -a "$out/summary.md"; fi
 "$LSREG" -dump > "$out/lsregister-dump.txt" 2>/dev/null || :
@@ -195,12 +196,12 @@ done
 find "$HOME/Library/Preferences" -maxdepth 1 \( -iname '*hasontech*' -o -iname '*libreoffice*' \) -exec basename {} \; > "$out/preferences.txt" 2>/dev/null || :
 log "Preferences domains: $(tr '\n' ' ' < "$out/preferences.txt")"
 record both-after-run
-same_defaults "after running both" lo
+same_defaults "after running both" both-after-run lo
 
 log "### Remove HST Office: LibreOffice keeps working"
 remove_app "$HST_APP"
 record lo-after-hst-removal
-same_defaults "after removing HST" lo
+same_defaults "after removing HST" lo-after-hst-removal lo
 start_alone "$LO_APP" "$LO_ID" "after removing HST"
 
 log "### Reinstall HST Office, remove LibreOffice: HST keeps working"
