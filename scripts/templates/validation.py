@@ -90,8 +90,16 @@ def check_writer(content, styles, source, rules):
         return
     require(props.get(q("fo:page-width")) == f'{size["width"]}mm', "Writer page width")
     require(props.get(q("fo:page-height")) == f'{size["height"]}mm', "Writer page height")
+    footer = layouts[0].find("style:footer-style/style:header-footer-properties", NS)
+    bottom = float(props.get(q("fo:margin-bottom"))[:-2]) + (float(footer.get(q("fo:min-height"))[:-2]) if footer is not None else 0)
+    require(abs(bottom - margins["bottom"]) < 0.001, "the body must end at the bottom margin (a first-page footer band included)")
+    if footer is not None:
+        require(kind.get("officialLetter"), "only an official letter has a first-page footer (contact details)")
+        for master in styles.iter(q("style:master-page")):
+            require(master.find("style:footer", NS) is not None, "every page keeps the footer band")
     for side in ("bottom", "left", "right"):
-        require(props.get(q("fo:margin-" + side)) == f"{margins[side]}mm", "Writer margin " + side)
+        if side != "bottom":
+            require(props.get(q("fo:margin-" + side)) == f"{margins[side]}mm", "Writer margin " + side)
         low, high = rules["marginRangesMm"][side]
         require(low <= margins[side] <= high, "default margin outside the range of the profile: " + side)
     band = layouts[0].find("style:header-style/style:header-footer-properties", NS)
@@ -126,7 +134,7 @@ def check_register(content, settings, source):
     cells = headers[0].findall("table:table-cell", NS)
     require(["".join(c.itertext()) for c in cells] == [c["title"] for c in source["columns"]], "register columns")
     require(["".join(c.itertext()) for c in headers[1]] == ["(%d)" % (i + 1) for i in range(len(cells))], "register column numbers")
-    require(sheets[1].get(q("table:print-ranges")), "print area missing")
+    require(not sheets[1].get(q("table:print-ranges")), "a fixed print area would stop printing the entries typed below it")
 
 
 def check_sheet(content, settings, source):

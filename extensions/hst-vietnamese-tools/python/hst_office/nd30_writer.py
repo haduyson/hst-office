@@ -7,6 +7,7 @@ border of the computed width, exactly as the .ott renderer (scripts/templates/wr
 `check_insertion_point` first: nothing is written when it reports blockers.
 """
 from . import nd30_page
+from .nd30_layout import portable_blocks
 from .nd30_text import PARAGRAPH_BREAK, border, format_paragraph, format_run, pt_to_mm100
 from .undo import undo_step
 
@@ -68,7 +69,8 @@ def _write_grid(doc, text, cur, block, text_mm, section_style=None):
     table.initialize(len(block["rows"]), len(pcts))
     text.insertTextContent(cur, table, False)
     if block.get("widthMm"):
-        table.HoriOrient, table.LeftMargin, table.RightMargin = 3, 0, max(0, int((text_mm - block["widthMm"]) * 100))  # LEFT
+        # LEFT_AND_WIDTH: a LEFT table keeps the full text width and ignores RightMargin (the 50 mm stamp spanned the page)
+        table.HoriOrient, table.LeftMargin, table.Width = 7, 0, int(round(block["widthMm"] * 100))
     else:
         table.HoriOrient = 6  # FULL: stretch to the text area
     if block.get("new_section"):
@@ -81,6 +83,7 @@ def _write_grid(doc, text, cur, block, text_mm, section_style=None):
     table.TopMargin = pt_to_mm100(block.get("spacing_before_pt", 0))
     table.BottomMargin = pt_to_mm100(block.get("spacing_after_pt", 0))
     table.Split = block.get("name") != "Signature"
+    table.KeepTogether = bool(block.get("keep_with_next"))  # keep with the next paragraph
     separators, position = table.TableColumnSeparators, 0.0
     for index, pct in enumerate(pcts[:-1]):
         position += pct
@@ -131,9 +134,9 @@ def _position(doc, text, view_cursor, flow):
     return cur
 
 
-def _write_blocks(doc, text, cur, layout, section_style):
+def _write_blocks(doc, text, cur, layout, blocks, section_style):
     text_mm = layout["textWidthMm"]
-    for block in layout["blocks"]:
+    for block in blocks:
         if block["type"] == "grid":
             _write_grid(doc, text, cur, block, text_mm, section_style)
             continue
@@ -146,6 +149,24 @@ def _write_blocks(doc, text, cur, layout, section_style):
         text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
         if block.get("new_section"):
             cur.BreakType = uno_break_none()
+
+
+def _shrink_end(doc, text, cur, blocks):
+    """The empty paragraph left after the inserted document (Writer keeps one after a closing table) is set to 1 pt and
+    the document keeps with it, so it cannot spill onto a blank last page; only at the end of the document."""
+    if not blocks:
+        return
+    probe = text.createTextCursorByRange(cur)
+    probe.gotoStartOfParagraph(False)
+    probe.gotoEndOfParagraph(True)
+    end = text.createTextCursorByRange(cur)
+    end.gotoEndOfParagraph(False)
+    if probe.getString() or text.compareRegionEnds(end, text.getEnd()) != 0:
+        return
+    format_paragraph(probe, {"align": "left"}, 0)
+    probe.CharHeight = 1.0
+    if blocks[-1]["type"] == "paragraph" and probe.gotoPreviousParagraph(False):
+        probe.ParaKeepTogether = True  # keep with next
 
 
 def uno_break_none():
@@ -164,12 +185,17 @@ def insert_layout(doc, view_cursor, layout, margins_mm=None, apply_page=False, p
     result = {"blockers": [], "page": None}
     flow = layout.get("flow")
     section_style = None
+    blocks, footer = portable_blocks(layout)
     if layout.get("page"):
         result["page"] = nd30_page.apply_custom_page(doc, view_cursor, layout["page"])
     elif apply_page and not flow:  # before the undo step: page styles are not undoable (see nd30_page)
-        result["page"] = nd30_page.apply_page_layout(doc, view_cursor, margins_mm, page_numbers, layout.get("profile", "nd30"))
-        if page_numbers and not result["page"]["headerSkipped"] and any(b.get("new_section") for b in layout["blocks"]):
+        result["page"] = nd30_page.apply_page_layout(doc, view_cursor, margins_mm, page_numbers, layout.get("profile", "nd30"), footer, layout["textWidthMm"])
+        if page_numbers and not result["page"]["headerSkipped"] and any(b.get("new_section") for b in blocks):
             section_style = nd30_page.section_style(doc, view_cursor)
+    if footer and not (result["page"] or {}).get("firstFooter"):
+        blocks = blocks + [b for b in layout["blocks"] if b.get("role") == "Contact"]  # no footer of ours: under the signature
     with undo_step(doc, undo_title):
-        _write_blocks(doc, text, _position(doc, text, view_cursor, flow), layout, section_style)
+        cur = _position(doc, text, view_cursor, flow)
+        _write_blocks(doc, text, cur, layout, blocks, section_style)
+        _shrink_end(doc, text, cur, blocks)
     return result

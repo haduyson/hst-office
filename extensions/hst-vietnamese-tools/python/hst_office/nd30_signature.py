@@ -73,7 +73,10 @@ def signature_blocks(t, fields, d):
     if structure == "minutes":
         secretary = signer_cell("THƯ KÝ", value(fields, "secretaryName", ph), d)
         chair = signer_cell(value(fields, "signerAuthority", {"signerAuthority": "CHỦ TỌA"}), value(fields, "signerName", ph), d, title)
-        return [_grid("Signature", pct, [[secretary, chair]])] + recipients_cell(t, fields, d)
+        # the recipients follow the two signatures: they stay on the signatures' page, the heading with its list
+        received = recipients_cell(t, fields, d)
+        received = [{**p, "keep_with_next": True} for p in received[:-1]] + received[-1:]
+        return [{**_grid("Signature", pct, [[secretary, chair]]), "keep_with_next": True}] + received
     if structure == "parties":
         left, right = t["signers"]
         hint = t.get("signerHint", "")

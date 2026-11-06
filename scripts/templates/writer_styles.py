@@ -60,6 +60,10 @@ class Styles:
                              "fo:text-indent": "0mm", "fo:line-height": "100%", "fo:border-bottom": RULE_WIDTH, "fo:padding": "0mm"}, {"fo:font-size": "1pt"})
         return name
 
+    def document_end(self):
+        self.named["DocumentEnd"] = ({"fo:margin-top": "0pt", "fo:margin-bottom": "0pt", "fo:text-indent": "0mm", "fo:line-height": "100%"}, {"fo:font-size": "1pt"})
+        return "DocumentEnd"
+
     def empty(self):
         self.named["EmptyCell"] = ({"fo:margin-bottom": "0pt", "fo:text-indent": "0mm"}, {"fo:font-size": "1pt"})
         return "EmptyCell"
@@ -100,7 +104,7 @@ class Styles:
         return self.auto[key]
 
 
-def _page_layout(automatic, rules, page):
+def _page_layout(automatic, rules, page, footer=False):
     size, margins = rules["pageSizeMm"], rules["defaultMarginsMm"]
     header_mm = rules["pageHeaderMm"]
     layout = node(automatic, "style:page-layout", {"style:name": "Layout"})
@@ -110,21 +114,31 @@ def _page_layout(automatic, rules, page):
         return
     # The body starts at the top margin: the header is the fixed-height band just above it (same as nd30_page).
     edges = {**{f"fo:margin-{side}": f"{value}mm" for side, value in margins.items()}, "fo:margin-top": f'{margins["top"] - header_mm:g}mm'}
+    if footer:  # the first-page footer band sits in the bottom margin, the body still ends at the bottom margin
+        edges["fo:margin-bottom"] = f'{margins["bottom"] - header_mm:g}mm'
     node(layout, "style:page-layout-properties", {"fo:page-width": f'{size["width"]}mm', "fo:page-height": f'{size["height"]}mm',
          "style:print-orientation": "portrait", "style:num-format": "1", **edges})
     band = node(layout, "style:header-style")
     node(band, "style:header-footer-properties", {"svg:height": f"{header_mm}mm", "fo:margin-bottom": "0mm", "style:dynamic-spacing": "false"})
+    if footer:
+        band = node(layout, "style:footer-style")
+        node(band, "style:header-footer-properties", {"fo:min-height": f"{header_mm}mm", "fo:margin-top": "0mm", "style:dynamic-spacing": "false"})
 
 
-def _master(masters, name, numbered):
+def _master(masters, name, numbered, band=False, footer=()):
     master = node(masters, "style:master-page", {"style:name": name, "style:page-layout-name": "Layout"})
     if numbered:
         number = paragraph(node(master, "style:header"), name="PageNumber")
         node(number, "text:page-number", {"text:select-page": "current"}, "2")
         paragraph(node(master, "style:header-first"), name="PageNumber")
+    if band:  # pages after the first keep an empty footer band; the first page shows the contact details
+        paragraph(node(master, "style:footer"), name="DocumentEnd")
+        first = node(master, "style:footer-first") if footer else None
+        for style_name, block in footer:
+            paragraph(first, block["runs"][0]["text"], name=style_name)
 
 
-def build(rules, styles, page=None):
+def build(rules, styles, page=None, footer=(), footer_styles=()):
     root = document("styles")
     fonts(root, writer=True)
     office = node(root, "office:styles")
@@ -137,9 +151,9 @@ def build(rules, styles, page=None):
         style(office, name, "paragraph", {"paragraph": props, "text": text})
     style(office, "PageNumber", "paragraph", {"paragraph": {"fo:text-align": "center", "fo:text-indent": "0mm", "fo:margin-bottom": "0pt"},
                                               "text": {"fo:font-size": f'{t["pageNumber"]}pt', "fo:font-weight": "normal", "fo:font-style": "normal"}})
-    _page_layout(node(root, "office:automatic-styles"), rules, page)
+    _page_layout(node(root, "office:automatic-styles"), rules, page, bool(footer))
     masters = node(root, "office:master-styles")
-    _master(masters, "Standard", not page)
+    _master(masters, "Standard", not page, bool(footer), list(zip(footer_styles, footer)))
     if styles.attached:
-        _master(masters, "Attached", True)
+        _master(masters, "Attached", True, bool(footer))
     return xml(root)

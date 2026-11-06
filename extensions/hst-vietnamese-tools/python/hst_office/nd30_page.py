@@ -19,7 +19,9 @@ MM = 100  # UNO lengths are in 1/100 mm
 HEADER_HEIGHT_MM = 10.0  # LibreOffice writes DOCX w:top = TopMargin + header height; the gap is dropped, so keep it 0
 HEADER_GAP_MM = 0.0
 PROPERTIES = ("IsLandscape", "Width", "Height", "TopMargin", "BottomMargin", "LeftMargin", "RightMargin",
-              "HeaderIsOn", "FirstIsShared", "HeaderIsDynamicHeight", "HeaderHeight", "HeaderBodyDistance")
+              "HeaderIsOn", "FirstIsShared", "HeaderIsDynamicHeight", "HeaderHeight", "HeaderBodyDistance",
+              "FooterIsOn", "FooterIsDynamicHeight", "FooterHeight", "FooterBodyDistance")
+FOOTER_HEIGHT_MM = 10.0  # the first-page footer (contact details of an official letter) is a band in the bottom margin
 
 
 def mm(value):
@@ -31,7 +33,7 @@ def page_style_for(doc, cursor):
     return name, doc.getStyleFamilies().getByName("PageStyles").getByName(name)
 
 
-def plan_properties(margins_mm, page_numbers, existing_header_mm=0.0, profile="nd30"):
+def plan_properties(margins_mm, page_numbers, existing_header_mm=0.0, profile="nd30", footer=False):
     """Desired property values (margins validated first). `existing_header_mm` is the height + gap of a header the
     style already has: the body must still start at the ND30 top margin, so it is subtracted from TopMargin.
     Raises ValueError listing out-of-range sides."""
@@ -48,6 +50,9 @@ def plan_properties(margins_mm, page_numbers, existing_header_mm=0.0, profile="n
         values.update({"HeaderIsOn": True, "FirstIsShared": False, "HeaderIsDynamicHeight": False,
                        "HeaderHeight": mm(HEADER_HEIGHT_MM), "HeaderBodyDistance": mm(HEADER_GAP_MM),
                        "TopMargin": mm(top - HEADER_HEIGHT_MM - HEADER_GAP_MM)})
+    if footer:  # Decree 30, Annex I, I.III.4: contact details on the first page; the body still ends at the bottom margin
+        values.update({"FooterIsOn": True, "FirstIsShared": False, "FooterIsDynamicHeight": True, "FooterHeight": mm(FOOTER_HEIGHT_MM),
+                       "FooterBodyDistance": 0, "BottomMargin": mm(float(margins_mm["bottom"]) - FOOTER_HEIGHT_MM)})
     return values
 
 
@@ -66,20 +71,44 @@ def _write_page_number(doc, style, profile="nd30"):
     format_run(cur, {"size": profile_rules(profile)["typography"]["pageNumber"], "bold": False, "italic": False})
 
 
+def _write_first_footer(style, blocks, text_mm):
+    from .nd30_text import PARAGRAPH_BREAK, format_paragraph, format_run
+    style.FooterText.setString("")
+    footer = style.FooterTextFirst
+    footer.setString("")
+    cur = footer.createTextCursor()
+    for index, block in enumerate(blocks):
+        if index:
+            footer.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        format_paragraph(cur, block, text_mm)
+        for item in block["runs"]:
+            footer.insertString(cur, item["text"], True)
+            format_run(cur, item)
+            cur.collapseToEnd()
+
+
+def _is_user_footer(style):
+    if not style.FooterIsOn:
+        return False
+    return any(t.getString().strip() for t in (style.FooterText, style.FooterTextFirst) if t is not None)
+
+
 def _is_user_header(style):
     """A header only counts as the user's when it says something; an empty one or a lone page number is ours to set."""
     text = style.HeaderText.getString().strip() if style.HeaderIsOn else ""
     return bool(text) and not text.isdigit()
 
 
-def apply_page_layout(doc, cursor, margins_mm=None, page_numbers=True, profile="nd30"):
-    """Apply the layout to the cursor's page style (not undoable, see module doc). Returns a summary dict."""
+def apply_page_layout(doc, cursor, margins_mm=None, page_numbers=True, profile="nd30", first_footer=(), text_mm=None):
+    """Apply the layout to the cursor's page style (not undoable, see module doc). Returns a summary dict.
+    `first_footer` (paragraph blocks) goes into the first-page footer unless the style already has a footer of the user."""
     name, style = page_style_for(doc, cursor)
     header_skipped = bool(page_numbers and _is_user_header(style))
     if header_skipped:
         page_numbers = False  # never overwrite a header the user already has
+    footer = bool(first_footer) and not _is_user_footer(style)
     existing = (style.HeaderHeight + style.HeaderBodyDistance) / MM if style.HeaderIsOn else 0.0
-    wanted = plan_properties(margins_mm or profile_rules(profile)["defaultMarginsMm"], page_numbers, existing, profile)
+    wanted = plan_properties(margins_mm or profile_rules(profile)["defaultMarginsMm"], page_numbers, existing, profile, footer)
     before = style_snapshot(style, PROPERTIES)
     cleared = False
     if page_numbers:
@@ -92,6 +121,8 @@ def apply_page_layout(doc, cursor, margins_mm=None, page_numbers=True, profile="
                     style.setPropertyValue(key, wanted[key])
             if page_numbers:
                 _write_page_number(doc, style, profile)
+            if footer:
+                _write_first_footer(style, first_footer, text_mm or (style.Width - style.LeftMargin - style.RightMargin) / MM)
     except BaseException:
         with undo_locked(doc):
             for key in PROPERTIES:
@@ -99,7 +130,7 @@ def apply_page_layout(doc, cursor, margins_mm=None, page_numbers=True, profile="
                     style.setPropertyValue(key, before[key])
         raise
     body_top = style.TopMargin + (style.HeaderHeight + style.HeaderBodyDistance if style.HeaderIsOn else 0)
-    return {"pageStyle": name, "pageNumbers": page_numbers, "headerSkipped": header_skipped,
+    return {"pageStyle": name, "pageNumbers": page_numbers, "headerSkipped": header_skipped, "firstFooter": footer,
             "undoHistoryCleared": cleared, "bodyTopMm": body_top / MM}
 
 

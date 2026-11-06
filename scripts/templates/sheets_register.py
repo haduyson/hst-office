@@ -36,8 +36,8 @@ def _cover(body, source):
 
 def _register(body, source):
     columns = source["columns"]
-    last = chr(64 + len(columns))
-    sheet = node(body, "table:table", {"table:name": "Sổ", "table:style-name": "Sheet", "table:print-ranges": f"'Sổ'.$A$1:${last}${ROWS + 2}"})
+    # No fixed print range: a register grows downward entry by entry and every entry must print (the used area does)
+    sheet = node(body, "table:table", {"table:name": "Sổ", "table:style-name": "Sheet"})
     for index in range(len(columns)):
         node(sheet, "table:table-column", {"table:style-name": f"Col{index}"})
     headers = node(sheet, "table:table-header-rows")

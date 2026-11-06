@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """ODF renderer of the shared document layout: the .ott templates are hst_office.nd30_layout, written directly as XML."""
 from .odf import document, fonts, node, paragraph, style, xml
-from .writer_layout import build_layout
+from .writer_layout import build_layout, portable_blocks
 from .writer_styles import build as style_document, Styles
 
 
@@ -35,6 +35,8 @@ def _grid(parent, block, text_mm, styles, auto, index):
         table_props["fo:margin-top"] = f'{block["spacing_before_pt"]:g}pt'
     if block.get("spacing_after_pt"):
         table_props["fo:margin-bottom"] = f'{block["spacing_after_pt"]:g}pt'
+    if block.get("keep_with_next"):
+        table_props["fo:keep-with-next"] = "always"
     extra = {}
     if block.get("new_section"):  # the attached document of forms 1.3 and 15 numbers its pages from 1
         table_props["style:page-number"] = "1"
@@ -74,9 +76,16 @@ def build(source, rules):
     auto = node(root, "office:automatic-styles")
     text = node(node(root, "office:body"), "office:text")
     styles = Styles(rules)
-    for index, block in enumerate(layout["blocks"]):
+    blocks, footer = portable_blocks(layout)
+    for index, block in enumerate(blocks):
         if block["type"] == "grid":
             _grid(text, block, layout["textWidthMm"], styles, auto, index)
         else:
             _paragraph(text, block, layout["textWidthMm"], styles, auto)
-    return {"content.xml": xml(root), "styles.xml": style_document(rules, styles, layout.get("page"))}
+    if blocks and blocks[-1]["type"] == "grid":
+        # Writer always keeps a paragraph after a closing table; at 1 pt it cannot spill onto a blank last page
+        paragraph(text, name=styles.document_end())
+    if footer:
+        styles.document_end()  # the empty footer of the pages after the first
+    first_footer = [styles.paragraph(b) for b in footer]
+    return {"content.xml": xml(root), "styles.xml": style_document(rules, styles, layout.get("page"), footer, first_footer)}
