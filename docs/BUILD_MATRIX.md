@@ -79,6 +79,27 @@ một major upgrade như upstream.
   Office chưa ai giữ, của WordPad hoặc của chính HST, không lấy của LibreOffice. Giữ nguyên: AppUserModelID, CLSID OLE
   và tên kiểu lưu trữ OLE ghi vào tài liệu. Mặc định `.odt`/`.ods`/`.odp` vẫn là của bộ cài sau cùng, và gỡ một bộ sẽ xóa
   giá trị mặc định đó (ProgID và lệnh mở của bộ còn lại không bị ảnh hưởng).
+- Tên khác cũng tách khỏi LibreOffice (đều là patch nối cuối series, kiểm tra bằng
+  [`test_windows_coexist_registry.py`](../tests/unit/test_windows_coexist_registry.py) và
+  [`smoke-coexist-registry.ps1`](../scripts/windows/smoke-coexist-registry.ps1) trong windows-smoke):
+  - ProgID định dạng cũ StarOffice 6/OpenOffice.org 1 là `HSTOffice.Star*` thay cho `soffice.Star*`
+    ([`hst-windows-own-legacy-progids.patch`](../patches/libreoffice/hst-windows-own-legacy-progids.patch)).
+  - Không ghi `App Paths\soffice.exe`, `swriter.exe`, `scalc.exe`, `simpress.exe`, `sdraw.exe`, `smath.exe`,
+    `sbase.exe`, `unopkg.exe` (cùng tên chương trình với LibreOffice; không đổi tên tệp .exe)
+    ([`hst-windows-no-app-paths.patch`](../patches/libreoffice/hst-windows-no-app-paths.patch)).
+  - Không đăng ký URI scheme `vnd.libreoffice.command` với Windows; dòng lệnh của office vẫn hiểu nó. Các scheme
+    `ms-word`/`ms-excel`/… trong Capabilities trỏ tới ProgID `HSTOffice.OfficeURI` (không phải scheme)
+    ([`hst-windows-no-libreoffice-uri-scheme.patch`](../patches/libreoffice/hst-windows-no-libreoffice-uri-scheme.patch)).
+  - Phần mở rộng Explorer (infotip, cột, trang thuộc tính, ảnh thu nhỏ, property handler, IFilter và persistent
+    handler) có CLSID riêng, trong mã và trong scp2; infotip và ảnh thu nhỏ gắn vào ProgID `HSTOffice.*` thay vì khóa
+    `.odt`/`.ods`/… dùng chung. Persistent handler và property handler Windows chỉ đọc theo phần mở rộng, nên vẫn là
+    của bộ cài sau cùng (như mặc định `.odt`)
+    ([`hst-windows-own-shell-extension-clsids.patch`](../patches/libreoffice/hst-windows-own-shell-extension-clsids.patch)).
+    **CLSID của server nhúng OLE giữ nguyên**: tài liệu lưu CLSID đó, đổi sẽ làm đối tượng nhúng trong tài liệu cũ
+    (và tài liệu tạo bằng ứng dụng khác) không mở được.
+  - Khóa `Software\LibreOffice\…` (Layers, URE, Path) chuyển sang `Software\HASON TECH\…`; khóa gỡ cài đặt cũ ghi
+    nhà phát hành HASON TECH ([`hst-windows-own-registry-keys.patch`](../patches/libreoffice/hst-windows-own-registry-keys.patch)).
+    Custom action `MigrateInstallPath` vẫn đọc khóa Layers cũ để giữ thư mục cài của beta 1–4.
 - Beta 1–4 ghi ProgID `LibreOffice.*` và `Software\LibreOffice\UNO\InstallPath`, trùng LibreOffice. Gỡ bản beta (kể cả
   khi cài beta.5 lên) xóa các khóa đó, nên LibreOffice cài cùng máy mất lệnh mở tệp cho tới khi chạy Repair LibreOffice
   (ghi trong ghi chú phát hành beta.5).
