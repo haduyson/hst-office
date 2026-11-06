@@ -141,6 +141,24 @@ Không chạy bộ sinh vào thư mục mẫu cá nhân. Việc xuất hiện tr
 Template Manager và mở thành tài liệu chưa đặt tên cần được xác minh trên bộ
 HST đã cài; tệp cấu hình riêng lẻ chưa chứng minh tích hợp thành công.
 
+## Văn bản nhiều trang
+
+```bash
+python3 tests/runtime/check-templates-multipage.py [--only cong-van ...] [--pages 1 2 3 5]
+```
+
+Với mỗi mẫu Writer và văn bản cùng loại tạo bằng "Văn bản hành chính", bộ kiểm tra thêm đoạn văn và danh sách đánh số tiếng
+Việt cho tới khi văn bản dài 1, 2, 3, 5 trang (biểu mẫu kẻ bảng thì thêm dòng), xuất PDF/ODT/DOCX/DOC, mở lại rồi đo từng
+trang: lề, số trang (không có ở trang đầu, canh giữa lề trên, liên tục), khối đầu văn bản chỉ ở trang 1, khối chữ ký và
+"Nơi nhận" cùng trang, không có trang trắng, phông chữ, và thuộc tính section của DOCX. Sổ đăng ký được nhập 120 dòng và
+phải in đủ, lặp dòng tiêu đề mỗi trang. Quy tắc ở [multipage.json](../tests/fixtures/templates/multipage.json); kiểm tra
+nhanh không cần office: `tests/unit/test_templates_multipage.py`.
+
+Hai đường tạo văn bản dùng chung `nd30_layout.portable_blocks()` để bản DOCX/DOC giữ bố cục: khoảng cách trên/dưới bảng
+được chuyển vào đoạn văn (Word không có thuộc tính này cho bảng), ngắt trang mở văn bản kèm theo nằm ở một đoạn 1 pt
+(bộ lọc DOC bỏ ngắt trang gắn vào bảng), đoạn trống cuối sau bảng chữ ký cỡ 1 pt và bảng chữ ký đi cùng nó (không sinh trang
+trắng chỉ có số trang). Sổ đăng ký không đặt vùng in cố định để mọi dòng nhập thêm đều được in.
+
 ## Kiểm tra runtime và giới hạn bằng chứng
 
 ```bash
