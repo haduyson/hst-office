@@ -39,10 +39,11 @@ jobs:
       fail-fast: false
       matrix:
         # commands: the MSI alone, every HST command and the update helper.
-        # libreoffice-first: the official LibreOffice MSI first, then HST Office; both stay installed and both start.
+        # libreoffice-first / hst-first: the official LibreOffice MSI and HST Office in either order; both keep their own
+        # ProgIDs, open commands and UNO install path and both start; uninstalling the second leaves the first intact.
         # upgrade-from-beta4: HST beta.4 (installed under LibreOffice's UpgradeCode), then the new MSI; beta.4 is
         # replaced and Programs and Features has one HST Office entry. Each scenario runs on a fresh runner.
-        scenario: ${{ fromJSON(inputs.install_paths && '["commands","libreoffice-first","upgrade-from-beta4"]' || '["commands"]') }}
+        scenario: ${{ fromJSON(inputs.install_paths && '["commands","libreoffice-first","hst-first","upgrade-from-beta4"]' || '["commands"]') }}
     env:
       # Current LibreOffice stable for Windows x64 (26.8.2.2), GPG-signed by the LibreOffice build key
       # C2839ECAD9408FBE9531C3E9F434A1EFAFEEAEA3; the archive keeps the same file after stable/ moves on.
@@ -158,7 +159,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           # Upgrade and Property tables: HST Office's own UpgradeCode, bounded removal of the LibreOffice-coded betas.
           python -I -W ignore::DeprecationWarning scripts/check-msi-upgrade.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-upgrade-rules.txt"
-      - name: Download the first installer
+      - name: Download the other installer (LibreOffice or HST beta.4)
         if: ${{ matrix.scenario != 'commands' }}
         shell: bash
         env:
@@ -166,15 +167,15 @@ jobs:
           SCENARIO: ${{ matrix.scenario }}
         run: |
           set -euo pipefail
-          if [ "$SCENARIO" = libreoffice-first ]; then
+          if [ "$SCENARIO" != upgrade-from-beta4 ]; then
             mkdir -p "$RUNNER_TEMP/first"
             cd "$RUNNER_TEMP/first"
             msi=LibreOffice_26.8.2_Win_x86-64.msi
             curl -fsSL --retry 3 -o "$msi" "$LO_MSI_URL" || curl -fsSL --retry 3 -o "$msi" "$LO_MSI_ARCHIVE_URL"
             echo "$LO_MSI_SHA256  $msi" | sha256sum -c
-            echo "FIRST_MSI=$(cygpath -w "$PWD/$msi")" >> "$GITHUB_ENV"
+            echo "OTHER_MSI=$(cygpath -w "$PWD/$msi")" >> "$GITHUB_ENV"
           else
-            RUN_ID='' RELEASE_TAG=v1.0.0-beta.4 bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/first" FIRST_MSI
+            RUN_ID='' RELEASE_TAG=v1.0.0-beta.4 bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/first" OTHER_MSI
           fi
       - name: Install both and check them
         if: ${{ matrix.scenario != 'commands' }}
@@ -183,7 +184,7 @@ jobs:
           SCENARIO: ${{ matrix.scenario }}
         run: |
           set -euo pipefail
-          pwsh -NoProfile -File scripts/windows/smoke-install-paths.ps1 -Scenario "$SCENARIO" -HstMsi "$HST_MSI" -FirstMsi "$FIRST_MSI" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
+          pwsh -NoProfile -File scripts/windows/smoke-install-paths.ps1 -Scenario "$SCENARIO" -HstMsi "$HST_MSI" -OtherMsi "$OTHER_MSI" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
       - name: Upload install-path evidence
         if: ${{ always() && matrix.scenario != 'commands' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

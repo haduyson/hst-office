@@ -1,14 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Windows smoke: HST Office installs next to LibreOffice, and replaces the betas installed under LibreOffice's code.
-#   smoke-install-paths.ps1 -Scenario libreoffice-first|upgrade-from-beta4 -HstMsi <msi> -FirstMsi <msi> -Out <dir>
-#   libreoffice-first:  FirstMsi is the official LibreOffice MSI. After both installs, both products stay
-#                       registered, each has one Programs and Features entry, and each office starts.
-#   upgrade-from-beta4: FirstMsi is the HST Office beta.4 MSI (LibreOffice's UpgradeCode). After the new
+#   smoke-install-paths.ps1 -Scenario <name> -HstMsi <msi> -OtherMsi <msi> -Out <dir>
+#   libreoffice-first:  OtherMsi is the official LibreOffice MSI, installed first, then HST Office. Both stay
+#                       registered with one Programs and Features entry each, keep their own ProgIDs, open
+#                       commands and UNO install path, and both start. HST Office is then uninstalled:
+#                       LibreOffice keeps its ProgIDs, .docx and install path, and still starts.
+#   hst-first:          the same with HST Office first; LibreOffice is uninstalled and HST Office keeps its own.
+#   upgrade-from-beta4: OtherMsi is the HST Office beta.4 MSI (LibreOffice's UpgradeCode). After the new
 #                       MSI, beta.4 is gone, one HST Office entry is left, and it starts from the same folder.
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('libreoffice-first', 'upgrade-from-beta4')][string]$Scenario,
+    [Parameter(Mandatory=$true)][ValidateSet('libreoffice-first', 'hst-first', 'upgrade-from-beta4')][string]$Scenario,
     [Parameter(Mandatory=$true)][string]$HstMsi,
-    [Parameter(Mandatory=$true)][string]$FirstMsi,
+    [Parameter(Mandatory=$true)][string]$OtherMsi,
     [Parameter(Mandatory=$true)][string]$Out
 )
 $ErrorActionPreference = 'Stop'
@@ -57,12 +60,49 @@ function Install-Msi([string]$Msi, [string]$Name) {
     Assert ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) "$Name installs (msiexec exit $($p.ExitCode), log $log)"
 }
 
+function Get-RegDefault([string]$Key) {
+    # Default value of a registry key, or $null when the key or value is missing.
+    $item = Get-Item -LiteralPath "Registry::$Key" -ErrorAction SilentlyContinue
+    if ($item) { $item.GetValue('') } else { $null }
+}
+
+function Get-Associations {
+    # What each suite registered: ProgID open commands, the .odt/.docx defaults and the UNO install paths.
+    [ordered]@{
+        lo_odt_open = Get-RegDefault 'HKEY_CLASSES_ROOT\LibreOffice.WriterDocument.1\shell\open\command'
+        lo_docx_open = Get-RegDefault 'HKEY_CLASSES_ROOT\LibreOffice.Docx\shell\open\command'
+        hst_odt_open = Get-RegDefault 'HKEY_CLASSES_ROOT\HSTOffice.WriterDocument.1\shell\open\command'
+        hst_docx_open = Get-RegDefault 'HKEY_CLASSES_ROOT\HSTOffice.Docx\shell\open\command'
+        odt_default = Get-RegDefault 'HKEY_CLASSES_ROOT\.odt'
+        docx_default = Get-RegDefault 'HKEY_CLASSES_ROOT\.docx'
+        lo_install_path = Get-RegDefault 'HKEY_LOCAL_MACHINE\SOFTWARE\LibreOffice\UNO\InstallPath'
+        hst_install_path = Get-RegDefault 'HKEY_LOCAL_MACHINE\SOFTWARE\HASON TECH\HST Office\UNO\InstallPath'
+    }
+}
+
+function Assert-Owns([System.Collections.IDictionary]$Reg, [string]$Suite, [string]$Location) {
+    # The suite's ProgIDs open its own program and its UNO install path is its own program folder.
+    $program = (Join-Path $Location 'program').TrimEnd('\')
+    foreach ($k in "$($Suite)_odt_open", "$($Suite)_docx_open") {
+        Assert ($Reg[$k] -and $Reg[$k].IndexOf($program, [StringComparison]::OrdinalIgnoreCase) -ge 0) "$k opens $program ($($Reg[$k]))"
+    }
+    Assert ($Reg["$($Suite)_install_path"] -and $Reg["$($Suite)_install_path"].TrimEnd('\') -ieq $program) "$($Suite)_install_path is $program ($($Reg["$($Suite)_install_path"]))"
+}
+
+function Uninstall-Product([string]$ProductCode, [string]$Name) {
+    $log = Join-Path $Out "$Name-uninstall.log"
+    $p = Start-Process msiexec.exe -PassThru -ArgumentList '/x', $ProductCode, '/qn', '/norestart', '/l*v', "`"$log`""
+    if (-not $p.WaitForExit(1200000)) { throw "FAIL: $Name did not finish uninstalling within 20 minutes (log $log)" }
+    Assert ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) "$Name uninstalls (msiexec exit $($p.ExitCode), log $log)"
+}
+
 function Show-State([string]$Label) {
     $state = [pscustomobject]@{
         label = $Label
         hst = @(Get-Related $HstCode)
         libreoffice_code = @(Get-Related $LibreOfficeCode)
         arp = @((@(Get-ArpEntries 'HST Office') + @(Get-ArpEntries 'LibreOffice')) | Select-Object DisplayName, DisplayVersion, PSChildName)
+        registry = Get-Associations
     }
     $json = $state | ConvertTo-Json -Depth 4
     Set-Content -LiteralPath (Join-Path $Out "state-$Label.json") -Value $json -Encoding UTF8
@@ -91,21 +131,49 @@ function Assert-Starts([string]$Location, [string]$Expect, [string]$Name) {
     Assert (Test-Path -LiteralPath (Join-Path $work 'start.pdf')) "$Name starts and converts a document (exit $($p.ExitCode))"
 }
 
-if ($Scenario -eq 'libreoffice-first') {
-    Install-Msi $FirstMsi 'libreoffice'
-    $before = Show-State 'after-libreoffice'
-    Assert ($before.libreoffice_code.Count -eq 1) 'LibreOffice is installed under its UpgradeCode'
-    Install-Msi $HstMsi 'hst-office'
-    $after = Show-State 'after-hst-office'
-    Assert ($after.libreoffice_code.Count -eq 1 -and $after.libreoffice_code[0].ProductCode -eq $before.libreoffice_code[0].ProductCode) 'LibreOffice is still installed after HST Office'
-    Assert ($after.hst.Count -eq 1) 'HST Office is installed under its own UpgradeCode'
+if ($Scenario -ne 'upgrade-from-beta4') {
+    $first, $second = if ($Scenario -eq 'libreoffice-first') { 'libreoffice', 'hst-office' } else { 'hst-office', 'libreoffice' }
+    $msi = @{ 'libreoffice' = $OtherMsi; 'hst-office' = $HstMsi }
+    Install-Msi $msi[$first] $first
+    $alone = Show-State "after-$first"
+    if ($first -eq 'hst-office') {
+        Assert (-not $alone.registry.lo_odt_open -and -not $alone.registry.lo_install_path) 'HST Office alone writes no LibreOffice ProgID or install path'
+        Assert-Owns $alone.registry 'hst' $alone.hst[0].Location
+    }
+    Install-Msi $msi[$second] $second
+    $both = Show-State 'after-both'
+    Assert ($both.libreoffice_code.Count -eq 1 -and $both.libreoffice_code[0].Name -like 'LibreOffice*') 'LibreOffice is installed under its UpgradeCode'
+    Assert ($both.hst.Count -eq 1) 'HST Office is installed under its own UpgradeCode'
     Assert ((Get-ArpEntries 'LibreOffice').Count -eq 1) 'one LibreOffice entry in Programs and Features'
     Assert ((Get-ArpEntries 'HST Office').Count -eq 1) 'one HST Office entry in Programs and Features'
-    Assert ($after.hst[0].Location -and $after.hst[0].Location -ne $after.libreoffice_code[0].Location) 'separate install folders'
-    Assert-Starts $after.libreoffice_code[0].Location 'LibreOffice 26\.8' 'libreoffice'
-    Assert-Starts $after.hst[0].Location 'HST Office' 'hst-office'
+    $lo, $hst = $both.libreoffice_code[0].Location, $both.hst[0].Location
+    Assert ($hst -and $hst -ne $lo) 'separate install folders'
+    Assert-Owns $both.registry 'lo' $lo
+    Assert-Owns $both.registry 'hst' $hst
+    # .docx: the second suite never takes a format the first already owns.
+    Write-Host ".docx default after $($first): $($alone.registry.docx_default)"
+    Assert ($both.registry.docx_default -eq $alone.registry.docx_default) ".docx keeps its owner after the second install ($($both.registry.docx_default))"
+    Assert-Starts $lo 'LibreOffice 26\.8' 'libreoffice'
+    Assert-Starts $hst 'HST Office' 'hst-office'
+    # Uninstall the second suite: the first keeps everything it registered.
+    $code = if ($second -eq 'hst-office') { $both.hst[0].ProductCode } else { $both.libreoffice_code[0].ProductCode }
+    Uninstall-Product $code $second
+    $left = Show-State "after-uninstall-$second"
+    if ($first -eq 'libreoffice') {
+        Assert ($left.hst.Count -eq 0 -and $left.libreoffice_code.Count -eq 1) 'only LibreOffice is left'
+        Assert-Owns $left.registry 'lo' $lo
+        Assert ($left.registry.docx_default -eq $alone.registry.docx_default) ".docx keeps LibreOffice's setting ($($left.registry.docx_default))"
+        Assert-Starts $lo 'LibreOffice 26\.8' 'libreoffice-after-uninstall'
+    } else {
+        Assert ($left.libreoffice_code.Count -eq 0 -and $left.hst.Count -eq 1) 'only HST Office is left'
+        Assert-Owns $left.registry 'hst' $hst
+        Assert ($left.registry.docx_default -eq $alone.registry.docx_default) ".docx keeps HST Office's setting ($($left.registry.docx_default))"
+        Assert-Starts $hst 'HST Office' 'hst-office-after-uninstall'
+    }
+    # .odt: each suite registers ODF unconditionally, so the last installer owns it and an uninstall clears it (recorded only).
+    Write-Host ".odt default: alone=$($alone.registry.odt_default) both=$($both.registry.odt_default) after uninstall=$($left.registry.odt_default)"
 } else {
-    Install-Msi $FirstMsi 'hst-office-beta4'
+    Install-Msi $OtherMsi 'hst-office-beta4'
     $before = Show-State 'after-beta4'
     Assert ($before.libreoffice_code.Count -eq 1 -and $before.libreoffice_code[0].Version -eq '1.0.0.1' -and $before.libreoffice_code[0].Name -like 'HST Office*') 'beta.4 is installed under LibreOffice''s UpgradeCode as 1.0.0.1'
     Install-Msi $HstMsi 'hst-office'
