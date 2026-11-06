@@ -24,7 +24,9 @@ that drops down under the ribbon, like a menu:
   is disposed) instead of being found among the children of the container window.
 - Keyboard: the key handling of the former PreNotify is a key-press handler of the panel (arrows, Home, End, Right
   into the page, the frame's shortcuts). Widgets that the code hides are no-show-all, because the GTK popup window
-  shows its contents with show_all.
+  shows its contents with show_all. The .ui children carry no packing position: they are in their visual order, and
+  VclBuilder (Windows, macOS, gen) put some of them out of order inside the popover. The anchor is in frame-window
+  coordinates for GTK and in the frame's client window for the other plugins, as each popover expects.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
@@ -1298,14 +1300,16 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
      std::unique_ptr<weld::TreeView> m_xOpenList;
 --- a/sfx2/uiconfig/ui/hstbackstage.ui
 +++ b/sfx2/uiconfig/ui/hstbackstage.ui
-@@ -1,5 +1,5 @@
+@@ -1,5 +1,7 @@
  <?xml version="1.0" encoding="UTF-8"?>
 -<!-- HST Office: full-window File view (backstage), see sfx2/source/backstage/hstbackstagewindow.cxx -->
-+<!-- HST Office: the File panel, a drop-down popover under the ribbon, see sfx2/source/backstage/hstbackstagewindow.cxx -->
++<!-- HST Office: the File panel, a drop-down popover under the ribbon, see sfx2/source/backstage/hstbackstagewindow.cxx.
++     The children are in their visual order and carry no packing position: VclBuilder (the VCL plugins of Windows,
++     macOS and gen) put some of them out of order inside the popover. -->
  <interface domain="sfx">
    <requires lib="gtk+" version="3.24"/>
    <object class="GtkImage" id="tileimg0">
-@@ -58,9 +58,12 @@
+@@ -58,9 +60,12 @@
        <column type="gchararray"/>
      </columns>
    </object>
@@ -1321,7 +1325,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
    </object>
    <object class="GtkMenu" id="recentmenu">
      <property name="visible">True</property>
-@@ -98,6 +101,27 @@
+@@ -98,6 +103,26 @@
        </object>
      </child>
    </object>
@@ -1342,14 +1346,13 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
 +      <packing>
 +        <property name="expand">False</property>
 +        <property name="fill">True</property>
-+        <property name="position">0</property>
 +      </packing>
 +    </child>
 +    <child>
    <object class="GtkBox" id="HstBackstage">
      <property name="visible">True</property>
      <property name="can-focus">False</property>
-@@ -109,29 +133,8 @@
+@@ -109,29 +134,8 @@
          <property name="can-focus">False</property>
          <property name="vexpand">True</property>
          <property name="orientation">vertical</property>
@@ -1381,7 +1384,31 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
          <child>
            <object class="GtkButton" id="navhome">
              <property name="label" translatable="yes" context="hstbackstage|navhome">Home</property>
-@@ -182,10 +185,10 @@
+@@ -144,7 +148,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">1</property>
+           </packing>
+         </child>
+         <child>
+@@ -159,7 +162,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">2</property>
+           </packing>
+         </child>
+         <child>
+@@ -174,7 +176,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">3</property>
+           </packing>
+         </child>
+         <child>
+@@ -182,15 +183,14 @@
              <property name="visible">True</property>
              <property name="can-focus">False</property>
              <property name="height-request">1</property>
@@ -1396,7 +1423,99 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
            </object>
            <packing>
              <property name="expand">False</property>
-@@ -354,18 +357,18 @@
+             <property name="fill">True</property>
+-            <property name="position">4</property>
+           </packing>
+         </child>
+         <child>
+@@ -205,7 +205,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">5</property>
+           </packing>
+         </child>
+         <child>
+@@ -220,7 +219,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">6</property>
+           </packing>
+         </child>
+         <child>
+@@ -235,7 +233,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">7</property>
+           </packing>
+         </child>
+         <child>
+@@ -250,7 +247,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">8</property>
+           </packing>
+         </child>
+         <child>
+@@ -265,7 +261,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">9</property>
+           </packing>
+         </child>
+         <child>
+@@ -280,7 +275,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">10</property>
+           </packing>
+         </child>
+         <child>
+@@ -295,7 +289,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">11</property>
+           </packing>
+         </child>
+         <child>
+@@ -307,7 +300,6 @@
+           <packing>
+             <property name="expand">True</property>
+             <property name="fill">True</property>
+-            <property name="position">12</property>
+           </packing>
+         </child>
+         <child>
+@@ -322,7 +314,6 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">13</property>
+           </packing>
+         </child>
+         <child>
+@@ -337,14 +328,12 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">14</property>
+           </packing>
+         </child>
+       </object>
+       <packing>
+         <property name="expand">False</property>
+         <property name="fill">True</property>
+-        <property name="position">0</property>
+       </packing>
+     </child>
+     <child>
+@@ -354,18 +343,18 @@
          <property name="hexpand">True</property>
          <property name="vexpand">True</property>
          <property name="orientation">vertical</property>
@@ -1420,7 +1539,22 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
              <child>
                <object class="GtkLabel" id="greeting">
                  <property name="visible">True</property>
-@@ -396,14 +399,15 @@
+@@ -376,7 +365,6 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">0</property>
+               </packing>
+             </child>
+             <child>
+@@ -389,21 +377,21 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">1</property>
+               </packing>
+             </child>
+             <child>
                <object class="GtkBox" id="tiles">
                  <property name="visible">True</property>
                  <property name="can-focus">False</property>
@@ -1438,7 +1572,15 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                      <child>
                        <object class="GtkButton" id="tile0">
                          <property name="visible">True</property>
-@@ -425,7 +429,7 @@
+@@ -416,7 +404,6 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">0</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -425,30 +412,29 @@
                          <property name="can-focus">False</property>
                          <property name="xalign">0</property>
                          <property name="wrap">True</property>
@@ -1447,7 +1589,19 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                          <property name="margin-start">4</property>
                          <property name="mnemonic-widget">tile0</property>
                        </object>
-@@ -445,10 +449,11 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">1</property>
+                       </packing>
+                     </child>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">0</property>
+                   </packing>
+                 </child>
                  <child>
                    <object class="GtkBox" id="tilebox1">
                      <property name="visible">True</property>
@@ -1460,7 +1614,15 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                      <child>
                        <object class="GtkButton" id="tile1">
                          <property name="visible">True</property>
-@@ -470,7 +475,7 @@
+@@ -461,7 +447,6 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">0</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -470,30 +455,29 @@
                          <property name="can-focus">False</property>
                          <property name="xalign">0</property>
                          <property name="wrap">True</property>
@@ -1469,7 +1631,19 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                          <property name="margin-start">4</property>
                          <property name="mnemonic-widget">tile1</property>
                        </object>
-@@ -490,10 +495,11 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">1</property>
+                       </packing>
+                     </child>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">1</property>
+                   </packing>
+                 </child>
                  <child>
                    <object class="GtkBox" id="tilebox2">
                      <property name="visible">True</property>
@@ -1482,7 +1656,15 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                      <child>
                        <object class="GtkButton" id="tile2">
                          <property name="visible">True</property>
-@@ -515,7 +521,7 @@
+@@ -506,7 +490,6 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">0</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -515,30 +498,29 @@
                          <property name="can-focus">False</property>
                          <property name="xalign">0</property>
                          <property name="wrap">True</property>
@@ -1491,7 +1673,19 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                          <property name="margin-start">4</property>
                          <property name="mnemonic-widget">tile2</property>
                        </object>
-@@ -535,10 +541,11 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">1</property>
+                       </packing>
+                     </child>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">2</property>
+                   </packing>
+                 </child>
                  <child>
                    <object class="GtkBox" id="tilebox3">
                      <property name="visible">True</property>
@@ -1504,7 +1698,15 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                      <child>
                        <object class="GtkButton" id="tile3">
                          <property name="visible">True</property>
-@@ -560,7 +567,7 @@
+@@ -551,7 +533,6 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">0</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -560,30 +541,29 @@
                          <property name="can-focus">False</property>
                          <property name="xalign">0</property>
                          <property name="wrap">True</property>
@@ -1513,7 +1715,19 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                          <property name="margin-start">4</property>
                          <property name="mnemonic-widget">tile3</property>
                        </object>
-@@ -580,10 +587,11 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">1</property>
+                       </packing>
+                     </child>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">3</property>
+                   </packing>
+                 </child>
                  <child>
                    <object class="GtkBox" id="tilebox4">
                      <property name="visible">True</property>
@@ -1526,7 +1740,15 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                      <child>
                        <object class="GtkButton" id="tile4">
                          <property name="visible">True</property>
-@@ -605,7 +613,7 @@
+@@ -596,7 +576,6 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">0</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -605,21 +584,19 @@
                          <property name="can-focus">False</property>
                          <property name="xalign">0</property>
                          <property name="wrap">True</property>
@@ -1535,7 +1757,36 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                          <property name="margin-start">4</property>
                          <property name="mnemonic-widget">tile4</property>
                        </object>
-@@ -662,6 +670,7 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">1</property>
+                       </packing>
+                     </child>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">4</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -635,14 +612,12 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">5</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">2</property>
+               </packing>
+             </child>
+             <child>
+@@ -662,6 +637,7 @@
                      <child>
                        <object class="GtkLabel" id="recentempty">
                          <property name="visible">True</property>
@@ -1543,7 +1794,23 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                          <property name="can-focus">False</property>
                          <property name="label"/>
                          <property name="xalign">0</property>
-@@ -795,6 +804,7 @@
+@@ -669,7 +645,6 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">0</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -770,7 +745,6 @@
+                       <packing>
+                         <property name="expand">True</property>
+                         <property name="fill">True</property>
+-                        <property name="position">1</property>
+                       </packing>
+                     </child>
+                   </object>
+@@ -795,6 +769,7 @@
                      <child>
                        <object class="GtkLabel" id="pinnedempty">
                          <property name="visible">True</property>
@@ -1551,7 +1818,49 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                          <property name="can-focus">False</property>
                          <property name="label"/>
                          <property name="xalign">0</property>
-@@ -939,11 +949,12 @@
+@@ -802,7 +777,6 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">0</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -903,12 +877,10 @@
+                       <packing>
+                         <property name="expand">True</property>
+                         <property name="fill">True</property>
+-                        <property name="position">1</property>
+                       </packing>
+                     </child>
+                   </object>
+                   <packing>
+-                    <property name="position">1</property>
+                   </packing>
+                 </child>
+                 <child type="tab">
+@@ -918,7 +890,6 @@
+                     <property name="label" translatable="yes" context="hstbackstage|pinnedtab">Pinned</property>
+                   </object>
+                   <packing>
+-                    <property name="position">1</property>
+                     <property name="tab-fill">False</property>
+                   </packing>
+                 </child>
+@@ -926,24 +897,23 @@
+               <packing>
+                 <property name="expand">True</property>
+                 <property name="fill">True</property>
+-                <property name="position">3</property>
+               </packing>
+             </child>
+           </object>
+           <packing>
+             <property name="expand">True</property>
+             <property name="fill">True</property>
+-            <property name="position">0</property>
+           </packing>
+         </child>
          <child>
            <object class="GtkBox" id="pagenew">
              <property name="visible">False</property>
@@ -1565,7 +1874,22 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
              <child>
                <object class="GtkLabel" id="newtitle">
                  <property name="visible">True</property>
-@@ -979,6 +990,7 @@
+@@ -954,7 +924,6 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">0</property>
+               </packing>
+             </child>
+             <child>
+@@ -972,20 +941,19 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">0</property>
+                   </packing>
+                 </child>
+                 <child>
                    <object class="GtkButton" id="newnd30">
                      <property name="label"/>
                      <property name="visible">True</property>
@@ -1573,7 +1897,25 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                      <property name="can-focus">True</property>
                      <property name="receives-default">False</property>
                    </object>
-@@ -1009,32 +1021,56 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">1</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -998,67 +966,88 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">2</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">1</property>
                </packing>
              </child>
              <child>
@@ -1619,9 +1961,9 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
 +                          <attributes>
 +                            <attribute name="text">0</attribute>
 +                          </attributes>
-+                        </child>
-+                      </object>
-+                    </child>
+                         </child>
+                       </object>
+                     </child>
 +                    <child>
 +                      <object class="GtkTreeViewColumn" id="newlistc1">
 +                        <property name="resizable">True</property>
@@ -1632,9 +1974,9 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
 +                          <attributes>
 +                            <attribute name="text">1</attribute>
 +                          </attributes>
-                         </child>
-                       </object>
-                     </child>
++                        </child>
++                      </object>
++                    </child>
 +                    <child internal-child="accessible">
 +                      <object class="AtkObject" id="newlist-atkobject">
 +                        <property name="AtkObject::accessible-name" translatable="yes" context="hstbackstage|newlist-atkobject">Templates</property>
@@ -1643,7 +1985,19 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                    </object>
                  </child>
                </object>
-@@ -1054,11 +1090,12 @@
+               <packing>
+                 <property name="expand">True</property>
+                 <property name="fill">True</property>
+-                <property name="position">2</property>
+               </packing>
+             </child>
+           </object>
+           <packing>
+             <property name="expand">True</property>
+             <property name="fill">True</property>
+-            <property name="position">1</property>
+           </packing>
+         </child>
          <child>
            <object class="GtkBox" id="pageopen">
              <property name="visible">False</property>
@@ -1657,7 +2011,51 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
              <child>
                <object class="GtkLabel" id="opentitle">
                  <property name="visible">True</property>
-@@ -1221,11 +1258,12 @@
+@@ -1069,7 +1058,6 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">0</property>
+               </packing>
+             </child>
+             <child>
+@@ -1087,14 +1075,12 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">0</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">1</property>
+               </packing>
+             </child>
+             <child>
+@@ -1107,7 +1093,6 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">2</property>
+               </packing>
+             </child>
+             <child>
+@@ -1208,24 +1193,23 @@
+               <packing>
+                 <property name="expand">True</property>
+                 <property name="fill">True</property>
+-                <property name="position">3</property>
+               </packing>
+             </child>
+           </object>
+           <packing>
+             <property name="expand">True</property>
+             <property name="fill">True</property>
+-            <property name="position">2</property>
+           </packing>
+         </child>
          <child>
            <object class="GtkBox" id="pageinfo">
              <property name="visible">False</property>
@@ -1671,7 +2069,59 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
              <child>
                <object class="GtkLabel" id="infotitle">
                  <property name="visible">True</property>
-@@ -1530,11 +1568,12 @@
+@@ -1236,7 +1220,6 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">0</property>
+               </packing>
+             </child>
+             <child>
+@@ -1465,7 +1448,6 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">1</property>
+               </packing>
+             </child>
+             <child>
+@@ -1483,7 +1465,6 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">0</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -1496,7 +1477,6 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">1</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -1510,31 +1490,29 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">2</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">2</property>
+               </packing>
+             </child>
+           </object>
+           <packing>
+             <property name="expand">True</property>
+             <property name="fill">True</property>
+-            <property name="position">3</property>
+           </packing>
+         </child>
          <child>
            <object class="GtkBox" id="pagesaveas">
              <property name="visible">False</property>
@@ -1685,10 +2135,59 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
              <child>
                <object class="GtkLabel" id="saveastitle">
                  <property name="visible">True</property>
-@@ -1655,6 +1694,59 @@
-             <property name="position">4</property>
-           </packing>
-         </child>
+@@ -1545,7 +1523,6 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">0</property>
+               </packing>
+             </child>
+             <child>
+@@ -1558,7 +1535,6 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">1</property>
+               </packing>
+             </child>
+             <child>
+@@ -1571,7 +1547,6 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">2</property>
+               </packing>
+             </child>
+             <child>
+@@ -1620,7 +1595,6 @@
+               <packing>
+                 <property name="expand">True</property>
+                 <property name="fill">True</property>
+-                <property name="position">3</property>
+               </packing>
+             </child>
+             <child>
+@@ -1638,29 +1612,87 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">0</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">4</property>
+               </packing>
+             </child>
+           </object>
+           <packing>
+             <property name="expand">True</property>
+             <property name="fill">True</property>
+-            <property name="position">4</property>
++          </packing>
++        </child>
 +        <child>
 +          <object class="GtkSeparator" id="footerline">
 +            <property name="visible">True</property>
@@ -1698,7 +2197,6 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
 +          <packing>
 +            <property name="expand">False</property>
 +            <property name="fill">True</property>
-+            <property name="position">5</property>
 +          </packing>
 +        </child>
 +        <child>
@@ -1719,7 +2217,6 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
 +              <packing>
 +                <property name="expand">True</property>
 +                <property name="fill">True</property>
-+                <property name="position">0</property>
 +              </packing>
 +            </child>
 +            <child>
@@ -1732,27 +2229,25 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
 +              <packing>
 +                <property name="expand">False</property>
 +                <property name="fill">True</property>
-+                <property name="position">1</property>
 +              </packing>
 +            </child>
 +          </object>
 +          <packing>
 +            <property name="expand">False</property>
 +            <property name="fill">True</property>
-+            <property name="position">6</property>
-+          </packing>
-+        </child>
+           </packing>
+         </child>
        </object>
        <packing>
          <property name="expand">True</property>
-@@ -1663,4 +1755,18 @@
+         <property name="fill">True</property>
+-        <property name="position">1</property>
        </packing>
      </child>
    </object>
 +      <packing>
 +        <property name="expand">True</property>
 +        <property name="fill">True</property>
-+        <property name="position">1</property>
 +      </packing>
 +    </child>
 +    <child internal-child="accessible">

@@ -48,8 +48,9 @@ def guardrails(label):
     box = extents(panel)
     if ribbon:
         bottom = max(extents(node)[1] + extents(node)[3] for node in ribbon)
-        # never over the ribbon; the ribbon's own bottom margin (below its tab control) may lie in between
-        record(label + ": the panel starts at the bottom edge of the ribbon", bottom - 1 <= box[1] <= bottom + 16,
+        # never over the ribbon; the rest of the NotebookBar below its tab control (its margin, up to about 30 px in
+        # Slides) lies in between
+        record(label + ": the panel starts at the bottom edge of the ribbon", bottom - 1 <= box[1] <= bottom + 40,
                "ribbon bottom %d, panel top %d" % (bottom, box[1]))
     documents = [node for role, name, node in in_frame if role in DOCUMENT_ROLES]
     if documents:
