@@ -134,7 +134,10 @@ function Get-MsiRows($Db, [string]$Sql, [int]$Columns) {
     while ($true) {
         $rec = Invoke-Com $view 'Fetch' @()
         if (-not $rec) { break }
-        $rows.Add(@(1..$Columns | ForEach-Object { "$(Get-ComProperty $rec 'StringData' @($_))" }))
+        # A plain [int] index: a pipeline $_ reaches InvokeMember as a PSObject and fails with DISP_E_TYPEMISMATCH.
+        $row = New-Object string[] $Columns
+        for ([int]$i = 1; $i -le $Columns; $i++) { $row[$i - 1] = "$(Get-ComProperty $rec 'StringData' @($i))" }
+        $rows.Add($row)
     }
     Invoke-Com $view 'Close' @() | Out-Null
     return , $rows
