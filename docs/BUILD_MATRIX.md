@@ -67,6 +67,12 @@ một major upgrade như upstream.
   `1.0.0.0` (gồm) đến `1.0.1.0` (không gồm), thuộc tính 257, `OLDPRODUCTS`. Windows Installer chỉ so ba trường đầu
   của phiên bản, và LibreOffice cho Windows bắt đầu từ 3.3, nên dòng này không bao giờ khớp một bản LibreOffice.
   Dòng phát hiện bản mới hơn (`NEWPRODUCTS`) chỉ dùng mã của HST.
+- GUID của các component tính bằng MD5(tên component + `COMPONENTGUIDSEED`), đặt trong
+  [`hst-msi-component-guids.patch`](../patches/libreoffice/hst-msi-component-guids.patch) (`1.0-hst2`). Beta 1–4
+  dùng hạt `1.0` và tệp .exe/.dll mang phiên bản 26.8.1.1, cao hơn `1.0.0.500` của beta.5: nếu dùng chung GUID,
+  Windows Installer bỏ qua các component đó rồi gỡ mất tệp của beta.4 (khoảng 170 tệp, gồm `soffice.bin`). Giữ
+  nguyên hạt khi phiên bản tệp chỉ tăng; chỉ đổi hạt nếu phiên bản tệp khóa (key file) buộc phải giảm. Không dùng
+  `REINSTALLMODE`: nó áp cho cả gói và có thể thay bộ VC runtime mới hơn của hệ thống bằng bản cũ hơn.
 - Kiểm tra: `scripts/check-msi-upgrade.py` (Quality CI, đọc patch) và `scripts/check-msi-upgrade.py --msi <tệp>`
   (đọc bảng Upgrade và Property của MSI đã build; workflow Windows smoke chạy bước này và thử cài cạnh LibreOffice,
   nâng cấp từ beta.4).

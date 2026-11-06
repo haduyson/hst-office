@@ -83,6 +83,18 @@ class Sources(unittest.TestCase):
         with self.assertRaises(ValueError):
             MOD.from_patch("+            CODEFILENAME codes_hst.txt\n", "1.0.0.500")
 
+    def test_component_guid_seed_is_set(self):
+        self.assertEqual(MOD.seed_errors(MOD.SEED_PATCH.read_text(encoding="utf-8")), [])
+        self.assertIn(MOD.SEED_PATCH.name, (ROOT / "patches/libreoffice/series").read_text(encoding="utf-8").split())
+        self.assertTrue(MOD.seed_errors("+            COMPONENTGUIDSEED 1.0\n"))
+
+    def test_beta_component_guids_are_reported(self):
+        # soffice.com's GUID in the beta.4 MSI and in the first beta.5 build (same seed, PRODUCTVERSION 1.0).
+        name = "auto_brand_exe_soffice_com__hstoffice_program"
+        self.assertEqual(MOD.legacy_guid(name), "{B79CFE98-60B6-93CD-3878-9FFACB645578}")
+        self.assertTrue(MOD.component_errors([(name, "{B79CFE98-60B6-93CD-3878-9FFACB645578}")]))
+        self.assertEqual(MOD.component_errors([(name, "{4405A3C3-6CFB-E049-C203-040EE1EAA400}")]), [])
+
     def test_parse_idt_pads_missing_columns(self):
         rows = MOD.parse_idt(HEADER + f"{HST}\t1.0.0.500\n")
         self.assertEqual(rows[0]["ActionProperty"], "")

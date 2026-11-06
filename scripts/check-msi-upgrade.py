@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Check the Windows MSI upgrade rules: HST Office's own UpgradeCode, never LibreOffice's.
-
-  check-msi-upgrade.py               check the Upgrade rows the patch series makes (quality CI, no MSI)
-  check-msi-upgrade.py --msi FILE    check the Upgrade and Property tables of a built MSI
-                                     (msiinfo from msitools, or msilib with Windows Python <= 3.12)
-Rules: the UpgradeCode is HST's permanent code; downgrade detection (NEWPRODUCTS) uses only it;
-a row on another code only removes, is bounded on both sides below 3.0 (LibreOffice for Windows
-starts at 3.3) and covers the 1.0.0.1 betas that were installed under LibreOffice's code.
-Windows Installer compares only the first three version fields."""
+"""Check the Windows MSI upgrade rules. No argument: the patch series (Quality CI); --msi FILE: a built MSI
+(msiinfo, or msilib on Windows Python <= 3.12). The UpgradeCode is HST's permanent code and the only one with
+NEWPRODUCTS; a row on another code only removes, stays below 3.0 (LibreOffice for Windows starts at 3.3) and
+covers the 1.0.0.1 betas installed under LibreOffice's code (only three version fields count); no component
+keeps a beta 1-4 GUID."""
 import argparse
+import hashlib
 import re
 import shutil
 import subprocess
@@ -18,6 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PATCH = ROOT / "patches/libreoffice/hst-msi-upgradecode.patch"
+SEED_PATCH = ROOT / "patches/libreoffice/hst-msi-component-guids.patch"
+LEGACY_GUID_SEED = "1.0"  # beta 1-4: GUID = MD5(component name + "_1.0")
 HST_UPGRADE_CODE = "{A1751BCB-2603-4428-A5DE-419B438ECFBC}"  # permanent, see docs/BUILD_MATRIX.md
 LIBREOFFICE_UPGRADE_CODE = "{4B17E523-5D91-4E69-BD96-7FD81CFA81BB}"  # upstream msi_templates/codes.txt
 LEGACY_BETA_VERSION = "1.0.0.1"  # ProductVersion of the beta 1-4 MSIs
@@ -87,6 +86,21 @@ def validate(rows, properties):
     return errors
 
 
+def legacy_guid(name):  # the GUID beta 1-4 computed (upstream msiglobal.pm calculate_guid)
+    d = hashlib.md5(f"{name}_{LEGACY_GUID_SEED}".encode()).hexdigest().upper()
+    return "{%s-%s-%s-%s-%s}" % (d[:8], d[8:12], d[12:16], d[16:20], d[20:])
+
+
+def component_errors(components):
+    shared = sorted(name for name, guid in components if guid.upper() == legacy_guid(name))
+    return [f"{len(shared)} components keep their beta 1-4 GUID (e.g. {shared[0]}): upgrading would drop their files"] if shared else []
+
+
+def seed_errors(patch_text):  # beta 1-4 key files are numbered 26.8.1.1: shared GUIDs would be skipped, then removed
+    seeds = re.findall(r"^\+\s+COMPONENTGUIDSEED (\S+)$", patch_text, re.M)
+    return [] if len(seeds) == 1 and seeds[0] != LEGACY_GUID_SEED else ["the patch series must set one COMPONENTGUIDSEED other than 1.0"]
+
+
 def parse_idt(text):
     """Rows of an exported table (msiinfo export / .idt): names, types, key line, then data."""
     lines = text.replace("\r\n", "\n").split("\n")
@@ -95,31 +109,27 @@ def parse_idt(text):
 
 
 def upgrade_rows(raw):
-    rows = []
-    for r in raw:
-        try:
-            attributes = int(r.get("Attributes") or 0)
-        except ValueError:
-            raise ValueError(f"Upgrade row with a bad Attributes value: {r}") from None
-        rows.append({k: r.get(k, "") for k in ("UpgradeCode", "VersionMin", "VersionMax", "ActionProperty")}
-                    | {"Attributes": attributes})
-    return rows
+    bad = [r for r in raw if not re.fullmatch(r"\d*", r.get("Attributes") or "")]
+    if bad:
+        raise ValueError(f"Upgrade row with a bad Attributes value: {bad[0]}")
+    return [{k: r.get(k, "") for k in ("UpgradeCode", "VersionMin", "VersionMax", "ActionProperty")}
+            | {"Attributes": int(r.get("Attributes") or 0)} for r in raw]
 
 
 def read_msi(path):
-    """Upgrade rows and Property dict of an MSI file."""
+    """Upgrade rows, Property dict and component GUID errors of an MSI file."""
     if shutil.which("msiinfo"):
         def export(table):
             done = subprocess.run(["msiinfo", "export", str(path), table], capture_output=True, text=True, check=False)
             if done.returncode != 0:
                 raise RuntimeError(f"msiinfo export {table} failed: {done.stderr.strip()}")
             return parse_idt(done.stdout)
-        upgrade, prop = export("Upgrade"), export("Property")
+        upgrade, prop, comp = export("Upgrade"), export("Property"), export("Component")
     else:
         try:
             import msilib  # Windows Python <= 3.12 only
-        except ImportError:
-            raise RuntimeError("neither msiinfo (msitools) nor msilib is available") from None
+        except ImportError as exc:
+            raise RuntimeError("neither msiinfo (msitools) nor msilib is available") from exc
         db = msilib.OpenDatabase(str(path), msilib.MSIDBOPEN_READONLY)
 
         def query(sql, count):
@@ -132,7 +142,9 @@ def read_msi(path):
         names = ("UpgradeCode", "VersionMin", "VersionMax", "Language", "Attributes", "Remove", "ActionProperty")
         upgrade = [dict(zip(names, r)) for r in query("SELECT " + ", ".join(f"`{n}`" for n in names) + " FROM `Upgrade`", 7)]
         prop = [{"Property": k, "Value": v} for k, v in query("SELECT `Property`, `Value` FROM `Property`", 2)]
-    return upgrade_rows(upgrade), {r["Property"]: r["Value"] for r in prop}
+        comp = [{"Component": k, "ComponentId": v} for k, v in query("SELECT `Component`, `ComponentId` FROM `Component`", 2)]
+    components = [(r["Component"], r.get("ComponentId", "")) for r in comp]
+    return upgrade_rows(upgrade), {r["Property"]: r["Value"] for r in prop}, component_errors(components)
 
 
 def from_patch(patch_text, msi_version):
@@ -166,15 +178,16 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.msi:
-            rows, properties = read_msi(args.msi)
+            rows, properties, extra = read_msi(args.msi)
         else:
             rows, properties = from_patch(PATCH.read_text(encoding="utf-8"), repo_msi_version())
+            extra = seed_errors(SEED_PATCH.read_text(encoding="utf-8"))
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"FAIL: {exc}")
         return 1
     for row in rows:
         print("row:", row["UpgradeCode"], row["VersionMin"] or "-", row["VersionMax"] or "-", row["Attributes"], row["ActionProperty"])
-    errors = validate(rows, properties)
+    errors = validate(rows, properties) + extra
     for error in errors:
         print("FAIL:", error)
     print(f"MSI upgrade rules: {len(rows)} Upgrade rows, {len(errors)} failures ({args.msi or PATCH.name}).")

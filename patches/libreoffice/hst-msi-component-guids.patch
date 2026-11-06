@@ -1,0 +1,48 @@
+HST Office: new Windows Installer component GUIDs, so upgrades from beta 1-4 keep every program file.
+
+Component GUIDs are MD5(component name + "_" + PRODUCTVERSION), and PRODUCTVERSION stayed 1.0, so
+beta.5 shared its component GUIDs with beta 1-4. Their HST-built .exe/.dll had FileVersion 26.8.1.1,
+beta.5's have 1.0.0.500. Windows Installer then skips every shared component whose installed key file
+has the higher version ("same component with higher versioned keyfile exists"), and
+RemoveExistingProducts deletes beta.4's copy: soffice.bin, soffice.com and about 170 more files were
+missing after the upgrade.
+
+The new product variable COMPONENTGUIDSEED replaces PRODUCTVERSION in the GUID source. The HSTOffice
+product sets it to a constant, so from beta.5 on all its components are new to beta 1-4 and the old
+product's removal no longer takes files the new one needs. Keep the value unchanged while key file
+versions only go up (beta.5 -> beta.6 stays a normal upgrade with shared GUIDs); change it again only
+if a key file version ever has to go down. Merge-module (VC runtime) components keep their own GUIDs.
+REINSTALLMODE was not used: it is package-wide and would let the MSI replace a newer system VC runtime.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/instsetoo_native/util/openoffice.lst.in
++++ b/instsetoo_native/util/openoffice.lst.in
+@@ -105,12 +105,13 @@
+             CHANGETARGETDIR 1
+             PATCHCODEFILE ooo_patchcodes.txt
+             CODEFILENAME codes_hst.txt
+             LEGACYUPGRADECODE {4B17E523-5D91-4E69-BD96-7FD81CFA81BB}
+             LEGACYUPGRADEVERSIONMIN 1.0.0.0
+             LEGACYUPGRADEVERSIONMAX 1.0.1.0
++            COMPONENTGUIDSEED 1.0-hst2
+         }
+         active          1
+         compression     5
+         script          setup_osl
+         downloadname    HSTOffice_{productversion}_{os}_install_{languages}
+         langpackdownloadname    HSTOffice_{productversion}_languagepack_{os}_install_{languages}
+--- a/solenv/bin/modules/installer/windows/msiglobal.pm
++++ b/solenv/bin/modules/installer/windows/msiglobal.pm
+@@ -941,7 +941,10 @@
+                 # Calculating new GUID with the help of the component name.
+ 
+                 if ( ! exists($allvariables->{'PRODUCTVERSION'}) ) { installer::exiter::exit_program("ERROR: Could not find variable \"PRODUCTVERSION\" (required value for GUID creation)!", "set_uuid_into_component_table"); }
+-                my $sourcestring = $componentname . "_" . $allvariables->{'PRODUCTVERSION'};
++                # COMPONENTGUIDSEED, when set, replaces PRODUCTVERSION in the GUID source, so a product can
++                # give all its components new GUIDs without changing its version.
++                my $guidseed = $allvariables->{'COMPONENTGUIDSEED'} ? $allvariables->{'COMPONENTGUIDSEED'} : $allvariables->{'PRODUCTVERSION'};
++                my $sourcestring = $componentname . "_" . $guidseed;
+                 $uuid = calculate_guid($sourcestring);
+                 $counter++;
+ 
