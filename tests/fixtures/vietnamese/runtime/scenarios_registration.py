@@ -57,5 +57,6 @@ def run(rec, session, oxt_path):
               len(commands) == 12 and commands.count(None) == 1 and [c for c in commands if c] == expected, commands)
     # A floating "Add-ons" toolbar over the ribbon is deliberately not shipped (see Addons.xcu): the commands are in the menu and ribbon.
     rec.check("no floating HST toolbar", not config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeToolBar").hasByName("org.hst.office.vi.toolbar"))
-    rec.check("HST ribbon (Extension tab) items registered", config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeNotebookBar").hasByName("org.hst.office.vi.notebookbar"))
+    # The Extensions tab is authored in notebookbar.ui (hst-ribbon-extensions-tab.patch): no add-on text row.
+    rec.check("no HST add-on row on the Extensions tab", not config(session, "/org.openoffice.Office.Addons/AddonUI/OfficeNotebookBar").hasByName("org.hst.office.vi.notebookbar"))
     sys.path.insert(0, py)

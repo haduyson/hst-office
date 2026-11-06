@@ -18,11 +18,17 @@ Slides: Trang chiếu → Trang chiếu mới · Bố trí (layouts panel) · B�
 Review: Theo dõi thay đổi
 Help menu: Trợ giúp → Trợ giúp HST Office (opens this guide, also F1) · Về HST Office · Thông tin giấy phép
 
-HST menu (menu bar "HST"; every HST command) and ribbon tab "Phần mở rộng" (HST tools only):
+HST menu (menu bar "HST"; every HST command):
 - Văn bản hành chính (NĐ 30)…   (Writer)
 - Chuyển TCVN3/VNI sang Unicode…   (Writer)
 - Định dạng ngày (dd/mm/yyyy) · Định dạng tiền VND · Định dạng phần trăm · Nhập CSV (UTF-8)…   (Sheets)
 - Giải pháp HASON TECH…   (all apps; shows the welcome window)
+
+Ribbon tab "Phần mở rộng" (HST tools only; groups of large buttons, caption below):
+- Writer: Văn bản tiếng Việt (Văn bản hành chính · Chuyển mã sang Unicode · Đổi số thành chữ) · HASON TECH (Giải pháp HASON TECH)
+- Sheets: Văn bản (Văn bản hành chính) · Định dạng Việt Nam (Định dạng ngày tháng ▾: dd/mm/yyyy · ngày dd tháng mm năm yyyy · tháng mm năm yyyy · dd-mm-yyyy; Tiền VND · Phần trăm) · Dữ liệu (Nhập CSV (UTF-8)) · Tiện ích tiếng Việt (Đọc số thành chữ · Bỏ dấu · Tách họ tên · Sắp xếp theo tên · Xóa dòng trống) · HASON TECH
+- Slides: Văn bản (Văn bản hành chính) · HASON TECH
+- The tab's last item, menu "Phần mở rộng ▾", lists add-ons the user installed.
 
 Other HST commands on the ribbon (Office places; the HST menu also has them):
 - Macro VBA: tab "Nhà phát triển", group "Vĩ lệnh", first button   (Writer, Sheets)

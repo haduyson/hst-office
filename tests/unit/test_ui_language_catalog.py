@@ -48,8 +48,8 @@ class CatalogTest(unittest.TestCase):
                              {"": title, "en-US": title, "vi": title})
             self.assertEqual(node.find("prop[@%sname='Context']/value" % OOR).text, context)
             self.assertEqual(node.find("prop[@%sname='Target']/value" % OOR).text, "_self")
-        notebook = root.find("./node/node[@%sname='OfficeNotebookBar']" % OOR)
-        self.assertFalse(any("UILanguage" in (value.text or "") for value in notebook.iter("value")))
+        # No add-on ribbon row at all: the Extensions tab is authored in notebookbar.ui.
+        self.assertIsNone(root.find("./node/node[@%sname='OfficeNotebookBar']" % OOR))
         for code in ("vi", "en"):
             catalog = load_locale(code)["menu"]
             self.assertEqual(tuple(catalog[key] for key in ("uiLanguage", "uiLanguageVi", "uiLanguageEn", "uiLanguageSystem")), labels)

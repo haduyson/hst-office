@@ -47,11 +47,9 @@ class MenuContractTest(unittest.TestCase):
         self.assertTrue((ALL | {"com.sun.star.frame.StartModule"}) <= menu[1])
         self.assertEqual({v for v in menu[0].values()}, {"Văn bản hành chính…"})
         self.assertEqual(set(menu[0]), {"", "en-US", "vi"})
-        ribbon = items("OfficeNotebookBar")["org.hst.office.vi:Nd30Wizard"][0]
-        self.assertIn("com.sun.star.text.TextDocument", ribbon[1])
 
     def test_every_hst_label_is_vietnamese_except_the_update_check(self):
-        for section in ("OfficeMenuBar", "OfficeNotebookBar"):
+        for section in ("OfficeMenuBar",):
             for url, entries in items(section).items():
                 for titles, _ in entries:
                     if url == UPDATE:
@@ -60,11 +58,9 @@ class MenuContractTest(unittest.TestCase):
                     else:
                         self.assertEqual(titles["en-US"], titles["vi"], url)
 
-    def test_extension_tab_labels_have_no_ellipsis_while_menu_dialog_commands_keep_it(self):
-        # A ribbon button names the tool; in the HST menu "…" still tells that a dialog opens.
-        for titles, _ in (e for entries in items("OfficeNotebookBar").values() for e in entries):
-            for title in titles.values():
-                self.assertFalse(title.endswith(("...", "…")), title)
+    def test_menu_dialog_commands_keep_the_ellipsis(self):
+        # In the HST menu "…" tells that a dialog opens; the Extensions tab buttons name the tool without it
+        # (tests/unit/test_ribbon_extensions_tab.py).
         menu = items("OfficeMenuBar")
         for name in ("ConvertEncoding", "ImportCsv", "ShowSolutions"):
             self.assertTrue(menu["org.hst.office.vi:" + name][0][0]["vi"].endswith(("...", "…")), name)
@@ -72,19 +68,12 @@ class MenuContractTest(unittest.TestCase):
     def test_csv_import_is_offered_in_every_module(self):
         self.assertTrue(ALL <= items("OfficeMenuBar")["org.hst.office.vi:ImportCsv"][0][1])
 
-    def test_extension_tab_keeps_only_the_hst_tools(self):
+    def test_moved_commands_stay_in_the_hst_menu_and_none_in_an_addon_ribbon_row(self):
         # Macro VBA (Developer tab), the UI language (Review tab), USB Token (File ▸ Info) and the update
-        # check (Help) sit where Office has them; the HST menu still offers all of them.
-        writer, calc = "com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"
-        ribbon = {url: entries[0][1] for url, entries in items("OfficeNotebookBar").items()}
+        # check (Help) sit where Office has them; the HST menu still offers all of them. The Extensions tab
+        # is authored in notebookbar.ui (hst-ribbon-extensions-tab.patch), so Addons.xcu adds no ribbon row.
         vi = "org.hst.office.vi:"
-        self.assertEqual(set(ribbon), {vi + name for name in ("Nd30Wizard", "ConvertEncoding", "FormatDate", "FormatVnd",
-                                                              "FormatPercent", "ImportCsv", "ShowSolutions")})
-        self.assertEqual(ribbon[vi + "ConvertEncoding"], {writer})
-        for name in ("FormatDate", "FormatVnd", "FormatPercent", "ImportCsv"):
-            self.assertEqual(ribbon[vi + name], {calc}, name)
-        self.assertEqual(ribbon[vi + "Nd30Wizard"], ALL)
-        self.assertEqual(ribbon[vi + "ShowSolutions"], ALL)
+        self.assertEqual(items("OfficeNotebookBar"), {})
         menu = items("OfficeMenuBar")
         for url in (vi + "SetupUsbToken", vi + "EditVba", UPDATE, vi + "UILanguageVi", vi + "UILanguageEn",
                     vi + "UILanguageSystem"):

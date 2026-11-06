@@ -1,0 +1,1150 @@
+HST Office: the Extensions tab ("Phần mở rộng") of Writer, Sheets and Slides as authored groups of large buttons.
+
+- sw/sc/sd notebookbar.ui: groups with a caption below and a separator, as the other HST tabs, before the add-on
+  merge point (third-party OfficeNotebookBar items keep their place after them; the tab's trailing "Extensions"
+  menu is unchanged). Buttons have a 32 px icon and a two-line label. They run the commands of the bundled HST
+  extension (org.hst.office.vi:*); labels and captions are Vietnamese in every UI language, as in the HST menu.
+  Writer: "Văn bản tiếng Việt" (Văn bản hành chính, Chuyển mã sang Unicode, Đổi số thành chữ), "HASON TECH".
+  Sheets: "Văn bản", "Định dạng Việt Nam" (split button Định dạng ngày tháng, Tiền VND, Phần trăm), "Dữ liệu"
+  (Nhập CSV (UTF-8)), "Tiện ích tiếng Việt" (Đọc số thành chữ, Bỏ dấu, Tách họ tên, Sắp xếp theo tên, Xóa dòng
+  trống), "HASON TECH". Slides: "Văn bản", "HASON TECH". The groups fold into the tab's chevron from the end when
+  the tab is narrower than them.
+- sc popupmenu/hstformatdate.xml, Controller.xcu: "Định dạng ngày tháng" is a split button: a click applies
+  dd/mm/yyyy, the arrow lists dd/mm/yyyy, ngày dd tháng mm năm yyyy, tháng mm năm yyyy and dd-mm-yyyy.
+- vcl ToolBox: a label below its image may have a line break and is drawn as centred lines; other labels have
+  none and keep one line. The builder gives such an item its label as a one-line accessible name.
+- sfx2 SidebarToolBox: when the icon theme changes (light/dark), an item without a command image reloads the
+  image its .ui file names from the new theme instead of losing it.
+The icons are HST artwork from icon-themes-src/hst (cmd/32/<command>.svg, light and dark).
+
+License: these upstream files remain under their original license (MPL-2.0); the new popup menu is MPL-2.0.
+Test: tests/unit/test_ribbon_extensions_tab.py, tests/runtime/check-ribbon-hst-commands.py.
+---
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -16872,6 +16872,203 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbExtension">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <child>
++                      <!-- HST Office: authored Extensions tab (layout A). Large buttons, 32 px icon and two-line label, for
++                           the commands of the bundled HST extension; labels and captions are Vietnamese in every UI
++                           language, as in the HST menu. Third-party add-on items follow in the merge point. -->
++                      <!-- n-columns=2 n-rows=3 -->
++                      <object class="GtkGrid" id="gdExtensionHstVietnamese">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">6</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbExtensionHstVietnamese">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label">Văn bản tiếng Việt</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdExtensionHstVietnamese"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxExtensionHstVietnamese">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">5</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstNd30">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Văn bản&#10;hành chính</property>
++                                <property name="tooltip-text">Văn bản hành chính theo Nghị định 30/2020/NĐ-CP</property>
++                                <property name="action-name">org.hst.office.vi:Nd30Wizard</property>
++                                <property name="icon-name">cmd/32/nd30wizard.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstConvertEncoding">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Chuyển mã&#10;sang Unicode</property>
++                                <property name="tooltip-text">Chuyển văn bản TCVN3 (ABC) hoặc VNI sang Unicode</property>
++                                <property name="action-name">org.hst.office.vi:ConvertEncoding</property>
++                                <property name="icon-name">cmd/32/convertencoding.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstNumberToWords">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Đổi số&#10;thành chữ</property>
++                                <property name="tooltip-text">Đổi số thành chữ tiếng Việt</property>
++                                <property name="action-name">org.hst.office.vi:NumberToWords</property>
++                                <property name="icon-name">cmd/32/numbertowords.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator" id="sepExtensionHstVietnamese">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbExtensionHstVietnamese"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <!-- n-columns=2 n-rows=3 -->
++                      <object class="GtkGrid" id="gdExtensionHstSolutions">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">3</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbExtensionHstSolutions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label">HASON TECH</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdExtensionHstSolutions"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxExtensionHstSolutions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">5</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstSolutions">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Giải pháp&#10;HASON TECH</property>
++                                <property name="tooltip-text">Giải pháp HASON TECH cho chính quyền và doanh nghiệp</property>
++                                <property name="action-name">org.hst.office.vi:ShowSolutions</property>
++                                <property name="icon-name">cmd/32/showsolutions.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator" id="sepExtensionHstSolutions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbExtensionHstSolutions"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
+                     <child>
+                       <object class="sfxlo-PriorityMergedHBox" id="Extension">
+                         <property name="visible">True</property>
+@@ -16895,7 +17092,7 @@
+                       <packing>
+                         <property name="expand">True</property>
+                         <property name="fill">True</property>
+-                        <property name="position">0</property>
++                        <property name="position">2</property>
+                       </packing>
+                     </child>
+                   </object>
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -15345,16 +15345,533 @@
+                     <property name="valign">center</property>
+                     <property name="vexpand">True</property>
+                     <child>
+-                      <object class="NotebookBarAddonsToolMergePoint" id="AddonCommand">
++                      <!-- HST Office: authored Extensions tab (layout A). Large buttons, 32 px icon and two-line label, for
++                           the commands of the bundled HST extension; labels and captions are Vietnamese in every UI
++                           language, as in the HST menu. Third-party add-on items follow in the merge point. -->
++                      <!-- n-columns=2 n-rows=3 -->
++                      <object class="GtkGrid" id="gdExtensionHstText">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">6</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbExtensionHstText">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label">Văn bản</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdExtensionHstText"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxExtensionHstText">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">5</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstNd30">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Văn bản&#10;hành chính</property>
++                                <property name="tooltip-text">Văn bản hành chính theo Nghị định 30/2020/NĐ-CP</property>
++                                <property name="action-name">org.hst.office.vi:Nd30Wizard</property>
++                                <property name="icon-name">cmd/32/nd30wizard.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator" id="sepExtensionHstText">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbExtensionHstText"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <!-- n-columns=2 n-rows=3 -->
++                      <object class="GtkGrid" id="gdExtensionHstFormats">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">3</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbExtensionHstFormats">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label">Định dạng Việt Nam</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdExtensionHstFormats"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxExtensionHstFormats">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">5</property>
++                            <child>
++                              <object class="GtkMenuToolButton" id="btnExtensionHstFormatDate">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Định dạng&#10;ngày tháng</property>
++                                <property name="tooltip-text">Định dạng ngày tháng dd/mm/yyyy; mũi tên: các kiểu ngày khác</property>
++                                <property name="action-name">org.hst.office.vi:FormatDate</property>
++                                <property name="icon-name">cmd/32/formatdate.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstFormatVnd">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Tiền&#10;VND</property>
++                                <property name="tooltip-text">Định dạng tiền VND</property>
++                                <property name="action-name">org.hst.office.vi:FormatVnd</property>
++                                <property name="icon-name">cmd/32/formatvnd.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstFormatPercent">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Phần&#10;trăm</property>
++                                <property name="tooltip-text">Định dạng phần trăm</property>
++                                <property name="action-name">org.hst.office.vi:FormatPercent</property>
++                                <property name="icon-name">cmd/32/formatpercent.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator" id="sepExtensionHstFormats">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbExtensionHstFormats"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <!-- n-columns=2 n-rows=3 -->
++                      <object class="GtkGrid" id="gdExtensionHstData">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">3</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbExtensionHstData">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label">Dữ liệu</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdExtensionHstData"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxExtensionHstData">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">5</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstImportCsv">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Nhập CSV&#10;(UTF-8)</property>
++                                <property name="tooltip-text">Nhập tệp CSV mã UTF-8, giữ đúng tiếng Việt</property>
++                                <property name="action-name">org.hst.office.vi:ImportCsv</property>
++                                <property name="icon-name">cmd/32/importcsv.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator" id="sepExtensionHstData">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbExtensionHstData"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">2</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <!-- n-columns=2 n-rows=3 -->
++                      <object class="GtkGrid" id="gdExtensionHstUtilities">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">3</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbExtensionHstUtilities">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label">Tiện ích tiếng Việt</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdExtensionHstUtilities"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxExtensionHstUtilities">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">5</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstNumberToWords">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Đọc số&#10;thành chữ</property>
++                                <property name="tooltip-text">Đọc số thành chữ tiếng Việt</property>
++                                <property name="action-name">org.hst.office.vi:NumberToWords</property>
++                                <property name="icon-name">cmd/32/numbertowords.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstRemoveDiacritics">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Bỏ&#10;dấu</property>
++                                <property name="tooltip-text">Bỏ dấu tiếng Việt trong vùng chọn</property>
++                                <property name="action-name">org.hst.office.vi:RemoveDiacritics</property>
++                                <property name="icon-name">cmd/32/removediacritics.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstSplitName">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Tách&#10;họ tên</property>
++                                <property name="tooltip-text">Tách họ và tên thành các cột riêng</property>
++                                <property name="action-name">org.hst.office.vi:SplitName</property>
++                                <property name="icon-name">cmd/32/splitname.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstSortByGivenName">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Sắp xếp&#10;theo tên</property>
++                                <property name="tooltip-text">Sắp xếp danh sách theo tên, không theo họ</property>
++                                <property name="action-name">org.hst.office.vi:SortByGivenName</property>
++                                <property name="icon-name">cmd/32/sortbygivenname.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstDeleteBlankRows">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Xóa dòng&#10;trống</property>
++                                <property name="tooltip-text">Xóa các dòng trống trong vùng chọn</property>
++                                <property name="action-name">org.hst.office.vi:DeleteBlankRows</property>
++                                <property name="icon-name">cmd/32/deleteblankrows.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator" id="sepExtensionHstUtilities">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbExtensionHstUtilities"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">3</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <!-- n-columns=2 n-rows=3 -->
++                      <object class="GtkGrid" id="gdExtensionHstSolutions">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">3</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbExtensionHstSolutions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label">HASON TECH</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdExtensionHstSolutions"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxExtensionHstSolutions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">5</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstSolutions">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Giải pháp&#10;HASON TECH</property>
++                                <property name="tooltip-text">Giải pháp HASON TECH cho chính quyền và doanh nghiệp</property>
++                                <property name="action-name">org.hst.office.vi:ShowSolutions</property>
++                                <property name="icon-name">cmd/32/showsolutions.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator" id="sepExtensionHstSolutions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbExtensionHstSolutions"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">4</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <!-- HST Office: third-party add-on items in their own box after the HST groups (as in Writer):
++                           the merge point adds windows without a position, which would go first. -->
++                      <object class="sfxlo-PriorityMergedHBox" id="pmhbExtensionAddons">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="valign">center</property>
+                         <property name="vexpand">True</property>
++                        <child>
++                          <object class="NotebookBarAddonsToolMergePoint" id="AddonCommand">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">True</property>
++                            <property name="position">0</property>
++                          </packing>
++                        </child>
+                       </object>
+                       <packing>
+-                        <property name="expand">False</property>
++                        <property name="expand">True</property>
+                         <property name="fill">True</property>
+-                        <property name="position">1</property>
++                        <property name="position">5</property>
+                       </packing>
+                     </child>
+                   </object>
+--- a/sd/uiconfig/simpress/ui/notebookbar.ui
++++ b/sd/uiconfig/simpress/ui/notebookbar.ui
+@@ -16050,16 +16050,200 @@
+                     <property name="valign">center</property>
+                     <property name="vexpand">True</property>
+                     <child>
+-                      <object class="NotebookBarAddonsToolMergePoint" id="AddonCommand">
++                      <!-- HST Office: authored Extensions tab (layout A). Large buttons, 32 px icon and two-line label, for
++                           the commands of the bundled HST extension; labels and captions are Vietnamese in every UI
++                           language, as in the HST menu. Third-party add-on items follow in the merge point. -->
++                      <!-- n-columns=2 n-rows=3 -->
++                      <object class="GtkGrid" id="gdExtensionHstText">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">6</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbExtensionHstText">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label">Văn bản</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdExtensionHstText"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxExtensionHstText">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">5</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstNd30">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Văn bản&#10;hành chính</property>
++                                <property name="tooltip-text">Văn bản hành chính theo Nghị định 30/2020/NĐ-CP</property>
++                                <property name="action-name">org.hst.office.vi:Nd30Wizard</property>
++                                <property name="icon-name">cmd/32/nd30wizard.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator" id="sepExtensionHstText">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbExtensionHstText"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <!-- n-columns=2 n-rows=3 -->
++                      <object class="GtkGrid" id="gdExtensionHstSolutions">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">3</property>
++                        <property name="margin-end">3</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbExtensionHstSolutions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label">HASON TECH</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdExtensionHstSolutions"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxExtensionHstSolutions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">5</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstSolutions">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Giải pháp&#10;HASON TECH</property>
++                                <property name="tooltip-text">Giải pháp HASON TECH cho chính quyền và doanh nghiệp</property>
++                                <property name="action-name">org.hst.office.vi:ShowSolutions</property>
++                                <property name="icon-name">cmd/32/showsolutions.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator" id="sepExtensionHstSolutions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbExtensionHstSolutions"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <!-- HST Office: third-party add-on items in their own box after the HST groups (as in Writer):
++                           the merge point adds windows without a position, which would go first. -->
++                      <object class="sfxlo-PriorityMergedHBox" id="pmhbExtensionAddons">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="valign">center</property>
+                         <property name="vexpand">True</property>
++                        <child>
++                          <object class="NotebookBarAddonsToolMergePoint" id="AddonCommand">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">True</property>
++                            <property name="position">0</property>
++                          </packing>
++                        </child>
+                       </object>
+                       <packing>
+-                        <property name="expand">False</property>
++                        <property name="expand">True</property>
+                         <property name="fill">True</property>
+-                        <property name="position">1</property>
++                        <property name="position">2</property>
+                       </packing>
+                     </child>
+                   </object>
+--- a/sc/UIConfig_scalc.mk
++++ b/sc/UIConfig_scalc.mk
+@@ -30,6 +30,7 @@ $(eval $(call gb_UIConfig_add_popupmenufiles,modules/scalc,\
+ 	sc/uiconfig/scalc/popupmenu/formulabar \
+ 	sc/uiconfig/scalc/popupmenu/freezepanes \
+ 	sc/uiconfig/scalc/popupmenu/graphic \
++	sc/uiconfig/scalc/popupmenu/hstformatdate \
+ 	sc/uiconfig/scalc/popupmenu/media \
+ 	sc/uiconfig/scalc/popupmenu/notebookbar \
+ 	sc/uiconfig/scalc/popupmenu/oleobject \
+--- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
+@@ -2101,6 +2101,22 @@
+           <value>com.sun.star.comp.chart2.ChartColorPaletteControl</value>
+         </prop>
+       </node>
++      <!-- HST Office: "Định dạng ngày tháng" of the Sheets Extensions tab is a split button. A click runs the
++           bundled HST extension's dd/mm/yyyy command, the arrow lists its date formats. -->
++      <node oor:name="HstFormatDateSplitButton" oor:op="replace">
++        <prop oor:name="Command">
++          <value>org.hst.office.vi:FormatDate</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.sheet.SpreadsheetDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.framework.GenericPopupToolbarController</value>
++        </prop>
++        <prop oor:name="Value">
++          <value>private:resource/popupmenu/hstformatdate</value>
++        </prop>
++      </node>
+     </node>
+     <node oor:name="StatusBar">
+       <node oor:name="c5" oor:op="replace">
+--- a/vcl/source/window/toolbox.cxx
++++ b/vcl/source/window/toolbox.cxx
+@@ -49,6 +49,7 @@
+ #include <win/svsys.h>
+ #endif
+ 
++#include <algorithm>
+ #include <cstdlib>
+ #include <map>
+ #include <string_view>
+@@ -66,6 +67,30 @@
+ #define TB_TEXTOFFSET           2
+ #define TB_IMAGETEXTOFFSET      3
+ #define TB_LINESPACING          3
++
++namespace
++{
++// HST Office: the label of a large ribbon button (text below its image) may have line breaks, as the
++// two-line labels of Office's large buttons. Other labels have none and keep their single line.
++bool ImplHasLabelLines(const OUString& rText, ToolBoxTextPosition ePosition)
++{
++    return ePosition == ToolBoxTextPosition::Bottom && rText.indexOf('\n') >= 0;
++}
++
++Size ImplLabelLinesSize(const OutputDevice& rDev, const OUString& rText)
++{
++    tools::Long nWidth = 0;
++    tools::Long nLines = 0;
++    sal_Int32 nIndex = 0;
++    do
++    {
++        const OUString aLine(o3tl::getToken(rText, 0, '\n', nIndex));
++        nWidth = std::max(nWidth, rDev.GetCtrlTextWidth(aLine));
++        ++nLines;
++    } while (nIndex >= 0);
++    return Size(nWidth, nLines * rDev.GetTextHeight());
++}
++}
+ #define TB_SPIN_SIZE            14
+ #define TB_SPIN_OFFSET          2
+ #define TB_BORDER_OFFSET1       4
+@@ -1493,6 +1518,11 @@ bool ToolBox::ImplCalcItem()
+                         // we're drawing images and text
+                         item.maItemSize.setWidth( bText ? GetOutDev()->GetCtrlTextWidth( item.maText )+TB_TEXTOFFSET : 0 );
+                         item.maItemSize.setHeight( bText ? GetTextHeight() : 0 );
++                        if ( bText && ImplHasLabelLines( item.maText, meTextPosition ) )
++                        {
++                            const Size aLines( ImplLabelLinesSize( *GetOutDev(), item.maText ) );
++                            item.maItemSize = Size( aLines.Width()+TB_TEXTOFFSET, aLines.Height() );
++                        }
+ 
+                         if ( meTextPosition == ToolBoxTextPosition::Right )
+                         {
+@@ -2647,7 +2677,9 @@ void ToolBox::ImplDrawItem(vcl::RenderContext& rRenderContext, ImplToolItems::si
+     bool bRotate = false;
+     if ( bText )
+     {
+-        const Size aTxtSize(GetOutDev()->GetCtrlTextWidth(pItem->maText), GetTextHeight());
++        const bool bLines = ImplHasLabelLines(pItem->maText, meTextPosition);
++        const Size aTxtSize(bLines ? ImplLabelLinesSize(*GetOutDev(), pItem->maText)
++                                   : Size(GetOutDev()->GetCtrlTextWidth(pItem->maText), GetTextHeight()));
+         tools::Long nTextOffX = nOffX;
+         tools::Long nTextOffY = nOffY;
+ 
+@@ -2704,8 +2736,22 @@ void ToolBox::ImplDrawItem(vcl::RenderContext& rRenderContext, ImplToolItems::si
+         DrawTextFlags nTextStyle = DrawTextFlags::NONE;
+         if ( !pItem->mbEnabled )
+             nTextStyle |= DrawTextFlags::Disable;
+-        rRenderContext.DrawCtrlText( Point( nTextOffX, nTextOffY ), pItem->maText,
+-                      0, pItem->maText.getLength(), nTextStyle );
++        if ( bLines && !bRotate )
++        {
++            // HST Office: each line centred under the image, the block in the place of one line
++            sal_Int32 nIndex = 0;
++            do
++            {
++                const OUString aLine(o3tl::getToken(pItem->maText, 0, '\n', nIndex));
++                const tools::Long nLineWidth = GetOutDev()->GetCtrlTextWidth(aLine);
++                rRenderContext.DrawCtrlText(Point(nTextOffX + (aTxtSize.Width() - nLineWidth) / 2, nTextOffY),
++                                            aLine, 0, aLine.getLength(), nTextStyle);
++                nTextOffY += GetTextHeight();
++            } while (nIndex >= 0);
++        }
++        else
++            rRenderContext.DrawCtrlText( Point( nTextOffX, nTextOffY ), pItem->maText,
++                          0, pItem->maText.getLength(), nTextStyle );
+         if ( bRotate )
+             SetFont( aOldFont );
+     }
+--- a/vcl/source/window/builder.cxx
++++ b/vcl/source/window/builder.cxx
+@@ -1685,6 +1685,11 @@ VclPtr<vcl::Window> VclBuilder::makeObject(vcl::Window *pParent, const OUString
+                 // command descriptions, so the label written in the .ui file is the only one available.
+                 if (pToolBox->GetItemText(nItemId).isEmpty())
+                     pToolBox->SetItemText(nItemId, extractLabel(rMap));
++                // HST: the line break of a two-line label (large ribbon buttons) is layout only; the
++                // accessible name reads the label as one line.
++                const OUString& rText = pToolBox->GetItemText(nItemId);
++                if (rText.indexOf('\n') >= 0)
++                    pToolBox->SetAccessibleName(nItemId, rText.replace('\n', ' '));
+             }
+             else
+             {
+--- a/sfx2/source/sidebar/SidebarToolBox.cxx
++++ b/sfx2/source/sidebar/SidebarToolBox.cxx
+@@ -281,6 +281,10 @@ IMPL_LINK_NOARG(SidebarToolBox, ChangedIconHandler, LinkParamNone*, void)
+             OUString aCommandURL = GetItemCommand(it.first);
+             css::uno::Reference<frame::XFrame> xFrame = pViewFrm->GetFrame().GetFrameInterface();
+             Image aImage = vcl::CommandInfoProvider::GetImageForCommand(aCommandURL, xFrame, GetImageSize());
++            // HST Office: commands of extensions have no command image; the image the .ui file names
++            // is loaded again from the new icon theme (e.g. HST after HST (dark)).
++            if (!aImage && !GetItemImage(it.first).GetStock().isEmpty())
++                aImage = Image(StockImage::Yes, GetItemImage(it.first).GetStock());
+             SetItemImage(it.first, aImage);
+         }
+     }
+--- /dev/null
++++ b/sc/uiconfig/scalc/popupmenu/hstformatdate.xml
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++-->
++<!-- HST Office: date formats of the "Định dạng ngày tháng" split button on the Extensions tab. The commands
++     belong to the bundled HST extension; their labels are Vietnamese in every UI language. -->
++<menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
++  <menu:menuitem menu:id="org.hst.office.vi:FormatDate" menu:label="dd/mm/yyyy"/>
++  <menu:menuitem menu:id="org.hst.office.vi:FormatDateLong" menu:label="ngày dd tháng mm năm yyyy"/>
++  <menu:menuitem menu:id="org.hst.office.vi:FormatMonthYear" menu:label="tháng mm năm yyyy"/>
++  <menu:menuitem menu:id="org.hst.office.vi:FormatDateDash" menu:label="dd-mm-yyyy"/>
++</menu:menupopup>

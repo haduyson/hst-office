@@ -4,8 +4,9 @@
 Usage: python3 tests/runtime/check-ribbon-hst-commands.py [--instdir DIR] [--display :79] [--shots DIR] [--apps writer,calc,impress]
 On a running X display, per app at 1485x900: Xem lại ▸ Ngôn ngữ has the "Ngôn ngữ giao diện" drop-down (Tiếng Việt /
 English / Theo máy); Nhà phát triển has "Macro VBA" first in Writer and Sheets (Slides has no VBA, see vba.py);
-Phần mở rộng shows only that app's HST tools; Tệp tin ▸ Thông tin has "Thiết lập USB Token…" right of "Chữ ký số…";
-the ≡ menu has the update check before About; the moved commands resolve on the document frame.
+Phần mở rộng has that app's groups of large HST buttons (ribbon_extensions_tab_gui.py); Tệp tin ▸ Thông tin has
+"Thiết lập USB Token…" right of "Chữ ký số…"; the ≡ menu has the update check before About; the moved commands and
+the Extensions tab commands resolve on the document frame.
 Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json; --shots saves one PNG per tab.
 """
 import argparse
@@ -18,18 +19,12 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
+import ribbon_extensions_tab_gui as exttab  # noqa: E402
 
 VI = "org.hst.office.vi:"
 LANGUAGE_ITEMS = ["Tiếng Việt", "English", "Theo máy"]
-MOVED = {"Kiểm tra cập nhật…", "Thiết lập USB Token…", "Macro VBA", "Ngôn ngữ giao diện"}
-EXTENSION_TAB = {
-    "writer": {"Văn bản hành chính", "Chuyển TCVN3/VNI sang Unicode", "Giải pháp HASON TECH"},
-    "calc": {"Văn bản hành chính", "Định dạng ngày (dd/mm/yyyy)", "Định dạng tiền VND", "Định dạng phần trăm",
-             "Nhập CSV (UTF-8)", "Giải pháp HASON TECH"},
-    "impress": {"Văn bản hành chính", "Giải pháp HASON TECH"},
-}
-# Every tool name the Extension tab can show, to tell its items from the rest of the ribbon.
-KNOWN = set().union(*EXTENSION_TAB.values()) | MOVED
+EXTENSION_TAB, TAB = exttab.EXTENSION_TAB, exttab.TAB
+
 BUTTONS = ("push button", "toggle button", "push button menu", "menu button")
 MODULES = {"writer": "swriter", "calc": "scalc", "impress": "simpress"}
 ROWS = []
@@ -84,18 +79,6 @@ def check_developer(args, office, app):
                (vba[0][2], macro[0][2]))
 
 
-def check_extension_tab(args, office, app):
-    if not record(f"[{app}] Phần mở rộng opens", gui.open_tab(args.display, "Phần mở rộng")):
-        return
-    shot(args, office, f"{app}-phan-mo-rong")
-    # the items of the addon toolbars report no extents of their own: take the children of the showing toolbars
-    names = set()
-    for _name, _role, _box, bar in gui.ribbon_nodes(("tool bar",)):
-        names.update(bar.getChildAtIndex(i).name for i in range(bar.childCount))
-    names = (names | {n[0] for n in gui.ribbon_nodes(BUTTONS)}) & KNOWN
-    record(f"[{app}] Phần mở rộng shows exactly the HST tools", names == EXTENSION_TAB[app], sorted(names))
-
-
 def check_backstage(args, office, app):
     tabs = {t[0]: t for t in gui.ribbon_tabs()}
     gui.click(args.display, tabs["Tệp tin"][1])
@@ -128,22 +111,24 @@ def check_static(args, office, app):
     from com.sun.star.util import URL
     commands = ["org.hst.office.update:Check", VI + "SetupUsbToken", VI + "UILanguageVi", VI + "UILanguageEn",
                 VI + "UILanguageSystem"] + ([VI + "EditVba"] if app != "impress" else [])
+    commands += sorted({command for _, group in EXTENSION_TAB[app] for _, command in group}
+                       | ({VI + command for command, _ in TAB.DATE_MENU} if app in TAB.SPLIT else set()))
     missing = []
     for command in commands:
         url = URL()
         url.Complete = command
         if frame.queryDispatch(parser.parseStrict(url)[1], "", 0) is None:
             missing.append(command)
-    record(f"[{app}] {len(commands)} moved commands resolve", not missing, missing)
+    record(f"[{app}] {len(commands)} moved and Extensions tab commands resolve", not missing, missing)
 
 
 def check_app(app, args, port):
-    office, _wid, _windows = gui.start(args.instdir, app, args.display, os.path.join(args.out, app), port)
+    office, wid, _windows = gui.start(args.instdir, app, args.display, os.path.join(args.out, app), port)
     try:
         check_static(args, office, app)
         check_review(args, office, app)
         check_developer(args, office, app)
-        check_extension_tab(args, office, app)
+        exttab.check_extension_tab(args, office, app, wid, record, lambda name: shot(args, office, name))
         check_backstage(args, office, app)
     finally:
         office.stop()
