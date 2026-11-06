@@ -91,5 +91,12 @@ def documents():
     add('text',p('M3 4h18v4M12 4v17M7 21h10'),'Text T')
     add('verticaltext',p('M4 3v13m-2-3 2 3 2-3')+transform(letter('T',9,3,1),'rotate(90 15 10)'),'Vertical text direction')
     add('fontwork',p('M3 20 7 6l5-3 5 3 4 14M5 14h14M7 6l5 14 5-14'),'Bent decorative letter construction')
-    add('fontworkgalleryfloater',badge(GLYPHS['fontwork'][0],plus()),'Decorative text gallery')
+    # Chữ nghệ thuật: the word "Art" in bold strokes on a gentle arc over an HST-blue wave. The old bent A
+    # with a + read as Tăng cỡ chữ (A+). Letters are drawn strokes, not font outlines.
+    art = [('M0 0 3.2-10 6.4 0M1.28-3.6h3.84', 2.8, 15, -7), ('M0-6.5V0m0-3.4c0-2 1.3-3.1 3.2-3.1', 11.5, 13.4, 0),
+           ('M1.3-9.2V-2c0 1.3.7 2 2.1 2M0-6.5h3.4', 16.9, 15, 7)]
+    add('fontworkgalleryfloater',''.join(f'<g transform="translate({x} {y}) rotate({turn})">'+p(d,stroke_width='2.2')+'</g>'
+                                         for d, x, y, turn in art)
+        +p('M3 20.5c3-2 6-2 9 0s6 2 9 0',stroke='#2F7DD1',stroke_width='2'),
+        'The word Art in bold strokes on an arc above a blue wave: WordArt gallery')
     add('fontworksameletterheights',p('M2 3h20M2 21h20')+letter('A',3,6,.9)+letter('A',14,6,.9),'Two letters aligned to equal height')
