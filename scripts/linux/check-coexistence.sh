@@ -204,6 +204,7 @@ inner_main() {
 
   log "== both running at once (Xvfb, GTK3)"
   run_both
+  stop_offices   # also when run_both stopped early, so the next checks start each suite afresh
   if [ -d "/home/$USER_NAME/.config/libreoffice/4/user" ] && [ -d "/home/$USER_NAME/.config/hstoffice/4/user" ]; then
     pass "separate profiles: ~/.config/libreoffice/4 and ~/.config/hstoffice/4"
   else fail "expected both ~/.config/libreoffice/4 and ~/.config/hstoffice/4"; fi
