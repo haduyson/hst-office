@@ -883,7 +883,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
  }
  
  void BackstageWindow::ShowPage(Page ePage)
-@@ -715,54 +699,59 @@
+@@ -715,54 +699,67 @@
          m_xFormatList->select(0);
  }
  
@@ -927,8 +927,16 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
 +        = pRibbon && pRibbon->IsReallyVisible()
 +              ? pRibbon->OutputToAbsoluteScreenPixel(Point(0, pRibbon->GetOutputSizePixel().Height()))
 +              : pContainer->OutputToAbsoluteScreenPixel(Point(0, 0));
-+    const Point aTop = pFrameWindow->AbsoluteScreenToOutputPixel(aEdge);
-+    const Size aFrame = pFrameWindow->GetOutputSizePixel();
++    // the anchor is in the coordinates of the window behind m_pFrameWeld: GTK takes them in the
++    // frame window (GtkInstancePopover), the other plugins in the frame window's client window
++    // (SalFrame::GetFrameWeld, SalInstancePopover)
++    vcl::Window* pOrigin = Application::GetToolkitName().startsWith("gtk")
++                               ? pFrameWindow
++                               : pFrameWindow->GetWindow(GetWindowType::Client);
++    if (!pOrigin)
++        return false;
++    const Point aTop = pOrigin->AbsoluteScreenToOutputPixel(aEdge);
++    const Size aFrame = pOrigin->GetOutputSizePixel();
 +    const AbsoluteScreenPixelRectangle aScreen = pFrameWindow->GetDesktopRectPixel();
 +    // about 780 × 580 at 100 %, smaller in a small window: the panel stays inside the window and
 +    // on the screen below the ribbon, so it never has to open upwards over the ribbon
@@ -974,7 +982,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
      m_aNav[m_nSelectedNav].xButton->grab_focus();
  }
  
-@@ -771,9 +760,12 @@
+@@ -771,9 +768,12 @@
      if (!m_bOpen)
          return;
      m_bOpen = false;
@@ -990,7 +998,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
      for (SfxViewFrame* pFrame = SfxViewFrame::GetFirst(); pFrame; pFrame = SfxViewFrame::GetNext(*pFrame))
      {
          if (pFrame->GetFrame().GetFrameInterface() == m_xFrame)
-@@ -786,6 +778,15 @@
+@@ -786,6 +786,15 @@
      }
  }
  
@@ -1006,7 +1014,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
  void BackstageWindow::CloseAndDispatch(const OUString& rCommand,
                                         const uno::Sequence<beans::PropertyValue>& rArgs)
  {
-@@ -835,11 +836,26 @@
+@@ -835,11 +844,26 @@
                         [](const NavItem& rItem) { return rItem.xButton->has_focus(); });
  }
  
@@ -1036,7 +1044,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
          const sal_uInt16 nCode = rKey.GetCode();
          if (nCode == KEY_ESCAPE && !rKey.GetModifier())
          {
-@@ -863,20 +879,8 @@
+@@ -863,20 +887,8 @@
                      FocusNavItem(INT_MAX);
                      return true;
                  case KEY_RIGHT:
@@ -1058,7 +1066,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
                  default:
                      break;
              }
-@@ -898,7 +902,7 @@
+@@ -898,7 +910,7 @@
              }
          }
  
@@ -1067,7 +1075,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
          if (!m_xAccExec)
          {
              m_xAccExec = svt::AcceleratorExecute::createAcceleratorHelper();
-@@ -915,15 +919,7 @@
+@@ -915,15 +927,7 @@
              return true;
          }
      }
@@ -1084,7 +1092,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
  }
  
  IMPL_LINK(BackstageWindow, NavClickHdl, weld::Button&, rButton, void)
-@@ -933,9 +929,7 @@
+@@ -933,9 +937,7 @@
          if (rItem.xButton.get() == &rButton)
              aId = rItem.aId;
  
@@ -1095,7 +1103,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
          ShowPage(Page::Home);
      else if (aId == "navnew")
          ShowPage(Page::New);
-@@ -1118,7 +1112,7 @@
+@@ -1118,7 +1120,7 @@
      BackstageDocumentInfo aInfo = GetDocumentInfo(m_xFrame, false);
      const OUString aExtension = pFilter->GetDefaultExtension().replaceFirst("*.", "");
      sfx2::FileDialogHelper aDialog(ui::dialogs::TemplateDescription::FILESAVE_AUTOEXTENSION,
@@ -1104,7 +1112,7 @@ Test: tests/runtime/check-backstage.py, tests/runtime/check-backstage-flows.py.
      aDialog.AddFilter(pFilter->GetUIName(), pFilter->GetWildcard().getGlob());
      aDialog.SetCurrentFilter(pFilter->GetUIName());
      if (!aInfo.aFolderURL.isEmpty())
-@@ -1133,23 +1127,12 @@
+@@ -1133,23 +1135,12 @@
                          comphelper::makePropertyValue(u"FilterName"_ustr, aFilterName) });
  }
  
