@@ -17,8 +17,10 @@ preferred form from beta.4 on (docs/UPDATE_ADMIN.md). The .oxt is for installs b
 already deploy it: install with `unopkg add --shared hst-update-policy.oxt`, remove with `unopkg remove --shared
 vn.hasontech.hst.update-policy`. It carries the core lock and the old /org.hasontech.hstoffice.UpdateCheck lock.
 
---reg FILE writes the lock as a Windows .reg file (HKLM policy keys read by the core configuration; it first deletes
-the whole HSTUpdate policy key, so importing one template replaces an earlier one). --mobileconfig FILE writes a macOS
+--reg FILE writes the lock as a Windows .reg file (HST Office's own HKLM policy key, read by the core configuration
+from beta.5 on; it first deletes the whole HSTUpdate policy key, so importing one template replaces an earlier one).
+An HSTUpdate key there also hides the lock that the templates of beta.4 and earlier wrote under the policy key of the
+upstream suite (hst-own-policy-paths.patch), so the removal file leaves the key in place, empty. --mobileconfig FILE writes a macOS
 configuration profile whose payload is the managed preference domain vn.hasontech.hstoffice (dictionary HSTUpdate,
 read by update_config.py); every template shares one PayloadIdentifier, so installing another replaces it.
 --templates DIR writes every profile of PROFILES as <DIR>/hst-office-<name>.{xcd,reg,mobileconfig} plus the
@@ -75,7 +77,7 @@ PROFILES = {
     "chi-tai-ve": ((("AllowInstall", "false"),), "không có nút Cập nhật ngay"),
     "kenh-chinh-thuc": ((("Channel", "stable"),), "chỉ nhận bản chính thức"),
 }
-REG_KEY = r"HKEY_LOCAL_MACHINE\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate"
+REG_KEY = r"HKEY_LOCAL_MACHINE\SOFTWARE\Policies\HASON TECH\HST Office\org.openoffice.Office.HSTUpdate"
 REG_HEADER = "Windows Registry Editor Version 5.00\r\n\r\n"
 REMOVE_REG = "go-khoa"
 MAC_DOMAIN, MAC_IDENTIFIER = "vn.hasontech.hstoffice", "vn.hasontech.hstoffice.update-policy"
@@ -94,6 +96,12 @@ def reg_text(locks):
     for name, value in locks:
         out += '[%s\\%s]\r\n"Value"="%s"\r\n"Final"=dword:00000001\r\n\r\n' % (REG_KEY, name, value)
     return out
+
+
+def remove_reg_text():
+    """Windows .reg that removes the lock: delete the HSTUpdate policy key, then leave it empty (an empty key still hides
+    the lock of beta.4 and earlier templates, which the core reads only while HST Office's own key lacks HSTUpdate)."""
+    return REG_HEADER + "[-%s]\r\n\r\n[%s]\r\n" % (REG_KEY, REG_KEY)
 
 
 def mobileconfig_bytes(locks, title, seed):
@@ -124,7 +132,7 @@ def write_templates(directory):
         write(base + ".xcd", xcd_text(locks))
         write(base + ".reg", reg_text(locks).encode("ascii"))
         write(base + ".mobileconfig", mobileconfig_bytes(locks, title, name))
-    write(os.path.join(directory, "hst-office-%s.reg" % REMOVE_REG), (REG_HEADER + "[-%s]\r\n" % REG_KEY).encode("ascii"))
+    write(os.path.join(directory, "hst-office-%s.reg" % REMOVE_REG), remove_reg_text().encode("ascii"))
     print("wrote the templates of %s into %s" % (", ".join(PROFILES), directory))
 
 

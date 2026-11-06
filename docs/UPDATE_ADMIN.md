@@ -3,8 +3,8 @@
 Từ v1.0.0-beta.4, cài đặt kiểm tra cập nhật nằm trong **lõi** HST Office, ở nút cấu hình
 `/org.openoffice.Office.HSTUpdate` (schema `officecfg/.../Office/HSTUpdate.xcs`, thêm bằng
 [`hst-update-config.patch`](../patches/libreoffice/hst-update-config.patch)). Nhờ vậy quản trị viên khóa được bằng các
-cơ chế cấu hình chuẩn của LibreOffice: tệp `.xcd` trong `share/registry`, khóa registry chính sách trên Windows, hoặc hồ
-sơ cấu hình (managed preferences) trên macOS. Thuộc tính có `finalized` thì người dùng không sửa được: hộp kiểm và mục
+cơ chế cấu hình của lõi: tệp `.xcd` trong `share/registry`, khóa registry chính sách riêng của HST Office trên Windows,
+hoặc hồ sơ cấu hình (managed preferences) trên macOS. Thuộc tính có `finalized` thì người dùng không sửa được: hộp kiểm và mục
 menu tương ứng bị làm mờ, và việc kiểm tra tuân theo giá trị bị khóa.
 
 Cách kiểm tra cập nhật hoạt động: [UPDATE_CHECK](UPDATE_CHECK.md). Cài bản mới bằng "Cập nhật ngay":
@@ -29,7 +29,8 @@ Trang hướng dẫn F1 [Cập nhật HST Office](../extensions/hst-vietnamese-t
 CNTT") cho tải ba bộ tệp mẫu trong [help/files](../extensions/hst-vietnamese-tools/help/files/), mỗi bộ có `.reg`
 (Windows), `.xcd` (Linux) và `.mobileconfig` (macOS): `tat-kiem-tra` (AutoCheck, ManualCheck, AllowInstall = false),
 `chi-tai-ve` (AllowInstall = false) và `kenh-chinh-thuc` (Channel = stable), cùng `hst-office-go-khoa.reg` để gỡ khóa.
-Mỗi `.reg` xóa cả khóa `HSTUpdate` trước khi ghi nên thay cho mẫu trước; các `.mobileconfig` dùng chung
+Mỗi `.reg` xóa cả khóa `HSTUpdate` (dưới khóa chính sách riêng của HST Office) trước khi ghi nên thay cho mẫu
+trước, kể cả khóa của mẫu beta.4 trở về trước (xem [Chuyển tiếp](#chuyển-tiếp-từ-beta1beta4)); các `.mobileconfig` dùng chung
 `PayloadIdentifier` nên cài mẫu khác sẽ thay mẫu cũ. Sinh lại bằng
 `python3 scripts/release/build-update-policy-oxt.py --templates extensions/hst-vietnamese-tools/help/files`
 (`tests/unit/test_update_policy_templates.py` báo khi tệp đã commit lệch với bộ sinh).
@@ -77,26 +78,29 @@ Gói `.deb` không sở hữu tệp này nên nó được giữ nguyên khi nâ
 
 ## Windows: registry chính sách
 
-HST Office đọc khóa chính sách giống LibreOffice, dưới `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\LibreOffice` (cho cả máy)
-hoặc `HKEY_CURRENT_USER\Software\Policies\LibreOffice` (cho một người dùng). Mỗi thuộc tính là một khóa con, có giá trị
-chuỗi `Value` và DWORD `Final` = 1 để khóa:
+Từ v1.0.0-beta.5, HST Office đọc khóa chính sách **riêng**, dưới `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\HASON TECH\HST Office`
+(cho cả máy) hoặc `HKEY_CURRENT_USER\Software\Policies\HASON TECH\HST Office` (cho một người dùng), cùng tên nhà phát
+hành và sản phẩm với khóa `HKLM\Software\HASON TECH\HST Office` của bộ cài MSI
+([`hst-own-policy-paths.patch`](../patches/libreoffice/hst-own-policy-paths.patch)). Chính sách đặt cho bộ office khác
+không áp dụng cho HST Office và ngược lại. Mỗi thuộc tính là một khóa con, có giá trị chuỗi `Value` và DWORD `Final` = 1 để
+khóa:
 
 ```reg
 Windows Registry Editor Version 5.00
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate\AutoCheck]
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\HASON TECH\HST Office\org.openoffice.Office.HSTUpdate\AutoCheck]
 "Value"="false"
 "Final"=dword:00000001
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate\ManualCheck]
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\HASON TECH\HST Office\org.openoffice.Office.HSTUpdate\ManualCheck]
 "Value"="false"
 "Final"=dword:00000001
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate\AllowInstall]
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\HASON TECH\HST Office\org.openoffice.Office.HSTUpdate\AllowInstall]
 "Value"="false"
 "Final"=dword:00000001
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate\CheckIntervalHours]
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\HASON TECH\HST Office\org.openoffice.Office.HSTUpdate\CheckIntervalHours]
 "Value"="168"
 "Final"=dword:00000001
 ```
@@ -104,18 +108,33 @@ Windows Registry Editor Version 5.00
 Với PowerShell (quyền quản trị viên):
 
 ```powershell
-$k = 'HKLM:\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate\AutoCheck'
+$k = 'HKLM:\SOFTWARE\Policies\HASON TECH\HST Office\org.openoffice.Office.HSTUpdate\AutoCheck'
 New-Item -Path $k -Force | Out-Null
 Set-ItemProperty -Path $k -Name Value -Value 'false'
 Set-ItemProperty -Path $k -Name Final -Value 1 -Type DWord
 ```
 
 Triển khai hàng loạt bằng Group Policy Preferences (Registry) với đúng các khóa trên. `Value` luôn là chuỗi
-(`true`/`false`, số, hoặc `stable`/`beta`). Gỡ khóa: xóa khóa con.
+(`true`/`false`, số, hoặc `stable`/`beta`). Gỡ khóa: xóa các khóa con thuộc tính, giữ khóa
+`org.openoffice.Office.HSTUpdate` rỗng (như `hst-office-go-khoa.reg`), xem mục chuyển tiếp bên dưới.
+
+### Chuyển tiếp từ beta.1–beta.4
+
+Bản beta.1–beta.4 đọc khóa chính sách của LibreOffice (`SOFTWARE\Policies\LibreOffice`), và tệp mẫu `.reg` của các bản
+đó ghi khóa cập nhật vào `...\Policies\LibreOffice\org.openoffice.Office.HSTUpdate`. Để máy đã khóa không mất khóa khi
+nâng cấp, lõi từ beta.5 vẫn đọc **riêng cây `org.openoffice.Office.HSTUpdate`** ở khóa cũ (cây này chỉ HST Office có),
+với điều kiện khóa HST Office của cùng hive (HKLM hoặc HKCU) **chưa có** cây `org.openoffice.Office.HSTUpdate`. Có cây đó,
+kể cả rỗng, thì khóa cũ bị bỏ qua hoàn toàn. Mọi chính sách khác dưới khóa LibreOffice không áp dụng cho HST Office.
+
+- Không bắt buộc làm gì khi nâng cấp: khóa cập nhật cũ vẫn có hiệu lực.
+- Khuyến nghị: áp dụng tệp mẫu mới (hoặc `hst-office-go-khoa.reg` để gỡ khóa); khóa mới thay khóa cũ ngay. GPO ghi khóa
+  cũ thì đổi sang đường dẫn mới.
+- Dọn khóa cũ (tùy chọn, không ảnh hưởng LibreOffice vì LibreOffice không có cây này):
+  `reg delete "HKLM\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate" /f`.
 
 ## macOS: hồ sơ cấu hình (managed preferences)
 
-LibreOffice không có lớp cấu hình macOS riêng, nên extension HST đọc trực tiếp managed preferences của miền
+Lõi không có lớp cấu hình managed preferences trên macOS, nên extension HST đọc trực tiếp managed preferences của miền
 `vn.hasontech.hstoffice` (mã gói của HST Office): từ điển `HSTUpdate`, cùng tên thuộc tính như trên. Mọi giá trị trong
 hồ sơ đều được coi là đã khóa. Triển khai qua MDM (Jamf, Intune, Mosyle, Kandji…) bằng payload "Custom Settings"/
 Application & Custom Settings với miền `vn.hasontech.hstoffice` và nội dung:
@@ -185,7 +204,12 @@ người dùng ghi đè hồ sơ cả máy). `defaults write` vào `/Library/Pre
 - Kiểm thử tự động trên Linux: `tests/runtime/check-update-lock.py`.
 - Tệp mẫu: `tests/runtime/check-update-policy.py` (Linux: `--instdir`, chép từng `.xcd` vào bản sao instdir), bước
   "Update-lock templates" của [windows-smoke.yml](../.github/workflows/windows-smoke.yml) (`reg import` từng `.reg` trên
-  bản MSI phát hành, đầu vào `update_policy_only`) và [macos-policy-probe.yml](../.github/workflows/macos-policy-probe.yml).
+  bản MSI phát hành, đầu vào `update_policy_only`; bản MSI beta.5 trở lên) và
+  [macos-policy-probe.yml](../.github/workflows/macos-policy-probe.yml). Bước Windows còn đặt một chính sách khác dưới khóa
+  LibreOffice (`--ignored`: không được áp dụng) và một khóa cập nhật kiểu beta.4 dưới khóa cũ (vẫn áp dụng, rồi bị mỗi
+  tệp mẫu mới thay thế).
+- Logic chọn khóa registry của lõi (Windows) chạy trên Linux với registry giả lập:
+  [`tests/runtime/check-winreg-policy.sh`](../tests/runtime/check-winreg-policy.sh) (cần cây Linux đã build).
   macOS: runner không cài được hồ sơ không cần người dùng (`profiles install` bị từ chối từ macOS 11; cần duyệt trong
   Cài đặt hệ thống hoặc MDM), nên probe ghi payload của từng `.mobileconfig` thẳng vào
   `/Library/Managed Preferences/vn.hasontech.hstoffice.plist` (và một lần theo người dùng), đúng tệp HST Office đọc.

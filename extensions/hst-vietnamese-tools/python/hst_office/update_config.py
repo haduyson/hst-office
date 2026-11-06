@@ -2,9 +2,9 @@
 """Settings of the update check: the core schema, the old extension schema and administrator locks.
 
 The settings live in the core configuration /org.openoffice.Office.HSTUpdate (officecfg HSTUpdate.xcs, added by
-patches/libreoffice/hst-update-config.patch), so an administrator can lock them with the usual LibreOffice layers:
-a share/registry .xcd (Linux, macOS), HKLM\\SOFTWARE\\Policies\\LibreOffice\\org.openoffice.Office.HSTUpdate\\...
-(Windows) or a shared extension. On macOS a configuration profile (managed preferences of vn.hasontech.hstoffice,
+patches/libreoffice/hst-update-config.patch), so an administrator can lock them with the core configuration layers:
+a share/registry .xcd (Linux, macOS), HKLM\\SOFTWARE\\Policies\\HASON TECH\\HST Office\\org.openoffice.Office.HSTUpdate\\...
+(Windows, hst-own-policy-paths.patch) or a shared extension. On macOS a configuration profile (managed preferences of vn.hasontech.hstoffice,
 dictionary "HSTUpdate") is read as well. See docs/UPDATE_ADMIN.md.
 
 Earlier releases kept the settings in the extension schema /org.hasontech.hstoffice.UpdateCheck (update.xcs):
