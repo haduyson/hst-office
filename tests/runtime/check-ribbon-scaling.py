@@ -131,6 +131,15 @@ def sweep(args, app, wid, office):
             if gap >= need:
                 early.append((width, sorted(newly), gap, need))
         previous = {k: b[2] for k, b in bars.items()}
+    # nothing is judged on an empty scan: every width must have found ribbon toolbars, their groups,
+    # the banner and the ribbon height, or the invariants below would pass vacuously
+    blind = [w for w, b, _c, n, x, g in observed if not b or not g or n is None or x is None]
+    record(f"[{app}] the ribbon was measured at every width", bool(observed) and not blind,
+           blind or [(w, len(b), len(g)) for w, b, _c, _n, _x, g in observed])
+    if blind or not observed:
+        return [{"width": w, "toolbars": len(b), "groups": len(g), "chevron": bool(c), "banner": n}
+                for w, b, c, n, _x, g in observed]
+    record(f"[{app}] the chevron shows at {observed[-1][0]} px", observed[-1][2] is not None, observed[-1][2])
     first = next(((w, b) for w, b, c, _n, _x, _g in observed if c), None)
     if first:
         widest = observed[0][1]
