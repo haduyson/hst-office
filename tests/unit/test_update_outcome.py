@@ -13,7 +13,7 @@ import _paths  # noqa: F401
 from hst_office import update_helper_cmd as cmd
 from hst_office import update_outcome as outcome
 from hst_office.update_texts import TEXTS
-from test_update_helper import HAS_SHELL, SHA256, ShellHarness
+from update_helper_harness import HAS_SHELL, SHA256, ShellHarness
 
 
 def record(**values):
