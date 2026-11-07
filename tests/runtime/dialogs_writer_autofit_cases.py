@@ -5,7 +5,7 @@ import time
 import zipfile
 
 from dialogs_writer_table_cases import put_cursor, save_and_reopen
-from hst_dialog_uitest import click, props, writer_edit
+from hst_dialog_uitest import click, props, type_value, writer_edit
 
 MAX_REFIT_SECONDS = 1.0  # a large table may lag behind typing by this much at most
 
@@ -36,8 +36,10 @@ def refitted_width(table, before, seconds=5.0):
     return width
 
 
-def insert_contents_table(h, doc):
+def insert_contents_table(h, doc, columns=None):
     dlg = h.open_dialog(".uno:InsertTable", "InsertTableDialog")
+    if columns:
+        type_value(dlg, "colspin", str(columns))
     click(dlg, "hstautocontents")
     click(dlg, "ok")
     h.wait_idle()
@@ -82,6 +84,20 @@ def check_autofit_typing(h, c):
     h.close_document(second)
     h.close_document(again)
     h.close_document(doc)
+    check_autofit_columns(h, c)
+
+
+def check_autofit_columns(h, c):
+    """Tables of three and four columns refit too: the refit covers the whole table, whichever cells it holds."""
+    for columns in (3, 4):
+        doc = h.new_document()
+        table = insert_contents_table(h, doc, columns)
+        c.equal(f"autofit {columns} columns: table inserted", table.getColumns().getCount(), columns)
+        put_cursor(doc, table, "A1")
+        before = column_width(table)
+        type_text(h, "Một nội dung khá dài để cột phải rộng ra")
+        c.equal(f"autofit {columns} columns: the column grows while typing", refitted_width(table, before) > before, True)
+        h.close_document(doc)
 
 
 def check_autofit_large_table(h, c):
