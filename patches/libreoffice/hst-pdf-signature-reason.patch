@@ -12,7 +12,9 @@ verified: HST PDF labels them "Ký bởi (chưa xác minh)" and "Thời điểm 
 
 Byte ranges are bounded on every path: more than 16 ranges, or ranges whose lengths add up to
 more than the file, are never hashed (Signing::Verify allocates their sum), and the signature
-stays invalid.
+stays invalid. When the signature itself (the gap between the ranges) still lies inside the file,
+its CMS is read against no content, which gives the claimed signer and time but can never match;
+when it lies outside the file, nothing is read.
 
 Certificates of invalid signatures are not checked: GetDocumentSignatureInformations and the
 signatures dialog (for PDF) call verifyCertificate only for a signature that verifies, so a file
@@ -244,7 +246,7 @@ License: modified upstream files keep their license (MPL-2.0).
  
  #ifdef _WIN32
  #define WIN32_LEAN_AND_MEAN
-@@ -688,6 +692,225 @@ CPPUNIT_TEST_FIXTURE(PDFSigningTest, testIncompleteCMS)
+@@ -688,6 +692,279 @@ CPPUNIT_TEST_FIXTURE(PDFSigningTest, testIncompleteCMS)
      }
  }
  
@@ -286,6 +288,37 @@ License: modified upstream files keep their license (MPL-2.0).
 +void assertProblem(PDFSignatureProblem eExpected, PDFSignatureProblem eActual, const char* pCase)
 +{
 +    CPPUNIT_ASSERT_EQUAL_MESSAGE(pCase, static_cast<int>(eExpected), static_cast<int>(eActual));
++}
++
++/// A minimal one-page PDF with one signature field: its /Contents hex string and /ByteRange.
++std::vector<char> makeSignatureFieldPdf(const OString& rContentsHex, const OString& rByteRange)
++{
++    const OString aObjects[] = {
++        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>"_ostr,
++        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"_ostr,
++        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>"_ostr,
++        "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Sig1) /Rect [0 0 0 0] /P 3 0 R /V 5 0 R >>"_ostr,
++        "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /Contents <"_ostr
++            + rContentsHex + "> /ByteRange [ " + rByteRange + " ] >>",
++    };
++    OStringBuffer aPdf("%PDF-1.7\n");
++    std::vector<sal_Int32> aOffsets;
++    for (size_t i = 0; i < std::size(aObjects); ++i)
++    {
++        aOffsets.push_back(aPdf.getLength());
++        aPdf.append(OString::number(i + 1) + " 0 obj\n" + aObjects[i] + "\nendobj\n");
++    }
++    const sal_Int32 nXref = aPdf.getLength();
++    aPdf.append("xref\n0 " + OString::number(std::size(aObjects) + 1) + "\n0000000000 65535 f \n");
++    for (sal_Int32 nOffset : aOffsets)
++    {
++        OString aOffset = OString::number(nOffset);
++        aPdf.append(OString::Concat(std::string_view("0000000000", 10 - aOffset.getLength())) + aOffset
++                    + " 00000 n \n");
++    }
++    aPdf.append("trailer\n<< /Size " + OString::number(std::size(aObjects) + 1)
++                + " /Root 1 0 R >>\nstartxref\n" + OString::number(nXref) + "\n%%EOF\n");
++    return std::vector<char>(aPdf.getStr(), aPdf.getStr() + aPdf.getLength());
 +}
 +}
 +
@@ -393,36 +426,59 @@ License: modified upstream files keep their license (MPL-2.0).
 +    for (int i = 0; i < 20000; ++i)
 +        aRanges.append("0 1000000 ");
 +    const OString aRangeText = aRanges.makeStringAndClear();
-+    const OString aObjects[] = {
-+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>"_ostr,
-+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"_ostr,
-+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>"_ostr,
-+        "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Sig1) /Rect [0 0 0 0] /P 3 0 R /V 5 0 R >>"_ostr,
-+        "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /Contents <3082000100> "
-+        "/ByteRange [ "_ostr + aRangeText + "] >>",
-+    };
-+    OStringBuffer aPdf("%PDF-1.7\n");
-+    std::vector<sal_Int32> aOffsets;
-+    for (size_t i = 0; i < std::size(aObjects); ++i)
-+    {
-+        aOffsets.push_back(aPdf.getLength());
-+        aPdf.append(OString::number(i + 1) + " 0 obj\n" + aObjects[i] + "\nendobj\n");
-+    }
-+    const sal_Int32 nXref = aPdf.getLength();
-+    aPdf.append("xref\n0 " + OString::number(std::size(aObjects) + 1) + "\n0000000000 65535 f \n");
-+    for (sal_Int32 nOffset : aOffsets)
-+    {
-+        OString aOffset = OString::number(nOffset);
-+        aPdf.append(OString::Concat(std::string_view("0000000000", 10 - aOffset.getLength())) + aOffset
-+                    + " 00000 n \n");
-+    }
-+    aPdf.append("trailer\n<< /Size " + OString::number(std::size(aObjects) + 1)
-+                + " /Root 1 0 R >>\nstartxref\n" + OString::number(nXref) + "\n%%EOF\n");
-+    std::vector<char> aData(aPdf.getStr(), aPdf.getStr() + aPdf.getLength());
++    std::vector<char> aData = makeSignatureFieldPdf("3082000100"_ostr, aRangeText);
 +    auto [aInfo, eProblem] = verifyOneSignature(aData);
 +    CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_UNKNOWN, aInfo.nStatus);
 +    assertProblem(PDFSignatureProblem::Broken, eProblem, "20000 byte range pairs");
 +    CPPUNIT_ASSERT(aInfo.X509Datas.empty());
++}
++
++/// Ranges longer than the file are never hashed. The signer is still read from the CMS when the
++/// signature itself lies inside the file, and not when it lies outside.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testSignatureRangesLongerThanFile)
++{
++    std::shared_ptr<vcl::pdf::PDFium> pPDFium = vcl::pdf::PDFiumLibrary::get();
++    if (!pPDFium)
++    {
++        return;
++    }
++    uno::Reference<xml::crypto::XSEInitializer> xSEInitializer
++        = xml::crypto::SEInitializer::create(m_xContext);
++    uno::Reference<xml::crypto::XXMLSecurityContext> xSecurityContext
++        = xSEInitializer->createSecurityContext(OUString());
++    std::vector<char> aOriginal;
++    {
++        SvFileStream aFile(m_directories.getURLFromSrc(DATA_DIRECTORY) + "good-pades.pdf",
++                           StreamMode::READ);
++        aOriginal.resize(aFile.TellEnd());
++        CPPUNIT_ASSERT_EQUAL(aOriginal.size(), aFile.ReadBytes(aOriginal.data(), aOriginal.size()));
++    }
++    {
++        // the second range claims 99999 bytes, more than the whole file; the signature between
++        // the ranges is in place
++        std::vector<char> aData(aOriginal);
++        const std::string_view aFrom("56889 1119 ]"), aTo("56889 99999]");
++        const size_t nPos = std::string_view(aData.data(), aData.size()).find(aFrom);
++        CPPUNIT_ASSERT(nPos != std::string_view::npos);
++        std::copy(aTo.begin(), aTo.end(), aData.begin() + nPos);
++        auto [aInfo, eProblem] = verifyOneSignature(aData);
++        CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_UNKNOWN, aInfo.nStatus);
++        assertProblem(PDFSignatureProblem::Incomplete, eProblem, "signature inside the file");
++        CPPUNIT_ASSERT(!aInfo.X509Datas.empty());
++    }
++    {
++        // the same CMS in a small file whose ranges put the signature 1 MB past its end
++        const std::vector<size_t> aRange = readByteRange(aOriginal);
++        const size_t nGapStart = aRange[0] + aRange[1];
++        const OString aHex(aOriginal.data() + nGapStart + 1, aRange[2] - nGapStart - 2);
++        const OString aByteRange = "0 1000000 " + OString::number(1000000 + aHex.getLength() + 2)
++                                   + " 100";
++        std::vector<char> aData = makeSignatureFieldPdf(aHex, aByteRange);
++        auto [aInfo, eProblem] = verifyOneSignature(aData);
++        CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_UNKNOWN, aInfo.nStatus);
++        assertProblem(PDFSignatureProblem::Rewritten, eProblem, "signature outside the file");
++        CPPUNIT_ASSERT(aInfo.X509Datas.empty());
++    }
 +}
 +
 +/// The signer and time of an invalid signature are labelled as not verified in HST PDF.
@@ -513,7 +569,7 @@ License: modified upstream files keep their license (MPL-2.0).
  #include <unotools/streamwrap.hxx>
  #include <unotools/ucbstreamhelper.hxx>
  #include <vcl/filter/pdfdocument.hxx>
-@@ -321,15 +324,171 @@ bool IsValidSignature(SvStream& rStream, const Signature& rSignature,
+@@ -321,15 +324,197 @@ bool IsValidSignature(SvStream& rStream, const Signature& rSignature,
      return aSignedPages == aAllPages;
  }
  
@@ -554,25 +610,51 @@ License: modified upstream files keep their license (MPL-2.0).
 +}
 +
 +/**
++ * Two ranges within the size limits, and the gap between them, where the signature's /Contents
++ * was written, lies inside the file.
++ */
++bool IsSignatureInsideFile(const std::vector<std::pair<size_t, size_t>>& rByteRanges,
++                           sal_uInt64 nFileEnd)
++{
++    if (rByteRanges.size() < 2 || rByteRanges.size() > MAX_BYTE_RANGES)
++        return false;
++    for (const auto& rRange : rByteRanges)
++        if (rRange.first > o3tl::make_unsigned(SAL_MAX_INT32)
++            || rRange.second > o3tl::make_unsigned(SAL_MAX_INT32))
++            return false;
++    const size_t nGapStart = rByteRanges[0].first + rByteRanges[0].second;
++    const size_t nGapEnd = rByteRanges[1].first;
++    return nGapStart <= nGapEnd && nGapEnd <= nFileEnd;
++}
++
++/**
 + * Reads the signer, the signing time and the digest algorithm from the CMS when the signature is
 + * already known to be invalid. They are not verified: the viewer labels them as such. The status
-+ * of rInformation is not touched. Unbounded ranges are not read at all.
++ * of rInformation is not touched.
++ *
++ * The signed bytes are hashed only when the ranges are bounded. Otherwise, when the signature
++ * itself lies inside the file, the CMS is read against no content at all: that gives the
++ * certificate and the signing time, never a match. When the signature is outside the file,
++ * nothing is read.
 + */
 +void ReadSignerFromCms(SvStream& rStream, const Signature& rSignature, bool bNonDetached,
 +                       const std::vector<unsigned char>& rContents,
 +                       SignatureInformation& rInformation, SignatureFindings& rFindings)
 +{
-+    if (!AreByteRangesBounded(rSignature.m_aByteRanges, rStream.TellEnd()))
++    const sal_uInt64 nFileEnd = rStream.TellEnd();
++    const bool bHashRanges = AreByteRangesBounded(rSignature.m_aByteRanges, nFileEnd);
++    if (!bHashRanges && !IsSignatureInsideFile(rSignature.m_aByteRanges, nFileEnd))
 +        return;
 +    SignatureInformation aCms(rInformation.nSecurityId);
 +    aCms.stDateTime = rInformation.stDateTime;
-+    if (!svl::crypto::Signing::Verify(rStream, rSignature.m_aByteRanges, bNonDetached, rContents,
-+                                      aCms)
++    const std::vector<std::pair<size_t, size_t>> aNoContent;
++    if (!svl::crypto::Signing::Verify(rStream, bHashRanges ? rSignature.m_aByteRanges : aNoContent,
++                                      bNonDetached, rContents, aCms)
 +        || aCms.X509Datas.empty())
 +        return;
 +    rFindings.bCmsRead = true;
-+    rFindings.bCmsVerified
-+        = aCms.nStatus == xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED;
++    rFindings.bCmsVerified = bHashRanges
++        && aCms.nStatus == xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED;
 +    rInformation.X509Datas = aCms.X509Datas;
 +    rInformation.stDateTime = aCms.stDateTime;
 +    rInformation.ouDateTime = aCms.ouDateTime;
@@ -686,7 +768,7 @@ License: modified upstream files keep their license (MPL-2.0).
  {
      std::vector<unsigned char> aContents = rSignature.m_pSignature->getContents();
      if (aContents.empty())
-@@ -361,14 +520,21 @@ bool ValidateSignature(SvStream& rStream, const Signature& rSignature,
+@@ -361,14 +546,21 @@ bool ValidateSignature(SvStream& rStream, const Signature& rSignature,
      rInformation.stDateTime = rSignature.m_pSignature->getTime();
  
      // Detect if the byte ranges don't cover everything, but the signature itself.
@@ -708,7 +790,7 @@ License: modified upstream files keep their license (MPL-2.0).
          return false;
      }
      // Binary vs hex dump and 2 is the leading "<" and the trailing ">" around the hex string.
-@@ -378,6 +544,22 @@ bool ValidateSignature(SvStream& rStream, const Signature& rSignature,
+@@ -378,6 +570,23 @@ bool ValidateSignature(SvStream& rStream, const Signature& rSignature,
      {
          SAL_WARN("xmlsecurity.helper",
                   "ValidateSignature: second range start is not the end of the signature");
@@ -728,10 +810,11 @@ License: modified upstream files keep their license (MPL-2.0).
 +    {
 +        // more signed bytes than the file has: the signature cannot match, do not hash them
 +        SAL_WARN("xmlsecurity.helper", "ValidateSignature: byte ranges longer than the file");
++        ReadSignerFromCms(rStream, rSignature, bNonDetached, aContents, rInformation, rFindings);
          return false;
      }
      rInformation.bPartialDocumentSignature
-@@ -385,13 +567,19 @@ bool ValidateSignature(SvStream& rStream, const Signature& rSignature,
+@@ -385,13 +594,19 @@ bool ValidateSignature(SvStream& rStream, const Signature& rSignature,
      if (!IsValidSignature(rStream, rSignature, nMDPPerm))
      {
          SAL_WARN("xmlsecurity.helper", "ValidateSignature: invalid incremental update detected");
@@ -753,7 +836,7 @@ License: modified upstream files keep their license (MPL-2.0).
  }
  }
  
-@@ -458,19 +646,23 @@ bool PDFSignatureHelper::ReadAndVerifySignatureSvStream(SvStream& rStream)
+@@ -458,19 +673,23 @@ bool PDFSignatureHelper::ReadAndVerifySignatureSvStream(SvStream& rStream)
      std::vector<unsigned int> aTrailerEnds = pPdfDocument->getTrailerEnds();
  
      m_aSignatureInfos.clear();
@@ -778,7 +861,7 @@ License: modified upstream files keep their license (MPL-2.0).
          m_aSignatureInfos.push_back(std::move(aInfo));
      }
  
-@@ -482,6 +674,11 @@ SignatureInformations const& PDFSignatureHelper::GetSignatureInformations() cons
+@@ -482,6 +701,11 @@ SignatureInformations const& PDFSignatureHelper::GetSignatureInformations() cons
      return m_aSignatureInfos;
  }
  
@@ -790,7 +873,7 @@ License: modified upstream files keep their license (MPL-2.0).
  uno::Sequence<security::DocumentSignatureInformation>
  PDFSignatureHelper::GetDocumentSignatureInformations(
      const uno::Reference<xml::crypto::XSecurityEnvironment>& xSecEnv) const
-@@ -503,8 +700,9 @@ PDFSignatureHelper::GetDocumentSignatureInformations(
+@@ -503,8 +727,9 @@ PDFSignatureHelper::GetDocumentSignatureInformations(
          }
          rExternal.PartialDocumentSignature = rInternal.bPartialDocumentSignature;
  
