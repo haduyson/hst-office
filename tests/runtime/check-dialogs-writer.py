@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Writer dialogs follow Word's structure: tab order, key controls, and edits that reach the document.
 
-Usage: check-dialogs-writer.py [--instdir DIR] [--work DIR] [dialog ...]   (default: every dialog)
+Usage: check-dialogs-writer.py [--instdir DIR] [--work DIR] [--port N] [dialog ...]   (default: every dialog)
 Needs a built instdir with the vi language pack. Runs headless (svp) with a fresh profile.
 """
 import argparse
@@ -22,6 +22,7 @@ from dialogs_writer_paragraph_font_cases import check_font, check_paragraph  # n
 from dialogs_writer_picture_cases import check_frame_style_keeps_size, check_picture  # noqa: E402
 from dialogs_writer_table_cases import check_table_properties, check_table_row_navigation, check_table_text_wrapping  # noqa: E402
 from hst_dialog_uitest import Checks, DialogHarness  # noqa: E402
+from hst_gui import free_port  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DIALOGS = {"paragraph": check_paragraph, "font": check_font, "word-count": check_word_count, "hyperlink": check_hyperlink,
@@ -38,9 +39,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--instdir", default=os.path.join(ROOT, "upstream/libreoffice/instdir"))
     parser.add_argument("--work", default=os.path.join(ROOT, "tests/output/dialogs-writer"))
+    parser.add_argument("--port", type=int, default=0, help="UNO socket of the office (default: a free port; formerly 22979)")
     parser.add_argument("dialogs", nargs="*", default=[])
     args = parser.parse_args()
-    harness = DialogHarness(args.instdir, args.work, 22979, ":79")
+    harness = DialogHarness(args.instdir, args.work, args.port or free_port(), ":79")
     checks = Checks()
     try:
         for name in args.dialogs or DIALOGS:
