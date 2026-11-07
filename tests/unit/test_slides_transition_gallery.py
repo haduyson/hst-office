@@ -20,6 +20,7 @@ STRINGS = os.path.join(PATCHES, "hst-slides-transition-gallery-strings.patch")
 UI = "sd/uiconfig/simpress/ui/hsttransitiongallery.ui"
 CXX = "sd/source/ui/controller/HstTransitionGallery.cxx"
 APPLY = "sd/source/ui/animations/HstTransitionApply.cxx"
+DISPOSED = os.path.join(PATCHES, "hst-slides-transition-gallery-disposed-window.patch")
 
 
 def sections(path):
@@ -115,6 +116,16 @@ class TransitionGalleryPatch(unittest.TestCase):
         self.assertIn("SlidesEffectGalleries::get()", self.cxx)
         self.assertIn("HideItem", self.cxx)
 
+
+    def test_late_status_never_reaches_a_disposed_window(self):
+        # the toolbox can dispose the item window before its controller (the style box crash)
+        with open(DISPOSED, encoding="utf-8") as handle:
+            fix = handle.read()
+        self.assertIn("+++ b/" + CXX, fix)
+        self.assertIn("-        if (!m_xWindow)\n", fix)
+        self.assertIn("+        if (!m_xWindow || m_xWindow->isDisposed())\n", fix)
+        status = self.cxx[self.cxx.index("void SAL_CALL statusChanged"):]
+        self.assertLess(status.index("if (!m_xWindow)"), status.index("m_xWindow->Enable("))
 
 class TransitionGalleryStrings(unittest.TestCase):
     def test_every_ui_string_is_translated(self):
