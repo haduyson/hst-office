@@ -7,11 +7,12 @@ Usage (needs a running X display; never started or stopped here; runs the office
         [--out tests/output/feature-search] [--display :93] [--port 2161]
 
 Per UI language, read through AT-SPI (GTK3) with screenshots kept in --out:
-  1. Writer, Sheets, Slides: the Home tab of the ribbon has the feature search button; in Writer a click opens the
-     search popup.
-  2. Writer: Shift+Esc opens it; searches typed without diacritics find accented labels ("chu ky" -> "Chữ ký số",
+  1. Writer, Sheets, Slides: the ribbon tab row has the search box after the last tab, and the Home tab no longer has
+     a "Tìm tính năng" button; a click on the box opens the search popup under it, and so do Shift+Esc and Alt+Q.
+  2. Writer: searches typed without diacritics find accented labels ("chu ky" -> "Chữ ký số",
      "dinh dang" -> "Định dạng"), the HST add-on commands ("van ban hanh chinh", "chuyen tcvn", "usb") and "đ" = "d";
-     Enter on the "van ban hanh chinh" result opens the ND 30 wizard (add-on commands are dispatched).
+     Enter on the "van ban hanh chinh" result opens the ND 30 wizard (add-on commands are dispatched). The last row
+     is "Tìm “…” trong tài liệu"; Enter on it opens Find & Replace.
   3. Writer with the classic menu bar: the HST menu offers "Tìm tính năng" right before the last two items.
 Exit status 1 on any FAIL. When started as root the script re-executes itself as the build user under
 dbus-run-session (AT-SPI needs a session bus).
@@ -28,7 +29,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
-from feature_search_gui import xdo, walk, nodes, hst_menu, ribbon_box, popup_entry, results, search, close_popup  # noqa: E402
+from feature_search_gui import xdo, walk, nodes, hst_menu, popup_entry, results, search, close_popup, search_box, tab_boxes, under  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("nd30_entry", os.path.join(HERE, "check-nd30-entry.py"))
 nd30 = importlib.util.module_from_spec(_spec)
@@ -37,6 +38,8 @@ _spec.loader.exec_module(nd30)
 ROWS = []
 OUT_DEFAULT = os.path.join(os.path.dirname(HERE), "output", "feature-search")
 HST_ITEM = "Tìm tính năng"  # the HST menu is Vietnamese in every UI language
+HOME_BUTTON = "Tìm tính năng"  # the former Home button: its label without "…"
+FIND_ROW = {"vi": ("Tìm “%s” trong tài liệu", r"^Tìm và thay thế$"), "en": ("Find “%s” in the document", r"^Find and Replace$")}
 # query -> (description, predicate over the result labels)
 SEARCHES = {
     "chu ky": ("finds Tệp tin ▸ … Chữ ký số", lambda rows: any(r.startswith("Tệp tin ▸") and "Chữ ký số" in r for r in rows), {"vi"}),
@@ -65,28 +68,53 @@ def check_language(args, lang, label):
     office = hst_gui.Office(args.instdir, os.path.join(args.out, "work-" + label), args.port, args.display, lang).start()
     shot = lambda name: os.path.join(args.out, "%s-%s.png" % (label, name))  # noqa: E731
     try:
-        # 1. ribbon button in the three editors
+        # 1. the search box of the tab row in the three editors; Writer stays open for the rest
         for factory, app_name in (("scalc", "sheets"), ("simpress", "slides"), ("swriter", "writer")):
             doc = office.load("private:factory/" + factory)
             time.sleep(7)
             office.raise_windows()
-            # the block is folded at this width: its button, then the item on its bottom row
-            found = nd30.click_in_home_block(office, args.display, 200) if factory == "swriter" else nd30.open_home_block(office, args.display)
-            if factory == "simpress":  # the UITest service does not reach the Impress frame window under Xvfb
-                with open(os.path.join(args.instdir, "share/config/soffice.cfg/modules/simpress/ui/notebookbar.ui"), encoding="utf-8") as ui:
-                    found = 'id="Home-HstFeatureSearch"' in ui.read() or None
+            app = nd30.office_app()
+            _node, box = search_box(app)
+            tabs = tab_boxes(app)
+            last = max((t[0] + t[2] for t in tabs), default=None)
+            record("%s %s: the tab row has the search box after the last tab" % (label, app_name),
+                   box is not None and last is not None and box[0] >= last - 2 and box[1] < 100, (box, last))
+            home = [name for _d, role, name, _n in nodes(app) if role == "push button" and name == HOME_BUTTON]
+            record("%s %s: the Home tab has no Tìm tính năng button" % (label, app_name), not home, home)
             hst_gui.screenshot(shot(app_name + "-ribbon"), args.display)
-            record("%s %s: Home tab offers the feature search button" % (label, app_name), found is not None, found)
-            if factory != "swriter":
+            for how, keys in (("a click on the box", None), ("Shift+Esc", "shift+Escape"), ("Alt+Q", "alt+q")):
+                if box is None:
+                    break
+                if keys is None:
+                    xdo(args.display, "mousemove", str(box[0] + box[2] // 2), str(box[1] + box[3] // 2), "click", "1")
+                else:
+                    xdo(args.display, "key", keys)
+                time.sleep(1.5)
+                entry = popup_entry(nd30.office_app())
+                hst_gui.screenshot(shot("%s-popup-%s" % (app_name, re.sub(r"\W+", "-", how))), args.display)
+                record("%s %s: %s opens the search popup under the box" % (label, app_name, how), under(entry, box),
+                       entry and search_box(nd30.office_app())[1])
                 close_popup(args.display)
+            if factory != "swriter":
                 doc.close(True)
                 time.sleep(2)
         time.sleep(1.5)
-        entry = popup_entry(nd30.office_app())
-        hst_gui.screenshot(shot("writer-button-popup"), args.display)
-        record(label + " writer: the ribbon button opens the search popup", entry is not None)
-        close_popup(args.display)
-        close_popup(args.display)  # also the popup of the folded block
+        # the last row searches the document
+        row, dialog_title = FIND_ROW[label]
+        rows = search(office, args.display, "abc", shot("search-find-row"))
+        record("%s the last row is %r" % (label, row % "abc"), bool(rows) and rows[-1] == row % "abc", rows[-3:])
+        if rows and rows[-1] == row % "abc":
+            for _ in range(len(rows) - 1):
+                xdo(args.display, "key", "Down")
+                time.sleep(0.3)
+            xdo(args.display, "key", "Return")
+            dialog, name = nd30.wait_window(office, dialog_title, 20)
+            record("%s Enter on it opens Find & Replace" % label, dialog is not None, name)
+            if dialog:
+                hst_gui.send_close_request(dialog, args.display)
+                time.sleep(2)
+        else:
+            close_popup(args.display)
         # 2. Shift+Esc and searches
         for query, (what, ok, langs) in SEARCHES.items():
             if label not in langs:

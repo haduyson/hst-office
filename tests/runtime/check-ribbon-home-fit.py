@@ -10,8 +10,8 @@ The X display must already run, at least 2400 px wide. Per app and width:
   - the groups named in MUST_SHOW have a visible caption: Sheets' Number and Slides' Paragraph at 1366, Writer's
     "Kiểu" (Styles) at 1366 and 1485 and Sheets' at 1485, beside the banner;
   - Find & Replace is a button of the paragraph group (Sheets: alignment); at 1920 px the group "Công cụ" has the
-    tab menu, the HST commands and "Tìm tính năng" in rows, and the tab menu offers "Tìm tính năng"
-    (ribbon_home_tools_gui.py).
+    tab menu and the HST commands in rows but no "Tìm tính năng" button (the tab row has the search box), and the tab
+    menu offers "Tìm tính năng" (ribbon_home_tools_gui.py).
 Prints the visible group captions per width. Exit 1 when a check fails.
 """
 import argparse

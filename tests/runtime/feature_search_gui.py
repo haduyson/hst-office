@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Helpers of check-feature-search.py: the HST menu, the search popup and the button of the ribbon."""
+"""Helpers of check-feature-search.py: the HST menu, the search popup and the search box of the ribbon tab row."""
 import os
 import subprocess
 import time
@@ -45,16 +45,47 @@ def hst_menu(app):
     return None, []
 
 
-def ribbon_box(office, factory):
-    """UITest state of the toolbox that holds the feature search button (first item), or None. The VCL
-    ribbon is not exposed through AT-SPI, the UITest service sees its widgets by .ui id."""
-    box = "SectionBottomHstNd30" if factory == "swriter" else "SectionBottomHstFeatureSearch"
-    for _ in range(10):  # the document window may take a moment to become the focused top window
-        top = office.service("org.libreoffice.uitest.UITest").getTopFocusWindow()
-        if box in top.getChildren():
-            return {p.Name: p.Value for p in top.getChild(box).getState()}
-        time.sleep(1)
-    return None
+# accessible name of the search box of the ribbon tab row, per UI language
+BOX_NAMES = ("Tìm tính năng… (Alt+Q)", "Search features… (Alt+Q)")
+
+
+def extents(node):
+    import pyatspi
+    box = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+    return box.x, box.y, box.width, box.height
+
+
+def search_box(app):
+    """(node, box) of the showing search box of the ribbon tab row, or (None, None)."""
+    import pyatspi
+    for _depth, role, name, node in nodes(app):
+        try:
+            if role == "push button" and name in BOX_NAMES and node.getState().contains(pyatspi.STATE_SHOWING):
+                return node, extents(node)
+        except Exception:  # noqa: BLE001 - a widget may vanish while walking
+            continue
+    return None, None
+
+
+def tab_boxes(app):
+    """Boxes of the showing ribbon tabs (the tab row lies above y 100)."""
+    found = []
+    for _depth, role, _name, node in nodes(app):
+        try:
+            if role == "page tab" and 0 < extents(node)[2] and extents(node)[1] < 100:
+                found.append(extents(node))
+        except Exception:  # noqa: BLE001
+            continue
+    return found
+
+
+def under(popup, box):
+    """The popup entry opens right under the box, centred on it as a popover is."""
+    if popup is None or box is None:
+        return False
+    entry = extents(popup)
+    centre, box_centre = entry[0] + entry[2] / 2, box[0] + box[2] / 2
+    return box[1] + box[3] - 4 <= entry[1] <= box[1] + box[3] + 120 and abs(centre - box_centre) < 300
 
 
 def popup_entry(app):
