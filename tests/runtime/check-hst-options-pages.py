@@ -66,7 +66,8 @@ def main():
             node = office.service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
                 "com.sun.star.configuration.ConfigurationAccess", (arg,))
             return node.getPropertyValue("SymbolStyle")
-        check("Cổ điển writes the classic pack", symbol_style() in ("hst_classic", "hst_classic_dark"), symbol_style())
+        # the base style in any UI mode: the office picks the dark variant itself while the UI is dark
+        check("Cổ điển writes the classic base style", symbol_style() == "hst_classic", symbol_style())
         handler.callHandlerMethod(look, "initialize", "external_event")
         check("the page reads Cổ điển back", look.getControl("classic").getState())
         look.getControl("modern").setState(True)
