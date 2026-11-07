@@ -3,7 +3,7 @@ HST Office: the medium and small rungs of the collapse ladder load small images.
 A toolbox authored with large icons got the small button size on the medium and small rungs, but
 ToolBox::SetToolboxButtonSize keeps the item images: the large icons were measured and drawn, the
 rungs saved too little width and groups folded where small icons would have fit. After a size
-change the ladder sends the toolbox a DataChanged event of type USER; SidebarToolBox (the ribbon's
+change the ladder sends the toolbox a DataChanged event of type NONE (no other sender); SidebarToolBox (the ribbon's
 toolboxes) answers it by loading every command image again in the new size, as it does for an icon
 theme change, without going back to its default size.
 
@@ -15,9 +15,9 @@ theme change, without going back to its default size.
  
  IMPL_LINK(SidebarToolBox, ChangedDataHandler, const DataChangedEvent*, pDataChangedEvent, void)
  {
-+    // HST Office: the ribbon's collapse ladder changed the button size (vcl HstRibbonLadder.cxx):
++    // HST Office: the ribbon's collapse ladder changed the button size (vcl HstRibbonLadder.cxx sends a DataChanged of type NONE, which nothing else sends):
 +    // load the command images of that size and keep it
-+    if (pDataChangedEvent->GetType() == DataChangedEventType::USER && !pDataChangedEvent->GetData())
++    if (pDataChangedEvent->GetType() == DataChangedEventType::NONE && !pDataChangedEvent->GetData())
 +    {
 +        const bool bUseDefaultButtonSize = mbUseDefaultButtonSize;
 +        mbUseDefaultButtonSize = false;
@@ -45,7 +45,7 @@ theme change, without going back to its default size.
 +        // the button size alone keeps the item images of the old size, so the medium and small
 +        // rungs measured and drew large icons: the toolbox's owner loads the images of the new size
 +        // (SidebarToolBox reloads its command images on this event)
-+        rToolBox.DataChanged(DataChangedEvent(DataChangedEventType::USER));
++        rToolBox.DataChanged(DataChangedEvent(DataChangedEventType::NONE));
          bChanged = true;
      }
      if (rData.meHstTextPosition != ePosition)

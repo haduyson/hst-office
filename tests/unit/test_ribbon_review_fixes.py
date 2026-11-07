@@ -44,9 +44,9 @@ class ReviewFixes(unittest.TestCase):
 
     def test_smaller_rungs_load_smaller_images(self):
         ladder = added("hst-ribbon-ladder-small-images.patch", "vcl/source/control/HstRibbonLadder.cxx")
-        self.assertIn("DataChanged(DataChangedEvent(DataChangedEventType::USER))", ladder)
+        self.assertIn("DataChanged(DataChangedEvent(DataChangedEventType::NONE))", ladder)
         toolbox = added("hst-ribbon-ladder-small-images.patch", "sfx2/source/sidebar/SidebarToolBox.cxx")
-        self.assertIn("DataChangedEventType::USER", toolbox)
+        self.assertIn("DataChangedEventType::NONE", toolbox)
         self.assertIn("ChangedIconHandler(nullptr);", toolbox)
         # the size the ladder chose stays: the default size is switched off around the reload
         self.assertLess(toolbox.index("mbUseDefaultButtonSize = false;"), toolbox.index("ChangedIconHandler(nullptr);"))
