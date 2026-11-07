@@ -192,6 +192,32 @@ jobs:
           export PATH="$install/program:$PATH"
           export UNO_PATH="$HST_INSTALL\\program"
           timeout 900 "$install/program/python.exe" tests/runtime/check-windows-smoke.py --install "$HST_INSTALL" --out "$RUNNER_TEMP/out/smoke" --screenshots "$RUNNER_TEMP/out/screens"
+      - name: PROBE ribbon switches bisect
+        if: ${{ always() && matrix.scenario == 'commands' }}
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -u
+          install="$(cygpath -u "$HST_INSTALL")"
+          export PATH="$install/program:$PATH"
+          export UNO_PATH="$HST_INSTALL\\program"
+          xcd="$install/share/registry/zz-probe-ribbon.xcd"
+          for off in none CollapseLadder OwnerDraw StyleHoverPreview SlidesEffectGalleries all; do
+            MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe >/dev/null 2>&1 || true
+            rm -f "$xcd"
+            if [ "$off" != none ]; then
+              props=""
+              for p in CollapseLadder OwnerDraw StyleHoverPreview SlidesEffectGalleries; do
+                if [ "$off" = all ] || [ "$off" = "$p" ]; then props="$props<prop oor:name=\"$p\"><value>false</value></prop>"; fi
+              done
+              printf '<?xml version="1.0"?>\n<oor:data xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:oor="http://openoffice.org/2001/registry"><dependency file="main"/><oor:component-data oor:package="org.openoffice.Office" oor:name="HSTRibbon">%s</oor:component-data></oor:data>\n' "$props" > "$xcd"
+              cat "$xcd"
+            fi
+            echo "################ PROBE off=$off"
+            timeout 300 "$install/program/python.exe" tests/runtime/check-windows-smoke.py --install "$HST_INSTALL" --out "$RUNNER_TEMP/out/probe-$off" --port 2107 2>&1 | grep -E "FAIL|checks,|open s" | cut -c1-200
+            echo "################ PROBE off=$off rc=${PIPESTATUS[0]}"
+          done
+          rm -f "$xcd"
       - name: COM automation - HST Office's own ProgIDs, none of LibreOffice's
         if: ${{ matrix.scenario == 'commands' && !inputs.update_policy_only }}
         shell: bash
