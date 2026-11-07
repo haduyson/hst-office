@@ -6,7 +6,7 @@ from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
 from .banner_click import destination
-from .banner_feed import BannerFeed, get_banners
+from .banner_feed import BannerFeed, get_banners, test_mode_from_release
 from .banner_snapshot import selected_json
 from .data_files import load_data
 from .update_config import _node
@@ -26,7 +26,10 @@ def feed_for_context(ctx):
             override = _node(ctx, "/org.hasontech.hstoffice.Banners").getPropertyValue("FeedURL")
         except Exception:  # noqa: BLE001 - schema absent: use production endpoint
             override = ""
-        _FEEDS[profile] = BannerFeed(profile, load_data("release.json")["release"], override, proxy(ctx))
+        release = load_data("release.json")
+        # The test feed URL/key environment is honoured only by test-stamped packages.
+        _FEEDS[profile] = BannerFeed(profile, release["release"], override, proxy(ctx),
+                                     test_mode=test_mode_from_release(release))
     return _FEEDS[profile]
 
 
@@ -44,15 +47,17 @@ class BannerService(unohelper.Base, XServiceInfo, XJob):
         return name in self.getSupportedServiceNames()
 
     def execute(self, arguments):
-        """Scale/Slot -> bounded JSON for one weighted slot, ClickUrl -> URL to open; no UI/window/document access."""
+        """Scale/Slot[/Compact] -> bounded JSON for one weighted slot, ClickUrl -> URL to open; no UI/window/document
+        access. Compact=True selects the compact art of narrow windows (slotCount 0: hide the slot)."""
         click = next((a.Value for a in arguments if a.Name == "ClickUrl"), None)
         if click is not None:  # called by the widget's worker thread, after a user click only
             feed = feed_for_context(self.ctx)
             return destination(click, feed.utm, feed.version, feed.proxy)
         scale = next((a.Value for a in arguments if a.Name == "Scale"), 1)
         slot = next((a.Value for a in arguments if a.Name == "Slot"), 0)
+        compact = next((a.Value for a in arguments if a.Name == "Compact"), False) is True
         snapshot = get_banners(feed_for_context(self.ctx))
-        return selected_json(snapshot, scale, slot)
+        return selected_json(snapshot, scale, slot, compact)
 
 
 class BannerStartup(BannerService):
