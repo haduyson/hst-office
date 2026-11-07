@@ -110,6 +110,21 @@ def main():
         run["key_filled"], run["tab_filled"] = keys, tabs
         run["key_after_body"] = [timed(dlg, K("NUM1"), "1", probe=kids[0]) for _ in range(20)]
         subprocess.run(["screencapture", "-x", os.path.join(out, f"probe3-{variant}-{name}.png")], check=False)
+        if query:  # Vietnamese text in every one-line field, then a screenshot and the geometry of every control
+            subprocess.run(["pbcopy"], input="gỵ ý Quý Ủy".encode("utf-8"), check=False)
+            for _ in range(40):
+                press(dlg, K("TAB"), mods=1)
+            tk.processEventsToIdle()
+            for stop in range(21):
+                press(dlg, K("TAB"))
+                if stop not in (0, 6):  # the arrow button, the date
+                    press(dlg, K("A"), "a", mods=2)
+                    press(dlg, K("V"), "v", mods=2)
+                tk.processEventsToIdle()
+            box = dlg.getPosSize()
+            run["geometry"] = {"dialog": [box.X, box.Y, box.Width, box.Height],
+                               "children": [[c.getPosSize().X, c.getPosSize().Y, c.getPosSize().Width, c.getPosSize().Height] for c in kids]}
+            subprocess.run(["screencapture", "-x", os.path.join(out, f"probe3-{variant}-{name}-text.png")], check=False)
         for key in ("tab_empty", "tab_filled", "key_filled", "key_after_body"):
             run[key + "_summary"] = summary(run[key])
         print(json.dumps({k: v for k, v in run.items() if not isinstance(v, list)}), flush=True)
