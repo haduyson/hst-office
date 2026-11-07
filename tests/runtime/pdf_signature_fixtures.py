@@ -3,7 +3,8 @@
 
 pyHanko signs a PDF with a throw-away key, then copies are changed the way real files get broken:
 encrypted (still valid), an incremental update after signing, a full rewrite with a per-download
-watermark, a rewrite that ends before the signed range, a changed byte and a damaged CMS. Needs
+watermark, a rewrite that ends before the signed range, a truncated copy, a changed byte and a
+damaged CMS. Needs
 python3-cryptography and pyHanko. Nothing is downloaded and no key leaves the work folder.
 """
 import os
@@ -19,6 +20,7 @@ SIGNATURE_FIXTURES = {
     "incremental-tamper": (False, "modified"),
     "rewritten-watermark": (False, "rewritten"),
     "range-past-eof": (False, "rewritten"),
+    "truncated": (False, "incomplete"),
     "content-changed": (False, "content"),
     "broken-cms": (False, "broken"),
 }
@@ -63,18 +65,13 @@ def _sign(signer, src, target, password=None):
             signers.sign_pdf(writer, meta, signer=signer, output=outf)
 
 
-def _page_resources(writer, page):
-    from pyhanko.pdf_utils import generic
-    if "/Resources" not in page:
-        page["/Resources"] = generic.DictionaryObject()
-    return page["/Resources"].get_object()
-
-
 def _add_page_content(writer, page_ref, data, font=False, gstate=None):
     """Append a content stream to a page; optional Helvetica /HSTF1 and a /HSTGS1 graphics state."""
     from pyhanko.pdf_utils import generic
     page = page_ref.get_object()
-    resources = _page_resources(writer, page)
+    if "/Resources" not in page:
+        page["/Resources"] = generic.DictionaryObject()
+    resources = page["/Resources"].get_object()
     if font:
         fonts = resources.setdefault("/Font", generic.DictionaryObject()).get_object()
         fonts["/HSTF1"] = writer.add_object(generic.DictionaryObject({
@@ -176,6 +173,8 @@ def make_signature_fixtures(src_pdf, outdir):
         if values[2] + values[3] <= os.path.getsize(paths["range-past-eof"]):
             raise RuntimeError("range-past-eof: the signed range still fits in the file")
 
+        # a copy that stops before the end of the signed data (a download that did not finish)
+        open(paths["truncated"], "wb").write(open(paths["valid"], "rb").read()[:-1])
         # one signed byte changed in place (the version digit of the header)
         data = bytearray(open(paths["valid"], "rb").read())
         if not data.startswith(b"%PDF-1."):

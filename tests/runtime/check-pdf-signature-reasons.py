@@ -32,11 +32,16 @@ from pdf_viewer_uno import VIEWER
 
 INVALID_STATUS = "Chữ ký số không hợp lệ"
 UNTRUSTED_STATUS = "Đã ký, chưa xác thực được chứng thư số"
-SHORT_REASON = {"rewritten": "tệp đã bị thay đổi sau khi ký", "modified": "tệp đã được sửa thêm sau khi ký",
+ASK = "Hãy xin tệp gốc từ người gửi để kiểm tra."
+SHORT_REASON = {"rewritten": "nội dung tệp đã thay đổi sau khi ký. " + ASK,
+                "incomplete": "tệp ngắn hơn phần dữ liệu đã ký", "modified": "tệp đã được sửa thêm sau khi ký",
                 "content": "nội dung không khớp với chữ ký", "broken": "dữ liệu chữ ký bị hỏng"}
-WHY = {"rewritten": "có thể do hệ thống tải về thêm hình mờ; hãy lấy bản gốc từ người gửi",
+WHY = {"rewritten": "Nội dung tệp đã thay đổi sau khi ký. " + ASK, "incomplete": "ví dụ do tải về chưa hết",
        "modified": "theo cách mà chữ ký không cho phép", "content": "Nội dung tệp không còn khớp với chữ ký",
        "broken": "Dữ liệu chữ ký bị hỏng hoặc không đọc được"}
+UNVERIFIED_SIGNER = "Ký bởi (chưa xác minh): "
+UNVERIFIED_TIME = "Thời điểm ký (chưa xác minh): "
+CERTIFICATE_VALID = 0  # css.security.CertificateValidity.VALID
 INFO_KEYS = ("SignatureCount", "ValidSignatures", "UntrustedSignatures", "InvalidSignatures", "SignatureStatus",
              "SignatureLines", "SignatureProblems", "SignatureDetails", "SignaturesChecked")
 
@@ -47,7 +52,8 @@ def api_verify(office, path):
     dds = office.smgr.createInstanceWithArgumentsAndContext(
         "com.sun.star.security.DocumentDigitalSignatures", ("1.2",), office.ctx)
     stream = office.service("com.sun.star.ucb.SimpleFileAccess").openFileRead(uno.systemPathToFileUrl(path))
-    return [{"signer": i.Signer.SubjectName if i.Signer else None, "valid": bool(i.SignatureIsValid)}
+    return [{"signer": i.Signer.SubjectName if i.Signer else None, "valid": bool(i.SignatureIsValid),
+             "certificate_status": i.CertificateStatus}
             for i in dds.verifyDocumentContentSignatures(None, stream)]
 
 
@@ -70,7 +76,8 @@ def viewer_signatures(office, path, timeout=60):
 
 def expectations_failed(api, viewer, valid, problem, signer):
     """The verdict is unchanged, and the reason and signer are shown: the failed expectations.
-    signer: the expected common name, "" for any non-empty signer, None when none can be read."""
+    signer: the expected common name, or None when the CMS is not read (damaged, or ranges longer
+    than the file)."""
     failed = []
     if not api or any(s["valid"] != valid for s in api):
         failed.append("verdict %s" % [s["valid"] for s in api])
@@ -89,24 +96,27 @@ def expectations_failed(api, viewer, valid, problem, signer):
     lines = viewer["SignatureLines"] or []
     if len(lines) != len(api) or any(WHY[problem] not in line for line in lines):
         failed.append("panel lines %r" % lines)
-    if signer and any(signer not in line for line in lines):
-        failed.append("signer missing in the panel %r" % lines)
+    if signer and any(UNVERIFIED_SIGNER + signer not in line or UNVERIFIED_TIME not in line for line in lines):
+        failed.append("signer not labelled as unverified in the panel %r" % lines)
+    if any(s["certificate_status"] == CERTIFICATE_VALID for s in api):
+        failed.append("certificate of an invalid signature checked as valid")
     return failed
 
 
 def make_cases(args, fixtures):
-    """{name: (path, valid, problem, signer CN or "" for any signer or None for no signer)}."""
+    """{name: (path, valid, problem, signer CN or None when no signer can be read)}."""
     source = pdf_samples.make(args.instdir, os.path.join(fixtures, "nguon.pdf"), 2)
     cases = {}
     for name, path in pdf_signature_fixtures.make_signature_fixtures(source, fixtures).items():
         valid, problem = pdf_signature_fixtures.SIGNATURE_FIXTURES[name]
-        # a damaged CMS cannot name its signer
-        cases[name] = (path, valid, problem, None if name == "broken-cms" else pdf_signature_fixtures.SIGNER_CN)
+        # a damaged CMS names no signer; ranges longer than the file are never hashed
+        unread = name in ("broken-cms", "range-past-eof")
+        cases[name] = (path, valid, problem, None if unread else pdf_signature_fixtures.SIGNER_CN)
     if args.owner_pdf:
         copy = os.path.join(fixtures, "owner-copy.pdf")
         shutil.copyfile(args.owner_pdf, copy)
         os.chmod(copy, 0o444)
-        cases["owner-copy"] = (copy, False, "rewritten", "")
+        cases["owner-copy"] = (copy, False, "rewritten", None)
     return cases
 
 
@@ -128,6 +138,7 @@ def run(args):
             row["api"] = api_verify(office, path)
             row["viewer"] = viewer_signatures(office, path)
             row["failed"] = expectations_failed(row["api"], row["viewer"], valid, problem, signer)
+            row["named_signers"] = sum(1 for s in row["api"] if s["signer"])
             row["verdict"] = "FAIL" if row["failed"] else "PASS"
     finally:
         office.stop()
@@ -154,8 +165,9 @@ def main():
     with open(os.path.join(args.workdir, "results.json"), "w", encoding="utf-8") as handle:
         json.dump(results, handle, ensure_ascii=False, indent=1, default=str)
     for name, row in results.items():
-        print("%-20s %s  problems=%s  status=%r  %s" % (name, row["verdict"], row["viewer"]["SignatureProblems"],
-                                                      row["viewer"]["SignatureStatus"], "; ".join(row["failed"])))
+        print("%-20s %s  problems=%s  named=%d  status=%r  %s" % (
+            name, row["verdict"], row["viewer"]["SignatureProblems"], row["named_signers"],
+            row["viewer"]["SignatureStatus"], "; ".join(row["failed"])))
     failures = [name for name, row in results.items() if row["verdict"] == "FAIL"]
     print("FAIL: " + ", ".join(failures) if failures else "OK: every PDF signature has its verdict, signer and reason")
     return 1 if failures else 0
