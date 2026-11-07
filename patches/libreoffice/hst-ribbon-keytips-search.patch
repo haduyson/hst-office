@@ -1,0 +1,37 @@
+HST Office: KeyTips give the tab row's feature search box the tip Q.
+
+Alt, then Q opens the feature search, as Office's Search box (Alt, Q). The box is the tab control's
+child "hst-tab-search" (hst-ribbon-tab-search.patch); the tip shows only while the box is on screen.
+With the box hidden for lack of room, Alt+Q still reaches the search through its accelerator. No tab
+key is Q (HstKeyTipTable.hxx, enforced by the keytip table unit test).
+
+- sfx2/source/notebookbar/HstRibbonKeyTips.cxx.
+
+--- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -212,6 +212,25 @@
+             for (ToolBox::ImplToolItems::size_type i = 0; i < m_xQuick->GetItemCount() && nDigit < 10; ++i)
+                 AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit++));
+         }
++        // the feature search box of the tab row: Q, as Office's Search box
++        for (vcl::Window* pChild = m_xTabs->GetWindow(GetWindowType::FirstChild); pChild;
++             pChild = pChild->GetWindow(GetWindowType::Next))
++        {
++            if (pChild->get_id() != u"hst-tab-search" || !pChild->IsReallyVisible())
++                continue;
++            Target aTarget;
++            aTarget.pAnchor = pChild;
++            aTarget.aRect = tools::Rectangle(Point(), pChild->GetOutputSizePixel());
++            VclPtr<vcl::Window> xBox(pChild);
++            aTarget.aRun = [this, xBox] {
++                Close();
++                if (!xBox->isDisposed()) // Enter on the box opens the search, as a click does
++                    xBox->KeyInput(KeyEvent(0, vcl::KeyCode(KEY_RETURN)));
++            };
++            aPreferred.emplace_back("Q");
++            aTargets.push_back(std::move(aTarget));
++            break;
++        }
+         m_eLevel = Level::Tabs;
+         Show(std::move(aTargets), aPreferred);
+     }
