@@ -127,7 +127,7 @@ def scaling_checks(page_obs, expected, config, app):
         rows.append((width, "c", not clipped and not unreachable, {"clipped": clipped, "unreachable": unreachable}))
         bx = obs.get("banner")
         if width >= config["compact_below"]:
-            want = [width - banner["right_gap"], banner["y"], banner["width"], conf["banner_height"]]
+            want = [width - banner["right_gap"], conf["banner_y"], banner["width"], conf["banner_height"]]
             slot = bx == want
         else:
             want = "inside the window, right of the groups"

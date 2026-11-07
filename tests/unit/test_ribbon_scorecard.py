@@ -19,8 +19,8 @@ try:
 except ImportError:  # pragma: no cover - Pillow is part of the test tool set
     Image = None
 
-CONFIG = {"widths": [1485, 1366, 1024], "compact_below": 1280, "banner": {"right_gap": 373, "y": 46, "width": 360},
-          "apps": {"writer": {"ribbon_height": 182, "banner_height": 125}},
+CONFIG = {"widths": [1485, 1366, 1024], "compact_below": 1280, "banner": {"right_gap": 373, "width": 360},
+          "apps": {"writer": {"ribbon_height": 182, "banner_y": 46, "banner_height": 125}},
           "weights": {"D1": 0.35, "D2": 0.15, "D3": 0.20, "D4": 0.10, "D5": 0.15, "D6": 0.05},
           "floors": {"D1": 0.90, "D2": 0.85, "D3": 0.85, "D4": 0.90, "D5": 0.75, "D6": 0.80}}
 
