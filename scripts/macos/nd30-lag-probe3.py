@@ -78,6 +78,7 @@ def main():
         if dlg is None:
             results["runs"].append({"name": name, "error": "no dialog"})
             return
+        subprocess.run(["osascript", "-e", front], check=False)
         time.sleep(2)
         kids = list(dlg.getWindows())
         run = {"name": name}
@@ -87,6 +88,13 @@ def main():
             time.sleep(1)
             press(dlg, K("RETURN"))
             time.sleep(1)
+            top = tk.getActiveTopWindow()
+            if top is None or getattr(top, "Title", "") != title:
+                results["runs"].append({"name": name, "error": "wizard closed on Return"})
+                print(name, "wizard closed on Return", flush=True)
+                doc.setModified(False)
+                doc.close(True)
+                return
         run["tab_empty"] = [timed(dlg, K("TAB"), probe=kids[0]) for _ in range(20)]
         for _ in range(20):
             press(dlg, K("TAB"), mods=1)  # Shift+Tab back
@@ -110,6 +118,7 @@ def main():
         press(dlg, K("ESCAPE"))
         th.join(10)
         try:
+            doc.setModified(False)
             doc.close(True)
         except Exception as error:  # noqa: BLE001
             print("close", error)
