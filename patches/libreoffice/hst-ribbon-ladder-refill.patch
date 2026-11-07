@@ -1,0 +1,160 @@
+HST Office: the collapse ladder refills the room a fold leaves, and makes room for the block beside it.
+
+- When the ladder is used up and groups fold into the chevron popup, the groups that stay are laid
+  out again with the same ladder for the room that is left, so they do not stay shrunk beside an
+  empty gap. The folded set only grows as the window narrows.
+- With the ladder on, the merged group box asks its parent for its smallest width (every group at
+  its smallest state, nothing folded), so the block beside it in the tab (Home's Tools group) folds
+  only when the groups cannot make room for it by shrinking; it no longer folds at 1920 px.
+  Switched off (HSTRibbon CollapseLadder), the box asks for its full width as before.
+
+- vcl/source/control/PriorityMergedHBox.cxx, vcl/inc/PriorityMergedHBox.hxx.
+
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -36,6 +36,8 @@
+     // groups in the order they fold into the popup (the tab's ladder, else right to left)
+     std::vector<vcl::Window*> m_aHstFoldOrder;
+     void HstApplyLadder(tools::Long nWidth);
++    // width of the box with every group at its smallest state, or -1 before all are measured
++    tools::Long HstMinWidth() const;
+ 
+     DECL_LINK(PBClickHdl, Button*, void);
+ 
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -155,6 +155,7 @@
+     const tools::Long nSpacing = get_spacing();
+     std::vector<vcl::Window*> aWindows;
+     std::vector<hst::ribbon::Group> aGroups;
++    bool bMeasured = false;
+     for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
+          pChild = pChild->GetWindow(GetWindowType::Next))
+     {
+@@ -164,6 +165,7 @@
+         auto& rEntry = m_aHstWidths[pChild];
+         if (rEntry.second.empty() || rEntry.first != nKey)
+         {
++            bMeasured = true;
+             // measure every state once, then go back to the current one
+             rEntry.first = nKey;
+             rEntry.second.clear();
+@@ -215,7 +217,51 @@
+         const std::vector<hst::ribbon::Step> aDefault = hst::ribbon::defaultLadder(aGroups);
+         aSteps.insert(aSteps.end(), aDefault.begin(), aDefault.end());
+     }
+-    const hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, aSteps, nWidth, nChevron);
++    hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, aSteps, nWidth, nChevron);
++    if (!aLayout.overflow.empty())
++    {
++        // Groups fold in the tab's fold order (as Resize does) until the rest fits beside the
++        // chevron with every group at its smallest; the groups that stay then shrink only as far
++        // as the room left needs, so a fold never leaves a gap with shrunk groups beside it. The
++        // folded set only grows as the window narrows; a group may get bigger again at a width
++        // where another one folds.
++        const tools::Long nRoom = nWidth - nChevron;
++        std::vector<bool> aHidden(aWindows.size(), false);
++        tools::Long nTotal = hst::ribbon::rowWidth(aGroups, aLayout.states);
++        for (vcl::Window* pGroup : m_aHstFoldOrder)
++        {
++            if (nTotal <= nRoom)
++                break;
++            const size_t i = std::find(aWindows.begin(), aWindows.end(), pGroup) - aWindows.begin();
++            if (i >= aWindows.size())
++                continue;
++            aHidden[i] = true;
++            // same arithmetic as Resize: the first group's width has no spacing in it
++            nTotal -= hst::ribbon::widthOf(aGroups[i], aLayout.states[i]) + (i == 0 ? nSpacing : 0);
++        }
++        std::vector<size_t> aShown; // index in aWindows of each group that stays
++        std::vector<hst::ribbon::Group> aShownGroups;
++        for (size_t i = 0; i < aWindows.size(); ++i)
++        {
++            if (aHidden[i])
++                continue;
++            aShown.push_back(i);
++            aShownGroups.push_back(aGroups[i]);
++        }
++        std::vector<hst::ribbon::Step> aShownSteps;
++        for (const hst::ribbon::Step& rStep : aSteps)
++        {
++            const auto it = std::find(aShown.begin(), aShown.end(), rStep.group);
++            if (it != aShown.end())
++                aShownSteps.push_back(hst::ribbon::Step{ static_cast<size_t>(it - aShown.begin()), rStep.state });
++        }
++        if (nTotal <= nRoom && !aShownGroups.empty())
++        {
++            const hst::ribbon::Layout aRefill = hst::ribbon::select(aShownGroups, aShownSteps, nRoom, 0);
++            for (size_t j = 0; j < aShown.size(); ++j)
++                aLayout.states[aShown[j]] = aRefill.states[j];
++        }
++    }
+     for (size_t i = 0; i < aWindows.size(); ++i)
+     {
+         const int nState = static_cast<int>(aLayout.states[i]);
+@@ -226,6 +272,30 @@
+         }
+     }
+     m_bHstLadder = false;
++    // the box now asks its parent for its smallest width (calculateRequisition): lay the parent out
++    // again, so a block beside it (the Tools group) is not folded for the box's full width
++    if (bMeasured)
++        queue_resize();
++}
++
++tools::Long PriorityMergedHBox::HstMinWidth() const
++{
++    if (!m_bInitialized || !hst::ribbon::collapseLadderEnabled())
++        return -1;
++    tools::Long nMin = 0;
++    sal_uInt16 nGroups = 0;
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (pChild == m_pButton)
++            continue;
++        const auto it = m_aHstWidths.find(pChild);
++        if (it == m_aHstWidths.end() || it->second.second.empty())
++            return -1;
++        nMin += *std::min_element(it->second.second.begin(), it->second.second.end());
++        ++nGroups;
++    }
++    return nGroups ? nMin + get_spacing() * (nGroups - 1) : -1;
+ }
+ 
+ void PriorityMergedHBox::DataChanged(const DataChangedEvent& rEvent)
+@@ -262,6 +332,9 @@
+ 
+ tools::Long PriorityMergedHBox::GetHiddenWidth() const
+ {
++    // HST Office: with the collapse ladder the requisition already holds every group, folded or not
++    if (HstMinWidth() >= 0)
++        return 0;
+     tools::Long nWidth = 0;
+     for (int i = 0; i < GetChildCount(); i++)
+     {
+@@ -279,6 +352,24 @@
+         return VclHBox::calculateRequisition();
+     }
+ 
++    // HST Office: with the collapse ladder the box can shrink to every group at its smallest state
++    // before anything folds; that is the width it asks for, so the block beside it in the tab (the
++    // Tools group) folds only when the groups could not make room for it by shrinking
++    const tools::Long nMin = HstMinWidth();
++    if (nMin >= 0)
++    {
++        Size aSize;
++        for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++             pChild = pChild->GetWindow(GetWindowType::Next))
++        {
++            Size aChildSize = getLayoutRequisition(*pChild);
++            setPrimaryDimension(aChildSize, 0);
++            accumulateMaxes(aChildSize, aSize);
++        }
++        setPrimaryDimension(aSize, nMin);
++        return finalizeMaxes(aSize, 1);
++    }
++
+     sal_uInt16 nVisibleChildren = 0;
+ 
+     Size aSize;

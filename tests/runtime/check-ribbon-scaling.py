@@ -8,11 +8,12 @@ Per app, on the Home tab (Trang đầu), the window is narrowed through 1920, 16
 1000 and 900 px (900 px high). Each ribbon toolbar is identified by the names of its first items:
   - no toolbar is clipped: it lies inside the window and left of the banner slot;
   - groups shrink before anything folds: at the first width with the chevron, some toolbar still on
-    the ribbon is narrower than at the widest width, and whenever the chevron is shown every group
-    (the panel holding a group's toolbars) still on the ribbon is at the narrowest width it has
-    anywhere in the sweep (the fold is the last rung; a toolbar that is not its group's widest row
-    may keep its labels, because shrinking it would not make the group narrower);
-  - narrowing never widens a toolbar that stays on the ribbon (monotone, no oscillation);
+    the ribbon is narrower than at the widest width;
+  - the fold is the last rung: where a group (the panel holding a group's toolbars) goes into the
+    chevron, the room left between the groups and the chevron is narrower than that group at its
+    smallest width in the sweep; a folded group stays folded at every narrower width;
+  - narrowing never widens a toolbar that stays on the ribbon (monotone, no oscillation), except at
+    a width where a group folds: the groups that stay may take back the room it leaves;
   - the ribbon height (frame top to the document tab bar) does not change with the width.
 Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json and, with --shots, one
 screenshot per app and width.
@@ -107,19 +108,28 @@ def sweep(args, app, wid, office):
     for *_head, groups in observed:
         for key, box in groups.items():
             narrowest_group[key] = min(narrowest_group.get(key, box[2]), box[2])
-    clipped, early, widened, previous = [], [], [], {}
+    clipped, early, widened, returned, previous, seen, folded = [], [], [], [], {}, set(), set()
     for width, bars, chevron, banner, _bottom, groups in observed:
         right = min(width, banner[0]) if banner else width
+        # groups that were on the ribbon at a wider width and are gone now went into the chevron
+        newly = (seen - set(groups)) - folded if chevron else set()
+        returned += [(width, key) for key in folded & set(groups)]
+        folded |= newly
+        seen |= set(groups)
         for key, box in bars.items():
             if box[0] < 0 or box[0] + box[2] > right + 1:
                 clipped.append((width, key, box, right))
-            # a one-item toolbar is a control that fills its room (the Styles gallery), not a state
-            if key in previous and box[2] > previous[key] + 1 and not key.endswith("@1"):
+            # a one-item toolbar is a control that fills its room (the Styles gallery), not a state;
+            # where a group folds, the groups that stay may take back the room it leaves
+            if key in previous and box[2] > previous[key] + 1 and not key.endswith("@1") and not newly:
                 widened.append((width, key, previous[key], box[2]))
-        if chevron:
-            # the fold is the last rung: every group still on the ribbon is at its narrowest
-            early += [(width, key, box[2], narrowest_group[key]) for key, box in groups.items()
-                      if box[2] > narrowest_group[key] + 1]
+        if newly and chevron and groups:
+            # the fold is the last rung: the group that folded here would not fit, even at its
+            # smallest, into the room left between the groups and the chevron
+            gap = chevron[0] - max(box[0] + box[2] for box in groups.values())
+            need = max(narrowest_group[key] for key in newly)
+            if gap >= need:
+                early.append((width, sorted(newly), gap, need))
         previous = {k: b[2] for k, b in bars.items()}
     first = next(((w, b) for w, b, c, _n, _x, _g in observed if c), None)
     if first:
@@ -127,8 +137,9 @@ def sweep(args, app, wid, office):
         shrunk = [k for k, box in first[1].items() if k in widest and box[2] < widest[k][2] - 1]
         record(f"[{app}] groups shrink before the first fold ({first[0]} px)", bool(shrunk), shrunk or "no group narrower")
     record(f"[{app}] no ribbon group is clipped at {WIDTHS[0]}..{WIDTHS[-1]} px", not clipped, clipped or len(observed))
-    record(f"[{app}] the chevron comes only after every group on the ribbon is at its smallest", not early,
+    record(f"[{app}] a group folds only when it would not fit at its smallest", not early,
            early or [(w, bool(c)) for w, _b, c, _n, _x, _g in observed])
+    record(f"[{app}] a folded group stays folded as the window narrows", not returned, returned)
     record(f"[{app}] narrowing never widens a group (monotone)", not widened, widened)
     bottoms = sorted({o[4] for o in observed if o[4] is not None})
     record(f"[{app}] ribbon height independent of the width", len(bottoms) <= 1 or bottoms[-1] - bottoms[0] <= 1, bottoms)
