@@ -9,7 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 APPS = ("writer", "calc", "impress")
 PROBES = ("hover_fill", "pressed", "checked", "focus_ring", "group_separator", "centred_caption", "tab_underline",
           "paste_32", "launcher_glyph", "collapsed_group_button")
-GALLERY = ("rendered_previews", "four_columns", "column_shrink", "more_popup", "keyboard_apply")
+GALLERY = ("two_tiles_1485", "four_tiles_1920", "column_shrink", "more_popup", "keyboard_apply")
 NAMES = {"D1": "Command parity", "D2": "Tab and group structure", "D3": "Scaling", "D4": "Dialog launchers",
          "D5": "Painting", "D6": "Galleries"}
 

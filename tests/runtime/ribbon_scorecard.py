@@ -17,7 +17,8 @@ under its own dbus-run-session) through ribbon_scorecard_live.py, which saves an
                        height and banner slot kept;
   D4 launchers         launchers present / feasible Office launchers (offline);
   D5 painting          ten pixel probes on Home, light and dark;
-  D6 galleries         Writer Styles gallery (5 checks) and a 32 px Paste with label in each app.
+  D6 galleries         Writer Styles gallery (>= 2 tiles at 1485, >= 4 at 1920, no growth when narrower, More,
+                       keyboard) and a 32 px Paste with label in each app.
 Writes OUT/scorecard.json and OUT/scorecard.md. Exit 0; the score is the result, not a gate.
 """
 import argparse
