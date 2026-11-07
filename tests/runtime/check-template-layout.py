@@ -9,11 +9,12 @@ Usage (as root it runs the office as the build user; hold the shared build lock 
 For each type: the .ott with filler paragraphs, and the renderer with long names, several recipients and a two-line
 signature, then a short variant. Each goes to PDF, DOCX and DOCX reopened to PDF. Body top, left, right, bottom, page
 number (hidden on page 1, centred in the top margin), number/date baseline and rule lengths are read from the PDF.
-Exit 1 on any failure; Times New Roman is reported when missing, because line breaks then come from its stand-in.
+Exit 1 on any failure, 2 (BLOCKED) when poppler (pdftotext, pdftocairo) or fc-match is missing; Times New Roman is reported when missing, because line breaks then come from its stand-in.
 """
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -101,7 +102,9 @@ def run_case(office, case, out, fails, rows):
         for label, path in (("pdf", pdf), ("docx", again)):
             offset = measure.number_date_offset(path)
             row[label + "NumberDate"] = offset
-            if offset is not None and offset > 0.3:
+            if offset is None:
+                fails.append(f"{name} {label}: number and date line not found")
+            elif offset > 0.3:
                 fails.append(f"{name} {label}: number and date baselines differ by {offset} mm")
     for failure in cases.check_rules(case, pdf):
         fails.append(f"{name}: {failure}")
@@ -118,6 +121,10 @@ def main():
     args = parser.parse_args()
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
+    missing = [tool for tool in ("pdftotext", "pdftocairo", "fc-match") if shutil.which(tool) is None]
+    if missing:  # measurements need them: never report a pass without them
+        print("BLOCKED: missing " + ", ".join(missing), flush=True)
+        return 2
     os.environ.setdefault("HST_VCLPLUGIN", "svp")  # headless: no X display needed
     hst_gui.setup_uno(args.instdir)
     fonts = subprocess.run(["fc-match", "Times New Roman"], capture_output=True, text=True).stdout.strip()

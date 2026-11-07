@@ -94,32 +94,63 @@ def all_cases(templates, only):
             continue
         paged = _paged(t)
         data = _body_top_profile(nd30.profile_rules(t["profile"]), t["structure"] in ("copy", "dang-copy"))  # a copy may open a page with its rule
-        common = {"profile": data, "type": t, "checkNumberRow": not t.get("noDate") and not t.get("noNumber") and not t.get("noHeader") and t["structure"] not in ("annex", "attached-only", "esign-copy"), "paged": paged}
+        common = {"profile": data, "type": t, "checkNumberRow": not t.get("noDate") and not t.get("noNumber") and not t.get("noHeader") and t["structure"] not in ("annex", "attached-only", "esign-copy", "stamp", "envelope"), "paged": paged}
         if ident in catalog:
-            yield {**common, "name": ident + "-ott", "multipage": paged, "open": _ott_doc(os.path.join(templates, catalog[ident]["output"]), paged,
+            # the Party copy template holds only the copy form, whose number and date are numbered list items
+            yield {**common, "checkNumberRow": common["checkNumberRow"] and t["structure"] != "dang-copy", "name": ident + "-ott", "multipage": paged, "open": _ott_doc(os.path.join(templates, catalog[ident]["output"]), paged,
                                                                         catalog[ident]["output"].startswith("van-thu/")),
-                   "ruleSource": None, "footer": _footer_text(ident, {}, True)}
+                   "ruleSource": None, "footer": _footer_text(ident, {}, True), "rules": _header_rules(ident, {}, True)}
         if not paged:
             yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, {}), "ruleSource": SHORT,
-                   "footer": _footer_text(ident, {}, False)}
+                   "footer": _footer_text(ident, {}, False), "rules": _header_rules(ident, {}, False)}
             continue
         long_fields = {**LONG, "body": long_body}
         yield {**common, "name": ident + "-wizard-long", "multipage": True, "open": _wizard_doc(ident, long_fields), "ruleSource": LONG,
-               "footer": _footer_text(ident, long_fields, False)}
+               "footer": _footer_text(ident, long_fields, False), "rules": _header_rules(ident, long_fields, False)}
         yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, SHORT), "ruleSource": SHORT,
-               "footer": _footer_text(ident, SHORT, False)}
+               "footer": _footer_text(ident, SHORT, False), "rules": _header_rules(ident, SHORT, False)}
+
+
+def _header_rules(type_id, fields, template):
+    """(text, column) of the ruled paragraphs in the first header block the renderers write: the agency (column 0) and
+    the motto or the Party name (column 1). [] when the type has no such header."""
+    blocks, _footer = nd30_layout.portable_blocks(nd30_layout.build_layout(type_id, fields, template=template))
+    header = next((b for b in blocks if b["type"] == "grid" and b.get("name") == "Header"), None)
+    if header is None:
+        return []
+    return [("".join(r["text"] for r in p["runs"]), column) for row in header["rows"]
+            for column, cell in enumerate(row["cells"]) for p in cell if p.get("rule_mm")]
 
 
 def check_rules(case, pdf):
-    """The motto rule is as long as the motto; the rule under the agency is 1/3-1/2 of its line (measured, not computed)."""
+    """Every rule of the page-1 header, measured against its text line (not computed): under the motto and under the
+    Party name a rule as long as the line; under the agency 1/3 to 1/2 of its line, centred under it (Decree 30,
+    Annex I). A rule or a line that is expected and not found fails."""
     fails = []
-    rules = measure.rules_on_page_one(pdf)
-    data = case["profile"]
-    motto = measure.line_extent(pdf, data["motto"][:6]) if data.get("motto") else None
-    if not rules or not motto:
-        return fails
-    width = motto[1] - motto[0]
-    candidates = [r for r in rules if abs((r[0] + r[1]) / 2 - (motto[0] + motto[1]) / 2) < 2]
-    if not candidates or abs((candidates[0][1] - candidates[0][0]) - width) > 0.5:
-        fails.append("motto rule %s against line %.2f" % (candidates[:1], width))
+    rules = measure.horizontal_lines(pdf, 1)
+    lines = measure.text_lines(pdf, 1)
+    for text, column in case["rules"]:
+        words = " ".join(text.split())
+        own = [ln for ln in lines if len(ln["text"]) >= 4 and (words.startswith(ln["text"][:12]) or ln["text"].startswith(words[:12]))]
+        if not own:
+            fails.append("ruled line %r not found on page 1" % words[:40])
+            continue
+        first = min(own, key=lambda ln: ln["y0"])
+        centre = (first["x0"] + first["x1"]) / 2
+        below = [r for r in rules if r[2] > first["y1"] - 0.5 and abs((r[0] + r[1]) / 2 - centre) < 15]
+        if not below:
+            fails.append("no rule under %r" % words[:40])
+            continue
+        rule = min(below, key=lambda r: r[2])
+        # the paragraph's lines, from its first line down to the rule; the rule is measured against the longest
+        block = [ln for ln in lines if first["y0"] - 0.5 <= ln["y0"] and ln["y1"] <= rule[2] + 0.5
+                 and abs((ln["x0"] + ln["x1"]) / 2 - centre) < 15]
+        line = max(block, key=lambda ln: ln["x1"] - ln["x0"])
+        width, length = line["x1"] - line["x0"], rule[1] - rule[0]
+        if abs((rule[0] + rule[1]) / 2 - (line["x0"] + line["x1"]) / 2) > 0.5:
+            fails.append("rule under %r not centred: %s against line %.2f-%.2f" % (words[:30], rule[:2], line["x0"], line["x1"]))
+        if column == 1 and abs(length - width) > 0.5:
+            fails.append("rule under %r is %.2f mm, its line %.2f mm" % (words[:30], length, width))
+        if column == 0 and not width / 3 - 0.5 <= length <= width / 2 + 0.5:
+            fails.append("rule under %r is %.2f mm, not 1/3-1/2 of its line %.2f mm" % (words[:30], length, width))
     return fails
