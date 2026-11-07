@@ -47,7 +47,7 @@ class NeverSilent(unittest.TestCase):
         with mock.patch.object(install.ui, "release_info_for", side_effect=RuntimeError("broken")), \
                 mock.patch.object(install, "fail") as fail, mock.patch("traceback.print_exc"):
             self.assertIsNone(install.start(mock.Mock(), None))
-        fail.assert_called_once_with(mock.ANY, None, "err_launch")
+        fail.assert_called_once_with(mock.ANY, None, "err_unexpected")
 
     def test_a_failing_message_does_not_escape(self):
         with mock.patch.object(install.ui, "release_info_for", side_effect=RuntimeError("broken")), \

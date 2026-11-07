@@ -169,7 +169,7 @@ def start(ctx, peer):
     except Exception:  # noqa: BLE001 - report instead of failing inside the UI thread
         traceback.print_exc()
         try:  # never silent: the user clicked "Cập nhật ngay" and must learn that nothing was installed
-            fail(ctx, peer, "err_launch")
+            fail(ctx, peer, "err_unexpected")
         except Exception:  # noqa: BLE001 - not even the message could be shown
             traceback.print_exc()
     return None
