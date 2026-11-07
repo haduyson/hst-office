@@ -32,7 +32,7 @@ tabs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tabs)
 
 LABEL_WIDTH = 1485  # from this width up Clone Formatting and Clear show their labels
-LABELLED = {"writer"}  # apps whose 1.0.0 content patch has these labels; the others are still icon-only
+LABELLED = {"writer", "calc"}  # apps whose 1.0.0 content patch has these labels; the others are still icon-only
 ICON_MAX = 40  # an icon with its button padding; the same button with its text is over 100 px wide
 PAINTBRUSH = "Sao chép định dạng"
 CLEAR = {"writer": "Xóa", "calc": "Xóa", "impress": "Xóa"}

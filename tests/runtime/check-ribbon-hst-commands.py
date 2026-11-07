@@ -64,15 +64,18 @@ def check_review(args, office, app):
     time.sleep(1)
 
 
-DEVELOPER_MERGED = {"writer"}  # apps whose 1.0.0 content patch merges the Developer tab into Phần mở rộng
+DEVELOPER_MERGED = {"writer", "calc"}  # apps whose 1.0.0 content patch merges the Developer tab into Phần mở rộng
 
 
-def check_developer(args, office, app):
+def check_developer(args, office, app, wid=None):
     tab = "Phần mở rộng" if app in DEVELOPER_MERGED else "Nhà phát triển"
     if app in DEVELOPER_MERGED:
         record(f"[{app}] no Nhà phát triển tab", "Nhà phát triển" not in [t[0] for t in gui.ribbon_tabs()])
     if not record(f"[{app}] {tab} opens", gui.open_tab(args.display, tab)):
         return
+    if app in DEVELOPER_MERGED and wid:  # the merged groups follow the HST groups: give the tab its full width
+        gui.xdo(args.display, "windowsize", wid, "2400", "900")
+        time.sleep(4)
     shot(args, office, f"{app}-macro-tab")
     names = [n[0] for n in gui.ribbon_nodes(BUTTONS)]
     if app == "impress":
@@ -84,6 +87,9 @@ def check_developer(args, office, app):
     if vba and macro:
         record(f"[{app}] 'Macro VBA' comes first, before the macro buttons", vba[0][2][0] < macro[0][2][0],
                (vba[0][2], macro[0][2]))
+    if app in DEVELOPER_MERGED and wid:
+        gui.xdo(args.display, "windowsize", wid, "1485", "900")
+        time.sleep(4)
 
 
 def check_backstage(args, office, app):
@@ -134,7 +140,7 @@ def check_app(app, args, port):
     try:
         check_static(args, office, app)
         check_review(args, office, app)
-        check_developer(args, office, app)
+        check_developer(args, office, app, wid)
         exttab.check_extension_tab(args, office, app, wid, record, lambda name: shot(args, office, name))
         check_backstage(args, office, app)
     finally:
