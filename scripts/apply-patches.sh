@@ -29,22 +29,18 @@ copy_touched() { # fresh scratch copy of every file the series touches (missing 
   done
 }
 
-# A small patch can reverse-apply with fuzz on a tree without it, beside a similar line. It counts as
-# applied only when its reverse needs no fuzz, or when it could not be applied again.
-really_applied() {
-  patch -d "$scratch/tree" -p1 -R -s -f --dry-run --fuzz=0 < "$1" >/dev/null 2>&1 && return 0
-  ! patch -d "$scratch/tree" -p1 -s -f --dry-run < "$1" >/dev/null 2>&1
-}
-
 # Applied prefix: unwind from the end; skip the not-yet-applied tail, then every earlier patch
-# must reverse-apply in turn.
+# must reverse-apply in turn. Require a clean reverse dry run without fuzz before changing
+# scratch: a dependent tail patch may fail in both directions and reverse only some hunks.
 copy_touched
 applied=0 seen_applied=0
 for (( i=${#names[@]}-1; i>=0; i-- )); do
-  if [ "$seen_applied" -eq 0 ] && ! really_applied "$DIR/${names[$i]}"; then
-    continue
-  fi
-  if patch -d "$scratch/tree" -p1 -R -s -f --no-backup-if-mismatch < "$DIR/${names[$i]}" >/dev/null 2>&1; then
+  # The end of the applied prefix needs an exact reverse; inside it the usual fuzz is allowed, because
+  # build-time overlays (Vietnamese .po) shift context lines of patches that are applied.
+  fuzz=--fuzz=0; [ "$seen_applied" -eq 1 ] && fuzz=--fuzz=2
+  if patch -d "$scratch/tree" -p1 -R -s -f "$fuzz" --no-backup-if-mismatch --dry-run \
+      < "$DIR/${names[$i]}" >/dev/null 2>&1; then
+    patch -d "$scratch/tree" -p1 -R -s -f "$fuzz" --no-backup-if-mismatch < "$DIR/${names[$i]}" >/dev/null 2>&1
     seen_applied=1
     [ "$applied" -eq 0 ] && applied=$((i + 1))
   elif [ "$seen_applied" -eq 1 ]; then
