@@ -121,3 +121,22 @@ def gap_pixels(pieces, size):
 
 def contact(pixels, others):
     return {q for x, y in pixels for dx, dy in NEIGHBOURS if (q := (x + dx, y + dy)) in others}
+
+
+def extent(shape, pen):
+    xs, ys = [], []
+    for line in polylines(shape):
+        xs += [p[0] for p in line]
+        ys += [p[1] for p in line]
+    half = pen / 2
+    return min(xs) - half, min(ys) - half, max(xs) + half, max(ys) + half
+
+
+def straight_segment(sub):
+    """End points of a single straight axis-aligned segment, or None."""
+    if sub["closed"] or len(sub["segs"]) != 1 or sub["segs"][0][0] != "L":
+        return None
+    (x0, y0), (x1, y1) = sub["start"], sub["segs"][0][1]
+    if abs(x0 - x1) > EPS and abs(y0 - y1) > EPS:
+        return None
+    return (x0, y0), (x1, y1)

@@ -42,6 +42,12 @@ class WeightTest(unittest.TestCase):
         gaps = [b - a - 1 for a, b in zip(rows, rows[1:]) if b - a > 1]
         self.assertTrue(all(gap >= 2 for gap in gaps), rows)
 
+    def test_lines_drawn_as_separate_elements_keep_one_rhythm(self):
+        # the outer line alone would have room to widen; the stack stays even instead
+        lines = native('<path d="M2.5 2.5H14.5" stroke-width="1"/><path d="M4.5 6.5H12.5" stroke-width="1"/>'
+                       '<path d="M2.5 9.5H14.5" stroke-width="1"/><path d="M4.5 12.5H12.5" stroke-width="1"/>')
+        self.assertEqual(snap.snap_svg(lines, 16, native=True, heavy=True), snap.snap_svg(lines, 16, native=True))
+
     def test_a_small_counter_stays_open(self):
         box = native('<rect x="5.5" y="5.5" width="3" height="3" stroke-width="1"/>')
         self.assertIn((7, 7), set((x, y) for x in range(16) for y in range(16)) -

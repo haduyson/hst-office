@@ -11,13 +11,14 @@ visible.
 Widening keeps the pixel lattice: a closed rectangle or ellipse grows inward; any other stroke moves
 half a pixel diagonally so its 2 px pen sits on pixel edges, and a widened straight axis-aligned line
 becomes a solid bar with half-pixel corner rounding (a 2 px round cap leaves grey corners at 1x). An
-element is tried whole first, then subpath by subpath, except elements of straight lines only (text
-lines, rules), which widen together or not at all. Fills and dots never change. Parts are tried in
+element is tried whole first, then subpath by subpath, except straight lines (text lines, rules, also
+when drawn as consecutive elements), which widen together or not at all. Fills and dots never change. Parts are tried in
 paint order and the first passing placement wins, so the result is deterministic.
 """
 import math
 
-from hst_icon_pixels import background_regions, contact, fill_pixels, gap_pixels, polylines, stroke_pixels
+from hst_icon_pixels import (background_regions, contact, extent, fill_pixels, gap_pixels, straight_segment,
+                             stroke_pixels)
 from hst_svg_math import EPS
 from hst_svg_path import transform_subpaths
 
@@ -25,15 +26,6 @@ SHIFTS = ((0.5, 0.5), (-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5))
 FILL_KEPT = 2 / 3
 EXTRA_CONTACT = 2
 BAR_RADIUS = 0.5
-
-
-def _extent(shape, pen):
-    xs, ys = [], []
-    for line in polylines(shape):
-        xs += [p[0] for p in line]
-        ys += [p[1] for p in line]
-    half = pen / 2
-    return min(xs) - half, min(ys) - half, max(xs) + half, max(ys) + half
 
 
 def _candidates(shape):
@@ -55,7 +47,8 @@ def _candidates(shape):
 
 def _parts(items):
     """Elements as separately painted parts (shape, pen, style, state, role): the fill and the
-    stroke of an element are parts of their own, so a stroke can move without its fill."""
+    stroke of an element are parts of their own, so a stroke can move without its fill; consecutive
+    elements of straight lines in one style form one part."""
     parts = []
     for shape, pen, style, state in items:
         if shape[0] == "dot":
@@ -63,9 +56,20 @@ def _parts(items):
             continue
         if style.get("fill", "black") != "none":
             parts.append((shape, None, dict(style, stroke="none"), state, "fill"))
-        if pen is not None:
-            parts.append((shape, pen, dict(style, fill="none"), state, "stroke"))
+        if pen is None:
+            continue
+        part = (shape, pen, dict(style, fill="none"), state, "stroke")
+        previous = parts[-1] if parts else None
+        if previous and _lines(previous) and _lines(part) and previous[1:] == part[1:]:
+            # a stack of separately drawn lines (paragraph lines, rules) keeps one rhythm
+            parts[-1] = (("path", previous[0][1] + shape[1]),) + part[1:]
+        else:
+            parts.append(part)
     return parts
+
+
+def _lines(part):
+    return part[4] == "stroke" and part[0][0] == "path" and all(straight_segment(sub) for sub in part[0][1])
 
 
 def _pieces(part, shape=None, pen=None):
@@ -120,7 +124,7 @@ def _widen(parts, pieces, index, size, base_fills):
     gaps = gap_pixels(_labelled(pieces), size)
     touched = {i: contact(before, pixels[i]) for i in strokes}
     for candidate in _candidates(shape):
-        x0, y0, x1, y1 = _extent(candidate, 2)
+        x0, y0, x1, y1 = extent(candidate, 2)
         if x0 < -EPS or y0 < -EPS or x1 > size + EPS or y1 > size + EPS:
             continue
         sets = _pieces(parts[index], candidate, 2)
@@ -157,7 +161,7 @@ def embolden(items, size):
             if found is not None:
                 parts[index] = (found[0], 2, style, state, role)
                 pieces[index] = found[1]
-            elif shape[0] == "path" and len(shape[1]) > 1 and not all(_straight(sub) for sub in shape[1]):
+            elif shape[0] == "path" and len(shape[1]) > 1 and not all(straight_segment(sub) for sub in shape[1]):
                 # text lines and rules widen together or not at all, so their rhythm stays even
                 split = [(("path", [sub]), pen, style, state, role) for sub in shape[1]]
                 parts[index:index + 1] = split
@@ -173,19 +177,9 @@ def embolden(items, size):
     return result
 
 
-def _straight(sub):
-    """End points of a single straight axis-aligned segment, or None."""
-    if sub["closed"] or len(sub["segs"]) != 1 or sub["segs"][0][0] != "L":
-        return None
-    (x0, y0), (x1, y1) = sub["start"], sub["segs"][0][1]
-    if abs(x0 - x1) > EPS and abs(y0 - y1) > EPS:
-        return None
-    return (x0, y0), (x1, y1)
-
-
 def _bar(sub, style, state):
     """A widened straight axis-aligned line as a filled bar of the cap's length (solid at 1x)."""
-    ends = _straight(sub)
+    ends = straight_segment(sub)
     if ends is None:
         return None
     (x0, y0), (x1, y1) = ends
