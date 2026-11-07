@@ -2,8 +2,8 @@
 """Check the contextual ribbon tabs of HST Writer, Sheets and Slides on a real GUI (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-ribbon-contextual.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]
-The X display must already run. For a table, a picture, a shape and a chart selected through the controller, and in
-Sheets also for the cell cursor in a pivot table:
+The X display must already run. For a table, a picture, a shape and a chart selected through the controller, in
+Sheets also for the cell cursor in a pivot table and in Writer for the cursor in a page header:
   - the tabs named as in Office appear, and the ribbon stays on the tab that was current;
   - with the cursor back in the text the tabs are gone; a contextual tab that was current falls back to Trang đầu;
   - clicking a chart tab and a chart command opens the dialog of the chart, without activating the chart by hand;
@@ -25,6 +25,7 @@ TABLE = ["Thiết kế Bảng", "Bố trí Bảng"]
 PICTURE, SHAPE = ["Định dạng Ảnh"], ["Định dạng Hình dạng"]
 CHART = ["Thiết kế Biểu đồ", "Định dạng Biểu đồ"]
 PIVOT = ["Phân tích Bảng tổng hợp"]
+HEADER = ["Đầu trang & Chân trang"]
 ROWS = []
 CHART_CLSID = "12dcae26-281f-416f-a234-c3086127382e"
 
@@ -63,6 +64,9 @@ def make_objects(app, doc, image_url):
         chart.setSize(size(9000, 6000))
         text.insertTextContent(text.getEnd(), chart, False)
         made["chart"] = chart
+        style = doc.StyleFamilies.getByName("PageStyles").getByName("Standard")
+        style.HeaderIsOn = True
+        made["header"] = style.HeaderText.getStart()
         page = doc.DrawPage
     elif app == "calc":
         sheet = doc.Sheets.getByIndex(0)
@@ -159,7 +163,7 @@ def check_app(app, args, port, image_url):
         gui.click(args.display, home_box)
         top = gui.geometry()
         height = top[1] - top[0]
-        expected = {"table": TABLE, "picture": PICTURE, "shape": SHAPE, "chart": CHART, "pivot": PIVOT}
+        expected = {"table": TABLE, "picture": PICTURE, "shape": SHAPE, "chart": CHART, "pivot": PIVOT, "header": HEADER}
         # the chart last: it stays activated after its command, and the ribbon follows the chart then
         for kind, target in sorted(objects.items(), key=lambda item: item[0] == "chart"):
             doc.CurrentController.select(target)
