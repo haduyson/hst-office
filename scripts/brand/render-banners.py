@@ -17,7 +17,6 @@ from string import Template
 import sys
 
 from PIL import Image, ImageDraw, ImageFont
-from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from brand.banner_preview import ART, FONT, ROOT, png_bytes, preview  # noqa: E402
@@ -60,10 +59,17 @@ def markup(solution, brand, template="template.html"):
                   border="#" + "".join(f'{round(int(brand["accent"][n:n+2], 16)*.18+255*.82):02x}' for n in (1, 3, 5)))
     values["logo_html"] = ('<img class="logo" alt="" src="%s">' % (ART / "logos" / brand["logo"]).as_uri()
                            if brand["logo"] else "")
+    values["illustration_html"] = ""
+    if template == "template.html" and brand.get("illustration"):
+        values["card_class"] = (values["card_class"] + " illustrated").strip()
+        values["illustration_html"] = ('<img class="illustration" alt="" aria-hidden="true" src="%s">'
+                                       % (ART / "logos" / brand["illustration"]).as_uri())
     return Template((ART / template).read_text()).substitute(values)
 
 
 def render():
+    from playwright.sync_api import sync_playwright
+
     solutions = json.loads((ROOT / "data/hst/solutions.json").read_text())["solutions"]
     brands = json.loads((ART / "brands.json").read_text())
     # Company copy belongs to banner artwork, not the product-only welcome catalogue; it leads the rotation.
@@ -90,6 +96,14 @@ def render():
                     assert page.evaluate("Array.from(document.images).every(i => i.complete && i.naturalWidth > 0)")
                     bounds = page.locator("p").bounding_box()
                     assert bounds["height"] <= 34 and bounds["y"] + bounds["height"] <= 76, solution["id"]
+                    if brands[solution["id"]].get("illustration"):
+                        art = page.locator(".illustration").bounding_box()
+                        for selector in ("header", "p", ".cta", ".owner"):
+                            box = page.locator(selector).bounding_box()
+                            assert box["x"] + box["width"] <= art["x"] - 10, (solution["id"], selector)
+                        cta = page.locator(".cta").bounding_box()
+                        owner = page.locator(".owner").bounding_box()
+                        assert cta["x"] + cta["width"] + 8 <= owner["x"], solution["id"]
                     blob = page.screenshot(omit_background=True)
                     name = f'{solution["id"]}@{scale}x.png'
                     outputs[ART / name] = blob

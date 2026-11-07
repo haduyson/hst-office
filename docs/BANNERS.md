@@ -32,6 +32,12 @@ achieves at least 5.88:1. Its warm green hue is 80.60° away from eChatbot's blu
 blue-grey `#f3f6f9` tint (13.32:1 ink contrast); the logo sources document records
 its similarity to HST SEO blue and the visual-review recommendation. The eChatbot
 source update requires regeneration of the banner PNGs, manifests and preview.
+Its wide card also uses the optional `illustration` filename in `brands.json`, resolved
+under `banners/logos/`: the official chibi mascot occupies a 104px square at the right,
+with a 10px gap from the 230px text column. The complete tagline remains two lines;
+CTA and HASON TECH stay beside one another below it. The renderer checks text/mascot
+separation. The 160×104 compact card omits the illustration to preserve readable text.
+Other brands omit this field and retain their existing layout.
 HST Post's full logo derives
 from the owner-supplied official 476×393 file, with extracted all-caps dark lettering.
 [Logo comparison](design/hst-post-logo-preview.png) shows the logo, square icon and original together.
