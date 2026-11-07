@@ -12,6 +12,9 @@ post until the office is idle again (processEventsToIdle): VCL focus handling, t
 of the preview and the repaints. Tabs through the empty and the
 filled form (with a 40-paragraph body), digits typed in every field.
 
+Type then Tab: a query typed in "Loại văn bản" and Tab take the highlighted type, close the list and move to the next
+field (the open list used to cover the next seven fields, typing went nowhere and the type was silently lost).
+
 Height: the wizard is built over the bridge; each one-line edit must be at least as high as its preferred height
 (Edit::CalcMinimumSize: text height plus borders, or the native frame when higher; 29 px on macOS), or fill all the
 room down to the control below it. A 12-unit edit was
@@ -226,6 +229,25 @@ def heights(office, args):
                                   and a.PositionY < b.PositionY + b.Height and b.PositionY < a.PositionY + a.Height):
                 overlaps.append("%s/%s" % (name, other))
     check("grown fields overlap no other control", not overlaps, overlaps)
+    # Type a query in "Loại văn bản" and leave with Tab: the highlighted type is taken, the list closes and the focus
+    # and the next typing land in "Cơ quan chủ quản" (an open list used to cover it and the type was silently lost).
+    env = dict(os.environ, DISPLAY=args.display)
+    focus_window(args.display)
+    d.dialog.getControl("type").setFocus()
+    time.sleep(0.5)
+    subprocess.run(["xdotool", "type", "--delay", "50", "quyet"], env=env, check=False, timeout=30)
+    time.sleep(0.8)
+    opened = wizard.picker.open
+    subprocess.run(["xdotool", "key", "Tab"], env=env, check=False, timeout=30)
+    time.sleep(0.8)
+    subprocess.run(["xdotool", "type", "--delay", "50", "UBND"], env=env, check=False, timeout=30)
+    time.sleep(0.8)
+    hst_gui.screenshot(os.path.join(args.out, "type-then-tab.png"), args.display)
+    check("a typed query opens the list", opened)
+    check("Tab takes the highlighted type and closes the list", wizard.picker.current == "quyet-dinh" and not wizard.picker.open,
+          (wizard.picker.current, wizard.picker.open))
+    check("after Tab the next typing lands in Cơ quan chủ quản", model.getByName("parentAgency").Text == "UBND",
+          repr(model.getByName("parentAgency").Text))
     one = peer.convertSizeToPixel(Size(0, 1), APPFONT).Height
     print("one AppFont unit: %s px; heights: %s" % (one, {n: model.getByName(n).Height for n in d._single_lines}))
     hst_gui.screenshot(os.path.join(args.out, "heights.png"), args.display)
