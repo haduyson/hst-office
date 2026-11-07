@@ -9,8 +9,9 @@ Per app at 1485x900 (vi UI, fake xdg-open on PATH that logs URLs, so no browser 
 found in the AT-SPI tree (role link, name "<name> — <tagline>") and recognised in a screenshot as that
 bundled artwork; hovering pauses the rotation; a click opens its URL with UTM; with keyboard focus Enter
 opens it again; with focus elsewhere it rotates to another item within rotateSeconds + 2 s and the new
-item's accessible name matches; at 1100x700 it is hidden and at 1485x900 it returns. The ribbon height (frame top to document
-tab bar) is the same with the banner shown and hidden, and equals the baseline build (--baseline-instdir,
+item's accessible name matches; at 1100x700 the compact banner shows instead (a 160:104 slot, at most 160x104
+logical px, recognised as bundled compact art) and at 1485x900 the wide banner returns. The ribbon height (frame top to
+document tab bar) is the same with the wide and the compact banner, and equals the baseline build (--baseline-instdir,
 a build without the banner) at the same window size, at 100 % and with GDK_SCALE=2 (--display-hidpi,
 an Xvfb of at least 3000x1820). Fallback: in a hard-linked copy of the installation with the feed
 service broken and the AIOS art replaced by a 2000x600 image, the installed defaults still show and the
@@ -102,11 +103,19 @@ def main_flow(args, catalogue, rotate, app, scale, display):
                   bool(item) and name == item["label"], f"{drawn} {name}")
             run.leave()
         run.size(1100, 700)
-        run.shot("04-narrow", shots)
-        check(label("1100x700: banner hidden"), run.banner() is None)
+        narrow_shot = run.shot("04-narrow", shots)
+        compact = run.banner()
+        if check(label("1100x700: compact banner shown"), compact is not None):
+            small = probe.describe(compact)
+            w, h = small["box"][2], small["box"][3]
+            check(label("1100x700: compact slot keeps the 160:104 ratio, at most 160x104"),
+                  0 < w <= 160 and 0 < h <= 104 and abs(h * 160 - w * 104) < 160, f"{w}x{h}")
+            compacts = [dict(i, art=i["compact"]) for i in catalogue if i["compact"]]
+            drawn = probe.recognise(narrow_shot, device_box(run, small), compacts, scale) if compacts else (None,)
+            check(label("1100x700: drawn as bundled compact art"), drawn[0] is not None, str(drawn))
         narrow_height = run.ribbon_height() * scale
-        check(label("ribbon height identical with banner shown and hidden"), narrow_height == height,
-              f"shown={height} hidden={narrow_height}")
+        check(label("ribbon height identical with the wide and the compact banner"), narrow_height == height,
+              f"wide={height} compact={narrow_height}")
         run.size(1485, 900)
         back = run.banner()
         check(label("1485x900 again: banner shown"), back is not None)
