@@ -20,16 +20,15 @@ class _StubModule(types.ModuleType):
         return value
 
 
-for _name in ("uno", "unohelper", "com", "com.sun", "com.sun.star", "com.sun.star.awt", "com.sun.star.lang"):
+for _name in ("uno", "unohelper", "com", "com.sun", "com.sun.star", "com.sun.star.awt", "com.sun.star.awt.Key",
+              "com.sun.star.lang"):
     sys.modules.setdefault(_name, _StubModule(_name))
-_keys = types.ModuleType("com.sun.star.awt.Key")
-_keys.DOWN, _keys.UP, _keys.RETURN, _keys.ESCAPE, _keys.TAB, _keys.SPACE = 1024, 1025, 1280, 1281, 1282, 1284
-sys.modules["com.sun.star.awt.Key"] = _keys
-sys.modules["uno"].invoke = lambda obj, method, args: setattr(obj, args[0], getattr(args[1], "value", args[1]))
-sys.modules["uno"].Any = lambda kind, value: types.SimpleNamespace(value=value)
 
 from hst_office import nd30, wizard_type_picker  # noqa: E402
 from hst_office.data_files import load_locale  # noqa: E402
+
+# Key codes as the picker module itself bound them: another test module may have imported it first with other stubs.
+_keys = types.SimpleNamespace(TAB=wizard_type_picker.TAB, RETURN=wizard_type_picker.RETURN)
 
 
 class _Peer:
@@ -63,6 +62,16 @@ class _Dialog:
 
 class TabLeavesTheList(unittest.TestCase):
     def setUp(self):
+        # the picker imports `uno` inside its methods: give whichever module is installed the two helpers it uses
+        uno = sys.modules["uno"]
+        helpers = {"invoke": lambda obj, method, args: setattr(obj, args[0], getattr(args[1], "value", args[1])),
+                   "Any": lambda kind, value: types.SimpleNamespace(value=value)}
+        for name, value in helpers.items():
+            if name in vars(uno):
+                self.addCleanup(setattr, uno, name, vars(uno)[name])
+            else:
+                self.addCleanup(delattr, uno, name)
+            setattr(uno, name, value)
         self.chosen = []
         self.picker = wizard_type_picker.TypePicker(_Dialog(), nd30.rules()["documentTypes"], load_locale("vi")["nd30"]["groups"],
                                                     lambda: self.chosen.append(self.picker.current))
