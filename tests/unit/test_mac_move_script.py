@@ -104,6 +104,13 @@ class MoveScript(ShellHarness):
                 self.assertEqual(self.run_script("--reopen", self.exited_pid, self.dest, self.move_log, kept), 0)
                 self.assertTrue(elsewhere.exists())
 
+    def test_reopen_without_a_copy_to_remove_opens_the_destination_by_path(self):
+        self.dest.mkdir()
+        self.assertEqual(self.run_script("--reopen", self.exited_pid, self.dest, self.move_log), 0)
+        self.assertEqual((self.root / "open-args").read_text().splitlines(), [str(self.dest)])
+        self.assertTrue(self.source.exists())
+        self.assertFalse((self.root / "xattr-args").exists())  # the existing copy's attributes are left alone
+
     def test_unknown_mode_is_refused(self):
         self.assertEqual(self.run_script("--other"), 64)
 

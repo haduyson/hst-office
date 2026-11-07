@@ -146,7 +146,28 @@ class OfferOnce(unittest.TestCase):
         self.assertEqual(self.asked[0][1], TEXTS["vi"]["move_exists"])
         self.assertEqual(self.asked[0][2], ["Mở", "Để sau"])
         run.assert_not_called()
-        self.assertEqual(len(reopen.call_args.args[1]), 6)
+        # The /Applications copy is opened by its own path once this (translocated) copy has quit; nothing is removed.
+        argv = reopen.call_args.args[1]
+        self.assertEqual(argv[2:5], ["--reopen", str(os.getpid()), self.dest])
+        self.assertEqual(len(argv), 6)
+        for bundle, release in ((TRANSLOCATED, "1.0.1"), (self.home + "/Downloads/HST Office.app", "1.0.2")):
+            self.asked.clear()
+            with self.subTest(bundle=bundle), mock.patch("hst_office.update_fetch.release_info", return_value={"release": release}):
+                argv = self.offer(bundle)[2].call_args.args[1]
+                self.assertEqual((argv[4], len(argv)), (self.dest, 6))
+
+    def test_quit_starts_the_waiter_first_and_stops_it_when_the_quit_is_cancelled(self):
+        for closing in (True, False):
+            with self.subTest(closing=closing), mock.patch("hst_office.update_launch.spawn") as spawn, \
+                    mock.patch("hst_office.update_launch.cancel") as cancel:
+                ctx, calls = mock.Mock(), []
+                spawn.side_effect = lambda argv, system: calls.append(("spawn", argv, system)) or "proc"
+                desktop = ctx.ServiceManager.createInstanceWithContext.return_value
+                desktop.terminate.side_effect = lambda: calls.append(("terminate",)) or closing
+                location._quit_and_reopen(ctx, ["/bin/sh", "/c/s.sh", "--reopen", "7", "/Applications/HST Office.app", "/c/l"])
+                self.assertEqual(calls, [("spawn", ["/bin/sh", "/c/s.sh", "--reopen", "7", "/Applications/HST Office.app", "/c/l"], "Darwin"),
+                                         ("terminate",)])
+                self.assertEqual(cancel.call_args_list, [] if closing else [mock.call("proc")])
 
     def test_failed_move_says_so_and_cancelled_password_does_not(self):
         shown, _, reopen = self.offer("/Volumes/HST Office/HST Office.app", copy_exit=1)
