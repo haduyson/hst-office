@@ -122,11 +122,31 @@ def _path(value, windows=False, applescript=False):
     return value
 
 
-def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False, app_dest=None, release_from="", release_to=""):
+def mac_swap():
+    """MAC_SWAP with the team and the C1 / line-separator path patterns filled in (updater and start-up move)."""
+    controls = "|".join("*" + shlex.quote(chr(c)) + "*" for c in tuple(range(128, 160)) + (0x2028, 0x2029))
+    return mac_scripts.MAC_SWAP.replace("@TEAM_ID@", TEAM_ID).replace("@PATH_CONTROLS@", controls)
+
+
+def mac_path(value):
+    """A macOS helper path: absolute, no control characters, and safe inside the AppleScript administrator command."""
+    return _path(value, applescript=True)
+
+
+def mac_bundle(value):
+    target = mac_path(value).rstrip("/")
+    if not target.endswith(".app"):
+        raise ValueError("app_dest must name an .app bundle")
+    return target
+
+
+def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False, app_dest=None, release_from="", release_to="",
+                 app_origin=None):
     """Build a script and argv template without inspecting or changing the filesystem.
 
     release_from / release_to go into the failure record, so that update_outcome can name the version and ignore a
-    record made stale by an update installed some other way."""
+    record made stale by an update installed some other way. macOS: app_dest is the bundle to replace or create;
+    app_origin, when it differs (the running copy on a .dmg, say), is reopened if the install fails."""
     if system not in ("Windows", "Darwin", "Linux"):
         raise ValueError("unsupported system")
     if type(pid) is not int or pid <= 0 or pid > 2147483647:
@@ -140,10 +160,10 @@ def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False,
             raise ValueError("release must be a version text")
     installer = _path(installer, system == "Windows", system == "Darwin")
     log = _path(log, system == "Windows")
+    origin = ""
     if system == "Darwin":
-        target = _path(app_dest, applescript=True).rstrip("/")
-        if not target.endswith(".app"):
-            raise ValueError("app_dest must name an .app bundle")
+        target = mac_bundle(app_dest)
+        origin = "" if app_origin is None else mac_bundle(app_origin)
     else:
         target = _path(soffice, system == "Windows")
     if system == "Windows":
@@ -157,10 +177,9 @@ def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False,
     relaunch = "open " + shlex.quote(target) if system == "Darwin" else "nohup " + shlex.quote(target) + " >/dev/null 2>&1 &"
     text = scripts.HEADER
     if system == "Darwin":
-        controls = "|".join("*" + shlex.quote(chr(c)) + "*" for c in tuple(range(128, 160)) + (0x2028, 0x2029))
-        text += mac_scripts.MAC_SWAP.replace("@TEAM_ID@", TEAM_ID).replace("@PATH_CONTROLS@", controls)
+        text += mac_swap()
     text += scripts.SETUP + "FROM_RELEASE=" + shlex.quote(release_from) + "\nTO_RELEASE=" + shlex.quote(release_to) + "\n"
-    text += "RELAUNCH=" + shlex.quote(relaunch) + "\n"
+    text += "RELAUNCH=" + shlex.quote(relaunch) + "\n" + ("ORIGIN=" + shlex.quote(origin) + "\n" if system == "Darwin" else "")
     text += "HASH_TOOLS=" + shlex.quote("shasum" if system == "Darwin" else "sha256sum shasum openssl") + "\n"
     if system == "Linux":
         text += "APT_COMMAND=" + shlex.quote("pkexec env DEBIAN_FRONTEND=noninteractive apt-get install -y " + shlex.quote(installer)) + "\n"
