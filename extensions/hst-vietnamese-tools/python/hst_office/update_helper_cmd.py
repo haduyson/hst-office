@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Pure construction and validation of the external updater's scripts and arguments."""
+import hashlib
 import ntpath
 import os
 import re
@@ -179,15 +180,16 @@ def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False,
     if system == "Darwin":
         text += mac_swap()
     text += scripts.SETUP + "FROM_RELEASE=" + shlex.quote(release_from) + "\nTO_RELEASE=" + shlex.quote(release_to) + "\n"
-    text += "RELAUNCH=" + shlex.quote(relaunch) + "\n" + ("ORIGIN=" + shlex.quote(origin) + "\n" if system == "Darwin" else "")
+    text += "RELAUNCH=" + shlex.quote(relaunch) + "\n" + ("ORIGIN=" + shlex.quote(origin) + "\nSCRIPT_SHA256=${7-}\n" if system == "Darwin" else "")
     text += "HASH_TOOLS=" + shlex.quote("shasum" if system == "Darwin" else "sha256sum shasum openssl") + "\n"
     if system == "Linux":
         text += "APT_COMMAND=" + shlex.quote("pkexec env DEBIAN_FRONTEND=noninteractive apt-get install -y " + shlex.quote(installer)) + "\n"
         text += "PKCON_COMMAND=" + shlex.quote("pkcon install-local " + shlex.quote(installer)) + "\n"
     text += mac_scripts.MAC_INSTALL if system == "Darwin" else scripts.LINUX
     text += scripts.RUN
-    return {"name": "hst-update.sh", "text": text, "encoding": "utf-8",
-            "argv_for": arguments + (["--dry-run"] if dry_run else [])}
+    # macOS: the root step runs only a copy of the script with this digest (admin_command).
+    extra = ["--dry-run" if dry_run else "", hashlib.sha256(text.encode("utf-8")).hexdigest()] if system == "Darwin" else ["--dry-run"] * dry_run
+    return {"name": "hst-update.sh", "text": text, "encoding": "utf-8", "argv_for": arguments + extra}
 
 
 def argv(helper, script_path):

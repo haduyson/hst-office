@@ -89,7 +89,9 @@ class ShellHarness(unittest.TestCase):
 
 
 class MacHarness(ShellHarness):
-    """ShellHarness plus stubs of the macOS tools (hdiutil, codesign, spctl, ditto, open, mv) and an old app."""
+    """ShellHarness plus stubs of the macOS tools (hdiutil, codesign, spctl, xattr, ditto, open, mv) and an old app.
+
+    STAGED_VERIFY_FAIL, STAGED_TEAM and STAGED_SPCTL_FAIL make only the checks of the staged copy (*.hst-new) fail."""
 
     def setUp(self):
         super().setUp()
@@ -113,7 +115,9 @@ esac
 ''')
         self.stub("codesign", r'''printf '%s\n' "$@" >> "$RECORDS/codesign-args"
 case "$1" in
---verify) exit "${VERIFY_FAIL:-0}" ;;
+--verify)
+    case "$4" in *.hst-new) exit "${STAGED_VERIFY_FAIL:-${VERIFY_FAIL:-0}}" ;; esac
+    exit "${VERIFY_FAIL:-0}" ;;
 -dv)
     team=$TEAM_ID
     case "$3" in *.hst-new) team=${STAGED_TEAM:-$team} ;; esac
@@ -122,7 +126,9 @@ case "$1" in
     ;;
 esac
 ''')
-        self.stub("spctl", 'printf "%s\\n" "$@" > "$RECORDS/spctl-args"\nexit "${SPCTL_FAIL:-0}"\n')
+        self.stub("spctl", 'printf "%s\\n" "$@" >> "$RECORDS/spctl-args"\n'
+                  'case "$4" in *.hst-new) exit "${STAGED_SPCTL_FAIL:-0}" ;; esac\nexit "${SPCTL_FAIL:-0}"\n')
+        self.stub("xattr", 'printf "%s\\n" "$@" >> "$RECORDS/xattr-args"\n')
         self.stub("ditto", 'printf "%s\\n" "$@" > "$RECORDS/ditto-args"\ncp -R "$1" "$2"\n')
         self.stub("open", 'printf "%s\\n" "$@" > "$RECORDS/open-args"\n')
         self.stub("mv", 'case "$1" in *.hst-new) [ "${FAIL_SWAP:-0}" = 0 ] || exit 1 ;; esac\n'
@@ -135,3 +141,35 @@ esac
         self.assertFalse(Path(str(self.destination) + ".hst-new").exists())
         self.assertFalse(Path(str(self.destination) + ".hst-old").exists())
         self.assertIn("detach", (self.root / "hdiutil-args").read_text())
+
+
+# Stands in for osascript: evaluates the `do shell script ("..." & quoted form of "..." & ...)` command the helpers
+# build (as the current user, not root) and records `display notification` texts, so the root step runs for real.
+OSASCRIPT = r'''import os, re, shlex, subprocess, sys
+script = sys.argv[sys.argv.index("-e") + 1]
+records = os.environ["RECORDS"]
+if script.startswith("display notification"):
+    with open(os.path.join(records, "notifications"), "a") as handle:
+        handle.write(script + "\n")
+    sys.exit(0)
+with open(os.path.join(records, "osascript-args"), "w") as handle:
+    handle.write(script)
+body = re.fullmatch(r'do shell script \((.*)\) with administrator privileges', script, re.S).group(1)
+parts = re.findall(r'(quoted form of )?"((?:[^"\\]|\\.)*)"', body)
+command = ""
+for quoted, text in parts:
+    text = re.sub(r'\\(.)', r'\1', text)
+    command += shlex.quote(text) if quoted else text
+done = subprocess.run(["/bin/sh", "-c", command], capture_output=True, text=True)
+sys.stdout.write(done.stdout)
+if done.returncode:
+    sys.stderr.write("execution error: %s (%d)\n" % (done.stderr.strip(), done.returncode))
+    sys.exit(1)
+'''
+
+
+def stub_osascript(harness):
+    """Install the OSASCRIPT stand-in into a ShellHarness's private bin folder."""
+    runner = harness.root / "osascript.py"
+    runner.write_text(OSASCRIPT, encoding="utf-8")
+    harness.stub("osascript", "exec %s %s \"$@\"\n" % (shlex.quote(shutil.which("python3")), shlex.quote(str(runner))))

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """External updater contracts: argument and script construction, validation and shell syntax."""
 import ast
+import hashlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -40,9 +41,15 @@ class HelperContract(unittest.TestCase):
                 self.assertEqual((helper["name"], helper["encoding"]), ("hst-update.ps1", "utf-8-sig"))
             else:
                 target = "/Applications/HST Office.app" if system == "Darwin" else "/opt/HST Office/program/soffice"
-                self.assertEqual(args, ["/bin/sh", script, "123", "/tmp/package.deb", target, "/tmp/update.log", SHA256, "--dry-run"])
+                expected = ["/bin/sh", script, "123", "/tmp/package.deb", target, "/tmp/update.log", SHA256, "--dry-run"]
+                if system == "Darwin":  # plus the digest of the script itself, checked by the root step
+                    expected.append(hashlib.sha256(helper["text"].encode("utf-8")).hexdigest())
+                self.assertEqual(args, expected)
                 self.assertEqual((helper["name"], helper["encoding"]), ("hst-update.sh", "utf-8"))
-            self.assertNotIn(args[-1], cmd.argv(build(system), script))
+            if system == "Darwin":
+                self.assertEqual(cmd.argv(build(system), script)[-2], "")
+            else:
+                self.assertNotIn(args[-1], cmd.argv(build(system), script))
 
     def test_windows_script_parameters_and_install(self):
         text = build("Windows", installer=r"C:\a ' $(unsafe)\office.msi")["text"]

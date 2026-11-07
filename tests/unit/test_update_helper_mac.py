@@ -141,7 +141,8 @@ class MacExecution(MacHarness):
         self.assertIn('quoted form of "' + script + '"', args[2])
         self.assertIn('quoted form of "' + destination + '"', args[2])
         self.assertTrue(args[2].endswith('with administrator privileges'))
-        self.stub("osascript", 'printf "%s\\n" "$@" > "$RECORDS/osascript-args"\nexit 1\n')
+        self.stub("osascript", 'case "$2" in "display notification"*) exit 0 ;; esac\n'
+                  'printf "%s\\n" "$@" > "$RECORDS/osascript-args"\nexit 1\n')
         self.execute("Darwin", expected=1, app_dest=destination)
         request = (self.root / "osascript-args").read_text().splitlines()
         self.assertEqual(request[0], "-e")
