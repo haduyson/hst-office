@@ -1,0 +1,168 @@
+HST Office: pure ladder selection for the Office-style collapse of the Tabbed notebookbar.
+
+- vcl/inc/HstRibbonScaling.hxx (new): given the width of every group in each of its size states
+  (large first), an ordered ladder of "group g goes to state s" steps and the available width,
+  it picks the state of every group and the groups that move into the overflow popup. Plain
+  integer arithmetic without LibreOffice types; nothing includes it yet, the collapse engine
+  (HstRibbonTab/HstRibbonGroup) uses it. Deterministic and monotone: steps that do not shrink
+  the row are skipped, so the applied steps do not depend on the available width and a wider
+  window never shows smaller groups. A row exactly as wide as the space fits. An empty ladder
+  means right to left, one state at a time. Pinned groups (the right block) never overflow.
+  Unit test: tests/unit/test_ribbon_scaling.py.
+
+--- /dev/null
++++ b/vcl/inc/HstRibbonScaling.hxx
+@@ -0,0 +1,153 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: ladder selection for the Office-style collapse of the Tabbed notebookbar.
++// Plain integer arithmetic without LibreOffice types, so it can be unit tested on its own
++// (tests/unit/test_ribbon_scaling.py compiles it from the patch with a test driver).
++//
++// A tab is a row of groups in visual order (left to right). Each group has an ordered list of
++// size states; state 0 is the ideal (authored, large) one and later states are smaller, e.g.
++// L, M, S, collapsed. The right block of the tab is just another group with two states
++// (shown, folded). The ladder is an ordered list of steps "group g goes to state s", applied
++// one at a time while the row is wider than the available width.
++//
++// Guarantees:
++// - Determinism: the same widths, ladder and available width always give the same result.
++// - Monotonicity: a step is applied only when it makes the row strictly narrower, so the row
++//   width is strictly decreasing over the applied steps and a wider window never shows fewer
++//   or smaller groups than a narrower one. Steps that do not shrink, point at an unknown group
++//   or state, or would grow a group back to a larger state are skipped.
++// - The exact boundary fits: a row as wide as the available width needs no further step.
++// - Overflow: when every step is applied and the row is still too wide, groups move from the
++//   right end into one overflow ("»") popup until the row plus the overflow button fits.
++//   Pinned groups (the right block) never move. Nothing becomes unreachable.
++// - An empty ladder means the default ladder: right to left, one state at a time across all
++//   groups (every group goes to its 2nd state, then every group to its 3rd state, ...).
++
++#include <cstddef>
++#include <vector>
++
++namespace hst::ribbon
++{
++/// One group of a tab: its width in device pixels for each state, largest state first.
++struct Group
++{
++    std::vector<long> widths;
++    /// Pinned groups stay in the row on overflow (the tab's right block).
++    bool pinned = false;
++};
++
++/// One ladder step: group index (visual order) goes to state index.
++struct Step
++{
++    std::size_t group = 0;
++    std::size_t state = 0;
++};
++
++struct Layout
++{
++    /// The state per group; groups listed in overflow keep the state they reached.
++    std::vector<std::size_t> states;
++    /// Indexes of groups moved into the overflow popup, in visual order.
++    std::vector<std::size_t> overflow;
++    /// Number of ladder steps that were applied (skipped steps are not counted).
++    std::size_t appliedSteps = 0;
++    /// Width of the row, including the overflow button when there is overflow.
++    long width = 0;
++    /// True when the row fits the available width.
++    bool fits = false;
++};
++
++inline long widthOf(const Group& rGroup, std::size_t nState)
++{
++    if (rGroup.widths.empty())
++        return 0;
++    const long nWidth = rGroup.widths[nState < rGroup.widths.size() ? nState : rGroup.widths.size() - 1];
++    return nWidth > 0 ? nWidth : 0;
++}
++
++/// Width of the row for the given states, without groups listed in rHidden.
++inline long rowWidth(const std::vector<Group>& rGroups, const std::vector<std::size_t>& rStates,
++                     const std::vector<bool>& rHidden = {})
++{
++    long nSum = 0;
++    for (std::size_t i = 0; i < rGroups.size(); ++i)
++        if (i >= rHidden.size() || !rHidden[i])
++            nSum += widthOf(rGroups[i], i < rStates.size() ? rStates[i] : 0);
++    return nSum;
++}
++
++/// Default ladder: right to left, one state at a time across all groups.
++inline std::vector<Step> defaultLadder(const std::vector<Group>& rGroups)
++{
++    std::vector<Step> aSteps;
++    std::size_t nMaxStates = 0;
++    for (const Group& rGroup : rGroups)
++        nMaxStates = rGroup.widths.size() > nMaxStates ? rGroup.widths.size() : nMaxStates;
++    for (std::size_t nState = 1; nState < nMaxStates; ++nState)
++        for (std::size_t i = rGroups.size(); i-- > 0;)
++            if (nState < rGroups[i].widths.size())
++                aSteps.push_back(Step{ i, nState });
++    return aSteps;
++}
++
++/// Choose the states for the available width.
++/// rLadder empty = defaultLadder(rGroups). nOverflowButton is the width of the "»" button.
++inline Layout select(const std::vector<Group>& rGroups, const std::vector<Step>& rLadder,
++                     long nAvailable, long nOverflowButton)
++{
++    Layout aLayout;
++    aLayout.states.assign(rGroups.size(), 0);
++    const std::vector<Step> aLadder = rLadder.empty() ? defaultLadder(rGroups) : rLadder;
++
++    long nWidth = rowWidth(rGroups, aLayout.states);
++    for (const Step& rStep : aLadder)
++    {
++        if (nWidth <= nAvailable)
++            break;
++        if (rStep.group >= rGroups.size() || rStep.state >= rGroups[rStep.group].widths.size()
++            || rStep.state <= aLayout.states[rStep.group])
++            continue;
++        const Group& rGroup = rGroups[rStep.group];
++        const long nNext = nWidth - widthOf(rGroup, aLayout.states[rStep.group]) + widthOf(rGroup, rStep.state);
++        if (nNext >= nWidth)
++            continue;
++        aLayout.states[rStep.group] = rStep.state;
++        nWidth = nNext;
++        ++aLayout.appliedSteps;
++    }
++
++    if (nWidth > nAvailable)
++    {
++        // Final fallback: move unpinned groups from the right end into the overflow popup.
++        const long nButton = nOverflowButton > 0 ? nOverflowButton : 0;
++        std::vector<bool> aHidden(rGroups.size(), false);
++        long nRow = nWidth;
++        for (std::size_t i = rGroups.size(); i-- > 0 && nRow + nButton > nAvailable;)
++        {
++            if (rGroups[i].pinned)
++                continue;
++            aHidden[i] = true;
++            nRow -= widthOf(rGroups[i], aLayout.states[i]);
++        }
++        for (std::size_t i = 0; i < rGroups.size(); ++i)
++            if (aHidden[i])
++                aLayout.overflow.push_back(i);
++        nWidth = aLayout.overflow.empty() ? nRow : nRow + nButton;
++    }
++
++    aLayout.width = nWidth;
++    aLayout.fits = nWidth <= nAvailable;
++    return aLayout;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
