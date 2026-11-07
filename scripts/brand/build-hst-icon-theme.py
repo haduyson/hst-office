@@ -23,7 +23,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "icon-themes-src/hst"
 # Ink per theme. hst_modern* is the colourful style: modern masters where drawn (missing ones are
 # listed and substituted by the classic glyph until --require-modern gates the release).
-PALETTES = {"hst": "#294159", "hst_dark": "#DBE7F1", "hst_modern": "#294159", "hst_modern_dark": "#DBE7F1"}
+# The colourful style takes its darker ink (and heavier 16 px pen) from hst-modern/metadata/ink.json.
+PALETTES = {"hst": "#294159", "hst_dark": "#DBE7F1", "hst_modern": modern.ink()["light"],
+            "hst_modern_dark": modern.ink()["dark"]}
 MISSING_MODERN = set()
 # Families with a "trademark" master show the HASON TECH mark in its brand blue: #0072BB is the
 # official colour, #1A91CF the light end of the same app-icon gradient, legible on the dark ribbon.
@@ -58,8 +60,13 @@ def glyph_svg(master, size, colour, theme="hst"):
     tuned = root / f"glyphs/stage-1-{size}" / master.name
     if colours is not None and not tuned.is_file() and not modern.HEX.search(master.read_text(encoding="utf-8")):
         tuned = SOURCE / f"glyphs/stage-1-{size}" / master.name  # ink-only: the classic tuning is the same art
-    native = master.parent.name == "stage-1" and size in (16, 24) and tuned.is_file()
-    svg = snap_svg((tuned if native else master).read_text(encoding="utf-8"), size, native=native)
+    native = size in (16, 24) and tuned.is_file()
+    if native and colours is not None and tuned.is_relative_to(modern.MODERN):
+        problems = modern.violations(tuned.read_text(encoding="utf-8"), colours, size, tuned=True)
+        if problems:
+            raise ValueError(f"{tuned}: " + "; ".join(problems))
+    heavy = theme.startswith("hst_modern") and modern.ink()["heavy16"]
+    svg = snap_svg((tuned if native else master).read_text(encoding="utf-8"), size, native=native, heavy=heavy)
     if colours is not None:
         svg = modern.recolour(svg, colours, theme.endswith("_dark"))
     return svg.replace("currentColor", colour).encode("utf-8")

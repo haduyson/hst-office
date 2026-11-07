@@ -23,6 +23,7 @@ import xml.etree.ElementTree as ET
 from html import escape
 
 from hst_icon_emit import INHERITED, emit, emit_stroked, DRAFT_STYLE
+from hst_icon_weight import embolden
 from hst_icon_lattice import TARGET_PEN, lattice, snap_outline, snap_subpaths, snap_value, target_pen
 from hst_svg_math import EPS, SnapError, apply, axis_aligned, is_similarity, linear_scale, multiply, parse_transform, round_half_up
 from hst_svg_path import ellipse_subpaths, parse_path, rect_subpaths, transform_subpaths
@@ -107,12 +108,13 @@ def snap_element(tag, element, style, m, size, native=False):
     return ("path", subpaths), pen
 
 
-def snap_svg(source, size, outline=True, native=False):
+def snap_svg(source, size, outline=True, native=False, heavy=False):
     """SVG text of `source` for a `size` px raster.
 
     A 24-unit master is snapped; a native (hand-tuned) master, drawn on a viewBox of the raster
     size with whole-pixel pens, is kept as drawn. outline=True paints strokes as filled outlines (what the theme ships);
     False keeps them as editable strokes (the starting point of a hand-tuned master).
+    heavy=True widens 1 px pens to 2 px at 16 px where the glyph has room (hst_icon_weight).
     """
     if size not in TARGET_PEN:
         raise SnapError(f"unsupported size: {size}")
@@ -123,7 +125,7 @@ def snap_svg(source, size, outline=True, native=False):
     scale = 1.0 if native else size / GRID
     title = root.findtext(f"{{{SVG_NS}}}title") or ""
     desc = root.findtext(f"{{{SVG_NS}}}desc") or ""
-    shapes = []
+    items = []
 
     def walk(node, style, m):
         for child in node:
@@ -139,13 +141,16 @@ def snap_svg(source, size, outline=True, native=False):
                 walk(child, own, matrix)
                 continue
             shape, pen = snap_element(tag, child, own, matrix, size, native)
-            if outline:
-                shapes.extend(emit(shape, pen, own, child.get("data-state")))
-            else:
-                shapes.append(emit_stroked(shape, pen, own, child.get("data-state")))
+            items.append((shape, pen, own, child.get("data-state")))
 
     style = {"fill": "black", "stroke": "none", "stroke-width": "1"}
     walk(root, style, (scale, 0.0, 0.0, scale, 0.0, 0.0))
+    if heavy and size == 16:
+        items = embolden(items, size)
+    if outline:
+        shapes = [svg for item in items for svg in emit(*item)]
+    else:
+        shapes = [emit_stroked(*item) for item in items]
     if not shapes:
         raise SnapError("master has no shapes")
     comment = ""

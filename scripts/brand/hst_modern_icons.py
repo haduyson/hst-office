@@ -42,15 +42,34 @@ def palette(source=MODERN):
     return result
 
 
-def violations(text, colours):
-    """Spec breaches of one modern master (empty when it may enter the tree)."""
+@lru_cache(maxsize=None)
+def ink(source=MODERN):
+    """Outline ink of the colourful style: {"light", "dark": #RRGGBB, "heavy16": bool}.
+
+    The masters keep currentColor (authored against the classic ink); this build-time token sets
+    the darker light ink, the brighter dark ink and the heavier 16 px pen for every glyph,
+    including batches that arrive later."""
+    data = json.loads((source / "metadata/ink.json").read_text(encoding="utf-8"))
+    if not (HEX.fullmatch(data.get("light", "")) and HEX.fullmatch(data.get("dark", ""))):
+        raise ValueError("metadata/ink.json needs #RRGGBB light and dark values")
+    if not isinstance(data.get("heavy16"), bool):
+        raise ValueError("metadata/ink.json needs a boolean heavy16")
+    return {"light": data["light"].upper(), "dark": data["dark"].upper(), "heavy16": data["heavy16"]}
+
+
+def violations(text, colours, size=24, tuned=False):
+    """Spec breaches of one modern master (empty when it may enter the tree).
+
+    size 24 is the editable 24-unit master; 16 or 24 with a viewBox of that size is a hand-tuned
+    master in target pixels (glyphs/stage-1-16, stage-1-24) when tuned=True: same rules,
+    whole-pixel pens."""
     problems = []
     try:
         root = ET.fromstring(text)
     except ET.ParseError as error:
         return [f"not well-formed XML: {error}"]
-    if (root.get("width"), root.get("height"), root.get("viewBox")) != ("24", "24", "0 0 24 24"):
-        problems.append('root must be width="24" height="24" viewBox="0 0 24 24"')
+    if (root.get("width"), root.get("height"), root.get("viewBox")) != (str(size), str(size), f"0 0 {size} {size}"):
+        problems.append(f'root must be width="{size}" height="{size}" viewBox="0 0 {size} {size}"')
     if "SPDX-License-Identifier: CC-BY-4.0; Copyright 2026 HASON TECH" not in text:
         problems.append("missing the CC-BY-4.0 HASON TECH SPDX comment")
     if not (root.findtext(f"{SVG}title") or "").startswith("HST "):
@@ -71,11 +90,11 @@ def violations(text, colours):
             elif name == "transform" and not TRANSFORM.match(value):
                 problems.append(f"<{tag}> transform {value!r} is not translate/scale/rotate/matrix")
     if not problems:
-        for size in (16, 24, 32):
+        for target in ((size,) if tuned else (16, 24, 32)):
             try:
-                snap_svg(text, size)
+                snap_svg(text, target, native=tuned)
             except (SnapError, ValueError) as error:
-                problems.append(f"does not snap at {size} px: {error}")
+                problems.append(f"does not snap at {target} px: {error}")
     return problems
 
 

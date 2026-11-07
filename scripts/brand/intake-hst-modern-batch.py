@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hst_modern_icons as modern  # noqa: E402
 
 CLASSIC = modern.MODERN.parent / "hst"
+TUNED = {"stage-1-16": 16, "stage-1-24": 24}  # hand-tuned masters drawn in target pixels
 
 
 def main():
@@ -36,12 +37,16 @@ def main():
     report = {"accepted": [], "rejected": {}, "palette_changes": changed}
     for path in sorted((args.batch / "glyphs").rglob("*.svg")):
         relative = path.relative_to(args.batch / "glyphs")
-        classic = CLASSIC / "glyphs" / relative
-        if relative.parent.name in ("stage-1-16", "stage-1-24"):
-            classic = CLASSIC / "glyphs/stage-1" / relative.name
+        tuned = TUNED.get(relative.parent.name)
+        if tuned:
+            # a hand-tuned size of any stage's master: the classic master may sit in any stage dir
+            found = [p for p in (CLASSIC / "glyphs").glob(f"stage-[0-9]*/{relative.name}") if p.parent.name not in TUNED]
+            found += list((CLASSIC / "glyphs/integration").glob(relative.name))
+            classic = found[0] if found else CLASSIC / "glyphs" / relative
+        else:
+            classic = CLASSIC / "glyphs" / relative
         problems = [] if classic.is_file() else [f"no classic master glyphs/{relative} of that name"]
-        if relative.parent.name not in ("stage-1-16", "stage-1-24"):
-            problems += modern.violations(path.read_text(encoding="utf-8"), colours)
+        problems += modern.violations(path.read_text(encoding="utf-8"), colours, tuned or 24, tuned=bool(tuned))
         if problems:
             report["rejected"][str(relative)] = problems
             continue
