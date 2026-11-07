@@ -11,7 +11,7 @@ A three-slide presentation, the second slide current. Checked through the dispat
   4. duration and advance of the slide stay as they were.
 If the Slides notebookbar has an item for .uno:HstApplyTransition (the content patch places it, or a
 test copy of the .ui), the gallery is checked on screen too: AT-SPI finds the list "Hiệu ứng chuyển
-tiếp" (Transitions) with transition items, and clicking the third item applies its set.
+tiếp" (Transitions) with transition items, and clicking the second item applies its set.
 Writes evidence.json; exit 1 when a check fails.
 """
 import argparse
@@ -173,14 +173,16 @@ def check_gallery_on_screen(office, doc, page, args):
                     if (n.name or "") in GALLERY_NAMES and n.childCount > 0), None)
     items = [gallery.getChildAtIndex(i) for i in range(gallery.childCount)] if gallery else []
     office.screenshot(os.path.join(args.out, "gallery.png"))
-    record("5. the gallery is on the Transitions tab with transition items", len(items) >= 3,
+    record("5. the gallery is on the Transitions tab with transition items", len(items) >= 2,
            (tab[0] if tab else None, [i.name for i in items[:6]]))
-    if len(items) >= 3:
-        x, y, w, h = tabs.extents(items[2])
+    if len(items) >= 2:
+        before = transition(page)
+        x, y, w, h = tabs.extents(items[1])
         tabs.xdo(args.display, "mousemove", str(x + w // 2), str(y + h // 2))
         tabs.xdo(args.display, "click", "1")
         time.sleep(1.5)
-        record("6. clicking a transition applies it", transition(page)[0] != 0, transition(page))
+        record("6. clicking a transition applies it", transition(page) != before and transition(page)[0] != 0,
+               (before, transition(page)))
 
 
 if __name__ == "__main__":

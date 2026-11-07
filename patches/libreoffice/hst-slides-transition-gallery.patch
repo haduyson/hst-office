@@ -456,7 +456,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sd/source/ui/controller/HstTransitionGallery.cxx
-@@ -0,0 +1,342 @@
+@@ -0,0 +1,359 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -467,7 +467,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 + */
 +
 +// HST Office: the transitions gallery of the Slides ribbon (tab "Chuyển tiếp"), as Office's: one row
-+// of transition thumbnails; a click (or Enter) applies the transition to the selected slides with
++// of transition thumbnails; a click (selection) or Enter applies the transition to the selected slides with
 +// .uno:HstApplyTransition (one undo action, HstTransitionApply.cxx); the transition of the selected
 +// slides is shown selected; ◂ ▸ page through the row and ▾ opens the Slide Transition deck with every
 +// variant and option. The toolbox item of .uno:HstApplyTransition gets this control
@@ -567,6 +567,8 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +        InitControlBase(m_xView.get());
 +        m_xView->set_item_width(static_cast<int>(ITEM_WIDTH - 2 * 2)); // one row: wider items would wrap out of sight
 +        m_xView->set_size_request(ITEM_WIDTH * MIN_ITEMS, -1);
++        // a click selects (as in the Styles gallery); Enter or a double click activates
++        m_xView->connect_selection_changed(LINK(this, HstTransitionGalleryWindow, SelectedHdl));
 +        m_xView->connect_item_activated(LINK(this, HstTransitionGalleryWindow, ActivatedHdl));
 +        m_xPrev->connect_clicked(LINK(this, HstTransitionGalleryWindow, PageHdl));
 +        m_xNext->connect_clicked(LINK(this, HstTransitionGalleryWindow, PageHdl));
@@ -638,6 +640,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +        m_nFirst -= m_nFirst % m_nPageSize; // pages start at multiples of the page size
 +        const size_t nEnd = std::min(m_aEntries.size(), m_nFirst + m_nPageSize);
 +
++        m_bFilling = true; // our own selection below is not a choice of the user
 +        m_xView->freeze();
 +        m_xView->clear();
 +        int nSelect = -1;
@@ -656,11 +659,14 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +            m_xView->select(nSelect);
 +        else
 +            m_xView->unselect_all();
++        m_bFilling = false;
 +        m_xPrev->set_sensitive(m_nFirst > 0);
 +        m_xNext->set_sensitive(nEnd < m_aEntries.size());
 +    }
 +
++    void Apply(const OUString& rSetId);
 +    DECL_LINK(ActivatedHdl, const weld::TreeIter&, bool);
++    DECL_LINK(SelectedHdl, weld::ItemView&, void);
 +    DECL_LINK(PageHdl, weld::Button&, void);
 +    DECL_LINK(MoreHdl, weld::Button&, void);
 +    DECL_LINK(RefillHdl, Timer*, void);
@@ -676,16 +682,27 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +    size_t m_nFirst = 0;
 +    size_t m_nPageSize = 0;
 +    tools::Long m_nViewWidth = 0;
++    bool m_bFilling = false;
 +};
++
++void HstTransitionGalleryWindow::Apply(const OUString& rSetId)
++{
++    if (rSetId.isEmpty() || !m_xFrame.is() || rSetId == m_aCurrent)
++        return;
++    comphelper::dispatchCommand(COMMAND, m_xFrame,
++                                { comphelper::makePropertyValue(u"Transition"_ustr, rSetId) });
++}
 +
 +IMPL_LINK(HstTransitionGalleryWindow, ActivatedHdl, const weld::TreeIter&, rIter, bool)
 +{
-+    const OUString aSetId = m_xView->get_id(rIter);
-+    if (aSetId.isEmpty() || !m_xFrame.is())
-+        return true;
-+    comphelper::dispatchCommand(COMMAND, m_xFrame,
-+                                { comphelper::makePropertyValue(u"Transition"_ustr, aSetId) });
++    Apply(m_xView->get_id(rIter));
 +    return true;
++}
++
++IMPL_LINK_NOARG(HstTransitionGalleryWindow, SelectedHdl, weld::ItemView&, void)
++{
++    if (!m_bFilling)
++        Apply(m_xView->get_selected_id());
 +}
 +
 +IMPL_LINK_NOARG(HstTransitionGalleryWindow, RefillHdl, Timer*, void) { ShowPage(); }
@@ -847,7 +864,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +            <property name="column-spacing">0</property>
 +            <property name="row-spacing">0</property>
 +            <property name="margin">0</property>
-+            <property name="activate-on-single-click">True</property>
++            <property name="activate-on-single-click">False</property>
 +            <child internal-child="accessible">
 +              <object class="AtkObject" id="transitions-atkobject">
 +                <property name="AtkObject::accessible-name" translatable="yes" context="hsttransitiongallery|transitions-atkobject">Transitions</property>
