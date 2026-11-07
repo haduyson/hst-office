@@ -23,6 +23,15 @@ on:
         description: 'Also install next to LibreOffice and over HST beta.4 (needs an MSI with HST Office''s own UpgradeCode, beta.5 on)'
         type: boolean
         default: true
+      msi_edit:
+        description: 'Install a copy of the MSI with these table edits (tries an installer rule without a build; see scripts/windows/smoke-edit-msi.ps1)'
+        type: choice
+        options: [none, legacy-reinstall]
+        default: none
+      scenarios:
+        description: 'Run only these scenarios, as a JSON list such as ["commands","hst-first"] (empty: all of install_paths)'
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -41,12 +50,11 @@ jobs:
         # commands: the MSI alone, every HST command and the update helper.
         # libreoffice-first / hst-first: the official LibreOffice MSI and HST Office in either order; both keep their own
         # ProgIDs, open commands and UNO install path and both start; uninstalling the second leaves the first intact.
-        # uninstall-beta4-then-install: HST beta.4 installed, uninstalled (msiexec /x), then the new MSI: the path
-        # beta 1-4 users follow. upgrade-from-beta4: informational, expected to fail (installing over beta.4 drops the
-        # executables whose beta.4 version is higher); it records every missing file and never fails the run on that, but
-        # its recovery leg (uninstall the broken install, install again) must pass.
+        # uninstall-beta4-then-install: HST beta.4 installed, uninstalled (msiexec /x), then the new MSI.
+        # upgrade-from-beta4: the new MSI installed over beta.4 (beta 1-4 users, silent installs, the updater): every file
+        # present, no C++ runtime component installed and no component disallowed in the log, one entry left.
         # Each scenario runs on a fresh runner.
-        scenario: ${{ fromJSON(inputs.install_paths && '["commands","libreoffice-first","hst-first","uninstall-beta4-then-install","upgrade-from-beta4"]' || '["commands"]') }}
+        scenario: ${{ fromJSON(inputs.scenarios != '' && inputs.scenarios || (inputs.install_paths && '["commands","libreoffice-first","hst-first","uninstall-beta4-then-install","upgrade-from-beta4"]' || '["commands"]')) }}
     env:
       # Current LibreOffice stable for Windows x64 (26.8.2.2), GPG-signed by the LibreOffice build key
       # C2839ECAD9408FBE9531C3E9F434A1EFAFEEAEA3; the archive keeps the same file after stable/ moves on.
@@ -69,6 +77,18 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/msi" HST_MSI
+      - name: Edit the MSI tables (installer rule trial)
+        if: ${{ inputs.msi_edit != 'none' }}
+        shell: bash
+        env:
+          MSI_EDIT: ${{ inputs.msi_edit }}
+        run: |
+          set -euo pipefail
+          edited="$(cygpath -w "$RUNNER_TEMP/msi-edited")"
+          mkdir -p "$(cygpath -u "$edited")"
+          out="$edited\\$(basename "$(cygpath -u "$HST_MSI")")"
+          pwsh -NoProfile -File scripts/windows/smoke-edit-msi.ps1 -Edit "$MSI_EDIT" -Msi "$HST_MSI" -OutMsi "$out"
+          echo "HST_MSI=$out" >> "$GITHUB_ENV"
       - name: Install the MSI silently
         if: ${{ matrix.scenario == 'commands' }}
         shell: bash
