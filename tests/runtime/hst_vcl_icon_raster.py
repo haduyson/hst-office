@@ -19,8 +19,9 @@ def _service(ctx, name):
     return ctx.ServiceManager.createInstanceWithContext(name, ctx)
 
 
-def rasterise(ctx, svg, scale=1.0, name="icon.svg"):
-    """Return (width, height, alpha rows 0..1) of `svg` (bytes) as VCL renders it at `scale`."""
+def rasterise(ctx, svg, scale=1.0, name="icon.svg", argb=False):
+    """Return (width, height, rows) of `svg` (bytes) as VCL renders it at `scale`: alpha 0..1 per
+    pixel, or (alpha, red, green, blue) 0..1 tuples with argb=True."""
     # Python-UNO comes from the instdir; hst_gui.setup_uno must have run before the first call.
     import uno
     from com.sun.star.geometry import IntegerRectangle2D, RealRectangle2D
@@ -44,8 +45,8 @@ def rasterise(ctx, svg, scale=1.0, name="icon.svg"):
     colours = layout.ColorSpace.convertIntegerToARGB(data)
     if len(colours) != size.Width * size.Height:
         raise ValueError(f"{name}: unexpected pixel count {len(colours)}")
-    alpha = [c.Alpha for c in colours]
-    return size.Width, size.Height, [alpha[row * size.Width:(row + 1) * size.Width] for row in range(size.Height)]
+    pixels = [(c.Alpha, c.Red, c.Green, c.Blue) for c in colours] if argb else [c.Alpha for c in colours]
+    return size.Width, size.Height, [pixels[row * size.Width:(row + 1) * size.Width] for row in range(size.Height)]
 
 
 def fringe_share(rows):

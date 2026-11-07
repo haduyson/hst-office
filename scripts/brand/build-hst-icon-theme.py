@@ -8,26 +8,26 @@
 """
 import argparse
 import hashlib
-import io
 import json
 from pathlib import Path, PurePosixPath
 import re
 import sys
-import zipfile
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hst_icon_snap import snap_svg  # noqa: E402  (sibling module, standard library only)
+import hst_modern_icons as modern  # noqa: E402  (sibling modules, standard library only)
+from hst_icon_pack import archive, sync  # noqa: E402,F401  (sync: also used by the tests)
+from hst_icon_snap import snap_svg  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "icon-themes-src/hst"
-# Hand-tuned masters drawn in target pixels (viewBox = size, whole-pixel pens): the 16 px Home and
-# quick-access glyphs and single 24 px fixes; everything else is snapped from its 24-unit master.
-TUNED = {16: SOURCE / "glyphs/stage-1-16", 24: SOURCE / "glyphs/stage-1-24"}
-PALETTES = {"hst": "#294159", "hst_dark": "#DBE7F1"}
+# Ink per theme. hst_modern* is the colourful style: modern masters where drawn (missing ones are
+# listed and substituted by the classic glyph until --require-modern gates the release).
+PALETTES = {"hst": "#294159", "hst_dark": "#DBE7F1", "hst_modern": "#294159", "hst_modern_dark": "#DBE7F1"}
+MISSING_MODERN = set()
 # Families with a "trademark" master show the HASON TECH mark in its brand blue: #0072BB is the
 # official colour, #1A91CF the light end of the same app-icon gradient, legible on the dark ribbon.
-MARK_COLOURS = {"hst": "#0072BB", "hst_dark": "#1A91CF"}
+MARK_COLOURS = {"hst": "#0072BB", "hst_dark": "#1A91CF", "hst_modern": "#0072BB", "hst_modern_dark": "#1A91CF"}
 SIZES = (16, 24, 32)
 
 
@@ -40,12 +40,29 @@ def svg_key(key):
     return str(PurePosixPath(key).with_suffix(".svg"))
 
 
-def glyph_svg(master, size, colour):
-    """Shipped SVG of one glyph: pixel-snapped strokes painted as filled outlines."""
-    tuned = TUNED[size] / master.name if size in TUNED else None
-    native = master.parent.name == "stage-1" and tuned is not None and tuned.is_file()
-    source = (tuned if native else master).read_text(encoding="utf-8")
-    return snap_svg(source, size, native=native).replace("currentColor", colour).encode("utf-8")
+def glyph_svg(master, size, colour, theme="hst"):
+    """Shipped SVG of one glyph: pixel-snapped strokes painted as filled outlines.
+
+    Hand-tuned masters drawn in target pixels (glyphs/stage-1-16, glyphs/stage-1-24) replace the
+    snapped 24-unit master for that size."""
+    root, colours = SOURCE, None
+    if theme.startswith("hst_modern"):
+        drawn = modern.master(master)
+        if drawn is None:
+            MISSING_MODERN.add(master.stem)
+        else:
+            root, master, colours = modern.MODERN, drawn, modern.palette()
+            problems = modern.violations(drawn.read_text(encoding="utf-8"), colours)
+            if problems:
+                raise ValueError(f"{drawn}: " + "; ".join(problems))
+    tuned = root / f"glyphs/stage-1-{size}" / master.name
+    if colours is not None and not tuned.is_file() and not modern.HEX.search(master.read_text(encoding="utf-8")):
+        tuned = SOURCE / f"glyphs/stage-1-{size}" / master.name  # ink-only: the classic tuning is the same art
+    native = master.parent.name == "stage-1" and size in (16, 24) and tuned.is_file()
+    svg = snap_svg((tuned if native else master).read_text(encoding="utf-8"), size, native=native)
+    if colours is not None:
+        svg = modern.recolour(svg, colours, theme.endswith("_dark"))
+    return svg.replace("currentColor", colour).encode("utf-8")
 
 
 def resources(theme):
@@ -73,7 +90,7 @@ def resources(theme):
                 files[target] = source.replace("currentColor", colour).replace(
                     'width="24" height="24"', f'width="{size}" height="{size}"', 1).encode("utf-8")
             else:
-                files[target] = glyph_svg(master, size, colour)
+                files[target] = glyph_svg(master, size, colour, theme)
             keys = [sized(key, size) for key in family["keys"]]
             keys += [key for key, native in family.get("fixed_aliases", {}).items() if int(native) == size]
             # VCL tries PNG first, then SVG. Keep both request spellings, with
@@ -89,7 +106,7 @@ def resources(theme):
     for glyph in integration["command_glyphs"]:
         for size in SIZES:
             key = sized("cmd/" + glyph + ".svg", size)
-            files[key] = glyph_svg(SOURCE / "glyphs/integration" / (glyph + ".svg"), size, PALETTES[theme])
+            files[key] = glyph_svg(SOURCE / "glyphs/integration" / (glyph + ".svg"), size, PALETTES[theme], theme)
     for alias, target in integration["command_aliases"].items():
         for size in SIZES:
             for ext in ("png", "svg"):
@@ -128,47 +145,14 @@ def resources(theme):
     return files
 
 
-def archive(files):
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-        for name, data in sorted(files.items()):
-            info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
-            info.create_system = 3
-            info.external_attr = 0o100644 << 16
-            z.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
-    return buffer.getvalue()
-
-
-def sync(directory, files, check=False):
-    expected = set(files)
-    existing = {p.relative_to(directory).as_posix() for p in directory.rglob("*") if p.is_file()}
-    errors = []
-    for name in sorted(existing - expected):
-        if check:
-            errors.append(f"unexpected: {directory / name}")
-        else:
-            (directory / name).unlink()
-    for name, data in files.items():
-        path = directory / name
-        if path.is_file() and path.read_bytes() == data:
-            continue
-        if check:
-            errors.append(f"missing or stale: {path}")
-        else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_name(path.name + ".tmp")
-            temporary.write_bytes(data)
-            temporary.replace(path)
-    if errors:
-        raise ValueError("\n".join(errors))
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--out", type=Path)
     target.add_argument("--tree", type=Path)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--require-modern", action="store_true",
+                        help="release gate: fail unless every HST master has its colourful version")
     args = parser.parse_args()
     sizes = {}
     output = {}
@@ -187,6 +171,11 @@ def main():
         output["sizes.json"] = (json.dumps(sizes, indent=2) + "\n").encode()
         sync(args.out, output, args.check)
     print(json.dumps(sizes, indent=2))
+    if MISSING_MODERN:
+        message = f"hst_modern: {len(MISSING_MODERN)} masters still use the classic glyph"
+        if args.require_modern:
+            raise ValueError(message + ": " + " ".join(sorted(MISSING_MODERN)))
+        print(message, file=sys.stderr)
 
 
 if __name__ == "__main__":
