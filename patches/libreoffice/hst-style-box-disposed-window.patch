@@ -1,0 +1,52 @@
+HST Office: the style box controller never fills a style box whose window is already disposed.
+
+SvxStyleToolBoxControl keeps a raw pointer (m_pBox) to its SvxStyleBox_Impl, a VCL item window of the
+toolbox. When the toolbox is torn down before the controller, the box is disposed (its weld::ComboBox
+is released) while m_pBox still points at it. A pending ToolBarManager update then runs
+SvxStyleToolBoxControl::update(), which rebinds the style family listeners; their state arrives at once
+and SetFamilyState() -> Update() -> FillStyleBox() calls get_active_text() on the released widget: a
+read of address 0. Windows smoke of 1.0.0 (C1 build) crashed there while opening Sheets after Writer
+was closed (access violation in FillStyleBox, called from SvxStyleToolBoxControl::update() under
+Scheduler::CallbackTaskScheduling).
+
+FillStyleBox() and SelectStyle() now treat a disposed box as no box, as they already do for a missing one.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/svx/source/tbxctrls/tbcontrl.cxx
++++ b/svx/source/tbxctrls/tbcontrl.cxx
+@@ -2948,6 +2948,16 @@
+     std::unique_ptr<SvxStyleBox_Base> m_xWeldBox;
+     SvxStyleBox_Base* m_pBox;
+ 
++    // HST: the style box, or nullptr once its toolbox window has been disposed. The toolbox that holds the
++    // box can be torn down before this controller, and the box then has no widget any more; a pending
++    // update of the controller (ToolBarManager's asynchronous update) must not fill or select in it.
++    SvxStyleBox_Base* LiveBox() const
++    {
++        if (m_xVclBox && m_xVclBox->isDisposed())
++            return nullptr;
++        return m_pBox;
++    }
++
+     Impl()
+         :aClearForm         ( SvxResId( RID_SVXSTR_CLEARFORM ) )
+         ,aMore              ( SvxResId( RID_SVXSTR_MORE_STYLES ) )
+@@ -3180,7 +3190,7 @@
+ 
+ void SvxStyleToolBoxControl::FillStyleBox()
+ {
+-    SvxStyleBox_Base* pBox = m_pImpl->m_pBox;
++    SvxStyleBox_Base* pBox = m_pImpl->LiveBox();
+ 
+     DBG_ASSERT( m_pStyleSheetPool, "StyleSheetPool not found!" );
+     DBG_ASSERT( pBox,            "Control not found!" );
+@@ -3260,7 +3270,7 @@
+ 
+ void SvxStyleToolBoxControl::SelectStyle( const OUString& rStyleName )
+ {
+-    SvxStyleBox_Base* pBox = m_pImpl->m_pBox;
++    SvxStyleBox_Base* pBox = m_pImpl->LiveBox();
+     DBG_ASSERT( pBox, "Control not found!" );
+ 
+     if ( !pBox )
