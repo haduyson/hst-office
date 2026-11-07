@@ -4,7 +4,8 @@
 Usage: python3 tests/runtime/check-ribbon-contextual.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]
 The X display must already run. For a table, a picture, a shape and a chart selected through the controller, in
 Sheets also for the cell cursor in a pivot table and in Writer for the cursor in a page header:
-  - the tabs named as in Office appear, and the ribbon stays on the tab that was current;
+  - the tabs named as in Office appear, and the ribbon stays on the tab that was current; entering a header opens
+    "Đầu trang & Chân trang" instead, as Word opens Header & Footer;
   - with the cursor back in the text the tabs are gone; a contextual tab that was current falls back to Trang đầu;
   - clicking a chart tab and a chart command opens the dialog of the chart, without activating the chart by hand;
   - the ribbon height stays the same in every state.
@@ -26,6 +27,7 @@ PICTURE, SHAPE = ["Định dạng Ảnh"], ["Định dạng Hình dạng"]
 CHART = ["Thiết kế Biểu đồ", "Định dạng Biểu đồ"]
 PIVOT = ["Phân tích Bảng tổng hợp"]
 HEADER = ["Đầu trang & Chân trang"]
+OPENS = {"header"}  # contexts whose tab opens on entry (the others only appear)
 ROWS = []
 CHART_CLSID = "12dcae26-281f-416f-a234-c3086127382e"
 
@@ -171,7 +173,10 @@ def check_app(app, args, port, image_url):
             names = gui.visible_names()
             wanted = expected[kind]
             record(f"[{app}] {kind}: tabs {wanted}", all(n in names for n in wanted), names)
-            record(f"[{app}] {kind}: ribbon stays on Chèn", gui.selected() == ["Chèn"], gui.selected())
+            if kind in OPENS:
+                record(f"[{app}] {kind}: '{wanted[0]}' opens", gui.selected() == [wanted[0]], gui.selected())
+            else:
+                record(f"[{app}] {kind}: ribbon stays on Chèn", gui.selected() == ["Chèn"], gui.selected())
             now = gui.geometry()
             record(f"[{app}] {kind}: ribbon height unchanged", now[1] - now[0] == height, f"{now[1] - now[0]} vs {height}")
             if args.shots:
