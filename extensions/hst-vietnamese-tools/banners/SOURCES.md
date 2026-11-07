@@ -1,6 +1,7 @@
 # Banner artwork provenance
 
-Product web assets retrieved 2026-11-04 over verified HTTPS. The company logo is the
+Product web assets retrieved 2026-11-04 over verified HTTPS, except the later updates
+dated below. The company logo is the
 **official file supplied by the owner**, copied unchanged from
 `/work/banner-inbox/local/hasontech-official-logo.png` (476×393, RGBA).
 This file is the only company-logo reference. Logos are original HASON TECH/product assets,
@@ -12,7 +13,7 @@ and advertised web manifest. The committed copies live under
 | Solution / file | Chosen source | Reason / brand colour |
 |---|---|---|
 | AIOS / `aios.png` | [Header logo, 640×327](https://aios.hasontech.vn/logo-full.png) | Original transparent full logo, better suited to a horizontal slot than the padded 512×512 PWA icon. Blue `#0072bb`. |
-| eChatbot / `echatbot.svg` | [Official favicon vector](https://echatbot.vn/assets/favicon.svg) | True vector; same speech-bubble mark as the site header. Site theme `#07594f`. |
+| eChatbot / `echatbot.png` | [Official robot logo, 1254×1254 RGBA](https://echatbot.vn/assets/robot-logo.png), retrieved 2026-11-07 | Current `rel=icon` and 48px header logo. Downscaled to 90×90 RGBA for the 30px banner slot at 3×. Site `theme-color` / accent `#0b6fc1`; navy ink `#172b3f`, pale blue-grey tint `#f3f6f9`. |
 | Zalo Mini App / `espace.png` | [eSpace product icon, 360×360](https://espace.vn/zaloapp/espace-logo.png) | The product's own current icon, advertised as favicon and touch icon. Blue sampled from logo; accent `#0068ff`. |
 | HST SEO / `hst-seo.png` | [Official touch icon, 180×180](https://seo.hasontech.vn/apple-touch-icon.png) | Actual product touch icon, sufficient for the 32px slot even at 3×; the page header uses the company logo. Site CSS `--blue: #0874c9`, `--blue-dark: #005a9f`. |
 | HST Post / `hst-post.svg`, `hst-post-512.png`, `hst-post-1024.png`, `hst-post-icon.svg`, `hst-post-icon-512.png` | Owner-supplied official `hasontech-official-logo.png` (476×393, RGBA), retained as `logos/hasontech.png` | Official blue HS triangle; H/S/T/O extracted from the all-caps official wordmark, P constructed from O/H strokes. All lettering is dark `#322e2e`. Surrounding product artwork uses forest green `#245c2a`. |
@@ -32,6 +33,34 @@ Local candidates inspected (not committed): `banner-inbox/local/hst-seo-apple-to
 `echatbot-favicon.svg`, `ai-de-lam-aidelam.png`.
 The Zalo candidates depict other marks; the current eSpace product icon was selected.
 The AI Dễ Lắm candidate is a marketing composition, so its live vector favicon was selected.
+
+## eChatbot brand refresh (2026-11-07)
+
+The owner supplied the website snapshot in `.inbox/index.html`, `.inbox/site.css`
+and `.inbox/robot-logo.png`; this update used those local files without network access.
+The PNG is the blue-gradient robot head in a speech-ring used by the current header
+and favicon. The old teal `/assets/favicon.svg` still served by the site is superseded.
+The source PNG SHA-256 is `61ec5b75cfe732b54266271fb495b7dbaa94120740215b4795aa6bc35aa66204`.
+ImageMagick Lanczos downsampling preserves the full square canvas and alpha, without
+cropping or recolouring; metadata is stripped and PNG compression is set to level 9.
+The committed 90×90 RGBA PNG is 9,721 bytes. Both templates use a 30px-high contain
+box, so `logoWidth: 30` remains appropriate at 1×, 2× and 3×. For comparison, the
+existing HST SEO and eSpace PNGs are 180×180 and 360×360 in 32×30px contain boxes.
+
+The accent is the snapshot's `theme-color` `#0b6fc1`. Ink uses the site's `--ink`
+`#172b3f`; tint uses its `--cream` `#f3f6f9`. WCAG sRGB relative-luminance contrast:
+
+| Pair | Contrast |
+|---|---|
+| Ink `#172b3f` / tint `#f3f6f9` | 13.32:1 |
+| Accent `#0b6fc1` / tint `#f3f6f9` | 4.77:1 |
+| White / accent `#0b6fc1` | 5.17:1 (neither template uses white-on-accent text) |
+| Existing body `#25364a` / tint; endorsement `#526071` / tint | 11.35:1; 5.92:1 |
+
+The navy exceeds 4.5:1 for normal text and distinguishes the title/CTA from HST SEO's
+brighter blue ink. Body text retains the shared template colour. The palette comparison
+below covers the remaining blue-family similarity; rendered PNGs and manifests require
+the coordinator's browser-based regeneration and visual review.
 
 ## HST Post derivative (owner request, 2026-11-04)
 
@@ -67,11 +96,19 @@ backgrounds, `#e4edcf` for soft fills, `#b9ce96` for illustration outlines and `
 for muted illustration details. Green text contrast is **7.96:1 on white** and
 **7.29:1 on the tint**. The lowest added-text contrast is **5.88:1** (`#526071` on
 `#f2f7e8`), exceeding 4.5:1. Renderers and regression tests check these text pairs.
-The green's hue is 126.43°, more yellow than eChatbot's 172.68° teal `#07594f`
-(46.25° apart); pale moss also separates the backgrounds. The generated banner preview
-includes both cards side by side at their actual ribbon size for visual review.
-HST SEO retains its separate blue palette. The official blue mark and dark wordmark
-are preserved. Social favicons use the same square mark on an opaque pale-moss canvas.
+The green's HSL hue is 126.43°, 80.60° from eChatbot's new 207.03° blue `#0b6fc1`;
+pale moss also separates their backgrounds. eChatbot is only 0.61° from HST SEO's
+accent `#0874c9` (206.42°), 1.00° from its ink `#005a9f` (206.04°), and 8.50° from
+Zalo/eSpace's `#0068ff` (215.53°). These are shortest circular hue distances, not
+perceptual colour differences. In particular, eChatbot and HST SEO accents are too
+close to distinguish the cards by hue alone. The chosen resolution keeps the official
+blue and uses eChatbot's dark navy title/CTA, pale blue-grey tint and distinct robot
+silhouette, alongside the existing HST SEO logo and brighter ink. The coordinator
+should compare the regenerated wide and compact cards at 1× and 3×; if they still
+look alike, strengthen eChatbot's tint using the site's `#d2e0ed` token and recheck
+text contrast. HST SEO and Zalo/eSpace palettes are unchanged. HST Post's official
+blue mark and dark wordmark are preserved. Social favicons use the same square mark
+on an opaque pale-moss canvas.
 
 ## HASON TECH company banner (2026-11-05)
 
@@ -132,7 +169,7 @@ The HTML template uses Be Vietnam Pro for banner copy. The official AI Dễ Lắ
 retains its original embedded text instructions (Arial). Logos are exempt from the text
 contrast measurement; all added text, including CTA and company endorsement, passes 4.5:1.
 
-## Content hashes of the chosen originals
+## Content hashes of the committed assets
 
 | File | SHA-256 |
 |---|---|
@@ -142,7 +179,7 @@ contrast measurement; all added text, including CTA and company endorsement, pas
 | `fonts/OFL.txt` | `6b7f8f73609a25ea78c891e34cf37b06f8a676b7ea986e941e43b009110f2a85` |
 | `logos/ai-de-lam.svg` | `a8d37601aeb6b6948e4c7c4d79aa2688ca2d2358f18261cfa44c12e83b7b5291` |
 | `logos/aios.png` | `b759611d6d6f8ed42709fb8a9c9a75548f1b4c3aa8d64d87cb3df529af912fd1` |
-| `logos/echatbot.svg` | `e1b1cd23a96ab95e699603710c5e9959aa2641e1d8f48d972d38a82cbbc845af` |
+| `logos/echatbot.png` | `4ffc1c87a8f463e219cfb9c6a9c824830ec031606cdf63ccb9c97db1a2dc4fa9` |
 | `logos/espace.png` | `bc390a069546d13784ddc6a8ae36c9cf877d7fc4ea3ce5472e036b4b529ba0ae` |
 | `logos/hasontech.png` | `2f77a5fce52a515d52333cca3879a0aec18e582628a7111c00a05714b1c4d2ef` |
 | `logos/hst-seo.png` | `8099441e2e8fedf9f0f2b97fb58c4ed7db866d1b2512b22a5f8aada990ee8822` |
