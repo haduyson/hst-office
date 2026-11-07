@@ -71,6 +71,19 @@ class ReviewFixes(unittest.TestCase):
         self.assertLess(text.index('setPropertyValue(u"ParaStyleName"_ustr, css::uno::Any(it->aStyle));'),
                         text.index("Restore(*it);"))
 
+    def test_box_lays_out_its_groups_by_their_real_width(self):
+        # the smallest width is for the parent only; VclBox::setAllocation must see the real one
+        text = added("hst-ribbon-ladder-own-allocation.patch", "vcl/source/control/PriorityMergedHBox.cxx")
+        self.assertIn("m_bHstOwnLayout ? -1 : HstMinWidth()", text)
+        self.assertIn("void PriorityMergedHBox::setAllocation(const Size& rAllocation)", text)
+
+    def test_nested_merged_box_has_its_own_ladder(self):
+        ladder = added("hst-ribbon-ladder-nested-box.patch", "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn("dynamic_cast<PriorityMergedHBox*>(pChild)", ladder)
+        self.assertIn("/*bNested*/ true", ladder)
+        box = added("hst-ribbon-ladder-nested-box.patch", "vcl/source/control/PriorityMergedHBox.cxx")
+        self.assertIn("dynamic_cast<const PriorityMergedHBox*>(GetParent())", box)
+
 
 if __name__ == "__main__":
     unittest.main()

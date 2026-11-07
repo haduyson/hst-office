@@ -70,7 +70,7 @@ def window_of(office, title_part):
 def gallery_item(office, wid, out, name):
     """Screen point of the gallery's second style (the first is the current style)."""
     xdo(office.display, "windowmove", wid, "0", "0")
-    xdo(office.display, "windowsize", wid, "1485", "900")
+    xdo(office.display, "windowsize", wid, "1920", "900")  # room for two style tiles beside the 1.0.0 content
     time.sleep(3)
     shot = office.screenshot(os.path.join(out, name))
     from PIL import Image
@@ -80,7 +80,7 @@ def gallery_item(office, wid, out, name):
     edges = []
     for y in range(45, 170):
         run = 0
-        for x in range(150, 1100):
+        for x in range(150, 1550):
             r, g, b = img.getpixel((x, y))
             run = run + 1 if (b > 150 and r < 90 and 70 < g < 170) else 0
             if run == 80:
