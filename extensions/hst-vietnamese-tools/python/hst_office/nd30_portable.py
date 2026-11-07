@@ -3,6 +3,9 @@
 keep their layout page after page (pure logic, no `uno`)."""
 
 
+SECTION_START_PT = 0.1  # 0.04 mm: the paragraph carrying the page break of an attached document takes no visible room
+
+
 def _shift(block, key, pt):
     return {**block, key: block.get(key, 0) + pt}
 
@@ -28,8 +31,9 @@ def portable_blocks(layout):
 
     - a table carries no space above or below (Word has no such property, the space was lost on export): the space goes to
       the paragraph next to it, or into the first/last paragraph of the cells of a borderless table;
-    - a page break that starts an attached document sits on a 1 pt paragraph, not on a table (the DOC filter drops a
-      page break carried by a table);
+    - a page break that starts an attached document sits on an empty paragraph, not on a table (the DOC filter drops a
+      page break carried by a table); its fixed line height is too small to see, so the header block of the attached
+      document starts at the top margin like the one on page 1;
     - a closing table keeps with the empty paragraph Writer adds after it (no blank last page);
     - the contact details of an official letter (Decree 30, Annex I, I.III.4: on the first page) are returned apart, for
       the first-page footer.
@@ -41,7 +45,7 @@ def portable_blocks(layout):
             continue
         if b["type"] == "grid" and b.get("new_section"):
             blocks.append({"type": "paragraph", "align": "left", "runs": [{"text": "", "size": 1, "bold": False, "italic": False}],
-                           "role": "SectionStart", "line_spacing": 1.0, "new_section": True})
+                           "role": "SectionStart", "line_exact_pt": SECTION_START_PT, "new_section": True})
             b = {k: v for k, v in b.items() if k != "new_section"}
         blocks.append(b)
     out = []
