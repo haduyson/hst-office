@@ -45,7 +45,9 @@ def main():
 
     def press(target, code, char="", mods=0):
         event = KeyEvent()
-        event.Source, event.KeyCode, event.KeyChar, event.Modifiers = target, code, char, mods
+        event.Source, event.KeyCode, event.Modifiers = target, code, mods
+        if char:
+            event.KeyChar = char
         tk.keyPress(event)
         tk.keyRelease(event)
 
