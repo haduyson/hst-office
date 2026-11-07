@@ -10,6 +10,7 @@ The display must already run (tests use Xvfb :97); this module never starts or k
 """
 import os
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -153,6 +154,13 @@ class Office(WindowMixin):
                     self.proc.kill()
         # soffice (oosplash) may leave soffice.bin behind when killed: stop only ours (same profile).
         subprocess.run(["pkill", "-f", f"UserInstallation=file://{os.path.join(self.workdir, 'profile')}"], check=False)
+
+
+def free_port():
+    """A TCP port on 127.0.0.1 that is free right now, for checks that must not clash with other sessions."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 def setup_uno(instdir):
