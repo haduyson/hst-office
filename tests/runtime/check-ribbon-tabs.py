@@ -20,12 +20,12 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 
-HEAD, TAIL = ["Tệp tin", "Trang đầu", "Chèn"], ["Xem lại", "Xem", "Phần mở rộng", "Nhà phát triển"]
+HEAD = ["Tệp tin", "Trang đầu", "Chèn"]
 # 1.0.0: Trợ giúp after Xem; the Developer tab is merged into Phần mở rộng, which stays last (owner, 2026-11-07)
 TAIL_1_0 = ["Xem lại", "Xem", "Trợ giúp", "Phần mở rộng"]
 TABS = {"writer": HEAD + ["Thiết kế", "Bố cục", "Tham khảo", "Gửi thư"] + TAIL_1_0,
         "calc": HEAD + ["Bố trí Trang", "Công thức", "Dữ liệu"] + TAIL_1_0,
-        "impress": HEAD + ["Thiết kế", "Chuyển tiếp", "Hoạt hình", "Trình chiếu"] + TAIL}
+        "impress": HEAD + ["Thiết kế", "Chuyển tiếp", "Hoạt hình", "Trình chiếu"] + TAIL_1_0}
 NAMES = {"writer": "HST Writer", "calc": "HST Sheets", "impress": "HST Slides"}
 MODULES = {"writer": "swriter", "calc": "scalc", "impress": "simpress"}
 DOCS = {"writer": "com.sun.star.text.TextDocument", "calc": "com.sun.star.sheet.SpreadsheetDocument", "impress": "com.sun.star.presentation.PresentationDocument"}

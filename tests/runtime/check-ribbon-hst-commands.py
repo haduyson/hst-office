@@ -64,7 +64,7 @@ def check_review(args, office, app):
     time.sleep(1)
 
 
-DEVELOPER_MERGED = {"writer", "calc"}  # apps whose 1.0.0 content patch merges the Developer tab into Phần mở rộng
+DEVELOPER_MERGED = {"writer", "calc", "impress"}  # apps whose 1.0.0 content patch merges the Developer tab into Phần mở rộng
 
 
 def check_developer(args, office, app, wid=None):
