@@ -19,10 +19,10 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[2]
-ART = ROOT / "extensions/hst-vietnamese-tools/banners"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from brand.banner_preview import ART, FONT, ROOT, png_bytes, preview  # noqa: E402
+
 DESIGN = ROOT / "docs/design"
-FONT = ART / "fonts"
 GENERATED_AT = "2026-11-05T00:01:00Z"
 
 
@@ -61,43 +61,6 @@ def markup(solution, brand, template="template.html"):
     values["logo_html"] = ('<img class="logo" alt="" src="%s">' % (ART / "logos" / brand["logo"]).as_uri()
                            if brand["logo"] else "")
     return Template((ART / template).read_text()).substitute(values)
-
-
-def png_bytes(image):
-    out = io.BytesIO()
-    image.save(out, format="PNG", optimize=True)
-    return out.getvalue()
-
-
-def preview(outputs, solutions):
-    comparison_y = 150 + len(solutions) * 240
-    compact_y = comparison_y + 202
-    sheet = Image.new("RGB", (1200, compact_y + 300), "#f2f5f8")
-    draw = ImageDraw.Draw(sheet)
-    bold = ImageFont.truetype(str(FONT / "BeVietnamPro-Bold.ttf"), 24)
-    regular = ImageFont.truetype(str(FONT / "BeVietnamPro-Regular.ttf"), 14)
-    draw.text((32, 22), "HASON TECH · Banner công ty và giải pháp", font=bold, fill="#192d43")
-    draw.text((32, 60), "360 × 104 px · 6 giải pháp + HASON TECH · Chu kỳ 10 giây", font=regular, fill="#526071")
-    draw.text((32, 94), "1× · Kích thước trên ribbon", font=regular, fill="#526071")
-    draw.text((440, 94), "2× · Xuất ảnh cho màn hình mật độ cao", font=regular, fill="#526071")
-    for n, solution in enumerate(solutions):
-        y = 130 + n * 240
-        for scale, x in ((1, 32), (2, 440)):
-            im = Image.open(io.BytesIO(outputs[ART / f'{solution["id"]}@{scale}x.png']))
-            sheet.paste(im, (x, y), im)
-    draw.text((32, comparison_y), "HST Post / eChatbot · So sánh bảng màu", font=bold, fill="#192d43")
-    draw.text((32, comparison_y + 38), "1× · Xanh lá cây đậm / Xanh ngọc đậm", font=regular, fill="#526071")
-    for name, x in (("hst-post", 32), ("echatbot", 440)):
-        im = Image.open(io.BytesIO(outputs[ART / f"{name}@1x.png"]))
-        sheet.paste(im, (x, comparison_y + 70), im)
-    draw.text((32, compact_y), "Ảnh thu gọn · 160 × 104 px · Cửa sổ hẹp hơn 1280 px", font=bold, fill="#192d43")
-    draw.text((32, compact_y + 38), "1× trên nền sáng · 1× trên nền tối (thẻ sáng)", font=regular, fill="#526071")
-    draw.rectangle((0, compact_y + 186, 1200, compact_y + 300), fill="#2b2b2b")
-    for n, solution in enumerate(solutions):
-        im = Image.open(io.BytesIO(outputs[ART / f'{solution["id"]}-compact@1x.png']))
-        sheet.paste(im, (32 + n * 166, compact_y + 70), im)
-        sheet.paste(im, (32 + n * 166, compact_y + 192), im)
-    return png_bytes(sheet)
 
 
 def render():
