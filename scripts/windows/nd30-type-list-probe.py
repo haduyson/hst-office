@@ -119,6 +119,26 @@ def main():
         time.sleep(1.2)
         shot(out, "3-covered-field-repaints")
         result["open_at_end"] = bool(wizard.picker.open)
+        # click the row over "Cơ quan ban hành": it must choose that row and close the list, not focus the field
+        before = wizard.picker.current
+        g = geo["agency"]
+        click(lb[0] + lb[2] * 2 // 5, g[1] + g[3] // 2)
+        shot(out, "4-click-row")
+        result["click_row"] = {"before": before, "after": wizard.picker.current, "open": bool(wizard.picker.open),
+                               "agency_focus": bool(wizard.d.dialog.getControl("agency").getPeer().hasFocus())}
+        # real keys: type a query in the type field, Tab
+        t = geo["type"]
+        click(t[0] + 20, t[1] + t[3] // 2)
+        keys = "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%s')"
+        subprocess.run(["powershell", "-NoProfile", "-Command", keys % "quyet"], timeout=60, check=False)
+        time.sleep(1.5)
+        typed_open = bool(wizard.picker.open)
+        shot(out, "5-typed-quyet")
+        subprocess.run(["powershell", "-NoProfile", "-Command", keys % "{TAB}"], timeout=60, check=False)
+        time.sleep(1.5)
+        shot(out, "6-after-tab")
+        result["type_then_tab"] = {"open_after_typing": typed_open, "current": wizard.picker.current, "open": bool(wizard.picker.open),
+                                   "focus_parentAgency": bool(wizard.d.dialog.getControl("parentAgency").getPeer().hasFocus())}
         wizard.d.dialog.endExecute()
         thread.join(15)
         doc.setModified(False)
