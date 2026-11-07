@@ -82,24 +82,57 @@ class MacAndWindows(unittest.TestCase):
         for uti in osx.MAC_UTIS:
             self.assertIn("<string>%s</string>" % uti, text)
 
-    def test_mac_copy_must_run_from_applications(self):
+    def test_mac_permanent_locations_count_as_installed(self):
         inside = "/Contents/Resources/extensions/hst-vietnamese-tools/python/hst_office/default_apps_os.py"
-        self.assertTrue(osx.mac_in_applications("/Applications/HST Office.app" + inside))
-        for outside in ("/Volumes/HST Office/HST Office.app", "/Users/a/Downloads/HST Office.app",
-                        "/private/var/folders/x1/T/AppTranslocation/9F3A/d/HST Office.app",
-                        "/Applications/Office/HST Office.app", "/opt/hstoffice"):
-            self.assertFalse(osx.mac_in_applications(outside + inside), outside)
+        home = "/Users/a"
+        for place in ("/Applications/HST Office.app", "/Applications/Office/HST Office.app",
+                      "/Users/a/Applications/HST Office.app"):
+            self.assertTrue(osx.mac_in_applications(place + inside, home), place)
+        for place in ("/Volumes/HST Office/HST Office.app", "/Users/a/Downloads/HST Office.app",
+                      "/private/var/folders/x1/T/AppTranslocation/9F3A/d/HST Office.app"):
+            self.assertFalse(osx.mac_in_applications(place + inside, home), place)
         self.assertEqual(osx.mac_bundle_of("/Applications/HST Office.app" + inside), "/Applications/HST Office.app")
 
-    def test_mac_action_refuses_outside_applications(self):
+    def test_mac_action_refuses_a_copy_that_must_move(self):
         with mock.patch.object(osx, "mac_in_applications", return_value=False):
             with self.assertRaisesRegex(RuntimeError, "Applications"):
                 osx.mac_make_default()
 
-    def test_windows_deep_link_uses_the_registered_hst_name(self):
-        self.assertEqual(osx.windows_settings_uri(["Other Suite 1", "HST Office 1.0"]),
+    def test_mac_partial_failure_names_the_formats_left(self):
+        accepted = {"org.openxmlformats.wordprocessingml.document"}
+
+        class LS:
+            def LSSetDefaultRoleHandlerForContentType(self, ref, roles, bundle):
+                return 0 if ref in accepted else -10814
+
+        class CF:
+            def CFStringCreateWithCString(self, alloc, text, encoding):
+                return text.decode()
+
+            def CFRelease(self, ref):
+                pass
+        with mock.patch.object(osx, "mac_in_applications", return_value=True), \
+                mock.patch.object(osx, "_launch_services", return_value=(None, CF(), LS())):
+            with self.assertRaises(RuntimeError) as caught:
+                osx.mac_make_default()
+        message = str(caught.exception)
+        self.assertIn(".xlsx", message)
+        self.assertIn(".pptx", message)
+        self.assertNotIn(".docx,", message + ",")  # the accepted format is not listed as failed
+        accepted.update(osx.MAC_UTIS)
+        with mock.patch.object(osx, "mac_in_applications", return_value=True), \
+                mock.patch.object(osx, "_launch_services", return_value=(None, CF(), LS())):
+            self.assertEqual(osx.mac_make_default(), (True, ""))
+
+    def test_windows_deep_link_keeps_the_registration_hive(self):
+        self.assertEqual(osx.windows_settings_uri([("Other Suite 1", "HKLM"), ("HST Office 1.0", "HKLM")]),
                          "ms-settings:defaultapps?registeredAppMachine=HST%20Office%201.0")
-        self.assertEqual(osx.windows_settings_uri(["Other Suite"]), "ms-settings:defaultapps")
+        self.assertEqual(osx.windows_settings_uri([("HST Office 1.0", "HKCU")]),
+                         "ms-settings:defaultapps?registeredAppUser=HST%20Office%201.0")
+        # both (a per-user and a per-machine install): the current user's own registration
+        self.assertEqual(osx.windows_settings_uri([("HST Office 1.0", "HKLM"), ("HST Office 1.0", "HKCU")]),
+                         "ms-settings:defaultapps?registeredAppUser=HST%20Office%201.0")
+        self.assertEqual(osx.windows_settings_uri([("Other Suite", "HKLM")]), "ms-settings:defaultapps")
 
     def test_unknown_system(self):
         self.assertFalse(osx.is_registered("Haiku"))

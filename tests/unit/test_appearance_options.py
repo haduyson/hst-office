@@ -30,14 +30,24 @@ DLG = "{http://openoffice.org/2000/dialog}"
 
 class Mapping(unittest.TestCase):
     def test_modern_is_auto_and_follows_dark_mode(self):
-        self.assertEqual(ao.value_for("modern", False), "auto")
-        self.assertEqual(ao.value_for("modern", True), "auto")
+        self.assertEqual(ao.value_for("modern"), "auto")
 
-    def test_classic_picks_the_light_or_dark_pack(self):
-        self.assertEqual(ao.value_for("classic", False), "hst_classic")
-        self.assertEqual(ao.value_for("classic", True), "hst_classic_dark")
+    def test_classic_stores_the_base_style(self):
+        # the base style in both modes: the office's selector adds "_dark" in dark mode, and a light UI later
+        # must not keep a pinned dark pack
+        self.assertEqual(ao.value_for("classic"), "hst_classic")
         with self.assertRaises(ValueError):
-            ao.value_for("emoji", False)
+            ao.value_for("emoji")
+
+    def test_saving_classic_in_dark_mode_replaces_a_pinned_dark_pack(self):
+        from unittest import mock
+        node = mock.Mock()
+        node.getPropertyValue.return_value = "hst_classic_dark"  # written by an earlier version in dark mode
+        from hst_office import dialogs
+        with mock.patch.object(ao, "_node", return_value=node), mock.patch.object(dialogs, "is_dark", return_value=True):
+            self.assertEqual(ao.save_style(None, "classic"), "hst_classic")
+        node.setPropertyValue.assert_called_once_with("SymbolStyle", "hst_classic")
+        node.commitChanges.assert_called_once()
 
     def test_reading_back(self):
         for value in ("auto", "", None, "hst_modern", "hst_modern_dark"):
