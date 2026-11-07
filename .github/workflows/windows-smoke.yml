@@ -115,6 +115,18 @@ jobs:
           echo "HST_INSTALL=$(cygpath -w "$install_dir")" >> "$GITHUB_ENV"
           echo "installed at $install_dir"
           find "$install_dir/program" -maxdepth 1 \( -iname 'python*' -o -iname 'pyuno*' \) | head -n 20
+      - name: Keep a crash dump of soffice.bin
+        if: ${{ matrix.scenario == 'commands' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Windows Error Reporting writes a minidump when the office crashes; Collect diagnostics prints its stack.
+          dumps="$(cygpath -w "$RUNNER_TEMP/out/crash")"
+          mkdir -p "$(cygpath -u "$dumps")"
+          key='HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\soffice.bin'
+          MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpFolder /t REG_EXPAND_SZ /d "$dumps" /f
+          MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpType /t REG_DWORD /d 1 /f
+          MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpCount /t REG_DWORD /d 5 /f
       - name: Taskbar ids - Start menu shortcuts and ProgIDs carry HST Office's own AppUserModelIDs
         if: ${{ matrix.scenario == 'commands' }}
         shell: bash
@@ -201,6 +213,9 @@ jobs:
           MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe /IM oosplash.exe 2>&1 || echo "no office process was left running"
           mkdir -p "$RUNNER_TEMP/out/smoke"
           cp -r "$(cygpath -u "$HST_INSTALL")/share/extensions/hst-vietnamese-tools" "$RUNNER_TEMP/out/extension-as-installed" || echo "extension directory missing"
+          # a crashed office: the Application log entry (faulting module and offset) and the dump's stack
+          pwsh -NoProfile -File scripts/windows/print-office-crashes.ps1 -Install "$HST_INSTALL" -Dumps "$(cygpath -w "$RUNNER_TEMP/out/crash")" \
+            | tee "$RUNNER_TEMP/out/crash/office-crashes.txt" || echo "crash report failed"
           # sed reads the whole listing: head would close the pipe early and pipefail turns that SIGPIPE into a failure
           find "$RUNNER_TEMP/out" -type f | sed -n '1,100p'
           for results in "$RUNNER_TEMP"/out/smoke/smoke-results.json "$RUNNER_TEMP"/out/update-policy/*.json; do
