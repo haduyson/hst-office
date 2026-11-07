@@ -95,24 +95,33 @@ def descendants(node):
             yield from descendants(children.nextElement())
 
 
+def user_data(node):
+    """The node's user data; the root reached through XAnimationNodeSupplier may be a bare proxy."""
+    try:
+        return {p.Name: p.Value for p in node.UserData}
+    except AttributeError:
+        return {}
+
+
 def effects(page):
     """One record per preset container, only below MAIN_SEQUENCE (never trigger sequences)."""
     from com.sun.star.presentation.EffectNodeType import MAIN_SEQUENCE
     root = page.getAnimationNode()
     sequence = next((node for node in descendants(root)
-                     if dict((p.Name, p.Value) for p in node.getUserData()).get("node-type") == MAIN_SEQUENCE), None)
+                     if user_data(node).get("node-type") == MAIN_SEQUENCE), None)
     result = []
     if sequence is None:
         return result
     for node in descendants(sequence):
-        data = {p.Name: p.Value for p in node.getUserData()}
+        data = user_data(node)
         if "preset-id" not in data:
             continue
         targets, paragraphs = set(), set()
         for child in descendants(node):
-            if not hasattr(child, "getTarget"):
+            try:
+                target = child.Target  # XAnimate; containers have no target
+            except AttributeError:
                 continue
-            target = child.getTarget()
             if target is None:
                 continue
             if hasattr(target, "Shape"):
@@ -289,8 +298,12 @@ def check_gallery_on_screen(office, doc, page, args):
     if tab:
         tabs.click(args.display, tabs.extents(tab))
         time.sleep(2)
+    # The tool item carries the command label, which in Vietnamese equals the icon view's name; the gallery
+    # is the named node whose children are the effect items.
     gallery = next((n for n in (tabs.walk(tab_list) if tab_list else ())
-                    if (n.name or "") in GALLERY_NAMES and n.childCount > 0), None)
+                    if (n.name or "") in GALLERY_NAMES and n.childCount > 1
+                    and n.getChildAtIndex(0) is not None
+                    and n.getChildAtIndex(0).getRoleName() in ("list item", "icon", "table cell")), None)
     items = [gallery.getChildAtIndex(i) for i in range(gallery.childCount)] if gallery else []
     item_names = [i.name for i in items]
     office.screenshot(os.path.join(args.out, "gallery.png"))

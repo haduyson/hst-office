@@ -18,6 +18,7 @@ from _paths import ROOT
 PATCHES = os.path.join(ROOT, "patches", "libreoffice")
 GALLERY = os.path.join(PATCHES, "hst-slides-animation-gallery.patch")
 STRINGS = os.path.join(PATCHES, "hst-slides-animation-gallery-strings.patch")
+PLACEMENT = os.path.join(PATCHES, "hst-ribbon-animation-gallery-ui.patch")
 UI = "sd/uiconfig/simpress/ui/hstanimationgallery.ui"
 CXX = "sd/source/ui/controller/HstAnimationGallery.cxx"
 APPLY = "sd/source/ui/animations/HstAnimationApply.cxx"
@@ -222,6 +223,19 @@ class AnimationGalleryContract(unittest.TestCase):
         self.assertRegex(apply, r"if \(!bFirst\)\s+pCreated->setNodeType\(presentation::EffectNodeType::WITH_PREVIOUS\)")
         self.assertGreaterEqual(apply.count("catch (const uno::Exception&)"), 3)
 
+    def test_no_empty_undo_step_for_none(self):
+        apply = added(GALLERY, APPLY)
+        self.assertLess(apply.index("if (bNone && aRemove.empty())"), apply.index("AddUndoAction"))
+
+    def test_late_status_never_reaches_a_disposed_window(self):
+        # the toolbox can dispose the item window before its controller (the style box crash)
+        cxx = added(GALLERY, CXX)
+        status = cxx[cxx.index("void SAL_CALL statusChanged"):cxx.index("createItemWindow")]
+        self.assertIn("if (!m_xWindow || m_xWindow->isDisposed())", status)
+        self.assertLess(status.index("isDisposed()"), status.index("m_xWindow->Enable("))
+        self.assertIn("m_aRefill.Stop();", cxx)
+        self.assertIn("m_xWindow.disposeAndClear();", cxx)
+
     def test_paging_and_accessible_effect_classes(self):
         cxx = added(GALLERY, CXX)
         for invariant in ("ITEM_WIDTH = 130", "void Resize() override", "GetSizePixel().Width()",
@@ -248,6 +262,23 @@ class AnimationGalleryContract(unittest.TestCase):
         self.assertIn('msgid "Animation Styles"\nmsgstr "Hiệu ứng hoạt hình"', po)
         self.assertIn('msgid "Applies an animation to the selected objects"\n'
                       'msgstr "Áp dụng hiệu ứng hoạt hình cho các đối tượng đã chọn"', po)
+
+
+class AnimationGalleryPlacement(unittest.TestCase):
+    def test_gallery_leads_the_animation_group(self):
+        ui = added(PLACEMENT, "sd/uiconfig/simpress/ui/notebookbar.ui")
+        self.assertIn('id="btnHstAnimationGallery"', ui)
+        self.assertIn("<property name=\"action-name\">.uno:HstApplyAnimation</property>", ui)
+        self.assertIn("<property name=\"expand\">True</property>", ui)
+        with open(PLACEMENT, encoding="utf-8") as handle:
+            text = handle.read()
+        # inserted right before the Custom Animation button of the Animations tab
+        self.assertRegex(text, r"btnHstAnimationGallery[\s\S]*\n \s*<object class=\"GtkToolButton\" id=\"btnHstCustomAnimation7\">")
+        self.assertEqual(sections(PLACEMENT)["sd/uiconfig/simpress/ui/notebookbar.ui"][1], [])
+
+    def test_sanitizer_knows_the_label_less_item(self):
+        suppr = added(PLACEMENT, "solenv/sanitizers/ui/modules/simpress.suppr")
+        self.assertEqual(suppr, "sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstAnimationGallery'] button-no-label\n")
 
 
 if __name__ == "__main__":

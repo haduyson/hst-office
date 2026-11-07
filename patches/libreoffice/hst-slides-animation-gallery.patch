@@ -9,141 +9,9 @@ SlidesEffectGalleries hides the item. S5 owns its placement on the Animations ta
 Apply after hst-slides-transition-gallery-strings.patch. Validation: the animation and
 transition gallery Python unit tests; S6 builds and runs check-slides-animation-gallery.py.
 
---- a/sd/sdi/sdraw.sdi
-+++ b/sd/sdi/sdraw.sdi
-@@ -2756,6 +2756,23 @@
-     GroupId = SfxGroupId::Modify;
- ]
- 
-+SfxStringItem HstApplyAnimation SID_HST_APPLY_ANIMATION
-+(SfxStringItem Effect SID_HST_APPLY_ANIMATION)
-+[
-+    AutoUpdate = TRUE,
-+    FastCall = FALSE,
-+    ReadOnlyDoc = FALSE,
-+    Toggle = FALSE,
-+    Container = FALSE,
-+    RecordAbsolute = FALSE,
-+    RecordPerSet;
-+
-+    AccelConfig = FALSE,
-+    MenuConfig = FALSE,
-+    ToolBoxConfig = TRUE,
-+    GroupId = SfxGroupId::Modify;
-+]
-+
- SfxVoidItem Remote SID_REMOTE_DLG
- ()
- [
---- a/sd/inc/app.hrc
-+++ b/sd/inc/app.hrc
-@@ -437,5 +437,6 @@
- 
- // HST Office: the ribbon's transitions gallery applies a transition set (SfxStringItem, HstTransitionApply.hxx)
- #define SID_HST_APPLY_TRANSITION            (SID_SD_START+458)
-+#define SID_HST_APPLY_ANIMATION             (SID_SD_START+459)
- 
- /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
---- a/sd/sdi/drviewsh.sdi
-+++ b/sd/sdi/drviewsh.sdi
-@@ -121,6 +121,11 @@
-         ExecMethod = FuTemporary ;
-         StateMethod = GetMenuState ;
-     ]
-+    SID_HST_APPLY_ANIMATION
-+    [
-+        ExecMethod = FuTemporary ;
-+        StateMethod = GetMenuState ;
-+    ]
-     SID_REMOTE_DLG
-     [
-         ExecMethod = FuTemporary ;
---- a/sd/source/ui/view/drviews2.cxx
-+++ b/sd/source/ui/view/drviews2.cxx
-@@ -131,6 +131,7 @@
- 
- #include <app.hrc>
- #include <HstTransitionApply.hxx>
-+#include <HstAnimationApply.hxx>
- #include <strings.hrc>
- 
- #include <AnimationChildWindow.hxx>
-@@ -4288,6 +4289,11 @@
-             Cancel();
-         break;
- 
-+        case SID_HST_APPLY_ANIMATION:
-+            sd::hst::ExecuteApplyAnimation(GetViewShellBase(), rReq);
-+            Cancel();
-+        break;
-+
-         case SID_REMOTE_DLG:
-         {
- #ifdef ENABLE_SDREMOTE
---- a/sd/source/ui/view/drviews7.cxx
-+++ b/sd/source/ui/view/drviews7.cxx
-@@ -67,6 +67,7 @@
- 
- #include <app.hrc>
- #include <HstTransitionApply.hxx>
-+#include <HstAnimationApply.hxx>
- 
- #include <PresentationViewShell.hxx>
- 
-@@ -1044,6 +1045,9 @@
- 
-     if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_TRANSITION))
-         sd::hst::GetApplyTransitionState(GetViewShellBase(), rSet);
-+
-+    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_ANIMATION))
-+        sd::hst::GetApplyAnimationState(GetViewShellBase(), rSet);
- 
-     if( SfxItemState::DEFAULT == rSet.GetItemState( SID_REMOTE_DLG ) )
-     {
---- a/sd/Library_sd.mk
-+++ b/sd/Library_sd.mk
-@@ -218,6 +218,7 @@
- 	sd/source/ui/animations/STLPropertySet \
- 	sd/source/ui/animations/SlideTransitionPane \
- 	sd/source/ui/animations/HstTransitionApply \
-+	sd/source/ui/animations/HstAnimationApply \
- 	sd/source/ui/animations/motionpathtag \
- 	sd/source/ui/annotations/annotationmanager \
- 	sd/source/ui/annotations/AnnotationPopup \
-@@ -233,6 +234,7 @@
- 	sd/source/ui/app/scalectrl \
- 	sd/source/ui/controller/slidelayoutcontroller \
- 	sd/source/ui/controller/HstTransitionGallery \
-+	sd/source/ui/controller/HstAnimationGallery \
- 	sd/source/ui/controller/displaymodecontroller \
- 	sd/source/ui/dlg/AnimationChildWindow \
- 	sd/source/ui/dlg/LayerTabBar \
---- a/sd/UIConfig_simpress.mk
-+++ b/sd/UIConfig_simpress.mk
-@@ -172,6 +172,7 @@
- 	sd/uiconfig/simpress/ui/slidedesigndialog \
- 	sd/uiconfig/simpress/ui/slidetransitionspanel \
- 	sd/uiconfig/simpress/ui/hsttransitiongallery \
-+	sd/uiconfig/simpress/ui/hstanimationgallery \
- 	sd/uiconfig/simpress/ui/snapmenu \
- 	sd/uiconfig/simpress/ui/tabviewbar \
- 	sd/uiconfig/simpress/ui/tabledesignpanel \
---- a/sd/util/sd.component
-+++ b/sd/util/sd.component
-@@ -49,6 +49,10 @@
-       constructor="com_sun_star_comp_sd_HstTransitionGalleryControl_get_implementation">
-     <service name="com.sun.star.frame.ToolbarController"/>
-   </implementation>
-+  <implementation name="com.sun.star.comp.sd.HstAnimationGalleryControl"
-+      constructor="com_sun_star_comp_sd_HstAnimationGalleryControl_get_implementation">
-+    <service name="com.sun.star.frame.ToolbarController"/>
-+  </implementation>
-   <implementation name="com.sun.star.comp.sd.SlideLayoutController"
-       constructor="com_sun_star_comp_sd_SlideLayoutController_get_implementation">
-     <service name="com.sun.star.frame.ToolbarController"/>
 --- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
 +++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
-@@ -1910,6 +1910,17 @@
+@@ -1921,6 +1921,17 @@
            <value>com.sun.star.comp.sd.HstTransitionGalleryControl</value>
          </prop>
        </node>
@@ -178,6 +46,43 @@ transition gallery Python unit tests; S6 builds and runs check-slides-animation-
        <node oor:name=".uno:MasterSlidesPanel" oor:op="replace">
          <prop oor:name="Label" oor:type="xs:string">
            <value xml:lang="en-US">Master Slides</value>
+--- a/sd/Library_sd.mk
++++ b/sd/Library_sd.mk
+@@ -218,6 +218,7 @@
+ 	sd/source/ui/animations/STLPropertySet \
+ 	sd/source/ui/animations/SlideTransitionPane \
+ 	sd/source/ui/animations/HstTransitionApply \
++	sd/source/ui/animations/HstAnimationApply \
+ 	sd/source/ui/animations/motionpathtag \
+ 	sd/source/ui/annotations/annotationmanager \
+ 	sd/source/ui/annotations/AnnotationPopup \
+@@ -233,6 +234,7 @@
+ 	sd/source/ui/app/scalectrl \
+ 	sd/source/ui/controller/slidelayoutcontroller \
+ 	sd/source/ui/controller/HstTransitionGallery \
++	sd/source/ui/controller/HstAnimationGallery \
+ 	sd/source/ui/controller/displaymodecontroller \
+ 	sd/source/ui/dlg/AnimationChildWindow \
+ 	sd/source/ui/dlg/LayerTabBar \
+--- a/sd/UIConfig_simpress.mk
++++ b/sd/UIConfig_simpress.mk
+@@ -172,6 +172,7 @@
+ 	sd/uiconfig/simpress/ui/slidedesigndialog \
+ 	sd/uiconfig/simpress/ui/slidetransitionspanel \
+ 	sd/uiconfig/simpress/ui/hsttransitiongallery \
++	sd/uiconfig/simpress/ui/hstanimationgallery \
+ 	sd/uiconfig/simpress/ui/snapmenu \
+ 	sd/uiconfig/simpress/ui/tabviewbar \
+ 	sd/uiconfig/simpress/ui/tabledesignpanel \
+--- a/sd/inc/app.hrc
++++ b/sd/inc/app.hrc
+@@ -437,5 +437,6 @@
+ 
+ // HST Office: the ribbon's transitions gallery applies a transition set (SfxStringItem, HstTransitionApply.hxx)
+ #define SID_HST_APPLY_TRANSITION            (SID_SD_START+458)
++#define SID_HST_APPLY_ANIMATION             (SID_SD_START+459)
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sd/inc/strings.hrc
 +++ b/sd/inc/strings.hrc
 @@ -414,6 +414,9 @@
@@ -190,50 +95,49 @@ transition gallery Python unit tests; S6 builds and runs check-slides-animation-
  #define STR_SLIDETRANSITION_NONE                        NC_("STR_SLIDETRANSITION_NONE", "None")
  
  #define STR_ANNOTATION_TODAY                            NC_("STR_ANNOTATION_TODAY", "Today," )
---- /dev/null
-+++ b/sd/source/ui/inc/HstAnimationApply.hxx
-@@ -0,0 +1,38 @@
-+/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
-+/*
-+ * This file is part of the LibreOffice project.
-+ *
-+ * This Source Code Form is subject to the terms of the Mozilla Public
-+ * License, v. 2.0. If a copy of the MPL was not distributed with this
-+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
-+ */
-+#pragma once
+--- a/sd/sdi/drviewsh.sdi
++++ b/sd/sdi/drviewsh.sdi
+@@ -121,6 +121,11 @@
+         ExecMethod = FuTemporary ;
+         StateMethod = GetMenuState ;
+     ]
++    SID_HST_APPLY_ANIMATION
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
+     SID_REMOTE_DLG
+     [
+         ExecMethod = FuTemporary ;
+--- a/sd/sdi/sdraw.sdi
++++ b/sd/sdi/sdraw.sdi
+@@ -2756,6 +2756,23 @@
+     GroupId = SfxGroupId::Modify;
+ ]
+ 
++SfxStringItem HstApplyAnimation SID_HST_APPLY_ANIMATION
++(SfxStringItem Effect SID_HST_APPLY_ANIMATION)
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
 +
-+#include <rtl/ustring.hxx>
-+#include <string_view>
++    AccelConfig = FALSE,
++    MenuConfig = FALSE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Modify;
++]
 +
-+class SfxItemSet;
-+class SfxRequest;
-+namespace sd { class ViewShellBase; }
-+
-+// The ribbon's shape animations in normal Slides view. Preset ids come from
-+// CustomAnimationPresets; .uno:HstApplyAnimation?Effect:string=<preset id> replaces
-+// the selected shapes' main-sequence effects. "None" removes them.
-+namespace sd::hst
-+{
-+inline constexpr OUString AnimationNone = u"None"_ustr;
-+
-+/// First effect of the selected shapes: "None" without one, empty when they differ.
-+OUString CurrentAnimation(ViewShellBase& rBase);
-+
-+/// Replace the selected shapes' main-sequence effects as one undo action.
-+bool ApplyAnimation(ViewShellBase& rBase, std::u16string_view rPresetId);
-+
-+/// FuTemporary handler; the Effect argument is required.
-+void ExecuteApplyAnimation(ViewShellBase& rBase, SfxRequest& rRequest);
-+
-+/// GetMenuState handler; disabled without shapes or for a read-only document.
-+void GetApplyAnimationState(ViewShellBase& rBase, SfxItemSet& rSet);
-+}
-+
-+/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+ SfxVoidItem Remote SID_REMOTE_DLG
+ ()
+ [
 --- /dev/null
 +++ b/sd/source/ui/animations/HstAnimationApply.cxx
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,269 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -396,6 +300,9 @@ transition gallery Python unit tests; S6 builds and runs check-slides-animation-
 +            if (pEffect && std::find(aSelection.aShapes.begin(), aSelection.aShapes.end(),
 +                                     pEffect->getTargetShape()) != aSelection.aShapes.end())
 +                aRemove.push_back(pEffect);
++
++        if (bNone && aRemove.empty())
++            return true; // nothing to remove: no empty undo step
 +
 +        // Flush a previous pending edit before UndoAnimation clones the page's UNO tree.
 +        pSequence->getRootNode();
@@ -864,7 +771,7 @@ transition gallery Python unit tests; S6 builds and runs check-slides-animation-
 +    void SAL_CALL statusChanged(const frame::FeatureStateEvent& rEvent) override
 +    {
 +        SolarMutexGuard aGuard;
-+        if (!m_xWindow)
++        if (!m_xWindow || m_xWindow->isDisposed()) // the toolbox can dispose its item window first
 +            return;
 +        m_xWindow->Enable(rEvent.IsEnabled);
 +        OUString aPresetId;
@@ -931,6 +838,89 @@ transition gallery Python unit tests; S6 builds and runs check-slides-animation-
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/source/ui/inc/HstAnimationApply.hxx
+@@ -0,0 +1,38 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <string_view>
++
++class SfxItemSet;
++class SfxRequest;
++namespace sd { class ViewShellBase; }
++
++// The ribbon's shape animations in normal Slides view. Preset ids come from
++// CustomAnimationPresets; .uno:HstApplyAnimation?Effect:string=<preset id> replaces
++// the selected shapes' main-sequence effects. "None" removes them.
++namespace sd::hst
++{
++inline constexpr OUString AnimationNone = u"None"_ustr;
++
++/// First effect of the selected shapes: "None" without one, empty when they differ.
++OUString CurrentAnimation(ViewShellBase& rBase);
++
++/// Replace the selected shapes' main-sequence effects as one undo action.
++bool ApplyAnimation(ViewShellBase& rBase, std::u16string_view rPresetId);
++
++/// FuTemporary handler; the Effect argument is required.
++void ExecuteApplyAnimation(ViewShellBase& rBase, SfxRequest& rRequest);
++
++/// GetMenuState handler; disabled without shapes or for a read-only document.
++void GetApplyAnimationState(ViewShellBase& rBase, SfxItemSet& rSet);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sd/source/ui/view/drviews2.cxx
++++ b/sd/source/ui/view/drviews2.cxx
+@@ -131,6 +131,7 @@
+ 
+ #include <app.hrc>
+ #include <HstTransitionApply.hxx>
++#include <HstAnimationApply.hxx>
+ #include <strings.hrc>
+ 
+ #include <AnimationChildWindow.hxx>
+@@ -4288,6 +4289,11 @@
+             Cancel();
+         break;
+ 
++        case SID_HST_APPLY_ANIMATION:
++            sd::hst::ExecuteApplyAnimation(GetViewShellBase(), rReq);
++            Cancel();
++        break;
++
+         case SID_REMOTE_DLG:
+         {
+ #ifdef ENABLE_SDREMOTE
+--- a/sd/source/ui/view/drviews7.cxx
++++ b/sd/source/ui/view/drviews7.cxx
+@@ -67,6 +67,7 @@
+ 
+ #include <app.hrc>
+ #include <HstTransitionApply.hxx>
++#include <HstAnimationApply.hxx>
+ 
+ #include <PresentationViewShell.hxx>
+ 
+@@ -1045,6 +1046,9 @@
+     if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_TRANSITION))
+         sd::hst::GetApplyTransitionState(GetViewShellBase(), rSet);
+ 
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_ANIMATION))
++        sd::hst::GetApplyAnimationState(GetViewShellBase(), rSet);
++
+     if( SfxItemState::DEFAULT == rSet.GetItemState( SID_REMOTE_DLG ) )
+     {
+ 
 --- /dev/null
 +++ b/sd/uiconfig/simpress/ui/hstanimationgallery.ui
 @@ -0,0 +1,135 @@
@@ -1069,3 +1059,16 @@ transition gallery Python unit tests; S6 builds and runs check-slides-animation-
 +    </child>
 +  </object>
 +</interface>
+--- a/sd/util/sd.component
++++ b/sd/util/sd.component
+@@ -49,6 +49,10 @@
+       constructor="com_sun_star_comp_sd_HstTransitionGalleryControl_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
+   </implementation>
++  <implementation name="com.sun.star.comp.sd.HstAnimationGalleryControl"
++      constructor="com_sun_star_comp_sd_HstAnimationGalleryControl_get_implementation">
++    <service name="com.sun.star.frame.ToolbarController"/>
++  </implementation>
+   <implementation name="com.sun.star.comp.sd.SlideLayoutController"
+       constructor="com_sun_star_comp_sd_SlideLayoutController_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
