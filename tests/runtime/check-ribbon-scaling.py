@@ -7,9 +7,11 @@ Usage: python3 tests/runtime/check-ribbon-scaling.py [--instdir DIR] [--display 
 Per app, on the Home tab (Trang đầu), the window is narrowed through 1920, 1600, 1485, 1366, 1280, 1100,
 1000 and 900 px (900 px high). Each ribbon toolbar is identified by the names of its first items:
   - no toolbar is clipped: it lies inside the window and left of the banner slot;
-  - groups shrink before anything folds: at the first width with the chevron, some group still on the
-    ribbon is narrower than at the widest width, and whenever the chevron is shown every toolbar
-    still on the ribbon is at the narrowest width it has anywhere in the sweep (the fold is the last rung);
+  - groups shrink before anything folds: at the first width with the chevron, some toolbar still on
+    the ribbon is narrower than at the widest width, and whenever the chevron is shown every group
+    (the panel holding a group's toolbars) still on the ribbon is at the narrowest width it has
+    anywhere in the sweep (the fold is the last rung; a toolbar that is not its group's widest row
+    may keep its labels, because shrinking it would not make the group narrower);
   - narrowing never widens a toolbar that stays on the ribbon (monotone, no oscillation);
   - the ribbon height (frame top to the document tab bar) does not change with the width.
 Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json and, with --shots, one
@@ -62,13 +64,27 @@ def scan(display):
                     names.append(node.getChildAtIndex(index).name or "?")
                 except Exception:  # noqa: BLE001
                     names.append("?")
-            found.append(("|".join(names) + f"@{node.childCount}", box))
+            key = "|".join(names) + f"@{node.childCount}"
+            try:  # the group is the toolbar's parent panel (the grid of one ribbon group)
+                parent = node.parent
+                group = gui.extents(parent) if parent is not None else None
+            except Exception:  # noqa: BLE001
+                group = None
+            found.append((key, box, group))
         elif role == "push button" and not name and box[2] <= 30 and box[3] >= 60 and box[1] < 260:
             chevron = box
         elif role == "link" and box[1] < 260 and box[3] >= 40:
             banner = box
     limit = banner[1] + banner[3] + 8 if banner else 175
-    bars = {key: box for key, box in found if box[1] + box[3] <= limit}
+    inside = [(key, box, group) for key, box, group in found if box[1] + box[3] <= limit]
+    bars = {key: box for key, box, _group in inside}
+    # each group by the sorted keys of its toolbars, with the width of the group panel
+    members = {}
+    for key, _box, group in inside:
+        if group:
+            members.setdefault(tuple(group), []).append(key)
+    groups = {"+".join(sorted(keys)): list(box) for box, keys in members.items()}
+    bars["__groups__"] = groups
     top, tabs = probe.doc_tabs_top(display, timeout=5)
     return bars, chevron, banner, (tabs - top) if tabs is not None else None
 
@@ -79,15 +95,20 @@ def sweep(args, app, wid, office):
         gui.xdo(args.display, "windowsize", wid, str(width), "900")
         time.sleep(3)
         bars, chevron, banner, bottom = scan(args.display)
-        observed.append((width, bars, chevron, banner, bottom))
+        groups = bars.pop("__groups__", {})
+        observed.append((width, bars, chevron, banner, bottom, groups))
         if args.shots:
             office.screenshot(os.path.join(args.shots, f"scaling-{app}-{width}.png"))
     narrowest = {}
-    for _width, bars, *_ in observed:
+    for _width, bars, *_rest in observed:
         for key, box in bars.items():
             narrowest[key] = min(narrowest.get(key, box[2]), box[2])
+    narrowest_group = {}
+    for *_head, groups in observed:
+        for key, box in groups.items():
+            narrowest_group[key] = min(narrowest_group.get(key, box[2]), box[2])
     clipped, early, widened, previous = [], [], [], {}
-    for width, bars, chevron, banner, _bottom in observed:
+    for width, bars, chevron, banner, _bottom, groups in observed:
         right = min(width, banner[0]) if banner else width
         for key, box in bars.items():
             if box[0] < 0 or box[0] + box[2] > right + 1:
@@ -96,20 +117,23 @@ def sweep(args, app, wid, office):
             if key in previous and box[2] > previous[key] + 1 and not key.endswith("@1"):
                 widened.append((width, key, previous[key], box[2]))
         if chevron:
-            early += [(width, key, box[2], narrowest[key]) for key, box in bars.items() if box[2] > narrowest[key] + 1]
+            # the fold is the last rung: every group still on the ribbon is at its narrowest
+            early += [(width, key, box[2], narrowest_group[key]) for key, box in groups.items()
+                      if box[2] > narrowest_group[key] + 1]
         previous = {k: b[2] for k, b in bars.items()}
-    first = next(((w, b) for w, b, c, _n, _x in observed if c), None)
+    first = next(((w, b) for w, b, c, _n, _x, _g in observed if c), None)
     if first:
         widest = observed[0][1]
         shrunk = [k for k, box in first[1].items() if k in widest and box[2] < widest[k][2] - 1]
         record(f"[{app}] groups shrink before the first fold ({first[0]} px)", bool(shrunk), shrunk or "no group narrower")
     record(f"[{app}] no ribbon group is clipped at {WIDTHS[0]}..{WIDTHS[-1]} px", not clipped, clipped or len(observed))
     record(f"[{app}] the chevron comes only after every group on the ribbon is at its smallest", not early,
-           early or [(w, bool(c)) for w, _b, c, _n, _x in observed])
+           early or [(w, bool(c)) for w, _b, c, _n, _x, _g in observed])
     record(f"[{app}] narrowing never widens a group (monotone)", not widened, widened)
-    bottoms = sorted({b for *_, b in observed if b is not None})
+    bottoms = sorted({o[4] for o in observed if o[4] is not None})
     record(f"[{app}] ribbon height independent of the width", len(bottoms) <= 1 or bottoms[-1] - bottoms[0] <= 1, bottoms)
-    return [{"width": w, "groups": len(b), "chevron": bool(c), "banner": n} for w, b, c, n, _x in observed]
+    return [{"width": w, "toolbars": len(b), "groups": len(g), "chevron": bool(c), "banner": n}
+            for w, b, c, n, _x, g in observed]
 
 
 def main():
