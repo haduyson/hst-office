@@ -1,0 +1,2693 @@
+HST PDF: sign encrypted PDFs, keep their encryption, and respect their permissions.
+
+Document systems hand out PDFs encrypted with an owner password only (AES-128 with object
+streams, as iText writes them; also RC4 and AES-256). vcl::filter::PDFDocument could not read
+their object streams, so the page tree was missing and no signature could be appended.
+
+PDFStandardSecurity is the standard security handler (revisions 2-6). It finds the file key from
+an empty, user or owner password and decrypts the object streams and the strings that signing
+reads. It also encrypts every string and stream of the objects that the incremental update
+appends, with the keys of the file. The signature /Contents is not encrypted, as specified. The
+update's trailer keeps /Encrypt and /ID, so the earlier revisions and signatures stay byte for
+byte as they were. Nothing is decrypted and rewritten.
+
+Three existing bugs are fixed on the way:
+- New object numbers came from the number of xref entries. With gaps in the xref (common in
+  xref streams) they reused numbers of existing objects. They now start after the largest
+  number and the trailer /Size.
+- A page, catalog or AcroForm stored in an object stream was copied from the wrong buffer. It is
+  now copied from its own buffer and written as an uncompressed entry.
+- Field names in encrypted strings were not seen, so a second "Signature1" could be added.
+
+Permissions follow ISO 32000-2 Table 22, as Acrobat does:
+- a new signature field needs bits 4 and 6 (modify; annotations and forms);
+- an existing empty signature field can be signed with bit 6 or 9 (fill in forms);
+- the owner password allows both.
+PDFDocument::GetEmptySignatureFields() and SetSignatureField() sign the empty field. signPdf
+uses that field when a new one is not allowed, with an appearance of the field's size.
+
+HST PDF refuses otherwise with "Tệp của người gửi không cho phép ký số", and offers "Nhập mật
+khẩu quyền". With the permissions password the file is signed with full access and keeps its
+original encryption. A file that needs an open password is signed with the password it was
+opened with. Signing from Draw also refuses when new fields are forbidden.
+
+Tests (CppUnit pdfsigning), on samples of tests/runtime/pdf_encrypted_samples.py stored in
+base64:
+- AES-128 with object streams, AES-256 (R6), RC4 128 and RC4 40: signed twice, both signatures
+  verify, the update is encrypted and the file stays encrypted;
+- every combination of bits 4, 6 and 9: new field, empty field or refused;
+- owner password right and wrong, for each cipher;
+- user password.
+
+--- a/include/vcl/filter/pdfdocument.hxx
++++ b/include/vcl/filter/pdfdocument.hxx
+@@ -33,6 +33,7 @@ class SigningContext;
+ namespace vcl::filter
+ {
+ class PDFTrailerElement;
++class PDFStandardSecurity;
+ class PDFReferenceElement;
+ class PDFDocument;
+ class PDFDictionaryElement;
+@@ -473,6 +474,29 @@ public:
+     void writeString(OStringBuffer& rBuffer) override { rBuffer.append("null"); }
+ };
+ 
++/// Whether an encrypted document could be decrypted for an incremental update.
++enum class PDFEncryption
++{
++    /// Not encrypted.
++    None,
++    /// Encrypted, and the password (empty or given) opened it.
++    Decrypted,
++    /// Encrypted with a user password that was not given.
++    NeedsPassword,
++    /// Encrypted in a way not supported here (e.g. a public-key handler).
++    Unsupported
++};
++
++/// A signature field of the document that is not signed yet.
++struct PDFSignatureField
++{
++    PDFObjectElement* pWidget = nullptr;
++    /// 0-based page number.
++    size_t nPage = 0;
++    /// The /Rect of the widget, in PDF points.
++    double fLeft = 0, fBottom = 0, fRight = 0, fTop = 0;
++};
++
+ /**
+  * In-memory representation of an on-disk PDF document.
+  *
+@@ -510,6 +534,50 @@ class VCL_DLLPUBLIC PDFDocument final : public PDFObjectContainer
+     /// 0-based page number where m_aSignatureLine should be placed.
+     size_t m_nSignaturePage = 0;
+ 
++    /// Password tried on an encrypted document, see SetPassword().
++    OString m_aPassword;
++    PDFEncryption m_eEncryption = PDFEncryption::None;
++    /// Decrypts existing objects and encrypts appended ones, for PDFEncryption::Decrypted.
++    std::unique_ptr<PDFStandardSecurity> m_pSecurity;
++    /// The /Encrypt reference and /ID of the newest trailer, while reading.
++    sal_Int32 m_nEncryptObject = -1;
++    sal_Int32 m_nEncryptGeneration = 0;
++    std::vector<sal_uInt8> m_aFirstID;
++    /// Object streams of an encrypted document, parsed once its key is known.
++    bool m_bDeferObjectStreams = false;
++    std::vector<PDFObjectElement*> m_aDeferredObjectStreams;
++    /// The object written by the object copier, encrypted once it is complete.
++    sal_Int32 m_nPendingObject = -1;
++    sal_uInt64 m_nPendingStart = 0;
++    /// Smallest object number not used by the document: xref sections can have gaps.
++    sal_Int32 m_nNextObject = 0;
++    /// The empty signature field the next Sign() fills, instead of adding a new field.
++    PDFObjectElement* m_pSignatureField = nullptr;
++
++    /// Writes the signed field (from m_pSignatureField) with its value and appearance.
++    SAL_DLLPRIVATE bool WriteFilledFieldObject(sal_Int32 nSignatureId, sal_Int32 nAppearanceId);
++    /// The /Root reference of the newest trailer.
++    SAL_DLLPRIVATE PDFReferenceElement* FindRoot();
++    /// Writes the cross-references, then computes and writes the signature.
++    SAL_DLLPRIVATE bool FinishSigning(svl::crypto::SigningContext& rSigningContext,
++                                      PDFReferenceElement const* pRoot,
++                                      sal_uInt64 nSignatureLastByteRangeOffset,
++                                      sal_Int64 nSignatureContentOffset);
++
++    /// Allocates the number of an object appended by an incremental update.
++    SAL_DLLPRIVATE sal_Int32 NewObject();
++    /// Reads the /Encrypt dictionary and finds the key, then parses the object streams.
++    SAL_DLLPRIVATE void SetupEncryption();
++    /// Bytes where the dictionary offsets of rObject point: its object stream buffer if stored.
++    SAL_DLLPRIVATE OString GetObjectSource(PDFObjectElement& rObject, sal_uInt64 nOffset,
++                                           sal_uInt64 nLength);
++    /// Encrypts the plain object nObject written to the edit buffer from nStart on.
++    SAL_DLLPRIVATE bool EncryptWrittenObject(sal_uInt64 nStart, sal_Int32 nObject);
++    /// Finishes the object the object copier was writing.
++    SAL_DLLPRIVATE bool FlushPendingObject();
++    /// A string written to the incremental update: hex, encrypted for nObject if needed.
++    SAL_DLLPRIVATE OString WriteString(const std::vector<sal_uInt8>& rBytes, sal_Int32 nObject) const;
++
+     /// Suggest a minimal, yet free signature ID to use for the next signature.
+     SAL_DLLPRIVATE sal_uInt32 GetNextSignature();
+     /// Write the signature object as part of signing.
+@@ -564,12 +632,33 @@ public:
+                                  PDFObjectElement* pObjectElement);
+     /// Register an object (owned directly or indirectly by m_aElements) as a provider for a given ID.
+     SAL_DLLPRIVATE void SetIDObject(size_t nID, PDFObjectElement* pObject);
++    /// Same for an object of an object stream, unless the newest xref has it outside.
++    SAL_DLLPRIVATE void SetStoredIDObject(size_t nID, PDFObjectElement* pObject);
++    /// The security handler of a decrypted document, or nullptr.
++    SAL_DLLPRIVATE const PDFStandardSecurity* GetSecurity() const { return m_pSecurity.get(); }
++    /// The bytes of a string value of rOwner (decrypted if needed), or empty.
++    SAL_DLLPRIVATE std::vector<sal_uInt8> GetStringBytes(PDFElement* pElement,
++                                                         PDFObjectElement& rOwner) const;
+     //@}
+ 
+     /// @name High-level functions, to be used by others.
+     //@{
++    /// Password (UTF-8) to try on an encrypted document, before Read(); empty by default.
++    void SetPassword(const OString& rPassword) { m_aPassword = rPassword; }
+     /// Read elements from the start of the stream till its end.
+     bool Read(SvStream& rStream);
++    /// Encryption of the read document. Sign() needs None or Decrypted.
++    PDFEncryption GetEncryption() const { return m_eEncryption; }
++    /**
++     * Whether the encryption permissions allow signing (ISO 32000-2 Table 22): adding a new
++     * signature field needs bits 4 and 6 of /P (modify, annotations and forms); filling an
++     * existing empty one needs bit 6 or 9 (fill in forms). The owner password allows both.
++     */
++    bool IsSigningPermitted(bool bNewField) const;
++    /// Signature fields with no signature yet, in page order.
++    std::vector<PDFSignatureField> GetEmptySignatureFields();
++    /// The next Sign() fills this field (from GetEmptySignatureFields()); nullptr adds a new one.
++    void SetSignatureField(PDFObjectElement* pWidget) { m_pSignatureField = pWidget; }
+     /// Calls Read() first and if it fails it tries to fixup and then retry.
+     SAL_DLLPRIVATE bool ReadWithPossibleFixup(SvStream& rStream);
+     void SetSignatureLine(std::vector<sal_Int8>&& rSignatureLine);
+--- a/translations/source/vi/xmlsecurity/messages.po
++++ b/translations/source/vi/xmlsecurity/messages.po
+@@ -263,8 +263,32 @@ msgstr "Không ký được tệp PDF. Hãy kiểm tra USB Token đã cắm và
+ #. hstPDF
+ #: xmlsecurity/inc/strings.hrc
+ msgctxt "STR_HSTPDF_SIGN_UNSUPPORTED"
+-msgid "HST PDF cannot add a signature to this file yet: its internal structure (usually its encryption) cannot be updated. The file is unchanged. Ask the sender for a copy without encryption."
+-msgstr "HST PDF chưa thêm được chữ ký vào tệp này vì chưa cập nhật được cấu trúc bên trong tệp (thường do tệp được mã hóa). Tệp không bị thay đổi. Hãy xin người gửi bản không mã hóa."
++msgid "HST PDF cannot add a signature to this file: its internal structure or its kind of encryption cannot be updated. The file is unchanged."
++msgstr "HST PDF không thêm được chữ ký vào tệp này vì không cập nhật được cấu trúc bên trong hoặc kiểu mã hóa của tệp. Tệp không bị thay đổi."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGN_NOT_PERMITTED"
++msgid "The sender's file does not allow digital signing: its security settings forbid changing it and adding signature fields. The file is unchanged. Ask the sender for a copy that allows signing, or enter the permissions password."
++msgstr "Tệp của người gửi không cho phép ký số: thiết lập bảo mật của tệp cấm sửa đổi và thêm ô chữ ký. Tệp không bị thay đổi. Hãy xin người gửi bản cho phép ký, hoặc nhập mật khẩu quyền."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGN_PERMISSIONS_PASSWORD"
++msgid "Enter Permissions Password"
++msgstr "Nhập mật khẩu quyền"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGN_PERMISSIONS_WRONG"
++msgid "The permissions password is not correct, so the file cannot be signed. The file is unchanged."
++msgstr "Mật khẩu quyền không đúng nên chưa ký được tệp. Tệp không bị thay đổi."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGN_NEEDS_PASSWORD"
++msgid "This PDF needs its password to be signed. Open it again with its password, then sign."
++msgstr "Tệp PDF này cần mật khẩu mới ký được. Hãy mở lại tệp bằng mật khẩu rồi ký."
+ 
+ #. hstPDF
+ #: xmlsecurity/inc/strings.hrc
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -532,6 +532,7 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
+     vcl/source/filter/ipdf/pdfcompat \
+     vcl/source/filter/ipdf/pdfread \
+     vcl/source/filter/ipdf/pdfdocument \
++    vcl/source/filter/ipdf/pdfstandardsecurity \
+     vcl/source/filter/iras/iras \
+     vcl/source/filter/itga/itga \
+     vcl/source/filter/itiff/itiff \
+--- /dev/null
++++ b/vcl/inc/pdf/pdfstandardsecurity.hxx
+@@ -0,0 +1,97 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <rtl/string.hxx>
++#include <sal/types.h>
++
++#include <string_view>
++#include <vector>
++
++namespace vcl::filter
++{
++class PDFObjectElement;
++
++/**
++ * The standard security handler of an encrypted PDF (ISO 32000-2, 7.6.4): finds the file key
++ * from a password, decrypts the strings and streams of existing objects and encrypts those of
++ * objects appended in an incremental update, with the keys of the file.
++ *
++ * Revisions 2-4 (RC4 40-128 bit, AES-128) and 5-6 (AES-256) are supported.
++ */
++class PDFStandardSecurity
++{
++public:
++    enum class Cipher
++    {
++        Identity,
++        RC4,
++        AESV2,
++        AESV3
++    };
++
++    struct Parameters
++    {
++        sal_Int32 nRevision = 0;
++        /// File key length in bytes, revisions 2-4.
++        sal_Int32 nKeyLength = 5;
++        sal_Int32 nPermissions = 0;
++        bool bEncryptMetadata = true;
++        Cipher eStreams = Cipher::RC4;
++        Cipher eStrings = Cipher::RC4;
++        std::vector<sal_uInt8> aOwner, aUser, aOwnerKey, aUserKey;
++        /// First element of the trailer /ID.
++        std::vector<sal_uInt8> aID;
++    };
++
++    /// Reads the /Encrypt dictionary; false if it is not a standard handler understood here.
++    static bool parse(PDFObjectElement& rEncrypt, std::vector<sal_uInt8> aID, Parameters& rParams);
++
++    explicit PDFStandardSecurity(Parameters aParams);
++
++    /// Tries rPassword (UTF-8) as the user password, then as the owner password.
++    bool authenticate(std::string_view aPassword);
++    /// The owner password was given: the permissions do not restrict the user.
++    bool isOwner() const { return m_bOwner; }
++    sal_Int32 getPermissions() const { return m_aParams.nPermissions; }
++    sal_Int32 getRevision() const { return m_aParams.nRevision; }
++
++    std::vector<sal_uInt8> decrypt(bool bStream, const sal_uInt8* pData, size_t nSize,
++                                   sal_Int32 nObject, sal_Int32 nGeneration) const;
++    std::vector<sal_uInt8> encrypt(bool bStream, const sal_uInt8* pData, size_t nSize,
++                                   sal_Int32 nObject, sal_Int32 nGeneration) const;
++
++    /**
++     * Takes an object written in plain text ("N G obj ... endobj") and returns it with every
++     * string, and its stream, encrypted for object nObject; a stream gets a direct /Length.
++     * Returns an empty string if the object cannot be processed.
++     */
++    OString encryptObject(std::string_view aObject, sal_Int32 nObject) const;
++
++private:
++    std::vector<sal_uInt8> objectKey(Cipher eCipher, sal_Int32 nObject,
++                                     sal_Int32 nGeneration) const;
++    std::vector<sal_uInt8> fileKeyR4(const std::vector<sal_uInt8>& rPaddedPassword) const;
++    bool checkUserKeyR4(const std::vector<sal_uInt8>& rKey) const;
++    bool authenticateR4(std::string_view aPassword);
++    bool authenticateAES256(std::string_view aPassword);
++
++    Parameters m_aParams;
++    std::vector<sal_uInt8> m_aFileKey;
++    bool m_bOwner = false;
++};
++
++/// The bytes of a literal string as found between its parentheses, with escapes resolved.
++std::vector<sal_uInt8> literalStringBytes(std::string_view aRaw);
++/// The bytes of a hex string as found between its angle brackets.
++std::vector<sal_uInt8> hexStringBytes(std::string_view aRaw);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/filter/ipdf/pdfdocument.cxx
++++ b/vcl/source/filter/ipdf/pdfdocument.cxx
+@@ -32,6 +32,7 @@
+ 
+ #include <pdf/objectcopier.hxx>
+ #include <pdf/COSWriter.hxx>
++#include <pdf/pdfstandardsecurity.hxx>
+ 
+ using namespace com::sun::star;
+ 
+@@ -68,13 +69,177 @@ bool PDFDocument::RemoveSignature(size_t nPosition)
+     return m_aEditBuffer.good();
+ }
+ 
+-sal_Int32 PDFDocument::createObject()
++sal_Int32 PDFDocument::createObject() { return NewObject(); }
++
++sal_Int32 PDFDocument::NewObject()
+ {
+-    sal_Int32 nObject = m_aXRef.size();
++    sal_Int32 nObject = std::max<sal_Int32>(m_nNextObject, m_aXRef.size());
+     m_aXRef[nObject] = XRefEntry();
++    m_nNextObject = nObject + 1;
+     return nObject;
+ }
+ 
++bool PDFDocument::IsSigningPermitted(bool bNewField) const
++{
++    if (m_eEncryption == PDFEncryption::None)
++        return true;
++    if (!m_pSecurity)
++        return false;
++    if (m_pSecurity->isOwner())
++        return true;
++    const sal_Int32 nPermissions = m_pSecurity->getPermissions();
++    const sal_Int32 nModify = 1 << 3, nAnnotations = 1 << 5, nFillForms = 1 << 8;
++    if (bNewField)
++        return (nPermissions & nModify) && (nPermissions & nAnnotations);
++    // bit 9 means something from revision 3 on; revision 2 sets it as a reserved bit
++    return (nPermissions & nAnnotations)
++           || (m_pSecurity->getRevision() >= 3 && (nPermissions & nFillForms));
++}
++
++std::vector<PDFSignatureField> PDFDocument::GetEmptySignatureFields()
++{
++    std::vector<PDFSignatureField> aRet;
++    const std::vector<PDFObjectElement*> aPages = GetPages();
++    for (size_t nPage = 0; nPage < aPages.size(); ++nPage)
++    {
++        for (PDFObjectElement* pWidget : GetSignatureWidgets())
++        {
++            if (pWidget->Lookup("V"_ostr))
++                continue;
++            auto pPageRef = dynamic_cast<PDFReferenceElement*>(pWidget->Lookup("P"_ostr));
++            if (!pPageRef || !aPages[nPage]
++                || pPageRef->GetObjectValue() != aPages[nPage]->GetObjectValue())
++                continue;
++            auto pRect = dynamic_cast<PDFArrayElement*>(pWidget->Lookup("Rect"_ostr));
++            if (!pRect || pRect->GetElements().size() != 4)
++                continue;
++            double aRect[4];
++            bool bNumbers = true;
++            for (size_t i = 0; i < 4; ++i)
++            {
++                auto pNumber = dynamic_cast<PDFNumberElement*>(pRect->GetElements()[i]);
++                bNumbers = bNumbers && pNumber;
++                aRect[i] = pNumber ? pNumber->GetValue() : 0;
++            }
++            if (!bNumbers)
++                continue;
++            aRet.push_back({ pWidget, nPage, std::min(aRect[0], aRect[2]),
++                             std::min(aRect[1], aRect[3]), std::max(aRect[0], aRect[2]),
++                             std::max(aRect[1], aRect[3]) });
++        }
++    }
++    return aRet;
++}
++
++bool PDFDocument::WriteFilledFieldObject(sal_Int32 nSignatureId, sal_Int32 nAppearanceId)
++{
++    PDFObjectElement& rWidget = *m_pSignatureField;
++    PDFDictionaryElement* pDictionary = rWidget.GetDictionary();
++    const sal_uInt32 nWidgetId = rWidget.GetObjectValue();
++    if (!pDictionary || m_aXRef.find(nWidgetId) == m_aXRef.end())
++    {
++        SAL_WARN("vcl.filter", "PDFDocument::Sign: invalid signature field");
++        return false;
++    }
++    // the field keeps its keys (strings as read: encrypted for this object number in a plain
++    // object, plain in an object stream), with the new value and appearance
++    OStringBuffer aLine(OString::number(nWidgetId) + " 0 obj\n<<");
++    for (const auto& rItem : pDictionary->GetItems())
++    {
++        if (rItem.first == "V" || rItem.first == "AP")
++            continue;
++        aLine.append("/" + rItem.first + " ");
++        rItem.second->writeString(aLine);
++        aLine.append("\n");
++    }
++    aLine.append("/V " + OString::number(nSignatureId) + " 0 R\n/AP<</N "
++                 + OString::number(nAppearanceId) + " 0 R>>\n>>\nendobj\n\n");
++    const sal_uInt64 nStart = m_aEditBuffer.Tell();
++    m_aXRef[nWidgetId].SetType(XRefEntryType::NOT_COMPRESSED);
++    m_aXRef[nWidgetId].SetOffset(nStart);
++    m_aXRef[nWidgetId].SetDirty(true);
++    m_aEditBuffer.WriteOString(aLine);
++    return !rWidget.GetStreamBuffer() || EncryptWrittenObject(nStart, nWidgetId);
++}
++
++PDFReferenceElement* PDFDocument::FindRoot()
++{
++    if (m_pXRefStream)
++        return dynamic_cast<PDFReferenceElement*>(m_pXRefStream->Lookup("Root"_ostr));
++    return m_pTrailer ? dynamic_cast<PDFReferenceElement*>(m_pTrailer->Lookup("Root"_ostr))
++                      : nullptr;
++}
++
++std::vector<sal_uInt8> PDFDocument::GetStringBytes(PDFElement* pElement,
++                                                   PDFObjectElement& rOwner) const
++{
++    std::vector<sal_uInt8> aBytes;
++    if (auto pHex = dynamic_cast<PDFHexStringElement*>(pElement))
++        aBytes = hexStringBytes(pHex->GetValue());
++    else if (auto pLiteral = dynamic_cast<PDFLiteralStringElement*>(pElement))
++        aBytes = literalStringBytes(pLiteral->GetValue());
++    else
++        return aBytes;
++    // strings of objects in object streams are encrypted with the stream only
++    if (m_pSecurity && !rOwner.GetStreamBuffer())
++        aBytes = m_pSecurity->decrypt(false, aBytes.data(), aBytes.size(),
++                                      rOwner.GetObjectValue(), 0);
++    return aBytes;
++}
++
++OString PDFDocument::WriteString(const std::vector<sal_uInt8>& rBytes, sal_Int32 nObject) const
++{
++    const std::vector<sal_uInt8> aBytes
++        = m_pSecurity ? m_pSecurity->encrypt(false, rBytes.data(), rBytes.size(), nObject, 0)
++                      : rBytes;
++    OStringBuffer aBuffer("<");
++    for (sal_uInt8 c : aBytes)
++        svl::crypto::Signing::appendHex(c, aBuffer);
++    aBuffer.append(">");
++    return aBuffer.makeStringAndClear();
++}
++
++OString PDFDocument::GetObjectSource(PDFObjectElement& rObject, sal_uInt64 nOffset,
++                                     sal_uInt64 nLength)
++{
++    SvMemoryStream* pBuffer = rObject.GetStreamBuffer();
++    if (!pBuffer)
++        pBuffer = &m_aEditBuffer;
++    if (nOffset > pBuffer->GetSize() || nLength > pBuffer->GetSize() - nOffset)
++        return {};
++    return OString(static_cast<const char*>(pBuffer->GetData()) + nOffset, nLength);
++}
++
++bool PDFDocument::EncryptWrittenObject(sal_uInt64 nStart, sal_Int32 nObject)
++{
++    if (!m_pSecurity)
++        return true;
++    const sal_uInt64 nEnd = m_aEditBuffer.Tell();
++    const OString aEncrypted = m_pSecurity->encryptObject(
++        std::string_view(static_cast<const char*>(m_aEditBuffer.GetData()) + nStart, nEnd - nStart),
++        nObject);
++    if (aEncrypted.isEmpty())
++    {
++        SAL_WARN("vcl.filter", "PDFDocument::EncryptWrittenObject: cannot encrypt obj " << nObject);
++        return false;
++    }
++    m_aEditBuffer.Seek(nStart);
++    m_aEditBuffer.WriteOString(aEncrypted);
++    // a shorter result (RC4 of an escaped string) leaves whitespace between objects
++    while (m_aEditBuffer.Tell() < nEnd)
++        m_aEditBuffer.WriteChar('\n');
++    return m_aEditBuffer.good();
++}
++
++bool PDFDocument::FlushPendingObject()
++{
++    if (m_nPendingObject < 0)
++        return true;
++    const sal_Int32 nObject = m_nPendingObject;
++    m_nPendingObject = -1;
++    return EncryptWrittenObject(m_nPendingStart, nObject);
++}
++
+ bool PDFDocument::updateObject(sal_Int32 nObject)
+ {
+     if (o3tl::make_unsigned(nObject) >= m_aXRef.size())
+@@ -83,6 +248,15 @@ bool PDFDocument::updateObject(sal_Int32 nObject)
+         return false;
+     }
+ 
++    // the object copier writes one object after the other: encrypt each once complete
++    if (!FlushPendingObject())
++        return false;
++    if (m_pSecurity)
++    {
++        m_nPendingObject = nObject;
++        m_nPendingStart = m_aEditBuffer.Tell();
++    }
++
+     XRefEntry aEntry;
+     aEntry.SetOffset(m_aEditBuffer.Tell());
+     aEntry.SetDirty(true);
+@@ -108,11 +282,20 @@ sal_uInt32 PDFDocument::GetNextSignature()
+     sal_uInt32 nRet = 0;
+     for (const auto& pSignature : GetSignatureWidgets())
+     {
+-        auto pT = dynamic_cast<PDFLiteralStringElement*>(pSignature->Lookup("T"_ostr));
+-        if (!pT)
++        std::vector<sal_uInt8> aT = GetStringBytes(pSignature->Lookup("T"_ostr), *pSignature);
++        if (aT.size() >= 2 && aT[0] == 0xFE && aT[1] == 0xFF)
++        {
++            // UTF-16BE: the field names compared here are ASCII
++            std::vector<sal_uInt8> aAscii;
++            for (size_t i = 3; i < aT.size(); i += 2)
++                aAscii.push_back(aT[i]);
++            aT = std::move(aAscii);
++        }
++        if (aT.empty())
+             continue;
+ 
+-        const OString& rValue = pT->GetValue();
++        const OString aValue(reinterpret_cast<const char*>(aT.data()), aT.size());
++        const OString& rValue = aValue;
+         std::string_view rest;
+         if (!rValue.startsWith("Signature", &rest))
+             continue;
+@@ -129,7 +312,7 @@ sal_Int32 PDFDocument::WriteSignatureObject(svl::crypto::SigningContext& rSignin
+                                             sal_Int64& rContentOffset)
+ {
+     // Write signature object.
+-    sal_Int32 nSignatureId = m_aXRef.size();
++    sal_Int32 nSignatureId = NewObject();
+     XRefEntry aSignatureEntry;
+     aSignatureEntry.SetOffset(m_aEditBuffer.Tell());
+     aSignatureEntry.SetDirty(true);
+@@ -146,13 +329,19 @@ sal_Int32 PDFDocument::WriteSignatureObject(svl::crypto::SigningContext& rSignin
+     else
+         aSigBuffer.append("/adbe.pkcs7.detached");
+ 
+-    // Time of signing.
+-    aSigBuffer.append(" /M (" + vcl::pdf::PDFWriter::GetDateTime(&rSigningContext)
+-                      + ")"
+-
+-                        // Byte range: we can write offset1-length1 and offset2 right now, will
+-                        // write length2 later.
+-                        " /ByteRange [ 0 "
++    // Time of signing. The strings of an encrypted document are encrypted, except /Contents.
++    const OString aDateTime = vcl::pdf::PDFWriter::GetDateTime(&rSigningContext);
++    const OString aDateTimeString
++        = m_pSecurity ? WriteString(std::vector<sal_uInt8>(aDateTime.getStr(),
++                                                           aDateTime.getStr() + aDateTime.getLength()),
++                                    nSignatureId)
++                      : OString("(" + aDateTime + ")");
++    aSigBuffer.append(
++        " /M " + aDateTimeString
++        +
++        // Byte range: we can write offset1-length1 and offset2 right now, will
++        // write length2 later.
++        " /ByteRange [ 0 "
+                       // -1 and +1 is the leading "<" and the trailing ">" around the hex string.
+                       + OString::number(rContentOffset - 1) + " "
+                       + OString::number(rContentOffset + MAX_SIGNATURE_CONTENT_LENGTH + 1) + " ");
+@@ -163,7 +352,17 @@ sal_Int32 PDFDocument::WriteSignatureObject(svl::crypto::SigningContext& rSignin
+                       // Finish the Sig obj.
+                       + " /Filter/Adobe.PPKMS");
+ 
+-    if (!rDescription.isEmpty())
++    if (!rDescription.isEmpty() && m_pSecurity)
++    {
++        std::vector<sal_uInt8> aReason{ 0xFE, 0xFF };
++        for (sal_Int32 i = 0; i < rDescription.getLength(); ++i)
++        {
++            aReason.push_back(rDescription[i] >> 8);
++            aReason.push_back(rDescription[i] & 0xFF);
++        }
++        aSigBuffer.append("/Reason" + WriteString(aReason, nSignatureId));
++    }
++    else if (!rDescription.isEmpty())
+     {
+         pdf::COSWriter aWriter;
+         aWriter.writeKeyAndUnicode("/Reason", rDescription);
+@@ -249,8 +448,7 @@ sal_Int32 PDFDocument::WriteAppearanceObject(tools::Rectangle& rSignatureRectang
+     m_aSignatureLine.clear();
+ 
+     // Write appearance object: allocate an ID.
+-    sal_Int32 nAppearanceId = m_aXRef.size();
+-    m_aXRef[nAppearanceId] = XRefEntry();
++    sal_Int32 nAppearanceId = NewObject();
+ 
+     // Write the object content.
+     SvMemoryStream aEditBuffer;
+@@ -264,6 +462,8 @@ sal_Int32 PDFDocument::WriteAppearanceObject(tools::Rectangle& rSignatureRectang
+         assert(pPage && "aContentStreams is only filled if there was a pPage");
+         OStringBuffer aBuffer;
+         aCopier.copyPageResources(pPage, aBuffer);
++        if (!FlushPendingObject())
++            return -1;
+         aEditBuffer.WriteOString(aBuffer);
+     }
+ 
+@@ -302,7 +502,18 @@ sal_Int32 PDFDocument::WriteAppearanceObject(tools::Rectangle& rSignatureRectang
+     aAppearanceEntry.SetOffset(m_aEditBuffer.Tell());
+     aAppearanceEntry.SetDirty(true);
+     m_aXRef[nAppearanceId] = aAppearanceEntry;
+-    m_aEditBuffer.WriteStream(aEditBuffer);
++    if (m_pSecurity)
++    {
++        const OString aEncrypted = m_pSecurity->encryptObject(
++            std::string_view(static_cast<const char*>(aEditBuffer.GetData()),
++                             aEditBuffer.GetSize()),
++            nAppearanceId);
++        if (aEncrypted.isEmpty())
++            return -1;
++        m_aEditBuffer.WriteOString(aEncrypted);
++    }
++    else
++        m_aEditBuffer.WriteStream(aEditBuffer);
+ 
+     return nAppearanceId;
+ }
+@@ -315,7 +526,7 @@ sal_Int32 PDFDocument::WriteAnnotObject(PDFObjectElement const& rFirstPage, sal_
+     sal_uInt32 nNextSignature = GetNextSignature();
+ 
+     // Write the Annot object, references nSignatureId and nAppearanceId.
+-    sal_Int32 nAnnotId = m_aXRef.size();
++    sal_Int32 nAnnotId = NewObject();
+     XRefEntry aAnnotEntry;
+     aAnnotEntry.SetOffset(m_aEditBuffer.Tell());
+     aAnnotEntry.SetDirty(true);
+@@ -345,6 +556,8 @@ sal_Int32 PDFDocument::WriteAnnotObject(PDFObjectElement const& rFirstPage, sal_
+     m_aEditBuffer.WriteNumberAsString(nAppearanceId);
+     m_aEditBuffer.WriteOString(" 0 R\n>>\n");
+     m_aEditBuffer.WriteOString(">>\nendobj\n\n");
++    if (!EncryptWrittenObject(aAnnotEntry.GetOffset(), nAnnotId))
++        return -1;
+ 
+     return nAnnotId;
+ }
+@@ -400,23 +613,26 @@ bool PDFDocument::WritePageObject(PDFObjectElement& rFirstPage, sal_Int32 nAnnot
+     {
+         // Write the updated first page object, references nAnnotId.
+         sal_uInt32 nFirstPageId = rFirstPage.GetObjectValue();
+-        if (nFirstPageId >= m_aXRef.size())
++        if (m_aXRef.find(nFirstPageId) == m_aXRef.end())
+         {
+             SAL_WARN("vcl.filter", "PDFDocument::Sign: invalid first page obj id");
+             return false;
+         }
+-        m_aXRef[nFirstPageId].SetOffset(m_aEditBuffer.Tell());
++        const sal_uInt64 nStart = m_aEditBuffer.Tell();
++        // a page in an object stream is written as a plain object now
++        m_aXRef[nFirstPageId].SetType(XRefEntryType::NOT_COMPRESSED);
++        m_aXRef[nFirstPageId].SetOffset(nStart);
+         m_aXRef[nFirstPageId].SetDirty(true);
+         m_aEditBuffer.WriteNumberAsString(nFirstPageId);
+         m_aEditBuffer.WriteOString(" 0 obj\n");
+         m_aEditBuffer.WriteOString("<<");
++        const sal_uInt64 nDictionaryOffset = rFirstPage.GetDictionaryOffset();
+         auto pAnnotsArray = dynamic_cast<PDFArrayElement*>(pAnnots);
+         if (!pAnnotsArray)
+         {
+             // No Annots key, just write the key with a single reference.
+-            m_aEditBuffer.WriteBytes(static_cast<const char*>(m_aEditBuffer.GetData())
+-                                         + rFirstPage.GetDictionaryOffset(),
+-                                     rFirstPage.GetDictionaryLength());
++            m_aEditBuffer.WriteOString(GetObjectSource(rFirstPage, nDictionaryOffset,
++                                                       rFirstPage.GetDictionaryLength()));
+             m_aEditBuffer.WriteOString("/Annots[");
+             m_aEditBuffer.WriteNumberAsString(nAnnotId);
+             m_aEditBuffer.WriteOString(" 0 R]");
+@@ -430,23 +646,22 @@ bool PDFDocument::WritePageObject(PDFObjectElement& rFirstPage, sal_Int32 nAnnot
+             sal_uInt64 nAnnotsEndOffset = pDictionary->GetKeyOffset("Annots"_ostr)
+                                           + pDictionary->GetKeyValueLength("Annots"_ostr) - 1;
+             // Length of beginning of the dictionary -> Annots end.
+-            sal_uInt64 nAnnotsBeforeEndLength = nAnnotsEndOffset - rFirstPage.GetDictionaryOffset();
+-            m_aEditBuffer.WriteBytes(static_cast<const char*>(m_aEditBuffer.GetData())
+-                                         + rFirstPage.GetDictionaryOffset(),
+-                                     nAnnotsBeforeEndLength);
++            m_aEditBuffer.WriteOString(GetObjectSource(rFirstPage, nDictionaryOffset,
++                                                       nAnnotsEndOffset - nDictionaryOffset));
+             m_aEditBuffer.WriteOString(" ");
+             m_aEditBuffer.WriteNumberAsString(nAnnotId);
+             m_aEditBuffer.WriteOString(" 0 R");
+             // Length of Annots end -> end of the dictionary.
+-            sal_uInt64 nAnnotsAfterEndLength = rFirstPage.GetDictionaryOffset()
+-                                               + rFirstPage.GetDictionaryLength()
+-                                               - nAnnotsEndOffset;
+-            m_aEditBuffer.WriteBytes(static_cast<const char*>(m_aEditBuffer.GetData())
+-                                         + nAnnotsEndOffset,
+-                                     nAnnotsAfterEndLength);
++            m_aEditBuffer.WriteOString(GetObjectSource(
++                rFirstPage, nAnnotsEndOffset,
++                nDictionaryOffset + rFirstPage.GetDictionaryLength() - nAnnotsEndOffset));
+         }
+         m_aEditBuffer.WriteOString(">>");
+         m_aEditBuffer.WriteOString("\nendobj\n\n");
++        // the strings of a stored object are plain; those of a plain object are already
++        // encrypted for this object number
++        if (rFirstPage.GetStreamBuffer() && !EncryptWrittenObject(nStart, nFirstPageId))
++            return false;
+     }
+ 
+     return true;
+@@ -477,7 +692,7 @@ bool PDFDocument::WriteCatalogObject(sal_Int32 nAnnotId, PDFReferenceElement*& p
+         return false;
+     }
+     sal_uInt32 nCatalogId = pCatalog->GetObjectValue();
+-    if (nCatalogId >= m_aXRef.size())
++    if (m_aXRef.find(nCatalogId) == m_aXRef.end())
+     {
+         SAL_WARN("vcl.filter", "PDFDocument::Sign: invalid catalog obj id");
+         return false;
+@@ -495,8 +710,9 @@ bool PDFDocument::WriteCatalogObject(sal_Int32 nAnnotId, PDFReferenceElement*& p
+         }
+ 
+         sal_uInt32 nAcroFormId = pAcroFormObject->GetObjectValue();
++        const sal_uInt64 nStart = m_aEditBuffer.Tell();
+         m_aXRef[nAcroFormId].SetType(XRefEntryType::NOT_COMPRESSED);
+-        m_aXRef[nAcroFormId].SetOffset(m_aEditBuffer.Tell());
++        m_aXRef[nAcroFormId].SetOffset(nStart);
+         m_aXRef[nAcroFormId].SetDirty(true);
+         m_aEditBuffer.WriteNumberAsString(nAcroFormId);
+         m_aEditBuffer.WriteOString(" 0 obj\n");
+@@ -523,18 +739,13 @@ bool PDFDocument::WriteCatalogObject(sal_Int32 nAnnotId, PDFReferenceElement*& p
+                                       + pAcroFormDictionary->GetKeyValueLength("Fields"_ostr)
+                                       - strlen("]");
+ 
+-        // Length of beginning of the object dictionary -> Fields end.
+-        sal_uInt64 nFieldsBeforeEndLength = nFieldsEndOffset;
+-        if (pStreamBuffer)
+-            m_aEditBuffer.WriteBytes(pStreamBuffer->GetData(), nFieldsBeforeEndLength);
+-        else
+-        {
+-            nFieldsBeforeEndLength -= pAcroFormObject->GetDictionaryOffset();
++        // Beginning of the object dictionary -> Fields end: a stored object starts with "<<".
++        const sal_uInt64 nDictionaryStart
++            = pStreamBuffer ? 0 : pAcroFormObject->GetDictionaryOffset();
++        if (!pStreamBuffer)
+             m_aEditBuffer.WriteOString("<<");
+-            m_aEditBuffer.WriteBytes(static_cast<const char*>(m_aEditBuffer.GetData())
+-                                         + pAcroFormObject->GetDictionaryOffset(),
+-                                     nFieldsBeforeEndLength);
+-        }
++        m_aEditBuffer.WriteOString(GetObjectSource(*pAcroFormObject, nDictionaryStart,
++                                                   nFieldsEndOffset - nDictionaryStart));
+ 
+         // Append our reference at the end of the Fields array.
+         m_aEditBuffer.WriteOString(" ");
+@@ -543,40 +754,38 @@ bool PDFDocument::WriteCatalogObject(sal_Int32 nAnnotId, PDFReferenceElement*& p
+ 
+         // Length of Fields end -> end of the object dictionary.
+         if (pStreamBuffer)
+-        {
+-            sal_uInt64 nFieldsAfterEndLength = pStreamBuffer->GetSize() - nFieldsEndOffset;
+-            m_aEditBuffer.WriteBytes(static_cast<const char*>(pStreamBuffer->GetData())
+-                                         + nFieldsEndOffset,
+-                                     nFieldsAfterEndLength);
+-        }
++            m_aEditBuffer.WriteOString(GetObjectSource(*pAcroFormObject, nFieldsEndOffset,
++                                                       pStreamBuffer->GetSize() - nFieldsEndOffset));
+         else
+         {
+-            sal_uInt64 nFieldsAfterEndLength = pAcroFormObject->GetDictionaryOffset()
+-                                               + pAcroFormObject->GetDictionaryLength()
+-                                               - nFieldsEndOffset;
+-            m_aEditBuffer.WriteBytes(static_cast<const char*>(m_aEditBuffer.GetData())
+-                                         + nFieldsEndOffset,
+-                                     nFieldsAfterEndLength);
++            m_aEditBuffer.WriteOString(GetObjectSource(
++                *pAcroFormObject, nFieldsEndOffset,
++                pAcroFormObject->GetDictionaryOffset() + pAcroFormObject->GetDictionaryLength()
++                    - nFieldsEndOffset));
+             m_aEditBuffer.WriteOString(">>");
+         }
+ 
+         m_aEditBuffer.WriteOString("\nendobj\n\n");
++        if (pStreamBuffer && !EncryptWrittenObject(nStart, nAcroFormId))
++            return false;
+     }
+     else
+     {
+         // Write the updated Catalog object, references nAnnotId.
+         auto pAcroFormDictionary = dynamic_cast<PDFDictionaryElement*>(pAcroForm);
+-        m_aXRef[nCatalogId].SetOffset(m_aEditBuffer.Tell());
++        const sal_uInt64 nStart = m_aEditBuffer.Tell();
++        m_aXRef[nCatalogId].SetType(XRefEntryType::NOT_COMPRESSED);
++        m_aXRef[nCatalogId].SetOffset(nStart);
+         m_aXRef[nCatalogId].SetDirty(true);
+         m_aEditBuffer.WriteNumberAsString(nCatalogId);
+         m_aEditBuffer.WriteOString(" 0 obj\n");
+         m_aEditBuffer.WriteOString("<<");
++        const sal_uInt64 nDictionaryOffset = pCatalog->GetDictionaryOffset();
+         if (!pAcroFormDictionary)
+         {
+             // No AcroForm key, assume no signatures.
+-            m_aEditBuffer.WriteBytes(static_cast<const char*>(m_aEditBuffer.GetData())
+-                                         + pCatalog->GetDictionaryOffset(),
+-                                     pCatalog->GetDictionaryLength());
++            m_aEditBuffer.WriteOString(
++                GetObjectSource(*pCatalog, nDictionaryOffset, pCatalog->GetDictionaryLength()));
+             m_aEditBuffer.WriteOString("/AcroForm<</Fields[\n");
+             m_aEditBuffer.WriteNumberAsString(nAnnotId);
+             m_aEditBuffer.WriteOString(" 0 R\n]/SigFlags 3>>\n");
+@@ -603,21 +812,19 @@ bool PDFDocument::WriteCatalogObject(sal_Int32 nAnnotId, PDFReferenceElement*& p
+                                           + pAcroFormDictionary->GetKeyValueLength("Fields"_ostr)
+                                           - 1;
+             // Length of beginning of the Catalog dictionary -> Fields end.
+-            sal_uInt64 nFieldsBeforeEndLength = nFieldsEndOffset - pCatalog->GetDictionaryOffset();
+-            m_aEditBuffer.WriteBytes(static_cast<const char*>(m_aEditBuffer.GetData())
+-                                         + pCatalog->GetDictionaryOffset(),
+-                                     nFieldsBeforeEndLength);
++            m_aEditBuffer.WriteOString(GetObjectSource(*pCatalog, nDictionaryOffset,
++                                                       nFieldsEndOffset - nDictionaryOffset));
+             m_aEditBuffer.WriteOString(" ");
+             m_aEditBuffer.WriteNumberAsString(nAnnotId);
+             m_aEditBuffer.WriteOString(" 0 R");
+             // Length of Fields end -> end of the Catalog dictionary.
+-            sal_uInt64 nFieldsAfterEndLength = pCatalog->GetDictionaryOffset()
+-                                               + pCatalog->GetDictionaryLength() - nFieldsEndOffset;
+-            m_aEditBuffer.WriteBytes(static_cast<const char*>(m_aEditBuffer.GetData())
+-                                         + nFieldsEndOffset,
+-                                     nFieldsAfterEndLength);
++            m_aEditBuffer.WriteOString(GetObjectSource(
++                *pCatalog, nFieldsEndOffset,
++                nDictionaryOffset + pCatalog->GetDictionaryLength() - nFieldsEndOffset));
+         }
+         m_aEditBuffer.WriteOString(">>\nendobj\n\n");
++        if (pCatalog->GetStreamBuffer() && !EncryptWrittenObject(nStart, nCatalogId))
++            return false;
+     }
+ 
+     return true;
+@@ -629,7 +836,7 @@ void PDFDocument::WriteXRef(sal_uInt64 nXRefOffset, PDFReferenceElement const* p
+     {
+         // Write the xref stream.
+         // This is a bit meta: the xref stream stores its own offset.
+-        sal_Int32 nXRefStreamId = m_aXRef.size();
++        sal_Int32 nXRefStreamId = NewObject();
+         XRefEntry aXRefStreamEntry;
+         aXRefStreamEntry.SetOffset(nXRefOffset);
+         aXRefStreamEntry.SetDirty(true);
+@@ -778,7 +985,16 @@ void PDFDocument::WriteXRef(sal_uInt64 nXRefOffset, PDFReferenceElement const* p
+ 
+         // Size.
+         m_aEditBuffer.WriteOString("/Size ");
+-        m_aEditBuffer.WriteNumberAsString(m_aXRef.size());
++        m_aEditBuffer.WriteNumberAsString(m_nNextObject);
++        if (m_pSecurity)
++        {
++            // the update keeps the encryption of the document
++            m_aEditBuffer.WriteOString("/Encrypt ");
++            m_aEditBuffer.WriteNumberAsString(m_nEncryptObject);
++            m_aEditBuffer.WriteOString(" ");
++            m_aEditBuffer.WriteNumberAsString(m_nEncryptGeneration);
++            m_aEditBuffer.WriteOString(" R");
++        }
+ 
+         m_aEditBuffer.WriteOString("/Type/XRef/W[1 3 1]>>\nstream\n");
+         aXRefStream.Seek(0);
+@@ -810,7 +1026,15 @@ void PDFDocument::WriteXRef(sal_uInt64 nXRefOffset, PDFReferenceElement const* p
+ 
+         // Write the trailer.
+         m_aEditBuffer.WriteOString("trailer\n<</Size ");
+-        m_aEditBuffer.WriteNumberAsString(m_aXRef.size());
++        m_aEditBuffer.WriteNumberAsString(m_nNextObject);
++        if (m_pSecurity)
++        {
++            m_aEditBuffer.WriteOString("/Encrypt ");
++            m_aEditBuffer.WriteNumberAsString(m_nEncryptObject);
++            m_aEditBuffer.WriteOString(" ");
++            m_aEditBuffer.WriteNumberAsString(m_nEncryptGeneration);
++            m_aEditBuffer.WriteOString(" R\n");
++        }
+         m_aEditBuffer.WriteOString("/Root ");
+         m_aEditBuffer.WriteNumberAsString(pRoot->GetObjectValue());
+         m_aEditBuffer.WriteOString(" ");
+@@ -857,6 +1081,11 @@ void PDFDocument::WriteXRef(sal_uInt64 nXRefOffset, PDFReferenceElement const* p
+ bool PDFDocument::Sign(svl::crypto::SigningContext& rSigningContext, const OUString& rDescription,
+                        bool bAdES)
+ {
++    if (m_eEncryption != PDFEncryption::None && m_eEncryption != PDFEncryption::Decrypted)
++    {
++        SAL_WARN("vcl.filter", "PDFDocument::Sign: the document cannot be decrypted");
++        return false;
++    }
+     m_aEditBuffer.Seek(STREAM_SEEK_TO_END);
+     m_aEditBuffer.WriteOString("\n");
+ 
+@@ -868,7 +1097,27 @@ bool PDFDocument::Sign(svl::crypto::SigningContext& rSigningContext, const OUStr
+     assert(nSignatureContentOffset > 0
+            && "WriteSignatureObject guarantees a length for nSignatureContentOffset");
+     tools::Rectangle aSignatureRectangle;
++    if (m_pSignatureField)
++    {
++        // an empty field: the appearance takes the size of the field
++        for (const PDFSignatureField& rField : GetEmptySignatureFields())
++            if (rField.pWidget == m_pSignatureField)
++                aSignatureRectangle.SetSize(Size(std::lround(rField.fRight - rField.fLeft),
++                                                 std::lround(rField.fTop - rField.fBottom)));
++    }
+     sal_Int32 nAppearanceId = WriteAppearanceObject(aSignatureRectangle);
++    if (m_pSignatureField)
++    {
++        PDFReferenceElement* pRoot = FindRoot();
++        if (nAppearanceId < 0 || !pRoot
++            || !WriteFilledFieldObject(nSignatureId, nAppearanceId))
++        {
++            SAL_WARN("vcl.filter", "PDFDocument::Sign: failed to fill the signature field");
++            return false;
++        }
++        return FinishSigning(rSigningContext, pRoot, nSignatureLastByteRangeOffset,
++                             nSignatureContentOffset);
++    }
+ 
+     std::vector<PDFObjectElement*> aPages = GetPages();
+     if (aPages.empty())
+@@ -889,7 +1138,14 @@ bool PDFDocument::Sign(svl::crypto::SigningContext& rSigningContext, const OUStr
+     }
+ 
+     PDFObjectElement& rPage = *aPages[nPage];
++    if (nAppearanceId < 0)
++    {
++        SAL_WARN("vcl.filter", "PDFDocument::Sign: failed to write the appearance object");
++        return false;
++    }
+     sal_Int32 nAnnotId = WriteAnnotObject(rPage, nSignatureId, nAppearanceId, aSignatureRectangle);
++    if (nAnnotId < 0)
++        return false;
+ 
+     if (!WritePageObject(rPage, nAnnotId))
+     {
+@@ -904,6 +1160,15 @@ bool PDFDocument::Sign(svl::crypto::SigningContext& rSigningContext, const OUStr
+         return false;
+     }
+ 
++    return FinishSigning(rSigningContext, pRoot, nSignatureLastByteRangeOffset,
++                         nSignatureContentOffset);
++}
++
++bool PDFDocument::FinishSigning(svl::crypto::SigningContext& rSigningContext,
++                                PDFReferenceElement const* pRoot,
++                                sal_uInt64 nSignatureLastByteRangeOffset,
++                                sal_Int64 nSignatureContentOffset)
++{
+     sal_uInt64 nXRefOffset = m_aEditBuffer.Tell();
+     WriteXRef(nXRefOffset, pRoot);
+ 
+@@ -1295,7 +1560,13 @@ bool PDFDocument::Tokenize(SvStream& rStream, TokenizeMode eMode,
+                             return true;
+                         }
+ 
+-                        if (pObjectStream)
++                        if (pObjectStream && m_bDeferObjectStreams)
++                        {
++                            m_aDeferredObjectStreams.push_back(pObjectStream);
++                            pObjectStream = nullptr;
++                            pObjectKey = nullptr;
++                        }
++                        else if (pObjectStream)
+                         {
+                             // We're at the end of an object stream, parse the stored objects.
+                             pObjectStream->ParseStoredObjects();
+@@ -1369,6 +1640,15 @@ void PDFDocument::SetIDObject(size_t nID, PDFObjectElement* pObject)
+     m_aIDObjects[nID] = pObject;
+ }
+ 
++void PDFDocument::SetStoredIDObject(size_t nID, PDFObjectElement* pObject)
++{
++    auto itXRef = m_aXRef.find(nID);
++    if (m_aIDObjects.count(nID) && itXRef != m_aXRef.end()
++        && itXRef->second.GetType() != XRefEntryType::COMPRESSED)
++        return;
++    m_aIDObjects[nID] = pObject;
++}
++
+ bool PDFDocument::ReadWithPossibleFixup(SvStream& rStream)
+ {
+     if (Read(rStream))
+@@ -1405,6 +1685,14 @@ bool PDFDocument::Read(SvStream& rStream)
+     m_aTrailerOffsets.clear();
+     m_pTrailer = nullptr;
+     m_pXRefStream = nullptr;
++    m_eEncryption = PDFEncryption::None;
++    m_pSecurity.reset();
++    m_nEncryptObject = -1;
++    m_aFirstID.clear();
++    m_bDeferObjectStreams = false;
++    m_aDeferredObjectStreams.clear();
++    m_nNextObject = 0;
++    bool bNewestTrailer = true;
+ 
+     // Look up the offset of the xref table.
+     size_t nStartXRef = FindStartXRef(rStream);
+@@ -1450,6 +1738,37 @@ bool PDFDocument::Read(SvStream& rStream)
+         if (pPrev)
+             nStartXRef = pPrev->GetValue();
+ 
++        auto lookupTrailer = [this](const OString& rKey) -> PDFElement* {
++            if (m_pTrailer)
++                return m_pTrailer->Lookup(rKey);
++            return m_pXRefStream ? m_pXRefStream->Lookup(rKey) : nullptr;
++        };
++        if (auto pSize = dynamic_cast<PDFNumberElement*>(lookupTrailer("Size"_ostr)))
++            m_nNextObject = std::max<sal_Int32>(m_nNextObject, pSize->GetValue());
++        if (bNewestTrailer)
++        {
++            // the encryption of the newest trailer applies to the whole file
++            bNewestTrailer = false;
++            if (auto pEncrypt = dynamic_cast<PDFReferenceElement*>(lookupTrailer("Encrypt"_ostr)))
++            {
++                m_nEncryptObject = pEncrypt->GetObjectValue();
++                m_nEncryptGeneration = pEncrypt->GetGenerationValue();
++            }
++            else if (lookupTrailer("Encrypt"_ostr))
++                m_eEncryption = PDFEncryption::Unsupported;
++            if (auto pID = dynamic_cast<PDFArrayElement*>(lookupTrailer("ID"_ostr)))
++            {
++                if (!pID->GetElements().empty())
++                {
++                    if (auto pHex = dynamic_cast<PDFHexStringElement*>(pID->GetElements()[0]))
++                        m_aFirstID = hexStringBytes(pHex->GetValue());
++                    else if (auto pLiteral
++                             = dynamic_cast<PDFLiteralStringElement*>(pID->GetElements()[0]))
++                        m_aFirstID = literalStringBytes(pLiteral->GetValue());
++                }
++            }
++        }
++
+         // Reset state, except the edit buffer.
+         m_aOffsetTrailers.clear(); // contents are lifecycle managed by m_aElements
+         m_aElements.clear();
+@@ -1463,9 +1782,40 @@ bool PDFDocument::Read(SvStream& rStream)
+             break;
+     }
+ 
+-    // Then we can tokenize the stream.
++    // Then we can tokenize the stream. The object streams of an encrypted document are parsed
++    // once the key is known.
++    if (!m_aXRef.empty())
++        m_nNextObject = std::max<sal_Int32>(m_nNextObject, m_aXRef.rbegin()->first + 1);
++    m_bDeferObjectStreams = m_nEncryptObject >= 0;
+     rStream.Seek(0);
+-    return Tokenize(rStream, TokenizeMode::END_OF_STREAM, m_aElements, nullptr);
++    const bool bRet = Tokenize(rStream, TokenizeMode::END_OF_STREAM, m_aElements, nullptr);
++    if (bRet && m_bDeferObjectStreams)
++        SetupEncryption();
++    m_bDeferObjectStreams = false;
++    m_aDeferredObjectStreams.clear();
++    return bRet;
++}
++
++void PDFDocument::SetupEncryption()
++{
++    m_eEncryption = PDFEncryption::Unsupported;
++    PDFObjectElement* pEncrypt = LookupObject(m_nEncryptObject);
++    PDFStandardSecurity::Parameters aParams;
++    if (!pEncrypt || !PDFStandardSecurity::parse(*pEncrypt, m_aFirstID, aParams))
++    {
++        SAL_WARN("vcl.filter", "PDFDocument::Read: unsupported encryption");
++        return;
++    }
++    auto pSecurity = std::make_unique<PDFStandardSecurity>(std::move(aParams));
++    if (!pSecurity->authenticate(m_aPassword) && (m_aPassword.isEmpty() || !pSecurity->authenticate("")))
++    {
++        m_eEncryption = PDFEncryption::NeedsPassword;
++        return;
++    }
++    m_pSecurity = std::move(pSecurity);
++    m_eEncryption = PDFEncryption::Decrypted;
++    for (PDFObjectElement* pObjectStream : m_aDeferredObjectStreams)
++        pObjectStream->ParseStoredObjects();
+ }
+ 
+ OString PDFDocument::ReadKeyword(SvStream& rStream)
+@@ -2592,6 +2942,13 @@ void PDFObjectElement::ParseStoredObjects()
+     }
+     std::vector<char> aBuf(nLength);
+     rEditBuffer.ReadBytes(aBuf.data(), aBuf.size());
++    if (const PDFStandardSecurity* pSecurity = m_rDoc.GetSecurity())
++    {
++        const std::vector<sal_uInt8> aPlain
++            = pSecurity->decrypt(true, reinterpret_cast<const sal_uInt8*>(aBuf.data()), aBuf.size(),
++                                 GetObjectValue(), m_fGenerationValue);
++        aBuf.assign(aPlain.begin(), aPlain.end());
++    }
+     SvMemoryStream aSource(aBuf.data(), aBuf.size(), StreamMode::READ);
+     SvMemoryStream aStream;
+     ZCodec aZCodec;
+@@ -2665,8 +3022,10 @@ void PDFObjectElement::ParseStoredObjects()
+ 
+         m_rDoc.Tokenize(aStoredStream, TokenizeMode::STORED_OBJECT, pStored->GetStoredElements(),
+                         pStored);
+-        // This is how references know the object is stored inside this object stream.
+-        m_rDoc.SetIDObject(nObjNum, pStored);
++        // This is how references know the object is stored inside this object stream, unless
++        // a newer revision has the object outside (object streams of an encrypted document
++        // are parsed after every plain object).
++        m_rDoc.SetStoredIDObject(nObjNum, pStored);
+ 
+         // Store the stream of the object in the object stream for later use.
+         std::unique_ptr<SvMemoryStream> pStreamBuffer(new SvMemoryStream());
+--- /dev/null
++++ b/vcl/source/filter/ipdf/pdfstandardsecurity.cxx
+@@ -0,0 +1,682 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <pdf/pdfstandardsecurity.hxx>
++
++#include <algorithm>
++#include <cstring>
++
++#include <comphelper/crypto/Crypto.hxx>
++#include <comphelper/hash.hxx>
++#include <pdf/PDFEncryptorR6.hxx>
++#include <rtl/cipher.h>
++#include <rtl/random.h>
++#include <rtl/strbuf.hxx>
++#include <sal/log.hxx>
++#include <vcl/filter/pdfdocument.hxx>
++
++namespace vcl::filter
++{
++namespace
++{
++constexpr sal_uInt8 aPasswordPadding[32]
++    = { 0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E,
++        0x56, 0xFF, 0xFA, 0x01, 0x08, 0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68,
++        0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A };
++constexpr size_t AES_BLOCK = 16;
++
++std::vector<sal_uInt8> md5(const std::vector<sal_uInt8>& rData)
++{
++    return comphelper::Hash::calculateHash(rData.data(), rData.size(), comphelper::HashType::MD5);
++}
++
++std::vector<sal_uInt8> sha256(std::string_view aPassword, const sal_uInt8* pSalt,
++                              const std::vector<sal_uInt8>& rUser = {})
++{
++    comphelper::Hash aHash(comphelper::HashType::SHA256);
++    aHash.update(aPassword.data(), aPassword.size());
++    aHash.update(pSalt, 8);
++    aHash.update(rUser.data(), rUser.size());
++    return aHash.finalize();
++}
++
++std::vector<sal_uInt8> rc4(const std::vector<sal_uInt8>& rKey, const sal_uInt8* pData,
++                           size_t nSize)
++{
++    std::vector<sal_uInt8> aOut(nSize);
++    if (!nSize)
++        return aOut;
++    rtlCipher aCipher = rtl_cipher_createARCFOUR(rtl_Cipher_ModeStream);
++    rtl_cipher_initARCFOUR(aCipher, rtl_Cipher_DirectionEncode, rKey.data(), rKey.size(), nullptr,
++                           0);
++    rtl_cipher_encodeARCFOUR(aCipher, pData, nSize, aOut.data(), nSize);
++    rtl_cipher_destroyARCFOUR(aCipher);
++    return aOut;
++}
++
++/// The RC4 rounds of revision 3 and later: the key xor-ed with each round number.
++std::vector<sal_uInt8> rc4Rounds(const std::vector<sal_uInt8>& rKey, std::vector<sal_uInt8> aData,
++                                 bool bDown)
++{
++    for (int i = 0; i < 20; ++i)
++    {
++        const sal_uInt8 nRound = bDown ? 19 - i : i;
++        std::vector<sal_uInt8> aKey(rKey);
++        for (sal_uInt8& c : aKey)
++            c ^= nRound;
++        aData = rc4(aKey, aData.data(), aData.size());
++    }
++    return aData;
++}
++
++comphelper::CryptoType aesType(size_t nKeyLength)
++{
++    return nKeyLength == 32 ? comphelper::CryptoType::AES_256_CBC
++                            : comphelper::CryptoType::AES_128_CBC;
++}
++
++/// AES-CBC without padding; aIV may be all zero.
++std::vector<sal_uInt8> aesNoPad(bool bEncrypt, std::vector<sal_uInt8> aKey,
++                                std::vector<sal_uInt8> aIV, std::vector<sal_uInt8> aInput)
++{
++    std::vector<sal_uInt8> aOut(aInput.size());
++    if (aInput.empty() || aInput.size() % AES_BLOCK)
++        return {};
++    sal_uInt32 nDone;
++    if (bEncrypt)
++    {
++        comphelper::Encrypt aAes(aKey, aIV, aesType(aKey.size()));
++        nDone = aAes.update(aOut, aInput);
++    }
++    else
++    {
++        comphelper::Decrypt aAes(aKey, aIV, aesType(aKey.size()));
++        nDone = aAes.update(aOut, aInput);
++    }
++    if (nDone != aInput.size())
++        return {};
++    return aOut;
++}
++
++std::vector<sal_uInt8> padPassword(std::string_view aPassword)
++{
++    std::vector<sal_uInt8> aPadded(aPassword.begin(),
++                                   aPassword.begin() + std::min<size_t>(aPassword.size(), 32));
++    aPadded.insert(aPadded.end(), aPasswordPadding, aPasswordPadding + 32 - aPadded.size());
++    return aPadded;
++}
++
++std::vector<sal_uInt8> stringBytes(PDFElement* pElement)
++{
++    if (auto pHex = dynamic_cast<PDFHexStringElement*>(pElement))
++        return hexStringBytes(pHex->GetValue());
++    if (auto pLiteral = dynamic_cast<PDFLiteralStringElement*>(pElement))
++        return literalStringBytes(pLiteral->GetValue());
++    return {};
++}
++
++sal_Int32 number(PDFObjectElement& rObject, const OString& rKey, sal_Int32 nDefault)
++{
++    auto pNumber = dynamic_cast<PDFNumberElement*>(rObject.Lookup(rKey));
++    return pNumber ? static_cast<sal_Int32>(pNumber->GetValue()) : nDefault;
++}
++
++/// Cipher of the named crypt filter (/StmF or /StrF) of a version 4 or 5 handler.
++bool cryptFilter(PDFObjectElement& rEncrypt, const OString& rKey,
++                 PDFStandardSecurity::Cipher& rCipher, sal_Int32& rLength)
++{
++    auto pName = dynamic_cast<PDFNameElement*>(rEncrypt.Lookup(rKey));
++    if (!pName || pName->GetValue() == "Identity")
++    {
++        rCipher = PDFStandardSecurity::Cipher::Identity;
++        return true;
++    }
++    auto pFilters = dynamic_cast<PDFDictionaryElement*>(rEncrypt.Lookup("CF"_ostr));
++    auto pFilter = pFilters ? dynamic_cast<PDFDictionaryElement*>(
++                                  pFilters->LookupElement(pName->GetValue()))
++                            : nullptr;
++    auto pMethod
++        = pFilter ? dynamic_cast<PDFNameElement*>(pFilter->LookupElement("CFM"_ostr)) : nullptr;
++    if (!pMethod || pMethod->GetValue() == "None")
++        rCipher = PDFStandardSecurity::Cipher::Identity;
++    else if (pMethod->GetValue() == "V2")
++        rCipher = PDFStandardSecurity::Cipher::RC4;
++    else if (pMethod->GetValue() == "AESV2")
++        rCipher = PDFStandardSecurity::Cipher::AESV2;
++    else if (pMethod->GetValue() == "AESV3")
++        rCipher = PDFStandardSecurity::Cipher::AESV3;
++    else
++        return false;
++    if (auto pLength
++        = pFilter ? dynamic_cast<PDFNumberElement*>(pFilter->LookupElement("Length"_ostr)) : nullptr)
++    {
++        // in bytes by the specification, in bits by some writers
++        const sal_Int32 nLength = pLength->GetValue();
++        rLength = nLength > 32 ? nLength / 8 : nLength;
++    }
++    return true;
++}
++
++bool isWhitespace(char c)
++{
++    return c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '\f' || c == '\0';
++}
++
++bool isDelimiter(char c)
++{
++    return isWhitespace(c) || c == '(' || c == ')' || c == '<' || c == '>' || c == '[' || c == ']'
++           || c == '{' || c == '}' || c == '/' || c == '%';
++}
++
++void appendHex(OStringBuffer& rBuffer, const std::vector<sal_uInt8>& rBytes)
++{
++    static const char aDigits[] = "0123456789ABCDEF";
++    rBuffer.append('<');
++    for (sal_uInt8 c : rBytes)
++    {
++        rBuffer.append(aDigits[c >> 4]);
++        rBuffer.append(aDigits[c & 0xF]);
++    }
++    rBuffer.append('>');
++}
++
++/// End of the literal string starting at nStart (its '('): the position of the closing ')'.
++size_t literalEnd(std::string_view aText, size_t nStart)
++{
++    int nDepth = 0;
++    for (size_t i = nStart; i < aText.size(); ++i)
++    {
++        if (aText[i] == '\\')
++            ++i;
++        else if (aText[i] == '(')
++            ++nDepth;
++        else if (aText[i] == ')' && --nDepth == 0)
++            return i;
++    }
++    return std::string_view::npos;
++}
++
++/// End of the value of a /Length key starting at nStart: a number, or an "N G R" reference.
++size_t lengthValueEnd(std::string_view aText, size_t nStart)
++{
++    auto tokenEnd = [&aText](size_t nPos) {
++        while (nPos < aText.size() && !isDelimiter(aText[nPos]))
++            ++nPos;
++        return nPos;
++    };
++    auto skipSpace = [&aText](size_t nPos) {
++        while (nPos < aText.size() && isWhitespace(aText[nPos]))
++            ++nPos;
++        return nPos;
++    };
++    const size_t nNumberEnd = tokenEnd(nStart);
++    const size_t nGeneration = skipSpace(nNumberEnd);
++    const size_t nGenerationEnd = tokenEnd(nGeneration);
++    const std::string_view aGeneration = aText.substr(nGeneration, nGenerationEnd - nGeneration);
++    if (aGeneration.empty() || aGeneration.find_first_not_of("0123456789") != std::string_view::npos)
++        return nNumberEnd;
++    const size_t nR = skipSpace(nGenerationEnd);
++    if (aText.substr(nR, tokenEnd(nR) - nR) != "R")
++        return nNumberEnd;
++    return nR + 1;
++}
++}
++
++std::vector<sal_uInt8> literalStringBytes(std::string_view aRaw)
++{
++    std::vector<sal_uInt8> aBytes;
++    for (size_t i = 0; i < aRaw.size(); ++i)
++    {
++        char c = aRaw[i];
++        if (c == '\r')
++        {
++            // an end of line in a string is a line feed
++            if (i + 1 < aRaw.size() && aRaw[i + 1] == '\n')
++                ++i;
++            aBytes.push_back('\n');
++            continue;
++        }
++        if (c != '\\')
++        {
++            aBytes.push_back(c);
++            continue;
++        }
++        if (++i == aRaw.size())
++            break;
++        c = aRaw[i];
++        switch (c)
++        {
++            case 'n':
++                aBytes.push_back('\n');
++                break;
++            case 'r':
++                aBytes.push_back('\r');
++                break;
++            case 't':
++                aBytes.push_back('\t');
++                break;
++            case 'b':
++                aBytes.push_back('\b');
++                break;
++            case 'f':
++                aBytes.push_back('\f');
++                break;
++            case '\r':
++                // a line continuation
++                if (i + 1 < aRaw.size() && aRaw[i + 1] == '\n')
++                    ++i;
++                break;
++            case '\n':
++                break;
++            default:
++                if (c >= '0' && c <= '7')
++                {
++                    int nValue = 0;
++                    for (int nDigit = 0;
++                         nDigit < 3 && i < aRaw.size() && aRaw[i] >= '0' && aRaw[i] <= '7';
++                         ++nDigit, ++i)
++                        nValue = nValue * 8 + (aRaw[i] - '0');
++                    --i;
++                    aBytes.push_back(static_cast<sal_uInt8>(nValue));
++                }
++                else
++                    aBytes.push_back(c); // '(', ')', '\\' and unknown escapes
++        }
++    }
++    return aBytes;
++}
++
++std::vector<sal_uInt8> hexStringBytes(std::string_view aRaw)
++{
++    std::vector<sal_uInt8> aBytes;
++    int nHigh = -1;
++    for (char c : aRaw)
++    {
++        int nValue;
++        if (c >= '0' && c <= '9')
++            nValue = c - '0';
++        else if (c >= 'a' && c <= 'f')
++            nValue = c - 'a' + 10;
++        else if (c >= 'A' && c <= 'F')
++            nValue = c - 'A' + 10;
++        else
++            continue;
++        if (nHigh < 0)
++            nHigh = nValue;
++        else
++        {
++            aBytes.push_back(nHigh * 16 + nValue);
++            nHigh = -1;
++        }
++    }
++    if (nHigh >= 0)
++        aBytes.push_back(nHigh * 16);
++    return aBytes;
++}
++
++bool PDFStandardSecurity::parse(PDFObjectElement& rEncrypt, std::vector<sal_uInt8> aID,
++                                Parameters& rParams)
++{
++    auto pFilter = dynamic_cast<PDFNameElement*>(rEncrypt.Lookup("Filter"_ostr));
++    if (!pFilter || pFilter->GetValue() != "Standard")
++    {
++        SAL_WARN("vcl.filter", "PDFStandardSecurity: not the standard security handler");
++        return false;
++    }
++    const sal_Int32 nVersion = number(rEncrypt, "V"_ostr, 0);
++    rParams.nRevision = number(rEncrypt, "R"_ostr, 0);
++    rParams.nPermissions = number(rEncrypt, "P"_ostr, 0);
++    rParams.aOwner = stringBytes(rEncrypt.Lookup("O"_ostr));
++    rParams.aUser = stringBytes(rEncrypt.Lookup("U"_ostr));
++    rParams.aOwnerKey = stringBytes(rEncrypt.Lookup("OE"_ostr));
++    rParams.aUserKey = stringBytes(rEncrypt.Lookup("UE"_ostr));
++    rParams.aID = std::move(aID);
++    if (auto pMetadata = dynamic_cast<PDFBooleanElement*>(rEncrypt.Lookup("EncryptMetadata"_ostr)))
++    {
++        OStringBuffer aValue;
++        pMetadata->writeString(aValue);
++        rParams.bEncryptMetadata = std::string_view(aValue) != "false";
++    }
++
++    sal_Int32 nLength = number(rEncrypt, "Length"_ostr, 40) / 8;
++    if (nVersion == 1 || nVersion == 2)
++        rParams.eStreams = rParams.eStrings = Cipher::RC4;
++    else if (nVersion == 4 || nVersion == 5)
++    {
++        if (!cryptFilter(rEncrypt, "StmF"_ostr, rParams.eStreams, nLength)
++            || !cryptFilter(rEncrypt, "StrF"_ostr, rParams.eStrings, nLength))
++        {
++            SAL_WARN("vcl.filter", "PDFStandardSecurity: unknown crypt filter");
++            return false;
++        }
++    }
++    else
++    {
++        SAL_WARN("vcl.filter", "PDFStandardSecurity: unsupported version " << nVersion);
++        return false;
++    }
++
++    const bool bAES256 = rParams.nRevision == 5 || rParams.nRevision == 6;
++    if (bAES256)
++    {
++        if (rParams.aOwner.size() < 48 || rParams.aUser.size() < 48
++            || rParams.aOwnerKey.size() < 32 || rParams.aUserKey.size() < 32)
++            return false;
++        for (Cipher eCipher : { rParams.eStreams, rParams.eStrings })
++            if (eCipher != Cipher::AESV3 && eCipher != Cipher::Identity)
++                return false;
++        rParams.nKeyLength = 32;
++        return true;
++    }
++    if (rParams.nRevision < 2 || rParams.nRevision > 4 || rParams.aOwner.size() < 32
++        || rParams.aUser.size() < 32)
++    {
++        SAL_WARN("vcl.filter", "PDFStandardSecurity: unsupported revision " << rParams.nRevision);
++        return false;
++    }
++    for (Cipher eCipher : { rParams.eStreams, rParams.eStrings })
++        if (eCipher == Cipher::AESV3)
++            return false;
++    rParams.nKeyLength = rParams.nRevision == 2 ? 5 : std::clamp<sal_Int32>(nLength, 5, 16);
++    return true;
++}
++
++PDFStandardSecurity::PDFStandardSecurity(Parameters aParams)
++    : m_aParams(std::move(aParams))
++{
++}
++
++bool PDFStandardSecurity::authenticate(std::string_view aPassword)
++{
++    m_aFileKey.clear();
++    m_bOwner = false;
++    if (m_aParams.nRevision >= 5)
++        return authenticateAES256(aPassword);
++    return authenticateR4(aPassword);
++}
++
++std::vector<sal_uInt8>
++PDFStandardSecurity::fileKeyR4(const std::vector<sal_uInt8>& rPaddedPassword) const
++{
++    // Algorithm 2
++    std::vector<sal_uInt8> aInput(rPaddedPassword);
++    aInput.insert(aInput.end(), m_aParams.aOwner.begin(), m_aParams.aOwner.begin() + 32);
++    const sal_uInt32 nPermissions = static_cast<sal_uInt32>(m_aParams.nPermissions);
++    for (int i = 0; i < 4; ++i)
++        aInput.push_back((nPermissions >> (8 * i)) & 0xFF);
++    aInput.insert(aInput.end(), m_aParams.aID.begin(), m_aParams.aID.end());
++    if (m_aParams.nRevision >= 4 && !m_aParams.bEncryptMetadata)
++        aInput.insert(aInput.end(), 4, 0xFF);
++    std::vector<sal_uInt8> aHash = md5(aInput);
++    const size_t nLength = m_aParams.nKeyLength;
++    if (m_aParams.nRevision >= 3)
++        for (int i = 0; i < 50; ++i)
++            aHash = md5(std::vector<sal_uInt8>(aHash.begin(), aHash.begin() + nLength));
++    aHash.resize(nLength);
++    return aHash;
++}
++
++bool PDFStandardSecurity::checkUserKeyR4(const std::vector<sal_uInt8>& rKey) const
++{
++    // Algorithms 4, 5 and 6
++    if (m_aParams.nRevision == 2)
++    {
++        const std::vector<sal_uInt8> aU = rc4(rKey, aPasswordPadding, 32);
++        return std::equal(aU.begin(), aU.end(), m_aParams.aUser.begin());
++    }
++    std::vector<sal_uInt8> aInput(aPasswordPadding, aPasswordPadding + 32);
++    aInput.insert(aInput.end(), m_aParams.aID.begin(), m_aParams.aID.end());
++    const std::vector<sal_uInt8> aU = rc4Rounds(rKey, md5(aInput), false);
++    return std::equal(aU.begin(), aU.begin() + 16, m_aParams.aUser.begin());
++}
++
++bool PDFStandardSecurity::authenticateR4(std::string_view aPassword)
++{
++    std::vector<sal_uInt8> aKey = fileKeyR4(padPassword(aPassword));
++    if (checkUserKeyR4(aKey))
++    {
++        m_aFileKey = std::move(aKey);
++        return true;
++    }
++
++    // Algorithm 7: the owner password decrypts /O into the padded user password.
++    const std::vector<sal_uInt8> aPadded = padPassword(aPassword);
++    std::vector<sal_uInt8> aHash = md5(aPadded);
++    if (m_aParams.nRevision >= 3)
++        for (int i = 0; i < 50; ++i)
++            aHash = md5(aHash);
++    aHash.resize(m_aParams.nKeyLength);
++    std::vector<sal_uInt8> aOwner(m_aParams.aOwner.begin(), m_aParams.aOwner.begin() + 32);
++    const std::vector<sal_uInt8> aUserPassword
++        = m_aParams.nRevision == 2 ? rc4(aHash, aOwner.data(), aOwner.size())
++                                   : rc4Rounds(aHash, aOwner, true);
++    aKey = fileKeyR4(aUserPassword);
++    if (!checkUserKeyR4(aKey))
++        return false;
++    m_aFileKey = std::move(aKey);
++    m_bOwner = true;
++    return true;
++}
++
++bool PDFStandardSecurity::authenticateAES256(std::string_view aPassword)
++{
++    // Algorithms 2.A and 2.B; passwords are cut at 127 bytes
++    aPassword = aPassword.substr(0, std::min<size_t>(aPassword.size(), 127));
++    const sal_uInt8* pPassword = reinterpret_cast<const sal_uInt8*>(aPassword.data());
++    const std::vector<sal_uInt8>& rO = m_aParams.aOwner;
++    const std::vector<sal_uInt8> aU(m_aParams.aUser.begin(), m_aParams.aUser.begin() + 48);
++    auto hash = [&](const sal_uInt8* pSalt, const std::vector<sal_uInt8>& rUser) {
++        if (m_aParams.nRevision == 5)
++            return sha256(aPassword, pSalt, rUser);
++        return vcl::pdf::computeHashR6(pPassword, aPassword.size(),
++                                       std::vector<sal_uInt8>(pSalt, pSalt + 8), rUser);
++    };
++    std::vector<sal_uInt8> aKeyHash;
++    std::vector<sal_uInt8> aEncryptedKey;
++    const std::vector<sal_uInt8> aCheckUser = hash(aU.data() + 32, {});
++    if (std::equal(aCheckUser.begin(), aCheckUser.end(), aU.begin()))
++    {
++        aKeyHash = hash(aU.data() + 40, {});
++        aEncryptedKey.assign(m_aParams.aUserKey.begin(), m_aParams.aUserKey.begin() + 32);
++    }
++    else
++    {
++        const std::vector<sal_uInt8> aCheckOwner = hash(rO.data() + 32, aU);
++        if (!std::equal(aCheckOwner.begin(), aCheckOwner.end(), rO.begin()))
++            return false;
++        aKeyHash = hash(rO.data() + 40, aU);
++        aEncryptedKey.assign(m_aParams.aOwnerKey.begin(), m_aParams.aOwnerKey.begin() + 32);
++        m_bOwner = true;
++    }
++    m_aFileKey = aesNoPad(false, aKeyHash, std::vector<sal_uInt8>(AES_BLOCK, 0), aEncryptedKey);
++    if (m_aFileKey.size() != 32)
++    {
++        m_aFileKey.clear();
++        m_bOwner = false;
++        return false;
++    }
++    return true;
++}
++
++std::vector<sal_uInt8> PDFStandardSecurity::objectKey(Cipher eCipher, sal_Int32 nObject,
++                                                      sal_Int32 nGeneration) const
++{
++    if (eCipher == Cipher::AESV3)
++        return m_aFileKey;
++    // Algorithm 1
++    std::vector<sal_uInt8> aInput(m_aFileKey);
++    for (int i = 0; i < 3; ++i)
++        aInput.push_back((nObject >> (8 * i)) & 0xFF);
++    for (int i = 0; i < 2; ++i)
++        aInput.push_back((nGeneration >> (8 * i)) & 0xFF);
++    if (eCipher == Cipher::AESV2)
++        aInput.insert(aInput.end(), { 's', 'A', 'l', 'T' });
++    std::vector<sal_uInt8> aKey = md5(aInput);
++    aKey.resize(std::min<size_t>(m_aFileKey.size() + 5, 16));
++    return aKey;
++}
++
++std::vector<sal_uInt8> PDFStandardSecurity::decrypt(bool bStream, const sal_uInt8* pData,
++                                                    size_t nSize, sal_Int32 nObject,
++                                                    sal_Int32 nGeneration) const
++{
++    const Cipher eCipher = bStream ? m_aParams.eStreams : m_aParams.eStrings;
++    if (eCipher == Cipher::Identity || m_aFileKey.empty())
++        return std::vector<sal_uInt8>(pData, pData + nSize);
++    const std::vector<sal_uInt8> aKey = objectKey(eCipher, nObject, nGeneration);
++    if (eCipher == Cipher::RC4)
++        return rc4(aKey, pData, nSize);
++
++    // the initialization vector comes first, the padding (1-16 bytes) last
++    if (nSize < 2 * AES_BLOCK)
++        return {};
++    const size_t nBlocks = nSize - nSize % AES_BLOCK;
++    std::vector<sal_uInt8> aPlain
++        = aesNoPad(false, aKey, std::vector<sal_uInt8>(pData, pData + AES_BLOCK),
++                   std::vector<sal_uInt8>(pData + AES_BLOCK, pData + nBlocks));
++    if (aPlain.empty())
++        return {};
++    const sal_uInt8 nPad = aPlain.back();
++    if (nPad >= 1 && nPad <= AES_BLOCK
++        && std::all_of(aPlain.end() - nPad, aPlain.end(), [nPad](sal_uInt8 c) { return c == nPad; }))
++        aPlain.resize(aPlain.size() - nPad);
++    return aPlain;
++}
++
++std::vector<sal_uInt8> PDFStandardSecurity::encrypt(bool bStream, const sal_uInt8* pData,
++                                                    size_t nSize, sal_Int32 nObject,
++                                                    sal_Int32 nGeneration) const
++{
++    const Cipher eCipher = bStream ? m_aParams.eStreams : m_aParams.eStrings;
++    if (eCipher == Cipher::Identity || m_aFileKey.empty())
++        return std::vector<sal_uInt8>(pData, pData + nSize);
++    const std::vector<sal_uInt8> aKey = objectKey(eCipher, nObject, nGeneration);
++    if (eCipher == Cipher::RC4)
++        return rc4(aKey, pData, nSize);
++
++    std::vector<sal_uInt8> aInput(pData, pData + nSize);
++    const sal_uInt8 nPad = AES_BLOCK - nSize % AES_BLOCK;
++    aInput.insert(aInput.end(), nPad, nPad);
++    std::vector<sal_uInt8> aIV(AES_BLOCK);
++    if (rtl_random_getBytes(nullptr, aIV.data(), aIV.size()) != rtl_Random_E_None)
++        return {};
++    std::vector<sal_uInt8> aOut = aesNoPad(true, aKey, aIV, aInput);
++    if (aOut.empty())
++        return {};
++    aIV.insert(aIV.end(), aOut.begin(), aOut.end());
++    return aIV;
++}
++
++OString PDFStandardSecurity::encryptObject(std::string_view aObject, sal_Int32 nObject) const
++{
++    OStringBuffer aOut(aObject.size() + 64);
++    int nDepth = 0;
++    // where the value of the object's /Length key was copied to aOut
++    sal_Int32 nLengthStart = -1;
++    sal_Int32 nLengthEnd = -1;
++    size_t i = 0;
++    while (i < aObject.size())
++    {
++        const char c = aObject[i];
++        if (c == '%')
++        {
++            const size_t nEnd = aObject.find_first_of("\r\n", i);
++            const size_t nStop = nEnd == std::string_view::npos ? aObject.size() : nEnd;
++            aOut.append(aObject.substr(i, nStop - i));
++            i = nStop;
++        }
++        else if (c == '(')
++        {
++            const size_t nEnd = literalEnd(aObject, i);
++            if (nEnd == std::string_view::npos)
++                return {};
++            const std::vector<sal_uInt8> aPlain
++                = literalStringBytes(aObject.substr(i + 1, nEnd - i - 1));
++            appendHex(aOut, encrypt(false, aPlain.data(), aPlain.size(), nObject, 0));
++            i = nEnd + 1;
++        }
++        else if (c == '<' && i + 1 < aObject.size() && aObject[i + 1] == '<')
++        {
++            aOut.append("<<");
++            ++nDepth;
++            i += 2;
++        }
++        else if (c == '>' && i + 1 < aObject.size() && aObject[i + 1] == '>')
++        {
++            aOut.append(">>");
++            --nDepth;
++            i += 2;
++        }
++        else if (c == '<')
++        {
++            const size_t nEnd = aObject.find('>', i);
++            if (nEnd == std::string_view::npos)
++                return {};
++            const std::vector<sal_uInt8> aPlain = hexStringBytes(aObject.substr(i + 1, nEnd - i - 1));
++            appendHex(aOut, encrypt(false, aPlain.data(), aPlain.size(), nObject, 0));
++            i = nEnd + 1;
++        }
++        else if (isDelimiter(c) && c != '/')
++        {
++            aOut.append(c);
++            ++i;
++        }
++        else
++        {
++            // a name or a regular token
++            size_t nEnd = i + 1;
++            while (nEnd < aObject.size() && !isDelimiter(aObject[nEnd]))
++                ++nEnd;
++            const std::string_view aToken = aObject.substr(i, nEnd - i);
++            if (aToken == "stream" && nDepth == 0)
++            {
++                size_t nData = nEnd;
++                if (nData < aObject.size() && aObject[nData] == '\r')
++                    ++nData;
++                if (nData < aObject.size() && aObject[nData] == '\n')
++                    ++nData;
++                const size_t nEndStream = aObject.rfind("endstream");
++                if (nEndStream == std::string_view::npos || nEndStream < nData || nLengthStart < 0)
++                    return {};
++                size_t nDataEnd = nEndStream;
++                if (nDataEnd > nData && aObject[nDataEnd - 1] == '\n')
++                    --nDataEnd;
++                if (nDataEnd > nData && aObject[nDataEnd - 1] == '\r')
++                    --nDataEnd;
++                const std::vector<sal_uInt8> aEncrypted
++                    = encrypt(true, reinterpret_cast<const sal_uInt8*>(aObject.data()) + nData,
++                              nDataEnd - nData, nObject, 0);
++                aOut.remove(nLengthStart, nLengthEnd - nLengthStart);
++                aOut.insert(nLengthStart, OString::number(sal_Int64(aEncrypted.size())));
++                aOut.append("stream\n");
++                aOut.append(reinterpret_cast<const char*>(aEncrypted.data()), aEncrypted.size());
++                aOut.append("\n");
++                aOut.append(aObject.substr(nEndStream));
++                return aOut.makeStringAndClear();
++            }
++            aOut.append(aToken);
++            i = nEnd;
++            if (aToken == "/Length" && nDepth == 1)
++            {
++                // copy the value as is, remember where: a number or an "N G R" reference
++                while (i < aObject.size() && isWhitespace(aObject[i]))
++                    aOut.append(aObject[i++]);
++                nLengthStart = aOut.getLength();
++                const size_t nValueEnd = lengthValueEnd(aObject, i);
++                aOut.append(aObject.substr(i, nValueEnd - i));
++                nLengthEnd = aOut.getLength();
++                i = nValueEnd;
++            }
++        }
++    }
++    return aOut.makeStringAndClear();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/xmlsecurity/inc/strings.hrc
++++ b/xmlsecurity/inc/strings.hrc
+@@ -112,7 +112,11 @@
+ #define STR_HSTPDF_SIGNED_ON                        NC_("STR_HSTPDF_SIGNED_ON", "Date: %1")
+ #define STR_HSTPDF_REASON                           NC_("STR_HSTPDF_REASON", "Reason: %1")
+ #define STR_HSTPDF_SIGN_FAILED                      NC_("STR_HSTPDF_SIGN_FAILED", "The PDF could not be signed. Check that the USB token is plugged in and the PIN is correct, then try again.")
+-#define STR_HSTPDF_SIGN_UNSUPPORTED                 NC_("STR_HSTPDF_SIGN_UNSUPPORTED", "HST PDF cannot add a signature to this file yet: its internal structure (usually its encryption) cannot be updated. The file is unchanged. Ask the sender for a copy without encryption.")
++#define STR_HSTPDF_SIGN_UNSUPPORTED                 NC_("STR_HSTPDF_SIGN_UNSUPPORTED", "HST PDF cannot add a signature to this file: its internal structure or its kind of encryption cannot be updated. The file is unchanged.")
++#define STR_HSTPDF_SIGN_NOT_PERMITTED               NC_("STR_HSTPDF_SIGN_NOT_PERMITTED", "The sender's file does not allow digital signing: its security settings forbid changing it and adding signature fields. The file is unchanged. Ask the sender for a copy that allows signing, or enter the permissions password.")
++#define STR_HSTPDF_SIGN_PERMISSIONS_PASSWORD        NC_("STR_HSTPDF_SIGN_PERMISSIONS_PASSWORD", "Enter Permissions Password")
++#define STR_HSTPDF_SIGN_PERMISSIONS_WRONG           NC_("STR_HSTPDF_SIGN_PERMISSIONS_WRONG", "The permissions password is not correct, so the file cannot be signed. The file is unchanged.")
++#define STR_HSTPDF_SIGN_NEEDS_PASSWORD              NC_("STR_HSTPDF_SIGN_NEEDS_PASSWORD", "This PDF needs its password to be signed. Open it again with its password, then sign.")
+ #define STR_HSTPDF_SAME_FILE                        NC_("STR_HSTPDF_SAME_FILE", "The signed PDF is saved as a copy: choose a new file name. The original file stays unchanged.")
+ #define STR_HSTPDF_SIGNED_SAVED                     NC_("STR_HSTPDF_SIGNED_SAVED", "Signed and saved as %1")
+ #define STR_HSTPDF_SAVE_TITLE                       NC_("STR_HSTPDF_SAVE_TITLE", "Save the Signed Copy")
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-aes128-objstm.pdf.b64
+@@ -0,0 +1,23 @@
++JVBERi0xLjYKJb/3ov4KMSAwIG9iago8PCAvTGFuZyA8MTUwNGZlMmQ4OTViOTUyNTAxZGMyZDEx
++OWU0YmU4ODc2M2IxNDNlNDdlNDllOTNiYWI3MDJmYTUyMWJhMGRjMD4gL1BhZ2VzIDMgMCBSIC9U
++eXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9PYmpTdG0gL0xlbmd0aCAy
++MjQgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL04gNCAvRmlyc3QgMjEgPj4Kc3RyZWFtCrm89H0usoML
++S4Vm+5w40YvwWwNjeWLnF2yfgC5oS9TGoDeGgbPmMbExmPunOE5xZocQseUl+2Yvais2ZbcKVnhO
++s2wNnpmqGrH+jrA97a6ICVleM+/ptATYqEj1IO9Pgc3yfI5VzTs7SN9iPKswTzrUMdC1B4xlgA+Y
++el8qa3v34jDgjyyhLKzOBo7OHtMN1Ax40nr2napN5BuQoO9hldExoI3WD8+q+jI2D5V0LIfoFDuz
++JLPNcDkLOgZ+I1CHPu/u4Q8Ezm4T7p/RqiOtFoLizQEd1A28utvRrN/kwFRKCmVuZHN0cmVhbQpl
++bmRvYmoKNyAwIG9iago8PCAvTGVuZ3RoIDExMiAvRmlsdGVyIC9GbGF0ZURlY29kZSA+PgpzdHJl
++YW0KaEDGSh9nvyx8MoVyLG/9oxdpQLdSGejP02/fwdT54djh4UDBvMibGUbf8bzepK3zlkwc0cXt
++X/TXXnL9X7OBfFkdUmNnRqLFv8+wYQw83jaQpK5aexy/7AiEBQ0B/iONFa5kKw5spLbt6cD6JZVv
++ZwplbmRzdHJlYW0KZW5kb2JqCjggMCBvYmoKPDwgL0NGIDw8IC9TdGRDRiA8PCAvQXV0aEV2ZW50
++IC9Eb2NPcGVuIC9DRk0gL0FFU1YyIC9MZW5ndGggMTYgPj4gPj4gL0ZpbHRlciAvU3RhbmRhcmQg
++L0xlbmd0aCAxMjggL08gPGQ0MTc5ZjEyNDY2ODE1NDFhZjNmYjdjMDhjMDI5NjNkZjMwOWI4MWE3
++NTJiNDM4MmM2YjAzODNiOWJiZjA2Mzk+IC9PRSA8PiAvUCAtNCAvUiA0IC9TdG1GIC9TdGRDRiAv
++U3RyRiAvU3RkQ0YgL1UgPGVkMjdkN2E2MWY2MDViZmU2ODdiMDY4NzUxZGQ5YmE0MDAyMTQ0Njk5
++MGI5ZTQxMTQwNzFhNGQ5MTA0OTg0YzE+IC9VRSA8PiAvViA0ID4+CmVuZG9iago5IDAgb2JqCjw8
++IC9UeXBlIC9YUmVmIC9MZW5ndGggNDIgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL0RlY29kZVBhcm1z
++IDw8IC9Db2x1bW5zIDQgL1ByZWRpY3RvciAxMiA+PiAvVyBbIDEgMiAxIF0gL0luZm8gNiAwIFIg
++L1Jvb3QgMSAwIFIgL1NpemUgMTAgL0lEIFs8ZWY4MmRhMGZhZTkyMWVmMWNlNjc3ZWRlMTVmM2My
++MzI+PGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPl0gL0VuY3J5cHQgOCAwIFIgPj4K
++c3RyZWFtCnicY2IAAiZGBn4GJgaGKhCrEsRiYEQi/jOe+cvEwLgDKMFoyQAAThAE2AplbmRzdHJl
++YW0KZW5kb2JqCnN0YXJ0eHJlZgo5NTkKJSVFT0YK
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-aes256.pdf.b64
+@@ -0,0 +1,28 @@
++JVBERi0xLjcKJb/3ov4KMSAwIG9iago8PCAvRXh0ZW5zaW9ucyA8PCAvQURCRSA8PCAvQmFzZVZl
++cnNpb24gLzEuNyAvRXh0ZW5zaW9uTGV2ZWwgOCA+PiA+PiAvTGFuZyA8OTVmYTI2MTg0NjRiMGE1
++MzJjMTRlNDgwODI0M2E0ZWI0OGNiNjE1Y2FlODkyN2M0NGIzYWZmNGY2ZGZmOGFhYz4gL1BhZ2Vz
++IDMgMCBSIC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9PYmpTdG0g
++L0xlbmd0aCAyMjQgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL04gNCAvRmlyc3QgMjEgPj4Kc3RyZWFt
++ClfJc9L8IeWl1e2pIolW3bkraiw/+yv8/cTZkIhbe2KGv+deF9VrYXOx+LR/AmWcYJu3RFKLML+x
++7jqCioTMD1djMUGQscCbqD2JBkyDXqmYxAMl/e/sYX64a/VE/a5Wo0U0gieH9TtgdJL16k2lO6eA
++18FKof6h4ZMSmD2a+D3Kcpfdg+B4PxRSv/pGuZO3nYtes9nvz8ZFmnj+MXW4d3hu2N44K/Y37raB
++ahI10S6vjgdFVYgtfDVv1HyePWj3/KG2yxdsUfngWdt1a5pcMdyK8u1C6Duva/m/6al/r4r7CmVu
++ZHN0cmVhbQplbmRvYmoKNyAwIG9iago8PCAvTGVuZ3RoIDExMiAvRmlsdGVyIC9GbGF0ZURlY29k
++ZSA+PgpzdHJlYW0KeUrwN28bmsOfEJZfpF9GCfKh7h7+4/EI/l33cPF+a1bJEcae1WvFyzCU/o1I
++CzXbhBBrqfHWYrVDysY0he0v1kzxXpQHz+bI9Cs3EZn5xRpsJZ8s6P+zQdVv382Z+MnSqWbDSYxt
++AqdFGkHEdXXpOAplbmRzdHJlYW0KZW5kb2JqCjggMCBvYmoKPDwgL0NGIDw8IC9TdGRDRiA8PCAv
++QXV0aEV2ZW50IC9Eb2NPcGVuIC9DRk0gL0FFU1YzIC9MZW5ndGggMzIgPj4gPj4gL0ZpbHRlciAv
++U3RhbmRhcmQgL0xlbmd0aCAyNTYgL08gPDEyMTBkZTFhMzg2MmU4ZTU5M2UwMDhhMTZlNzcyMzFj
++YTAzODY3YWY3N2YyMGI5NGNkYmFhYjNkMjU2ZGIzOGUwNWRiMjY0NzE4MzJmMmY4MzcwYjdmYzNi
++OTVkYmM0YT4gL09FIDwwZjJmMWI4ZGNjMjhkNjkwZmJiNDA1MDYyZGE4MjU2MTM1NjFmOTA5M2Qy
++YWU2YzU5MzcxNWE2MDZmZmI1Y2FkPiAvUCAtNCAvUGVybXMgPGE1YmFhMzlkMWZmOTUwZTVhOGM2
++MjVlZWI1ZDc1NDhkPiAvUiA2IC9TdG1GIC9TdGRDRiAvU3RyRiAvU3RkQ0YgL1UgPDA1MGVmZDlm
++NzIyOGRiY2E4YmI0MmE5MjQ5ZWFiOTE5MzRmNjc5NDRhZmZiMGUzMTI4ZDc5ZjNiMDU0ZDRmZmM3
++MmI1NGEyMjg3OGYyZjJlMTJkNzU4ODQ0N2E3YjIxNT4gL1VFIDw3NjNkM2E4MzlhMTM3MjNlMTYz
++NGRlMWM1YTU3NTM5MmU3ODU0ZGQ1YmE1NWEyMjQzNGRlZmQ4OWRmODE5ZTc5PiAvViA1ID4+CmVu
++ZG9iago5IDAgb2JqCjw8IC9UeXBlIC9YUmVmIC9MZW5ndGggNDEgL0ZpbHRlciAvRmxhdGVEZWNv
++ZGUgL0RlY29kZVBhcm1zIDw8IC9Db2x1bW5zIDQgL1ByZWRpY3RvciAxMiA+PiAvVyBbIDEgMiAx
++IF0gL0luZm8gNiAwIFIgL1Jvb3QgMSAwIFIgL1NpemUgMTAgL0lEIFs8ZWY4MmRhMGZhZTkyMWVm
++MWNlNjc3ZWRlMTVmM2MyMzI+PGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPl0gL0Vu
++Y3J5cHQgOCAwIFIgPj4Kc3RyZWFtCnicY2IAAiZGBn4GJgaGPSCWOYjFwIhE/Gfi+wtk7QBKMCkz
++AABGTgQFCmVuZHN0cmVhbQplbmRvYmoKc3RhcnR4cmVmCjEyNTkKJSVFT0YK
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-locked-aes256.pdf.b64
+@@ -0,0 +1,32 @@
++JVBERi0xLjcKJb/3ov4KMSAwIG9iago8PCAvQWNyb0Zvcm0gPDwgL0RBIDwyZTQzZTdkZTcyNzM0
++MjlmZDE1MWQ0ODNlOWY3MDU4ZTEyNGUyYmYyYTlmOTVjZWMyMGE1MjcwNzI4NTlmNzY3PiAvRmll
++bGRzIFsgNyAwIFIgXSAvU2lnRmxhZ3MgMyA+PiAvRXh0ZW5zaW9ucyA8PCAvQURCRSA8PCAvQmFz
++ZVZlcnNpb24gLzEuNyAvRXh0ZW5zaW9uTGV2ZWwgOCA+PiA+PiAvTGFuZyA8YjkzODUzZWRkNDJm
++ZGY2MzJiNGQyNzVjNmE4NjI3Yjc3YTAwZjhhYmQzYzBkNDFlOTAxNTk1Yjg3ZWFkNTRlZT4gL1Bh
++Z2VzIDMgMCBSIC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9PYmpT
++dG0gL0xlbmd0aCAzMDQgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL04gNiAvRmlyc3QgMzMgPj4Kc3Ry
++ZWFtCsZYG0syEEJYYQ0WSljYZDRx4sK6MpsDfhD0hY1issFjGiw+yc5V6ePnSftJyTM8+k52xSkx
++Jp/8Nw5xjfgypFy1i3E0P/wcm2T+XPYzesS/42rEN498ve1Z4P2KaPid+Eq5PDvEQhyiqmt6RwJY
++CBEZS9tEsody07U5Y3RLpWrB7/FWAkGu18TzmS5ENrAfAoyBVC9YqSSj2wOt6tHFFaFv14ywqbXf
++zNY/iVbYoXj+6woksRfb6nBc9UAOZHa6tnM6I3pIxcY/SqDw6cFESkwP7bUiZMlQ4OVulKhUyhUy
++NOGTm0Zw4TSMwoosfWJ90zpX3XxrkbBrwkS38wIHeIaSVPJRQHUXxtF5q7FvuJyNaMbcDBwwvkKH
++biiXFIFgXNSgPyjzXROWny80K74IRccKZW5kc3RyZWFtCmVuZG9iago5IDAgb2JqCjw8IC9MZW5n
++dGggMTEyIC9GaWx0ZXIgL0ZsYXRlRGVjb2RlID4+CnN0cmVhbQom81xJUIRey/Il956YdiHUxhOs
++f2/GLreKoRqSRZkmisxOXYLSKQFeU7JNHiS6CF+mTdjC1cIRcxmlYRePk4HGeLZ2QZME4sU/LFQv
++dllL1lNazXtGF6eDj5teOIcoCWY8ntrJ2HrilVEvET1lqdkYCmVuZHN0cmVhbQplbmRvYmoKMTAg
++MCBvYmoKPDwgL0NGIDw8IC9TdGRDRiA8PCAvQXV0aEV2ZW50IC9Eb2NPcGVuIC9DRk0gL0FFU1Yz
++IC9MZW5ndGggMzIgPj4gPj4gL0ZpbHRlciAvU3RhbmRhcmQgL0xlbmd0aCAyNTYgL08gPDVkYzY0
++ODdjN2MwMDg4N2E0ZTA3YmZhZmVlZjRlYzRhZGIzNzI2NThlOWY0Njc0YTU4ZTEzZWZkYzA4MDNk
++MWIwODkzNzNiNWMyOWRiZmM5MGUwYjEzYzA4NDYwNDFiZj4gL09FIDw2M2JjNWQwMTliY2M5YjJk
++ZWYwZGJhZDhkN2U4ZDYxZGE5ZTY1Njc4MGE5YjExMDM4YTdjMGY5ZGRmNTVjNGY2PiAvUCAtMzM5
++MiAvUGVybXMgPGJmZjE1ZTkwYTQzZjFlMTQwYTBlNTZmMzE1Y2E2MjNiPiAvUiA2IC9TdG1GIC9T
++dGRDRiAvU3RyRiAvU3RkQ0YgL1UgPDFhOTk0YzY5YmExZTFlZTdkOTQ4MTBiN2U2NGFkZWQzNGJm
++ZGE0YzEzZmJkYmZjNzQxNmU3YWI2N2M1ZjYyNGQzODFhOTNlNzRkOGE1MDA4NWIzNzI0Y2M3ZDA1
++MTVlYj4gL1VFIDwyNWM5OTA4ZWMyYjdlMGU5YmMzOWQwY2ZhZDEzYjQ4YjgzNjdiNTE5Y2ZmYmY1
++YTA0YzAwMjhhMDgwMTZjMDUzPiAvViA1ID4+CmVuZG9iagoxMSAwIG9iago8PCAvVHlwZSAvWFJl
++ZiAvTGVuZ3RoIDQzIC9GaWx0ZXIgL0ZsYXRlRGVjb2RlIC9EZWNvZGVQYXJtcyA8PCAvQ29sdW1u
++cyA0IC9QcmVkaWN0b3IgMTIgPj4gL1cgWyAxIDIgMSBdIC9JbmZvIDYgMCBSIC9Sb290IDEgMCBS
++IC9TaXplIDEyIC9JRCBbPGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPjxlZjgyZGEw
++ZmFlOTIxZWYxY2U2NzdlZGUxNWYzYzIzMj5dIC9FbmNyeXB0IDEwIDAgUiA+PgpzdHJlYW0KeJxj
++YgACJkYGfgYmBkZDIOv/ISCLgYERK/Gf6fJvoLodQCVM6gwAgy0F0wplbmRzdHJlYW0KZW5kb2Jq
++CnN0YXJ0eHJlZgoxNDYwCiUlRU9GCg==
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-locked-rc4-128.pdf.b64
+@@ -0,0 +1,25 @@
++JVBERi0xLjQKJb/3ov4KMSAwIG9iago8PCAvQWNyb0Zvcm0gPDwgL0RBIDw3ZTQ0ZWI2ZjkwMjI2
++MWM3N2NjYzM1NzJlMjRkPiAvRmllbGRzIFsgMyAwIFIgXSAvU2lnRmxhZ3MgMyA+PiAvTGFuZyA8
++Mjc2NWEzNTVhOD4gL1BhZ2VzIDQgMCBSIC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2Jq
++Cjw8IC9UaXRsZSA8NTU2ZmY4MWE3MDcyYmMyZWJmMTA0YTg2NTljM2VmNGJiNTI3ZTdiNDNlZmI+
++ID4+CmVuZG9iagozIDAgb2JqCjw8IC9GIDQgL0ZUIC9TaWcgL1AgNSAwIFIgL1JlY3QgWyAzNjAg
++ODAgNTQwIDE0MCBdIC9TdWJ0eXBlIC9XaWRnZXQgL1QgPGExODBjOWVhODI+IC9UeXBlIC9Bbm5v
++dCA+PgplbmRvYmoKNCAwIG9iago8PCAvQ291bnQgMSAvS2lkcyBbIDUgMCBSIF0gL1R5cGUgL1Bh
++Z2VzID4+CmVuZG9iago1IDAgb2JqCjw8IC9Bbm5vdHMgNiAwIFIgL0NvbnRlbnRzIDcgMCBSIC9N
++ZWRpYUJveCBbIDAgMCA1OTUgODQyIF0gL1BhcmVudCA0IDAgUiAvUmVzb3VyY2VzIDw8IC9Gb250
++IDw8IC9GMSA4IDAgUiA+PiA+PiAvVHlwZSAvUGFnZSA+PgplbmRvYmoKNiAwIG9iagpbIDMgMCBS
++IF0KZW5kb2JqCjcgMCBvYmoKPDwgL0xlbmd0aCA4NCAvRmlsdGVyIC9GbGF0ZURlY29kZSA+Pgpz
++dHJlYW0KhK4vQTnEY26t5FFoWyLyfrlpNXnKIljpZw+khoTmWN+EmJpisT109S0NPFWz1y1vS1mT
++uziUNf7LNWVUIlNgykKKh7aMRkVg23ofFTOmMMRNQfk2CmVuZHN0cmVhbQplbmRvYmoKOCAwIG9i
++ago8PCAvQmFzZUZvbnQgL0hlbHZldGljYSAvU3VidHlwZSAvVHlwZTEgL1R5cGUgL0ZvbnQgPj4K
++ZW5kb2JqCjkgMCBvYmoKPDwgL0ZpbHRlciAvU3RhbmRhcmQgL0xlbmd0aCAxMjggL08gPGQ0MTc5
++ZjEyNDY2ODE1NDFhZjNmYjdjMDhjMDI5NjNkZjMwOWI4MWE3NTJiNDM4MmM2YjAzODNiOWJiZjA2
++Mzk+IC9QIC0zOTA0IC9SIDMgL1UgPDE0OTZhNGZlZTE2ZGFkYzE2ZGUyM2YyNWYzZGI0MmE1MDAy
++MTQ0Njk5MGI5ZTQxMTQwNzFhNGQ5MTA0OTg0YzE+IC9WIDIgPj4KZW5kb2JqCnhyZWYKMCAxMAow
++MDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDE2NCAwMDAwMCBu
++IAowMDAwMDAwMjM5IDAwMDAwIG4gCjAwMDAwMDAzNTQgMDAwMDAgbiAKMDAwMDAwMDQxMyAwMDAw
++MCBuIAowMDAwMDAwNTU1IDAwMDAwIG4gCjAwMDAwMDA1ODAgMDAwMDAgbiAKMDAwMDAwMDczNSAw
++MDAwMCBuIAowMDAwMDAwODA1IDAwMDAwIG4gCnRyYWlsZXIgPDwgL0luZm8gMiAwIFIgL1Jvb3Qg
++MSAwIFIgL1NpemUgMTAgL0lEIFs8ZWY4MmRhMGZhZTkyMWVmMWNlNjc3ZWRlMTVmM2MyMzI+PGVm
++ODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPl0gL0VuY3J5cHQgOSAwIFIgPj4Kc3RhcnR4
++cmVmCjEwMTUKJSVFT0YK
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-locked-rc4-40.pdf.b64
+@@ -0,0 +1,25 @@
++JVBERi0xLjMKJb/3ov4KMSAwIG9iago8PCAvQWNyb0Zvcm0gPDwgL0RBIDw2NDQ0MTY3OTA2ODZm
++NDQ1YWMyMWEzYzc4YWJjPiAvRmllbGRzIFsgMyAwIFIgXSAvU2lnRmxhZ3MgMyA+PiAvTGFuZyAo
++PWVeQz4pIC9QYWdlcyA0IDAgUiAvVHlwZSAvQ2F0YWxvZyA+PgplbmRvYmoKMiAwIG9iago8PCAv
++VGl0bGUgPDI0NWI4NjVkM2M3ZmNlMGM0Y2IyMDQ0OGI4MzhmNjY0OGQ4N2E0NjliMzQ2PiA+Pgpl
++bmRvYmoKMyAwIG9iago8PCAvRiA0IC9GVCAvU2lnIC9QIDUgMCBSIC9SZWN0IFsgMzYwIDgwIDU0
++MCAxNDAgXSAvU3VidHlwZSAvV2lkZ2V0IC9UICi/XHJzXG5dKSAvVHlwZSAvQW5ub3QgPj4KZW5k
++b2JqCjQgMCBvYmoKPDwgL0NvdW50IDEgL0tpZHMgWyA1IDAgUiBdIC9UeXBlIC9QYWdlcyA+Pgpl
++bmRvYmoKNSAwIG9iago8PCAvQW5ub3RzIDYgMCBSIC9Db250ZW50cyA3IDAgUiAvTWVkaWFCb3gg
++WyAwIDAgNTk1IDg0MiBdIC9QYXJlbnQgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEg
++OCAwIFIgPj4gPj4gL1R5cGUgL1BhZ2UgPj4KZW5kb2JqCjYgMCBvYmoKWyAzIDAgUiBdCmVuZG9i
++ago3IDAgb2JqCjw8IC9MZW5ndGggODQgL0ZpbHRlciAvRmxhdGVEZWNvZGUgPj4Kc3RyZWFtCrDR
++rT0wrOF/KnAA5rk3xsPO+SSphmWuHjwtok6xethhxEDTl2JOJXDJf/qF4gJuODJ2TBCWvDmmzZJ/
++phqLwAXWbc4RuWwAg4maEo22o8krUol3PAplbmRzdHJlYW0KZW5kb2JqCjggMCBvYmoKPDwgL0Jh
++c2VGb250IC9IZWx2ZXRpY2EgL1N1YnR5cGUgL1R5cGUxIC9UeXBlIC9Gb250ID4+CmVuZG9iago5
++IDAgb2JqCjw8IC9GaWx0ZXIgL1N0YW5kYXJkIC9MZW5ndGggNDAgL08gPDlmNmMzMzQwOTY0YjMw
++ZjQ1ODdkY2E4N2Y1NGQ3Y2RjMzk0NjcyODY3MmFkYjk5ZTgyZWJhMzVkNjQzMWIxMTY+IC9QIC02
++NCAvUiAyIC9VIDwxMTY0NjliMDhiMWYwNzM5YTNkZGFhMmU2YjU2NzUwZTI2MTU5NmM0YmU4ZTdi
++ZTYxYzJkNGI1Y2YzYTdjOWVlPiAvViAxID4+CmVuZG9iagp4cmVmCjAgMTAKMDAwMDAwMDAwMCA2
++NTUzNSBmIAowMDAwMDAwMDE1IDAwMDAwIG4gCjAwMDAwMDAxNTkgMDAwMDAgbiAKMDAwMDAwMDIz
++NCAwMDAwMCBuIAowMDAwMDAwMzQ2IDAwMDAwIG4gCjAwMDAwMDA0MDUgMDAwMDAgbiAKMDAwMDAw
++MDU0NyAwMDAwMCBuIAowMDAwMDAwNTcyIDAwMDAwIG4gCjAwMDAwMDA3MjcgMDAwMDAgbiAKMDAw
++MDAwMDc5NyAwMDAwMCBuIAp0cmFpbGVyIDw8IC9JbmZvIDIgMCBSIC9Sb290IDEgMCBSIC9TaXpl
++IDEwIC9JRCBbPGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPjxlZjgyZGEwZmFlOTIx
++ZWYxY2U2NzdlZGUxNWYzYzIzMj5dIC9FbmNyeXB0IDkgMCBSID4+CnN0YXJ0eHJlZgoxMDA0CiUl
++RU9GCg==
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-perm-4-6.pdf.b64
+@@ -0,0 +1,27 @@
++JVBERi0xLjYKJb/3ov4KMSAwIG9iago8PCAvQWNyb0Zvcm0gPDwgL0RBIDxkMDc5NGE2ZTMyMTA1
++ZjVlM2NmMWVkOWIyMWRiNjdkYTgxNzc0YjE4YmEzM2JlMjM3NzBjMzBlNzU1YzFiODMwPiAvRmll
++bGRzIFsgNyAwIFIgXSAvU2lnRmxhZ3MgMyA+PiAvTGFuZyA8NDQzNDk3MmIyZWQ2MGY1ZjE0NGMw
++Y2Q0MWIwNjY3OWYyYTk0ZDkzOGE2M2U4MTU4MzI1ZWI0ODlkMTI4NzY4Nj4gL1BhZ2VzIDMgMCBS
++IC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9PYmpTdG0gL0xlbmd0
++aCAzMDQgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL04gNiAvRmlyc3QgMzMgPj4Kc3RyZWFtClErbx/J
++JNiBvsbgoMyE2SrUdXIVNrYvifr7x2a3v8UyTM7sYzfKPcv6WlPlRi8glOzqDCK7206lWuKWGo2U
++Bw5v2+jZcqMcNbnLuY+ya30S3WklgJ6Kn3++LTXc9Oq8DTlmYjNBypZOOEcJeBXL5BtG2T9/yKr0
++wyNVusqH7CFBKmJ66ZTQXJBo3E6dd9gmGquZVr3PVTGV27W3BMCcve2GJJz66IZ4nAUgA5wIbhBn
++FsWa9bLD7/035jbtglsV7te5mjMgZcxXx3Nw2U3niyKswDajHbXWSWz2Jk7pxel8AmldCUtGUv6g
++iUhe7wevGVXxI8knl2TMTppBj3mLHUPEIPrV68cIbsSJwl2xfZhCA8JtJtcdTx+Dd2fOWRl6Hl1S
++f6P7l2FCi6ZS5rE1uR8KZW5kc3RyZWFtCmVuZG9iago5IDAgb2JqCjw8IC9MZW5ndGggMTEyIC9G
++aWx0ZXIgL0ZsYXRlRGVjb2RlID4+CnN0cmVhbQpTTmlWQXDFYE94wXEz1wsrCkPFA8jMNRtrd6T+
++KBIqJ5IZpmVtroAVjdS/XscVppQW5TQR/DuhIU5pCXGlEshmHlI2uazqsNqlLLWxm1CEjZkISfTX
++XwcJ9ZrdF3eBxk2wtmsWar6vysMkPdYfeBpiCmVuZHN0cmVhbQplbmRvYmoKMTAgMCBvYmoKPDwg
++L0NGIDw8IC9TdGRDRiA8PCAvQXV0aEV2ZW50IC9Eb2NPcGVuIC9DRk0gL0FFU1YyIC9MZW5ndGgg
++MTYgPj4gPj4gL0ZpbHRlciAvU3RhbmRhcmQgL0xlbmd0aCAxMjggL08gPGQ0MTc5ZjEyNDY2ODE1
++NDFhZjNmYjdjMDhjMDI5NjNkZjMwOWI4MWE3NTJiNDM4MmM2YjAzODNiOWJiZjA2Mzk+IC9PRSA8
++PiAvUCAtMTI4NCAvUiA0IC9TdG1GIC9TdGRDRiAvU3RyRiAvU3RkQ0YgL1UgPDkxZWQ2MWUzMjBh
++YjhlYTQ5YzViMDZhYTYwMzkzZDM1MDAyMTQ0Njk5MGI5ZTQxMTQwNzFhNGQ5MTA0OTg0YzE+IC9V
++RSA8PiAvViA0ID4+CmVuZG9iagoxMSAwIG9iago8PCAvVHlwZSAvWFJlZiAvTGVuZ3RoIDQyIC9G
++aWx0ZXIgL0ZsYXRlRGVjb2RlIC9EZWNvZGVQYXJtcyA8PCAvQ29sdW1ucyA0IC9QcmVkaWN0b3Ig
++MTIgPj4gL1cgWyAxIDIgMSBdIC9JbmZvIDYgMCBSIC9Sb290IDEgMCBSIC9TaXplIDEyIC9JRCBb
++PGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPjxlZjgyZGEwZmFlOTIxZWYxY2U2Nzdl
++ZGUxNWYzYzIzMj5dIC9FbmNyeXB0IDEwIDAgUiA+PgpzdHJlYW0KeJxjYgACJkYGfgYmBob3IBYL
++iMXAiJX4zzTxNxMD4w6gEkZbBgBY7wSmCmVuZHN0cmVhbQplbmRvYmoKc3RhcnR4cmVmCjExNjAK
++JSVFT0YK
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-perm-4.pdf.b64
+@@ -0,0 +1,27 @@
++JVBERi0xLjYKJb/3ov4KMSAwIG9iago8PCAvQWNyb0Zvcm0gPDwgL0RBIDxkMjcxMzdlZTM0N2E1
++ODY0OGVlODIyMzlkY2YyN2NjMWRjZDhmMzNjMWJhZjE2ZmUzYzcwZTZhY2YwYmNkOTdmPiAvRmll
++bGRzIFsgNyAwIFIgXSAvU2lnRmxhZ3MgMyA+PiAvTGFuZyA8NjY2NDk0MDcxMWU0YmM2ZDRiYjM1
++MWJmMTZiYmY2ODg2Nzk4NmU5ZmI0ZWYzN2RmYjFlNzZiM2YwZGM5MzM0Nz4gL1BhZ2VzIDMgMCBS
++IC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9PYmpTdG0gL0xlbmd0
++aCAzMDQgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL04gNiAvRmlyc3QgMzMgPj4Kc3RyZWFtCqkafp3/
++sSdOrSD4gyxAjUjmcMGlWVf186Qmwu6+Kf/VyQepF7/9fssRZnLOv4sZMRXmbQNUyXQOaLv2U24j
++2UctQw+cHQP96DQ1wlqk8AR9iQLQ0Eod0G2KVezea4IXNGiYmAzpMWwLDdPO+b4pWchAccLuulce
++Gcyi9PMM3HoeoyctJFFxWKvyPkb2gCE5iQuahERVXuUG8+oojB2OVmnHqJzILeww3tPf0Lc2Livs
++zgOF1ocwxbry3XFl7vFxRrx/oVBZlwz1+WqgjpEoAODnhWv5kuSzTpTk12QTfFXnkZCLLXIC6Iqj
++b8Hn3c0/e+UiJxa1RGQvQz8naD1cUyUGAMn9l90qWDJUBz13C3YEHzs2LauioLuh9A9ihgKwoFI1
++EZA7wqW1YJCBbBg3b+UKZW5kc3RyZWFtCmVuZG9iago5IDAgb2JqCjw8IC9MZW5ndGggMTEyIC9G
++aWx0ZXIgL0ZsYXRlRGVjb2RlID4+CnN0cmVhbQrfL3UilrHHurAoM92TvarQjd8SoOU8oJ6ODnw4
++AuSiP2tEUx46t+jnlDy2NWF//foelmcAgZxkGzyCgs3x4BugAZYt40WFbQk1vrIN72MHBRx+Md4G
++ib6P+fKp6xMeyHMpWF8WuoOq1600wtvZSllnCmVuZHN0cmVhbQplbmRvYmoKMTAgMCBvYmoKPDwg
++L0NGIDw8IC9TdGRDRiA8PCAvQXV0aEV2ZW50IC9Eb2NPcGVuIC9DRk0gL0FFU1YyIC9MZW5ndGgg
++MTYgPj4gPj4gL0ZpbHRlciAvU3RhbmRhcmQgL0xlbmd0aCAxMjggL08gPGQ0MTc5ZjEyNDY2ODE1
++NDFhZjNmYjdjMDhjMDI5NjNkZjMwOWI4MWE3NTJiNDM4MmM2YjAzODNiOWJiZjA2Mzk+IC9PRSA8
++PiAvUCAtMTMxNiAvUiA0IC9TdG1GIC9TdGRDRiAvU3RyRiAvU3RkQ0YgL1UgPGJkOTA1MTdmM2Iy
++NzRiYjgyOWQxYjcwZGM3YzY0ODAxMDAyMTQ0Njk5MGI5ZTQxMTQwNzFhNGQ5MTA0OTg0YzE+IC9V
++RSA8PiAvViA0ID4+CmVuZG9iagoxMSAwIG9iago8PCAvVHlwZSAvWFJlZiAvTGVuZ3RoIDQyIC9G
++aWx0ZXIgL0ZsYXRlRGVjb2RlIC9EZWNvZGVQYXJtcyA8PCAvQ29sdW1ucyA0IC9QcmVkaWN0b3Ig
++MTIgPj4gL1cgWyAxIDIgMSBdIC9JbmZvIDYgMCBSIC9Sb290IDEgMCBSIC9TaXplIDEyIC9JRCBb
++PGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPjxlZjgyZGEwZmFlOTIxZWYxY2U2Nzdl
++ZGUxNWYzYzIzMj5dIC9FbmNyeXB0IDEwIDAgUiA+PgpzdHJlYW0KeJxjYgACJkYGfgYmBob3IBYL
++iMXAiJX4zzTxNxMD4w6gEkZbBgBY7wSmCmVuZHN0cmVhbQplbmRvYmoKc3RhcnR4cmVmCjExNjAK
++JSVFT0YK
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-perm-6.pdf.b64
+@@ -0,0 +1,27 @@
++JVBERi0xLjYKJb/3ov4KMSAwIG9iago8PCAvQWNyb0Zvcm0gPDwgL0RBIDxmYzU2OGU4ZTk0NzVj
++Mjk4MjZkYjQ4MThkYzY3NjJmMDdjZjhjYmVkZjFlNjQ1MzlkOWE4MDY1NzAwNmJlNWFjPiAvRmll
++bGRzIFsgNyAwIFIgXSAvU2lnRmxhZ3MgMyA+PiAvTGFuZyA8MTk3ZTUxNDFmZWM0ZWUxN2UwMjE2
++YWEwYjM1NjU4NTJlZDk1ZWM1ZDYwZDM1NGQ0NzMzY2IwM2UxOWUyNTBkYT4gL1BhZ2VzIDMgMCBS
++IC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9PYmpTdG0gL0xlbmd0
++aCAzMDQgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL04gNiAvRmlyc3QgMzMgPj4Kc3RyZWFtCvDtvn4G
++0A46wsbb0c00bEp49GgKtNpkVjN6MOny5toz7Q78r8U6XwNyPooj37ieOoPGu6lSrsi6qXyj7kMe
++N57gnnyLQ0nh5L2PX3ebfoowa7onfVWdN6tw/gBcfEl9YqYbcKkinGbEZHjEJ4PgtkFknWdFmQI1
++hv9QtIgwkcTPfahJHegpDOg7lNEcjK1EA8UWKp+GI9Vm9xTfeTwDUkXFa/L8w2OsjeNTRGpEv4JL
++9UbT5qvxWS+BOA3GT3EpOI1c4wHj5AMBaq9bnlCRh/rDsNi+H6K2/QrFXS2bOwnmYLrOlITZNBCV
++7Fx00tEnJaJ8KA5UMSAkm9cBWeMuR40dWn90hbL+pxr1w/821oAQ6jLVXgfF4vt9FNhTFrbmCqQ9
++5vlB6nq5KRYeo00pCbwKZW5kc3RyZWFtCmVuZG9iago5IDAgb2JqCjw8IC9MZW5ndGggMTEyIC9G
++aWx0ZXIgL0ZsYXRlRGVjb2RlID4+CnN0cmVhbQo1W736WWnFCKjDYd18pAt9r6aaZ1eb0Lsp0J7p
++6Hd6rCapon1s4enih/Fyi+Md2MXol3/S0wRBT06OX1ivJzCVoODyxPb7fvHDL5pnBs2J5F9FROXg
++Wr7ai0GJC8FipHQ1edOEa/+oUi0Q7mCUs+F1CmVuZHN0cmVhbQplbmRvYmoKMTAgMCBvYmoKPDwg
++L0NGIDw8IC9TdGRDRiA8PCAvQXV0aEV2ZW50IC9Eb2NPcGVuIC9DRk0gL0FFU1YyIC9MZW5ndGgg
++MTYgPj4gPj4gL0ZpbHRlciAvU3RhbmRhcmQgL0xlbmd0aCAxMjggL08gPGQ0MTc5ZjEyNDY2ODE1
++NDFhZjNmYjdjMDhjMDI5NjNkZjMwOWI4MWE3NTJiNDM4MmM2YjAzODNiOWJiZjA2Mzk+IC9PRSA8
++PiAvUCAtMTI5MiAvUiA0IC9TdG1GIC9TdGRDRiAvU3RyRiAvU3RkQ0YgL1UgPDUzODEwNTI0MDZj
++N2IwNzZmMGVhMzA4NGVkZDQwOWJmMDAyMTQ0Njk5MGI5ZTQxMTQwNzFhNGQ5MTA0OTg0YzE+IC9V
++RSA8PiAvViA0ID4+CmVuZG9iagoxMSAwIG9iago8PCAvVHlwZSAvWFJlZiAvTGVuZ3RoIDQyIC9G
++aWx0ZXIgL0ZsYXRlRGVjb2RlIC9EZWNvZGVQYXJtcyA8PCAvQ29sdW1ucyA0IC9QcmVkaWN0b3Ig
++MTIgPj4gL1cgWyAxIDIgMSBdIC9JbmZvIDYgMCBSIC9Sb290IDEgMCBSIC9TaXplIDEyIC9JRCBb
++PGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPjxlZjgyZGEwZmFlOTIxZWYxY2U2Nzdl
++ZGUxNWYzYzIzMj5dIC9FbmNyeXB0IDEwIDAgUiA+PgpzdHJlYW0KeJxjYgACJkYGfgYmBob3IBYL
++iMXAiJX4zzTxNxMD4w6gEkZbBgBY7wSmCmVuZHN0cmVhbQplbmRvYmoKc3RhcnR4cmVmCjExNjAK
++JSVFT0YK
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-perm-9.pdf.b64
+@@ -0,0 +1,27 @@
++JVBERi0xLjYKJb/3ov4KMSAwIG9iago8PCAvQWNyb0Zvcm0gPDwgL0RBIDxlODNmMzI5OTljNTkx
++NTBkYjQwOTBiY2YyZTIwN2NkNjEwYjZlNzVkZTNkYzAyMzIyMmI1YmM2MzgxZjNhZGE1PiAvRmll
++bGRzIFsgNyAwIFIgXSAvU2lnRmxhZ3MgMyA+PiAvTGFuZyA8YzA3ZjAwN2QzNzI5ZGVkYWFjNTI1
++MTcwYWZkMGJhZTM3NzQ4Mjg5ZjJhZDZmNzZlYTk4ZjA5MjQ0OTkzNzA1ZT4gL1BhZ2VzIDMgMCBS
++IC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9PYmpTdG0gL0xlbmd0
++aCAzMDQgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL04gNiAvRmlyc3QgMzMgPj4Kc3RyZWFtCi6exFGo
++7/ERI8GF/iQcu8gwQKEfjNOrDHZmOd56UVjiyoItCCtpUJ876s97kdwMqaLRs91ZyHTwUf5nkSnR
++vssZ6VHjZcefPAgnZEbJ2lyXuTc/J0SsaI7jAeyZ8ZANyusDgNdW0IdMhaPyj8/vv0lIJ7XWkO2h
++cYsCA8twYrUBxjYKtbD5ubbQ2pSnDxmEYAxAnP+5Xms8YHZsKEAQWIkomWEgFT1AyGsJB3C9hv9n
+++XjFYyMfK1zLGr8z+dIgO5HxNVJ80c8tl24K+gecgfMbwAp0egdRL2P/587egHXf4sb9fs9y1t2d
++BfJvylNRrQWrZkeGZdICfPhvW8kad6sSgqiMOhhUCV6VMBeobWxwBpQG/ABYAJ2jGUU4gHkRc2yl
++UE9LoD+uWwuGBTqH2ggKZW5kc3RyZWFtCmVuZG9iago5IDAgb2JqCjw8IC9MZW5ndGggMTEyIC9G
++aWx0ZXIgL0ZsYXRlRGVjb2RlID4+CnN0cmVhbQpxEFzR5sgEb/iYKQX+A/+WofVM97V286grRVf1
++2rC2WwPQK8oFHyKK8QQe2kOwCvI0cqinL8kxnaxgSf45cScbhaeulYidIzrNj8lcCk8BNqIDsABS
++liQKK/BTj+lkbx6xmPrVZrXdlhH5h+IGWgUOCmVuZHN0cmVhbQplbmRvYmoKMTAgMCBvYmoKPDwg
++L0NGIDw8IC9TdGRDRiA8PCAvQXV0aEV2ZW50IC9Eb2NPcGVuIC9DRk0gL0FFU1YyIC9MZW5ndGgg
++MTYgPj4gPj4gL0ZpbHRlciAvU3RhbmRhcmQgL0xlbmd0aCAxMjggL08gPGQ0MTc5ZjEyNDY2ODE1
++NDFhZjNmYjdjMDhjMDI5NjNkZjMwOWI4MWE3NTJiNDM4MmM2YjAzODNiOWJiZjA2Mzk+IC9PRSA8
++PiAvUCAtMTA2OCAvUiA0IC9TdG1GIC9TdGRDRiAvU3RyRiAvU3RkQ0YgL1UgPGZhYTg2NjZkNGM5
++YWVhMWE2NzJhNzkwY2U1NTQ5OTZjMDAyMTQ0Njk5MGI5ZTQxMTQwNzFhNGQ5MTA0OTg0YzE+IC9V
++RSA8PiAvViA0ID4+CmVuZG9iagoxMSAwIG9iago8PCAvVHlwZSAvWFJlZiAvTGVuZ3RoIDQyIC9G
++aWx0ZXIgL0ZsYXRlRGVjb2RlIC9EZWNvZGVQYXJtcyA8PCAvQ29sdW1ucyA0IC9QcmVkaWN0b3Ig
++MTIgPj4gL1cgWyAxIDIgMSBdIC9JbmZvIDYgMCBSIC9Sb290IDEgMCBSIC9TaXplIDEyIC9JRCBb
++PGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPjxlZjgyZGEwZmFlOTIxZWYxY2U2Nzdl
++ZGUxNWYzYzIzMj5dIC9FbmNyeXB0IDEwIDAgUiA+PgpzdHJlYW0KeJxjYgACJkYGfgYmBob3IBYL
++iMXAiJX4zzTxNxMD4w6gEkZbBgBY7wSmCmVuZHN0cmVhbQplbmRvYmoKc3RhcnR4cmVmCjExNjAK
++JSVFT0YK
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-perm-none.pdf.b64
+@@ -0,0 +1,27 @@
++JVBERi0xLjYKJb/3ov4KMSAwIG9iago8PCAvQWNyb0Zvcm0gPDwgL0RBIDw2OWIzOTQ1YjVlNzBj
++NGFiN2RlZTAxOWE2NDY5YTdhNjUzMzhjYmIxZTA5NmQxZWFjNzhhMjViYWM3NDZhYTgyPiAvRmll
++bGRzIFsgNyAwIFIgXSAvU2lnRmxhZ3MgMyA+PiAvTGFuZyA8NjQwYzE3ZjY3ZjY3MDBjMzQ0MWRj
++YzFlMzkzN2RjYjM5N2Q5MjhiZGMzMzY2YTQwYjAwYzBhZmM4ZWJjODE4Mj4gL1BhZ2VzIDMgMCBS
++IC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9PYmpTdG0gL0xlbmd0
++aCAzMDQgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL04gNiAvRmlyc3QgMzMgPj4Kc3RyZWFtCnFuKHU1
++D2p2u0dNzubr8uMoGRK9doJcK2k8zmGe63v5cgJwYbWYY5TVEs+YUbWBTnhldUiJYHQwQsgt43dx
++Whbyhjha2U322Lzn4VmvPsRvJdUZOs3DkP6No66p5qgWoQIgcXiw0Kh6Dm4wVeprbDhOa64be2J3
++/YcMenBDEZsfxE4olx4eHk+dnDlzgtkaYjVPLEZJIezJEd8jQOm/ZyaBY+9Xl/CoIPpDcY0cm3vK
++z5lgXYFz0AqJLwOyuph/TjrA+2xX1T0CEgSgCPds1QmX3wLY88yB02bOax09r83kZ3wu0D08DmO/
++6F9FxrLE0ezWtTdBdjtK6vRrEO+FtC2scOPnVddO35JkFwML6/uFt3ZPROgJ2u4CiQ/n85tZP7Bv
++x8KSQr6/NDOFb0gpLCYKZW5kc3RyZWFtCmVuZG9iago5IDAgb2JqCjw8IC9MZW5ndGggMTEyIC9G
++aWx0ZXIgL0ZsYXRlRGVjb2RlID4+CnN0cmVhbQohGuNb7h5MAlxib3v6IysZb0cBKi/Hfam9balr
++1F5xkRNgKMYsNSi9iEud9I0zOgjCo3jEgjhnRUk0WBqP6xPr/ZsaZJDGAHE5uMpiISweVs7tnsxw
++6PiTlQafpLN/wwzBO77+ck/JbuV0mYKGWRw6CmVuZHN0cmVhbQplbmRvYmoKMTAgMCBvYmoKPDwg
++L0NGIDw8IC9TdGRDRiA8PCAvQXV0aEV2ZW50IC9Eb2NPcGVuIC9DRk0gL0FFU1YyIC9MZW5ndGgg
++MTYgPj4gPj4gL0ZpbHRlciAvU3RhbmRhcmQgL0xlbmd0aCAxMjggL08gPGQ0MTc5ZjEyNDY2ODE1
++NDFhZjNmYjdjMDhjMDI5NjNkZjMwOWI4MWE3NTJiNDM4MmM2YjAzODNiOWJiZjA2Mzk+IC9PRSA8
++PiAvUCAtMTMyNCAvUiA0IC9TdG1GIC9TdGRDRiAvU3RyRiAvU3RkQ0YgL1UgPDVmYjg0NWIwNmNj
++MjYxNTM2MGEzYmZlNmE0YTIxM2E4MDAyMTQ0Njk5MGI5ZTQxMTQwNzFhNGQ5MTA0OTg0YzE+IC9V
++RSA8PiAvViA0ID4+CmVuZG9iagoxMSAwIG9iago8PCAvVHlwZSAvWFJlZiAvTGVuZ3RoIDQyIC9G
++aWx0ZXIgL0ZsYXRlRGVjb2RlIC9EZWNvZGVQYXJtcyA8PCAvQ29sdW1ucyA0IC9QcmVkaWN0b3Ig
++MTIgPj4gL1cgWyAxIDIgMSBdIC9JbmZvIDYgMCBSIC9Sb290IDEgMCBSIC9TaXplIDEyIC9JRCBb
++PGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPjxlZjgyZGEwZmFlOTIxZWYxY2U2Nzdl
++ZGUxNWYzYzIzMj5dIC9FbmNyeXB0IDEwIDAgUiA+PgpzdHJlYW0KeJxjYgACJkYGfgYmBob3IBYL
++iMXAiJX4zzTxNxMD4w6gEkZbBgBY7wSmCmVuZHN0cmVhbQplbmRvYmoKc3RhcnR4cmVmCjExNjAK
++JSVFT0YK
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-rc4-128.pdf.b64
+@@ -0,0 +1,20 @@
++JVBERi0xLjQKJb/3ov4KMSAwIG9iago8PCAvTGFuZyA8NjM3Nzg3OWM4Yz4gL1BhZ2VzIDMgMCBS
++IC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UaXRsZSA8NWNkY2Q5N2U4ZDM0
++NzEyYTZiMzhhMTljNGVlZTNlMTA4N2VlZTBhN2VkZGU+ID4+CmVuZG9iagozIDAgb2JqCjw8IC9D
++b3VudCAxIC9LaWRzIFsgNCAwIFIgXSAvVHlwZSAvUGFnZXMgPj4KZW5kb2JqCjQgMCBvYmoKPDwg
++L0NvbnRlbnRzIDUgMCBSIC9NZWRpYUJveCBbIDAgMCA1OTUgODQyIF0gL1BhcmVudCAzIDAgUiAv
++UmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSA2IDAgUiA+PiA+PiAvVHlwZSAvUGFnZSA+PgplbmRv
++YmoKNSAwIG9iago8PCAvTGVuZ3RoIDg0IC9GaWx0ZXIgL0ZsYXRlRGVjb2RlID4+CnN0cmVhbQpi
++l+6kYEW0SPB9X7kTR3KD/qMeU3gleDCw6+x86YAtvAE5lW1MyDprMlZcZicOr+9iUoLD+c08KcON
++FABosps60+exowDaPh10sul8NNA0g3INrEYKZW5kc3RyZWFtCmVuZG9iago2IDAgb2JqCjw8IC9C
++YXNlRm9udCAvSGVsdmV0aWNhIC9TdWJ0eXBlIC9UeXBlMSAvVHlwZSAvRm9udCA+PgplbmRvYmoK
++NyAwIG9iago8PCAvRmlsdGVyIC9TdGFuZGFyZCAvTGVuZ3RoIDEyOCAvTyA8ZDQxNzlmMTI0NjY4
++MTU0MWFmM2ZiN2MwOGMwMjk2M2RmMzA5YjgxYTc1MmI0MzgyYzZiMDM4M2I5YmJmMDYzOT4gL1Ag
++LTQgL1IgMyAvVSA8ZWQyN2Q3YTYxZjYwNWJmZTY4N2IwNjg3NTFkZDliYTQwMDIxNDQ2OTkwYjll
++NDExNDA3MWE0ZDkxMDQ5ODRjMT4gL1YgMiA+PgplbmRvYmoKeHJlZgowIDgKMDAwMDAwMDAwMCA2
++NTUzNSBmIAowMDAwMDAwMDE1IDAwMDAwIG4gCjAwMDAwMDAwODMgMDAwMDAgbiAKMDAwMDAwMDE1
++OCAwMDAwMCBuIAowMDAwMDAwMjE3IDAwMDAwIG4gCjAwMDAwMDAzNDUgMDAwMDAgbiAKMDAwMDAw
++MDUwMCAwMDAwMCBuIAowMDAwMDAwNTcwIDAwMDAwIG4gCnRyYWlsZXIgPDwgL0luZm8gMiAwIFIg
++L1Jvb3QgMSAwIFIgL1NpemUgOCAvSUQgWzxlZjgyZGEwZmFlOTIxZWYxY2U2NzdlZGUxNWYzYzIz
++Mj48ZWY4MmRhMGZhZTkyMWVmMWNlNjc3ZWRlMTVmM2MyMzI+XSAvRW5jcnlwdCA3IDAgUiA+Pgpz
++dGFydHhyZWYKNzc3CiUlRU9GCg==
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-rc4-40.pdf.b64
+@@ -0,0 +1,20 @@
++JVBERi0xLjMKJb/3ov4KMSAwIG9iago8PCAvTGFuZyA8MzdlYWFmMmQ1YT4gL1BhZ2VzIDMgMCBS
++IC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UaXRsZSA8NDQxY2VjY2M2ZmNj
++ZTc5Y2NkOWI2ZjQxY2Q1OWUyZTRiMjY1NTMyNDJjZjU+ID4+CmVuZG9iagozIDAgb2JqCjw8IC9D
++b3VudCAxIC9LaWRzIFsgNCAwIFIgXSAvVHlwZSAvUGFnZXMgPj4KZW5kb2JqCjQgMCBvYmoKPDwg
++L0NvbnRlbnRzIDUgMCBSIC9NZWRpYUJveCBbIDAgMCA1OTUgODQyIF0gL1BhcmVudCAzIDAgUiAv
++UmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSA2IDAgUiA+PiA+PiAvVHlwZSAvUGFnZSA+PgplbmRv
++YmoKNSAwIG9iago8PCAvTGVuZ3RoIDg0IC9GaWx0ZXIgL0ZsYXRlRGVjb2RlID4+CnN0cmVhbQrK
++AdH6Xsmg6PBLEa3rcpvZ3sHoYbPmw0eoxhyFZebVxR2024KqMYgMq07GsfDw6IKe17RF7ssa4MTw
++zbWPfktrOHNDT+Qqskzkua9SRLMi705/h2wKZW5kc3RyZWFtCmVuZG9iago2IDAgb2JqCjw8IC9C
++YXNlRm9udCAvSGVsdmV0aWNhIC9TdWJ0eXBlIC9UeXBlMSAvVHlwZSAvRm9udCA+PgplbmRvYmoK
++NyAwIG9iago8PCAvRmlsdGVyIC9TdGFuZGFyZCAvTGVuZ3RoIDQwIC9PIDw5ZjZjMzM0MDk2NGIz
++MGY0NTg3ZGNhODdmNTRkN2NkYzM5NDY3Mjg2NzJhZGI5OWU4MmViYTM1ZDY0MzFiMTE2PiAvUCAt
++NCAvUiAyIC9VIDw5ZWQzYTEzMjY4MTViMzQyOTIxZTQ5YTE4MGIxMDZlNTZmYTdjMTA1MDNiNzYw
++MTIzNWUwNjZiZmEzYTNiNjdkPiAvViAxID4+CmVuZG9iagp4cmVmCjAgOAowMDAwMDAwMDAwIDY1
++NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA4MyAwMDAwMCBuIAowMDAwMDAwMTU4
++IDAwMDAwIG4gCjAwMDAwMDAyMTcgMDAwMDAgbiAKMDAwMDAwMDM0NSAwMDAwMCBuIAowMDAwMDAw
++NTAwIDAwMDAwIG4gCjAwMDAwMDA1NzAgMDAwMDAgbiAKdHJhaWxlciA8PCAvSW5mbyAyIDAgUiAv
++Um9vdCAxIDAgUiAvU2l6ZSA4IC9JRCBbPGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMy
++PjxlZjgyZGEwZmFlOTIxZWYxY2U2NzdlZGUxNWYzYzIzMj5dIC9FbmNyeXB0IDcgMCBSID4+CnN0
++YXJ0eHJlZgo3NzYKJSVFT0YK
+--- /dev/null
++++ b/xmlsecurity/qa/unit/pdfsigning/data/hst-encrypted-user-password.pdf.b64
+@@ -0,0 +1,28 @@
++JVBERi0xLjcKJb/3ov4KMSAwIG9iago8PCAvRXh0ZW5zaW9ucyA8PCAvQURCRSA8PCAvQmFzZVZl
++cnNpb24gLzEuNyAvRXh0ZW5zaW9uTGV2ZWwgOCA+PiA+PiAvTGFuZyA8YzlhMjIwN2M0N2QzYzlk
++YWFiMGYzOTdkOGMwYzFhNmYzY2FlZTczNDYxYTA1YjY4ZDQ0ZWIwMTgyMzAzMTFkOD4gL1BhZ2Vz
++IDMgMCBSIC9UeXBlIC9DYXRhbG9nID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9PYmpTdG0g
++L0xlbmd0aCAyMjQgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL04gNCAvRmlyc3QgMjEgPj4Kc3RyZWFt
++CuUrUuUncbvYw9bMK+31Swsh/s44Nt7VizEsbzpEIRlDwJpHs8+NhEz36Pu/beIatxknbbod6hes
++CWajPIQdkOluHjFp0WNpfW7QJjc1P0RDy6StI1BpZyBJRvC9pVFv9JVTlAe7oAWxTaJqLqWwG3lS
++9DH13RBnLjWoB5Prs+nLWGi/o0XXmuC37FUINsDJLVWITMheMvqbKzJonyz5J5AAuZ/oJpxf4I8C
++9mQe6IqSJKibmgZQ8T3eAPYjUX/X7iP09O/kjBddtnhAaEtCpIO5S7JNo71XAVPZ+aEkQ3BwCmVu
++ZHN0cmVhbQplbmRvYmoKNyAwIG9iago8PCAvTGVuZ3RoIDExMiAvRmlsdGVyIC9GbGF0ZURlY29k
++ZSA+PgpzdHJlYW0KKD054NuC7eI/F/MwdpDj3RIxCtwfx6M2xHDme3SXwViNkvY7U8DqBY/kO4nQ
++LW14cnTAXZLJJ6y1yZ8PYHZVY8fEF8N7JBYQRsF1oebeKlyhMRWp6OiqFNwEY/BZUTIrNfO3Dz/l
++Q4xPF/egvXX4awplbmRzdHJlYW0KZW5kb2JqCjggMCBvYmoKPDwgL0NGIDw8IC9TdGRDRiA8PCAv
++QXV0aEV2ZW50IC9Eb2NPcGVuIC9DRk0gL0FFU1YzIC9MZW5ndGggMzIgPj4gPj4gL0ZpbHRlciAv
++U3RhbmRhcmQgL0xlbmd0aCAyNTYgL08gPDc2M2I0YmJjYmQ1MmQyZDA4NWU3ZTZhMGQ1ODYzY2Zj
++MDljZjU4MDAyM2E4ZmQwM2EwNTFjZjM5OWVlMTRjYzNkMDkzMTVjMjNhM2M3OTc4ZGEwMWZkYzli
++OTA1MTZlND4gL09FIDxjY2UyYTg0MzFiYmI3YjZiMWM3MzE1YTJiZWY2OWFiYmI0MzEyMGM1NjMy
++MmY0MGQwOTJlZDYwMjQ4MWJhOGJkPiAvUCAtNCAvUGVybXMgPGM2MDg1YmUzZDc3MDYwNWVlMWJi
++NDExYTZiMTQ0MDQ3PiAvUiA2IC9TdG1GIC9TdGRDRiAvU3RyRiAvU3RkQ0YgL1UgPDE4NzYzZGY3
++ZWJkZDJkNjA5M2ZkYjljYTQyNTk4ZDg4MWQ5OTJlNzgxZmYzYjE0NDRmMmRjNDIyZDc1NWEwYjZl
++N2YyZmFiMTI1ZjM3NWNmMzA2ZTcyMjFlOTVmYjE0OT4gL1VFIDw2ODhlMWNlMDEyYjE4NzgxNWJk
++NzU4Mjg5ZjAyYjNhNTk5YWVhOGU1YWU4YjRhMjNhZmMwZjg5MmMyZjk1NWIwPiAvViA1ID4+CmVu
++ZG9iago5IDAgb2JqCjw8IC9UeXBlIC9YUmVmIC9MZW5ndGggNDEgL0ZpbHRlciAvRmxhdGVEZWNv
++ZGUgL0RlY29kZVBhcm1zIDw8IC9Db2x1bW5zIDQgL1ByZWRpY3RvciAxMiA+PiAvVyBbIDEgMiAx
++IF0gL0luZm8gNiAwIFIgL1Jvb3QgMSAwIFIgL1NpemUgMTAgL0lEIFs8ZWY4MmRhMGZhZTkyMWVm
++MWNlNjc3ZWRlMTVmM2MyMzI+PGVmODJkYTBmYWU5MjFlZjFjZTY3N2VkZTE1ZjNjMjMyPl0gL0Vu
++Y3J5cHQgOCAwIFIgPj4Kc3RyZWFtCnicY2IAAiZGBn4GJgaGPSCWOYjFwIhE/Gfi+wtk7QBKMCkz
++AABGTgQFCmVuZHN0cmVhbQplbmRvYmoKc3RhcnR4cmVmCjEyNTkKJSVFT0YK
+--- a/xmlsecurity/qa/unit/pdfsigning/pdfsigning.cxx
++++ b/xmlsecurity/qa/unit/pdfsigning/pdfsigning.cxx
+@@ -23,6 +23,7 @@
+ #include <com/sun/star/xml/crypto/SEInitializer.hpp>
+ #include <com/sun/star/security/DocumentSignatureInformation.hpp>
+ 
++#include <comphelper/base64.hxx>
+ #include <osl/file.hxx>
+ #include <rtl/strbuf.hxx>
+ #include <sal/log.hxx>
+@@ -965,6 +966,257 @@ CPPUNIT_TEST_FIXTURE(PDFSigningTest, testSignatureProblemModifiedAfterSigning)
+     CPPUNIT_ASSERT(!rInfo.X509Datas.empty());
+ }
+ 
++namespace
++{
++/// An encrypted sample of tests/runtime/pdf_encrypted_samples.py, stored in base64.
++std::vector<sal_uInt8> encryptedSample(test::Directories& rDirectories, std::u16string_view aKind)
++{
++    SvFileStream aStream(rDirectories.getURLFromSrc(DATA_DIRECTORY) + "hst-encrypted-" + aKind
++                             + ".pdf.b64",
++                         StreamMode::READ);
++    OStringBuffer aBase64;
++    OString aLine;
++    while (aStream.ReadLine(aLine))
++        aBase64.append(aLine);
++    uno::Sequence<sal_Int8> aBytes;
++    comphelper::Base64::decode(aBytes, OStringToOUString(aBase64, RTL_TEXTENCODING_ASCII_US));
++    CPPUNIT_ASSERT(aBytes.hasElements());
++    return std::vector<sal_uInt8>(aBytes.begin(), aBytes.end());
++}
++
++/// Reads rData as a document to sign, with an optional password.
++std::unique_ptr<vcl::filter::PDFDocument> readSample(const std::vector<sal_uInt8>& rData,
++                                                     const OString& rPassword = OString())
++{
++    SvMemoryStream aStream(const_cast<sal_uInt8*>(rData.data()), rData.size(), StreamMode::READ);
++    auto pDocument = std::make_unique<vcl::filter::PDFDocument>();
++    pDocument->SetPassword(rPassword);
++    CPPUNIT_ASSERT(pDocument->Read(aStream));
++    return pDocument;
++}
++
++/// The signatures of rData that PDFium (opening it with an empty password) verifies; an empty
++/// signature field is not one.
++std::vector<SignatureInformation> verifyEncrypted(const std::vector<sal_uInt8>& rData)
++{
++    SvMemoryStream aStream(const_cast<sal_uInt8*>(rData.data()), rData.size(), StreamMode::READ);
++    PDFSignatureHelper aHelper;
++    CPPUNIT_ASSERT(aHelper.ReadAndVerifySignatureSvStream(aStream));
++    std::vector<SignatureInformation> aValid;
++    for (const SignatureInformation& rInfo : aHelper.GetSignatureInformations())
++        if (rInfo.nStatus == xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED)
++            aValid.push_back(rInfo);
++    return aValid;
++}
++
++bool contains(const std::vector<sal_uInt8>& rData, std::string_view aText)
++{
++    return std::search(rData.begin(), rData.end(), aText.begin(), aText.end()) != rData.end();
++}
++
++const hstpdf::SignaturePlacement aPlacement{ 0, basegfx::B2DRectangle(40, 40, 240, 100),
++                                             basegfx::B2DSize(595, 842) };
++}
++
++/// The certificate of the test profile that can sign, or none.
++static uno::Reference<security::XCertificate>
++signingCertificate(const uno::Reference<xml::crypto::XXMLSecurityContext>& xSecurityContext)
++{
++    uno::Reference<xml::crypto::XSecurityEnvironment> xEnvironment
++        = xSecurityContext->getSecurityEnvironment();
++    for (const auto& xCertificate : xEnvironment->getPersonalCertificates())
++        if (unotest::MacrosTest::IsValid(xCertificate, xEnvironment))
++            return xCertificate;
++    return {};
++}
++
++/// Signing an encrypted PDF appends an encrypted update that keeps the earlier signature valid.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testEncryptedSignKeepsEncryption)
++{
++    if (!vcl::pdf::PDFiumLibrary::get())
++        return;
++    uno::Reference<xml::crypto::XSEInitializer> xSEInitializer
++        = xml::crypto::SEInitializer::create(m_xContext);
++    uno::Reference<xml::crypto::XXMLSecurityContext> xSecurityContext
++        = xSEInitializer->createSecurityContext(OUString());
++    uno::Reference<security::XCertificate> xCertificate = signingCertificate(xSecurityContext);
++    if (!xCertificate.is())
++        return;
++
++    for (std::u16string_view aKind : { u"aes128-objstm", u"aes256", u"rc4-128", u"rc4-40" })
++    {
++        const OString aCase = OUStringToOString(aKind, RTL_TEXTENCODING_ASCII_US);
++        const std::vector<sal_uInt8> aData = encryptedSample(m_directories, aKind);
++        {
++            std::unique_ptr<vcl::filter::PDFDocument> pDocument = readSample(aData);
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), int(vcl::filter::PDFEncryption::Decrypted),
++                                         int(pDocument->GetEncryption()));
++            // the page tree is in encrypted object streams in the AES samples
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), size_t(1), pDocument->GetPages().size());
++            CPPUNIT_ASSERT(pDocument->IsSigningPermitted(true));
++        }
++
++        std::vector<sal_uInt8> aSigned;
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), int(hstpdf::SignResult::Signed),
++                                     int(hstpdf::signPdf(aData, xCertificate, u"Kiểm thử"_ustr,
++                                                         aPlacement, aSigned)));
++        // an incremental update: the original bytes stay, the new strings are encrypted
++        CPPUNIT_ASSERT(std::equal(aData.begin(), aData.end(), aSigned.begin()));
++        CPPUNIT_ASSERT(!contains(aSigned, "Signature1"));
++        CPPUNIT_ASSERT(!contains(aSigned, "/M (D:"));
++        std::vector<SignatureInformation> aInfos = verifyEncrypted(aSigned);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), size_t(1), aInfos.size());
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED,
++                                     aInfos[0].nStatus);
++        {
++            // the newest trailer keeps /Encrypt, the new field is found through the page
++            std::unique_ptr<vcl::filter::PDFDocument> pDocument = readSample(aSigned);
++            CPPUNIT_ASSERT_EQUAL(int(vcl::filter::PDFEncryption::Decrypted),
++                                 int(pDocument->GetEncryption()));
++            CPPUNIT_ASSERT_EQUAL(size_t(1), pDocument->GetSignatureWidgets().size());
++        }
++
++        // a second signature leaves the first one valid
++        std::vector<sal_uInt8> aTwice;
++        CPPUNIT_ASSERT_EQUAL(int(hstpdf::SignResult::Signed),
++                             int(hstpdf::signPdf(aSigned, xCertificate, OUString(), aPlacement,
++                                                 aTwice)));
++        aInfos = verifyEncrypted(aTwice);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), size_t(2), aInfos.size());
++        for (const SignatureInformation& rInfo : aInfos)
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(),
++                                         xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED,
++                                         rInfo.nStatus);
++        CPPUNIT_ASSERT_EQUAL(size_t(2), readSample(aTwice)->GetSignatureWidgets().size());
++    }
++}
++
++/// The permission bits of an encrypted PDF decide between a new field, the empty field, or no.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testEncryptedSignPermissions)
++{
++    if (!vcl::pdf::PDFiumLibrary::get())
++        return;
++    uno::Reference<xml::crypto::XSEInitializer> xSEInitializer
++        = xml::crypto::SEInitializer::create(m_xContext);
++    uno::Reference<xml::crypto::XXMLSecurityContext> xSecurityContext
++        = xSEInitializer->createSecurityContext(OUString());
++    uno::Reference<security::XCertificate> xCertificate = signingCertificate(xSecurityContext);
++    if (!xCertificate.is())
++        return;
++
++    struct Case
++    {
++        std::u16string_view aKind;
++        bool bNewField, bFillField;
++    };
++    // bits 4 (modify), 6 (annotations and forms), 9 (fill in forms)
++    for (const Case& rCase : { Case{ u"perm-4-6", true, true }, Case{ u"perm-6", false, true },
++                               Case{ u"perm-9", false, true }, Case{ u"perm-4", false, false },
++                               Case{ u"perm-none", false, false } })
++    {
++        const OString aCase = OUStringToOString(rCase.aKind, RTL_TEXTENCODING_ASCII_US);
++        const std::vector<sal_uInt8> aData = encryptedSample(m_directories, rCase.aKind);
++        {
++            std::unique_ptr<vcl::filter::PDFDocument> pDocument = readSample(aData);
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), rCase.bNewField,
++                                         pDocument->IsSigningPermitted(true));
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), rCase.bFillField,
++                                         pDocument->IsSigningPermitted(false));
++            CPPUNIT_ASSERT_EQUAL(size_t(1), pDocument->GetEmptySignatureFields().size());
++        }
++        std::vector<sal_uInt8> aSigned;
++        const hstpdf::SignResult eResult
++            = hstpdf::signPdf(aData, xCertificate, OUString(), aPlacement, aSigned);
++        if (!rCase.bFillField)
++        {
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), int(hstpdf::SignResult::NotPermitted),
++                                         int(eResult));
++            continue;
++        }
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), int(hstpdf::SignResult::Signed), int(eResult));
++        const std::vector<SignatureInformation> aInfos = verifyEncrypted(aSigned);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), size_t(1), aInfos.size());
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(),
++                                     xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED,
++                                     aInfos[0].nStatus);
++        std::unique_ptr<vcl::filter::PDFDocument> pDocument = readSample(aSigned);
++        // a new field beside the empty one, or the empty one signed
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), size_t(rCase.bNewField ? 2 : 1),
++                                     pDocument->GetSignatureWidgets().size());
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), size_t(rCase.bNewField ? 1 : 0),
++                                     pDocument->GetEmptySignatureFields().size());
++    }
++}
++
++/// The permissions (owner) password unlocks signing; a wrong one does not.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testEncryptedSignOwnerPassword)
++{
++    if (!vcl::pdf::PDFiumLibrary::get())
++        return;
++    uno::Reference<xml::crypto::XSEInitializer> xSEInitializer
++        = xml::crypto::SEInitializer::create(m_xContext);
++    uno::Reference<xml::crypto::XXMLSecurityContext> xSecurityContext
++        = xSEInitializer->createSecurityContext(OUString());
++    uno::Reference<security::XCertificate> xCertificate = signingCertificate(xSecurityContext);
++    if (!xCertificate.is())
++        return;
++
++    for (std::u16string_view aKind :
++         { u"perm-none", u"locked-rc4-40", u"locked-rc4-128", u"locked-aes256" })
++    {
++        const OString aCase = OUStringToOString(aKind, RTL_TEXTENCODING_ASCII_US);
++        const std::vector<sal_uInt8> aData = encryptedSample(m_directories, aKind);
++        CPPUNIT_ASSERT_MESSAGE(aCase.getStr(), !readSample(aData, "sai"_ostr)->IsSigningPermitted(false));
++        CPPUNIT_ASSERT_MESSAGE(aCase.getStr(), readSample(aData, "chu"_ostr)->IsSigningPermitted(true));
++        std::vector<sal_uInt8> aSigned;
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), int(hstpdf::SignResult::NotPermitted),
++                                     int(hstpdf::signPdf(aData, xCertificate, OUString(),
++                                                         aPlacement, aSigned, "sai"_ostr)));
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), int(hstpdf::SignResult::Signed),
++                                     int(hstpdf::signPdf(aData, xCertificate, OUString(),
++                                                         aPlacement, aSigned, "chu"_ostr)));
++        const std::vector<SignatureInformation> aInfos = verifyEncrypted(aSigned);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(), size_t(1), aInfos.size());
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCase.getStr(),
++                                     xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED,
++                                     aInfos[0].nStatus);
++        // the update keeps the original encryption: no password opens it, with the same limits
++        std::unique_ptr<vcl::filter::PDFDocument> pDocument = readSample(aSigned);
++        CPPUNIT_ASSERT_EQUAL(int(vcl::filter::PDFEncryption::Decrypted),
++                             int(pDocument->GetEncryption()));
++        CPPUNIT_ASSERT(!pDocument->IsSigningPermitted(true));
++    }
++}
++
++/// A file with an open password needs it to be signed.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testEncryptedSignUserPassword)
++{
++    uno::Reference<xml::crypto::XSEInitializer> xSEInitializer
++        = xml::crypto::SEInitializer::create(m_xContext);
++    uno::Reference<xml::crypto::XXMLSecurityContext> xSecurityContext
++        = xSEInitializer->createSecurityContext(OUString());
++    const std::vector<sal_uInt8> aData = encryptedSample(m_directories, u"user-password");
++    CPPUNIT_ASSERT_EQUAL(int(vcl::filter::PDFEncryption::NeedsPassword),
++                         int(readSample(aData)->GetEncryption()));
++    CPPUNIT_ASSERT(readSample(aData)->GetPages().empty());
++    std::unique_ptr<vcl::filter::PDFDocument> pUser = readSample(aData, "mo"_ostr);
++    CPPUNIT_ASSERT_EQUAL(int(vcl::filter::PDFEncryption::Decrypted), int(pUser->GetEncryption()));
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pUser->GetPages().size());
++
++    uno::Reference<security::XCertificate> xCertificate = signingCertificate(xSecurityContext);
++    if (!xCertificate.is())
++        return;
++    std::vector<sal_uInt8> aSigned;
++    CPPUNIT_ASSERT_EQUAL(int(hstpdf::SignResult::NeedsPassword),
++                         int(hstpdf::signPdf(aData, xCertificate, OUString(), aPlacement, aSigned)));
++    CPPUNIT_ASSERT_EQUAL(int(hstpdf::SignResult::Signed),
++                         int(hstpdf::signPdf(aData, xCertificate, OUString(), aPlacement, aSigned,
++                                             "mo"_ostr)));
++    std::unique_ptr<vcl::filter::PDFDocument> pSigned = readSample(aSigned, "mo"_ostr);
++    CPPUNIT_ASSERT_EQUAL(int(vcl::filter::PDFEncryption::Decrypted), int(pSigned->GetEncryption()));
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pSigned->GetSignatureWidgets().size());
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/xmlsecurity/source/helper/pdfsignaturehelper.cxx
++++ b/xmlsecurity/source/helper/pdfsignaturehelper.cxx
+@@ -770,6 +770,12 @@ bool PDFSignatureHelper::Sign(const uno::Reference<frame::XModel>& xModel,
+         SAL_WARN("xmlsecurity.helper", "failed to read the document");
+         return false;
+     }
++    // the encryption permissions of the sender's file are respected, as by other signers
++    if (!aDocument.IsSigningPermitted(/*bNewField=*/true))
++    {
++        SAL_WARN("xmlsecurity.helper", "the permissions of the document forbid signing");
++        return false;
++    }
+ 
+     sal_Int32 nPage = 0;
+     std::vector<sal_Int8> aSignatureLineShape;
+--- a/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
+@@ -321,21 +321,44 @@ SignatureSummary verifySignatures(const std::vector<sal_uInt8>& rData)
+ 
+ SignResult signPdf(const std::vector<sal_uInt8>& rData,
+              const uno::Reference<security::XCertificate>& xCertificate, const OUString& rReason,
+-             const std::optional<SignaturePlacement>& oPlacement, std::vector<sal_uInt8>& rSigned)
++             const std::optional<SignaturePlacement>& oPlacement, std::vector<sal_uInt8>& rSigned,
++             const OString& rPassword)
+ {
+     if (!xCertificate.is())
+         return SignResult::Failed;
+     SvMemoryStream aInput(const_cast<sal_uInt8*>(rData.data()), rData.size(), StreamMode::READ);
+     vcl::filter::PDFDocument aDocument;
+-    // The signature is appended as an incremental update, which needs the page tree. A file
+-    // whose objects sit in encrypted object streams (as iText writes them) cannot be read for
+-    // that: say so instead of blaming the token.
+-    if (!aDocument.Read(aInput) || aDocument.GetPages().empty())
++    aDocument.SetPassword(rPassword);
++    // The signature is appended as an incremental update, which needs the page tree: say so
++    // when the file cannot be read for that, instead of blaming the token.
++    const bool bRead = aDocument.Read(aInput);
++    if (bRead && aDocument.GetEncryption() == vcl::filter::PDFEncryption::NeedsPassword)
++        return SignResult::NeedsPassword;
++    if (!bRead || aDocument.GetEncryption() == vcl::filter::PDFEncryption::Unsupported
++        || aDocument.GetPages().empty())
+     {
+         SAL_WARN("xmlsecurity.hstpdf", "signPdf: cannot update this PDF incrementally");
+         return SignResult::Unsupported;
+     }
+-    if (oPlacement)
++    if (!aDocument.IsSigningPermitted(/*bNewField=*/true))
++    {
++        const std::vector<vcl::filter::PDFSignatureField> aFields
++            = aDocument.GetEmptySignatureFields();
++        if (aFields.empty() || !aDocument.IsSigningPermitted(/*bNewField=*/false))
++            return SignResult::NotPermitted;
++        // sign the empty field the sender prepared, with an appearance of its size
++        const vcl::filter::PDFSignatureField& rField = aFields.front();
++        const double fWidth = rField.fRight - rField.fLeft;
++        const double fHeight = rField.fTop - rField.fBottom;
++        aDocument.SetSignatureField(rField.pWidget);
++        std::vector<sal_Int8> aAppearance = createAppearance(
++            SignaturePlacement{ static_cast<int>(rField.nPage), PointRect(0, 0, fWidth, fHeight),
++                                basegfx::B2DSize(fWidth, fHeight) },
++            describeCertificate(xCertificate), rReason);
++        if (!aAppearance.empty())
++            aDocument.SetSignatureLine(std::move(aAppearance));
++    }
++    else if (oPlacement)
+     {
+         std::vector<sal_Int8> aAppearance
+             = createAppearance(*oPlacement, describeCertificate(xCertificate), rReason);
+--- a/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
+@@ -80,17 +80,28 @@ struct SignaturePlacement
+ enum class SignResult
+ {
+     Signed,
+-    /// the file cannot be updated incrementally, e.g. its page tree is in encrypted object streams
++    /// the file cannot be updated incrementally: its structure or its kind of encryption
+     Unsupported,
+     /// the certificate or the token failed
+     Failed,
++    /// the encryption permissions of the file forbid signing it, see signPdf()
++    NotPermitted,
++    /// the file needs its open password
++    NeedsPassword,
+ };
+ 
+-/// Appends a signature to rData; rSigned receives the whole signed file.
+-SignResult signPdf(const std::vector<sal_uInt8>& rData,
++/**
++ * Appends a signature to rData; rSigned receives the whole signed file. An encrypted file
++ * keeps its encryption; rPassword (UTF-8) is its open or permissions password, if any.
++ *
++ * As other signing applications do (ISO 32000-2 Table 22), a new signature field needs the
++ * permissions to modify the file and its annotations and forms; when only filling in forms is
++ * allowed, the first empty signature field is signed instead, else signing is refused.
++ */
++XMLSECURITY_DLLPUBLIC SignResult signPdf(const std::vector<sal_uInt8>& rData,
+              const css::uno::Reference<css::security::XCertificate>& xCertificate,
+              const OUString& rReason, const std::optional<SignaturePlacement>& oPlacement,
+-             std::vector<sal_uInt8>& rSigned);
++             std::vector<sal_uInt8>& rSigned, const OString& rPassword = OString());
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -38,6 +38,7 @@
+ #include <vcl/filter/PngImageWriter.hxx>
+ #include <vcl/graph.hxx>
+ #include <vcl/settings.hxx>
++#include <vcl/stdtext.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/unohelp2.hxx>
+ #include <vcl/virdev.hxx>
+@@ -271,11 +272,13 @@ void PdfViewerWindow::dispose()
+ }
+ 
+ bool PdfViewerWindow::loadDocument(const OUString& rURL, std::vector<sal_uInt8>&& rData,
+-                                   std::chrono::steady_clock::time_point tStart)
++                                   std::chrono::steady_clock::time_point tStart,
++                                   const OString& rPassword)
+ {
+     PdfViewerDocument::LoadResult eResult;
++    OString aPassword = rPassword;
+     std::unique_ptr<PdfViewerDocument> xDocument
+-        = PdfViewerDocument::load(std::move(rData), OString(), eResult);
++        = PdfViewerDocument::load(std::move(rData), aPassword, eResult);
+     if (eResult == PdfViewerDocument::LoadResult::NeedsPassword)
+     {
+         // up to three tries, like other password prompts
+@@ -285,9 +288,8 @@ bool PdfViewerWindow::loadDocument(const OUString& rURL, std::vector<sal_uInt8>&
+             aDialog.ShowExtras(SfxShowExtras::NONE);
+             if (aDialog.run() != RET_OK)
+                 return false;
+-            xDocument = PdfViewerDocument::load(std::move(rData),
+-                                                OUStringToOString(aDialog.GetPassword(), RTL_TEXTENCODING_UTF8),
+-                                                eResult);
++            aPassword = OUStringToOString(aDialog.GetPassword(), RTL_TEXTENCODING_UTF8);
++            xDocument = PdfViewerDocument::load(std::move(rData), aPassword, eResult);
+         }
+     }
+     if (!xDocument)
+@@ -296,6 +298,7 @@ bool PdfViewerWindow::loadDocument(const OUString& rURL, std::vector<sal_uInt8>&
+     m_tStart = tStart;
+     m_nOpenMillis = -1;
+     m_aURL = rURL;
++    m_aPassword = aPassword;
+     m_xDocument = std::move(xDocument);
+     m_aMatches.clear();
+     m_nCurrentMatch = -1;
+@@ -649,11 +652,40 @@ bool PdfViewerWindow::sign(const OUString& rTargetURL)
+                                          m_xDocument->getPageSize(rPlacement.first) };
+     }
+     std::vector<sal_uInt8> aSigned;
++    OString aPassword = m_aPassword;
+     SignResult eResult;
+     {
+         weld::WaitObject aWait(GetFrameWeld());
+         eResult = signPdf(m_xDocument->getData(), m_xCertificate, m_xReason->get_text(), oPlacement,
+-                          aSigned);
++                          aSigned, aPassword);
++    }
++    // the sender's permissions forbid signing: the permissions (owner) password gives full
++    // access, the file keeps its encryption
++    for (int nTry = 0; nTry < 3 && eResult == SignResult::NotPermitted; ++nTry)
++    {
++        const OUString aMessage = XsResId(nTry ? STR_HSTPDF_SIGN_PERMISSIONS_WRONG
++                                               : STR_HSTPDF_SIGN_NOT_PERMITTED);
++        setInfo(aMessage);
++        std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
++            GetFrameWeld(), VclMessageType::Warning, VclButtonsType::NONE, aMessage));
++        xBox->add_button(XsResId(STR_HSTPDF_SIGN_PERMISSIONS_PASSWORD), RET_YES);
++        xBox->add_button(GetStandardText(StandardButtonType::Close), RET_CLOSE);
++        xBox->set_default_response(RET_CLOSE);
++        if (xBox->run() != RET_YES)
++            return false;
++        SfxPasswordDialog aDialog(GetFrameWeld());
++        aDialog.ShowExtras(SfxShowExtras::NONE);
++        if (aDialog.run() != RET_OK)
++            return false;
++        aPassword = OUStringToOString(aDialog.GetPassword(), RTL_TEXTENCODING_UTF8);
++        weld::WaitObject aWait(GetFrameWeld());
++        eResult = signPdf(m_xDocument->getData(), m_xCertificate, m_xReason->get_text(),
++                          oPlacement, aSigned, aPassword);
++    }
++    if (eResult == SignResult::NotPermitted)
++    {
++        setInfo(XsResId(STR_HSTPDF_SIGN_PERMISSIONS_WRONG));
++        return false;
+     }
+     bool bSigned = eResult == SignResult::Signed;
+     if (bSigned)
+@@ -671,6 +703,8 @@ bool PdfViewerWindow::sign(const OUString& rTargetURL)
+     {
+         const OUString aMessage = XsResId(eResult == SignResult::Unsupported
+                                               ? STR_HSTPDF_SIGN_UNSUPPORTED
++                                          : eResult == SignResult::NeedsPassword
++                                              ? STR_HSTPDF_SIGN_NEEDS_PASSWORD
+                                               : STR_HSTPDF_SIGN_FAILED);
+         setInfo(aMessage);
+         std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
+@@ -683,7 +717,7 @@ bool PdfViewerWindow::sign(const OUString& rTargetURL)
+     const OUString aName = INetURLObject(aTarget).GetLastName(INetURLObject::DecodeMechanism::WithCharset);
+     const int nPage = m_xPages->getCurrentPage();
+     m_xPages->setPlacement(std::nullopt);
+-    loadDocument(aTarget, std::move(aSigned), std::chrono::steady_clock::now());
++    loadDocument(aTarget, std::move(aSigned), std::chrono::steady_clock::now(), m_aPassword);
+     m_xPages->goToPage(nPage);
+     m_xVisible->set_active(false);
+     m_xPages->setPlacementMode(false);
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
+@@ -45,8 +45,10 @@ public:
+ 
+     /// Shows the PDF in rData (read from rURL); false when PDFium cannot open it.
+     /// tStart is when loading began, for the "opened in" figure.
++    /// rPassword is tried first on an encrypted file, before asking for one.
+     bool loadDocument(const OUString& rURL, std::vector<sal_uInt8>&& rData,
+-                      std::chrono::steady_clock::time_point tStart);
++                      std::chrono::steady_clock::time_point tStart,
++                      const OString& rPassword = OString());
+     const OUString& getURL() const { return m_aURL; }
+     OUString getTitle() const;
+     void setTitleChangedHdl(const Link<PdfViewerWindow&, void>& rLink) { m_aTitleChangedHdl = rLink; }
+@@ -95,6 +97,8 @@ private:
+     std::unique_ptr<svt::AcceleratorExecute> m_xAccExec;
+     std::unique_ptr<PdfViewerDocument> m_xDocument;
+     OUString m_aURL;
++    /// The password that opened the document, if it needed one: signing uses it too.
++    OString m_aPassword;
+     std::chrono::steady_clock::time_point m_tStart;
+     sal_Int64 m_nOpenMillis = -1; ///< load start to first painted page
+     Link<PdfViewerWindow&, void> m_aTitleChangedHdl;

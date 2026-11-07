@@ -1,0 +1,83 @@
+HST Office: its own SharePoint support class, type library and ProgID.
+
+spsupp_x86/x64.dll registered LibreOffice's LOSPSupport.OpenDocuments ProgID, class id
+{F1924D0C-9B35-4A46-BCDE-CFEF2CE67A17} and type library {580411ED-80EC-4834-BA1F-2EB07A49C80B},
+so installing or removing either suite replaced or deleted the other's registration.
+
+- Class id {28290BF3-5BD8-46EB-8DE2-F579F43C84F5} (also the coclass id in the type library),
+  type library {4911128C-9CD7-417C-A187-792464493057}, ProgIDs HSTOffice.SPSupport.OpenDocuments
+  and .1 to .5. Generated once for HST Office and never changed.
+- The interfaces keep Microsoft's ids (IOWSNewDocument*): SharePoint calls them.
+- The optional "replace the Office SharePoint handler" feature still points Microsoft's
+  SharePoint.OpenDocuments at the HST class, as it is meant to.
+- The start-up error message names HST Office, in Vietnamese.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/shell/source/win32/spsupp/spsupp.idl
++++ b/shell/source/win32/spsupp/spsupp.idl
+@@ -8,9 +8,9 @@
+ */
+ 
+ [
+-  uuid(580411ED-80EC-4834-BA1F-2EB07A49C80B),
++  uuid(4911128C-9CD7-417C-A187-792464493057),
+   version(0.1),
+-  helpstring("LibreOffice SharePoint Client Support Type Library v.0.1")
++  helpstring("HST Office SharePoint Client Support Type Library v.0.1")
+ ]
+ library spsupp
+ {
+@@ -134,7 +134,7 @@ library spsupp
+     };
+ 
+     [
+-      uuid(4AD14812-2807-48B1-A27F-BA836D874E45),
++      uuid(28290BF3-5BD8-46EB-8DE2-F579F43C84F5),
+       helpstring("COMOpenDocuments Class")
+     ]
+     coclass COMOpenDocuments {
+--- a/shell/source/win32/spsupp/spsuppHelper.cxx
++++ b/shell/source/win32/spsupp/spsuppHelper.cxx
+@@ -131,7 +131,7 @@ DWORD LOStart(const wchar_t* sModeArg, const wchar_t* sFilePath)
+     if (!CreateProcessW(nullptr, pCmdLine, nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi))
+     {
+         DWORD dwError = GetLastError();
+-        const OUString sErrorMsg = "Could not start LibreOffice. Error is 0x"
++        const OUString sErrorMsg = u"Không khởi động được HST Office. Mã lỗi 0x"_ustr
+                                    + OUString::number(dwError, 16) + ":\n\n"
+                                    + comphelper::WindowsErrorString(dwError);
+ 
+--- a/shell/source/win32/spsupp/spsuppServ.cxx
++++ b/shell/source/win32/spsupp/spsuppServ.cxx
+@@ -80,9 +80,10 @@ BOOL APIENTRY DllMain( HANDLE hinstDLL,
+ }
+ 
+ namespace {
+-    // {F1924D0C-9B35-4A46-BCDE-CFEF2CE67A17}
++    // {28290BF3-5BD8-46EB-8DE2-F579F43C84F5}: HST Office's own class (ProgID HSTOffice.SPSupport.OpenDocuments), so that an
++    // installed LibreOffice and HST Office never replace each other's SharePoint registration.
+     const IID CLSID_spsupp =
+-    { 0xf1924d0c, 0x9b35, 0x4a46, { 0xbc, 0xde, 0xcf, 0xef, 0x2c, 0xe6, 0x7a, 0x17 } };
++    { 0x28290bf3, 0x5bd8, 0x46eb, { 0x8d, 0xe2, 0xf5, 0x79, 0xf4, 0x3c, 0x84, 0xf5 } };
+ }
+ 
+ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppvOut)
+@@ -124,7 +125,7 @@ STDAPI DllRegisterServer(void)
+ 
+     // Default is v.5
+     return Registrar(CLSID_spsupp)
+-        .RegisterObject(LIBID_spsupp, L"LOSPSupport", L"OpenDocuments", { 5, 1, 2, 3, 4 }, szFile);
++        .RegisterObject(LIBID_spsupp, L"HSTOffice.SPSupport", L"OpenDocuments", { 5, 1, 2, 3, 4 }, szFile);
+ }
+ 
+ STDAPI DllUnregisterServer(void)
+@@ -145,7 +146,7 @@ STDAPI DllUnregisterServer(void)
+         return hr;
+ 
+     return Registrar(CLSID_spsupp)
+-        .UnRegisterObject(L"LOSPSupport", L"OpenDocuments", { 1, 2, 3, 4, 5 });
++        .UnRegisterObject(L"HSTOffice.SPSupport", L"OpenDocuments", { 1, 2, 3, 4, 5 });
+ }
+ 
+ // This is called when regsvr32.exe is called with "/i" flag

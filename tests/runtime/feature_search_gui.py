@@ -45,18 +45,6 @@ def hst_menu(app):
     return None, []
 
 
-def ribbon_box(office, factory):
-    """UITest state of the toolbox that holds the feature search button (first item), or None. The VCL
-    ribbon is not exposed through AT-SPI, the UITest service sees its widgets by .ui id."""
-    box = "SectionBottomHstNd30" if factory == "swriter" else "SectionBottomHstFeatureSearch"
-    for _ in range(10):  # the document window may take a moment to become the focused top window
-        top = office.service("org.libreoffice.uitest.UITest").getTopFocusWindow()
-        if box in top.getChildren():
-            return {p.Name: p.Value for p in top.getChild(box).getState()}
-        time.sleep(1)
-    return None
-
-
 def popup_entry(app):
     """The search entry of the open popup (its placeholder makes it the only focused text entry), or None."""
     import pyatspi

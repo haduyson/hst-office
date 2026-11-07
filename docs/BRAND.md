@@ -21,7 +21,7 @@
 | `branding/windows/app-icons/{soffice,*_app}.ico`, `branding/icon-themes/mainapp-*` | `.ico` 16–256 cho từng module và icon cửa sổ/Start Center. `scripts/brand/apply-icon-overrides.py` chép vào cây nguồn |
 | `branding/linux/hst-{office,writer,sheets,slides}.desktop` | Launcher Linux (viết tay, `desktop-file-validate` đạt) |
 | `branding/credits.html` | Trang ghi nhận nguồn mở (viết tay); trợ giúp ngoại tuyến: `docs/user-guide/` |
-| `branding/brand-audit-allowlist.json` | Ngoại lệ cho quét chuỗi “LibreOffice/Document Foundation” (chỉ văn bản pháp lý) |
+| `branding/brand-audit-allowlist.json` | Ngoại lệ cho quét tên nguồn gốc: giấy phép, ghi nhận tác giả, chú thích bản quyền và khai báo DTD ngoài giao diện |
 
 `branding/libreoffice/` (tên file do `configure.ac:15571` bắt buộc; thiếu file → configure chỉ cảnh báo và dùng ảnh upstream):
 
@@ -51,6 +51,8 @@ python3 scripts/check-branding.py --install-root upstream/libreoffice/instdir \
 ```
 
 Quét chuỗi chỉ xem file văn bản/cấu hình/`.mo`; **không phát hiện logo TDF nhúng trong ảnh hay chuỗi trong file nhị phân** — cần xem ảnh chụp màn hình. Không thêm cả thư mục UI vào allowlist.
+
+[Danh sách ngoại lệ](../branding/brand-audit-allowlist.json) ghi lý do cho từng mẫu: tên tệp pháp lý ngay gốc bộ cài, thư mục `license/`, tên giấy phép viết thường và một số dòng chú thích bản quyền/khai báo DTD cố định. Mẫu đường dẫn dùng `fnmatch`: `*` khớp cả dấu `/`, còn `**/` đòi có ít nhất một thư mục; vì vậy cần khai báo riêng các tệp pháp lý ở gốc. Regex cho tệp chứa giao diện neo cả đầu và cuối dòng, để nội dung hiển thị trên cùng dòng không bị miễn trừ. Trang trợ giúp, hộp thoại giấy phép, chuỗi dịch và nhãn giao diện vẫn phải báo lỗi. Header `.h`/`.hxx`, tệp `.dtd` và công cụ SDK dạng nhị phân vốn không thuộc loại tệp được quét; các tệp giao diện trong cùng thư mục vẫn được quét. Định danh XML hoặc metadata chưa có ngoại lệ cụ thể vẫn được báo để rà soát.
 
 ## Font
 

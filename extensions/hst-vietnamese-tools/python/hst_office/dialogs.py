@@ -8,6 +8,8 @@ import uno
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
+from . import dialog_edit_heights
+
 OK, CANCEL = 1, 2
 # Accent text colours that stay readable (contrast >= 4.5:1) on the light and on the dark dialog background.
 PALETTES = {False: {"link": 0x0B57D0, "muted": 0x5F6368, "error": 0xC5221F},
@@ -70,6 +72,7 @@ class Dialog:
         self.dialog.setModel(self.model)
         self._listeners = []
         self._watchers = []  # (control name, _Changed)
+        self._single_lines, self._overlays = [], set()  # single-line edits (dialog_edit_heights); lists shown over others
         self.result = 0
         self.on_oversize = None  # called with no arguments when the peer is larger than the screen work area
         self.on_ready, self.on_closed = None, None  # called right after the peer exists / after the dialog has ended
@@ -85,11 +88,15 @@ class Dialog:
         return self._add("FixedText", name, x, y, w, h, Label=text, MultiLine=wrap)
 
     def edit(self, name, x, y, w, h=12, text="", multiline=False, readonly=False, help_text=""):
+        if not multiline:
+            self._single_lines.append(name)
         return self._add("Edit", name, x, y, w, h, Text=text, MultiLine=multiline, VScroll=multiline, HScroll=False,
                          ReadOnly=readonly, HelpText=help_text or name, Tabstop=not readonly or multiline)
 
     def plain_list(self, name, x, y, w, h, help_text=""):
-        """A list box that shows its rows (the Quick Search list); it never takes part in Tab order."""
+        """A list box that shows its rows (the Quick Search list); it never takes part in Tab order. It is shown over the
+        controls under it, so it never limits their room (dialog_edit_heights)."""
+        self._overlays.add(name)
         return self._add("ListBox", name, x, y, w, h, Dropdown=False, Tabstop=False, HelpText=help_text or name)
 
     def listbox(self, name, x, y, w, items, selected=0, h=12, help_text=""):
@@ -144,6 +151,7 @@ class Dialog:
         toolkit = self.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", self.ctx)
         self.dialog.setVisible(False)
         self.dialog.createPeer(toolkit, parent_peer)
+        dialog_edit_heights.fit_edits(self)
         if self.on_oversize and self._exceeds_screen(toolkit):
             self.on_oversize()
         for name, listener in self._listeners:

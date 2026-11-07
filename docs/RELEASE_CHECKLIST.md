@@ -14,7 +14,7 @@ Một bản phát hành chỉ được đánh dấu sẵn sàng khi **mọi mụ
 
 ## B. Thương hiệu
 
-- [ ] `scripts/check-branding.py --install-root <instdir>` không còn chuỗi "LibreOffice/Document Foundation" ngoài allowlist pháp lý.
+- [ ] `scripts/check-branding.py --install-root <instdir>` không còn tên nguồn gốc ngoài [ngoại lệ giấy phép, bản quyền và khai báo DTD](../branding/brand-audit-allowlist.json); nội dung giao diện vẫn phải báo lỗi.
 - [ ] Ảnh chụp: splash, Start Center, About (có "derived from LibreOffice"), launcher, icon 3 module.
 
 ## C. Chức năng (Linux x86_64)

@@ -11,6 +11,10 @@ setting them with undo enabled wipes the whole undo stack, so they run under `un
 shifts node positions recorded by older undo actions (redo then crashes Writer), therefore page numbers also
 clear the undo history first. Margins-only keeps the history. Nothing is changed if the values are invalid,
 and a failure while applying restores the previous style values.
+
+Two-sided printing ("In hai mặt", nd30_duplex): ND30 Phụ lục I, Phần I, Mục I, khoản 3 (margins) and khoản 7 (page
+number) set no back-page margins, so ND30 pages are never mirrored; only Party documents mirror them (Hướng dẫn
+05-HD/VPTW, IV.4.2). PageStyleLayout is copied with the other values, so an attached document keeps the choice.
 """
 from .nd30 import profile_rules, validate_margins
 from .undo import style_snapshot, undo_locked
@@ -20,7 +24,7 @@ HEADER_HEIGHT_MM = 10.0  # LibreOffice writes DOCX w:top = TopMargin + header he
 HEADER_GAP_MM = 0.0
 PROPERTIES = ("IsLandscape", "Width", "Height", "TopMargin", "BottomMargin", "LeftMargin", "RightMargin",
               "HeaderIsOn", "FirstIsShared", "HeaderIsDynamicHeight", "HeaderHeight", "HeaderBodyDistance",
-              "FooterIsOn", "FooterIsDynamicHeight", "FooterHeight", "FooterBodyDistance")
+              "FooterIsOn", "FooterIsDynamicHeight", "FooterHeight", "FooterBodyDistance", "PageStyleLayout")
 FOOTER_HEIGHT_MM = 10.0  # the first-page footer (contact details of an official letter) is a band in the bottom margin
 
 

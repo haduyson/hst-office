@@ -4,6 +4,8 @@ import os
 
 from hst_office import nd30, nd30_layout, nd30_writer
 import template_layout_measure as measure
+from template_layout_rules import _centred, _ruled, check_rules
+import templates_multipage_fill
 
 FILLER = "Đo kiểm bố cục văn bản hành chính. Dòng nội dung này dùng để kiểm tra lề trang, khoảng cách dòng và vị trí số trang khi văn bản kéo dài qua nhiều trang."
 LONG = {"parentAgency": "Ủy ban nhân dân tỉnh Ví Dụ", "agency": "Sở Khoa học và Công nghệ tỉnh Ví Dụ phục vụ thử nghiệm",
@@ -23,18 +25,24 @@ def _body_top_profile(profile_data, copy_rule=False):
     return {**profile_data, "bodyTopMm": [top, top + 0.3 + leading + 1.5 * copy_rule]}
 
 
-def _ott_doc(path, filler):
+def _ott_doc(path, filler, ruled=False):
+    """The template with 70 filler paragraphs before its signature; a ruled form (an office form of the van-thu group)
+    grows by 70 table rows instead, the way the multi-page check and a user fill it."""
     def open_doc(desktop, prop):
         doc = desktop.loadComponentFromURL("file://" + path, "_blank", 0, (prop("Hidden", True), prop("AsTemplate", True)))
-        if filler:
+        rows = templates_multipage_fill.filler_for(templates_multipage_fill.Document(doc), "Body", True) if filler and ruled else None
+        if rows is not None and rows.table is not None:
+            for _ in range(70):
+                rows.add()
+        elif filler:
             text = doc.getText()
             elements, previous = text.createEnumeration(), None
-            while elements.hasMoreElements():  # the last paragraph before the signature table
+            while elements.hasMoreElements():  # the last text paragraph before the signature table (not the gap above it)
                 element = elements.nextElement()
                 if element.supportsService("com.sun.star.text.TextTable"):
                     if element.getName().startswith("Signature"):
                         break
-                else:
+                elif not element.ParaStyleName.startswith("TableGap"):
                     previous = element
             cursor = text.createTextCursorByRange(previous.getEnd() if previous else text.getEnd())
             for index in range(70):
@@ -63,6 +71,12 @@ def _wizard_doc(type_id, fields):
     return open_doc
 
 
+def _footer_text(type_id, fields, template):
+    """The first-page footer (contact details of an official letter) the renderers write for these fields, or None."""
+    _blocks, footer = nd30_layout.portable_blocks(nd30_layout.build_layout(type_id, fields, template=template))
+    return " ".join("".join(r["text"] for r in b["runs"]) for b in footer) or None
+
+
 def writer_types():
     return [t for t in nd30.rules()["documentTypes"] if t.get("module", "writer") == "writer"]
 
@@ -81,26 +95,40 @@ def all_cases(templates, only):
             continue
         paged = _paged(t)
         data = _body_top_profile(nd30.profile_rules(t["profile"]), t["structure"] in ("copy", "dang-copy"))  # a copy may open a page with its rule
-        common = {"profile": data, "type": t, "checkNumberRow": not t.get("noDate") and not t.get("noNumber") and not t.get("noHeader") and t["structure"] not in ("annex", "attached-only", "esign-copy"), "paged": paged}
+        common = {"profile": data, "type": t, "checkNumberRow": not t.get("noDate") and not t.get("noNumber") and not t.get("noHeader") and t["structure"] not in ("annex", "attached-only", "esign-copy", "stamp", "envelope"), "paged": paged}
         if ident in catalog:
-            yield {**common, "name": ident + "-ott", "multipage": paged, "open": _ott_doc(os.path.join(templates, catalog[ident]["output"]), paged), "ruleSource": None}
+            # the Party copy template holds only the copy form, whose number and date are numbered list items
+            yield {**common, "checkNumberRow": common["checkNumberRow"] and t["structure"] != "dang-copy", "name": ident + "-ott", "multipage": paged, "open": _ott_doc(os.path.join(templates, catalog[ident]["output"]), paged,
+                                                                        catalog[ident]["output"].startswith("van-thu/")),
+                   "ruleSource": None, "footer": _footer_text(ident, {}, True), "rules": _header_rules(ident, {}, True), "titleRules": _title_rules(ident, {}, True)}
         if not paged:
-            yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, {}), "ruleSource": SHORT}
+            yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, {}), "ruleSource": SHORT,
+                   "footer": _footer_text(ident, {}, False), "rules": _header_rules(ident, {}, False), "titleRules": _title_rules(ident, {}, False)}
             continue
-        yield {**common, "name": ident + "-wizard-long", "multipage": True, "open": _wizard_doc(ident, {**LONG, "body": long_body}), "ruleSource": LONG}
-        yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, SHORT), "ruleSource": SHORT}
+        long_fields = {**LONG, "body": long_body}
+        yield {**common, "name": ident + "-wizard-long", "multipage": True, "open": _wizard_doc(ident, long_fields), "ruleSource": LONG,
+               "footer": _footer_text(ident, long_fields, False), "rules": _header_rules(ident, long_fields, False), "titleRules": _title_rules(ident, long_fields, False)}
+        yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, SHORT), "ruleSource": SHORT,
+               "footer": _footer_text(ident, SHORT, False), "rules": _header_rules(ident, SHORT, False), "titleRules": _title_rules(ident, SHORT, False)}
 
 
-def check_rules(case, pdf):
-    """The motto rule is as long as the motto; the rule under the agency is 1/3-1/2 of its line (measured, not computed)."""
-    fails = []
-    rules = measure.rules_on_page_one(pdf)
-    data = case["profile"]
-    motto = measure.line_extent(pdf, data["motto"][:6]) if data.get("motto") else None
-    if not rules or not motto:
-        return fails
-    width = motto[1] - motto[0]
-    candidates = [r for r in rules if abs((r[0] + r[1]) / 2 - (motto[0] + motto[1]) / 2) < 2]
-    if not candidates or abs((candidates[0][1] - candidates[0][0]) - width) > 0.5:
-        fails.append("motto rule %s against line %.2f" % (candidates[:1], width))
-    return fails
+def _layout_blocks(type_id, fields, template):
+    return nd30_layout.portable_blocks(nd30_layout.build_layout(type_id, fields, template=template))[0]
+
+
+def _header_rules(type_id, fields, template):
+    """(text, column) of the ruled paragraphs in the first header block the renderers write: the agency (column 0) and
+    the motto or the Party name (column 1). [] when the type has no such header."""
+    header = next((b for b in _layout_blocks(type_id, fields, template) if b["type"] == "grid" and b.get("name") == "Header"), None)
+    if header is None:
+        return []
+    return [("".join(r["text"] for r in p["runs"]), column) for row in header["rows"]
+            for column, cell in enumerate(row["cells"]) for p in cell if p.get("rule_mm")]
+
+
+def _title_rules(type_id, fields, template):
+    """(text, length mm) of the ruled title, summary and subtitle paragraphs, in document order. The length is the
+    generator's own: nd30_heading sizes it with nd30_metrics.rule_for from the text it measures (the summary for a
+    rule under a subtitle), and build_layout carries the result as rule_mm."""
+    return [("".join(r["text"] for r in b["runs"]), b["rule_mm"]) for b in _layout_blocks(type_id, fields, template)
+            if b["type"] == "paragraph" and b.get("rule_mm")]

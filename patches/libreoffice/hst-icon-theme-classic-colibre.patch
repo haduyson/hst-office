@@ -1,0 +1,226 @@
+HST Office: "Cổ điển" is the LibreOffice Colibre icon set, with HST glyphs where Colibre has none.
+
+Reason: the owner chose upstream Colibre as the classic icon style (sharp SVG on HiDPI), keeping
+the colourful hst_modern as the default. The new hst_classic / hst_classic_dark archives (built by
+scripts/brand/build-hst-icon-theme.py from the tree's own Colibre) hold only the HST glyphs for
+icon requests Colibre does not resolve - the org.hst.office.vi commands, statistics dialogs and
+others - and fall back to colibre_svg / colibre_dark_svg for everything else. Both are SVG-only,
+so macOS rasterises them at the backing scale. The options page writes "hst_classic"; profiles
+of earlier versions name the classic style "hst" / "hst_dark", which now selects hst_classic /
+hst_classic_dark when installed (the hst themes remain as the fallback layer of hst_modern).
+"hst_classic" follows the UI mode like "hst_modern". configure accepts and installs the two themes.
+
+Applies after hst-icon-theme.patch, hst-icon-theme-hidpi-and-cache.patch and
+hst-icon-theme-modern-default.patch.
+Test: make CppunitTest_vcl_app_test (test_HstIconTheme, test_IconThemeSelector).
+License: upstream files remain MPL-2.0.
+---
+--- a/configure.ac
++++ b/configure.ac
+@@ -14572,14 +14572,14 @@
+ AC_MSG_CHECKING([which themes to include])
+ # if none given use default subset of available themes
+ if test "x$with_theme" = "x" -o "x$with_theme" = "xyes"; then
+-    with_theme="hst_modern hst_modern_dark hst hst_dark breeze breeze_dark breeze_dark_svg breeze_svg colibre colibre_svg colibre_dark colibre_dark_svg elementary elementary_svg karasa_jaga karasa_jaga_svg sifr sifr_svg sifr_dark sifr_dark_svg sukapura sukapura_dark sukapura_dark_svg sukapura_svg"
++    with_theme="hst_modern hst_modern_dark hst_classic hst_classic_dark hst hst_dark breeze breeze_dark breeze_dark_svg breeze_svg colibre colibre_svg colibre_dark colibre_dark_svg elementary elementary_svg karasa_jaga karasa_jaga_svg sifr sifr_svg sifr_dark sifr_dark_svg sukapura sukapura_dark sukapura_dark_svg sukapura_svg"
+ fi
+ 
+ WITH_THEMES=""
+ if test "x$with_theme" != "xno"; then
+     for theme in $with_theme; do
+         case $theme in
+-        hst_modern|hst_modern_dark|hst|hst_dark|breeze|breeze_dark|breeze_dark_svg|breeze_svg|colibre|colibre_svg|colibre_dark|colibre_dark_svg|elementary|elementary_svg|karasa_jaga|karasa_jaga_svg|sifr|sifr_svg|sifr_dark|sifr_dark_svg|sukapura|sukapura_dark|sukapura_dark_svg|sukapura_svg) WITH_THEMES="${WITH_THEMES:+$WITH_THEMES }$theme" ;;
++        hst_modern|hst_modern_dark|hst_classic|hst_classic_dark|hst|hst_dark|breeze|breeze_dark|breeze_dark_svg|breeze_svg|colibre|colibre_svg|colibre_dark|colibre_dark_svg|elementary|elementary_svg|karasa_jaga|karasa_jaga_svg|sifr|sifr_svg|sifr_dark|sifr_dark_svg|sukapura|sukapura_dark|sukapura_dark_svg|sukapura_svg) WITH_THEMES="${WITH_THEMES:+$WITH_THEMES }$theme" ;;
+         *) AC_MSG_ERROR([Unknown value for --with-theme: $theme]) ;;
+         esac
+     done
+@@ -14602,6 +14602,14 @@
+             *) AC_MSG_ERROR([HST modern icon themes require --with-theme to include $fallback]) ;;
+             esac
+         done ;;
++    hst_classic|hst_classic_dark)
++        # The classic style is Colibre plus the HST glyphs Colibre lacks.
++        for fallback in colibre colibre_svg colibre_dark colibre_dark_svg; do
++            case " $WITH_THEMES " in
++            *" $fallback "*) ;;
++            *) AC_MSG_ERROR([HST classic icon themes require --with-theme to include $fallback]) ;;
++            esac
++        done ;;
+     esac
+ done
+ AC_MSG_RESULT([$WITH_THEMES])
+--- a/postprocess/CustomTarget_images.mk
++++ b/postprocess/CustomTarget_images.mk
+@@ -69,7 +69,7 @@
+ # Preserve deterministic ZIP metadata, all command aliases and the artwork licence.
+ # Package_images.mk -> Repository.mk/ooo_images -> scp2 installs both archives on
+ # Linux, Windows and macOS just like the other WITH_THEMES entries.
+-hst_image_themes := $(filter hst hst_dark hst_modern hst_modern_dark,$(WITH_THEMES))
++hst_image_themes := $(filter hst hst_dark hst_modern hst_modern_dark hst_classic hst_classic_dark,$(WITH_THEMES))
+ ifneq ($(strip $(hst_image_themes)),)
+ $(addprefix $(packimages_DIR)/images_,$(addsuffix .zip,$(hst_image_themes))) : $(packimages_DIR)/images_%.zip : $(SRCDIR)/icon-themes/%/images.zip
+ 	$(call gb_Output_announce,$(subst $(WORKDIR)/,,$@),$(true),CPY,1)
+--- a/vcl/inc/HstIconTheme.hxx
++++ b/vcl/inc/HstIconTheme.hxx
+@@ -27,7 +27,20 @@
+ inline bool isSvgIconTheme(std::u16string_view rTheme)
+ {
+     return o3tl::ends_with(rTheme, u"_svg") || rTheme == u"hst" || rTheme == u"hst_dark"
+-           || rTheme == u"hst_modern" || rTheme == u"hst_modern_dark";
++           || rTheme == u"hst_modern" || rTheme == u"hst_modern_dark" || rTheme == u"hst_classic"
++           || rTheme == u"hst_classic_dark";
++}
++
++/// The classic style ("Cổ điển") is the Colibre-based "hst_classic". Profiles of earlier
++/// versions name it by its former theme, "hst" / "hst_dark", which now only backs the
++/// colourful style; those values keep selecting the classic style.
++inline OUString classicStyle(std::u16string_view rTheme)
++{
++    if (rTheme == u"hst")
++        return u"hst_classic"_ustr;
++    if (rTheme == u"hst_dark")
++        return u"hst_classic_dark"_ustr;
++    return OUString(rTheme);
+ }
+ 
+ /// The two HST icon styles a user chooses between: "hst_modern" (colourful, the default) and
+@@ -36,7 +49,7 @@
+ inline OUString styleForMode(std::u16string_view rTheme, bool bDark)
+ {
+     OUString aTheme(rTheme);
+-    if (bDark && (rTheme == u"hst" || rTheme == u"hst_modern"))
++    if (bDark && (rTheme == u"hst" || rTheme == u"hst_modern" || rTheme == u"hst_classic"))
+         aTheme += "_dark";
+     return aTheme;
+ }
+@@ -51,6 +64,11 @@
+         return u"hst"_ustr;
+     if (rStyle == u"hst_modern_dark")
+         return u"hst_dark"_ustr;
++    // The classic style holds only the HST glyphs Colibre lacks; everything else is Colibre's.
++    if (rStyle == u"hst_classic")
++        return u"colibre_svg"_ustr;
++    if (rStyle == u"hst_classic_dark")
++        return u"colibre_dark_svg"_ustr;
+     if (rStyle == u"hst")
+         return u"colibre_svg"_ustr;
+     if (rStyle == u"hst_dark")
+--- a/vcl/qa/cppunit/app/test_HstIconTheme.cxx
++++ b/vcl/qa/cppunit/app/test_HstIconTheme.cxx
+@@ -81,6 +81,8 @@
+     CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst_dark"));
+     CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst_modern"));
+     CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst_modern_dark"));
++    CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst_classic"));
++    CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst_classic_dark"));
+     CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"colibre_svg"));
+     CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"colibre_dark_svg"));
+     CPPUNIT_ASSERT(!vcl::hst::isSvgIconTheme(u"colibre"));
+@@ -94,6 +96,14 @@
+     CPPUNIT_ASSERT_EQUAL(u"hst"_ustr, vcl::hst::fallbackIconStyle(u"hst_modern"));
+     CPPUNIT_ASSERT_EQUAL(u"hst_dark"_ustr, vcl::hst::fallbackIconStyle(u"hst_modern_dark"));
+     CPPUNIT_ASSERT_EQUAL(u"colibre_svg"_ustr, vcl::hst::fallbackIconStyle(u"hst"));
++    // The classic style is an overlay of HST glyphs on the SVG Colibre.
++    CPPUNIT_ASSERT_EQUAL(u"colibre_svg"_ustr, vcl::hst::fallbackIconStyle(u"hst_classic"));
++    CPPUNIT_ASSERT_EQUAL(u"colibre_dark_svg"_ustr, vcl::hst::fallbackIconStyle(u"hst_classic_dark"));
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic_dark"_ustr, vcl::hst::styleForMode(u"hst_classic", true));
++    // Earlier profiles name the classic style "hst" / "hst_dark".
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic"_ustr, vcl::hst::classicStyle(u"hst"));
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic_dark"_ustr, vcl::hst::classicStyle(u"hst_dark"));
++    CPPUNIT_ASSERT_EQUAL(u"hst_modern"_ustr, vcl::hst::classicStyle(u"hst_modern"));
+     // A style chosen on the options page follows the UI mode.
+     CPPUNIT_ASSERT_EQUAL(u"hst_modern_dark"_ustr, vcl::hst::styleForMode(u"hst_modern", true));
+     CPPUNIT_ASSERT_EQUAL(u"hst_dark"_ustr, vcl::hst::styleForMode(u"hst", true));
+--- a/vcl/qa/cppunit/app/test_IconThemeSelector.cxx
++++ b/vcl/qa/cppunit/app/test_IconThemeSelector.cxx
+@@ -21,6 +21,7 @@
+ {
+     void HstAutomaticAndExplicitChoices();
+     void HstModernIsTheDefaultStyle();
++    void HstClassicIsColibreAndKeepsEarlierProfiles();
+ #ifndef _WIN32 //default theme on Windows is Colibre independently from any desktop environment
+     void BreezeIsReturnedForKde5Desktop();
+     void ElementaryIsReturnedForGnomeDesktop();
+@@ -39,6 +40,7 @@
+     CPPUNIT_TEST_SUITE(IconThemeSelectorTest);
+     CPPUNIT_TEST(HstAutomaticAndExplicitChoices);
+     CPPUNIT_TEST(HstModernIsTheDefaultStyle);
++    CPPUNIT_TEST(HstClassicIsColibreAndKeepsEarlierProfiles);
+ 
+ #ifndef _WIN32
+     CPPUNIT_TEST(BreezeIsReturnedForKde5Desktop);
+@@ -233,6 +235,33 @@
+     CPPUNIT_ASSERT_EQUAL(u"colibre"_ustr, selector.SelectIconTheme(themes, u"colibre"_ustr));
+ }
+ 
++void IconThemeSelectorTest::HstClassicIsColibreAndKeepsEarlierProfiles()
++{
++    std::vector<vcl::IconThemeInfo> themes;
++    for (const auto& id : { u"colibre"_ustr, u"colibre_svg"_ustr, u"hst"_ustr, u"hst_dark"_ustr,
++                            u"hst_modern"_ustr, u"hst_modern_dark"_ustr, u"hst_classic"_ustr,
++                            u"hst_classic_dark"_ustr })
++    {
++        vcl::IconThemeInfo info;
++        info.mThemeId = id;
++        themes.push_back(info);
++    }
++    vcl::IconThemeSelector selector;
++    selector.SetPreferredIconTheme(u"colibre"_ustr, false);
++    // Automatic stays on the colourful style.
++    CPPUNIT_ASSERT_EQUAL(u"hst_modern"_ustr,
++        selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
++    // The options page value of the classic style, and the values of earlier profiles.
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic"_ustr, selector.SelectIconTheme(themes, u"hst_classic"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic"_ustr, selector.SelectIconTheme(themes, u"hst"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic_dark"_ustr, selector.SelectIconTheme(themes, u"hst_dark"_ustr));
++    selector.SetPreferredIconTheme(u"colibre"_ustr, true);
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic_dark"_ustr, selector.SelectIconTheme(themes, u"hst_classic"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic_dark"_ustr, selector.SelectIconTheme(themes, u"hst"_ustr));
++    // An explicit upstream choice is untouched.
++    CPPUNIT_ASSERT_EQUAL(u"colibre_svg"_ustr, selector.SelectIconTheme(themes, u"colibre_svg"_ustr));
++}
++
+ // Put the test suite in the registry
+ CPPUNIT_TEST_SUITE_REGISTRATION(IconThemeSelectorTest);
+ 
+--- a/vcl/source/app/IconThemeInfo.cxx
++++ b/vcl/source/app/IconThemeInfo.cxx
+@@ -127,6 +127,8 @@
+         aDisplayName = "HST";
+     else if (aDisplayName == "hst_modern")
+         aDisplayName = "HST Modern";
++    else if (aDisplayName == "hst_classic")
++        aDisplayName = "HST Classic";
+ 
+     // make the first letter uppercase
+     sal_Unicode firstLetter = aDisplayName[0];
+--- a/vcl/source/app/IconThemeSelector.cxx
++++ b/vcl/source/app/IconThemeSelector.cxx
+@@ -113,8 +113,8 @@
+     // A platform that follows the theme colours only names a dark theme here.
+     const bool bPreferDark = mPreferDarkIconTheme || mPreferredIconTheme.endsWith("_dark")
+                              || mPreferredIconTheme.endsWith("_dark_svg");
+-    // HST Office: the colourful style is the default, the classic one remains for reduced builds.
+-    for (const auto aStyle : { u"hst_modern", u"hst" })
++    // HST Office: the colourful style is the default, the classic ones remain for reduced builds.
++    for (const auto aStyle : { u"hst_modern", u"hst_classic", u"hst" })
+     {
+         const OUString aHstTheme = vcl::hst::styleForMode(aStyle, bPreferDark);
+         if (icon_theme_is_in_installed_themes(aHstTheme, installedThemes))
+@@ -149,7 +149,15 @@
+         }
+     }
+ 
+-    // HST Office: "hst_modern" and "hst" name a style; use its dark variant on dark surfaces.
++    // HST Office: "hst" / "hst_dark" of earlier profiles select the classic style.
++    const OUString aClassic = vcl::hst::classicStyle(theme);
++    if (aClassic != theme && icon_theme_is_in_installed_themes(aClassic, installedThemes)) {
++        const OUString aClassicForMode = vcl::hst::styleForMode(aClassic, mPreferDarkIconTheme);
++        return icon_theme_is_in_installed_themes(aClassicForMode, installedThemes) ? aClassicForMode : aClassic;
++    }
++
++    // HST Office: "hst_modern", "hst_classic" and "hst" name a style; use its dark variant on
++    // dark surfaces.
+     const OUString aForMode = vcl::hst::styleForMode(theme, mPreferDarkIconTheme);
+     if (aForMode != theme && icon_theme_is_in_installed_themes(aForMode, installedThemes)) {
+         return aForMode;

@@ -23,6 +23,15 @@ on:
         description: 'Also install next to LibreOffice and over HST beta.4 (needs an MSI with HST Office''s own UpgradeCode, beta.5 on)'
         type: boolean
         default: true
+      msi_edit:
+        description: 'Install a copy of the MSI with these table edits (tries an installer rule without a build; see scripts/windows/smoke-edit-msi.ps1)'
+        type: choice
+        options: [none, legacy-reinstall]
+        default: none
+      scenarios:
+        description: 'Run only these scenarios, as a JSON list such as ["commands","hst-first"] (empty: all of install_paths)'
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -41,18 +50,23 @@ jobs:
         # commands: the MSI alone, every HST command and the update helper.
         # libreoffice-first / hst-first: the official LibreOffice MSI and HST Office in either order; both keep their own
         # ProgIDs, open commands and UNO install path and both start; uninstalling the second leaves the first intact.
-        # uninstall-beta4-then-install: HST beta.4 installed, uninstalled (msiexec /x), then the new MSI: the path
-        # beta 1-4 users follow. upgrade-from-beta4: informational, expected to fail (installing over beta.4 drops the
-        # executables whose beta.4 version is higher); it records every missing file and never fails the run on that, but
-        # its recovery leg (uninstall the broken install, install again) must pass.
+        # uninstall-beta4-then-install: HST beta.4 installed, uninstalled (msiexec /x), then the new MSI.
+        # upgrade-from-beta4: the new MSI installed over beta.4 (beta 1-4 users, silent installs, the updater): every file
+        # present, no C++ runtime component installed and no component disallowed in the log, one entry left.
+        # upgrade-from-beta5: the new MSI installed over beta.5 (HST Office's own code): one entry, every file, own ProgIDs.
         # Each scenario runs on a fresh runner.
-        scenario: ${{ fromJSON(inputs.install_paths && '["commands","libreoffice-first","hst-first","uninstall-beta4-then-install","upgrade-from-beta4"]' || '["commands"]') }}
+        scenario: ${{ fromJSON(inputs.scenarios != '' && inputs.scenarios || (inputs.install_paths && '["commands","libreoffice-first","hst-first","uninstall-beta4-then-install","upgrade-from-beta4","upgrade-from-beta5"]' || '["commands"]')) }}
     env:
       # Current LibreOffice stable for Windows x64 (26.8.2.2), GPG-signed by the LibreOffice build key
       # C2839ECAD9408FBE9531C3E9F434A1EFAFEEAEA3; the archive keeps the same file after stable/ moves on.
       LO_MSI_URL: https://download.documentfoundation.org/libreoffice/stable/26.8.2/win/x86_64/LibreOffice_26.8.2_Win_x86-64.msi
       LO_MSI_ARCHIVE_URL: https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.2.2/win/x86_64/LibreOffice_26.8.2.2_Win_x86-64.msi
       LO_MSI_SHA256: ff4b911403b67ee9e6249f820f9782c44bb32c94fdaa45b0da53a8e419e5307a
+      # HST beta.5 for upgrade-from-beta5: the copy kept on HST's download site, pinned by its SHA256.
+      BETA5_MSI_URL: https://office.hasontech.vn/tai/1.0.0-beta.5/HSTOffice_1.0.0-beta.5_Win_x86-64_en-US_vi.msi
+      BETA5_MSI_SHA256: 645f605aafc6999e4c29ca5c3f64cf44ffddfd11a06e74b4e0540cf3c1fdf219
+      # HST beta.4 (GitHub pre-release v1.0.0-beta.4, no longer on the download site), pinned by its SHA256.
+      BETA4_MSI_SHA256: 4b3d7dcf0715c0afd3b594393f9c0ae3b12cca11f82a1089b7fa22e8fe72bc29
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -60,6 +74,9 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
+      - name: Parse the PowerShell smoke scripts
+        shell: bash
+        run: pwsh -NoProfile -NonInteractive -File scripts/windows/check-ps-syntax.ps1
       - name: Download the MSI and verify its checksum
         shell: bash
         env:
@@ -69,6 +86,18 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/msi" HST_MSI
+      - name: Edit the MSI tables (installer rule trial)
+        if: ${{ inputs.msi_edit != 'none' }}
+        shell: bash
+        env:
+          MSI_EDIT: ${{ inputs.msi_edit }}
+        run: |
+          set -euo pipefail
+          edited="$(cygpath -w "$RUNNER_TEMP/msi-edited")"
+          mkdir -p "$(cygpath -u "$edited")"
+          out="$edited\\$(basename "$(cygpath -u "$HST_MSI")")"
+          pwsh -NoProfile -File scripts/windows/smoke-edit-msi.ps1 -Edit "$MSI_EDIT" -Msi "$HST_MSI" -OutMsi "$out"
+          echo "HST_MSI=$out" >> "$GITHUB_ENV"
       - name: Install the MSI silently
         if: ${{ matrix.scenario == 'commands' }}
         shell: bash
@@ -76,7 +105,10 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/out"
           log="$(cygpath -w "$RUNNER_TEMP/out/msi-install.log")"
-          MSYS2_ARG_CONV_EXCL='*' msiexec.exe /i "$HST_MSI" /qn /norestart /l*v "$log"
+          # HSTDEFAULTAPPS=1: the silent form of the ticked "Dùng HST Office để mở tài liệu văn phòng" box
+          MSYS2_ARG_CONV_EXCL='*' msiexec.exe /i "$HST_MSI" /qn /norestart HSTDEFAULTAPPS=1 /l*v "$log"
+          MSYS2_ARG_CONV_EXCL='*' reg.exe query 'HKLM\SOFTWARE\HASON TECH\HST Office\DefaultApps' /v ChosenAtInstall | grep -E 'ChosenAtInstall +REG_DWORD +0x1[[:space:]]*$' \
+            || { echo "the ticked default-apps box did not write ChosenAtInstall=1" >&2; exit 1; }
           soffice="$(find '/c/Program Files' -maxdepth 4 -iname soffice.exe | head -n 1)"
           [ -n "$soffice" ] || { echo "soffice.exe not found after install" >&2; exit 1; }
           install_dir="$(dirname "$(dirname "$soffice")")"
@@ -148,6 +180,12 @@ jobs:
           export PATH="$install/program:$PATH"
           export UNO_PATH="$HST_INSTALL\\program"
           timeout 900 "$install/program/python.exe" tests/runtime/check-windows-smoke.py --install "$HST_INSTALL" --out "$RUNNER_TEMP/out/smoke" --screenshots "$RUNNER_TEMP/out/screens"
+      - name: COM automation - HST Office's own ProgIDs, none of LibreOffice's
+        if: ${{ matrix.scenario == 'commands' && !inputs.update_policy_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 900 pwsh -NoProfile -File scripts/windows/smoke-com-automation.ps1 -Out "$(cygpath -w "$RUNNER_TEMP/out/com")"
       - name: Update now - download, verify and dry-run the msiexec helper
         if: ${{ matrix.scenario == 'commands' && !inputs.update_policy_only }}
         shell: bash
@@ -187,7 +225,7 @@ jobs:
           python -I -W ignore::DeprecationWarning scripts/check-msi-upgrade.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-upgrade-rules.txt"
           # Registry table: no App Paths, LibreOffice URI scheme, ProgID, Explorer class id or Software\LibreOffice key.
           python -I -W ignore::DeprecationWarning scripts/check-msi-coexist.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-coexist-rules.txt"
-      - name: Download the other installer (LibreOffice or HST beta.4)
+      - name: Download the other installer (LibreOffice, HST beta.4 or beta.5)
         if: ${{ matrix.scenario != 'commands' }}
         shell: bash
         env:
@@ -202,8 +240,17 @@ jobs:
             curl -fsSL --retry 3 -o "$msi" "$LO_MSI_URL" || curl -fsSL --retry 3 -o "$msi" "$LO_MSI_ARCHIVE_URL"
             echo "$LO_MSI_SHA256  $msi" | sha256sum -c
             echo "OTHER_MSI=$(cygpath -w "$PWD/$msi")" >> "$GITHUB_ENV"
+          elif [ "$SCENARIO" = upgrade-from-beta5 ]; then
+            mkdir -p "$RUNNER_TEMP/first"
+            cd "$RUNNER_TEMP/first"
+            msi=HSTOffice_1.0.0-beta.5_Win_x86-64_en-US_vi.msi
+            curl -fsSL --retry 3 -o "$msi" "$BETA5_MSI_URL"
+            echo "$BETA5_MSI_SHA256  $msi" | sha256sum -c
+            echo "OTHER_MSI=$(cygpath -w "$PWD/$msi")" >> "$GITHUB_ENV"
           else
             RUN_ID='' RELEASE_TAG=v1.0.0-beta.4 bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/first" OTHER_MSI
+            # independent of the release's own SHA256SUMS: the pinned hash of the beta.4 MSI
+            echo "$BETA4_MSI_SHA256  $(cygpath -u "$(grep '^OTHER_MSI=' "$GITHUB_ENV" | tail -n 1 | cut -d= -f2-)")" | sha256sum -c
           fi
       - name: Install both and check them
         if: ${{ matrix.scenario != 'commands' }}

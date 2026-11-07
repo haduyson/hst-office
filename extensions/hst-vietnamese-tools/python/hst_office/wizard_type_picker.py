@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The document-type dropdown of the ND30 wizard with Quick Search: a field to type in and a list that filters live.
 
-The list opens when the user types, presses Down or clicks the arrow. Up/Down move inside it, Enter chooses, Esc closes it
-and brings the chosen type back. While it is open a key handler keeps those keys from the dialog, whose default button and
-Cancel would otherwise take them. Group headings are shown but can't be chosen.
+The list opens when the user types, presses Down or clicks the arrow. Up/Down move inside it, Enter or Tab chooses (Tab then
+moves on), Esc closes it and brings the chosen type back. While it is open a key handler keeps those keys from the dialog,
+whose default button and Cancel would otherwise take them. Group headings are shown but can't be chosen.
 """
 import unohelper
 from com.sun.star.awt import XFocusListener, XItemListener, XKeyHandler, XTextListener
-from com.sun.star.awt.Key import DOWN, ESCAPE, RETURN, UP
+from com.sun.star.awt.Key import DOWN, ESCAPE, RETURN, TAB, UP
 
 from . import nd30_search
 
@@ -65,6 +65,8 @@ class TypePicker:
         self.field.addFocusListener(events)
         self.list.addItemListener(events)
         self.list.setVisible(False)
+        field, rows = self.d.model.getByName("type"), self.d.model.getByName("typeList")
+        rows.PositionY = field.PositionY + field.Height + 1  # under the field, which may have grown (dialog_edit_heights)
         self.toolkit = self.d.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", self.d.ctx)
         self.handler = _Keys(self)
         self.toolkit.addKeyHandler(self.handler)
@@ -154,6 +156,15 @@ class TypePicker:
                 self.choose(self.table[self.index][1])
         elif code == ESCAPE:
             self.close()
+        elif code == TAB:
+            # Leaving the field with Tab (or Shift+Tab) takes the highlighted type, like a combo box, and closes the list;
+            # the dialog still moves the focus. An open list left behind covered the next seven fields: the focus went
+            # to a field under it, typing seemed to go nowhere and the next key reverted the type.
+            if self.index >= 0:
+                self.choose(self.table[self.index][1])
+            else:
+                self.close()
+            return False
         else:
             return False
         return True

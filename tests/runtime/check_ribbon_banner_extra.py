@@ -81,6 +81,7 @@ def fallback_install(instdir, directory):
 
 def fallback_flow(main, args, catalogue, rotate, reference_box):
     """Service unavailable: installed defaults straight from the extension; a 2000x600 image is fitted."""
+    oversized_item = next(item for item in catalogue if item["id"] == "aios")
     copy, big = fallback_install(args.instdir, os.path.join(args.out, "fallback-install"))
     with main.Run(args, copy, "writer", args.display, 1, "writer-fallback-oversized") as run:
         node = run.banner()
@@ -90,7 +91,7 @@ def fallback_flow(main, args, catalogue, rotate, reference_box):
         record = probe.describe(node)
         box = main.device_box(run, record)
         deadline, drawn = time.time() + rotate * len(catalogue) + 10, (None,)
-        while time.time() < deadline and drawn[0] != "oversized":  # slot 0 comes round again
+        while time.time() < deadline and drawn[0] != "oversized":  # the replaced AIOS artwork comes round again
             drawn = probe.recognise(run.shot("01-oversized"), box, catalogue, 1, [("oversized", big)])
             time.sleep(0.5)
         run.hover(box)
@@ -99,13 +100,11 @@ def fallback_flow(main, args, catalogue, rotate, reference_box):
         main.check("[fallback] the 2000x600 image is aspect-fitted in its slot", drawn[0] == "oversized", repr(drawn))
         main.check("[fallback] oversized image does not change the slot size",
                    reference_box is None or box[2:] == reference_box[2:], f"{box} vs {reference_box}")
-        # the oversized art replaced the AIOS item, so that item is the one shown now
-        aios = next(i for i in catalogue if i["id"] == "aios")
         main.check("[fallback] accessible name from the installed manifest",
-                   probe.describe(run.banner())["name"] == aios["label"], probe.describe(run.banner())["name"])
+                   probe.describe(run.banner())["name"] == oversized_item["label"], probe.describe(run.banner())["name"])
         run.click(box)
         opened = run.opener.wait_for(1)
-        main.check("[fallback] click opens the installed item URL with UTM", opened[-1:] == [aios["url"]],
+        main.check("[fallback] click opens the installed item URL with UTM", opened[-1:] == [oversized_item["url"]],
                    repr(opened[-1:]))
 
 

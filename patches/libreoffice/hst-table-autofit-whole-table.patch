@@ -1,0 +1,35 @@
+HST Office: AutoFit to Contents refits every column of the table while typing.
+
+The refit after an edit selected the table from GetTabSortBoxes().front() to .back(). That list is ordered by
+the boxes' addresses, not by their position, so its ends are two arbitrary cells: with three or more columns the
+selection between them often left out the column being typed in, and the table did not refit. The cursor now runs
+from the first cell to the last one in document order, taken from the table node.
+
+License: this upstream file remains under its original license (MPL-2.0).
+Test: tests/runtime/dialogs_writer_autofit_cases.py (3 and 4 columns).
+---
+--- a/sw/source/uibase/wrtsh/hsttableautofit.cxx
++++ b/sw/source/uibase/wrtsh/hsttableautofit.cxx
+@@ -61,16 +61,18 @@
+     if (!pNode || !lcl_IsMarked(pNode->GetTable()) || pShell->ActionPend()
+         || Application::IsInModalMode())
+         return;
+-    const SwTableSortBoxes& rBoxes = pNode->GetTable().GetTabSortBoxes();
+-    if (rBoxes.empty())
++    if (pNode->GetTable().GetTabSortBoxes().empty())
+         return;
+ 
+     SwDoc& rDoc = *pShell->GetDoc();
+     // A cursor of its own over the whole table: the user's selection and cursor stay where they are.
+-    SwNodeIndex aStart(*rBoxes.front()->GetSttNd(), 1);
++    // It runs from the first cell to the last one in document order, taken from the table's own nodes:
++    // GetTabSortBoxes() is ordered by address, so its ends are two arbitrary cells, and the selection
++    // between them left columns out (with three or more columns the typed one was often not refitted).
++    SwNodeIndex aStart(*pNode, 2); // table node, start node of the first cell, its first content
+     SwCursor aCursor(SwPosition(aStart), nullptr);
+     aCursor.SetMark();
+-    SwNodeIndex aEnd(*rBoxes.back()->GetSttNd()->EndOfSectionNode(), -1);
++    SwNodeIndex aEnd(*pNode->EndOfSectionNode(), -2); // end node of the last cell, its last content
+     aCursor.GetPoint()->Assign(aEnd);
+ 
+     // Not an undo step: undoing the typing leaves a changed length, which refits again.

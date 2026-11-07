@@ -21,6 +21,8 @@ NEW_DOCUMENT = {"Nd30Wizard": ("com.sun.star.text.TextDocument", "private:factor
 SHOW_SOLUTIONS = "ShowSolutions"  # needs no document, so it also works in the Start Center
 USB_TOKEN = "SetupUsbToken"
 REPORT_ERROR = "ReportError"  # Trợ giúp ▸ Báo lỗi cho HASON TECH; needs no document either
+DEFAULT_APPS = "DefaultApps"  # HST ▸ Dùng HST Office để mở tài liệu văn phòng; needs no document
+DUPLEX = "ToggleDuplex"  # HST ▸ In hai mặt: a check item showing the document's choice
 
 
 def log_error(command):
@@ -36,6 +38,7 @@ def log_error(command):
 class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, XDispatch):
     def __init__(self, ctx):
         self.ctx, self.frame = ctx, None
+        self._duplex_listeners = []  # (control, url): the "In hai mặt" check mark follows each toggle
 
     def initialize(self, args):
         if args:
@@ -52,7 +55,7 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
 
     def queryDispatch(self, url, target_frame_name, search_flags):
         return self if url.Protocol == PROTOCOL and (url.Path in COMMANDS or url.Path in ui_language.COMMANDS
-                                                    or url.Path in (SHOW_SOLUTIONS, USB_TOKEN, REPORT_ERROR)) else None
+                                                    or url.Path in (SHOW_SOLUTIONS, USB_TOKEN, REPORT_ERROR, DEFAULT_APPS)) else None
 
     def queryDispatches(self, requests):
         return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in requests)
@@ -69,6 +72,13 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
             except Exception:  # noqa: BLE001 - never raise into the office UI thread
                 log_error(url.Path)
             return
+        if url.Path == DEFAULT_APPS:
+            try:
+                from .default_apps import run_from_menu
+                run_from_menu(self.ctx, self.frame.getContainerWindow() if self.frame else None)
+            except Exception:  # noqa: BLE001 - never raise into the office UI thread
+                log_error(url.Path)
+            return
         if url.Path in ui_language.COMMANDS:
             try:
                 ui_language.run(self.ctx, self.frame, url.Path)
@@ -79,6 +89,8 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
         try:
             frame = self._frame_for(url.Path)
             COMMANDS[url.Path](Host(self.ctx, frame, load_locale("vi")))
+            if url.Path == DUPLEX:
+                self._send_duplex_state()
         except Exception as exc:  # noqa: BLE001 - never fail silently inside the office UI thread
             log_error(url.Path)
             try:
@@ -105,7 +117,32 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
         except Exception:  # noqa: BLE001 - report instead of failing silently inside the UI thread
             traceback.print_exc()
 
+    def _duplex_state(self):
+        from .nd30_duplex import read_choice
+        model = self.frame.getController().getModel() if self.frame and self.frame.getController() else None
+        if model is None or not model.supportsService("com.sun.star.text.TextDocument"):
+            return False, False
+        return True, read_choice(model)[0]
+
+    def _send_duplex_state(self, listeners=None):
+        from com.sun.star.frame import FeatureStateEvent
+        try:
+            enabled, checked = self._duplex_state()
+        except Exception:  # noqa: BLE001 - unknown state: the item stays usable and unchecked
+            log_error(DUPLEX)
+            enabled, checked = True, False
+        for control, url in listeners or self._duplex_listeners:
+            try:
+                control.statusChanged(FeatureStateEvent(FeatureURL=url, IsEnabled=enabled, State=bool(checked),
+                                                        Requery=False, Source=self))
+            except Exception:  # noqa: BLE001 - a menu that went away
+                pass
+
     def addStatusListener(self, control, url):
+        if url.Protocol == PROTOCOL and url.Path == DUPLEX:
+            self._duplex_listeners.append((control, url))
+            self._send_duplex_state([(control, url)])
+            return
         if url.Protocol == PROTOCOL and url.Path in ui_language.COMMANDS:
             from com.sun.star.frame import FeatureStateEvent
             enabled, checked = ui_language.status(self.ctx, url.Path)
@@ -113,4 +150,5 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
                                                     Requery=False, Source=self))
 
     def removeStatusListener(self, control, url):
-        pass  # Status is a fresh snapshot on add; no listener is retained.
+        """Only the "In hai mặt" listeners are kept; every other status is a fresh snapshot on add."""
+        self._duplex_listeners = [(c, u) for c, u in self._duplex_listeners if c != control]

@@ -70,13 +70,19 @@ class PortableBlocks(unittest.TestCase):
         self.assertTrue(all(b.get("keep_with_next") for b in received[:-1]))
 
     def test_signature_space_survives(self):
-        """The 12 pt above the signature moves into its cells, nothing is dropped."""
+        """The 12 pt above the signature goes to a gap paragraph right before it, nothing is dropped. Not into its cells,
+        where Writer keeps it at the top of a page, nor onto the body paragraph, which paragraphs typed after it copy."""
         layout = build_layout("quyet-dinh", template=True)
-        before = next(b for b in layout["blocks"] if b.get("name") == "Signature")["spacing_before_pt"]
+        index = next(i for i, b in enumerate(layout["blocks"]) if b.get("name") == "Signature")
+        before, previous = layout["blocks"][index]["spacing_before_pt"], layout["blocks"][index - 1]
         blocks, _ = portable_blocks(layout)
-        grid = next(b for b in blocks if b.get("name") == "Signature")
-        for cell in grid["rows"][0]["cells"]:
-            self.assertEqual(cell[0].get("spacing_before_pt", 0), before)
+        index = next(i for i, b in enumerate(blocks) if b.get("name") == "Signature")
+        gap = blocks[index - 1]
+        self.assertEqual((gap["role"], "".join(r["text"] for r in gap["runs"])), ("TableGap", ""))
+        self.assertAlmostEqual(gap["line_exact_pt"] + gap["spacing_after_pt"], before)
+        self.assertEqual(blocks[index - 2].get("spacing_after_pt"), previous.get("spacing_after_pt"))
+        for cell in blocks[index]["rows"][0]["cells"]:
+            self.assertFalse(cell[0].get("spacing_before_pt", 0))
 
     def test_official_letter_contact_goes_to_the_first_page_footer(self):
         """Decree 30, Annex I, Part I, III.4: contact details on the first page of the document."""
