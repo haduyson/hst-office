@@ -21,7 +21,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 
 HEAD, TAIL = ["Tệp tin", "Trang đầu", "Chèn"], ["Xem lại", "Xem", "Phần mở rộng", "Nhà phát triển"]
-TABS = {"writer": HEAD + ["Thiết kế", "Bố cục", "Tham khảo", "Gửi thư"] + TAIL,
+# 1.0.0: Trợ giúp after Xem; the Developer tab is merged into Phần mở rộng, which stays last (owner, 2026-11-07)
+TAIL_1_0 = ["Xem lại", "Xem", "Trợ giúp", "Phần mở rộng"]
+TABS = {"writer": HEAD + ["Thiết kế", "Bố cục", "Tham khảo", "Gửi thư"] + TAIL_1_0,
         "calc": HEAD + ["Bố trí Trang", "Công thức", "Dữ liệu"] + TAIL,
         "impress": HEAD + ["Thiết kế", "Chuyển tiếp", "Hoạt hình", "Trình chiếu"] + TAIL}
 NAMES = {"writer": "HST Writer", "calc": "HST Sheets", "impress": "HST Slides"}
@@ -107,9 +109,12 @@ def start(instdir, app, args, tag, port):
 
 
 def added_commands(instdir, app):
+    """Commands of the btnHst* items. Items of contextual tabs (btnHstCtx*, btnHstLaunchCtx*) act on a selected table,
+    picture or shape and are left to check-ribbon-contextual.py: the document frame has no dispatch for them."""
     path = os.path.join(instdir, f"share/config/soffice.cfg/modules/{MODULES[app]}/ui/notebookbar.ui")
     with open(path, encoding="utf-8") as handle:
-        return sorted(set(re.findall(r'id="btnHst\w+">(?:(?!</object>).)*?name="action-name">([^<]+)<', handle.read(), re.S)))
+        found = re.findall(r'id="(btnHst\w+)">(?:(?!</object>).)*?name="action-name">([^<]+)<', handle.read(), re.S)
+    return sorted({command for ident, command in found if not ident.startswith(("btnHstCtx", "btnHstLaunchCtx"))})
 
 
 def check_commands(office, instdir, app):

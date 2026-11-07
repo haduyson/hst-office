@@ -3,7 +3,8 @@
 
 Usage: python3 tests/runtime/check-ribbon-home-fit.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]
 The X display must already run, at least 2400 px wide. Per app and width:
-  - Clone Formatting and Clear show as icons (no wider than ICON_MAX) and keep their accessible names;
+  - Clone Formatting and Clear keep their accessible names and show their labels where there is room (1485 px; owner,
+    2026-11-07); at 1366 px the collapse ladder may take the labels away again, so only the name is checked there;
   - their commands still have a label, from which the tooltip comes; hovering shows it (see --shots);
   - the banner is on screen, inside the window;
   - the groups named in MUST_SHOW have a visible caption: Sheets' Number and Slides' Paragraph at 1366, Writer's
@@ -30,6 +31,8 @@ _spec = importlib.util.spec_from_file_location(
 tabs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tabs)
 
+LABEL_WIDTH = 1485  # from this width up Clone Formatting and Clear show their labels
+LABELLED = {"writer"}  # apps whose 1.0.0 content patch has these labels; the others are still icon-only
 ICON_MAX = 40  # an icon with its button padding; the same button with its text is over 100 px wide
 PAINTBRUSH = "Sao chép định dạng"
 CLEAR = {"writer": "Xóa", "calc": "Xóa", "impress": "Xóa"}
@@ -85,7 +88,12 @@ def check_app(app, args, port):
             tools.check_find_in_paragraph(tabs, app, width, caption_boxes)
             for name in (PAINTBRUSH, CLEAR[app]):
                 box = buttons.get(name, ((0, 0, 0, 0),))[0]
-                tabs.record(f"[{app} {width}] '{name}' accessible and icon-only", 0 < box[2] <= ICON_MAX, box)
+                if app not in LABELLED:
+                    tabs.record(f"[{app} {width}] '{name}' accessible and icon-only", 0 < box[2] <= ICON_MAX, box)
+                elif width >= LABEL_WIDTH:
+                    tabs.record(f"[{app} {width}] '{name}' accessible and labelled", box[2] > ICON_MAX, box)
+                else:
+                    tabs.record(f"[{app} {width}] '{name}' accessible", box[2] > 0, box)
             tabs.record(f"[{app} {width}] banner inside the window",
                         banner is not None and banner[0] + banner[2] <= width, banner)
             if args.shots:
