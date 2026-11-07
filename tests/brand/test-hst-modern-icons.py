@@ -63,7 +63,39 @@ class ModernIconsTest(unittest.TestCase):
             svg = files[builder.svg_key(builder.sized(f"cmd/{drawn[0]}.png", 24))].decode()
             self.assertFalse(any(light in svg.upper() for light, dark in colours.items() if light != dark
                                  and light not in colours.values()), "light palette values left in dark theme")
-        self.assertIn("insertcontentcontrol", builder.MISSING_MODERN)  # not drawn yet: classic shape
+        self.assertEqual(builder.MISSING_MODERN, set())  # every master drawn: the release gate passes
+
+    def test_modern_ink_is_the_build_token_not_the_classic_ink(self):
+        ink = modern.ink()
+        self.assertEqual(builder.PALETTES["hst_modern"], ink["light"])
+        self.assertEqual(builder.PALETTES["hst_modern_dark"], ink["dark"])
+        self.assertNotEqual(ink["light"], builder.PALETTES["hst"])
+        light = builder.resources("hst_modern")[builder.svg_key(builder.sized("cmd/underline.png", 16))].decode()
+        self.assertIn(ink["light"], light)
+        self.assertNotIn("currentColor", light)
+        self.assertNotIn(builder.PALETTES["hst"], light)
+
+    def test_ink_contrast_against_the_ribbon(self):
+        def luminance(colour):
+            channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+            return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+        def contrast(a, b):
+            high, low = sorted((luminance(a), luminance(b)), reverse=True)
+            return (high + 0.05) / (low + 0.05)
+        ink = modern.ink()
+        # at least as strong as the classic ink on the light and the dark ribbon
+        self.assertGreaterEqual(contrast(ink["light"], "#FFFFFF"), contrast(builder.PALETTES["hst"], "#FFFFFF"))
+        self.assertGreaterEqual(contrast(ink["dark"], "#1C2B3B"), contrast(builder.PALETTES["hst_dark"], "#1C2B3B"))
+
+    def test_hand_tuned_modern_masters_follow_the_spec_at_their_size(self):
+        for path in sorted((modern.MODERN / "glyphs").glob("stage-1-16/*.svg")):
+            self.assertEqual(modern.violations(path.read_text(encoding="utf-8"), modern.palette(), 16, tuned=True), [],
+                             path.name)
+        bad = GOOD.replace('width="24" height="24" viewBox="0 0 24 24"', 'width="16" height="16" viewBox="0 0 16 16"')
+        bad = bad.replace('stroke-width="1.65"', 'stroke-width="1.5"')
+        self.assertTrue(any("does not snap" in p for p in modern.violations(bad, COLOURS, 16, tuned=True)))
 
 
 if __name__ == "__main__":
