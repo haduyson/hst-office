@@ -1,7 +1,7 @@
 HST Office: "Dùng HST Office để mở tài liệu văn phòng" on the Typical setup path.
 
-A checkbox on the setup-type page, ticked by default and shown only for Typical (the Custom
-path keeps its per-type file-type page). Ticked (HSTDEFAULTAPPS=1):
+A checkbox on the setup-type page, shown only for Typical (the Custom path keeps its per-type
+file-type page). Ticked (HSTDEFAULTAPPS=1):
 - SELECT_WORD, SELECT_EXCEL and SELECT_POWERPOINT are set before Regallmsdocdll, so the Office
   file types are registered to HST Office even where another program had them; the
   Capabilities entries are registered as before;
@@ -12,9 +12,12 @@ path keeps its per-type file-type page). Ticked (HSTDEFAULTAPPS=1):
 Windows keeps each user's own choice of default app (UserChoice), which no installer may set;
 the first-start prompt then opens Settings at HST Office. The checkbox text promises no more.
 
-The default is set by the UI sequence only (HstDefaultAppsOn): silent installs and the
-updater change nothing unless HSTDEFAULTAPPS=1 is passed on the command line. Choosing Custom
-clears it (its NewDialog event moves after the clearing event).
+Whether the box starts ticked is one switch, HSTDEFAULTAPPSUI in Property.idt (0 = unticked, the
+current default; 1 = ticked). HSTDEFAULTAPPS itself stays unset by default, because a checkbox
+shows ticked whenever its property has any value; when the switch is 1, HstDefaultAppsOn (UI
+sequence only) sets it. Silent installs and the updater change nothing unless HSTDEFAULTAPPS=1
+is passed on the command line. Choosing Custom clears it (its NewDialog event moves after the
+clearing event).
 
 License: modified upstream files keep their license (MPL-2.0).
 
@@ -98,7 +101,7 @@ License: modified upstream files keep their license (MPL-2.0).
  HstLegacyReinstallMode	HSTLEGACYPRODUCTS	151
  HstLegacyNoVcRedist	HSTLEGACYPRODUCTS	152
  HstLegacyBeta	HSTLEGACYPRODUCTS And Not Installed	640
-+HstDefaultAppsOn	Not Installed And Not HSTDEFAULTAPPS	645
++HstDefaultAppsOn	Not Installed And Not HSTDEFAULTAPPS And HSTDEFAULTAPPSUI=1	645
 --- a/instsetoo_native/inc_openoffice/windows/msi_templates/Property.idt
 +++ b/instsetoo_native/inc_openoffice/windows/msi_templates/Property.idt
 @@ -44,7 +44,7 @@ ProgressType3	installs
@@ -110,6 +113,11 @@ License: modified upstream files keep their license (MPL-2.0).
  SetupType	Typical
  SELECT_WORD	0
  SELECT_EXCEL	0
+@@ -65,3 +65,4 @@ VC_REDIST	1
+ WindowsMinVersionText	WINDOWSMINVERSIONTEXTTEMPLATE
+ WinMajorVerMin	WINMAJORVERMINTEMPLATE
+ REGISTER_PDF	1
++HSTDEFAULTAPPSUI	0
 --- a/scp2/source/ooo/registryitem_ooo.scp
 +++ b/scp2/source/ooo/registryitem_ooo.scp
 @@ -214,6 +214,19 @@ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Sta
