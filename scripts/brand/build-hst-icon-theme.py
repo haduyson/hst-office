@@ -2,9 +2,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Build deterministic HST icon archives with Python's standard library only.
 
---out DIR writes images_hst{,_dark}.zip and unpacked themes for inspection.
+--out DIR writes images_<theme>.zip and unpacked themes for inspection.
 --tree DIR stages the same resources for postprocess/images and the installers.
 --check verifies bytes without writing. No generated files belong in git.
+Themes: hst and hst_dark (classic HST glyphs), hst_modern and hst_modern_dark (colourful, the
+default), hst_classic and hst_classic_dark ("Cổ điển": Colibre with HST glyphs for what Colibre
+does not draw; needs the LibreOffice tree, --tree or --lo-tree, to know Colibre's coverage).
 """
 import argparse
 import hashlib
@@ -15,7 +18,8 @@ import sys
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import hst_modern_icons as modern  # noqa: E402  (sibling modules, standard library only)
+import hst_classic_icons as classic  # noqa: E402  (sibling modules, standard library only)
+import hst_modern_icons as modern  # noqa: E402
 from hst_icon_pack import archive, sync  # noqa: E402,F401  (sync: also used by the tests)
 from hst_icon_snap import snap_svg  # noqa: E402
 
@@ -26,10 +30,12 @@ SOURCE = ROOT / "icon-themes-src/hst"
 # The colourful style takes its darker ink (and heavier 16 px pen) from hst-modern/metadata/ink.json.
 PALETTES = {"hst": "#294159", "hst_dark": "#DBE7F1", "hst_modern": modern.ink()["light"],
             "hst_modern_dark": modern.ink()["dark"]}
+PALETTES.update({theme: ink for theme, (_, _, ink) in classic.CLASSIC.items()})
 MISSING_MODERN = set()
 # Families with a "trademark" master show the HASON TECH mark in its brand blue: #0072BB is the
 # official colour, #1A91CF the light end of the same app-icon gradient, legible on the dark ribbon.
-MARK_COLOURS = {"hst": "#0072BB", "hst_dark": "#1A91CF", "hst_modern": "#0072BB", "hst_modern_dark": "#1A91CF"}
+MARK_COLOURS = {"hst": "#0072BB", "hst_dark": "#1A91CF", "hst_modern": "#0072BB", "hst_modern_dark": "#1A91CF",
+                "hst_classic": "#0072BB", "hst_classic_dark": "#1A91CF"}
 SIZES = (16, 24, 32)
 
 
@@ -72,7 +78,17 @@ def glyph_svg(master, size, colour, theme="hst"):
     return svg.replace("currentColor", colour).encode("utf-8")
 
 
-def resources(theme):
+def resources(theme, icon_themes=None):
+    """Archive files of `theme`; icon_themes (the tree's icon-themes/) is needed for hst_classic*."""
+    if theme in classic.CLASSIC:
+        if icon_themes is None:
+            raise ValueError(f"{theme} needs the LibreOffice tree (--tree or --lo-tree) for Colibre's coverage")
+        coverage = classic.Coverage(icon_themes, classic.CLASSIC[theme][1])
+        return classic.overlay(_resources(theme), coverage, classic.NOTICE)
+    return _resources(theme)
+
+
+def _resources(theme):
     families = json.loads((SOURCE / "metadata/families.json").read_text())
     lock = json.loads((ROOT / "upstream/libreoffice-lock.json").read_text())
     naming = json.loads((SOURCE / "metadata/upstream-paths.json").read_text())
@@ -158,13 +174,20 @@ def main():
     target.add_argument("--out", type=Path)
     target.add_argument("--tree", type=Path)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--lo-tree", type=Path,
+                        help="LibreOffice source tree whose Colibre the Cổ điển themes overlay (--out only)")
     parser.add_argument("--require-modern", action="store_true",
                         help="release gate: fail unless every HST master has its colourful version")
     args = parser.parse_args()
     sizes = {}
     output = {}
-    for theme in PALETTES:
-        files = resources(theme)
+    lo_tree = args.tree or args.lo_tree
+    icon_themes = lo_tree / "icon-themes" if lo_tree else None
+    themes = [theme for theme in PALETTES if icon_themes or theme not in classic.CLASSIC]
+    if len(themes) < len(PALETTES):
+        print("hst_classic*: skipped, pass --lo-tree to build them", file=sys.stderr)
+    for theme in themes:
+        files = resources(theme, icon_themes)
         packed = archive(files)
         sizes[theme] = {"bytes": len(packed), "sha256": hashlib.sha256(packed).hexdigest(),
                         "entries": len(files)}
