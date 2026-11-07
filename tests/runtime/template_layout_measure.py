@@ -19,6 +19,29 @@ def words_by_page(pdf):
     return pages
 
 
+STROKE = re.compile(r'<path ([^>]*?)/>')
+ATTR = re.compile(r'([\w-]+)="([^"]*)"')
+
+
+def top_rule(pdf, page):
+    """Top edge (mm) of the highest horizontal line drawn on `page` (1-based), or None: the top rule of a ruled table
+    that opens a page is where its body starts, its first glyph sits below the rule and the cell padding."""
+    svg = subprocess.run(["pdftocairo", "-svg", "-f", str(page), "-l", str(page), pdf, "-"], capture_output=True, text=True,
+                         timeout=120, check=True).stdout.split("</defs>", 1)[-1]
+    tops = []
+    for attrs in STROKE.findall(svg):
+        a = dict(ATTR.findall(attrs))
+        points = re.fullmatch(r"\s*M ([\d.-]+) ([\d.-]+) L ([\d.-]+) ([\d.-]+)\s*", a.get("d", ""))
+        if "stroke" not in a or a.get("stroke") == "none" or not points:
+            continue
+        x0, y0, x1, y1 = (float(v) for v in points.groups())
+        m = [float(v) for v in re.findall(r"[\d.e-]+", a.get("transform", "matrix(1,0,0,1,0,0)"))]
+        if y0 != y1 or abs(x1 - x0) * abs(m[0]) * MM < 3:
+            continue
+        tops.append((m[1] * x0 + m[3] * y0 + m[5] - float(a.get("stroke-width", 0)) * abs(m[3]) / 2) * MM)
+    return round(min(tops), 2) if tops else None
+
+
 def baseline(word):
     size = (word["y1"] - word["y0"]) / LINE
     return word["y0"] + ASCENT * size
@@ -47,7 +70,8 @@ def measure(pdf, top_mm=20.0, footer_text=None, footer_from_mm=None):
         if not body:
             result["bodyTop"].append(None)
             continue
-        result["bodyTop"].append(round(min(w["y0"] for w in body), 2))
+        rule = top_rule(pdf, index + 1)
+        result["bodyTop"].append(round(min([w["y0"] for w in body] + ([rule] if rule is not None else [])), 2))
         result["left"] = round(min(result["left"], min(w["x0"] for w in body)), 2)
         result["right"] = round(max(result["right"], max(w["x1"] for w in body)), 2)
         result["bottom"] = round(max(result["bottom"], max(w["y1"] for w in body)), 2)
