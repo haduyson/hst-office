@@ -72,6 +72,16 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
+      - name: Parse the PowerShell smoke scripts
+        shell: pwsh
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem scripts/windows/*.ps1) {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors)
+            foreach ($e in $errors) { Write-Host "$($f.Name):$($e.Extent.StartLineNumber): $($e.Message)"; $bad++ }
+          }
+          if ($bad) { throw "$bad PowerShell parse errors" }
       - name: Download the MSI and verify its checksum
         shell: bash
         env:
