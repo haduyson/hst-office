@@ -14,7 +14,9 @@ Per app, on the Home tab (Trang đầu), the window is narrowed through 1920, 16
     smallest width in the sweep; a folded group stays folded at every narrower width;
   - narrowing never widens a toolbar that stays on the ribbon (monotone, no oscillation), except at
     a width where a group folds: the groups that stay may take back the room it leaves;
-  - the ribbon height (frame top to the document tab bar) does not change with the width.
+  - the ribbon height (frame top to the document tab bar) does not change with the width;
+  - after the chevron popup is opened and closed at the narrowest width and the window is widened
+    again, the groups are in the order they had at the widest width.
 Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json and, with --shots, one
 screenshot per app and width.
 """
@@ -90,6 +92,29 @@ def scan(display):
     return bars, chevron, banner, (tabs - top) if tabs is not None else None
 
 
+def order(groups):
+    return [key for key, _box in sorted(groups.items(), key=lambda item: item[1][0])]
+
+
+def chevron_round_trip(args, app, wid, observed):
+    """Open and close the chevron popup at the narrowest width, then widen: the groups that came back
+    from the popup are in their authored order (as at the widest width), not appended at the end."""
+    chevron = observed[-1][2]
+    if not chevron:
+        return
+    x, y, w, h = chevron
+    gui.xdo(args.display, "mousemove", str(x + w // 2), str(y + h // 2))
+    gui.xdo(args.display, "click", "1")
+    time.sleep(2)
+    gui.xdo(args.display, "key", "Escape")
+    time.sleep(1)
+    gui.xdo(args.display, "windowsize", wid, str(WIDTHS[0]), "900")
+    time.sleep(3)
+    bars, _chevron, _banner, _bottom = scan(args.display)
+    record(f"[{app}] groups keep their order after the chevron popup", order(bars.pop("__groups__", {})) == order(observed[0][5]),
+           (order(observed[0][5]),))
+
+
 def sweep(args, app, wid, office):
     observed = []
     for width in WIDTHS:
@@ -150,6 +175,7 @@ def sweep(args, app, wid, office):
            early or [(w, bool(c)) for w, _b, c, _n, _x, _g in observed])
     record(f"[{app}] a folded group stays folded as the window narrows", not returned, returned)
     record(f"[{app}] narrowing never widens a group (monotone)", not widened, widened)
+    chevron_round_trip(args, app, wid, observed)
     bottoms = sorted({o[4] for o in observed if o[4] is not None})
     record(f"[{app}] ribbon height independent of the width", len(bottoms) <= 1 or bottoms[-1] - bottoms[0] <= 1, bottoms)
     return [{"width": w, "toolbars": len(b), "groups": len(g), "chevron": bool(c), "banner": n}

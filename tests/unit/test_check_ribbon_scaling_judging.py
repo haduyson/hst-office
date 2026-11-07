@@ -4,6 +4,7 @@
 The sweep's measurements are faked: a blind scan (nothing found) must fail instead of passing every
 invariant vacuously, and a sweep where a group folds and the others take back its room must pass.
 """
+import copy
 import importlib.util
 import os
 import sys
@@ -60,7 +61,9 @@ class Judging(unittest.TestCase):
                 groups = {"font@9": [10, 55, 520, 100]}
                 chevron = (600, 60, 25, 80)
             scans.append(({**bars, "__groups__": groups}, chevron, banner, 182))
-        rows = self.run_sweep(scans)
+        # after the chevron round trip the window is as wide as at first, the groups in their order
+        scans.append(copy.deepcopy(scans[0]))
+        rows = self.run_sweep([copy.deepcopy(scan) for scan in scans])
         failed = [name for name, status in rows.items() if status != "PASS"]
         # the first fold (clipboard at 1280) leaves 70 px, less than the clipboard's 200
         self.assertEqual(failed, ["[writer] groups shrink before the first fold (1280 px)"])
