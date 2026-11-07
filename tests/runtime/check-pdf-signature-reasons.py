@@ -76,8 +76,8 @@ def viewer_signatures(office, path, timeout=60):
 
 def expectations_failed(api, viewer, valid, problem, signer):
     """The verdict is unchanged, and the reason and signer are shown: the failed expectations.
-    signer: the expected common name, or None when the CMS is not read (damaged, or ranges longer
-    than the file)."""
+    signer: the expected common name, "" for any name, or None when no CMS is read (damaged, or the
+    signature lies outside the file)."""
     failed = []
     if not api or any(s["valid"] != valid for s in api):
         failed.append("verdict %s" % [s["valid"] for s in api])
@@ -96,7 +96,8 @@ def expectations_failed(api, viewer, valid, problem, signer):
     lines = viewer["SignatureLines"] or []
     if len(lines) != len(api) or any(WHY[problem] not in line for line in lines):
         failed.append("panel lines %r" % lines)
-    if signer and any(UNVERIFIED_SIGNER + signer not in line or UNVERIFIED_TIME not in line for line in lines):
+    if signer is not None and any(UNVERIFIED_SIGNER + signer not in line or UNVERIFIED_TIME not in line
+                                  for line in lines):
         failed.append("signer not labelled as unverified in the panel %r" % lines)
     if any(s["certificate_status"] == CERTIFICATE_VALID for s in api):
         failed.append("certificate of an invalid signature checked as valid")
@@ -104,19 +105,19 @@ def expectations_failed(api, viewer, valid, problem, signer):
 
 
 def make_cases(args, fixtures):
-    """{name: (path, valid, problem, signer CN or None when no signer can be read)}."""
+    """{name: (path, valid, problem, signer CN, "" for any, None when no signer can be read)}."""
     source = pdf_samples.make(args.instdir, os.path.join(fixtures, "nguon.pdf"), 2)
     cases = {}
     for name, path in pdf_signature_fixtures.make_signature_fixtures(source, fixtures).items():
         valid, problem = pdf_signature_fixtures.SIGNATURE_FIXTURES[name]
-        # a damaged CMS names no signer; ranges longer than the file are never hashed
+        # a damaged CMS names no signer, nor a signature that lies past the end of the file
         unread = name in ("broken-cms", "range-past-eof")
         cases[name] = (path, valid, problem, None if unread else pdf_signature_fixtures.SIGNER_CN)
     if args.owner_pdf:
         copy = os.path.join(fixtures, "owner-copy.pdf")
         shutil.copyfile(args.owner_pdf, copy)
         os.chmod(copy, 0o444)
-        cases["owner-copy"] = (copy, False, "rewritten", None)
+        cases["owner-copy"] = (copy, False, "rewritten", "")
     return cases
 
 
