@@ -1,15 +1,17 @@
-HST Office: the style box controller never fills a style box whose window is already disposed.
+HST Office: a late toolbar update never reaches a disposed style box or style box controller.
 
 SvxStyleToolBoxControl keeps a raw pointer (m_pBox) to its SvxStyleBox_Impl, a VCL item window of the
-toolbox. When the toolbox is torn down before the controller, the box is disposed (its weld::ComboBox
-is released) while m_pBox still points at it. A pending ToolBarManager update then runs
-SvxStyleToolBoxControl::update(), which rebinds the style family listeners; their state arrives at once
-and SetFamilyState() -> Update() -> FillStyleBox() calls get_active_text() on the released widget: a
-read of address 0. Windows smoke of 1.0.0 (C1 build) crashed there while opening Sheets after Writer
-was closed (access violation in FillStyleBox, called from SvxStyleToolBoxControl::update() under
-Scheduler::CallbackTaskScheduling).
+toolbox. ToolBarManager updates its controllers from a 50 ms timer (AsyncUpdateControllersHdl ->
+UpdateControllers -> XUpdatable::update). Windows smoke of 1.0.0 (C1 build) showed two crashes from that
+timer, both while opening Sheets after Writer was closed:
+- ribbon UI: update() rebinds the style family listeners, their state arrives at once and
+  SetFamilyState() -> Update() -> FillStyleBox() calls get_active_text() on a box whose window is
+  already disposed (its weld::ComboBox released): read of address 0;
+- classic toolbars: update() reaches a controller that is already disposed and calls ReBind() on a
+  released family listener.
 
-FillStyleBox() and SelectStyle() now treat a disposed box as no box, as they already do for a missing one.
+update() now returns when the controller is disposed and skips missing listeners; FillStyleBox() and
+SelectStyle() treat a disposed box as no box, as they already do for a missing one.
 
 License: modified upstream files keep their license (MPL-2.0).
 
@@ -32,7 +34,22 @@ License: modified upstream files keep their license (MPL-2.0).
      Impl()
          :aClearForm         ( SvxResId( RID_SVXSTR_CLEARFORM ) )
          ,aMore              ( SvxResId( RID_SVXSTR_MORE_STYLES ) )
-@@ -3180,7 +3190,7 @@
+@@ -3157,8 +3167,13 @@
+ 
+ void SAL_CALL SvxStyleToolBoxControl::update()
+ {
++    // HST: a pending ToolBarManager update can reach a controller that is already disposed; its
++    // family listeners and Impl are gone then.
++    if (!m_pImpl)
++        return;
+     for (rtl::Reference<SfxStyleControllerItem_Impl>& pBoundItem : m_xBoundItems)
+-        pBoundItem->ReBind();
++        if (pBoundItem)
++            pBoundItem->ReBind();
+     bindListener();
+ }
+ 
+@@ -3180,7 +3195,7 @@
  
  void SvxStyleToolBoxControl::FillStyleBox()
  {
@@ -41,7 +58,7 @@ License: modified upstream files keep their license (MPL-2.0).
  
      DBG_ASSERT( m_pStyleSheetPool, "StyleSheetPool not found!" );
      DBG_ASSERT( pBox,            "Control not found!" );
-@@ -3260,7 +3270,7 @@
+@@ -3260,7 +3275,7 @@
  
  void SvxStyleToolBoxControl::SelectStyle( const OUString& rStyleName )
  {
