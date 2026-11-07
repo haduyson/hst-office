@@ -21,9 +21,9 @@ from hst_icon_snap import snap_svg  # noqa: E402  (sibling module, standard libr
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "icon-themes-src/hst"
-# Hand-tuned 16 px masters (viewBox 0 0 16 16, whole-pixel pens) of the Home and quick-access
-# families; every other glyph and size is snapped from its 24-unit master by hst_icon_snap.
-TUNED_16 = SOURCE / "glyphs/stage-1-16"
+# Hand-tuned masters drawn in target pixels (viewBox = size, whole-pixel pens): the 16 px Home and
+# quick-access glyphs and single 24 px fixes; everything else is snapped from its 24-unit master.
+TUNED = {16: SOURCE / "glyphs/stage-1-16", 24: SOURCE / "glyphs/stage-1-24"}
 PALETTES = {"hst": "#294159", "hst_dark": "#DBE7F1"}
 # Families with a "trademark" master show the HASON TECH mark in its brand blue: #0072BB is the
 # official colour, #1A91CF the light end of the same app-icon gradient, legible on the dark ribbon.
@@ -42,8 +42,8 @@ def svg_key(key):
 
 def glyph_svg(master, size, colour):
     """Shipped SVG of one glyph: pixel-snapped strokes painted as filled outlines."""
-    tuned = TUNED_16 / master.name
-    native = size == 16 and master.parent.name == "stage-1" and tuned.is_file()
+    tuned = TUNED[size] / master.name if size in TUNED else None
+    native = master.parent.name == "stage-1" and tuned is not None and tuned.is_file()
     source = (tuned if native else master).read_text(encoding="utf-8")
     return snap_svg(source, size, native=native).replace("currentColor", colour).encode("utf-8")
 

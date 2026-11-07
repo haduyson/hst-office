@@ -92,7 +92,7 @@ class SnapTest(unittest.TestCase):
 
     def test_every_master_snaps_at_every_size(self):
         for path in sorted((SOURCE / "glyphs").glob("stage-*/*.svg")):
-            if path.parent.name == "stage-1-16":
+            if path.parent.name in ("stage-1-16", "stage-1-24"):
                 continue
             for size in (16, 24, 32):
                 snap.snap_svg(path.read_text(), size)

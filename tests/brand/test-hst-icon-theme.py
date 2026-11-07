@@ -53,7 +53,8 @@ class HstThemeTest(unittest.TestCase):
         for family in families:
             if family.get("skip"):
                 continue
-            if not family.get("extension_tab"):
+            # Stage 3: commands the static inventory missed (ribbon parity gaps, addon commands).
+            if not family.get("extension_tab") and family["stage"] != 3:
                 commands.update(family["commands"])
             for key in family["keys"]:
                 for size in (16, 24, 32):
@@ -130,6 +131,24 @@ class HstThemeTest(unittest.TestCase):
         menu = ET.fromstring(files["res/notebookbar.svg"])
         self.assertEqual((menu.get("width"), menu.get("height")), ("16", "16"))
         self.assertNotEqual(files["res/notebookbar.svg"], files["cmd/sc_menubar.svg"])
+
+    def test_parity_gap_commands_launcher_and_aliases(self):
+        files = builder.resources("hst")
+        links = dict(line.split() for line in files["links.txt"].decode().splitlines() if not line.startswith("#"))
+        for name in ("insertcontentcontrol", "sidebardeck.a11ycheckdeck", "tipoftheday", "reporterror", "check"):
+            for size in (16, 24, 32):
+                key = builder.svg_key(builder.sized(f"cmd/{name}.png", size))
+                self.assertIn(key, files)
+                self.assertEqual(links[key[:-4] + ".png"], key)
+        launcher = ET.fromstring(files["sfx2/res/symphony/morebutton.svg"])
+        self.assertEqual((launcher.get("width"), launcher.get("height")), ("11", "11"))
+        self.assertNotIn(b"stroke=\"currentColor\"", files["sfx2/res/symphony/morebutton.svg"])
+        for alias, target in (("mailmergenextentry", "nextrecord"), ("pastespecial", "paste"),
+                              ("footnotedialog", "insertfootnote"), ("sortdialog", "sortascending")):
+            self.assertEqual(links[f"cmd/sc_{alias}.png"], f"cmd/sc_{target}.svg")
+        # The 24 px bold B is hand-tuned so its counters stay open with the 3 px pen.
+        self.assertIn(b'width="24"', files["cmd/lc_bold.svg"])
+        self.assertNotIn(b"Pixel-snapped", files["cmd/lc_bold.svg"])
 
 
 if __name__ == "__main__":
