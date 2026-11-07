@@ -99,11 +99,13 @@ def fallback_flow(main, args, catalogue, rotate, reference_box):
         main.check("[fallback] the 2000x600 image is aspect-fitted in its slot", drawn[0] == "oversized", repr(drawn))
         main.check("[fallback] oversized image does not change the slot size",
                    reference_box is None or box[2:] == reference_box[2:], f"{box} vs {reference_box}")
+        # the oversized art replaced the AIOS item, so that item is the one shown now
+        aios = next(i for i in catalogue if i["id"] == "aios")
         main.check("[fallback] accessible name from the installed manifest",
-                   probe.describe(run.banner())["name"] == catalogue[0]["label"], probe.describe(run.banner())["name"])
+                   probe.describe(run.banner())["name"] == aios["label"], probe.describe(run.banner())["name"])
         run.click(box)
         opened = run.opener.wait_for(1)
-        main.check("[fallback] click opens the installed item URL with UTM", opened[-1:] == [catalogue[0]["url"]],
+        main.check("[fallback] click opens the installed item URL with UTM", opened[-1:] == [aios["url"]],
                    repr(opened[-1:]))
 
 
