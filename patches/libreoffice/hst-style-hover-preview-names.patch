@@ -1,0 +1,61 @@
+HST Office: the Styles gallery hover preview sets the paragraph style by its own name.
+
+The gallery lists display names (for example "Văn bản nội dung"); the ParaStyleName property of a
+paragraph takes the style's own name ("Text body") and refuses a display name, so the preview never
+started. The display name is now looked up in the paragraph style family (DisplayName).
+
+- svx/source/tbxctrls/StylesPreviewWindow.cxx: HstStylePreview::StyleName().
+
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -50,7 +50,9 @@
+ #include <com/sun/star/document/XDocumentEventListener.hpp>
+ #include <com/sun/star/document/XUndoManagerSupplier.hpp>
+ #include <com/sun/star/frame/XStorable.hpp>
++#include <com/sun/star/container/XNameAccess.hpp>
+ #include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/style/XStyleFamiliesSupplier.hpp>
+ #include <com/sun/star/text/XTextRange.hpp>
+ #include <com/sun/star/util/XModifiable2.hpp>
+ #include <com/sun/star/view/XSelectionSupplier.hpp>
+@@ -566,11 +568,15 @@
+             }
+             if (aParagraphs.empty())
+                 return false;
++            // the gallery shows display names; the paragraph property takes the style's own name
++            const OUString aStyle = StyleName(xModel, rStyle);
++            if (aStyle.isEmpty())
++                return false;
+             m_xModel = xModel;
+             m_aParagraphs = std::move(aParagraphs);
+             if (!Quietly([&] {
+                     for (auto& [xProps, aOld] : m_aParagraphs)
+-                        xProps->setPropertyValue(u"ParaStyleName"_ustr, css::uno::Any(rStyle));
++                        xProps->setPropertyValue(u"ParaStyleName"_ustr, css::uno::Any(aStyle));
+                 }))
+             {
+                 End(); // protected text or an unknown style: put back what was changed
+@@ -638,6 +644,23 @@
+     }
+ 
+ private:
++    /** The name of the paragraph style shown as rDisplayName, or empty. */
++    static OUString StyleName(const css::uno::Reference<css::frame::XModel>& xModel, const OUString& rDisplayName)
++    {
++        css::uno::Reference<css::style::XStyleFamiliesSupplier> xSupplier(xModel, css::uno::UNO_QUERY_THROW);
++        css::uno::Reference<css::container::XNameAccess> xStyles(
++            xSupplier->getStyleFamilies()->getByName(u"ParagraphStyles"_ustr), css::uno::UNO_QUERY_THROW);
++        const css::uno::Sequence<OUString> aNames = xStyles->getElementNames();
++        for (const OUString& rName : aNames)
++        {
++            css::uno::Reference<css::beans::XPropertySet> xStyle(xStyles->getByName(rName), css::uno::UNO_QUERY);
++            OUString aDisplay;
++            if (xStyle.is() && (xStyle->getPropertyValue(u"DisplayName"_ustr) >>= aDisplay) && aDisplay == rDisplayName)
++                return rName;
++        }
++        return xStyles->hasByName(rDisplayName) ? rDisplayName : OUString();
++    }
++
+     /** Run rEdit outside the document's history: undo locked, change tracking off, modified frozen. */
+     template <typename F> bool Quietly(const F& rEdit)
+     {

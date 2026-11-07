@@ -7,8 +7,9 @@ Usage: python3 tests/runtime/check-ribbon-scaling.py [--instdir DIR] [--display 
 Per app, on the Home tab (Trang đầu), the window is narrowed through 1920, 1600, 1485, 1366, 1280, 1100,
 1000 and 900 px (900 px high). Each ribbon toolbar is identified by the names of its first items:
   - no toolbar is clipped: it lies inside the window and left of the banner slot;
-  - groups shrink before anything folds: whenever the chevron is shown, every toolbar still on the
-    ribbon is at the narrowest width it has anywhere in the sweep (the fold is the last rung);
+  - groups shrink before anything folds: at the first width with the chevron, some group still on the
+    ribbon is narrower than at the widest width, and whenever the chevron is shown every toolbar
+    still on the ribbon is at the narrowest width it has anywhere in the sweep (the fold is the last rung);
   - narrowing never widens a toolbar that stays on the ribbon (monotone, no oscillation);
   - the ribbon height (frame top to the document tab bar) does not change with the width.
 Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json and, with --shots, one
@@ -97,6 +98,11 @@ def sweep(args, app, wid, office):
         if chevron:
             early += [(width, key, box[2], narrowest[key]) for key, box in bars.items() if box[2] > narrowest[key] + 1]
         previous = {k: b[2] for k, b in bars.items()}
+    first = next(((w, b) for w, b, c, _n, _x in observed if c), None)
+    if first:
+        widest = observed[0][1]
+        shrunk = [k for k, box in first[1].items() if k in widest and box[2] < widest[k][2] - 1]
+        record(f"[{app}] groups shrink before the first fold ({first[0]} px)", bool(shrunk), shrunk or "no group narrower")
     record(f"[{app}] no ribbon group is clipped at {WIDTHS[0]}..{WIDTHS[-1]} px", not clipped, clipped or len(observed))
     record(f"[{app}] the chevron comes only after every group on the ribbon is at its smallest", not early,
            early or [(w, bool(c)) for w, _b, c, _n, _x in observed])
