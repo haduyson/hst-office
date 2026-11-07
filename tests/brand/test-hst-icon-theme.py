@@ -24,7 +24,7 @@ builder = module("hst_theme", "scripts/brand/build-hst-icon-theme.py")
 
 class HstThemeTest(unittest.TestCase):
     def test_scanner_layout_and_direct_links(self):
-        for theme in builder.PALETTES:
+        for theme in builder.FULL_THEMES:
             files = builder.resources(theme)
             packed = builder.archive(files)
             self.assertEqual(packed, builder.archive(dict(reversed(list(files.items())))))
@@ -71,7 +71,7 @@ class HstThemeTest(unittest.TestCase):
         names = ("convertencoding", "numbertowords", "formatdate", "formatvnd", "importcsv", "removediacritics",
                  "splitname", "sortbygivenname", "deleteblankrows", "showsolutions")
         reused = {"formatpercent": "numberformatpercent", "nd30wizard": "insertdoc"}
-        for theme in builder.PALETTES:
+        for theme in builder.FULL_THEMES:
             files = builder.resources(theme)
             links = dict(line.split() for line in files["links.txt"].decode().splitlines() if not line.startswith("#"))
             for name in names:
@@ -97,7 +97,7 @@ class HstThemeTest(unittest.TestCase):
         families = json.loads((builder.SOURCE / "metadata/families.json").read_text())
         self.assertEqual([f["glyph"] for f in families if f.get("trademark")], ["showsolutions"])
         self.assertFalse((builder.SOURCE / "glyphs/stage-1/showsolutions.svg").exists())
-        for theme in builder.PALETTES:
+        for theme in builder.FULL_THEMES:
             files = builder.resources(theme)
             svg = files["cmd/32/showsolutions.svg"]
             self.assertNotIn(b"CC-BY", svg)

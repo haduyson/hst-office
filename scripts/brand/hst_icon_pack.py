@@ -37,3 +37,23 @@ def sync(directory, files, check=False):
             temporary.replace(path)
     if errors:
         raise ValueError("\n".join(errors))
+
+
+# Notice shipped in every HST command icon archive (COPYING.txt).
+COPYING = (
+    "HST Ribbon Icons — HASON TECH, 2026, CC BY 4.0\n"
+    "Copyright (c) 2026 Công ty TNHH Công nghệ Hà Sơn (HASON TECH).\n"
+    "Command glyphs: original HST artwork, see LICENSE-CC-BY-4.0.txt, except the marks below.\n"
+    "Source: https://github.com/haduyson/hst-office/tree/main/icon-themes-src/hst\n"
+    "Licence: https://creativecommons.org/licenses/by/4.0/\n"
+    "Changes: palette exports of the original masters, pixel-snapped per size (16/24/32 px,\n"
+    "whole-pixel pens) with strokes painted as filled outlines; hand-tuned 16 px masters\n"
+    "for the Home and quick-access glyphs (glyphs/stage-1-16).\n"
+    "res/mainapp_*: existing HST Office application marks, copied unchanged from\n"
+    "branding/icon-themes; these are HASON TECH trademarks, not CC BY glyphs.\n"
+    "cmd/sc_showsolutions.svg, cmd/lc_showsolutions.svg, cmd/32/showsolutions.svg:\n"
+    "the HASON TECH mark of res/mainapp_* in brand blue (branding/icon-themes/\n"
+    "hasontech-mark.svg); a HASON TECH trademark, not a CC BY glyph.\n"
+    "The artwork and source licences grant no trademark rights (see product NOTICE).\n"
+    "Generator and mapping code: AGPL-3.0-only, in the source repository.\n"
+)

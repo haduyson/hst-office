@@ -1,5 +1,19 @@
 # Bộ biểu tượng ribbon HST — hướng A
 
+**Hai kiểu biểu tượng (1.0.0):** Tùy chọn ▸ HST Office ▸ Giao diện cho chọn giữa
+- **Hiện đại (nhiều màu)**, mặc định: `hst_modern` / `hst_modern_dark`, vẽ từ mẫu gốc trong
+  `../hst-modern/`. Mực nét lấy từ `../hst-modern/metadata/ink.json` lúc dựng (sáng `#1D2F42`, tối
+  `#EEF4F9`), và ở 16 px nét 1 px được làm dày thành 2 px khi glyph còn chỗ
+  (`scripts/brand/hst_icon_weight.py`: không lấp khe 1 px, không bít lỗ chữ, không chạm nét khác,
+  vùng màu còn thấy). Mẫu gốc không đổi nên các đợt vẽ mới cũng được xử lý giống vậy.
+- **Cổ điển**: `hst_classic` / `hst_classic_dark` là bộ Colibre SVG của LibreOffice, chồng thêm
+  glyph HST (thư mục này, theo màu mực của Colibre) cho những lệnh Colibre không có, như các lệnh
+  `org.hst.office.vi:*` hay hộp thoại thống kê. Gói chỉ chứa phần glyph HST đó; phần còn lại VCL lấy
+  từ `colibre_svg` / `colibre_dark_svg` (`patches/libreoffice/hst-icon-theme-classic-colibre.patch`).
+  Danh sách lệnh được tính từ chính cây LibreOffice lúc dựng (`--tree`, hoặc `--lo-tree` khi dùng `--out`).
+  Hồ sơ cũ còn ghi `hst` / `hst_dark` vẫn mở ra kiểu Cổ điển này. Bộ `hst` / `hst_dark` vẫn được
+  cài, làm lớp dự phòng cho kiểu Hiện đại.
+
 **Bắt điểm ảnh (1.0.0):** gói sản phẩm không còn xuất nguyên hình học lưới 24 cho mọi cỡ.
 `scripts/brand/hst_icon_snap.py` bắt từng glyph theo cỡ raster: nét 1,65 đơn vị thành
 **1 px ở 16, 2 px ở 24, 3 px ở 32** (nét đậm hơn giữ tỉ lệ), tâm nét lẻ nằm giữa điểm ảnh, nét chẵn

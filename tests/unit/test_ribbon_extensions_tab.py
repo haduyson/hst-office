@@ -159,7 +159,7 @@ class ExtensionsTabTest(unittest.TestCase):
         builder = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(builder)
         icons = {f"cmd/32/{icon}.png" for layout in LAYOUT.values() for _, buttons in layout for _, _, icon in buttons}
-        for theme in builder.PALETTES:
+        for theme in builder.FULL_THEMES:  # the Cổ điển overlays: tests/brand/test-hst-classic-icons.py
             files = builder.resources(theme)
             links = dict(l.split() for l in files["links.txt"].decode().splitlines() if not l.startswith("#"))
             for icon in icons:

@@ -1,25 +1,19 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Heavier 16 px ink for the colourful HST style: 1 px pens become 2 px where the glyph has room.
 
-At 16 px the snapped HST glyphs draw with a 1 px pen; the upstream sets they sit next to draw
-letterforms and outlines at 1.5-2 px and look heavier. A uniform 2 px pen would close the 1 px
-gaps of line-art glyphs (alignment bars, lists, tables), so each stroked part is widened on its
-own, and only when a pixel model of the glyph shows that the wider pen
+At 16 px the snapped glyphs draw a 1 px pen and look lighter than the upstream sets (1.5-2 px). A
+uniform 2 px pen would close the 1 px gaps of line art, so each stroked part widens on its own, only
+when the pixel model (hst_icon_pixels) shows that the wider pen stays inside the canvas, creates or
+closes no background region, consumes no 1 px gap pixel and creates none, touches no stroke it did
+not touch (at most two more contact pixels at a joint), and leaves two thirds of every colour fill
+visible.
 
-* stays inside the canvas,
-* creates or closes no background region (counters stay open, no new enclosed holes),
-* consumes no background pixel that sits in a 1 px gap between two inked pixels,
-* touches no stroke it did not touch before (at most two more contact pixels where it did),
-* leaves at least two thirds of every colour fill visible.
-
-Widening keeps the pixel lattice: a closed rectangle or ellipse grows inward (its outer edge is
-unchanged); any other stroke moves by half a pixel diagonally so that its 2 px pen sits on pixel
-edges, and a widened straight axis-aligned line is painted as a solid bar with half-pixel corner
-rounding (a 2 px round cap would leave grey corner pixels at 1x). A stroked element is tried as a
-whole first, then subpath by subpath, except elements made only of straight lines (text lines,
-rules), which widen together or not at all. Fills and dots are never changed. Parts are tried in
-paint order and the first passing placement wins, so the result is deterministic. Standard
-library only.
+Widening keeps the pixel lattice: a closed rectangle or ellipse grows inward; any other stroke moves
+half a pixel diagonally so its 2 px pen sits on pixel edges, and a widened straight axis-aligned line
+becomes a solid bar with half-pixel corner rounding (a 2 px round cap leaves grey corners at 1x). An
+element is tried whole first, then subpath by subpath, except elements of straight lines only (text
+lines, rules), which widen together or not at all. Fills and dots never change. Parts are tried in
+paint order and the first passing placement wins, so the result is deterministic.
 """
 import math
 
@@ -190,11 +184,7 @@ def _straight(sub):
 
 
 def _bar(sub, style, state):
-    """A widened straight axis-aligned line as a filled bar.
-
-    A 2 px round cap or a round end covers its corner pixels by 79 % only, which reads as a grey
-    end at 1x; the bar keeps the cap's length and rounds its corners by half a pixel instead
-    (solid at 1x, still round at 2x)."""
+    """A widened straight axis-aligned line as a filled bar of the cap's length (solid at 1x)."""
     ends = _straight(sub)
     if ends is None:
         return None
