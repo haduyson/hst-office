@@ -17,7 +17,7 @@ from _paths import ROOT
 
 PATCHES = os.path.join(ROOT, "patches", "libreoffice")
 HEADER = "sfx2/source/notebookbar/HstBannerGeometry.hxx"
-CHAIN = ("hst-ribbon-banner.patch", "hst-ribbon-banner-compact.patch")
+CHAIN = ("hst-ribbon-banner.patch", "hst-ribbon-banner-compact.patch", "hst-ribbon-banner-slot-anchor.patch")
 
 DRIVER = r"""
 #include "HstBannerGeometry.hxx"
@@ -100,6 +100,7 @@ class RibbonBannerCompactTest(unittest.TestCase):
             header = header_after_chain(tmp)
         self.assertIn("COMPACT_ART_WIDTH = 160", header)
         self.assertIn("inline Mode modeFor(", header)
+        self.assertIn("constexpr bool SLOT_CENTRED = true;", header)  # shipped: centred on the page
 
     @unittest.skipUnless(shutil.which("g++") and shutil.which("patch"), "no C++ compiler or patch tool")
     def test_geometry(self):

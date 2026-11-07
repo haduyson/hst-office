@@ -1,0 +1,355 @@
+HST Office: Office-style collapse ladder for the ribbon groups (step-by-step large, medium, small).
+
+Owner decision (2026-11-07): the step-by-step collapse ships on; the CollapseLadder switch
+(org.openoffice.Office.HSTRibbon, hst-ribbon-switches.patch) is rollback safety only.
+
+Before any group folds into the chevron popup, the groups of a ribbon tab shrink one state at a
+time, from the right: large (as authored), medium (large buttons become small icons with the label
+on the right), small (icons only). Only what still does not fit folds, so the chevron is the last
+rung and no group is clipped. A toolbox holding Paste keeps its authored size, as in Office; a
+folded group opens in the popup at its full size. The choice is the pure, monotone ladder of
+vcl/inc/HstRibbonScaling.hxx (hst-ribbon-scaling-helper.patch); widths per state are measured once
+per group and content and cached, so a resize only applies the states that change.
+
+- vcl/inc/HstRibbonLadder.hxx, vcl/source/control/HstRibbonLadder.cxx (new): group states, the switch.
+- vcl/source/control/PriorityMergedHBox.cxx, vcl/inc/PriorityMergedHBox.hxx: the ladder before the fold.
+- vcl/inc/toolbox.h, vcl/source/window/toolbox.cxx: the authored toolbox style and the text position
+  are kept for the ladder; a later text position change relayouts the toolbox.
+- vcl/Library_vcl.mk: builds HstRibbonLadder.
+
+--- a/vcl/inc/toolbox.h
++++ b/vcl/inc/toolbox.h
+@@ -130,6 +130,15 @@
+     // HST Office: ribbon (notebookbar) toolbox drawn with the ribbon palette (vcl/HstRibbonPaint.hxx)
+     bool mbHstOwnerDraw = false;
+ 
++    // HST Office: collapse ladder (HstRibbonLadder.hxx): the current text position (ToolBox keeps
++    // it private) and the authored style, remembered when a group first changes its size state
++    ToolBoxTextPosition meHstTextPosition = ToolBoxTextPosition::Right;
++    bool mbHstAuthored = false;
++    bool mbHstKeepLarge = false;
++    ButtonType meHstAuthoredType = ButtonType::SYMBOLONLY;
++    ToolBoxButtonSize meHstAuthoredSize = ToolBoxButtonSize::DontCare;
++    ToolBoxTextPosition meHstAuthoredTextPosition = ToolBoxTextPosition::Right;
++
+     // the optional custom menu
+     VclPtr<PopupMenu>   mpMenu;
+     ToolBoxMenuType maMenuType;
+--- a/vcl/source/window/toolbox.cxx
++++ b/vcl/source/window/toolbox.cxx
+@@ -4841,7 +4841,12 @@
+ 
+ void ToolBox::SetToolBoxTextPosition( ToolBoxTextPosition ePosition )
+ {
++    // HST Office: mirrored for the ribbon collapse ladder; a change after the first layout relayouts
++    const bool bChanged = meTextPosition != ePosition;
+     meTextPosition = ePosition;
++    mpData->meHstTextPosition = ePosition;
++    if (bChanged)
++        ImplInvalidate(true);
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -257,6 +257,7 @@
+     vcl/source/control/listbox \
+     vcl/source/control/managedmenubutton \
+     vcl/source/control/MenuButton \
++    vcl/source/control/HstRibbonLadder \
+     vcl/source/control/HstRibbonPaint \
+     vcl/source/control/NotebookbarPopup \
+     vcl/source/control/PriorityHBox \
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -21,11 +21,19 @@
+ #include "NotebookbarPopup.hxx"
+ #include "PriorityHBox.hxx"
+ 
++#include <map>
++#include <vector>
++
+ class PriorityMergedHBox final : public PriorityHBox
+ {
+ private:
+     VclPtr<PushButton> m_pButton;
+     VclPtr<NotebookbarPopup> m_pPopup;
++    // HST Office: collapse ladder: measured width of every group per size state, keyed by its content
++    std::map<vcl::Window*, std::pair<sal_Int32, std::vector<tools::Long>>> m_aHstWidths;
++    std::map<vcl::Window*, int> m_aHstStates;
++    bool m_bHstLadder = false;
++    void HstApplyLadder(tools::Long nWidth);
+ 
+     DECL_LINK(PBClickHdl, Button*, void);
+ 
+@@ -46,6 +54,7 @@
+     Size calculateRequisition() const override;
+ 
+     void GetChildrenWithPriorities() override{};
++    virtual void DataChanged(const DataChangedEvent& rEvent) override;
+ };
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -24,6 +24,9 @@
+ #include <PriorityHBox.hxx>
+ #include <PriorityMergedHBox.hxx>
+ #include <comphelper/lok.hxx>
++#include <HstRibbonLadder.hxx>
++#include <HstRibbonScaling.hxx>
++#include <vcl/event.hxx>
+ 
+ #include <utility>
+ #include <vector>
+@@ -69,6 +72,11 @@
+ 
+     const tools::Long nWidth = GetSizePixel().Width();
+     const tools::Long nSpacing = get_spacing();
++
++    // HST Office: groups first shrink step by step (large, medium, small); only what still does not
++    // fit folds into the chevron popup below, which stays the last rung
++    if (hst::ribbon::collapseLadderEnabled())
++        HstApplyLadder(nWidth);
+     std::vector<std::pair<vcl::Window*, tools::Long>> aGroups;
+     tools::Long nAll = 0;
+     for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
+@@ -106,8 +114,68 @@
+     VclHBox::Resize();
+ }
+ 
++void PriorityMergedHBox::HstApplyLadder(tools::Long nWidth)
++{
++    if (m_bHstLadder)
++        return;
++    m_bHstLadder = true;
++    const tools::Long nSpacing = get_spacing();
++    std::vector<vcl::Window*> aWindows;
++    std::vector<hst::ribbon::Group> aGroups;
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (pChild == m_pButton)
++            continue;
++        const sal_Int32 nKey = hst::ribbon::GroupContentKey(*pChild);
++        auto& rEntry = m_aHstWidths[pChild];
++        if (rEntry.second.empty() || rEntry.first != nKey)
++        {
++            // measure every state once, then go back to the current one
++            rEntry.first = nKey;
++            rEntry.second.clear();
++            for (int nState = 0; nState < hst::ribbon::GroupStateCount; ++nState)
++            {
++                hst::ribbon::SetGroupState(*pChild, nState);
++                rEntry.second.push_back(getLayoutRequisition(*pChild).Width() + pChild->get_padding() * 2);
++            }
++            hst::ribbon::SetGroupState(*pChild, m_aHstStates[pChild]);
++        }
++        hst::ribbon::Group aGroup;
++        for (tools::Long nGroupWidth : rEntry.second)
++            aGroup.widths.push_back(nGroupWidth + (aGroups.empty() ? 0 : nSpacing));
++        aGroups.push_back(std::move(aGroup));
++        aWindows.push_back(pChild);
++    }
++    const tools::Long nChevron
++        = getLayoutRequisition(*m_pButton).Width() + m_pButton->get_padding() * 2 + nSpacing;
++    // default ladder: from the right, one state at a time; core groups on the left go last
++    const hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, {}, nWidth, nChevron);
++    for (size_t i = 0; i < aWindows.size(); ++i)
++    {
++        const int nState = static_cast<int>(aLayout.states[i]);
++        if (m_aHstStates[aWindows[i]] != nState)
++        {
++            hst::ribbon::SetGroupState(*aWindows[i], nState);
++            m_aHstStates[aWindows[i]] = nState;
++        }
++    }
++    m_bHstLadder = false;
++}
++
++void PriorityMergedHBox::DataChanged(const DataChangedEvent& rEvent)
++{
++    PriorityHBox::DataChanged(rEvent);
++    // fonts, scale or theme change the widths: measure again
++    if (rEvent.GetType() == DataChangedEventType::SETTINGS || rEvent.GetType() == DataChangedEventType::FONTS
++        || rEvent.GetType() == DataChangedEventType::DISPLAY)
++        m_aHstWidths.clear();
++}
++
+ void PriorityMergedHBox::dispose()
+ {
++    m_aHstWidths.clear();
++    m_aHstStates.clear();
+     m_pButton.disposeAndClear();
+     if (m_pPopup)
+         m_pPopup.disposeAndClear();
+@@ -190,6 +258,12 @@
+         {
+             if (!pWindow->IsVisible())
+             {
++                // HST Office: a folded group opens at its full, authored size
++                if (m_aHstStates[pWindow] != hst::ribbon::GroupLarge)
++                {
++                    hst::ribbon::SetGroupState(*pWindow, hst::ribbon::GroupLarge);
++                    m_aHstStates[pWindow] = hst::ribbon::GroupLarge;
++                }
+                 pWindow->Show();
+                 pWindow->SetParent(m_pPopup->getBox());
+                 // count is decreased because we moved child
+--- /dev/null
++++ b/vcl/inc/HstRibbonLadder.hxx
+@@ -0,0 +1,45 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: size states of a ribbon group for the Office-style collapse ladder.
++// Large is the authored layout; Medium turns large buttons into small icons with the label on
++// the right; Small drops the labels. A toolbox holding Paste always keeps its authored layout.
++// The ladder itself (which group goes to which state) is HstRibbonScaling.hxx.
++
++#include <sal/types.h>
++
++namespace vcl
++{
++class Window;
++}
++
++namespace hst::ribbon
++{
++enum GroupState
++{
++    GroupLarge = 0,
++    GroupMedium = 1,
++    GroupSmall = 2,
++    GroupStateCount = 3
++};
++
++/** The CollapseLadder switch (org.openoffice.Office.HSTRibbon), read once per process; false in
++    LibreOfficeKit. Off: whole groups fold as before. */
++bool collapseLadderEnabled();
++
++/** Apply nState to every toolbox inside rGroup (authored styles are remembered on first use). */
++void SetGroupState(vcl::Window& rGroup, int nState);
++
++/** Changes when the group's content changes (contextual items shown or hidden), for width caches. */
++sal_Int32 GroupContentKey(vcl::Window& rGroup);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -0,0 +1,106 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <HstRibbonLadder.hxx>
++
++#include <comphelper/lok.hxx>
++#include <officecfg/Office/HSTRibbon.hxx>
++#include <vcl/image.hxx>
++#include <vcl/toolbox.hxx>
++
++#include <toolbox.h>
++
++namespace hst::ribbon
++{
++namespace
++{
++bool holdsPaste(const ToolBox& rToolBox)
++{
++    for (ToolBox::ImplToolItems::size_type i = 0; i < rToolBox.GetItemCount(); ++i)
++        if (rToolBox.GetItemCommand(rToolBox.GetItemId(i)) == ".uno:Paste")
++            return true;
++    return false;
++}
++
++void applyToToolBox(ToolBox& rToolBox, int nState)
++{
++    ImplToolBoxPrivateData& rData = *rToolBox.ImplGetToolBoxPrivateData();
++    if (!rData.mbHstAuthored)
++    {
++        rData.mbHstAuthored = true;
++        rData.meHstAuthoredType = rToolBox.GetButtonType();
++        rData.meHstAuthoredSize = rToolBox.GetToolboxButtonSize();
++        rData.meHstAuthoredTextPosition = rData.meHstTextPosition;
++        rData.mbHstKeepLarge = holdsPaste(rToolBox); // Paste stays large, as in Office
++    }
++    const bool bKeep = rData.mbHstKeepLarge || nState == GroupLarge;
++    const ButtonType eType
++        = bKeep || nState < GroupSmall ? rData.meHstAuthoredType : ButtonType::SYMBOLONLY;
++    const ToolBoxButtonSize eSize
++        = bKeep || rData.meHstAuthoredSize != ToolBoxButtonSize::Large ? rData.meHstAuthoredSize
++                                                                       : ToolBoxButtonSize::Small;
++    const ToolBoxTextPosition ePosition
++        = bKeep ? rData.meHstAuthoredTextPosition : ToolBoxTextPosition::Right;
++    // only real changes: each one invalidates the toolbox and queues a layout
++    if (rToolBox.GetButtonType() != eType)
++        rToolBox.SetButtonType(eType);
++    if (rToolBox.GetToolboxButtonSize() != eSize)
++        rToolBox.SetToolboxButtonSize(eSize);
++    if (rData.meHstTextPosition != ePosition)
++        rToolBox.SetToolBoxTextPosition(ePosition);
++}
++
++template <typename F> void forToolBoxes(vcl::Window& rWindow, const F& rFunction)
++{
++    for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (ToolBox* pToolBox = dynamic_cast<ToolBox*>(pChild))
++            rFunction(*pToolBox);
++        else
++            forToolBoxes(*pChild, rFunction);
++    }
++}
++}
++
++bool collapseLadderEnabled()
++{
++    static const bool bEnabled = [] {
++        if (comphelper::LibreOfficeKit::isActive())
++            return false;
++        try
++        {
++            return officecfg::Office::HSTRibbon::CollapseLadder::get();
++        }
++        catch (...)
++        {
++            return true; // no configuration (unit tests): the shipped default
++        }
++    }();
++    return bEnabled;
++}
++
++void SetGroupState(vcl::Window& rGroup, int nState)
++{
++    forToolBoxes(rGroup, [nState](ToolBox& rToolBox) { applyToToolBox(rToolBox, nState); });
++}
++
++sal_Int32 GroupContentKey(vcl::Window& rGroup)
++{
++    sal_Int32 nKey = 0;
++    forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
++        nKey = nKey * 31 + (rToolBox.IsVisible() ? 1 : 0);
++        for (ToolBox::ImplToolItems::size_type i = 0; i < rToolBox.GetItemCount(); ++i)
++            nKey = nKey * 31 + (rToolBox.IsItemVisible(rToolBox.GetItemId(i)) ? 1 : 0);
++    });
++    return nKey;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
