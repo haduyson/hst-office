@@ -456,7 +456,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sd/source/ui/controller/HstTransitionGallery.cxx
-@@ -0,0 +1,341 @@
+@@ -0,0 +1,342 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -508,7 +508,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +{
 +constexpr OUString COMMAND = u".uno:HstApplyTransition"_ustr;
 +// an item is the icon view's item width plus its padding on both sides (hsttransitiongallery.ui)
-+constexpr tools::Long ITEM_WIDTH = 60 + 2 * 2;
++constexpr tools::Long ITEM_WIDTH = 96 + 2 * 2;
 +constexpr int MIN_ITEMS = 3; // the narrowest gallery still shows three transitions
 +
 +bool GalleryEnabled()
@@ -565,6 +565,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +        , m_aRefill("sd HstTransitionGallery refill")
 +    {
 +        InitControlBase(m_xView.get());
++        m_xView->set_item_width(static_cast<int>(ITEM_WIDTH - 2 * 2)); // one row: wider items would wrap out of sight
 +        m_xView->set_size_request(ITEM_WIDTH * MIN_ITEMS, -1);
 +        m_xView->connect_item_activated(LINK(this, HstTransitionGalleryWindow, ActivatedHdl));
 +        m_xPrev->connect_clicked(LINK(this, HstTransitionGalleryWindow, PageHdl));
@@ -841,7 +842,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +            <property name="pixbuf-column">0</property>
 +            <property name="text-column">1</property>
 +            <property name="tooltip-column">3</property>
-+            <property name="item-width">60</property>
++            <property name="item-width">96</property>
 +            <property name="item-padding">2</property>
 +            <property name="column-spacing">0</property>
 +            <property name="row-spacing">0</property>

@@ -167,8 +167,10 @@ def check_gallery_on_screen(office, doc, page, args):
     if tab:
         tabs.click(args.display, tab[1])
         time.sleep(2)
-    gallery = next((n for n in tabs.walk(tabs.office_app())
-                    if (n.name or "") in GALLERY_NAMES and n.getRoleName() in ("list", "tree table", "table", "layered pane")), None)
+    # only the ribbon: the whole Slides tree (slide panes, shapes) is too large to walk
+    tab_list = next((n for n in tabs.walk(tabs.office_app()) if n.getRoleName() == "page tab list"), None)
+    gallery = next((n for n in (tabs.walk(tab_list) if tab_list else ())
+                    if (n.name or "") in GALLERY_NAMES and n.childCount > 0), None)
     items = [gallery.getChildAtIndex(i) for i in range(gallery.childCount)] if gallery else []
     office.screenshot(os.path.join(args.out, "gallery.png"))
     record("5. the gallery is on the Transitions tab with transition items", len(items) >= 3,

@@ -10,7 +10,7 @@ Per app, on the Home tab (Trang đầu), the window is narrowed through 1920, 16
   - the fold is the last rung: where a group (the panel holding a group's toolbars) goes into the
     chevron, the room left between the groups and the chevron is narrower than that group at its
     smallest width in the sweep; a folded group stays folded at every narrower width, unless the
-    ribbon got more room there (the banner went compact);
+    ribbon got more room there (the banner went compact) or a wider group folds there instead;
   - narrowing never widens a toolbar that stays on the ribbon (monotone, no oscillation), except at
     a width where a group folds: the groups that stay may take back the room it leaves;
   - the ribbon height (frame top to the document tab bar) does not change with the width;
@@ -141,8 +141,10 @@ def sweep(args, app, wid, office):
         last_right = right
         # groups that were on the ribbon at a wider width and are gone now went into the chevron
         newly = (seen - set(groups)) - folded if chevron else set()
-        returned += [(width, key) for key in folded & set(groups)]
-        folded |= newly
+        # a narrower group may come back where a wider one folds (the ladder refits the row)
+        if not newly:
+            returned += [(width, key) for key in folded & set(groups)]
+        folded = (folded - set(groups)) | newly
         seen |= set(groups)
         for key, box in bars.items():
             if box[0] < 0 or box[0] + box[2] > right + 1:
