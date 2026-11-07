@@ -11,6 +11,11 @@ MAX_MANIFEST = 65536
 MAX_IMAGE = 300 * 1024
 MAX_ITEMS = 24
 SCALES = ("1x", "2x", "3x")
+# Optional per-item artwork for the compact slot of windows narrower than 1280 logical px.
+# Same descriptor shape as "image" (all three scales or none); pixel size COMPACT_SIZE x scale.
+# schemaVersion stays 1: older clients ignore the unknown field.
+COMPACT_FIELD = "imageCompact"
+COMPACT_SIZE = (160, 104)
 INTERVAL = 86400
 
 
@@ -54,6 +59,11 @@ def _item(item, bundled):
     _require(isinstance(images, dict) and set(images) == set(SCALES))
     for value in images.values():
         _image(value, bundled)
+    if COMPACT_FIELD in item:
+        compact = item[COMPACT_FIELD]
+        _require(isinstance(compact, dict) and set(compact) == set(SCALES))
+        for value in compact.values():
+            _image(value, bundled)
     for field in ("startAt", "endAt"):
         if field in item:
             timestamp(item[field])
@@ -95,6 +105,17 @@ def parse_manifest(data, bundled=False):
     _require(len({i["id"] for i in items}) == len(items))
     doc["items"] = sorted(items, key=lambda i: (i["order"], i["id"]))
     return doc
+
+
+def has_compact(item):
+    """True when the item carries compact artwork (parse_manifest has validated it)."""
+    return isinstance(item.get(COMPACT_FIELD), dict)
+
+
+def compact_items(items):
+    """Items shown in the compact slot: those with compact artwork, in order. The wide artwork is
+    never cropped (crops cut the brand text); an empty result hides the compact slot."""
+    return [item for item in items if has_compact(item)]
 
 
 def active(item, now, version):
