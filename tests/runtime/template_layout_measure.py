@@ -104,6 +104,10 @@ def number_date_offset(pdf):
     return None
 
 
+def page_count(pdf):
+    return len(words_by_page(pdf))
+
+
 def text_lines(pdf, page=1, gap_mm=3.0):
     """Text lines of `page` (1-based) as {'text', 'x0', 'y0', 'x1', 'y1'} in mm, built from words: words on one baseline
     farther apart than `gap_mm` belong to different columns (pdftotext -bbox-layout joins the two header columns)."""
