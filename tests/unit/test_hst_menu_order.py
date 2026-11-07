@@ -36,6 +36,9 @@ class HstMenuOrder(unittest.TestCase):
     def test_macro_vba_comes_before_feature_search(self):
         self.assertEqual(menu_urls()[-4], "org.hst.office.vi:EditVba")
 
+    def test_duplex_and_default_apps_come_before_macro_vba(self):
+        self.assertEqual(menu_urls()[-6:-4], ["org.hst.office.vi:ToggleDuplex", "org.hst.office.vi:DefaultApps"])
+
 
 if __name__ == "__main__":
     unittest.main()
