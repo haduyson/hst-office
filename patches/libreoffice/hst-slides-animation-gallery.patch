@@ -1,0 +1,1071 @@
+HST Office: the Slides ribbon animation gallery and undoable shape-effect replacement.
+
+.uno:HstApplyAnimation?Effect:string=<preset id> replaces main-sequence effects of selected
+shapes in normal view. None removes them. A single UndoAnimation precedes all changes;
+state is the first effect id, None, or empty for mixed selections. The fixed gallery uses
+translated preset labels, accessible class names, paging, and the Custom Animation deck.
+SlidesEffectGalleries hides the item. S5 owns its placement on the Animations tab.
+
+Apply after hst-slides-transition-gallery-strings.patch. Validation: the animation and
+transition gallery Python unit tests; S6 builds and runs check-slides-animation-gallery.py.
+
+--- a/sd/sdi/sdraw.sdi
++++ b/sd/sdi/sdraw.sdi
+@@ -2756,6 +2756,23 @@
+     GroupId = SfxGroupId::Modify;
+ ]
+ 
++SfxStringItem HstApplyAnimation SID_HST_APPLY_ANIMATION
++(SfxStringItem Effect SID_HST_APPLY_ANIMATION)
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = FALSE,
++    MenuConfig = FALSE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Modify;
++]
++
+ SfxVoidItem Remote SID_REMOTE_DLG
+ ()
+ [
+--- a/sd/inc/app.hrc
++++ b/sd/inc/app.hrc
+@@ -437,5 +437,6 @@
+ 
+ // HST Office: the ribbon's transitions gallery applies a transition set (SfxStringItem, HstTransitionApply.hxx)
+ #define SID_HST_APPLY_TRANSITION            (SID_SD_START+458)
++#define SID_HST_APPLY_ANIMATION             (SID_SD_START+459)
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sd/sdi/drviewsh.sdi
++++ b/sd/sdi/drviewsh.sdi
+@@ -121,6 +121,11 @@
+         ExecMethod = FuTemporary ;
+         StateMethod = GetMenuState ;
+     ]
++    SID_HST_APPLY_ANIMATION
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
+     SID_REMOTE_DLG
+     [
+         ExecMethod = FuTemporary ;
+--- a/sd/source/ui/view/drviews2.cxx
++++ b/sd/source/ui/view/drviews2.cxx
+@@ -131,6 +131,7 @@
+ 
+ #include <app.hrc>
+ #include <HstTransitionApply.hxx>
++#include <HstAnimationApply.hxx>
+ #include <strings.hrc>
+ 
+ #include <AnimationChildWindow.hxx>
+@@ -4288,6 +4289,11 @@
+             Cancel();
+         break;
+ 
++        case SID_HST_APPLY_ANIMATION:
++            sd::hst::ExecuteApplyAnimation(GetViewShellBase(), rReq);
++            Cancel();
++        break;
++
+         case SID_REMOTE_DLG:
+         {
+ #ifdef ENABLE_SDREMOTE
+--- a/sd/source/ui/view/drviews7.cxx
++++ b/sd/source/ui/view/drviews7.cxx
+@@ -67,6 +67,7 @@
+ 
+ #include <app.hrc>
+ #include <HstTransitionApply.hxx>
++#include <HstAnimationApply.hxx>
+ 
+ #include <PresentationViewShell.hxx>
+ 
+@@ -1044,6 +1045,9 @@
+ 
+     if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_TRANSITION))
+         sd::hst::GetApplyTransitionState(GetViewShellBase(), rSet);
++
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_ANIMATION))
++        sd::hst::GetApplyAnimationState(GetViewShellBase(), rSet);
+ 
+     if( SfxItemState::DEFAULT == rSet.GetItemState( SID_REMOTE_DLG ) )
+     {
+--- a/sd/Library_sd.mk
++++ b/sd/Library_sd.mk
+@@ -218,6 +218,7 @@
+ 	sd/source/ui/animations/STLPropertySet \
+ 	sd/source/ui/animations/SlideTransitionPane \
+ 	sd/source/ui/animations/HstTransitionApply \
++	sd/source/ui/animations/HstAnimationApply \
+ 	sd/source/ui/animations/motionpathtag \
+ 	sd/source/ui/annotations/annotationmanager \
+ 	sd/source/ui/annotations/AnnotationPopup \
+@@ -233,6 +234,7 @@
+ 	sd/source/ui/app/scalectrl \
+ 	sd/source/ui/controller/slidelayoutcontroller \
+ 	sd/source/ui/controller/HstTransitionGallery \
++	sd/source/ui/controller/HstAnimationGallery \
+ 	sd/source/ui/controller/displaymodecontroller \
+ 	sd/source/ui/dlg/AnimationChildWindow \
+ 	sd/source/ui/dlg/LayerTabBar \
+--- a/sd/UIConfig_simpress.mk
++++ b/sd/UIConfig_simpress.mk
+@@ -172,6 +172,7 @@
+ 	sd/uiconfig/simpress/ui/slidedesigndialog \
+ 	sd/uiconfig/simpress/ui/slidetransitionspanel \
+ 	sd/uiconfig/simpress/ui/hsttransitiongallery \
++	sd/uiconfig/simpress/ui/hstanimationgallery \
+ 	sd/uiconfig/simpress/ui/snapmenu \
+ 	sd/uiconfig/simpress/ui/tabviewbar \
+ 	sd/uiconfig/simpress/ui/tabledesignpanel \
+--- a/sd/util/sd.component
++++ b/sd/util/sd.component
+@@ -49,6 +49,10 @@
+       constructor="com_sun_star_comp_sd_HstTransitionGalleryControl_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
+   </implementation>
++  <implementation name="com.sun.star.comp.sd.HstAnimationGalleryControl"
++      constructor="com_sun_star_comp_sd_HstAnimationGalleryControl_get_implementation">
++    <service name="com.sun.star.frame.ToolbarController"/>
++  </implementation>
+   <implementation name="com.sun.star.comp.sd.SlideLayoutController"
+       constructor="com_sun_star_comp_sd_SlideLayoutController_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
+@@ -1910,6 +1910,17 @@
+           <value>com.sun.star.comp.sd.HstTransitionGalleryControl</value>
+         </prop>
+       </node>
++      <node oor:name="HstAnimationGallery" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:HstApplyAnimation</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.presentation.PresentationDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.sd.HstAnimationGalleryControl</value>
++        </prop>
++      </node>
+       <node oor:name="StylesPreviewToolBox" oor:op="replace">
+         <prop oor:name="Command">
+           <value>.uno:StylesPreview</value>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/DrawImpressCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/DrawImpressCommands.xcu
+@@ -464,6 +464,14 @@
+           <value xml:lang="en-US">Applies a transition to the selected slides</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstApplyAnimation" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Animation Styles</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Applies an animation to the selected objects</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:MasterSlidesPanel" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Master Slides</value>
+--- a/sd/inc/strings.hrc
++++ b/sd/inc/strings.hrc
+@@ -414,6 +414,9 @@
+ #define STR_CUSTOMANIMATION_EXIT                        NC_("STR_CUSTOMANIMATION_EXIT", "Exit: %1")
+ #define STR_CUSTOMANIMATION_MOTION_PATHS                NC_("STR_CUSTOMANIMATION_MOTION_PATHS", "Motion Paths: %1")
+ #define STR_CUSTOMANIMATION_MISC                        NC_("STR_CUSTOMANIMATION_MISC", "Misc: %1")
++#define STR_HST_ANIM_ENTRANCE                          NC_("STR_HST_ANIM_ENTRANCE", "Entrance")
++#define STR_HST_ANIM_EMPHASIS                          NC_("STR_HST_ANIM_EMPHASIS", "Emphasis")
++#define STR_HST_ANIM_EXIT                              NC_("STR_HST_ANIM_EXIT", "Exit")
+ #define STR_SLIDETRANSITION_NONE                        NC_("STR_SLIDETRANSITION_NONE", "None")
+ 
+ #define STR_ANNOTATION_TODAY                            NC_("STR_ANNOTATION_TODAY", "Today," )
+--- /dev/null
++++ b/sd/source/ui/inc/HstAnimationApply.hxx
+@@ -0,0 +1,38 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <string_view>
++
++class SfxItemSet;
++class SfxRequest;
++namespace sd { class ViewShellBase; }
++
++// The ribbon's shape animations in normal Slides view. Preset ids come from
++// CustomAnimationPresets; .uno:HstApplyAnimation?Effect:string=<preset id> replaces
++// the selected shapes' main-sequence effects. "None" removes them.
++namespace sd::hst
++{
++inline constexpr OUString AnimationNone = u"None"_ustr;
++
++/// First effect of the selected shapes: "None" without one, empty when they differ.
++OUString CurrentAnimation(ViewShellBase& rBase);
++
++/// Replace the selected shapes' main-sequence effects as one undo action.
++bool ApplyAnimation(ViewShellBase& rBase, std::u16string_view rPresetId);
++
++/// FuTemporary handler; the Effect argument is required.
++void ExecuteApplyAnimation(ViewShellBase& rBase, SfxRequest& rRequest);
++
++/// GetMenuState handler; disabled without shapes or for a read-only document.
++void GetApplyAnimationState(ViewShellBase& rBase, SfxItemSet& rSet);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/source/ui/animations/HstAnimationApply.cxx
+@@ -0,0 +1,266 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <HstAnimationApply.hxx>
++
++#include <CustomAnimationPreset.hxx>
++#include <DrawDocShell.hxx>
++#include <DrawViewShell.hxx>
++#include <ViewShellBase.hxx>
++#include <app.hrc>
++#include <drawview.hxx>
++#include <sdpage.hxx>
++#include <undoanim.hxx>
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/document/XActionLockable.hpp>
++#include <com/sun/star/drawing/FillStyle.hpp>
++#include <com/sun/star/drawing/LineStyle.hpp>
++#include <com/sun/star/presentation/EffectNodeType.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/scopeguard.hxx>
++#include <sfx2/bindings.hxx>
++#include <sfx2/request.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <svl/itemset.hxx>
++#include <svl/stritem.hxx>
++#include <svl/undo.hxx>
++#include <svx/svdmark.hxx>
++#include <svx/svdobj.hxx>
++
++#include <algorithm>
++#include <memory>
++#include <vector>
++
++using namespace css;
++
++namespace sd::hst
++{
++namespace
++{
++struct Selection
++{
++    SdPage* pPage = nullptr;
++    std::vector<uno::Reference<drawing::XShape>> aShapes;
++};
++
++Selection SelectedShapes(ViewShellBase& rBase)
++{
++    Selection aSelection;
++    const auto pMain = rBase.GetMainViewShell();
++    auto* pDraw = dynamic_cast<DrawViewShell*>(pMain.get());
++    if (!pDraw || !pDraw->GetView())
++        return aSelection;
++    SdPage* pPage = pDraw->GetActualPage();
++    if (!pPage || pPage->GetPageKind() != PageKind::Standard || pPage->IsMasterPage())
++        return aSelection;
++    const SdrMarkList& rMarks = pDraw->GetView()->GetMarkedObjectList();
++    for (size_t i = 0; i < rMarks.GetMarkCount(); ++i)
++    {
++        SdrObject* pObject = rMarks.GetMark(i)->GetMarkedSdrObj();
++        if (pObject)
++        {
++            uno::Reference<drawing::XShape> xShape = pObject->getUnoShape();
++            if (xShape.is())
++                aSelection.aShapes.push_back(std::move(xShape));
++        }
++    }
++    aSelection.pPage = pPage;
++    return aSelection;
++}
++
++OUString FirstEffect(const MainSequencePtr& pSequence,
++                     const uno::Reference<drawing::XShape>& xShape)
++{
++    for (const auto& pEffect : pSequence->getSequence())
++        if (pEffect && pEffect->getTargetShape() == xShape)
++            return pEffect->getPresetId();
++    return AnimationNone;
++}
++
++OUString Current(const Selection& rSelection)
++{
++    if (!rSelection.pPage || rSelection.aShapes.empty())
++        return OUString();
++    const MainSequencePtr pSequence = rSelection.pPage->getMainSequence();
++    const OUString aFirst = FirstEffect(pSequence, rSelection.aShapes.front());
++    for (const auto& xShape : rSelection.aShapes)
++        if (FirstEffect(pSequence, xShape) != aFirst)
++            return OUString();
++    return aFirst;
++}
++
++// CustomAnimationPane::onAdd(): a lone text shape with no fill or outline animates by paragraph.
++bool AnimateByParagraph(const Selection& rSelection)
++{
++    if (rSelection.aShapes.size() != 1)
++        return false;
++    const auto& xShape = rSelection.aShapes.front();
++    uno::Reference<text::XText> xText(xShape, uno::UNO_QUERY);
++    if (!xText.is() || xText->getString().isEmpty())
++        return false;
++    const OUString aType = xShape->getShapeType();
++    if (aType != "com.sun.star.presentation.TitleTextShape"
++        && aType != "com.sun.star.presentation.OutlinerShape"
++        && aType != "com.sun.star.presentation.SubtitleShape"
++        && aType != "com.sun.star.drawing.TextShape")
++        return false;
++    uno::Reference<beans::XPropertySet> xProperties(xShape, uno::UNO_QUERY_THROW);
++    drawing::FillStyle eFill = drawing::FillStyle_SOLID;
++    drawing::LineStyle eLine = drawing::LineStyle_SOLID;
++    xProperties->getPropertyValue(u"FillStyle"_ustr) >>= eFill;
++    xProperties->getPropertyValue(u"LineStyle"_ustr) >>= eLine;
++    return eFill == drawing::FillStyle_NONE && eLine == drawing::LineStyle_NONE;
++}
++}
++
++OUString CurrentAnimation(ViewShellBase& rBase)
++{
++    try
++    {
++        return Current(SelectedShapes(rBase));
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sd", "Reading the ribbon animation state");
++        return OUString();
++    }
++}
++
++bool ApplyAnimation(ViewShellBase& rBase, std::u16string_view rPresetId)
++{
++    try
++    {
++        DrawDocShell* pDocSh = rBase.GetDocShell();
++        if (!pDocSh || !pDocSh->GetDoc() || pDocSh->IsReadOnly())
++            return false;
++        const Selection aSelection = SelectedShapes(rBase);
++        if (!aSelection.pPage || aSelection.aShapes.empty())
++            return false;
++        const bool bNone = rPresetId == AnimationNone;
++        const CustomAnimationPresetPtr pDescriptor
++            = bNone ? CustomAnimationPresetPtr()
++                    : CustomAnimationPresets::getCustomAnimationPresets().getEffectDescriptor(
++                          OUString(rPresetId));
++        if (!bNone && !pDescriptor)
++            return false;
++        const bool bParagraphs = !bNone && AnimateByParagraph(aSelection);
++        const MainSequencePtr pSequence = aSelection.pPage->getMainSequence();
++        // Copy before removing: remove() invalidates the sequence's iterators. getTargetShape()
++        // also matches ParagraphTarget, so every paragraph effect of a selected shape is removed.
++        EffectSequence aRemove;
++        for (const auto& pEffect : pSequence->getSequence())
++            if (pEffect && std::find(aSelection.aShapes.begin(), aSelection.aShapes.end(),
++                                     pEffect->getTargetShape()) != aSelection.aShapes.end())
++                aRemove.push_back(pEffect);
++
++        // Flush a previous pending edit before UndoAnimation clones the page's UNO tree.
++        pSequence->getRootNode();
++        // The entire replacement (or None) is one action, captured before any mutation.
++        if (SfxUndoManager* pManager = pDocSh->GetUndoManager())
++            pManager->AddUndoAction(std::make_unique<UndoAnimation>(pDocSh->GetDoc(), aSelection.pPage));
++        bool bChanged = false;
++        comphelper::ScopeGuard aModified([&]() {
++            if (bChanged)
++            {
++                // Runs after the rebuild guard releases, including on exceptional exits.
++                // Immediate undo/redo and consecutive dispatches must see the new UNO tree.
++                try
++                {
++                    pSequence->getRootNode();
++                }
++                catch (const uno::Exception&)
++                {
++                    TOOLS_WARN_EXCEPTION("sd", "Flushing a ribbon animation");
++                }
++                pDocSh->SetModified();
++            }
++        });
++        MainSequenceRebuildGuard aRebuild(pSequence);
++        for (const auto& pEffect : aRemove)
++        {
++            bChanged = true;
++            pSequence->remove(pEffect);
++        }
++        if (bNone)
++            return true;
++        bool bFirst = true;
++        for (const auto& xShape : aSelection.aShapes)
++        {
++            uno::Reference<document::XActionLockable> xLockable(xShape, uno::UNO_QUERY);
++            if (xLockable.is())
++                xLockable->addActionLock();
++            comphelper::ScopeGuard aUnlock([&xLockable]() {
++                try
++                {
++                    if (xLockable.is())
++                        xLockable->removeActionLock();
++                }
++                catch (const uno::Exception&)
++                {
++                    TOOLS_WARN_EXCEPTION("sd", "Unlocking an animated shape");
++                }
++            });
++            bChanged = true;
++            const uno::Any aTarget(xShape);
++            const CustomAnimationEffectPtr pCreated
++                = pSequence->append(pDescriptor, aTarget, pDescriptor->getDuration());
++            if (!pCreated)
++                return false;
++            if (bParagraphs)
++                pSequence->createTextGroup(pCreated, 1, -1.0, false, false);
++            if (!bFirst)
++                pCreated->setNodeType(presentation::EffectNodeType::WITH_PREVIOUS);
++            bFirst = false;
++        }
++        return true;
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sd", "Applying a ribbon animation");
++        return false;
++    }
++}
++
++void ExecuteApplyAnimation(ViewShellBase& rBase, SfxRequest& rRequest)
++{
++    const SfxItemSet* pArgs = rRequest.GetArgs();
++    const SfxStringItem* pEffect = pArgs ? pArgs->GetItem<SfxStringItem>(SID_HST_APPLY_ANIMATION) : nullptr;
++    if (!pEffect || !ApplyAnimation(rBase, pEffect->GetValue()))
++    {
++        rRequest.Ignore();
++        return;
++    }
++    rBase.GetViewFrame().GetBindings().Invalidate(SID_HST_APPLY_ANIMATION);
++    rRequest.Done();
++}
++
++void GetApplyAnimationState(ViewShellBase& rBase, SfxItemSet& rSet)
++{
++    try
++    {
++        DrawDocShell* pDocSh = rBase.GetDocShell();
++        const Selection aSelection = SelectedShapes(rBase);
++        if (!pDocSh || pDocSh->IsReadOnly() || aSelection.aShapes.empty())
++        {
++            rSet.DisableItem(SID_HST_APPLY_ANIMATION);
++            return;
++        }
++        rSet.Put(SfxStringItem(SID_HST_APPLY_ANIMATION, Current(aSelection)));
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sd", "Reading the ribbon animation selection");
++        rSet.DisableItem(SID_HST_APPLY_ANIMATION);
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/source/ui/controller/HstAnimationGallery.cxx
+@@ -0,0 +1,428 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: one row of shape animations; click or Enter replaces the selected shapes'
++// effects with one undo action. Paging and layout mirror the transitions gallery;
++// the final button opens the Custom Animation deck. SlidesEffectGalleries hides the item.
++
++#include <HstAnimationApply.hxx>
++#include <CustomAnimationPreset.hxx>
++#include <sdresid.hxx>
++#include <strings.hrc>
++
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/frame/XFrame.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/dispatchcommand.hxx>
++#include <comphelper/lok.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <comphelper/unique_unlock.hxx>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <cppuhelper/supportsservice.hxx>
++#include <officecfg/Office/HSTRibbon.hxx>
++#include <svtools/toolboxcontroller.hxx>
++#include <toolkit/helper/vclunohelper.hxx>
++#include <vcl/InterimItemWindow.hxx>
++#include <vcl/idle.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/toolbox.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/Button.hxx>
++#include <vcl/weld/IconView.hxx>
++
++#include <algorithm>
++#include <vector>
++
++using namespace css;
++
++namespace
++{
++constexpr OUString COMMAND = u".uno:HstApplyAnimation"_ustr;
++// the room one item takes in the icon view: its item width (hstanimationgallery.ui) with padding,
++// margins and the label; a page holds only as many as fit, so no item wraps into a hidden row
++constexpr tools::Long ITEM_WIDTH = 130;
++constexpr int MIN_ITEMS = 3; // the narrowest gallery still shows three animations
++
++bool GalleryEnabled()
++{
++    if (comphelper::LibreOfficeKit::isActive())
++        return false;
++    try
++    {
++        return officecfg::Office::HSTRibbon::SlidesEffectGalleries::get();
++    }
++    catch (const uno::Exception&)
++    {
++        return true; // the schema ships with the switch on
++    }
++}
++
++struct Entry
++{
++    OUString aPresetId;
++    OUString aLabel;
++    OUString aIcon;
++    OUString aAccessibleName;
++};
++
++struct PresetSpec
++{
++    OUString aId;
++    OUString aFallback;
++    TranslateId aClass;
++};
++
++// Fixed Office gallery order. Only the explicitly listed alternatives are used if a preset is absent.
++const PresetSpec PRESETS[] = {
++    { u"ooo-entrance-appear"_ustr, OUString(), STR_HST_ANIM_ENTRANCE },
++    { u"ooo-entrance-fade-in"_ustr, OUString(), STR_HST_ANIM_ENTRANCE },
++    { u"ooo-entrance-fly-in"_ustr, OUString(), STR_HST_ANIM_ENTRANCE },
++    { u"ooo-entrance-float"_ustr, u"ooo-entrance-ascend"_ustr, STR_HST_ANIM_ENTRANCE },
++    { u"ooo-entrance-split"_ustr, OUString(), STR_HST_ANIM_ENTRANCE },
++    { u"ooo-entrance-wipe"_ustr, OUString(), STR_HST_ANIM_ENTRANCE },
++    { u"ooo-entrance-wheel"_ustr, u"ooo-entrance-spoke-wheel"_ustr, STR_HST_ANIM_ENTRANCE },
++    { u"ooo-entrance-random-bars"_ustr, OUString(), STR_HST_ANIM_ENTRANCE },
++    { u"ooo-entrance-zoom"_ustr, u"ooo-entrance-grow-and-turn"_ustr, STR_HST_ANIM_ENTRANCE },
++    { u"ooo-entrance-bounce"_ustr, u"ooo-entrance-boomerang"_ustr, STR_HST_ANIM_ENTRANCE },
++    { u"ooo-emphasis-spin"_ustr, OUString(), STR_HST_ANIM_EMPHASIS },
++    { u"ooo-emphasis-grow-and-shrink"_ustr, OUString(), STR_HST_ANIM_EMPHASIS },
++    { u"ooo-emphasis-transparency"_ustr, OUString(), STR_HST_ANIM_EMPHASIS },
++    { u"ooo-emphasis-blink"_ustr, OUString(), STR_HST_ANIM_EMPHASIS },
++    { u"ooo-exit-disappear"_ustr, OUString(), STR_HST_ANIM_EXIT },
++    { u"ooo-exit-fade-out"_ustr, OUString(), STR_HST_ANIM_EXIT },
++    { u"ooo-exit-fly-out"_ustr, OUString(), STR_HST_ANIM_EXIT },
++    { u"ooo-exit-split"_ustr, OUString(), STR_HST_ANIM_EXIT },
++    { u"ooo-exit-zoom"_ustr, OUString(), STR_HST_ANIM_EXIT },
++};
++
++std::vector<Entry> Entries()
++{
++    const OUString aNone = SdResId(STR_SLIDETRANSITION_NONE);
++    std::vector<Entry> aEntries{ { sd::hst::AnimationNone, aNone,
++                                   u"sd/cmd/transition-none.png"_ustr, aNone } };
++    try
++    {
++        const auto& rPresets = sd::CustomAnimationPresets::getCustomAnimationPresets();
++        for (const auto& rSpec : PRESETS)
++        {
++            auto pPreset = rPresets.getEffectDescriptor(rSpec.aId);
++            if (!pPreset && !rSpec.aFallback.isEmpty())
++                pPreset = rPresets.getEffectDescriptor(rSpec.aFallback);
++            if (!pPreset)
++                continue;
++            const OUString aLabel = pPreset->getLabel();
++            const OUString aAccessibleName = aLabel + u" ("_ustr + SdResId(rSpec.aClass) + u")"_ustr;
++            // Colibre has no individual effect icons; the animation command icon serves each class.
++            aEntries.push_back({ pPreset->getPresetId(), aLabel,
++                                 u"cmd/lc_animationeffects.png"_ustr, aAccessibleName });
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sd", "Loading ribbon animation presets");
++    }
++    return aEntries;
++}
++
++class HstAnimationGalleryWindow final : public InterimItemWindow
++{
++public:
++    HstAnimationGalleryWindow(vcl::Window* pParent, uno::Reference<frame::XFrame> xFrame)
++        : InterimItemWindow(pParent, u"modules/simpress/ui/hstanimationgallery.ui"_ustr,
++                            u"AnimationGalleryBox"_ustr, true)
++        , m_xFrame(std::move(xFrame))
++        , m_xView(m_xBuilder->weld_icon_view(u"animations"_ustr))
++        , m_xPrev(m_xBuilder->weld_button(u"prev"_ustr))
++        , m_xNext(m_xBuilder->weld_button(u"next"_ustr))
++        , m_xMore(m_xBuilder->weld_button(u"more"_ustr))
++        , m_aEntries(Entries())
++        , m_aRefill("sd HstAnimationGallery refill")
++    {
++        InitControlBase(m_xView.get());
++        m_xView->set_item_width(96);
++        m_xView->set_size_request(ITEM_WIDTH * MIN_ITEMS, -1);
++        // a click selects (as in the Styles gallery); Enter or a double click activates
++        m_xView->connect_selection_changed(LINK(this, HstAnimationGalleryWindow, SelectedHdl));
++        m_xView->connect_item_activated(LINK(this, HstAnimationGalleryWindow, ActivatedHdl));
++        m_xPrev->connect_clicked(LINK(this, HstAnimationGalleryWindow, PageHdl));
++        m_xNext->connect_clicked(LINK(this, HstAnimationGalleryWindow, PageHdl));
++        m_xMore->connect_clicked(LINK(this, HstAnimationGalleryWindow, MoreHdl));
++        m_aRefill.SetInvokeHandler(LINK(this, HstAnimationGalleryWindow, RefillHdl));
++        ShowPage();
++        SetSizePixel(get_preferred_size());
++    }
++
++    ~HstAnimationGalleryWindow() override { disposeOnce(); }
++
++    void dispose() override
++    {
++        m_aRefill.Stop();
++        m_xView.reset();
++        m_xPrev.reset();
++        m_xNext.reset();
++        m_xMore.reset();
++        InterimItemWindow::dispose();
++    }
++
++    // the page size follows the width the toolbox gives the gallery (it expands into the room
++    // the ribbon has left); the icon view's own allocation follows its items and would only shrink
++    void Resize() override
++    {
++        InterimItemWindow::Resize();
++        if (!m_xMore)
++            return;
++        const tools::Long nWidth
++            = GetSizePixel().Width() - m_xMore->get_preferred_size().Width() - 4;
++        if (nWidth == m_nViewWidth)
++            return;
++        m_nViewWidth = nWidth;
++        if (PageSize() != m_nPageSize)
++            m_aRefill.Start(); // not while the window is being laid out
++    }
++
++    /// The animation of the selected shapes (empty: several, or one the gallery does not have).
++    void SetCurrent(const OUString& rPresetId)
++    {
++        if (m_aCurrent == rPresetId)
++            return;
++        m_aCurrent = rPresetId;
++        // bring the page with the current effect into view, as Office's gallery does
++        const auto it = std::find_if(m_aEntries.begin(), m_aEntries.end(),
++                                     [&rPresetId](const Entry& rEntry) { return rEntry.aPresetId == rPresetId; });
++        if (it != m_aEntries.end() && m_nPageSize)
++        {
++            const size_t nIndex = it - m_aEntries.begin();
++            if (nIndex < m_nFirst || nIndex >= m_nFirst + m_nPageSize)
++                m_nFirst = nIndex - nIndex % m_nPageSize;
++        }
++        ShowPage();
++    }
++
++private:
++    size_t PageSize() const
++    {
++        return m_nViewWidth > 0 ? std::max<size_t>(1, m_nViewWidth / ITEM_WIDTH) : MIN_ITEMS;
++    }
++
++    void ShowPage()
++    {
++        if (!m_xView)
++            return;
++        m_nPageSize = PageSize();
++        if (m_nFirst >= m_aEntries.size())
++            m_nFirst = 0;
++        m_nFirst -= m_nFirst % m_nPageSize; // pages start at multiples of the page size
++        const size_t nEnd = std::min(m_aEntries.size(), m_nFirst + m_nPageSize);
++
++        m_bFilling = true; // our own selection below is not a choice of the user
++        m_xView->freeze();
++        m_xView->clear();
++        int nSelect = -1;
++        for (size_t i = m_nFirst; i < nEnd; ++i)
++        {
++            const Entry& rEntry = m_aEntries[i];
++            const int nPos = static_cast<int>(i - m_nFirst);
++            m_xView->insert(nPos, &rEntry.aLabel, &rEntry.aPresetId, &rEntry.aIcon, nullptr);
++            m_xView->set_item_tooltip_text(nPos, rEntry.aAccessibleName);
++            m_xView->set_item_accessible_name(nPos, rEntry.aAccessibleName);
++            if (rEntry.aPresetId == m_aCurrent)
++                nSelect = nPos;
++        }
++        m_xView->thaw();
++        if (nSelect >= 0)
++            m_xView->select(nSelect);
++        else
++            m_xView->unselect_all();
++        m_bFilling = false;
++        m_xPrev->set_sensitive(m_nFirst > 0);
++        m_xNext->set_sensitive(nEnd < m_aEntries.size());
++    }
++
++    void Apply(const OUString& rPresetId);
++    DECL_LINK(ActivatedHdl, const weld::TreeIter&, bool);
++    DECL_LINK(SelectedHdl, weld::ItemView&, void);
++    DECL_LINK(PageHdl, weld::Button&, void);
++    DECL_LINK(MoreHdl, weld::Button&, void);
++    DECL_LINK(RefillHdl, Timer*, void);
++
++    uno::Reference<frame::XFrame> m_xFrame;
++    std::unique_ptr<weld::IconView> m_xView;
++    std::unique_ptr<weld::Button> m_xPrev;
++    std::unique_ptr<weld::Button> m_xNext;
++    std::unique_ptr<weld::Button> m_xMore;
++    std::vector<Entry> m_aEntries;
++    Idle m_aRefill;
++    OUString m_aCurrent;
++    size_t m_nFirst = 0;
++    size_t m_nPageSize = 0;
++    tools::Long m_nViewWidth = 0;
++    bool m_bFilling = false;
++};
++
++void HstAnimationGalleryWindow::Apply(const OUString& rPresetId)
++{
++    if (rPresetId.isEmpty() || !m_xFrame.is())
++        return;
++    try
++    {
++        comphelper::dispatchCommand(COMMAND, m_xFrame,
++                                    { comphelper::makePropertyValue(u"Effect"_ustr, rPresetId) });
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sd", "Dispatching a ribbon animation");
++    }
++}
++
++IMPL_LINK(HstAnimationGalleryWindow, ActivatedHdl, const weld::TreeIter&, rIter, bool)
++{
++    Apply(m_xView->get_id(rIter));
++    return true;
++}
++
++IMPL_LINK_NOARG(HstAnimationGalleryWindow, SelectedHdl, weld::ItemView&, void)
++{
++    if (!m_bFilling)
++        Apply(m_xView->get_selected_id());
++}
++
++IMPL_LINK_NOARG(HstAnimationGalleryWindow, RefillHdl, Timer*, void) { ShowPage(); }
++
++IMPL_LINK(HstAnimationGalleryWindow, PageHdl, weld::Button&, rButton, void)
++{
++    if (!m_nPageSize)
++        return;
++    if (&rButton == m_xNext.get())
++    {
++        if (m_nFirst + m_nPageSize < m_aEntries.size())
++            m_nFirst += m_nPageSize;
++    }
++    else
++        m_nFirst = m_nFirst > m_nPageSize ? m_nFirst - m_nPageSize : 0;
++    ShowPage();
++}
++
++IMPL_LINK_NOARG(HstAnimationGalleryWindow, MoreHdl, weld::Button&, void)
++{
++    try
++    {
++        if (m_xFrame.is())
++            comphelper::dispatchCommand(u".uno:SidebarDeck.SdCustomAnimationDeck"_ustr, m_xFrame, {});
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sd", "Opening the Custom Animation deck");
++    }
++}
++
++using HstAnimationGalleryControl_Base
++    = cppu::ImplInheritanceHelper<svt::ToolboxController, lang::XServiceInfo>;
++
++class HstAnimationGalleryControl final : public HstAnimationGalleryControl_Base
++{
++public:
++    HstAnimationGalleryControl() = default;
++
++    // XInitialization
++    void SAL_CALL initialize(const uno::Sequence<uno::Any>& rArguments) override
++    {
++        try
++        {
++            svt::ToolboxController::initialize(rArguments);
++        }
++        catch (const uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("sd", "Initializing the ribbon animation gallery");
++            return;
++        }
++        if (GalleryEnabled())
++            return;
++        // switched off: the gallery's place stays empty (the Custom Animation deck has everything)
++        SolarMutexGuard aGuard;
++        ToolBox* pToolBox = nullptr;
++        ToolBoxItemId nId;
++        if (getToolboxId(nId, &pToolBox))
++            pToolBox->HideItem(nId);
++    }
++
++    // XUpdatable
++    void SAL_CALL update() override {}
++
++    // XStatusListener
++    void SAL_CALL statusChanged(const frame::FeatureStateEvent& rEvent) override
++    {
++        SolarMutexGuard aGuard;
++        if (!m_xWindow)
++            return;
++        m_xWindow->Enable(rEvent.IsEnabled);
++        OUString aPresetId;
++        rEvent.State >>= aPresetId;
++        m_xWindow->SetCurrent(rEvent.IsEnabled ? aPresetId : OUString());
++    }
++
++    // XToolbarController
++    uno::Reference<awt::XWindow> SAL_CALL createItemWindow(const uno::Reference<awt::XWindow>& rParent) override
++    {
++        if (!GalleryEnabled())
++            return {};
++        SolarMutexGuard aGuard;
++        try
++        {
++            VclPtr<vcl::Window> pParent = VCLUnoHelper::GetWindow(rParent);
++            if (!pParent)
++                return {};
++            m_xWindow = VclPtr<HstAnimationGalleryWindow>::Create(pParent, m_xFrame);
++            return VCLUnoHelper::GetInterface(m_xWindow);
++        }
++        catch (const uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("sd", "Creating the ribbon animation gallery");
++            return {};
++        }
++    }
++
++    // XServiceInfo
++    OUString SAL_CALL getImplementationName() override
++    {
++        return u"com.sun.star.comp.sd.HstAnimationGalleryControl"_ustr;
++    }
++    sal_Bool SAL_CALL supportsService(const OUString& rServiceName) override
++    {
++        return cppu::supportsService(this, rServiceName);
++    }
++    uno::Sequence<OUString> SAL_CALL getSupportedServiceNames() override
++    {
++        return { u"com.sun.star.frame.ToolbarController"_ustr };
++    }
++
++    // WeakComponentImplHelperBase
++    using HstAnimationGalleryControl_Base::disposing;
++    void disposing(std::unique_lock<std::mutex>& rGuard) override
++    {
++        svt::ToolboxController::disposing(rGuard);
++        comphelper::unique_unlock aUnlock(rGuard);
++        SolarMutexGuard aSolarGuard;
++        m_xWindow.disposeAndClear();
++    }
++
++private:
++
++    VclPtr<HstAnimationGalleryWindow> m_xWindow;
++};
++}
++
++extern "C" SAL_DLLPUBLIC_EXPORT uno::XInterface*
++com_sun_star_comp_sd_HstAnimationGalleryControl_get_implementation(uno::XComponentContext*,
++                                                                    uno::Sequence<uno::Any> const&)
++{
++    return cppu::acquire(new HstAnimationGalleryControl);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/uiconfig/simpress/ui/hstanimationgallery.ui
+@@ -0,0 +1,135 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- HST Office: the animations gallery of the Slides ribbon (tab "Hoạt hình"), one row of
++     animation thumbnails with buttons on the right that page through them and open the Custom
++     Animation deck, as Office's gallery. Filled by sd/source/ui/controller/HstAnimationGallery.cxx. -->
++<interface domain="sd">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkTreeStore" id="liststore1">
++    <columns>
++      <!-- column-name image -->
++      <column type="GdkPixbuf"/>
++      <!-- column-name text -->
++      <column type="gchararray"/>
++      <!-- column-name id -->
++      <column type="gchararray"/>
++      <!-- column-name tooltip -->
++      <column type="gchararray"/>
++    </columns>
++  </object>
++  <object class="GtkBox" id="AnimationGalleryBox">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="spacing">0</property>
++    <child>
++      <object class="GtkScrolledWindow" id="animationsscroll">
++        <property name="visible">True</property>
++        <property name="can-focus">True</property>
++        <property name="hexpand">True</property>
++        <property name="valign">center</property>
++        <property name="hscrollbar-policy">never</property>
++        <property name="vscrollbar-policy">never</property>
++        <property name="shadow-type">in</property>
++        <child>
++          <object class="GtkIconView" id="animations">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="model">liststore1</property>
++            <property name="pixbuf-column">0</property>
++            <property name="text-column">1</property>
++            <property name="tooltip-column">3</property>
++            <property name="item-width">96</property>
++            <property name="item-padding">2</property>
++            <property name="column-spacing">0</property>
++            <property name="row-spacing">0</property>
++            <property name="margin">0</property>
++            <property name="activate-on-single-click">False</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="animations-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hstanimationgallery|animations-atkobject">Animations</property>
++              </object>
++            </child>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">True</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkBox" id="buttons">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="orientation">vertical</property>
++        <property name="homogeneous">True</property>
++        <child>
++          <object class="GtkButton" id="prev">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="tooltip-text" translatable="yes" context="hstanimationgallery|prev">Previous animations</property>
++            <property name="label">◂</property>
++            <property name="relief">none</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="prev-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hstanimationgallery|prev-atkobject">Previous animations</property>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="next">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="tooltip-text" translatable="yes" context="hstanimationgallery|next">Next animations</property>
++            <property name="label">▸</property>
++            <property name="relief">none</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="next-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hstanimationgallery|next-atkobject">Next animations</property>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="more">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="tooltip-text" translatable="yes" context="hstanimationgallery|more">All animations and their options</property>
++            <property name="label">▾</property>
++            <property name="relief">none</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="more-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hstanimationgallery|more-atkobject">All animations</property>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">1</property>
++      </packing>
++    </child>
++  </object>
++</interface>
