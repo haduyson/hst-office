@@ -152,7 +152,7 @@ def main():
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--display", default=":97")
     parser.add_argument("--port", type=int, default=22197)
-    parser.add_argument("--theme", default="hst", choices=("hst", "hst_dark"))
+    parser.add_argument("--theme", default="hst", choices=("hst", "hst_dark", "hst_modern", "hst_modern_dark"))
     parser.add_argument("--archive", type=Path, help="rasterise mode: an images_<theme>.zip other than the instdir's")
     parser.add_argument("--scales", default="1,2", type=lambda v: [float(x) for x in v.split(",")])
     parser.add_argument("--max-median", type=float, default=0.35)
