@@ -10,6 +10,7 @@ from com.sun.star.awt import XFocusListener, XItemListener, XKeyHandler, XTextLi
 from com.sun.star.awt.Key import DOWN, ESCAPE, RETURN, TAB, UP
 
 from . import nd30_search
+from .wizard_type_popup import TypePopup
 
 
 class _Keys(unohelper.Base, XKeyHandler):
@@ -47,8 +48,9 @@ class _Events(unohelper.Base, XTextListener, XItemListener, XFocusListener):
 
 
 class TypePicker:
-    def __init__(self, dialog, types, group_names, on_choose):
+    def __init__(self, dialog, types, group_names, on_choose, help_text=""):
         self.d, self.types, self.groups, self.on_choose = dialog, types, group_names, on_choose
+        self.popup = TypePopup(dialog, help_text)
         self.current = types[0]["id"]
         self.table, self.index, self.open, self.silent = [], -1, False, False
         self.toolkit, self.handler = None, None
@@ -60,13 +62,11 @@ class TypePicker:
         """Hook the live controls (the peer exists now)."""
         events = _Events(self)
         self.field = self.d.dialog.getControl("type")
-        self.list = self.d.dialog.getControl("typeList")
+        self.popup.create("type", "typeOpen")  # under the field, which may have grown (dialog_edit_heights)
+        self.list = self.popup.control
         self.field.addTextListener(events)
         self.field.addFocusListener(events)
         self.list.addItemListener(events)
-        self.list.setVisible(False)
-        field, rows = self.d.model.getByName("type"), self.d.model.getByName("typeList")
-        rows.PositionY = field.PositionY + field.Height + 1  # under the field, which may have grown (dialog_edit_heights)
         self.toolkit = self.d.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", self.d.ctx)
         self.handler = _Keys(self)
         self.toolkit.addKeyHandler(self.handler)
@@ -75,6 +75,8 @@ class TypePicker:
         if self.handler:
             self.toolkit.removeKeyHandler(self.handler)
             self.handler = None
+        self.open = False
+        self.popup.dispose()
 
     def _show_field(self, text):
         self.silent = True
@@ -88,9 +90,8 @@ class TypePicker:
 
     def _fill(self, query):
         self.table = nd30_search.rows(self.types, query, self.groups)
-        model = self.d.model.getByName("typeList")
         import uno
-        uno.invoke(model, "setPropertyValue", ("StringItemList", uno.Any("[]string", tuple(row[0] for row in self.table))))
+        uno.invoke(self.popup.model, "setPropertyValue", ("StringItemList", uno.Any("[]string", tuple(row[0] for row in self.table))))
         self._select(nd30_search.next_row(self.table, -1, 1) if self.table else -1)
 
     def _select(self, index):
@@ -98,14 +99,14 @@ class TypePicker:
         self.index = index
         chosen = (index,) if index >= 0 else ()
         self.silent = True
-        uno.invoke(self.d.model.getByName("typeList"), "setPropertyValue", ("SelectedItems", uno.Any("[]short", chosen)))
+        uno.invoke(self.popup.model, "setPropertyValue", ("SelectedItems", uno.Any("[]short", chosen)))
         self.silent = False
         if index >= 0:
             self.list.makeVisible(index)
 
     def _set_open(self, value):
         self.open = value
-        self.list.setVisible(value)
+        self.popup.show(value)
 
     def typed(self):
         if self.silent:

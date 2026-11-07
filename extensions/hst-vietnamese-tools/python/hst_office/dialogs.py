@@ -72,7 +72,7 @@ class Dialog:
         self.dialog.setModel(self.model)
         self._listeners = []
         self._watchers = []  # (control name, _Changed)
-        self._single_lines, self._overlays = [], set()  # single-line edits (dialog_edit_heights); lists shown over others
+        self._single_lines = []  # single-line edits (dialog_edit_heights)
         self.result = 0
         self.on_oversize = None  # called with no arguments when the peer is larger than the screen work area
         self.on_ready, self.on_closed = None, None  # called right after the peer exists / after the dialog has ended
@@ -92,12 +92,6 @@ class Dialog:
             self._single_lines.append(name)
         return self._add("Edit", name, x, y, w, h, Text=text, MultiLine=multiline, VScroll=multiline, HScroll=False,
                          ReadOnly=readonly, HelpText=help_text or name, Tabstop=not readonly or multiline)
-
-    def plain_list(self, name, x, y, w, h, help_text=""):
-        """A list box that shows its rows (the Quick Search list); it never takes part in Tab order. It is shown over the
-        controls under it, so it never limits their room (dialog_edit_heights)."""
-        self._overlays.add(name)
-        return self._add("ListBox", name, x, y, w, h, Dropdown=False, Tabstop=False, HelpText=help_text or name)
 
     def listbox(self, name, x, y, w, items, selected=0, h=12, help_text=""):
         return self._add("ListBox", name, x, y, w, h, Dropdown=True, StringItemList=uno.Any("[]string", tuple(items)),

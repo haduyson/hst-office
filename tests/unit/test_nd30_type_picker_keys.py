@@ -50,10 +50,19 @@ class _List:
         return _Peer()
 
 
+class _Popup:
+    """The list's popup window (wizard_type_popup.TypePopup): its list model and whether it is shown."""
+
+    def __init__(self):
+        self.model, self.visible = types.SimpleNamespace(StringItemList=(), SelectedItems=()), False
+
+    def show(self, visible):
+        self.visible = visible
+
+
 class _Dialog:
     def __init__(self):
-        self.models = {"type": types.SimpleNamespace(Text="", PositionY=20, Height=12),
-                       "typeList": types.SimpleNamespace(StringItemList=(), SelectedItems=(), PositionY=33)}
+        self.models = {"type": types.SimpleNamespace(Text="", PositionY=20, Height=12)}
         self.model = types.SimpleNamespace(getByName=self.models.__getitem__)
 
     def set_text(self, name, text):
@@ -76,6 +85,7 @@ class TabLeavesTheList(unittest.TestCase):
         self.picker = wizard_type_picker.TypePicker(_Dialog(), nd30.rules()["documentTypes"], load_locale("vi")["nd30"]["groups"],
                                                     lambda: self.chosen.append(self.picker.current))
         self.picker.field, self.picker.list, self.picker.handler = _Peer(), _List(), object()
+        self.picker.popup = _Popup()
         self.picker.field.getPeer = lambda: _Peer()
 
     def type_query(self, text):
@@ -85,12 +95,12 @@ class TabLeavesTheList(unittest.TestCase):
     def test_tab_takes_the_highlighted_type_and_closes_the_list(self):
         self.type_query("quyet")
         self.assertTrue(self.picker.open)
-        self.assertTrue(self.picker.list.visible)
+        self.assertTrue(self.picker.popup.visible)
         handled = self.picker.key(_keys.TAB)
         self.assertFalse(handled, "Tab must stay with the dialog so the focus moves on")
         self.assertEqual(self.picker.current, "quyet-dinh")
         self.assertFalse(self.picker.open)
-        self.assertFalse(self.picker.list.visible)
+        self.assertFalse(self.picker.popup.visible)
         self.assertEqual(self.picker.d.models["type"].Text, self.picker.label_of("quyet-dinh"))
         self.assertEqual(self.chosen, ["quyet-dinh"])
 

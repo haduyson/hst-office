@@ -87,7 +87,7 @@ class _Model:
 
 
 class FakeDialog(dialogs.Dialog):
-    """The real Dialog bookkeeping (_single_lines, _overlays) for dialog_edit_heights on a recorded model."""
+    """The real Dialog bookkeeping (_single_lines) for dialog_edit_heights on a recorded model."""
 
     px_per_unit, preferred = 1.875, 29  # macOS: 13 pt system font, native edit 29 px
 
@@ -96,7 +96,7 @@ class FakeDialog(dialogs.Dialog):
         self.model = _Model(self)
         self.dialog = _UnoDialog(self.px_per_unit, self.preferred)
         self._listeners, self._watchers = [], []
-        self._single_lines, self._overlays = [], set()
+        self._single_lines = []
         self.on_oversize = self.on_ready = self.on_closed = None
 
     def _add(self, kind, name, x, y, w, h, **props):
@@ -143,7 +143,7 @@ class FitEdits(unittest.TestCase):
     def test_grown_edits_overlap_nothing(self):
         wizard, _ = _wizard(1.875, 29)
         model, d = wizard.d.model, wizard.d
-        names = [n for n in model.ElementNames if n not in d._overlays]
+        names = list(model.ElementNames)
         for name in d._single_lines:
             for other in names:
                 if other != name:

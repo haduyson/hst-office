@@ -115,11 +115,10 @@ def heights(office, args):
             low.append("%s %d<%d px" % (name, have, want))
     check("every one-line field has its preferred height or all the room below it", not low, low or len(d._single_lines))
     model = d.model
-    field, rows = model.getByName("type"), model.getByName("typeList")
-    check("the type list hangs under the type field", rows.PositionY >= field.PositionY + field.Height,
-          (field.PositionY, field.Height, rows.PositionY))
+    field, rows = d.dialog.getControl("type").getPeer().getPosSize(), wizard.picker.popup.box()
+    check("the type list hangs under the type field", rows[1] >= field.Y + field.Height, (field.Y, field.Height, rows))
     overlaps = []
-    names = [n for n in model.ElementNames if n not in d._overlays and model.getByName(n).EnableVisible]
+    names = [n for n in model.ElementNames if model.getByName(n).EnableVisible]
     for name in d._single_lines:
         a = model.getByName(name)
         for other in names:

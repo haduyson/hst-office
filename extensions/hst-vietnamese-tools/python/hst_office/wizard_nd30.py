@@ -28,7 +28,8 @@ class Nd30Wizard:
         self.compact = False
         self.colours = palette(ctx)  # muted/error text readable on light and dark dialogs
         self.d = Dialog(ctx, self.s_nd["title"], WIDTH, HEIGHT)
-        self.picker = TypePicker(self.d, self.data["documentTypes"], self.s_nd["groups"], self.refresh)
+        self.picker = TypePicker(self.d, self.data["documentTypes"], self.s_nd["groups"], self.refresh,
+                                 self.s_nd["typeSearchHelp"])
         self._build()
         self.refresh()
 
@@ -47,10 +48,6 @@ class Nd30Wizard:
         # The arrow is for the mouse (Down opens the list from the field): not a Tab stop, so Tab goes from the type
         # straight to the next field instead of to a button that swallows what the user types next.
         d.button("typeOpen", "▾", FIELD_X + FIELD_W - 13, 6 + TOP, 13, h=12, callback=self.picker.toggle).Tabstop = False
-        # The open list lies over the fields below it. In VCL an EARLIER sibling is above later ones for painting and
-        # for mouse hit-testing (stacking.cxx ImplFindWindow, paint.cxx), so it must be inserted before them; inserted
-        # last, the fields under it took hover repaints, the wheel and clicks.
-        d.plain_list("typeList", FIELD_X, 19 + TOP, FIELD_W, 150, help_text=s["typeSearchHelp"])
         self._row("parentAgency", 22)
         self._row("agency", 38)
         self._label("number", 54)
