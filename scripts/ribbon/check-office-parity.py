@@ -30,8 +30,9 @@ LAUNCHER_PREFIX = "btnHstLaunch"
 
 
 def command_name(action):
-    """'.uno:Bold' -> 'Bold'; other protocols ('org.hst.office.vi:ReportError') stay whole."""
-    return action[len(".uno:"):] if action.startswith(".uno:") else action
+    """'.uno:Bold' -> 'Bold', without arguments ('.uno:StyleApply?Style:string=Good' -> 'StyleApply');
+    other protocols ('org.hst.office.vi:ReportError') stay whole."""
+    return action[len(".uno:"):].split("?", 1)[0] if action.startswith(".uno:") else action
 
 
 def read_po(path):
@@ -112,6 +113,22 @@ def parse_notebookbar(path, translate=lambda _c, t: t):
         for relation in label.iter("relation"):
             if relation.get("type") == "label-for":
                 captions[relation.get("target")] = _text(_props(label).get("label"), translate)
+    for grid in root.iter("object"):  # groups whose caption has no relation (Sheets): the label of the bottom row
+        if grid.get("class") != "GtkGrid" or grid.get("id") in captions or not grid.get("id"):
+            continue
+        bottom = None
+        for child in grid.findall("child"):
+            obj, packing = child.find("object"), child.find("packing")
+            if obj is None or packing is None:
+                continue
+            top = next((int(p.text) for p in packing.findall("property") if p.get("name") == "top-attach"), 0)
+            labels = [obj] if obj.get("class") == "GtkLabel" else obj.findall("child/object[@class='GtkLabel']")
+            for label in labels:
+                prop = _props(label).get("label")
+                if prop is not None and prop.get("translatable") == "yes" and top > 0 and (bottom is None or top > bottom[0]):
+                    bottom = (top, _text(prop, translate))
+        if bottom:
+            captions[grid.get("id")] = bottom[1]
     control = next(o for o in root.iter("object") if o.get("class") == "sfxlo-NotebookbarTabControl")
     pages, pending = [], None
     for child in control.findall("child"):

@@ -49,6 +49,16 @@ UI = """<?xml version="1.0" encoding="UTF-8"?>
     </child>
     <child>
       <object class="GtkBox" id="InsertBox">
+        <child>
+          <object class="GtkGrid" id="gdNoRelation">
+            <child><object class="GtkToolButton" id="btnStyle">
+              <property name="action-name">.uno:StyleApply?Style:string=Good&amp;FamilyName:string=CellStyles</property>
+            </object><packing><property name="left-attach">0</property><property name="top-attach">0</property></packing></child>
+            <child><object class="GtkLabel" id="lbNoRelation">
+              <property name="label" translatable="yes" context="Tabbed|labelStyles">Styles</property>
+            </object><packing><property name="left-attach">0</property><property name="top-attach">2</property></packing></child>
+          </object>
+        </child>
         <child><object class="GtkToolButton" id="btnTable"><property name="action-name">.uno:InsertTable</property></object></child>
         <child><object class="GtkToolButton" id="btnItalic"><property name="action-name">.uno:Italic</property></object></child>
       </object>
@@ -121,6 +131,11 @@ class ParityTest(unittest.TestCase):
         self.assertIn("org.hst.office.vi:UILanguageVi", home["commands"])  # "btn…" drop-down is on the ribbon
         self.assertEqual(home["launchers"], [{"id": "btnHstLaunchFont", "command": "FontDialog", "group": "Phông chữ"}])
         self.assertNotIn("FontDialog", home["commands"])
+
+    def test_caption_without_relation_and_command_arguments(self):
+        insert = self.pages[1]
+        self.assertEqual([g["caption"] for g in insert["groups"]], ["Styles"])  # bottom-row label of the grid
+        self.assertIn("StyleApply", insert["commands"])  # arguments are not part of the command name
 
     def test_statuses_and_scores(self):
         result = parity.app_report(SPEC_APP, self.pages)
