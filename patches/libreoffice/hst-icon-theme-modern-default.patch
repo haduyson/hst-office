@@ -1,0 +1,222 @@
+HST Office: the colourful HST icon style (hst_modern) is the default; the classic one stays.
+
+Reason: the owner chose the colourful style as default ("Hiện đại (nhiều màu)") with the classic
+HST style ("Cổ điển") as an option. Automatic (SymbolStyle "auto") now prefers hst_modern /
+hst_modern_dark, then hst / hst_dark. The two values of the options page, "hst_modern" and "hst",
+name a style: on a dark UI they select the style's _dark variant. hst_modern* are SVG-only, so
+macOS rasterises them at the backing scale like hst*. A colourful glyph not drawn yet falls back
+to its classic HST shape, then to the SVG Colibre. configure accepts and installs the two themes
+(built by scripts/brand/build-hst-icon-theme.py like hst*); the per-theme raster cache stamp of
+hst-icon-theme-hidpi-and-cache.patch covers the new cache directories.
+
+Applies after hst-icon-theme.patch and hst-icon-theme-hidpi-and-cache.patch.
+Test: make CppunitTest_vcl_app_test (test_HstIconTheme, test_IconThemeSelector).
+License: upstream files remain MPL-2.0.
+---
+--- a/configure.ac
++++ b/configure.ac
+@@ -14572,14 +14572,14 @@
+ AC_MSG_CHECKING([which themes to include])
+ # if none given use default subset of available themes
+ if test "x$with_theme" = "x" -o "x$with_theme" = "xyes"; then
+-    with_theme="hst hst_dark breeze breeze_dark breeze_dark_svg breeze_svg colibre colibre_svg colibre_dark colibre_dark_svg elementary elementary_svg karasa_jaga karasa_jaga_svg sifr sifr_svg sifr_dark sifr_dark_svg sukapura sukapura_dark sukapura_dark_svg sukapura_svg"
++    with_theme="hst_modern hst_modern_dark hst hst_dark breeze breeze_dark breeze_dark_svg breeze_svg colibre colibre_svg colibre_dark colibre_dark_svg elementary elementary_svg karasa_jaga karasa_jaga_svg sifr sifr_svg sifr_dark sifr_dark_svg sukapura sukapura_dark sukapura_dark_svg sukapura_svg"
+ fi
+ 
+ WITH_THEMES=""
+ if test "x$with_theme" != "xno"; then
+     for theme in $with_theme; do
+         case $theme in
+-        hst|hst_dark|breeze|breeze_dark|breeze_dark_svg|breeze_svg|colibre|colibre_svg|colibre_dark|colibre_dark_svg|elementary|elementary_svg|karasa_jaga|karasa_jaga_svg|sifr|sifr_svg|sifr_dark|sifr_dark_svg|sukapura|sukapura_dark|sukapura_dark_svg|sukapura_svg) WITH_THEMES="${WITH_THEMES:+$WITH_THEMES }$theme" ;;
++        hst_modern|hst_modern_dark|hst|hst_dark|breeze|breeze_dark|breeze_dark_svg|breeze_svg|colibre|colibre_svg|colibre_dark|colibre_dark_svg|elementary|elementary_svg|karasa_jaga|karasa_jaga_svg|sifr|sifr_svg|sifr_dark|sifr_dark_svg|sukapura|sukapura_dark|sukapura_dark_svg|sukapura_svg) WITH_THEMES="${WITH_THEMES:+$WITH_THEMES }$theme" ;;
+         *) AC_MSG_ERROR([Unknown value for --with-theme: $theme]) ;;
+         esac
+     done
+@@ -14594,6 +14594,14 @@
+             *) AC_MSG_ERROR([HST icon themes require --with-theme to include colibre and colibre_dark]) ;;
+             esac
+         done ;;
++    hst_modern|hst_modern_dark)
++        # Colourful glyphs that are not drawn yet fall back to the classic HST theme.
++        for fallback in hst hst_dark colibre_svg colibre_dark_svg; do
++            case " $WITH_THEMES " in
++            *" $fallback "*) ;;
++            *) AC_MSG_ERROR([HST modern icon themes require --with-theme to include $fallback]) ;;
++            esac
++        done ;;
+     esac
+ done
+ AC_MSG_RESULT([$WITH_THEMES])
+--- a/postprocess/CustomTarget_images.mk
++++ b/postprocess/CustomTarget_images.mk
+@@ -69,7 +69,7 @@
+ # Preserve deterministic ZIP metadata, all command aliases and the artwork licence.
+ # Package_images.mk -> Repository.mk/ooo_images -> scp2 installs both archives on
+ # Linux, Windows and macOS just like the other WITH_THEMES entries.
+-hst_image_themes := $(filter hst hst_dark,$(WITH_THEMES))
++hst_image_themes := $(filter hst hst_dark hst_modern hst_modern_dark,$(WITH_THEMES))
+ ifneq ($(strip $(hst_image_themes)),)
+ $(addprefix $(packimages_DIR)/images_,$(addsuffix .zip,$(hst_image_themes))) : $(packimages_DIR)/images_%.zip : $(SRCDIR)/icon-themes/%/images.zip
+ 	$(call gb_Output_announce,$(subst $(WORKDIR)/,,$@),$(true),CPY,1)
+--- a/vcl/inc/HstIconTheme.hxx
++++ b/vcl/inc/HstIconTheme.hxx
+@@ -26,7 +26,19 @@
+ /// stretched into the Retina backing store with a smoothing filter.
+ inline bool isSvgIconTheme(std::u16string_view rTheme)
+ {
+-    return o3tl::ends_with(rTheme, u"_svg") || rTheme == u"hst" || rTheme == u"hst_dark";
++    return o3tl::ends_with(rTheme, u"_svg") || rTheme == u"hst" || rTheme == u"hst_dark"
++           || rTheme == u"hst_modern" || rTheme == u"hst_modern_dark";
++}
++
++/// The two HST icon styles a user chooses between: "hst_modern" (colourful, the default) and
++/// "hst" (classic). Each has a "_dark" variant drawn for dark UI surfaces; a choice made by
++/// style follows the UI mode, so the options page needs one value per style only.
++inline OUString styleForMode(std::u16string_view rTheme, bool bDark)
++{
++    OUString aTheme(rTheme);
++    if (bDark && (rTheme == u"hst" || rTheme == u"hst_modern"))
++        aTheme += "_dark";
++    return aTheme;
+ }
+ 
+ /// Fallback for icons a HST theme does not draw: the SVG Colibre, rasterised at the requested
+@@ -34,6 +46,11 @@
+ /// SVG Colibre then keeps to the dark PNG set. Empty: the upstream fallback rules apply.
+ inline OUString fallbackIconStyle(std::u16string_view rStyle)
+ {
++    // A colourful glyph that is not drawn yet keeps its classic HST shape.
++    if (rStyle == u"hst_modern")
++        return u"hst"_ustr;
++    if (rStyle == u"hst_modern_dark")
++        return u"hst_dark"_ustr;
+     if (rStyle == u"hst")
+         return u"colibre_svg"_ustr;
+     if (rStyle == u"hst_dark")
+--- a/vcl/qa/cppunit/app/test_HstIconTheme.cxx
++++ b/vcl/qa/cppunit/app/test_HstIconTheme.cxx
+@@ -79,6 +79,8 @@
+ {
+     CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst"));
+     CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst_dark"));
++    CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst_modern"));
++    CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst_modern_dark"));
+     CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"colibre_svg"));
+     CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"colibre_dark_svg"));
+     CPPUNIT_ASSERT(!vcl::hst::isSvgIconTheme(u"colibre"));
+@@ -89,7 +91,14 @@
+ 
+ void HstIconThemeTest::FallbacksStayOnSvgColibre()
+ {
++    CPPUNIT_ASSERT_EQUAL(u"hst"_ustr, vcl::hst::fallbackIconStyle(u"hst_modern"));
++    CPPUNIT_ASSERT_EQUAL(u"hst_dark"_ustr, vcl::hst::fallbackIconStyle(u"hst_modern_dark"));
+     CPPUNIT_ASSERT_EQUAL(u"colibre_svg"_ustr, vcl::hst::fallbackIconStyle(u"hst"));
++    // A style chosen on the options page follows the UI mode.
++    CPPUNIT_ASSERT_EQUAL(u"hst_modern_dark"_ustr, vcl::hst::styleForMode(u"hst_modern", true));
++    CPPUNIT_ASSERT_EQUAL(u"hst_dark"_ustr, vcl::hst::styleForMode(u"hst", true));
++    CPPUNIT_ASSERT_EQUAL(u"hst_modern"_ustr, vcl::hst::styleForMode(u"hst_modern", false));
++    CPPUNIT_ASSERT_EQUAL(u"colibre"_ustr, vcl::hst::styleForMode(u"colibre", true));
+     CPPUNIT_ASSERT_EQUAL(u"colibre_dark_svg"_ustr, vcl::hst::fallbackIconStyle(u"hst_dark"));
+     CPPUNIT_ASSERT_EQUAL(u"colibre_dark"_ustr, vcl::hst::fallbackIconStyle(u"colibre_dark_svg"));
+     // Every other theme keeps the upstream chain (ImplImageTree::fallbackStyle).
+--- a/vcl/qa/cppunit/app/test_IconThemeSelector.cxx
++++ b/vcl/qa/cppunit/app/test_IconThemeSelector.cxx
+@@ -20,6 +20,7 @@
+ class IconThemeSelectorTest : public CppUnit::TestFixture
+ {
+     void HstAutomaticAndExplicitChoices();
++    void HstModernIsTheDefaultStyle();
+ #ifndef _WIN32 //default theme on Windows is Colibre independently from any desktop environment
+     void BreezeIsReturnedForKde5Desktop();
+     void ElementaryIsReturnedForGnomeDesktop();
+@@ -37,6 +38,7 @@
+     // Adds code needed to register the test suite
+     CPPUNIT_TEST_SUITE(IconThemeSelectorTest);
+     CPPUNIT_TEST(HstAutomaticAndExplicitChoices);
++    CPPUNIT_TEST(HstModernIsTheDefaultStyle);
+ 
+ #ifndef _WIN32
+     CPPUNIT_TEST(BreezeIsReturnedForKde5Desktop);
+@@ -206,6 +208,31 @@
+         selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
+ }
+ 
++void IconThemeSelectorTest::HstModernIsTheDefaultStyle()
++{
++    std::vector<vcl::IconThemeInfo> themes;
++    for (const auto& id : { u"colibre"_ustr, u"hst"_ustr, u"hst_dark"_ustr, u"hst_modern"_ustr,
++                            u"hst_modern_dark"_ustr })
++    {
++        vcl::IconThemeInfo info;
++        info.mThemeId = id;
++        themes.push_back(info);
++    }
++    vcl::IconThemeSelector selector;
++    // Automatic ("auto") picks the colourful style, light or dark.
++    selector.SetPreferredIconTheme(u"colibre"_ustr, false);
++    CPPUNIT_ASSERT_EQUAL(u"hst_modern"_ustr,
++        selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
++    CPPUNIT_ASSERT_EQUAL(u"hst"_ustr, selector.SelectIconTheme(themes, u"hst"_ustr));
++    selector.SetPreferredIconTheme(u"colibre"_ustr, true);
++    CPPUNIT_ASSERT_EQUAL(u"hst_modern_dark"_ustr,
++        selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
++    // The two values of the options page follow the dark UI.
++    CPPUNIT_ASSERT_EQUAL(u"hst_dark"_ustr, selector.SelectIconTheme(themes, u"hst"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"hst_modern_dark"_ustr, selector.SelectIconTheme(themes, u"hst_modern"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"colibre"_ustr, selector.SelectIconTheme(themes, u"colibre"_ustr));
++}
++
+ // Put the test suite in the registry
+ CPPUNIT_TEST_SUITE_REGISTRATION(IconThemeSelectorTest);
+ 
+--- a/vcl/source/app/IconThemeInfo.cxx
++++ b/vcl/source/app/IconThemeInfo.cxx
+@@ -125,6 +125,8 @@
+ 
+     if (aDisplayName == "hst")
+         aDisplayName = "HST";
++    else if (aDisplayName == "hst_modern")
++        aDisplayName = "HST Modern";
+ 
+     // make the first letter uppercase
+     sal_Unicode firstLetter = aDisplayName[0];
+--- a/vcl/source/app/IconThemeSelector.cxx
++++ b/vcl/source/app/IconThemeSelector.cxx
+@@ -10,6 +10,7 @@
+ #include <comphelper/lok.hxx>
+ 
+ #include <IconThemeSelector.hxx>
++#include <HstIconTheme.hxx>
+ 
+ #include <tools/color.hxx>
+ #include <vcl/DesktopType.hxx>
+@@ -112,9 +113,13 @@
+     // A platform that follows the theme colours only names a dark theme here.
+     const bool bPreferDark = mPreferDarkIconTheme || mPreferredIconTheme.endsWith("_dark")
+                              || mPreferredIconTheme.endsWith("_dark_svg");
+-    const OUString aHstTheme = bPreferDark ? u"hst_dark"_ustr : u"hst"_ustr;
+-    if (icon_theme_is_in_installed_themes(aHstTheme, installedThemes))
+-        return aHstTheme;
++    // HST Office: the colourful style is the default, the classic one remains for reduced builds.
++    for (const auto aStyle : { u"hst_modern", u"hst" })
++    {
++        const OUString aHstTheme = vcl::hst::styleForMode(aStyle, bPreferDark);
++        if (icon_theme_is_in_installed_themes(aHstTheme, installedThemes))
++            return aHstTheme;
++    }
+ 
+     if (!mPreferredIconTheme.isEmpty()) {
+         if (icon_theme_is_in_installed_themes(mPreferredIconTheme, installedThemes)) {
+@@ -144,6 +149,12 @@
+         }
+     }
+ 
++    // HST Office: "hst_modern" and "hst" name a style; use its dark variant on dark surfaces.
++    const OUString aForMode = vcl::hst::styleForMode(theme, mPreferDarkIconTheme);
++    if (aForMode != theme && icon_theme_is_in_installed_themes(aForMode, installedThemes)) {
++        return aForMode;
++    }
++
+     if (icon_theme_is_in_installed_themes(theme, installedThemes)) {
+         return theme;
+     }

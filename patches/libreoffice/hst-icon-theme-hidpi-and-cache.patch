@@ -1,0 +1,353 @@
+HST Office: sharp HST icons on Retina, SVG fallbacks, no stale icon rasters after an update.
+
+Reason: on macOS VCL rasterises icons at the backing scale only for themes whose id ends
+in "_svg". The HST themes are SVG-only but are named hst/hst_dark, so every icon was
+rendered at 1x and stretched into the 2x backing store with a smoothing filter.
+Icons HST does not draw fell back to the PNG Colibre, which VCL nearest-neighbour
+doubles at 150/200 %; they now come from colibre_svg/colibre_dark_svg (both ship in
+the default theme list), rasterised at the requested scale, and colibre_dark_svg
+keeps to colibre_dark. VCL's per-profile icon raster cache is keyed by theme, scale
+and name only, so after an update the previous version's rasters hid redrawn icons:
+each theme's cache directory now carries a version stamp (HST_RELEASE+build) and is
+dropped once when the stamp differs. Other cache users (Skia, OpenGL) are untouched.
+
+Applies after hst-icon-theme.patch (replaces its hst_dark fallback lines).
+Test: make CppunitTest_vcl_app_test (test_HstIconTheme).
+License: upstream files remain MPL-2.0.
+---
+--- a/vcl/CppunitTest_vcl_app_test.mk
++++ b/vcl/CppunitTest_vcl_app_test.mk
+@@ -10,6 +10,7 @@
+ $(eval $(call gb_CppunitTest_CppunitTest,vcl_app_test))
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,vcl_app_test, \
++	vcl/qa/cppunit/app/test_HstIconTheme \
+ 	vcl/qa/cppunit/app/test_IconThemeInfo \
+ 	vcl/qa/cppunit/app/test_IconThemeScanner \
+ 	vcl/qa/cppunit/app/test_IconThemeSelector \
+@@ -21,6 +22,7 @@
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,vcl_app_test, \
++	comphelper \
+ 	sal \
+ 	vcl \
+ ))
+--- /dev/null
++++ b/vcl/inc/HstIconTheme.hxx
+@@ -0,0 +1,89 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++// HST Office: icon theme rules shared by ImplImage (HiDPI rasterisation), ImplImageTree
++// (theme fallback and the per-profile raster cache) and their unit test. Header-only, so
++// the test needs no new vcl export.
++
++#pragma once
++
++#include <sal/config.h>
++
++#include <comphelper/DirectoryHelper.hxx>
++#include <o3tl/string_view.hxx>
++#include <osl/file.hxx>
++#include <rtl/ustring.hxx>
++
++#include <string_view>
++
++namespace vcl::hst
++{
++/// The HST themes ship SVG masters only, exactly like the upstream "*_svg" themes. On macOS
++/// such a theme must be rasterised at the backing scale of the surface; a 1x raster would be
++/// stretched into the Retina backing store with a smoothing filter.
++inline bool isSvgIconTheme(std::u16string_view rTheme)
++{
++    return o3tl::ends_with(rTheme, u"_svg") || rTheme == u"hst" || rTheme == u"hst_dark";
++}
++
++/// Fallback for icons a HST theme does not draw: the SVG Colibre, rasterised at the requested
++/// scale, instead of the PNG Colibre that VCL nearest-neighbour doubles at 150/200 %. The dark
++/// SVG Colibre then keeps to the dark PNG set. Empty: the upstream fallback rules apply.
++inline OUString fallbackIconStyle(std::u16string_view rStyle)
++{
++    if (rStyle == u"hst")
++        return u"colibre_svg"_ustr;
++    if (rStyle == u"hst_dark")
++        return u"colibre_dark_svg"_ustr;
++    if (rStyle == u"colibre_dark_svg")
++        return u"colibre_dark"_ustr;
++    return OUString();
++}
++
++/// Name of the stamp file inside each "<UserInstallation>/cache/<theme>" directory.
++inline constexpr OUString ICON_CACHE_STAMP_FILE = u"hst-icon-cache-version"_ustr;
++
++/// VCL keys its disk cache of rasterised icons by theme, scale and name only. After an update
++/// the rasters of the previous product version would keep hiding redrawn icons, so the cache
++/// of one theme is dropped when its stamp differs from rVersionStamp, then stamped again.
++/// rThemeCacheDirUrl is "<cache>/<theme>" as a file URL, without a trailing slash.
++/// Returns true when the directory was purged or created and the new stamp was written.
++inline bool purgeStaleIconCache(const OUString& rThemeCacheDirUrl, std::string_view rVersionStamp)
++{
++    if (rThemeCacheDirUrl.isEmpty() || rVersionStamp.empty())
++        return false;
++    const OUString aStampUrl = rThemeCacheDirUrl + "/" + ICON_CACHE_STAMP_FILE;
++    {
++        osl::File aStamp(aStampUrl);
++        if (aStamp.open(osl_File_OpenFlag_Read) == osl::FileBase::E_None)
++        {
++            char aBuffer[256];
++            sal_uInt64 nRead = 0;
++            const bool bCurrent = aStamp.read(aBuffer, sizeof aBuffer, nRead) == osl::FileBase::E_None
++                                  && std::string_view(aBuffer, nRead) == rVersionStamp;
++            aStamp.close();
++            if (bCurrent)
++                return false;
++        }
++    }
++    if (comphelper::DirectoryHelper::dirExists(rThemeCacheDirUrl))
++        comphelper::DirectoryHelper::deleteDirRecursively(rThemeCacheDirUrl);
++    const osl::FileBase::RC eDir = osl::Directory::createPath(rThemeCacheDirUrl);
++    if (eDir != osl::FileBase::E_None && eDir != osl::FileBase::E_EXIST)
++        return false;
++    osl::File aStamp(aStampUrl);
++    if (aStamp.open(osl_File_OpenFlag_Write | osl_File_OpenFlag_Create) != osl::FileBase::E_None)
++        return false;
++    sal_uInt64 nWritten = 0;
++    const bool bWritten
++        = aStamp.write(rVersionStamp.data(), rVersionStamp.size(), nWritten) == osl::FileBase::E_None
++          && nWritten == rVersionStamp.size();
++    aStamp.close();
++    return bWritten;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/qa/cppunit/app/test_HstIconTheme.cxx
+@@ -0,0 +1,143 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <HstIconTheme.hxx>
++
++#include <osl/file.hxx>
++#include <rtl/ustrbuf.hxx>
++#include <rtl/ustring.hxx>
++#include <rtl/uuid.h>
++
++#include <cppunit/TestAssert.h>
++#include <cppunit/TestFixture.h>
++#include <cppunit/extensions/HelperMacros.h>
++
++#include <string>
++#include <string_view>
++
++namespace
++{
++OUString uniqueTempDir()
++{
++    OUString aTemp;
++    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None, osl::FileBase::getTempDirURL(aTemp));
++    sal_uInt8 aUuid[16];
++    rtl_createUuid(aUuid, nullptr, false);
++    OUStringBuffer aName(aTemp + "/hst-icon-cache-test-");
++    for (sal_uInt8 n : aUuid)
++        aName.append(static_cast<sal_Int32>(n), 16);
++    return aName.makeStringAndClear();
++}
++
++void writeFile(const OUString& rUrl, std::string_view rData)
++{
++    osl::File aFile(rUrl);
++    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None,
++                         aFile.open(osl_File_OpenFlag_Write | osl_File_OpenFlag_Create));
++    sal_uInt64 nWritten = 0;
++    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None, aFile.write(rData.data(), rData.size(), nWritten));
++    aFile.close();
++}
++
++std::string readFile(const OUString& rUrl)
++{
++    osl::File aFile(rUrl);
++    if (aFile.open(osl_File_OpenFlag_Read) != osl::FileBase::E_None)
++        return "<missing>";
++    char aBuffer[256];
++    sal_uInt64 nRead = 0;
++    aFile.read(aBuffer, sizeof aBuffer, nRead);
++    aFile.close();
++    return std::string(aBuffer, nRead);
++}
++
++bool exists(const OUString& rUrl)
++{
++    osl::DirectoryItem aItem;
++    return osl::DirectoryItem::get(rUrl, aItem) == osl::FileBase::E_None;
++}
++}
++
++class HstIconThemeTest : public CppUnit::TestFixture
++{
++    void SvgOnlyThemesScaleAtTheSurface();
++    void FallbacksStayOnSvgColibre();
++    void CacheOfAnotherVersionIsPurged();
++
++    CPPUNIT_TEST_SUITE(HstIconThemeTest);
++    CPPUNIT_TEST(SvgOnlyThemesScaleAtTheSurface);
++    CPPUNIT_TEST(FallbacksStayOnSvgColibre);
++    CPPUNIT_TEST(CacheOfAnotherVersionIsPurged);
++    CPPUNIT_TEST_SUITE_END();
++};
++
++void HstIconThemeTest::SvgOnlyThemesScaleAtTheSurface()
++{
++    CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst"));
++    CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"hst_dark"));
++    CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"colibre_svg"));
++    CPPUNIT_ASSERT(vcl::hst::isSvgIconTheme(u"colibre_dark_svg"));
++    CPPUNIT_ASSERT(!vcl::hst::isSvgIconTheme(u"colibre"));
++    CPPUNIT_ASSERT(!vcl::hst::isSvgIconTheme(u"colibre_dark"));
++    CPPUNIT_ASSERT(!vcl::hst::isSvgIconTheme(u"hst_svgx"));
++    CPPUNIT_ASSERT(!vcl::hst::isSvgIconTheme(u""));
++}
++
++void HstIconThemeTest::FallbacksStayOnSvgColibre()
++{
++    CPPUNIT_ASSERT_EQUAL(u"colibre_svg"_ustr, vcl::hst::fallbackIconStyle(u"hst"));
++    CPPUNIT_ASSERT_EQUAL(u"colibre_dark_svg"_ustr, vcl::hst::fallbackIconStyle(u"hst_dark"));
++    CPPUNIT_ASSERT_EQUAL(u"colibre_dark"_ustr, vcl::hst::fallbackIconStyle(u"colibre_dark_svg"));
++    // Every other theme keeps the upstream chain (ImplImageTree::fallbackStyle).
++    CPPUNIT_ASSERT(vcl::hst::fallbackIconStyle(u"colibre_svg").isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::fallbackIconStyle(u"colibre").isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::fallbackIconStyle(u"breeze_dark").isEmpty());
++}
++
++void HstIconThemeTest::CacheOfAnotherVersionIsPurged()
++{
++    const OUString aRoot = uniqueTempDir();
++    const OUString aTheme = aRoot + "/hst";
++    const OUString aStamp = aTheme + "/" + vcl::hst::ICON_CACHE_STAMP_FILE;
++    const OUString aRaster = aTheme + "/200/cmd/sc_bold.png";
++    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None, osl::Directory::createPath(aTheme + "/200/cmd"));
++
++    // A profile from a version without stamps: its rasters go, and the stamp is written.
++    writeFile(aRaster, "old raster");
++    CPPUNIT_ASSERT(vcl::hst::purgeStaleIconCache(aTheme, "1.0.0+1000"));
++    CPPUNIT_ASSERT(!exists(aRaster));
++    CPPUNIT_ASSERT_EQUAL(std::string("1.0.0+1000"), readFile(aStamp));
++
++    // The same version keeps what it cached.
++    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None, osl::Directory::createPath(aTheme + "/200/cmd"));
++    writeFile(aRaster, "current raster");
++    CPPUNIT_ASSERT(!vcl::hst::purgeStaleIconCache(aTheme, "1.0.0+1000"));
++    CPPUNIT_ASSERT_EQUAL(std::string("current raster"), readFile(aRaster));
++
++    // A different version, including a longer one, purges again.
++    CPPUNIT_ASSERT(vcl::hst::purgeStaleIconCache(aTheme, "1.0.1+1010"));
++    CPPUNIT_ASSERT(!exists(aRaster));
++    CPPUNIT_ASSERT_EQUAL(std::string("1.0.1+1010"), readFile(aStamp));
++
++    // A theme directory that does not exist yet is created and stamped.
++    const OUString aOther = aRoot + "/colibre_svg";
++    CPPUNIT_ASSERT(vcl::hst::purgeStaleIconCache(aOther, "1.0.1+1010"));
++    CPPUNIT_ASSERT_EQUAL(std::string("1.0.1+1010"),
++                         readFile(aOther + "/" + vcl::hst::ICON_CACHE_STAMP_FILE));
++
++    // Nothing to stamp: refuse without touching anything.
++    CPPUNIT_ASSERT(!vcl::hst::purgeStaleIconCache(OUString(), "1.0.1+1010"));
++    CPPUNIT_ASSERT(!vcl::hst::purgeStaleIconCache(aTheme, ""));
++    CPPUNIT_ASSERT_EQUAL(std::string("1.0.1+1010"), readFile(aStamp));
++
++    comphelper::DirectoryHelper::deleteDirRecursively(aRoot);
++    CPPUNIT_ASSERT(!exists(aRoot));
++}
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstIconThemeTest);
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/image/ImplImage.cxx
++++ b/vcl/source/image/ImplImage.cxx
+@@ -31,6 +31,9 @@
+ #include <bitmap/BitmapDisabledImageFilter.hxx>
+ 
+ #include <image.h>
++#ifdef MACOSX
++#include <HstIconTheme.hxx>
++#endif
+ #include <salgdi.hxx>
+ 
+ #include <utility>
+@@ -65,7 +68,8 @@
+     double fScale(1.0);
+     OUString aIconTheme = Application::GetSettings().GetStyleSettings().DetermineIconTheme();
+ #ifdef MACOSX
+-    if (aIconTheme.endsWith("_svg"))
++    // HST Office: the SVG-only HST themes need the surface scale too (vcl/inc/HstIconTheme.hxx).
++    if (vcl::hst::isSvgIconTheme(aIconTheme))
+     {
+ #endif
+         if (pGraphics && pGraphics->ShouldDownscaleIconsAtSurface(fScale)) // scale at the surface
+--- a/vcl/source/image/ImplImageTree.cxx
++++ b/vcl/source/image/ImplImageTree.cxx
+@@ -59,6 +59,11 @@
+ #include <vcl/filter/PngImageWriter.hxx>
+ #include <o3tl/string_view.hxx>
+ #include <bitmap/BitmapLightenFilter.hxx>
++#include <HstIconTheme.hxx>
++#include <hst_version.h> // HST_RELEASE, HST_VERSION_BUILD (generated from /VERSION)
++
++#include <mutex>
++#include <unordered_set>
+ 
+ using namespace css;
+ 
+@@ -116,10 +121,27 @@
+     return sDir;
+ }
+ 
++// HST Office: once per theme and process, drop the rasters an earlier product version cached
++// (vcl/inc/HstIconTheme.hxx). Theme ids never contain a path separator; refuse any that does.
++void purgeStaleThemeCacheOnce(OUString const & rCacheDir, OUString const & rStyle)
++{
++    static std::mutex aMutex;
++    static std::unordered_set<OUString> aCheckedStyles;
++    if (rStyle.isEmpty() || rStyle.indexOf('/') >= 0 || rStyle.indexOf('.') >= 0)
++        return;
++    std::scoped_lock aGuard(aMutex);
++    if (!aCheckedStyles.insert(rStyle).second)
++        return;
++    static const OString aStamp = OString::Concat(HST_RELEASE "+") + OString::number(HST_VERSION_BUILD);
++    if (vcl::hst::purgeStaleIconCache(rCacheDir + rStyle, aStamp))
++        SAL_INFO("vcl", "icon raster cache for " << rStyle << " stamped " << aStamp);
++}
++
+ OUString getIconCacheUrl(std::u16string_view sVariant, ImageRequestParameters const & rParameters)
+ {
+     // the macro expansion can be expensive in bulk, so cache that
+     static OUString CACHE_DIR = getIconCacheUrlImpl();
++    purgeStaleThemeCacheOnce(CACHE_DIR, rParameters.msStyle);
+     return CACHE_DIR + rParameters.msStyle + "/" + sVariant + "/" + rParameters.msName;
+ }
+ 
+@@ -339,12 +361,12 @@
+ 
+ OUString ImplImageTree::fallbackStyle(std::u16string_view rsStyle)
+ {
+-    OUString sResult;
++    OUString sResult = vcl::hst::fallbackIconStyle(rsStyle);
++    if (!sResult.isEmpty())
++        return sResult;
+ 
+     if (rsStyle == u"colibre" || rsStyle == u"helpimg")
+         sResult = "";
+-    else if (rsStyle == u"hst_dark")
+-        sResult = "colibre_dark";
+     else if (rsStyle == u"sifr" || rsStyle == u"breeze_dark")
+         sResult = "breeze";
+     else if (rsStyle == u"sifr_dark" )

@@ -6,7 +6,9 @@ SvtMiscOptions, which reloads the value and sets the icon theme of every window 
 SetIconTheme), so no restart is needed.
   * Hiện đại: "auto"; the office picks the modern pack and its dark variant from the dark mode (hst_modern /
     hst_modern_dark, icon-theme stream).
-  * Cổ điển: "hst" or "hst_dark", chosen from the current dark mode when the page is confirmed.
+  * Cổ điển: "hst_classic" or "hst_classic_dark" (LibreOffice Colibre with HST glyphs for the commands Colibre does not
+    draw), chosen from the current dark mode when the page is confirmed. Profiles of earlier versions hold "hst" /
+    "hst_dark" for Cổ điển; they read back as Cổ điển and the office maps them to the same packs.
 The pack names are the icon-theme stream's; MODERN/CLASSIC below are the only place they appear here.
 """
 import os
@@ -20,8 +22,9 @@ HANDLER_NAME = "org.hst.office.vi.OptionsAppearance"
 CONFIG_PATH = "/org.openoffice.Office.Common/Misc"
 MODERN = "auto"
 MODERN_NAMES = ("auto", "", "hst_modern", "hst_modern_dark")
-CLASSIC = ("hst", "hst_dark")  # (light, dark)
-PREVIEWS = {"modernPreview": "icon-style-modern.png", "classicPreview": "icon-style-classic.png"}
+CLASSIC = ("hst_classic", "hst_classic_dark")  # (light, dark)
+CLASSIC_NAMES = CLASSIC + ("hst", "hst_dark")  # "hst" / "hst_dark": the Cổ điển value of earlier versions
+PREVIEWS = {"modernPreview": "icon-style-modern", "classicPreview": "icon-style-classic"}  # + ".png" / "-dark.png"
 
 
 def style_of(value):
@@ -29,7 +32,7 @@ def style_of(value):
     value = (value or "").strip()
     if value in MODERN_NAMES:
         return "modern"
-    if value in CLASSIC:
+    if value in CLASSIC_NAMES:
         return "classic"
     return None
 
@@ -65,6 +68,11 @@ def save_style(ctx, style):
         node.setPropertyValue("SymbolStyle", value)
         node.commitChanges()
     return value
+
+
+def preview_file(name, dark):
+    """File name of a style preview for the UI mode (pure)."""
+    return name + ("-dark" if dark else "") + ".png"
 
 
 def _dialog_dir():
@@ -103,8 +111,10 @@ class AppearanceOptionsHandler(unohelper.Base, XServiceInfo, XContainerWindowEve
         style = current_style(self.ctx)
         window.getControl("modern").setState(style == "modern")
         window.getControl("classic").setState(style == "classic")
-        for name, file_name in PREVIEWS.items():  # previews come with the icon packs; hidden until they exist
-            path = os.path.join(_dialog_dir(), file_name)
+        from .dialogs import is_dark
+        dark = is_dark(self.ctx)
+        for name, base in PREVIEWS.items():  # icons drawn by each pack, for the light or the dark UI
+            path = os.path.join(_dialog_dir(), preview_file(base, dark))
             control = window.getControl(name)
             if control is None:
                 continue
