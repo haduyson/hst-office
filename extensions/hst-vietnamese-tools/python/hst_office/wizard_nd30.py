@@ -71,7 +71,7 @@ class Nd30Wizard:
         d.label("l_secretaryName", s["secretaryName"], FIELD_X + 96, 200 + TOP, 22)
         d.edit("secretaryName", FIELD_X + 120, 198 + TOP, FIELD_W - 120, help_text=s["secretaryNameHelp"])
         self._row("recipients", 214, 20, True, label_h=20)
-        self._row("contact", 236)  # 16 units above the check boxes: room for the macOS edit frame (Dialog._fit_edits)
+        self._row("contact", 236)  # 16 units above the check boxes: room for the macOS edit frame (dialog_edit_heights)
         check = d.check("applyPage", s["applyPage"], LABEL_X, 252 + TOP, FIELD_X + FIELD_W - LABEL_X, h=12)
         check.MultiLine = True  # wraps instead of being cut off when a translation is longer
         d.check("pageNumbers", s["pageNumbers"], LABEL_X + 10, 266 + TOP, 208)
