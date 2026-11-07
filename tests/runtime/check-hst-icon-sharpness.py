@@ -41,7 +41,8 @@ def run_rasterise(args):
     import hst_vcl_icon_raster as raster
     archive = args.archive or args.instdir / "share/config" / f"images_{args.theme}.zip"
     with zipfile.ZipFile(archive) as z:
-        names = sorted(n for n in z.namelist() if n.startswith("cmd/") and n.endswith(".svg") and logical_size(n))
+        # hst_classic* keep their HST glyphs under hst/cmd/ (an overlay on Colibre)
+        names = sorted(n for n in z.namelist() if re.match(r"(hst/)?cmd/", n) and n.endswith(".svg") and logical_size(n))
         data = {n: z.read(n) for n in names}
     office = hst_gui.Office(str(args.instdir), str(args.work / f"rasterise-{args.theme}"), args.port,
                            display=args.display, extra_args=["--headless"])
@@ -152,7 +153,8 @@ def main():
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--display", default=":97")
     parser.add_argument("--port", type=int, default=22197)
-    parser.add_argument("--theme", default="hst", choices=("hst", "hst_dark", "hst_modern", "hst_modern_dark"))
+    parser.add_argument("--theme", default="hst", choices=("hst", "hst_dark", "hst_modern", "hst_modern_dark", "hst_classic",
+                                                           "hst_classic_dark"))
     parser.add_argument("--archive", type=Path, help="rasterise mode: an images_<theme>.zip other than the instdir's")
     parser.add_argument("--scales", default="1,2", type=lambda v: [float(x) for x in v.split(",")])
     parser.add_argument("--max-median", type=float, default=0.35)
