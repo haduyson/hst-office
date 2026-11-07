@@ -34,15 +34,15 @@ class Mapping(unittest.TestCase):
         self.assertEqual(ao.value_for("modern", True), "auto")
 
     def test_classic_picks_the_light_or_dark_pack(self):
-        self.assertEqual(ao.value_for("classic", False), "hst")
-        self.assertEqual(ao.value_for("classic", True), "hst_dark")
+        self.assertEqual(ao.value_for("classic", False), "hst_classic")
+        self.assertEqual(ao.value_for("classic", True), "hst_classic_dark")
         with self.assertRaises(ValueError):
             ao.value_for("emoji", False)
 
     def test_reading_back(self):
         for value in ("auto", "", None, "hst_modern", "hst_modern_dark"):
             self.assertEqual(ao.style_of(value), "modern", value)
-        for value in ("hst", "hst_dark"):
+        for value in ("hst_classic", "hst_classic_dark", "hst", "hst_dark"):  # hst*: profiles of earlier versions
             self.assertEqual(ao.style_of(value), "classic", value)
         self.assertIsNone(ao.style_of("colibre"))  # chosen in the core Appearance page: neither box is ticked
 
@@ -69,6 +69,16 @@ class Page(unittest.TestCase):
         self.assertEqual(controls["classic"], "Cổ điển")
         self.assertEqual(controls["heading"], "Kiểu biểu tượng")
         self.assertTrue(set(ao.PREVIEWS) <= set(controls))
+
+    def test_previews_ship_for_both_ui_modes(self):
+        from PIL import Image
+        for base in ao.PREVIEWS.values():
+            for dark in (False, True):
+                path = os.path.join(EXT, "dialogs", ao.preview_file(base, dark))
+                self.assertTrue(os.path.isfile(path), path)
+                with Image.open(path) as image:
+                    self.assertEqual(image.mode, "RGBA")
+                    self.assertLessEqual(image.size[1], 48)  # fits the 24-unit image control
 
 
 if __name__ == "__main__":

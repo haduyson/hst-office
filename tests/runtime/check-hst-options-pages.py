@@ -66,7 +66,7 @@ def main():
             node = office.service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
                 "com.sun.star.configuration.ConfigurationAccess", (arg,))
             return node.getPropertyValue("SymbolStyle")
-        check("Cổ điển writes the classic pack", symbol_style() in ("hst", "hst_dark"), symbol_style())
+        check("Cổ điển writes the classic pack", symbol_style() in ("hst_classic", "hst_classic_dark"), symbol_style())
         handler.callHandlerMethod(look, "initialize", "external_event")
         check("the page reads Cổ điển back", look.getControl("classic").getState())
         look.getControl("modern").setState(True)
