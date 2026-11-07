@@ -1,0 +1,122 @@
+HST Office: Page Color on Writer's Design tab.
+
+Writer's Design tab gets the Office "Page Color" button: a colour drop-down that sets the background colour of the
+page style, the same setting as the page colour of the sidebar. The colour toolbox controller learns the page
+colour command, the controller is registered for Writer, and the command gets its label.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -6085,7 +6085,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">2</property>
++                            <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6145,13 +6145,40 @@
+                           </packing>
+                         </child>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstFillPageColor">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstFillPageColor">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:FillPageColor</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -42267,3 +42267,13 @@
+ "value.text"
+ msgid "Reset all Data Points"
+ msgstr "Đặt lại mọi điểm dữ liệu"
++
++#. hstRP
++#: WriterCommands.xcu
++msgctxt ""
++"WriterCommands.xcu\n"
++"..WriterCommands.UserInterface.Commands..uno:FillPageColor\n"
++"Label\n"
++"value.text"
++msgid "Page Color"
++msgstr "Màu trang"
+--- a/svx/source/tbxctrls/tbcontrl.cxx
++++ b/svx/source/tbxctrls/tbcontrl.cxx
+@@ -3541,6 +3541,8 @@
+         return SID_ATTR_LINE_COLOR;
+     else if (rCommand == ".uno:FillColor")
+         return SID_ATTR_FILL_COLOR;
++    else if (rCommand == ".uno:FillPageColor") // HST: page colour of Writer's Design tab
++        return SID_ATTR_PAGE_COLOR;
+     else if (rCommand == ".uno:FrameLineColor")
+         return SID_FRAME_LINECOLOR;
+ 
+--- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
+@@ -1734,6 +1734,17 @@
+           <value>com.sun.star.comp.svx.CurrencyToolBoxControl</value>
+         </prop>
+       </node>
++      <node oor:name="FillPageColorToolBox" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:FillPageColor</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.text.TextDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.svx.ColorToolBoxControl</value>
++        </prop>
++      </node>
+       <node oor:name="FontColorToolBox" oor:op="replace">
+         <prop oor:name="Command">
+           <value>.uno:FontColor</value>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/WriterCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/WriterCommands.xcu
+@@ -3,6 +3,11 @@
+ <oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:install="http://openoffice.org/2004/installation" oor:name="WriterCommands" oor:package="org.openoffice.Office.UI">
+   <node oor:name="UserInterface">
+     <node oor:name="Commands">
++      <node oor:name=".uno:FillPageColor" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Page Color</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:AddTextBox" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Add Text Box</value>
