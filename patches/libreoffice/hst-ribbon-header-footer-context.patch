@@ -1,0 +1,233 @@
+HST Office: the Header & Footer tab of Writer's ribbon follows the cursor into a header or footer.
+
+vcl gets the context HeaderFooter (`context-HeaderFooter` in a notebookbar .ui). The cursor in a header
+or footer leaves the shell's context at Text (or Table), so the sidebar keeps its decks; instead
+SwView::SelectShell tells the Tabbed notebookbar of the frame (hst::ribbon::SetRibbonSubContext). The
+tab control then shows the pages of that context beside those of the current context and opens the
+first of them, as Office opens Header & Footer when a header is entered; leaving it hides them and goes
+back to the default tab when one of them was current. A change of the selection's context while in the
+header keeps the current Header & Footer tab. Nothing changes when no page has the context.
+
+- include/vcl/EnumContext.hxx, vcl/source/window/EnumContext.cxx: Context::HeaderFooter.
+- include/vcl/HstRibbonContext.hxx (new), include/vcl/tabctrl.hxx, vcl/source/control/tabctrl.cxx.
+- sw/source/uibase/uiview/view.cxx.
+
+--- a/include/vcl/EnumContext.hxx
++++ b/include/vcl/EnumContext.hxx
+@@ -101,6 +101,9 @@
+         TextObject,
+         Trendline,
+         Sparkline,
++        // HST Office: the cursor is in a header or footer (Writer); held beside the shell's context
++        // by the Tabbed notebookbar only (HstRibbonContext.hxx), never sent to the sidebar
++        HeaderFooter,
+ 
+         // Default context of an application.  Do we need this?
+         Default,
+--- a/vcl/source/window/EnumContext.cxx
++++ b/vcl/source/window/EnumContext.cxx
+@@ -194,6 +194,7 @@
+     AddEntry(u"TextObject"_ustr, Context::TextObject);
+     AddEntry(u"Trendline"_ustr, Context::Trendline);
+     AddEntry(u"Sparkline"_ustr, Context::Sparkline);
++    AddEntry(u"HeaderFooter"_ustr, Context::HeaderFooter);
+ 
+     // other general contexts
+     AddEntry(u"any"_ustr, Context::Any);
+--- /dev/null
++++ b/include/vcl/HstRibbonContext.hxx
+@@ -0,0 +1,29 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <vcl/dllapi.h>
++#include <vcl/EnumContext.hxx>
++
++namespace vcl
++{
++class Window;
++}
++
++namespace hst::ribbon
++{
++/// HST Office: a context that holds beside the shell's context, e.g. the cursor in a Writer header
++/// or footer, where the shell's context stays Text (or Table). The Tabbed notebookbar of the frame of
++/// rWindow shows the tabs of eSub next to those of the current context and opens the first of them;
++/// Context::Unknown ends it. It is not sent to the sidebar, whose decks follow the shell's context.
++/// Does nothing on a frame without the Tabbed notebookbar.
++VCL_DLLPUBLIC void SetRibbonSubContext(const vcl::Window& rWindow, vcl::EnumContext::Context eSub);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/vcl/tabctrl.hxx
++++ b/include/vcl/tabctrl.hxx
+@@ -182,6 +182,9 @@
+     void dispose() override;
+ 
+     void SetContext( vcl::EnumContext::Context eContext ) override;
++    /// HST Office: show the tabs of eSub beside those of the current context and open the first
++    /// one; Context::Unknown ends it (see HstRibbonContext.hxx)
++    void HstSetSubContext( vcl::EnumContext::Context eSub );
+     void SetIconClickHdl( Link<NotebookBar*, void> aHdl );
+     void SetToolBox( ToolBox* pToolBox );
+     ToolBox* GetToolBox() { return m_pShortcuts; }
+@@ -196,6 +199,7 @@
+ private:
+     bool bLastContextWasSupported;
+     vcl::EnumContext::Context eLastContext;
++    vcl::EnumContext::Context m_eHstSubContext = vcl::EnumContext::Context::Unknown;
+     Link<NotebookBar*,void> m_aIconClickHdl;
+     static sal_uInt16 m_nHeaderHeight;
+     VclPtr<ToolBox> m_pShortcuts;
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -21,6 +21,7 @@
+ 
+ #include <tools/json_writer.hxx>
+ #include <tools/mapunit.hxx>
++#include <vcl/HstRibbonContext.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+ #include <algorithm>
+ #include <cmath>
+@@ -2244,6 +2245,12 @@
+     }
+ }
+ 
++// HST Office: the page belongs to the sub-context held beside the shell's context
++static bool lcl_hstHasSubContext(const TabPage* pPage, vcl::EnumContext::Context eSub)
++{
++    return pPage && eSub != vcl::EnumContext::Context::Unknown && pPage->HasContext(eSub);
++}
++
+ void NotebookbarTabControlBase::SetContext( vcl::EnumContext::Context eContext )
+ {
+     if (eLastContext == eContext)
+@@ -2255,7 +2262,9 @@
+     TabPage* pPage = GetTabPage(mnCurPageId);
+     // Try to stay on the current tab (unless the new context has a special tab)
+     if (pPage && eLastContext != vcl::EnumContext::Context::Any
+-        && pPage->HasContext(vcl::EnumContext::Context::Any) && pPage->IsEnabled())
++        && (pPage->HasContext(vcl::EnumContext::Context::Any)
++            || lcl_hstHasSubContext(pPage, m_eHstSubContext))
++        && pPage->IsEnabled())
+     {
+         bHandled = true;
+     }
+@@ -2268,7 +2277,8 @@
+         if (!pPage)
+             continue;
+ 
+-        SetPageVisible(nPageId, pPage->HasContext(eContext) || pPage->HasContext(vcl::EnumContext::Context::Any));
++        SetPageVisible(nPageId, pPage->HasContext(eContext) || pPage->HasContext(vcl::EnumContext::Context::Any)
++                                    || lcl_hstHasSubContext(pPage, m_eHstSubContext));
+ 
+         if (eContext != vcl::EnumContext::Context::Any && !bSelection
+             && (!bHandled || !pPage->HasContext(vcl::EnumContext::Context::Any))
+@@ -2292,7 +2302,8 @@
+ 
+     // HST Office: the contextual tab that was current left with the selection: back to the default tab
+     TabPage* pCurrent = GetTabPage(mnCurPageId);
+-    if (pCurrent && !pCurrent->HasContext(eContext) && !pCurrent->HasContext(vcl::EnumContext::Context::Any))
++    if (pCurrent && !pCurrent->HasContext(eContext) && !pCurrent->HasContext(vcl::EnumContext::Context::Any)
++        && !lcl_hstHasSubContext(pCurrent, m_eHstSubContext))
+     {
+         for (int nChild = 0; nChild < GetPageCount(); ++nChild)
+         {
+@@ -2312,6 +2323,66 @@
+     Resize();
+ }
+ 
++void NotebookbarTabControlBase::HstSetSubContext( vcl::EnumContext::Context eSub )
++{
++    if (m_eHstSubContext == eSub)
++        return;
++    m_eHstSubContext = eSub;
++
++    sal_uInt16 nFirst = 0;
++    sal_uInt16 nDefault = 0;
++    for (int nChild = 0; nChild < GetPageCount(); ++nChild)
++    {
++        const sal_uInt16 nPageId = TabControl::GetPageId(nChild);
++        TabPage* pPage = GetTabPage(nPageId);
++        if (!pPage)
++            continue;
++        const bool bSub = lcl_hstHasSubContext(pPage, eSub);
++        SetPageVisible(nPageId, pPage->HasContext(eLastContext)
++                                    || pPage->HasContext(vcl::EnumContext::Context::Any) || bSub);
++        if (bSub && !nFirst)
++            nFirst = nPageId;
++        if (!nDefault && pPage->HasContext(vcl::EnumContext::Context::Default))
++            nDefault = nPageId;
++    }
++
++    // as in Office, entering a header or footer opens its tab; leaving it goes back to the default
++    // tab when the current one belonged to it
++    TabPage* pCurrent = GetTabPage(mnCurPageId);
++    if (nFirst)
++        SetCurPageId(nFirst);
++    else if (pCurrent && nDefault && !pCurrent->HasContext(eLastContext)
++             && !pCurrent->HasContext(vcl::EnumContext::Context::Any))
++        SetCurPageId(nDefault);
++
++    Resize();
++}
++
++namespace hst::ribbon
++{
++static NotebookbarTabControlBase* lcl_findTabControl(vcl::Window* pWindow)
++{
++    for (vcl::Window* pChild = pWindow->GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (auto* pTabs = dynamic_cast<NotebookbarTabControlBase*>(pChild))
++            return pTabs;
++        if (NotebookbarTabControlBase* pTabs = lcl_findTabControl(pChild))
++            return pTabs;
++    }
++    return nullptr;
++}
++
++void SetRibbonSubContext(const vcl::Window& rWindow, vcl::EnumContext::Context eSub)
++{
++    SystemWindow* pSystemWindow = rWindow.GetSystemWindow();
++    if (!pSystemWindow || !pSystemWindow->GetNotebookBar())
++        return; // no Tabbed notebookbar on this frame (other UI modes, LibreOfficeKit)
++    if (NotebookbarTabControlBase* pTabs = lcl_findTabControl(pSystemWindow->GetNotebookBar().get()))
++        pTabs->HstSetSubContext(eSub);
++}
++}
++
+ void NotebookbarTabControlBase::dispose()
+ {
+     m_pShortcuts.disposeAndClear();
+--- a/sw/source/uibase/uiview/view.cxx
++++ b/sw/source/uibase/uiview/view.cxx
+@@ -124,6 +124,7 @@
+ #include <node2lay.hxx>
+ #include <cntfrm.hxx>
+ #include <IDocumentRedlineAccess.hxx>
++#include <vcl/HstRibbonContext.hxx>
+ 
+ using namespace ::com::sun::star;
+ using namespace ::com::sun::star::uno;
+@@ -538,6 +539,13 @@
+ 
+     GetViewImpl()->GetUNOObject_Impl()->NotifySelChanged();
+ 
++    // HST Office: the cursor in a header or footer shows the ribbon's Header & Footer tab beside the
++    // tabs of the selection (the shell's context stays Text or Table, so the sidebar is unchanged);
++    // the tab control ignores a repeat of the context it already has
++    hst::ribbon::SetRibbonSubContext(GetViewFrame().GetWindow(),
++                                     m_pWrtShell->IsInHeaderFooter() ? vcl::EnumContext::Context::HeaderFooter
++                                                                     : vcl::EnumContext::Context::Unknown);
++
+     m_bInitOnceCompleted = true;
+ }
+ 

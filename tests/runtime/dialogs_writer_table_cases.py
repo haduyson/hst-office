@@ -144,6 +144,14 @@ def answer_wrap_prompt(h, button, required=True):
     assert not required, "the undo history prompt did not appear"
 
 
+def table_tab(h):
+    """Table Properties on its Table tab: the dialog reopens on the tab used last (Row, after the row checks),
+    and Text Wrapping set on a tab that was never shown is not applied."""
+    dlg = h.open_dialog(".uno:TableDialog", "TablePropertiesDialog")
+    select_tab(dlg, 0)
+    return dlg
+
+
 def check_table_text_wrapping(h, c):
     """Text Wrapping on the Table tab: Around floats the table, survives DOCX, None brings it back."""
     doc = h.new_document()
@@ -151,12 +159,12 @@ def check_table_text_wrapping(h, c):
     put_cursor(doc, table, "A1")
     writer_edit(h.ui).executeAction("TYPE", props(TEXT="Có lịch sử hoàn tác"))
     h.wait_idle()
-    dlg = h.open_dialog(".uno:TableDialog", "TablePropertiesDialog")
+    dlg = table_tab(h)
     click(dlg, "hsttablewraparound")
     ok_with_wrap_prompt(h, dlg, "no")
     c.equal("wrap: answering No leaves the table in the text", doc.getTextFrames().getCount(), 0)
     undo_title = doc.getUndoManager().getCurrentUndoActionTitle()
-    dlg = h.open_dialog(".uno:TableDialog", "TablePropertiesDialog")
+    dlg = table_tab(h)
     click(dlg, "hsttablewraparound")
     ok_with_wrap_prompt(h, dlg, "yes")
     h.wait_idle(2)
@@ -171,7 +179,7 @@ def check_table_text_wrapping(h, c):
     h.close_document(again)
 
     put_cursor(doc, doc.getTextTables().getByIndex(0), "A1")
-    dlg = h.open_dialog(".uno:TableDialog", "TablePropertiesDialog")
+    dlg = table_tab(h)
     click(dlg, "hsttablewrapnone")
     ok_with_wrap_prompt(h, dlg, "yes", required=False)
     h.wait_idle(2)

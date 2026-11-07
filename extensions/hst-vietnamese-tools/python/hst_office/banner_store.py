@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 from . import banner_cache as cache
-from .banner_schema import MAX_MANIFEST, active
+from .banner_schema import MAX_MANIFEST, active, image_specs
 from .banner_verify import verify_image, verify_manifest
 
 LIMIT = 6 * MAX_MANIFEST  # current signed envelope plus one last-eligible signed envelope
@@ -42,7 +42,7 @@ def envelope(data, signature):
     return {"manifest": base64.b64encode(data).decode("ascii"), "signature": signature.decode("ascii")}
 
 
-def metadata(root, key):
+def metadata(root, key, allow_test=False):
     """Recover the ordering floor from authenticated metadata even if every image is missing."""
     records = []
     for name in ("current.json", "previous.json"):
@@ -53,7 +53,7 @@ def metadata(root, key):
         for entry in (value, value.get("fallback") if isinstance(value, dict) else None):
             try:
                 data = base64.b64decode(entry["manifest"], validate=True)
-                doc = verify_manifest(data, entry["signature"], key)
+                doc = verify_manifest(data, entry["signature"], key, allow_test)
                 record = (doc, data, entry["signature"].encode("ascii"))
                 if record not in records:
                     records.append(record)
@@ -63,13 +63,13 @@ def metadata(root, key):
 
 
 def images(root, doc):
-    return {i["id"]: {s: cache.cached_image(root, spec, s) for s, spec in i["image"].items()}
+    return {i["id"]: {s: cache.cached_image(root, spec, s) for s, spec in image_specs(i)}
             for i in doc["items"]}
 
 
-def load(root, key):
+def load(root, key, allow_test=False):
     candidates = []
-    for doc, _, _ in metadata(root, key):
+    for doc, _, _ in metadata(root, key, allow_test):
         try:
             candidates.append((doc, images(root, doc)))
         except (OSError, ValueError):
@@ -86,11 +86,11 @@ def check_generation(records, doc, data):
             raise ValueError("conflicting banner generation")
 
 
-def publish(root, key, data, signature, blobs, now, version):
+def publish(root, key, data, signature, blobs, now, version, allow_test=False):
     root = Path(root)
-    doc = verify_manifest(data, signature, key)
+    doc = verify_manifest(data, signature, key, allow_test)
     with publication_lock(root):
-        records = metadata(root, key)  # Compare again AFTER downloads, under the publication lock.
+        records = metadata(root, key, allow_test)  # Compare again AFTER downloads, under the publication lock.
         check_generation(records, doc, data)
         current = envelope(data, signature)
         fallback = None
@@ -104,7 +104,7 @@ def publish(root, key, data, signature, blobs, now, version):
                 except (OSError, ValueError):
                     pass
         for item in doc["items"]:
-            for scale, spec in item["image"].items():
+            for scale, spec in image_specs(item):
                 blob = blobs[item["id"]][scale]
                 suffix = verify_image(blob, spec, scale)
                 cache.atomic_write(cache.image_path(root, spec, suffix), blob)
@@ -116,7 +116,7 @@ def publish(root, key, data, signature, blobs, now, version):
             previous = records[0]
         cache.atomic_write(root / "current.json", json.dumps(current).encode())
         keep_docs = [doc] + [r[0] for r in (fallback, previous) if r]
-        keep = {spec["sha256"] + ext for d in keep_docs for i in d["items"] for spec in i["image"].values()
+        keep = {spec["sha256"] + ext for d in keep_docs for i in d["items"] for _, spec in image_specs(i)
                 for ext in (".png", ".jpg", ".webp")}
         for path in (root / "images").glob("*"):
             if path.name not in keep and path.is_file():
@@ -124,4 +124,4 @@ def publish(root, key, data, signature, blobs, now, version):
                     path.unlink()
                 except OSError:
                     pass
-        return load(root, key)
+        return load(root, key, allow_test)

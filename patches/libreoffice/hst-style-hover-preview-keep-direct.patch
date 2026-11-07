@@ -1,0 +1,210 @@
+HST Office: the Styles hover preview keeps the paragraphs' direct formatting.
+
+Setting ParaStyleName goes through SwDoc::SetTextFormatColl with bReset, which clears the hard
+paragraph attributes (alignment, indents, spacing, background, numbering, character attributes set
+on the paragraph). The preview put back only the style name, and with undo locked the loss was
+silent. Before the preview every paragraph's DIRECT_VALUE properties are read (XPropertyState);
+after the style is put back, properties the preview made direct return to the style's value and the
+saved ones are set again, numbering first, so the paragraph is as it was.
+
+- svx/source/tbxctrls/StylesPreviewWindow.cxx.
+
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -43,7 +43,10 @@
+ #include <vcl/event.hxx>
+ #include <vcl/timer.hxx>
+ 
++#include <com/sun/star/beans/PropertyAttribute.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/beans/XPropertySetInfo.hpp>
++#include <com/sun/star/beans/XPropertyState.hpp>
+ #include <com/sun/star/container/XEnumerationAccess.hpp>
+ #include <com/sun/star/container/XIndexAccess.hpp>
+ #include <com/sun/star/document/XDocumentEventBroadcaster.hpp>
+@@ -499,7 +502,9 @@
+ 
+ /** HST Office: live preview of a paragraph style in a Writer document while the pointer rests on it
+     in the gallery, as in Word. The style is set on the paragraphs of the selection and the previous
+-    styles are put back when the pointer leaves. Neither step reaches the document's history: the
++    styles are put back when the pointer leaves, with the paragraphs' direct formatting (alignment,
++    indents, spacing, background, numbering, character attributes of the paragraph), which setting a
++    style clears. Neither step reaches the document's history: the
+     undo manager is locked, change tracking is suspended and the modified state is frozen
+     (XModifiable2), so the document stays unmodified, its undo stack unchanged and autorecovery sees
+     nothing to save. The preview ends before any save, store-to (autorecovery) or unload. Read-only
+@@ -507,6 +512,117 @@
+     org.openoffice.Office.HSTRibbon/StyleHoverPreview. */
+ class HstStylePreview final : public cppu::WeakImplHelper<css::document::XDocumentEventListener>
+ {
++    /** A previewed paragraph: its style and its direct formatting (DIRECT_VALUE properties). */
++    struct Paragraph
++    {
++        css::uno::Reference<css::beans::XPropertySet> xProps;
++        OUString aStyle;
++        std::vector<OUString> aDirect;
++        std::vector<css::uno::Any> aValues;
++    };
++
++    /** The writable properties of the paragraph, and their states (DEFAULT_VALUE where unknown). */
++    static std::pair<css::uno::Sequence<OUString>, css::uno::Sequence<css::beans::PropertyState>>
++    States(const css::uno::Reference<css::beans::XPropertySet>& xProps)
++    {
++        std::vector<OUString> aNames;
++        for (const css::beans::Property& rProperty : xProps->getPropertySetInfo()->getProperties())
++            if (!(rProperty.Attributes & css::beans::PropertyAttribute::READONLY)
++                && rProperty.Name != "ParaStyleName" && rProperty.Name != "ParaConditionalStyleName")
++                aNames.push_back(rProperty.Name);
++        const css::uno::Sequence<OUString> aSeq(aNames.data(), aNames.size());
++        css::uno::Reference<css::beans::XPropertyState> xState(xProps, css::uno::UNO_QUERY_THROW);
++        try
++        {
++            return { aSeq, xState->getPropertyStates(aSeq) };
++        }
++        catch (const css::uno::Exception&)
++        {
++            // one property without a state spoils the batch: ask one by one
++            css::uno::Sequence<css::beans::PropertyState> aStates(aSeq.getLength());
++            auto pStates = aStates.getArray();
++            for (sal_Int32 i = 0; i < aSeq.getLength(); ++i)
++            {
++                try
++                {
++                    pStates[i] = xState->getPropertyState(aSeq[i]);
++                }
++                catch (const css::uno::Exception&)
++                {
++                    pStates[i] = css::beans::PropertyState_DEFAULT_VALUE;
++                }
++            }
++            return { aSeq, aStates };
++        }
++    }
++
++    static void Snapshot(Paragraph& rParagraph)
++    {
++        const auto [aNames, aStates] = States(rParagraph.xProps);
++        for (sal_Int32 i = 0; i < aNames.getLength(); ++i)
++        {
++            if (aStates[i] != css::beans::PropertyState_DIRECT_VALUE)
++                continue;
++            try
++            {
++                css::uno::Any aValue = rParagraph.xProps->getPropertyValue(aNames[i]);
++                rParagraph.aDirect.push_back(aNames[i]);
++                rParagraph.aValues.push_back(std::move(aValue));
++            }
++            catch (const css::uno::Exception&)
++            {
++            }
++        }
++    }
++
++    /** After the style is back: what the preview made direct goes back to the style, and the saved
++        direct formatting is set again, numbering first (the list, then the level and restart). */
++    static void Restore(const Paragraph& rParagraph)
++    {
++        css::uno::Reference<css::beans::XPropertyState> xState(rParagraph.xProps, css::uno::UNO_QUERY_THROW);
++        const auto [aNames, aStates] = States(rParagraph.xProps);
++        for (sal_Int32 i = 0; i < aNames.getLength(); ++i)
++        {
++            if (aStates[i] == css::beans::PropertyState_DIRECT_VALUE
++                && std::find(rParagraph.aDirect.begin(), rParagraph.aDirect.end(), aNames[i])
++                       == rParagraph.aDirect.end())
++            {
++                try
++                {
++                    xState->setPropertyToDefault(aNames[i]);
++                }
++                catch (const css::uno::Exception&)
++                {
++                }
++            }
++        }
++        static constexpr std::u16string_view aFirst[]
++            = { u"NumberingStyleName", u"ListId", u"NumberingLevel", u"NumberingIsNumber",
++                u"ParaIsNumberingRestart", u"NumberingStartValue" };
++        std::vector<size_t> aOrder(rParagraph.aDirect.size());
++        for (size_t i = 0; i < aOrder.size(); ++i)
++            aOrder[i] = i;
++        const auto rank = [&](size_t i) {
++            const auto it = std::find(std::begin(aFirst), std::end(aFirst), rParagraph.aDirect[i]);
++            return static_cast<size_t>(it - std::begin(aFirst));
++        };
++        std::stable_sort(aOrder.begin(), aOrder.end(), [&](size_t a, size_t b) { return rank(a) < rank(b); });
++        for (size_t i : aOrder)
++        {
++            const OUString& rName = rParagraph.aDirect[i];
++            try
++            {
++                if (xState->getPropertyState(rName) == css::beans::PropertyState_DIRECT_VALUE
++                    && rParagraph.xProps->getPropertyValue(rName) == rParagraph.aValues[i])
++                    continue; // kept by the style change (page break, page style, hints)
++                rParagraph.xProps->setPropertyValue(rName, rParagraph.aValues[i]);
++            }
++            catch (const css::uno::Exception&)
++            {
++            }
++        }
++    }
++
+ public:
+     static bool Enabled()
+     {
+@@ -544,7 +660,7 @@
+                 xSelection.is() ? xSelection->getSelection() : css::uno::Any(), css::uno::UNO_QUERY);
+             if (!xRanges.is())
+                 return false;
+-            std::vector<std::pair<css::uno::Reference<css::beans::XPropertySet>, OUString>> aParagraphs;
++            std::vector<Paragraph> aParagraphs;
+             for (sal_Int32 i = 0; i < xRanges->getCount(); ++i)
+             {
+                 css::uno::Reference<css::text::XTextRange> xRange(xRanges->getByIndex(i), css::uno::UNO_QUERY);
+@@ -558,10 +674,13 @@
+                                                                             css::uno::UNO_QUERY);
+                     if (!xParagraph.is() || !xParagraph->supportsService(u"com.sun.star.text.Paragraph"_ustr))
+                         continue; // tables keep their styles
+-                    css::uno::Reference<css::beans::XPropertySet> xProps(xParagraph, css::uno::UNO_QUERY);
+-                    OUString aOld;
+-                    xProps->getPropertyValue(u"ParaStyleName"_ustr) >>= aOld;
+-                    aParagraphs.emplace_back(xProps, aOld);
++                    Paragraph aParagraph;
++                    aParagraph.xProps.set(xParagraph, css::uno::UNO_QUERY_THROW);
++                    aParagraph.xProps->getPropertyValue(u"ParaStyleName"_ustr) >>= aParagraph.aStyle;
++                    // setting a style clears the paragraph's direct formatting
++                    // (SwDoc::SetTextFormatColl with bReset): remember it to put it back
++                    Snapshot(aParagraph);
++                    aParagraphs.push_back(std::move(aParagraph));
+                     if (aParagraphs.size() > 200)
+                         return false; // a preview must stay instant
+                 }
+@@ -575,8 +694,8 @@
+             m_xModel = xModel;
+             m_aParagraphs = std::move(aParagraphs);
+             if (!Quietly([&] {
+-                    for (auto& [xProps, aOld] : m_aParagraphs)
+-                        xProps->setPropertyValue(u"ParaStyleName"_ustr, css::uno::Any(aStyle));
++                    for (const Paragraph& rParagraph : m_aParagraphs)
++                        rParagraph.xProps->setPropertyValue(u"ParaStyleName"_ustr, css::uno::Any(aStyle));
+                 }))
+             {
+                 End(); // protected text or an unknown style: put back what was changed
+@@ -612,7 +731,8 @@
+             {
+                 try
+                 {
+-                    it->first->setPropertyValue(u"ParaStyleName"_ustr, css::uno::Any(it->second));
++                    it->xProps->setPropertyValue(u"ParaStyleName"_ustr, css::uno::Any(it->aStyle));
++                    Restore(*it);
+                 }
+                 catch (const css::uno::Exception&)
+                 {
+@@ -705,7 +825,7 @@
+     }
+ 
+     css::uno::Reference<css::frame::XModel> m_xModel;
+-    std::vector<std::pair<css::uno::Reference<css::beans::XPropertySet>, OUString>> m_aParagraphs;
++    std::vector<Paragraph> m_aParagraphs;
+ };
+ 
+ void StylesPreviewWindow_Base::HstEndPreview()

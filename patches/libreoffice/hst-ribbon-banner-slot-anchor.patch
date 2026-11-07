@@ -1,0 +1,26 @@
+HST Office: one constant for the vertical anchoring of the ribbon banner slot.
+
+- sfx2/source/notebookbar/HstBannerGeometry.hxx: SLOT_CENTRED (true: centred on the tab page, as
+  shipped; false: anchored at the top of the page). No change in behaviour.
+
+--- a/sfx2/source/notebookbar/HstBannerGeometry.hxx
++++ b/sfx2/source/notebookbar/HstBannerGeometry.hxx
+@@ -35,6 +35,9 @@
+ constexpr long ART_WIDTH = 360; // logical px of the @1x artwork
+ constexpr long COMPACT_ART_WIDTH = 160; // logical px of the @1x compact artwork (same height)
+ constexpr long ART_HEIGHT = 104;
++// The slot is centred vertically on the tab page (the per-app position the hstsystem admin preview
++// uses); false anchors it at the top of every page. Owner question pending: one line to switch.
++constexpr bool SLOT_CENTRED = true;
+ constexpr long MIN_WINDOW_WIDTH = 1280; // narrower windows keep the whole width for the groups
+ constexpr long MIN_PAGE_HEIGHT = 60; // compact ribbons (one row) never show the banner
+ 
+@@ -82,7 +85,7 @@
+     aSlot.w = std::min(scaled(nArtWidth, fDpi), nRoom * nArtWidth / ART_HEIGHT);
+     aSlot.h = std::min(nRoom, aSlot.w * ART_HEIGHT / nArtWidth);
+     aSlot.x = rPage.x + rPage.w - nRightMargin - aSlot.w;
+-    aSlot.y = rPage.y + nVMargin + (nRoom - aSlot.h) / 2;
++    aSlot.y = rPage.y + nVMargin + (SLOT_CENTRED ? (nRoom - aSlot.h) / 2 : 0);
+     return aSlot;
+ }
+ 

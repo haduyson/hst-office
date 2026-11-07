@@ -94,6 +94,66 @@ class ScanTests(unittest.TestCase):
     def test_repo_allowlist_loads(self):
         self.assertGreater(len(load_allowlist(ALLOWLIST)), 0)
 
+    def test_installed_legal_text_paths_are_allowed(self):
+        legal_paths = (
+            "LICENSE", "LICENSE.html", "NOTICE", "NOTICE.txt", "CREDITS.txt",
+            "THIRDPARTYLICENSEREADME.html", "license.xml",
+            "license/LICENSE.html", "license/NOTICE.txt",
+            "share/extensions/dict-en/license.txt",
+            "share/extensions/dict-en/license.html",
+            "share/extensions/dict-en/license.xml",
+            "share/extensions/dict-vi/LICENSES-vi.txt",
+            "share/credits.html",
+        )
+        for rel in legal_paths:
+            write(self.tmp, rel, "LibreOffice / The Document Foundation / OpenOffice\n")
+        hits, _ = scan_tree(self.tmp, load_allowlist(ALLOWLIST))
+        self.assertEqual([h[0] for h in hits], ["share/registry/main.xcd"])
+
+    def test_legal_headers_and_dtd_declarations_do_not_hide_ui(self):
+        declarations = (
+            ('share/config/soffice.cfg/modules/swriter/toolbar/standardbar.xml',
+             '<!DOCTYPE toolbar:toolbar PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "toolbar.dtd">'),
+            ('share/extensions/dict-en/META-INF/manifest.xml',
+             '<!DOCTYPE manifest:manifest PUBLIC "-//OpenOffice.org//DTD Manifest 1.0//EN" "Manifest.dtd">'),
+            ('share/config/soffice.cfg/modules/swriter/statusbar/statusbar.xml',
+             '<!DOCTYPE statusbar:statusbar PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "statusbar.dtd">'),
+        )
+        for rel, declaration in declarations:
+            write(self.tmp, rel, declaration + '\n<!--\n'
+                  ' * This file is part of the LibreOffice project.\n-->\n'
+                  '<label>LibreOffice</label>\n' + declaration + '<label>OpenOffice</label>\n')
+        for rel in ("share/xdg/writer.desktop", "share/wizards/resources_vi.properties"):
+            write(self.tmp, rel, '# This file is part of the LibreOffice project.\n'
+                  'Name=LibreOffice\nName=This file is part of the LibreOffice project.\n')
+        hits, _ = scan_tree(self.tmp, load_allowlist(ALLOWLIST))
+        for rel, _ in declarations:
+            with self.subTest(path=rel):
+                self.assertEqual([h[1] for h in hits if h[0] == rel], [5, 6])
+        for rel in ("share/xdg/writer.desktop", "share/wizards/resources_vi.properties"):
+            with self.subTest(path=rel):
+                self.assertEqual([h[1] for h in hits if h[0] == rel], [2, 3])
+
+    def test_repo_allowlist_keeps_user_visible_text_as_failures(self):
+        ui_paths = (
+            "share/config/soffice.cfg/cui/ui/aboutdialog.ui",
+            "share/config/soffice.cfg/sfx/ui/licensedialog.ui",
+            "share/config/soffice.cfg/modules/swriter/menubar/menubar.xml",
+            "share/registry/main.xcd", "share/registry/credits.xcu",
+            "program/resource/vi/LC_MESSAGES/cui.mo", "program/versionrc",
+            "share/extensions/dict-en/description.xml",
+            "share/extensions/dict-en/package-description.txt",
+            "share/extensions/dict-en/help/index.html", "help/index.html",
+            "include/dialog.ui", "sdk/examples/dialog.ui", "share/dtd/dialog.ui",
+        )
+        for rel in ui_paths:
+            write(self.tmp, rel, '<label>LibreOffice / The Document Foundation / OpenOffice</label>\n')
+        # Headers, DTD files and SDK binaries are already outside the text scan.
+        for rel in ("include/uno/api.h", "include/uno/api.hxx", "share/dtd/office.dtd", "sdk/bin/cppumaker"):
+            write(self.tmp, rel, "LibreOffice\n")
+        hits, _ = scan_tree(self.tmp, load_allowlist(ALLOWLIST))
+        self.assertEqual({h[0] for h in hits}, set(ui_paths))
+
     def test_cli_exit_codes(self):
         run = lambda *a: subprocess.run([sys.executable, CLI, *a], capture_output=True, text=True)
         self.assertEqual(run().returncode, 0)

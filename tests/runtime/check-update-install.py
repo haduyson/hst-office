@@ -4,6 +4,7 @@
 
 Usage: python3 tests/runtime/check-update-install.py [--instdir upstream/libreoffice/instdir]
            [--out tests/output/update-install-runtime] [--shots tests/output/screenshots-update-install] [--display :87]
+           [--uno-port N] [--http-port N]   (default: free ports; formerly 22094 and 22093)
 
 Test package (build-extensions.py --update-test-mode) in a hard-linked instdir copy, a local HTTP server on 127.0.0.1
 serving a schema 2 manifest signed with the real release key plus a dummy .deb; HST_UPDATE_TEST_URL points at it and
@@ -31,22 +32,17 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
+from update_test_gui import (RESULTS, add_port_options, cache_files, check, click, dialogs, dispatch_async,  # noqa: E402
+                             ports, shot)
 
 ROOT = hst_gui.ROOT
 _spec = importlib.util.spec_from_file_location("notify", os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-update-notify.py"))
 notify = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(notify)
-UNO_PORT, HTTP_PORT = 22094, 22093
+UNO_PORT, HTTP_PORT = 0, 0  # set by main: --uno-port/--http-port, else free ports
 DEB = b"!<arch>\ndummy hst office package for the update test\n" * 2000
 DEB_NAME = "HSTOffice_9.9.9_Linux_x86-64.deb"
 TITLE = "Cập nhật HST Office"
-RESULTS = []
-
-
-def check(label, ok):
-    RESULTS.append((label, bool(ok)))
-    print("%-4s %s" % ("PASS" if ok else "FAIL", label), flush=True)
-    return ok
 
 
 def serve_manifest(srv, sha=None):
@@ -65,40 +61,6 @@ def serve_manifest(srv, sha=None):
     notify.SERVED["/files/" + DEB_NAME] = (200, DEB)
 
 
-def dialogs(office, title):
-    return [w for w in hst_gui.toplevels(office.display, office.pid) if w[1] == title]
-
-
-def click(office, title, fx, fy, timeout=60):
-    """Wait for the dialog `title`, click at the fraction (fx, fy) of its window; False when it never shows."""
-    found = []
-    if not notify.wait(lambda: found.extend(dialogs(office, title)) or found, timeout):
-        return False
-    time.sleep(1.0)
-    wid = found[0][0]
-    info = subprocess.run(["xwininfo", "-display", office.display, "-id", wid], capture_output=True, text=True).stdout
-    width, height = (int(re.search(r"%s: (\d+)" % k, info).group(1)) for k in ("Width", "Height"))
-    env = dict(os.environ, DISPLAY=office.display)
-    subprocess.run(["xdotool", "mousemove", "--window", wid, str(int(width * fx)), str(int(height * fy)), "click", "1"],
-                   env=env, check=False, timeout=10)
-    return True
-
-
-def dispatch_async(office, frame, command):
-    """The Install command runs its modal dialogs inside the dispatch call: dispatch from a helper thread."""
-    threading.Thread(target=office.dispatch, args=(frame, command), daemon=True).start()
-
-
-def shot(office, shots, name):
-    time.sleep(0.5)
-    office.screenshot(os.path.join(shots, name))
-
-
-def cache_files(office):
-    folder = os.path.join(office.workdir, "cache", "hst-office", "update")
-    return folder, sorted(f for f in os.listdir(folder) if f.endswith(".deb") or f.endswith(".part")) if os.path.isdir(folder) else []
-
-
 def deb_requests():
     return len([r for r in notify.REQUESTS if r.endswith(".deb")])
 
@@ -109,7 +71,10 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, "tests", "output", "update-install-runtime"))
     ap.add_argument("--shots", default=os.path.join(ROOT, "tests", "output", "screenshots-update-install"))
     ap.add_argument("--display", default=":87")
+    add_port_options(ap, 22094, 22093)
     args = ap.parse_args()
+    global UNO_PORT, HTTP_PORT
+    UNO_PORT, HTTP_PORT = ports(args)
     os.makedirs(args.shots, exist_ok=True)
     for name in ("gui", "gui-bad", "gui-policy"):  # a cached installer of an earlier run would skip the download
         shutil.rmtree(os.path.join(args.out, name, "cache"), ignore_errors=True)
@@ -147,9 +112,7 @@ def run_main(office, srv, args):
     doc = office.load("private:factory/swriter")
     frame = doc.getCurrentController().getFrame()
     notify.REQUESTS.clear()
-    print("dispatching Check", flush=True)
     office.dispatch(frame, "org.hst.office.update:Check")
-    print("dispatched", flush=True)
     # result dialog (300 x 70): first button "Cập nhật ngay" at x 8..68, y 48..62
     check("result dialog offers Cập nhật ngay", click(office, "Kiểm tra cập nhật", 38 / 300.0, 55 / 70.0))
     check("question after download and verification", notify.wait(lambda: dialogs(office, TITLE), 90))
@@ -200,13 +163,7 @@ def run_bad_hash(instdir, srv, args, env):
 
 def run_policy(instdir, srv, args, env):
     serve_manifest(srv)
-    pkg, home = os.path.join(args.out, "policy", "hst-update-policy.oxt"), os.path.join(args.out, "unopkg-home")
-    subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "release", "build-update-policy-oxt.py"), "--output", pkg,
-                    "--no-install", "--keep-autocheck"], check=True, stdout=subprocess.DEVNULL)
-    os.makedirs(home, exist_ok=True)
-    subprocess.run(["chown", "-R", hst_gui.BUILD_USER, os.path.dirname(pkg), home], check=True)
-    subprocess.run(["runuser", "-u", hst_gui.BUILD_USER, "--", "env", "HOME=" + home, os.path.join(instdir, "program", "unopkg"),
-                    "add", "--shared", "-s", pkg, "-env:UserInstallation=file://" + os.path.join(home, "profile")], check=True, timeout=180)
+    notify.install_policy(instdir, args.out, ["--no-install", "--keep-autocheck"])
     notify.REQUESTS.clear()
     office = hst_gui.Office(instdir, os.path.join(args.out, "gui-policy"), UNO_PORT, display=args.display, nodefault=False,
                             env=dict(env, XDG_CACHE_HOME=os.path.join(args.out, "gui-policy", "cache")))

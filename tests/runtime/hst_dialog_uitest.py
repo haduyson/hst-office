@@ -29,7 +29,19 @@ class DialogHarness:
         self.office.load("private:factory/swriter")
 
     def close(self):
+        self.discard_documents()
         self.office.stop()
+
+    def discard_documents(self):
+        """Close what a failed check left open (one blank window stays): no save question can block quitting."""
+        try:
+            components = self.office.desktop().getComponents().createEnumeration()
+            while components.hasMoreElements():
+                doc = components.nextElement()
+                if hasattr(doc, "setModified"):
+                    doc.setModified(False)
+        except Exception as error:  # noqa: BLE001 - the office may already be gone; stop() ends it anyway
+            print(f"note: documents not discarded: {error!r}", flush=True)
 
     def new_document(self, kind="swriter"):
         doc = self.office.load(f"private:factory/{kind}")
@@ -158,6 +170,10 @@ class Checks:
         print(("ok   " if good else "FAIL ") + f"{what}: {actual!r}" + ("" if good else f" (expected {expected!r})"), flush=True)
         if not good:
             self.failures.append(what)
+
+    def error(self, group, error):
+        print(f"FAIL {group}: stopped by {error!r}", flush=True)
+        self.failures.append(group)
 
     def finish(self):
         print(f"{len(self.failures)} failure(s)" if self.failures else "all checks passed", flush=True)

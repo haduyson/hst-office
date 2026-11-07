@@ -5,7 +5,7 @@ import time
 import zipfile
 
 from dialogs_writer_table_cases import put_cursor, save_and_reopen
-from hst_dialog_uitest import click, props, writer_edit
+from hst_dialog_uitest import click, props, type_value, writer_edit
 
 MAX_REFIT_SECONDS = 1.0  # a large table may lag behind typing by this much at most
 
@@ -25,8 +25,21 @@ def column_width(table, row=0):
     return separators[0].Position * table.Width / table.TableColumnRelativeSum
 
 
-def insert_contents_table(h, doc):
+def refitted_width(table, before, seconds=5.0):
+    """Width of the first column once the refit after typing landed: UITest delivers the keys asynchronously, so a
+    busy office refits later than a fixed pause (the 1000 x 6 check times the refit itself)."""
+    deadline = time.monotonic() + seconds
+    width = column_width(table)
+    while width == before and time.monotonic() < deadline:
+        time.sleep(0.1)
+        width = column_width(table)
+    return width
+
+
+def insert_contents_table(h, doc, columns=None):
     dlg = h.open_dialog(".uno:InsertTable", "InsertTableDialog")
+    if columns:
+        type_value(dlg, "colspin", str(columns))
     click(dlg, "hstautocontents")
     click(dlg, "ok")
     h.wait_idle()
@@ -40,7 +53,7 @@ def check_autofit_typing(h, c):
     put_cursor(doc, table, "A1")
     before = column_width(table)
     type_text(h, "Một nội dung khá dài để cột phải rộng ra")
-    grown = column_width(table)
+    grown = refitted_width(table, before)
     c.equal("autofit: the column grows while typing", grown > before, True)
     c.equal("autofit: the other column stays narrower", table.getRows().getByIndex(0).TableColumnSeparators[0].Position > 0, True)
     c.equal("autofit: typed text is all there", table.getCellByName("A1").getString().startswith("Một nội dung"), True)
@@ -71,6 +84,20 @@ def check_autofit_typing(h, c):
     h.close_document(second)
     h.close_document(again)
     h.close_document(doc)
+    check_autofit_columns(h, c)
+
+
+def check_autofit_columns(h, c):
+    """Tables of three and four columns refit too: the refit covers the whole table, whichever cells it holds."""
+    for columns in (3, 4):
+        doc = h.new_document()
+        table = insert_contents_table(h, doc, columns)
+        c.equal(f"autofit {columns} columns: table inserted", table.getColumns().getCount(), columns)
+        put_cursor(doc, table, "A1")
+        before = column_width(table)
+        type_text(h, "Một nội dung khá dài để cột phải rộng ra")
+        c.equal(f"autofit {columns} columns: the column grows while typing", refitted_width(table, before) > before, True)
+        h.close_document(doc)
 
 
 def check_autofit_large_table(h, c):

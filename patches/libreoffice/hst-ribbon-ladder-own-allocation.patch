@@ -1,0 +1,59 @@
+HST Office: the merged group box lays out its groups by their real width.
+
+The collapse ladder makes the box ask its parent for its smallest width (hst-ribbon-ladder-refill.patch),
+but VclBox::setAllocation shares out the box's own room by calculateRequisition() as well: with that
+smallest width, which also counts folded groups, the box saw too little or too much room. At 1366 px
+Writer's Styles group was squeezed to nothing although the ladder kept it; at 1600 px the gallery ran
+under the banner. While the box lays out its own children it now reports the visible groups' real width;
+its parent still gets the smallest width. setAllocation is overridden, as the layout pass calls it
+directly (VclContainer::SetPosSizePixel) as well as through Resize.
+
+- vcl/inc/PriorityMergedHBox.hxx, vcl/source/control/PriorityMergedHBox.cxx.
+
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -39,6 +39,10 @@
+     // the children (Window::SetParent), so the order is put back before every layout
+     std::vector<VclPtr<vcl::Window>> m_aHstAuthored;
+     void HstRestoreOrder();
++    // true while the box lays out its own children: VclBox::setAllocation shares out the room by
++    // calculateRequisition(), which must then be the groups' real width, not the smallest width
++    // the box reports to its parent
++    bool m_bHstOwnLayout = false;
+     void HstApplyLadder(tools::Long nWidth);
+     // width of the box with every group at its smallest state, or -1 before all are measured
+     tools::Long HstMinWidth() const;
+@@ -60,6 +64,7 @@
+     tools::Long GetHiddenWidth() const;
+ 
+     Size calculateRequisition() const override;
++    void setAllocation(const Size& rAllocation) override;
+ 
+     void GetChildrenWithPriorities() override{};
+     virtual void DataChanged(const DataChangedEvent& rEvent) override;
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -149,6 +149,14 @@
+     VclHBox::Resize();
+ }
+ 
++void PriorityMergedHBox::setAllocation(const Size& rAllocation)
++{
++    // reached from Resize and directly from the layout pass (VclContainer::SetPosSizePixel)
++    m_bHstOwnLayout = true;
++    VclHBox::setAllocation(rAllocation);
++    m_bHstOwnLayout = false;
++}
++
+ void PriorityMergedHBox::HstRestoreOrder()
+ {
+     if (m_aHstAuthored.empty())
+@@ -388,7 +396,7 @@
+     // HST Office: with the collapse ladder the box can shrink to every group at its smallest state
+     // before anything folds; that is the width it asks for, so the block beside it in the tab (the
+     // Tools group) folds only when the groups could not make room for it by shrinking
+-    const tools::Long nMin = HstMinWidth();
++    const tools::Long nMin = m_bHstOwnLayout ? -1 : HstMinWidth();
+     if (nMin >= 0)
+     {
+         Size aSize;

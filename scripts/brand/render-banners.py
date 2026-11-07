@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Render the offline 360×104 banners, manifest, review sheet and Writer placement from local assets only.
+"""Render the offline 360×104 banners, their 160×104 compact art (windows under 1280 px), manifest, review sheet
+and Writer placement from local assets only.
 
 Build dependencies: playwright==1.64.1 (its Chromium), Pillow (requirements-templates.lock).
 Run: .venv/bin/python scripts/brand/render-banners.py
@@ -16,13 +17,12 @@ from string import Template
 import sys
 
 from PIL import Image, ImageDraw, ImageFont
-from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[2]
-ART = ROOT / "extensions/hst-vietnamese-tools/banners"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from brand.banner_preview import ART, FONT, ROOT, png_bytes, preview  # noqa: E402
+
 DESIGN = ROOT / "docs/design"
-FONT = ART / "fonts"
-GENERATED_AT = "2026-11-05T00:01:00Z"
+GENERATED_AT = "2026-11-07T12:45:00Z"
 
 
 def luminance(color):
@@ -36,7 +36,14 @@ def contrast(a, b):
     return (hi + .05) / (lo + .05)
 
 
-def markup(solution, brand):
+COMPACT = (160, 104)
+# Be Vietnam Pro has no U+2192; a system fallback font rasterises it differently from run to run, so the
+# arrow is drawn in the text colour instead.
+ARROW = ('<svg class="arrow" viewBox="0 0 12 8" aria-hidden="true"><path d="M0.5 4H10.5M7.5 1L10.5 4L7.5 7" '
+         'fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+
+
+def markup(solution, brand, template="template.html"):
     values = dict(text="#25364a", muted="#526071")
     company = solution["id"] == "hasontech"
     for color in (brand["ink"], brand["text"] if company else "#25364a", brand["muted"] if company else "#526071"):
@@ -44,7 +51,7 @@ def markup(solution, brand):
     values.update(brand)
     values.update({key: html.escape(solution[key], quote=True) for key in ("name", "tagline")})
     values.update(card_class="company" if company else "", owner="hasontech.vn" if company else "HASON TECH",
-                  cta=html.escape(brand.get("cta", "Tìm hiểu thêm →")),
+                  cta=html.escape(brand.get("cta", "Tìm hiểu thêm →")).replace("→", ARROW),
                   detail_html=('<br><span class="ecosystem">' + html.escape(brand["detail"]) + '</span>') if company else "")
     values.update(font_regular=(FONT / "BeVietnamPro-Regular.ttf").as_uri(),
                   font_semibold=(FONT / "BeVietnamPro-SemiBold.ttf").as_uri(),
@@ -52,39 +59,17 @@ def markup(solution, brand):
                   border="#" + "".join(f'{round(int(brand["accent"][n:n+2], 16)*.18+255*.82):02x}' for n in (1, 3, 5)))
     values["logo_html"] = ('<img class="logo" alt="" src="%s">' % (ART / "logos" / brand["logo"]).as_uri()
                            if brand["logo"] else "")
-    return Template((ART / "template.html").read_text()).substitute(values)
-
-
-def png_bytes(image):
-    out = io.BytesIO()
-    image.save(out, format="PNG", optimize=True)
-    return out.getvalue()
-
-
-def preview(outputs, solutions):
-    comparison_y = 150 + len(solutions) * 240
-    sheet = Image.new("RGB", (1200, comparison_y + 202), "#f2f5f8")
-    draw = ImageDraw.Draw(sheet)
-    bold = ImageFont.truetype(str(FONT / "BeVietnamPro-Bold.ttf"), 24)
-    regular = ImageFont.truetype(str(FONT / "BeVietnamPro-Regular.ttf"), 14)
-    draw.text((32, 22), "HASON TECH · Banner công ty và giải pháp", font=bold, fill="#192d43")
-    draw.text((32, 60), "360 × 104 px · 6 giải pháp + HASON TECH · Chu kỳ 10 giây", font=regular, fill="#526071")
-    draw.text((32, 94), "1× · Kích thước trên ribbon", font=regular, fill="#526071")
-    draw.text((440, 94), "2× · Xuất ảnh cho màn hình mật độ cao", font=regular, fill="#526071")
-    for n, solution in enumerate(solutions):
-        y = 130 + n * 240
-        for scale, x in ((1, 32), (2, 440)):
-            im = Image.open(io.BytesIO(outputs[ART / f'{solution["id"]}@{scale}x.png']))
-            sheet.paste(im, (x, y), im)
-    draw.text((32, comparison_y), "HST Post / eChatbot · So sánh bảng màu", font=bold, fill="#192d43")
-    draw.text((32, comparison_y + 38), "1× · Xanh lá cây đậm / Xanh ngọc đậm", font=regular, fill="#526071")
-    for name, x in (("hst-post", 32), ("echatbot", 440)):
-        im = Image.open(io.BytesIO(outputs[ART / f"{name}@1x.png"]))
-        sheet.paste(im, (x, comparison_y + 70), im)
-    return png_bytes(sheet)
+    values["illustration_html"] = ""
+    if template == "template.html" and brand.get("illustration"):
+        values["card_class"] = (values["card_class"] + " illustrated").strip()
+        values["illustration_html"] = ('<img class="illustration" alt="" aria-hidden="true" src="%s">'
+                                       % (ART / "logos" / brand["illustration"]).as_uri())
+    return Template((ART / template).read_text()).substitute(values)
 
 
 def render():
+    from playwright.sync_api import sync_playwright
+
     solutions = json.loads((ROOT / "data/hst/solutions.json").read_text())["solutions"]
     brands = json.loads((ART / "brands.json").read_text())
     # Company copy belongs to banner artwork, not the product-only welcome catalogue; it leads the rotation.
@@ -111,12 +96,42 @@ def render():
                     assert page.evaluate("Array.from(document.images).every(i => i.complete && i.naturalWidth > 0)")
                     bounds = page.locator("p").bounding_box()
                     assert bounds["height"] <= 34 and bounds["y"] + bounds["height"] <= 76, solution["id"]
+                    if brands[solution["id"]].get("illustration"):
+                        art = page.locator(".illustration").bounding_box()
+                        for selector in ("header", "p", ".cta", ".owner"):
+                            box = page.locator(selector).bounding_box()
+                            assert box["x"] + box["width"] <= art["x"] - 10, (solution["id"], selector)
+                        cta = page.locator(".cta").bounding_box()
+                        owner = page.locator(".owner").bounding_box()
+                        assert cta["x"] + cta["width"] + 8 <= owner["x"], solution["id"]
                     blob = page.screenshot(omit_background=True)
                     name = f'{solution["id"]}@{scale}x.png'
                     outputs[ART / name] = blob
                     assert len(blob) <= 300 * 1024
                     item["image"][f"{scale}x"] = {"url": "banners/" + name,
                                                   "sha256": hashlib.sha256(blob).hexdigest(), "size": len(blob)}
+                    page.close()
+                # Compact art: logo and short name, legible at 160 px; the wide art is never cropped.
+                item["imageCompact"] = {}
+                page_path.write_text(markup(solution, brands[solution["id"]], "template-compact.html"), encoding="utf-8")
+                for scale in (1, 2, 3):
+                    page = browser.new_page(viewport={"width": COMPACT[0], "height": COMPACT[1]}, device_scale_factor=scale)
+                    page.route("http://**/*", lambda route: route.abort())
+                    page.route("https://**/*", lambda route: route.abort())
+                    page.goto(page_path.as_uri())
+                    page.evaluate("document.fonts.ready")
+                    assert page.evaluate("Array.from(document.images).every(i => i.complete && i.naturalWidth > 0)")
+                    for selector in ("h1", ".owner"):
+                        box = page.locator(selector).bounding_box()
+                        assert box["x"] >= 8 and box["x"] + box["width"] <= COMPACT[0] - 8, (solution["id"], selector)
+                        assert page.evaluate(f"(e => e.scrollWidth <= e.clientWidth)(document.querySelector('{selector}'))")
+                    assert page.locator(".owner").bounding_box()["y"] + 16 <= COMPACT[1] - 6, solution["id"]
+                    blob = page.screenshot(omit_background=True)
+                    name = f'{solution["id"]}-compact@{scale}x.png'
+                    outputs[ART / name] = blob
+                    assert len(blob) <= 300 * 1024
+                    item["imageCompact"][f"{scale}x"] = {"url": "banners/" + name,
+                                                         "sha256": hashlib.sha256(blob).hexdigest(), "size": len(blob)}
                     page.close()
             finally:
                 page_path.unlink(missing_ok=True)
@@ -126,7 +141,7 @@ def render():
     outputs[ROOT / "data/hst/banners.json"] = (json.dumps(doc, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     online = json.loads(json.dumps(doc))
     for item in online["items"]:
-        for spec in item["image"].values():
+        for spec in list(item["image"].values()) + list(item["imageCompact"].values()):
             spec["url"] = "https://system.hasontech.vn/hst-office/" + spec["url"]
     outputs[ROOT / "assets/banners/banners-online.example.json"] = (json.dumps(online, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     outputs[DESIGN / "banners-preview.png"] = preview(outputs, solutions)

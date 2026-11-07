@@ -155,9 +155,11 @@ phải in đủ, lặp dòng tiêu đề mỗi trang. Quy tắc ở [multipage.j
 nhanh không cần office: `tests/unit/test_templates_multipage.py`.
 
 Hai đường tạo văn bản dùng chung `nd30_layout.portable_blocks()` để bản DOCX/DOC giữ bố cục: khoảng cách trên/dưới bảng
-được chuyển vào đoạn văn (Word không có thuộc tính này cho bảng), ngắt trang mở văn bản kèm theo nằm ở một đoạn 1 pt
-(bộ lọc DOC bỏ ngắt trang gắn vào bảng), đoạn trống cuối sau bảng chữ ký cỡ 1 pt và bảng chữ ký đi cùng nó (không sinh trang
-trắng chỉ có số trang). Sổ đăng ký không đặt vùng in cố định để mọi dòng nhập thêm đều được in.
+được chuyển vào đoạn văn (Word không có thuộc tính này cho bảng; khoảng trên bảng chữ ký nằm ở một đoạn trống riêng ngay trước bảng,
+nên khi bảng chữ ký sang trang mới nó vẫn bắt đầu ở lề trên 20 mm), ngắt trang mở văn bản kèm theo nằm ở một đoạn trống cao cố định 0,1 pt
+(bộ lọc DOC bỏ ngắt trang gắn vào bảng; đầu văn bản kèm theo vẫn bắt đầu ở lề trên 20 mm), đoạn trống cuối sau bảng chữ ký cỡ 1 pt và bảng chữ ký đi cùng nó (không sinh trang
+trắng chỉ có số trang). Bảng kẻ ô của mẫu chỉ kẻ đường trên ở hàng đầu, các hàng sau dùng đường dưới của hàng trên,
+nên biểu mẫu thêm dòng rồi lưu và mở lại không dịch chữ. Sổ đăng ký không đặt vùng in cố định để mọi dòng nhập thêm đều được in.
 
 ## Kiểm tra runtime và giới hạn bằng chứng
 

@@ -1,0 +1,134 @@
+HST PDF: red stays red. A PDFium page bitmap without alpha is BGRx, not RGBx.
+
+PDFium documents FPDFBitmap_BGRx as 4 bytes per pixel in the order blue, green, red, unused, and
+FPDFBitmap_Create(w, h, 0) returns that format. The conversion to a VCL Bitmap read it as
+N32BitTcRgbx, so red and blue were swapped. Upstream callers always ask for alpha and take the BGRA
+branch; HST PDF renders pages without alpha, so every red stamp, red text and scanned page showed
+blue on screen, in thumbnails and in print.
+
+The test fills a red and a blue rectangle in a PDFium bitmap with and without alpha and checks the
+converted pixels. HSTPdfInfo with RenderPage also reports RenderRedPixels and RenderBluePixels,
+which the runtime check uses on real stamp PDFs; RenderDpi renders the page at another resolution
+and RenderFile saves that page bitmap as PNG, to compare it with other renderers.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/vcl/qa/cppunit/PDFiumLibraryTest.cxx
++++ b/vcl/qa/cppunit/PDFiumLibraryTest.cxx
+@@ -27,6 +27,7 @@
+ #include <vcl/filter/PDFiumLibrary.hxx>
+ #include <vcl/pdf/PDFAnnotationMarker.hxx>
+ #include <vcl/pdf/PDFAnnotationSubType.hxx>
++#include <vcl/pdf/PDFBitmapType.hxx>
+ #include <vcl/pdf/PDFPageObjectType.hxx>
+ #include <vcl/pdf/PDFTextRenderMode.hxx>
+ #include <vcl/pdfread.hxx>
+@@ -637,6 +638,34 @@ CPPUNIT_TEST_FIXTURE(PDFiumLibraryTest, testStructureTree)
+     }
+ }
+ 
++CPPUNIT_TEST_FIXTURE(PDFiumLibraryTest, testBitmapColourChannels)
++{
++    // A page bitmap converted to a Bitmap keeps red red and blue blue, with and without alpha:
++    // without alpha PDFium hands out BGRx, with alpha BGRA.
++    auto pPdfium = vcl::pdf::PDFiumLibrary::get();
++    CPPUNIT_ASSERT(pPdfium);
++    for (int nAlpha : { 0, 1 })
++    {
++        int nWidth = 8;
++        int nHeight = 4;
++        std::unique_ptr<vcl::pdf::PDFiumBitmap> pPdfBitmap
++            = pPdfium->createBitmap(nWidth, nHeight, nAlpha);
++        CPPUNIT_ASSERT(pPdfBitmap);
++        CPPUNIT_ASSERT(pPdfBitmap->getFormat()
++                       == (nAlpha ? vcl::pdf::PDFBitmapType::BGRA : vcl::pdf::PDFBitmapType::BGRx));
++        // PDFium colours are 0xAARRGGBB
++        pPdfBitmap->fillRect(0, 0, 4, nHeight, 0xFFFF0000);
++        pPdfBitmap->fillRect(4, 0, 4, nHeight, 0xFF0000FF);
++        Bitmap aBitmap = pPdfBitmap->createBitmapFromBuffer();
++        CPPUNIT_ASSERT_EQUAL(Size(nWidth, nHeight), aBitmap.GetSizePixel());
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(nAlpha ? "red, BGRA" : "red, BGRx", Color(0xFF, 0x00, 0x00).GetRGBColor(),
++                                     aBitmap.GetPixelColor(1, 1).GetRGBColor());
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(nAlpha ? "blue, BGRA" : "blue, BGRx",
++                                     Color(0x00, 0x00, 0xFF).GetRGBColor(),
++                                     aBitmap.GetPixelColor(6, 2).GetRGBColor());
++    }
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/pdf/PDFiumLibrary.cxx
++++ b/vcl/source/pdf/PDFiumLibrary.cxx
+@@ -1651,8 +1651,9 @@ Bitmap PDFiumBitmapImpl::createBitmapFromBuffer()
+ 
+         case vcl::pdf::PDFBitmapType::BGRx:
+         {
++            // PDFium's BGRx is 4 bytes per pixel in the order blue, green, red, unused.
+             aBitmap = Bitmap(Size(nWidth, nHeight), vcl::PixelFormat::N24_BPP);
+-            ReadRawDIB(aBitmap, getBuffer(), ScanlineFormat::N32BitTcRgbx, nHeight, nStride);
++            ReadRawDIB(aBitmap, getBuffer(), ScanlineFormat::N32BitTcBgrx, nHeight, nStride);
+         }
+         break;
+ 
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -35,6 +35,8 @@
+ #include <unotools/localedatawrapper.hxx>
+ #include <unotools/ucbstreamhelper.hxx>
+ #include <vcl/event.hxx>
++#include <vcl/filter/PngImageWriter.hxx>
++#include <vcl/graph.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/unohelp2.hxx>
+@@ -909,23 +911,44 @@ bool PdfViewerWindow::executeCommand(std::u16string_view rCommand,
+                            uno::Any(sal_Int32(m_nCurrentMatch >= 0 ? m_aMatches[m_nCurrentMatch].nPage + 1 : 0)));
+         if (m_xDocument && rArgs.getUnpackedValueOrDefault(u"RenderPage"_ustr, sal_Int32(0)) > 0)
+         {
+-            // render check: share of non-white pixels of a page at 50%
++            // render check: share of non-white pixels of a page at 50%, and the pixels that are
++            // clearly red or clearly blue (the bitmap screen, thumbnails and printing all use)
+             const int nPage = std::min(rArgs.getUnpackedValueOrDefault(u"RenderPage"_ustr, sal_Int32(1)),
+                                        sal_Int32(m_xDocument->getPageCount())) - 1;
+             const basegfx::B2DSize aSize = m_xDocument->getPageSize(nPage);
+-            const Bitmap aBitmap = m_xDocument->renderPage(nPage, std::lround(aSize.getWidth() * 2 / 3),
+-                                                           std::lround(aSize.getHeight() * 2 / 3));
+-            sal_Int64 nInk = 0, nAll = 0;
++            // RenderDpi: another resolution than 48 dpi (two thirds of the page size in points)
++            const sal_Int32 nDpi = rArgs.getUnpackedValueOrDefault(u"RenderDpi"_ustr, sal_Int32(48));
++            const Bitmap aBitmap
++                = m_xDocument->renderPage(nPage, std::lround(aSize.getWidth() * nDpi / 72),
++                                          std::lround(aSize.getHeight() * nDpi / 72));
++            // RenderFile: also save the page bitmap as PNG, to compare it with other renderers
++            const OUString aRenderFile = rArgs.getUnpackedValueOrDefault(u"RenderFile"_ustr, OUString());
++            if (!aRenderFile.isEmpty())
++            {
++                SvFileStream aStream(aRenderFile, StreamMode::WRITE | StreamMode::TRUNC);
++                vcl::PngImageWriter aWriter(aStream);
++                aInfo.emplace_back(u"RenderFileWritten"_ustr,
++                                   uno::Any(aWriter.write(Graphic(aBitmap)) && aStream.good()));
++            }
++            sal_Int64 nInk = 0, nAll = 0, nRed = 0, nBlue = 0;
+             const Size aPixels = aBitmap.GetSizePixel();
+             for (tools::Long y = 0; y < aPixels.Height(); y += 2)
+                 for (tools::Long x = 0; x < aPixels.Width(); x += 2)
+                 {
+                     ++nAll;
+-                    if (aBitmap.GetPixelColor(x, y).GetLuminance() < 200)
++                    const Color aColor = aBitmap.GetPixelColor(x, y);
++                    if (aColor.GetLuminance() < 200)
+                         ++nInk;
++                    const int nR = aColor.GetRed(), nG = aColor.GetGreen(), nB = aColor.GetBlue();
++                    if (nR > 140 && nR - nG > 60 && nR - nB > 60)
++                        ++nRed;
++                    else if (nB > 140 && nB - nR > 60 && nB - nG > 60)
++                        ++nBlue;
+                 }
+             aInfo.emplace_back(u"RenderInkPermille"_ustr,
+                                uno::Any(sal_Int32(nAll ? nInk * 1000 / nAll : 0)));
++            aInfo.emplace_back(u"RenderRedPixels"_ustr, uno::Any(sal_Int32(nRed)));
++            aInfo.emplace_back(u"RenderBluePixels"_ustr, uno::Any(sal_Int32(nBlue)));
+         }
+         rResult <<= comphelper::containerToSequence(aInfo);
+         return true;

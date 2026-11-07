@@ -5,13 +5,12 @@
     <node oor:name="org.hst.office.BannerStartup" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.BannerStartup</value></prop>
     </node>
-    <node oor:name="org.hst.office.vi.WelcomeJob" oor:op="replace">
-      <prop oor:name="Service"><value>org.hst.office.vi.WelcomeJob</value></prop>
+    <!-- the one start-up dispatcher: crash question, macOS move, welcome, default apps, update notice; at most one
+         modal question per start (hst_office/startup_prompts.py) -->
+    <node oor:name="org.hst.office.vi.StartupPromptsJob" oor:op="replace">
+      <prop oor:name="Service"><value>org.hst.office.vi.StartupPromptsJob</value></prop>
     </node>
-    <node oor:name="org.hst.office.vi.UpdateCheckJob" oor:op="replace">
-      <prop oor:name="Service"><value>org.hst.office.vi.UpdateCheckJob</value></prop>
-    </node>
-    <!-- after an abnormal exit: OnStartApp reads the recovery state, onFirstVisibleTask asks (hst_office/error_report_crash.py) -->
+    <!-- after an abnormal exit: OnStartApp reads the recovery state; the start-up dispatcher asks (hst_office/error_report_crash.py) -->
     <node oor:name="org.hst.office.vi.CrashReportJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.CrashReportJob</value></prop>
     </node>
@@ -24,9 +23,7 @@
     <node oor:name="onFirstVisibleTask" oor:op="fuse">
       <node oor:name="JobList">
         <node oor:name="org.hst.office.BannerStartup" oor:op="replace"/>
-        <node oor:name="org.hst.office.vi.WelcomeJob" oor:op="replace"/>
-        <node oor:name="org.hst.office.vi.UpdateCheckJob" oor:op="replace"/>
-        <node oor:name="org.hst.office.vi.CrashReportJob" oor:op="replace"/>
+        <node oor:name="org.hst.office.vi.StartupPromptsJob" oor:op="replace"/>
       </node>
     </node>
     <node oor:name="OnStartApp" oor:op="fuse">

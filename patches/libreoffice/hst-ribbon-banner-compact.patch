@@ -1,0 +1,434 @@
+HST Office: compact banner for windows narrower than 1280 px, and an exact artwork ratio for the slot.
+
+Owner decision (2026-11-07): the banner always keeps its slot; narrow windows show a compact banner.
+
+- sfx2/source/notebookbar/HstBannerGeometry.hxx: modeFor() picks Wide (windows of at least 1280
+  logical px), Compact (narrower) or Hidden (one-row ribbons); artWidth() is 360 or 160 logical px.
+  slotFor() now keeps the exact artwork ratio (360:104 or 160:104) and centres the slot vertically
+  on the page, so a taller page no longer gives a 360x125 slot around 360x104 art.
+- sfx2/source/notebookbar/HstRibbonBanner.{hxx,cxx}: SetCompact() switches between the wide and
+  the 160x104 compact artwork and starts the rotation again for the new ratio. The compact slot
+  asks org.hst.office.BannerFeed with Compact=true (older data layers are asked as before) and
+  reads imageCompact from the installed defaults; it rotates through items with compact art only,
+  the wide art is never cropped. When neither has compact art the slot is hidden and the groups
+  get the width; that is asked again after 10 minutes. Click targets: HTTPS, or the local test
+  server, which the data layer only accepts in test-stamped packages.
+- sfx2/source/notebookbar/NotebookbarTabControl.cxx, sfx2/inc/notebookbar/NotebookbarTabControl.hxx:
+  the layout uses the mode and the compact slot, and lays out again when the banner reports that no
+  compact art exists.
+Unit test: tests/unit/test_ribbon_banner_compact.py.
+
+--- a/sfx2/source/notebookbar/HstBannerGeometry.hxx
++++ b/sfx2/source/notebookbar/HstBannerGeometry.hxx
+@@ -13,9 +13,11 @@
+ // Plain integer arithmetic without LibreOffice types, so it can be unit tested on its own
+ // (tests/unit/test_ribbon_banner_geometry.py compiles it from the patch with a test driver).
+ //
+-// The slot adapts to the ribbon, never the other way round: its height is the height of the
+-// tab page that already holds the 2-row groups, its width keeps the 360:104 artwork ratio and
+-// is capped at 360 logical px. Images of any pixel size are aspect-fitted into the slot.
++// The slot adapts to the ribbon, never the other way round: it fits inside the tab page that
++// already holds the 2-row groups, keeps the exact ratio of the artwork (360:104 wide, 160:104
++// compact) and is capped at the artwork's logical size. Images of any pixel size are
++// aspect-fitted into the slot. Windows narrower than 1280 logical px show the compact artwork,
++// so the banner always keeps a slot while the groups get most of the width.
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -31,6 +33,7 @@
+ };
+ 
+ constexpr long ART_WIDTH = 360; // logical px of the @1x artwork
++constexpr long COMPACT_ART_WIDTH = 160; // logical px of the @1x compact artwork (same height)
+ constexpr long ART_HEIGHT = 104;
+ constexpr long MIN_WINDOW_WIDTH = 1280; // narrower windows keep the whole width for the groups
+ constexpr long MIN_PAGE_HEIGHT = 60; // compact ribbons (one row) never show the banner
+@@ -44,16 +47,42 @@
+            && nPageHeight >= scaled(MIN_PAGE_HEIGHT, fDpi);
+ }
+ 
+-/** Banner slot at the right end of the full tab page rectangle rPage (pixels). */
+-inline Rect slotFor(const Rect& rPage, double fDpi)
++enum class Mode
++{
++    Hidden, // one-row (compact) ribbons
++    Wide, // windows of at least MIN_WINDOW_WIDTH: the 360x104 artwork
++    Compact // narrower windows: the 160x104 artwork
++};
++
++/** Which banner a top-level window of nWindowWidth pixels with a page nPageHeight high shows. */
++inline Mode modeFor(long nWindowWidth, long nPageHeight, double fDpi)
++{
++    if (nPageHeight < scaled(MIN_PAGE_HEIGHT, fDpi))
++        return Mode::Hidden;
++    return visibleFor(nWindowWidth, nPageHeight, fDpi) ? Mode::Wide : Mode::Compact;
++}
++
++/** Logical width of the @1x artwork for a mode (0 when hidden). */
++inline long artWidth(Mode eMode)
++{
++    return eMode == Mode::Wide ? ART_WIDTH : eMode == Mode::Compact ? COMPACT_ART_WIDTH : 0;
++}
++
++/** Banner slot at the right end of the full tab page rectangle rPage (pixels), for artwork
++    nArtWidth logical px wide: the largest rectangle with the artwork's ratio that fits the page
++    height (minus margins) and the artwork's logical size, centred vertically on the page. */
++inline Rect slotFor(const Rect& rPage, double fDpi, long nArtWidth = ART_WIDTH)
+ {
+     const long nVMargin = scaled(2, fDpi);
+     const long nRightMargin = scaled(4, fDpi);
++    const long nRoom = std::max(0L, rPage.h - 2 * nVMargin);
+     Rect aSlot;
+-    aSlot.h = std::max(0L, rPage.h - 2 * nVMargin);
+-    aSlot.w = std::min(scaled(ART_WIDTH, fDpi), aSlot.h * ART_WIDTH / ART_HEIGHT);
++    if (nArtWidth <= 0)
++        return Rect{ rPage.x + rPage.w - nRightMargin, rPage.y + nVMargin, 0, 0 };
++    aSlot.w = std::min(scaled(nArtWidth, fDpi), nRoom * nArtWidth / ART_HEIGHT);
++    aSlot.h = std::min(nRoom, aSlot.w * ART_HEIGHT / nArtWidth);
+     aSlot.x = rPage.x + rPage.w - nRightMargin - aSlot.w;
+-    aSlot.y = rPage.y + nVMargin;
++    aSlot.y = rPage.y + nVMargin + (nRoom - aSlot.h) / 2;
+     return aSlot;
+ }
+ 
+--- a/sfx2/source/notebookbar/HstRibbonBanner.hxx
++++ b/sfx2/source/notebookbar/HstRibbonBanner.hxx
+@@ -10,6 +10,7 @@
+ #pragma once
+ 
+ #include <rtl/ref.hxx>
++#include <tools/link.hxx>
+ #include <vcl/bitmap.hxx>
+ #include <vcl/ctrl.hxx>
+ #include <vcl/timer.hxx>
+@@ -40,6 +41,14 @@
+ 
+     /** Place the banner in the device-pixel rectangle rSlot of the parent (empty: hide). */
+     void Place(const tools::Rectangle& rSlot);
++    /** Compact artwork (windows narrower than 1280 px) or the wide artwork; call before Place. */
++    void SetCompact(bool bCompact);
++    bool IsCompact() const { return mbCompact; }
++    /** True after the data layer and the installed defaults had no compact artwork; the parent
++        then hides the slot. It is asked again 10 minutes later. */
++    bool CompactUnavailable();
++    /** Called (main thread) when CompactUnavailable() changes, so the parent lays out again. */
++    void SetLayoutHdl(const Link<HstRibbonBanner&, void>& rLink) { maLayoutHdl = rLink; }
+ 
+     virtual void Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect) override;
+     virtual void MouseMove(const MouseEvent& rMEvt) override;
+@@ -57,6 +66,8 @@
+ 
+ private:
+     void Request(sal_Int32 nSlot);
++    void Reset();
++    long ArtWidth() const;
+     void Activate();
+     double DeviceScale();
+     const Bitmap& Prepared(const Bitmap& rSource, Bitmap& rCache, const Size& rDevice);
+@@ -89,6 +100,10 @@
+     bool mbHover = false;
+     bool mbPressed = false;
+     bool mbRequested = false;
++    bool mbCompact = false;
++    bool mbCompactUnavailable = false;
++    std::chrono::steady_clock::time_point maCompactUnavailableSince;
++    Link<HstRibbonBanner&, void> maLayoutHdl;
+ };
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/HstRibbonBanner.cxx
++++ b/sfx2/source/notebookbar/HstRibbonBanner.cxx
+@@ -65,7 +65,9 @@
+     sal_Int32 nRotateSeconds = 10;
+     sal_Int32 nSlot = 0;
+     int nScale = 1;
++    bool bCompact = false;
+     bool bOk = false;
++    bool bNoItems = false; // the source answered, but has no item for this mode (compact art)
+     bool bLast = true; // the worker posts nothing after this result
+ };
+ 
+@@ -90,6 +92,14 @@
+     return aFile.read(rOut.data(), nSize, nRead) == osl::FileBase::E_None && nRead == nSize;
+ }
+ 
++/** Click targets the data layer may deliver: HTTPS, or the local test server, which the data layer
++    only accepts in test-stamped packages (release packages are HTTPS-only before this point). */
++bool allowedClick(const OUString& rUrl)
++{
++    return rUrl.startsWith("https://") || rUrl.startsWith("http://127.0.0.1:")
++           || rUrl.startsWith("http://127.0.0.1/");
++}
++
+ /** The selected slot from the JSON of org.hst.office.BannerFeed (docs/BANNERS.md). */
+ bool parseService(const OUString& rJson, Data& rData)
+ {
+@@ -100,7 +110,10 @@
+     rData.nSlot = aTree.get<sal_Int32>("slot", 0);
+     const auto& rItems = aTree.get_child("items");
+     if (rItems.empty())
++    {
++        rData.bNoItems = aTree.get<sal_Int32>("slotCount", 0) == 0;
+         return false;
++    }
+     const auto& rItem = rItems.front().second;
+     rData.aId = fromUtf8(rItem.get<std::string>("id"));
+     rData.aName = fromUtf8(rItem.get<std::string>("name"));
+@@ -111,7 +124,7 @@
+     if (aBytes.getLength() == 0 || aBytes.getLength() > MAX_IMAGE_BYTES)
+         return false;
+     rData.aImage.assign(aBytes.begin(), aBytes.end());
+-    return rData.aUrl.startsWith("https://");
++    return allowedClick(rData.aUrl);
+ }
+ 
+ bool fromService(sal_Int32 nSlot, int nScale, Data& rData)
+@@ -125,9 +138,14 @@
+                                          uno::UNO_QUERY);
+         if (!xFeed.is())
+             return false;
++        // Compact is only sent for the compact slot, so older data layers answer as before
+         uno::Sequence<beans::NamedValue> aArgs{
+             { u"Scale"_ustr, uno::Any(static_cast<double>(nScale)) },
+             { u"Slot"_ustr, uno::Any(nSlot) } };
++        if (rData.bCompact)
++            aArgs = { { u"Scale"_ustr, uno::Any(static_cast<double>(nScale)) },
++                      { u"Slot"_ustr, uno::Any(nSlot) },
++                      { u"Compact"_ustr, uno::Any(true) } };
+         OUString aJson;
+         if (!(xFeed->execute(aArgs) >>= aJson) || aJson.isEmpty())
+             return false;
+@@ -162,11 +180,17 @@
+         std::stringstream aManifestStream(aManifest), aSolutionsStream(aSolutions);
+         boost::property_tree::read_json(aManifestStream, aTree);
+         boost::property_tree::read_json(aSolutionsStream, aUtm);
++        // the compact slot rotates through the items with compact art only (never cropped)
++        const std::string aImageKey = rData.bCompact ? "imageCompact" : "image";
+         std::vector<const boost::property_tree::ptree*> aItems;
+         for (const auto& rChild : aTree.get_child("items"))
+-            aItems.push_back(&rChild.second);
++            if (rChild.second.get_child_optional(aImageKey))
++                aItems.push_back(&rChild.second);
+         if (aItems.empty())
++        {
++            rData.bNoItems = true;
+             return false;
++        }
+         std::stable_sort(aItems.begin(), aItems.end(), [](const auto* a, const auto* b) {
+             const int nA = a->template get<int>("order", 0), nB = b->template get<int>("order", 0);
+             return nA != nB ? nA < nB
+@@ -175,7 +199,7 @@
+         rData.nSlot = nSlot >= 0 ? nSlot % static_cast<sal_Int32>(aItems.size()) : 0;
+         const auto& rItem = *aItems[rData.nSlot];
+         const std::string aPath
+-            = rItem.get<std::string>("image." + std::to_string(nScale) + "x.url");
++            = rItem.get<std::string>(aImageKey + "." + std::to_string(nScale) + "x.url");
+         if (aPath.rfind("banners/", 0) != 0 || aPath.find("..") != std::string::npos)
+             return false;
+         std::string aImage;
+@@ -222,12 +246,14 @@
+ class FetchThread final : public salhelper::Thread
+ {
+ public:
+-    FetchThread(HstRibbonBanner* pBanner, sal_Int32 nSlot, int nScale, bool bBundledFirst)
++    FetchThread(HstRibbonBanner* pBanner, sal_Int32 nSlot, int nScale, bool bBundledFirst,
++                bool bCompact)
+         : salhelper::Thread("HstRibbonBanner")
+         , mpBanner(pBanner)
+         , mnSlot(nSlot)
+         , mnScale(nScale)
+         , mbBundledFirst(bBundledFirst)
++        , mbCompact(bCompact)
+     {
+     }
+ 
+@@ -239,6 +265,7 @@
+             // first paint: installed defaults at once, then whatever the feed selects
+             auto pFirst = std::make_unique<Data>();
+             pFirst->nScale = mnScale;
++            pFirst->bCompact = mbCompact;
+             pFirst->bLast = false;
+             pFirst->bOk = fromBundled(mnSlot, mnScale, *pFirst);
+             if (pFirst->bOk)
+@@ -246,11 +273,14 @@
+         }
+         auto pData = std::make_unique<Data>();
+         pData->nScale = mnScale;
++        pData->bCompact = mbCompact;
+         pData->bOk = fromService(mnSlot, mnScale, *pData);
+-        if (!pData->bOk && !mbBundledFirst)
++        if (!pData->bOk && (!mbBundledFirst || pData->bNoItems))
+         {
++            // service unavailable, or without compact art: the installed defaults decide
+             pData = std::make_unique<Data>();
+             pData->nScale = mnScale;
++            pData->bCompact = mbCompact;
+             pData->bOk = fromBundled(mnSlot, mnScale, *pData);
+         }
+         post(std::move(pData));
+@@ -269,6 +299,7 @@
+     sal_Int32 mnSlot;
+     int mnScale;
+     bool mbBundledFirst;
++    bool mbCompact;
+ };
+ 
+ /** Where a click goes: the service probes the click counter off the UI thread (at most 1.5 s) and
+@@ -301,7 +332,7 @@
+         catch (...)
+         {
+         }
+-        if (!aTarget.startsWith("https://"))
++        if (!allowedClick(aTarget))
+             aTarget = maUrl;
+         SolarMutexGuard aGuard;
+         if (!mpBanner->isDisposed())
+@@ -353,6 +384,41 @@
+ 
+ double HstRibbonBanner::DeviceScale() { return GetDPIScaleFactor() * surfaceScale(*GetOutDev()); }
+ 
++long HstRibbonBanner::ArtWidth() const { return mbCompact ? COMPACT_ART_WIDTH : ART_WIDTH; }
++
++void HstRibbonBanner::Reset()
++{
++    maRotateTimer.Stop();
++    maFadeTimer.Stop();
++    mnFadeStep = 0;
++    maId.clear();
++    maUrl.clear();
++    maImage = Bitmap();
++    maImageScaled = Bitmap();
++    maOld = Bitmap();
++    maOldScaled = Bitmap();
++    mnSourceScale = 0;
++    mnFailures = 0;
++}
++
++void HstRibbonBanner::SetCompact(bool bCompact)
++{
++    if (bCompact == mbCompact)
++        return;
++    // the other artwork has another ratio: start again with the same rotation slot
++    mbCompact = bCompact;
++    Reset();
++    Invalidate();
++}
++
++bool HstRibbonBanner::CompactUnavailable()
++{
++    using namespace std::chrono_literals;
++    if (mbCompactUnavailable && std::chrono::steady_clock::now() - maCompactUnavailableSince > 10min)
++        mbCompactUnavailable = false; // ask again: a new feed may carry compact art
++    return mbCompactUnavailable;
++}
++
+ void HstRibbonBanner::Request(sal_Int32 nSlot)
+ {
+     if (mbRequested || isDisposed())
+@@ -361,12 +427,12 @@
+     const Size aSize = GetOutputSizePixel();
+     // Size is tools::Long (64-bit on Windows), Rect holds long: MSVC rejects the implicit narrowing.
+     const Rect aImage = fit(Rect{ 0, 0, static_cast<long>(aSize.Width()), static_cast<long>(aSize.Height()) },
+-                            ART_WIDTH, ART_HEIGHT);
++                            ArtWidth(), ART_HEIGHT);
+     const int nScale = sourceScale(std::lround(aImage.h * surfaceScale(*GetOutDev())));
+     mbRequested = true; // the previous worker has posted its last result
+     try
+     {
+-        mxThread = new FetchThread(this, nSlot, nScale, maId.isEmpty());
++        mxThread = new FetchThread(this, nSlot, nScale, maId.isEmpty(), mbCompact);
+         mxThread->launch();
+     }
+     catch (const std::exception&)
+@@ -391,6 +457,21 @@
+         return;
+     if (pData->bLast)
+         mbRequested = false;
++    if (pData->bCompact != mbCompact)
++    {
++        // answer for the other mode, which was left meanwhile: ask again for this one
++        if (pData->bLast && IsVisible())
++            Request(mnSlot);
++        return;
++    }
++    if (!pData->bOk && pData->bLast && pData->bNoItems && mbCompact && maId.isEmpty())
++    {
++        // no compact art anywhere: the parent hides the slot and gives the groups the width
++        mbCompactUnavailable = true;
++        maCompactUnavailableSince = std::chrono::steady_clock::now();
++        maLayoutHdl.Call(*this);
++        return;
++    }
+     if (!pData->bOk)
+     {
+         // nothing new (service and installed defaults unavailable): keep the current item
+@@ -480,7 +561,7 @@
+         Show();
+     const Size aSize = rSlot.GetSize();
+     const Rect aImage = fit(Rect{ 0, 0, static_cast<long>(aSize.Width()), static_cast<long>(aSize.Height()) },
+-                            ART_WIDTH, ART_HEIGHT);
++                            ArtWidth(), ART_HEIGHT);
+     const int nScale = sourceScale(std::lround(aImage.h * surfaceScale(*GetOutDev())));
+     if (maId.isEmpty() || (bResized && nScale != mnSourceScale))
+         Request(mnSlot); // first content, or the same slot again for the new scale
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -42,6 +42,7 @@
+     void HstLayoutBanner();
+     DECL_LINK(HstChildEventHdl, VclWindowEvent&, void);
+     DECL_LINK(HstDeferredLayoutHdl, void*, void);
++    DECL_LINK(HstBannerLayoutHdl, HstRibbonBanner&, void);
+     ImplSVEvent* m_pHstLayoutEvent = nullptr;
+     VclPtr<HstRibbonBanner> m_pHstBanner;
+     bool m_bHstLayout = false;
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -200,6 +200,7 @@
+                     && rFile.indexOf("/simpress/") < 0))
+                 return;
+             m_pHstBanner = VclPtr<HstRibbonBanner>::Create(this);
++            m_pHstBanner->SetLayoutHdl(LINK(this, NotebookbarTabControl, HstBannerLayoutHdl));
+             hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
+             AddChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+             HstLayoutBanner();
+@@ -210,7 +211,9 @@
+ 
+ // The banner takes the right end of the current page; the page (the 2-row groups) keeps its
+ // height and gets the remaining width, so groups fold into their overflow menu as usual. The
+-// ribbon height never depends on the banner. Narrow windows give the groups the whole width.
++// ribbon height never depends on the banner. Windows narrower than 1280 logical px show the
++// 160x104 compact artwork, so the banner keeps a slot; only when no compact artwork exists at
++// all do the groups get the whole width.
+ void NotebookbarTabControl::HstLayoutBanner()
+ {
+     if (!m_pHstBanner || m_bHstLayout)
+@@ -227,9 +230,14 @@
+         const vcl::Window* pTop = GetSystemWindow();
+         const tools::Long nWindowWidth = pTop ? pTop->GetSizePixel().Width() : GetSizePixel().Width();
+         tools::Long nPageWidth = aPage.w;
+-        if (hst::banner::visibleFor(nWindowWidth, aPage.h, fDpi))
++        const hst::banner::Mode eMode = hst::banner::modeFor(nWindowWidth, aPage.h, fDpi);
++        if (eMode != hst::banner::Mode::Hidden)
++            m_pHstBanner->SetCompact(eMode == hst::banner::Mode::Compact);
++        if (eMode == hst::banner::Mode::Wide
++            || (eMode == hst::banner::Mode::Compact && !m_pHstBanner->CompactUnavailable()))
+         {
+-            const hst::banner::Rect aSlot = hst::banner::slotFor(aPage, fDpi);
++            const hst::banner::Rect aSlot
++                = hst::banner::slotFor(aPage, fDpi, hst::banner::artWidth(eMode));
+             nPageWidth = hst::banner::pageWidthBeside(aPage, aSlot, fDpi);
+             m_pHstBanner->Place(tools::Rectangle(Point(aSlot.x, aSlot.y), Size(aSlot.w, aSlot.h)));
+         }
+@@ -255,6 +263,12 @@
+         m_pHstLayoutEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstDeferredLayoutHdl));
+ }
+ 
++IMPL_LINK_NOARG(NotebookbarTabControl, HstBannerLayoutHdl, HstRibbonBanner&, void)
++{
++    if (!m_pHstLayoutEvent)
++        m_pHstLayoutEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstDeferredLayoutHdl));
++}
++
+ IMPL_LINK_NOARG(NotebookbarTabControl, HstDeferredLayoutHdl, void*, void)
+ {
+     m_pHstLayoutEvent = nullptr;

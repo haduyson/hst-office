@@ -1,0 +1,66 @@
+HST Office: a merged group box inside another one is not driven by the enclosing ladder.
+
+Writer's Extension tab has a merged box ("Extension", the add-on toolbars) inside its merged box. The
+enclosing ladder set the size state of every toolbox of a group, the nested box's too, while the
+nested box ran its own ladder on the same toolboxes: the two fought, the measured widths were wrong
+and the tab went to icons only and folded groups with hundreds of pixels free. Group states now stop
+at a nested merged box (its own ladder decides), the content key still sees inside it, and a nested
+box asks for its full width, so the enclosing box measures it as one group and folds it whole.
+
+- vcl/source/control/HstRibbonLadder.cxx, vcl/source/control/PriorityMergedHBox.cxx.
+
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -15,6 +15,7 @@
+ #include <vcl/image.hxx>
+ #include <vcl/toolbox.hxx>
+ 
++#include <PriorityMergedHBox.hxx>
+ #include <toolbox.h>
+ 
+ namespace hst::ribbon
+@@ -76,15 +77,19 @@
+         rToolBox.queue_resize();
+ }
+ 
+-template <typename F> void forToolBoxes(vcl::Window& rWindow, const F& rFunction)
++/// bNested: also the toolboxes of merged group boxes inside (the Extension tab's add-on box), which
++/// otherwise run their own ladder and must not be driven by the enclosing one
++template <typename F> void forToolBoxes(vcl::Window& rWindow, const F& rFunction, bool bNested = false)
+ {
+     for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
+          pChild = pChild->GetWindow(GetWindowType::Next))
+     {
++        if (!bNested && dynamic_cast<PriorityMergedHBox*>(pChild))
++            continue;
+         if (ToolBox* pToolBox = dynamic_cast<ToolBox*>(pChild))
+             rFunction(*pToolBox);
+         else
+-            forToolBoxes(*pChild, rFunction);
++            forToolBoxes(*pChild, rFunction, bNested);
+     }
+ }
+ }
+@@ -118,7 +123,7 @@
+         nKey = nKey * 31 + (rToolBox.IsVisible() ? 1 : 0);
+         for (ToolBox::ImplToolItems::size_type i = 0; i < rToolBox.GetItemCount(); ++i)
+             nKey = nKey * 31 + (rToolBox.IsItemVisible(rToolBox.GetItemId(i)) ? 1 : 0);
+-    });
++    }, /*bNested*/ true);
+     return nKey;
+ }
+ }
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -320,7 +320,10 @@
+ 
+ tools::Long PriorityMergedHBox::HstMinWidth() const
+ {
+-    if (!m_bInitialized || !hst::ribbon::collapseLadderEnabled())
++    // a merged box inside another one (the Extension tab's add-on box) keeps its full width: the
++    // enclosing box measures it as one group and folds it whole
++    if (!m_bInitialized || !hst::ribbon::collapseLadderEnabled()
++        || dynamic_cast<const PriorityMergedHBox*>(GetParent()))
+         return -1;
+     tools::Long nMin = 0;
+     sal_uInt16 nGroups = 0;

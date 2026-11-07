@@ -200,7 +200,7 @@ người dùng ghi đè hồ sơ cả máy). `defaults write` vào `/Library/Pre
 - Công cụ ▸ Tùy chọn ▸ HST Office/Nâng cao ▸ Trình soạn cấu hình chuyên gia, tìm `HSTUpdate`: thuộc tính bị khóa
   không sửa được.
 - Hộp kiểm "Tự động kiểm tra cập nhật khi khởi động" trong hộp thoại kiểm tra cập nhật bị làm mờ khi `AutoCheck` bị
-  khóa; mục menu "Kiểm tra cập nhật" và nút cùng tên trên tab ribbon "Phần mở rộng" bị làm mờ khi `ManualCheck` = `false`.
+  khóa; khi `ManualCheck` = `false`, mục menu "Kiểm tra cập nhật" bị làm mờ và mục cùng tên trong menu ≡ của ribbon được ẩn đi.
 - Kiểm thử tự động trên Linux: `tests/runtime/check-update-lock.py`.
 - Tệp mẫu: `tests/runtime/check-update-policy.py` (Linux: `--instdir`, chép từng `.xcd` vào bản sao instdir), bước
   "Update-lock templates" của [windows-smoke.yml](../.github/workflows/windows-smoke.yml) (`reg import` từng `.reg` trên

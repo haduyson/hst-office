@@ -24,9 +24,14 @@ class Rules(unittest.TestCase):
             row(".odt", "HSTOffice.WriterDocument.1"), row("HSTOffice.Extension.1"), row("HSTOffice.OfficeURI"),
             row(r"CLSID\{BC84498F-C467-4BD6-9876-D44924DA54D0}\InprocServer32", r"[INSTALLLOCATION]program\shlxthdl\shlxthdl.dll"),
             row(r"Software\HASON TECH\Layers\URE\1", r"[INSTALLLOCATION]URE\\", "UREINSTALLLOCATION"),
-            # kept on purpose: OLE embedding class and automation names
-            row(r"CLSID\{30A2652A-DDF7-45e7-ACA6-3EAB26FC8A4E}\LocalServer32"), row(r"AppID\soffice.exe"),
-            row(r"com.sun.star.ServiceManager\CLSID"), row(r"Writer.Application\CLSID")), [])
+            # kept on purpose: OLE embedding class
+            row(r"CLSID\{30A2652A-DDF7-45e7-ACA6-3EAB26FC8A4E}\LocalServer32"),
+            # HST Office's own automation names
+            row(r"HSTOffice.ServiceManager\CLSID", "{BAB2DE94-F543-4763-B27C-C88CA8B1E606}"),
+            row(r"AppID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}", "HST Office Service Manager (Ver 1.0)"),
+            row(r"HSTOffice.Writer.Application\CLSID", "{46108D44-89EA-4AC1-8190-DF4362FBAFCC}"),
+            row(r"HSTOffice.Sheets.Application\CLSID", "{EE151D41-E628-4D5C-BD96-9BD4B596C916}"),
+            row(r"CLSID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}\ProgID", "HSTOffice.ServiceManager.1")), [])
 
     def test_each_shared_name_fails(self):
         cases = {
@@ -39,6 +44,14 @@ class Rules(unittest.TestCase):
             "LibreOffice publisher or link": row(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\x",
                                                  "The Document Foundation for the LibreOffice Community", "Publisher"),
         }
+        automation = (row(r"com.sun.star.ServiceManager\CLSID"), row(r"Writer.Application\CLSID"), row(r"Calc.Application\CLSID"),
+                      row(r"AppID\soffice.exe"), row(r"CLSID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}\ProgID", "com.sun.star.ServiceManager.1"),
+                      row(r"LOSPSupport.OpenDocuments\CLSID"))
+        for r in automation:
+            self.assertIn("LibreOffice automation name", self.rules(r), r)
+        for key in (r"CLSID\{82154420-0FBF-11d4-8313-005004526AB4}\LocalServer32", r"CLSID\{82154421-0FBF-11d4-8313-005004526AB4}",
+                    r"CLSID\{82154425-0FBF-11d4-8313-005004526AB4}\LocalServer32", r"TypeLib\{580411ED-80EC-4834-BA1F-2EB07A49C80B}"):
+            self.assertIn("LibreOffice automation class id", self.rules(row(key)), key)
         for rule, r in cases.items():
             self.assertIn(rule, self.rules(r), rule)
         self.assertEqual(self.rules(row("office.Extension.1")), ["LibreOffice ProgID"])

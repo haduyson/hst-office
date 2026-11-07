@@ -44,7 +44,13 @@ class Nd30Wizard:
         self.d.label("description", s["description"], LABEL_X, 4, WIDTH - 2 * LABEL_X, 10, wrap=True).TextColor = self.colours["muted"]
         self._label("type", 8)
         d.edit("type", FIELD_X, 6 + TOP, FIELD_W - 14, text=self.picker.label_of(self.picker.current), help_text=s["typeSearchHelp"])
-        d.button("typeOpen", "▾", FIELD_X + FIELD_W - 13, 6 + TOP, 13, h=12, callback=self.picker.toggle)
+        # The arrow is for the mouse (Down opens the list from the field): not a Tab stop, so Tab goes from the type
+        # straight to the next field instead of to a button that swallows what the user types next.
+        d.button("typeOpen", "▾", FIELD_X + FIELD_W - 13, 6 + TOP, 13, h=12, callback=self.picker.toggle).Tabstop = False
+        # The open list lies over the fields below it. In VCL an EARLIER sibling is above later ones for painting and
+        # for mouse hit-testing (stacking.cxx ImplFindWindow, paint.cxx), so it must be inserted before them; inserted
+        # last, the fields under it took hover repaints, the wheel and clicks.
+        d.plain_list("typeList", FIELD_X, 19 + TOP, FIELD_W, 150, help_text=s["typeSearchHelp"])
         self._row("parentAgency", 22)
         self._row("agency", 38)
         self._label("number", 54)
@@ -64,11 +70,13 @@ class Nd30Wizard:
         d.edit("signerName", FIELD_X, 198 + TOP, 90, help_text=s["signerName"])
         d.label("l_secretaryName", s["secretaryName"], FIELD_X + 96, 200 + TOP, 22)
         d.edit("secretaryName", FIELD_X + 120, 198 + TOP, FIELD_W - 120, help_text=s["secretaryNameHelp"])
-        self._row("recipients", 214, 22, True, label_h=20)
-        self._row("contact", 238)
+        self._row("recipients", 214, 20, True, label_h=20)
+        self._row("contact", 236)  # 16 units above the check boxes: room for the macOS edit frame (dialog_edit_heights)
         check = d.check("applyPage", s["applyPage"], LABEL_X, 252 + TOP, FIELD_X + FIELD_W - LABEL_X, h=12)
         check.MultiLine = True  # wraps instead of being cut off when a translation is longer
-        d.check("pageNumbers", s["pageNumbers"], LABEL_X + 10, 266 + TOP, FIELD_X + FIELD_W - LABEL_X - 10)
+        d.check("pageNumbers", s["pageNumbers"], LABEL_X + 10, 266 + TOP, 208)
+        # two-sided: Party documents mirror their margins (05-HD/VPTW IV.4.2); ND30 types keep them (nd30_duplex)
+        d.check("duplex", s["duplex"], LABEL_X + 222, 266 + TOP, FIELD_X + FIELD_W - LABEL_X - 222, state=False).HelpText = s["duplexHelp"]
         d.label("legal", s["legal"], LABEL_X, 280 + TOP, FIELD_X + FIELD_W - LABEL_X, 16, wrap=True)
         heading = d.label("l_preview", s["previewHeading"], PREVIEW_X, 8 + TOP, PREVIEW_W, 10)
         heading.FontWeight = 150
@@ -82,7 +90,6 @@ class Nd30Wizard:
         d.button("btnCancel", self.s["common"]["cancel"], WIDTH - 8 - 64, HEIGHT - 22, 64, kind=2)
         d.on_change(nd30.FIELD_KEYS, self.refresh)
         d.on_oversize = self._compact
-        d.plain_list("typeList", FIELD_X, 19 + TOP, FIELD_W, 150, help_text=s["typeSearchHelp"])  # last: drawn over the fields below
         d.on_ready, d.on_closed = self.picker.attach, self.picker.detach
 
     def _compact(self):
@@ -153,7 +160,8 @@ class Nd30Wizard:
 
     def outcome(self):
         type_id, fields = self.read()
-        return {"type": type_id, "fields": fields, "apply_page": self.d.get("applyPage"), "page_numbers": self.d.get("pageNumbers")}
+        return {"type": type_id, "fields": fields, "apply_page": self.d.get("applyPage"), "page_numbers": self.d.get("pageNumbers"),
+                "duplex": self.d.get("duplex")}
 
     def _accept(self):
         if self.refresh():
@@ -161,7 +169,7 @@ class Nd30Wizard:
             self.d.end(1)
 
     def run(self, parent_peer=None):
-        """Show modally. Returns None on Cancel, else {'type','fields','apply_page','page_numbers'}."""
+        """Show modally. Returns None on Cancel, else {'type','fields','apply_page','page_numbers','duplex'}."""
         self.accepted = None
         self.d.execute(parent_peer)
         return self.accepted

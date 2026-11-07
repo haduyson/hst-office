@@ -7,7 +7,7 @@ import sys
 import time
 
 from .banner_schema import MAX_IMAGE
-from .banner_urls import https_url
+from .banner_urls import https_url, test_url
 from .update_logic import version_key
 
 TIMEOUT = 5
@@ -49,11 +49,16 @@ def _run(payload, timeout, helper="banner_http.py"):
     return data
 
 
-def fetch(url, limit, version, proxy=None):
-    if not https_url(url) or not isinstance(limit, int) or not 0 < limit <= MAX_IMAGE:
+def fetch(url, limit, version, proxy=None, allow_test=False):
+    """allow_test (test-stamped packages only): plain HTTP to the local test server, without a proxy."""
+    allow_test = allow_test is True
+    if not (https_url(url) or (allow_test and test_url(url))) or not isinstance(limit, int) or not 0 < limit <= MAX_IMAGE:
         raise ValueError("invalid banner request")
     version_key(version)
-    payload = json.dumps(dict(url=url, limit=limit, version=version, proxy=proxy)).encode()
+    args = dict(url=url, limit=limit, version=version, proxy=proxy)
+    if allow_test:
+        args["allow_test"] = True
+    payload = json.dumps(args).encode()
     if len(payload) > 16384:
         raise ValueError("banner request too large")
     data = _run(payload, TIMEOUT)

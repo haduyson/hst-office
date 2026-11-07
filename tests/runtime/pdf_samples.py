@@ -43,6 +43,21 @@ def _fodt(pages):
 """ % "\n".join(body)
 
 
+def convert(instdir, work, src, fmt):
+    """`soffice --convert-to fmt` of `src` into `work` (as the build user when run as root)."""
+    prefix = []
+    if os.geteuid() == 0:
+        subprocess.run(["chown", "-R", BUILD_USER, work], check=True)
+        prefix = ["runuser", "-u", BUILD_USER, "--"]
+    env = {k: v for k, v in os.environ.items() if k not in ("URE_BOOTSTRAP", "SAL_USE_VCLPLUGIN", "DISPLAY")}
+    env.update(HOME=work, LANG="C.UTF-8")
+    subprocess.run(prefix + [os.path.join(instdir, "program", "soffice"), "--headless", "--norestore",
+                             "-env:UserInstallation=file://%s/profile" % work, "--convert-to", fmt,
+                             "--outdir", work, src], check=True, env=env, timeout=600,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return os.path.join(work, os.path.splitext(os.path.basename(src))[0] + "." + fmt.split(":")[0])
+
+
 def make(instdir, target, pages):
     """Create `target` (a PDF with `pages` pages); returns the path. Reuses an existing file."""
     target = os.path.abspath(target)
@@ -55,17 +70,7 @@ def make(instdir, target, pages):
         src = os.path.join(work, stem + ".fodt")
         with open(src, "w", encoding="utf-8") as handle:
             handle.write(_fodt(pages))
-        prefix = []
-        if os.geteuid() == 0:
-            subprocess.run(["chown", "-R", BUILD_USER, work], check=True)
-            prefix = ["runuser", "-u", BUILD_USER, "--"]
-        env = {k: v for k, v in os.environ.items() if k not in ("URE_BOOTSTRAP", "SAL_USE_VCLPLUGIN", "DISPLAY")}
-        env.update(HOME=work, LANG="C.UTF-8")
-        subprocess.run(prefix + [os.path.join(instdir, "program", "soffice"), "--headless", "--norestore",
-                                 "-env:UserInstallation=file://%s/profile" % work, "--convert-to", "pdf",
-                                 "--outdir", work, src], check=True, env=env, timeout=600,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        shutil.copyfile(os.path.join(work, stem + ".pdf"), target)
+        shutil.copyfile(convert(instdir, work, src, "pdf"), target)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return target

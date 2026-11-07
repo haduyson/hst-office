@@ -1,0 +1,594 @@
+PDF import into HST Draw: transparent text keeps its opacity, and text keeps its place in the
+drawing order.
+
+A watermark line drawn with a transparent graphics state (/ca 0.1), such as the per-download
+name that document systems add, came in as opaque black text: the text style wrote only the
+colour. It now also writes loext:opacity, which the import maps to the character transparency;
+the document root declares the loext namespace for it.
+
+A text line becomes a frame only when the next glyph starts another line or the page ends, and
+it took its z-order at that moment. The last text of a page (often the watermark) therefore went
+on top of the images and paths drawn after it, for example the stamp images of signature
+widgets. The line now takes its z-order when its first glyph is drawn. When an image, path or
+group is drawn while a line is pending, the next glyph starts a new line, so the rest of the line
+lies above it: a highlight drawn under a word in the middle of a line stays below that word.
+
+A transparency group (a form XObject) painted with a constant alpha came in opaque: poppler sets the
+fill opacity to 1 inside the group and applies the group's alpha only in paintTransparencyGroup,
+which the import ignored. HST's own PDF export writes a translucent watermark exactly like that
+("q /ca 0.1 gs /Fm Do Q"), so re-opening an exported or signed PDF in Draw showed it solid. The
+poppler output device now reports paintTransparencyGroup with the fill opacity, and the alpha is
+multiplied into everything drawn in the group just ended (its pending text is flushed into the
+group first).
+
+Tests: a watermark line followed by a rectangle (opacity and order), a highlight under a word in
+the middle of a line, and text in a transparency group painted with /ca 0.1.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- /dev/null
++++ b/sdext/qa/unit/data/hst-highlight-mid-line.pdf
+@@ -0,0 +1,34 @@
++%PDF-1.4
++1 0 obj
++<< /Type /Catalog /Pages 2 0 R >>
++endobj
++2 0 obj
++<< /Type /Pages /Kids [3 0 R] /Count 1 >>
++endobj
++3 0 obj
++<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
++endobj
++4 0 obj
++<< /Length 129 >>
++stream
++BT /F1 12 Tf 72 700 Td (The quick ) Tj ET
++1 1 0 rg 127.356 697 30 13 re f
++0 0 0 rg BT /F1 12 Tf 127.356 700 Td (brown fox) Tj ET
++endstream
++endobj
++5 0 obj
++<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
++endobj
++xref
++0 6
++0000000000 65535 f 
++0000000009 00000 n 
++0000000058 00000 n 
++0000000115 00000 n 
++0000000241 00000 n 
++0000000420 00000 n 
++trailer
++<< /Size 6 /Root 1 0 R >>
++startxref
++517
++%%EOF
+--- /dev/null
++++ b/sdext/qa/unit/data/hst-watermark-group-opacity.pdf
+@@ -0,0 +1,44 @@
++%PDF-1.4
++1 0 obj
++<< /Type /Catalog /Pages 2 0 R >>
++endobj
++2 0 obj
++<< /Type /Pages /Kids [3 0 R] /Count 1 >>
++endobj
++3 0 obj
++<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> /ExtGState << /GS1 6 0 R >> /XObject << /Fm1 7 0 R >> >> >>
++endobj
++4 0 obj
++<< /Length 61 >>
++stream
++BT /F1 18 Tf 72 720 Td (Body text) Tj ET
++q /GS1 gs /Fm1 Do Q
++endstream
++endobj
++5 0 obj
++<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
++endobj
++6 0 obj
++<< /Type /ExtGState /ca 0.1 /CA 0.1 >>
++endobj
++7 0 obj
++<< /Type /XObject /Subtype /Form /BBox [0 0 595 842] /Group << /S /Transparency /CS /DeviceRGB /K true >> /Resources << /Font << /F1 5 0 R >> >> /Length 49 >>
++stream
++BT /F1 40 Tf 1 0 0 1 72 400 Tm (GROUPMARK) Tj ET
++endstream
++endobj
++xref
++0 8
++0000000000 65535 f 
++0000000009 00000 n 
++0000000058 00000 n 
++0000000115 00000 n 
++0000000295 00000 n 
++0000000405 00000 n 
++0000000502 00000 n 
++0000000556 00000 n 
++trailer
++<< /Size 8 /Root 1 0 R >>
++startxref
++796
++%%EOF
+--- /dev/null
++++ b/sdext/qa/unit/data/hst-watermark-text-opacity-order.pdf
+@@ -0,0 +1,38 @@
++%PDF-1.4
++1 0 obj
++<< /Type /Catalog /Pages 2 0 R >>
++endobj
++2 0 obj
++<< /Type /Pages /Kids [3 0 R] /Count 1 >>
++endobj
++3 0 obj
++<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> /ExtGState << /GS1 6 0 R >> >> >>
++endobj
++4 0 obj
++<< /Length 140 >>
++stream
++BT /F1 18 Tf 72 720 Td (Body text) Tj ET
++q /GS1 gs 0 0 0 rg BT /F1 40 Tf 1 0 0 1 72 400 Tm (WATERMARK) Tj ET Q
++1 0 0 rg 300 380 120 80 re f
++endstream
++endobj
++5 0 obj
++<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
++endobj
++6 0 obj
++<< /Type /ExtGState /ca 0.1 /CA 0.1 >>
++endobj
++xref
++0 7
++0000000000 65535 f 
++0000000009 00000 n 
++0000000058 00000 n 
++0000000115 00000 n 
++0000000269 00000 n 
++0000000459 00000 n 
++0000000556 00000 n 
++trailer
++<< /Size 7 /Root 1 0 R >>
++startxref
++610
++%%EOF
+--- a/sdext/qa/unit/pdfimport.cxx
++++ b/sdext/qa/unit/pdfimport.cxx
+@@ -912,6 +912,104 @@ namespace
+ #endif
+         }
+ 
++        void testWatermarkTextOpacityAndOrder()
++        {
++#if HAVE_FEATURE_POPPLER
++            // Page content: a body line, a watermark line with /ca 0.1, then a red rectangle.
++            rtl::Reference<pdfi::PDFIRawAdaptor> xAdaptor(new pdfi::PDFIRawAdaptor(OUString(), getComponentContext()));
++            xAdaptor->setTreeVisitorFactory(createDrawTreeVisitorFactory());
++
++            OString aOutput;
++            CPPUNIT_ASSERT_MESSAGE("Converting PDF to ODF XML",
++                xAdaptor->odfConvert(m_directories.getURLFromSrc(
++                    u"/sdext/qa/unit/data/hst-watermark-text-opacity-order.pdf"),
++                new OutputWrapString(aOutput),
++                nullptr));
++            xmlDocUniquePtr pXmlDoc(xmlParseDoc(reinterpret_cast<xmlChar const *>(aOutput.getStr())));
++            CPPUNIT_ASSERT(pXmlDoc);
++
++            // the emitter puts each glyph on its own line: match the text without line breaks
++            const char* const pWatermark
++                = "//draw:frame[contains(translate(string(.), '\n', ''), 'WATERMARK')]";
++            const char* const pBody
++                = "//draw:frame[contains(translate(string(.), '\n', ''), 'Body')]";
++
++            // the watermark keeps its opacity instead of being imported as opaque black text
++            OUString aStyle = getXPath(pXmlDoc, OString(OString::Concat(pWatermark) + "//text:span[1]"),
++                                       "style-name");
++            OString aStylePath = "//office:automatic-styles/style:style[@style:name=\""
++                                 + OUStringToOString(aStyle, RTL_TEXTENCODING_UTF8)
++                                 + "\"]/style:text-properties";
++            assertXPath(pXmlDoc, aStylePath, "opacity", u"10%");
++            // opaque body text gets no opacity attribute
++            aStyle = getXPath(pXmlDoc, OString(OString::Concat(pBody) + "//text:span[1]"),
++                              "style-name");
++            aStylePath = "//office:automatic-styles/style:style[@style:name=\""
++                         + OUStringToOString(aStyle, RTL_TEXTENCODING_UTF8)
++                         + "\"]/style:text-properties";
++            assertXPathNoAttribute(pXmlDoc, aStylePath, "opacity");
++
++            // the rectangle drawn after the watermark stays on top of it
++            const sal_Int32 nBody = getXPath(pXmlDoc, pBody, "z-index").toInt32();
++            const sal_Int32 nText = getXPath(pXmlDoc, pWatermark, "z-index").toInt32();
++            const sal_Int32 nRect = getXPath(pXmlDoc, "//draw:path", "z-index").toInt32();
++            CPPUNIT_ASSERT_MESSAGE(aOutput.getStr(), nBody < nText);
++            CPPUNIT_ASSERT_MESSAGE(aOutput.getStr(), nText < nRect);
++#endif
++        }
++
++        void testHighlightMidLineStaysBelowText()
++        {
++#if HAVE_FEATURE_POPPLER
++            // "The quick " is drawn, then a yellow rectangle under the next word, then "brown fox"
++            // on the same line: the highlight must not cover the highlighted word.
++            rtl::Reference<pdfi::PDFIRawAdaptor> xAdaptor(new pdfi::PDFIRawAdaptor(OUString(), getComponentContext()));
++            xAdaptor->setTreeVisitorFactory(createDrawTreeVisitorFactory());
++
++            OString aOutput;
++            CPPUNIT_ASSERT_MESSAGE("Converting PDF to ODF XML",
++                xAdaptor->odfConvert(m_directories.getURLFromSrc(
++                    u"/sdext/qa/unit/data/hst-highlight-mid-line.pdf"),
++                new OutputWrapString(aOutput),
++                nullptr));
++            xmlDocUniquePtr pXmlDoc(xmlParseDoc(reinterpret_cast<xmlChar const *>(aOutput.getStr())));
++            CPPUNIT_ASSERT(pXmlDoc);
++
++            const sal_Int32 nHighlight = getXPath(pXmlDoc, "//draw:path", "z-index").toInt32();
++            const sal_Int32 nWord = getXPath(
++                pXmlDoc, "//draw:frame[contains(translate(string(.), '\n', ''), 'brown')]",
++                "z-index").toInt32();
++            CPPUNIT_ASSERT_MESSAGE(aOutput.getStr(), nHighlight < nWord);
++#endif
++        }
++
++        void testTransparencyGroupOpacity()
++        {
++#if HAVE_FEATURE_POPPLER
++            // Text inside a transparency group (a form XObject) painted with /ca 0.1, as HST's own
++            // PDF export writes a translucent watermark: the group's alpha reaches the text.
++            rtl::Reference<pdfi::PDFIRawAdaptor> xAdaptor(new pdfi::PDFIRawAdaptor(OUString(), getComponentContext()));
++            xAdaptor->setTreeVisitorFactory(createDrawTreeVisitorFactory());
++
++            OString aOutput;
++            CPPUNIT_ASSERT_MESSAGE("Converting PDF to ODF XML",
++                xAdaptor->odfConvert(m_directories.getURLFromSrc(
++                    u"/sdext/qa/unit/data/hst-watermark-group-opacity.pdf"),
++                new OutputWrapString(aOutput),
++                nullptr));
++            xmlDocUniquePtr pXmlDoc(xmlParseDoc(reinterpret_cast<xmlChar const *>(aOutput.getStr())));
++            CPPUNIT_ASSERT(pXmlDoc);
++
++            const OUString aStyle = getXPath(
++                pXmlDoc, "//draw:frame[contains(translate(string(.), '\n', ''), 'GROUPMARK')]//text:span[1]",
++                "style-name");
++            const OString aStylePath = "//office:automatic-styles/style:style[@style:name=\""
++                                       + OUStringToOString(aStyle, RTL_TEXTENCODING_UTF8)
++                                       + "\"]/style:text-properties";
++            assertXPath(pXmlDoc, aStylePath, "opacity", u"10%");
++#endif
++        }
++
+         CPPUNIT_TEST_SUITE(PDFITest);
+         CPPUNIT_TEST(testXPDFParser);
+         CPPUNIT_TEST(testOdfWriterExport);
+@@ -926,6 +1024,9 @@ namespace
+         CPPUNIT_TEST(testTdf104597_textrun);
+         CPPUNIT_TEST(testTdf55425_decrypt);
+         CPPUNIT_TEST(testSpaces);
++        CPPUNIT_TEST(testWatermarkTextOpacityAndOrder);
++        CPPUNIT_TEST(testHighlightMidLineStaysBelowText);
++        CPPUNIT_TEST(testTransparencyGroupOpacity);
+         CPPUNIT_TEST_SUITE_END();
+     };
+ 
+--- a/sdext/source/pdfimport/inc/contentsink.hxx
++++ b/sdext/source/pdfimport/inc/contentsink.hxx
+@@ -180,6 +180,8 @@ namespace pdfi
+                                        const css::uno::Sequence<css::beans::PropertyValue>& xTile) = 0;
+         virtual void beginTransparencyGroup(bool bForSoftMask) = 0;
+         virtual void endTransparencyGroup(void) = 0;
++        /// The group just ended is composited with this constant alpha (0..1).
++        virtual void paintTransparencyGroup(double /*fAlpha*/) {}
+     };
+ 
+     typedef std::shared_ptr<ContentSink> ContentSinkSharedPtr;
+--- a/sdext/source/pdfimport/inc/pdfiprocessor.hxx
++++ b/sdext/source/pdfimport/inc/pdfiprocessor.hxx
+@@ -84,6 +84,10 @@ namespace pdfi
+ 
+     private:
+         void processGlyphLine();
++        /// z-order for an image, path or group; text drawn after it starts a new line above it
++        sal_Int32 takeShapeZOrder();
++        /// multiplies the fill and stroke alpha of everything below rElement by fAlpha
++        void applyGroupAlpha(Element& rElement, double fAlpha);
+ 
+         // ContentSink interface implementation
+ 
+@@ -160,6 +164,7 @@ namespace pdfi
+ 
+         virtual void beginTransparencyGroup(bool bForSoftMask) override;
+         virtual void endTransparencyGroup(void) override;
++        virtual void paintTransparencyGroup(double fAlpha) override;
+ 
+         void startIndicator( const OUString& rText );
+         void endIndicator();
+@@ -192,6 +197,12 @@ namespace pdfi
+ 
+         sal_Int32                          m_nPages;
+         sal_Int32                          m_nNextZOrder;
++        /// z-order of the pending glyph line, taken when its first glyph is drawn
++        sal_Int32                          m_nGlyphLineZOrder;
++        /// a shape was drawn while a glyph line was pending: the next glyph starts a new line
++        bool                               m_bBreakGlyphLine;
++        /// the transparency group that ended last, until it is painted
++        GroupElement*                      m_pEndedGroup;
+         css::uno::Reference< css::task::XStatusIndicator >
+                                            m_xStatusIndicator;
+     };
+--- a/sdext/source/pdfimport/tree/drawtreevisiting.cxx
++++ b/sdext/source/pdfimport/tree/drawtreevisiting.cxx
+@@ -941,7 +941,11 @@ void DrawXmlFinalizer::visit( TextElement& elem, const std::list< std::unique_pt
+ 
+     // color
+     const GraphicsContext& rGC = m_rProcessor.getGraphicsContext( elem.GCId );
+-    aFontProps[ u"fo:color"_ustr ] = getColorString( rFont.isOutline ? rGC.LineColor : rGC.FillColor );
++    const css::rendering::ARGBColor& rTextColor = rFont.isOutline ? rGC.LineColor : rGC.FillColor;
++    aFontProps[ u"fo:color"_ustr ] = getColorString( rTextColor );
++    // transparent text (/ca in an ExtGState), e.g. a faint watermark
++    if (rTextColor.Alpha != 1.0)
++        aFontProps[ u"loext:opacity"_ustr ] = getPercentString( rTextColor.Alpha * 100.0 );
+ 
+     // scale
+     double fRotate, fShearX;
+--- a/sdext/source/pdfimport/tree/pdfiprocessor.cxx
++++ b/sdext/source/pdfimport/tree/pdfiprocessor.cxx
+@@ -31,6 +31,8 @@
+ #include <com/sun/star/geometry/AffineMatrix2D.hpp>
+ 
+ #include <comphelper/sequence.hxx>
++
++#include <utility>
+ #include <basegfx/color/bcolor.hxx>
+ #include <basegfx/polygon/b2dpolygonclipper.hxx>
+ #include <basegfx/polygon/b2dpolygontools.hxx>
+@@ -63,6 +65,9 @@ namespace pdfi
+     m_nNextGCId( 1 ),
+     m_nPages(0),
+     m_nNextZOrder( 1 ),
++    m_nGlyphLineZOrder( 0 ),
++    m_bBreakGlyphLine( false ),
++    m_pEndedGroup( nullptr ),
+     m_xStatusIndicator( xStat )
+ {
+     FontAttributes aDefFont;
+@@ -234,7 +239,9 @@ void PDFIProcessor::processGlyphLine()
+     FrameElement* frame = ElementFactory::createFrameElement(
+         m_GlyphsList[0].getCurElement(),
+         getGCId(m_GlyphsList[0].getGC()));
+-    frame->ZOrder = m_nNextZOrder++;
++    // A line becomes a frame only when the next glyph breaks it or at the end of the page, so
++    // images and paths drawn meanwhile would otherwise end up below text drawn before them.
++    frame->ZOrder = m_nGlyphLineZOrder;
+     frame->IsForText = true;
+     frame->FontSize = getFont(m_GlyphsList[0].getGC().FontId).size;
+     ParagraphElement* para = ElementFactory::createParagraphElement(frame);
+@@ -266,6 +273,16 @@ void PDFIProcessor::processGlyphLine()
+     }
+ 
+     m_GlyphsList.clear();
++    m_bBreakGlyphLine = false;
++}
++
++sal_Int32 PDFIProcessor::takeShapeZOrder()
++{
++    // e.g. a highlight drawn under a word in the middle of a line: the rest of the line must be
++    // a frame of its own above it, not part of a frame that keeps the line's earlier z-order
++    if (!m_GlyphsList.empty())
++        m_bBreakGlyphLine = true;
++    return m_nNextZOrder++;
+ }
+ 
+ void PDFIProcessor::drawGlyphs( const OUString&             rGlyphs,
+@@ -312,11 +329,16 @@ void PDFIProcessor::drawGlyphs( const OUString&             rGlyphs,
+         (totalTextMatrix1.get(1, 1) != prevTextMatrix.get(1, 1)) ||
+         (offsetMatrix1.get(0, 2) < 0.0) ||
+         (prevSpaceWidth > prevCharWidth * 1.3) ||
+-        (!basegfx::fTools::equalZero(offsetMatrix1.get(1, 2), 0.0001)))
++        (!basegfx::fTools::equalZero(offsetMatrix1.get(1, 2), 0.0001)) ||
++        m_bBreakGlyphLine)
+     {
+         processGlyphLine();
+     }
+ 
++    // the line keeps the place of its first glyph in the content stream
++    if (m_GlyphsList.empty())
++        m_nGlyphLineZOrder = m_nNextZOrder++;
++
+     CharGlyph aGlyph(m_pCurElement, getCurrentContext(), charWidth, prevSpaceWidth, rGlyphs);
+     aGlyph.getGC().Transformation = totalTextMatrix1;
+     m_GlyphsList.push_back(std::move(aGlyph));
+@@ -347,7 +369,7 @@ void PDFIProcessor::setupImage(ImageId nImage)
+     pFrame->y = pImageElement->y = aTranslation.getY();
+     pFrame->w = pImageElement->w = aScale.getX();
+     pFrame->h = pImageElement->h = aScale.getY();
+-    pFrame->ZOrder = m_nNextZOrder++;
++    pFrame->ZOrder = takeShapeZOrder();
+ 
+     // Poppler wrapper takes into account that vertical axes of PDF and ODF are opposite,
+     // and it flips matrix vertically (see poppler's GfxState::GfxState()).
+@@ -447,7 +469,7 @@ void PDFIProcessor::tilingPatternFill(int nX0, int nY0, int nX1, int nY1,
+         transformedxStep * aScale.getX(),
+         transformedyStep * -aScale.getY());
+     pPolyElement->updateGeometry();
+-    pPolyElement->ZOrder = m_nNextZOrder++;
++    pPolyElement->ZOrder = takeShapeZOrder();
+ }
+ 
+ void PDFIProcessor::strokePath( const uno::Reference< rendering::XPolyPolygon2D >& rPath )
+@@ -469,7 +491,7 @@ void PDFIProcessor::strokePath( const uno::Reference< rendering::XPolyPolygon2D
+         PATH_STROKE,
+         -1, 0, 0 );
+     pPoly->updateGeometry();
+-    pPoly->ZOrder = m_nNextZOrder++;
++    pPoly->ZOrder = takeShapeZOrder();
+ }
+ 
+ void PDFIProcessor::fillPath( const uno::Reference< rendering::XPolyPolygon2D >& rPath )
+@@ -493,7 +515,7 @@ void PDFIProcessor::fillPath( const uno::Reference< rendering::XPolyPolygon2D >&
+         PATH_FILL,
+         -1, 0, 0 );
+     pPoly->updateGeometry();
+-    pPoly->ZOrder = m_nNextZOrder++;
++    pPoly->ZOrder = takeShapeZOrder();
+ }
+ 
+ void PDFIProcessor::eoFillPath( const uno::Reference< rendering::XPolyPolygon2D >& rPath )
+@@ -515,7 +537,7 @@ void PDFIProcessor::eoFillPath( const uno::Reference< rendering::XPolyPolygon2D
+         PATH_EOFILL,
+         -1, 0, 0 );
+     pPoly->updateGeometry();
+-    pPoly->ZOrder = m_nNextZOrder++;
++    pPoly->ZOrder = takeShapeZOrder();
+ }
+ 
+ void PDFIProcessor::intersectClip(const uno::Reference< rendering::XPolyPolygon2D >& rPath)
+@@ -591,7 +613,7 @@ void PDFIProcessor::beginTransparencyGroup(const bool bForSoftMask)
+     const GraphicsContext& rGC(getCurrentContext());
+     const sal_Int32 nGCId = getGCId(rGC);
+     GroupElement* pGroup = ElementFactory::createGroupElement( m_pCurElement, nGCId );
+-    pGroup->ZOrder = m_nNextZOrder++;
++    pGroup->ZOrder = takeShapeZOrder();
+     pGroup->isTransparencyGroup = true;
+     pGroup->isForSoftMask = bForSoftMask;
+     pGroup->w = 0;
+@@ -602,11 +624,38 @@ void PDFIProcessor::beginTransparencyGroup(const bool bForSoftMask)
+ 
+ void PDFIProcessor::endTransparencyGroup()
+ {
++    // the group's text goes into the group now, so that its alpha reaches it
++    processGlyphLine();
+     GroupElement* pGroup = dynamic_cast<GroupElement*>(m_pCurElement);
+     if( pGroup )
+     {
+         m_pCurElement = pGroup->Parent;
+     }
++    m_pEndedGroup = pGroup;
++}
++
++void PDFIProcessor::paintTransparencyGroup(double fAlpha)
++{
++    // e.g. a watermark exported as a form XObject painted with /ca 0.1: without this, its text
++    // came in opaque
++    GroupElement* pGroup = std::exchange(m_pEndedGroup, nullptr);
++    if (pGroup && !pGroup->isForSoftMask && fAlpha >= 0.0 && fAlpha < 1.0)
++        applyGroupAlpha(*pGroup, fAlpha);
++}
++
++void PDFIProcessor::applyGroupAlpha(Element& rElement, double fAlpha)
++{
++    for (const auto& rChild : rElement.Children)
++    {
++        if (auto pGraphical = dynamic_cast<GraphicalElement*>(rChild.get()))
++        {
++            GraphicsContext aGC = getGraphicsContext(pGraphical->GCId);
++            aGC.FillColor.Alpha *= fAlpha;
++            aGC.LineColor.Alpha *= fAlpha;
++            pGraphical->GCId = getGCId(aGC);
++        }
++        applyGroupAlpha(*rChild, fAlpha);
++    }
+ }
+ 
+ void PDFIProcessor::hyperLink( const geometry::RealRectangle2D& rBounds,
+@@ -688,6 +737,8 @@ void PDFIProcessor::startPage( const geometry::RealSize2D& rSize )
+     m_pCurPage->w = rSize.Width;
+     m_pCurPage->h = rSize.Height;
+     m_nNextZOrder = 1;
++    m_bBreakGlyphLine = false;
++    m_pEndedGroup = nullptr;
+ 
+ 
+ }
+@@ -742,6 +793,7 @@ void PDFIProcessor::emit( XmlEmitter&               rEmitter,
+     aProps[ u"xmlns:xforms"_ustr]       = "http://www.w3.org/2002/xforms";
+     aProps[ u"xmlns:xsd"_ustr]          = "http://www.w3.org/2001/XMLSchema";
+     aProps[ u"xmlns:xsi"_ustr]          = "http://www.w3.org/2001/XMLSchema-instance";
++    aProps[ u"xmlns:loext"_ustr]        = "urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0";
+     aProps[ u"office:version"_ustr ]    = "1.0";
+ 
+     aContext.rEmitter.beginTag( "office:document", aProps );
+--- a/sdext/source/pdfimport/wrapper/keyword_list
++++ b/sdext/source/pdfimport/wrapper/keyword_list
+@@ -23,6 +23,7 @@ fillPath,FILLPATH
+ hyperLink,HYPERLINK
+ intersectClip,INTERSECTCLIP
+ intersectEoClip,INTERSECTEOCLIP
++paintTransparencyGroup,PAINTTRANSPARENCYGROUP
+ popState,POPSTATE
+ pushState,PUSHSTATE
+ restoreState,RESTORESTATE
+--- a/sdext/source/pdfimport/wrapper/wrapper.cxx
++++ b/sdext/source/pdfimport/wrapper/wrapper.cxx
+@@ -92,6 +92,7 @@ enum parseKey {
+     HYPERLINK,
+     INTERSECTCLIP,
+     INTERSECTEOCLIP,
++    PAINTTRANSPARENCYGROUP,
+     POPSTATE,
+     PUSHSTATE,
+     RESTORESTATE,
+@@ -202,6 +203,7 @@ public:
+     void                 readTilingPatternFill();
+     void                 beginTransparencyGroup();
+     void                 endTransparencyGroup();
++    void                 paintTransparencyGroup();
+ };
+ 
+ /** Unescapes line-ending characters in input string. These
+@@ -864,6 +866,11 @@ void LineParser::endTransparencyGroup()
+     m_parser.m_pSink->endTransparencyGroup();
+ }
+ 
++void LineParser::paintTransparencyGroup()
++{
++    m_parser.m_pSink->paintTransparencyGroup(readDouble());
++}
++
+ void Parser::parseLine( std::string_view aLine )
+ {
+     OSL_PRECOND( m_pSink,         "Invalid sink" );
+@@ -901,6 +908,8 @@ void Parser::parseLine( std::string_view aLine )
+             m_pSink->endText(); break;
+         case ENDTRANSPARENCYGROUP:
+             lp.endTransparencyGroup(); break;
++        case PAINTTRANSPARENCYGROUP:
++            lp.paintTransparencyGroup(); break;
+         case EOCLIPPATH:
+             m_pSink->intersectEoClip(lp.readPath()); break;
+         case EOFILLPATH:
+--- a/sdext/source/pdfimport/xpdfwrapper/pdfioutdev_gpl.cxx
++++ b/sdext/source/pdfimport/xpdfwrapper/pdfioutdev_gpl.cxx
+@@ -1194,6 +1194,19 @@ void PDFOutDev::endTransparencyGroup(GfxState * /* state */)
+     printf("\n");
+ }
+ 
++// The group just ended is composited with the state outside it: poppler sets the fill opacity
++// to 1 inside a group, so its constant alpha (e.g. /ca 0.1 before "/Fm Do") only arrives here.
++#if POPPLER_CHECK_VERSION(25, 9, 0)
++void PDFOutDev::paintTransparencyGroup(GfxState *state, const std::array<double, 4> & /*bbox*/)
++#elif POPPLER_CHECK_VERSION(0, 70, 0)
++void PDFOutDev::paintTransparencyGroup(GfxState *state, const double * /*bbox*/)
++#else
++void PDFOutDev::paintTransparencyGroup(GfxState *state, double * /*bbox*/)
++#endif
++{
++    printf( "paintTransparencyGroup %f\n", normalize(state->getFillOpacity()) );
++}
++
+ #if POPPLER_CHECK_VERSION(0, 82, 0)
+ void PDFOutDev::drawImage(GfxState*, Object*, Stream* str,
+                           int width, int height, GfxImageColorMap* colorMap,
+--- a/sdext/source/pdfimport/xpdfwrapper/pdfioutdev_gpl.hxx
++++ b/sdext/source/pdfimport/xpdfwrapper/pdfioutdev_gpl.hxx
+@@ -342,6 +342,13 @@ void setDefaultCTM(const std::array<double, 6> &pMat) override;
+                                     poppler_bool knockout,
+                                     poppler_bool forSoftMask) override;
+         void endTransparencyGroup(GfxState *state) override;
++#if POPPLER_CHECK_VERSION(25, 9, 0)
++        void paintTransparencyGroup(GfxState *state, const std::array<double, 4> &bbox) override;
++#elif POPPLER_CHECK_VERSION(0, 70, 0)
++        void paintTransparencyGroup(GfxState *state, const double *bbox) override;
++#else
++        void paintTransparencyGroup(GfxState *state, double *bbox) override;
++#endif
+     };
+ }
+ 

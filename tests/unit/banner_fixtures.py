@@ -25,7 +25,7 @@ def manifest():
     doc["items"] = [items[identifier] for identifier in ("aios", "echatbot")]
     doc["items"][0]["name"] = "Online AIOS"
     for item in doc["items"]:
-        for spec in item["image"].values():
+        for spec in list(item["image"].values()) + list(item.get("imageCompact", {}).values()):
             spec["url"] = "https://system.hasontech.vn/hst-office/" + spec["url"]
     return doc
 

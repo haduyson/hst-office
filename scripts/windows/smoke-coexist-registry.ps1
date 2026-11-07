@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Dot-sourced by smoke-install-paths.ps1 (uses its Get-RegDefault and Assert). The registry names LibreOffice
 # registers that HST Office used to share: App Paths of the common program names, the vnd.libreoffice.command
-# URI scheme, the Explorer extension class IDs, the legacy StarOffice ProgIDs and keys under Software\LibreOffice. HST Office must write none of
-# them, and installing or removing either suite must leave the other's entries as they were.
+# URI scheme, the Explorer extension class IDs, the legacy StarOffice ProgIDs, keys under Software\LibreOffice and the automation
+# names (com.sun.star.ServiceManager, Writer.Application, Calc.Application, AppID\soffice.exe, LOSPSupport). HST Office must write
+# none of them, and installing or removing either suite must leave the other's entries as they were.
 
 $LoClsids = [ordered]@{   # LibreOffice's class ids (upstream shell/inc/shlxthdl.hxx, propertyhdl.hxx, ooofilt.hxx)
     infotip = '{087B3AE3-E237-4467-B8DB-5A38AB959AC9}'; column = '{C52AF81D-F7A0-4AAB-8E87-F80A60CCD396}'
@@ -13,6 +14,12 @@ $HstClsids = [ordered]@{  # hst-windows-own-shell-extension-clsids.patch
     infotip = '{2A30C089-4A9F-4456-9E48-AEB9FF0012A3}'; column = '{0643B6EE-B40D-4AA5-AC91-6849F83692BD}'
     propsheet = '{9A9E8777-D20C-40AD-826C-085F05B40FA6}'; thumbnail = '{BC84498F-C467-4BD6-9876-D44924DA54D0}'
     property = '{A5B95EEC-7757-43B4-A663-634CF2E9A67A}'; filter = '{A0914CEA-1A1D-4B82-A200-FE2818319A03}'
+}
+$HstAutomation = [ordered]@{  # hst-windows-own-automation-names.patch, hst-windows-own-sharepoint-support.patch
+    servicemanager = @('HSTOffice.ServiceManager', '{BAB2DE94-F543-4763-B27C-C88CA8B1E606}')
+    writer_app = @('HSTOffice.Writer.Application', '{46108D44-89EA-4AC1-8190-DF4362FBAFCC}')
+    sheets_app = @('HSTOffice.Sheets.Application', '{EE151D41-E628-4D5C-BD96-9BD4B596C916}')
+    spsupport = @('HSTOffice.SPSupport.OpenDocuments', '{28290BF3-5BD8-46EB-8DE2-F579F43C84F5}')
 }
 $AppNames = 'soffice', 'swriter', 'scalc', 'simpress', 'sdraw', 'smath', 'sbase', 'unopkg'
 $ExtractImage = '{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}'
@@ -29,6 +36,16 @@ function Get-CoexistRegistry {
     $r.lo_layer_ure = if ($ure) { $ure.GetValue('UREINSTALLLOCATION') } else { $null }
     $r.lo_software_key = if (Test-Path -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\LibreOffice') { 'present' } else { $null }
     $r.lo_classes_software_key = if (Test-Path -LiteralPath 'Registry::HKEY_CLASSES_ROOT\Software\LibreOffice') { 'present' } else { $null }
+    $r.lo_servicemanager = Get-RegDefault 'HKEY_CLASSES_ROOT\com.sun.star.ServiceManager\CLSID'
+    $r.lo_writer_app = Get-RegDefault 'HKEY_CLASSES_ROOT\Writer.Application\CLSID'
+    $r.lo_calc_app = Get-RegDefault 'HKEY_CLASSES_ROOT\Calc.Application\CLSID'
+    $r.lo_appid_soffice = if (Test-Path -LiteralPath 'Registry::HKEY_CLASSES_ROOT\AppID\soffice.exe') { 'present' } else { $null }
+    $r.lo_spsupport = Get-RegDefault 'HKEY_CLASSES_ROOT\LOSPSupport.OpenDocuments\CLSID'
+    foreach ($k in $HstAutomation.Keys) { $r["hst_$k"] = Get-RegDefault "HKEY_CLASSES_ROOT\$($HstAutomation[$k][0])\CLSID" }
+    foreach ($k in 'servicemanager', 'writer_app', 'sheets_app') {
+        $r["hst_$($k)_server"] = Get-RegDefault "HKEY_CLASSES_ROOT\CLSID\$($HstAutomation[$k][1])\LocalServer32"
+    }
+    $r.hst_spsupport_server = Get-RegDefault "HKEY_CLASSES_ROOT\CLSID\$($HstAutomation.spsupport[1])\InProcServer32"
     $r.hst_sxw_open = Get-RegDefault 'HKEY_CLASSES_ROOT\HSTOffice.StarWriterDocument.6\shell\open\command'
     $r.hst_office_uri_open = Get-RegDefault 'HKEY_CLASSES_ROOT\HSTOffice.OfficeURI\shell\open\command'
     $r.hst_oxt_open = Get-RegDefault 'HKEY_CLASSES_ROOT\HSTOffice.Extension.1\shell\open\command'
@@ -45,13 +62,18 @@ function Assert-HstCoexistKeys([System.Collections.IDictionary]$Reg, [string]$Lo
     foreach ($k in @('hst_sxw_open', 'hst_office_uri_open', 'hst_oxt_open') + @($HstClsids.Keys | ForEach-Object { "hst_clsid_$_" })) {
         Assert ($Reg[$k] -and $Reg[$k].IndexOf($program, [StringComparison]::OrdinalIgnoreCase) -ge 0) "$k is in $program ($($Reg[$k]))"
     }
+    foreach ($k in $HstAutomation.Keys) {
+        Assert ($Reg["hst_$k"] -eq $HstAutomation[$k][1]) "$($HstAutomation[$k][0]) is HST Office's class $($HstAutomation[$k][1]) ($($Reg["hst_$k"]))"
+        $server = $Reg["hst_$($k)_server"]
+        Assert ($server -and $server.IndexOf($program, [StringComparison]::OrdinalIgnoreCase) -ge 0) "$($HstAutomation[$k][0]) runs from $program ($server)"
+    }
     Assert ($Reg.hst_odt_thumbnail -eq $HstClsids.thumbnail) "HSTOffice.WriterDocument.1 has HST Office's thumbnail handler ($($Reg.hst_odt_thumbnail))"
 }
 
 function Assert-NoLibreOfficeNames([System.Collections.IDictionary]$Reg, [string[]]$Except = @()) {
     # With HST Office alone, none of LibreOffice's names exists (Except: entries not checked).
     $written = @($Reg.Keys | Where-Object { $_ -like 'lo_*' -and $Except -notcontains $_ -and $Reg[$_] })
-    Assert ($written.Count -eq 0) "HST Office alone writes no App Paths, vnd.libreoffice.command, LibreOffice class id, soffice.Star ProgID or Software\LibreOffice key ($($written -join ', '))"
+    Assert ($written.Count -eq 0) "HST Office alone writes no App Paths, vnd.libreoffice.command, LibreOffice class id, soffice.Star ProgID, Software\LibreOffice key or LibreOffice automation name ($($written -join ', '))"
 }
 
 function Assert-Kept([System.Collections.IDictionary]$Before, [System.Collections.IDictionary]$After, [string]$Prefix, [string]$Label) {

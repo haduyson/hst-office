@@ -1,0 +1,160 @@
+HST Office: "Dùng HST Office để mở tài liệu văn phòng" on the Typical setup path.
+
+A checkbox on the setup-type page, shown only for Typical (the Custom path keeps its per-type
+file-type page). Ticked (HSTDEFAULTAPPS=1):
+- SELECT_WORD, SELECT_EXCEL and SELECT_POWERPOINT are set before Regallmsdocdll, so the Office
+  file types are registered to HST Office even where another program had them; the
+  Capabilities entries are registered as before;
+- the DWORD ChosenAtInstall = 1 is written under Software\HASON TECH\HST Office\DefaultApps
+  (HKLM for a per-machine install, HKCU per user), which the first start reads so that it
+  does not ask again. Unticked, the value is absent.
+
+Windows keeps each user's own choice of default app (UserChoice), which no installer may set;
+the first-start prompt then opens Settings at HST Office. The checkbox text promises no more.
+
+Whether the box starts ticked is one switch, HSTDEFAULTAPPSUI in Property.idt (0 = unticked, the
+current default; 1 = ticked). HSTDEFAULTAPPS itself stays unset by default, because a checkbox
+shows ticked whenever its property has any value; when the switch is 1, HstDefaultAppsOn (UI
+sequence only) sets it. Silent installs and the updater change nothing unless HSTDEFAULTAPPS=1
+is passed on the command line. Choosing Custom clears it (its NewDialog event moves after the
+clearing event).
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/instsetoo_native/inc_openoffice/windows/msi_languages/Control.ulf
++++ b/instsetoo_native/inc_openoffice/windows/msi_languages/Control.ulf
+@@ -711,3 +711,6 @@ en-US = "Continue"
+ 
+ [OOO_CONTROL_HST_LEGACY_EXIT]
+ en-US = "Exit"
++
++[OOO_CONTROL_HST_DEFAULT_APPS]
++en-US = "Use HST Office to open office documents"
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/CheckBox.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/CheckBox.idt
+@@ -3,3 +3,4 @@ s72	S64
+ CheckBox	Property
+ CREATEDESKTOPLINK	1
+ QUICKSTART	1
++HSTDEFAULTAPPS	1
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/Control.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/Control.idt
+@@ -315,7 +315,7 @@ SetupType	DlgLine	Line	0	234	474	0	1
+ SetupType	DlgText	Text	21	51	426	15	3		OOO_CONTROL_258		
+ SetupType	DlgTitle	Text	13	6	380	25	65539		OOO_CONTROL_259		
+ SetupType	Next	PushButton	330	243	66	17	3		OOO_CONTROL_260	Cancel	
+-SetupType	RadioGroup	RadioButtonGroup	21	79	364	120	3	_IsSetupTypeMin		Back	
++SetupType	RadioGroup	RadioButtonGroup	21	79	364	120	3	_IsSetupTypeMin		DefaultApps	
+ SplashBitmap	Back	PushButton	264	243	66	17	1		OOO_CONTROL_262	Next	
+ SplashBitmap	Cancel	PushButton	401	243	66	17	3		OOO_CONTROL_265	Back	
+ SplashBitmap	DlgLine	Line	0	234	474	0	1				
+@@ -325,3 +325,4 @@ HstLegacyBeta	Icon	Icon	15	15	24	24	5242881		CautionIco
+ HstLegacyBeta	Text	Text	48	15	194	49	3		OOO_CONTROL_HST_LEGACY_BETA		
+ HstLegacyBeta	Continue	PushButton	62	76	66	17	3		OOO_CONTROL_HST_LEGACY_CONTINUE	Exit	
+ HstLegacyBeta	Exit	PushButton	135	76	66	17	3		OOO_CONTROL_HST_LEGACY_EXIT	Continue	
++SetupType	DefaultApps	CheckBox	21	208	426	15	3	HSTDEFAULTAPPS	OOO_CONTROL_HST_DEFAULT_APPS	Back	
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/ControlC.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/ControlC.idt
+@@ -65,3 +65,5 @@ SetupResume	PreselectedText	Hide	RESUME
+ SetupResume	PreselectedText	Show	NOT RESUME
+ SetupResume	ResumeText	Hide	NOT RESUME
+ SetupResume	ResumeText	Show	RESUME
++SetupType	DefaultApps	Show	_IsSetupTypeMin <> "Custom"
++SetupType	DefaultApps	Hide	_IsSetupTypeMin = "Custom"
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/ControlE.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/ControlE.idt
+@@ -133,10 +133,11 @@ SetupResume	Next	NewDialog	OutOfSpace	OutOfNoRbDiskSpace = 1	0
+ SetupType	Back	NewDialog	LicenseAgreement	HIDEEULA <> 1	1
+ SetupType	Back	NewDialog	InstallWelcome	HIDEEULA = 1	1
+ SetupType	Cancel	SpawnDialog	CancelSetup	1	0
+-SetupType	Next	NewDialog	CustomSetup	_IsSetupTypeMin = "Custom"	0
++SetupType	Next	NewDialog	CustomSetup	_IsSetupTypeMin = "Custom"	2
+ SetupType	Next	[FILETYPEDIALOGUSED]	0	_IsSetupTypeMin <> "Custom"	5
+ SetupType	Next	NewDialog	ReadyToInstall	_IsSetupTypeMin <> "Custom"	6
+ SplashBitmap	Cancel	SpawnDialog	CancelSetup	1	0
+ SplashBitmap	Next	NewDialog	InstallWelcome	1	0
+ HstLegacyBeta	Continue	EndDialog	Return	1	0
+ HstLegacyBeta	Exit	EndDialog	Exit	1	0
++SetupType	Next	[HSTDEFAULTAPPS]	{}	_IsSetupTypeMin = "Custom"	1
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/CustomAc.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/CustomAc.idt
+@@ -14,3 +14,7 @@ ResetApplicationSelected	51	APP_SELECTED	0
+ SetAdminInstallProperty	51	ADMININSTALL	1	
+ HstLegacyReinstallMode	51	REINSTALLMODE	amus	
+ HstLegacyNoVcRedist	51	VC_REDIST	0	
++HstDefaultAppsOn	51	HSTDEFAULTAPPS	1	
++HstDefaultAppsWord	51	SELECT_WORD	1	
++HstDefaultAppsExcel	51	SELECT_EXCEL	1	
++HstDefaultAppsPowerPoint	51	SELECT_POWERPOINT	1	
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/InstallE.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/InstallE.idt
+@@ -71,3 +71,6 @@ WriteIniValues		2450
+ WriteRegistryValues		2400
+ HstLegacyReinstallMode	HSTLEGACYPRODUCTS	101
+ HstLegacyNoVcRedist	HSTLEGACYPRODUCTS	102
++HstDefaultAppsWord	HSTDEFAULTAPPS=1 And Not REMOVE="ALL"	490
++HstDefaultAppsExcel	HSTDEFAULTAPPS=1 And Not REMOVE="ALL"	491
++HstDefaultAppsPowerPoint	HSTDEFAULTAPPS=1 And Not REMOVE="ALL"	492
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/InstallU.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/InstallU.idt
+@@ -31,3 +31,4 @@ ValidateProductID		350
+ HstLegacyReinstallMode	HSTLEGACYPRODUCTS	151
+ HstLegacyNoVcRedist	HSTLEGACYPRODUCTS	152
+ HstLegacyBeta	HSTLEGACYPRODUCTS And Not Installed	640
++HstDefaultAppsOn	Not Installed And Not HSTDEFAULTAPPS And HSTDEFAULTAPPSUI=1	645
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/Property.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/Property.idt
+@@ -44,7 +44,7 @@ ProgressType3	installs
+ Quickstarterlinkname	QUICKSTARTERLINKNAMETEMPLATE
+ RebootYesNo	Yes
+ ReinstallModeText	omus
+-SecureCustomProperties	NEWPRODUCTS;OLDPRODUCTS;WINMAJORVER;INSTALLLOCATION;TARGETDIR;COMPANYNAME;USERNAME;ALLUSERSPROFILE;USERPROFILE;LANG_SELECTED;APP_SELECTED;FILETYPEDIALOGUSED;SOURCEDIR;ROOTDRIVE;REGISTER_XLW;REGISTER_PDF;REGISTER_VST;REGISTER_VSD;CREATEDESKTOPLINK;SELECT_WORD;SELECT_EXCEL;SELECT_POWERPOINT;SELECT_VISIO;HSTLEGACYPRODUCTS
++SecureCustomProperties	NEWPRODUCTS;OLDPRODUCTS;WINMAJORVER;INSTALLLOCATION;TARGETDIR;COMPANYNAME;USERNAME;ALLUSERSPROFILE;USERPROFILE;LANG_SELECTED;APP_SELECTED;FILETYPEDIALOGUSED;SOURCEDIR;ROOTDRIVE;REGISTER_XLW;REGISTER_PDF;REGISTER_VST;REGISTER_VSD;CREATEDESKTOPLINK;SELECT_WORD;SELECT_EXCEL;SELECT_POWERPOINT;SELECT_VISIO;HSTLEGACYPRODUCTS;HSTDEFAULTAPPS
+ SetupType	Typical
+ SELECT_WORD	0
+ SELECT_EXCEL	0
+@@ -65,3 +65,4 @@ VC_REDIST	1
+ WindowsMinVersionText	WINDOWSMINVERSIONTEXTTEMPLATE
+ WinMajorVerMin	WINMAJORVERMINTEMPLATE
+ REGISTER_PDF	1
++HSTDEFAULTAPPSUI	0
+--- a/scp2/source/ooo/registryitem_ooo.scp
++++ b/scp2/source/ooo/registryitem_ooo.scp
+@@ -214,6 +214,19 @@ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Sta
+     Value = "https://hasontech.vn/?utm_source=hst-office&utm_medium=installer&utm_campaign=hst-office-1-0";
+ End
+ 
++// Written when "Use HST Office to open office documents" is ticked (HSTDEFAULTAPPS=1): the first
++// start does not ask again. Its own hidden module, so that only this key carries the condition.
++CONDITIONAL_MODULE_ENTRY(DefaultApps, gid_Module_Root)
++
++RegistryItem gid_Regitem_Software_Manufacturer_Productname_DefaultApps_ChosenAtInstall
++    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
++    Subkey = "Software\%MANUFACTURER\%PRODUCTNAME\DefaultApps";
++    ModuleID = gid_Module_Root_Reg_DefaultApps;
++    Name = "ChosenAtInstall";
++    Value = "#1";
++    ComponentCondition = "HSTDEFAULTAPPS=1";
++End
++
+ RegistryItem gid_Regitem_Software_Openoffice_Productname_Productversion_Path
+ 	ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
+     Subkey = "Software\%MANUFACTURER\%PRODUCTNAME\%PRODUCTVERSION";
+--- a/translations/source/vi/instsetoo_native/inc_openoffice/windows/msi_languages.po
++++ b/translations/source/vi/instsetoo_native/inc_openoffice/windows/msi_languages.po
+@@ -16,6 +16,15 @@ msgstr ""
+ "X-Generator: LibreOffice\n"
+ "X-POOTLE-MTIME: 1542025425.000000\n"
+ 
++#. hstMSI
++#: Control.ulf
++msgctxt ""
++"Control.ulf\n"
++"OOO_CONTROL_HST_DEFAULT_APPS\n"
++"LngText.text"
++msgid "Use HST Office to open office documents"
++msgstr "Dùng HST Office để mở tài liệu văn phòng"
++
+ #. hstMSI
+ #: Control.ulf
+ msgctxt ""
