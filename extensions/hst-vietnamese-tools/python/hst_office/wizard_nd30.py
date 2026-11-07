@@ -45,6 +45,10 @@ class Nd30Wizard:
         self._label("type", 8)
         d.edit("type", FIELD_X, 6 + TOP, FIELD_W - 14, text=self.picker.label_of(self.picker.current), help_text=s["typeSearchHelp"])
         d.button("typeOpen", "▾", FIELD_X + FIELD_W - 13, 6 + TOP, 13, h=12, callback=self.picker.toggle)
+        # The open list lies over the fields below it. In VCL an EARLIER sibling is above later ones for painting and
+        # for mouse hit-testing (stacking.cxx ImplFindWindow, paint.cxx), so it must be inserted before them; inserted
+        # last, the fields under it took hover repaints, the wheel and clicks.
+        d.plain_list("typeList", FIELD_X, 19 + TOP, FIELD_W, 150, help_text=s["typeSearchHelp"])
         self._row("parentAgency", 22)
         self._row("agency", 38)
         self._label("number", 54)
@@ -82,7 +86,6 @@ class Nd30Wizard:
         d.button("btnCancel", self.s["common"]["cancel"], WIDTH - 8 - 64, HEIGHT - 22, 64, kind=2)
         d.on_change(nd30.FIELD_KEYS, self.refresh)
         d.on_oversize = self._compact
-        d.plain_list("typeList", FIELD_X, 19 + TOP, FIELD_W, 150, help_text=s["typeSearchHelp"])  # last: drawn over the fields below
         d.on_ready, d.on_closed = self.picker.attach, self.picker.detach
 
     def _compact(self):
