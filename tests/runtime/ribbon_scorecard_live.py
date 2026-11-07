@@ -52,7 +52,7 @@ def group_panel(label):
     return label.parent
 
 
-def _labels_group(node, box):
+def is_group_caption(node, box):
     """A group caption: a label that names its group (Writer exposes the relation), or, where the relation is not
     exposed (Sheets), a label on the bottom row of a panel that holds toolbars."""
     import pyatspi
@@ -116,7 +116,7 @@ def layout():
                 continue
             if role == "page tab" and box[1] < 100:
                 tabs.append({"name": name, "box": box, "selected": _state(node, "STATE_SELECTED")})
-            elif role == "label" and name and _labels_group(node, box):
+            elif role == "label" and name and is_group_caption(node, box):
                 parent = group_panel(node)
                 groups.append({"caption": name, "caption_box": box, "box": list(gui.extents(parent)) if parent else box})
             elif role in ("push button", "toggle button", "menu button"):
