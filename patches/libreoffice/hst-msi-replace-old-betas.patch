@@ -1,0 +1,155 @@
+HST Office: install cleanly over the 1.0.0 betas 1-4 that were installed under LibreOffice's UpgradeCode.
+
+Betas 1-4 stamped HST's executables 26.8.1.1; the new files carry their real version (1.0.0.x).
+Costing skips every component whose key file on disk is newer, then RemoveExistingProducts
+deletes the old copies, so those files were missing after an over-install.
+
+- upgrade.pm: a detect-only twin of the legacy removal row (same code and range, attributes 258)
+  sets HSTLEGACYPRODUCTS when such a beta is installed. It is a secure property, so it reaches
+  the execute sequence of a full-UI install.
+- HstLegacyReinstallMode / HstLegacyNoVcRedist (type 51), right after FindRelatedProducts in the
+  execute and UI sequences and before any costing, run only when HSTLEGACYPRODUCTS is set:
+  REINSTALLMODE=amus makes costing install the files whatever the version on disk, and
+  VC_REDIST=0 leaves the C++ runtime merge-module components (condition VC_REDIST=1, permanent)
+  out of costing, so the forced reinstall can never replace the runtime in System32; the betas
+  installed it permanently, so it stays. A fresh install or an upgrade from beta.5 on sets
+  neither. Everything runs in the execute sequence, so silent installs (/qn) and the updater
+  (/passive) work the same.
+- HstLegacyBeta: in an interactive install, a Vietnamese notice before the welcome page that the
+  old test version will be removed and documents are not affected (Continue / Exit). The install
+  never depends on it.
+
+Side effects: in-use files of the old beta (the Explorer shell extension) are replaced too, so
+msiexec returns 3010 (restart needed) more often. Fonts installed to the Fonts folder are
+rewritten with the same files.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/instsetoo_native/inc_openoffice/windows/msi_languages/Control.ulf
++++ b/instsetoo_native/inc_openoffice/windows/msi_languages/Control.ulf
+@@ -702,3 +702,12 @@ en-US = "{&DialogDefaultBold}Attention!"
+ 
+ [OOO_CONTROL_328]
+ en-US = "The [ProductName] Help must be installed in the same directory as the program."
++
++[OOO_CONTROL_HST_LEGACY_BETA]
++en-US = "An earlier HST Office test version is installed on this computer. Setup will remove it and then install the new version. Your documents are not affected."
++
++[OOO_CONTROL_HST_LEGACY_CONTINUE]
++en-US = "Continue"
++
++[OOO_CONTROL_HST_LEGACY_EXIT]
++en-US = "Exit"
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/Control.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/Control.idt
+@@ -321,3 +321,7 @@ SplashBitmap	Cancel	PushButton	401	243	66	17	3		OOO_CONTROL_265	Back
+ SplashBitmap	DlgLine	Line	0	234	474	0	1				
+ SplashBitmap	Image	Bitmap	13	12	114	211	1		ImageBmp		
+ SplashBitmap	Next	PushButton	330	243	66	17	3		OOO_CONTROL_266	Cancel	
++HstLegacyBeta	Icon	Icon	15	15	24	24	5242881		CautionIco		
++HstLegacyBeta	Text	Text	48	15	194	49	3		OOO_CONTROL_HST_LEGACY_BETA		
++HstLegacyBeta	Continue	PushButton	62	76	66	17	3		OOO_CONTROL_HST_LEGACY_CONTINUE	Exit	
++HstLegacyBeta	Exit	PushButton	135	76	66	17	3		OOO_CONTROL_HST_LEGACY_EXIT	Continue	
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/ControlE.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/ControlE.idt
+@@ -138,3 +138,5 @@ SetupType	Next	[FILETYPEDIALOGUSED]	0	_IsSetupTypeMin <> "Custom"	5
+ SetupType	Next	NewDialog	ReadyToInstall	_IsSetupTypeMin <> "Custom"	6
+ SplashBitmap	Cancel	SpawnDialog	CancelSetup	1	0
+ SplashBitmap	Next	NewDialog	InstallWelcome	1	0
++HstLegacyBeta	Continue	EndDialog	Return	1	0
++HstLegacyBeta	Exit	EndDialog	Exit	1	0
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/CustomAc.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/CustomAc.idt
+@@ -12,3 +12,5 @@ ResetLanguageSelected	51	LANG_SELECTED	0
+ SetApplicationSelected	51	APP_SELECTED	1	
+ ResetApplicationSelected	51	APP_SELECTED	0	
+ SetAdminInstallProperty	51	ADMININSTALL	1	
++HstLegacyReinstallMode	51	REINSTALLMODE	amus	
++HstLegacyNoVcRedist	51	VC_REDIST	0	
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/Dialog.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/Dialog.idt
+@@ -32,3 +32,4 @@ SetupProgress	50	50	474	266	5	[ProductName] - [STR_INSTALLATION_WIZARD]	Cancel	C
+ SetupResume	50	50	474	266	3	[ProductName] - [STR_INSTALLATION_WIZARD]	Next	Next	Cancel
+ SetupType	50	50	474	266	3	[ProductName] - [STR_INSTALLATION_WIZARD]	RadioGroup	Next	Cancel
+ SplashBitmap	50	50	474	266	3	[ProductName] - [STR_INSTALLATION_WIZARD]	Next	Next	Cancel
++HstLegacyBeta	50	50	260	104	3	[ProductName] [Setup]	Continue	Continue	Exit
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/InstallE.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/InstallE.idt
+@@ -69,3 +69,5 @@ ValidateProductID		300
+ WriteEnvironmentStrings		2500
+ WriteIniValues		2450
+ WriteRegistryValues		2400
++HstLegacyReinstallMode	HSTLEGACYPRODUCTS	101
++HstLegacyNoVcRedist	HSTLEGACYPRODUCTS	102
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/InstallU.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/InstallU.idt
+@@ -28,3 +28,6 @@ SetupProgress		800
+ SetupResume	Installed And (RESUME Or Preselected) And Not PATCH	700
+ setUserProfile		510
+ ValidateProductID		350
++HstLegacyReinstallMode	HSTLEGACYPRODUCTS	151
++HstLegacyNoVcRedist	HSTLEGACYPRODUCTS	152
++HstLegacyBeta	HSTLEGACYPRODUCTS And Not Installed	640
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/Property.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/Property.idt
+@@ -44,7 +44,7 @@ ProgressType3	installs
+ Quickstarterlinkname	QUICKSTARTERLINKNAMETEMPLATE
+ RebootYesNo	Yes
+ ReinstallModeText	omus
+-SecureCustomProperties	NEWPRODUCTS;OLDPRODUCTS;WINMAJORVER;INSTALLLOCATION;TARGETDIR;COMPANYNAME;USERNAME;ALLUSERSPROFILE;USERPROFILE;LANG_SELECTED;APP_SELECTED;FILETYPEDIALOGUSED;SOURCEDIR;ROOTDRIVE;REGISTER_XLW;REGISTER_PDF;REGISTER_VST;REGISTER_VSD;CREATEDESKTOPLINK;SELECT_WORD;SELECT_EXCEL;SELECT_POWERPOINT;SELECT_VISIO
++SecureCustomProperties	NEWPRODUCTS;OLDPRODUCTS;WINMAJORVER;INSTALLLOCATION;TARGETDIR;COMPANYNAME;USERNAME;ALLUSERSPROFILE;USERPROFILE;LANG_SELECTED;APP_SELECTED;FILETYPEDIALOGUSED;SOURCEDIR;ROOTDRIVE;REGISTER_XLW;REGISTER_PDF;REGISTER_VST;REGISTER_VSD;CREATEDESKTOPLINK;SELECT_WORD;SELECT_EXCEL;SELECT_POWERPOINT;SELECT_VISIO;HSTLEGACYPRODUCTS
+ SetupType	Typical
+ SELECT_WORD	0
+ SELECT_EXCEL	0
+--- a/solenv/bin/modules/installer/windows/upgrade.pm
++++ b/solenv/bin/modules/installer/windows/upgrade.pm
+@@ -62,6 +62,13 @@ sub create_upgrade_table
+         # 257 = msidbUpgradeAttributesMigrateFeatures (1) + msidbUpgradeAttributesVersionMinInclusive (256); the maximum is exclusive.
+         $newline = $legacycode . "\t" . $legacymin . "\t" . $legacymax . "\t" . "\t" . "257" . "\t" . "\t" . "OLDPRODUCTS" . "\n";
+         push(@upgradetable, $newline);
++        # The same range, detect only (258 = msidbUpgradeAttributesOnlyDetect (2) + VersionMinInclusive (256)):
++        # HSTLEGACYPRODUCTS tells the installer it is replacing such a build. Their files may carry a
++        # higher version than ours, so costing would skip them before RemoveExistingProducts deletes the
++        # old copies; when it is set, the HstLegacy* actions (CustomAc.idt) force the files in
++        # (REINSTALLMODE=amus) and leave the system C++ runtime out of costing (VC_REDIST=0).
++        $newline = $legacycode . "\t" . $legacymin . "\t" . $legacymax . "\t" . "\t" . "258" . "\t" . "\t" . "HSTLEGACYPRODUCTS" . "\n";
++        push(@upgradetable, $newline);
+     }
+ 
+     # Saving the file
+--- a/translations/source/vi/instsetoo_native/inc_openoffice/windows/msi_languages.po
++++ b/translations/source/vi/instsetoo_native/inc_openoffice/windows/msi_languages.po
+@@ -16,6 +16,33 @@ msgstr ""
+ "X-Generator: LibreOffice\n"
+ "X-POOTLE-MTIME: 1542025425.000000\n"
+ 
++#. hstMSI
++#: Control.ulf
++msgctxt ""
++"Control.ulf\n"
++"OOO_CONTROL_HST_LEGACY_BETA\n"
++"LngText.text"
++msgid "An earlier HST Office test version is installed on this computer. Setup will remove it and then install the new version. Your documents are not affected."
++msgstr "Máy đang có bản HST Office thử nghiệm cũ. Bộ cài sẽ gỡ bản cũ rồi cài bản mới. Tài liệu của bạn không bị ảnh hưởng."
++
++#. hstMSI
++#: Control.ulf
++msgctxt ""
++"Control.ulf\n"
++"OOO_CONTROL_HST_LEGACY_CONTINUE\n"
++"LngText.text"
++msgid "Continue"
++msgstr "Tiếp tục"
++
++#. hstMSI
++#: Control.ulf
++msgctxt ""
++"Control.ulf\n"
++"OOO_CONTROL_HST_LEGACY_EXIT\n"
++"LngText.text"
++msgid "Exit"
++msgstr "Thoát"
++
+ #. tBfTE
+ #: ActionTe.ulf
+ msgctxt ""

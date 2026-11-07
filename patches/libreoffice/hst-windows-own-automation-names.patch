@@ -1,0 +1,274 @@
+HST Office: its own Windows automation names; no LibreOffice automation name is shared.
+
+HST Office registered LibreOffice's automation class objects and ProgIDs, so with both suites
+installed the last installer served com.sun.star.ServiceManager, Writer.Application and
+Calc.Application for both, and uninstalling one broke the other's automation clients.
+
+New class ids, generated once for HST Office and never changed:
+- HSTOffice.ServiceManager (and .1): {BAB2DE94-F543-4763-B27C-C88CA8B1E606}, also its AppID
+  (was com.sun.star.ServiceManager, {82154420-0FBF-11d4-8313-005004526AB4});
+- HSTOffice.Writer.Application: {46108D44-89EA-4AC1-8190-DF4362FBAFCC} (was Writer.Application,
+  {82154421-...});
+- HSTOffice.Sheets.Application: {EE151D41-E628-4D5C-BD96-9BD4B596C916} (was Calc.Application,
+  {82154425-...}); its LocalServer32 key now belongs to the Sheets module, as its ProgID does.
+
+The old names are not kept: external scripts use the new ProgIDs. The class objects are
+registered at run time in extensions/source/ole/servprov.cxx; the sw/sc vbaapplication.cxx
+coclass ids (IProvideClassInfo) and the ActiveX control's CoCreateInstance follow. The
+AppID\soffice.exe key is dropped: it maps an executable name, which every suite with a
+soffice.exe shares, and it carried no AppID value. The interface ids of the VBA objects stay.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/extensions/source/activex/SOActiveX.cxx
++++ b/extensions/source/activex/SOActiveX.cxx
+@@ -145,7 +145,8 @@ CSOActiveX::CSOActiveX()
+ , mbReadyForActivation( FALSE )
+ , mbDrawLocked( false )
+ {
+-    CLSID const clsFactory = {0x82154420,0x0FBF,0x11d4,{0x83, 0x13,0x00,0x50,0x04,0x52,0x6A,0xB4}};
++    // HSTOffice.ServiceManager (extensions/source/ole/servprov.cxx)
++    CLSID const clsFactory = {0xBAB2DE94,0xF543,0x4763,{0xB2,0x7C,0xC8,0x8C,0xA8,0xB1,0xE6,0x06}};
+     HRESULT hr = CoCreateInstance(clsFactory, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&mpDispFactory));
+     if( !SUCCEEDED( hr ) )
+         OutputError_Impl( nullptr, hr );
+--- a/extensions/source/ole/servprov.cxx
++++ b/extensions/source/ole/servprov.cxx
+@@ -46,18 +46,18 @@ using namespace com::sun::star::bridge::ModelDependent;
+ 
+ #include <initguid.h>
+ 
+-// GUID used since 5.2 ( src569 m)
+-// {82154420-0FBF-11d4-8313-005004526AB4}
+-DEFINE_GUID(OID_ServiceManager, 0x82154420, 0xfbf, 0x11d4, 0x83, 0x13, 0x0, 0x50, 0x4, 0x52, 0x6a, 0xb4);
+-
+-// FIXME: This GUID is just the above OID_ServiceManager with the
+-// initial part bumped by one. Is that good enough?
+-// {82154421-0FBF-11d4-8313-005004526AB4}
+-DEFINE_GUID(OID_LibreOfficeWriterApplication, 0x82154421, 0xfbf, 0x11d4, 0x83, 0x13, 0x0, 0x50, 0x4, 0x52, 0x6a, 0xb4);
+-
+-// For Calc
+-// {82154425-0FBF-11d4-8313-005004526AB4}
+-DEFINE_GUID(OID_LibreOfficeCalcApplication, 0x82154425, 0xfbf, 0x11d4, 0x83, 0x13, 0x0, 0x50, 0x4, 0x52, 0x6a, 0xb4);
++// HST Office's own class objects, so that an installed LibreOffice and HST Office never serve each
++// other's automation clients. They match scp2 registryitem_ooo/_writer/_calc.scp (ProgIDs
++// HSTOffice.ServiceManager, HSTOffice.Writer.Application, HSTOffice.Sheets.Application) and the
++// coclass IIDs in sw/sc vbaapplication.cxx.
++// {BAB2DE94-F543-4763-B27C-C88CA8B1E606}
++DEFINE_GUID(OID_ServiceManager, 0xbab2de94, 0xf543, 0x4763, 0xb2, 0x7c, 0xc8, 0x8c, 0xa8, 0xb1, 0xe6, 0x06);
++
++// {46108D44-89EA-4AC1-8190-DF4362FBAFCC}
++DEFINE_GUID(OID_LibreOfficeWriterApplication, 0x46108d44, 0x89ea, 0x4ac1, 0x81, 0x90, 0xdf, 0x43, 0x62, 0xfb, 0xaf, 0xcc);
++
++// {EE151D41-E628-4D5C-BD96-9BD4B596C916}
++DEFINE_GUID(OID_LibreOfficeCalcApplication, 0xee151d41, 0xe628, 0x4d5c, 0xbd, 0x96, 0x9b, 0xd4, 0xb5, 0x96, 0xc9, 0x16);
+ 
+ OneInstanceOleWrapper::OneInstanceOleWrapper(  const Reference<XMultiServiceFactory>& smgr,
+                                                std::function<const Reference<XInterface>()> xInstFunction )
+--- a/sc/source/ui/vba/vbaapplication.cxx
++++ b/sc/source/ui/vba/vbaapplication.cxx
+@@ -1509,7 +1509,7 @@ void SAL_CALL ScVbaApplication::Undo()
+ OUString SAL_CALL
+ ScVbaApplication::getIID()
+ {
+-    return u"{82154425-0FBF-11d4-8313-005004526AB4}"_ustr;
++    return u"{EE151D41-E628-4D5C-BD96-9BD4B596C916}"_ustr; // HSTOffice.Sheets.Application
+ }
+ 
+ // XConnectable
+--- a/scp2/source/calc/registryitem_calc.scp
++++ b/scp2/source/calc/registryitem_calc.scp
+@@ -809,15 +809,15 @@ End
+ RegistryItem gid_Regitem_CalcApplication
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Calc_Bin;
+-    Subkey = "Calc.Application\CLSID";
+-    Value = "{82154425-0FBF-11d4-8313-005004526AB4}";
++    Subkey = "HSTOffice.Sheets.Application\CLSID";
++    Value = "{EE151D41-E628-4D5C-BD96-9BD4B596C916}";
+     Styles = ();
+ End
+ 
+-RegistryItem gid_Regitem_Clsid__82154425_0FBF_11d4_8313_005004526AB4__Localserver32
++RegistryItem gid_Regitem_Clsid_HstSheetsApplication_Localserver32
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "CLSID\{82154425-0FBF-11d4-8313-005004526AB4}\LocalServer32";
++    ModuleID = gid_Module_Prg_Calc_Bin;
++    Subkey = "CLSID\{EE151D41-E628-4D5C-BD96-9BD4B596C916}\LocalServer32";
+     Value = "<progpath>\program\soffice.exe --nodefault --nologo";
+ End
+ 
+--- a/scp2/source/ooo/registryitem_ooo.scp
++++ b/scp2/source/ooo/registryitem_ooo.scp
+@@ -27,66 +27,59 @@ End
+ 
+ RegistryItem gid_Regitem_AppID__df595024_3257_41b3_bcf1_a51515ad205e_
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "AppID\{82154420-0FBF-11d4-8313-005004526AB4}";
+-    ModuleID = gid_Module_Root;
+-    Value = "%PRODUCTNAME Service Manager (Ver 1.0)";
+-End
+-
+-RegistryItem gid_Regitem_AppID__df595024_3257_41b3_bcf1_a51515ad205e_soffice
+-    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "AppID\soffice.exe";
++    Subkey = "AppID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}";
+     ModuleID = gid_Module_Root;
+     Value = "%PRODUCTNAME Service Manager (Ver 1.0)";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__3ecf78f0_B1_11d2_8ebe_005ad848af_
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "CLSID\{82154420-0FBF-11d4-8313-005004526AB4}";
++    Subkey = "CLSID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}";
+     ModuleID = gid_Module_Root;
+     Value = "%PRODUCTNAME Service Manager (Ver 1.0)";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__3ecf78f0_B1_11d2_8ebe_005ad848af_AppID
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "CLSID\{82154420-0FBF-11d4-8313-005004526AB4}";
++    Subkey = "CLSID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}";
+     ModuleID = gid_Module_Root;
+     Name = "AppID";
+-    Value = "{82154420-0FBF-11d4-8313-005004526AB4}";
++    Value = "{BAB2DE94-F543-4763-B27C-C88CA8B1E606}";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__3ecf78f0_B1_11d2_8ebe_005ad848af__Localserver32
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "CLSID\{82154420-0FBF-11d4-8313-005004526AB4}\LocalServer32";
++    Subkey = "CLSID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}\LocalServer32";
+     ModuleID = gid_Module_Root;
+     Value = "<progpath>\program\soffice.exe --nodefault --nologo";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__3ecf78f0_B1_11d2_8ebe_005ad848af__Notinsertable
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "CLSID\{82154420-0FBF-11d4-8313-005004526AB4}\NotInsertable";
++    Subkey = "CLSID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}\NotInsertable";
+     ModuleID = gid_Module_Root;
+     Value = "";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__3ecf78f0_B1_11d2_8ebe_005ad848af__Progid
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "CLSID\{82154420-0FBF-11d4-8313-005004526AB4}\ProgID";
++    Subkey = "CLSID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}\ProgID";
+     ModuleID = gid_Module_Root;
+-    Value = "com.sun.star.ServiceManager.1";
++    Value = "HSTOffice.ServiceManager.1";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__3ecf78f0_B1_11d2_8ebe_005ad848af__Programmable
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "CLSID\{82154420-0FBF-11d4-8313-005004526AB4}\Programmable";
++    Subkey = "CLSID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}\Programmable";
+     ModuleID = gid_Module_Root;
+     Value = "";
+ End
+ 
+ RegistryItem gid_Regitem_Clsid__3ecf78f0_B1_11d2_8ebe_005ad848af__Versionindependentprogid
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "CLSID\{82154420-0FBF-11d4-8313-005004526AB4}\VersionIndependentProgID";
++    Subkey = "CLSID\{BAB2DE94-F543-4763-B27C-C88CA8B1E606}\VersionIndependentProgID";
+     ModuleID = gid_Module_Root;
+-    Value = "com.sun.star.ServiceManager";
++    Value = "HSTOffice.ServiceManager";
+ End
+ 
+ RegistryItem gid_Regitem_Sdg
+@@ -389,49 +382,49 @@ End
+ 
+ RegistryItem gid_Regitem_Stardiv_Uno_Servicemanager
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "com.sun.star.ServiceManager";
++    Subkey = "HSTOffice.ServiceManager";
+     ModuleID = gid_Module_Root;
+     Value = "%PRODUCTNAME Service Manager";
+ End
+ 
+ RegistryItem gid_Regitem_Stardiv_Uno_Servicemanager_1
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "com.sun.star.ServiceManager.1";
++    Subkey = "HSTOffice.ServiceManager.1";
+     ModuleID = gid_Module_Root;
+     Value = "%PRODUCTNAME Service Manager (Ver 1.0)";
+ End
+ 
+ RegistryItem gid_Regitem_Stardiv_Uno_Servicemanager_1_Clsid
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "com.sun.star.ServiceManager.1\CLSID";
++    Subkey = "HSTOffice.ServiceManager.1\CLSID";
+     ModuleID = gid_Module_Root;
+-    Value = "{82154420-0FBF-11d4-8313-005004526AB4}";
++    Value = "{BAB2DE94-F543-4763-B27C-C88CA8B1E606}";
+ End
+ 
+ RegistryItem gid_Regitem_Stardiv_Uno_Servicemanager_1_Notinsertable
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "com.sun.star.ServiceManager.1\NotInsertable";
++    Subkey = "HSTOffice.ServiceManager.1\NotInsertable";
+     ModuleID = gid_Module_Root;
+     Value = "";
+ End
+ 
+ RegistryItem gid_Regitem_Stardiv_Uno_Servicemanager_Clsid
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "com.sun.star.ServiceManager\CLSID";
++    Subkey = "HSTOffice.ServiceManager\CLSID";
+     ModuleID = gid_Module_Root;
+-    Value = "{82154420-0FBF-11d4-8313-005004526AB4}";
++    Value = "{BAB2DE94-F543-4763-B27C-C88CA8B1E606}";
+ End
+ 
+ RegistryItem gid_Regitem_Stardiv_Uno_Servicemanager_Curver
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "com.sun.star.ServiceManager\CurVer";
++    Subkey = "HSTOffice.ServiceManager\CurVer";
+     ModuleID = gid_Module_Root;
+-    Value = "com.sun.star.ServiceManager.1";
++    Value = "HSTOffice.ServiceManager.1";
+ End
+ 
+ RegistryItem gid_Regitem_Stardiv_Uno_Servicemanager_Notinsertable
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+-    Subkey = "com.sun.star.ServiceManager\NotInsertable";
++    Subkey = "HSTOffice.ServiceManager\NotInsertable";
+     ModuleID = gid_Module_Root;
+     Value = "";
+ End
+--- a/scp2/source/writer/registryitem_writer.scp
++++ b/scp2/source/writer/registryitem_writer.scp
+@@ -979,15 +979,15 @@ End
+ RegistryItem gid_Regitem_WriterApplication
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "Writer.Application\CLSID";
+-    Value = "{82154421-0FBF-11d4-8313-005004526AB4}";
++    Subkey = "HSTOffice.Writer.Application\CLSID";
++    Value = "{46108D44-89EA-4AC1-8190-DF4362FBAFCC}";
+     Styles = ();
+ End
+ 
+-RegistryItem gid_Regitem_Clsid__82154421_0FBF_11d4_8313_005004526AB4__Localserver32
++RegistryItem gid_Regitem_Clsid_HstWriterApplication_Localserver32
+     ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
+     ModuleID = gid_Module_Prg_Wrt_Bin;
+-    Subkey = "CLSID\{82154421-0FBF-11d4-8313-005004526AB4}\LocalServer32";
++    Subkey = "CLSID\{46108D44-89EA-4AC1-8190-DF4362FBAFCC}\LocalServer32";
+     Value = "<progpath>\program\soffice.exe --nodefault --nologo";
+ End
+ 
+--- a/sw/source/ui/vba/vbaapplication.cxx
++++ b/sw/source/ui/vba/vbaapplication.cxx
+@@ -445,7 +445,7 @@ void SAL_CALL SwVbaApplication::Move( sal_Int32 Left, sal_Int32 Top )
+ OUString SAL_CALL
+ SwVbaApplication::getIID()
+ {
+-    return u"{82154421-0FBF-11d4-8313-005004526AB4}"_ustr;
++    return u"{46108D44-89EA-4AC1-8190-DF4362FBAFCC}"_ustr; // HSTOffice.Writer.Application
+ }
+ 
+ // XConnectable
