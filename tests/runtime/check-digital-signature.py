@@ -3,7 +3,7 @@
 """Digital signatures with a USB token (PKCS#11) end to end, on a virtual SoftHSM2 token.
 
 Signs ODT, DOCX, ODS, XLSX, ODP, PPTX and an existing PDF through the real dialogs
-(Tập tin → Chữ ký số → Ký tài liệu… → chọn chứng chỉ → nhập mã PIN), exports a signed PDF
+(Tệp tin → Chữ ký số → Ký tài liệu… → chọn chứng chỉ → nhập mã PIN), exports a signed PDF
 (PDF export filter, optional time-stamp server), then verifies every file inside HST Office
 (signature state and DocumentDigitalSignatures) and independently (signature_verify: XML-DSig
 with lxml/cryptography, pdfsig, pyHanko). A second, fresh instance cancels the PIN prompt and
@@ -134,7 +134,7 @@ class Dialogs:
             time.sleep(1)
 
     def sign_open_document(self, frame, tag, accept_errors=False):
-        """Tập tin → Chữ ký số… → Ký tài liệu… → certificate → Ký → Đóng, on the loaded document."""
+        """Tệp tin → Chữ ký số… → Ký tài liệu… → certificate → Ký → Đóng, on the loaded document."""
         threading.Thread(target=self.office.dispatch, args=(frame, ".uno:Signature"), daemon=True).start()
         dialog = self.wait({"signatures", "sign", "close"}, accept_errors=accept_errors)
         self.later(dialog.getChild("sign"))

@@ -1,0 +1,315 @@
+HST Office: Office-style drawing of the ribbon buttons and tabs, the same on Windows, macOS and Linux.
+
+Owner decision (2026-11-07): owner-draw painting ships on for all three platforms; the OwnerDraw switch
+(org.openoffice.Office.HSTRibbon, hst-ribbon-switches.patch) is rollback safety only.
+
+Scoped to the Tabbed notebookbar: dialogs, the sidebar and classic toolbars keep the native theme.
+High contrast always uses the native theme and the system colours. LibreOfficeKit is unchanged.
+Colours are the tokens of docs/design/ribbon-look/PROPOSAL.md, light and dark.
+
+- include/vcl/HstRibbonPaint.hxx, vcl/source/control/HstRibbonPaint.cxx (new): the palette, the
+  high-contrast rule, the switch (read once per process), SetOwnerDraw() for a toolbox, and the
+  button and tab painters. Buttons: rounded (3 px) hover fill; pressed stronger than checked;
+  checked is a fill with an even 1 px border on all four sides; disabled draws no state. Tabs: no
+  box; a light rounded fill on hover; the selected tab has a 2 px accent bar under its label.
+- vcl/inc/toolbox.h, vcl/source/window/toolbox.cxx: ToolBox::ImplDrawButton draws with the palette
+  when the toolbox is marked; control items (combo boxes) stay native.
+- vcl/source/control/tabctrl.cxx: TabControl::ImplDrawItem draws notebookbar tabs with the palette;
+  labels, the contextual tab marker and other tab controls are unchanged.
+- sfx2/source/sidebar/SidebarToolBox.cxx: NotebookbarToolBox marks itself.
+- vcl/Library_vcl.mk: builds HstRibbonPaint.
+
+--- a/vcl/inc/toolbox.h
++++ b/vcl/inc/toolbox.h
+@@ -127,6 +127,9 @@
+     // large or small buttons ?
+     ToolBoxButtonSize   meButtonSize;
+ 
++    // HST Office: ribbon (notebookbar) toolbox drawn with the ribbon palette (vcl/HstRibbonPaint.hxx)
++    bool mbHstOwnerDraw = false;
++
+     // the optional custom menu
+     VclPtr<PopupMenu>   mpMenu;
+     ToolBoxMenuType maMenuType;
+--- a/vcl/source/window/toolbox.cxx
++++ b/vcl/source/window/toolbox.cxx
+@@ -44,6 +44,7 @@
+ #include <svdata.hxx>
+ #include <window.h>
+ #include <toolbox.h>
++#include <vcl/HstRibbonPaint.hxx>
+ #include <spin.hxx>
+ #if defined(_WIN32)
+ #include <win/svsys.h>
+@@ -2540,6 +2541,11 @@
+     // draws toolbar button background either native or using a coloured selection
+     // if bIsWindow is true, the corresponding item is a control and only a selection border will be drawn
+ 
++    // HST Office: ribbon toolboxes draw their buttons with the ribbon palette; controls stay native
++    if (mpData->mbHstOwnerDraw && !bIsWindow
++        && hst::ribbon::DrawToolButton(rRenderContext, rRect, highlight, bChecked, bEnabled))
++        return;
++
+     bool bNativeOk = false;
+     if( !bIsWindow && rRenderContext.IsNativeControlSupported( ControlType::Toolbar, ControlPart::Button ) )
+     {
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -21,6 +21,7 @@
+ 
+ #include <tools/json_writer.hxx>
+ #include <tools/mapunit.hxx>
++#include <vcl/HstRibbonPaint.hxx>
+ #include <vcl/builder.hxx>
+ #include <vcl/help.hxx>
+ #include <vcl/layout.hxx>
+@@ -873,8 +874,17 @@
+         assert(nState & ControlState::ROLLOVER);
+     }
+ 
+-    bNativeOK = rRenderContext.IsNativeControlSupported(ControlType::TabItem, ControlPart::Entire);
+-    if ( bNativeOK )
++    // HST Office: ribbon tabs drawn with the ribbon palette on every platform, without a box
++    const bool bHstOwnerDraw = dynamic_cast<const NotebookbarTabControlBase*>(this)
++                               && hst::ribbon::ownerDrawEnabled()
++                               && hst::ribbon::ownerDrawAllowed(rStyleSettings);
++    if (bHstOwnerDraw)
++        hst::ribbon::DrawTabItem(rRenderContext, pItem->maRect,
++                                 rRenderContext.GetCtrlTextWidth(pItem->maFormatText),
++                                 bool(nState & ControlState::SELECTED), bool(nState & ControlState::ROLLOVER));
++    bNativeOK = bHstOwnerDraw
++                || rRenderContext.IsNativeControlSupported(ControlType::TabItem, ControlPart::Entire);
++    if ( bNativeOK && !bHstOwnerDraw )
+     {
+         TabitemValue tiValue(tools::Rectangle(pItem->maRect.Left() + TAB_ITEM_OFFSET_X,
+                                               pItem->maRect.Top() + TAB_ITEM_OFFSET_Y,
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -257,6 +257,7 @@
+     vcl/source/control/listbox \
+     vcl/source/control/managedmenubutton \
+     vcl/source/control/MenuButton \
++    vcl/source/control/HstRibbonPaint \
+     vcl/source/control/NotebookbarPopup \
+     vcl/source/control/PriorityHBox \
+     vcl/source/control/PriorityMergedHBox \
+--- a/sfx2/source/sidebar/SidebarToolBox.cxx
++++ b/sfx2/source/sidebar/SidebarToolBox.cxx
+@@ -22,6 +22,7 @@
+ #include <sfx2/viewfrm.hxx>
+ 
+ #include <officecfg/Office/Common.hxx>
++#include <vcl/HstRibbonPaint.hxx>
+ #include <vcl/commandinfoprovider.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/image.hxx>
+@@ -344,6 +345,9 @@
+     {
+         mbSideBar = false;
+         SetToolboxButtonSize(GetDefaultButtonSize());
++        // HST Office: ribbon buttons drawn with the ribbon palette (rollback: HSTRibbon/OwnerDraw)
++        if (hst::ribbon::ownerDrawEnabled())
++            hst::ribbon::SetOwnerDraw(*this, true);
+     }
+ 
+     virtual ToolBoxButtonSize GetDefaultButtonSize() const override
+--- /dev/null
++++ b/include/vcl/HstRibbonPaint.hxx
+@@ -0,0 +1,63 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: Office-style drawing of the ribbon (Tabbed notebookbar) buttons and tabs, the same on
++// every platform. Scoped to the notebookbar: dialogs, the sidebar and classic toolbars keep the
++// native theme. High contrast always uses the native theme, and the OwnerDraw switch
++// (org.openoffice.Office.HSTRibbon) turns it off without a new build.
++
++#include <tools/color.hxx>
++#include <tools/gen.hxx>
++#include <vcl/dllapi.h>
++#include <vcl/outdev.hxx>
++
++class StyleSettings;
++class ToolBox;
++
++namespace hst::ribbon
++{
++/** Colour tokens of the ribbon look (docs/design/ribbon-look/PROPOSAL.md), light or dark. */
++struct Palette
++{
++    Color aHover;
++    Color aPressed;
++    Color aChecked;
++    Color aCheckedBorder;
++    Color aSeparator;
++    Color aCaption;
++    Color aTabAccent;
++    Color aTabHover;
++};
++
++/** The palette for the theme of rStyle: dark when the dialog colour is dark. */
++VCL_DLLPUBLIC Palette paletteFor(const StyleSettings& rStyle);
++
++/** False in high contrast mode: the native theme and the system colours draw. */
++VCL_DLLPUBLIC bool ownerDrawAllowed(const StyleSettings& rStyle);
++
++/** The OwnerDraw switch, read once per process; false in LibreOfficeKit. */
++VCL_DLLPUBLIC bool ownerDrawEnabled();
++
++/** Draw the item backgrounds of rToolBox with the ribbon palette (notebookbar toolboxes only). */
++VCL_DLLPUBLIC void SetOwnerDraw(ToolBox& rToolBox, bool bOn);
++
++/** Background of one toolbar button: rounded hover, pressed and checked (with a 1 px border)
++    states. nHighlight: 1 pressed, 2 hover. Returns false when the native theme must draw. */
++SAL_DLLPRIVATE bool DrawToolButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect,
++                                   sal_uInt16 nHighlight, bool bChecked, bool bEnabled);
++
++/** One notebookbar tab without a box: a light rounded fill on hover, and for the selected tab a
++    short accent bar under its label (nLabelWidth pixels wide). */
++SAL_DLLPRIVATE void DrawTabItem(vcl::RenderContext& rDev, const tools::Rectangle& rItem,
++                                tools::Long nLabelWidth, bool bSelected, bool bHover);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/control/HstRibbonPaint.cxx
+@@ -0,0 +1,131 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <vcl/HstRibbonPaint.hxx>
++
++#include <comphelper/lok.hxx>
++#include <officecfg/Office/HSTRibbon.hxx>
++#include <vcl/image.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/toolbox.hxx>
++
++#include <toolbox.h>
++
++#include <algorithm>
++#include <cmath>
++
++namespace hst::ribbon
++{
++namespace
++{
++tools::Long scaled(const OutputDevice& rDev, double fLogical)
++{
++    return std::max<tools::Long>(1, std::lround(fLogical * rDev.GetDPIScaleFactor()));
++}
++}
++
++Palette paletteFor(const StyleSettings& rStyle)
++{
++    if (rStyle.GetDialogColor().IsDark())
++        return Palette{ Color(0x26, 0x3B, 0x50), Color(0x2D, 0x58, 0x78), Color(0x23, 0x47, 0x62),
++                        Color(0x78, 0xC5, 0xF4), Color(0x35, 0x48, 0x5C), Color(0xAF, 0xBD, 0xCE),
++                        Color(0x78, 0xC5, 0xF4), Color(0x26, 0x3B, 0x50) };
++    return Palette{ Color(0xE8, 0xF1, 0xFA), Color(0xC7, 0xE0, 0xF4), Color(0xE5, 0xF2, 0xFB),
++                    Color(0x00, 0x72, 0xBB), Color(0xDC, 0xE6, 0xF0), Color(0x53, 0x63, 0x79),
++                    Color(0x00, 0x72, 0xBB), Color(0xE8, 0xF1, 0xFA) };
++}
++
++bool ownerDrawAllowed(const StyleSettings& rStyle) { return !rStyle.GetHighContrastMode(); }
++
++bool ownerDrawEnabled()
++{
++    static const bool bEnabled = [] {
++        if (comphelper::LibreOfficeKit::isActive())
++            return false;
++        try
++        {
++            return officecfg::Office::HSTRibbon::OwnerDraw::get();
++        }
++        catch (...)
++        {
++            return true; // no configuration (unit tests): the shipped default
++        }
++    }();
++    return bEnabled;
++}
++
++void SetOwnerDraw(ToolBox& rToolBox, bool bOn)
++{
++    rToolBox.ImplGetToolBoxPrivateData()->mbHstOwnerDraw = bOn;
++    rToolBox.Invalidate();
++}
++
++bool DrawToolButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, sal_uInt16 nHighlight,
++                    bool bChecked, bool bEnabled)
++{
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    if (!ownerDrawAllowed(rStyle))
++        return false;
++    const Palette aPalette = paletteFor(rStyle);
++    // pressed is stronger than checked; checked keeps its border while hovered
++    const bool bPressed = bEnabled && nHighlight == 1;
++    const bool bHover = bEnabled && nHighlight == 2;
++    if (!bPressed && !bHover && !bChecked)
++        return true; // the plain ribbon background shows through
++    const tools::Long nRadius = scaled(rDev, 3);
++    rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rDev.SetFillColor(bPressed || (bChecked && bHover) ? aPalette.aPressed
++                      : bChecked                        ? aPalette.aChecked
++                                                        : aPalette.aHover);
++    if (bChecked)
++        rDev.SetLineColor(aPalette.aCheckedBorder); // an even 1 px border on all four sides
++    else
++        rDev.SetLineColor();
++    tools::Rectangle aRect(rRect);
++    aRect.AdjustRight(-1);
++    aRect.AdjustBottom(-1);
++    rDev.DrawRect(aRect, nRadius, nRadius);
++    rDev.Pop();
++    return true;
++}
++
++void DrawTabItem(vcl::RenderContext& rDev, const tools::Rectangle& rItem, tools::Long nLabelWidth,
++                 bool bSelected, bool bHover)
++{
++    const Palette aPalette = paletteFor(rDev.GetSettings().GetStyleSettings());
++    rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rDev.SetLineColor();
++    if (bHover && !bSelected)
++    {
++        const tools::Long nInset = scaled(rDev, 2);
++        tools::Rectangle aFill(rItem);
++        aFill.AdjustLeft(nInset);
++        aFill.AdjustTop(nInset);
++        aFill.AdjustRight(-nInset);
++        aFill.AdjustBottom(-nInset);
++        rDev.SetFillColor(aPalette.aTabHover);
++        rDev.DrawRect(aFill, scaled(rDev, 3), scaled(rDev, 3));
++    }
++    if (bSelected)
++    {
++        // the selection marker of the tab, under its label; the tab itself has no box or border
++        const tools::Long nBar = scaled(rDev, 2);
++        const tools::Long nPad = scaled(rDev, 6);
++        const tools::Long nMax = std::max<tools::Long>(1, rItem.GetWidth() - 2 * nPad);
++        const tools::Long nWidth = std::clamp<tools::Long>(nLabelWidth, std::min(scaled(rDev, 16), nMax), nMax);
++        const tools::Long nX = rItem.Left() + (rItem.GetWidth() - nWidth) / 2;
++        const tools::Long nY = rItem.Bottom() - nBar - scaled(rDev, 1);
++        rDev.SetFillColor(aPalette.aTabAccent);
++        rDev.DrawRect(tools::Rectangle(Point(nX, nY), Size(nWidth, nBar)), nBar / 2, nBar / 2);
++    }
++    rDev.Pop();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

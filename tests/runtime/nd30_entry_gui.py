@@ -6,6 +6,7 @@ import subprocess
 import time
 
 import hst_gui
+import ribbon_tabs_gui as ribbon
 
 
 def walk(accessible, out=None, depth=0):
@@ -73,14 +74,17 @@ def crop_window(full, geometry, target):
     Image.open(full).crop((max(x, 0), max(y, 0), x + width, y + height)).save(target)
 
 
-def crop_ribbon(full, geometry, target):
+def crop_ribbon(full, geometry, target, button=None):
     """Top of the Writer window (tabs and Home ribbon) with a red frame around the ND 30 button, for the help guide."""
     from PIL import Image, ImageDraw
     x, y, width, _height = geometry
     image = Image.open(full).convert("RGB")
-    left = x + width - 150  # button measured on the 1366x768 test display
-    ImageDraw.Draw(image).rectangle((left, y + 122, x + width - 6, y + 148), outline=(220, 30, 30), width=3)
-    image.crop((x, y, x + width, y + 160)).save(target)
+    bottom = y + 160
+    if button:
+        bx, by, bw, bh = button
+        ImageDraw.Draw(image).rectangle((bx, by, bx + bw, by + bh), outline=(220, 30, 30), width=3)
+        bottom = max(bottom, by + bh + 6)
+    image.crop((x, y, x + width, bottom)).save(target)
 
 
 def wait_window(office, pattern, timeout=40):
@@ -93,38 +97,14 @@ def wait_window(office, pattern, timeout=40):
     return None, None
 
 
-def _windows(display):
-    """{window id: (x, y, width, height)} of the direct children of the root window."""
-    out = subprocess.run(["xwininfo", "-display", display, "-root", "-children"], capture_output=True, text=True).stdout
-    found = {}
-    for match in re.finditer(r"(?m)^\s*(0x[0-9a-f]+) .*?\s(\d+)x(\d+)\+(-?\d+)\+(-?\d+)\s", out):
-        found[match.group(1)] = (int(match.group(4)), int(match.group(5)), int(match.group(2)), int(match.group(3)))
-    return found
-
-
-def open_home_block(office, display):
-    """The block at the right of the Home tab folds into a button when the groups need the room: open it.
-    Returns (x, y, width, height) of its popup, or None when the block is not folded."""
-    top = office.service("org.libreoffice.uitest.UITest").getTopFocusWindow()
-    if "Home-Menu" not in top.getChildren():
-        return None
-    state = {p.Name: p.Value for p in top.getChild("Home-Menu").getState()}
-    x, y = (int(v) for v in state["AbsPosition"].split("x"))
-    width, height = (int(v) for v in state["Size"].split("x"))
-    if width > 40:  # shown in full, not folded
-        return None
-    before = _windows(display)
-    subprocess.run(["xdotool", "mousemove", str(x + width - 7), str(y + height // 2), "click", "1"],
-                   env=dict(os.environ, DISPLAY=display), check=False)
-    time.sleep(1.5)
-    fresh = [box for wid, box in _windows(display).items() if wid not in before and box[2] > 100 and box[0] >= 0]
-    return fresh[0] if fresh else None
-
-
-def click_in_home_block(office, display, from_right):
-    """Click on the bottom row of the folded block, this many pixels from its right end. Returns the popup box, or None."""
-    popup = open_home_block(office, display)
-    if popup:
-        subprocess.run(["xdotool", "mousemove", str(popup[0] + popup[2] - from_right), str(popup[1] + popup[3] - 22), "click", "1"],
-                       env=dict(os.environ, DISPLAY=display), check=False)
-    return popup
+def home_button(name, timeout=10):
+    """Find exactly one visible button in Home's Tools group, using its current accessible bounds."""
+    deadline = time.time() + timeout
+    while True:
+        matches = [box for title, _role, box, _node in ribbon.ribbon_nodes(("push button", "toggle button"))
+                   if title == name and box[0] >= 0 and box[1] > 40]
+        if len(matches) == 1:
+            return matches[0]
+        if time.time() >= deadline:
+            return None
+        time.sleep(0.5)

@@ -10,7 +10,7 @@ from extension_content import ROOT, parse_xml
 def check_banners(zf, names, errors):
     """Bundle contract: exact shared manifest, all scale images present, digest/size/magic verified."""
     sys.path.insert(0, os.path.join(ROOT, "extensions", "hst-vietnamese-tools", "python"))
-    from hst_office.banner_schema import parse_manifest
+    from hst_office.banner_schema import image_specs, parse_manifest
     from hst_office.banner_snapshot import encoded_items
     from hst_office.banner_verify import verify_image, valid_key
     from hst_office.update_logic import PUBLIC_KEY as UPDATE_KEY
@@ -28,9 +28,9 @@ def check_banners(zf, names, errors):
         if key and (not valid_key(key) or key == UPDATE_KEY):
             errors.append("invalid or non-separate configured banner public key")
         for item in doc["items"]:
-            for scale, spec in item["image"].items():
+            for scale, spec in image_specs(item):  # wide 1x..3x and compact c1x..c3x, exact sizes
                 verify_image(zf.read(spec["url"]), spec, scale)
-        images = {i["id"]: {s: zf.read(v["url"]) for s, v in i["image"].items()} for i in doc["items"]}
+        images = {i["id"]: {s: zf.read(v["url"]) for s, v in image_specs(i)} for i in doc["items"]}
         encoded = encoded_items(doc, images, json.loads(zf.read("data/solutions.json"))["utm"])
         if json.loads(zf.read("data/banner-snapshots.json")) != encoded:
             errors.append("stale bundled banner snapshots")

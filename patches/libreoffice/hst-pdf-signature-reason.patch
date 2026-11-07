@@ -1,0 +1,1104 @@
+HST PDF: say why a signature is invalid, and show its claimed signer and time as not verified.
+
+The verdict does not change; only the explanation is new.
+
+The signer was missing for most invalid signatures. ValidateSignature returned before reading
+the CMS when an earlier check failed, for example the check of updates after signing, so the
+certificate and the signing time were never read (cryptosign records the certificate before the
+digest check, so the CMS is not the problem). Those paths now read the signer, the signing time
+and the digest algorithm from the CMS into a separate SignatureInformation and copy only those
+fields, never the status. For an invalid signature these values are what the CMS claims, not
+verified: HST PDF labels them "Ký bởi (chưa xác minh)" and "Thời điểm ký (chưa xác minh)".
+
+Byte ranges are bounded on every path: more than 16 ranges, or ranges whose lengths add up to
+more than the file, are never hashed (Signing::Verify allocates their sum), and the signature
+stays invalid. When the signature itself (the gap between the ranges) still lies inside the file,
+its CMS is read against no content, which gives the claimed signer and time but can never match;
+when it lies outside the file, nothing is read.
+
+Certificates of invalid signatures are not checked: GetDocumentSignatureInformations and the
+signatures dialog (for PDF) call verifyCertificate only for a signature that verifies, so a file
+cannot make HST fetch issuer or revocation data for a certificate it merely claims. The
+certificate status of an invalid signature stays INVALID, as before.
+
+PDFSignatureHelper::GetSignatureProblems() gives the reason for each signature:
+- Broken: malformed or too many byte ranges, an unsupported sub-filter, or an unreadable CMS.
+- Rewritten: the bytes between the signed ranges are no longer the hex /Contents string, or the
+  file ends before them (the file was written again after signing).
+- Incomplete: the signature is in place but the file ends before the signed data does, e.g. a
+  download that did not finish.
+- ModifiedAfterSigning: the signed bytes are intact, but a later update changes the pages in a way
+  the signature does not allow.
+- ContentChanged: the structure is intact, but the bytes no longer match the signature.
+
+HST PDF shows the reason under each signature in the signature panel. The status bar shows
+"Chữ ký số không hợp lệ: <reason>" when every invalid signature fails for the same reason, and its
+tooltip lists the invalid signatures. HSTPdfInfo also reports SignatureLines, SignatureProblems
+and SignatureDetails. An untrusted certificate keeps today's wording.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/translations/source/vi/xmlsecurity/messages.po
++++ b/translations/source/vi/xmlsecurity/messages.po
+@@ -106,6 +106,100 @@ msgctxt "STR_HSTPDF_EXISTING"
+ msgid "Signatures in this document:"
+ msgstr "Chữ ký số trong tài liệu:"
+ 
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_INVALID_REASON"
++msgid "Invalid signature: %1"
++msgstr "Chữ ký số không hợp lệ: %1"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_SHORT_REWRITTEN"
++msgid "the content of the file changed after signing. Ask the sender for the original file to check it."
++msgstr "nội dung tệp đã thay đổi sau khi ký. Hãy xin tệp gốc từ người gửi để kiểm tra."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_SHORT_INCOMPLETE"
++msgid "the file is shorter than the signed data"
++msgstr "tệp ngắn hơn phần dữ liệu đã ký"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_SHORT_MODIFIED"
++msgid "the file was edited after signing"
++msgstr "tệp đã được sửa thêm sau khi ký"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_SHORT_CONTENT"
++msgid "the content does not match the signature"
++msgstr "nội dung không khớp với chữ ký"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_SHORT_BROKEN"
++msgid "the signature data is damaged"
++msgstr "dữ liệu chữ ký bị hỏng"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_WHY_REWRITTEN"
++msgid "The content of the file changed after signing. Ask the sender for the original file to check it."
++msgstr "Nội dung tệp đã thay đổi sau khi ký. Hãy xin tệp gốc từ người gửi để kiểm tra."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_WHY_INCOMPLETE"
++msgid "The file ends before the signed data does, for example after a download that did not finish. Download it again or ask the sender for the original file."
++msgstr "Tệp kết thúc trước phần dữ liệu đã ký, ví dụ do tải về chưa hết. Hãy tải lại hoặc xin tệp gốc từ người gửi."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_WHY_MODIFIED"
++msgid "After signing, the file was edited in a way the signature does not allow. Ask the sender for the original file to check it."
++msgstr "Sau khi ký, tệp đã được sửa thêm theo cách mà chữ ký không cho phép. Hãy xin tệp gốc từ người gửi để kiểm tra."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_WHY_CONTENT"
++msgid "The content of the file no longer matches the signature: the file was edited after signing, or the signature is damaged."
++msgstr "Nội dung tệp không còn khớp với chữ ký: tệp đã bị sửa sau khi ký hoặc chữ ký bị hỏng."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIG_WHY_BROKEN"
++msgid "The signature data is damaged or cannot be read."
++msgstr "Dữ liệu chữ ký bị hỏng hoặc không đọc được."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGNER_UNKNOWN"
++msgid "Unknown signer"
++msgstr "Không rõ người ký"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGNER_UNVERIFIED"
++msgid "Signed by (not verified): %1"
++msgstr "Ký bởi (chưa xác minh): %1"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGNED_AT_UNVERIFIED"
++msgid "Time of signing (not verified): %1"
++msgstr "Thời điểm ký (chưa xác minh): %1"
++
++
++
++
++
++
++
++
++
++
++
+ #. hstPDF
+ #: xmlsecurity/inc/strings.hrc
+ msgctxt "STR_HSTPDF_NO_CERT"
+--- a/xmlsecurity/inc/pdfsignaturehelper.hxx
++++ b/xmlsecurity/inc/pdfsignaturehelper.hxx
+@@ -16,6 +16,8 @@
+ 
+ #include <vcl/filter/PDFiumLibrary.hxx>
+ 
++#include <vector>
++
+ namespace com::sun::star
+ {
+ namespace frame
+@@ -41,10 +43,35 @@ class SigningContext;
+ }
+ class SvStream;
+ 
++/**
++ * Why a PDF signature does not verify. It only explains the verdict of SignatureInformation::nStatus
++ * and never changes it.
++ */
++enum class PDFSignatureProblem
++{
++    /// The signature verifies.
++    None,
++    /// The file was written again after signing: the bytes between the signed ranges are no
++    /// longer the signature's hex string, or the file ends before them.
++    Rewritten,
++    /// The signature is still in place, but the file ends before the signed data does: an
++    /// incomplete copy, e.g. a download that did not finish.
++    Incomplete,
++    /// The signed bytes are intact, but a later update changes the document in a way the signature
++    /// does not allow.
++    ModifiedAfterSigning,
++    /// The file still has the signed structure, but its bytes no longer match the signature.
++    ContentChanged,
++    /// The signature data cannot be read: no or unreadable CMS, an unsupported sub-filter, or
++    /// malformed or too many byte ranges.
++    Broken,
++};
++
+ /// Handles signatures of a PDF file.
+ class XMLSECURITY_DLLPUBLIC PDFSignatureHelper
+ {
+     SignatureInformations m_aSignatureInfos;
++    std::vector<PDFSignatureProblem> m_aSignatureProblems;
+ 
+     svl::crypto::SigningContext* m_pSigningContext = nullptr;
+     OUString m_aDescription;
+@@ -57,6 +84,8 @@ public:
+     GetDocumentSignatureInformations(
+         const css::uno::Reference<css::xml::crypto::XSecurityEnvironment>& xSecEnv) const;
+     SignatureInformations const& GetSignatureInformations() const;
++    /// Why each signature of GetSignatureInformations() does not verify, in the same order.
++    std::vector<PDFSignatureProblem> const& GetSignatureProblems() const;
+ 
+     /// Return the ID of the next created signature.
+     sal_Int32 GetNewSecurityId() const;
+--- a/xmlsecurity/inc/strings.hrc
++++ b/xmlsecurity/inc/strings.hrc
+@@ -88,6 +88,20 @@
+ #define STR_HSTPDF_SIG_STATUS_UNTRUSTED             NC_("STR_HSTPDF_SIG_STATUS_UNTRUSTED", "certificate not validated")
+ #define STR_HSTPDF_SIG_STATUS_INVALID               NC_("STR_HSTPDF_SIG_STATUS_INVALID", "invalid")
+ #define STR_HSTPDF_EXISTING                         NC_("STR_HSTPDF_EXISTING", "Signatures in this document:")
++#define STR_HSTPDF_SIG_INVALID_REASON               NC_("STR_HSTPDF_SIG_INVALID_REASON", "Invalid signature: %1")
++#define STR_HSTPDF_SIG_SHORT_REWRITTEN              NC_("STR_HSTPDF_SIG_SHORT_REWRITTEN", "the content of the file changed after signing. Ask the sender for the original file to check it.")
++#define STR_HSTPDF_SIG_SHORT_INCOMPLETE             NC_("STR_HSTPDF_SIG_SHORT_INCOMPLETE", "the file is shorter than the signed data")
++#define STR_HSTPDF_SIG_SHORT_MODIFIED               NC_("STR_HSTPDF_SIG_SHORT_MODIFIED", "the file was edited after signing")
++#define STR_HSTPDF_SIG_SHORT_CONTENT                NC_("STR_HSTPDF_SIG_SHORT_CONTENT", "the content does not match the signature")
++#define STR_HSTPDF_SIG_SHORT_BROKEN                 NC_("STR_HSTPDF_SIG_SHORT_BROKEN", "the signature data is damaged")
++#define STR_HSTPDF_SIG_WHY_REWRITTEN                NC_("STR_HSTPDF_SIG_WHY_REWRITTEN", "The content of the file changed after signing. Ask the sender for the original file to check it.")
++#define STR_HSTPDF_SIG_WHY_INCOMPLETE               NC_("STR_HSTPDF_SIG_WHY_INCOMPLETE", "The file ends before the signed data does, for example after a download that did not finish. Download it again or ask the sender for the original file.")
++#define STR_HSTPDF_SIG_WHY_MODIFIED                 NC_("STR_HSTPDF_SIG_WHY_MODIFIED", "After signing, the file was edited in a way the signature does not allow. Ask the sender for the original file to check it.")
++#define STR_HSTPDF_SIG_WHY_CONTENT                  NC_("STR_HSTPDF_SIG_WHY_CONTENT", "The content of the file no longer matches the signature: the file was edited after signing, or the signature is damaged.")
++#define STR_HSTPDF_SIG_WHY_BROKEN                   NC_("STR_HSTPDF_SIG_WHY_BROKEN", "The signature data is damaged or cannot be read.")
++#define STR_HSTPDF_SIGNER_UNKNOWN                   NC_("STR_HSTPDF_SIGNER_UNKNOWN", "Unknown signer")
++#define STR_HSTPDF_SIGNER_UNVERIFIED                NC_("STR_HSTPDF_SIGNER_UNVERIFIED", "Signed by (not verified): %1")
++#define STR_HSTPDF_SIGNED_AT_UNVERIFIED             NC_("STR_HSTPDF_SIGNED_AT_UNVERIFIED", "Time of signing (not verified): %1")
+ #define STR_HSTPDF_NO_CERT                          NC_("STR_HSTPDF_NO_CERT", "No certificate chosen")
+ #define STR_HSTPDF_NO_CERT_HINT                     NC_("STR_HSTPDF_NO_CERT_HINT", "Plug in your USB token, then choose a certificate.")
+ #define STR_HSTPDF_CERT_EXPIRES                     NC_("STR_HSTPDF_CERT_EXPIRES", "expires %1")
+--- a/xmlsecurity/qa/unit/pdfsigning/pdfsigning.cxx
++++ b/xmlsecurity/qa/unit/pdfsigning/pdfsigning.cxx
+@@ -16,12 +16,15 @@
+ #include <nss.h>
+ #endif
+ 
++#include <algorithm>
++#include <iterator>
+ #include <string_view>
+ 
+ #include <com/sun/star/xml/crypto/SEInitializer.hpp>
+ #include <com/sun/star/security/DocumentSignatureInformation.hpp>
+ 
+ #include <osl/file.hxx>
++#include <rtl/strbuf.hxx>
+ #include <sal/log.hxx>
+ #include <test/bootstrapfixture.hxx>
+ #include <unotest/macros_test.hxx>
+@@ -34,6 +37,7 @@
+ 
+ #include <documentsignaturemanager.hxx>
+ #include <pdfsignaturehelper.hxx>
++#include "../../../source/hstpdf/pdfviewersigning.hxx"
+ 
+ #ifdef _WIN32
+ #define WIN32_LEAN_AND_MEAN
+@@ -688,6 +692,279 @@ CPPUNIT_TEST_FIXTURE(PDFSigningTest, testIncompleteCMS)
+     }
+ }
+ 
++namespace
++{
++/// Verifies a PDF held in memory; the file must have exactly one signature.
++std::pair<SignatureInformation, PDFSignatureProblem> verifyOneSignature(std::vector<char>& rData)
++{
++    SvMemoryStream aStream(rData.data(), rData.size(), StreamMode::READ);
++    PDFSignatureHelper aHelper;
++    CPPUNIT_ASSERT(aHelper.ReadAndVerifySignatureSvStream(aStream));
++    CPPUNIT_ASSERT_EQUAL(size_t(1), aHelper.GetSignatureInformations().size());
++    CPPUNIT_ASSERT_EQUAL(size_t(1), aHelper.GetSignatureProblems().size());
++    return { aHelper.GetSignatureInformations()[0], aHelper.GetSignatureProblems()[0] };
++}
++
++/// The four numbers of the first /ByteRange in rData.
++std::vector<size_t> readByteRange(const std::vector<char>& rData)
++{
++    const std::string_view aData(rData.data(), rData.size());
++    size_t nPos = aData.find("/ByteRange");
++    CPPUNIT_ASSERT(nPos != std::string_view::npos);
++    nPos = aData.find('[', nPos);
++    CPPUNIT_ASSERT(nPos != std::string_view::npos);
++    std::vector<size_t> aRet;
++    while (aRet.size() < 4 && ++nPos < aData.size())
++    {
++        if (aData[nPos] < '0' || aData[nPos] > '9')
++            continue;
++        size_t nValue = 0;
++        for (; nPos < aData.size() && aData[nPos] >= '0' && aData[nPos] <= '9'; ++nPos)
++            nValue = nValue * 10 + (aData[nPos] - '0');
++        aRet.push_back(nValue);
++    }
++    CPPUNIT_ASSERT_EQUAL(size_t(4), aRet.size());
++    return aRet;
++}
++
++void assertProblem(PDFSignatureProblem eExpected, PDFSignatureProblem eActual, const char* pCase)
++{
++    CPPUNIT_ASSERT_EQUAL_MESSAGE(pCase, static_cast<int>(eExpected), static_cast<int>(eActual));
++}
++
++/// A minimal one-page PDF with one signature field: its /Contents hex string and /ByteRange.
++std::vector<char> makeSignatureFieldPdf(const OString& rContentsHex, const OString& rByteRange)
++{
++    const OString aObjects[] = {
++        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>"_ostr,
++        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"_ostr,
++        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>"_ostr,
++        "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Sig1) /Rect [0 0 0 0] /P 3 0 R /V 5 0 R >>"_ostr,
++        "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /Contents <"_ostr
++            + rContentsHex + "> /ByteRange [ " + rByteRange + " ] >>",
++    };
++    OStringBuffer aPdf("%PDF-1.7\n");
++    std::vector<sal_Int32> aOffsets;
++    for (size_t i = 0; i < std::size(aObjects); ++i)
++    {
++        aOffsets.push_back(aPdf.getLength());
++        aPdf.append(OString::number(i + 1) + " 0 obj\n" + aObjects[i] + "\nendobj\n");
++    }
++    const sal_Int32 nXref = aPdf.getLength();
++    aPdf.append("xref\n0 " + OString::number(std::size(aObjects) + 1) + "\n0000000000 65535 f \n");
++    for (sal_Int32 nOffset : aOffsets)
++    {
++        OString aOffset = OString::number(nOffset);
++        aPdf.append(OString::Concat(std::string_view("0000000000", 10 - aOffset.getLength())) + aOffset
++                    + " 00000 n \n");
++    }
++    aPdf.append("trailer\n<< /Size " + OString::number(std::size(aObjects) + 1)
++                + " /Root 1 0 R >>\nstartxref\n" + OString::number(nXref) + "\n%%EOF\n");
++    return std::vector<char>(aPdf.getStr(), aPdf.getStr() + aPdf.getLength());
++}
++}
++
++/// An invalid signature gets a reason, keeps its signer, and its verdict does not change.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testSignatureProblems)
++{
++    std::shared_ptr<vcl::pdf::PDFium> pPDFium = vcl::pdf::PDFiumLibrary::get();
++    if (!pPDFium)
++    {
++        return;
++    }
++    uno::Reference<xml::crypto::XSEInitializer> xSEInitializer
++        = xml::crypto::SEInitializer::create(m_xContext);
++    uno::Reference<xml::crypto::XXMLSecurityContext> xSecurityContext
++        = xSEInitializer->createSecurityContext(OUString());
++
++    std::vector<char> aOriginal;
++    {
++        SvFileStream aFile(m_directories.getURLFromSrc(DATA_DIRECTORY) + "good-pades.pdf",
++                           StreamMode::READ);
++        aOriginal.resize(aFile.TellEnd());
++        CPPUNIT_ASSERT_EQUAL(aOriginal.size(), aFile.ReadBytes(aOriginal.data(), aOriginal.size()));
++    }
++    const std::vector<size_t> aRange = readByteRange(aOriginal);
++    const size_t nGapStart = aRange[0] + aRange[1];
++    CPPUNIT_ASSERT_EQUAL('<', aOriginal[nGapStart]);
++    // the signature covers the file up to its end
++    CPPUNIT_ASSERT_EQUAL(aOriginal.size(), aRange[2] + aRange[3]);
++
++    {
++        std::vector<char> aData(aOriginal);
++        auto [aInfo, eProblem] = verifyOneSignature(aData);
++        CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED,
++                             aInfo.nStatus);
++        assertProblem(PDFSignatureProblem::None, eProblem, "unchanged");
++    }
++    {
++        // one signed byte differs (the version digit of the header), the structure is intact
++        std::vector<char> aData(aOriginal);
++        CPPUNIT_ASSERT_EQUAL(std::string_view("%PDF-1."), std::string_view(aData.data(), 7));
++        aData[7] = aData[7] == '7' ? '6' : '7';
++        auto [aInfo, eProblem] = verifyOneSignature(aData);
++        CPPUNIT_ASSERT(aInfo.nStatus != xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED);
++        assertProblem(PDFSignatureProblem::ContentChanged, eProblem, "content changed");
++        CPPUNIT_ASSERT(!aInfo.X509Datas.empty());
++    }
++    {
++        // the file is one byte shorter than the signed range, the signature is in place: an
++        // incomplete copy
++        std::vector<char> aData(aOriginal.begin(), aOriginal.end() - 1);
++        auto [aInfo, eProblem] = verifyOneSignature(aData);
++        CPPUNIT_ASSERT(aInfo.nStatus != xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED);
++        assertProblem(PDFSignatureProblem::Incomplete, eProblem, "range past the end of the file");
++        CPPUNIT_ASSERT(!aInfo.X509Datas.empty());
++    }
++    {
++        // the bytes between the ranges are no longer the signature's hex string
++        std::vector<char> aData(aOriginal);
++        aData[nGapStart + 1] = '\x01';
++        auto [aInfo, eProblem] = verifyOneSignature(aData);
++        CPPUNIT_ASSERT(aInfo.nStatus != xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED);
++        assertProblem(PDFSignatureProblem::Rewritten, eProblem, "no hex string between the ranges");
++    }
++    {
++        // malformed /ByteRange values, written over the original ones with the same length:
++        // invalid, broken, never classified from the gap
++        const std::pair<std::string_view, std::string_view> aMalformed[] = {
++            { "[ 0 6887 56889 1119 ]", "[ 1 6886 56889 1119 ]" }, // first range does not start at 0
++            { "[ 0 6887 56889 1119 ]", "[ 0 6887 56888 1119 ]" }, // gap is not the signature
++            { "[ 0 6887 56889 1119 ]", "[ 0 6887            ]" }, // fewer than 2 ranges
++        };
++        for (const auto& [rFrom, rTo] : aMalformed)
++        {
++            std::vector<char> aData(aOriginal);
++            const std::string_view aView(aData.data(), aData.size());
++            const size_t nPos = aView.find(rFrom);
++            CPPUNIT_ASSERT(nPos != std::string_view::npos);
++            std::copy(rTo.begin(), rTo.end(), aData.begin() + nPos);
++            auto [aInfo, eProblem] = verifyOneSignature(aData);
++            CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_UNKNOWN, aInfo.nStatus);
++            assertProblem(PDFSignatureProblem::Broken, eProblem, rTo.data());
++        }
++    }
++    {
++        // the CMS itself is damaged: its DER header is gone
++        std::vector<char> aData(aOriginal);
++        for (size_t i = 1; i <= 8; ++i)
++            aData[nGapStart + i] = '0';
++        auto [aInfo, eProblem] = verifyOneSignature(aData);
++        CPPUNIT_ASSERT(aInfo.nStatus != xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED);
++        assertProblem(PDFSignatureProblem::Broken, eProblem, "damaged CMS");
++    }
++}
++
++/// A /ByteRange with thousands of pairs is rejected unread: hashing their lengths would need far
++/// more memory than the file has.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testSignatureTooManyByteRanges)
++{
++    std::shared_ptr<vcl::pdf::PDFium> pPDFium = vcl::pdf::PDFiumLibrary::get();
++    if (!pPDFium)
++    {
++        return;
++    }
++    OStringBuffer aRanges;
++    for (int i = 0; i < 20000; ++i)
++        aRanges.append("0 1000000 ");
++    const OString aRangeText = aRanges.makeStringAndClear();
++    std::vector<char> aData = makeSignatureFieldPdf("3082000100"_ostr, aRangeText);
++    auto [aInfo, eProblem] = verifyOneSignature(aData);
++    CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_UNKNOWN, aInfo.nStatus);
++    assertProblem(PDFSignatureProblem::Broken, eProblem, "20000 byte range pairs");
++    CPPUNIT_ASSERT(aInfo.X509Datas.empty());
++}
++
++/// Ranges longer than the file are never hashed. The signer is still read from the CMS when the
++/// signature itself lies inside the file, and not when it lies outside.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testSignatureRangesLongerThanFile)
++{
++    std::shared_ptr<vcl::pdf::PDFium> pPDFium = vcl::pdf::PDFiumLibrary::get();
++    if (!pPDFium)
++    {
++        return;
++    }
++    uno::Reference<xml::crypto::XSEInitializer> xSEInitializer
++        = xml::crypto::SEInitializer::create(m_xContext);
++    uno::Reference<xml::crypto::XXMLSecurityContext> xSecurityContext
++        = xSEInitializer->createSecurityContext(OUString());
++    std::vector<char> aOriginal;
++    {
++        SvFileStream aFile(m_directories.getURLFromSrc(DATA_DIRECTORY) + "good-pades.pdf",
++                           StreamMode::READ);
++        aOriginal.resize(aFile.TellEnd());
++        CPPUNIT_ASSERT_EQUAL(aOriginal.size(), aFile.ReadBytes(aOriginal.data(), aOriginal.size()));
++    }
++    {
++        // the second range claims 99999 bytes, more than the whole file; the signature between
++        // the ranges is in place
++        std::vector<char> aData(aOriginal);
++        const std::string_view aFrom("56889 1119 ]"), aTo("56889 99999]");
++        const size_t nPos = std::string_view(aData.data(), aData.size()).find(aFrom);
++        CPPUNIT_ASSERT(nPos != std::string_view::npos);
++        std::copy(aTo.begin(), aTo.end(), aData.begin() + nPos);
++        auto [aInfo, eProblem] = verifyOneSignature(aData);
++        CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_UNKNOWN, aInfo.nStatus);
++        assertProblem(PDFSignatureProblem::Incomplete, eProblem, "signature inside the file");
++        CPPUNIT_ASSERT(!aInfo.X509Datas.empty());
++    }
++    {
++        // the same CMS in a small file whose ranges put the signature 1 MB past its end
++        const std::vector<size_t> aRange = readByteRange(aOriginal);
++        const size_t nGapStart = aRange[0] + aRange[1];
++        const OString aHex(aOriginal.data() + nGapStart + 1, aRange[2] - nGapStart - 2);
++        const OString aByteRange = "0 1000000 " + OString::number(1000000 + aHex.getLength() + 2)
++                                   + " 100";
++        std::vector<char> aData = makeSignatureFieldPdf(aHex, aByteRange);
++        auto [aInfo, eProblem] = verifyOneSignature(aData);
++        CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_UNKNOWN, aInfo.nStatus);
++        assertProblem(PDFSignatureProblem::Rewritten, eProblem, "signature outside the file");
++        CPPUNIT_ASSERT(aInfo.X509Datas.empty());
++    }
++}
++
++/// The signer and time of an invalid signature are labelled as not verified in HST PDF.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testSignatureLineUnverified)
++{
++    CPPUNIT_ASSERT_EQUAL(u"Nguyễn Văn A — 01/03/2025 10:00 — valid"_ustr,
++                         hstpdf::signatureLine(u"Nguyễn Văn A"_ustr, u"01/03/2025 10:00"_ustr, true,
++                                               u"valid"_ustr, u"unused"_ustr));
++    CPPUNIT_ASSERT_EQUAL(
++        u"Signed by (not verified): Nguyễn Văn A — Time of signing (not verified): 01/03/2025 "
++        "10:00 — invalid\n   why"_ustr,
++        hstpdf::signatureLine(u"Nguyễn Văn A"_ustr, u"01/03/2025 10:00"_ustr, false, u"invalid"_ustr,
++                              u"why"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"Unknown signer — invalid\n   why"_ustr,
++                         hstpdf::signatureLine(OUString(), OUString(), false, u"invalid"_ustr,
++                                               u"why"_ustr));
++}
++
++/// An annotation added after a P1 signature: signed bytes intact, the signer is still shown.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testSignatureProblemModifiedAfterSigning)
++{
++    std::shared_ptr<vcl::pdf::PDFium> pPDFium = vcl::pdf::PDFiumLibrary::get();
++    if (!pPDFium)
++    {
++        return;
++    }
++    uno::Reference<xml::crypto::XSEInitializer> xSEInitializer
++        = xml::crypto::SEInitializer::create(m_xContext);
++    uno::Reference<xml::crypto::XXMLSecurityContext> xSecurityContext
++        = xSEInitializer->createSecurityContext(OUString());
++
++    SvFileStream aStream(m_directories.getURLFromSrc(DATA_DIRECTORY) + "bad-cert-p1.pdf",
++                         StreamMode::READ);
++    PDFSignatureHelper aHelper;
++    CPPUNIT_ASSERT(aHelper.ReadAndVerifySignatureSvStream(aStream));
++    CPPUNIT_ASSERT_EQUAL(size_t(1), aHelper.GetSignatureInformations().size());
++    const SignatureInformation& rInfo = aHelper.GetSignatureInformations()[0];
++    CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_UNKNOWN, rInfo.nStatus);
++    assertProblem(PDFSignatureProblem::ModifiedAfterSigning, aHelper.GetSignatureProblems()[0],
++                  "annotation after a P1 signature");
++    // without reading the CMS after the failed update check, the signer was unknown
++    CPPUNIT_ASSERT(!rInfo.X509Datas.empty());
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/xmlsecurity/source/dialogs/digitalsignaturesdialog.cxx
++++ b/xmlsecurity/source/dialogs/digitalsignaturesdialog.cxx
+@@ -677,9 +677,14 @@ void DigitalSignaturesDialog::ImplFillSignaturesBox()
+             OUString aType;
+ 
+             bool bCertValid = false;
++            // A PDF signature that does not verify still names the certificate its CMS claims:
++            // shown, but not checked (the check may fetch issuer and revocation data online).
++            const bool bCheckCert = maSignatureManager.getStore().is()
++                || rInfo.nStatus == css::xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED;
+             if( xCert.is() )
+             {
+                 //check the validity of the cert
++                if (bCheckCert)
+                 try {
+                     sal_Int32 certResult = getSecurityEnvironmentForCertificate(xCert)->verifyCertificate(xCert,
+                                                                                                           Sequence<uno::Reference<security::XCertificate> >());
+--- a/xmlsecurity/source/helper/pdfsignaturehelper.cxx
++++ b/xmlsecurity/source/helper/pdfsignaturehelper.cxx
+@@ -9,6 +9,7 @@
+ 
+ #include <pdfsignaturehelper.hxx>
+ 
++#include <algorithm>
+ #include <memory>
+ 
+ #include <com/sun/star/io/XTruncate.hpp>
+@@ -16,6 +17,7 @@
+ #include <com/sun/star/security/CertificateValidity.hpp>
+ #include <com/sun/star/uno/SecurityException.hpp>
+ #include <com/sun/star/security/DocumentSignatureInformation.hpp>
++#include <com/sun/star/xml/crypto/SecurityOperationStatus.hpp>
+ #include <com/sun/star/xml/crypto/XSecurityEnvironment.hpp>
+ #include <com/sun/star/drawing/XShapes.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
+@@ -27,6 +29,7 @@
+ #include <sal/log.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+ #include <comphelper/sequenceashashmap.hxx>
++#include <o3tl/safeint.hxx>
+ #include <unotools/streamwrap.hxx>
+ #include <unotools/ucbstreamhelper.hxx>
+ #include <vcl/filter/pdfdocument.hxx>
+@@ -321,15 +324,197 @@ bool IsValidSignature(SvStream& rStream, const Signature& rSignature,
+     return aSignedPages == aAllPages;
+ }
+ 
++/// What the checks of one signature found, to explain an invalid one.
++struct SignatureFindings
++{
++    /// The byte ranges have the expected form: from 0, around the signature, at most
++    /// MAX_BYTE_RANGES of them.
++    bool bByteRangesValid = false;
++    /// The CMS could be parsed and names its signing certificate.
++    bool bCmsRead = false;
++    /// The CMS verifies over the bytes at /ByteRange.
++    bool bCmsVerified = false;
++};
++
++/// A signature normally has exactly 2 ranges; more than this many are rejected unread.
++constexpr size_t MAX_BYTE_RANGES = 16;
++
++/**
++ * Few ranges whose lengths add up to at most the file size. Signing::Verify allocates the sum of
++ * the lengths, so only bounded ranges are ever hashed.
++ */
++bool AreByteRangesBounded(const std::vector<std::pair<size_t, size_t>>& rByteRanges,
++                          sal_uInt64 nFileEnd)
++{
++    if (rByteRanges.size() > MAX_BYTE_RANGES)
++        return false;
++    sal_uInt64 nTotal = 0;
++    for (const auto& rRange : rByteRanges)
++    {
++        if (rRange.second > nFileEnd)
++            return false;
++        nTotal += rRange.second;
++        if (nTotal > nFileEnd)
++            return false;
++    }
++    return true;
++}
++
++/**
++ * Two ranges within the size limits, and the gap between them, where the signature's /Contents
++ * was written, lies inside the file.
++ */
++bool IsSignatureInsideFile(const std::vector<std::pair<size_t, size_t>>& rByteRanges,
++                           sal_uInt64 nFileEnd)
++{
++    if (rByteRanges.size() < 2 || rByteRanges.size() > MAX_BYTE_RANGES)
++        return false;
++    for (const auto& rRange : rByteRanges)
++        if (rRange.first > o3tl::make_unsigned(SAL_MAX_INT32)
++            || rRange.second > o3tl::make_unsigned(SAL_MAX_INT32))
++            return false;
++    const size_t nGapStart = rByteRanges[0].first + rByteRanges[0].second;
++    const size_t nGapEnd = rByteRanges[1].first;
++    return nGapStart <= nGapEnd && nGapEnd <= nFileEnd;
++}
++
++/**
++ * Reads the signer, the signing time and the digest algorithm from the CMS when the signature is
++ * already known to be invalid. They are not verified: the viewer labels them as such. The status
++ * of rInformation is not touched.
++ *
++ * The signed bytes are hashed only when the ranges are bounded. Otherwise, when the signature
++ * itself lies inside the file, the CMS is read against no content at all: that gives the
++ * certificate and the signing time, never a match. When the signature is outside the file,
++ * nothing is read.
++ */
++void ReadSignerFromCms(SvStream& rStream, const Signature& rSignature, bool bNonDetached,
++                       const std::vector<unsigned char>& rContents,
++                       SignatureInformation& rInformation, SignatureFindings& rFindings)
++{
++    const sal_uInt64 nFileEnd = rStream.TellEnd();
++    const bool bHashRanges = AreByteRangesBounded(rSignature.m_aByteRanges, nFileEnd);
++    if (!bHashRanges && !IsSignatureInsideFile(rSignature.m_aByteRanges, nFileEnd))
++        return;
++    SignatureInformation aCms(rInformation.nSecurityId);
++    aCms.stDateTime = rInformation.stDateTime;
++    const std::vector<std::pair<size_t, size_t>> aNoContent;
++    if (!svl::crypto::Signing::Verify(rStream, bHashRanges ? rSignature.m_aByteRanges : aNoContent,
++                                      bNonDetached, rContents, aCms)
++        || aCms.X509Datas.empty())
++        return;
++    rFindings.bCmsRead = true;
++    rFindings.bCmsVerified = bHashRanges
++        && aCms.nStatus == xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED;
++    rInformation.X509Datas = aCms.X509Datas;
++    rInformation.stDateTime = aCms.stDateTime;
++    rInformation.ouDateTime = aCms.ouDateTime;
++    rInformation.nDigestID = aCms.nDigestID;
++    rInformation.bHasSigningCertificate = aCms.bHasSigningCertificate;
++}
++
++bool IsPdfWhitespace(unsigned char c)
++{
++    return c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '\f' || c == '\0';
++}
++
++bool IsHexDigit(unsigned char c)
++{
++    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
++}
++
++/// What the bytes between the two signed ranges hold now.
++enum class SignedGap
++{
++    HexString, ///< the signature's hex string, as when it was signed
++    Changed, ///< other bytes: the file was written again after signing
++    PastEnd, ///< the file ends before the gap: nothing can be told
++};
++
++/// Needs well-formed ranges (bByteRangesValid): two of them, the gap between them.
++SignedGap ExamineSignedGap(SvStream& rStream, const Signature& rSignature)
++{
++    const std::vector<std::pair<size_t, size_t>>& rRanges = rSignature.m_aByteRanges;
++    const size_t nGapStart = rRanges[0].first + rRanges[0].second;
++    const size_t nGapEnd = rRanges[1].first;
++    if (nGapEnd < nGapStart + 2 || nGapEnd > rStream.TellEnd())
++        return SignedGap::PastEnd;
++
++    const sal_uInt64 nPos = rStream.Tell();
++    rStream.Seek(nGapStart);
++    bool bHexString = true;
++    std::vector<unsigned char> aChunk(4096);
++    for (size_t nOffset = nGapStart; bHexString && nOffset < nGapEnd;)
++    {
++        const size_t nWanted = std::min(aChunk.size(), nGapEnd - nOffset);
++        if (rStream.ReadBytes(aChunk.data(), nWanted) != nWanted)
++        {
++            bHexString = false;
++            break;
++        }
++        for (size_t i = 0; i < nWanted; ++i, ++nOffset)
++        {
++            const unsigned char c = aChunk[i];
++            if (nOffset == nGapStart)
++                bHexString = c == '<';
++            else if (nOffset == nGapEnd - 1)
++                bHexString = c == '>';
++            else
++                bHexString = IsHexDigit(c) || IsPdfWhitespace(c);
++            if (!bHexString)
++                break;
++        }
++    }
++    rStream.Seek(nPos);
++    return bHexString ? SignedGap::HexString : SignedGap::Changed;
++}
++
++/// A signed range ends past the end of the file.
++bool EndsPastFile(const Signature& rSignature, sal_uInt64 nFileEnd)
++{
++    for (const auto& rRange : rSignature.m_aByteRanges)
++        if (rRange.first > nFileEnd || rRange.second > nFileEnd - rRange.first)
++            return true;
++    return false;
++}
++
++PDFSignatureProblem GetSignatureProblem(SvStream& rStream, const Signature& rSignature,
++                                        const SignatureInformation& rInformation,
++                                        const SignatureFindings& rFindings)
++{
++    if (rInformation.nStatus == xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED)
++        return PDFSignatureProblem::None;
++    if (!rFindings.bByteRangesValid)
++        return PDFSignatureProblem::Broken;
++    switch (ExamineSignedGap(rStream, rSignature))
++    {
++        case SignedGap::Changed:
++        case SignedGap::PastEnd:
++            return PDFSignatureProblem::Rewritten;
++        case SignedGap::HexString:
++            // the signature is where it was, but the file stops before the signed data does
++            if (EndsPastFile(rSignature, rStream.TellEnd()))
++                return PDFSignatureProblem::Incomplete;
++            break;
++    }
++    if (!rFindings.bCmsRead)
++        return PDFSignatureProblem::Broken;
++    if (rFindings.bCmsVerified)
++        return PDFSignatureProblem::ModifiedAfterSigning;
++    return PDFSignatureProblem::ContentChanged;
++}
++
+ /**
+  * @param rInformation The actual result.
+  * @param rDocument the parsed document to see if the signature is partial.
++ * @param rFindings What the checks found, to explain an invalid signature.
+  * @return If we can determinate a result.
+  */
+ bool ValidateSignature(SvStream& rStream, const Signature& rSignature,
+                        SignatureInformation& rInformation, vcl::pdf::MDPPermission nMDPPerm,
+                        const std::set<unsigned int>& rSignatureEOFs,
+-                       const std::vector<unsigned int>& rTrailerEnds)
++                       const std::vector<unsigned int>& rTrailerEnds,
++                       SignatureFindings& rFindings)
+ {
+     std::vector<unsigned char> aContents = rSignature.m_pSignature->getContents();
+     if (aContents.empty())
+@@ -361,14 +546,21 @@ bool ValidateSignature(SvStream& rStream, const Signature& rSignature,
+     rInformation.stDateTime = rSignature.m_pSignature->getTime();
+ 
+     // Detect if the byte ranges don't cover everything, but the signature itself.
++    if (rSignature.m_aByteRanges.size() > MAX_BYTE_RANGES)
++    {
++        SAL_WARN("xmlsecurity.helper", "ValidateSignature: too many byte ranges");
++        return false;
++    }
+     if (rSignature.m_aByteRanges.size() < 2)
+     {
+         SAL_WARN("xmlsecurity.helper", "ValidateSignature: expected 2 byte ranges");
++        ReadSignerFromCms(rStream, rSignature, bNonDetached, aContents, rInformation, rFindings);
+         return false;
+     }
+     if (rSignature.m_aByteRanges[0].first != 0)
+     {
+         SAL_WARN("xmlsecurity.helper", "ValidateSignature: first range start is not 0");
++        ReadSignerFromCms(rStream, rSignature, bNonDetached, aContents, rInformation, rFindings);
+         return false;
+     }
+     // Binary vs hex dump and 2 is the leading "<" and the trailing ">" around the hex string.
+@@ -378,6 +570,23 @@ bool ValidateSignature(SvStream& rStream, const Signature& rSignature,
+     {
+         SAL_WARN("xmlsecurity.helper",
+                  "ValidateSignature: second range start is not the end of the signature");
++        ReadSignerFromCms(rStream, rSignature, bNonDetached, aContents, rInformation, rFindings);
++        return false;
++    }
++    // negative values in the dictionary become huge here
++    for (const auto& rRange : rSignature.m_aByteRanges)
++        if (rRange.first > o3tl::make_unsigned(SAL_MAX_INT32)
++            || rRange.second > o3tl::make_unsigned(SAL_MAX_INT32))
++        {
++            SAL_WARN("xmlsecurity.helper", "ValidateSignature: byte range out of bounds");
++            return false;
++        }
++    rFindings.bByteRangesValid = true;
++    if (!AreByteRangesBounded(rSignature.m_aByteRanges, rStream.TellEnd()))
++    {
++        // more signed bytes than the file has: the signature cannot match, do not hash them
++        SAL_WARN("xmlsecurity.helper", "ValidateSignature: byte ranges longer than the file");
++        ReadSignerFromCms(rStream, rSignature, bNonDetached, aContents, rInformation, rFindings);
+         return false;
+     }
+     rInformation.bPartialDocumentSignature
+@@ -385,13 +594,19 @@ bool ValidateSignature(SvStream& rStream, const Signature& rSignature,
+     if (!IsValidSignature(rStream, rSignature, nMDPPerm))
+     {
+         SAL_WARN("xmlsecurity.helper", "ValidateSignature: invalid incremental update detected");
++        // the verdict stays invalid, but the user still sees who signed and when
++        ReadSignerFromCms(rStream, rSignature, bNonDetached, aContents, rInformation, rFindings);
+         return false;
+     }
+ 
+     // At this point there is no obviously missing info to validate the
+     // signature.
+-    return svl::crypto::Signing::Verify(rStream, rSignature.m_aByteRanges, bNonDetached, aContents,
+-                                        rInformation);
++    const bool bRet = svl::crypto::Signing::Verify(rStream, rSignature.m_aByteRanges, bNonDetached,
++                                                   aContents, rInformation);
++    rFindings.bCmsRead = bRet && !rInformation.X509Datas.empty();
++    rFindings.bCmsVerified
++        = rInformation.nStatus == xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED;
++    return bRet;
+ }
+ }
+ 
+@@ -458,19 +673,23 @@ bool PDFSignatureHelper::ReadAndVerifySignatureSvStream(SvStream& rStream)
+     std::vector<unsigned int> aTrailerEnds = pPdfDocument->getTrailerEnds();
+ 
+     m_aSignatureInfos.clear();
++    m_aSignatureProblems.clear();
+ 
+     vcl::pdf::MDPPermission nMDPPerm = GetMDPPerm(aSignatures);
+ 
+     for (size_t i = 0; i < aSignatures.size(); ++i)
+     {
+         SignatureInformation aInfo(i);
++        SignatureFindings aFindings;
+ 
+         if (!ValidateSignature(rStream, aSignatures[i], aInfo, nMDPPerm, aSignatureEOFs,
+-                               aTrailerEnds))
++                               aTrailerEnds, aFindings))
+         {
+             SAL_WARN("xmlsecurity.helper", "failed to determine digest match");
+         }
+ 
++        m_aSignatureProblems.push_back(
++            GetSignatureProblem(rStream, aSignatures[i], aInfo, aFindings));
+         m_aSignatureInfos.push_back(std::move(aInfo));
+     }
+ 
+@@ -482,6 +701,11 @@ SignatureInformations const& PDFSignatureHelper::GetSignatureInformations() cons
+     return m_aSignatureInfos;
+ }
+ 
++std::vector<PDFSignatureProblem> const& PDFSignatureHelper::GetSignatureProblems() const
++{
++    return m_aSignatureProblems;
++}
++
+ uno::Sequence<security::DocumentSignatureInformation>
+ PDFSignatureHelper::GetDocumentSignatureInformations(
+     const uno::Reference<xml::crypto::XSecurityEnvironment>& xSecEnv) const
+@@ -503,8 +727,9 @@ PDFSignatureHelper::GetDocumentSignatureInformations(
+         }
+         rExternal.PartialDocumentSignature = rInternal.bPartialDocumentSignature;
+ 
+-        // Verify certificate.
+-        if (rExternal.Signer.is())
++        // Verify certificate. Not for an invalid signature: its certificate is whatever the file
++        // claims, and checking it may fetch the issuer and revocation data over the network.
++        if (rExternal.Signer.is() && rExternal.SignatureIsValid)
+         {
+             try
+             {
+--- a/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
+@@ -9,6 +9,8 @@
+ 
+ #include "pdfviewersigning.hxx"
+ 
++#include <algorithm>
++
+ #include <documentsignaturemanager.hxx>
+ #include <pdfsignaturehelper.hxx>
+ #include <resourcemanager.hxx>
+@@ -22,6 +24,7 @@
+ #include <comphelper/diagnose_ex.hxx>
+ #include <comphelper/processfactory.hxx>
+ #include <comphelper/xmlsechelper.hxx>
++#include <o3tl/safeint.hxx>
+ #include <officecfg/Office/HSTPdfViewer.hxx>
+ #include <rtl/ustrbuf.hxx>
+ #include <sal/log.hxx>
+@@ -62,6 +65,32 @@ OUString commonName(const OUString& rDistinguishedName)
+     return aName.isEmpty() ? rDistinguishedName : aName;
+ }
+ 
++struct ProblemTexts
++{
++    const char* pCode; ///< stable name for HSTPdfInfo
++    TranslateId aShort; ///< for the status bar
++    TranslateId aWhy; ///< the explanation under the signature in the panel
++};
++
++ProblemTexts problemTexts(PDFSignatureProblem eProblem)
++{
++    switch (eProblem)
++    {
++        case PDFSignatureProblem::Rewritten:
++            return { "rewritten", STR_HSTPDF_SIG_SHORT_REWRITTEN, STR_HSTPDF_SIG_WHY_REWRITTEN };
++        case PDFSignatureProblem::Incomplete:
++            return { "incomplete", STR_HSTPDF_SIG_SHORT_INCOMPLETE, STR_HSTPDF_SIG_WHY_INCOMPLETE };
++        case PDFSignatureProblem::ModifiedAfterSigning:
++            return { "modified", STR_HSTPDF_SIG_SHORT_MODIFIED, STR_HSTPDF_SIG_WHY_MODIFIED };
++        case PDFSignatureProblem::ContentChanged:
++            return { "content", STR_HSTPDF_SIG_SHORT_CONTENT, STR_HSTPDF_SIG_WHY_CONTENT };
++        case PDFSignatureProblem::Broken:
++        case PDFSignatureProblem::None: // invalid, but no finding: say the least
++            break;
++    }
++    return { "broken", STR_HSTPDF_SIG_SHORT_BROKEN, STR_HSTPDF_SIG_WHY_BROKEN };
++}
++
+ /// A one-page PDF of the target page size with the visible signature in its box: the appearance
+ /// of the signature widget (vcl::filter::PDFDocument places it over the whole page).
+ std::vector<sal_Int8> createAppearance(const SignaturePlacement& rPlacement,
+@@ -201,6 +230,23 @@ uno::Reference<security::XCertificate> chooseCertificate(const uno::Reference<aw
+     return xSigner->selectSigningCertificateWithType(security::CertificateKind_X509, rDescription);
+ }
+ 
++OUString signatureLine(const OUString& rSigner, const OUString& rTime, bool bValid,
++                       const OUString& rStatus, const OUString& rWhy)
++{
++    OUString aLine;
++    if (rSigner.isEmpty())
++        aLine = XsResId(STR_HSTPDF_SIGNER_UNKNOWN);
++    else
++        aLine = bValid ? rSigner : XsResId(STR_HSTPDF_SIGNER_UNVERIFIED).replaceFirst("%1", rSigner);
++    if (!rTime.isEmpty())
++        aLine += u" — "_ustr
++                 + (bValid ? rTime : XsResId(STR_HSTPDF_SIGNED_AT_UNVERIFIED).replaceFirst("%1", rTime));
++    aLine += u" — "_ustr + rStatus;
++    if (!bValid && !rWhy.isEmpty())
++        aLine += u"\n   "_ustr + rWhy;
++    return aLine;
++}
++
+ SignatureSummary verifySignatures(const std::vector<sal_uInt8>& rData)
+ {
+     SignatureSummary aSummary;
+@@ -217,34 +263,59 @@ SignatureSummary verifySignatures(const std::vector<sal_uInt8>& rData)
+         return aSummary;
+     const uno::Sequence<security::DocumentSignatureInformation> aInfos
+         = aHelper.GetDocumentSignatureInformations(aManager.getSecurityEnvironment());
++    const std::vector<PDFSignatureProblem>& rProblems = aHelper.GetSignatureProblems();
++    std::vector<OUString> aShortReasons;
+     for (sal_Int32 i = 0; i < aInfos.getLength(); ++i)
+     {
+         const security::DocumentSignatureInformation& rInfo = aInfos[i];
+         ++aSummary.nCount;
+         TranslateId aStatus;
++        OUString aWhy;
+         if (!rInfo.SignatureIsValid)
+         {
+             ++aSummary.nInvalid;
+             aStatus = STR_HSTPDF_SIG_STATUS_INVALID;
++            const ProblemTexts aTexts = problemTexts(o3tl::make_unsigned(i) < rProblems.size()
++                                                         ? rProblems[i]
++                                                         : PDFSignatureProblem::Broken);
++            aSummary.aProblems.push_back(OUString::createFromAscii(aTexts.pCode));
++            aWhy = XsResId(aTexts.aWhy);
++            const OUString aShort = XsResId(aTexts.aShort);
++            if (std::find(aShortReasons.begin(), aShortReasons.end(), aShort) == aShortReasons.end())
++                aShortReasons.push_back(aShort);
+         }
+-        else if (rInfo.CertificateStatus == security::CertificateValidity::VALID)
++        else
+         {
+-            ++aSummary.nValid;
+-            aStatus = rInfo.PartialDocumentSignature ? STR_HSTPDF_SIG_STATUS_PARTIAL
+-                                                     : STR_HSTPDF_SIG_STATUS_VALID;
++            aSummary.aProblems.push_back(OUString());
++            if (rInfo.CertificateStatus == security::CertificateValidity::VALID)
++            {
++                ++aSummary.nValid;
++                aStatus = rInfo.PartialDocumentSignature ? STR_HSTPDF_SIG_STATUS_PARTIAL
++                                                         : STR_HSTPDF_SIG_STATUS_VALID;
++            }
++            else
++            {
++                ++aSummary.nUntrusted;
++                aStatus = STR_HSTPDF_SIG_STATUS_UNTRUSTED;
++            }
+         }
+-        else
++        const OUString aSigner
++            = rInfo.Signer.is() ? commonName(rInfo.Signer->getSubjectName()) : OUString();
++        const OUString aTime = o3tl::make_unsigned(i) < rInfos.size() && rInfos[i].stDateTime.Year > 0
++                                   ? formatDate(rInfos[i].stDateTime, true)
++                                   : OUString();
++        const OUString aLine
++            = signatureLine(aSigner, aTime, rInfo.SignatureIsValid, XsResId(aStatus), aWhy);
++        aSummary.aLines.push_back(aLine);
++        if (!rInfo.SignatureIsValid)
+         {
+-            ++aSummary.nUntrusted;
+-            aStatus = STR_HSTPDF_SIG_STATUS_UNTRUSTED;
++            if (!aSummary.aInvalidDetails.isEmpty())
++                aSummary.aInvalidDetails += "\n";
++            aSummary.aInvalidDetails += aLine;
+         }
+-        const OUString aSigner = rInfo.Signer.is() ? commonName(rInfo.Signer->getSubjectName())
+-                                                   : OUString(u"?"_ustr);
+-        OUString aLine = aSigner;
+-        if (o3tl::make_unsigned(i) < rInfos.size() && rInfos[i].stDateTime.Year > 0)
+-            aLine += u" — "_ustr + formatDate(rInfos[i].stDateTime, true);
+-        aSummary.aLines.push_back(aLine + u" — "_ustr + XsResId(aStatus));
+     }
++    if (aShortReasons.size() == 1)
++        aSummary.aInvalidShort = aShortReasons.front();
+     return aSummary;
+ }
+ 
+--- a/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
+@@ -15,6 +15,8 @@
+ 
+ #include "pdfviewerdocument.hxx"
+ 
++#include <xmlsecuritydllapi.h>
++
+ #include <com/sun/star/awt/XWindow.hpp>
+ #include <com/sun/star/security/XCertificate.hpp>
+ #include <rtl/ustring.hxx>
+@@ -49,9 +51,22 @@ struct SignatureSummary
+     int nValid = 0; ///< valid signature and trusted certificate
+     int nUntrusted = 0; ///< valid signature, certificate not validated
+     int nInvalid = 0;
+-    std::vector<OUString> aLines; ///< "signer — date — status" per signature
++    std::vector<OUString> aLines; ///< "signer — date — status" per signature, and why it is invalid
++    /// per signature: empty when it verifies, else "rewritten", "modified", "content" or "broken"
++    std::vector<OUString> aProblems;
++    OUString aInvalidShort; ///< the short reason, when every invalid signature has the same one
++    OUString aInvalidDetails; ///< the panel lines of the invalid signatures, for the status tooltip
+ };
+ 
++/**
++ * One signature in the panel: "signer — time — status", and for an invalid signature the reason
++ * on the next line. The signer and time of an invalid signature come from a CMS that did not
++ * verify, so they are labelled as not verified. rSigner and rTime may be empty.
++ */
++XMLSECURITY_DLLPUBLIC OUString signatureLine(const OUString& rSigner, const OUString& rTime,
++                                             bool bValid, const OUString& rStatus,
++                                             const OUString& rWhy);
++
+ /// Verifies the signatures of a PDF file (NSS is initialised only when there are any).
+ SignatureSummary verifySignatures(const std::vector<sal_uInt8>& rData);
+ 
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -355,12 +355,17 @@ void PdfViewerWindow::updateStatus()
+     else if (!m_bSignaturesChecked)
+         aSign = XsResId(STR_HSTPDF_SIG_CHECKING);
+     else if (m_aSignatures.nInvalid > 0)
+-        aSign = XsResId(STR_HSTPDF_SIG_INVALID);
++        // the verdict, and why when all invalid signatures fail for the same reason
++        aSign = m_aSignatures.aInvalidShort.isEmpty()
++                    ? XsResId(STR_HSTPDF_SIG_INVALID)
++                    : XsResId(STR_HSTPDF_SIG_INVALID_REASON)
++                          .replaceFirst("%1", m_aSignatures.aInvalidShort);
+     else if (m_aSignatures.nUntrusted > 0)
+         aSign = XsResId(STR_HSTPDF_SIG_UNTRUSTED);
+     else
+         aSign = XsResId(STR_HSTPDF_SIG_VALID).replaceFirst("%1", OUString::number(m_aSignatures.nValid));
+     m_xStatusSign->set_label(aSign);
++    m_xStatusSign->set_tooltip_text(m_bSignaturesChecked ? m_aSignatures.aInvalidDetails : OUString());
+     if (m_nOpenMillis >= 0)
+         setInfo(XsResId(STR_HSTPDF_OPEN_TIME).replaceFirst("%1", formatSeconds(m_nOpenMillis)));
+ }
+@@ -897,6 +902,11 @@ bool PdfViewerWindow::executeCommand(std::u16string_view rCommand,
+         aInfo.emplace_back(u"UntrustedSignatures"_ustr, uno::Any(sal_Int32(m_aSignatures.nUntrusted)));
+         aInfo.emplace_back(u"InvalidSignatures"_ustr, uno::Any(sal_Int32(m_aSignatures.nInvalid)));
+         aInfo.emplace_back(u"SignatureStatus"_ustr, uno::Any(m_xStatusSign->get_label()));
++        aInfo.emplace_back(u"SignatureLines"_ustr,
++                           uno::Any(comphelper::containerToSequence(m_aSignatures.aLines)));
++        aInfo.emplace_back(u"SignatureProblems"_ustr,
++                           uno::Any(comphelper::containerToSequence(m_aSignatures.aProblems)));
++        aInfo.emplace_back(u"SignatureDetails"_ustr, uno::Any(m_aSignatures.aInvalidDetails));
+         aInfo.emplace_back(u"StatusText"_ustr,
+                            uno::Any(m_xStatusPage->get_label() + " | " + m_xStatusSign->get_label()
+                                     + " | " + m_xStatusFind->get_label() + " | "

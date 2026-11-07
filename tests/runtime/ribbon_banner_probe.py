@@ -19,7 +19,8 @@ MARGIN = 5.0  # the best artwork must beat the second best by this much
 
 
 def items(instdir):
-    """[{id, name, tagline, url (click URL with UTM), art: {1: path, 2: path, 3: path}}] in rotation order."""
+    """[{id, name, tagline, url (click URL with UTM), art: {1: path, 2: path, 3: path}, compact: {...} or {}}]
+    in rotation order; compact holds the 160x104 artwork of windows narrower than 1280 px."""
     root = os.path.join(instdir, EXT)
     with open(os.path.join(root, "data/banners.json"), encoding="utf-8") as handle:
         manifest = json.load(handle)
@@ -31,7 +32,9 @@ def items(instdir):
         base = re.split(r"[?#]", item["url"])[0]
         result.append({"id": item["id"], "name": item["name"], "tagline": item["tagline"],
                        "url": f"{base}?{query}", "home": f"https://hasontech.vn?{query}", "label": f"{item['name']} — {item['tagline']}",
-                       "art": {int(k[0]): os.path.join(root, v["url"]) for k, v in item["image"].items()}})
+                       "art": {int(k[0]): os.path.join(root, v["url"]) for k, v in item["image"].items()},
+                       "compact": {int(k[0]): os.path.join(root, v["url"])
+                                   for k, v in item.get("imageCompact", {}).items()}})
     return result, manifest.get("rotateSeconds", 10)
 
 

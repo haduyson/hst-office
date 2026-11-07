@@ -13,6 +13,9 @@ import unohelper  # noqa: E402
 from hst_office.dispatch import IMPLEMENTATION_NAME, Handler  # noqa: E402
 from hst_office.welcome_job import JOB_NAME, WelcomeJob  # noqa: E402
 from hst_office.update_job import HANDLER_NAME, JOB_NAME as UPDATE_JOB_NAME, UpdateCheckJob, UpdateHandler  # noqa: E402
+from hst_office.startup_prompts import JOB_NAME as STARTUP_JOB_NAME, StartupPromptsJob  # noqa: E402
+from hst_office.options_page import HANDLER_NAME as OPTIONS_NAME, OptionsPageHandler  # noqa: E402
+from hst_office.appearance_options import HANDLER_NAME as APPEARANCE_NAME, AppearanceOptionsHandler  # noqa: E402
 from hst_office.error_report_crash import JOB_NAME as CRASH_JOB_NAME, CrashReportJob  # noqa: E402
 from hst_office.vba_save_check import JOB_NAME as VBA_SAVE_JOB_NAME, VbaSaveCheckJob  # noqa: E402
 from hst_office.save_format_check import SERVICE_NAME as SAVE_CHECK_NAME, SaveFormatCheck  # noqa: E402
@@ -24,6 +27,9 @@ g_ImplementationHelper.addImplementation(Handler, IMPLEMENTATION_NAME, ("com.sun
 g_ImplementationHelper.addImplementation(WelcomeJob, JOB_NAME, ("com.sun.star.task.Job",))
 g_ImplementationHelper.addImplementation(UpdateCheckJob, UPDATE_JOB_NAME, ("com.sun.star.task.Job",))
 g_ImplementationHelper.addImplementation(UpdateHandler, HANDLER_NAME, ("com.sun.star.frame.ProtocolHandler",))
+g_ImplementationHelper.addImplementation(StartupPromptsJob, STARTUP_JOB_NAME, ("com.sun.star.task.Job",))
+g_ImplementationHelper.addImplementation(OptionsPageHandler, OPTIONS_NAME, (OPTIONS_NAME,))
+g_ImplementationHelper.addImplementation(AppearanceOptionsHandler, APPEARANCE_NAME, (APPEARANCE_NAME,))
 g_ImplementationHelper.addImplementation(CrashReportJob, CRASH_JOB_NAME, ("com.sun.star.task.Job",))
 g_ImplementationHelper.addImplementation(VbaSaveCheckJob, VBA_SAVE_JOB_NAME, ("com.sun.star.task.Job",))
 # asked by the core before an Excel file is written (hst-save-format-check.patch)

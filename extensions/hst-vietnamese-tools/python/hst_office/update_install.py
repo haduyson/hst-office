@@ -5,7 +5,8 @@ Never silent: the download starts on the user's click, the install only after th
 "Đóng HST Office để cập nhật?". Every failure ends in a message with "Tải về" (manual download in the browser).
 The office is closed through Desktop.terminate(), so modified documents get the standard save prompts and Cancel
 there aborts the update (the helper, started before terminate, is stopped then, without relaunching anything).
-A failed install is reported at the next start (update_outcome).
+A failed install is reported at the next start (update_outcome). On macOS a bundle that cannot be replaced (the .dmg,
+an App Translocation path) is updated into /Applications instead, and that copy is opened (mac_app_location).
 """
 import os
 import platform
@@ -125,9 +126,14 @@ def launch_and_quit(ctx, result, info):
     system = platform.system()
     cache = installer.cache_dir(system)
     soffice, bundle = office_paths(ctx, system)
+    target = bundle
+    if system == "Darwin":  # a bundle on the .dmg, translocated or not writable: install into /Applications instead
+        from . import mac_app_location
+        target = mac_app_location.update_target(bundle)
     dry = info.get("test_mode") and bool(os.environ.get(DRY_RUN_ENV))
     helper = cmd.build_helper(system, pid=os.getpid(), installer=result["path"], sha256=result["entry"]["sha256"], soffice=soffice, log=launch.log_path(cache),
-                              dry_run=bool(dry), app_dest=bundle, release_from=info["release"], release_to=result["release"]["version"])
+                              dry_run=bool(dry), app_dest=target, app_origin=bundle if target != bundle else None,
+                              release_from=info["release"], release_to=result["release"]["version"])
     if not update_config.settings(ctx)["AllowInstall"]:  # the policy may have changed since the click
         return
     proc, closing = launch.spawn(cmd.argv(helper, launch.write_helper(helper, cache)), system), False
@@ -162,4 +168,8 @@ def start(ctx, peer):
                 fail(ctx, peer, "err_launch")
     except Exception:  # noqa: BLE001 - report instead of failing inside the UI thread
         traceback.print_exc()
+        try:  # never silent: the user clicked "Cập nhật ngay" and must learn that nothing was installed
+            fail(ctx, peer, "err_unexpected")
+        except Exception:  # noqa: BLE001 - not even the message could be shown
+            traceback.print_exc()
     return None

@@ -74,6 +74,13 @@ def main():
         subprocess.run(cmd.argv(failed_helper, launch.write_helper(failed_helper, cache)), timeout=120, stdin=subprocess.DEVNULL)
         recorded = outcome.take(os.path.dirname(result["path"]), "1.0.0-beta.3")
         check("failed install recorded for the next start", bool(recorded) and recorded["code"] == "verify" and recorded["to"] == "9.9.9", str(recorded))
+        if SYSTEM == "Darwin":  # the running copy on a mounted .dmg: refused before any password question, and recorded
+            image_helper = cmd.build_helper(SYSTEM, pid=2147483000, installer=result["path"], sha256=result["entry"]["sha256"], soffice=soffice,
+                                            log=log, dry_run=True, app_dest="/Volumes/HST Office smoke/HST Office.app",
+                                            release_from="1.0.0-beta.3", release_to="9.9.9")
+            subprocess.run(cmd.argv(image_helper, launch.write_helper(image_helper, cache)), timeout=120, stdin=subprocess.DEVNULL)
+            recorded = outcome.take(os.path.dirname(result["path"]), "1.0.0-beta.3")
+            check("read-only bundle recorded for the next start", bool(recorded) and recorded["code"] == "readonly", str(recorded))
         with mock.patch.object(logic, "PUBLIC_KEY", ed25519.secret_to_public(fixtures.SEED)):
             server.publish({key: dict(entry[key], sha256="0" * 64)})
             try:

@@ -8,6 +8,7 @@ Exit status is non-zero when any package fails any rule.
 """
 import argparse
 import os
+import re
 import sys
 import tempfile
 import zipfile
@@ -52,8 +53,10 @@ def self_test():
         "remote resource": lambda d: d.update({"Addons.xcu": d["Addons.xcu"] + b"<!-- https://evil.example/x -->"}),
         "bad xml": lambda d: d.update({"ProtocolHandler.xcu": b"<oor:component-data"}),
         "missing registered file": lambda d: d.pop("python/hst_office_component.py"),
-        "invalid banner key": lambda d: d.update({"python/hst_office/banner_verify.py":
-            d["python/hst_office/banner_verify.py"].replace(b'PUBLIC_KEY = b""', b'PUBLIC_KEY = bytes.fromhex("01' + b'00' * 31 + b'")')}),
+        # Replaces whatever key the package carries (placeholder or configured) with the identity point.
+        "invalid banner key": lambda d: d.update({"python/hst_office/banner_verify.py": re.sub(
+            rb"^PUBLIC_KEY = .*$", b'PUBLIC_KEY = bytes.fromhex("01' + b"00" * 31 + b'")',
+            d["python/hst_office/banner_verify.py"], count=1, flags=re.M)}),
         "stale banners": lambda d: d.update({"data/banners.json": b"{}"}),
         "missing banner image": lambda d: d.pop("banners/aios@1x.png"),
         "missing banner snapshots": lambda d: d.pop("data/banner-snapshots.json"),
@@ -82,6 +85,10 @@ def self_test():
         for label, mutate in cases.items():
             data = dict(good)
             mutate(data)
+            if data == good:  # a stale fixture must not pass as "not detected" or hide a gap
+                print("FAIL self-test case %s does not change the package (stale fixture)" % label)
+                failures += 1
+                continue
             path = os.path.join(tmp, "case.oxt")
             with zipfile.ZipFile(path, "w") as z:
                 for name, blob in data.items():

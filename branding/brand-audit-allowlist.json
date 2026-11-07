@@ -1,6 +1,17 @@
 {
-  "$comment": "Hits of LibreOffice / Document Foundation / OpenOffice names that are legally required attribution or licence text. Matched by glob on the path relative to the scanned root; optional regex narrows to matching lines. Seed set: refine after the first scan of a real build tree, never allowlist whole UI directories.",
+  "$comment": "Ngoại lệ cho giấy phép, ghi nhận nguồn gốc và khai báo DTD ngoài giao diện. Đường dẫn tương đối với gốc quét, so khớp bằng fnmatch (dấu * có thể khớp cả /; **/ không khớp tệp ngay gốc). regex giới hạn từng dòng và phải neo cả hai đầu khi dùng trong tệp có nội dung giao diện. Không miễn trừ cả thư mục giao diện, trợ giúp, phần mở rộng hoặc SDK.",
   "entries": [
+    { "path": "LICENSE", "reason": "Giấy phép nguyên văn ngay gốc bộ cài; mẫu **/LICENSE* không bao phủ vị trí này" },
+    { "path": "LICENSE.html", "reason": "Bản HTML của giấy phép ngay gốc bộ cài" },
+    { "path": "license.xml", "reason": "Bản XML của giấy phép ngay gốc bộ cài" },
+    { "path": "NOTICE", "reason": "Thông báo bản quyền bắt buộc ngay gốc bộ cài" },
+    { "path": "NOTICE.txt", "reason": "Biến thể văn bản của thông báo bản quyền ngay gốc bộ cài" },
+    { "path": "CREDITS.txt", "reason": "Danh sách ghi nhận tác giả ngay gốc bộ cài" },
+    { "path": "THIRDPARTYLICENSEREADME.html", "reason": "Danh sách giấy phép thành phần bên thứ ba ngay gốc bộ cài" },
+    { "path": "license/**", "reason": "Thư mục chuyên chứa giấy phép ngay gốc; mẫu **/license/** chỉ bao phủ thư mục lồng bên dưới" },
+    { "path": "**/license.txt", "reason": "Giấy phép văn bản có tên viết thường trong thành phần đóng gói; fnmatch phân biệt hoa thường trên Linux" },
+    { "path": "**/license.html", "reason": "Giấy phép HTML có tên viết thường trong thành phần đóng gói" },
+    { "path": "**/license.xml", "reason": "Giấy phép XML có tên viết thường trong thành phần đóng gói" },
     { "path": "**/LICENSE*", "reason": "Licence texts keep upstream names intact" },
     { "path": "**/license/**", "reason": "Licence texts keep upstream names intact" },
     { "path": "**/NOTICE*", "reason": "Required upstream notices" },
@@ -8,6 +19,9 @@
     { "path": "**/CREDITS*", "reason": "Upstream contributor credits" },
     { "path": "credits.html", "reason": "Truthful attribution: based on LibreOffice, The Document Foundation" },
     { "path": "**/credits.html", "reason": "Truthful attribution: based on LibreOffice, The Document Foundation" },
-    { "path": "**/help/index.html", "regex": "LibreOffice", "reason": "Help start page states HST Office is based on LibreOffice" }
+    { "path": "share/*.xml", "regex": "^[ \\t]*\\* This file is part of the LibreOffice project\\.[ \\t]*$", "reason": "Chỉ dòng ghi nguồn gốc cố định trong phần đầu chú thích bản quyền XML; nhãn và thuộc tính giao diện vẫn bị quét" },
+    { "path": "share/xdg/*.desktop", "regex": "^[ \\t]*# This file is part of the LibreOffice project\\.[ \\t]*$", "reason": "Chỉ chú thích bản quyền của tệp launcher; không miễn trừ Name, Comment hoặc nội dung hiển thị" },
+    { "path": "share/wizards/resources_*.properties", "regex": "^[ \\t]*# This file is part of the LibreOffice project\\.[ \\t]*$", "reason": "Chỉ chú thích bản quyền của tài nguyên trình hướng dẫn; các giá trị chuỗi vẫn bị quét" },
+    { "path": "share/*.xml", "regex": "^[ \\t]*<!DOCTYPE (?:toolbar:toolbar|statusbar:statusbar|manifest:manifest) PUBLIC \"-//OpenOffice\\.org//DTD (?:OfficeDocument|Manifest) 1\\.0//EN\" \"(?:toolbar|statusbar|Manifest)\\.dtd\">[ \\t]*$", "reason": "Chỉ khai báo DTD đứng riêng của thanh công cụ, thanh trạng thái và manifest; định danh định dạng không hiển thị trên giao diện, nội dung khác cùng dòng vẫn là lỗi" }
   ]
 }

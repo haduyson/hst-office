@@ -2,7 +2,7 @@
 """User-facing HST commands: gather UI input, call the logic modules, report results. One function per command."""
 import unohelper
 
-from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_layout, nd30_open, nd30_writer,
+from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_layout, nd30_open, nd30_writer,
                blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
@@ -49,12 +49,24 @@ def nd30_wizard(host):
                                        undo_title=host.s["undo"]["nd30"])
     if result["blockers"]:
         return host.refuse(result["blockers"])
+    if choice.get("duplex") or choice["apply_page"]:  # after the page layout: it decides left/right pages
+        nd30_duplex.apply(host.doc, cursor, bool(choice.get("duplex")), layout.get("profile", "nd30"))
     note = host.s["nd30"]["inserted"]
     if result["page"] and result["page"]["headerSkipped"]:
         note += "\n" + host.s["nd30"]["headerSkipped"]
     if fonts.is_font_missing(host.ctx, "Times New Roman"):
         note += "\n" + host.s["nd30"]["fontMissing"] % "Times New Roman"
     host.say(note)
+
+
+def toggle_duplex(host):
+    """HST ▸ In hai mặt on an existing document (current page style); says what changed and which clause applies."""
+    if not host.is_writer():
+        return
+    done = nd30_duplex.toggle(host.doc, host.controller.getViewCursor())
+    s = host.s["nd30"]
+    text = (s["duplexOnMirrored"] if done["mirrored"] else s["duplexOn"]) if done["duplex"] else s["duplexOff"]
+    host.say(text + "\n" + s["duplexClause"] % done["clause"])
 
 
 def convert_encoding(host):
@@ -147,6 +159,7 @@ def sheet_utility(command):
 
 COMMANDS = {
     "Nd30Wizard": nd30_wizard,
+    "ToggleDuplex": toggle_duplex,
     "ConvertEncoding": convert_encoding,
     "FormatDate": lambda h: apply_format(h, "date"),
     "FormatDateLong": lambda h: apply_format(h, "dateLong"),

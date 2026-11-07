@@ -1,0 +1,25 @@
+HST Office: the Styles gallery hover preview also ends before an autorecovery copy is written.
+
+storeToRecoveryFile announces itself as "OnCopyTo" (store to a copy), not "OnSaveTo"; the preview
+listened only for the latter, so a recovery copy taken during a hover kept the previewed style.
+
+- svx/source/tbxctrls/StylesPreviewWindow.cxx: HstStylePreview ends on "OnCopyTo" too.
+
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -626,11 +626,13 @@
+ 
+     bool Active() const { return m_xModel.is(); }
+ 
+-    // XDocumentEventListener: any save, store-to (autorecovery) or unload ends the preview first
++    // XDocumentEventListener: any save, store-to (autorecovery broadcasts "OnCopyTo" before it writes
++    // the recovery copy) or unload ends the preview first
+     void SAL_CALL documentEventOccured(const css::document::DocumentEvent& rEvent) override
+     {
+         if (rEvent.EventName == "OnSave" || rEvent.EventName == "OnSaveAs" || rEvent.EventName == "OnSaveTo"
+-            || rEvent.EventName == "OnPrepareUnload" || rEvent.EventName == "OnUnload")
++            || rEvent.EventName == "OnCopyTo" || rEvent.EventName == "OnPrepareUnload"
++            || rEvent.EventName == "OnUnload")
+         {
+             SolarMutexGuard aGuard;
+             End();

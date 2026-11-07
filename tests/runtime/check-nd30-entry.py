@@ -25,7 +25,8 @@ import xml.etree.ElementTree as ET
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
-from nd30_entry_gui import walk, office_app, hst_menu, window_geometry, open_menu_screenshot, crop_window, crop_ribbon, wait_window, click_in_home_block, open_home_block  # noqa: E402
+import ribbon_tabs_gui as ribbon  # noqa: E402
+from nd30_entry_gui import office_app, hst_menu, window_geometry, open_menu_screenshot, crop_window, crop_ribbon, wait_window, home_button  # noqa: E402
 
 ROWS = []
 ND30 = "Văn bản hành chính"
@@ -92,8 +93,12 @@ def check_language(args, lang, label):
         record(label + " Writer window found", wid is not None)
         if wid is not None:
             x, y, width, _height = window_geometry(wid, args.display)
-            click_in_home_block(office, args.display, 70)
-            crop_ribbon(os.path.join(args.out, label + "-writer-ribbon.png"), (x, y, width, _height), os.path.join(shots, label + "-nd30-where.png"))
+            button = home_button(ND30)
+            record(label + " Home tab offers the ND 30 button", button is not None, button)
+            crop_ribbon(os.path.join(args.out, label + "-writer-ribbon.png"), (x, y, width, _height),
+                        os.path.join(shots, label + "-nd30-where.png"), button)
+            if button:
+                ribbon.click(args.display, button)
             dialog, name = wait_window(office, r"^Văn bản hành chính$", 30)
             record(label + " ribbon button opens the wizard (Vietnamese title)", dialog is not None and WIZARD_TITLE in (name or ""), name)
             if dialog:

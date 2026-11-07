@@ -1,0 +1,312 @@
+HST Office: feature search box in the ribbon tab row, after the last tab.
+
+Owner decision (2026-11-07 12:17): the box follows the last tab ("Phần mở rộng") and fills the row up
+to the menu button; about 200 logical px at least while there is room, then it shrinks, then it shows
+only a magnifier. Placeholder "Tìm tính năng… (Alt+Q)" (English UI: "Search features… (Alt+Q)"),
+a magnifier, an even 1 px border with a 4 px radius, light and dark; high contrast uses system colours.
+
+- sfx2/source/notebookbar/NotebookbarTabControl.cxx, sfx2/inc/notebookbar/NotebookbarTabControl.hxx:
+  HstTabSearchBox (child id "hst-tab-search"), created with the banner for the Tabbed notebookbar of
+  Writer, Calc and Impress. A click, Enter, Space, keyboard focus (Tab or F6) or a typed character
+  calls sfx2::hst::ShowFeatureSearch(box, text) from <notebookbar/HstFeatureSearch.hxx> when that
+  header exists (feature search stream), else dispatches .uno:CommandPopup. Accessible as a push
+  button named like the placeholder.
+- vcl/source/control/tabctrl.cxx: NotebookbarTabControlBase::ImplPlaceTabs reserves the box's room
+  before giving tabs their minimum width, keeps the tabs left-aligned when the box exists, and
+  places it; with no room at all it is hidden (Alt+Q still works). Other tab controls unchanged.
+
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -17,6 +17,7 @@
+ namespace com::sun::star::uno { class XComponentContext; }
+ class ChangedUIEventListener;
+ class HstRibbonBanner;
++class HstTabSearchBox;
+ class VclWindowEvent;
+ struct ImplSVEvent;
+ 
+@@ -45,6 +46,8 @@
+     DECL_LINK(HstBannerLayoutHdl, HstRibbonBanner&, void);
+     ImplSVEvent* m_pHstLayoutEvent = nullptr;
+     VclPtr<HstRibbonBanner> m_pHstBanner;
++    // HST Office: feature search box in the tab row, after the last tab (placed by the vcl base)
++    VclPtr<HstTabSearchBox> m_pHstSearch;
+     bool m_bHstLayout = false;
+ 
+     // time-based debounce: track when the last tab switch via scroll happened
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -28,6 +28,19 @@
+ #include "HstBannerGeometry.hxx"
+ #include "HstRibbonBanner.hxx"
+ #include "HstRibbonKeyTips.hxx"
++#include <com/sun/star/accessibility/AccessibleRole.hpp>
++#include <comphelper/dispatchcommand.hxx>
++#include <vcl/HstRibbonPaint.hxx>
++#include <vcl/lineinfo.hxx>
++#include <i18nlangtag/languagetag.hxx>
++#include <unotools/syslocale.hxx>
++#include <vcl/settings.hxx>
++#if __has_include(<notebookbar/HstFeatureSearch.hxx>)
++#include <notebookbar/HstFeatureSearch.hxx>
++#define HST_HAVE_FEATURE_SEARCH 1
++#endif
++#include <algorithm>
++#include <cmath>
+ #include <vcl/event.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/vclevent.hxx>
+@@ -51,6 +64,162 @@
+ constexpr OUString TOOLBAR_STR = u"private:resource/toolbar/notebookbarshortcuts"_ustr;
+ 
+ using namespace css::uno;
++
++/** HST Office: the feature search box of the tab row ("Tìm tính năng… (Alt+Q)"). It is not an
++    entry: a click, Enter, Space, keyboard focus or a typed character opens the feature search
++    popup anchored under the box, with the typed character as its first text. The tab control
++    base places it after the last tab (child id "hst-tab-search") and gives it the rest of the row
++    up to the menu button; below 120 logical px it shows only the magnifier. */
++class HstTabSearchBox final : public Control
++{
++public:
++    explicit HstTabSearchBox(vcl::Window* pParent)
++        : Control(pParent, WB_TABSTOP)
++    {
++        set_id(u"hst-tab-search"_ustr);
++        SetPaintTransparent(true);
++        SetAccessibleRole(css::accessibility::AccessibleRole::PUSH_BUTTON);
++        SetAccessibleName(Placeholder());
++        SetQuickHelpText(Placeholder());
++    }
++
++    /** The owner's Vietnamese wording in the Vietnamese UI, English otherwise. */
++    static OUString Placeholder()
++    {
++        return SvtSysLocale().GetUILanguageTag().getLanguage() == "vi"
++                   ? u"Tìm tính năng… (Alt+Q)"_ustr
++                   : u"Search features… (Alt+Q)"_ustr;
++    }
++
++    bool Collapsed() const
++    {
++        return GetOutputSizePixel().Width() < std::lround(120 * GetDPIScaleFactor());
++    }
++
++    void OpenSearch(const OUString& rInitialText)
++    {
++#ifdef HST_HAVE_FEATURE_SEARCH
++        sfx2::hst::ShowFeatureSearch(this, rInitialText);
++#else
++        (void)rInitialText; // the command popup has no initial text
++        comphelper::dispatchCommand(u".uno:CommandPopup"_ustr, {});
++#endif
++    }
++
++    virtual void Paint(vcl::RenderContext& rDev, const tools::Rectangle&) override
++    {
++        const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++        const bool bSystem = !hst::ribbon::ownerDrawAllowed(rStyle); // high contrast
++        const hst::ribbon::Palette aPalette = hst::ribbon::paletteFor(rStyle);
++        const double fDpi = GetDPIScaleFactor();
++        const tools::Long nRadius = std::lround(4 * fDpi);
++        const Size aOut = GetOutputSizePixel();
++        const Color aText = bSystem ? rStyle.GetFieldTextColor() : aPalette.aCaption;
++        rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR | vcl::PushFlags::FONT
++                  | vcl::PushFlags::TEXTCOLOR);
++        // an even 1 px border on all four sides; the accent colour while hovered or focused
++        rDev.SetFillColor(rStyle.GetFieldColor());
++        rDev.SetLineColor(bSystem ? rStyle.GetFieldTextColor()
++                          : (mbHover || HasFocus()) ? aPalette.aTabAccent
++                                                    : aPalette.aSeparator);
++        rDev.DrawRect(tools::Rectangle(Point(), Size(aOut.Width() - 1, aOut.Height() - 1)), nRadius,
++                      nRadius);
++        // magnifier: a ring and a short handle, drawn so it is sharp at any scale
++        const tools::Long nGlyph = std::lround(14 * fDpi);
++        const tools::Long nPad = std::lround(8 * fDpi);
++        const tools::Long nX = Collapsed() ? (aOut.Width() - nGlyph) / 2 : nPad;
++        const tools::Long nY = (aOut.Height() - nGlyph) / 2;
++        const tools::Long nRing = nGlyph * 10 / 14;
++        rDev.SetFillColor();
++        rDev.SetLineColor(aText);
++        LineInfo aLine(LineStyle::Solid, std::max<tools::Long>(1, std::lround(1.5 * fDpi)));
++        rDev.DrawEllipse(tools::Rectangle(Point(nX, nY), Size(nRing, nRing)));
++        rDev.DrawLine(Point(nX + nRing * 85 / 100, nY + nRing * 85 / 100),
++                      Point(nX + nGlyph - 1, nY + nGlyph - 1), aLine);
++        if (!Collapsed())
++        {
++            vcl::Font aFont(rStyle.GetAppFont());
++            rDev.SetFont(aFont);
++            rDev.SetTextColor(aText);
++            const tools::Long nTextX = nX + nGlyph + std::lround(6 * fDpi);
++            const tools::Rectangle aTextRect(Point(nTextX, 0),
++                                             Size(std::max<tools::Long>(0, aOut.Width() - nTextX - nPad), aOut.Height()));
++            rDev.DrawText(aTextRect, Placeholder(),
++                          DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
++        }
++        if (HasFocus())
++        {
++            // keyboard focus: a second even ring inside the border
++            tools::Rectangle aRing(Point(1, 1), Size(aOut.Width() - 3, aOut.Height() - 3));
++            rDev.SetLineColor(bSystem ? rStyle.GetHighlightColor() : aPalette.aTabAccent);
++            rDev.DrawRect(aRing, nRadius, nRadius);
++        }
++        rDev.Pop();
++    }
++
++    virtual void MouseMove(const MouseEvent& rEvt) override
++    {
++        const bool bHover = !rEvt.IsLeaveWindow();
++        if (bHover != mbHover)
++        {
++            mbHover = bHover;
++            Invalidate();
++        }
++        Control::MouseMove(rEvt);
++    }
++
++    virtual void MouseButtonUp(const MouseEvent& rEvt) override
++    {
++        if (rEvt.IsLeft() && tools::Rectangle(Point(), GetOutputSizePixel()).Contains(rEvt.GetPosPixel()))
++        {
++            OpenSearch(OUString());
++            return;
++        }
++        Control::MouseButtonUp(rEvt);
++    }
++
++    virtual void KeyInput(const KeyEvent& rEvt) override
++    {
++        const vcl::KeyCode& rKey = rEvt.GetKeyCode();
++        if (!rKey.GetModifier() && (rKey.GetCode() == KEY_RETURN || rKey.GetCode() == KEY_SPACE))
++        {
++            OpenSearch(OUString());
++            return;
++        }
++        const sal_Unicode c = rEvt.GetCharCode();
++        if (!rKey.IsMod1() && !rKey.IsMod2() && c >= 0x20 && c != 0x7F)
++        {
++            OpenSearch(OUString(c)); // typing starts the search with that character
++            return;
++        }
++        Control::KeyInput(rEvt);
++    }
++
++    virtual void GetFocus() override
++    {
++        Control::GetFocus();
++        Invalidate();
++        // reached with the keyboard (Tab or F6): open the search at once, as the owner asked
++        if (GetGetFocusFlags() & (GetFocusFlags::Tab | GetFocusFlags::F6))
++            OpenSearch(OUString());
++    }
++
++    virtual void LoseFocus() override
++    {
++        Control::LoseFocus();
++        Invalidate();
++    }
++
++    virtual void DataChanged(const DataChangedEvent& rEvt) override
++    {
++        Control::DataChanged(rEvt);
++        if (rEvt.GetType() == DataChangedEventType::SETTINGS)
++            Invalidate(); // light/dark and high contrast follow the theme
++    }
++
++private:
++    bool mbHover = false;
++};
+ using namespace css::ui;
+ using namespace css::frame;
+ 
+@@ -180,6 +349,7 @@
+     {
+         RemoveChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+         m_pHstBanner.disposeAndClear();
++        m_pHstSearch.disposeAndClear();
+     }
+     NotebookbarTabControlBase::dispose();
+ }
+@@ -199,6 +369,8 @@
+                 || (rFile.indexOf("/swriter/") < 0 && rFile.indexOf("/scalc/") < 0
+                     && rFile.indexOf("/simpress/") < 0))
+                 return;
++            m_pHstSearch = VclPtr<HstTabSearchBox>::Create(this);
++            m_pHstSearch->Show();
+             m_pHstBanner = VclPtr<HstRibbonBanner>::Create(this);
+             m_pHstBanner->SetLayoutHdl(LINK(this, NotebookbarTabControl, HstBannerLayoutHdl));
+             hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -22,6 +22,8 @@
+ #include <tools/json_writer.hxx>
+ #include <tools/mapunit.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
++#include <algorithm>
++#include <cmath>
+ #include <vcl/builder.hxx>
+ #include <vcl/help.hxx>
+ #include <vcl/layout.hxx>
+@@ -2372,6 +2374,18 @@
+     tools::Long nShortcutsWidth = m_pShortcuts != nullptr ? m_pShortcuts->GetSizePixel().getWidth() + 1 : 0;
+     tools::Long nFullWidth = nShortcutsWidth;
+ 
++    // HST Office: the feature search box (child "hst-tab-search") follows the last tab and takes
++    // the rest of the row up to the menu button: about 200 logical px while there is room; tabs
++    // lose their minimum width first, then the box shrinks, then it shows only its magnifier.
++    vcl::Window* pHstSearch = nullptr;
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        if (pChild->get_id() == u"hst-tab-search")
++            pHstSearch = pChild;
++    const double fHstDpi = GetDPIScaleFactor();
++    const tools::Long nHstGap = pHstSearch ? std::lround(8 * fHstDpi) : 0;
++    const tools::Long nHstReserve = pHstSearch ? std::lround(200 * fHstDpi) + 2 * nHstGap : 0;
++
+     const tools::Long nOffsetX = 2 + nShortcutsWidth;
+     const tools::Long nOffsetY = 2;
+ 
+@@ -2404,7 +2418,7 @@
+         Size aSize = ImplGetItemSize( &item, nMaxWidth );
+ 
+         // set minimum tab size
+-        if( nFullWidth < nMaxWidth && !item.maText.isEmpty() && aSize.getWidth() < 100)
++        if( nFullWidth < nMaxWidth - nHstReserve && !item.maText.isEmpty() && aSize.getWidth() < 100)
+             aSize.setWidth( 100 );
+ 
+         if( !item.maText.isEmpty() && aSize.getHeight() < 28 )
+@@ -2424,7 +2438,8 @@
+ 
+     // we always have only one line of tabs
+     // tdf#127610 subtract width of shortcuts from width available for tab items
+-    lcl_AdjustSingleLineTabs(nMaxWidth - nShortcutsWidth, mpTabCtrlData.get());
++    if (!pHstSearch) // with the search box the tabs stay left-aligned, the box fills the row
++        lcl_AdjustSingleLineTabs(nMaxWidth - nShortcutsWidth, mpTabCtrlData.get());
+ 
+     // position the shortcutbox
+     if (m_pShortcuts)
+@@ -2437,6 +2452,24 @@
+     // position the menu
+     m_pOpenMenu->SetPosPixel(Point(nWidth - nHamburgerWidth, nPosY));
+ 
++    if (pHstSearch)
++    {
++        const tools::Long nIcon = std::lround(32 * fHstDpi);
++        const tools::Long nHeight = std::min<tools::Long>(std::lround(28 * fHstDpi), m_nHeaderHeight - 4);
++        const tools::Long nLeft = nX + nHstGap;
++        const tools::Long nRoom = nWidth - nHamburgerWidth - nHstGap - nLeft;
++        if (nRoom >= nIcon && nHeight > 0)
++        {
++            // below 120 logical px the box draws only its magnifier, so it takes no more than that
++            const tools::Long nBox = nRoom >= std::lround(120 * fHstDpi) ? nRoom : nIcon;
++            pHstSearch->SetPosSizePixel(Point(nLeft, (m_nHeaderHeight - nHeight) / 2), Size(nBox, nHeight));
++            if (!pHstSearch->IsVisible())
++                pHstSearch->Show();
++        }
++        else if (pHstSearch->IsVisible())
++            pHstSearch->Hide(); // no room at all: Alt+Q still opens the search
++    }
++
+     return true;
+ }
+ 

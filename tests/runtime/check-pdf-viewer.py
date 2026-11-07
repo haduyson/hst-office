@@ -10,7 +10,11 @@ opens them as a user would (loadComponentFromURL, visible), and asserts:
   - signing through the real certificate chooser and PIN prompt with the SoftHSM2 token of
     signature_pki (private key only on the token), a visible signature box, "save a copy"
     (the original stays byte-identical), the viewer validating the signature and pdfsig;
-  - Options "Open PDF files in HST PDF" off, hidden loads and "Edit in HST Draw" use Draw.
+  - Options "Open PDF files in HST PDF" off, hidden loads and "Edit in HST Draw" use Draw;
+  - red stays red (PDFium page bitmaps are BGRx): pure red text, a scanned JPG stamp and a PNG
+    stamp with alpha in a .docx exported to PDF, and a fully scanned page. The page bitmap that
+    the screen, the thumbnails and printing use (HSTPdfInfo RenderRedPixels/RenderBluePixels) and
+    a screenshot of the window both have more red than blue pixels, before and after signing.
 
 Run as root or a normal user on an X display (Xvfb), with softhsm2, opensc, libnss3-tools,
 openssl and poppler-utils. Example:
@@ -30,49 +34,13 @@ import time
 os.environ.setdefault("HST_VCLPLUGIN", "gen")  # UITest drives the chooser and PIN dialogs
 import hst_gui
 import pdf_samples
+from pdf_viewer_stamps import check_red_stamps
+from pdf_viewer_uno import check_draw_handover, info, open_viewer, sign_copy, signing_props, wait_info
 import signature_pki
 from usb_token_harness import signing_helpers
 
 ROOT = Path(__file__).resolve().parents[2]
 OPEN_LIMIT_MS = {50: 1000, 300: 1500}
-VIEWER = "org.hasontech.comp.PdfViewerController"
-
-
-def info(office, frame, **args):
-    result = office.dispatch(frame, ".uno:HSTPdfInfo", signing_props(**args))
-    return {item.Name: item.Value for item in result.Result}
-
-
-def signing_props(**values):
-    import uno  # noqa: F401
-    from com.sun.star.beans import PropertyValue
-    out = []
-    for name, value in values.items():
-        prop = PropertyValue()
-        prop.Name, prop.Value = name, value
-        out.append(prop)
-    return tuple(out)
-
-
-def wait_info(office, frame, key, predicate, timeout=30, **args):
-    deadline = time.time() + timeout
-    while True:
-        data = info(office, frame, **args)
-        if predicate(data.get(key)) or time.time() > deadline:
-            return data
-        time.sleep(0.1)
-
-
-def open_viewer(office, path):
-    import uno
-    start = time.monotonic()
-    component = office.load(uno.systemPathToFileUrl(str(path)))
-    wall_ms = int((time.monotonic() - start) * 1000)
-    assert component is not None and component.ImplementationName == VIEWER, component
-    frame = component.getFrame()
-    data = wait_info(office, frame, "OpenMillis", lambda v: v is not None and v >= 0)
-    data["WallMillis"] = wall_ms
-    return frame, data
 
 
 def pdfinfo_pages(path):
@@ -130,20 +98,7 @@ def check_signing(office, signing, samples, workdir, pki, checks, result):
     assert signature_pki.USER_CN in data["Certificate"], data
     checks["token_certificate_chosen_in_panel"] = True
 
-    done = {}
-    def sign():
-        done["result"] = office.dispatch(frame, ".uno:HSTPdfSign", signing_props(
-            TargetURL=uno.systemPathToFileUrl(str(target)), Reason="Đồng ý phê duyệt", Visible=True,
-            Page=1, X=330.0, Y=650.0, Width=200.0, Height=70.0)).Result
-    thread = threading.Thread(target=sign, daemon=True)
-    thread.start()
-    deadline = time.time() + 90
-    while thread.is_alive() and time.time() < deadline:
-        win, kids = dialogs.top()
-        if "newpassEntry" in kids:
-            dialogs._answer_pin(win)
-        time.sleep(0.5)
-    thread.join(5)
+    done = sign_copy(office, dialogs, frame, target, Reason="Đồng ý phê duyệt", Page=1, X=330.0, Y=650.0)
     assert done.get("result") is True, (done, dialogs.prompts, dialogs.unexpected)
     assert target.is_file() and hashlib.sha256(source.read_bytes()).hexdigest() == before
     checks["signed_copy_saved_original_unchanged"] = True
@@ -180,42 +135,6 @@ def check_signing(office, signing, samples, workdir, pki, checks, result):
     frame.close(True)
     checks["signed_copy_reopens_valid"] = True
 
-
-def check_draw_handover(office, samples, checks):
-    import uno
-    url = uno.systemPathToFileUrl(str(samples[6]))
-    hidden = office.load(url, hidden=True)
-    assert hidden is not None and hidden.supportsService("com.sun.star.drawing.DrawingDocument"), hidden
-    hidden.close(True)
-    checks["hidden_load_uses_draw"] = True
-
-    frame, _ = open_viewer(office, samples[6])
-    threading.Thread(target=office.dispatch, args=(frame, ".uno:HSTPdfEditInDraw"), daemon=True).start()
-    deadline, draw = time.time() + 120, None
-    while time.time() < deadline and draw is None:
-        time.sleep(1)
-        enum = office.desktop().getComponents().createEnumeration()
-        while enum.hasMoreElements():
-            candidate = enum.nextElement()
-            if hasattr(candidate, "supportsService") and candidate.supportsService("com.sun.star.drawing.DrawingDocument"):
-                draw = candidate
-    assert draw is not None
-    time.sleep(2)
-    frames = office.desktop().getFrames()
-    viewers = [frames.getByIndex(i) for i in range(frames.getCount())
-               if getattr(frames.getByIndex(i).getController(), "ImplementationName", "") == VIEWER]
-    assert not viewers, "the viewer window stays open after Edit in HST Draw"
-    draw.close(True)
-    checks["edit_in_draw_replaces_viewer"] = True
-
-    office.set_config("/org.openoffice.Office.HSTPdfViewer/Viewer", "OpenPdfInViewer", False)
-    try:
-        doc = office.load(url)
-        assert doc is not None and doc.supportsService("com.sun.star.drawing.DrawingDocument"), doc
-        doc.close(True)
-    finally:
-        office.set_config("/org.openoffice.Office.HSTPdfViewer/Viewer", "OpenPdfInViewer", True)
-    checks["option_off_opens_draw"] = True
 
 
 def main():
@@ -258,6 +177,7 @@ def main():
         check_viewing(office, samples, checks, result)
         if not args.no_signing:
             check_signing(office, signing, samples, workdir, pki, checks, result)
+        check_red_stamps(office, signing, args.instdir, workdir, not args.no_signing, checks, result)
         check_draw_handover(office, samples, checks)
     finally:
         stop.set()

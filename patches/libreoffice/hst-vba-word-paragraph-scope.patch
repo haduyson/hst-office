@@ -1,0 +1,195 @@
+HST Office: Word VBA paragraph members stay in their paragraph; Words lists punctuation on its own.
+
+Since a paragraph's Range ends after its mark (hst-vba-word-fixes.patch), it ends at the start of the
+next paragraph in Writer. Range.Style, Range.ParagraphFormat, Range.ListFormat and Range.Paragraphs then
+also changed or counted the next paragraph: Paragraphs(2).Range.ListFormat.ApplyBulletDefault bulleted
+paragraphs 2 and 3, Paragraphs(2).Range.Style restyled both. Word changes paragraph 2 only. These members
+now use the range without the start of the next paragraph.
+
+Range.Words and Selection.Words give punctuation as words of their own, as Word does: "giới. Đây" is
+"giới", ". ", "Đây". An apostrophe inside a word stays in it; a unit holding a field is kept whole.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-vba.py --only writer (writer-lists, writer-range-words, writer-paragraph-scope).
+---
+--- a/sw/source/ui/vba/vbarange.hxx
++++ b/sw/source/ui/vba/vbarange.hxx
+@@ -46,6 +46,9 @@
+     void initialize( const css::uno::Reference< css::text::XTextRange >& rStart, const css::uno::Reference< css::text::XTextRange >& rEnd );
+     /// @throws css::uno::RuntimeException
+     void GetStyleInfo(OUString& aStyleName, OUString& aStyleType );
++    /// HST: the range for paragraph-wide members (Style, ParagraphFormat, ListFormat, Paragraphs): a range that
++    /// ends right after a paragraph mark ends at the start of the next paragraph in Writer, which Word does not touch
++    css::uno::Reference< css::text::XTextCursor > getParagraphScope();
+     /// HST: moves one end of the range by units; returns how many it moved
+     sal_Int32 moveBound( bool bEnd, const css::uno::Any& rUnit, const css::uno::Any& rCount );
+     /// HST: the unit around the position of xPlace: bFromEnd for the end of the range
+--- a/sw/source/ui/vba/vbarange.cxx
++++ b/sw/source/ui/vba/vbarange.cxx
+@@ -119,6 +119,29 @@
+     return xTextRange;
+ }
+ 
++// HST: Paragraphs(n).Range ends after its mark (as in Word), i.e. at the start of paragraph n+1 in Writer.
++// Paragraph-wide changes through that range must stay in paragraph n, as they do in Word.
++uno::Reference< text::XTextCursor >
++SwVbaRange::getParagraphScope()
++{
++    uno::Reference< text::XTextCursor > xScope = mxText->createTextCursorByRange( mxTextCursor );
++    if( xScope->isCollapsed() )
++        return xScope;
++    uno::Reference< text::XTextCursor > xEnd = mxText->createTextCursorByRange( mxTextCursor->getEnd() );
++    uno::Reference< text::XParagraphCursor > xEndPara( xEnd, uno::UNO_QUERY );
++    uno::Reference< text::XTextRangeCompare > xCompare( mxText, uno::UNO_QUERY );
++    if( !xEndPara.is() || !xCompare.is() || !xEndPara->isStartOfParagraph() )
++        return xScope;
++    xEnd->goLeft( 1, false );
++    // never move the end before the start: a range of just a paragraph mark keeps its own paragraph
++    if( xCompare->compareRegionStarts( xScope->getStart(), xEnd->getStart() ) >= 0 )
++    {
++        xScope->gotoRange( xScope->getStart(), false );
++        xScope->gotoRange( xEnd->getStart(), true );
++    }
++    return xScope;
++}
++
+ /**
+ * The complexity in this method is because we need to workaround
+ * an issue that the last paragraph in a document does not have a trailing CRLF.
+@@ -312,7 +335,7 @@
+ uno::Any SAL_CALL
+ SwVbaRange::Paragraphs( const uno::Any& rIndex )
+ {
+-    uno::Reference< XCollection > xCol( new SwVbaParagraphs( this, mxContext, mxTextDocument, getXTextRange() ) );
++    uno::Reference< XCollection > xCol( new SwVbaParagraphs( this, mxContext, mxTextDocument, getParagraphScope() ) );
+     return rIndex.hasValue() ? xCol->Item( rIndex, uno::Any() ) : uno::Any( xCol );
+ }
+ 
+@@ -441,7 +464,7 @@
+ uno::Reference< word::XParagraphFormat > SAL_CALL
+ SwVbaRange::getParagraphFormat()
+ {
+-    uno::Reference< beans::XPropertySet > xParaProps( mxTextCursor, uno::UNO_QUERY_THROW );
++    uno::Reference< beans::XPropertySet > xParaProps( getParagraphScope(), uno::UNO_QUERY_THROW );
+     return uno::Reference< word::XParagraphFormat >( new SwVbaParagraphFormat( this, mxContext, xParaProps ) );
+ }
+ 
+@@ -482,7 +505,7 @@
+ void SAL_CALL
+ SwVbaRange::setStyle( const uno::Any& rStyle )
+ {
+-    uno::Reference< beans::XPropertySet > xParaProps( mxTextCursor, uno::UNO_QUERY_THROW );
++    uno::Reference< beans::XPropertySet > xParaProps( getParagraphScope(), uno::UNO_QUERY_THROW );
+     SwVbaStyle::setStyle( xParaProps, rStyle );
+ }
+ 
+@@ -503,7 +526,7 @@
+ uno::Reference< word::XListFormat > SAL_CALL
+ SwVbaRange::getListFormat()
+ {
+-    return uno::Reference< word::XListFormat >( new SwVbaListFormat( this, mxContext, getXTextRange() ) );
++    return uno::Reference< word::XListFormat >( new SwVbaListFormat( this, mxContext, getParagraphScope() ) );
+ }
+ 
+ ::sal_Int32 SAL_CALL SwVbaRange::getLanguageID()
+--- a/sw/source/ui/vba/vbatextunits.cxx
++++ b/sw/source/ui/vba/vbatextunits.cxx
+@@ -7,6 +7,7 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+  */
+ 
++#include <string_view>
+ #include <vector>
+ 
+ #include <com/sun/star/container/NoSuchElementException.hpp>
+@@ -29,6 +30,78 @@
+ 
+ namespace
+ {
++// HST: Word lists punctuation as words of its own ("giới. " is "giới" and ". "); the trailing spaces stay
++// with the last part. A unit whose text does not map one character per cursor step (a field) is kept whole.
++bool lcl_isPunctuation(sal_Unicode c)
++{
++    static constexpr std::u16string_view aMarks = u".,;:!?()[]{}\"'\u00AB\u00BB\u201C\u201D\u2018\u2019\u2026\u2013\u2014";
++    return aMarks.find(c) != std::u16string_view::npos;
++}
++
++/// true when the character at nPos counts as punctuation; an apostrophe between letters ("don't") does not
++bool lcl_isPunctuationAt(std::u16string_view aText, sal_Int32 nPos)
++{
++    const sal_Unicode c = aText[nPos];
++    if (!lcl_isPunctuation(c))
++        return false;
++    if ((c == '\'' || c == 0x2019) && nPos > 0 && nPos + 1 < static_cast<sal_Int32>(aText.size()))
++        return lcl_isPunctuation(aText[nPos - 1]) || lcl_isPunctuation(aText[nPos + 1])
++               || aText[nPos - 1] == ' ' || aText[nPos + 1] == ' ';
++    return true;
++}
++
++/// lengths of the parts of one word unit (pure), e.g. "giới. " -> {4, 2}
++std::vector<sal_Int32> lcl_wordParts(std::u16string_view aText)
++{
++    const sal_Int32 nLength = static_cast<sal_Int32>(aText.size());
++    sal_Int32 nCore = nLength;
++    while (nCore > 0 && (aText[nCore - 1] == ' ' || aText[nCore - 1] == '\t' || aText[nCore - 1] == 0xA0))
++        --nCore;
++    std::vector<sal_Int32> aParts;
++    sal_Int32 nStart = 0;
++    for (sal_Int32 i = 1; i <= nCore; ++i)
++    {
++        if (i == nCore || lcl_isPunctuationAt(aText, i) != lcl_isPunctuationAt(aText, i - 1))
++        {
++            aParts.push_back(i - nStart);
++            nStart = i;
++        }
++    }
++    if (aParts.empty())
++        aParts.push_back(0);
++    aParts.back() += nLength - nCore;
++    return aParts;
++}
++
++void lcl_pushWord(std::vector<uno::Reference<text::XTextRange>>& rUnits,
++                  const uno::Reference<text::XText>& xText,
++                  const uno::Reference<text::XTextCursor>& xUnit)
++{
++    const OUString aText = xUnit->getString();
++    const std::vector<sal_Int32> aParts = lcl_wordParts(aText);
++    if (aParts.size() > 1)
++    {
++        std::vector<uno::Reference<text::XTextRange>> aPieces;
++        uno::Reference<text::XTextCursor> xWalk = xText->createTextCursorByRange(xUnit->getStart());
++        for (sal_Int32 nLength : aParts)
++        {
++            uno::Reference<text::XTextCursor> xPiece = xText->createTextCursorByRange(xWalk->getStart());
++            if (!xPiece->goRight(nLength, true))
++                break;
++            aPieces.push_back(xPiece);
++            xWalk->gotoRange(xPiece->getEnd(), false);
++        }
++        uno::Reference<text::XTextRangeCompare> xCompare(xText, uno::UNO_QUERY);
++        if (aPieces.size() == aParts.size() && xCompare.is()
++            && xCompare->compareRegionEnds(aPieces.back(), xUnit) == 0)
++        {
++            rUnits.insert(rUnits.end(), aPieces.begin(), aPieces.end());
++            return;
++        }
++    }
++    rUnits.push_back(xUnit);
++}
++
+ /// Splits the body text into words or sentences once, when the collection is created.
+ std::vector<uno::Reference<text::XTextRange>> lcl_split(const rtl::Reference<SwXTextDocument>& xDoc,
+                                                         SwVbaTextUnits::Unit eUnit,
+@@ -60,7 +133,10 @@
+             break; // end of text (or no progress)
+         uno::Reference<text::XTextCursor> xUnit = xText->createTextCursorByRange(xStart);
+         xUnit->gotoRange(xCursor->getEnd(), true);
+-        aUnits.push_back(xUnit);
++        if (eUnit == SwVbaTextUnits::Unit::Word)
++            lcl_pushWord(aUnits, xText, xUnit);
++        else
++            aUnits.push_back(xUnit);
+         if (!bMore)
+             break;
+         xCursor->collapseToEnd();

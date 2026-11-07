@@ -1,0 +1,318 @@
+HST Office: live preview of a paragraph style in the document while the pointer rests on it in the
+ribbon Styles gallery (Writer), as in Word.
+
+Owner decision (2026-11-07): the hover live preview ships on; the StyleHoverPreview switch
+(org.openoffice.Office.HSTRibbon, hst-ribbon-switches.patch) is rollback safety only.
+
+- svx/source/tbxctrls/StylesPreviewWindow.cxx, svx/source/inc/StylesPreviewWindow.hxx: after 300 ms
+  over a style the style is set on the paragraphs of the selection; leaving the style or the gallery,
+  clicking (which then applies the style for real) or closing puts the previous styles back. Both
+  steps run with the undo manager locked, change tracking suspended and the modified state frozen
+  (XModifiable2), so the document stays unmodified, the undo and redo stacks are unchanged, no change
+  is tracked and autorecovery sees nothing to save. A save, a store-to (autorecovery) or an unload
+  ends the preview before the document is written. Read-only documents, non-text selections and
+  selections of more than 200 paragraphs get no preview; protected text puts everything back.
+
+--- a/svx/source/inc/StylesPreviewWindow.hxx
++++ b/svx/source/inc/StylesPreviewWindow.hxx
+@@ -37,6 +37,7 @@
+ typedef std::vector<StylePreviewDescriptor> StylePreviewList;
+ 
+ class StylesPreviewWindow_Base;
++class HstStylePreview;
+ 
+ /// Listener for style selection
+ class StyleStatusListener final : public SfxStatusListener
+@@ -128,6 +129,14 @@
+ 
+     OUString m_sSelectedStyle;
+ 
++    // HST Office: live preview in the document while the pointer rests on a style (Writer)
++    Timer m_aHstHoverTimer{ "svx StylesPreviewWindow hover preview" };
++    OUString m_sHstHoverStyle;
++    rtl::Reference<HstStylePreview> m_xHstPreview;
++    DECL_LINK(HstMouseMoveHdl, const MouseEvent&, bool);
++    DECL_LINK(HstHoverTimerHdl, Timer*, void);
++    void HstEndPreview();
++
+     DECL_LINK(Selected, weld::ItemView&, void);
+     DECL_LINK(DoubleClick, const weld::TreeIter&, bool);
+     DECL_LINK(DoCommand, const CommandEvent&, bool);
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -40,6 +40,23 @@
+ #include <vcl/settings.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Menu.hxx>
++#include <vcl/event.hxx>
++#include <vcl/timer.hxx>
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XEnumerationAccess.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/document/XDocumentEventBroadcaster.hpp>
++#include <com/sun/star/document/XDocumentEventListener.hpp>
++#include <com/sun/star/document/XUndoManagerSupplier.hpp>
++#include <com/sun/star/frame/XStorable.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/text/XTextRange.hpp>
++#include <com/sun/star/util/XModifiable2.hpp>
++#include <com/sun/star/view/XSelectionSupplier.hpp>
++#include <comphelper/lok.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <officecfg/Office/HSTRibbon.hxx>
+ 
+ #include <editeng/editids.hrc>
+ #include <editeng/fontitem.hxx>
+@@ -459,6 +476,9 @@
+     StylePreviewCache::RegisterClient();
+ 
+     m_xStylesView->connect_selection_changed(LINK(this, StylesPreviewWindow_Base, Selected));
++    m_xStylesView->connect_mouse_move(LINK(this, StylesPreviewWindow_Base, HstMouseMoveHdl));
++    m_aHstHoverTimer.SetTimeout(300);
++    m_aHstHoverTimer.SetInvokeHandler(LINK(this, StylesPreviewWindow_Base, HstHoverTimerHdl));
+     m_xStylesView->connect_item_activated(LINK(this, StylesPreviewWindow_Base, DoubleClick));
+     m_xStylesView->connect_command(LINK(this, StylesPreviewWindow_Base, DoCommand));
+     m_xStylesView->connect_size_allocate(LINK(this, StylesPreviewWindow_Base, ViewSizeHdl));
+@@ -475,8 +495,232 @@
+     RequestStylesListUpdate();
+ }
+ 
++/** HST Office: live preview of a paragraph style in a Writer document while the pointer rests on it
++    in the gallery, as in Word. The style is set on the paragraphs of the selection and the previous
++    styles are put back when the pointer leaves. Neither step reaches the document's history: the
++    undo manager is locked, change tracking is suspended and the modified state is frozen
++    (XModifiable2), so the document stays unmodified, its undo stack unchanged and autorecovery sees
++    nothing to save. The preview ends before any save, store-to (autorecovery) or unload. Read-only
++    documents, non-text selections and very large selections get no preview. Rollback switch:
++    org.openoffice.Office.HSTRibbon/StyleHoverPreview. */
++class HstStylePreview final : public cppu::WeakImplHelper<css::document::XDocumentEventListener>
++{
++public:
++    static bool Enabled()
++    {
++        static const bool bEnabled = [] {
++            if (comphelper::LibreOfficeKit::isActive())
++                return false;
++            try
++            {
++                return officecfg::Office::HSTRibbon::StyleHoverPreview::get();
++            }
++            catch (...)
++            {
++                return true;
++            }
++        }();
++        return bEnabled;
++    }
++
++    bool Begin(const css::uno::Reference<css::frame::XFrame>& xFrame, const OUString& rStyle)
++    {
++        End();
++        try
++        {
++            if (!xFrame.is() || !xFrame->getController().is())
++                return false;
++            css::uno::Reference<css::frame::XModel> xModel = xFrame->getController()->getModel();
++            css::uno::Reference<css::lang::XServiceInfo> xInfo(xModel, css::uno::UNO_QUERY);
++            css::uno::Reference<css::frame::XStorable> xStorable(xModel, css::uno::UNO_QUERY);
++            if (!xInfo.is() || !xInfo->supportsService(u"com.sun.star.text.TextDocument"_ustr)
++                || !xStorable.is() || xStorable->isReadonly())
++                return false;
++            css::uno::Reference<css::view::XSelectionSupplier> xSelection(xFrame->getController(),
++                                                                          css::uno::UNO_QUERY);
++            css::uno::Reference<css::container::XIndexAccess> xRanges(
++                xSelection.is() ? xSelection->getSelection() : css::uno::Any(), css::uno::UNO_QUERY);
++            if (!xRanges.is())
++                return false;
++            std::vector<std::pair<css::uno::Reference<css::beans::XPropertySet>, OUString>> aParagraphs;
++            for (sal_Int32 i = 0; i < xRanges->getCount(); ++i)
++            {
++                css::uno::Reference<css::text::XTextRange> xRange(xRanges->getByIndex(i), css::uno::UNO_QUERY);
++                css::uno::Reference<css::container::XEnumerationAccess> xAccess(xRange, css::uno::UNO_QUERY);
++                if (!xAccess.is())
++                    return false; // not a text selection (frame, shape)
++                css::uno::Reference<css::container::XEnumeration> xParagraphs = xAccess->createEnumeration();
++                while (xParagraphs->hasMoreElements())
++                {
++                    css::uno::Reference<css::lang::XServiceInfo> xParagraph(xParagraphs->nextElement(),
++                                                                            css::uno::UNO_QUERY);
++                    if (!xParagraph.is() || !xParagraph->supportsService(u"com.sun.star.text.Paragraph"_ustr))
++                        continue; // tables keep their styles
++                    css::uno::Reference<css::beans::XPropertySet> xProps(xParagraph, css::uno::UNO_QUERY);
++                    OUString aOld;
++                    xProps->getPropertyValue(u"ParaStyleName"_ustr) >>= aOld;
++                    aParagraphs.emplace_back(xProps, aOld);
++                    if (aParagraphs.size() > 200)
++                        return false; // a preview must stay instant
++                }
++            }
++            if (aParagraphs.empty())
++                return false;
++            m_xModel = xModel;
++            m_aParagraphs = std::move(aParagraphs);
++            if (!Quietly([&] {
++                    for (auto& [xProps, aOld] : m_aParagraphs)
++                        xProps->setPropertyValue(u"ParaStyleName"_ustr, css::uno::Any(rStyle));
++                }))
++            {
++                End(); // protected text or an unknown style: put back what was changed
++                return false;
++            }
++            css::uno::Reference<css::document::XDocumentEventBroadcaster> xEvents(m_xModel, css::uno::UNO_QUERY);
++            if (xEvents.is())
++                xEvents->addDocumentEventListener(this);
++            return true;
++        }
++        catch (const css::uno::Exception&)
++        {
++            End();
++            return false;
++        }
++    }
++
++    void End()
++    {
++        if (!m_xModel.is())
++            return;
++        try
++        {
++            css::uno::Reference<css::document::XDocumentEventBroadcaster> xEvents(m_xModel, css::uno::UNO_QUERY);
++            if (xEvents.is())
++                xEvents->removeDocumentEventListener(this);
++        }
++        catch (const css::uno::Exception&)
++        {
++        }
++        Quietly([this] {
++            for (auto it = m_aParagraphs.rbegin(); it != m_aParagraphs.rend(); ++it)
++            {
++                try
++                {
++                    it->first->setPropertyValue(u"ParaStyleName"_ustr, css::uno::Any(it->second));
++                }
++                catch (const css::uno::Exception&)
++                {
++                    // a paragraph deleted meanwhile has nothing to put back
++                }
++            }
++        });
++        m_xModel.clear();
++        m_aParagraphs.clear();
++    }
++
++    bool Active() const { return m_xModel.is(); }
++
++    // XDocumentEventListener: any save, store-to (autorecovery) or unload ends the preview first
++    void SAL_CALL documentEventOccured(const css::document::DocumentEvent& rEvent) override
++    {
++        if (rEvent.EventName == "OnSave" || rEvent.EventName == "OnSaveAs" || rEvent.EventName == "OnSaveTo"
++            || rEvent.EventName == "OnPrepareUnload" || rEvent.EventName == "OnUnload")
++        {
++            SolarMutexGuard aGuard;
++            End();
++        }
++    }
++
++    void SAL_CALL disposing(const css::lang::EventObject&) override
++    {
++        m_xModel.clear();
++        m_aParagraphs.clear();
++    }
++
++private:
++    /** Run rEdit outside the document's history: undo locked, change tracking off, modified frozen. */
++    template <typename F> bool Quietly(const F& rEdit)
++    {
++        css::uno::Reference<css::document::XUndoManagerSupplier> xUndoSupplier(m_xModel, css::uno::UNO_QUERY);
++        css::uno::Reference<css::document::XUndoManager> xUndo
++            = xUndoSupplier.is() ? xUndoSupplier->getUndoManager() : nullptr;
++        css::uno::Reference<css::util::XModifiable2> xModifiable(m_xModel, css::uno::UNO_QUERY);
++        css::uno::Reference<css::beans::XPropertySet> xDocument(m_xModel, css::uno::UNO_QUERY);
++        bool bOk = true;
++        bool bRecord = false;
++        const bool bWasEnabled = xModifiable.is() && xModifiable->disableSetModified();
++        if (xUndo.is())
++            xUndo->lock();
++        try
++        {
++            if (xDocument.is())
++                xDocument->getPropertyValue(u"RecordChanges"_ustr) >>= bRecord;
++            if (bRecord)
++                xDocument->setPropertyValue(u"RecordChanges"_ustr, css::uno::Any(false));
++            rEdit();
++        }
++        catch (const css::uno::Exception&)
++        {
++            bOk = false;
++        }
++        try
++        {
++            if (bRecord)
++                xDocument->setPropertyValue(u"RecordChanges"_ustr, css::uno::Any(true));
++        }
++        catch (const css::uno::Exception&)
++        {
++            bOk = false;
++        }
++        if (xUndo.is())
++            xUndo->unlock();
++        if (xModifiable.is() && bWasEnabled)
++            xModifiable->enableSetModified();
++        return bOk;
++    }
++
++    css::uno::Reference<css::frame::XModel> m_xModel;
++    std::vector<std::pair<css::uno::Reference<css::beans::XPropertySet>, OUString>> m_aParagraphs;
++};
++
++void StylesPreviewWindow_Base::HstEndPreview()
++{
++    m_aHstHoverTimer.Stop();
++    m_sHstHoverStyle.clear();
++    if (m_xHstPreview.is())
++        m_xHstPreview->End();
++}
++
++IMPL_LINK(StylesPreviewWindow_Base, HstMouseMoveHdl, const MouseEvent&, rEvent, bool)
++{
++    if (!HstStylePreview::Enabled())
++        return false;
++    std::unique_ptr<weld::TreeIter> pItem
++        = rEvent.IsLeaveWindow() ? nullptr : m_xStylesView->get_item_at_pos(rEvent.GetPosPixel());
++    const OUString sStyle = pItem ? m_xStylesView->get_id(*pItem) : OUString();
++    if (sStyle != m_sHstHoverStyle)
++    {
++        HstEndPreview();
++        m_sHstHoverStyle = sStyle;
++        if (!sStyle.isEmpty())
++            m_aHstHoverTimer.Start(); // a short rest on the style starts the preview
++    }
++    return false;
++}
++
++IMPL_LINK_NOARG(StylesPreviewWindow_Base, HstHoverTimerHdl, Timer*, void)
++{
++    if (m_sHstHoverStyle.isEmpty())
++        return;
++    if (!m_xHstPreview.is())
++        m_xHstPreview = new HstStylePreview;
++    m_xHstPreview->Begin(m_xFrame, m_sHstHoverStyle);
++}
++
+ IMPL_LINK(StylesPreviewWindow_Base, Selected, weld::ItemView&, rIconView, void)
+ {
++    // a click applies the style for real: the preview is put back first
++    HstEndPreview();
+     OUString sStyleName = rIconView.get_selected_id();
+ 
+     css::uno::Sequence<css::beans::PropertyValue> aArgs{
+@@ -603,6 +847,8 @@
+ 
+ StylesPreviewWindow_Base::~StylesPreviewWindow_Base()
+ {
++    HstEndPreview();
++    m_xHstPreview.clear();
+     m_xStatusListener->UnBind();
+ 
+     m_aUpdateTask.Stop();

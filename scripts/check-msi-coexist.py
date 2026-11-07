@@ -6,9 +6,11 @@
 
 No argument (Quality CI): the registry lines the patch series adds to scp2. --msi FILE reads the Registry table (msiinfo, or msilib on Windows Python <= 3.12) and fails on: App Paths entries, the
 vnd.libreoffice.* / vnd.sun.star.* URI schemes, LibreOffice's Explorer extension class IDs, ProgIDs named
-LibreOffice.*, soffice.Star* or office.Extension*, keys under Software\\LibreOffice, and The Document Foundation
-as publisher. Kept on purpose (see docs/BUILD_MATRIX.md): OLE embedding class IDs and the automation names
-com.sun.star.ServiceManager, Writer.Application, Calc.Application and AppID\\soffice.exe."""
+LibreOffice.*, soffice.Star* or office.Extension*, keys under Software\\LibreOffice, The Document Foundation
+as publisher, and LibreOffice's automation names: com.sun.star.ServiceManager, Writer.Application,
+Calc.Application, AppID\\soffice.exe, their class ids and the SharePoint support ProgID LOSPSupport.* (HST
+Office has its own: HSTOffice.ServiceManager, HSTOffice.Writer.Application, HSTOffice.Sheets.Application,
+HSTOffice.SPSupport.*). Kept on purpose (see docs/BUILD_MATRIX.md): OLE embedding class IDs."""
 import argparse
 from pathlib import Path
 import re
@@ -25,6 +27,13 @@ LIBREOFFICE_CLSIDS = (
     "AE424E85-F6DF-4910-A6A9-438797986431", "7BC0E710-5703-45BE-A29D-5D46D8B39262",
     "7BC0E713-5703-45BE-A29D-5D46D8B39262",
 )
+# LibreOffice's automation class ids: ServiceManager, Writer.Application, Calc.Application (extensions/source/ole/servprov.cxx)
+# and the SharePoint support class and type library (shell/source/win32/spsupp)
+LIBREOFFICE_AUTOMATION_CLSIDS = (
+    "82154420-0FBF-11D4-8313-005004526AB4", "82154421-0FBF-11D4-8313-005004526AB4", "82154425-0FBF-11D4-8313-005004526AB4",
+    "F1924D0C-9B35-4A46-BCDE-CFEF2CE67A17", "580411ED-80EC-4834-BA1F-2EB07A49C80B",
+)
+AUTOMATION_NAME = re.compile(r"(com\.sun\.star\.ServiceManager|Writer\.Application|Calc\.Application|LOSPSupport\.)", re.I)
 RULES = (
     ("App Paths entry", lambda key, value: re.search(r"\\App Paths\\", key, re.I)),
     ("LibreOffice URI scheme", lambda key, value: re.match(r"(vnd\.libreoffice\.|vnd\.sun\.star\.)", key, re.I)),
@@ -33,6 +42,9 @@ RULES = (
     ("LibreOffice Explorer extension class id", lambda key, value: any(g in (key + value).upper() for g in LIBREOFFICE_CLSIDS)),
     ("key under Software\\LibreOffice", lambda key, value: re.match(r"Software\\LibreOffice(\\|$)", key, re.I)),
     ("LibreOffice publisher or link", lambda key, value: re.search(r"Document Foundation|libreoffice\.org", value, re.I)),
+    ("LibreOffice automation name", lambda key, value: any(AUTOMATION_NAME.match(s) for s in (key, value))
+                                                       or re.fullmatch(r"AppID\\soffice\.exe", key, re.I)),
+    ("LibreOffice automation class id", lambda key, value: any(g in (key + value).upper() for g in LIBREOFFICE_AUTOMATION_CLSIDS)),
 )
 
 
