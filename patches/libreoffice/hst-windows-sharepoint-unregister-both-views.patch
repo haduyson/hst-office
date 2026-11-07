@@ -1,0 +1,30 @@
+HST Office: uninstalling removes the 64-bit SharePoint class too.
+
+The uninstall runs "regsvr32 /u" on spsupp_x86.dll, then spsupp_x64.dll. Both DLLs register one type
+library, under HKCR\TypeLib, which WOW64 shares between the 32-bit and 64-bit views. The x86 call removes
+it, so UnRegisterTypeLib fails in the x64 DLL, DllUnregisterServer returns before unregistering its class,
+and regsvr32 exits 5. HKCR\CLSID\{28290BF3-5BD8-46EB-8DE2-F579F43C84F5}\InprocServer32 (64-bit view)
+was left behind, pointing at the deleted spsupp_x64.dll. Upstream LibreOffice 26.8.2 shows the same exit
+code 5 for its own class on uninstall.
+
+DllUnregisterServer now unregisters this view's class and ProgIDs whatever UnRegisterTypeLib returns.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/shell/source/win32/spsupp/spsuppServ.cxx
++++ b/shell/source/win32/spsupp/spsuppServ.cxx
+@@ -141,9 +141,11 @@
+     typedef std::unique_ptr<TLIBATTR, decltype(ReleaseFunc)> TLIBATTRGuard;
+     static TLIBATTRGuard aTLIBATTRGuard(nullptr, ReleaseFunc);
+ 
+-    hr = UnRegisterTypeLib(pLibAttr->guid, pLibAttr->wMajorVerNum, pLibAttr->wMinorVerNum, pLibAttr->lcid, pLibAttr->syskind);
+-    if (FAILED(hr))
+-        return hr;
++    // spsupp_x86.dll and spsupp_x64.dll share one TypeLib key (WOW64 does not redirect HKCR\TypeLib), and the uninstall
++    // runs "regsvr32 /u" on the x86 DLL first, which removes it. UnRegisterTypeLib then fails for the x64 DLL; returning
++    // there left HKCR\CLSID\{28290BF3-...}\InprocServer32 of the 64-bit view behind, pointing at a deleted DLL. Remove
++    // this view's class and ProgIDs regardless; a type library that is already gone is not an error.
++    UnRegisterTypeLib(pLibAttr->guid, pLibAttr->wMajorVerNum, pLibAttr->wMinorVerNum, pLibAttr->lcid, pLibAttr->syskind);
+ 
+     return Registrar(CLSID_spsupp)
+         .UnRegisterObject(L"HSTOffice.SPSupport", L"OpenDocuments", { 1, 2, 3, 4, 5 });

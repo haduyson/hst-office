@@ -1,0 +1,69 @@
+HST Office: a late toolbar update never reaches a disposed style box or style box controller.
+
+SvxStyleToolBoxControl keeps a raw pointer (m_pBox) to its SvxStyleBox_Impl, a VCL item window of the
+toolbox. ToolBarManager updates its controllers from a 50 ms timer (AsyncUpdateControllersHdl ->
+UpdateControllers -> XUpdatable::update). Windows smoke of 1.0.0 (C1 build) showed two crashes from that
+timer, both while opening Sheets after Writer was closed:
+- ribbon UI: update() rebinds the style family listeners, their state arrives at once and
+  SetFamilyState() -> Update() -> FillStyleBox() calls get_active_text() on a box whose window is
+  already disposed (its weld::ComboBox released): read of address 0;
+- classic toolbars: update() reaches a controller that is already disposed and calls ReBind() on a
+  released family listener.
+
+update() now returns when the controller is disposed and skips missing listeners; FillStyleBox() and
+SelectStyle() treat a disposed box as no box, as they already do for a missing one.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/svx/source/tbxctrls/tbcontrl.cxx
++++ b/svx/source/tbxctrls/tbcontrl.cxx
+@@ -2948,6 +2948,16 @@
+     std::unique_ptr<SvxStyleBox_Base> m_xWeldBox;
+     SvxStyleBox_Base* m_pBox;
+ 
++    // HST: the style box, or nullptr once its toolbox window has been disposed. The toolbox that holds the
++    // box can be torn down before this controller, and the box then has no widget any more; a pending
++    // update of the controller (ToolBarManager's asynchronous update) must not fill or select in it.
++    SvxStyleBox_Base* LiveBox() const
++    {
++        if (m_xVclBox && m_xVclBox->isDisposed())
++            return nullptr;
++        return m_pBox;
++    }
++
+     Impl()
+         :aClearForm         ( SvxResId( RID_SVXSTR_CLEARFORM ) )
+         ,aMore              ( SvxResId( RID_SVXSTR_MORE_STYLES ) )
+@@ -3157,8 +3167,13 @@
+ 
+ void SAL_CALL SvxStyleToolBoxControl::update()
+ {
++    // HST: a pending ToolBarManager update can reach a controller that is already disposed; its
++    // family listeners and Impl are gone then.
++    if (!m_pImpl)
++        return;
+     for (rtl::Reference<SfxStyleControllerItem_Impl>& pBoundItem : m_xBoundItems)
+-        pBoundItem->ReBind();
++        if (pBoundItem)
++            pBoundItem->ReBind();
+     bindListener();
+ }
+ 
+@@ -3180,7 +3195,7 @@
+ 
+ void SvxStyleToolBoxControl::FillStyleBox()
+ {
+-    SvxStyleBox_Base* pBox = m_pImpl->m_pBox;
++    SvxStyleBox_Base* pBox = m_pImpl->LiveBox();
+ 
+     DBG_ASSERT( m_pStyleSheetPool, "StyleSheetPool not found!" );
+     DBG_ASSERT( pBox,            "Control not found!" );
+@@ -3260,7 +3275,7 @@
+ 
+ void SvxStyleToolBoxControl::SelectStyle( const OUString& rStyleName )
+ {
+-    SvxStyleBox_Base* pBox = m_pImpl->m_pBox;
++    SvxStyleBox_Base* pBox = m_pImpl->LiveBox();
+     DBG_ASSERT( pBox, "Control not found!" );
+ 
+     if ( !pBox )

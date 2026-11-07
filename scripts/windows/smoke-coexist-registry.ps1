@@ -24,6 +24,16 @@ $HstAutomation = [ordered]@{  # hst-windows-own-automation-names.patch, hst-wind
 $AppNames = 'soffice', 'swriter', 'scalc', 'simpress', 'sdraw', 'smath', 'sbase', 'unopkg'
 $ExtractImage = '{BB2E617C-0920-11D1-9A0B-00C04FC2D6C1}'
 
+function Get-ProgIdClsid([string]$ProgId) {
+    # Class id of a ProgID as CLSIDFromProgID resolves it: <ProgID>\CLSID, else the CLSID of the version its CurVer names.
+    # spsupp's DllRegisterServer (shell/source/win32/spsupp/registrar.cxx) writes only CurVer under the
+    # version-independent ProgID; the class id sits under the versioned ProgID (.5).
+    $clsid = Get-RegDefault "HKEY_CLASSES_ROOT\$ProgId\CLSID"
+    if ($clsid) { return $clsid }
+    $current = Get-RegDefault "HKEY_CLASSES_ROOT\$ProgId\CurVer"
+    if ($current) { Get-RegDefault "HKEY_CLASSES_ROOT\$current\CLSID" } else { $null }
+}
+
 function Get-CoexistRegistry {
     # lo_*: names only LibreOffice may register; hst_*: HST Office's own replacements; the rest is recorded only.
     $r = [ordered]@{}
@@ -40,8 +50,8 @@ function Get-CoexistRegistry {
     $r.lo_writer_app = Get-RegDefault 'HKEY_CLASSES_ROOT\Writer.Application\CLSID'
     $r.lo_calc_app = Get-RegDefault 'HKEY_CLASSES_ROOT\Calc.Application\CLSID'
     $r.lo_appid_soffice = if (Test-Path -LiteralPath 'Registry::HKEY_CLASSES_ROOT\AppID\soffice.exe') { 'present' } else { $null }
-    $r.lo_spsupport = Get-RegDefault 'HKEY_CLASSES_ROOT\LOSPSupport.OpenDocuments\CLSID'
-    foreach ($k in $HstAutomation.Keys) { $r["hst_$k"] = Get-RegDefault "HKEY_CLASSES_ROOT\$($HstAutomation[$k][0])\CLSID" }
+    $r.lo_spsupport = Get-ProgIdClsid 'LOSPSupport.OpenDocuments'
+    foreach ($k in $HstAutomation.Keys) { $r["hst_$k"] = Get-ProgIdClsid $HstAutomation[$k][0] }
     foreach ($k in 'servicemanager', 'writer_app', 'sheets_app') {
         $r["hst_$($k)_server"] = Get-RegDefault "HKEY_CLASSES_ROOT\CLSID\$($HstAutomation[$k][1])\LocalServer32"
     }
