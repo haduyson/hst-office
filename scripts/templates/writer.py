@@ -56,7 +56,8 @@ def _grid(parent, block, text_mm, styles, auto, index):
         if holder is not table:
             holder = table
         for cell, column_width in zip(row["cells"], [width] if row.get("merged") else widths):
-            attrs = {"table:style-name": styles.cell(auto, row.get("valign", "top"), block.get("borders", False)), "office:value-type": "string"}
+            attrs = {"table:style-name": styles.cell(auto, row.get("valign", "top"), block.get("borders", False), row_index == 0),
+                     "office:value-type": "string"}
             if row.get("merged"):
                 attrs["table:number-columns-spanned"] = str(len(widths))
             td = node(tr, "table:table-cell", attrs)
