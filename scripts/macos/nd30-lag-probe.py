@@ -134,6 +134,15 @@ def main():
             p = peer.getPosSize()
             x, y = box.X + p.X + p.Width // 2, box.Y + p.Y + p.Height // 2
             run["click"].append(one(lambda: cli(f"c:{x},{y}"), focus_peer=peer))
+        # 4. Vietnamese text in the single-line fields, a screenshot and the geometry of every control (clipped glyphs).
+        subprocess.run(["pbcopy"], input="gỵ ý Quý Ủy".encode("utf-8"), check=False)
+        for index in (7, 9, 11, 13, 15, 27, 29):
+            p = kids[index].getPosSize()
+            cli(f"c:{box.X + p.X + p.Width // 2},{box.Y + p.Y + p.Height // 2}", "kd:cmd", "t:a", "t:v", "ku:cmd")
+        time.sleep(1)
+        cli(f"c:{box.X + kids[5].getPosSize().X + 3},{box.Y + kids[5].getPosSize().Y + 3}") if False else None
+        subprocess.run(["screencapture", "-x", os.path.join(out, f"{variant}-{query}-3-text.png")], check=False)
+        run["geometry"] = [[i] + [getattr(k.getPosSize(), a) for a in ("X", "Y", "Width", "Height")] for i, k in enumerate(kids)]
         for key in ("tab_empty", "key", "tab_after_typing", "burst_then_tab", "click"):
             values = run[key]
             run[key + "_summary"] = {"median": statistics.median(values), "max": max(values)} if values else None
