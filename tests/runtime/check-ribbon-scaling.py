@@ -10,7 +10,7 @@ Per app, on the Home tab (Trang đầu), the window is narrowed through 1920, 16
   - groups shrink before anything folds: whenever the chevron is shown, every toolbar still on the
     ribbon is at the narrowest width it has anywhere in the sweep (the fold is the last rung);
   - narrowing never widens a toolbar that stays on the ribbon (monotone, no oscillation);
-  - the ribbon height does not change with the width.
+  - the ribbon height (frame top to the document tab bar) does not change with the width.
 Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json and, with --shots, one
 screenshot per app and width.
 """
@@ -23,6 +23,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
+import ribbon_banner_probe as probe  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 
 WIDTHS = [1920, 1600, 1485, 1366, 1280, 1100, 1000, 900]
@@ -40,9 +41,12 @@ def showing(node):
     return node.getState().contains(pyatspi.STATE_SHOWING)
 
 
-def scan():
-    """{toolbar key: box} of the ribbon groups, the chevron box or None, the banner box or None, ribbon bottom."""
-    bars, chevron, banner, bottom = {}, None, None, 0
+def scan(display):
+    """{toolbar key: box} of the ribbon groups, the chevron box or None, the banner box or None, ribbon height.
+
+    The ribbon groups are the toolbars between the tab row and the bottom of the banner slot (which is
+    centred on the ribbon page), so the formula bar and the drawing toolbar below the ribbon are not."""
+    found, chevron, banner = [], None, None
     for node in gui.walk(gui.office_app()):
         try:
             if not showing(node):
@@ -57,13 +61,15 @@ def scan():
                     names.append(node.getChildAtIndex(index).name or "?")
                 except Exception:  # noqa: BLE001
                     names.append("?")
-            bars["|".join(names) + f"@{node.childCount}"] = box
-            bottom = max(bottom, box[1] + box[3])
+            found.append(("|".join(names) + f"@{node.childCount}", box))
         elif role == "push button" and not name and box[2] <= 30 and box[3] >= 60 and box[1] < 260:
             chevron = box
         elif role == "link" and box[1] < 260 and box[3] >= 40:
             banner = box
-    return bars, chevron, banner, bottom
+    limit = banner[1] + banner[3] + 8 if banner else 175
+    bars = {key: box for key, box in found if box[1] + box[3] <= limit}
+    top, tabs = probe.doc_tabs_top(display, timeout=5)
+    return bars, chevron, banner, (tabs - top) if tabs is not None else None
 
 
 def sweep(args, app, wid, office):
@@ -71,7 +77,7 @@ def sweep(args, app, wid, office):
     for width in WIDTHS:
         gui.xdo(args.display, "windowsize", wid, str(width), "900")
         time.sleep(3)
-        bars, chevron, banner, bottom = scan()
+        bars, chevron, banner, bottom = scan(args.display)
         observed.append((width, bars, chevron, banner, bottom))
         if args.shots:
             office.screenshot(os.path.join(args.shots, f"scaling-{app}-{width}.png"))
@@ -85,7 +91,8 @@ def sweep(args, app, wid, office):
         for key, box in bars.items():
             if box[0] < 0 or box[0] + box[2] > right + 1:
                 clipped.append((width, key, box, right))
-            if key in previous and box[2] > previous[key] + 1:
+            # a one-item toolbar is a control that fills its room (the Styles gallery), not a state
+            if key in previous and box[2] > previous[key] + 1 and not key.endswith("@1"):
                 widened.append((width, key, previous[key], box[2]))
         if chevron:
             early += [(width, key, box[2], narrowest[key]) for key, box in bars.items() if box[2] > narrowest[key] + 1]
@@ -94,7 +101,7 @@ def sweep(args, app, wid, office):
     record(f"[{app}] the chevron comes only after every group on the ribbon is at its smallest", not early,
            early or [(w, bool(c)) for w, _b, c, _n, _x in observed])
     record(f"[{app}] narrowing never widens a group (monotone)", not widened, widened)
-    bottoms = sorted({b for *_, b in observed if b})
+    bottoms = sorted({b for *_, b in observed if b is not None})
     record(f"[{app}] ribbon height independent of the width", len(bottoms) <= 1 or bottoms[-1] - bottoms[0] <= 1, bottoms)
     return [{"width": w, "groups": len(b), "chevron": bool(c), "banner": n} for w, b, c, n, _x in observed]
 

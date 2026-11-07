@@ -24,9 +24,6 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
-from importlib import import_module  # noqa: E402
-
-gallery = import_module("check-style-gallery")
 PORT = 7441
 ROWS = []
 
@@ -75,11 +72,29 @@ def gallery_item(office, wid, out, name):
     shot = office.screenshot(os.path.join(out, name))
     from PIL import Image
     img = Image.open(shot).convert("RGB")
-    frame = gallery.find_gallery(img, (0, 0, min(img.width, 1485) - 1, min(img.height - 1, 260)))
-    if not frame:
+    # the current style's tile has the blue selection box (a contiguous blue edge of 80+ px; a
+    # checked button's border is much shorter); the next style sits right of it
+    edges = []
+    for y in range(45, 170):
+        run = 0
+        for x in range(150, 1100):
+            r, g, b = img.getpixel((x, y))
+            run = run + 1 if (b > 150 and r < 90 and 70 < g < 170) else 0
+            if run == 80:
+                edges.append((x - 79, y))
+    if len(edges) < 2:
         return None
-    left, top, right, bottom = frame
-    return left + min(150, (right - left) * 3 // 4), (top + bottom) // 2
+    left, top = min(edges)
+    bottom = max(y for _x, y in edges)
+
+    def blue(x, y):
+        r, g, b = img.getpixel((x, y))
+        return b > 150 and r < 90 and 70 < g < 170
+
+    right = left
+    while right + 1 < img.width and blue(right + 1, top):
+        right += 1
+    return right + (right - left) // 2 + 4, (top + bottom) // 2
 
 
 def hover(office, point, rest=1.2):
