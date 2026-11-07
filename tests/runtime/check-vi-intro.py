@@ -39,7 +39,7 @@ STATIC = (
     ("About publisher line is Vietnamese in code", "program/lib*.so", "cung cấp.", "utf-16-le"),
     ("About open-source line is Vietnamese in code", "program/lib*.so", "Phần mềm nguồn mở", "utf-16-le"),
     ("Start Center welcome hint is Vietnamese in code", "program/lib*.so", "Chào mừng đến với ", "utf-16-le"),
-    ("Start Center solution tooltip is Vietnamese in code", "program/lib*.so", "Trợ lý số cá nhân của người Việt", "utf-16-le"),
+    ("Start Center solution tooltip is Vietnamese in code", "program/lib*.so", "Trợ lý AI cá nhân, như một trợ lý thực thụ", "utf-16-le"),
     ("License notice is bilingual (Vietnamese first)", "program/lib*.so", "HST Office là phần mềm nguồn mở", "utf-16-le"),
     ("License summary carries the HST copyright line", "program/lib*.so",
      "© 2026 HASON TECH · © 2000–2026 The Document Foundation và các tác giả LibreOffice", "utf-16-le"),
