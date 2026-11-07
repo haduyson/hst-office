@@ -74,7 +74,7 @@ def check_language(args, lang, label):
             time.sleep(7)
             office.raise_windows()
             app = nd30.office_app()
-            box = search_box(office)
+            box = search_box(office, app)
             tabs = tab_boxes(app)
             last = max((t[0] + t[2] for t in tabs), default=None)
             record("%s %s: the tab row has the search box after the last tab" % (label, app_name),

@@ -51,10 +51,21 @@ def extents(node):
     return box.x, box.y, box.width, box.height
 
 
-def search_box(office):
-    """Box (x, y, width, height) of the shown search box of the ribbon tab row, or None. The box is a VCL control
-    inside the tab control, which AT-SPI does not list; the UITest service finds it by its id "hst-tab-search".
-    Its AbsPosition is relative to the frame, which sits at the screen origin under Xvfb without a window manager."""
+BOX_NAMES = ("Tìm tính năng", "Search features")
+
+
+def search_box(office, app=None):
+    """Box (x, y, width, height) of the shown search box of the ribbon tab row, or None. AT-SPI lists the box as a push
+    button of the page tab list; without it, the UITest service finds it by its id "hst-tab-search" (AbsPosition is
+    relative to the frame, which sits at the screen origin under Xvfb without a window manager)."""
+    for _depth, role, _name, node in nodes(app) if app is not None else []:
+        if role != "page tab list":
+            continue
+        for index in range(node.childCount):
+            child = node.getChildAtIndex(index)
+            if child is not None and child.getRoleName() == "push button" and (child.name or "").startswith(BOX_NAMES):
+                box = extents(child)
+                return box if box[2] > 0 else None
     for _ in range(5):  # the document window may take a moment to become the focused top window
         top = office.service("org.libreoffice.uitest.UITest").getTopFocusWindow()
         if "hst-tab-search" in top.getChildren():
@@ -81,12 +92,11 @@ def tab_boxes(app):
 
 
 def under(popup, box):
-    """The popup entry opens right under the box, centred on it as a popover is."""
+    """The popup's entry opens right under the box and starts within its width."""
     if popup is None or box is None:
         return False
     entry = extents(popup)
-    centre, box_centre = entry[0] + entry[2] / 2, box[0] + box[2] / 2
-    return box[1] + box[3] - 4 <= entry[1] <= box[1] + box[3] + 120 and abs(centre - box_centre) < 300
+    return box[1] + box[3] - 4 <= entry[1] <= box[1] + box[3] + 120 and box[0] - 20 <= entry[0] < box[0] + box[2]
 
 
 def popup_entry(app):
