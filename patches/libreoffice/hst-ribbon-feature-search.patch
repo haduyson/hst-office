@@ -361,7 +361,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/source/view/viewfrm.cxx
 +++ b/sfx2/source/view/viewfrm.cxx
-@@ -3434,9 +3434,13 @@
+@@ -3434,9 +3434,22 @@
          }
          case SID_COMMAND_POPUP:
          {
@@ -373,6 +373,15 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            vcl::Window& rAnchor = aSearch.xAnchor ? *aSearch.xAnchor : GetWindow();
 +            tools::Rectangle aRectangle(Point(0,0), rAnchor.GetSizePixel());
 +            weld::Window* pParent = weld::GetPopupParent(rAnchor, aRectangle);
++            if (aSearch.xAnchor && Application::GetToolkitName().startsWith("gtk"))
++            {
++                // GetPopupParent gives the frame's client window coordinates, but gtk places popovers in
++                // coordinates of the whole frame, and the box sits in the notebookbar above the client window
++                vcl::Window* pFrameWindow = rAnchor.GetFrameWindow();
++                aRectangle = tools::Rectangle(
++                    pFrameWindow->ScreenToOutputPixel(rAnchor.OutputToScreenPixel(Point(0, 0))),
++                    rAnchor.GetSizePixel());
++            }
 +            m_pCommandPopupHandler->showPopup(pParent, GetFrame().GetFrameInterface(),
 +                                              aSearch.xAnchor ? &aRectangle : nullptr, aSearch.aText);
  

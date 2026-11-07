@@ -166,8 +166,11 @@ def check_app(app, args, port, image_url):
         top = gui.geometry()
         height = top[1] - top[0]
         expected = {"table": TABLE, "picture": PICTURE, "shape": SHAPE, "chart": CHART, "pivot": PIVOT, "header": HEADER}
-        # the chart last: it stays activated after its command, and the ribbon follows the chart then
-        for kind, target in sorted(objects.items(), key=lambda item: item[0] == "chart"):
+        # the pivot table first: after a drawing selection, the cursor moved through the API does not switch Sheets
+        # to its pivot shell (a mouse click is not checked here); the chart last: it stays activated after its
+        # command, and the ribbon follows the chart then
+        order = {"pivot": -1, "chart": 1}
+        for kind, target in sorted(objects.items(), key=lambda item: order.get(item[0], 0)):
             doc.CurrentController.select(target)
             time.sleep(2)
             names = gui.visible_names()

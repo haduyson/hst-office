@@ -29,7 +29,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
-from feature_search_gui import xdo, walk, nodes, hst_menu, popup_entry, results, search, close_popup, search_box, tab_boxes, under  # noqa: E402
+from feature_search_gui import xdo, walk, nodes, hst_menu, popup_entry, results, search, close_popup, search_box, tab_boxes, under, extents  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("nd30_entry", os.path.join(HERE, "check-nd30-entry.py"))
 nd30 = importlib.util.module_from_spec(_spec)
@@ -74,7 +74,7 @@ def check_language(args, lang, label):
             time.sleep(7)
             office.raise_windows()
             app = nd30.office_app()
-            _node, box = search_box(app)
+            box = search_box(office)
             tabs = tab_boxes(app)
             last = max((t[0] + t[2] for t in tabs), default=None)
             record("%s %s: the tab row has the search box after the last tab" % (label, app_name),
@@ -93,7 +93,7 @@ def check_language(args, lang, label):
                 entry = popup_entry(nd30.office_app())
                 hst_gui.screenshot(shot("%s-popup-%s" % (app_name, re.sub(r"\W+", "-", how))), args.display)
                 record("%s %s: %s opens the search popup under the box" % (label, app_name, how), under(entry, box),
-                       entry and search_box(nd30.office_app())[1])
+                       (entry and extents(entry), box))
                 close_popup(args.display)
             if factory != "swriter":
                 doc.close(True)

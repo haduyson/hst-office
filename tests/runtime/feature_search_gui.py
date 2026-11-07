@@ -45,26 +45,27 @@ def hst_menu(app):
     return None, []
 
 
-# accessible name of the search box of the ribbon tab row, per UI language
-BOX_NAMES = ("Tìm tính năng… (Alt+Q)", "Search features… (Alt+Q)")
-
-
 def extents(node):
     import pyatspi
     box = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
     return box.x, box.y, box.width, box.height
 
 
-def search_box(app):
-    """(node, box) of the showing search box of the ribbon tab row, or (None, None)."""
-    import pyatspi
-    for _depth, role, name, node in nodes(app):
-        try:
-            if role == "push button" and name in BOX_NAMES and node.getState().contains(pyatspi.STATE_SHOWING):
-                return node, extents(node)
-        except Exception:  # noqa: BLE001 - a widget may vanish while walking
-            continue
-    return None, None
+def search_box(office):
+    """Box (x, y, width, height) of the shown search box of the ribbon tab row, or None. The box is a VCL control
+    inside the tab control, which AT-SPI does not list; the UITest service finds it by its id "hst-tab-search".
+    Its AbsPosition is relative to the frame, which sits at the screen origin under Xvfb without a window manager."""
+    for _ in range(5):  # the document window may take a moment to become the focused top window
+        top = office.service("org.libreoffice.uitest.UITest").getTopFocusWindow()
+        if "hst-tab-search" in top.getChildren():
+            state = {p.Name: p.Value for p in top.getChild("hst-tab-search").getState()}
+            if state.get("ReallyVisible") != "true":
+                return None
+            x, y = (int(v) for v in state["AbsPosition"].split("x"))
+            width, height = (int(v) for v in state["Size"].split("x"))
+            return (x, y, width, height) if width > 0 else None
+        time.sleep(1)
+    return None
 
 
 def tab_boxes(app):
