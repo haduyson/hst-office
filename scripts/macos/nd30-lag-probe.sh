@@ -71,7 +71,8 @@ PY
   ( sleep 40; sample "$real" 20 -file "$out/sample-$variant.txt" >/dev/null 2>&1 ) &
   sampler=$!
   URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" \
-    PYTHONPATH="$app/Contents/Resources:$(dirname "$pyuno")" perl -e 'alarm 900; exec @ARGV' "$py" "$here/nd30-lag-probe.py" "$real" "$out" "$variant" \
+    PYTHONPATH="$app/Contents/Resources:$(dirname "$pyuno")" perl -e 'alarm 900; exec @ARGV' "$py" "$here/${DRIVER:-nd30-lag-probe.py}" "$real" "$out" \
+    "$( [ "${DRIVER:-}" = nd30-lag-probe2.py ] && dirname "$ext" || echo "$variant")" \
     >"$out/driver-$variant.log" 2>&1 || echo "driver $variant exit $?" >>"$out/driver-$variant.log"
   wait "$sampler" 2>/dev/null || true
   cp /tmp/nd30-refresh.log "$out/refresh-$variant.log" 2>/dev/null || true
