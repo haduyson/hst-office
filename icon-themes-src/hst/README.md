@@ -1,5 +1,15 @@
 # Bộ biểu tượng ribbon HST — hướng A
 
+**Bắt điểm ảnh (1.0.0):** gói sản phẩm không còn xuất nguyên hình học lưới 24 cho mọi cỡ.
+`scripts/brand/hst_icon_snap.py` bắt từng glyph theo cỡ raster: nét 1,65 đơn vị thành
+**1 px ở 16, 2 px ở 24, 3 px ở 32** (nét đậm hơn giữ tỉ lệ), tâm nét lẻ nằm giữa điểm ảnh, nét chẵn
+nằm trên mép điểm ảnh; transform của nhóm được trải phẳng. `hst_icon_outline.py` vẽ nét thành vùng tô
+vì VCL dịch nét (không dịch vùng tô) nửa điểm ảnh thiết bị, nên chỉ vùng tô sắc nét được ở cả 1x và 2x.
+78 họ Home/truy cập nhanh có bản 16 px vẽ tay trong `glyphs/stage-1-16/` (viewBox 16, nét nguyên
+điểm ảnh); các cỡ và họ khác được bắt tự động. Kiểm tra bằng chính bộ dựng hình của VCL:
+`tests/runtime/check-hst-icon-sharpness.py` (`rasterise` cho cả gói, `cache` đọc bộ đệm biểu tượng
+khi chạy giao diện ở GDK_SCALE 1 và 2). Mẫu gốc lưới 24 vẫn là nguồn chỉnh sửa.
+
 **Cập nhật tích hợp 1.0.0-beta.5:** dùng `scripts/brand/build-hst-icon-theme.py`
 để tạo hai gói SVG-only cho sản phẩm; không cần chạy renderer PNG. Báo cáo và
 ảnh chạy thật: [INTEGRATION.md](../../docs/design/ribbon-look/INTEGRATION.md).

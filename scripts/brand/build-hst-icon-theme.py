@@ -16,8 +16,14 @@ import sys
 import zipfile
 import xml.etree.ElementTree as ET
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from hst_icon_snap import snap_svg  # noqa: E402  (sibling module, standard library only)
+
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "icon-themes-src/hst"
+# Hand-tuned 16 px masters (viewBox 0 0 16 16, whole-pixel pens) of the Home and quick-access
+# families; every other glyph and size is snapped from its 24-unit master by hst_icon_snap.
+TUNED_16 = SOURCE / "glyphs/stage-1-16"
 PALETTES = {"hst": "#294159", "hst_dark": "#DBE7F1"}
 # Families with a "trademark" master show the HASON TECH mark in its brand blue: #0072BB is the
 # official colour, #1A91CF the light end of the same app-icon gradient, legible on the dark ribbon.
@@ -32,6 +38,14 @@ def sized(key, size):
 
 def svg_key(key):
     return str(PurePosixPath(key).with_suffix(".svg"))
+
+
+def glyph_svg(master, size, colour):
+    """Shipped SVG of one glyph: pixel-snapped strokes painted as filled outlines."""
+    tuned = TUNED_16 / master.name
+    native = size == 16 and master.parent.name == "stage-1" and tuned.is_file()
+    source = (tuned if native else master).read_text(encoding="utf-8")
+    return snap_svg(source, size, native=native).replace("currentColor", colour).encode("utf-8")
 
 
 def resources(theme):
@@ -54,9 +68,12 @@ def resources(theme):
             raise ValueError(f"Unexpected viewBox: {master}")
         for size in SIZES:
             target = svg_key(sized(family["family"], size))
-            svg = source.replace("currentColor", colour).replace(
-                'width="24" height="24"', f'width="{size}" height="{size}"', 1)
-            files[target] = svg.encode("utf-8")
+            if family.get("trademark"):
+                # The HASON TECH mark is a filled logo, shipped as drawn (not CC BY artwork).
+                files[target] = source.replace("currentColor", colour).replace(
+                    'width="24" height="24"', f'width="{size}" height="{size}"', 1).encode("utf-8")
+            else:
+                files[target] = glyph_svg(master, size, colour)
             keys = [sized(key, size) for key in family["keys"]]
             keys += [key for key, native in family.get("fixed_aliases", {}).items() if int(native) == size]
             # VCL tries PNG first, then SVG. Keep both request spellings, with
@@ -70,11 +87,9 @@ def resources(theme):
                     links[alias] = target
     integration = json.loads((SOURCE / "metadata/integration-map.json").read_text())
     for glyph in integration["command_glyphs"]:
-        source = (SOURCE / "glyphs/integration" / (glyph + ".svg")).read_text(encoding="utf-8")
         for size in SIZES:
             key = sized("cmd/" + glyph + ".svg", size)
-            files[key] = source.replace("currentColor", PALETTES[theme]).replace(
-                'width="24" height="24"', f'width="{size}" height="{size}"', 1).encode()
+            files[key] = glyph_svg(SOURCE / "glyphs/integration" / (glyph + ".svg"), size, PALETTES[theme])
     for alias, target in integration["command_aliases"].items():
         for size in SIZES:
             for ext in ("png", "svg"):
@@ -99,7 +114,9 @@ def resources(theme):
         "Command glyphs: original HST artwork, see LICENSE-CC-BY-4.0.txt, except the marks below.\n"
         "Source: https://github.com/haduyson/hst-office/tree/main/icon-themes-src/hst\n"
         "Licence: https://creativecommons.org/licenses/by/4.0/\n"
-        "Changes: palette and logical viewport exports from the original masters.\n"
+        "Changes: palette exports of the original masters, pixel-snapped per size (16/24/32 px,\n"
+        "whole-pixel pens) with strokes painted as filled outlines; hand-tuned 16 px masters\n"
+        "for the Home and quick-access glyphs (glyphs/stage-1-16).\n"
         "res/mainapp_*: existing HST Office application marks, copied unchanged from\n"
         "branding/icon-themes; these are HASON TECH trademarks, not CC BY glyphs.\n"
         "cmd/sc_showsolutions.svg, cmd/lc_showsolutions.svg, cmd/32/showsolutions.svg:\n"
