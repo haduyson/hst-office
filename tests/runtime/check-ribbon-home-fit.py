@@ -3,8 +3,10 @@
 
 Usage: python3 tests/runtime/check-ribbon-home-fit.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]
 The X display must already run, at least 2400 px wide. Per app and width:
-  - Clone Formatting and Clear keep their accessible names and show their labels where there is room (1485 px; owner,
-    2026-11-07); at 1366 px the collapse ladder may take the labels away again, so only the name is checked there;
+  - Clone Formatting and Clear keep their accessible names everywhere and show their labels where there is room: at
+    1920 px (Sheets: 2400); at 1485 px the Styles gallery keeps the room instead (owner and S0, 2026-11-08), so only the name is
+    checked at 1366 and 1485;
+  - at 1366 and 1485 px nothing is folded into the "»" overflow: groups shrink, or become a group button, first;
   - their commands still have a label, from which the tooltip comes; hovering shows it (see --shots);
   - the banner is on screen, inside the window;
   - the groups named in MUST_SHOW have a visible caption: Sheets' Number and Slides' Paragraph at 1366, Writer's
@@ -31,16 +33,20 @@ _spec = importlib.util.spec_from_file_location(
 tabs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tabs)
 
-LABEL_WIDTH = 1485  # from this width up Clone Formatting and Clear show their labels
+# from this width up Clone Formatting and Clear show their labels (measured: Sheets has more Home groups)
+LABEL_WIDTH = {"writer": 1920, "calc": 2400, "impress": 1920}
 LABELLED = {"writer", "calc", "impress"}  # apps whose 1.0.0 content patch has these labels; the others are still icon-only
 ICON_MAX = 40  # an icon with its button padding; the same button with its text is over 100 px wide
 PAINTBRUSH = "Sao chép định dạng"
 CLEAR = {"writer": "Xóa", "calc": "Xóa", "impress": "Xóa"}
 CAPTION_BAND = (95, 165)  # the caption row of a ribbon page, y relative to the window
-# Sheets' Kiểu folds at 1366: it needs about 120 px that only narrower Font/Number boxes (1.0.0) would free.
-MUST_SHOW = {("calc", 1366): ["Số"], ("impress", 1366): ["Đoạn văn"], ("writer", 1366): ["Đoạn văn", "Kiểu"],
-             ("calc", 1485): ["Kiểu"], ("writer", 1485): ["Kiểu"]}
-WIDTHS = (1366, 1485)
+# Sheets' Kiểu may be a group button at 1366: its gallery needs about 120 px beside Font and Number.
+# at 1366 Kiểu and Đoạn văn may be group buttons (no caption): the paragraph group has no smaller form, and a
+# group button keeps every command one click away, where a fold into » would not
+MUST_SHOW = {("calc", 1366): ["Số"], ("impress", 1366): ["Bảng tạm", "Phông chữ"],
+             ("writer", 1366): ["Bảng tạm", "Phông chữ"], ("calc", 1485): ["Kiểu"],
+             ("writer", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn", "Kiểu"]}
+NO_OVERFLOW = (1366, 1485)  # widths at which no group may be folded into the "»" overflow
 WIDE = {"writer": 1920, "calc": 2400, "impress": 1920}  # nothing folds: the whole "Công cụ" group shows
 
 
@@ -69,19 +75,35 @@ def measure(width):
     return labels, buttons, banner
 
 
+def overflow_shown():
+    """The "»" overflow button of the ribbon page: a narrow, tall push button without a name."""
+    for node in tabs.walk(tabs.office_app()):
+        try:
+            if node.getRoleName() == "push button" and not node.name and showing(node):
+                box = tabs.extents(node)
+                if box[2] <= 30 and box[3] >= 30 and 40 < box[1] < 230:
+                    return box
+        except Exception:  # noqa: BLE001  widgets come and go
+            continue
+    return None
+
+
 def check_app(app, args, port):
     office, wid = tabs.start(args.instdir, app, args, f"fit-{app}", port)
     try:
         ribbon = next(t for t in tabs.ribbon_tabs() if t[0] == "Trang đầu")
         if not ribbon[2]:
             tabs.click(args.display, ribbon[1])
-        for width in WIDTHS:
+        for width in (1366, 1485, LABEL_WIDTH[app]):
             tabs.xdo(args.display, "windowsize", wid, str(width), "900")
             time.sleep(4)
             labels, buttons, banner = measure(width)
             captions = sorted({n for n, b in labels if b[3] < 30}, key=lambda n: min(b[0] for m, b in labels if m == n))
             print(f"[{app} {width}] captions: {captions}", flush=True)
             print(f"[{app} {width}] banner: {banner}; buttons: {json.dumps({k: v[0] for k, v in buttons.items()})}", flush=True)
+            if width in NO_OVERFLOW:
+                chevron = overflow_shown()
+                tabs.record(f"[{app} {width}] nothing folded into »", chevron is None, chevron)
             for group in MUST_SHOW.get((app, width), []):
                 tabs.record(f"[{app} {width}] group '{group}' shows", group in captions, captions)
             caption_boxes = [(n, b) for n, b in labels if b[3] < 30]
@@ -90,7 +112,7 @@ def check_app(app, args, port):
                 box = buttons.get(name, ((0, 0, 0, 0),))[0]
                 if app not in LABELLED:
                     tabs.record(f"[{app} {width}] '{name}' accessible and icon-only", 0 < box[2] <= ICON_MAX, box)
-                elif width >= LABEL_WIDTH:
+                elif width >= LABEL_WIDTH[app]:
                     tabs.record(f"[{app} {width}] '{name}' accessible and labelled", box[2] > ICON_MAX, box)
                 else:
                     tabs.record(f"[{app} {width}] '{name}' accessible", box[2] > 0, box)
