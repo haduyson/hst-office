@@ -62,9 +62,11 @@ jobs:
       LO_MSI_URL: https://download.documentfoundation.org/libreoffice/stable/26.8.2/win/x86_64/LibreOffice_26.8.2_Win_x86-64.msi
       LO_MSI_ARCHIVE_URL: https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.2.2/win/x86_64/LibreOffice_26.8.2.2_Win_x86-64.msi
       LO_MSI_SHA256: ff4b911403b67ee9e6249f820f9782c44bb32c94fdaa45b0da53a8e419e5307a
-      # beta.5 for upgrade-from-beta5: the release once it is published, else the build it was made from
-      BETA5_RELEASE_TAG: v1.0.0-beta.5
-      BETA5_RUN_ID: '42264925378'
+      # HST beta.5 for upgrade-from-beta5: the copy kept on HST's download site, pinned by its SHA256.
+      BETA5_MSI_URL: https://office.hasontech.vn/tai/1.0.0-beta.5/HSTOffice_1.0.0-beta.5_Win_x86-64_en-US_vi.msi
+      BETA5_MSI_SHA256: 645f605aafc6999e4c29ca5c3f64cf44ffddfd11a06e74b4e0540cf3c1fdf219
+      # HST beta.4 (GitHub pre-release v1.0.0-beta.4, no longer on the download site), pinned by its SHA256.
+      BETA4_MSI_SHA256: 4b3d7dcf0715c0afd3b594393f9c0ae3b12cca11f82a1089b7fa22e8fe72bc29
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -246,10 +248,16 @@ jobs:
             echo "$LO_MSI_SHA256  $msi" | sha256sum -c
             echo "OTHER_MSI=$(cygpath -w "$PWD/$msi")" >> "$GITHUB_ENV"
           elif [ "$SCENARIO" = upgrade-from-beta5 ]; then
-            RUN_ID='' RELEASE_TAG="$BETA5_RELEASE_TAG" bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/first" OTHER_MSI \
-              || { rm -rf "$RUNNER_TEMP/first"; RUN_ID="$BETA5_RUN_ID" RELEASE_TAG='' bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/first" OTHER_MSI; }
+            mkdir -p "$RUNNER_TEMP/first"
+            cd "$RUNNER_TEMP/first"
+            msi=HSTOffice_1.0.0-beta.5_Win_x86-64_en-US_vi.msi
+            curl -fsSL --retry 3 -o "$msi" "$BETA5_MSI_URL"
+            echo "$BETA5_MSI_SHA256  $msi" | sha256sum -c
+            echo "OTHER_MSI=$(cygpath -w "$PWD/$msi")" >> "$GITHUB_ENV"
           else
             RUN_ID='' RELEASE_TAG=v1.0.0-beta.4 bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/first" OTHER_MSI
+            # independent of the release's own SHA256SUMS: the pinned hash of the beta.4 MSI
+            echo "$BETA4_MSI_SHA256  $(cygpath -u "$(grep '^OTHER_MSI=' "$GITHUB_ENV" | tail -n 1 | cut -d= -f2-)")" | sha256sum -c
           fi
       - name: Install both and check them
         if: ${{ matrix.scenario != 'commands' }}
