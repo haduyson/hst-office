@@ -1,0 +1,41 @@
+HST Office: the ribbon collapse ladder measures each size state for real.
+
+A window caches its preferred size until a resize is queued; changing a toolbox's button type, size
+or text position does not queue one. The ladder therefore measured every state of a group at the
+same, cached width, found no step that shrinks the row and only folded groups. A changed toolbox now
+queues a resize, which clears the cached sizes of the toolbox and its group.
+
+- vcl/source/control/HstRibbonLadder.cxx: applyToToolBox() queues a resize after a change.
+
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -47,13 +47,28 @@
+                                                                        : ToolBoxButtonSize::Small;
+     const ToolBoxTextPosition ePosition
+         = bKeep ? rData.meHstAuthoredTextPosition : ToolBoxTextPosition::Right;
+-    // only real changes: each one invalidates the toolbox and queues a layout
++    // only real changes: each one invalidates the toolbox
++    bool bChanged = false;
+     if (rToolBox.GetButtonType() != eType)
++    {
+         rToolBox.SetButtonType(eType);
++        bChanged = true;
++    }
+     if (rToolBox.GetToolboxButtonSize() != eSize)
++    {
+         rToolBox.SetToolboxButtonSize(eSize);
++        bChanged = true;
++    }
+     if (rData.meHstTextPosition != ePosition)
++    {
+         rToolBox.SetToolBoxTextPosition(ePosition);
++        bChanged = true;
++    }
++    // the preferred sizes of the toolbox and its group are cached until a queued resize: without
++    // this the group would be measured at its previous size and every ladder step would look
++    // useless, leaving only the fold
++    if (bChanged)
++        rToolBox.queue_resize();
+ }
+ 
+ template <typename F> void forToolBoxes(vcl::Window& rWindow, const F& rFunction)

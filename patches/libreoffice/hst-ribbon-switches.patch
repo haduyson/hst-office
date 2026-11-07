@@ -1,0 +1,79 @@
+HST Office: rollback switches for the ribbon engine and look (org.openoffice.Office.HSTRibbon).
+
+Owner decision (2026-11-07): every ribbon feature ships on; the switches are rollback safety only,
+so a late defect can be turned off by configuration instead of a patch removal.
+
+- officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs (new): CollapseLadder, OwnerDraw,
+  StyleHoverPreview and SlidesEffectGalleries, booleans, all true.
+- officecfg/files.mk, postprocess/CustomTarget_registry.mk: register the schema.
+
+--- a/officecfg/files.mk
++++ b/officecfg/files.mk
+@@ -30,6 +30,7 @@
+     Office/ExtensionManager \
+     Office/FormWizard \
+     Office/HSTPdfViewer \
++    Office/HSTRibbon \
+     Office/HSTUpdate \
+     Office/Histories \
+     Office/Impress \
+--- a/postprocess/CustomTarget_registry.mk
++++ b/postprocess/CustomTarget_registry.mk
+@@ -148,6 +148,7 @@
+ 	$(postprocess_XCS)/Office/ExtensionManager.xcs \
+ 	$(postprocess_XCS)/Office/FormWizard.xcs \
+ 	$(postprocess_XCS)/Office/HSTPdfViewer.xcs \
++	$(postprocess_XCS)/Office/HSTRibbon.xcs \
+ 	$(postprocess_XCS)/Office/HSTUpdate.xcs \
+ 	$(postprocess_XCS)/Office/Histories.xcs \
+ 	$(postprocess_XCS)/Office/Impress.xcs \
+--- /dev/null
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
+@@ -0,0 +1,47 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" oor:name="HSTRibbon" oor:package="org.openoffice.Office" xml:lang="en-US">
++  <info>
++    <desc>HST Office ribbon (Tabbed notebookbar of Writer, Sheets and Slides). Every feature ships on; these
++      switches exist only to turn one back to the previous behaviour without a new build, through the expert
++      configuration or an administrator's share/registry .xcd file.</desc>
++  </info>
++  <component>
++    <prop oor:name="CollapseLadder" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Groups shrink step by step (large, medium, small, one group button) as the window narrows. When
++          false, whole groups fold into the overflow menu as before.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="OwnerDraw" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Ribbon buttons and tabs are drawn with the HST ribbon colours on every platform. When false, or in
++          high contrast mode, the native theme draws them.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="StyleHoverPreview" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Resting the pointer on a style in the Styles gallery previews it in the document, without changing
++          the document or its undo history. When false, only a click applies a style.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="SlidesEffectGalleries" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>The Slides Transitions and Animations tabs show effect galleries in the ribbon. When false, their
++          buttons open the sidebar as before.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++  </component>
++</oor:component-schema>

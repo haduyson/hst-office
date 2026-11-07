@@ -13,11 +13,11 @@ class SnapshotSecurityTests(FeedCase):
         entered, release = threading.Event(), threading.Event()
         result, errors = [], []
         original = feed._snapshot
-        def paused(candidates, now):
+        def paused(candidates, now, *mode):
             entered.set()
             if not release.wait(5):
                 raise RuntimeError("test timeout")
-            return original(candidates, now)
+            return original(candidates, now, *mode)
         def reader():
             try:
                 result.append(feed.current())

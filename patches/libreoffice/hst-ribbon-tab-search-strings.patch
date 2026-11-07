@@ -1,0 +1,58 @@
+HST Office: translatable placeholder of the ribbon tab-row feature search box.
+
+- include/sfx2/strings.hrc: STR_HST_TAB_SEARCH "Search features… (Alt+Q)".
+- translations/source/vi/sfx2/messages.po: "Tìm tính năng… (Alt+Q)" (owner wording), at the end of
+  the file.
+- sfx2/source/notebookbar/NotebookbarTabControl.cxx: the box reads the string with SfxResId.
+
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -412,6 +412,8 @@
+ #define STR_AUTOCORR_LEADTRAIL                  NC_("STR_AUTOCORR_LEADTRAIL", "Autocorrection has removed a leading or trailing character.")
+ #define STR_NOSHOWAGAIN                         NC_("STR_NOSHOWAGAIN", "Don't show again")
+ #define STR_CHANGEOPTIONS                       NC_("STR_CHANGEOPTIONS", "Change options")
++// HST Office: placeholder of the feature search box in the ribbon tab row
++#define STR_HST_TAB_SEARCH                      NC_("STR_HST_TAB_SEARCH", "Search features… (Alt+Q)")
+ 
+ #endif
+ 
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -6403,3 +6403,9 @@
+ msgctxt "versionsofdialog|extended_tip|VersionsOfDialog"
+ msgid "Saves and organizes multiple versions of the current document in the same file. You can also open, delete and compare previous versions."
+ msgstr "Lưu và sắp xếp nhiều phiên bản của tài liệu hiện tại trong cùng một tệp tin. Bạn cũng có thể mở, xóa và so sánh các phiên bản trước."
++
++#. hstTabSearch
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_TAB_SEARCH"
++msgid "Search features… (Alt+Q)"
++msgstr "Tìm tính năng… (Alt+Q)"
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -32,8 +32,8 @@
+ #include <comphelper/dispatchcommand.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+ #include <vcl/lineinfo.hxx>
+-#include <i18nlangtag/languagetag.hxx>
+-#include <unotools/syslocale.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/strings.hrc>
+ #include <vcl/settings.hxx>
+ #if __has_include(<notebookbar/HstFeatureSearch.hxx>)
+ #include <notebookbar/HstFeatureSearch.hxx>
+@@ -83,13 +83,7 @@
+         SetQuickHelpText(Placeholder());
+     }
+ 
+-    /** The owner's Vietnamese wording in the Vietnamese UI, English otherwise. */
+-    static OUString Placeholder()
+-    {
+-        return SvtSysLocale().GetUILanguageTag().getLanguage() == "vi"
+-                   ? u"Tìm tính năng… (Alt+Q)"_ustr
+-                   : u"Search features… (Alt+Q)"_ustr;
+-    }
++    static OUString Placeholder() { return SfxResId(STR_HST_TAB_SEARCH); }
+ 
+     bool Collapsed() const
+     {

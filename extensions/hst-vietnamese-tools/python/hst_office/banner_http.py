@@ -10,7 +10,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     __package__ = "hst_office"
 
-from .banner_urls import https_url
+from .banner_urls import https_url, test_url
 from .update_fetch import tls_context
 from .update_logic import same_origin, version_key
 
@@ -24,18 +24,31 @@ class _Redirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def request(url, limit, version, proxy=None):
-    """One bounded GET; callers apply the item allow-list before reaching this transport."""
-    if not https_url(url):
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ValueError("banner redirect refused")
+
+
+def request(url, limit, version, proxy=None, allow_test=False):
+    """One bounded GET; callers apply the item allow-list before reaching this transport.
+
+    allow_test is set only by test-stamped packages: plain HTTP to the local test server, never
+    through a proxy and without redirects."""
+    local = allow_test is True and test_url(url)
+    if not (local or https_url(url)):
         raise ValueError("banner HTTPS required")
     version_key(version)  # also prevents User-Agent header injection
-    handlers = [_Redirect(), urllib.request.HTTPSHandler(context=tls_context())]
-    if proxy is not None:
-        handlers.append(urllib.request.ProxyHandler(proxy))
+    if local:
+        handlers = [_NoRedirect(), urllib.request.ProxyHandler({})]
+    else:
+        handlers = [_Redirect(), urllib.request.HTTPSHandler(context=tls_context())]
+        if proxy is not None:
+            handlers.append(urllib.request.ProxyHandler(proxy))
     opener = urllib.request.build_opener(*handlers)
     request = urllib.request.Request(url, headers={"User-Agent": "HSTOffice/" + version, "Accept": "*/*"})
     with opener.open(request, timeout=TIMEOUT) as response:
-        if not https_url(response.geturl()) or not same_origin(url, response.geturl()):
+        final = response.geturl()
+        if not (test_url(final) if local else https_url(final)) or not same_origin(url, final):
             raise ValueError("banner final URL refused")
         if response.status != 200 or response.headers.get("Content-Encoding", "identity") != "identity":
             raise ValueError("banner response refused")

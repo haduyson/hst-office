@@ -3,11 +3,22 @@
 import struct
 import zlib
 
-SIZES = {(360 * n, 104 * n) for n in (1, 2, 3)}
+from .banner_schema import COMPACT_PREFIX, COMPACT_SIZE
+
+WIDE_SIZE = (360, 104)
+SIZES = {(w * n, h * n) for w, h in (WIDE_SIZE, COMPACT_SIZE) for n in (1, 2, 3)}
+
+
+def expected_size(scale):
+    """Exact pixel size for an image key: 1x..3x wide art, c1x..c3x compact art."""
+    compact = scale.startswith(COMPACT_PREFIX)
+    width, height = COMPACT_SIZE if compact else WIDE_SIZE
+    factor = int(scale[len(COMPACT_PREFIX)] if compact else scale[0])
+    return width * factor, height * factor
 
 
 def dimensions(width, height, scale=None):
-    if (width, height) not in SIZES or (scale and (width, height) != (360 * int(scale[0]), 104 * int(scale[0]))):
+    if (width, height) not in SIZES or (scale and (width, height) != expected_size(scale)):
         raise ValueError("invalid banner dimensions")
     return width, height
 

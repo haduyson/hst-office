@@ -24,7 +24,7 @@ def valid_key(key):
                 and ed25519.point_equal(ed25519.point_mul(ed25519.q, point), identity))
 
 
-def verify_manifest(data, signature_text, public_key=None):
+def verify_manifest(data, signature_text, public_key=None, allow_test=False):
     key = PUBLIC_KEY if public_key is None else public_key
     if not valid_key(key) or len(data) > MAX_MANIFEST or len(signature_text) > 128:
         raise ValueError("banner signature unavailable")
@@ -34,7 +34,7 @@ def verify_manifest(data, signature_text, public_key=None):
         raise ValueError("invalid banner signature encoding") from exc
     if not ed25519.verify(key, data, signature):
         raise ValueError("invalid banner signature")
-    return parse_manifest(data)
+    return parse_manifest(data, allow_test=allow_test)
 
 
 def verify_image(data, spec, scale=None):

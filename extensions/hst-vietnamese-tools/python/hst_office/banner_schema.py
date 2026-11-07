@@ -4,13 +4,19 @@ import datetime
 import json
 import re
 
-from .banner_urls import allowed_url
+from .banner_urls import allowed_url, test_url
 from .update_logic import version_key
 
 MAX_MANIFEST = 65536
 MAX_IMAGE = 300 * 1024
 MAX_ITEMS = 24
 SCALES = ("1x", "2x", "3x")
+# Optional per-item artwork for the compact slot of windows narrower than 1280 logical px.
+# Same descriptor shape as "image" (all three scales or none); pixel size COMPACT_SIZE x scale.
+# schemaVersion stays 1: older clients ignore the unknown field.
+COMPACT_FIELD = "imageCompact"
+COMPACT_SIZE = (160, 104)
+COMPACT_PREFIX = "c"  # image key of compact art in caches and snapshots: c1x, c2x, c3x
 INTERVAL = 86400
 
 
@@ -32,28 +38,33 @@ def _integer(value, low, high):
     return type(value) is int and low <= value <= high
 
 
-def _image(value, bundled):
+def _image(value, bundled, allow_test=False):
     _require(isinstance(value, dict))
     url, digest, size = value.get("url"), value.get("sha256"), value.get("size")
     if bundled:
         _require(isinstance(url, str) and re.fullmatch(r"banners/[a-z0-9-]+@[123]x\.png", url))
     else:
-        _require(allowed_url(url))
+        _require(allowed_url(url) or (allow_test and test_url(url)))
     _require(isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest))
     _require(_integer(size, 1, MAX_IMAGE))
 
 
-def _item(item, bundled):
+def _item(item, bundled, allow_test=False):
     _require(isinstance(item, dict))
     _require(_text(item.get("id"), 64) and re.fullmatch(r"[a-z0-9][a-z0-9-]*", item["id"]))
     _require(_text(item.get("name"), 80) and _text(item.get("tagline"), 160))
-    _require(allowed_url(item.get("url")))
+    _require(allowed_url(item.get("url")) or (allow_test and test_url(item.get("url"))))
     _require(_integer(item.get("order"), 0, 9999))
     _require(_integer(item.get("weight", 1), 1, 10))
     images = item.get("image")
     _require(isinstance(images, dict) and set(images) == set(SCALES))
     for value in images.values():
-        _image(value, bundled)
+        _image(value, bundled, allow_test)
+    if COMPACT_FIELD in item:
+        compact = item[COMPACT_FIELD]
+        _require(isinstance(compact, dict) and set(compact) == set(SCALES))
+        for value in compact.values():
+            _image(value, bundled, allow_test)
     for field in ("startAt", "endAt"):
         if field in item:
             timestamp(item[field])
@@ -75,8 +86,10 @@ def _unique(pairs):
     return result
 
 
-def parse_manifest(data, bundled=False):
-    """Validate before use; bundled allows only controlled paths under the extension's banners directory."""
+def parse_manifest(data, bundled=False, allow_test=False):
+    """Validate before use; bundled allows only controlled paths under the extension's banners directory.
+
+    allow_test (test-stamped packages only) also accepts image URLs on the local test server."""
     _require(isinstance(data, bytes) and 0 < len(data) <= MAX_MANIFEST)
     try:
         doc = json.loads(data.decode("utf-8"), object_pairs_hook=_unique,
@@ -91,10 +104,29 @@ def parse_manifest(data, bundled=False):
     items = doc.get("items")
     _require(isinstance(items, list) and 1 <= len(items) <= MAX_ITEMS)
     for item in items:
-        _item(item, bundled)
+        _item(item, bundled, allow_test)
     _require(len({i["id"] for i in items}) == len(items))
     doc["items"] = sorted(items, key=lambda i: (i["order"], i["id"]))
     return doc
+
+
+def image_specs(item):
+    """(key, descriptor) of every image of a validated item: 1x..3x, then c1x..c3x for compact art."""
+    specs = [(scale, item["image"][scale]) for scale in SCALES]
+    if has_compact(item):
+        specs += [(COMPACT_PREFIX + scale, item[COMPACT_FIELD][scale]) for scale in SCALES]
+    return specs
+
+
+def has_compact(item):
+    """True when the item carries compact artwork (parse_manifest has validated it)."""
+    return isinstance(item.get(COMPACT_FIELD), dict)
+
+
+def compact_items(items):
+    """Items shown in the compact slot: those with compact artwork, in order. The wide artwork is
+    never cropped (crops cut the brand text); an empty result hides the compact slot."""
+    return [item for item in items if has_compact(item)]
 
 
 def active(item, now, version):
