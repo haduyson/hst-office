@@ -8,7 +8,8 @@ blue on screen, in thumbnails and in print.
 
 The test fills a red and a blue rectangle in a PDFium bitmap with and without alpha and checks the
 converted pixels. HSTPdfInfo with RenderPage also reports RenderRedPixels and RenderBluePixels,
-which the runtime check uses on real stamp PDFs.
+which the runtime check uses on real stamp PDFs; RenderDpi renders the page at another resolution
+and RenderFile saves that page bitmap as PNG, to compare it with other renderers.
 
 License: modified upstream files keep their license (MPL-2.0).
 
@@ -72,7 +73,16 @@ License: modified upstream files keep their license (MPL-2.0).
  
 --- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
 +++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
-@@ -909,23 +909,32 @@ bool PdfViewerWindow::executeCommand(std::u16string_view rCommand,
+@@ -35,6 +35,8 @@
+ #include <unotools/localedatawrapper.hxx>
+ #include <unotools/ucbstreamhelper.hxx>
+ #include <vcl/event.hxx>
++#include <vcl/filter/PngImageWriter.hxx>
++#include <vcl/graph.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/unohelp2.hxx>
+@@ -909,23 +911,44 @@ bool PdfViewerWindow::executeCommand(std::u16string_view rCommand,
                             uno::Any(sal_Int32(m_nCurrentMatch >= 0 ? m_aMatches[m_nCurrentMatch].nPage + 1 : 0)));
          if (m_xDocument && rArgs.getUnpackedValueOrDefault(u"RenderPage"_ustr, sal_Int32(0)) > 0)
          {
@@ -82,9 +92,23 @@ License: modified upstream files keep their license (MPL-2.0).
              const int nPage = std::min(rArgs.getUnpackedValueOrDefault(u"RenderPage"_ustr, sal_Int32(1)),
                                         sal_Int32(m_xDocument->getPageCount())) - 1;
              const basegfx::B2DSize aSize = m_xDocument->getPageSize(nPage);
-             const Bitmap aBitmap = m_xDocument->renderPage(nPage, std::lround(aSize.getWidth() * 2 / 3),
-                                                            std::lround(aSize.getHeight() * 2 / 3));
+-            const Bitmap aBitmap = m_xDocument->renderPage(nPage, std::lround(aSize.getWidth() * 2 / 3),
+-                                                           std::lround(aSize.getHeight() * 2 / 3));
 -            sal_Int64 nInk = 0, nAll = 0;
++            // RenderDpi: another resolution than 48 dpi (two thirds of the page size in points)
++            const sal_Int32 nDpi = rArgs.getUnpackedValueOrDefault(u"RenderDpi"_ustr, sal_Int32(48));
++            const Bitmap aBitmap
++                = m_xDocument->renderPage(nPage, std::lround(aSize.getWidth() * nDpi / 72),
++                                          std::lround(aSize.getHeight() * nDpi / 72));
++            // RenderFile: also save the page bitmap as PNG, to compare it with other renderers
++            const OUString aRenderFile = rArgs.getUnpackedValueOrDefault(u"RenderFile"_ustr, OUString());
++            if (!aRenderFile.isEmpty())
++            {
++                SvFileStream aStream(aRenderFile, StreamMode::WRITE | StreamMode::TRUNC);
++                vcl::PngImageWriter aWriter(aStream);
++                aInfo.emplace_back(u"RenderFileWritten"_ustr,
++                                   uno::Any(aWriter.write(Graphic(aBitmap)) && aStream.good()));
++            }
 +            sal_Int64 nInk = 0, nAll = 0, nRed = 0, nBlue = 0;
              const Size aPixels = aBitmap.GetSizePixel();
              for (tools::Long y = 0; y < aPixels.Height(); y += 2)

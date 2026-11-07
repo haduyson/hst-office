@@ -1,12 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Signed PDFs that were changed after signing, for the signature-reason check.
-
-pyHanko signs a PDF with a throw-away key, then copies are changed the way real files get broken:
-encrypted (still valid), an incremental update after signing, a full rewrite with a per-download
-watermark, a rewrite that ends before the signed range, a truncated copy, a changed byte and a
-damaged CMS. Needs
-python3-cryptography and pyHanko. Nothing is downloaded and no key leaves the work folder.
-"""
+"""Signed PDFs for the signature-reason check, signed by pyHanko with a throw-away key: valid,
+encrypted, three signatures in a row, then copies changed the way real files get broken (an update
+after signing, rewrites, a truncated copy, a changed byte, a damaged CMS). Needs
+python3-cryptography and pyHanko. Nothing is downloaded and no key leaves the work folder."""
 import os
 import random
 import re
@@ -17,6 +13,7 @@ import tempfile
 SIGNATURE_FIXTURES = {
     "valid": (True, ""),
     "valid-encrypted": (True, ""),
+    "valid-chain": (True, ""),  # three signatures, each appended as an incremental update
     "incremental-tamper": (False, "modified"),
     "rewritten-watermark": (False, "rewritten"),
     "range-past-eof": (False, "rewritten"),
@@ -53,14 +50,14 @@ def _throwaway_signer(work):
     return signers.SimpleSigner.load(key_pem, cert_pem)
 
 
-def _sign(signer, src, target, password=None):
+def _sign(signer, src, target, password=None, field="ChuKy1"):
     from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
     from pyhanko.sign import signers
     with open(src, "rb") as inf:
         writer = IncrementalPdfFileWriter(inf)
         if password is not None:
             writer.encrypt(password)
-        meta = signers.PdfSignatureMetadata(field_name="ChuKy1", reason="Kiểm thử ký số", location="Đà Nẵng")
+        meta = signers.PdfSignatureMetadata(field_name=field, reason="Kiểm thử ký số", location="Đà Nẵng")
         with open(target, "wb") as outf:
             signers.sign_pdf(writer, meta, signer=signer, output=outf)
 
@@ -120,6 +117,9 @@ def make_signature_fixtures(src_pdf, outdir):
     try:
         signer = _throwaway_signer(work)
         _sign(signer, src_pdf, paths["valid"])
+        chain = os.path.join(work, "chain2.pdf")
+        _sign(signer, paths["valid"], chain, field="ChuKy2")
+        _sign(signer, chain, paths["valid-chain"], field="ChuKy3")
 
         # owner password only, like the e-office files; then signed incrementally
         with open(src_pdf, "rb") as inf:

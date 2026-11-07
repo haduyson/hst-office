@@ -31,6 +31,11 @@ PDFSignatureHelper::GetSignatureProblems() gives the reason for each signature:
   the signature does not allow.
 - ContentChanged: the structure is intact, but the bytes no longer match the signature.
 
+Signing a file whose page tree HST cannot update incrementally (objects in AES-encrypted object
+streams, as iText writes them) used to fail with "check the USB token and the PIN". signPdf now
+returns SignResult::Unsupported for it, and HST PDF says that the file's structure (usually its
+encryption) cannot be updated yet and that the file is unchanged.
+
 HST PDF shows the reason under each signature in the signature panel. The status bar shows
 "Chữ ký số không hợp lệ: <reason>" when every invalid signature fails for the same reason, and its
 tooltip lists the invalid signatures. HSTPdfInfo also reports SignatureLines, SignatureProblems
@@ -141,6 +146,19 @@ License: modified upstream files keep their license (MPL-2.0).
  #. hstPDF
  #: xmlsecurity/inc/strings.hrc
  msgctxt "STR_HSTPDF_NO_CERT"
+@@ -166,6 +260,12 @@ msgctxt "STR_HSTPDF_SIGN_FAILED"
+ msgid "The PDF could not be signed. Check that the USB token is plugged in and the PIN is correct, then try again."
+ msgstr "Không ký được tệp PDF. Hãy kiểm tra USB Token đã cắm và mã PIN đúng, rồi thử lại."
+ 
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGN_UNSUPPORTED"
++msgid "HST PDF cannot add a signature to this file yet: its internal structure (usually its encryption) cannot be updated. The file is unchanged. Ask the sender for a copy without encryption."
++msgstr "HST PDF chưa thêm được chữ ký vào tệp này vì chưa cập nhật được cấu trúc bên trong tệp (thường do tệp được mã hóa). Tệp không bị thay đổi. Hãy xin người gửi bản không mã hóa."
++
+ #. hstPDF
+ #: xmlsecurity/inc/strings.hrc
+ msgctxt "STR_HSTPDF_SAME_FILE"
 --- a/xmlsecurity/inc/pdfsignaturehelper.hxx
 +++ b/xmlsecurity/inc/pdfsignaturehelper.hxx
 @@ -16,6 +16,8 @@
@@ -220,6 +238,14 @@ License: modified upstream files keep their license (MPL-2.0).
  #define STR_HSTPDF_NO_CERT                          NC_("STR_HSTPDF_NO_CERT", "No certificate chosen")
  #define STR_HSTPDF_NO_CERT_HINT                     NC_("STR_HSTPDF_NO_CERT_HINT", "Plug in your USB token, then choose a certificate.")
  #define STR_HSTPDF_CERT_EXPIRES                     NC_("STR_HSTPDF_CERT_EXPIRES", "expires %1")
+@@ -98,6 +112,7 @@
+ #define STR_HSTPDF_SIGNED_ON                        NC_("STR_HSTPDF_SIGNED_ON", "Date: %1")
+ #define STR_HSTPDF_REASON                           NC_("STR_HSTPDF_REASON", "Reason: %1")
+ #define STR_HSTPDF_SIGN_FAILED                      NC_("STR_HSTPDF_SIGN_FAILED", "The PDF could not be signed. Check that the USB token is plugged in and the PIN is correct, then try again.")
++#define STR_HSTPDF_SIGN_UNSUPPORTED                 NC_("STR_HSTPDF_SIGN_UNSUPPORTED", "HST PDF cannot add a signature to this file yet: its internal structure (usually its encryption) cannot be updated. The file is unchanged. Ask the sender for a copy without encryption.")
+ #define STR_HSTPDF_SAME_FILE                        NC_("STR_HSTPDF_SAME_FILE", "The signed PDF is saved as a copy: choose a new file name. The original file stays unchanged.")
+ #define STR_HSTPDF_SIGNED_SAVED                     NC_("STR_HSTPDF_SIGNED_SAVED", "Signed and saved as %1")
+ #define STR_HSTPDF_SAVE_TITLE                       NC_("STR_HSTPDF_SAVE_TITLE", "Save the Signed Copy")
 --- a/xmlsecurity/qa/unit/pdfsigning/pdfsigning.cxx
 +++ b/xmlsecurity/qa/unit/pdfsigning/pdfsigning.cxx
 @@ -16,12 +16,15 @@
@@ -961,7 +987,7 @@ License: modified upstream files keep their license (MPL-2.0).
  SignatureSummary verifySignatures(const std::vector<sal_uInt8>& rData)
  {
      SignatureSummary aSummary;
-@@ -217,34 +263,59 @@ SignatureSummary verifySignatures(const std::vector<sal_uInt8>& rData)
+@@ -217,49 +263,77 @@ SignatureSummary verifySignatures(const std::vector<sal_uInt8>& rData)
          return aSummary;
      const uno::Sequence<security::DocumentSignatureInformation> aInfos
          = aHelper.GetDocumentSignatureInformations(aManager.getSecurityEnvironment());
@@ -1034,6 +1060,47 @@ License: modified upstream files keep their license (MPL-2.0).
      return aSummary;
  }
  
+-bool signPdf(const std::vector<sal_uInt8>& rData,
++SignResult signPdf(const std::vector<sal_uInt8>& rData,
+              const uno::Reference<security::XCertificate>& xCertificate, const OUString& rReason,
+              const std::optional<SignaturePlacement>& oPlacement, std::vector<sal_uInt8>& rSigned)
+ {
+     if (!xCertificate.is())
+-        return false;
++        return SignResult::Failed;
+     SvMemoryStream aInput(const_cast<sal_uInt8*>(rData.data()), rData.size(), StreamMode::READ);
+     vcl::filter::PDFDocument aDocument;
+-    if (!aDocument.Read(aInput))
++    // The signature is appended as an incremental update, which needs the page tree. A file
++    // whose objects sit in encrypted object streams (as iText writes them) cannot be read for
++    // that: say so instead of blaming the token.
++    if (!aDocument.Read(aInput) || aDocument.GetPages().empty())
+     {
+-        SAL_WARN("xmlsecurity.hstpdf", "signPdf: cannot read the PDF");
+-        return false;
++        SAL_WARN("xmlsecurity.hstpdf", "signPdf: cannot update this PDF incrementally");
++        return SignResult::Unsupported;
+     }
+     if (oPlacement)
+     {
+@@ -276,14 +350,14 @@ bool signPdf(const std::vector<sal_uInt8>& rData,
+     if (!aDocument.Sign(aContext, rReason, /*bAdES=*/true))
+     {
+         SAL_WARN("xmlsecurity.hstpdf", "signPdf: signing failed");
+-        return false;
++        return SignResult::Failed;
+     }
+     SvMemoryStream aOutput;
+     if (!aDocument.Write(aOutput))
+-        return false;
++        return SignResult::Failed;
+     const sal_uInt8* pData = static_cast<const sal_uInt8*>(aOutput.GetData());
+     rSigned.assign(pData, pData + aOutput.TellEnd());
+-    return true;
++    return SignResult::Signed;
+ }
+ }
+ 
 --- a/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
 +++ b/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
 @@ -15,6 +15,8 @@
@@ -1069,9 +1136,28 @@ License: modified upstream files keep their license (MPL-2.0).
  /// Verifies the signatures of a PDF file (NSS is initialised only when there are any).
  SignatureSummary verifySignatures(const std::vector<sal_uInt8>& rData);
  
+@@ -62,8 +77,17 @@ struct SignaturePlacement
+     basegfx::B2DSize aPageSize; ///< points
+ };
+ 
++enum class SignResult
++{
++    Signed,
++    /// the file cannot be updated incrementally, e.g. its page tree is in encrypted object streams
++    Unsupported,
++    /// the certificate or the token failed
++    Failed,
++};
++
+ /// Appends a signature to rData; rSigned receives the whole signed file.
+-bool signPdf(const std::vector<sal_uInt8>& rData,
++SignResult signPdf(const std::vector<sal_uInt8>& rData,
+              const css::uno::Reference<css::security::XCertificate>& xCertificate,
+              const OUString& rReason, const std::optional<SignaturePlacement>& oPlacement,
+              std::vector<sal_uInt8>& rSigned);
 --- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
 +++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
-@@ -355,12 +355,17 @@ void PdfViewerWindow::updateStatus()
+@@ -357,12 +357,17 @@ void PdfViewerWindow::updateStatus()
      else if (!m_bSignaturesChecked)
          aSign = XsResId(STR_HSTPDF_SIG_CHECKING);
      else if (m_aSignatures.nInvalid > 0)
@@ -1090,7 +1176,38 @@ License: modified upstream files keep their license (MPL-2.0).
      if (m_nOpenMillis >= 0)
          setInfo(XsResId(STR_HSTPDF_OPEN_TIME).replaceFirst("%1", formatSeconds(m_nOpenMillis)));
  }
-@@ -897,6 +902,11 @@ bool PdfViewerWindow::executeCommand(std::u16string_view rCommand,
+@@ -644,12 +649,13 @@ bool PdfViewerWindow::sign(const OUString& rTargetURL)
+                                          m_xDocument->getPageSize(rPlacement.first) };
+     }
+     std::vector<sal_uInt8> aSigned;
+-    bool bSigned;
++    SignResult eResult;
+     {
+         weld::WaitObject aWait(GetFrameWeld());
+-        bSigned = signPdf(m_xDocument->getData(), m_xCertificate, m_xReason->get_text(), oPlacement,
++        eResult = signPdf(m_xDocument->getData(), m_xCertificate, m_xReason->get_text(), oPlacement,
+                           aSigned);
+     }
++    bool bSigned = eResult == SignResult::Signed;
+     if (bSigned)
+     {
+         std::unique_ptr<SvStream> pStream = utl::UcbStreamHelper::CreateStream(
+@@ -663,9 +669,12 @@ bool PdfViewerWindow::sign(const OUString& rTargetURL)
+     }
+     if (!bSigned)
+     {
++        const OUString aMessage = XsResId(eResult == SignResult::Unsupported
++                                              ? STR_HSTPDF_SIGN_UNSUPPORTED
++                                              : STR_HSTPDF_SIGN_FAILED);
++        setInfo(aMessage);
+         std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
+-            GetFrameWeld(), VclMessageType::Error, VclButtonsType::Ok,
+-            XsResId(STR_HSTPDF_SIGN_FAILED)));
++            GetFrameWeld(), VclMessageType::Error, VclButtonsType::Ok, aMessage));
+         xBox->run();
+         return false;
+     }
+@@ -899,6 +908,11 @@ bool PdfViewerWindow::executeCommand(std::u16string_view rCommand,
          aInfo.emplace_back(u"UntrustedSignatures"_ustr, uno::Any(sal_Int32(m_aSignatures.nUntrusted)));
          aInfo.emplace_back(u"InvalidSignatures"_ustr, uno::Any(sal_Int32(m_aSignatures.nInvalid)));
          aInfo.emplace_back(u"SignatureStatus"_ustr, uno::Any(m_xStatusSign->get_label()));

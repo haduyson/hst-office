@@ -9,15 +9,16 @@ way real files get broken. For each file, HST Office is asked twice:
 Expected: valid files stay valid (self-signed: "certificate not validated"); every invalid one
 names its signer and gives its reason (rewritten, modified, content, broken).
 
-With --owner-pdf, a read-only copy of a real file that a document system rewrote after signing is
-checked too: every signature is invalid, rewritten, with its signer. The file itself is never
-changed and never copied outside --workdir.
+With --owner-pdf (repeatable), read-only copies of known owner files (OWNER_FILES: only their
+hashes are kept here) are checked too: every signature invalid, rewritten, the expected number of
+signers named. The files are never changed or committed.
 
 Needs an X display (Xvfb), python3-cryptography and pyHanko. Example:
   check-pdf-signature-reasons.py --instdir upstream/libreoffice/instdir --workdir /tmp/sigr --display :71
 Exit status 0 only when every file has the expected verdict, signer and reason; 77 without pyHanko.
 """
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -42,6 +43,11 @@ WHY = {"rewritten": "Nội dung tệp đã thay đổi sau khi ký. " + ASK, "in
 UNVERIFIED_SIGNER = "Ký bởi (chưa xác minh): "
 UNVERIFIED_TIME = "Thời điểm ký (chưa xác minh): "
 CERTIFICATE_VALID = 0  # css.security.CertificateValidity.VALID
+# Owner documents (never committed): sha256 -> signatures named by HST. Both were rewritten by a
+# document system after signing (per-download watermark, re-encrypted): every signature is
+# invalid and "rewritten"; a signature whose /Contents lies past the end of the file is unnamed.
+OWNER_FILES = {"0b6c7aa22e16fa73d1e562c0c7e9b4ce3f91efe06586e90af473d548ac00700d": 6,
+               "4e2630a984d2bc45695088cdcc78e222e5461d07f6ff274bf267a051faea82c0": 4}
 INFO_KEYS = ("SignatureCount", "ValidSignatures", "UntrustedSignatures", "InvalidSignatures", "SignatureStatus",
              "SignatureLines", "SignatureProblems", "SignatureDetails", "SignaturesChecked")
 
@@ -94,6 +100,8 @@ def expectations_failed(api, viewer, valid, problem, signer):
     if WHY[problem] not in (viewer["SignatureDetails"] or ""):
         failed.append("details %r" % viewer["SignatureDetails"])
     lines = viewer["SignatureLines"] or []
+    if any(not line.startswith((UNVERIFIED_SIGNER, "Không rõ người ký")) for line in lines):
+        failed.append("an invalid signer is not labelled %r" % lines)
     if len(lines) != len(api) or any(WHY[problem] not in line for line in lines):
         failed.append("panel lines %r" % lines)
     if signer is not None and any(UNVERIFIED_SIGNER + signer not in line or UNVERIFIED_TIME not in line
@@ -113,11 +121,11 @@ def make_cases(args, fixtures):
         # a damaged CMS names no signer, nor a signature that lies past the end of the file
         unread = name in ("broken-cms", "range-past-eof")
         cases[name] = (path, valid, problem, None if unread else pdf_signature_fixtures.SIGNER_CN)
-    if args.owner_pdf:
-        copy = os.path.join(fixtures, "owner-copy.pdf")
-        shutil.copyfile(args.owner_pdf, copy)
+    for number, owner in enumerate(args.owner_pdf, 1):
+        copy = os.path.join(fixtures, "owner-%d.pdf" % number)
+        shutil.copyfile(owner, copy)
         os.chmod(copy, 0o444)
-        cases["owner-copy"] = (copy, False, "rewritten", "")
+        cases["owner-%d" % number] = (copy, False, "rewritten", None)
     return cases
 
 
@@ -140,6 +148,11 @@ def run(args):
             row["viewer"] = viewer_signatures(office, path)
             row["failed"] = expectations_failed(row["api"], row["viewer"], valid, problem, signer)
             row["named_signers"] = sum(1 for s in row["api"] if s["signer"])
+            if name.startswith("owner-"):
+                with open(path, "rb") as handle:
+                    expected = OWNER_FILES.get(hashlib.sha256(handle.read()).hexdigest())
+                if expected is None or row["named_signers"] != expected:
+                    row["failed"].append("named %d, expected %s" % (row["named_signers"], expected))
             row["verdict"] = "FAIL" if row["failed"] else "PASS"
     finally:
         office.stop()
@@ -152,7 +165,8 @@ def main():
     ap.add_argument("--workdir", required=True)
     ap.add_argument("--display", default=":97")
     ap.add_argument("--port", type=int, default=2095)
-    ap.add_argument("--owner-pdf", help="also check a read-only copy of this signed PDF (rewritten after signing)")
+    ap.add_argument("--owner-pdf", action="append", default=[],
+                    help="also check a read-only copy of this known owner PDF (see OWNER_FILES); repeatable")
     args = ap.parse_args()
     try:
         import pyhanko  # noqa: F401
