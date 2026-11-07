@@ -7,8 +7,7 @@ Usage (needs a running X display; never started or stopped here; runs the office
         [--out tests/output/feature-search] [--display :93] [--port 2161]
 
 Per UI language, read through AT-SPI (GTK3) with screenshots kept in --out:
-  1. Writer, Sheets, Slides: the Home tab of the ribbon has the feature search button; in Writer a click opens the
-     search popup.
+  1. Writer, Sheets, Slides: the Home tab of the ribbon has the feature search button; a click opens the search popup.
   2. Writer: Shift+Esc opens it; searches typed without diacritics find accented labels ("chu ky" -> "Chữ ký số",
      "dinh dang" -> "Định dạng"), the HST add-on commands ("van ban hanh chinh", "chuyen tcvn", "usb") and "đ" = "d";
      Enter on the "van ban hanh chinh" result opens the ND 30 wizard (add-on commands are dispatched).
@@ -28,7 +27,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
-from feature_search_gui import xdo, walk, nodes, hst_menu, ribbon_box, popup_entry, results, search, close_popup  # noqa: E402
+import ribbon_tabs_gui as ribbon  # noqa: E402
+from feature_search_gui import xdo, hst_menu, popup_entry, search, close_popup  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("nd30_entry", os.path.join(HERE, "check-nd30-entry.py"))
 nd30 = importlib.util.module_from_spec(_spec)
@@ -70,23 +70,19 @@ def check_language(args, lang, label):
             doc = office.load("private:factory/" + factory)
             time.sleep(7)
             office.raise_windows()
-            # the block is folded at this width: its button, then the item on its bottom row
-            found = nd30.click_in_home_block(office, args.display, 200) if factory == "swriter" else nd30.open_home_block(office, args.display)
-            if factory == "simpress":  # the UITest service does not reach the Impress frame window under Xvfb
-                with open(os.path.join(args.instdir, "share/config/soffice.cfg/modules/simpress/ui/notebookbar.ui"), encoding="utf-8") as ui:
-                    found = 'id="Home-HstFeatureSearch"' in ui.read() or None
+            found = nd30.home_button("Tìm tính năng" if label == "vi" else "Search Commands")
             hst_gui.screenshot(shot(app_name + "-ribbon"), args.display)
             record("%s %s: Home tab offers the feature search button" % (label, app_name), found is not None, found)
+            if found:
+                ribbon.click(args.display, found)
+                time.sleep(1.5)
+            entry = popup_entry(nd30.office_app())
+            hst_gui.screenshot(shot(app_name + "-button-popup"), args.display)
+            record("%s %s: the ribbon button opens the search popup" % (label, app_name), entry is not None)
+            close_popup(args.display)
             if factory != "swriter":
-                close_popup(args.display)
                 doc.close(True)
                 time.sleep(2)
-        time.sleep(1.5)
-        entry = popup_entry(nd30.office_app())
-        hst_gui.screenshot(shot("writer-button-popup"), args.display)
-        record(label + " writer: the ribbon button opens the search popup", entry is not None)
-        close_popup(args.display)
-        close_popup(args.display)  # also the popup of the folded block
         # 2. Shift+Esc and searches
         for query, (what, ok, langs) in SEARCHES.items():
             if label not in langs:
