@@ -1,0 +1,56 @@
+HST Office: the collapse ladder's group content key is unsigned.
+
+GroupContentKey hashes the visibility of every toolbox and item of a group (nKey * 31 + bit). In a
+signed 32-bit integer an ordinary group overflows after a few items, which is undefined behaviour; the
+hash wraps around by design, so it is sal_uInt32, and so is the key of the width cache.
+
+- vcl/inc/HstRibbonLadder.hxx, vcl/source/control/HstRibbonLadder.cxx, vcl/inc/PriorityMergedHBox.hxx,
+  vcl/source/control/PriorityMergedHBox.cxx.
+
+--- a/vcl/inc/HstRibbonLadder.hxx
++++ b/vcl/inc/HstRibbonLadder.hxx
+@@ -39,7 +39,7 @@
+ void SetGroupState(vcl::Window& rGroup, int nState);
+ 
+ /** Changes when the group's content changes (contextual items shown or hidden), for width caches. */
+-sal_Int32 GroupContentKey(vcl::Window& rGroup);
++sal_uInt32 GroupContentKey(vcl::Window& rGroup);
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -30,7 +30,7 @@
+     VclPtr<PushButton> m_pButton;
+     VclPtr<NotebookbarPopup> m_pPopup;
+     // HST Office: collapse ladder: measured width of every group per size state, keyed by its content
+-    std::map<vcl::Window*, std::pair<sal_Int32, std::vector<tools::Long>>> m_aHstWidths;
++    std::map<vcl::Window*, std::pair<sal_uInt32, std::vector<tools::Long>>> m_aHstWidths;
+     std::map<vcl::Window*, int> m_aHstStates;
+     bool m_bHstLadder = false;
+     // groups in the order they fold into the popup (the tab's ladder, else right to left)
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -106,9 +106,9 @@
+     forToolBoxes(rGroup, [nState](ToolBox& rToolBox) { applyToToolBox(rToolBox, nState); });
+ }
+ 
+-sal_Int32 GroupContentKey(vcl::Window& rGroup)
++sal_uInt32 GroupContentKey(vcl::Window& rGroup)
+ {
+-    sal_Int32 nKey = 0;
++    sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
+     forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
+         nKey = nKey * 31 + (rToolBox.IsVisible() ? 1 : 0);
+         for (ToolBox::ImplToolItems::size_type i = 0; i < rToolBox.GetItemCount(); ++i)
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -161,7 +161,7 @@
+     {
+         if (pChild == m_pButton)
+             continue;
+-        const sal_Int32 nKey = hst::ribbon::GroupContentKey(*pChild);
++        const sal_uInt32 nKey = hst::ribbon::GroupContentKey(*pChild);
+         auto& rEntry = m_aHstWidths[pChild];
+         if (rEntry.second.empty() || rEntry.first != nKey)
+         {
