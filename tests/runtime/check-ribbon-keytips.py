@@ -18,7 +18,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
-import ribbon_scorecard_live as live  # noqa: E402
+import ribbon_scorecard_walk as live  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 
 TABS = {"writer": {"Trang đầu": "H", "Chèn": "N", "Thiết kế": "G", "Bố cục": "P", "Tham khảo": "S", "Gửi thư": "M", "Xem lại": "R", "Xem": "W"},

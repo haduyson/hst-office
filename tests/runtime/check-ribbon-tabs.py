@@ -12,13 +12,13 @@ Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json.
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
+from ribbon_added_commands import added_commands  # noqa: E402
 
 HEAD = ["Tệp tin", "Trang đầu", "Chèn"]
 # 1.0.0: Trợ giúp after Xem; the Developer tab is merged into Phần mở rộng, which stays last (owner, 2026-11-07)
@@ -27,7 +27,6 @@ TABS = {"writer": HEAD + ["Thiết kế", "Bố cục", "Tham khảo", "Gửi th
         "calc": HEAD + ["Bố trí Trang", "Công thức", "Dữ liệu"] + TAIL_1_0,
         "impress": HEAD + ["Thiết kế", "Chuyển tiếp", "Hoạt hình", "Trình chiếu"] + TAIL_1_0}
 NAMES = {"writer": "HST Writer", "calc": "HST Sheets", "impress": "HST Slides"}
-MODULES = {"writer": "swriter", "calc": "scalc", "impress": "simpress"}
 DOCS = {"writer": "com.sun.star.text.TextDocument", "calc": "com.sun.star.sheet.SpreadsheetDocument", "impress": "com.sun.star.presentation.PresentationDocument"}
 ROWS = []
 
@@ -106,15 +105,6 @@ def start(instdir, app, args, tag, port):
     xdo(args.display, "windowsize", windows[0], "1485", "900")
     time.sleep(4)
     return office, windows[0]
-
-
-def added_commands(instdir, app):
-    """Commands of the btnHst* items. Items of contextual tabs (btnHstCtx*, btnHstLaunchCtx*) act on a selected table,
-    picture or shape and are left to check-ribbon-contextual.py: the document frame has no dispatch for them."""
-    path = os.path.join(instdir, f"share/config/soffice.cfg/modules/{MODULES[app]}/ui/notebookbar.ui")
-    with open(path, encoding="utf-8") as handle:
-        found = re.findall(r'id="(btnHst\w+)">(?:(?!</object>).)*?name="action-name">([^<]+)<', handle.read(), re.S)
-    return sorted({command for ident, command in found if not ident.startswith(("btnHstCtx", "btnHstLaunchCtx"))})
 
 
 def check_commands(office, instdir, app):

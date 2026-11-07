@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Group captions versus key tips (is_group_caption in tests/runtime/ribbon_scorecard_live.py).
+"""Group captions versus key tips (is_group_caption in tests/runtime/ribbon_scorecard_walk.py).
 
 The key-tip check treats short capital labels as tips; a one-letter group caption such as Sheets' "Ô" must not count.
 Fake accessibility nodes stand in for AT-SPI, so this needs no office and no display.
@@ -13,7 +13,7 @@ from _paths import ROOT
 sys.path.insert(0, os.path.join(ROOT, "tests", "runtime"))
 try:
     import pyatspi
-    import ribbon_scorecard_live as live
+    import ribbon_scorecard_walk as live
 except ImportError:  # pragma: no cover - pyatspi is part of the GUI test tool set
     pyatspi = None
 
