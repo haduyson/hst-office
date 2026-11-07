@@ -76,11 +76,18 @@ class Styles:
             style(auto, self.auto[key], "text", {"text": props})
         return self.auto[key]
 
-    def cell(self, auto, valign, borders):
-        key = ("cell", valign, borders)
+    def cell(self, auto, valign, borders, first_row=True):
+        """A ruled cell draws the line above it only in the first row: below that the row above already draws it. Writer
+        can lay two adjacent lines out as one while rows are added to an open document, and as two after reloading, so a
+        filled form moved by one line width per row when it was saved and reopened."""
+        top = first_row or not borders
+        key = ("cell", valign, borders, top)
         if key not in self.auto:
             self.auto[key] = "Cell%d" % (len(self.auto) + 1)
             border = {"fo:border": RULE_WIDTH, "fo:padding": "0.5mm"} if borders else {"fo:border": "none", "fo:padding": "0mm"}
+            if not top:
+                border = {"fo:border-left": RULE_WIDTH, "fo:border-right": RULE_WIDTH, "fo:border-top": "none",
+                          "fo:border-bottom": RULE_WIDTH, "fo:padding": "0.5mm"}
             style(auto, self.auto[key], "table-cell", {"table-cell": {**border, "style:vertical-align": valign}})
         return self.auto[key]
 

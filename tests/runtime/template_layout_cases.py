@@ -4,6 +4,7 @@ import os
 
 from hst_office import nd30, nd30_layout, nd30_writer
 import template_layout_measure as measure
+import templates_multipage_fill
 
 FILLER = "Đo kiểm bố cục văn bản hành chính. Dòng nội dung này dùng để kiểm tra lề trang, khoảng cách dòng và vị trí số trang khi văn bản kéo dài qua nhiều trang."
 LONG = {"parentAgency": "Ủy ban nhân dân tỉnh Ví Dụ", "agency": "Sở Khoa học và Công nghệ tỉnh Ví Dụ phục vụ thử nghiệm",
@@ -23,18 +24,24 @@ def _body_top_profile(profile_data, copy_rule=False):
     return {**profile_data, "bodyTopMm": [top, top + 0.3 + leading + 1.5 * copy_rule]}
 
 
-def _ott_doc(path, filler):
+def _ott_doc(path, filler, ruled=False):
+    """The template with 70 filler paragraphs before its signature; a ruled form (an office form of the van-thu group)
+    grows by 70 table rows instead, the way the multi-page check and a user fill it."""
     def open_doc(desktop, prop):
         doc = desktop.loadComponentFromURL("file://" + path, "_blank", 0, (prop("Hidden", True), prop("AsTemplate", True)))
-        if filler:
+        rows = templates_multipage_fill.filler_for(templates_multipage_fill.Document(doc), "Body", True) if filler and ruled else None
+        if rows is not None and rows.table is not None:
+            for _ in range(70):
+                rows.add()
+        elif filler:
             text = doc.getText()
             elements, previous = text.createEnumeration(), None
-            while elements.hasMoreElements():  # the last paragraph before the signature table
+            while elements.hasMoreElements():  # the last text paragraph before the signature table (not the gap above it)
                 element = elements.nextElement()
                 if element.supportsService("com.sun.star.text.TextTable"):
                     if element.getName().startswith("Signature"):
                         break
-                else:
+                elif not element.ParaStyleName.startswith("TableGap"):
                     previous = element
             cursor = text.createTextCursorByRange(previous.getEnd() if previous else text.getEnd())
             for index in range(70):
@@ -63,6 +70,12 @@ def _wizard_doc(type_id, fields):
     return open_doc
 
 
+def _footer_text(type_id, fields, template):
+    """The first-page footer (contact details of an official letter) the renderers write for these fields, or None."""
+    _blocks, footer = nd30_layout.portable_blocks(nd30_layout.build_layout(type_id, fields, template=template))
+    return " ".join("".join(r["text"] for r in b["runs"]) for b in footer) or None
+
+
 def writer_types():
     return [t for t in nd30.rules()["documentTypes"] if t.get("module", "writer") == "writer"]
 
@@ -83,12 +96,18 @@ def all_cases(templates, only):
         data = _body_top_profile(nd30.profile_rules(t["profile"]), t["structure"] in ("copy", "dang-copy"))  # a copy may open a page with its rule
         common = {"profile": data, "type": t, "checkNumberRow": not t.get("noDate") and not t.get("noNumber") and not t.get("noHeader") and t["structure"] not in ("annex", "attached-only", "esign-copy"), "paged": paged}
         if ident in catalog:
-            yield {**common, "name": ident + "-ott", "multipage": paged, "open": _ott_doc(os.path.join(templates, catalog[ident]["output"]), paged), "ruleSource": None}
+            yield {**common, "name": ident + "-ott", "multipage": paged, "open": _ott_doc(os.path.join(templates, catalog[ident]["output"]), paged,
+                                                                        catalog[ident]["output"].startswith("van-thu/")),
+                   "ruleSource": None, "footer": _footer_text(ident, {}, True)}
         if not paged:
-            yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, {}), "ruleSource": SHORT}
+            yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, {}), "ruleSource": SHORT,
+                   "footer": _footer_text(ident, {}, False)}
             continue
-        yield {**common, "name": ident + "-wizard-long", "multipage": True, "open": _wizard_doc(ident, {**LONG, "body": long_body}), "ruleSource": LONG}
-        yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, SHORT), "ruleSource": SHORT}
+        long_fields = {**LONG, "body": long_body}
+        yield {**common, "name": ident + "-wizard-long", "multipage": True, "open": _wizard_doc(ident, long_fields), "ruleSource": LONG,
+               "footer": _footer_text(ident, long_fields, False)}
+        yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, SHORT), "ruleSource": SHORT,
+               "footer": _footer_text(ident, SHORT, False)}
 
 
 def check_rules(case, pdf):

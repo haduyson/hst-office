@@ -38,19 +38,24 @@ def _expected_numbers(pages, numbers):
 
 def checks(name, pdf, case, fails):
     profile, multipage = case["profile"], case["multipage"]
-    m = measure.measure(pdf)
+    margins = profile["defaultMarginsMm"]
+    page_width, page_height = profile["pageSizeMm"]["width"], profile["pageSizeMm"]["height"]
+    body_end = page_height - margins["bottom"]
+    m = measure.measure(pdf, footer_text=case["footer"], footer_from_mm=body_end)
     if not case["paged"]:
         return m
     top_low, top_high = profile["bodyTopMm"]
-    margins = profile["defaultMarginsMm"]
-    page_width = profile["pageSizeMm"]["width"]
     tops = [t for t in m["bodyTop"] if t is not None]
     if any(t < top_low - TOL or t > top_high for t in tops):
         fails.append(f"{name}: body top {tops}")
     if m["left"] < margins["left"] - TOL or m["right"] > page_width - margins["right"] + TOL:
         fails.append(f"{name}: left/right {m['left']}/{m['right']}")
-    if m["bottom"] > profile["pageSizeMm"]["height"] - margins["bottom"] + TOL:
+    if m["bottom"] > body_end + TOL:
         fails.append(f"{name}: bottom {m['bottom']}")
+    if case["footer"]:  # the contact line sits in the footer band of the bottom margin, under the body
+        band = (body_end, body_end + profile["pageHeaderMm"])
+        if m["footer"] is None or m["footer"][0] < band[0] - TOL or m["footer"][1] > band[1] + TOL:
+            fails.append(f"{name}: first-page contact footer {m['footer']}, wanted within {band}")
     if multipage and m["pages"] < 2:
         fails.append(f"{name}: expected several pages, got {m['pages']}")
     numbers = {page: (text, x, y) for page, text, x, y in m["pageNumbers"]}
