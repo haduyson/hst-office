@@ -41,7 +41,7 @@ jobs:
           install="$(cygpath -u "$HST_INSTALL")"
           export PATH="$install/program:$PATH"
           export UNO_PATH="$HST_INSTALL\\program"
-          probe() { timeout 600 "$install/program/python.exe" scripts/windows/nd30-type-list-probe.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out")" --label "$1"; taskkill //F //IM soffice.bin >/dev/null 2>&1; taskkill //F //IM soffice.exe >/dev/null 2>&1; sleep 3; }
+          probe() { timeout 600 "$install/program/python.exe" scripts/windows/nd30-type-list-probe.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out")" --label "$1"; taskkill //F //IM soffice.bin >/dev/null 2>&1 || true; taskkill //F //IM soffice.exe >/dev/null 2>&1 || true; sleep 3; }
           probe beta5
           python -I scripts/build-extensions.py --output "$RUNNER_TEMP/oxt"
           target="$install/share/extensions/hst-vietnamese-tools"
