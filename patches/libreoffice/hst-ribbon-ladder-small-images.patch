@@ -1,0 +1,51 @@
+HST Office: the medium and small rungs of the collapse ladder load small images.
+
+A toolbox authored with large icons got the small button size on the medium and small rungs, but
+ToolBox::SetToolboxButtonSize keeps the item images: the large icons were measured and drawn, the
+rungs saved too little width and groups folded where small icons would have fit. After a size
+change the ladder sends the toolbox a DataChanged event of type USER; SidebarToolBox (the ribbon's
+toolboxes) answers it by loading every command image again in the new size, as it does for an icon
+theme change, without going back to its default size.
+
+- vcl/source/control/HstRibbonLadder.cxx, sfx2/source/sidebar/SidebarToolBox.cxx.
+
+--- a/sfx2/source/sidebar/SidebarToolBox.cxx
++++ b/sfx2/source/sidebar/SidebarToolBox.cxx
+@@ -296,6 +296,16 @@
+ 
+ IMPL_LINK(SidebarToolBox, ChangedDataHandler, const DataChangedEvent*, pDataChangedEvent, void)
+ {
++    // HST Office: the ribbon's collapse ladder changed the button size (vcl HstRibbonLadder.cxx):
++    // load the command images of that size and keep it
++    if (pDataChangedEvent->GetType() == DataChangedEventType::USER && !pDataChangedEvent->GetData())
++    {
++        const bool bUseDefaultButtonSize = mbUseDefaultButtonSize;
++        mbUseDefaultButtonSize = false;
++        ChangedIconHandler(nullptr);
++        mbUseDefaultButtonSize = bUseDefaultButtonSize;
++        return;
++    }
+     if ((( pDataChangedEvent->GetType() == DataChangedEventType::SETTINGS )   ||
+         (  pDataChangedEvent->GetType() == DataChangedEventType::DISPLAY  ))  &&
+         ( pDataChangedEvent->GetFlags() & AllSettingsFlags::STYLE        ))
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -11,6 +11,7 @@
+ 
+ #include <comphelper/lok.hxx>
+ #include <officecfg/Office/HSTRibbon.hxx>
++#include <vcl/event.hxx>
+ #include <vcl/image.hxx>
+ #include <vcl/toolbox.hxx>
+ 
+@@ -57,6 +58,10 @@
+     if (rToolBox.GetToolboxButtonSize() != eSize)
+     {
+         rToolBox.SetToolboxButtonSize(eSize);
++        // the button size alone keeps the item images of the old size, so the medium and small
++        // rungs measured and drew large icons: the toolbox's owner loads the images of the new size
++        // (SidebarToolBox reloads its command images on this event)
++        rToolBox.DataChanged(DataChangedEvent(DataChangedEventType::USER));
+         bChanged = true;
+     }
+     if (rData.meHstTextPosition != ePosition)
