@@ -456,7 +456,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sd/source/ui/controller/HstTransitionGallery.cxx
-@@ -0,0 +1,359 @@
+@@ -0,0 +1,360 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -467,7 +467,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 + */
 +
 +// HST Office: the transitions gallery of the Slides ribbon (tab "Chuyển tiếp"), as Office's: one row
-+// of transition thumbnails; a click (selection) or Enter applies the transition to the selected slides with
++// of transition thumbnails; a click (or Enter) applies the transition to the selected slides with
 +// .uno:HstApplyTransition (one undo action, HstTransitionApply.cxx); the transition of the selected
 +// slides is shown selected; ◂ ▸ page through the row and ▾ opens the Slide Transition deck with every
 +// variant and option. The toolbox item of .uno:HstApplyTransition gets this control
@@ -507,8 +507,9 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +namespace
 +{
 +constexpr OUString COMMAND = u".uno:HstApplyTransition"_ustr;
-+// an item is the icon view's item width plus its padding on both sides (hsttransitiongallery.ui)
-+constexpr tools::Long ITEM_WIDTH = 96 + 2 * 2;
++// the room one item takes in the icon view: its item width (hsttransitiongallery.ui) with padding,
++// margins and the label; a page holds only as many as fit, so no item wraps into a hidden row
++constexpr tools::Long ITEM_WIDTH = 130;
 +constexpr int MIN_ITEMS = 3; // the narrowest gallery still shows three transitions
 +
 +bool GalleryEnabled()
@@ -565,7 +566,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +        , m_aRefill("sd HstTransitionGallery refill")
 +    {
 +        InitControlBase(m_xView.get());
-+        m_xView->set_item_width(static_cast<int>(ITEM_WIDTH - 2 * 2)); // one row: wider items would wrap out of sight
++        m_xView->set_item_width(96);
 +        m_xView->set_size_request(ITEM_WIDTH * MIN_ITEMS, -1);
 +        // a click selects (as in the Styles gallery); Enter or a double click activates
 +        m_xView->connect_selection_changed(LINK(this, HstTransitionGalleryWindow, SelectedHdl));
