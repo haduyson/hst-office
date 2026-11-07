@@ -29,13 +29,17 @@ def edit(name, old, new):
     text = open(path, encoding="utf-8").read()
     assert old in text, (name, old)
     open(path, "w", encoding="utf-8").write(text.replace(old, new, 1))
-if variant == "fix":
+if variant.startswith("fix"):
     src = os.path.join(repo, "extensions/hst-vietnamese-tools/python/hst_office")
     for name in ("wizard_nd30.py", "wizard_type_picker.py", "dialogs.py", "nd30_preview.py"):
         shutil.copy(os.path.join(src, name), os.path.join(ext, name))
+    for name in ("vi.json", "en.json"):  # the checkout's wizard reads newer strings (duplex)
+        shutil.copy(os.path.join(src, "../../locales", name), os.path.join(ext, "../../locales", name))
 if variant == "nokeys":
     edit("wizard_type_picker.py", "self.toolkit.addKeyHandler(self.handler)", "pass")
-if variant == "norefresh":
+if variant.endswith("wide"):  # keep the preview column on the 1024 px runner screen, as on the owner's Mac
+    edit("wizard_nd30.py", "d.on_oversize = self._compact", "d.on_oversize = None")
+if variant.startswith("norefresh"):
     edit("wizard_nd30.py", "    def refresh(self):\n", "    def refresh(self):\n        return True\n\n    def _unused_refresh(self):\n")
 # every variant: time refresh() in the office (ms per call)
 edit("wizard_nd30.py", "    def refresh(self):\n",
