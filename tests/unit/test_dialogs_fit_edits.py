@@ -167,5 +167,12 @@ class FitEdits(unittest.TestCase):
                 self.assertEqual(wizard.d.model.getByName(name).Height, before[name], (px_per_unit, name))
 
 
+class TypeArrow(unittest.TestCase):
+    def test_the_arrow_is_not_a_tab_stop(self):
+        """Tab from "Loại văn bản" goes to the next field, not to the arrow that swallowed what the user typed next."""
+        wizard, _ = _wizard(2.0, 22)
+        self.assertIs(wizard.d.model.getByName("typeOpen").Tabstop, False)
+
+
 if __name__ == "__main__":
     unittest.main()
