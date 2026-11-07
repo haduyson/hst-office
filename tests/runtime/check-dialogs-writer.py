@@ -44,7 +44,11 @@ def main():
     checks = Checks()
     try:
         for name in args.dialogs or DIALOGS:
-            DIALOGS[name](harness, checks)
+            try:
+                DIALOGS[name](harness, checks)
+            except Exception as error:  # noqa: BLE001 - one broken group is reported; the others still run
+                checks.error(name, error)
+                harness.discard_documents()
     finally:
         harness.close()
     return checks.finish()

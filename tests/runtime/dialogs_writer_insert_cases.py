@@ -31,7 +31,14 @@ def check_insert_table(h, c):
     doc = h.new_document()
     dlg = h.open_dialog(".uno:InsertTable", "InsertTableDialog")
     c.equal("insert table: dimensions remembered", state(dlg.getChild("colspin")).get("Text"), "4")
-    click(dlg, "hstremember")  # leave the next test a clean profile
+    click(dlg, "hstremember")  # the dimensions are forgotten on OK only: leave the next checks the defaults
+    click(dlg, "ok")
+    h.wait_idle()
+    h.close_document(doc)
+    doc = h.new_document()
+    dlg = h.open_dialog(".uno:InsertTable", "InsertTableDialog")
+    c.equal("insert table: dimensions forgotten", (state(dlg.getChild("colspin")).get("Text"),
+                                                   state(dlg.getChild("hstremember")).get("Selected")), ("2", "false"))
     click(dlg, "cancel")
     h.close_document(doc)
 

@@ -135,14 +135,21 @@ class Office(WindowMixin):
         access.setPropertyValue(name, value)
         access.commitChanges()
 
+    def _terminate(self):
+        try:
+            self.desktop().terminate()
+        except Exception:  # noqa: BLE001 - the bridge goes away while the office quits
+            pass
+
     def stop(self):
         if getattr(self, "_stop_watch", None):
             self._stop_watch.set()
-        try:
-            if self.ctx is not None:
-                self.desktop().terminate()
-        except Exception:
-            pass
+        if self.ctx is not None:
+            # terminate() never returns while a modal dialog is up (e.g. the save question of a document a
+            # failed check left modified): wait a bounded time, then the process is ended below.
+            closer = threading.Thread(target=self._terminate, daemon=True)
+            closer.start()
+            closer.join(60)
         if self.proc is not None:
             try:
                 self.proc.wait(timeout=30)
