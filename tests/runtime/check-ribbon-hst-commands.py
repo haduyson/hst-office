@@ -3,7 +3,8 @@
 
 Usage: python3 tests/runtime/check-ribbon-hst-commands.py [--instdir DIR] [--display :79] [--shots DIR] [--apps writer,calc,impress]
 On a running X display, per app at 1485x900: Xem lại ▸ Ngôn ngữ has the "Ngôn ngữ giao diện" drop-down (Tiếng Việt /
-English / Theo máy); Nhà phát triển has "Macro VBA" first in Writer and Sheets (Slides has no VBA, see vba.py);
+English / Theo máy); the macro group (on Phần mở rộng where the Developer tab is merged into it, owner 2026-11-07,
+else on Nhà phát triển) has "Macro VBA" first in Writer and Sheets (Slides has no VBA, see vba.py);
 Phần mở rộng has that app's groups of large HST buttons (ribbon_extensions_tab_gui.py); Tệp tin ▸ Thông tin has
 "Thiết lập USB Token" right of "Chữ ký số"; the ≡ menu has the update check before About; the moved commands and
 the Extensions tab commands resolve on the document frame.
@@ -63,16 +64,22 @@ def check_review(args, office, app):
     time.sleep(1)
 
 
+DEVELOPER_MERGED = {"writer"}  # apps whose 1.0.0 content patch merges the Developer tab into Phần mở rộng
+
+
 def check_developer(args, office, app):
-    if not record(f"[{app}] Nhà phát triển opens", gui.open_tab(args.display, "Nhà phát triển")):
+    tab = "Phần mở rộng" if app in DEVELOPER_MERGED else "Nhà phát triển"
+    if app in DEVELOPER_MERGED:
+        record(f"[{app}] no Nhà phát triển tab", "Nhà phát triển" not in [t[0] for t in gui.ribbon_tabs()])
+    if not record(f"[{app}] {tab} opens", gui.open_tab(args.display, tab)):
         return
-    shot(args, office, f"{app}-nha-phat-trien")
+    shot(args, office, f"{app}-macro-tab")
     names = [n[0] for n in gui.ribbon_nodes(BUTTONS)]
     if app == "impress":
         record("[impress] no Macro VBA (VBA runs in Writer and Sheets only)", "Macro VBA" not in names, names)
         return
     vba = [n for n in gui.ribbon_nodes(BUTTONS) if n[0] == "Macro VBA"]
-    record(f"[{app}] Nhà phát triển has 'Macro VBA' once", len(vba) == 1, names)
+    record(f"[{app}] {tab} has 'Macro VBA' once", len(vba) == 1, names)
     macro = [n for n in gui.ribbon_nodes(BUTTONS) if n[0] in ("Chạy macro", "Chạy Macro", "Chạy vĩ lệnh")]
     if vba and macro:
         record(f"[{app}] 'Macro VBA' comes first, before the macro buttons", vba[0][2][0] < macro[0][2][0],
