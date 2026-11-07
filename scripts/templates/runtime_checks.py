@@ -42,14 +42,17 @@ def check_docx(path, spec):
         check_paragraphs(docx_paragraphs(root), spec, "DOCX")
 
 
-def _workbook(archive, name, frozen):
+def _workbook(archive, name, frozen, *, fixed_print_area=True):
     """Sheet names, the worksheet named `name` and its cells, after the checks every exported sheet shares."""
     book = ET.fromstring(archive.read("xl/workbook.xml"))
     names = [sheet.get("name") for sheet in book.findall(f".//{{{X}}}sheet")]
     require(name in names, "XLSX Vietnamese sheet name lost: " + name)
     index = names.index(name)
     defined = {(n.get("name"), n.get("localSheetId")) for n in book.findall(f".//{{{X}}}definedName")}
-    require({("_xlnm.Print_Area", str(index)), ("_xlnm.Print_Titles", str(index))} <= defined, "XLSX print ranges lost")
+    require(("_xlnm.Print_Titles", str(index)) in defined, "XLSX repeating print titles lost")
+    has_print_area = ("_xlnm.Print_Area", str(index)) in defined
+    require(has_print_area == fixed_print_area,
+            "XLSX print area lost" if fixed_print_area else "XLSX register has a fixed print area that would truncate new entries")
     root = ET.fromstring(archive.read(f"xl/worksheets/sheet{index + 1}.xml"))  # LibreOffice writes the parts in sheet order
     pane = root.find(f".//{{{X}}}pane")
     # Headless --convert-to creates no view shell, and LibreOffice only writes <pane> from
@@ -78,7 +81,7 @@ def check_xlsx(path, expected, sheet_name, frozen=4):
 def check_register_xlsx(path, spec, source):
     """Annex IV register: cover and register sheets, the annex's column titles over their numbers (1), (2)..., landscape."""
     with ZipFile(path) as archive:
-        names, root, cells = _workbook(archive, spec["sheet"], spec["frozenRows"])
+        names, root, cells = _workbook(archive, spec["sheet"], spec["frozenRows"], fixed_print_area=False)
         require(names == spec["sheets"], "XLSX register sheets: " + ", ".join(names))
         shared = ["".join(si.itertext()) for si in ET.fromstring(archive.read("xl/sharedStrings.xml"))]
         text = lambda address: shared[int(cells[address].findtext(f"{{{X}}}v"))] if address in cells and cells[address].get("t") == "s" else ""
