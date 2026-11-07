@@ -3,7 +3,8 @@
 """Run the real HST USB Token command and sign ODT with SoftHSM2 in both NSS modes.
 
 Run as a non-root user, on Xvfb, with python3-uno, softhsm2, opensc, libnss3-tools,
-openssl, python3-lxml, python3-cryptography and the built .oxt. The install is read-only.
+openssl, python3-lxml, python3-cryptography and the built .oxt (missing tools: BLOCKED, exit 2, unless
+--allow-skip: exit 77). The install is read-only.
 The no-tools run disables BOTH modutil and certutil inside the extension, as on macOS.
 Test-only search root: HST_USB_TOKEN_TEST_ROOT; NSS CLI simulation: HST_USB_TOKEN_TEST_NO_TOOLS.
 Example: check-usb-token-setup.py --instdir /opt/hst --workdir /tmp/usb-setup --display :99
@@ -146,13 +147,14 @@ def main():
     ap.add_argument("--mode", choices=("both", "modutil", "pkcs11"), default="both")
     ap.add_argument("--cold", action="store_true", help="also exercise setup before NSS has initialized")
     ap.add_argument("--darwin", action="store_true", help="force private-store policy with an existing Firefox DB")
+    ap.add_argument("--allow-skip", action="store_true", help="missing tools skip (exit 77); default: BLOCKED (exit 2)")
     args = ap.parse_args()
     if os.geteuid() == 0:
         ap.error("Run this test as a non-root user with its own HOME.")
     missing = signature_pki.missing_tools()
     if missing:
-        print("SKIP: " + ", ".join(missing))
-        return 77
+        print(("SKIP: " if args.allow_skip else "BLOCKED: missing (or pass --allow-skip) ") + ", ".join(missing))
+        return 77 if args.allow_skip else 2
     args.workdir = args.workdir.resolve()
     args.workdir.mkdir(parents=True, exist_ok=True)
     hst_gui.setup_uno(args.instdir)

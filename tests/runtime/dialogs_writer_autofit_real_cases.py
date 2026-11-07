@@ -3,10 +3,12 @@
 import glob
 import os
 import re
+import shutil
 import zipfile
 
 from dialogs_writer_autofit_cases import marked, type_text
 from dialogs_writer_table_cases import put_cursor, save_and_reopen
+from hst_gui import BUILD_USER
 
 
 def real_documents(h, count):
@@ -103,6 +105,8 @@ def check_autofit_real_documents(h, c):
 
         source = os.path.join(work, "autofit-real.docx")
         with_autofit_mark(path, source)
+        if os.geteuid() == 0:  # a new file of root's is read-only to the office (build user): no edit would land
+            shutil.chown(source, BUILD_USER)
         doc = h.office.load("file://" + source)
         h.wait_idle(0.5)
         try:

@@ -25,6 +25,17 @@ def column_width(table, row=0):
     return separators[0].Position * table.Width / table.TableColumnRelativeSum
 
 
+def refitted_width(table, before, seconds=5.0):
+    """Width of the first column once the refit after typing landed: UITest delivers the keys asynchronously, so a
+    busy office refits later than a fixed pause (the 1000 x 6 check times the refit itself)."""
+    deadline = time.monotonic() + seconds
+    width = column_width(table)
+    while width == before and time.monotonic() < deadline:
+        time.sleep(0.1)
+        width = column_width(table)
+    return width
+
+
 def insert_contents_table(h, doc):
     dlg = h.open_dialog(".uno:InsertTable", "InsertTableDialog")
     click(dlg, "hstautocontents")
@@ -40,7 +51,7 @@ def check_autofit_typing(h, c):
     put_cursor(doc, table, "A1")
     before = column_width(table)
     type_text(h, "Một nội dung khá dài để cột phải rộng ra")
-    grown = column_width(table)
+    grown = refitted_width(table, before)
     c.equal("autofit: the column grows while typing", grown > before, True)
     c.equal("autofit: the other column stays narrower", table.getRows().getByIndex(0).TableColumnSeparators[0].Position > 0, True)
     c.equal("autofit: typed text is all there", table.getCellByName("A1").getString().startswith("Một nội dung"), True)

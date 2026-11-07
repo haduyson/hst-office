@@ -4,6 +4,7 @@
 
 Usage: python3 tests/runtime/check-update-outcome.py [--instdir upstream/libreoffice/instdir]
            [--out tests/output/update-outcome] [--shots tests/output/screenshots-update-outcome] [--display :87]
+           [--uno-port N] [--http-port N]   (default: free ports; formerly 22095 and 22096)
 
   1. The real helper script runs with a stub pkexec that answers "not authorized" (127), writes update-result.json and
      relaunches the office; the relaunched office shows the message once, "Tải về" opens the browser (stub xdg-open),
@@ -38,9 +39,8 @@ sys.path.insert(0, os.path.join(ROOT, "extensions", "hst-vietnamese-tools", "pyt
 from hst_office import update_helper_cmd as cmd  # noqa: E402
 from hst_office import update_launch as launch  # noqa: E402
 
-UNO_PORT, HTTP_PORT = 22095, 22096
+UNO_PORT, HTTP_PORT = 0, 0  # set by main (also in check-update-install, whose manifest names the HTTP port)
 TITLE = install.TITLE
-install.HTTP_PORT = HTTP_PORT
 
 
 def stub(path, body):
@@ -149,7 +149,11 @@ def main():
     parser.add_argument("--out", default=os.path.join(ROOT, "tests", "output", "update-outcome"))
     parser.add_argument("--shots", default=os.path.join(ROOT, "tests", "output", "screenshots-update-outcome"))
     parser.add_argument("--display", default=":87")
+    install.add_port_options(parser, 22095, 22096)
     args = parser.parse_args()
+    global UNO_PORT, HTTP_PORT
+    UNO_PORT, HTTP_PORT = install.ports(args)
+    install.UNO_PORT, install.HTTP_PORT = UNO_PORT, HTTP_PORT
     args.out = os.path.abspath(args.out)
     os.makedirs(args.shots, exist_ok=True)
     srv = os.path.join(args.out, "srv")

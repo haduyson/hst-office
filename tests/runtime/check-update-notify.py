@@ -3,6 +3,7 @@
 
 Usage: python3 tests/runtime/check-update-notify.py [--instdir upstream/libreoffice/instdir]
            [--out tests/output/update-runtime] [--shots tests/output/screenshots-update] [--display :97]
+           [--uno-port N] [--http-port N]   (default: free ports; formerly 22091 and 22092)
 
 Builds a test package (scripts/build-extensions.py --update-test-mode), puts it as the bundled extension into
 a hard-linked copy of the instdir (the original is not modified), serves manifests from a local plain-HTTP
@@ -20,7 +21,6 @@ import argparse
 import http.server
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -29,9 +29,10 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
+from update_test_gui import add_port_options, dialog_shot, menu_shot, ports, wait  # noqa: E402,F401 - wait: other checks
 
 ROOT = hst_gui.ROOT
-UNO_PORT, HTTP_PORT = 22091, 22092
+UNO_PORT, HTTP_PORT = 0, 0  # set by main: --uno-port/--http-port, else free ports
 EXT = "hst-vietnamese-tools"
 SERVED = {}
 REQUESTS = []
@@ -81,10 +82,11 @@ def prepare_instdir(instdir, out):
     return copy
 
 
-def install_policy(instdir, out):
-    """Administrator lock: scripts/release/build-update-policy-oxt.py, installed with unopkg add --shared."""
+def install_policy(instdir, out, flags=()):
+    """Administrator lock: scripts/release/build-update-policy-oxt.py [flags], installed with unopkg add --shared."""
     pkg, home = os.path.join(out, "policy", "hst-update-policy.oxt"), os.path.join(out, "unopkg-home")
-    subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "release", "build-update-policy-oxt.py"), "--output", pkg], check=True)
+    subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "release", "build-update-policy-oxt.py"), "--output", pkg,
+                    *flags], check=True)
     os.makedirs(home, exist_ok=True)
     subprocess.run(["chown", "-R", hst_gui.BUILD_USER, os.path.dirname(pkg), home], check=True)
     subprocess.run(["runuser", "-u", hst_gui.BUILD_USER, "--", "env", "HOME=" + home, os.path.join(instdir, "program", "unopkg"),
@@ -122,57 +124,16 @@ def policy_phase(instdir, out, results, display=":97"):
         print("%-4s %s" % ("PASS" if ok else "FAIL", label), flush=True)
 
 
-def wait(predicate, timeout=30.0):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if predicate():
-            return True
-        time.sleep(0.5)
-    return False
-
-
-def dialog_shot(office, shots, name, results, label, pattern):
-    """Wait for the result dialog, screenshot it, close it with Escape."""
-    found = []
-    ok = wait(lambda: found.extend(w for w in hst_gui.toplevels(office.display, office.pid) if w[1] == "Kiểm tra cập nhật") or found, 30)
-    time.sleep(1.0)
-    office.screenshot(os.path.join(shots, name))
-    results.append((label, ok))
-    if found:  # click "Đóng" (AppFont box 252..292 x 64..78 of a 300 x 86 dialog); Xvfb has no WM to focus for keys
-        wid = found[0][0]
-        info = subprocess.run(["xwininfo", "-display", office.display, "-id", wid], capture_output=True, text=True).stdout
-        width, height = (int(re.search(r"%s: (\d+)" % k, info).group(1)) for k in ("Width", "Height"))
-        env = dict(os.environ, DISPLAY=office.display)
-        subprocess.run(["xdotool", "mousemove", "--window", wid, str(int(width * 272 / 300)), str(int(height * 71 / 86)),
-                        "click", "1"], env=env, check=False, timeout=10)
-        closed = wait(lambda: not [w for w in hst_gui.toplevels(office.display, office.pid) if w[1] == "Kiểm tra cập nhật"], 10)
-        results.append((label + ": closes with Đóng", closed))
-        ok = ok and closed
-    print("%-4s %s (%s)" % ("PASS" if ok else "FAIL", label, pattern), flush=True)
-
-
-def menu_shot(office, path):
-    """Open the Start Center's HST menu (menu bar entry "HST", 4th-from-left label) for a screenshot, then close it."""
-    env = dict(os.environ, DISPLAY=office.display)
-    windows = [w for w in hst_gui.toplevels(office.display, office.pid) if w[1] == "HST Office"]
-    if not windows:
-        print("note: Start Center window not found, no menu screenshot", flush=True)
-        return
-    office.raise_windows()
-    subprocess.run(["xdotool", "mousemove", "--window", windows[0][0], "141", "14", "click", "1"], env=env, check=False, timeout=10)
-    time.sleep(1.5)
-    hst_gui.screenshot(path, office.display)
-    subprocess.run(["xdotool", "key", "Escape"], env=env, check=False, timeout=10)
-    time.sleep(0.5)
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--instdir", default=os.path.join(ROOT, "upstream", "libreoffice", "instdir"))
     ap.add_argument("--out", default=os.path.join(ROOT, "tests", "output", "update-runtime"))
     ap.add_argument("--shots", default=os.path.join(ROOT, "tests", "output", "screenshots-update"))
     ap.add_argument("--display", default=":97")
+    add_port_options(ap, 22091, 22092)
     args = ap.parse_args()
+    global UNO_PORT, HTTP_PORT
+    UNO_PORT, HTTP_PORT = ports(args)
     os.makedirs(args.out, exist_ok=True)
     os.makedirs(args.shots, exist_ok=True)
     srv = os.path.join(args.out, "srv")

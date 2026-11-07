@@ -10,6 +10,7 @@ The display must already run (tests use Xvfb :97); this module never starts or k
 """
 import os
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -134,14 +135,21 @@ class Office(WindowMixin):
         access.setPropertyValue(name, value)
         access.commitChanges()
 
+    def _terminate(self):
+        try:
+            self.desktop().terminate()
+        except Exception:  # noqa: BLE001 - the bridge goes away while the office quits
+            pass
+
     def stop(self):
         if getattr(self, "_stop_watch", None):
             self._stop_watch.set()
-        try:
-            if self.ctx is not None:
-                self.desktop().terminate()
-        except Exception:
-            pass
+        if self.ctx is not None:
+            # terminate() never returns while a modal dialog is up (e.g. the save question of a document a
+            # failed check left modified): wait a bounded time, then the process is ended below.
+            closer = threading.Thread(target=self._terminate, daemon=True)
+            closer.start()
+            closer.join(60)
         if self.proc is not None:
             try:
                 self.proc.wait(timeout=30)
@@ -153,6 +161,13 @@ class Office(WindowMixin):
                     self.proc.kill()
         # soffice (oosplash) may leave soffice.bin behind when killed: stop only ours (same profile).
         subprocess.run(["pkill", "-f", f"UserInstallation=file://{os.path.join(self.workdir, 'profile')}"], check=False)
+
+
+def free_port():
+    """A TCP port on 127.0.0.1 that is free right now, for checks that must not clash with other sessions."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 def setup_uno(instdir):
