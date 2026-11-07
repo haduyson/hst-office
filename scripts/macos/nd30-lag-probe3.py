@@ -52,11 +52,11 @@ def main():
         tk.keyRelease(event)
 
     def timed(target, code, char="", mods=0, probe=None):
-        n, t0 = len(KEYS), time.perf_counter()
+        """posted keys skip toolkit key handlers: time until the office is idle again (processEventsToIdle)"""
+        tk.processEventsToIdle()
+        t0 = time.perf_counter()
         press(target, code, char, mods)
-        while len(KEYS) <= n and time.perf_counter() - t0 < 10:
-            time.sleep(0.0002)
-        probe.getPosSize()
+        tk.processEventsToIdle()
         return round((time.perf_counter() - t0) * 1000, 1)
 
     def summary(values):
@@ -82,12 +82,11 @@ def main():
         time.sleep(2)
         kids = list(dlg.getWindows())
         run = {"name": name}
-        if query:
-            for ch in query:
-                press(dlg, K("SPACE") if ch == " " else K(ch.upper()), ch)
+        if query:  # real keys: a posted Return skips the type list's key handler and presses the default button
+            subprocess.run(["cliclick", "-w", "20", "t:" + query], check=False, timeout=60)
             time.sleep(1)
-            press(dlg, K("RETURN"))
-            time.sleep(1)
+            subprocess.run(["cliclick", "kp:return"], check=False, timeout=60)
+            time.sleep(1.5)
             top = tk.getActiveTopWindow()
             if top is None or getattr(top, "Title", "") != title:
                 results["runs"].append({"name": name, "error": "wizard closed on Return"})
