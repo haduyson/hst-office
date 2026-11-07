@@ -104,7 +104,7 @@ def measure_file(office, dialogs, pdf, name, workdir, signing, user_cn):
             three_views("viewer-signed", signed)
         except paths.SigningUnsupported:
             # no signed file is written, so nothing can bake the watermark; the message is accurate
-            rows["viewer-signed"] = {"faint": True, "signed": False, "message": "unsupported file"}
+            rows["viewer-signed"] = {"faint": True, "signed": False, "message": "refused, file unchanged"}
         except Exception as error:  # noqa: BLE001
             rows["viewer-signed"] = {"faint": False, "error": repr(error)[:300]}
         draw_signed = out / "draw-da-ky.pdf"

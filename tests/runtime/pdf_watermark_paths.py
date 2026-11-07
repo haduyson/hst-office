@@ -100,7 +100,8 @@ def choose_viewer_certificate(office, dialogs, frame, user_cn):
 
 
 class SigningUnsupported(Exception):
-    """HST PDF cannot append a signature to this file and says so (STR_HSTPDF_SIGN_UNSUPPORTED)."""
+    """HST PDF does not sign this file and says why: its structure cannot be updated, or the
+    sender's permissions forbid signing (the file is left unchanged)."""
 
 
 def viewer_sign(office, dialogs, pdf, target, user_cn):
@@ -111,12 +112,15 @@ def viewer_sign(office, dialogs, pdf, target, user_cn):
     done = sign_copy(office, dialogs, frame, target, Reason="Kiểm thử hình mờ", Page=1, X=40.0, Y=40.0)
     status = info(office, frame).get("StatusText") or ""
     if done.get("result") is not True:
-        win, kids = dialogs.top()  # the error message box
-        if "ok" in kids:
-            dialogs.later(win.getChild("ok"))
-            time.sleep(1)
+        win, kids = dialogs.top()  # the error message box, or the permission message
+        for button in ("ok", "close"):
+            if button in kids:
+                dialogs.later(win.getChild(button))
+                time.sleep(1)
+                break
     frame.close(True)
-    if done.get("result") is not True and "chưa thêm được chữ ký vào tệp này" in status:
+    if done.get("result") is not True and ("không thêm được chữ ký vào tệp này" in status
+                                           or "không cho phép ký số" in status):
         raise SigningUnsupported(status)
     time.sleep(0.5)
     assert done.get("result") is True and os.path.exists(target), (done, dialogs.prompts, dialogs.unexpected)
