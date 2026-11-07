@@ -456,7 +456,7 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sd/source/ui/controller/HstTransitionGallery.cxx
-@@ -0,0 +1,337 @@
+@@ -0,0 +1,341 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -567,7 +567,6 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +        InitControlBase(m_xView.get());
 +        m_xView->set_size_request(ITEM_WIDTH * MIN_ITEMS, -1);
 +        m_xView->connect_item_activated(LINK(this, HstTransitionGalleryWindow, ActivatedHdl));
-+        m_xView->connect_size_allocate(LINK(this, HstTransitionGalleryWindow, SizeHdl));
 +        m_xPrev->connect_clicked(LINK(this, HstTransitionGalleryWindow, PageHdl));
 +        m_xNext->connect_clicked(LINK(this, HstTransitionGalleryWindow, PageHdl));
 +        m_xMore->connect_clicked(LINK(this, HstTransitionGalleryWindow, MoreHdl));
@@ -586,6 +585,22 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +        m_xNext.reset();
 +        m_xMore.reset();
 +        InterimItemWindow::dispose();
++    }
++
++    // the page size follows the width the toolbox gives the gallery (it expands into the room
++    // the ribbon has left); the icon view's own allocation follows its items and would only shrink
++    void Resize() override
++    {
++        InterimItemWindow::Resize();
++        if (!m_xMore)
++            return;
++        const tools::Long nWidth
++            = GetSizePixel().Width() - m_xMore->get_preferred_size().Width() - 4;
++        if (nWidth == m_nViewWidth)
++            return;
++        m_nViewWidth = nWidth;
++        if (PageSize() != m_nPageSize)
++            m_aRefill.Start(); // not while the window is being laid out
 +    }
 +
 +    /// The transition of the selected slides (empty: several, or one the gallery does not have).
@@ -645,7 +660,6 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +    }
 +
 +    DECL_LINK(ActivatedHdl, const weld::TreeIter&, bool);
-+    DECL_LINK(SizeHdl, const Size&, void);
 +    DECL_LINK(PageHdl, weld::Button&, void);
 +    DECL_LINK(MoreHdl, weld::Button&, void);
 +    DECL_LINK(RefillHdl, Timer*, void);
@@ -671,16 +685,6 @@ HST Office: the transitions gallery of the Slides ribbon, and an undoable comman
 +    comphelper::dispatchCommand(COMMAND, m_xFrame,
 +                                { comphelper::makePropertyValue(u"Transition"_ustr, aSetId) });
 +    return true;
-+}
-+
-+IMPL_LINK(HstTransitionGalleryWindow, SizeHdl, const Size&, rSize, void)
-+{
-+    if (rSize.Width() == m_nViewWidth)
-+        return;
-+    m_nViewWidth = rSize.Width();
-+    // refill after this size allocation, not while the view is being allocated
-+    if (PageSize() != m_nPageSize)
-+        m_aRefill.Start();
 +}
 +
 +IMPL_LINK_NOARG(HstTransitionGalleryWindow, RefillHdl, Timer*, void) { ShowPage(); }
