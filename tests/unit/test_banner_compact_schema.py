@@ -2,10 +2,22 @@
 """Optional per-item compact banner artwork ("imageCompact") in the version 1 banner manifest."""
 import copy
 import json
+from pathlib import Path
 import unittest
 
-from banner_fixtures import manifest
+from _paths import ROOT
+
+from banner_fixtures import manifest as bundled_manifest
 from hst_office import banner_schema as schema
+from hst_office.banner_verify import verify_image
+
+
+def manifest():
+    """Fixture manifest without compact art; each test adds the compact art it needs."""
+    doc = bundled_manifest()
+    for item in doc["items"]:
+        item.pop("imageCompact", None)
+    return doc
 
 
 def compact(url_stem="https://system.hasontech.vn/hst-office/banners/aios-compact"):
@@ -14,6 +26,19 @@ def compact(url_stem="https://system.hasontech.vn/hst-office/banners/aios-compac
 
 
 class BannerCompactSchemaTests(unittest.TestCase):
+    def test_every_bundled_item_ships_exact_compact_art(self):
+        """The compact slot works offline: every installed default has 160x104 art at 1x/2x/3x."""
+        doc = schema.parse_manifest((Path(ROOT) / "data/hst/banners.json").read_bytes(), bundled=True)
+        for item in doc["items"]:
+            self.assertTrue(schema.has_compact(item), item["id"])
+            for key, spec in schema.image_specs(item):
+                data = (Path(ROOT) / "extensions/hst-vietnamese-tools" / spec["url"]).read_bytes()
+                self.assertEqual(verify_image(data, spec, key), ".png", (item["id"], key))
+
+    def test_fixture_online_campaign_carries_compact_art(self):
+        parsed = schema.parse_manifest(json.dumps(bundled_manifest()).encode())
+        self.assertTrue(all(schema.has_compact(i) for i in parsed["items"]))
+
     def parse(self, doc, bundled=False):
         return schema.parse_manifest(json.dumps(doc).encode(), bundled=bundled)
 
