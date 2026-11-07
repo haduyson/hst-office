@@ -1,0 +1,41 @@
+HST Office: beside the feature search box the ribbon tabs keep their own width.
+
+With the search box the tab row gave every tab a 100 px minimum while there was room, so at 1920 px
+the tabs ran across most of the row and looked spread out. As in Office, they now keep their own width
+(label and padding) and the box takes the room that is left up to the menu button. Without the box
+(other tab controls, or the box switched off) the minimum width stays.
+
+- vcl/source/control/tabctrl.cxx.
+
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -2447,8 +2447,8 @@
+     tools::Long nFullWidth = nShortcutsWidth;
+ 
+     // HST Office: the feature search box (child "hst-tab-search") follows the last tab and takes
+-    // the rest of the row up to the menu button: about 200 logical px while there is room; tabs
+-    // lose their minimum width first, then the box shrinks, then it shows only its magnifier.
++    // the rest of the row up to the menu button; when the row is short the box shrinks, then it
++    // shows only its magnifier.
+     vcl::Window* pHstSearch = nullptr;
+     for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
+          pChild = pChild->GetWindow(GetWindowType::Next))
+@@ -2456,7 +2456,6 @@
+             pHstSearch = pChild;
+     const double fHstDpi = GetDPIScaleFactor();
+     const tools::Long nHstGap = pHstSearch ? std::lround(8 * fHstDpi) : 0;
+-    const tools::Long nHstReserve = pHstSearch ? std::lround(200 * fHstDpi) + 2 * nHstGap : 0;
+ 
+     const tools::Long nOffsetX = 2 + nShortcutsWidth;
+     const tools::Long nOffsetY = 2;
+@@ -2490,7 +2489,9 @@
+         Size aSize = ImplGetItemSize( &item, nMaxWidth );
+ 
+         // set minimum tab size
+-        if( nFullWidth < nMaxWidth - nHstReserve && !item.maText.isEmpty() && aSize.getWidth() < 100)
++        // HST Office: beside the search box the tabs keep their own width, as in Office: the
++        // row reads as one compact run of tabs and the box gets the room that is left
++        if( !pHstSearch && nFullWidth < nMaxWidth && !item.maText.isEmpty() && aSize.getWidth() < 100)
+             aSize.setWidth( 100 );
+ 
+         if( !item.maText.isEmpty() && aSize.getHeight() < 28 )
