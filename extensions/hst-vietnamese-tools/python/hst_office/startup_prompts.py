@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The one start-up dispatcher (Jobs.xcu, onFirstVisibleTask): at most ONE modal question per start.
 
-Order (plan "Start-up prompts"): crash report question, macOS "move to Applications" (mac_app_location.offer_move_once),
-welcome dialog, default-apps question, then the update notice. The first step that shows a modal dialog ends the
-modal chain for this start; every later step waits for a later start, because each one keeps its own state until it
-is shown (crash: the pending recovery state is re-read at the next OnStartApp only while Crashed stays set, so a skipped
-crash question is NOT carried over, which is why it is first; welcome: Shown; default apps: Asked/LastAsked; update
-outcome: its state file). The update check itself is not modal (an infobar) and always runs last.
+Order: macOS "move to Applications" (mac_app_location.offer_move_once), crash report question, welcome dialog,
+default-apps question, then the update notice. The move comes first (coordinator 2026-11-07): an app run from the
+.dmg or a translocated path would register the wrong copy as the default app and every other question is wasted until
+it moves; it returns False off macOS and once the app is in /Applications. The first step that shows a modal dialog
+ends the modal chain for this start; every later step waits for a later start, because each one keeps its own state
+until it is shown (welcome: Shown; default apps: Asked/LastAsked; update outcome: its state file). A crash question
+skipped behind the move question is not carried over: the recovery state is read once per start. The update check
+itself is not modal (an infobar) and always runs last.
 
 Runs on the main thread after the Start Center has painted (welcome_job.run_later), never inside the job.
 """
@@ -18,7 +20,7 @@ from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
 JOB_NAME = "org.hst.office.vi.StartupPromptsJob"
-ORDER = ("crash", "mac_move", "welcome", "default_apps", "update_outcome")
+ORDER = ("mac_move", "crash", "welcome", "default_apps", "update_outcome")
 
 
 def run_chain(steps):

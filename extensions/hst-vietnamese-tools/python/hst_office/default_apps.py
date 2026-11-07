@@ -112,6 +112,8 @@ def _report(ctx, parent_peer, ok, detail, quiet_success):
 def offer_at_startup(ctx, parent_peer=None, now=None, ask=None, act=None):
     """The start-up step: True when the question was shown (one modal per start). `ask`/`act` are test seams."""
     now = int(time.time() if now is None else now)
+    if osx.system() == "Darwin" and not osx.mac_in_applications():
+        return False  # the move question handles this copy first; asking now would register the wrong one
     state = load_state(ctx)
     if not should_ask(state, now, False):
         return False

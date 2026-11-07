@@ -30,8 +30,8 @@ NOW = 2_000_000_000
 
 
 class Order(unittest.TestCase):
-    def test_order_is_crash_mac_welcome_default_apps_update(self):
-        self.assertEqual(sp.ORDER, ("crash", "mac_move", "welcome", "default_apps", "update_outcome"))
+    def test_order_is_mac_move_crash_welcome_default_apps_update(self):
+        self.assertEqual(sp.ORDER, ("mac_move", "crash", "welcome", "default_apps", "update_outcome"))
 
     def chain(self, due):
         calls = []
@@ -148,6 +148,15 @@ class StartupStep(unittest.TestCase):
         act.assert_called_once()
         self.assertTrue(self.state["Done"])
         self.assertFalse(da.offer_at_startup(None, now=NOW + 99 * DAY, ask=lambda ctx, peer: self.fail("asked again")))
+
+    def test_mac_outside_applications_is_not_asked_and_not_counted(self):
+        with mock.patch.object(da.osx, "system", return_value="Darwin"), \
+                mock.patch.object(da.osx, "mac_in_applications", return_value=False):
+            self.assertFalse(da.offer_at_startup(None, now=NOW, ask=lambda ctx, peer: self.fail("asked")))
+        self.assertEqual(self.saved, [])
+        with mock.patch.object(da.osx, "system", return_value="Darwin"), \
+                mock.patch.object(da.osx, "mac_in_applications", return_value=True):
+            self.assertTrue(da.offer_at_startup(None, now=NOW, ask=lambda ctx, peer: False))
 
     def test_already_registered_is_never_asked(self):
         self.registered.stop()

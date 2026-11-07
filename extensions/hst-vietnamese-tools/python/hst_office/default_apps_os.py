@@ -33,6 +33,25 @@ def system():
 
 
 # ---- macOS -------------------------------------------------------------------------------------------------------
+NOT_IN_APPLICATIONS = "Hãy chuyển HST Office vào thư mục Ứng dụng (Applications) rồi thử lại."
+
+
+def mac_bundle_of(path):
+    """The outermost ".app" bundle that contains `path`, or None (pure)."""
+    parts = os.path.normpath(path).split(os.sep)
+    for index, part in enumerate(parts):
+        if part.endswith(".app"):
+            return os.sep.join(parts[:index + 1]) or None
+    return None
+
+
+def mac_in_applications(path=__file__):
+    """True when this copy runs from /Applications. A .dmg, Downloads or a translocated copy
+    (/private/var/folders/.../AppTranslocation/...) must not become the default app (pure apart from __file__)."""
+    bundle = mac_bundle_of(path)
+    return bool(bundle) and os.path.dirname(bundle) == "/Applications"
+
+
 def _launch_services():
     import ctypes
     import ctypes.util
@@ -53,6 +72,8 @@ _UTF8, _ROLES_ALL = 0x08000100, 0xFFFFFFFF  # kCFStringEncodingUTF8, kLSRolesAll
 
 
 def mac_make_default():
+    if not mac_in_applications():
+        raise RuntimeError(NOT_IN_APPLICATIONS)
     ctypes, cf, ls = _launch_services()
     bundle = cf.CFStringCreateWithCString(None, BUNDLE_ID.encode(), _UTF8)
     failed = []

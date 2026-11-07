@@ -82,6 +82,20 @@ class MacAndWindows(unittest.TestCase):
         for uti in osx.MAC_UTIS:
             self.assertIn("<string>%s</string>" % uti, text)
 
+    def test_mac_copy_must_run_from_applications(self):
+        inside = "/Contents/Resources/extensions/hst-vietnamese-tools/python/hst_office/default_apps_os.py"
+        self.assertTrue(osx.mac_in_applications("/Applications/HST Office.app" + inside))
+        for outside in ("/Volumes/HST Office/HST Office.app", "/Users/a/Downloads/HST Office.app",
+                        "/private/var/folders/x1/T/AppTranslocation/9F3A/d/HST Office.app",
+                        "/Applications/Office/HST Office.app", "/opt/hstoffice"):
+            self.assertFalse(osx.mac_in_applications(outside + inside), outside)
+        self.assertEqual(osx.mac_bundle_of("/Applications/HST Office.app" + inside), "/Applications/HST Office.app")
+
+    def test_mac_action_refuses_outside_applications(self):
+        with mock.patch.object(osx, "mac_in_applications", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "Applications"):
+                osx.mac_make_default()
+
     def test_windows_deep_link_uses_the_registered_hst_name(self):
         self.assertEqual(osx.windows_settings_uri(["Other Suite 1", "HST Office 1.0"]),
                          "ms-settings:defaultapps?registeredAppMachine=HST%20Office%201.0")
