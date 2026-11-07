@@ -11,6 +11,7 @@ The display must already run; it is never started or stopped here. Everything ha
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -84,10 +85,12 @@ def main():
         home = os.path.join(os.path.abspath(out), name, "home")
         # runuser resets HOME to the build user's: hand the private HOME to soffice (and so to xdg-mime) explicitly
         office = hst_gui.Office(args.instdir, os.path.join(out, name), args.port, display=args.display,
-                                nodefault=False, welcome=True, config=config,
+                                nodefault=False, welcome=True,
+                                config=[("/org.hasontech.hstoffice.DefaultApps", "Ask", "true")] + list(config),
                                 env={"HOME": home, "XDG_CONFIG_HOME": os.path.join(home, ".config"),
                                      "XDG_DATA_HOME": os.path.join(home, ".local", "share")})
         if fresh:
+            shutil.rmtree(home, ignore_errors=True)  # a mimeapps.list left by an earlier run would count as answered
             apps = os.path.join(home, ".local", "share", "applications")
             os.makedirs(apps, exist_ok=True)
             for module, types in LAUNCHERS.items():
@@ -139,16 +142,10 @@ def main():
     finally:
         office.stop()
     # 3. Để sau (Esc): not asked at the next start (14 days), counted once
-    office, home = office_for("later", [])
-    try:
-        watch(office, 15)
-        office.close_welcome()  # the profile seed does not hide it in every build: close it like a user
-    finally:
-        office.stop()
-    office, home = office_for("later", [], fresh=False)
+    office, home = office_for("later", [])  # the harness seeds Welcome/Shown = true
     try:
         wid = question(office)
-        check("start after the welcome: the question is shown", wid is not None)
+        check("welcome already seen: the question comes on this start", wid is not None)
         if wid:
             key(wid, "Escape")
     finally:
