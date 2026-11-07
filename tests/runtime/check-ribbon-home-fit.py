@@ -4,7 +4,7 @@
 Usage: python3 tests/runtime/check-ribbon-home-fit.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]
 The X display must already run, at least 2400 px wide. Per app and width:
   - Clone Formatting and Clear keep their accessible names everywhere and show their labels where there is room: at
-    1920 px; at 1485 px the Styles gallery keeps the room instead (owner and S0, 2026-11-08), so only the name is
+    1920 px (Sheets: 2400); at 1485 px the Styles gallery keeps the room instead (owner and S0, 2026-11-08), so only the name is
     checked at 1366 and 1485;
   - at 1366 and 1485 px nothing is folded into the "»" overflow: groups shrink, or become a group button, first;
   - their commands still have a label, from which the tooltip comes; hovering shows it (see --shots);
@@ -33,7 +33,8 @@ _spec = importlib.util.spec_from_file_location(
 tabs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tabs)
 
-LABEL_WIDTH = 1920  # from this width up Clone Formatting and Clear show their labels (measured threshold)
+# from this width up Clone Formatting and Clear show their labels (measured: Sheets has more Home groups)
+LABEL_WIDTH = {"writer": 1920, "calc": 2400, "impress": 1920}
 LABELLED = {"writer", "calc", "impress"}  # apps whose 1.0.0 content patch has these labels; the others are still icon-only
 ICON_MAX = 40  # an icon with its button padding; the same button with its text is over 100 px wide
 PAINTBRUSH = "Sao chép định dạng"
@@ -44,7 +45,6 @@ CAPTION_BAND = (95, 165)  # the caption row of a ribbon page, y relative to the 
 MUST_SHOW = {("calc", 1366): ["Số"], ("impress", 1366): ["Bảng tạm", "Phông chữ", "Đoạn văn"],
              ("writer", 1366): ["Bảng tạm", "Phông chữ", "Đoạn văn"], ("calc", 1485): ["Kiểu"],
              ("writer", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn", "Kiểu"]}
-WIDTHS = (1366, 1485, 1920)
 NO_OVERFLOW = (1366, 1485)  # widths at which no group may be folded into the "»" overflow
 WIDE = {"writer": 1920, "calc": 2400, "impress": 1920}  # nothing folds: the whole "Công cụ" group shows
 
@@ -93,7 +93,7 @@ def check_app(app, args, port):
         ribbon = next(t for t in tabs.ribbon_tabs() if t[0] == "Trang đầu")
         if not ribbon[2]:
             tabs.click(args.display, ribbon[1])
-        for width in WIDTHS:
+        for width in (1366, 1485, LABEL_WIDTH[app]):
             tabs.xdo(args.display, "windowsize", wid, str(width), "900")
             time.sleep(4)
             labels, buttons, banner = measure(width)
@@ -111,7 +111,7 @@ def check_app(app, args, port):
                 box = buttons.get(name, ((0, 0, 0, 0),))[0]
                 if app not in LABELLED:
                     tabs.record(f"[{app} {width}] '{name}' accessible and icon-only", 0 < box[2] <= ICON_MAX, box)
-                elif width >= LABEL_WIDTH:
+                elif width >= LABEL_WIDTH[app]:
                     tabs.record(f"[{app} {width}] '{name}' accessible and labelled", box[2] > ICON_MAX, box)
                 else:
                     tabs.record(f"[{app} {width}] '{name}' accessible", box[2] > 0, box)
