@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ART = ROOT / "extensions/hst-vietnamese-tools/banners"
 DESIGN = ROOT / "docs/design"
 FONT = ART / "fonts"
-GENERATED_AT = "2026-11-05T00:01:00Z"
+GENERATED_AT = "2026-11-07T12:00:00Z"  # advance on every change of art or items: clients reject a known generation with new bytes
 
 
 def luminance(color):
