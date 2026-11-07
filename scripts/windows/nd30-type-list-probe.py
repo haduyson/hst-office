@@ -88,15 +88,15 @@ def main():
                 box = peer.getPosSize()
                 geo[name] = [ox + box.X, oy + box.Y, box.Width, box.Height]
         result.update(origin=[ox, oy], geometry=geo, order=names, hwnd=int(hwnd or 0))
-        popup = getattr(wizard.picker, "popup_box", None)
         away = geo.get("preview", [ox + 900, oy, 0, 0])
         move(away[0] + 40, away[1] + 40)
         shot(out, "0-closed")
         arrow = geo["typeOpen"]
         click(arrow[0] + arrow[2] // 2, arrow[1] + arrow[3] // 2)
         result["open_after_click"] = bool(wizard.picker.open)
-        if callable(popup):
-            result["list_box"] = popup()
+        box = wizard.picker.popup.box() if hasattr(wizard.picker, "popup") else None
+        if box:
+            result["list_box"], result["popup"] = [ox + box[0], oy + box[1], box[2], box[3]], True
         elif "typeList" in geo:
             peer = wizard.d.dialog.getControl("typeList").getPeer().getPosSize()
             result["list_box"] = [ox + peer.X, oy + peer.Y, peer.Width, peer.Height]
