@@ -84,6 +84,11 @@ class ReviewFixes(unittest.TestCase):
         box = added("hst-ribbon-ladder-nested-box.patch", "vcl/source/control/PriorityMergedHBox.cxx")
         self.assertIn("dynamic_cast<const PriorityMergedHBox*>(GetParent())", box)
 
+    def test_folded_groups_come_back_when_they_fit(self):
+        text = added("hst-ribbon-ladder-best-fit.patch", "vcl/source/control/PriorityMergedHBox.cxx")
+        self.assertIn("for (auto it = m_aHstFoldOrder.rbegin(); it != m_aHstFoldOrder.rend(); ++it)", text)
+        self.assertIn("aHidden = m_aHstFolded;", text)
+
 
 if __name__ == "__main__":
     unittest.main()

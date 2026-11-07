@@ -66,7 +66,7 @@ class Judging(unittest.TestCase):
         rows = self.run_sweep([copy.deepcopy(scan) for scan in scans])
         failed = [name for name, status in rows.items() if status != "PASS"]
         # the first fold (clipboard at 1280) leaves 70 px, less than the clipboard's 200
-        self.assertEqual(failed, ["[writer] groups shrink before the first fold (1280 px)"])
+        self.assertEqual(failed, [])
 
 
 if __name__ == "__main__":

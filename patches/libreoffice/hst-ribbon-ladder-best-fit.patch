@@ -1,0 +1,78 @@
+HST Office: groups folded before a wide group come back when they fit.
+
+Groups fold in the tab's fold order, by default from the right. When a wide group has to fold, the
+groups folded before it can fit again. On Writer's Extension tab, at 1920 px, Controls (about 950 px
+even at its smallest) folded, and Protect and Templates, which had folded before it, stayed in the
+chevron popup with 550 px free. After the fold the ladder gives back every folded group that fits
+beside the others at its smallest, the most important first, and Resize folds exactly the groups the
+ladder chose for that width.
+
+- vcl/inc/PriorityMergedHBox.hxx, vcl/source/control/PriorityMergedHBox.cxx.
+
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -43,6 +43,9 @@
+     // calculateRequisition(), which must then be the groups' real width, not the smallest width
+     // the box reports to its parent
+     bool m_bHstOwnLayout = false;
++    // the groups the ladder folded for the width m_nHstFoldedFor (Resize hides exactly these)
++    std::vector<vcl::Window*> m_aHstFolded;
++    tools::Long m_nHstFoldedFor = -1;
+     void HstApplyLadder(tools::Long nWidth);
+     // width of the box with every group at its smallest state, or -1 before all are measured
+     tools::Long HstMinWidth() const;
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -106,10 +106,14 @@
+     {
+         // HST Office: the tab's ladder says which groups fold first (core groups and Styles last)
+         std::vector<vcl::Window*> aHidden;
++        // the ladder chose the folded groups for this width; otherwise (or if its choice does not
++        // fold anything although the row is too wide) groups fold in fold order
++        if (bFold && m_nHstFoldedFor == nWidth)
++            aHidden = m_aHstFolded;
+         tools::Long nTotal = nAll;
+         for (vcl::Window* pGroup : m_aHstFoldOrder)
+         {
+-            if (!bFold || nTotal <= nRoom)
++            if (!bFold || !aHidden.empty() || nTotal <= nRoom)
+                 break;
+             const auto it = std::find_if(aGroups.begin(), aGroups.end(),
+                                          [pGroup](const auto& rEntry) { return rEntry.first == pGroup; });
+@@ -258,6 +262,8 @@
+         aSteps.insert(aSteps.end(), aDefault.begin(), aDefault.end());
+     }
+     hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, aSteps, nWidth, nChevron);
++    m_aHstFolded.clear();
++    m_nHstFoldedFor = nWidth;
+     if (!aLayout.overflow.empty())
+     {
+         // Groups fold in the tab's fold order (as Resize does) until the rest fits beside the
+@@ -279,6 +285,27 @@
+             // same arithmetic as Resize: the first group's width has no spacing in it
+             nTotal -= hst::ribbon::widthOf(aGroups[i], aLayout.states[i]) + (i == 0 ? nSpacing : 0);
+         }
++        // a wide group that had to fold may leave room for groups folded before it (from the right,
++        // Writer's Extension tab folded Protect and Templates with Controls): every folded group
++        // that fits beside the others at its smallest comes back, the most important first
++        for (auto it = m_aHstFoldOrder.rbegin(); it != m_aHstFoldOrder.rend(); ++it)
++        {
++            const size_t i = std::find(aWindows.begin(), aWindows.end(), *it) - aWindows.begin();
++            if (i >= aWindows.size() || !aHidden[i])
++                continue;
++            const tools::Long nGroup
++                = hst::ribbon::widthOf(aGroups[i], aLayout.states[i]) + (i == 0 ? nSpacing : 0);
++            if (nTotal + nGroup <= nRoom)
++            {
++                aHidden[i] = false;
++                nTotal += nGroup;
++            }
++        }
++        m_aHstFolded.clear();
++        for (size_t i = 0; i < aWindows.size(); ++i)
++            if (aHidden[i])
++                m_aHstFolded.push_back(aWindows[i]);
++        m_nHstFoldedFor = nWidth;
+         std::vector<size_t> aShown; // index in aWindows of each group that stays
+         std::vector<hst::ribbon::Group> aShownGroups;
+         for (size_t i = 0; i < aWindows.size(); ++i)
