@@ -4,7 +4,10 @@
 (msiinfo, or msilib on Windows Python <= 3.12). The UpgradeCode is HST's permanent code and the only one with
 NEWPRODUCTS; a row on another code only removes, stays below 3.0 (LibreOffice for Windows starts at 3.3) and
 covers the 1.0.0.1 betas installed under LibreOffice's code (only three version fields count); no component
-keeps a beta 1-4 GUID."""
+keeps a beta 1-4 GUID. Installing over those betas: a detect-only row on the same range sets HSTLEGACYPRODUCTS, and
+then two property actions between FindRelatedProducts and CostInitialize (execute and UI sequence) set
+REINSTALLMODE=amus (the betas' files carry a higher version, 26.8.1.1, and would otherwise be skipped) and VC_REDIST=0
+(the system C++ runtime is never costed, so the forced reinstall cannot replace it). Nothing else forces a reinstall."""
 import argparse
 import hashlib
 import re
@@ -16,11 +19,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PATCH = ROOT / "patches/libreoffice/hst-msi-upgradecode.patch"
 SEED_PATCH = ROOT / "patches/libreoffice/hst-msi-component-guids.patch"
+LEGACY_PATCH = ROOT / "patches/libreoffice/hst-msi-replace-old-betas.patch"
 LEGACY_GUID_SEED = "1.0"  # beta 1-4: GUID = MD5(component name + "_1.0")
 HST_UPGRADE_CODE = "{A1751BCB-2603-4428-A5DE-419B438ECFBC}"  # permanent, see docs/BUILD_MATRIX.md
 LIBREOFFICE_UPGRADE_CODE = "{4B17E523-5D91-4E69-BD96-7FD81CFA81BB}"  # upstream msi_templates/codes.txt
 LEGACY_BETA_VERSION = "1.0.0.1"  # ProductVersion of the beta 1-4 MSIs
 ONLY_DETECT, MIN_INCLUSIVE, MAX_INCLUSIVE = 2, 256, 512
+LEGACY_DETECTED = "HSTLEGACYPRODUCTS"  # set by the detect-only row on the betas' range
+LEGACY_FORCED = {"REINSTALLMODE": "amus", "VC_REDIST": "0"}  # what the property actions set when it is set
+SEQUENCES = ("InstallExecuteSequence", "InstallUISequence")
+# upstream msi_templates InstallE.idt / InstallU.idt: (FindRelatedProducts, CostInitialize); patch mode only
+TEMPLATE_SEQUENCE = {"InstallExecuteSequence": (100, 350), "InstallUISequence": (150, 400)}
+SET_PROPERTY = 51  # custom action type: set a property from a formatted text
 GUID = re.compile(r"\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}")
 VERSION = re.compile(r"\d+\.\d+\.\d+(\.\d+)?")
 
@@ -66,12 +76,15 @@ def validate(rows, properties):
         if secure and row["ActionProperty"] not in secure:
             errors.append(f"{where}: {row['ActionProperty']} is not in SecureCustomProperties")
         detects = bool(row["Attributes"] & ONLY_DETECT)
-        if (detects or row["ActionProperty"] == "NEWPRODUCTS") and row["UpgradeCode"] != HST_UPGRADE_CODE:
+        legacy_detect = detects and row["ActionProperty"] == LEGACY_DETECTED
+        if (detects or row["ActionProperty"] == "NEWPRODUCTS") and row["UpgradeCode"] != HST_UPGRADE_CODE and not legacy_detect:
             errors.append(f"{where}: newer-version detection on a code that is not HST Office's own")
         if row["UpgradeCode"] == HST_UPGRADE_CODE:
+            if row["ActionProperty"] == LEGACY_DETECTED:
+                errors.append(f"{where}: {LEGACY_DETECTED} must detect the betas under LibreOffice's code only")
             continue
-        if detects or row["ActionProperty"] != "OLDPRODUCTS":
-            errors.append(f"{where}: a row on another product's code must only remove (OLDPRODUCTS)")
+        if not legacy_detect and (detects or row["ActionProperty"] != "OLDPRODUCTS"):
+            errors.append(f"{where}: a row on another product's code must only remove (OLDPRODUCTS) or detect the old betas ({LEGACY_DETECTED})")
         if not row["VersionMin"] or not row["VersionMax"]:
             errors.append(f"{where}: a row on another product's code needs both VersionMin and VersionMax")
         elif three(row["VersionMax"]) >= (3, 0, 0) or three(row["VersionMin"]) > three(row["VersionMax"]):
@@ -83,6 +96,34 @@ def validate(rows, properties):
     if not any(r["UpgradeCode"] == LIBREOFFICE_UPGRADE_CODE and r["ActionProperty"] == "OLDPRODUCTS"
                and not r["Attributes"] & ONLY_DETECT and matches(r, LEGACY_BETA_VERSION) for r in rows):
         errors.append(f"no row removes the betas installed under LibreOffice's code (ProductVersion {LEGACY_BETA_VERSION})")
+    if not any(r["UpgradeCode"] == LIBREOFFICE_UPGRADE_CODE and r["ActionProperty"] == LEGACY_DETECTED
+               and r["Attributes"] & ONLY_DETECT and matches(r, LEGACY_BETA_VERSION) for r in rows):
+        errors.append(f"no detect-only row sets {LEGACY_DETECTED} for the betas under LibreOffice's code: installing over them drops files")
+    if "a" in properties.get("REINSTALLMODE", "").lower():
+        errors.append(f"REINSTALLMODE {properties['REINSTALLMODE']} forces every install to overwrite files, the system C++ runtime included")
+    return errors
+
+
+def forced_reinstall_errors(actions, sequences):
+    """Errors for the actions that force the old betas' files in. actions: {name: (type, source, target)};
+    sequences: {table: [(action, condition, number)]}. In both sequences, each LEGACY_FORCED property is set by a
+    type-51 action conditioned on LEGACY_DETECTED between FindRelatedProducts and CostInitialize, and no other
+    sequenced action sets REINSTALLMODE or VC_REDIST."""
+    errors = []
+    for table in SEQUENCES:
+        rows = sequences.get(table, [])
+        number = {action: seq for action, _, seq in rows}
+        find, cost = number.get("FindRelatedProducts"), number.get("CostInitialize")
+        if find is None or cost is None:
+            errors.append(f"{table}: FindRelatedProducts or CostInitialize is missing")
+            continue
+        for prop, value in LEGACY_FORCED.items():
+            setters = [(a, c, n) for a, c, n in rows if a in actions and actions[a][0] & 0x3F == SET_PROPERTY and actions[a][1] == prop]
+            good = [a for a, c, n in setters if actions[a][2] == value and c.strip() == LEGACY_DETECTED and find < n < cost]
+            if len(setters) != 1 or not good:
+                found = ", ".join(f"{a}={actions[a][2]!r} if {c or 'always'} at {n}" for a, c, n in setters) or "none"
+                errors.append(f"{table}: {prop} must be set to {value} only when {LEGACY_DETECTED} is set, between "
+                              f"FindRelatedProducts ({find}) and CostInitialize ({cost}); found: {found}")
     return errors
 
 
@@ -117,14 +158,16 @@ def upgrade_rows(raw):
 
 
 def read_msi(path):
-    """Upgrade rows, Property dict and component GUID errors of an MSI file."""
+    """Upgrade rows, Property dict, and the errors of the component GUIDs and of the forced-reinstall actions."""
+    columns = {"Upgrade": ("UpgradeCode", "VersionMin", "VersionMax", "Language", "Attributes", "Remove", "ActionProperty"),
+               "Property": ("Property", "Value"), "Component": ("Component", "ComponentId"),
+               "CustomAction": ("Action", "Type", "Source", "Target")} | {t: ("Action", "Condition", "Sequence") for t in SEQUENCES}
     if shutil.which("msiinfo"):
         def export(table):
             done = subprocess.run(["msiinfo", "export", str(path), table], capture_output=True, text=True, check=False)
             if done.returncode != 0:
                 raise RuntimeError(f"msiinfo export {table} failed: {done.stderr.strip()}")
             return parse_idt(done.stdout)
-        upgrade, prop, comp = export("Upgrade"), export("Property"), export("Component")
     else:
         try:
             import msilib  # Windows Python <= 3.12 only
@@ -132,23 +175,65 @@ def read_msi(path):
             raise RuntimeError("neither msiinfo (msitools) nor msilib is available") from exc
         db = msilib.OpenDatabase(str(path), msilib.MSIDBOPEN_READONLY)
 
-        def query(sql, count):
-            view, out = db.OpenView(sql), []
+        def export(table):
+            names = columns[table]
+            view, out = db.OpenView("SELECT " + ", ".join(f"`{n}`" for n in names) + f" FROM `{table}`"), []
             view.Execute(None)
             while (rec := view.Fetch()) is not None:
-                out.append([rec.GetString(i + 1) for i in range(count)])
+                out.append(dict(zip(names, (rec.GetString(i + 1) for i in range(len(names))))))
             view.Close()
             return out
-        names = ("UpgradeCode", "VersionMin", "VersionMax", "Language", "Attributes", "Remove", "ActionProperty")
-        upgrade = [dict(zip(names, r)) for r in query("SELECT " + ", ".join(f"`{n}`" for n in names) + " FROM `Upgrade`", 7)]
-        prop = [{"Property": k, "Value": v} for k, v in query("SELECT `Property`, `Value` FROM `Property`", 2)]
-        comp = [{"Component": k, "ComponentId": v} for k, v in query("SELECT `Component`, `ComponentId` FROM `Component`", 2)]
-    components = [(r["Component"], r.get("ComponentId", "")) for r in comp]
-    return upgrade_rows(upgrade), {r["Property"]: r["Value"] for r in prop}, component_errors(components)
+    tables = {table: export(table) for table in columns}
+    components = [(r["Component"], r.get("ComponentId", "")) for r in tables["Component"]]
+    actions = {r["Action"]: (int(r.get("Type") or 0), r.get("Source", ""), r.get("Target", "")) for r in tables["CustomAction"]}
+    sequences = {t: [(r["Action"], r.get("Condition", ""), int(r.get("Sequence") or 0)) for r in tables[t]
+                     if re.fullmatch(r"-?\d*", r.get("Sequence") or "")] for t in SEQUENCES}
+    extra = component_errors(components) + forced_reinstall_errors(actions, sequences)
+    return upgrade_rows(tables["Upgrade"]), {r["Property"]: r["Value"] for r in tables["Property"]}, extra
 
 
-def from_patch(patch_text, msi_version):
-    """The Upgrade rows and properties the patched installer generates (rows as in upgrade.pm)."""
+def added_lines(patch_text):
+    """Lines a patch adds, per target file (the b/ path of each diff)."""
+    out, current = {}, None
+    for line in patch_text.splitlines():
+        if line.startswith("+++ "):
+            current = re.sub(r"^b/", "", line[4:].split("\t")[0].strip())
+            out.setdefault(current, [])
+        elif line.startswith("+") and current is not None:
+            out[current].append(line[1:])
+    return out
+
+
+def from_legacy_patch(patch_text):
+    """The detect-only Upgrade row, SecureCustomProperties and the forced-reinstall actions the patch adds."""
+    added = added_lines(patch_text)
+    files = {Path(name).name: lines for name, lines in added.items()}
+    upgrade = files.get("upgrade.pm", [])
+    if not any('"258"' in line and f'"{LEGACY_DETECTED}"' in line and "$legacycode" in line for line in upgrade):
+        raise ValueError(f"the legacy patch no longer writes the detect row as (LEGACYUPGRADECODE, min, max, 258, {LEGACY_DETECTED})")
+    secure = [line.split("\t", 1)[1] for line in files.get("Property.idt", []) if line.startswith("SecureCustomProperties\t")]
+    if len(secure) != 1:
+        raise ValueError("the legacy patch must add one SecureCustomProperties line to Property.idt")
+    actions = {}
+    for line in files.get("CustomAc.idt", []):
+        f = line.split("\t")
+        if len(f) >= 4 and f[1].isdigit():
+            actions[f[0]] = (int(f[1]), f[2], f[3])
+    sequences = {}
+    for table, name in (("InstallExecuteSequence", "InstallE.idt"), ("InstallUISequence", "InstallU.idt")):
+        find, cost = TEMPLATE_SEQUENCE[table]
+        rows = [("FindRelatedProducts", "", find), ("CostInitialize", "", cost)]
+        for line in files.get(name, []):
+            f = line.split("\t")
+            if len(f) == 3 and re.fullmatch(r"\d+", f[2]):
+                rows.append((f[0], f[1], int(f[2])))
+        sequences[table] = rows
+    return {"SecureCustomProperties": secure[0]}, actions, sequences
+
+
+def from_patch(patch_text, msi_version, legacy_detect=False):
+    """The Upgrade rows and properties the patched installer generates (rows as in upgrade.pm); legacy_detect: the
+    legacy patch adds the detect-only row on the same legacy code and range."""
     added = [line[1:] for line in patch_text.splitlines() if line.startswith("+") and not line.startswith("+++")]
     codes = [m.group(1) for line in added if (m := re.fullmatch(r'en-US = "(\{[^"]+\})"', line.strip()))]
     variables = dict(line.split(None, 1) for line in added if re.fullmatch(r"\s+(CODEFILENAME|LEGACY\w+) \S+", line))
@@ -160,8 +245,11 @@ def from_patch(patch_text, msi_version):
     rows = [{"UpgradeCode": code, "VersionMin": "", "VersionMax": msi_version, "Attributes": 513, "ActionProperty": "OLDPRODUCTS"},
             {"UpgradeCode": code, "VersionMin": msi_version, "VersionMax": "", "Attributes": 2, "ActionProperty": "NEWPRODUCTS"}]
     if "LEGACYUPGRADECODE" in variables:
-        rows.append({"UpgradeCode": variables["LEGACYUPGRADECODE"], "VersionMin": variables.get("LEGACYUPGRADEVERSIONMIN", ""),
-                     "VersionMax": variables.get("LEGACYUPGRADEVERSIONMAX", ""), "Attributes": 257, "ActionProperty": "OLDPRODUCTS"})
+        legacy = {"UpgradeCode": variables["LEGACYUPGRADECODE"], "VersionMin": variables.get("LEGACYUPGRADEVERSIONMIN", ""),
+                  "VersionMax": variables.get("LEGACYUPGRADEVERSIONMAX", "")}
+        rows.append(legacy | {"Attributes": 257, "ActionProperty": "OLDPRODUCTS"})
+        if legacy_detect:
+            rows.append(legacy | {"Attributes": 258, "ActionProperty": LEGACY_DETECTED})
     return rows, {"UpgradeCode": code}
 
 
@@ -180,8 +268,12 @@ def main(argv=None):
         if args.msi:
             rows, properties, extra = read_msi(args.msi)
         else:
-            rows, properties = from_patch(PATCH.read_text(encoding="utf-8"), repo_msi_version())
-            extra = seed_errors(SEED_PATCH.read_text(encoding="utf-8"))
+            rows, properties = from_patch(PATCH.read_text(encoding="utf-8"), repo_msi_version(), legacy_detect=True)
+            secure, actions, sequences = from_legacy_patch(LEGACY_PATCH.read_text(encoding="utf-8"))
+            properties |= secure
+            extra = seed_errors(SEED_PATCH.read_text(encoding="utf-8")) + forced_reinstall_errors(actions, sequences)
+            series = (ROOT / "patches/libreoffice/series").read_text(encoding="utf-8").split()
+            extra += [f"{p.name} is not in the patch series" for p in (PATCH, SEED_PATCH, LEGACY_PATCH) if p.name not in series]
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"FAIL: {exc}")
         return 1
