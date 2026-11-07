@@ -56,7 +56,7 @@ class BannerService(unohelper.Base, XServiceInfo, XJob):
         scale = next((a.Value for a in arguments if a.Name == "Scale"), 1)
         slot = next((a.Value for a in arguments if a.Name == "Slot"), 0)
         compact = next((a.Value for a in arguments if a.Name == "Compact"), False) is True
-        snapshot = get_banners(feed_for_context(self.ctx))
+        snapshot = get_banners(feed_for_context(self.ctx), compact)
         return selected_json(snapshot, scale, slot, compact)
 
 

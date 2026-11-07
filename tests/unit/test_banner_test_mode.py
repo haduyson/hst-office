@@ -145,14 +145,22 @@ class BannerTestModeTests(unittest.TestCase):
         again.fetcher = lambda *a, **k: (_ for _ in ()).throw(OSError("offline"))
         self.assertEqual([i["id"] for i in self.refresh(again)["items"]], ["aios", "echatbot"])
 
-    def test_no_compact_art_hides_compact_slot(self):
+    def test_feed_without_compact_art_falls_back_to_installed_compact_art(self):
         for item in self.server.doc["items"]:
             item.pop("imageCompact", None)
         self.server.data = json.dumps(self.server.doc).encode()
         self.server.signature = base64.b64encode(ed25519.sign(SEED, self.server.data)) + b"\n"
-        snapshot = self.refresh(self.feed(True))
-        self.assertEqual(json.loads(selected_json(snapshot, 1, 0, compact=True))["slotCount"], 0)
-        self.assertEqual(json.loads(selected_json(snapshot, 1, 0))["slotCount"], 2)
+        feed = self.feed(True)
+        wide = self.refresh(feed)
+        self.assertEqual([i["id"] for i in wide["items"]], ["aios", "echatbot"])  # online wide art
+        compact = feed.current(compact=True)
+        self.assertEqual(compact["items"][0]["id"], "hasontech")  # installed compact art, in order
+        self.assertTrue(all(i.has_compact() for i in compact["items"]))
+        self.assertEqual(json.loads(selected_json(compact, 1, 0, compact=True))["slotCount"], len(compact["items"]))
+        # the online wide state itself offers no compact slot
+        self.assertEqual(json.loads(selected_json(wide, 1, 0, compact=True))["slotCount"], 0)
+        # nothing with compact art anywhere: the compact slot is hidden
+        self.assertEqual(feed._snapshot(feed._state, NOW, compact=True)["items"], [])
 
     def test_bad_test_overrides_fall_back(self):
         for url in ("http://localhost:8032/hst-office/banners.json", "http://127.0.0.2/banners.json",

@@ -111,17 +111,20 @@ class BannerFeed:
             return self.fetcher(url, limit, self.version, self.proxy, allow_test=True)
         return self.fetcher(url, limit, self.version, self.proxy)
 
-    def bundled(self):
-        return self._snapshot(self._bundle, self.clock())
+    def bundled(self, compact=False):
+        return self._snapshot(self._bundle, self.clock(), compact)
 
-    def current(self):
-        """Capture a single coherent state, without ever taking the long worker/publication locks."""
+    def current(self, compact=False):
+        """Capture a single coherent state, without ever taking the long worker/publication locks.
+
+        compact: the first state (online, cached, installed) that has active items with compact art."""
         state = self._state
-        return self._snapshot(state + self._bundle, self.clock())
+        return self._snapshot(state + self._bundle, self.clock(), compact)
 
-    def _snapshot(self, candidates, now):
+    def _snapshot(self, candidates, now, compact=False):
         for doc, banners in candidates:
-            eligible = [i for i in doc["items"] if active(i, now, self.version)]
+            eligible = [i for i in doc["items"] if active(i, now, self.version)
+                        and (not compact or banners[i["id"]].has_compact())]
             if not eligible:
                 continue
             unique = {i["id"]: banners[i["id"]].copy() for i in eligible}
@@ -134,10 +137,10 @@ class BannerFeed:
         return {"items": [], "rotateSeconds": 10}
 
 
-def get_banners(feed):
+def get_banners(feed, compact=False):
     """Start a due refresh and immediately return an ordered snapshot, with an installed fallback."""
     try:
         feed.refresh_async()
-        return feed.current()
+        return feed.current(compact)
     except Exception:  # noqa: BLE001 - service failures must not escape into the editing UI
-        return feed.bundled()
+        return feed.bundled(compact)
