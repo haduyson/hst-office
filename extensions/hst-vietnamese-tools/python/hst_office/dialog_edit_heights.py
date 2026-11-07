@@ -11,12 +11,12 @@ already high enough keep their layout height.
 
 def room_below(dialog, name):
     """Map AppFont units from the top of `name` to the top of the nearest control below it that it overlaps
-    horizontally (the dialog bottom when there is none). Overlay lists don't count: they are drawn over the fields."""
+    horizontally (the dialog bottom when there is none)."""
     model = dialog.model.getByName(name)
     room = dialog.model.Height - model.PositionY
     for other in dialog.model.ElementNames:
         below = dialog.model.getByName(other)
-        if (other != name and other not in dialog._overlays and below.PositionY > model.PositionY
+        if (other != name and below.PositionY > model.PositionY
                 and below.PositionX < model.PositionX + model.Width and model.PositionX < below.PositionX + below.Width):
             room = min(room, below.PositionY - model.PositionY)
     return room

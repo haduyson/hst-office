@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""ND30 wizard dialog model, without an office: the "Loại văn bản" list must be inserted before every control it
-covers when open. In VCL an earlier sibling is above later ones for painting and mouse hit-testing, so a list inserted
-after the fields lay under them: hover repainted a field over it, the wheel went to the field and its rows could not
-be clicked (the "Cơ quan ban hành" row on macOS and Linux). Also: the "In hai mặt" box is offered for every type."""
+"""ND30 wizard dialog model, without an office: no list control lies over the fields. The "Loại văn bản" list used to
+be a list box of the dialog shown over the fields below the type. VCL does not clip sibling controls against each
+other: inserted after the fields it lay under them (hover, wheel and clicks went to the fields on macOS and Linux), and
+inserted before them the fields still repainted through it on Windows, where themed edits redraw on hover. The list is
+now a popup outside the dialog model (wizard_type_popup). Also: the "In hai mặt" box is offered for every type."""
 import sys
 import types
 import unittest
@@ -99,17 +100,19 @@ class ModelOrder(unittest.TestCase):
         self.wizard = wizard_nd30.Nd30Wizard(None, load_locale("vi"))
         self.names = list(self.wizard.d.model.ElementNames)
 
-    def test_type_list_comes_before_every_control_it_covers(self):
+    def test_no_control_overlaps_another(self):
         model = self.wizard.d.model
-        listbox = model.getByName("typeList")
-        covered = [n for n in self.names if n != "typeList" and _intersects(listbox, model.getByName(n))]
-        self.assertIn("agency", covered)  # the "Cơ quan ban hành" row of the owner's report
-        self.assertIn("l_agency", [n for n in self.names if n.startswith("l_")])
-        for name in covered:
-            self.assertLess(self.names.index("typeList"), self.names.index(name), name)
+        kinds = [n for n in self.names if model.getByName(n).kind == "list"]
+        self.assertEqual(kinds, [])
+        visible = [n for n in self.names if n not in ("l_preview", "preview", "status")]
+        for i, name in enumerate(visible):
+            for other in visible[i + 1:]:
+                self.assertFalse(_intersects(model.getByName(name), model.getByName(other)), (name, other))
 
-    def test_type_list_follows_the_arrow_button(self):
-        self.assertEqual(self.names.index("typeList"), self.names.index("typeOpen") + 1)
+    def test_type_list_is_a_popup_under_the_type_field(self):
+        popup = self.wizard.picker.popup
+        self.assertEqual(type(popup).__name__, "TypePopup")
+        self.assertIsNone(popup.box())  # created when the dialog's peer exists (TypePicker.attach)
 
     def test_duplex_box_is_offered_off_and_reported(self):
         duplex = self.wizard.d.model.getByName("duplex")

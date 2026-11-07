@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""The open "Loại văn bản" list of the ND30 wizard stays on top of the fields it covers: hover, wheel and click.
+"""The open "Loại văn bản" list of the ND30 wizard stays on top of the fields it covers: hover, repaint, wheel and click.
 
 Usage: python3 tests/runtime/check-nd30-type-list.py --display :131 [--instdir upstream/libreoffice/instdir] [--out DIR]
                                                      [--port 2194]
@@ -8,8 +8,10 @@ The display must already run (1366x768); it is never started or stopped here. HS
 
 Regression: the list used to be inserted after the fields, so in VCL it lay under them. Over the "Cơ quan ban hành"
 row the pointer reached the agency field: a hover repainted the field over the list (a white bar on macOS and gtk3),
-the wheel did not scroll the list, and a click focused the field instead of choosing the row. Also checks the model
-order: the list comes right after the "▾" button, before every control it covers. Exit 1 on any failure.
+the wheel did not scroll the list, and a click focused the field instead of choosing the row. Moved above them in the
+model it still was a sibling, and VCL does not clip siblings: on Windows the themed edits repainted through it on hover
+and on any change. The list is now a popup (an overlap window in the dialog's frame, wizard_type_popup); a covered field
+that repaints must stay under it. Exit 1 on any failure.
 """
 import argparse
 import os
@@ -70,8 +72,7 @@ def main():
         doc = office.service("com.sun.star.frame.Desktop").loadComponentFromURL("private:factory/swriter", "_blank", 0, ())
         wizard = wizard_nd30.Nd30Wizard(office.ctx, data_files.load_locale("vi"))
         names = list(wizard.d.model.ElementNames)
-        check("model: typeList right after typeOpen", names.index("typeList") == names.index("typeOpen") + 1,
-              names[names.index("typeOpen"):names.index("typeOpen") + 3])
+        check("the list is not a control of the dialog (VCL does not clip overlapping siblings)", "typeList" not in names)
         peer = doc.getCurrentController().getFrame().getContainerWindow()
         thread = threading.Thread(target=lambda: wizard.run(peer), daemon=True)
         thread.start()
@@ -82,9 +83,10 @@ def main():
         time.sleep(2)
         dialog, picker = wizard.d.dialog, wizard.picker
         geo = {n: dialog.getControl(n).getPeer().getPosSize() for n in names}
-        listbox = geo["typeList"]
-        covered = [n for n in names if n != "typeList" and _intersects(listbox, geo[n])]
-        check("model: typeList before every control it covers", all(names.index("typeList") < names.index(n) for n in covered), covered)
+        listbox = type("Box", (), dict(zip(("X", "Y", "Width", "Height"), picker.popup.box())))
+        covered = [n for n in names if _intersects(listbox, geo[n])]
+        check("the popup lies under the type field, over the fields below it", "agency" in covered
+              and listbox.Y >= geo["type"].Y + geo["type"].Height, covered)
         window = None
         for _ in range(20):  # the gen backend maps the dialog window a little later
             window = next((wid for wid, name in hst_gui.toplevels(args.display) if name == wizard.d.model.Title), None)
@@ -116,6 +118,16 @@ def main():
         flat_away, flat_hover = _flat_share(away, band), _flat_share(hover, band)
         check("hover over the 'Cơ quan ban hành' row shows the list there, not the field",
               flat_hover <= max(0.6, flat_away + 0.2), "flat rows %.2f -> %.2f" % (flat_away, flat_hover))
+        # a covered field repaints on its own while the list is open (here: its text changes)
+        place = geo["place"]
+        band = (ox + place.X + 4, oy + place.Y + 2, ox + place.X + place.Width - 4, oy + place.Y + place.Height - 2)
+        flat_before = _flat_share(hover, band)
+        wizard.d.model.getByName("place").Text = "Tam Kỳ, Quảng Nam"
+        time.sleep(1.2)
+        repainted = shot("2b-covered-field-repaints.png")
+        flat_after = _flat_share(repainted, band)
+        check("a covered field that repaints stays under the list", flat_after <= max(0.6, flat_before + 0.2),
+              "flat rows %.2f -> %.2f" % (flat_before, flat_after))
         top_rows = (box[0], box[1], box[2], oy + geo["agency"].Y - 2)  # list rows above the field band: only a scroll moves them
         before = _crop(hover, top_rows)
         for _ in range(5):
