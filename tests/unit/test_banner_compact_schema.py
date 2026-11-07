@@ -40,6 +40,14 @@ class BannerCompactSchemaTests(unittest.TestCase):
             doc["items"][0]["imageCompact"] = {s: full[s] for s in scales}
             with self.subTest(scales=scales), self.assertRaises(ValueError):
                 self.parse(doc)
+        # c1x..c3x are internal cache/snapshot keys only, never manifest keys
+        doc = manifest()
+        doc["items"][0]["imageCompact"] = {"c" + k: v for k, v in compact().items()}
+        with self.assertRaises(ValueError):
+            self.parse(doc)
+        doc = manifest(); doc["items"][0]["image"]["c1x"] = compact()["1x"]
+        with self.assertRaises(ValueError):
+            self.parse(doc)
         for value in (None, [], "x", True):
             doc = manifest(); doc["items"][0]["imageCompact"] = value
             with self.subTest(value=value), self.assertRaises(ValueError):
