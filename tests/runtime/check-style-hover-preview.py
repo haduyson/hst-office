@@ -12,7 +12,10 @@ then leaves it. Checked:
   4. track changes on: the number of tracked changes is the same during and after; recording stays on;
   5. autorecovery: storeToRecoveryFile during a hover ends the preview before writing (the paragraph
      has its own style again) and the document stays unmodified;
-  6. read-only: a copy opened read-only gets no preview.
+  6. read-only: a copy opened read-only gets no preview;
+  7. direct formatting: a paragraph with direct alignment, indent, spacing, line spacing, background,
+     numbering and bold is exactly as before after a hover (the flat ODF of its automatic styles and
+     body is byte-identical, and so are its direct property values).
 Writes evidence.json; exit 1 when a check fails.
 """
 import argparse
@@ -107,6 +110,58 @@ def leave(office):
     time.sleep(0.8)
 
 
+FLAT = "OpenDocument Text Flat XML"
+DIRECT = {"ParaAdjust": 3, "ParaLeftMargin": 1000, "ParaFirstLineIndent": -500, "ParaTopMargin": 300,
+          "ParaBottomMargin": 400, "ParaBackColor": 0xFFF2CC, "CharWeight": 150.0}
+
+
+def flat_body(doc, path):
+    """The automatic styles and the body of the document as flat ODF (what the paragraph is made of)."""
+    doc.storeToURL("file://" + path, (prop("FilterName", FLAT),))
+    with open(path, encoding="utf-8") as handle:
+        xml = handle.read()
+    start = xml.index("<office:automatic-styles")
+    return xml[start:xml.index("</office:body>")]
+
+
+def direct_values(paragraph):
+    names = [p.Name for p in paragraph.getPropertySetInfo().getProperties()]
+    values = {}
+    for name in names:
+        try:
+            if paragraph.getPropertyState(name).value == "DIRECT_VALUE":
+                values[name] = repr(paragraph.getPropertyValue(name))
+        except Exception:  # noqa: BLE001 - properties without a state or value
+            pass
+    return values
+
+
+def check_direct_formatting(office, doc, point, out):
+    paragraph = doc.getText().createEnumeration().nextElement()
+    for name, value in DIRECT.items():
+        if name == "ParaAdjust":
+            import uno
+            value = uno.Enum("com.sun.star.style.ParagraphAdjust", "CENTER")
+        paragraph.setPropertyValue(name, value)
+    lists = doc.getStyleFamilies().getByName("NumberingStyles").getElementNames()
+    paragraph.setPropertyValue("NumberingStyleName", lists[0])
+    spacing = paragraph.getPropertyValue("ParaLineSpacing")
+    spacing.Height = 150
+    paragraph.setPropertyValue("ParaLineSpacing", spacing)
+    doc.setModified(False)
+    before_xml = flat_body(doc, os.path.join(out, "direct-before.fodt"))
+    before = direct_values(paragraph)
+    hover(office, point)
+    during = paragraph.getPropertyValue("ParaStyleName")
+    leave(office)
+    after_xml = flat_body(doc, os.path.join(out, "direct-after.fodt"))
+    after = direct_values(paragraph)
+    changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+    record("7. direct formatting (alignment, indents, spacing, background, list, bold) survives a hover",
+           before_xml == after_xml and not changed and during != paragraph.getPropertyValue("ParaStyleName")
+           and not doc.isModified(), changed or (len(before), during))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--instdir", default=os.path.join(hst_gui.ROOT, "upstream/libreoffice/instdir"))
@@ -162,6 +217,8 @@ def main():
         leave(office)
         record("5. autorecovery store ends the preview first; document unmodified",
                previewing != before[0] and stored[0] == before[0] and not stored[1], (previewing, stored[0], stored[1]))
+
+        check_direct_formatting(office, doc, point, args.out)
 
         readonly = office.desktop().loadComponentFromURL(saved, "_blank", 0, (prop("ReadOnly", True),))
         time.sleep(5)
