@@ -122,7 +122,7 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
         model = self.frame.getController().getModel() if self.frame and self.frame.getController() else None
         if model is None or not model.supportsService("com.sun.star.text.TextDocument"):
             return False, False
-        return True, read_choice(model)[0]
+        return True, read_choice(model, model.getCurrentController().getViewCursor())[0]  # the page the user is on
 
     def _send_duplex_state(self, listeners=None):
         from com.sun.star.frame import FeatureStateEvent
