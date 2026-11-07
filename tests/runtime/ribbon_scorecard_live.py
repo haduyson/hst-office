@@ -34,20 +34,35 @@ def _state(node, name):
     return node.getState().contains(getattr(pyatspi, name))
 
 
+def _has_toolbar(panel):
+    return any((panel.getChildAtIndex(i) is not None and panel.getChildAtIndex(i).getRoleName() == "tool bar")
+               for i in range(min(panel.childCount, 60)))
+
+
+def group_panel(label):
+    """The group a caption belongs to: its parent, or, when the caption sits in a caption row with a launcher, the
+    panel above that row (the first ancestor that holds toolbars)."""
+    node = label.parent
+    for _ in range(3):
+        if node is None:
+            return None
+        if _has_toolbar(node):
+            return node
+        node = node.parent
+    return label.parent
+
+
 def _labels_group(node, box):
     """A group caption: a label that names its group (Writer exposes the relation), or, where the relation is not
     exposed (Sheets), a label on the bottom row of a panel that holds toolbars."""
     import pyatspi
     if any(r.getRelationType() == pyatspi.RELATION_LABEL_FOR for r in node.getRelationSet()):
         return True
-    parent = node.parent
-    if parent is None or parent.getRoleName() != "panel":
+    parent = group_panel(node)
+    if parent is None or parent.getRoleName() != "panel" or not _has_toolbar(parent):
         return False
     px_, py_, pw_, ph_ = gui.extents(parent)
-    bottom = box[1] + box[3] >= py_ + ph_ - 4
-    has_toolbar = any((parent.getChildAtIndex(i) is not None and parent.getChildAtIndex(i).getRoleName() == "tool bar")
-                      for i in range(min(parent.childCount, 60)))
-    return bottom and has_toolbar and box[2] >= pw_ - 12
+    return box[1] + box[3] >= py_ + ph_ - 4 and box[2] >= pw_ - 60
 
 
 def ribbon_walk(node, depth=0):
@@ -102,7 +117,7 @@ def layout():
             if role == "page tab" and box[1] < 100:
                 tabs.append({"name": name, "box": box, "selected": _state(node, "STATE_SELECTED")})
             elif role == "label" and name and _labels_group(node, box):
-                parent = node.parent
+                parent = group_panel(node)
                 groups.append({"caption": name, "caption_box": box, "box": list(gui.extents(parent)) if parent else box})
             elif role in ("push button", "toggle button", "menu button"):
                 if not name and box[2] <= 30 and box[3] >= 30 and 40 < box[1] < 200:
@@ -295,7 +310,8 @@ def probes(session, home):
     paste = _button(data, conf["paste"])
     ok, detail = px.large_icon_with_label(base, paste["box"]) if paste else (False, "no Paste button")
     out["paste_32"] = {"pass": ok, "detail": detail}
-    launchers = [b for b in data["buttons"] if b["box"][2] <= 20 and b["box"][3] <= 20 and b["name"] and any(
+    # a launcher: a small named button (a toolbar button of a 16 px glyph) in the caption row of a group
+    launchers = [b for b in data["buttons"] if b["box"][2] <= 24 and b["box"][3] <= 24 and b["name"] and any(
         g["box"][0] <= b["box"][0] <= g["box"][0] + g["box"][2] and abs(b["box"][1] - g["caption_box"][1]) <= 12
         for g in groups)]
     out["launcher_glyph"] = {"pass": bool(launchers), "detail": [b["name"] for b in launchers]}
