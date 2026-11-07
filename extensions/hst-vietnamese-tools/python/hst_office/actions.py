@@ -49,7 +49,7 @@ def nd30_wizard(host):
                                        undo_title=host.s["undo"]["nd30"])
     if result["blockers"]:
         return host.refuse(result["blockers"])
-    if choice.get("duplex") or choice["apply_page"]:  # after the page layout: it decides left/right pages
+    if nd30_duplex.applies_to(layout, choice):  # after the page layout: it decides left/right pages
         nd30_duplex.apply(host.doc, cursor, bool(choice.get("duplex")), layout.get("profile", "nd30"))
     note = host.s["nd30"]["inserted"]
     if result["page"] and result["page"]["headerSkipped"]:

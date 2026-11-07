@@ -86,6 +86,17 @@ def main():
         back_off = body_edges(export(doc, "dang-toggle-off")[1])
         doc.close(True)
         check("toggle on mirrors the back page", on["duplex"] and abs(back_on[0] - 15) <= TOLERANCE_MM, back_on)
+        # a copy block (sao y) added to a two-sided Party document keeps its mirrored pages, with the wizard defaults
+        doc, cursor = make("dang-thong-bao", True)
+        copy = nd30_layout.build_layout("sao-y", {})
+        choice = {"apply_page": True, "page_numbers": True, "duplex": False}
+        result = nd30_writer.insert_layout(doc, cursor, copy, apply_page=choice["apply_page"], page_numbers=True)
+        if not result["blockers"] and nd30_duplex.applies_to(copy, choice):
+            nd30_duplex.apply(doc, cursor, False, copy["profile"])
+        back_copy = body_edges(export(doc, "dang-then-copy")[1])
+        doc.close(True)
+        check("a copy block keeps the document's two-sided pages", not result["blockers"]
+              and abs(back_copy[0] - 15) <= TOLERANCE_MM, (result["blockers"], back_copy))
         check("toggle off restores one layout", not off["duplex"] and abs(back_off[0] - 30) <= TOLERANCE_MM, back_off)
     finally:
         office.stop()

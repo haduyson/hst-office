@@ -6,9 +6,9 @@ SvtMiscOptions, which reloads the value and sets the icon theme of every window 
 SetIconTheme), so no restart is needed.
   * Hiện đại: "auto"; the office picks the modern pack and its dark variant from the dark mode (hst_modern /
     hst_modern_dark, icon-theme stream).
-  * Cổ điển: "hst_classic" or "hst_classic_dark" (LibreOffice Colibre with HST glyphs for the commands Colibre does not
-    draw), chosen from the current dark mode when the page is confirmed. Profiles of earlier versions hold "hst" /
-    "hst_dark" for Cổ điển; they read back as Cổ điển and the office maps them to the same packs.
+  * Cổ điển: "hst_classic" (LibreOffice Colibre with HST glyphs for the commands Colibre does not draw); the office
+    picks hst_classic_dark itself while the UI is dark. Profiles of earlier versions hold "hst" / "hst_dark" /
+    "hst_classic_dark" for Cổ điển; they read back as Cổ điển and are rewritten as "hst_classic" on the next OK.
 The pack names are the icon-theme stream's; MODERN/CLASSIC below are the only place they appear here.
 """
 import os
@@ -37,12 +37,13 @@ def style_of(value):
     return None
 
 
-def value_for(style, dark):
-    """SymbolStyle value for a choice (pure)."""
+def value_for(style):
+    """SymbolStyle value for a choice (pure). Always the base style: the office's selector adds "_dark" while the UI is
+    dark (vcl HstIconTheme styleForMode), so a later switch to a light UI gets the light pack again."""
     if style == "modern":
         return MODERN
     if style == "classic":
-        return CLASSIC[1 if dark else 0]
+        return CLASSIC[0]
     raise ValueError("unknown icon style: %r" % (style,))
 
 
@@ -61,8 +62,7 @@ def current_style(ctx):
 
 def save_style(ctx, style):
     """Write the choice; returns the value written. Nothing is written when it would not change."""
-    from .dialogs import is_dark
-    value = value_for(style, is_dark(ctx))
+    value = value_for(style)  # also replaces a dark pack pinned by an earlier version
     node = _node(ctx, True)
     if node.getPropertyValue("SymbolStyle") != value:
         node.setPropertyValue("SymbolStyle", value)

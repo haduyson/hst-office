@@ -1,0 +1,22 @@
+HST Office: a late status update never reaches the disposed transition gallery.
+
+The toolbox that holds the ribbon's transition gallery can dispose the gallery window before its
+controller; the Windows style box crash came from exactly that order. statusChanged() kept only a
+null check and then called Enable() and SetCurrent() on the window, so a status update arriving in
+between would touch a disposed vcl::Window. It now returns when the window is disposed.
+
+License: modified files keep their license (MPL-2.0).
+
+--- a/sd/source/ui/controller/HstTransitionGallery.cxx
++++ b/sd/source/ui/controller/HstTransitionGallery.cxx
+@@ -299,7 +299,9 @@
+     void SAL_CALL statusChanged(const frame::FeatureStateEvent& rEvent) override
+     {
+         SolarMutexGuard aGuard;
+-        if (!m_xWindow)
++        // HST: the toolbox can dispose its item window before this controller (as it did the style box's);
++        // a late status update must not reach the disposed window
++        if (!m_xWindow || m_xWindow->isDisposed())
+             return;
+         m_xWindow->Enable(rEvent.IsEnabled);
+         OUString aSetId;

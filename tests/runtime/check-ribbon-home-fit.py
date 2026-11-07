@@ -41,9 +41,10 @@ PAINTBRUSH = "Sao chép định dạng"
 CLEAR = {"writer": "Xóa", "calc": "Xóa", "impress": "Xóa"}
 CAPTION_BAND = (95, 165)  # the caption row of a ribbon page, y relative to the window
 # Sheets' Kiểu may be a group button at 1366: its gallery needs about 120 px beside Font and Number.
-# at 1366 the Styles gallery may be a "Kiểu" group button (no caption) rather than fold the groups before it
-MUST_SHOW = {("calc", 1366): ["Số"], ("impress", 1366): ["Bảng tạm", "Phông chữ", "Đoạn văn"],
-             ("writer", 1366): ["Bảng tạm", "Phông chữ", "Đoạn văn"], ("calc", 1485): ["Kiểu"],
+# at 1366 Kiểu and Đoạn văn may be group buttons (no caption): the paragraph group has no smaller form, and a
+# group button keeps every command one click away, where a fold into » would not
+MUST_SHOW = {("calc", 1366): ["Số"], ("impress", 1366): ["Bảng tạm", "Phông chữ"],
+             ("writer", 1366): ["Bảng tạm", "Phông chữ"], ("calc", 1485): ["Kiểu"],
              ("writer", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn", "Kiểu"]}
 NO_OVERFLOW = (1366, 1485)  # widths at which no group may be folded into the "»" overflow
 WIDE = {"writer": 1920, "calc": 2400, "impress": 1920}  # nothing folds: the whole "Công cụ" group shows

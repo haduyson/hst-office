@@ -64,13 +64,30 @@ def _set_property(doc, name, value):
         props.addProperty(name, 128, value)  # PropertyAttribute.REMOVABLE
 
 
-def read_choice(doc):
-    """(duplex, profile) stored in the document; (False, None) when it never had the choice."""
+def applies_to(layout, choice):
+    """Whether the wizard sets two-sided printing for this insertion (pure). Copy blocks (sao y, sao lục, Party copies:
+    layouts with a flow) are added to an existing document and never change its page layout, like the page settings."""
+    if layout.get("flow"):
+        return False
+    return bool(choice.get("duplex") or choice.get("apply_page"))
+
+
+def read_choice(doc, cursor=None):
+    """(duplex, profile) of the document; (False, None) when it never had the choice. With a cursor, a Party
+    document answers from the page layout of the cursor's style group, so the state never contradicts the pages."""
     props = _user_props(doc)
     info = props.getPropertySetInfo()
     duplex = bool(props.getPropertyValue(PROPERTY)) if info.hasPropertyByName(PROPERTY) else False
     profile = props.getPropertyValue(PROFILE_PROPERTY) if info.hasPropertyByName(PROFILE_PROPERTY) else None
-    return duplex, (profile if profile in RULES else None)
+    profile = profile if profile in RULES else None
+    if cursor is not None and rule(profile)["mirrored"]:
+        duplex = is_mirrored(_styles_of(doc, cursor)[0].PageStyleLayout)
+    return duplex, profile
+
+
+def is_mirrored(layout):
+    """PageStyleLayout reads back as a UNO enum (value "MIRRORED") and is written as its number (pure)."""
+    return layout == MIRRORED or getattr(layout, "value", None) == "MIRRORED"
 
 
 def guess_profile(doc):
@@ -90,12 +107,22 @@ def guess_profile(doc):
     return "nd30"
 
 
+ANNEX_PREFIX, ANNEX_SUFFIX = "HST ", " kèm theo"  # nd30_page.section_style names the attachment copy this way
+
+
+def style_group(name, exists):
+    """[main style, its "kèm theo" copy if it exists] for a page style name, from either of the two (pure)."""
+    if name.startswith(ANNEX_PREFIX) and name.endswith(ANNEX_SUFFIX) and exists(name[len(ANNEX_PREFIX):-len(ANNEX_SUFFIX)]):
+        name = name[len(ANNEX_PREFIX):-len(ANNEX_SUFFIX)]
+    annex = ANNEX_PREFIX + name + ANNEX_SUFFIX
+    return [name] + ([annex] if exists(annex) else [])
+
+
 def _styles_of(doc, cursor):
-    """The cursor's page style and its "kèm theo" copy (attached documents number their own pages)."""
+    """The page styles of the cursor's group: the main style and its "kèm theo" copy (attached documents number their
+    own pages), whichever of the two the cursor is in."""
     styles = doc.getStyleFamilies().getByName("PageStyles")
-    name = cursor.PageStyleName
-    names = [name] + ([n for n in ("HST " + name + " kèm theo",) if styles.hasByName(n)])
-    return [styles.getByName(n) for n in names]
+    return [styles.getByName(n) for n in style_group(cursor.PageStyleName, styles.hasByName)]
 
 
 def apply(doc, cursor, duplex, profile):
@@ -114,5 +141,5 @@ def apply(doc, cursor, duplex, profile):
 
 def toggle(doc, cursor):
     """HST menu "In hai mặt" on an existing document: flips the stored choice for the current page style."""
-    duplex, profile = read_choice(doc)
+    duplex, profile = read_choice(doc, cursor)
     return apply(doc, cursor, not duplex, profile or guess_profile(doc))

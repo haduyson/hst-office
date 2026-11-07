@@ -45,11 +45,13 @@ def mac_bundle_of(path):
     return None
 
 
-def mac_in_applications(path=__file__):
-    """True when this copy runs from /Applications. A .dmg, Downloads or a translocated copy
-    (/private/var/folders/.../AppTranslocation/...) must not become the default app (pure apart from __file__)."""
+def mac_in_applications(path=__file__, home=None):
+    """True when this copy is installed where it stays (/Applications/**, ~/Applications/**, any place the move
+    question leaves alone). A .dmg, Downloads or translocated copy must not become the default app: it is the one
+    mac_app_location offers to move (the same classification, so the two never disagree)."""
+    from .mac_app_location import MOVABLE, locate
     bundle = mac_bundle_of(path)
-    return bool(bundle) and os.path.dirname(bundle) == "/Applications"
+    return bool(bundle) and locate(bundle, home)["kind"] not in MOVABLE
 
 
 def _launch_services():
@@ -69,6 +71,9 @@ def _launch_services():
 
 
 _UTF8, _ROLES_ALL = 0x08000100, 0xFFFFFFFF  # kCFStringEncodingUTF8, kLSRolesAll
+MAC_EXTENSIONS = dict(zip(MAC_UTIS, (".odt", ".ods", ".odp", ".ott", ".ots", ".otp", ".doc", ".xls", ".ppt",
+                                     ".docx", ".dotx", ".xlsx", ".xltx", ".pptx", ".potx")))
+MAC_PARTIAL = "macOS chưa cho đặt HST Office cho các loại tệp %s"
 
 
 def mac_make_default():
@@ -85,11 +90,11 @@ def mac_make_default():
             finally:
                 cf.CFRelease(ref)
             if status != 0:
-                failed.append("%s (%d)" % (uti, status))
+                failed.append(uti)
     finally:
         cf.CFRelease(bundle)
-    if len(failed) == len(MAC_UTIS):
-        raise RuntimeError("LaunchServices: " + ", ".join(failed))
+    if failed:  # even one format left with another app is not "done": name the ones that still open elsewhere
+        raise RuntimeError(MAC_PARTIAL % ", ".join(MAC_EXTENSIONS.get(uti, uti) for uti in failed))
     return True, ""
 
 
@@ -112,24 +117,31 @@ def mac_is_registered():
 
 
 # ---- Windows -----------------------------------------------------------------------------------------------------
-def windows_settings_uri(registered_names):
-    """Settings deep link for HST's registered application name, else the general default-apps page (pure)."""
-    name = next((n for n in registered_names if n.startswith("HST Office")), None)
-    if name is None:
+_SELECTOR = {"HKCU": "registeredAppUser", "HKLM": "registeredAppMachine"}  # learn.microsoft.com: launch default apps
+
+
+def windows_settings_uri(registered):
+    """Settings deep link for HST's registered application, else the general default-apps page (pure).
+    `registered`: [(name, "HKLM" | "HKCU")]. A per-user registration (HKCU) needs registeredAppUser, a per-machine one
+    registeredAppMachine; when both exist, the current user's own wins."""
+    hst = [(name, hive) for name, hive in registered if name.startswith("HST Office") and hive in _SELECTOR]
+    if not hst:
         return WIN_SETTINGS
-    return WIN_SETTINGS + "?registeredAppMachine=" + urllib.parse.quote(name)
+    name, hive = sorted(hst, key=lambda item: item[1] != "HKCU")[0]
+    return WIN_SETTINGS + "?" + _SELECTOR[hive] + "=" + urllib.parse.quote(name)
 
 
 def _registered_application_names():
+    """[(name, hive)] of Software\\RegisteredApplications in HKLM and HKCU."""
     import winreg
     names = []
-    for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+    for hive, label in ((winreg.HKEY_LOCAL_MACHINE, "HKLM"), (winreg.HKEY_CURRENT_USER, "HKCU")):
         try:
             with winreg.OpenKey(hive, r"Software\RegisteredApplications") as key:
                 index = 0
                 while True:
                     try:
-                        names.append(winreg.EnumValue(key, index)[0])
+                        names.append((winreg.EnumValue(key, index)[0], label))
                     except OSError:
                         break
                     index += 1

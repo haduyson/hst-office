@@ -115,6 +115,41 @@ class Apply(unittest.TestCase):
         self.assertEqual(self.main.PageStyleLayout, dx.ALL)
         self.assertEqual(self.doc.props.values[dx.PROPERTY], True)
 
+    def test_copy_blocks_never_change_the_page_layout(self):
+        # sao y / sao lục / Party copy blocks are appended to an existing document: its layout stays as it is
+        for flow in ("append", "prepend"):
+            for duplex in (False, True):
+                self.assertFalse(dx.applies_to({"flow": flow}, {"apply_page": True, "duplex": duplex}), (flow, duplex))
+        self.assertTrue(dx.applies_to({}, {"apply_page": True, "duplex": False}))
+        self.assertTrue(dx.applies_to({}, {"apply_page": False, "duplex": True}))
+        self.assertFalse(dx.applies_to({}, {"apply_page": False, "duplex": False}))
+
+    def test_toggle_from_the_attachment_changes_the_whole_group(self):
+        dx.apply(self.doc, self.cursor, True, "dang")
+        in_annex = types.SimpleNamespace(PageStyleName="HST Default kèm theo")
+        off = dx.toggle(self.doc, in_annex)
+        self.assertFalse(off["duplex"])
+        self.assertEqual((self.main.PageStyleLayout, self.annex.PageStyleLayout), (dx.ALL, dx.ALL))
+        self.assertEqual(dx.read_choice(self.doc, self.cursor), (False, "dang"))
+        on = dx.toggle(self.doc, in_annex)
+        self.assertTrue(on["duplex"])
+        self.assertEqual((self.main.PageStyleLayout, self.annex.PageStyleLayout), (dx.MIRRORED, dx.MIRRORED))
+        self.assertEqual(dx.read_choice(self.doc, in_annex), (True, "dang"))
+
+    def test_party_state_reads_from_the_page_layout(self):
+        dx.apply(self.doc, self.cursor, False, "dang")
+        self.main.PageStyleLayout = dx.MIRRORED  # e.g. set by hand in Định dạng trang
+        self.assertEqual(dx.read_choice(self.doc, self.cursor), (True, "dang"))
+        self.assertFalse(dx.toggle(self.doc, self.cursor)["duplex"])  # the next toggle turns it off, not on again
+        self.assertEqual(self.main.PageStyleLayout, dx.ALL)
+
+    def test_layout_read_back_as_a_uno_enum(self):
+        dx.apply(self.doc, self.cursor, False, "dang")
+        self.main.PageStyleLayout = types.SimpleNamespace(typeName="com.sun.star.style.PageStyleLayout", value="MIRRORED")
+        self.assertEqual(dx.read_choice(self.doc, self.cursor), (True, "dang"))
+        self.main.PageStyleLayout = types.SimpleNamespace(typeName="com.sun.star.style.PageStyleLayout", value="ALL")
+        self.assertEqual(dx.read_choice(self.doc, self.cursor), (False, "dang"))
+
     def test_unmarked_document_guesses_from_the_party_heading(self):
         para = types.SimpleNamespace(getString=lambda: "Đảng Cộng sản Việt Nam",
                                      supportsService=lambda name: name == "com.sun.star.text.Paragraph")
