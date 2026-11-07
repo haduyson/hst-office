@@ -11,12 +11,14 @@ REINSTALLMODE=amus (the betas' files carry a higher version, 26.8.1.1, and would
 import argparse
 import hashlib
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from msi_forced_reinstall import (LEGACY_DETECTED, SEQUENCES, forced_reinstall_errors,  # noqa: E402
+                                  from_legacy_patch, parse_idt, read_tables)
 PATCH = ROOT / "patches/libreoffice/hst-msi-upgradecode.patch"
 SEED_PATCH = ROOT / "patches/libreoffice/hst-msi-component-guids.patch"
 LEGACY_PATCH = ROOT / "patches/libreoffice/hst-msi-replace-old-betas.patch"
@@ -25,12 +27,6 @@ HST_UPGRADE_CODE = "{A1751BCB-2603-4428-A5DE-419B438ECFBC}"  # permanent, see do
 LIBREOFFICE_UPGRADE_CODE = "{4B17E523-5D91-4E69-BD96-7FD81CFA81BB}"  # upstream msi_templates/codes.txt
 LEGACY_BETA_VERSION = "1.0.0.1"  # ProductVersion of the beta 1-4 MSIs
 ONLY_DETECT, MIN_INCLUSIVE, MAX_INCLUSIVE = 2, 256, 512
-LEGACY_DETECTED = "HSTLEGACYPRODUCTS"  # set by the detect-only row on the betas' range
-LEGACY_FORCED = {"REINSTALLMODE": "amus", "VC_REDIST": "0"}  # what the property actions set when it is set
-SEQUENCES = ("InstallExecuteSequence", "InstallUISequence")
-# upstream msi_templates InstallE.idt / InstallU.idt: (FindRelatedProducts, CostInitialize); patch mode only
-TEMPLATE_SEQUENCE = {"InstallExecuteSequence": (100, 350), "InstallUISequence": (150, 400)}
-SET_PROPERTY = 51  # custom action type: set a property from a formatted text
 GUID = re.compile(r"\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}")
 VERSION = re.compile(r"\d+\.\d+\.\d+(\.\d+)?")
 
@@ -104,29 +100,6 @@ def validate(rows, properties):
     return errors
 
 
-def forced_reinstall_errors(actions, sequences):
-    """Errors for the actions that force the old betas' files in. actions: {name: (type, source, target)};
-    sequences: {table: [(action, condition, number)]}. In both sequences, each LEGACY_FORCED property is set by a
-    type-51 action conditioned on LEGACY_DETECTED between FindRelatedProducts and CostInitialize, and no other
-    sequenced action sets REINSTALLMODE or VC_REDIST."""
-    errors = []
-    for table in SEQUENCES:
-        rows = sequences.get(table, [])
-        number = {action: seq for action, _, seq in rows}
-        find, cost = number.get("FindRelatedProducts"), number.get("CostInitialize")
-        if find is None or cost is None:
-            errors.append(f"{table}: FindRelatedProducts or CostInitialize is missing")
-            continue
-        for prop, value in LEGACY_FORCED.items():
-            setters = [(a, c, n) for a, c, n in rows if a in actions and actions[a][0] & 0x3F == SET_PROPERTY and actions[a][1] == prop]
-            good = [a for a, c, n in setters if actions[a][2] == value and c.strip() == LEGACY_DETECTED and find < n < cost]
-            if len(setters) != 1 or not good:
-                found = ", ".join(f"{a}={actions[a][2]!r} if {c or 'always'} at {n}" for a, c, n in setters) or "none"
-                errors.append(f"{table}: {prop} must be set to {value} only when {LEGACY_DETECTED} is set, between "
-                              f"FindRelatedProducts ({find}) and CostInitialize ({cost}); found: {found}")
-    return errors
-
-
 def legacy_guid(name):  # the GUID beta 1-4 computed (upstream msiglobal.pm calculate_guid)
     d = hashlib.md5(f"{name}_{LEGACY_GUID_SEED}".encode()).hexdigest().upper()
     return "{%s-%s-%s-%s-%s}" % (d[:8], d[8:12], d[12:16], d[16:20], d[20:])
@@ -142,13 +115,6 @@ def seed_errors(patch_text):  # beta 1-4 key files are numbered 26.8.1.1: shared
     return [] if len(seeds) == 1 and seeds[0] != LEGACY_GUID_SEED else ["the patch series must set one COMPONENTGUIDSEED other than 1.0"]
 
 
-def parse_idt(text):
-    """Rows of an exported table (msiinfo export / .idt): names, types, key line, then data."""
-    lines = text.replace("\r\n", "\n").split("\n")
-    names = lines[0].split("\t")
-    return [dict(zip(names, line.split("\t") + [""] * len(names))) for line in lines[3:] if line]
-
-
 def upgrade_rows(raw):
     bad = [r for r in raw if not re.fullmatch(r"\d*", r.get("Attributes") or "")]
     if bad:
@@ -162,73 +128,13 @@ def read_msi(path):
     columns = {"Upgrade": ("UpgradeCode", "VersionMin", "VersionMax", "Language", "Attributes", "Remove", "ActionProperty"),
                "Property": ("Property", "Value"), "Component": ("Component", "ComponentId"),
                "CustomAction": ("Action", "Type", "Source", "Target")} | {t: ("Action", "Condition", "Sequence") for t in SEQUENCES}
-    if shutil.which("msiinfo"):
-        def export(table):
-            done = subprocess.run(["msiinfo", "export", str(path), table], capture_output=True, text=True, check=False)
-            if done.returncode != 0:
-                raise RuntimeError(f"msiinfo export {table} failed: {done.stderr.strip()}")
-            return parse_idt(done.stdout)
-    else:
-        try:
-            import msilib  # Windows Python <= 3.12 only
-        except ImportError as exc:
-            raise RuntimeError("neither msiinfo (msitools) nor msilib is available") from exc
-        db = msilib.OpenDatabase(str(path), msilib.MSIDBOPEN_READONLY)
-
-        def export(table):
-            names = columns[table]
-            view, out = db.OpenView("SELECT " + ", ".join(f"`{n}`" for n in names) + f" FROM `{table}`"), []
-            view.Execute(None)
-            while (rec := view.Fetch()) is not None:
-                out.append(dict(zip(names, (rec.GetString(i + 1) for i in range(len(names))))))
-            view.Close()
-            return out
-    tables = {table: export(table) for table in columns}
+    tables = read_tables(path, columns)
     components = [(r["Component"], r.get("ComponentId", "")) for r in tables["Component"]]
     actions = {r["Action"]: (int(r.get("Type") or 0), r.get("Source", ""), r.get("Target", "")) for r in tables["CustomAction"]}
     sequences = {t: [(r["Action"], r.get("Condition", ""), int(r.get("Sequence") or 0)) for r in tables[t]
                      if re.fullmatch(r"-?\d*", r.get("Sequence") or "")] for t in SEQUENCES}
     extra = component_errors(components) + forced_reinstall_errors(actions, sequences)
     return upgrade_rows(tables["Upgrade"]), {r["Property"]: r["Value"] for r in tables["Property"]}, extra
-
-
-def added_lines(patch_text):
-    """Lines a patch adds, per target file (the b/ path of each diff)."""
-    out, current = {}, None
-    for line in patch_text.splitlines():
-        if line.startswith("+++ "):
-            current = re.sub(r"^b/", "", line[4:].split("\t")[0].strip())
-            out.setdefault(current, [])
-        elif line.startswith("+") and current is not None:
-            out[current].append(line[1:])
-    return out
-
-
-def from_legacy_patch(patch_text):
-    """The detect-only Upgrade row, SecureCustomProperties and the forced-reinstall actions the patch adds."""
-    added = added_lines(patch_text)
-    files = {Path(name).name: lines for name, lines in added.items()}
-    upgrade = files.get("upgrade.pm", [])
-    if not any('"258"' in line and f'"{LEGACY_DETECTED}"' in line and "$legacycode" in line for line in upgrade):
-        raise ValueError(f"the legacy patch no longer writes the detect row as (LEGACYUPGRADECODE, min, max, 258, {LEGACY_DETECTED})")
-    secure = [line.split("\t", 1)[1] for line in files.get("Property.idt", []) if line.startswith("SecureCustomProperties\t")]
-    if len(secure) != 1:
-        raise ValueError("the legacy patch must add one SecureCustomProperties line to Property.idt")
-    actions = {}
-    for line in files.get("CustomAc.idt", []):
-        f = line.split("\t")
-        if len(f) >= 4 and f[1].isdigit():
-            actions[f[0]] = (int(f[1]), f[2], f[3])
-    sequences = {}
-    for table, name in (("InstallExecuteSequence", "InstallE.idt"), ("InstallUISequence", "InstallU.idt")):
-        find, cost = TEMPLATE_SEQUENCE[table]
-        rows = [("FindRelatedProducts", "", find), ("CostInitialize", "", cost)]
-        for line in files.get(name, []):
-            f = line.split("\t")
-            if len(f) == 3 and re.fullmatch(r"\d+", f[2]):
-                rows.append((f[0], f[1], int(f[2])))
-        sequences[table] = rows
-    return {"SecureCustomProperties": secure[0]}, actions, sequences
 
 
 def from_patch(patch_text, msi_version, legacy_detect=False):
