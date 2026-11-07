@@ -66,7 +66,7 @@ class TypePicker:
         self.list.addItemListener(events)
         self.list.setVisible(False)
         field, rows = self.d.model.getByName("type"), self.d.model.getByName("typeList")
-        rows.PositionY = field.PositionY + field.Height + 1  # under the field, which may have grown (Dialog._fit_edits)
+        rows.PositionY = field.PositionY + field.Height + 1  # under the field, which may have grown (dialog_edit_heights)
         self.toolkit = self.d.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", self.d.ctx)
         self.handler = _Keys(self)
         self.toolkit.addKeyHandler(self.handler)

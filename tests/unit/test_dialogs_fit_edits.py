@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""One-line edits grow to the height the platform draws them, within the room below them (dialogs.Dialog._fit_edits).
+"""One-line edits grow to the height the platform draws them, within the room below them (dialog_edit_heights).
 
 On macOS a native edit box is 29 px high (21 px frame and a 4 px focus ring above and below, text area from 6 px below
 the top: vcl/inc/osx/salnativewidgets.h). The ND30 wizard gave its one-line edits 12 Map AppFont units, about 22 px
@@ -34,7 +34,7 @@ class Size:
 sys.modules["com.sun.star.awt"].Size = Size
 sys.modules["com.sun.star.util.MeasureUnit"].APPFONT = 17
 
-from hst_office import dialogs, wizard_nd30  # noqa: E402
+from hst_office import dialog_edit_heights, dialogs, wizard_nd30  # noqa: E402
 from hst_office.data_files import load_locale  # noqa: E402
 
 
@@ -87,7 +87,7 @@ class _Model:
 
 
 class FakeDialog(dialogs.Dialog):
-    """The real Dialog bookkeeping (_single_lines, _overlays, _fit_edits, _room_below) on a recorded model."""
+    """The real Dialog bookkeeping (_single_lines, _overlays) for dialog_edit_heights on a recorded model."""
 
     px_per_unit, preferred = 1.875, 29  # macOS: 13 pt system font, native edit 29 px
 
@@ -119,7 +119,7 @@ def _wizard(px_per_unit, preferred):
     wizard_nd30.Dialog, wizard_nd30.palette = FakeDialog, lambda ctx: {"muted": 0, "error": 0, "link": 0}
     wizard = wizard_nd30.Nd30Wizard(None, load_locale("vi"))
     before = {name: wizard.d.model.getByName(name).Height for name in wizard.d._single_lines}
-    wizard.d._fit_edits()
+    dialog_edit_heights.fit_edits(wizard.d)
     return wizard, before
 
 

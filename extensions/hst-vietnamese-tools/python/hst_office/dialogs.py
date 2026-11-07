@@ -8,6 +8,8 @@ import uno
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
+from . import dialog_edit_heights
+
 OK, CANCEL = 1, 2
 # Accent text colours that stay readable (contrast >= 4.5:1) on the light and on the dark dialog background.
 PALETTES = {False: {"link": 0x0B57D0, "muted": 0x5F6368, "error": 0xC5221F},
@@ -70,7 +72,7 @@ class Dialog:
         self.dialog.setModel(self.model)
         self._listeners = []
         self._watchers = []  # (control name, _Changed)
-        self._single_lines, self._overlays = [], set()  # single-line edits (see _fit_edits); lists shown over others
+        self._single_lines, self._overlays = [], set()  # single-line edits (dialog_edit_heights); lists shown over others
         self.result = 0
         self.on_oversize = None  # called with no arguments when the peer is larger than the screen work area
         self.on_ready, self.on_closed = None, None  # called right after the peer exists / after the dialog has ended
@@ -93,7 +95,7 @@ class Dialog:
 
     def plain_list(self, name, x, y, w, h, help_text=""):
         """A list box that shows its rows (the Quick Search list); it never takes part in Tab order. It is shown over the
-        controls under it, so it never limits their room (_room_below)."""
+        controls under it, so it never limits their room (dialog_edit_heights)."""
         self._overlays.add(name)
         return self._add("ListBox", name, x, y, w, h, Dropdown=False, Tabstop=False, HelpText=help_text or name)
 
@@ -136,41 +138,6 @@ class Dialog:
         self.dialog.endExecute()
         self.result = code
 
-    def _room_below(self, name):
-        """Map AppFont units from the top of `name` to the top of the nearest control below it that it overlaps
-        horizontally (the dialog bottom when there is none). Overlay lists don't count: they are drawn over the fields."""
-        model = self.model.getByName(name)
-        room = self.model.Height - model.PositionY
-        for other in self.model.ElementNames:
-            below = self.model.getByName(other)
-            if (other != name and other not in self._overlays and below.PositionY > model.PositionY
-                    and below.PositionX < model.PositionX + model.Width and model.PositionX < below.PositionX + below.Width):
-                room = min(room, below.PositionY - model.PositionY)
-        return room
-
-    def _fit_edits(self):
-        """Make every single-line edit at least as high as the platform draws it, within the room below it.
-
-        A fixed AppFont height is not enough everywhere: macOS draws a native edit box with a fixed 29 px frame whose
-        text area starts 6 px below the top (vcl/osx salnativewidgets), so a 12-unit edit (about 22 px) pinned the text
-        to the top border and cut the descenders of g/y; the gen backend (20 px) cut the hook of Ủ. The peer's preferred
-        height (Edit::CalcMinimumSize) is the text height plus borders, or the native frame when that is higher.
-        Edits that are already high enough keep their layout height."""
-        from com.sun.star.awt import Size
-        from com.sun.star.util.MeasureUnit import APPFONT
-        peer = self.dialog.getPeer()
-        for name in self._single_lines:
-            model = self.model.getByName(name)
-            try:
-                pixels = self.dialog.getControl(name).getPreferredSize().Height
-                need = peer.convertSizeToLogic(Size(0, pixels), APPFONT).Height
-                while peer.convertSizeToPixel(Size(0, need), APPFONT).Height < pixels:
-                    need += 1
-            except Exception:  # noqa: BLE001 - no size information: keep the layout height
-                continue
-            if need > model.Height:
-                model.Height = max(model.Height, min(need, self._room_below(name)))
-
     def _exceeds_screen(self, toolkit):
         """True when the created dialog (pixels) does not fit the work area, e.g. Windows display scaling on a small screen."""
         try:
@@ -184,7 +151,7 @@ class Dialog:
         toolkit = self.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", self.ctx)
         self.dialog.setVisible(False)
         self.dialog.createPeer(toolkit, parent_peer)
-        self._fit_edits()
+        dialog_edit_heights.fit_edits(self)
         if self.on_oversize and self._exceeds_screen(toolkit):
             self.on_oversize()
         for name, listener in self._listeners:
