@@ -17,7 +17,7 @@ opens them as a user would (loadComponentFromURL, visible), and asserts:
     a screenshot of the window both have more red than blue pixels, before and after signing.
 
 Run as root or a normal user on an X display (Xvfb), with softhsm2, opensc, libnss3-tools,
-openssl and poppler-utils. Example:
+openssl and poppler-utils (missing: BLOCKED, exit 2, unless --allow-skip). Example:
   check-pdf-viewer.py --instdir upstream/libreoffice/instdir --workdir /tmp/pdfv --display :71
 """
 import argparse
@@ -144,7 +144,12 @@ def main():
     ap.add_argument("--display", default=":97")
     ap.add_argument("--port", type=int, default=2091)
     ap.add_argument("--no-signing", action="store_true", help="skip the token signing part")
+    ap.add_argument("--allow-skip", action="store_true", help="missing token tools skip signing (default: BLOCKED, exit 2)")
     args = ap.parse_args()
+    missing = [] if args.no_signing else signature_pki.missing_tools()
+    if missing and not args.allow_skip:
+        print("BLOCKED: missing " + ", ".join(missing) + " (install them, or pass --no-signing or --allow-skip)")
+        return 2
     workdir = args.workdir.resolve()
     shutil.rmtree(workdir, ignore_errors=True)
     workdir.mkdir(parents=True)
@@ -157,7 +162,6 @@ def main():
            # no session bus on a test display: GTK would wait for dbus-launch on every window
            "DBUS_SESSION_BUS_ADDRESS": "unix:path=/nonexistent-hst-test-bus"}
     if not args.no_signing:
-        missing = signature_pki.missing_tools()
         if missing:
             print("SKIP signing: " + ", ".join(missing))
             args.no_signing = True

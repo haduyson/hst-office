@@ -9,12 +9,13 @@ Signs ODT, DOCX, ODS, XLSX, ODP, PPTX and an existing PDF through the real dialo
 with lxml/cryptography, pdfsig, pyHanko). A second, fresh instance cancels the PIN prompt and
 must leave the document unsigned without crashing. Throw-away keys live in --workdir only.
 
-Needs: softhsm2, opensc (pkcs11-tool), libnss3-tools, openssl, poppler-utils, python3-lxml,
+Needs: softhsm2, opensc (pkcs11-tool), libnss3-tools, openssl, poppler-utils, pyHanko, python3-lxml,
 python3-cryptography, ImageMagick `import`, x11-utils, an X display (Xvfb). UITest drives the dialogs (gen plugin).
 
   check-digital-signature.py --instdir /opt/hst-office1.0 --workdir /tmp/sig [--display :93]
                              [--tsa http://timestamp.digicert.com]
-Exit status 0 only when every format is signed and verifies.
+Exit 0 only when every format is signed and verifies; 2 (BLOCKED) when a tool above is missing. --allow-skip: 77
+for a missing token tool, and a PDF is then not checked by pyHanko when it is absent.
 """
 import argparse
 import json
@@ -159,13 +160,15 @@ def main():
     ap.add_argument("--tsa", help="time-stamp server URL for an extra signed PDF export")
     ap.add_argument("--late-pdf", action="store_true", help="export the unsigned PDF only after the other formats")
     ap.add_argument("--tabs", action="store_true", help="keep document tabs on (shipped default)")
+    ap.add_argument("--allow-skip", action="store_true",
+                    help="missing token tools skip (exit 77), a missing pyHanko is no failure; default: BLOCKED (exit 2)")
     args = ap.parse_args()
     if args.tabs:
         TABS.clear()
-    missing = signature_pki.missing_tools()
+    missing = signature_pki.missing_tools() + ([] if args.allow_skip else signature_verify.missing_verifiers())
     if missing:
-        print("SKIP: missing " + ", ".join(missing))
-        return 77
+        print(("SKIP: missing " if args.allow_skip else "BLOCKED: missing (or pass --allow-skip) ") + ", ".join(missing))
+        return 77 if args.allow_skip else 2
     os.makedirs(args.workdir, exist_ok=True)
     hst_gui.setup_uno(args.instdir)
     pki = signature_pki.TokenPki(os.path.join(args.workdir, "pki")).create()
@@ -173,7 +176,7 @@ def main():
     results = {"nss_modules": modules, "nss_certificates": certs}
     run_signing(args, pki, results)
     run_cancel(args, pki, results)
-    external_checks(pki, results)
+    external_checks(pki, results, allow_missing=args.allow_skip)
     failures = verdict(results)
     with open(os.path.join(args.workdir, "results.json"), "w", encoding="utf-8") as handle:
         json.dump(results, handle, ensure_ascii=False, indent=1, default=str)

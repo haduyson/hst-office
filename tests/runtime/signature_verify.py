@@ -6,8 +6,8 @@ XML-DSig SignatureValue over SignedInfo with the embedded certificate, every Ref
 (same-document ids, ODF package streams, the OOXML package Manifest) and that the certificate
 was issued by the given CA. OOXML references through the OPC Relationship transform are listed
 as "unchecked" (HST verifies them; see _relationship_transform). Uses only lxml and
-cryptography. PDF: poppler `pdfsig` (NSS) and, if installed, pyHanko (non-strict syntax: the PDF
-writer stores UTC dates as "D:...Z'", which pyHanko's strict parser rejects).
+cryptography. PDF: poppler `pdfsig` (NSS) and pyHanko (non-strict syntax: the PDF writer stores UTC dates as
+"D:...Z'", which pyHanko's strict parser rejects); a missing pyHanko fails the PDF unless the caller allows it.
 """
 import base64
 import copy
@@ -149,15 +149,27 @@ def verify_package(path, ca_pem):
         return results
 
 
-def verify_pdf(path, nssdb, ca_pem):
-    """{'pdfsig': text, 'pdfsig_valid': bool, 'pyhanko': text or None, 'pyhanko_valid': bool or None}."""
-    out = {"pdfsig": None, "pdfsig_valid": None, "pyhanko": None, "pyhanko_valid": None}
+def _pyhanko():
+    return shutil.which("pyhanko") or shutil.which("/opt/venv/bin/pyhanko")
+
+
+def missing_verifiers():
+    """The PDF verifiers that are not installed: both are needed for a PDF verdict."""
+    return [name for name, found in (("pdfsig", shutil.which("pdfsig")), ("pyhanko", _pyhanko())) if not found]
+
+
+def verify_pdf(path, nssdb, ca_pem, allow_missing=False):
+    """{'pdfsig': text, 'pdfsig_valid': bool, 'pyhanko': text or None, 'pyhanko_valid': bool or None}. A verifier
+    that is not installed reads invalid (False), or not checked (None) with allow_missing."""
+    absent = None if allow_missing else False
+    out = {"pdfsig": "pdfsig not installed", "pdfsig_valid": absent, "pyhanko": "pyhanko not installed",
+           "pyhanko_valid": absent}
     if shutil.which("pdfsig"):
         text = subprocess.run(["pdfsig", "-nssdir", "sql:" + nssdb, path], capture_output=True, text=True).stdout
         out["pdfsig"] = text
         out["pdfsig_valid"] = ("Signature is Valid" in text and "Certificate is Trusted" in text
                                and "Total document signed" in text)
-    pyhanko = shutil.which("pyhanko") or (shutil.which("/opt/venv/bin/pyhanko"))
+    pyhanko = _pyhanko()
     if pyhanko:
         # the test CA in addition to the system roots, which anchor public time-stamp servers
         res = subprocess.run([pyhanko, "sign", "validate", "--pretty-print", "--no-revocation-check",

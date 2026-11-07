@@ -6,12 +6,13 @@ import signature_verify
 from signature_documents import FORMATS
 
 
-def external_checks(pki, results):
+def external_checks(pki, results, allow_missing=False):
+    """Each signed file checked outside HST; with allow_missing, a PDF passes without pyHanko when pyHanko is absent."""
     for tag, row in results.items():
         if not isinstance(row, dict) or not row.get("file") or not os.path.exists(row["file"]):
             continue
         if row["file"].endswith(".pdf"):
-            row["external"] = signature_verify.verify_pdf(row["file"], pki.nssdb, pki.ca_pem)
+            row["external"] = signature_verify.verify_pdf(row["file"], pki.nssdb, pki.ca_pem, allow_missing)
             row["external_valid"] = bool(row["external"]["pdfsig_valid"]) and row["external"]["pyhanko_valid"] is not False
         else:
             row["external"] = signature_verify.verify_package(row["file"], pki.ca_pem)
