@@ -1,0 +1,605 @@
+HST Office: Writer's "Đầu trang & Chân trang" contextual tab.
+
+While the cursor is in a header or footer, Writer reports the header/footer context (the context
+itself, its sw state and the tab control's handling are S6's engine patch); the ribbon then shows this
+tab, as Office shows Header & Footer: Đầu trang & Chân trang (header, footer, page number), Chèn
+(picture, date, field, AutoText), Điều hướng (go to header, go to footer) and Tùy chọn (the page
+dialog: different first page, odd and even pages, distances).
+
+- sw notebookbar.ui and its vi translation: the page, its tab ("context-HeaderFooter") and the group
+  captions.
+- sfx2 HstKeyTipTable.hxx: the tab's key tip, JH.
+- solenv swriter.suppr: the new icon buttons take their accessible names from their commands.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -19052,6 +19052,503 @@
+               </packing>
+             </child>
+             <child>
++              <object class="sfxlo-PriorityHBox" id="phbHeaderFooter">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <child>
++                  <object class="sfxlo-PriorityMergedHBox" id="pmhbphbHeaderFooter">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <child>
++                      <object class="GtkGrid" id="gdHeaderFooterHstMain">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">4</property>
++                        <property name="margin-end">2</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbHeaderFooterHstMain">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedWriter|labelHeaderFooterHstMain">Header &amp; Footer</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdHeaderFooterHstMain"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">3</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxHFHeader">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxHFHeader">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:InsertPageHeader</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxHFFooter">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxHFFooter">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:InsertPageFooter</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxHFPageNumber">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxHFPageNumber">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:PageNumberWizard</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbHeaderFooterHstMain"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkGrid" id="gdHeaderFooterHstInsert">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">4</property>
++                        <property name="margin-end">2</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbHeaderFooterHstInsert">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedWriter|labelHeaderFooterHstInsert">Insert</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdHeaderFooterHstInsert"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">3</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxHFPicture">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxHFPicture">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:InsertGraphic</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxHFDate">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxHFDate">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:InsertDateField</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxHFField">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxHFField">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:InsertFieldCtrl</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxHFAutoText">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxHFAutoText">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:EditGlossary</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbHeaderFooterHstInsert"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkGrid" id="gdHeaderFooterHstNavigation">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">4</property>
++                        <property name="margin-end">2</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbHeaderFooterHstNavigation">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedWriter|labelHeaderFooterHstNavigation">Navigation</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdHeaderFooterHstNavigation"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxHFGoHeader">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxHFGoHeader">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:JumpToHeader</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxHFGoFooter">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxHFGoFooter">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:JumpToFooter</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbHeaderFooterHstNavigation"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">2</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkGrid" id="gdHeaderFooterHstOptions">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">4</property>
++                        <property name="margin-end">2</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbHeaderFooterHstOptions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedWriter|labelHeaderFooterHstOptions">Options</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdHeaderFooterHstOptions"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxHFPageDialog">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxHFPageDialog">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:PageDialog</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbHeaderFooterHstOptions"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">3</property>
++                      </packing>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="position">18</property>
++              </packing>
++            </child>
++            <child type="tab">
++              <object class="GtkLabel" id="HeaderFooterLabel">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="TabbedWriter|HeaderFooterTabLabel">~Header &amp; Footer</property>
++                <property name="use-underline">True</property>
++                <style>
++                  <class name="context-HeaderFooter"/>
++                </style>
++              </object>
++              <packing>
++                <property name="position">19</property>
++                <property name="tab-fill">False</property>
++              </packing>
++            </child>
++            <child>
+               <object class="sfxlo-PriorityHBox" id="Help Tab">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+@@ -19257,7 +19754,7 @@
+                 <property name="use-underline">True</property>
+               </object>
+               <packing>
+-                <property name="position">19</property>
++                <property name="position">20</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+@@ -20276,7 +20773,7 @@
+                 <property name="use-underline">True</property>
+               </object>
+               <packing>
+-                <property name="position">20</property>
++                <property name="position">21</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -3872,6 +3872,36 @@
+ msgid "Can't create document."
+ msgstr "Không thể tạo tài liệu."
+ 
++#. hstRP
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|labelHeaderFooterHstMain"
++msgid "Header & Footer"
++msgstr "Đầu trang & Chân trang"
++
++#. hstRP
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|labelHeaderFooterHstInsert"
++msgid "Insert"
++msgstr "Chèn"
++
++#. hstRP
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|labelHeaderFooterHstNavigation"
++msgid "Navigation"
++msgstr "Điều hướng"
++
++#. hstRP
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|labelHeaderFooterHstOptions"
++msgid "Options"
++msgstr "Tùy chọn"
++
++#. hstRP
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|HeaderFooterTabLabel"
++msgid "~Header & Footer"
++msgstr "Đầu trang & C~hân trang"
++
+ #. rfFYm
+ #: sw/inc/strings.hrc:252
+ msgctxt "STR_DLLNOTFOUND"
+--- a/sfx2/source/notebookbar/HstKeyTipTable.hxx
++++ b/sfx2/source/notebookbar/HstKeyTipTable.hxx
+@@ -43,6 +43,8 @@
+     { "HelpLabel", "Y2" },
+     // Sheets' pivot table tab: JT as Office's PivotTable Analyze; never shown with Table Design (JT)
+     { "PivotLabel", "JT" },
++    // Writer's header and footer tab: JH as Office's Header & Footer tab
++    { "HeaderFooterLabel", "JH" },
+ };
+ 
+ // Commands, without ".uno:".
+--- a/solenv/sanitizers/ui/modules/swriter.suppr
++++ b/solenv/sanitizers/ui/modules/swriter.suppr
+@@ -637,3 +637,13 @@
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartResetAll'] button-no-label
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartResetPoint'] button-no-label
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstFillPageColor'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxHFHeader'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxHFFooter'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxHFPageNumber'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxHFPicture'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxHFDate'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxHFField'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxHFAutoText'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxHFGoHeader'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxHFGoFooter'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxHFPageDialog'] button-no-label

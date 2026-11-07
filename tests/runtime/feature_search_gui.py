@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Helpers of check-feature-search.py: the HST menu, the search popup and the button of the ribbon."""
+"""Helpers of check-feature-search.py: the HST menu, the search popup and the search box of the ribbon tab row."""
 import os
 import subprocess
 import time
@@ -43,6 +43,60 @@ def hst_menu(app):
                     items.append(later_name)
             return node, items
     return None, []
+
+
+def extents(node):
+    import pyatspi
+    box = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+    return box.x, box.y, box.width, box.height
+
+
+BOX_NAMES = ("Tìm tính năng", "Search features")
+
+
+def search_box(office, app=None):
+    """Box (x, y, width, height) of the shown search box of the ribbon tab row, or None. AT-SPI lists the box as a push
+    button of the page tab list; without it, the UITest service finds it by its id "hst-tab-search" (AbsPosition is
+    relative to the frame, which sits at the screen origin under Xvfb without a window manager)."""
+    for _depth, role, _name, node in nodes(app) if app is not None else []:
+        if role != "page tab list":
+            continue
+        for index in range(node.childCount):
+            child = node.getChildAtIndex(index)
+            if child is not None and child.getRoleName() == "push button" and (child.name or "").startswith(BOX_NAMES):
+                box = extents(child)
+                return box if box[2] > 0 else None
+    for _ in range(5):  # the document window may take a moment to become the focused top window
+        top = office.service("org.libreoffice.uitest.UITest").getTopFocusWindow()
+        if "hst-tab-search" in top.getChildren():
+            state = {p.Name: p.Value for p in top.getChild("hst-tab-search").getState()}
+            if state.get("ReallyVisible") != "true":
+                return None
+            x, y = (int(v) for v in state["AbsPosition"].split("x"))
+            width, height = (int(v) for v in state["Size"].split("x"))
+            return (x, y, width, height) if width > 0 else None
+        time.sleep(1)
+    return None
+
+
+def tab_boxes(app):
+    """Boxes of the showing ribbon tabs (the tab row lies above y 100)."""
+    found = []
+    for _depth, role, _name, node in nodes(app):
+        try:
+            if role == "page tab" and 0 < extents(node)[2] and extents(node)[1] < 100:
+                found.append(extents(node))
+        except Exception:  # noqa: BLE001
+            continue
+    return found
+
+
+def under(popup, box):
+    """The popup's entry opens right under the box and starts within its width."""
+    if popup is None or box is None:
+        return False
+    entry = extents(popup)
+    return box[1] + box[3] - 4 <= entry[1] <= box[1] + box[3] + 120 and box[0] - 20 <= entry[0] < box[0] + box[2]
 
 
 def popup_entry(app):

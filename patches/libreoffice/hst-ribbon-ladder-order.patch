@@ -1,0 +1,136 @@
+HST Office: the ribbon collapse ladder follows each tab's own order.
+
+When vcl/inc/HstRibbonLadders.hxx (generated, hst-ribbon-scale-ladders.patch) has a ladder for exactly
+the groups of a merged group box, its steps come first (low-value groups shrink first, core groups and
+Styles last), followed by the default ladder for anything it leaves out, and groups fold into the
+chevron popup in its fold order instead of strictly from the right. Without the header, or for other
+boxes, the default ladder and right-to-left folding stay.
+
+- vcl/source/control/PriorityMergedHBox.cxx, vcl/inc/PriorityMergedHBox.hxx.
+
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -33,6 +33,8 @@
+     std::map<vcl::Window*, std::pair<sal_Int32, std::vector<tools::Long>>> m_aHstWidths;
+     std::map<vcl::Window*, int> m_aHstStates;
+     bool m_bHstLadder = false;
++    // groups in the order they fold into the popup (the tab's ladder, else right to left)
++    std::vector<vcl::Window*> m_aHstFoldOrder;
+     void HstApplyLadder(tools::Long nWidth);
+ 
+     DECL_LINK(PBClickHdl, Button*, void);
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -26,6 +26,12 @@
+ #include <comphelper/lok.hxx>
+ #include <HstRibbonLadder.hxx>
+ #include <HstRibbonScaling.hxx>
++#if __has_include(<HstRibbonLadders.hxx>)
++#include <HstRibbonLadders.hxx>
++#define HST_HAVE_RIBBON_LADDERS 1
++#endif
++
++#include <algorithm>
+ #include <vcl/event.hxx>
+ 
+ #include <utility>
+@@ -94,18 +100,45 @@
+     const tools::Long nRoom
+         = bFold ? nWidth - getLayoutRequisition(*m_pButton).Width() - m_pButton->get_padding() * 2 - nSpacing
+                 : nWidth;
+-    tools::Long nUsed = 0;
+-    bool bFull = false;
+-    for (const auto& [pGroup, nGroup] : aGroups)
+-    {
+-        const tools::Long nNext = nUsed + (nUsed ? nSpacing : 0) + nGroup;
+-        bFull = bFull || nNext > nRoom;
+-        if (bFull)
+-            pGroup->Hide();
+-        else
++    if (hst::ribbon::collapseLadderEnabled() && !m_aHstFoldOrder.empty())
++    {
++        // HST Office: the tab's ladder says which groups fold first (core groups and Styles last)
++        std::vector<vcl::Window*> aHidden;
++        tools::Long nTotal = nAll;
++        for (vcl::Window* pGroup : m_aHstFoldOrder)
++        {
++            if (!bFold || nTotal <= nRoom)
++                break;
++            const auto it = std::find_if(aGroups.begin(), aGroups.end(),
++                                         [pGroup](const auto& rEntry) { return rEntry.first == pGroup; });
++            if (it == aGroups.end())
++                continue;
++            aHidden.push_back(pGroup);
++            nTotal -= it->second + nSpacing;
++        }
++        for (const auto& [pGroup, nGroup] : aGroups)
++        {
++            if (std::find(aHidden.begin(), aHidden.end(), pGroup) != aHidden.end())
++                pGroup->Hide();
++            else
++                pGroup->Show();
++        }
++    }
++    else
++    {
++        tools::Long nUsed = 0;
++        bool bFull = false;
++        for (const auto& [pGroup, nGroup] : aGroups)
+         {
+-            pGroup->Show();
+-            nUsed = nNext;
++            const tools::Long nNext = nUsed + (nUsed ? nSpacing : 0) + nGroup;
++            bFull = bFull || nNext > nRoom;
++            if (bFull)
++                pGroup->Hide();
++            else
++            {
++                pGroup->Show();
++                nUsed = nNext;
++            }
+         }
+     }
+ 
+@@ -149,8 +182,40 @@
+     }
+     const tools::Long nChevron
+         = getLayoutRequisition(*m_pButton).Width() + m_pButton->get_padding() * 2 + nSpacing;
+-    // default ladder: from the right, one state at a time; core groups on the left go last
+-    const hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, {}, nWidth, nChevron);
++    // the tab's own ladder when the generated table has one for exactly these groups, then the
++    // default ladder (from the right, one state at a time) for anything it leaves out
++    std::vector<hst::ribbon::Step> aSteps;
++    m_aHstFoldOrder.assign(aWindows.rbegin(), aWindows.rend());
++#ifdef HST_HAVE_RIBBON_LADDERS
++    for (const auto& rLadder : hst::ribbon::ladders::all)
++    {
++        if (rLadder.groupCount != aWindows.size())
++            continue;
++        bool bMatch = true;
++        for (size_t i = 0; i < aWindows.size() && bMatch; ++i)
++            bMatch = aWindows[i]->get_id() == rLadder.groups[i];
++        if (!bMatch)
++            continue;
++        const auto indexOf = [&](std::u16string_view aId) {
++            return static_cast<size_t>(std::find_if(aWindows.begin(), aWindows.end(),
++                                                    [&](vcl::Window* p) { return p->get_id() == aId; })
++                                       - aWindows.begin());
++        };
++        for (size_t i = 0; i < rLadder.stepCount; ++i)
++            aSteps.push_back(hst::ribbon::Step{ indexOf(rLadder.steps[i].group),
++                                                static_cast<size_t>(rLadder.steps[i].state) });
++        m_aHstFoldOrder.clear();
++        for (size_t i = 0; i < rLadder.groupCount; ++i)
++            m_aHstFoldOrder.push_back(aWindows[indexOf(rLadder.fold[i])]);
++        break;
++    }
++#endif
++    if (!aSteps.empty())
++    {
++        const std::vector<hst::ribbon::Step> aDefault = hst::ribbon::defaultLadder(aGroups);
++        aSteps.insert(aSteps.end(), aDefault.begin(), aDefault.end());
++    }
++    const hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, aSteps, nWidth, nChevron);
+     for (size_t i = 0; i < aWindows.size(); ++i)
+     {
+         const int nState = static_cast<int>(aLayout.states[i]);

@@ -1,0 +1,549 @@
+HST Office: feature search of the ribbon tab row (sfx2::hst::ShowFeatureSearch).
+
+The search box of the tab row (hst-ribbon-tab-search.patch, child id "hst-tab-search") includes
+<notebookbar/HstFeatureSearch.hxx> when it exists and calls ShowFeatureSearch(box, typed text).
+
+- sfx2/inc/notebookbar/HstFeatureSearch.hxx: the interface.
+- sfx2/source/commandpopup/CommandPopup.cxx, sfx2/inc/commandpopup/CommandPopup.hxx,
+  sfx2/source/view/viewfrm.cxx: the feature search popup (.uno:CommandPopup) opens under the box
+  while the box is shown: from the box, from Shift+Esc and from Alt+Q; elsewhere where it opened
+  before. A character typed into the box is the first text of the search. The last row,
+  "Find “…” in the document" ("Tìm “…” trong tài liệu"), goes to the first match and opens
+  Find & Replace with the text.
+- include/sfx2/strings.hrc, translations/source/vi/sfx2/messages.po: STR_HST_FIND_IN_DOCUMENT.
+- officecfg Accelerators.xcu: Alt+Q opens the feature search on Linux and Windows, as in Office;
+  the key tips keep Q free on the tab level. Shift+Esc stays; macOS keeps Option+Cmd+K.
+- sw, sc, sd notebookbar.ui: the "Tìm tính năng" button leaves the Home tab now that the tab row
+  has the box; the "Trang đầu" menu keeps the item.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- /dev/null
++++ b/sfx2/inc/notebookbar/HstFeatureSearch.hxx
+@@ -0,0 +1,29 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++// HST Office: feature search ("Tìm tính năng…") of the ribbon tab row. The search box of the tab row
++// (NotebookbarTabControl) includes this header when it exists and calls ShowFeatureSearch; without
++// it the box falls back to .uno:CommandPopup.
++
++#include <sfx2/dllapi.h>
++#include <rtl/ustring.hxx>
++
++namespace vcl
++{
++class Window;
++}
++
++namespace sfx2::hst
++{
++/** Opens the feature search popup under pAnchor (the search box), with rInitialText already typed
++    and searched. Without an anchor the popup opens where Shift+Esc opens it. Shift+Esc and Alt+Q
++    (.uno:CommandPopup) also open it under the box while the box is shown. */
++SFX2_DLLPUBLIC void ShowFeatureSearch(vcl::Window* pAnchor, const OUString& rInitialText);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/inc/commandpopup/CommandPopup.hxx
++++ b/sfx2/inc/commandpopup/CommandPopup.hxx
+@@ -10,6 +10,8 @@
+ #pragma once
+ 
+ #include <utility>
++#include <tools/gen.hxx>
++#include <vcl/vclptr.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Entry.hxx>
+ #include <vcl/weld/Popover.hxx>
+@@ -31,10 +33,13 @@
+ {
+     OUString m_aCommandURL;
+     OUString m_aTooltip;
++    // HST Office: the text the "Find … in the document" row searches for (empty on other rows)
++    OUString m_aFindText;
+ 
+-    CurrentEntry(OUString aCommandURL, OUString aTooltip)
++    CurrentEntry(OUString aCommandURL, OUString aTooltip, OUString aFindText = OUString())
+         : m_aCommandURL(std::move(aCommandURL))
+         , m_aTooltip(std::move(aTooltip))
++        , m_aFindText(std::move(aFindText))
+     {
+     }
+ };
+@@ -107,6 +112,7 @@
+ 
+     std::vector<CurrentEntry> maCommandList;
+     std::unique_ptr<MenuContentHandler> mpMenuContentHandler;
++    css::uno::Reference<css::frame::XFrame> mxFrame;
+ 
+     DECL_LINK(QueryTooltip, const weld::TreeIter&, OUString);
+     DECL_LINK(RowActivated, const weld::TreeIter&, bool);
+@@ -114,10 +120,15 @@
+     DECL_LINK(TreeViewKeyPress, const KeyEvent&, bool);
+ 
+     void DispatchSelectedCommand();
+-    void dispatchCommandAndClose(OUString const& rCommand);
++    void dispatchCommandAndClose(OUString const& rCommand, OUString const& rFindText);
++    void addFindInDocumentRow(OUString const& rText);
+ 
+ public:
+-    CommandListBox(weld::Window* pParent, css::uno::Reference<css::frame::XFrame> const& xFrame);
++    /** HST Office: pAnchor (in pParent coordinates) is the feature search box of the ribbon tab
++        row, the popup opens under it; rInitialText is typed and searched at once. */
++    CommandListBox(weld::Window* pParent, css::uno::Reference<css::frame::XFrame> const& xFrame,
++                   tools::Rectangle const* pAnchor = nullptr,
++                   OUString const& rInitialText = OUString());
+     void connect_closed(const Link<weld::Popover&, void>& rLink)
+     {
+         mxPopover->connect_closed(rLink);
+@@ -130,8 +141,29 @@
+     std::unique_ptr<CommandListBox> mpListBox;
+ 
+ public:
+-    void showPopup(weld::Window* pParent, css::uno::Reference<css::frame::XFrame> const& xFrame);
++    void showPopup(weld::Window* pParent, css::uno::Reference<css::frame::XFrame> const& xFrame,
++                   tools::Rectangle const* pAnchor = nullptr,
++                   OUString const& rInitialText = OUString());
+     DECL_LINK(PopupModeEnd, weld::Popover&, void);
+ };
+ 
++namespace vcl
++{
++class Window;
++}
++
++namespace sfx2::hst
++{
++/// HST Office: where and with which text SID_COMMAND_POPUP opens the feature search.
++struct FeatureSearchRequest
++{
++    VclPtr<vcl::Window> xAnchor; // the search box of the ribbon tab row, or empty
++    OUString aText;
++};
++
++/** The request of ShowFeatureSearch (HstFeatureSearch.hxx) while it dispatches; otherwise the
++    search box of the ribbon tab row of rViewWindow's window when it is shown, with no text. */
++FeatureSearchRequest TakeFeatureSearchRequest(vcl::Window& rViewWindow);
++}
++
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/commandpopup/CommandPopup.cxx
++++ b/sfx2/source/commandpopup/CommandPopup.cxx
+@@ -8,25 +8,38 @@
+  */
+ 
+ #include <commandpopup/CommandPopup.hxx>
++#include <notebookbar/HstFeatureSearch.hxx>
+ 
+ #include <sfx2/msgpool.hxx>
+ #include <sfx2/bindings.hxx>
++#include <sfx2/dispatch.hxx>
+ #include <sfx2/msg.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/sfxsids.hrc>
++#include <sfx2/strings.hrc>
+ #include <sfx2/viewfrm.hxx>
+ 
+ #include <comphelper/processfactory.hxx>
+ #include <comphelper/dispatchcommand.hxx>
++#include <comphelper/propertysequence.hxx>
+ 
+ #include <com/sun/star/configuration/ReadOnlyAccess.hpp>
+ #include <com/sun/star/frame/XDispatchProvider.hpp>
+ #include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
+ #include <com/sun/star/util/URL.hpp>
+ #include <com/sun/star/util/URLTransformer.hpp>
++#include <com/sun/star/util/SearchAlgorithms.hpp>
++#include <com/sun/star/util/SearchAlgorithms2.hpp>
+ #include <com/sun/star/i18n/CharacterClassification.hpp>
+ 
+ #include <vcl/commandinfoprovider.hxx>
+ #include <vcl/event.hxx>
++#include <vcl/notebookbar/notebookbar.hxx>
+ #include <vcl/svapp.hxx>
++#include <vcl/syswin.hxx>
++#include <i18nutil/transliteration.hxx>
++#include <svl/itemset.hxx>
++#include <svl/srchitem.hxx>
+ #include <i18nlangtag/languagetag.hxx>
+ #include <officecfg/Office/Addons.hxx>
+ #include <rtl/ustrbuf.hxx>
+@@ -407,12 +420,14 @@
+     return m_xCharacterClassification->toLower(rString, 0, rString.getLength(), rLocale);
+ }
+ 
+-CommandListBox::CommandListBox(weld::Window* pParent, uno::Reference<frame::XFrame> const& xFrame)
++CommandListBox::CommandListBox(weld::Window* pParent, uno::Reference<frame::XFrame> const& xFrame,
++                               tools::Rectangle const* pAnchor, OUString const& rInitialText)
+     : mxBuilder(Application::CreateBuilder(pParent, u"sfx/ui/commandpopup.ui"_ustr))
+     , mxPopover(mxBuilder->weld_popover(u"CommandPopup"_ustr))
+     , mpEntry(mxBuilder->weld_entry(u"command_entry"_ustr))
+     , mpCommandTreeView(mxBuilder->weld_tree_view(u"command_treeview"_ustr))
+     , mpMenuContentHandler(std::make_unique<MenuContentHandler>(xFrame))
++    , mxFrame(xFrame)
+ {
+     mpEntry->connect_changed(LINK(this, CommandListBox, ModifyHdl));
+     mpEntry->connect_key_press(LINK(this, CommandListBox, TreeViewKeyPress));
+@@ -426,8 +441,16 @@
+     mpCommandTreeView->set_size_request(nWidth, 400);
+ 
+     // Set the location of the pop-over window
+-    tools::Rectangle aRect(Point(aFrameSize.Width() / 2, 0), Size(0, 0));
++    // HST Office: under the feature search box of the ribbon tab row when it is shown
++    tools::Rectangle aRect = pAnchor ? *pAnchor : tools::Rectangle(Point(aFrameSize.Width() / 2, 0), Size(0, 0));
+     mxPopover->popup_at_rect(pParent, aRect);
++    if (!rInitialText.isEmpty())
++    {
++        // the character typed into the search box: searched at once, the cursor after it
++        mpEntry->set_text(rInitialText);
++        mpEntry->set_position(-1);
++        ModifyHdl(*mpEntry);
++    }
+     mpEntry->grab_focus();
+ }
+ 
+@@ -444,14 +467,15 @@
+ 
+ void CommandListBox::DispatchSelectedCommand()
+ {
+-    OUString aCommandURL;
++    OUString aCommandURL, aFindText;
+     int nSelected = mpCommandTreeView->get_selected_index();
+     if (nSelected != -1 && nSelected < int(maCommandList.size()))
+     {
+         auto const& rCurrent = maCommandList[nSelected];
+         aCommandURL = rCurrent.m_aCommandURL;
++        aFindText = rCurrent.m_aFindText;
+     }
+-    dispatchCommandAndClose(aCommandURL);
++    dispatchCommandAndClose(aCommandURL, aFindText);
+ }
+ 
+ IMPL_LINK_NOARG(CommandListBox, RowActivated, const weld::TreeIter&, bool)
+@@ -491,6 +515,7 @@
+ 
+     mpCommandTreeView->freeze();
+     mpMenuContentHandler->findInMenu(sText, mpCommandTreeView, maCommandList);
++    addFindInDocumentRow(sText.trim());
+     mpCommandTreeView->thaw();
+ 
+     if (mpCommandTreeView->n_children() > 0)
+@@ -502,22 +527,119 @@
+     mpEntry->grab_focus();
+ }
+ 
+-void CommandListBox::dispatchCommandAndClose(OUString const& rCommand)
++// HST Office: the last row, "Find “…” in the document", as the Office feature search offers it
++void CommandListBox::addFindInDocumentRow(OUString const& rText)
+ {
++    if (rText.isEmpty())
++        return;
++    const OUString aLabel = SfxResId(STR_HST_FIND_IN_DOCUMENT).replaceFirst("%1", rText);
++    static constexpr OUString aSearchDialog = u".uno:SearchDialog"_ustr;
++    maCommandList.emplace_back(aSearchDialog, aLabel, rText);
++    auto pIter = mpCommandTreeView->make_iterator();
++    mpCommandTreeView->insert(nullptr, -1, &aLabel, nullptr, nullptr, nullptr, false, pIter.get());
++    mpCommandTreeView->set_image(*pIter,
++                                 vcl::CommandInfoProvider::GetXGraphicForCommand(aSearchDialog, mxFrame));
++}
++
++void CommandListBox::dispatchCommandAndClose(OUString const& rCommand, OUString const& rFindText)
++{
++    // the popover may delete this list box when it closes: only the arguments are used after it
++    const OUString aCommand = rCommand;
++    const OUString aFindText = rFindText;
+     mxPopover->popdown();
+ 
+-    if (!rCommand.isEmpty())
+-        comphelper::dispatchCommand(rCommand, uno::Sequence<beans::PropertyValue>());
++    if (aCommand.isEmpty())
++        return;
++    if (!aFindText.isEmpty())
++    {
++        // HST Office: go to the first match, which also makes it the text of Find & Replace
++        auto aArgs(comphelper::InitPropertySequence({
++            { "SearchItem.SearchString", uno::Any(aFindText) },
++            { "SearchItem.CellType", uno::Any(sal_Int16(SvxSearchCellType::VALUE)) },
++            { "SearchItem.Backward", uno::Any(false) },
++            { "SearchItem.SearchFlags", uno::Any(sal_Int32(0)) },
++            { "SearchItem.TransliterateFlags",
++              uno::Any(static_cast<sal_Int32>(TransliterationFlags::IGNORE_CASE
++                                              | TransliterationFlags::IGNORE_DIACRITICS_CTL)) },
++            { "SearchItem.Command", uno::Any(static_cast<sal_Int16>(SvxSearchCmd::FIND)) },
++            { "SearchItem.AlgorithmType", uno::Any(sal_Int16(util::SearchAlgorithms_ABSOLUTE)) },
++            { "SearchItem.AlgorithmType2", uno::Any(sal_Int16(util::SearchAlgorithms2::ABSOLUTE)) },
++        }));
++        comphelper::dispatchCommand(u".uno:ExecuteSearch"_ustr, aArgs);
++    }
++    comphelper::dispatchCommand(aCommand, uno::Sequence<beans::PropertyValue>());
+ }
+ 
+ void CommandPopupHandler::showPopup(weld::Window* pParent,
+-                                    css::uno::Reference<css::frame::XFrame> const& xFrame)
++                                    css::uno::Reference<css::frame::XFrame> const& xFrame,
++                                    tools::Rectangle const* pAnchor, OUString const& rInitialText)
+ {
+-    auto pCommandListBox = std::make_unique<CommandListBox>(pParent, xFrame);
++    auto pCommandListBox = std::make_unique<CommandListBox>(pParent, xFrame, pAnchor, rInitialText);
+     pCommandListBox->connect_closed(LINK(this, CommandPopupHandler, PopupModeEnd));
+     mpListBox = std::move(pCommandListBox);
+ }
+ 
+ IMPL_LINK_NOARG(CommandPopupHandler, PopupModeEnd, weld::Popover&, void) { mpListBox.reset(); }
+ 
++namespace
++{
++// set by ShowFeatureSearch while it dispatches SID_COMMAND_POPUP
++sfx2::hst::FeatureSearchRequest g_aFeatureSearchRequest;
++
++// the search box of the ribbon tab row, a descendant of the notebookbar with this id
++vcl::Window* findFeatureSearchBox(vcl::Window* pWindow)
++{
++    for (vcl::Window* pChild = pWindow ? pWindow->GetWindow(GetWindowType::FirstChild) : nullptr;
++         pChild; pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (pChild->get_id() == u"hst-tab-search")
++            return pChild;
++        if (vcl::Window* pFound = findFeatureSearchBox(pChild))
++            return pFound;
++    }
++    return nullptr;
++}
++}
++
++sfx2::hst::FeatureSearchRequest sfx2::hst::TakeFeatureSearchRequest(vcl::Window& rViewWindow)
++{
++    FeatureSearchRequest aRequest = std::move(g_aFeatureSearchRequest);
++    g_aFeatureSearchRequest = FeatureSearchRequest();
++    if (!aRequest.xAnchor)
++    {
++        // Shift+Esc, Alt+Q: under the box when the ribbon shows it (it is hidden with no room)
++        SystemWindow* pSystem = rViewWindow.GetSystemWindow();
++        vcl::Window* pBox = pSystem && pSystem->GetNotebookBar()
++                                ? findFeatureSearchBox(pSystem->GetNotebookBar().get())
++                                : nullptr;
++        if (pBox && pBox->IsReallyVisible() && pBox->GetSizePixel().Width() > 0)
++            aRequest.xAnchor = pBox;
++    }
++    else if (aRequest.xAnchor->isDisposed() || !aRequest.xAnchor->IsReallyVisible())
++        aRequest.xAnchor.reset();
++    return aRequest;
++}
++
++void sfx2::hst::ShowFeatureSearch(vcl::Window* pAnchor, const OUString& rInitialText)
++{
++    // the view of the window that holds the box, else the current one
++    SfxViewFrame* pViewFrame = nullptr;
++    if (pAnchor)
++    {
++        for (SfxViewFrame* pFrame = SfxViewFrame::GetFirst(); pFrame && !pViewFrame;
++             pFrame = SfxViewFrame::GetNext(*pFrame))
++        {
++            if (pFrame->GetWindow().GetSystemWindow() == pAnchor->GetSystemWindow())
++                pViewFrame = pFrame;
++        }
++    }
++    if (!pViewFrame)
++        pViewFrame = SfxViewFrame::Current();
++    if (!pViewFrame)
++        return;
++    g_aFeatureSearchRequest = FeatureSearchRequest{ pAnchor, rInitialText };
++    pViewFrame->GetDispatcher()->Execute(SID_COMMAND_POPUP, SfxCallMode::SYNCHRON);
++    g_aFeatureSearchRequest = FeatureSearchRequest(); // not taken when the command is disabled
++}
++
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/view/viewfrm.cxx
++++ b/sfx2/source/view/viewfrm.cxx
+@@ -3434,9 +3434,22 @@
+         }
+         case SID_COMMAND_POPUP:
+         {
+-            tools::Rectangle aRectangle(Point(0,0), GetWindow().GetSizePixel());
+-            weld::Window* pParent = weld::GetPopupParent(GetWindow(), aRectangle);
+-            m_pCommandPopupHandler->showPopup(pParent, GetFrame().GetFrameInterface());
++            // HST Office: under the feature search box of the ribbon tab row when it is shown
++            const sfx2::hst::FeatureSearchRequest aSearch = sfx2::hst::TakeFeatureSearchRequest(GetWindow());
++            vcl::Window& rAnchor = aSearch.xAnchor ? *aSearch.xAnchor : GetWindow();
++            tools::Rectangle aRectangle(Point(0,0), rAnchor.GetSizePixel());
++            weld::Window* pParent = weld::GetPopupParent(rAnchor, aRectangle);
++            if (aSearch.xAnchor && Application::GetToolkitName().startsWith("gtk"))
++            {
++                // GetPopupParent gives the frame's client window coordinates, but gtk places popovers in
++                // coordinates of the whole frame, and the box sits in the notebookbar above the client window
++                vcl::Window* pFrameWindow = rAnchor.GetFrameWindow();
++                aRectangle = tools::Rectangle(
++                    pFrameWindow->ScreenToOutputPixel(rAnchor.OutputToScreenPixel(Point(0, 0))),
++                    rAnchor.GetSizePixel());
++            }
++            m_pCommandPopupHandler->showPopup(pParent, GetFrame().GetFrameInterface(),
++                                              aSearch.xAnchor ? &aRectangle : nullptr, aSearch.aText);
+ 
+             rReq.Done();
+             break;
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -101,6 +101,8 @@
+ #define STR_HELP_MENU_TEXT_COPY                 NC_("STR_HELP_MENU_TEXT_COPY", "~Copy")
+ #define STR_INFO_NOSEARCHRESULTS                NC_("STR_INFO_NOSEARCHRESULTS", "No topics found.")
+ #define STR_INFO_NOSEARCHTEXTFOUND              NC_("STR_INFO_NOSEARCHTEXTFOUND", "The text you entered was not found.")
++// HST Office: last row of the feature search; %1 is the searched text
++#define STR_HST_FIND_IN_DOCUMENT                NC_("STR_HST_FIND_IN_DOCUMENT", "Find “%1” in the document")
+ #define RID_HELP_ONSTARTUP_TEXT                 NC_("RID_HELP_ONSTARTUP_TEXT", "~Display %PRODUCTNAME %MODULENAME Help at Startup")
+ 
+ #define STR_NONAME                              NC_("STR_NONAME", "Untitled")
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -441,6 +441,12 @@
+ msgid "The text you entered was not found."
+ msgstr "Không tìm thấy chuỗi bạn nhập vào."
+ 
++#. hstFindInDocument
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_FIND_IN_DOCUMENT"
++msgid "Find “%1” in the document"
++msgstr "Tìm “%1” trong tài liệu"
++
+ #. qLPDs
+ #: include/sfx2/strings.hrc:96
+ msgctxt "RID_HELP_ONSTARTUP_TEXT"
+--- a/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
+@@ -363,6 +363,14 @@
+           <value xml:lang="en-US">.uno:CommandPopup</value>
+         </prop>
+       </node>
++      <!-- HST Office: Alt+Q goes to the feature search of the ribbon tab row, as in Office (the key
++           tips keep Q free on the tab level; on macOS Option+Q types a character) -->
++      <node oor:name="Q_MOD2" oor:op="replace">
++        <prop oor:name="Command">
++          <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++          <value xml:lang="en-US" install:module="unxwnt">.uno:CommandPopup</value>
++        </prop>
++      </node>
+       <!-- HST Office: feature search on macOS also as Option+Cmd+K (Cmd+K is Insert Hyperlink;
+            Control+K is the Cocoa "delete to end of paragraph" key binding; Shift+Esc reaches the
+            frame through cancelOperation: without its Shift modifier) -->
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -4347,36 +4347,6 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeHstToolsSearch">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="halign">start</property>
+-                            <property name="valign">center</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <property name="icon_size">1</property>
+-                            <child>
+-                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc); the label drops the "…" of the command (builder.cxx) -->
+-                              <object class="GtkToolButton" id="Home-HstFeatureSearch">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="valign">center</property>
+-                                <property name="label">Tìm tính năng</property>
+-                                <property name="action-name">.uno:CommandPopup</property>
+-                                <property name="icon-name">cmd/lc_recsearch.png</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHstHomeSpelling">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -4718,36 +4718,6 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeHstToolsSearch">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="halign">start</property>
+-                            <property name="valign">center</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <property name="icon_size">1</property>
+-                            <child>
+-                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc); the label drops the "…" of the command (builder.cxx) -->
+-                              <object class="GtkToolButton" id="Home-HstFeatureSearch">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="valign">center</property>
+-                                <property name="label">Tìm tính năng</property>
+-                                <property name="action-name">.uno:CommandPopup</property>
+-                                <property name="icon-name">cmd/lc_recsearch.png</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+                           <object class="GtkLabel" id="lbHomeHstTools">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+--- a/sd/uiconfig/simpress/ui/notebookbar.ui
++++ b/sd/uiconfig/simpress/ui/notebookbar.ui
+@@ -4545,36 +4545,6 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeHstToolsSearch">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="halign">start</property>
+-                            <property name="valign">center</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <property name="icon_size">1</property>
+-                            <child>
+-                              <!-- HST Office: feature search (.uno:CommandPopup, Shift+Esc); the label drops the "…" of the command (builder.cxx) -->
+-                              <object class="GtkToolButton" id="Home-HstFeatureSearch">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="valign">center</property>
+-                                <property name="label">Tìm tính năng</property>
+-                                <property name="action-name">.uno:CommandPopup</property>
+-                                <property name="icon-name">cmd/lc_recsearch.png</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+                           <object class="GtkLabel" id="lbHomeHstTools">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>

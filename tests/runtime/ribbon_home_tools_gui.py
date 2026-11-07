@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Home tab checks of check-ribbon-home-fit.py: the "Công cụ" group, Find & Replace in the paragraph group and the
-feature search in the "Trang đầu" menu (hst-ribbon-home-fit.patch)."""
+feature search in the "Trang đầu" menu (hst-ribbon-home-fit.patch). The feature search button left the Home tab for
+the search box of the tab row (hst-ribbon-feature-search.patch)."""
 import time
 
 TOOLS = "Công cụ"
@@ -44,7 +45,7 @@ def group_range(captions, name):
 
 
 def check_tools_group(tabs, args, app, width, captions):
-    """At a width where nothing folds: the group "Công cụ" has its rows in order, one feature search on Home."""
+    """At a width where nothing folds: the group "Công cụ" has its rows in order, and no feature search button."""
     found = items(tabs)
     names = [c[0] for c in captions]
     tabs.record(f"[{app} {width}] group '{TOOLS}' shows", TOOLS in names, names)
@@ -52,13 +53,12 @@ def check_tools_group(tabs, args, app, width, captions):
         return
     left, right = group_range(captions, TOOLS)
     rows = [n for n, b in sorted((i for i in found if left <= i[1][0] < right), key=lambda i: (i[1][1], i[1][0]))]
-    expected_first, expected_last = MENU, SEARCH
-    ok = bool(rows) and rows[0] == expected_first and rows[-1] == expected_last
+    ok = bool(rows) and rows[0] == MENU
     if app in SECOND_ROW:
-        ok = ok and rows == [MENU, SECOND_ROW[app], SEARCH]
-    tabs.record(f"[{app} {width}] '{TOOLS}' rows: {MENU}, …, {SEARCH}", ok, rows)
-    searches = [n for n, _b in found if n.startswith(SEARCH)]
-    tabs.record(f"[{app} {width}] one '{SEARCH}' on Home, without '…'", searches == [SEARCH], searches)
+        ok = ok and rows[:2] == [MENU, SECOND_ROW[app]]
+    tabs.record(f"[{app} {width}] '{TOOLS}' rows: {MENU}, …", ok, rows)
+    searches = [n for n, _b in found if n == SEARCH]
+    tabs.record(f"[{app} {width}] no '{SEARCH}' button on Home (the tab row has the box)", not searches, searches)
 
 
 def check_find_in_paragraph(tabs, app, width, captions):

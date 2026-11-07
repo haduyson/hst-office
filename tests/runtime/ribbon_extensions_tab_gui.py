@@ -52,9 +52,10 @@ def check_extension_tab(args, office, app, wid, record, shot):
         return
     shot(f"{app}-phan-mo-rong-1485")
     layout = EXTENSION_TAB[app]
-    buttons = tab_buttons()
-    names = [name for name, _ in buttons]
     expected = [name for _, group in layout for name, _ in group]
+    # the groups merged from the Developer tab (Macro VBA, ...) follow the HST groups; only the HST tools are checked
+    buttons = [(name, box) for name, box in tab_buttons() if name in expected]
+    names = [name for name, _ in buttons]
     record(f"[{app}] Phần mở rộng shows the HST buttons in order", names == expected, names)
     captions = sorted((n for n in gui.ribbon_nodes(("label",)) if n[0] in {c for c, _ in layout}), key=lambda n: n[2][0])
     record(f"[{app}] group captions in order", [n[0] for n in captions] == [c for c, _ in layout], [n[0] for n in captions])

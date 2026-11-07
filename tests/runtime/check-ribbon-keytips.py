@@ -18,6 +18,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
+import ribbon_scorecard_walk as live  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 
 TABS = {"writer": {"Trang đầu": "H", "Chèn": "N", "Thiết kế": "G", "Bố cục": "P", "Tham khảo": "S", "Gửi thư": "M", "Xem lại": "R", "Xem": "W"},
@@ -32,14 +33,17 @@ def record(name, ok, detail=""):
 
 
 def tips():
-    """{text: box} of the visible key tips: short labels with capitals or digits only."""
+    """{text: box} of the visible key tips: short labels with capitals or digits only. Group captions are not tips,
+    even when they are one capital letter (Sheets' "Ô"): a caption names its group or spans the bottom row of it."""
     import pyatspi
     found = {}
     for node in gui.walk(gui.office_app()):
         try:
             if node.getRoleName() == "label" and 0 < len(node.name or "") <= 2 and node.name == node.name.upper() \
                     and node.getState().contains(pyatspi.STATE_SHOWING):
-                found[node.name] = gui.extents(node)
+                box = gui.extents(node)
+                if not live.is_group_caption(node, box):
+                    found[node.name] = box
         except Exception:  # noqa: BLE001 - widgets come and go
             pass
     return found

@@ -1,0 +1,79 @@
+HST Office: groups come back from the chevron popup in their place.
+
+The ladder folds groups in the tab's fold order, which may start at the left (Writer folds Clipboard
+first). Closing the chevron popup hands the groups back with Window::SetParent, which appends them to
+the children: Clipboard came back after Styles, the ribbon showed Font, Paragraph, Styles, Clipboard
+when widened, and the tab's ladder no longer matched the groups' order. The merged box remembers the
+authored order at its first layout and puts the children back in it before each layout.
+
+- vcl/inc/PriorityMergedHBox.hxx, vcl/source/control/PriorityMergedHBox.cxx.
+
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -35,6 +35,10 @@
+     bool m_bHstLadder = false;
+     // groups in the order they fold into the popup (the tab's ladder, else right to left)
+     std::vector<vcl::Window*> m_aHstFoldOrder;
++    // the groups in their authored order: a group handed back by the chevron popup is appended to
++    // the children (Window::SetParent), so the order is put back before every layout
++    std::vector<VclPtr<vcl::Window>> m_aHstAuthored;
++    void HstRestoreOrder();
+     void HstApplyLadder(tools::Long nWidth);
+     // width of the box with every group at its smallest state, or -1 before all are measured
+     tools::Long HstMinWidth() const;
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -76,6 +76,8 @@
+         return;
+     }
+ 
++    HstRestoreOrder();
++
+     const tools::Long nWidth = GetSizePixel().Width();
+     const tools::Long nSpacing = get_spacing();
+ 
+@@ -147,6 +149,36 @@
+     VclHBox::Resize();
+ }
+ 
++void PriorityMergedHBox::HstRestoreOrder()
++{
++    if (m_aHstAuthored.empty())
++    {
++        // the first layout sees the groups as the .ui file made them, before any fold
++        for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++             pChild = pChild->GetWindow(GetWindowType::Next))
++            if (pChild != m_pButton)
++                m_aHstAuthored.emplace_back(pChild);
++        return;
++    }
++    std::vector<vcl::Window*> aNow;
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        if (pChild != m_pButton)
++            aNow.push_back(pChild);
++    std::vector<vcl::Window*> aWanted;
++    for (const VclPtr<vcl::Window>& xGroup : m_aHstAuthored)
++        if (xGroup && !xGroup->isDisposed() && xGroup->GetParent() == this)
++            aWanted.push_back(xGroup.get());
++    if (aNow == aWanted)
++        return;
++    // the chevron first, as the constructor made it, then the groups in authored order
++    sal_uInt16 nPos = 0;
++    if (m_pButton)
++        m_pButton->reorderWithinParent(nPos++);
++    for (vcl::Window* pGroup : aWanted)
++        pGroup->reorderWithinParent(nPos++);
++}
++
+ void PriorityMergedHBox::HstApplyLadder(tools::Long nWidth)
+ {
+     if (m_bHstLadder)
+@@ -311,6 +343,7 @@
+ {
+     m_aHstWidths.clear();
+     m_aHstStates.clear();
++    m_aHstAuthored.clear();
+     m_pButton.disposeAndClear();
+     if (m_pPopup)
+         m_pPopup.disposeAndClear();

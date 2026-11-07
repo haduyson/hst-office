@@ -1,0 +1,555 @@
+HST Office: Switch Row/Column and Reset to Match Style on the chart tabs of the ribbon.
+
+The chart tabs of Writer, Sheets and Slides get "Dữ liệu theo hàng" / "Dữ liệu theo cột" (Chart Design ▸ Data) and
+"Đặt lại điểm dữ liệu" / "Đặt lại mọi điểm dữ liệu" (Chart Format ▸ Current Selection), as on the Office chart
+tabs. The chart command interceptor forwards them to the chart's frame like the other chart commands, and their
+labels are added to the generic commands so the ribbon of the document finds them.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -13680,7 +13680,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">2</property>
++                            <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -13740,13 +13740,59 @@
+                           </packing>
+                         </child>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartDataRows">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartDataRows">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:DataInRows</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartDataColumns">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartDataColumns">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:DataInColumns</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -14106,7 +14152,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">4</property>
++                            <property name="width">5</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -14222,13 +14268,59 @@
+                           </packing>
+                         </child>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartResetPoint">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartResetPoint">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:ResetDataPoint</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">4</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartResetAll">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartResetAll">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:ResetAllDataPoints</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">4</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">5</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -12091,7 +12091,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">2</property>
++                            <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12151,13 +12151,59 @@
+                           </packing>
+                         </child>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartDataRows">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartDataRows">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:DataInRows</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartDataColumns">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartDataColumns">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:DataInColumns</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -12517,7 +12563,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">4</property>
++                            <property name="width">5</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12633,13 +12679,59 @@
+                           </packing>
+                         </child>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartResetPoint">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartResetPoint">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:ResetDataPoint</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">4</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartResetAll">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartResetAll">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:ResetAllDataPoints</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">4</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">5</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+--- a/sd/uiconfig/simpress/ui/notebookbar.ui
++++ b/sd/uiconfig/simpress/ui/notebookbar.ui
+@@ -11100,7 +11100,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">2</property>
++                            <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11160,13 +11160,59 @@
+                           </packing>
+                         </child>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartDataRows">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartDataRows">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:DataInRows</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartDataColumns">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartDataColumns">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:DataInColumns</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -11526,7 +11572,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">4</property>
++                            <property name="width">5</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11642,13 +11688,59 @@
+                           </packing>
+                         </child>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartResetPoint">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartResetPoint">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:ResetDataPoint</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">4</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxChartResetAll">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxChartResetAll">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:ResetAllDataPoints</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">4</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">5</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+--- a/solenv/sanitizers/ui/modules/swriter.suppr
++++ b/solenv/sanitizers/ui/modules/swriter.suppr
+@@ -632,3 +632,7 @@
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstTemplateManager'] button-no-label
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstTipOfTheDay'] button-no-label
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstViewMacros'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartDataColumns'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartDataRows'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartResetAll'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartResetPoint'] button-no-label
+--- a/solenv/sanitizers/ui/modules/scalc.suppr
++++ b/solenv/sanitizers/ui/modules/scalc.suppr
+@@ -806,3 +806,7 @@
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstViewMacros'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstViewPageLayout'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstXmlSource'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartDataColumns'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartDataRows'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartResetAll'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartResetPoint'] button-no-label
+--- a/solenv/sanitizers/ui/modules/simpress.suppr
++++ b/solenv/sanitizers/ui/modules/simpress.suppr
+@@ -712,3 +712,7 @@
+ sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstTextDirection'] button-no-label
+ sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstTipOfTheDay'] button-no-label
+ sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstViewMacros'] button-no-label
++sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartDataColumns'] button-no-label
++sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartDataRows'] button-no-label
++sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartResetAll'] button-no-label
++sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartResetPoint'] button-no-label
+--- a/sfx2/source/notebookbar/HstChartCommands.cxx
++++ b/sfx2/source/notebookbar/HstChartCommands.cxx
+@@ -46,7 +46,8 @@
+         u".uno:InsertMenuTitles"_ustr,     u".uno:InsertMenuLegend"_ustr, u".uno:InsertMenuAxes"_ustr,
+         u".uno:InsertMenuGrids"_ustr,      u".uno:InsertMenuDataLabels"_ustr,
+         u".uno:InsertMenuTrendlines"_ustr, u".uno:FormatSelection"_ustr,  u".uno:DiagramArea"_ustr,
+-        u".uno:DiagramWall"_ustr,          u".uno:Legend"_ustr };
++        u".uno:DiagramWall"_ustr,          u".uno:Legend"_ustr,           u".uno:DataInRows"_ustr,
++        u".uno:DataInColumns"_ustr,        u".uno:ResetDataPoint"_ustr,   u".uno:ResetAllDataPoints"_ustr };
+ 
+ bool isChartCommand(const OUString& rCommand)
+ {
+--- a/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
+@@ -49,6 +49,26 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:DataInRows" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data in Rows</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataInColumns" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data in Columns</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ResetDataPoint" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Reset Data Point</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ResetAllDataPoints" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Reset all Data Points</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:DiagramData" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">~Data Table...</value>
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -16826,6 +16826,46 @@
+ msgid "Format Legend"
+ msgstr "Định dạng chú giải"
+ 
++#. hstRP
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:DataInRows\n"
++"Label\n"
++"value.text"
++msgid "Data in Rows"
++msgstr "Dữ liệu theo hàng"
++
++#. hstRP
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:DataInColumns\n"
++"Label\n"
++"value.text"
++msgid "Data in Columns"
++msgstr "Dữ liệu theo cột"
++
++#. hstRP
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:ResetDataPoint\n"
++"Label\n"
++"value.text"
++msgid "Reset Data Point"
++msgstr "Đặt lại điểm dữ liệu"
++
++#. hstRP
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:ResetAllDataPoints\n"
++"Label\n"
++"value.text"
++msgid "Reset all Data Points"
++msgstr "Đặt lại mọi điểm dữ liệu"
++
+ #. GGzmp
+ #: GenericCommands.xcu
+ msgctxt ""

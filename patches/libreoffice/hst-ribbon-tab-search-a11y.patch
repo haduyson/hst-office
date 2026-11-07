@@ -1,0 +1,151 @@
+HST Office: the tab row's feature search box is in the accessibility tree, with a press action.
+
+The box is a child window of the tab control, but VCLXAccessibleTabControl listed only the page tabs
+and the banner link, so a screen reader walking the tab row never found it. The tab control's
+accessible now lists the windows placed on it after the tabs (the search box, child id
+"hst-tab-search", and the banner link) in visual order. The box's accessible is a push button whose
+one action, "press", opens the feature search as a click does.
+
+- vcl/source/accessibility/vclxaccessibletabcontrol.cxx, sfx2/source/notebookbar/NotebookbarTabControl.cxx.
+
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -29,6 +29,10 @@
+ #include "HstRibbonBanner.hxx"
+ #include "HstRibbonKeyTips.hxx"
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
++#include <com/sun/star/accessibility/XAccessibleAction.hpp>
++#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
++#include <vcl/accessibility/strings.hxx>
++#include <vcl/accessibility/vclxaccessiblecomponent.hxx>
+ #include <comphelper/dispatchcommand.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+ #include <vcl/lineinfo.hxx>
+@@ -211,9 +215,59 @@
+             Invalidate(); // light/dark and high contrast follow the theme
+     }
+ 
++    virtual rtl::Reference<comphelper::OAccessible> CreateAccessible() override;
++
+ private:
+     bool mbHover = false;
+ };
++
++/** HST Office: the search box for assistive technology: a push button (role and name from the
++    window) whose one action, "press", opens the feature search, as a click does. The tab control's
++    accessible lists it after the page tabs (vclxaccessibletabcontrol.cxx). */
++class HstTabSearchAccessible final
++    : public cppu::ImplInheritanceHelper<VCLXAccessibleComponent, css::accessibility::XAccessibleAction>
++{
++public:
++    explicit HstTabSearchAccessible(HstTabSearchBox* pBox)
++        : ImplInheritanceHelper(pBox)
++    {
++    }
++
++    // XAccessibleAction
++    sal_Int32 SAL_CALL getAccessibleActionCount() override { return 1; }
++
++    sal_Bool SAL_CALL doAccessibleAction(sal_Int32 nIndex) override
++    {
++        SolarMutexGuard aGuard;
++        if (nIndex != 0)
++            throw css::lang::IndexOutOfBoundsException();
++        HstTabSearchBox* pBox = dynamic_cast<HstTabSearchBox*>(GetWindow());
++        if (!pBox || pBox->isDisposed())
++            return false;
++        pBox->OpenSearch(OUString());
++        return true;
++    }
++
++    OUString SAL_CALL getAccessibleActionDescription(sal_Int32 nIndex) override
++    {
++        if (nIndex != 0)
++            throw css::lang::IndexOutOfBoundsException();
++        return RID_STR_ACC_ACTION_CLICK;
++    }
++
++    css::uno::Reference<css::accessibility::XAccessibleKeyBinding>
++        SAL_CALL getAccessibleActionKeyBinding(sal_Int32 nIndex) override
++    {
++        if (nIndex != 0)
++            throw css::lang::IndexOutOfBoundsException();
++        return {}; // Alt+Q is an accelerator of the frame, not of the box
++    }
++};
++
++rtl::Reference<comphelper::OAccessible> HstTabSearchBox::CreateAccessible()
++{
++    return new HstTabSearchAccessible(this);
++}
+ using namespace css::ui;
+ using namespace css::frame;
+ 
+--- a/vcl/source/accessibility/vclxaccessibletabcontrol.cxx
++++ b/vcl/source/accessibility/vclxaccessibletabcontrol.cxx
+@@ -30,6 +30,7 @@
+ #include <vcl/tabpage.hxx>
+ #include <vcl/vclevent.hxx>
+ 
++#include <algorithm>
+ #include <vector>
+ 
+ using namespace ::com::sun::star;
+@@ -306,26 +307,33 @@
+ // XAccessibleContext
+ 
+ 
+-// HST Office: a link placed on the tab control itself (the ribbon banner) follows the page tabs,
+-// otherwise assistive technology could never reach it.
+-static vcl::Window* lcl_getLinkChild(const TabControl* pTabControl)
++// HST Office: windows placed on the tab control itself after the page tabs, the ribbon's feature
++// search box and banner link, follow the page tabs in visual order, otherwise assistive technology
++// could never reach them.
++static std::vector<vcl::Window*> lcl_getExtraChildren(const TabControl* pTabControl)
+ {
++    std::vector<vcl::Window*> aChildren;
+     if (!pTabControl)
+-        return nullptr;
++        return aChildren;
+     for (vcl::Window* pChild = pTabControl->GetWindow(GetWindowType::FirstChild); pChild;
+          pChild = pChild->GetWindow(GetWindowType::Next))
+     {
+-        if (pChild->IsVisible() && pChild->GetAccessibleRole() == AccessibleRole::HYPER_LINK)
+-            return pChild;
++        if (pChild->IsVisible()
++            && (pChild->GetAccessibleRole() == AccessibleRole::HYPER_LINK
++                || pChild->get_id() == u"hst-tab-search"))
++            aChildren.push_back(pChild);
+     }
+-    return nullptr;
++    std::stable_sort(aChildren.begin(), aChildren.end(), [](vcl::Window* a, vcl::Window* b) {
++        return a->GetPosPixel().X() < b->GetPosPixel().X();
++    });
++    return aChildren;
+ }
+ 
+ sal_Int64 VCLXAccessibleTabControl::getAccessibleChildCount()
+ {
+     OExternalLockGuard aGuard( this );
+ 
+-    return m_aAccessibleChildren.size() + (lcl_getLinkChild(m_pTabControl) ? 1 : 0);
++    return m_aAccessibleChildren.size() + lcl_getExtraChildren(m_pTabControl).size();
+ }
+ 
+ 
+@@ -333,10 +341,12 @@
+ {
+     OExternalLockGuard aGuard( this );
+ 
+-    if (o3tl::make_unsigned(i) == m_aAccessibleChildren.size() && i >= 0)
++    if (i >= 0 && o3tl::make_unsigned(i) >= m_aAccessibleChildren.size())
+     {
+-        if (vcl::Window* pLink = lcl_getLinkChild(m_pTabControl))
+-            return pLink->GetAccessible();
++        const std::vector<vcl::Window*> aExtra = lcl_getExtraChildren(m_pTabControl);
++        const size_t nExtra = o3tl::make_unsigned(i) - m_aAccessibleChildren.size();
++        if (nExtra < aExtra.size())
++            return aExtra[nExtra]->GetAccessible();
+     }
+     if ( i < 0 || o3tl::make_unsigned(i) >= m_aAccessibleChildren.size() )
+         throw IndexOutOfBoundsException();

@@ -2,8 +2,10 @@
 """Check the contextual ribbon tabs of HST Writer, Sheets and Slides on a real GUI (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-ribbon-contextual.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]
-The X display must already run. For a table, a picture, a shape and a chart selected through the controller:
-  - the tabs named as in Office appear, and the ribbon stays on the tab that was current;
+The X display must already run. For a table, a picture, a shape and a chart selected through the controller, in
+Sheets also for the cell cursor in a pivot table and in Writer for the cursor in a page header:
+  - the tabs named as in Office appear, and the ribbon stays on the tab that was current; entering a header opens
+    "Đầu trang & Chân trang" instead, as Word opens Header & Footer;
   - with the cursor back in the text the tabs are gone; a contextual tab that was current falls back to Trang đầu;
   - clicking a chart tab and a chart command opens the dialog of the chart, without activating the chart by hand;
   - the ribbon height stays the same in every state.
@@ -19,104 +21,20 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
+from ribbon_contextual_objects import make_objects, park  # noqa: E402
 
 TABLE = ["Thiết kế Bảng", "Bố trí Bảng"]
 PICTURE, SHAPE = ["Định dạng Ảnh"], ["Định dạng Hình dạng"]
 CHART = ["Thiết kế Biểu đồ", "Định dạng Biểu đồ"]
+PIVOT = ["Phân tích Bảng tổng hợp"]
+HEADER = ["Đầu trang & Chân trang"]
+OPENS = {"header"}  # contexts whose tab opens on entry (the others only appear)
 ROWS = []
-CHART_CLSID = "12dcae26-281f-416f-a234-c3086127382e"
 
 
 def record(name, ok, detail=""):
     ROWS.append({"check": name, "status": "PASS" if ok else "FAIL", "detail": str(detail)})
     print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}", flush=True)
-
-
-def size(width, height):
-    import uno
-    return uno.createUnoStruct("com.sun.star.awt.Size", width, height)
-
-
-def point(x, y):
-    import uno
-    return uno.createUnoStruct("com.sun.star.awt.Point", x, y)
-
-
-def make_objects(app, doc, image_url):
-    """{kind: object to select} in a new document of the app; a table only where the app has one."""
-    made = {}
-    if app == "writer":
-        text = doc.Text
-        table = doc.createInstance("com.sun.star.text.TextTable")
-        table.initialize(2, 2)
-        text.insertTextContent(text.getEnd(), table, False)
-        made["table"] = table.getCellByName("A1")
-        graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
-        graphic.GraphicURL = image_url
-        graphic.setSize(size(3000, 3000))
-        text.insertTextContent(text.getEnd(), graphic, False)
-        made["picture"] = graphic
-        chart = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
-        chart.CLSID = CHART_CLSID
-        chart.setSize(size(9000, 6000))
-        text.insertTextContent(text.getEnd(), chart, False)
-        made["chart"] = chart
-        page = doc.DrawPage
-    elif app == "calc":
-        sheet = doc.Sheets.getByIndex(0)
-        page = sheet.DrawPage
-        made["chart"] = None  # below, after the data
-        for row, value in enumerate((1, 2, 3)):
-            sheet.getCellByPosition(0, row).Value = value
-    else:
-        page = doc.DrawPages.getByIndex(0)
-        chart = doc.createInstance("com.sun.star.drawing.OLE2Shape")
-        page.add(chart)
-        chart.CLSID = CHART_CLSID
-        chart.setPosition(point(1000, 1000))
-        chart.setSize(size(9000, 6000))
-        made["chart"] = chart
-        table = doc.createInstance("com.sun.star.drawing.TableShape")
-        page.add(table)
-        table.setPosition(point(12000, 1000))
-        table.setSize(size(6000, 3000))
-        made["table"] = table
-    if app != "writer":
-        graphic = doc.createInstance("com.sun.star.drawing.GraphicObjectShape")
-        page.add(graphic)
-        graphic.GraphicURL = image_url
-        graphic.setPosition(point(1000, 8000))
-        graphic.setSize(size(3000, 3000))
-        made["picture"] = graphic
-    shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
-    page.add(shape)
-    shape.setPosition(point(5000, 8000))
-    shape.setSize(size(3000, 2000))
-    made["shape"] = shape
-    if app == "calc":
-        from com.sun.star.awt import Rectangle
-        from com.sun.star.table import CellRangeAddress
-        address = CellRangeAddress()
-        address.Sheet, address.EndRow = 0, 2
-        sheet.Charts.addNewByName("c1", Rectangle(9000, 1000, 9000, 6000), (address,), False, False)
-        made["chart"] = page.getByIndex(page.Count - 1)
-    return made
-
-
-def park(app, doc, office):
-    """Selection back in the text or a plain cell."""
-    controller = doc.CurrentController
-    if app == "writer":  # out of a frame or a chart first, then past the table at the start of the document
-        office.dispatch(controller.getFrame(), ".uno:Escape")
-        office.dispatch(controller.getFrame(), ".uno:Escape")
-        time.sleep(0.5)
-        controller.select(doc.Text.getEnd())
-    elif app == "calc":
-        controller.select(doc.Sheets.getByIndex(0).getCellByPosition(5, 20))
-    else:
-        import uno
-        controller.select(uno.Any("void", None))
-    time.sleep(1)
 
 
 def check_app(app, args, port, image_url):
@@ -130,15 +48,21 @@ def check_app(app, args, port, image_url):
         gui.click(args.display, home_box)
         top = gui.geometry()
         height = top[1] - top[0]
-        expected = {"table": TABLE, "picture": PICTURE, "shape": SHAPE, "chart": CHART}
-        # the chart last: it stays activated after its command, and the ribbon follows the chart then
-        for kind, target in sorted(objects.items(), key=lambda item: item[0] == "chart"):
+        expected = {"table": TABLE, "picture": PICTURE, "shape": SHAPE, "chart": CHART, "pivot": PIVOT, "header": HEADER}
+        # the pivot table first: after a drawing selection, the cursor moved through the API does not switch Sheets
+        # to its pivot shell (a mouse click is not checked here); the chart last: it stays activated after its
+        # command, and the ribbon follows the chart then
+        order = {"pivot": -1, "chart": 1}
+        for kind, target in sorted(objects.items(), key=lambda item: order.get(item[0], 0)):
             doc.CurrentController.select(target)
             time.sleep(2)
             names = gui.visible_names()
             wanted = expected[kind]
             record(f"[{app}] {kind}: tabs {wanted}", all(n in names for n in wanted), names)
-            record(f"[{app}] {kind}: ribbon stays on Chèn", gui.selected() == ["Chèn"], gui.selected())
+            if kind in OPENS:
+                record(f"[{app}] {kind}: '{wanted[0]}' opens", gui.selected() == [wanted[0]], gui.selected())
+            else:
+                record(f"[{app}] {kind}: ribbon stays on Chèn", gui.selected() == ["Chèn"], gui.selected())
             now = gui.geometry()
             record(f"[{app}] {kind}: ribbon height unchanged", now[1] - now[0] == height, f"{now[1] - now[0]} vs {height}")
             if args.shots:
