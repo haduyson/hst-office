@@ -34,6 +34,9 @@ jobs:
           MSYS2_ARG_CONV_EXCL='*' msiexec.exe /i "$(cygpath -w "$RUNNER_TEMP/msi/beta5.msi")" /qn /norestart /l*v "$(cygpath -w "$RUNNER_TEMP/out/msi.log")"
           soffice="$(find '/c/Program Files' -maxdepth 4 -iname soffice.exe | head -n 1)"
           echo "HST_INSTALL=$(cygpath -w "$(dirname "$(dirname "$soffice")")")" >> "$GITHUB_ENV"
+      - name: Build this commit's extension
+        shell: bash
+        run: python -I scripts/build-extensions.py --output "$RUNNER_TEMP/oxt"
       - name: Probe beta.5 and this commit's extension
         shell: bash
         run: |
@@ -43,10 +46,9 @@ jobs:
           export UNO_PATH="$HST_INSTALL\\program"
           probe() { timeout 600 "$install/program/python.exe" scripts/windows/nd30-type-list-probe.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out")" --label "$1"; taskkill //F //IM soffice.bin >/dev/null 2>&1 || true; taskkill //F //IM soffice.exe >/dev/null 2>&1 || true; sleep 3; }
           probe beta5
-          python -I scripts/build-extensions.py --output "$RUNNER_TEMP/oxt"
           target="$install/share/extensions/hst-vietnamese-tools"
           rm -rf "$target"; mkdir -p "$target"
-          python -I -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$RUNNER_TEMP/oxt/hst-vietnamese-tools.oxt" "$target"
+          "$pythonLocation/python.exe" -I -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$(cygpath -w "$RUNNER_TEMP/oxt/hst-vietnamese-tools.oxt")" "$(cygpath -w "$target")"
           probe checkout
       - name: Upload evidence
         if: ${{ always() }}
