@@ -24,6 +24,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(os.path.dirname(os.path.dirname(HERE)), "extensions/hst-vietnamese-tools/python")]
 import hst_gui  # noqa: E402
+import nd30_type_list_pixels as px  # noqa: E402
 
 ROWS = []
 
@@ -31,12 +32,6 @@ ROWS = []
 def check(name, ok, detail=""):
     ROWS.append(bool(ok))
     print("%s  %s  %s" % ("PASS" if ok else "FAIL", name, str(detail)[:200]), flush=True)
-
-
-def _crop(path, box):
-    from PIL import Image
-    with Image.open(path) as image:
-        return image.convert("RGB").crop(box).tobytes()
 
 
 def _intersects(a, b, slack=2):
@@ -115,26 +110,27 @@ def main():
         xdo("mousemove", *row, pause=1.2)
         hover = shot("2-hover-agency-row.png")
         band = (box[0] + 4, oy + geo["agency"].Y + 2, box[2] - 4, oy + geo["agency"].Y + geo["agency"].Height - 2)
-        flat_away, flat_hover = _flat_share(away, band), _flat_share(hover, band)
-        check("hover over the 'Cơ quan ban hành' row shows the list there, not the field",
-              flat_hover <= max(0.6, flat_away + 0.2), "flat rows %.2f -> %.2f" % (flat_away, flat_hover))
+        flat = "flat rows %.2f -> %.2f" % (px.flat_share(away, band), px.flat_share(hover, band))
+        check("before the hover the list is visible over the 'Cơ quan ban hành' field", px.list_visible(away, band), flat)
+        check("hover over the 'Cơ quan ban hành' row shows the list there, not the field", px.list_visible(hover, band), flat)
         # a covered field repaints on its own while the list is open (here: its text changes)
         place = geo["place"]
         band = (ox + place.X + 4, oy + place.Y + 2, ox + place.X + place.Width - 4, oy + place.Y + place.Height - 2)
-        flat_before = _flat_share(hover, band)
         wizard.d.model.getByName("place").Text = "Tam Kỳ, Quảng Nam"
         time.sleep(1.2)
         repainted = shot("2b-covered-field-repaints.png")
-        flat_after = _flat_share(repainted, band)
-        check("a covered field that repaints stays under the list", flat_after <= max(0.6, flat_before + 0.2),
-              "flat rows %.2f -> %.2f" % (flat_before, flat_after))
+        flat = "flat rows %.2f -> %.2f" % (px.flat_share(hover, band), px.flat_share(repainted, band))
+        # judged on their own: the list must show there first, then not a pixel of the band may change when the
+        # field under it repaints (its new text would appear over the list)
+        check("the list is visible over the 'Địa danh' field", px.list_visible(hover, band), flat)
+        check("a covered field that repaints stays under the list", px.unchanged(hover, repainted, band), flat)
         top_rows = (box[0], box[1], box[2], oy + geo["agency"].Y - 2)  # list rows above the field band: only a scroll moves them
-        before = _crop(hover, top_rows)
+        before = px.crop(hover, top_rows)
         for _ in range(5):
             xdo("click", 5, pause=0.2)
         time.sleep(1)
         wheel = shot("3-wheel-over-agency-row.png")
-        check("wheel over that row scrolls the list", _crop(wheel, top_rows) != before)
+        check("wheel over that row scrolls the list", px.crop(wheel, top_rows) != before)
         xdo("click", 1, pause=1.5)
         shot("4-click-agency-row.png")
         agency_focus = dialog.getControl("agency").getPeer().hasFocus()
@@ -147,18 +143,6 @@ def main():
         office.stop()
     print("PASS" if all(ROWS) else "FAIL", flush=True)
     return 0 if all(ROWS) else 1
-
-
-def _flat_share(path, box):
-    """Share of the pixel rows inside `box` that have one colour only. The list shows its rows' text there; a field
-    painted over the list is an empty white box, so almost every pixel row in it is flat."""
-    from PIL import Image
-    with Image.open(path) as image:
-        crop = image.convert("RGB").crop(box)
-    width, height = crop.size
-    pixels = crop.load()
-    flat = sum(1 for y in range(height) if len({pixels[x, y] for x in range(width)}) == 1)
-    return flat / float(height or 1)
 
 
 if __name__ == "__main__":
