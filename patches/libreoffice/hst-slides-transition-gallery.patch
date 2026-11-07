@@ -1,0 +1,933 @@
+HST Office: the transitions gallery of the Slides ribbon, and an undoable command that applies a transition.
+
+- .uno:HstApplyTransition?Transition:string=<set id> (SID_HST_APPLY_TRANSITION) applies the first variant
+  of a transition set of the Slide Transition deck (transitions.xml set ids, "None" removes it) to the
+  selected slides (the current slide without a slide pane) as one undo action, keeping duration, sound
+  and advance. Its state is the set id of the selected slides (empty when they differ), disabled for
+  read-only documents and views without slides. Normal view and slide sorter handle it.
+- The toolbox item of .uno:HstApplyTransition in Slides gets HstTransitionGalleryControl: one row of
+  transition thumbnails (sd/cmd/transition-*.png, the deck's icons) labelled with the set names; click
+  or Enter applies, the current transition is selected and paged into view; ◂ ▸ page, ▾ opens the
+  Slide Transition deck. Placing the item in the ribbon is the Slides content patch's job.
+- Rollback: org.openoffice.Office.HSTRibbon/SlidesEffectGalleries off hides the item; the command
+  stays.
+
+- sd/inc/app.hrc, sd/sdi/{sdraw,drviewsh,SlideSorterController}.sdi, sd/source/ui/view/drviews{2,7}.cxx,
+  sd/source/ui/slidesorter/shell/SlideSorterViewShell.cxx, sd/Library_sd.mk, sd/UIConfig_simpress.mk,
+  sd/util/sd.component, Controller.xcu, DrawImpressCommands.xcu.
+- New: sd/source/ui/inc/HstTransitionApply.hxx, sd/source/ui/animations/HstTransitionApply.cxx,
+  sd/source/ui/controller/HstTransitionGallery.cxx, sd/uiconfig/simpress/ui/hsttransitiongallery.ui.
+
+--- a/sd/inc/app.hrc
++++ b/sd/inc/app.hrc
+@@ -435,4 +435,7 @@
+ #define SID_MOVE_SLIDE_SECTION_UP           (SID_SD_START+456)
+ #define SID_MOVE_SLIDE_SECTION_DOWN         (SID_SD_START+457)
+ 
++// HST Office: the ribbon's transitions gallery applies a transition set (SfxStringItem, HstTransitionApply.hxx)
++#define SID_HST_APPLY_TRANSITION            (SID_SD_START+458)
++
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sd/sdi/sdraw.sdi
++++ b/sd/sdi/sdraw.sdi
+@@ -2739,6 +2739,23 @@
+     GroupId = SfxGroupId::Options;
+ ]
+ 
++SfxStringItem HstApplyTransition SID_HST_APPLY_TRANSITION
++(SfxStringItem Transition SID_HST_APPLY_TRANSITION)
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = FALSE,
++    MenuConfig = FALSE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Modify;
++]
++
+ SfxVoidItem Remote SID_REMOTE_DLG
+ ()
+ [
+--- a/sd/sdi/drviewsh.sdi
++++ b/sd/sdi/drviewsh.sdi
+@@ -116,6 +116,11 @@
+     [
+         ExecMethod = FuTemporary ;
+     ]
++    SID_HST_APPLY_TRANSITION
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
+     SID_REMOTE_DLG
+     [
+         ExecMethod = FuTemporary ;
+--- a/sd/sdi/SlideSorterController.sdi
++++ b/sd/sdi/SlideSorterController.sdi
+@@ -243,6 +243,11 @@
+     [
+         ExecMethod = FuTemporary ;
+     ]
++    SID_HST_APPLY_TRANSITION
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
+     SID_REMOTE_DLG
+     [
+         ExecMethod = FuTemporary ;
+--- a/sd/source/ui/view/drviews2.cxx
++++ b/sd/source/ui/view/drviews2.cxx
+@@ -130,6 +130,7 @@
+ #include <svl/whiter.hxx>
+ 
+ #include <app.hrc>
++#include <HstTransitionApply.hxx>
+ #include <strings.hrc>
+ 
+ #include <AnimationChildWindow.hxx>
+@@ -4282,6 +4283,11 @@
+         }
+         break;
+ 
++        case SID_HST_APPLY_TRANSITION:
++            sd::hst::ExecuteApplyTransition(GetViewShellBase(), rReq);
++            Cancel();
++        break;
++
+         case SID_REMOTE_DLG:
+         {
+ #ifdef ENABLE_SDREMOTE
+--- a/sd/source/ui/view/drviews7.cxx
++++ b/sd/source/ui/view/drviews7.cxx
+@@ -66,6 +66,7 @@
+ #include <sfx2/viewfrm.hxx>
+ 
+ #include <app.hrc>
++#include <HstTransitionApply.hxx>
+ 
+ #include <PresentationViewShell.hxx>
+ 
+@@ -1041,6 +1042,9 @@
+        rSet.DisableItem(SID_ZOOM_PREV);
+     }
+ 
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_TRANSITION))
++        sd::hst::GetApplyTransitionState(GetViewShellBase(), rSet);
++
+     if( SfxItemState::DEFAULT == rSet.GetItemState( SID_REMOTE_DLG ) )
+     {
+ 
+--- a/sd/source/ui/slidesorter/shell/SlideSorterViewShell.cxx
++++ b/sd/source/ui/slidesorter/shell/SlideSorterViewShell.cxx
+@@ -62,6 +62,7 @@
+ using namespace ::sd::slidesorter;
+ #define ShellClass_SlideSorterViewShell
+ #include <sdslots.hxx>
++#include <HstTransitionApply.hxx>
+ 
+ using namespace ::com::sun::star;
+ using namespace ::com::sun::star::uno;
+@@ -354,6 +355,8 @@
+     ViewShell::GetMenuState(rSet);
+     assert(mpSlideSorter);
+     mpSlideSorter->GetController().GetSlotManager().GetMenuState(rSet);
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_TRANSITION))
++        sd::hst::GetApplyTransitionState(GetViewShellBase(), rSet);
+ }
+ 
+ void SlideSorterViewShell::GetClipboardState ( SfxItemSet& rSet)
+@@ -389,6 +392,10 @@
+     assert(mpSlideSorter);
+     switch (rRequest.GetSlot())
+     {
++        case SID_HST_APPLY_TRANSITION:
++            sd::hst::ExecuteApplyTransition(GetViewShellBase(), rRequest);
++            break;
++
+         case SID_MODIFYPAGE:
+         {
+             SdPage* pCurrentPage = GetActualPage();
+--- a/sd/Library_sd.mk
++++ b/sd/Library_sd.mk
+@@ -217,6 +217,7 @@
+ 	sd/source/ui/animations/CustomAnimationPane \
+ 	sd/source/ui/animations/STLPropertySet \
+ 	sd/source/ui/animations/SlideTransitionPane \
++	sd/source/ui/animations/HstTransitionApply \
+ 	sd/source/ui/animations/motionpathtag \
+ 	sd/source/ui/annotations/annotationmanager \
+ 	sd/source/ui/annotations/AnnotationPopup \
+@@ -231,6 +232,7 @@
+ 	sd/source/ui/app/tmplctrl \
+ 	sd/source/ui/app/scalectrl \
+ 	sd/source/ui/controller/slidelayoutcontroller \
++	sd/source/ui/controller/HstTransitionGallery \
+ 	sd/source/ui/controller/displaymodecontroller \
+ 	sd/source/ui/dlg/AnimationChildWindow \
+ 	sd/source/ui/dlg/LayerTabBar \
+--- a/sd/UIConfig_simpress.mk
++++ b/sd/UIConfig_simpress.mk
+@@ -171,6 +171,7 @@
+ 	sd/uiconfig/simpress/ui/slidecontextmenu \
+ 	sd/uiconfig/simpress/ui/slidedesigndialog \
+ 	sd/uiconfig/simpress/ui/slidetransitionspanel \
++	sd/uiconfig/simpress/ui/hsttransitiongallery \
+ 	sd/uiconfig/simpress/ui/snapmenu \
+ 	sd/uiconfig/simpress/ui/tabviewbar \
+ 	sd/uiconfig/simpress/ui/tabledesignpanel \
+--- a/sd/util/sd.component
++++ b/sd/util/sd.component
+@@ -45,6 +45,10 @@
+       constructor="com_sun_star_comp_sd_InsertSlideController_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
+   </implementation>
++  <implementation name="com.sun.star.comp.sd.HstTransitionGalleryControl"
++      constructor="com_sun_star_comp_sd_HstTransitionGalleryControl_get_implementation">
++    <service name="com.sun.star.frame.ToolbarController"/>
++  </implementation>
+   <implementation name="com.sun.star.comp.sd.SlideLayoutController"
+       constructor="com_sun_star_comp_sd_SlideLayoutController_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
+@@ -1910,6 +1910,17 @@
+           <value>com.sun.star.comp.svx.StyleToolBoxControl</value>
+         </prop>
+       </node>
++      <node oor:name="HstTransitionGallery" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:HstApplyTransition</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.presentation.PresentationDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.sd.HstTransitionGalleryControl</value>
++        </prop>
++      </node>
+       <node oor:name="StylesPreviewToolBox" oor:op="replace">
+         <prop oor:name="Command">
+           <value>.uno:StylesPreview</value>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/DrawImpressCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/DrawImpressCommands.xcu
+@@ -456,6 +456,14 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstApplyTransition" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Transition to This Slide</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Applies a transition to the selected slides</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:MasterSlidesPanel" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Master Slides</value>
+--- /dev/null
++++ b/sd/source/ui/inc/HstTransitionApply.hxx
+@@ -0,0 +1,48 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <rtl/ustring.hxx>
++
++#include <string_view>
++
++class SfxItemSet;
++class SfxRequest;
++
++namespace sd
++{
++class ViewShellBase;
++}
++
++/** HST Office: the slide transition presets of the ribbon's transitions gallery (Slides, tab
++    "Chuyển tiếp"), applied with .uno:HstApplyTransition?Transition:string=<set id>.
++
++    A transition is named by the set id of TransitionPreset (transitions.xml, e.g. "wipe", "fade"),
++    the same entries the Slide Transition deck shows; "None" removes the transition. The first
++    variant of the set is applied, as a click on the deck's icon does. */
++namespace sd::hst
++{
++inline constexpr OUString TransitionNone = u"None"_ustr;
++
++/// The set id of the transition of the selected slides: "None" without one, empty when they differ
++/// or there is no slide.
++OUString CurrentTransition(ViewShellBase& rBase);
++
++/// Applies the set rSetId (or "None") to the selected slides (the current slide without a slide
++/// sorter) as one undo action. False when the set is unknown or no slide is selected.
++bool ApplyTransition(ViewShellBase& rBase, std::u16string_view rSetId);
++
++/// SID_HST_APPLY_TRANSITION for the view shells' FuTemporary: the Transition argument is required.
++void ExecuteApplyTransition(ViewShellBase& rBase, SfxRequest& rRequest);
++
++/// SID_HST_APPLY_TRANSITION for the view shells' GetMenuState: the current set id, or disabled.
++void GetApplyTransitionState(ViewShellBase& rBase, SfxItemSet& rSet);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/source/ui/animations/HstTransitionApply.cxx
+@@ -0,0 +1,168 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <HstTransitionApply.hxx>
++
++#include <DrawDocShell.hxx>
++#include <SlideSorterViewShell.hxx>
++#include <TransitionPreset.hxx>
++#include <ViewShell.hxx>
++#include <ViewShellBase.hxx>
++#include <app.hrc>
++#include <drawdoc.hxx>
++#include <sdpage.hxx>
++#include <sdresid.hxx>
++#include <sdundogr.hxx>
++#include <strings.hrc>
++#include <undoanim.hxx>
++
++#include <sfx2/bindings.hxx>
++#include <sfx2/request.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <svl/eitem.hxx>
++#include <svl/itemset.hxx>
++#include <svl/stritem.hxx>
++#include <svl/undo.hxx>
++
++#include <algorithm>
++#include <memory>
++#include <vector>
++
++namespace sd::hst
++{
++namespace
++{
++/// The selected slides of the slide pane or sorter, else the current slide of the main view.
++std::vector<SdPage*> SelectedPages(ViewShellBase& rBase)
++{
++    std::vector<SdPage*> aPages;
++    if (slidesorter::SlideSorterViewShell* pSorter
++        = slidesorter::SlideSorterViewShell::GetSlideSorter(rBase))
++    {
++        if (const std::shared_ptr<slidesorter::SlideSorterViewShell::PageSelection> pSelection
++            = pSorter->GetPageSelection())
++            aPages.assign(pSelection->begin(), pSelection->end());
++    }
++    if (aPages.empty())
++    {
++        const std::shared_ptr<ViewShell> pMain = rBase.GetMainViewShell();
++        if (SdPage* pPage = pMain ? pMain->GetActualPage() : nullptr)
++            aPages.push_back(pPage);
++    }
++    // only slides take transitions (not notes, handouts or masters in their views)
++    aPages.erase(std::remove_if(aPages.begin(), aPages.end(),
++                                [](const SdPage* pPage) {
++                                    return !pPage || pPage->GetPageKind() != PageKind::Standard
++                                           || pPage->IsMasterPage();
++                                }),
++                 aPages.end());
++    return aPages;
++}
++
++/// The first preset of the set (its first variant), or null for an unknown set.
++TransitionPresetPtr FirstOfSet(std::u16string_view rSetId)
++{
++    for (const TransitionPresetPtr& pPreset : TransitionPreset::getTransitionPresetList())
++        if (pPreset && pPreset->getSetId() == rSetId)
++            return pPreset;
++    return {};
++}
++
++OUString SetOf(const SdPage& rPage)
++{
++    if (rPage.getTransitionType() == 0)
++        return TransitionNone;
++    for (const TransitionPresetPtr& pPreset : TransitionPreset::getTransitionPresetList())
++        if (pPreset && pPreset->getTransition() == rPage.getTransitionType()
++            && pPreset->getSubtype() == rPage.getTransitionSubtype()
++            && pPreset->getDirection() == rPage.getTransitionDirection()
++            && pPreset->getFadeColor() == rPage.getTransitionFadeColor())
++            return pPreset->getSetId();
++    return OUString(); // a transition that is not in the gallery (from another program)
++}
++}
++
++OUString CurrentTransition(ViewShellBase& rBase)
++{
++    const std::vector<SdPage*> aPages = SelectedPages(rBase);
++    if (aPages.empty())
++        return OUString();
++    const OUString aFirst = SetOf(*aPages.front());
++    for (const SdPage* pPage : aPages)
++        if (SetOf(*pPage) != aFirst)
++            return OUString();
++    return aFirst;
++}
++
++bool ApplyTransition(ViewShellBase& rBase, std::u16string_view rSetId)
++{
++    const bool bNone = rSetId == TransitionNone;
++    const TransitionPresetPtr pPreset = bNone ? TransitionPresetPtr() : FirstOfSet(rSetId);
++    if (!bNone && !pPreset)
++        return false;
++    DrawDocShell* pDocSh = rBase.GetDocShell();
++    SdDrawDocument* pDoc = pDocSh ? pDocSh->GetDoc() : nullptr;
++    if (!pDoc || pDocSh->IsReadOnly())
++        return false;
++    const std::vector<SdPage*> aPages = SelectedPages(rBase);
++    if (aPages.empty())
++        return false;
++
++    // one undo action for all the slides, as the Slide Transition deck records it
++    if (SfxUndoManager* pManager = pDocSh->GetUndoManager())
++    {
++        const OUString aComment(SdResId(STR_UNDO_SLIDE_PARAMS));
++        pManager->EnterListAction(aComment, aComment, 0, rBase.GetViewShellId());
++        auto pGroup = std::make_unique<SdUndoGroup>(*pDoc);
++        pGroup->SetComment(aComment);
++        for (SdPage* pPage : aPages)
++            pGroup->AddAction(new UndoTransition(*pDoc, pPage));
++        pManager->AddUndoAction(std::move(pGroup));
++        pManager->LeaveListAction();
++    }
++
++    // the effect only: duration, timing and sound stay as they are, as with the deck's icons
++    for (SdPage* pPage : aPages)
++    {
++        pPage->setTransitionType(bNone ? 0 : pPreset->getTransition());
++        pPage->setTransitionSubtype(bNone ? 0 : pPreset->getSubtype());
++        pPage->setTransitionDirection(bNone || pPreset->getDirection());
++        pPage->setTransitionFadeColor(bNone ? 0 : pPreset->getFadeColor());
++    }
++    pDocSh->SetModified();
++    return true;
++}
++
++void ExecuteApplyTransition(ViewShellBase& rBase, SfxRequest& rRequest)
++{
++    const SfxItemSet* pArgs = rRequest.GetArgs();
++    const SfxStringItem* pSet = pArgs ? pArgs->GetItem<SfxStringItem>(SID_HST_APPLY_TRANSITION) : nullptr;
++    if (!pSet || !ApplyTransition(rBase, pSet->GetValue()))
++    {
++        rRequest.Ignore();
++        return;
++    }
++    // the gallery shows the new transition as selected
++    rBase.GetViewFrame().GetBindings().Invalidate(SID_HST_APPLY_TRANSITION);
++    rRequest.Done();
++}
++
++void GetApplyTransitionState(ViewShellBase& rBase, SfxItemSet& rSet)
++{
++    DrawDocShell* pDocSh = rBase.GetDocShell();
++    if (!pDocSh || pDocSh->IsReadOnly() || SelectedPages(rBase).empty())
++    {
++        rSet.DisableItem(SID_HST_APPLY_TRANSITION);
++        return;
++    }
++    rSet.Put(SfxStringItem(SID_HST_APPLY_TRANSITION, CurrentTransition(rBase)));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/source/ui/controller/HstTransitionGallery.cxx
+@@ -0,0 +1,336 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the transitions gallery of the Slides ribbon (tab "Chuyển tiếp"), as Office's: one row
++// of transition thumbnails; a click (or Enter) applies the transition to the selected slides with
++// .uno:HstApplyTransition (one undo action, HstTransitionApply.cxx); the transition of the selected
++// slides is shown selected; ◂ ▸ page through the row and ▾ opens the Slide Transition deck with every
++// variant and option. The toolbox item of .uno:HstApplyTransition gets this control
++// (Controller.xcu). Rollback switch: org.openoffice.Office.HSTRibbon/SlidesEffectGalleries hides the
++// item.
++
++#include <HstTransitionApply.hxx>
++#include <TransitionPreset.hxx>
++#include <sdresid.hxx>
++#include <strings.hrc>
++
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/frame/XFrame.hpp>
++#include <comphelper/dispatchcommand.hxx>
++#include <comphelper/lok.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <comphelper/unique_unlock.hxx>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <cppuhelper/supportsservice.hxx>
++#include <officecfg/Office/HSTRibbon.hxx>
++#include <svtools/toolboxcontroller.hxx>
++#include <toolkit/helper/vclunohelper.hxx>
++#include <vcl/InterimItemWindow.hxx>
++#include <vcl/idle.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/toolbox.hxx>
++#include <vcl/weld/Button.hxx>
++#include <vcl/weld/IconView.hxx>
++
++#include <algorithm>
++#include <vector>
++
++using namespace css;
++
++namespace
++{
++constexpr OUString COMMAND = u".uno:HstApplyTransition"_ustr;
++// an item is the icon view's item width plus its padding on both sides (hsttransitiongallery.ui)
++constexpr tools::Long ITEM_WIDTH = 60 + 2 * 2;
++constexpr int MIN_ITEMS = 3; // the narrowest gallery still shows three transitions
++
++bool GalleryEnabled()
++{
++    if (comphelper::LibreOfficeKit::isActive())
++        return false;
++    try
++    {
++        return officecfg::Office::HSTRibbon::SlidesEffectGalleries::get();
++    }
++    catch (const uno::Exception&)
++    {
++        return true; // the schema ships with the switch on
++    }
++}
++
++struct Entry
++{
++    OUString aSetId; // TransitionPreset set id, or sd::hst::TransitionNone
++    OUString aLabel;
++    OUString aIcon;
++};
++
++/// "None" first, then one entry per transition set, in the order of the Slide Transition deck.
++std::vector<Entry> Entries()
++{
++    std::vector<Entry> aEntries{ { sd::hst::TransitionNone, SdResId(STR_SLIDETRANSITION_NONE),
++                                   u"sd/cmd/transition-none.png"_ustr } };
++    for (const sd::TransitionPresetPtr& pPreset : sd::TransitionPreset::getTransitionPresetList())
++    {
++        if (!pPreset || pPreset->getSetLabel().isEmpty())
++            continue;
++        const OUString& rSet = pPreset->getSetId();
++        if (std::any_of(aEntries.begin(), aEntries.end(),
++                        [&rSet](const Entry& rEntry) { return rEntry.aSetId == rSet; }))
++            continue;
++        aEntries.push_back({ rSet, pPreset->getSetLabel(), u"sd/cmd/transition-"_ustr + rSet + u".png"_ustr });
++    }
++    return aEntries;
++}
++
++class HstTransitionGalleryWindow final : public InterimItemWindow
++{
++public:
++    HstTransitionGalleryWindow(vcl::Window* pParent, uno::Reference<frame::XFrame> xFrame)
++        : InterimItemWindow(pParent, u"modules/simpress/ui/hsttransitiongallery.ui"_ustr,
++                            u"TransitionGalleryBox"_ustr, true)
++        , m_xFrame(std::move(xFrame))
++        , m_xView(m_xBuilder->weld_icon_view(u"transitions"_ustr))
++        , m_xPrev(m_xBuilder->weld_button(u"prev"_ustr))
++        , m_xNext(m_xBuilder->weld_button(u"next"_ustr))
++        , m_xMore(m_xBuilder->weld_button(u"more"_ustr))
++        , m_aEntries(Entries())
++        , m_aRefill("sd HstTransitionGallery refill")
++    {
++        InitControlBase(m_xView.get());
++        m_xView->set_size_request(ITEM_WIDTH * MIN_ITEMS, -1);
++        m_xView->connect_item_activated(LINK(this, HstTransitionGalleryWindow, ActivatedHdl));
++        m_xView->connect_size_allocate(LINK(this, HstTransitionGalleryWindow, SizeHdl));
++        m_xPrev->connect_clicked(LINK(this, HstTransitionGalleryWindow, PageHdl));
++        m_xNext->connect_clicked(LINK(this, HstTransitionGalleryWindow, PageHdl));
++        m_xMore->connect_clicked(LINK(this, HstTransitionGalleryWindow, MoreHdl));
++        m_aRefill.SetInvokeHandler(LINK(this, HstTransitionGalleryWindow, RefillHdl));
++        ShowPage();
++        SetSizePixel(get_preferred_size());
++    }
++
++    ~HstTransitionGalleryWindow() override { disposeOnce(); }
++
++    void dispose() override
++    {
++        m_aRefill.Stop();
++        m_xView.reset();
++        m_xPrev.reset();
++        m_xNext.reset();
++        m_xMore.reset();
++        InterimItemWindow::dispose();
++    }
++
++    /// The transition of the selected slides (empty: several, or one the gallery does not have).
++    void SetCurrent(const OUString& rSetId)
++    {
++        if (m_aCurrent == rSetId)
++            return;
++        m_aCurrent = rSetId;
++        // bring the page with the current transition into view, as Office's gallery does
++        const auto it = std::find_if(m_aEntries.begin(), m_aEntries.end(),
++                                     [&rSetId](const Entry& rEntry) { return rEntry.aSetId == rSetId; });
++        if (it != m_aEntries.end() && m_nPageSize)
++        {
++            const size_t nIndex = it - m_aEntries.begin();
++            if (nIndex < m_nFirst || nIndex >= m_nFirst + m_nPageSize)
++                m_nFirst = nIndex - nIndex % m_nPageSize;
++        }
++        ShowPage();
++    }
++
++private:
++    size_t PageSize() const
++    {
++        return m_nViewWidth > 0 ? std::max<size_t>(1, m_nViewWidth / ITEM_WIDTH) : MIN_ITEMS;
++    }
++
++    void ShowPage()
++    {
++        if (!m_xView)
++            return;
++        m_nPageSize = PageSize();
++        if (m_nFirst >= m_aEntries.size())
++            m_nFirst = 0;
++        m_nFirst -= m_nFirst % m_nPageSize; // pages start at multiples of the page size
++        const size_t nEnd = std::min(m_aEntries.size(), m_nFirst + m_nPageSize);
++
++        m_xView->freeze();
++        m_xView->clear();
++        int nSelect = -1;
++        for (size_t i = m_nFirst; i < nEnd; ++i)
++        {
++            const Entry& rEntry = m_aEntries[i];
++            const int nPos = static_cast<int>(i - m_nFirst);
++            m_xView->insert(nPos, &rEntry.aLabel, &rEntry.aSetId, &rEntry.aIcon, nullptr);
++            m_xView->set_item_tooltip_text(nPos, rEntry.aLabel);
++            m_xView->set_item_accessible_name(nPos, rEntry.aLabel);
++            if (rEntry.aSetId == m_aCurrent)
++                nSelect = nPos;
++        }
++        m_xView->thaw();
++        if (nSelect >= 0)
++            m_xView->select(nSelect);
++        else
++            m_xView->unselect_all();
++        m_xPrev->set_sensitive(m_nFirst > 0);
++        m_xNext->set_sensitive(nEnd < m_aEntries.size());
++    }
++
++    DECL_LINK(ActivatedHdl, const weld::TreeIter&, bool);
++    DECL_LINK(SizeHdl, const Size&, void);
++    DECL_LINK(PageHdl, weld::Button&, void);
++    DECL_LINK(MoreHdl, weld::Button&, void);
++    DECL_LINK(RefillHdl, Timer*, void);
++
++    uno::Reference<frame::XFrame> m_xFrame;
++    std::unique_ptr<weld::IconView> m_xView;
++    std::unique_ptr<weld::Button> m_xPrev;
++    std::unique_ptr<weld::Button> m_xNext;
++    std::unique_ptr<weld::Button> m_xMore;
++    std::vector<Entry> m_aEntries;
++    Idle m_aRefill;
++    OUString m_aCurrent;
++    size_t m_nFirst = 0;
++    size_t m_nPageSize = 0;
++    tools::Long m_nViewWidth = 0;
++};
++
++IMPL_LINK(HstTransitionGalleryWindow, ActivatedHdl, const weld::TreeIter&, rIter, bool)
++{
++    const OUString aSetId = m_xView->get_id(rIter);
++    if (aSetId.isEmpty() || !m_xFrame.is())
++        return true;
++    comphelper::dispatchCommand(COMMAND, m_xFrame,
++                                { comphelper::makePropertyValue(u"Transition"_ustr, aSetId) });
++    return true;
++}
++
++IMPL_LINK(HstTransitionGalleryWindow, SizeHdl, const Size&, rSize, void)
++{
++    if (rSize.Width() == m_nViewWidth)
++        return;
++    m_nViewWidth = rSize.Width();
++    // refill after this size allocation, not while the view is being allocated
++    if (PageSize() != m_nPageSize)
++        m_aRefill.Start();
++}
++
++IMPL_LINK_NOARG(HstTransitionGalleryWindow, RefillHdl, Timer*, void) { ShowPage(); }
++
++IMPL_LINK(HstTransitionGalleryWindow, PageHdl, weld::Button&, rButton, void)
++{
++    if (!m_nPageSize)
++        return;
++    if (&rButton == m_xNext.get())
++    {
++        if (m_nFirst + m_nPageSize < m_aEntries.size())
++            m_nFirst += m_nPageSize;
++    }
++    else
++        m_nFirst = m_nFirst > m_nPageSize ? m_nFirst - m_nPageSize : 0;
++    ShowPage();
++}
++
++IMPL_LINK_NOARG(HstTransitionGalleryWindow, MoreHdl, weld::Button&, void)
++{
++    // every transition with its variants, duration, sound and advance: the Slide Transition deck
++    if (m_xFrame.is())
++        comphelper::dispatchCommand(u".uno:SidebarDeck.SdSlideTransitionDeck"_ustr, m_xFrame, {});
++}
++
++using HstTransitionGalleryControl_Base
++    = cppu::ImplInheritanceHelper<svt::ToolboxController, lang::XServiceInfo>;
++
++class HstTransitionGalleryControl final : public HstTransitionGalleryControl_Base
++{
++public:
++    HstTransitionGalleryControl() = default;
++
++    // XInitialization
++    void SAL_CALL initialize(const uno::Sequence<uno::Any>& rArguments) override
++    {
++        svt::ToolboxController::initialize(rArguments);
++        if (GalleryEnabled())
++            return;
++        // switched off: the gallery's place stays empty (the Slide Transition deck has everything)
++        SolarMutexGuard aGuard;
++        ToolBox* pToolBox = nullptr;
++        ToolBoxItemId nId;
++        if (getToolboxId(nId, &pToolBox))
++            pToolBox->HideItem(nId);
++    }
++
++    // XUpdatable
++    void SAL_CALL update() override {}
++
++    // XStatusListener
++    void SAL_CALL statusChanged(const frame::FeatureStateEvent& rEvent) override
++    {
++        SolarMutexGuard aGuard;
++        if (!m_xWindow)
++            return;
++        m_xWindow->Enable(rEvent.IsEnabled);
++        OUString aSetId;
++        rEvent.State >>= aSetId;
++        m_xWindow->SetCurrent(rEvent.IsEnabled ? aSetId : OUString());
++    }
++
++    // XToolbarController
++    uno::Reference<awt::XWindow> SAL_CALL createItemWindow(const uno::Reference<awt::XWindow>& rParent) override
++    {
++        if (!GalleryEnabled())
++            return {};
++        SolarMutexGuard aGuard;
++        VclPtr<vcl::Window> pParent = VCLUnoHelper::GetWindow(rParent);
++        if (!pParent)
++            return {};
++        m_xWindow = VclPtr<HstTransitionGalleryWindow>::Create(pParent, m_xFrame);
++        return VCLUnoHelper::GetInterface(m_xWindow);
++    }
++
++    // XServiceInfo
++    OUString SAL_CALL getImplementationName() override
++    {
++        return u"com.sun.star.comp.sd.HstTransitionGalleryControl"_ustr;
++    }
++    sal_Bool SAL_CALL supportsService(const OUString& rServiceName) override
++    {
++        return cppu::supportsService(this, rServiceName);
++    }
++    uno::Sequence<OUString> SAL_CALL getSupportedServiceNames() override
++    {
++        return { u"com.sun.star.frame.ToolbarController"_ustr };
++    }
++
++    // WeakComponentImplHelperBase
++    using HstTransitionGalleryControl_Base::disposing;
++    void disposing(std::unique_lock<std::mutex>& rGuard) override
++    {
++        svt::ToolboxController::disposing(rGuard);
++        comphelper::unique_unlock aUnlock(rGuard);
++        SolarMutexGuard aSolarGuard;
++        m_xWindow.disposeAndClear();
++    }
++
++private:
++
++    VclPtr<HstTransitionGalleryWindow> m_xWindow;
++};
++}
++
++extern "C" SAL_DLLPUBLIC_EXPORT uno::XInterface*
++com_sun_star_comp_sd_HstTransitionGalleryControl_get_implementation(uno::XComponentContext*,
++                                                                    uno::Sequence<uno::Any> const&)
++{
++    return cppu::acquire(new HstTransitionGalleryControl);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/uiconfig/simpress/ui/hsttransitiongallery.ui
+@@ -0,0 +1,135 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- HST Office: the transitions gallery of the Slides ribbon (tab "Chuyển tiếp"), one row of
++     transition thumbnails with buttons on the right that page through them and open the Slide
++     Transition deck, as Office's gallery. Filled by sd/source/ui/controller/HstTransitionGallery.cxx. -->
++<interface domain="sd">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkTreeStore" id="liststore1">
++    <columns>
++      <!-- column-name image -->
++      <column type="GdkPixbuf"/>
++      <!-- column-name text -->
++      <column type="gchararray"/>
++      <!-- column-name id -->
++      <column type="gchararray"/>
++      <!-- column-name tooltip -->
++      <column type="gchararray"/>
++    </columns>
++  </object>
++  <object class="GtkBox" id="TransitionGalleryBox">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="spacing">0</property>
++    <child>
++      <object class="GtkScrolledWindow" id="transitionsscroll">
++        <property name="visible">True</property>
++        <property name="can-focus">True</property>
++        <property name="hexpand">True</property>
++        <property name="valign">center</property>
++        <property name="hscrollbar-policy">never</property>
++        <property name="vscrollbar-policy">never</property>
++        <property name="shadow-type">in</property>
++        <child>
++          <object class="GtkIconView" id="transitions">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="model">liststore1</property>
++            <property name="pixbuf-column">0</property>
++            <property name="text-column">1</property>
++            <property name="tooltip-column">3</property>
++            <property name="item-width">60</property>
++            <property name="item-padding">2</property>
++            <property name="column-spacing">0</property>
++            <property name="row-spacing">0</property>
++            <property name="margin">0</property>
++            <property name="activate-on-single-click">True</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="transitions-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hsttransitiongallery|transitions-atkobject">Transitions</property>
++              </object>
++            </child>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">True</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkBox" id="buttons">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="orientation">vertical</property>
++        <property name="homogeneous">True</property>
++        <child>
++          <object class="GtkButton" id="prev">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="tooltip-text" translatable="yes" context="hsttransitiongallery|prev">Previous transitions</property>
++            <property name="label">◂</property>
++            <property name="relief">none</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="prev-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hsttransitiongallery|prev-atkobject">Previous transitions</property>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="next">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="tooltip-text" translatable="yes" context="hsttransitiongallery|next">Next transitions</property>
++            <property name="label">▸</property>
++            <property name="relief">none</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="next-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hsttransitiongallery|next-atkobject">Next transitions</property>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="more">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="tooltip-text" translatable="yes" context="hsttransitiongallery|more">All transitions and their options</property>
++            <property name="label">▾</property>
++            <property name="relief">none</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="more-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hsttransitiongallery|more-atkobject">All transitions</property>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">1</property>
++      </packing>
++    </child>
++  </object>
++</interface>
