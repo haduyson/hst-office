@@ -63,6 +63,12 @@ def _wizard_doc(type_id, fields):
     return open_doc
 
 
+def _footer_text(type_id, fields, template):
+    """The first-page footer (contact details of an official letter) the renderers write for these fields, or None."""
+    _blocks, footer = nd30_layout.portable_blocks(nd30_layout.build_layout(type_id, fields, template=template))
+    return " ".join("".join(r["text"] for r in b["runs"]) for b in footer) or None
+
+
 def writer_types():
     return [t for t in nd30.rules()["documentTypes"] if t.get("module", "writer") == "writer"]
 
@@ -83,12 +89,17 @@ def all_cases(templates, only):
         data = _body_top_profile(nd30.profile_rules(t["profile"]), t["structure"] in ("copy", "dang-copy"))  # a copy may open a page with its rule
         common = {"profile": data, "type": t, "checkNumberRow": not t.get("noDate") and not t.get("noNumber") and not t.get("noHeader") and t["structure"] not in ("annex", "attached-only", "esign-copy"), "paged": paged}
         if ident in catalog:
-            yield {**common, "name": ident + "-ott", "multipage": paged, "open": _ott_doc(os.path.join(templates, catalog[ident]["output"]), paged), "ruleSource": None}
+            yield {**common, "name": ident + "-ott", "multipage": paged, "open": _ott_doc(os.path.join(templates, catalog[ident]["output"]), paged),
+                   "ruleSource": None, "footer": _footer_text(ident, {}, True)}
         if not paged:
-            yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, {}), "ruleSource": SHORT}
+            yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, {}), "ruleSource": SHORT,
+                   "footer": _footer_text(ident, {}, False)}
             continue
-        yield {**common, "name": ident + "-wizard-long", "multipage": True, "open": _wizard_doc(ident, {**LONG, "body": long_body}), "ruleSource": LONG}
-        yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, SHORT), "ruleSource": SHORT}
+        long_fields = {**LONG, "body": long_body}
+        yield {**common, "name": ident + "-wizard-long", "multipage": True, "open": _wizard_doc(ident, long_fields), "ruleSource": LONG,
+               "footer": _footer_text(ident, long_fields, False)}
+        yield {**common, "name": ident + "-wizard-short", "multipage": False, "open": _wizard_doc(ident, SHORT), "ruleSource": SHORT,
+               "footer": _footer_text(ident, SHORT, False)}
 
 
 def check_rules(case, pdf):

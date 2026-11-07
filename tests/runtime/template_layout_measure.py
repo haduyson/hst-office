@@ -24,13 +24,25 @@ def baseline(word):
     return word["y0"] + ASCENT * size
 
 
-def measure(pdf, top_mm=20.0):
-    """{'pages', 'bodyTop': [per page], 'left', 'right', 'bottom', 'pageNumbers': [(page, text, centre x, y1)]}."""
+def _first_page_footer(words, text, from_mm):
+    """The words of page 1 below `from_mm` when they read exactly `text`, else []: only the expected contact line leaves the body."""
+    below = sorted((w for w in words if w["y0"] >= from_mm - 0.5), key=lambda w: (round(w["y1"], 1), w["x0"]))
+    return below if below and " ".join(w["text"] for w in below) == " ".join(text.split()) else []
+
+
+def measure(pdf, top_mm=20.0, footer_text=None, footer_from_mm=None):
+    """{'pages', 'bodyTop': [per page], 'left', 'right', 'bottom', 'pageNumbers': [(page, text, centre x, y1)], 'footer'}.
+
+    `footer_text`: the contact details an official letter prints in the footer of its first page (Decree 30, Annex I,
+    I.III.4), in the bottom margin from `footer_from_mm`. Those words are reported as 'footer' (top, bottom), not body."""
     pages = words_by_page(pdf)
-    result = {"pages": len(pages), "bodyTop": [], "pageNumbers": [], "left": 999.0, "right": 0.0, "bottom": 0.0}
+    result = {"pages": len(pages), "bodyTop": [], "pageNumbers": [], "left": 999.0, "right": 0.0, "bottom": 0.0, "footer": None}
     for index, words in enumerate(pages):
         numbers = [w for w in words if w["y1"] < top_mm + 0.5 and re.fullmatch(r"\d+", w["text"])]
-        body = [w for w in words if w not in numbers]
+        footer = _first_page_footer(words, footer_text, footer_from_mm) if index == 0 and footer_text else []
+        if footer:
+            result["footer"] = (round(min(w["y0"] for w in footer), 2), round(max(w["y1"] for w in footer), 2))
+        body = [w for w in words if w not in numbers and w not in footer]
         result["pageNumbers"] += [(index + 1, w["text"], round((w["x0"] + w["x1"]) / 2, 2), round(w["y1"], 2)) for w in numbers]
         if not body:
             result["bodyTop"].append(None)
