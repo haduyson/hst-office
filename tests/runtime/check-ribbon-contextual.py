@@ -2,7 +2,8 @@
 """Check the contextual ribbon tabs of HST Writer, Sheets and Slides on a real GUI (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-ribbon-contextual.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]
-The X display must already run. For a table, a picture, a shape and a chart selected through the controller:
+The X display must already run. For a table, a picture, a shape and a chart selected through the controller, and in
+Sheets also for the cell cursor in a pivot table:
   - the tabs named as in Office appear, and the ribbon stays on the tab that was current;
   - with the cursor back in the text the tabs are gone; a contextual tab that was current falls back to Trang đầu;
   - clicking a chart tab and a chart command opens the dialog of the chart, without activating the chart by hand;
@@ -23,6 +24,7 @@ import ribbon_tabs_gui as gui  # noqa: E402
 TABLE = ["Thiết kế Bảng", "Bố trí Bảng"]
 PICTURE, SHAPE = ["Định dạng Ảnh"], ["Định dạng Hình dạng"]
 CHART = ["Thiết kế Biểu đồ", "Định dạng Biểu đồ"]
+PIVOT = ["Phân tích Bảng tổng hợp"]
 ROWS = []
 CHART_CLSID = "12dcae26-281f-416f-a234-c3086127382e"
 
@@ -100,7 +102,34 @@ def make_objects(app, doc, image_url):
         address.Sheet, address.EndRow = 0, 2
         sheet.Charts.addNewByName("c1", Rectangle(9000, 1000, 9000, 6000), (address,), False, False)
         made["chart"] = page.getByIndex(page.Count - 1)
+        made["pivot"] = make_pivot(sheet)
     return made
+
+
+def make_pivot(sheet):
+    """A small pivot table from H1:I4 at H11; returns a cell inside its output."""
+    from com.sun.star.sheet.DataPilotFieldOrientation import ROW, DATA
+    from com.sun.star.sheet.GeneralFunction import SUM
+    from com.sun.star.table import CellAddress, CellRangeAddress
+    for row, (name, value) in enumerate((("Nhóm", None), ("a", 1), ("b", 2), ("a", 3))):
+        sheet.getCellByPosition(7, row).String = name
+        if value is None:
+            sheet.getCellByPosition(8, row).String = "Số"
+        else:
+            sheet.getCellByPosition(8, row).Value = value
+    tables = sheet.DataPilotTables
+    descriptor = tables.createDataPilotDescriptor()
+    source = CellRangeAddress()
+    source.Sheet, source.StartColumn, source.EndColumn, source.EndRow = 0, 7, 8, 3
+    descriptor.setSourceRange(source)
+    fields = descriptor.DataPilotFields
+    fields.getByIndex(0).Orientation = ROW
+    data = fields.getByIndex(1)
+    data.Orientation, data.Function = DATA, SUM
+    target = CellAddress()
+    target.Sheet, target.Column, target.Row = 0, 7, 10
+    tables.insertNewByName("p1", target, descriptor)
+    return sheet.getCellByPosition(7, 12)
 
 
 def park(app, doc, office):
@@ -130,7 +159,7 @@ def check_app(app, args, port, image_url):
         gui.click(args.display, home_box)
         top = gui.geometry()
         height = top[1] - top[0]
-        expected = {"table": TABLE, "picture": PICTURE, "shape": SHAPE, "chart": CHART}
+        expected = {"table": TABLE, "picture": PICTURE, "shape": SHAPE, "chart": CHART, "pivot": PIVOT}
         # the chart last: it stays activated after its command, and the ribbon follows the chart then
         for kind, target in sorted(objects.items(), key=lambda item: item[0] == "chart"):
             doc.CurrentController.select(target)

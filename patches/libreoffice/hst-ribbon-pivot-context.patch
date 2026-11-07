@@ -1,0 +1,739 @@
+HST Office: Sheets' "Phân tích Bảng tổng hợp" contextual tab (pivot tables).
+
+While the cell cursor is in a pivot table, Sheets' pivot shell reports the "Pivot" context; the ribbon
+now has a tab for it, after Table Design, as Office shows PivotTable Analyze:
+Bảng tổng hợp (edit the layout and its data source), Nhóm (group, ungroup), Dữ liệu (refresh),
+Hành động (filter, delete), Tính toán (calculated field) and Công cụ (chart from the pivot table).
+
+- sc notebookbar.ui and its vi translation: the page, its tab ("context-Pivot") and the group captions.
+- sfx2 HstKeyTipTable.hxx: the tab's key tip, JT.
+- solenv scalc.suppr: the new icon buttons take their accessible names from their commands.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -10940,6 +10940,559 @@
+               </packing>
+             </child>
+             <child>
++              <object class="sfxlo-PriorityHBox" id="phbPivot">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <child>
++                  <object class="sfxlo-PriorityMergedHBox" id="pmhbphbPivot">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <child>
++                      <object class="GtkGrid" id="gdPivotHstTable">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">4</property>
++                        <property name="margin-end">2</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbPivotHstTable">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedCalc|labelPivotHstTable">Pivot Table</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdPivotHstTable"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxPivotEdit">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxPivotEdit">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:DataDataPilotRun</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbPivotHstTable"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">0</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkGrid" id="gdPivotHstGroup">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">4</property>
++                        <property name="margin-end">2</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbPivotHstGroup">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedCalc|labelPivotHstGroup">Group</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdPivotHstGroup"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxPivotGroup">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxPivotGroup">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:Group</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxPivotUngroup">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxPivotUngroup">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:Ungroup</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbPivotHstGroup"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">1</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkGrid" id="gdPivotHstData">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">4</property>
++                        <property name="margin-end">2</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbPivotHstData">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedCalc|labelPivotHstData">Data</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdPivotHstData"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxPivotRefresh">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxPivotRefresh">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:RecalcPivotTable</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbPivotHstData"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">2</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkGrid" id="gdPivotHstActions">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">4</property>
++                        <property name="margin-end">2</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbPivotHstActions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedCalc|labelPivotHstActions">Actions</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdPivotHstActions"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxPivotFilter">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxPivotFilter">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:DataPilotFilter</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxPivotDelete">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxPivotDelete">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:DeletePivotTable</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbPivotHstActions"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">3</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkGrid" id="gdPivotHstCalculations">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">4</property>
++                        <property name="margin-end">2</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbPivotHstCalculations">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedCalc|labelPivotHstCalculations">Calculations</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdPivotHstCalculations"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxPivotCalcField">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxPivotCalcField">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:CalculatedFieldRun</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbPivotHstCalculations"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">4</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkGrid" id="gdPivotHstTools">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-start">4</property>
++                        <property name="margin-end">2</property>
++                        <property name="margin-top">6</property>
++                        <property name="margin-bottom">6</property>
++                        <property name="row-spacing">3</property>
++                        <property name="column-spacing">4</property>
++                        <child>
++                          <object class="GtkLabel" id="lbPivotHstTools">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedCalc|labelPivotHstTools">Tools</property>
++                            <attributes>
++                              <attribute name="style" value="normal"/>
++                              <attribute name="scale" value="0.9"/>
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdPivotHstTools"/>
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstCtxPivotChart">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstCtxPivotChart">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:InsertObjectChart</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <accessibility>
++                          <relation type="labelled-by" target="lbPivotHstTools"/>
++                        </accessibility>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">5</property>
++                      </packing>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="position">8</property>
++              </packing>
++            </child>
++            <child type="tab">
++              <object class="GtkLabel" id="PivotLabel">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="TabbedCalc|PivotTabLabel">Pivot Table ~Analyze</property>
++                <property name="use-underline">True</property>
++                <style>
++                  <class name="context-Pivot"/>
++                </style>
++              </object>
++              <packing>
++                <property name="position">9</property>
++                <property name="tab-fill">False</property>
++              </packing>
++            </child>
++            <child>
+               <object class="sfxlo-PriorityHBox" id="phbImage">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+@@ -12022,7 +12575,7 @@
+                 </style>
+               </object>
+               <packing>
+-                <property name="position">9</property>
++                <property name="position">10</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+@@ -12494,7 +13047,7 @@
+                 </style>
+               </object>
+               <packing>
+-                <property name="position">10</property>
++                <property name="position">11</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+@@ -12893,7 +13446,7 @@
+                 </style>
+               </object>
+               <packing>
+-                <property name="position">11</property>
++                <property name="position">12</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+@@ -13960,7 +14513,7 @@
+                 </style>
+               </object>
+               <packing>
+-                <property name="position">12</property>
++                <property name="position">13</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+@@ -14735,7 +15288,7 @@
+                 </style>
+               </object>
+               <packing>
+-                <property name="position">13</property>
++                <property name="position">14</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+@@ -15328,7 +15881,7 @@
+                 </style>
+               </object>
+               <packing>
+-                <property name="position">14</property>
++                <property name="position">15</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+@@ -15829,7 +16382,7 @@
+                 </style>
+               </object>
+               <packing>
+-                <property name="position">15</property>
++                <property name="position">16</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+@@ -16600,7 +17153,7 @@
+                 </style>
+               </object>
+               <packing>
+-                <property name="position">16</property>
++                <property name="position">17</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+@@ -16809,7 +17362,7 @@
+                 <property name="label" translatable="yes" context="TabbedCalc|HelpLabel">~Help</property>
+               </object>
+               <packing>
+-                <property name="position">17</property>
++                <property name="position">18</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+@@ -17967,7 +18520,7 @@
+                 <property name="use-underline">True</property>
+               </object>
+               <packing>
+-                <property name="position">18</property>
++                <property name="position">19</property>
+                 <property name="tab-fill">False</property>
+               </packing>
+             </child>
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -37298,3 +37298,46 @@
+ msgid "~Help"
+ msgstr "Trợ ~giúp"
+ 
++
++#. hstRP
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|labelPivotHstTable"
++msgid "Pivot Table"
++msgstr "Bảng tổng hợp"
++
++#. hstRP
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|labelPivotHstGroup"
++msgid "Group"
++msgstr "Nhóm"
++
++#. hstRP
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|labelPivotHstData"
++msgid "Data"
++msgstr "Dữ liệu"
++
++#. hstRP
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|labelPivotHstActions"
++msgid "Actions"
++msgstr "Hành động"
++
++#. hstRP
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|labelPivotHstCalculations"
++msgid "Calculations"
++msgstr "Tính toán"
++
++#. hstRP
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|labelPivotHstTools"
++msgid "Tools"
++msgstr "Công cụ"
++
++#. hstRP
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|PivotTabLabel"
++msgid "Pivot Table ~Analyze"
++msgstr "Phân tích Bảng tổng ~hợp"
++
+--- a/sfx2/source/notebookbar/HstKeyTipTable.hxx
++++ b/sfx2/source/notebookbar/HstKeyTipTable.hxx
+@@ -41,6 +41,8 @@
+     { "MediaLabel", "JM" },     { "PrintLabel", "JI" },      { "FormLabel", "JF" },
+     { "MasterLabel", "JS" },    { "OutlineLabel", "JU" },    { "3DObjectLabel", "J3" },
+     { "HelpLabel", "Y2" },
++    // Sheets' pivot table tab: JT as Office's PivotTable Analyze; never shown with Table Design (JT)
++    { "PivotLabel", "JT" },
+ };
+ 
+ // Commands, without ".uno:".
+--- a/solenv/sanitizers/ui/modules/scalc.suppr
++++ b/solenv/sanitizers/ui/modules/scalc.suppr
+@@ -810,3 +810,11 @@
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartDataRows'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartResetAll'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxChartResetPoint'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotEdit'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotGroup'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotUngroup'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotRefresh'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotFilter'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotDelete'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotCalcField'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotChart'] button-no-label
