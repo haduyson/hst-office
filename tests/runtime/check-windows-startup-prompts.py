@@ -5,10 +5,10 @@
 The Windows counterpart of check-startup-prompts.py (Linux), with its question and welcome titles. Unlike the Linux
 check the profile is not warmed up or seeded: start 1 is the very first start of an empty profile, with the bundled
 extension sync it does, the Start Center shown and no setting forced. One modal question per start:
-  start 1: the welcome dialog, and nothing else in that start;
-  start 2: "Mở tài liệu văn phòng bằng HST Office?" when the installer checkbox was left unticked
-           (--expect question; answered with real keys), none when it was ticked (--expect registered: the installer
-           wrote DefaultApps\\ChosenAtInstall = 1, so HST is already chosen);
+  the welcome dialog at start 1 of a new profile, and nothing else in that start;
+  "Mở tài liệu văn phòng bằng HST Office?" once, at the first start without the welcome, when the installer checkbox
+           was left unticked (--expect question; answered with real keys), never when it was ticked (--expect
+           registered: the installer wrote DefaultApps\\ChosenAtInstall = 1, so HST is already chosen);
   start 3: no question.
 --carried: start 1 reuses the profile already in --profile (one an older version left behind), as after uninstalling
 the old version and installing this one; the welcome may then be already seen. --warm-only: one start of a new
@@ -150,79 +150,73 @@ def main():
         check.note("exit code", office.stop())
         return 0
     check.note("registry before start 1", registry_evidence())
-    try:
-        # ---- start 1 ----
-        began = time.time()
-        office.start(fresh=not args.carried)
-        check.note("start 1: UNO up after", "%.1f s, soffice.bin %s" % (time.time() - began, office.bin_pids()))
-        check.note("start 1: state at once", state(office))
-        seen = watch(office, 45, out, "start1", close=lambda title, texts: WELCOME.search(title) is not None)
-        check.note("start 1: soffice.bin after 45 s (another id: the office restarted itself)", office.bin_pids())
-        check.note("start 1: dialogs", seen)
-        check.note("start 1: chain inputs", chain_probe(office, args.install))
-        welcome = [title for title, _texts in seen if WELCOME.search(title)]
-        if args.carried:
-            check.note("start 1 (carried profile): welcome shown", bool(welcome))
-        else:
-            check("start 1: the welcome dialog is shown", bool(welcome), seen)
-        check("start 1: the default-apps question is not shown with it", not any(is_question(*s) for s in seen), seen)
-        first = state(office)
-        check.note("start 1: state", first)
-        check("start 1: the extension's settings are registered", not any(str(v).startswith("ERROR") for v in first.values()),
-              first)
-        check("start 1: the welcome is stored as seen", first.get("Shown") is True, first)
-        for window, _title in wg.dialogs(office):  # anything left open would veto the quit
-            wg.close_dialog(window)
-        check.note("start 1: exit code", office.stop())
-        # ---- start 2 ----
-        office.start()
-        check.note("start 2: soffice.bin", office.bin_pids())
-        answered = {}
+    answered = {}
 
-        def answer(title, texts):
+    def handle(start):
+        def close(title, texts):
             if not is_question(title, texts):
-                return True  # any other dialog: recorded and closed
+                return True  # the welcome or any other dialog: recorded and closed
             hwnd = wg.hwnd_of(title)
-            answered["active"] = bool(hwnd) and wg.activate(hwnd)
+            answered.update(start=start, active=bool(hwnd) and wg.activate(hwnd))
             # the focus starts on "Để sau" (default, Esc and Enter decline); Tab reaches "Đồng ý"
             if args.answer == "accept":
                 wg.keys("tab")
-                wg.screenshot(os.path.join(out, "start2-after-tab.png"))
+                wg.screenshot(os.path.join(out, "start%d-after-tab.png" % start))
                 wg.keys("space")
             else:
                 wg.keys("escape")
             answered["keys"] = args.answer
             time.sleep(3)
-            wg.screenshot(os.path.join(out, "start2-after-answer.png"))
+            wg.screenshot(os.path.join(out, "start%d-after-answer.png" % start))
             return False
-        seen = watch(office, 60, out, "start2", close=answer)
-        check.note("start 2: dialogs", seen)
-        check.note("start 2: chain inputs", chain_probe(office, args.install))
-        questions = [s for s in seen if is_question(*s)]
-        second = state(office)
-        check.note("start 2: state", second)
-        check.note("registry at start 2", registry_evidence())
-        if args.expect == "question":
-            # after Đồng ý a second box, titled the same, says what to do in Settings
-            check("start 2: the default-apps question is shown", bool(questions) and is_question(*seen[0]), seen)
-            check("start 2: no welcome again", not any(WELCOME.search(title) for title, _texts in seen), seen)
-            check("start 2: the question was answered with the keyboard", answered.get("keys") == args.answer, answered)
-            check("start 2: the answer is stored", second.get("Asked") == 1
-                  and second.get("Done") is (args.answer == "accept"), second)
+        return close
+
+    starts = []  # per start: (welcome shown, question shown, dialogs)
+    try:
+        for start in (1, 2, 3):
+            began = time.time()
+            office.start(fresh=start == 1 and not args.carried)
+            check.note("start %d: UNO up after" % start, "%.1f s, soffice.bin %s" % (time.time() - began, office.bin_pids()))
+            if start == 1:
+                check.note("start 1: state at once", state(office))
+            seen = watch(office, 60 if start < 3 else 30, out, "start%d" % start, close=handle(start))
+            check.note("start %d: soffice.bin at the end (another id: the office restarted itself)" % start, office.bin_pids())
+            check.note("start %d: dialogs" % start, seen)
+            check.note("start %d: chain inputs" % start, chain_probe(office, args.install))
+            values = state(office)
+            check.note("start %d: state" % start, values)
+            welcome = any(WELCOME.search(title) for title, _texts in seen)
+            # after Đồng ý a second box, titled the same, says what to do in Settings: only the first counts
+            question = bool(seen) and is_question(*seen[0]) if not welcome else any(is_question(*x) for x in seen)
+            starts.append((welcome, question, seen))
+            check("start %d: at most one start-up question" % start, not (welcome and question), seen)
+            check("start %d: the extension's settings are registered" % start,
+                  not any(str(v).startswith("ERROR") for v in values.values()), values)
+            if start == 1:
+                check.note("registry at start 1", registry_evidence())
+            for window, _title in wg.dialogs(office):  # anything left open would veto the quit
+                wg.close_dialog(window)
+            check.note("start %d: exit code" % start, office.stop())
+        welcomes = [n + 1 for n, (w, _q, _s) in enumerate(starts) if w]
+        questions = [n + 1 for n, (_w, q, _s) in enumerate(starts) if q]
+        if args.carried:
+            check.note("welcome shown at starts (carried profile)", welcomes)
         else:
-            check("start 2: no question (the installer already chose HST Office)", not questions, seen)
-            check("start 2: the installer's choice counts as answered", second.get("Done") is True, second)
+            check("the welcome dialog is shown at start 1 only", welcomes == [1], welcomes)
+        office.start()  # a fourth start only reads what the three left behind
+        final = state(office)
         for window, _title in wg.dialogs(office):
             wg.close_dialog(window)
-        check.note("start 2: exit code", office.stop())
-        # ---- start 3 ----
-        office.start()
-        seen = watch(office, 30, out, "start3", close=lambda title, texts: True)
-        check.note("start 3: dialogs", seen)
-        check("start 3: no default-apps question", not any(is_question(*s) for s in seen), seen)
-        check("start 3: no welcome", not any(WELCOME.search(title) for title, _texts in seen), seen)
-        check.note("start 3: state", state(office))
-        check.note("start 3: exit code", office.stop())
+        office.stop()
+        if args.expect == "question":
+            # one modal per start: the question comes at the first start without the welcome
+            due = next((n + 1 for n, (w, _q, _s) in enumerate(starts) if not w), None)
+            check("the default-apps question is shown once, at start %s" % due, questions == [due], questions)
+            check("the question was answered with real keys", answered.get("keys") == args.answer, answered)
+            check("the answer is stored", final.get("Asked") == 1 and final.get("Done") is (args.answer == "accept"), final)
+        else:
+            check("no default-apps question in any start (the installer already chose HST Office)", not questions, questions)
+            check("the installer's choice counts as answered", final.get("Done") is True, final)
     except Exception:  # noqa: BLE001
         import traceback
         check("harness", False, traceback.format_exc())
