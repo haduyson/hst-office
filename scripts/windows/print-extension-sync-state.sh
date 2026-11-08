@@ -15,8 +15,8 @@ echo "share/extensions mtime: $(stamp "$install/share/extensions")"
 echo "bundled lastsynchronized mtime: $(stamp "$profile/user/extensions/bundled/lastsynchronized")"
 registry="$profile/user/extensions/bundled/registry"
 echo "registered implementation names of the HST extension:"
-grep -rhoE 'org\.hst\.office\.vi\.[A-Za-z]+' "$registry" 2>/dev/null | sort -u | tr '\n' ' '
+grep -rahoE 'org\.hst\.office\.vi\.[A-Za-z]+' "$registry" 2>/dev/null | sort -u | tr '\n' ' '
 echo
 echo "registered configuration files of the HST extension:"
-grep -rhoE 'hst-vietnamese-tools/[A-Za-z]+\.xc[su]' "$registry" 2>/dev/null | sort -u | tr '\n' ' '
+grep -rahoE 'hst-vietnamese-tools/[A-Za-z]+\.xc[su]' "$registry" 2>/dev/null | sort -u | tr '\n' ' '
 echo

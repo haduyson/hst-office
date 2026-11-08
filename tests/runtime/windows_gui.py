@@ -407,6 +407,14 @@ def window_rect(hwnd):
     return rect.left, rect.top, rect.right, rect.bottom
 
 
+def activate(hwnd):
+    """Make `hwnd` the active window as a user does: a real click on its title bar."""
+    left, top, right, _bottom = window_rect(hwnd)
+    click(left + min(80, (right - left) // 3), top + 12)
+    time.sleep(0.4)
+    return user32.GetForegroundWindow() == hwnd
+
+
 def hwnd_of(title, timeout=10):
     """Win32 handle of the office window titled `title` (for screen coordinates and foreground)."""
     window = find_window(lambda name: name == title, timeout)

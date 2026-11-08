@@ -67,16 +67,50 @@ def state(office):
     return values
 
 
+def chain_probe(office, install):
+    """What the start-up chain (startup_prompts.py) decides from, read in the running office: the jobs bound to
+    onFirstVisibleTask, whether the dispatcher job can be made, and the default-apps decision with the installed code."""
+    import importlib
+    probe = {}
+    try:
+        probe["onFirstVisibleTask jobs"] = list(office.config(
+            "/org.openoffice.Office.Jobs/Events/onFirstVisibleTask/JobList", None).getElementNames())
+    except Exception as error:  # noqa: BLE001
+        probe["onFirstVisibleTask jobs"] = "ERROR %s" % error
+    for service in ("org.hst.office.vi.StartupPromptsJob", "org.hst.office.vi.OptionsAppearance"):
+        try:
+            probe[service] = office.service(service) is not None
+        except Exception as error:  # noqa: BLE001
+            probe[service] = "ERROR %s" % error
+    python = os.path.join(install, "share", "extensions", "hst-vietnamese-tools", "python")
+    if python not in sys.path:
+        sys.path.insert(0, python)
+    try:
+        default_apps = importlib.import_module("hst_office.default_apps")
+        loaded = default_apps.load_state(office.ctx)
+        probe["load_state"] = loaded
+        probe["should_ask"] = default_apps.should_ask(loaded, int(time.time()), False)
+        probe["is_registered"] = default_apps.osx.is_registered("Windows")
+    except Exception as error:  # noqa: BLE001
+        probe["default apps"] = "ERROR %s: %s" % (type(error).__name__, error)
+    try:
+        crash = importlib.import_module("hst_office.error_report_crash")
+        probe["crash question enabled"] = crash.ask_enabled(office.ctx)
+    except Exception as error:  # noqa: BLE001
+        probe["crash"] = "ERROR %s: %s" % (type(error).__name__, error)
+    return probe
+
+
 def watch(office, seconds, out, label, close=None):
     """Every dialog seen during `seconds`: [(title, shown texts)]. A screenshot of each; `close(title, texts)` returns
     True for a dialog this function should close (with endExecute) once recorded."""
-    seen, deadline = [], time.time() + seconds
+    seen, windows, deadline = [], [], time.time() + seconds
     while time.time() < deadline:
         for window, title in wg.dialogs(office):
-            texts = wg.texts(window)
-            key = (title, tuple(texts[:3]))
-            if any(key == (t, tuple(x[:3])) for t, x in seen):
+            if any(window == known for known in windows):  # pyuno proxies compare by UNO object identity
                 continue
+            windows.append(window)
+            texts = wg.texts(window)
             seen.append((title, texts))
             time.sleep(1.5)  # let it paint
             wg.screenshot(os.path.join(out, "%s-%d.png" % (label, len(seen))))
@@ -139,6 +173,7 @@ def main():
         seen = watch(office, 45, out, "start1", close=lambda title, texts: WELCOME.search(title) is not None)
         check.note("start 1: soffice.bin after 45 s (another id: the office restarted itself)", office.bin_pids())
         check.note("start 1: dialogs", seen)
+        check.note("start 1: chain inputs", chain_probe(office, args.install))
         welcome = [title for title, _texts in seen if WELCOME.search(title)]
         if args.carried:
             check.note("start 1 (carried profile): welcome shown", bool(welcome))
@@ -162,13 +197,21 @@ def main():
             if not is_question(title, texts):
                 return True  # any other dialog: recorded and closed
             hwnd = wg.hwnd_of(title)
-            answered["foreground"] = bool(hwnd) and wg.foreground(hwnd)
+            answered["active"] = bool(hwnd) and wg.activate(hwnd)
             # the focus starts on "Để sau" (default, Esc and Enter decline); Tab reaches "Đồng ý"
-            wg.keys(*(("tab", "space") if args.answer == "accept" else ("escape",)))
+            if args.answer == "accept":
+                wg.keys("tab")
+                wg.screenshot(os.path.join(out, "start2-after-tab.png"))
+                wg.keys("space")
+            else:
+                wg.keys("escape")
             answered["keys"] = args.answer
+            time.sleep(3)
+            wg.screenshot(os.path.join(out, "start2-after-answer.png"))
             return False
         seen = watch(office, 60, out, "start2", close=answer)
         check.note("start 2: dialogs", seen)
+        check.note("start 2: chain inputs", chain_probe(office, args.install))
         questions = [s for s in seen if is_question(*s)]
         second = state(office)
         check.note("start 2: state", second)
