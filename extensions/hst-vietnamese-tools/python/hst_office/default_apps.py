@@ -2,8 +2,11 @@
 """Default apps: "Mở tài liệu văn phòng bằng HST Office?" at start-up, in Tùy chọn and in the HST menu.
 
 Show-once rule (owner 2026-11-06): asked on a start after the welcome dialog; "Để sau" asks again after SNOOZE_DAYS,
-at most MAX_ASKS times; "Đồng ý" or a registration found on the machine ends the question. State:
-/org.hasontech.hstoffice.DefaultApps (defaultapps.xcs), per user; an administrator can lock Ask to false.
+at most MAX_ASKS times; "Đồng ý" or a registration found on the machine ends the question for good. The count is per
+release (owner 2026-11-08), like the macOS move offer: the profile outlives an uninstall (macOS keeps
+~/Library/Application Support/HSTOffice, Windows and Linux keep theirs too), and a "Để sau" given to a pre-release must
+not snooze the next release. State: /org.hasontech.hstoffice.DefaultApps (defaultapps.xcs), per user, with the release
+the counts belong to (Release); an administrator can lock Ask to false. The rule is the same on every OS.
 
 Per-OS actions (the user's own choice, never at install time alone):
   * Linux: `xdg-mime default vn.hasontech.hstoffice-<module>.desktop <types>` for the document types the HST
@@ -33,11 +36,20 @@ DONE_TEXT = "HST Office đã được đặt để mở các tài liệu văn ph
 WINDOWS_TEXT = ("Trong cửa sổ Cài đặt vừa mở, chọn HST Office cho các loại tệp .doc, .docx, .xls, .xlsx, .ppt, "
                 ".pptx, .odt, .ods và .odp.")
 FAILED_TEXT = "Không đặt được HST Office để mở tài liệu văn phòng: %s"
-DEFAULT_STATE = {"Ask": True, "Asked": 0, "LastAsked": 0, "Done": False}
+DEFAULT_STATE = {"Ask": True, "Asked": 0, "LastAsked": 0, "Done": False, "Release": ""}
+
+
+def for_release(state, release):
+    """The state as the question of `release` sees it (pure): Asked/LastAsked recorded for another release (or for none,
+    by a version without Release) count as never asked. Done stays: an agreement is never asked again."""
+    if not release or state.get("Release", "") == release or state.get("Done"):
+        return dict(state)
+    return dict(state, Asked=0, LastAsked=0, Release=release)
 
 
 def should_ask(state, now, registered):
-    """True when the start-up question is due (pure). `registered`: HST already opens the office types."""
+    """True when the start-up question is due (pure). `registered`: HST already opens the office types. Pass the state
+    through for_release() first: the counts are those of the running release."""
     if not state.get("Ask", True) or state.get("Done") or registered:
         return False
     asked = int(state.get("Asked", 0))
@@ -77,7 +89,7 @@ def load_state(ctx):
 def save_state(ctx, state):
     try:
         node = _access(ctx, True)
-        for key in ("Asked", "LastAsked", "Done"):
+        for key in ("Asked", "LastAsked", "Done", "Release"):
             node.setPropertyValue(key, state[key])
         node.commitChanges()
     except Exception:  # noqa: BLE001 - a failing write must not break the start
@@ -109,12 +121,22 @@ def _report(ctx, parent_peer, ok, detail, quiet_success):
         message_box(ctx, parent_peer, TITLE, DONE_TEXT)
 
 
-def offer_at_startup(ctx, parent_peer=None, now=None, ask=None, act=None):
-    """The start-up step: True when the question was shown (one modal per start). `ask`/`act` are test seams."""
+def _release():
+    """Release id of this installation ("" when unknown: the counts then simply carry on)."""
+    try:
+        from .update_fetch import release_info
+        return release_info()["release"]
+    except Exception:  # noqa: BLE001 - never block the start-up chain
+        traceback.print_exc()
+        return ""
+
+
+def offer_at_startup(ctx, parent_peer=None, now=None, ask=None, act=None, release=None):
+    """The start-up step: True when the question was shown (one modal per start). `ask`/`act`/`release` are test seams."""
     now = int(time.time() if now is None else now)
     if osx.system() == "Darwin" and not osx.mac_in_applications():
         return False  # the move question handles this copy first; asking now would register the wrong one
-    state = load_state(ctx)
+    state = for_release(load_state(ctx), _release() if release is None else release)
     if not should_ask(state, now, False):
         return False
     try:
