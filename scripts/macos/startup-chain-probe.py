@@ -98,7 +98,7 @@ def options(ctx, result):
                      daemon=True).start()
     time.sleep(6)
     top = toolkit.getActiveTopWindow()
-    result["options_dialog_title"] = top.getAccessibleContext().getAccessibleName() if top is not None else None
+    result["options_dialog_open"] = top is not None
 
 
 def main():

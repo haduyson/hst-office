@@ -10,6 +10,7 @@
 set -Euo pipefail
 dmg="$1"; out="$2"; case="$3"; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$out"; work="$(mktemp -d)"
+brew list cliclick >/dev/null 2>&1 || brew install cliclick >"$out/brew.log" 2>&1
 cp "$dmg" "$work/probe.dmg"
 if [ "$case" = quarantined ] || [ "$case" = owner ]; then
   xattr -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)" "$work/probe.dmg"
@@ -122,12 +123,11 @@ run_start() { # run_start <n> <app> <driver mode or ""> <button to press>
       "$here/startup-chain-probe.py" "$m" "$dir/$m.json" "$extpy" >"$dir/driver-$m.log" 2>&1 || echo "driver exit $?" >>"$dir/driver-$m.log"
     if [ "$m" = options ]; then  # opened at "Mở tài liệu": go to "Giao diện" in the tree like a user, away and back
       screencapture -x "$dir/options-0-opened.png" || true
-      for step in 1-up:126 2-down:125 3-up:126; do
-        perl -e 'alarm 30; exec @ARGV' osascript -e "tell application \"System Events\"
-          set frontmost of (first process whose unix id is $pid) to true
-          delay 0.5
-          key code ${step#*:}
-        end tell" >>"$dir/options-keys.log" 2>&1 || true
+      # the local-network alert (from --accept) sits on top: "Don't Allow", then click the tree rows (1024x768 screen)
+      cliclick -w 50 c:458,332 >>"$dir/options-keys.log" 2>&1 || true
+      sleep 2
+      for step in 1-giao-dien:116,322 2-mo-tai-lieu:118,340 3-giao-dien:116,322; do
+        cliclick -w 50 "c:${step#*:}" >>"$dir/options-keys.log" 2>&1 || true
         sleep 3
         screencapture -x "$dir/options-${step%%:*}.png" || true
         dump_windows "$pid" "$dir/windows-options-${step%%:*}.txt"
