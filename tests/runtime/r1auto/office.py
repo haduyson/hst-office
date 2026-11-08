@@ -57,7 +57,9 @@ class Office(hst_gui.Office):
         user = "-env:UserInstallation=" + self.profile.as_uri()
         from hst_gui_macos import DRIVER_ONLY
         env = {k: v for k, v in os.environ.items() if k not in DRIVER_ONLY}
-        env.update(LANG="vi_VN.UTF-8")
+        # VCL builds the accessibility of toolbars and top windows only with AT support on (Linux has AT-SPI);
+        # the probes read the ribbon and popups through it (MiscSettings::GetEnableATToolSupport).
+        env.update(LANG="vi_VN.UTF-8", SAL_ACCESSIBILITY_ENABLED="1")
         empty = Path(self.workdir) / "init.txt"
         empty.write_text("", encoding="utf-8")
         for _ in range(3):

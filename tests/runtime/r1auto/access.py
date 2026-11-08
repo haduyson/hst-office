@@ -54,6 +54,20 @@ def snapshot(office):
             for node in walk(toolkit.getTopWindow(i)) if visible(node)]
 
 
+def census(office):
+    """Per top window: title, accessible role and child count (failure evidence for empty snapshots)."""
+    toolkit = office.service("com.sun.star.awt.Toolkit")
+    out = []
+    for i in range(toolkit.getTopWindowCount()):
+        window = toolkit.getTopWindow(i)
+        try:
+            ctx = context(window)
+            out.append((getattr(window, "Title", ""), ctx.getAccessibleRole(), ctx.getAccessibleChildCount()))
+        except Exception as error:
+            out.append((getattr(window, "Title", ""), type(error).__name__))
+    return out
+
+
 def named(office, text):
     return [node for node in snapshot(office) if text in node.getAccessibleName()]
 

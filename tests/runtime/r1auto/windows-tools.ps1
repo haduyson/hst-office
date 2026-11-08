@@ -12,3 +12,5 @@ $pdfTool.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding u
 Add-Type -Name Win -Namespace R1 -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);'
 Get-Process | Where-Object { $_.MainWindowTitle -like '*hosted-compute-agent*' } |
   ForEach-Object { [void][R1.Win]::ShowWindow($_.MainWindowHandle, 6); "minimized $($_.ProcessName)" }
+# The runner desktop is 1024x768; W7/W8 need a full-HD screen (as the owner's): non-fatal if refused.
+try { Set-DisplayResolution -Width 1920 -Height 1080 -Force; "display 1920x1080" } catch { "display unchanged: $_" }

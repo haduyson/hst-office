@@ -63,6 +63,11 @@ def main():
         message = f"{type(error).__name__}: {error}"
         e.checks.append(dict(ok=False, message="traceback", where=traceback.format_exc().splitlines()[-6:]))
         try:
+            from access import census
+            e.checks.append(dict(ok=False, message="accessibility census", top_windows=census(office)))
+        except Exception:
+            pass
+        try:
             e.shot("failure")
         except Exception:
             pass

@@ -114,8 +114,13 @@ def screenshot(path):
 
 
 def front():
-    """Process name owning the foreground window (Windows), to decide whether the foreground lock applies."""
+    """Process name owning the foreground window (Windows), to decide whether the foreground lock applies.
+    The runner's "System Properties" paging-file notice can pop up mid-run: close it (WM_CLOSE) first."""
     import psutil
+    notice = ctypes.windll.user32.FindWindowW("#32770", "System Properties")
+    if notice:
+        ctypes.windll.user32.PostMessageW(notice, 0x0010, 0, 0)
+        time.sleep(0.5)
     from ctypes import wintypes
     pid = wintypes.DWORD()
     ctypes.windll.user32.GetWindowThreadProcessId(ctypes.windll.user32.GetForegroundWindow(), ctypes.byref(pid))
@@ -134,10 +139,16 @@ def cleanup(profile):
         if any(profile in arg for arg in (proc.info["cmdline"] or [])):
             owned.append(proc)
     for proc in owned:
-        proc.terminate()
+        try:
+            proc.terminate()
+        except psutil.NoSuchProcess:
+            pass  # it ended between the listing and the signal
     _, alive = psutil.wait_procs(owned, timeout=10)
     for proc in alive:
-        proc.kill()
+        try:
+            proc.kill()
+        except psutil.NoSuchProcess:
+            pass
     psutil.wait_procs(alive, timeout=5)
     return [p.pid for p in owned]
 
