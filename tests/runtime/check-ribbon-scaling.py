@@ -11,6 +11,7 @@ Per app, on the Home tab (Trang đầu), the window is narrowed through 1920, 16
     chevron, the room left between the groups and the chevron is narrower than that group at its
     smallest width in the sweep; a folded group stays folded at every narrower width, unless the
     ribbon got more room there (the banner went compact) or a wider group folds there instead;
+    a group shown as its button (Office's collapsed group, found by its caption) is not folded;
   - narrowing never widens a toolbar that stays on the ribbon (monotone, no oscillation), except at
     a width where a group folds: the groups that stay may take back the room it leaves;
   - the ribbon height (frame top to the document tab bar) does not change with the width;
@@ -60,17 +61,21 @@ def chevron_round_trip(args, app, wid, observed):
     gui.xdo(args.display, "windowsize", wid, str(WIDTHS[0]), "900")
     time.sleep(3)
     bars, _chevron, _banner, _bottom = scan(args.display)
+    bars.pop("__names__", None)
+    bars.pop("__buttons__", None)
     record(f"[{app}] groups keep their order after the chevron popup", order(bars.pop("__groups__", {})) == order(observed[0][5]),
            (order(observed[0][5]),))
 
 
 def sweep(args, app, wid, office):
-    observed = []
+    observed, names, collapsed = [], {}, {}
     for width in WIDTHS:
         gui.xdo(args.display, "windowsize", wid, str(width), "900")
         time.sleep(3)
         bars, chevron, banner, bottom = scan(args.display)
         groups = bars.pop("__groups__", {})
+        names.update(bars.pop("__names__", {}))
+        collapsed[width] = bars.pop("__buttons__", {})
         observed.append((width, bars, chevron, banner, bottom, groups))
         if args.shots:
             office.screenshot(os.path.join(args.shots, f"scaling-{app}-{width}.png"))
@@ -91,6 +96,8 @@ def sweep(args, app, wid, office):
         last_right = right
         # groups that were on the ribbon at a wider width and are gone now went into the chevron
         newly = (seen - set(groups)) - folded if chevron else set()
+        # a group shown as its button (its caption) collapsed: it is not in the chevron
+        newly = {key for key in newly if names.get(key) not in collapsed.get(width, {})}
         # a narrower group may come back where a wider one folds (the ladder refits the row)
         if not newly:
             returned += [(width, key) for key in folded & set(groups)]
@@ -106,7 +113,8 @@ def sweep(args, app, wid, office):
         if newly and chevron and groups:
             # the fold is the last rung: the group that folded here would not fit, even at its
             # smallest, into the room left between the groups and the chevron
-            gap = chevron[0] - max(box[0] + box[2] for box in groups.values())
+            shown = list(groups.values()) + [box for box in collapsed.get(width, {}).values() if box[0] < chevron[0]]
+            gap = chevron[0] - max(box[0] + box[2] for box in shown)
             need = max(narrowest_group[key] for key in newly)
             if gap >= need:
                 early.append((width, sorted(newly), gap, need))
