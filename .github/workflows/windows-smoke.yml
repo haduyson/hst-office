@@ -54,8 +54,13 @@ jobs:
         # upgrade-from-beta4: the new MSI installed over beta.4 (beta 1-4 users, silent installs, the updater): every file
         # present, no C++ runtime component installed and no component disallowed in the log, one entry left.
         # upgrade-from-beta5: the new MSI installed over beta.5 (HST Office's own code): one entry, every file, own ProgIDs.
+        # ui-parity: the MSI with its default-apps box ticked; start-up questions of starts 1-3 of a new user, every
+        # Tùy chọn ▸ HST Office page inside the Options dialog, the ND30 "Loại văn bản" list under real pointer moves and
+        # the recent-documents thumbnail of a PDF with a faint stamp. ui-parity-unticked: the box left unticked (the
+        # question comes on start 2) and the option pages. ui-parity-old-profile: HST beta.5 installed, started once,
+        # uninstalled, then this MSI (unticked) on the profile beta.5 left: option pages and start-up questions.
         # Each scenario runs on a fresh runner.
-        scenario: ${{ fromJSON(inputs.scenarios != '' && inputs.scenarios || (inputs.install_paths && '["commands","libreoffice-first","hst-first","uninstall-beta4-then-install","upgrade-from-beta4","upgrade-from-beta5"]' || '["commands"]')) }}
+        scenario: ${{ fromJSON(inputs.scenarios != '' && inputs.scenarios || (inputs.install_paths && '["commands","ui-parity","ui-parity-unticked","ui-parity-old-profile","libreoffice-first","hst-first","uninstall-beta4-then-install","upgrade-from-beta4","upgrade-from-beta5"]' || '["commands","ui-parity","ui-parity-unticked","ui-parity-old-profile"]')) }}
     env:
       # Current LibreOffice stable for Windows x64 (26.8.2.2), GPG-signed by the LibreOffice build key
       # C2839ECAD9408FBE9531C3E9F434A1EFAFEEAEA3; the archive keeps the same file after stable/ moves on.
@@ -98,17 +103,47 @@ jobs:
           out="$edited\\$(basename "$(cygpath -u "$HST_MSI")")"
           pwsh -NoProfile -File scripts/windows/smoke-edit-msi.ps1 -Edit "$MSI_EDIT" -Msi "$HST_MSI" -OutMsi "$out"
           echo "HST_MSI=$out" >> "$GITHUB_ENV"
-      - name: Install the MSI silently
-        if: ${{ matrix.scenario == 'commands' }}
+      - name: Old version first - install HST beta.5, start it once on the test profile, uninstall it
+        if: ${{ matrix.scenario == 'ui-parity-old-profile' }}
         shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/first" "$RUNNER_TEMP/out/old-version"
+          cd "$RUNNER_TEMP/first"
+          msi=HSTOffice_1.0.0-beta.5_Win_x86-64_en-US_vi.msi
+          curl -fsSL --retry 3 -o "$msi" "$BETA5_MSI_URL"
+          echo "$BETA5_MSI_SHA256  $msi" | sha256sum -c
+          MSYS2_ARG_CONV_EXCL='*' msiexec.exe /i "$(cygpath -w "$PWD/$msi")" /qn /norestart /l*v "$(cygpath -w "$RUNNER_TEMP/out/old-version/install.log")"
+          soffice="$(find '/c/Program Files' -maxdepth 4 -iname soffice.exe | head -n 1)"
+          program="$(dirname "$soffice")"
+          # the user's profile of the old version: welcome seen, extensions registered by beta.5
+          timeout 600 "$program/python.exe" -X utf8 "$GITHUB_WORKSPACE/tests/runtime/check-windows-startup-prompts.py" --install "$(cygpath -w "$(dirname "$program")")" \
+            --out "$(cygpath -w "$RUNNER_TEMP/out/old-version")" --profile "$(cygpath -w "$RUNNER_TEMP/old-profile")" --warm-only
+          MSYS2_ARG_CONV_EXCL='*' msiexec.exe /x "$(cygpath -w "$PWD/$msi")" /qn /norestart /l*v "$(cygpath -w "$RUNNER_TEMP/out/old-version/uninstall.log")"
+          # one copy for each check: both see the profile as beta.5 left it
+          cp -r "$RUNNER_TEMP/old-profile" "$RUNNER_TEMP/old-profile-options"
+          ls "$RUNNER_TEMP/old-profile/user" "$RUNNER_TEMP/old-profile/user/extensions" || true
+      - name: Install the MSI silently
+        if: ${{ matrix.scenario == 'commands' || startsWith(matrix.scenario, 'ui-parity') }}
+        shell: bash
+        env:
+          # 1: the silent form of the ticked "Dùng HST Office để mở tài liệu văn phòng" box; 0: left unticked
+          DEFAULT_APPS: ${{ (matrix.scenario == 'ui-parity-unticked' || matrix.scenario == 'ui-parity-old-profile') && '0' || '1' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/out"
           log="$(cygpath -w "$RUNNER_TEMP/out/msi-install.log")"
-          # HSTDEFAULTAPPS=1: the silent form of the ticked "Dùng HST Office để mở tài liệu văn phòng" box
-          MSYS2_ARG_CONV_EXCL='*' msiexec.exe /i "$HST_MSI" /qn /norestart HSTDEFAULTAPPS=1 /l*v "$log"
-          MSYS2_ARG_CONV_EXCL='*' reg.exe query 'HKLM\SOFTWARE\HASON TECH\HST Office\DefaultApps' /v ChosenAtInstall | grep -E 'ChosenAtInstall +REG_DWORD +0x1[[:space:]]*$' \
-            || { echo "the ticked default-apps box did not write ChosenAtInstall=1" >&2; exit 1; }
+          key='HKLM\SOFTWARE\HASON TECH\HST Office\DefaultApps'
+          if [ "$DEFAULT_APPS" = 1 ]; then
+            MSYS2_ARG_CONV_EXCL='*' msiexec.exe /i "$HST_MSI" /qn /norestart HSTDEFAULTAPPS=1 /l*v "$log"
+            MSYS2_ARG_CONV_EXCL='*' reg.exe query "$key" /v ChosenAtInstall | grep -E 'ChosenAtInstall +REG_DWORD +0x1[[:space:]]*$' \
+              || { echo "the ticked default-apps box did not write ChosenAtInstall=1" >&2; exit 1; }
+          else
+            MSYS2_ARG_CONV_EXCL='*' msiexec.exe /i "$HST_MSI" /qn /norestart /l*v "$log"
+            if MSYS2_ARG_CONV_EXCL='*' reg.exe query "$key" /v ChosenAtInstall 2>/dev/null; then
+              echo "the unticked default-apps box wrote ChosenAtInstall" >&2; exit 1
+            fi
+          fi
           soffice="$(find '/c/Program Files' -maxdepth 4 -iname soffice.exe | head -n 1)"
           [ -n "$soffice" ] || { echo "soffice.exe not found after install" >&2; exit 1; }
           install_dir="$(dirname "$(dirname "$soffice")")"
@@ -116,7 +151,7 @@ jobs:
           echo "installed at $install_dir"
           find "$install_dir/program" -maxdepth 1 \( -iname 'python*' -o -iname 'pyuno*' \) | head -n 20
       - name: Keep a crash dump of soffice.bin
-        if: ${{ matrix.scenario == 'commands' }}
+        if: ${{ matrix.scenario == 'commands' || startsWith(matrix.scenario, 'ui-parity') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -134,7 +169,7 @@ jobs:
           set -euo pipefail
           pwsh -NoProfile -File scripts/windows/check-app-user-model-ids.ps1 -Install "$HST_INSTALL"
       - name: Overlay the extension built from this commit
-        if: ${{ matrix.scenario == 'commands' && inputs.overlay_extension }}
+        if: ${{ (matrix.scenario == 'commands' || startsWith(matrix.scenario, 'ui-parity')) && inputs.overlay_extension }}
         shell: bash
         run: |
           set -euo pipefail
@@ -230,8 +265,73 @@ jobs:
           path: ${{ runner.temp }}\out\
           if-no-files-found: error
           retention-days: 7
+      - name: UI parity - start-up questions of starts 1, 2 and 3
+        if: ${{ !cancelled() && startsWith(matrix.scenario, 'ui-parity') && env.HST_INSTALL != '' }}
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -euo pipefail
+          install="$(cygpath -u "$HST_INSTALL")"
+          out="$(cygpath -w "$RUNNER_TEMP/out/startup-prompts")"
+          case "$SCENARIO" in
+            ui-parity) extra=(--expect registered) ;;
+            ui-parity-unticked) extra=(--expect question --answer accept) ;;
+            *) extra=(--expect question --answer later --carried --profile "$(cygpath -w "$RUNNER_TEMP/old-profile")") ;;
+          esac
+          timeout 900 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-startup-prompts.py --install "$HST_INSTALL" --out "$out" "${extra[@]}"
+      - name: UI parity - every Tùy chọn ▸ HST Office page in the Options dialog
+        if: ${{ !cancelled() && startsWith(matrix.scenario, 'ui-parity') && env.HST_INSTALL != '' }}
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -euo pipefail
+          install="$(cygpath -u "$HST_INSTALL")"
+          extra=()
+          [ "$SCENARIO" != ui-parity-old-profile ] || extra=(--carried --profile "$(cygpath -w "$RUNNER_TEMP/old-profile-options")")
+          timeout 900 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-options-pages.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out/options-pages")" "${extra[@]}"
+      - name: UI parity - ND30 "Loại văn bản" list under real pointer moves
+        if: ${{ !cancelled() && matrix.scenario == 'ui-parity' && env.HST_INSTALL != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          install="$(cygpath -u "$HST_INSTALL")"
+          timeout 600 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-nd30-type-hover.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out/nd30-type-hover")"
+      - name: UI parity - recent-documents thumbnail of a PDF with a faint stamp
+        if: ${{ !cancelled() && matrix.scenario == 'ui-parity' && env.HST_INSTALL != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          install="$(cygpath -u "$HST_INSTALL")"
+          timeout 600 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-pdf-recent-thumbnail.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out/pdf-recent-thumbnail")"
+      - name: UI parity - diagnostics
+        if: ${{ always() && startsWith(matrix.scenario, 'ui-parity') }}
+        shell: bash
+        run: |
+          set -eu
+          MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe /IM oosplash.exe 2>&1 || echo "no office process was left running"
+          mkdir -p "$RUNNER_TEMP/out/crash"
+          if [ -n "${HST_INSTALL:-}" ]; then
+            pwsh -NoProfile -File scripts/windows/print-office-crashes.ps1 -Install "$HST_INSTALL" -Dumps "$(cygpath -w "$RUNNER_TEMP/out/crash")" \
+              | tee "$RUNNER_TEMP/out/crash/office-crashes.txt" || echo "crash report failed"
+          fi
+          for results in "$RUNNER_TEMP"/out/*/results.json; do
+            [ -f "$results" ] || continue
+            python -I -X utf8 -c "import json,sys; r=json.load(open(sys.argv[1], encoding='utf-8')); print('\n'.join('%s %s %s' % (x['status'], r['profile'], x['check']) for x in r['results'] if x['status'] != 'INFO'))" "$results" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Upload UI parity evidence
+        if: ${{ always() && startsWith(matrix.scenario, 'ui-parity') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-${{ matrix.scenario }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}\out\
+            !${{ runner.temp }}\out\**\profile\**
+          if-no-files-found: error
+          retention-days: 7
       - name: Check the MSI upgrade rules
-        if: ${{ matrix.scenario != 'commands' }}
+        if: ${{ matrix.scenario != 'commands' && !startsWith(matrix.scenario, 'ui-parity') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -241,7 +341,7 @@ jobs:
           # Registry table: no App Paths, LibreOffice URI scheme, ProgID, Explorer class id or Software\LibreOffice key.
           python -I -W ignore::DeprecationWarning scripts/check-msi-coexist.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-coexist-rules.txt"
       - name: Download the other installer (LibreOffice, HST beta.4 or beta.5)
-        if: ${{ matrix.scenario != 'commands' }}
+        if: ${{ matrix.scenario != 'commands' && !startsWith(matrix.scenario, 'ui-parity') }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -268,7 +368,7 @@ jobs:
             echo "$BETA4_MSI_SHA256  $(cygpath -u "$(grep '^OTHER_MSI=' "$GITHUB_ENV" | tail -n 1 | cut -d= -f2-)")" | sha256sum -c
           fi
       - name: Install both and check them
-        if: ${{ matrix.scenario != 'commands' }}
+        if: ${{ matrix.scenario != 'commands' && !startsWith(matrix.scenario, 'ui-parity') }}
         shell: bash
         env:
           SCENARIO: ${{ matrix.scenario }}
@@ -276,7 +376,7 @@ jobs:
           set -euo pipefail
           pwsh -NoProfile -File scripts/windows/smoke-install-paths.ps1 -Scenario "$SCENARIO" -HstMsi "$HST_MSI" -OtherMsi "$OTHER_MSI" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
       - name: Upload install-path evidence
-        if: ${{ always() && matrix.scenario != 'commands' }}
+        if: ${{ always() && matrix.scenario != 'commands' && !startsWith(matrix.scenario, 'ui-parity') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-install-paths-${{ matrix.scenario }}-${{ github.run_id }}
