@@ -18,6 +18,7 @@ DATA = json.load(open(os.path.join(ROOT, "data/ribbon/scaling-ladders.json"), en
 PATCHES = os.path.join(ROOT, "patches", "libreoffice")
 BARE = os.path.join(PATCHES, "hst-ribbon-tools-bare.patch")
 TABLE = os.path.join(PATCHES, "hst-ribbon-tools-bare-ladders.patch")
+KEYBOARD = os.path.join(PATCHES, "hst-style-gallery-keyboard-apply.patch")
 
 
 def fixture_tree(tmp, data):
@@ -38,7 +39,7 @@ class BlocksTable(unittest.TestCase):
             self.assertEqual(handle.read(), gen.patch_text(gen.header(DATA)))
 
     def test_paragraph_in_writer_and_slides_only(self):
-        named = {l["app"]: l.get("bare_block_before") for l in DATA["ladders"]}
+        named = {ladder["app"]: ladder.get("bare_block_before") for ladder in DATA["ladders"]}
         self.assertEqual(named, {"writer": "gdHomeParagraph", "calc": None, "impress": "gdHomeParagraph"})
 
     def test_the_named_group_must_collapse(self):
@@ -70,6 +71,19 @@ class ToolsBare(unittest.TestCase):
         self.assertIn("pBlock->HstIsCollapsed()", prio)
         self.assertIn("pMerged->HstBlockShouldBeBare(nRoom, nCaption - pBlock->HstButtonWidth(true))", prio)
         self.assertIn("pBlock->HstSetBare(bBare);", prio)
+
+
+class GalleryKeyboard(unittest.TestCase):
+    def test_enter_applies_and_arrows_page_on(self):
+        cxx = added(KEYBOARD, "svx/source/tbxctrls/StylesPreviewWindow.cxx")
+        self.assertIn("connect_key_press(LINK(this, StylesPreviewWindow_Base, HstKeyPressHdl))", cxx)
+        # Enter (item activated) applies; it no longer opens Modify Style
+        activated = cxx[cxx.index("IMPL_LINK_NOARG(StylesPreviewWindow_Base, DoubleClick"):]
+        self.assertIn("ApplyStyle(m_xStylesView->get_selected_id());", activated[:400])
+        self.assertNotIn(".uno:EditStyle", activated[:400])
+        self.assertIn("nCurrent + 1 < nEnd", cxx)
+        self.assertIn("ShowPage();\n    ApplyStyle(m_aAllStyles[nTarget].translatedName);", cxx)
+        self.assertIn("DECL_LINK(HstKeyPressHdl, const KeyEvent&, bool);", added(KEYBOARD, "svx/source/inc/StylesPreviewWindow.hxx"))
 
 
 if __name__ == "__main__":
