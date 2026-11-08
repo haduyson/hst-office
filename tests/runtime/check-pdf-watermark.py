@@ -5,6 +5,7 @@ every path a user can take in HST Office, measured against a pdftoppm render of 
 
 For each PDF (read-only copies under --workdir), on its first page with a translucent watermark:
   viewer           HST PDF's page bitmap (screen and thumbnails)
+  recent-thumbnail the Start Center "Recent documents" thumbnail HST PDF stores (page 1 only)
   print            HST PDF → print to file → pdftoppm
   draw             opened in HST Draw, the page exported by Draw
   draw-pdf         HST Draw → export to PDF → pdftoppm
@@ -85,6 +86,8 @@ def measure_file(office, dialogs, pdf, name, workdir, signing, user_cn):
             doc.close(True)
 
     check("viewer", lambda png: paths.viewer_png(office, pdf, page, DPI, png))
+    if page == 1:  # the thumbnail shows the first page (smaller: measure() scales it up)
+        check("recent-thumbnail", lambda png: paths.recent_thumbnail_png(office, pdf, png))
     check("print", lambda png: paths.print_png(office, dialogs, pdf, page, DPI, out / "in", out))
     check("draw", lambda png: draw_page(pdf, png))
     exported = out / "draw-xuat.pdf"

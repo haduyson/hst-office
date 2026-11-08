@@ -1,0 +1,115 @@
+HST PDF: the Start Center thumbnail of a PDF opened in HST PDF is drawn by PDFium, like the page.
+
+Opening a PDF in HST PDF added it to "Recent documents" without a thumbnail. A new entry showed the
+generic icon, and an entry that already had one kept it. Only an HST Draw open (Edit in HST Draw, the
+option set to Draw, or a build before HST PDF) drew a page preview. That preview came from the Draw
+import: with a build where the import dropped the /ca of a translucent watermark or signature line,
+the line came out solid black. HST PDF then kept that preview on every later open, so the thumbnail
+stayed dark while the opened file showed the line faint.
+
+HST PDF now draws the thumbnail itself from the first page, with the PDFium renderer of its own
+pages, at the size of other documents' thumbnails (512 px on the long side). The thumbnail matches
+the opened file, and an old preview is replaced the next time the file is opened in HST PDF. A file
+that needed a password gets the generic icon, as other encrypted documents do. With thumbnails
+turned off (Common/History/RecentDocsThumbnail) or in headless mode the entry's thumbnail is left
+unchanged, as for documents.
+
+License: the modified file keeps its license (MPL-2.0).
+
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -14,22 +14,24 @@
+ #include <strings.hrc>
+ 
+ #include <com/sun/star/beans/NamedValue.hpp>
+ #include <com/sun/star/frame/Desktop.hpp>
+ #include <com/sun/star/frame/XDispatchProvider.hpp>
+ #include <com/sun/star/ui/dialogs/TemplateDescription.hpp>
+ #include <com/sun/star/util/URLTransformer.hpp>
+ #include <com/sun/star/util/XCloseable.hpp>
++#include <comphelper/base64.hxx>
+ #include <comphelper/processfactory.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+ #include <comphelper/sequence.hxx>
+ #include <o3tl/string_view.hxx>
+ #include <rtl/ustrbuf.hxx>
+ #include <comphelper/propertyvalue.hxx>
++#include <officecfg/Office/Common.hxx>
+ #include <rtl/math.hxx>
+ #include <sfx2/filedlghelper.hxx>
+ #include <sfx2/passwd.hxx>
+ #include <toolkit/helper/vclunohelper.hxx>
+ #include <tools/stream.hxx>
+ #include <tools/urlobj.hxx>
+ #include <unotools/historyoptions.hxx>
+ #include <unotools/localedatawrapper.hxx>
+@@ -96,16 +98,48 @@
+                             (aSize.Height() - aTextSize.Height()) / 2),
+                       aText);
+     rButton.set_label(OUString());
+     rButton.set_custom_button(pDevice.get());
+     rButton.set_size_request(aSize.Width(), aSize.Height());
+     rButton.set_accessible_name(aText);
+ }
+ 
++/// Largest side of a Start Center thumbnail, as for the documents HST Office opens itself.
++constexpr int THUMBNAIL_EXTENT = 512;
++
++/// The Start Center "Recent documents" thumbnail of the first page, drawn by PDFium like the
++/// pages of this window, so a translucent watermark or signature stamp looks as faint there as in
++/// the open file. Empty (the generic icon) for a file that needed a password, as for other
++/// encrypted documents. No value when thumbnails are off: an existing one is kept.
++std::optional<OUString> recentDocumentThumbnail(PdfViewerDocument& rDocument, bool bPassword)
++{
++    if (Application::IsHeadlessModeEnabled()
++        || !officecfg::Office::Common::History::RecentDocsThumbnail::get())
++        return std::nullopt;
++    if (bPassword)
++        return OUString();
++    const basegfx::B2DSize aPage = rDocument.getPageSize(0);
++    const double fScale = THUMBNAIL_EXTENT / std::max(aPage.getWidth(), aPage.getHeight());
++    const int nWidth = std::max(1, static_cast<int>(std::lround(aPage.getWidth() * fScale)));
++    const int nHeight = std::max(1, static_cast<int>(std::lround(aPage.getHeight() * fScale)));
++    const Bitmap aBitmap = rDocument.renderPage(0, nWidth, nHeight);
++    if (aBitmap.IsEmpty())
++        return OUString();
++    SvMemoryStream aStream(65535, 65535);
++    vcl::PngImageWriter aWriter(aStream);
++    if (!aWriter.write(Graphic(aBitmap)))
++        return OUString();
++    OUStringBuffer aBuffer;
++    comphelper::Base64::encode(
++        aBuffer, uno::Sequence<sal_Int8>(static_cast<const sal_Int8*>(aStream.GetData()),
++                                         aStream.Tell()));
++    return aBuffer.makeStringAndClear();
++}
++
+ struct CloseRequest
+ {
+     uno::Reference<frame::XFrame> xFrame;
+ };
+ 
+ /// "1,4" in Vietnamese, "1.4" in English: one decimal with the UI locale's separator.
+ OUString formatSeconds(sal_Int64 nMillis)
+ {
+@@ -318,17 +352,19 @@
+         updateSignPanel();
+     }
+     startSignatureCheck();
+     m_aTitleChangedHdl.Call(*this);
+ 
+     INetURLObject aURL(rURL);
+     if (aURL.GetProtocol() == INetProtocol::File)
+         SvtHistoryOptions::AppendItem(EHistoryType::PickList, rURL, u"draw_pdf_import"_ustr,
+-                                      getTitle(), std::nullopt, std::nullopt);
++                                      getTitle(),
++                                      recentDocumentThumbnail(*m_xDocument, !m_aPassword.isEmpty()),
++                                      std::nullopt);
+     return true;
+ }
+ 
+ OUString PdfViewerWindow::getTitle() const
+ {
+     return INetURLObject(m_aURL).GetLastName(INetURLObject::DecodeMechanism::WithCharset);
+ }
+ 
