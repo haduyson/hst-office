@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 
@@ -34,10 +35,39 @@ class GenerateRibbonScaleTest(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertIn("+++ b/vcl/inc/HstRibbonLadders.hxx", first)
         self.assertIn('{ u"gdHomeParagraph", 1 }', first)
+        self.assertIn('{ u"gdHomeStyle", 3 }', first)
 
     def test_committed_patch_is_current(self):
-        with open(os.path.join(ROOT, "patches/libreoffice/hst-ribbon-scale-ladders.patch"), encoding="utf-8") as handle:
-            self.assertEqual(handle.read(), gen.patch_text(gen.header(DATA)))
+        # the first ladders stay as committed; the follow-up patch changes them to the current data
+        base = os.path.join(ROOT, "patches/libreoffice/hst-ribbon-scale-ladders.patch")
+        with open(os.path.join(ROOT, "patches/libreoffice/hst-ribbon-scale-ladders-collapse.patch"), encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), gen.follow_up_text(gen.base_header(base), gen.header(DATA)))
+
+    def test_follow_up_applies_to_the_base_header(self):
+        base = os.path.join(ROOT, "patches/libreoffice/hst-ribbon-scale-ladders.patch")
+        old = gen.base_header(base)
+        with open(base, encoding="utf-8") as handle:
+            self.assertEqual(gen.patch_text(old), handle.read())  # the base patch is read back exactly
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, gen.HEADER)
+            os.makedirs(os.path.dirname(target))
+            with open(target, "w", encoding="utf-8") as handle:
+                handle.write(old)
+            run = subprocess.run(["patch", "-p1", "--fuzz=0", "-s", "-d", tmp],
+                                 input=gen.follow_up_text(old, gen.header(DATA)), text=True, capture_output=True)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            self.assertEqual(open(target, encoding="utf-8").read(), gen.header(DATA))
+
+    def test_collapse_steps(self):
+        # Home: Tools gives way first (PriorityHBox), then the ladder; Styles collapses into its
+        # button before Paragraph shrinks and before anything folds
+        writer = next(l for l in DATA["ladders"] if l["app"] == "writer")
+        steps = [tuple(s) for s in writer["steps"]]
+        self.assertLess(steps.index(("gdHomeFont", "S")), steps.index(("gdHomeStyle", "C")))
+        self.assertLess(steps.index(("gdHomeClipboard", "S")), steps.index(("gdHomeStyle", "C")))
+        self.assertIn('{ u"gdHomeStyle", 3 }', gen.header(DATA))
+        for ladder in DATA["ladders"]:
+            self.assertTrue(any(state == "C" for _group, state in ladder["steps"]), ladder["app"])
 
     def test_mismatches_fail_loudly(self):
         cases = []
