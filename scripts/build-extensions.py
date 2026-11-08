@@ -17,6 +17,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -103,6 +104,31 @@ def template_files():
     return files
 
 
+def stamped_description(files):
+    """description.xml with a version that changes with every build: <VERSION>.<release build>.<content number>.
+
+    The office registers a bundled extension's UNO components again only when its identifier or version changed
+    (desktop dp_manager.cxx synchronizeRemovedExtensions compares the version string). With "1.0.0" in every build, a
+    profile an earlier build registered kept that build's component list after an upgrade: services added since
+    (Tùy chọn page handlers, the start-up questions) could not be created. The content number (from the SHA-256 of
+    every other file) keeps the build reproducible and differs between two builds of one release id."""
+    release = json.loads(release_json())["release"]
+    spec = importlib.util.spec_from_file_location("write_hst_version", os.path.join(ROOT, "scripts", "write-hst-version.py"))
+    versions = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(versions)
+    digest = hashlib.sha256()
+    for name in sorted(files):
+        if name != "description.xml":
+            digest.update(name.encode("utf-8") + b"\0" + hashlib.sha256(files[name]).digest())
+    content = int(digest.hexdigest()[:8], 16)
+    version = "%s.%d.%d" % (release.split("+")[0].split("-")[0], versions.release_build(release), content)
+    text = files["description.xml"].decode("utf-8")
+    stamped, count = re.subn(r'<version value="[^"]*"/>', '<version value="%s"/>' % version, text, count=1)
+    if count != 1:
+        raise SystemExit("description.xml: no <version value=.../> to stamp")
+    return stamped.encode("utf-8")
+
+
 def collect(ext_root, test_mode=False):
     """{archive_name: bytes} for one extension directory."""
     files = {}
@@ -119,6 +145,7 @@ def collect(ext_root, test_mode=False):
     files["data/banners.json"] = open(os.path.join(ROOT, "data", "hst", "banners.json"), "rb").read()
     files["data/pkcs11-modules.json"] = open(os.path.join(ROOT, "data", "hst", "pkcs11-modules.json"), "rb").read()
     files["data/release.json"] = release_json(test_mode)  # update check: installed release id
+    files["description.xml"] = stamped_description(files)
     for name, src in BRAND_IMAGES.items():
         files[name] = open(os.path.join(ROOT, *src.split("/")), "rb").read()
     files["license/LICENSE.txt"] = open(os.path.join(ROOT, "LICENSE"), "rb").read()

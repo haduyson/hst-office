@@ -27,6 +27,42 @@ def check(name, ok, detail=""):
     print("%s  %s  %s" % ("PASS" if ok else "FAIL", name, str(detail)[:200]), flush=True)
 
 
+def page_checks(service, parent, check):
+    """Both pages built from the installed extension with their handlers, outside the Options dialog: controls,
+    labels, and "Kiểu biểu tượng" reading and writing SymbolStyle. `service(name)` makes an office service; shared with
+    check-windows-options-pages.py."""
+    provider = service("com.sun.star.awt.ContainerWindowProvider")
+    apps = provider.createContainerWindow(EXTENSION + "DefaultApps.xdl", "", parent, service("org.hst.office.vi.OptionsPage"))
+    check("Mở tài liệu page loads with its button", apps is not None and apps.getControl("defaultApps") is not None)
+    check("its button says what it does", apps.getControl("defaultApps").getModel().Label == "Dùng HST Office để mở tài liệu văn phòng")
+    handler = service("org.hst.office.vi.OptionsAppearance")
+    check("the Giao diện handler service exists (without it the Options dialog builds no page)", handler is not None)
+    look = provider.createContainerWindow(EXTENSION + "Appearance.xdl", "", parent, handler)
+    check("Giao diện page loads", look is not None and look.getControl("modern") is not None)
+    handler.callHandlerMethod(look, "initialize", "external_event")
+    check("the default is Cổ điển", look.getControl("classic").getState() and not look.getControl("modern").getState())
+    look.getControl("modern").setState(True)
+    handler.callHandlerMethod(look, "ok", "external_event")
+    misc = "/org.openoffice.Office.Common/Misc"
+
+    def symbol_style():
+        import uno
+        arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+        arg.Name, arg.Value = "nodepath", misc
+        node = service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
+            "com.sun.star.configuration.ConfigurationAccess", (arg,))
+        return node.getPropertyValue("SymbolStyle")
+    # the base style in any UI mode: the office picks the dark variant itself while the UI is dark
+    check("Hiện đại writes the modern base style", symbol_style() == "hst_modern", symbol_style())
+    handler.callHandlerMethod(look, "initialize", "external_event")
+    check("the page reads Hiện đại back", look.getControl("modern").getState())
+    look.getControl("classic").setState(True)
+    handler.callHandlerMethod(look, "ok", "external_event")
+    check("Cổ điển writes auto", symbol_style() == "auto", symbol_style())
+    look.dispose()
+    apps.dispose()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--display", required=True)
@@ -41,40 +77,7 @@ def main():
     try:
         doc = office.load("private:factory/swriter")
         frame = doc.getCurrentController().getFrame()
-        provider = office.service("com.sun.star.awt.ContainerWindowProvider")
-        parent = frame.getContainerWindow()
-
-        def page(xdl, handler):
-            return provider.createContainerWindow(EXTENSION + xdl, "", parent, office.service(handler))
-
-        apps = page("DefaultApps.xdl", "org.hst.office.vi.OptionsPage")
-        check("Mở tài liệu page loads with its button", apps is not None and apps.getControl("defaultApps") is not None)
-        check("its button says what it does", apps.getControl("defaultApps").getModel().Label == "Dùng HST Office để mở tài liệu văn phòng")
-        handler = office.service("org.hst.office.vi.OptionsAppearance")
-        look = provider.createContainerWindow(EXTENSION + "Appearance.xdl", "", parent, handler)
-        check("Giao diện page loads", look is not None and look.getControl("modern") is not None)
-        handler.callHandlerMethod(look, "initialize", "external_event")
-        check("the default is Cổ điển", look.getControl("classic").getState() and not look.getControl("modern").getState())
-        look.getControl("modern").setState(True)
-        handler.callHandlerMethod(look, "ok", "external_event")
-        misc = "/org.openoffice.Office.Common/Misc"
-
-        def symbol_style():
-            import uno
-            arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-            arg.Name, arg.Value = "nodepath", misc
-            node = office.service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
-                "com.sun.star.configuration.ConfigurationAccess", (arg,))
-            return node.getPropertyValue("SymbolStyle")
-        # the base style in any UI mode: the office picks the dark variant itself while the UI is dark
-        check("Hiện đại writes the modern base style", symbol_style() == "hst_modern", symbol_style())
-        handler.callHandlerMethod(look, "initialize", "external_event")
-        check("the page reads Hiện đại back", look.getControl("modern").getState())
-        look.getControl("classic").setState(True)
-        handler.callHandlerMethod(look, "ok", "external_event")
-        check("Cổ điển writes auto", symbol_style() == "auto", symbol_style())
-        look.dispose()
-        apps.dispose()
+        page_checks(office.service, frame.getContainerWindow(), check)
         # the Options dialog itself: HST Office group with both pages (screenshot for review)
         runner = threading.Thread(target=lambda: office.dispatch(frame, ".uno:OptionsTreeDialog"), daemon=True)
         runner.start()
