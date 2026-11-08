@@ -113,6 +113,18 @@ def screenshot(path):
     return str(path)
 
 
+def front():
+    """Process name owning the foreground window (Windows), to decide whether the foreground lock applies."""
+    import psutil
+    from ctypes import wintypes
+    pid = wintypes.DWORD()
+    ctypes.windll.user32.GetWindowThreadProcessId(ctypes.windll.user32.GetForegroundWindow(), ctypes.byref(pid))
+    try:
+        return psutil.Process(pid.value).name()
+    except Exception:
+        return ""
+
+
 def cleanup(profile):
     import psutil
     owned = []
@@ -145,6 +157,11 @@ def main():
         return keyboard(text=args[0])
     if action in {"move", "click", "wheel"}:
         return pointer(action, *map(int, args))
+    if action == "product-version":
+        from windows_install import product_version
+        return product_version(args[0])
+    if action == "front":
+        return front()
     if action == "cleanup":
         return cleanup(args[0])
     if action == "print":

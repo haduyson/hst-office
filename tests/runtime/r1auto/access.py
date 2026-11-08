@@ -28,7 +28,11 @@ def visible(node):
 
 
 def box(node):
+    window = node
     node = context(node)
+    if not hasattr(node, "getLocationOnScreen") and hasattr(window, "getPosSize"):
+        rect = window.getPosSize()  # a frame's container window on Windows has no accessible component
+        return rect.X, rect.Y, rect.Width, rect.Height
     if not hasattr(node, "getLocationOnScreen"):
         return -100000, -100000, 0, 0  # no XAccessibleComponent: never inside any measured region
     point, size = node.getLocationOnScreen(), node.getSize()

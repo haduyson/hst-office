@@ -113,6 +113,10 @@ class Office(hst_gui.Office):
         self.ctx = None
 
     def focus(self, window):
+        # Windows refuses the foreground to a background process unless the last input came from it: press Alt
+        # first (as windows_gui.foreground does), but never while HST is in front (Alt would focus its menu).
+        if self.system == "Windows" and not native("front").lower().startswith("soffice"):
+            native("key", "alt")
         window.setVisible(True)
         window.toFront()
         window.setFocus()

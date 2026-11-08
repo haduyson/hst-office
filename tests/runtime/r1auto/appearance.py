@@ -30,7 +30,8 @@ def run(e):
         e.require(look is not None and look.getControl("modern") is not None,
                   "Trang Giao diện có điều khiển")
         handler.callHandlerMethod(look, "initialize", "external_event")
-        for name, expected in (("classic", "hst_classic"), ("modern", "auto")):
+        # appearance_options.py: Cổ điển writes "auto" (the default), Hiện đại "hst_modern".
+        for name, expected in (("classic", "auto"), ("modern", "hst_modern")):
             look.getControl("modern").setState(name == "modern")
             look.getControl("classic").setState(name == "classic")
             handler.callHandlerMethod(look, "ok", "external_event")
