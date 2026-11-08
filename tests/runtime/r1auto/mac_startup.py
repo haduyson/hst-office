@@ -131,6 +131,13 @@ def prepare(dmg, out, record):
         time.sleep(3)
         return destination
     finally:
+        # The product's mover logs its copy and its reopen waiter here: evidence for M2 either way.
+        log = Path.home() / "Library/Caches/HSTOffice/update/move.log"
+        if log.exists():
+            (out / "M2-move.log").write_text(log.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+        listing = subprocess.run(["ps", "-axo", "pid,ppid,etime,command"], capture_output=True, text=True, timeout=30)
+        (out / "M2-ps.log").write_text("\n".join(line for line in listing.stdout.splitlines()
+                                                 if "HST" in line or "reopen" in line), encoding="utf-8")
         owned.update(app.processIdentifier() for app in applications())
         close_owned(owned)
         for opener in openers:

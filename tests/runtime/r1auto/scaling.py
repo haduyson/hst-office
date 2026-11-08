@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Configure actual desktop scaling; never resize screenshots to claim HiDPI."""
 import ctypes
+from pathlib import Path
 import platform
 import time
 
@@ -31,24 +32,28 @@ def configure(percent):
         if not candidates:  # runner VMs offer 1x modes only: add a real HiDPI display instead
             from mac_hidpi import create
             created, virtual = create(), True
-            # It is now the main display, already in its only (HiDPI) mode; the mode looked up by the id
-            # create() returns was None on the runner while screenshots were 2880x1800 (run 42474965758).
-            display = q.CGMainDisplayID()
-            candidates = [q.CGDisplayCopyDisplayMode(display)]
-        if not candidates or candidates[0] is None:
-            raise RuntimeError("Runner không có chế độ màn hình 2×; cần runner có HiDPI"
-                               + (f" (ảo {created}, chính {display})" if virtual else ""))
+            # It is now the main display, in its only (HiDPI) mode. CoreGraphics returns no mode object for it on
+            # the runner (run 42476302775), so measure what a screenshot holds: pixels per point.
+            time.sleep(2)
+            import subprocess
+            import tempfile
+            from PIL import Image
+            shot = Path(tempfile.mkdtemp()) / "scale.png"
+            subprocess.run(["screencapture", "-x", str(shot)], check=True, timeout=60)
+            pixels = Image.open(shot).size[0]
+            points = q.CGDisplayBounds(q.CGMainDisplayID()).size.width
+            factor = pixels / points
+            if factor != 2:
+                raise RuntimeError(f"Màn hình ảo {created} chưa 2×: {pixels} điểm ảnh / {points} điểm")
+            return dict(scale=factor, virtual_display=True, logical_width=int(points), pixel_width=pixels)
+        if not candidates:
+            raise RuntimeError("Runner không có chế độ màn hình 2×; cần runner có HiDPI")
         chosen = min(candidates, key=q.CGDisplayModeGetWidth)
-        if not virtual and q.CGDisplaySetDisplayMode(display, chosen, None):
+        if q.CGDisplaySetDisplayMode(display, chosen, None):
             raise RuntimeError("Không bật được chế độ màn hình 2×")
         time.sleep(2)
-        # From CoreGraphics, not NSScreen: AppKit refreshes screens on the run loop, which a script never runs.
-        current = q.CGDisplayCopyDisplayMode(q.CGMainDisplayID())
-        factor = q.CGDisplayModeGetPixelWidth(current) / q.CGDisplayModeGetWidth(current)
-        if factor != 2:
-            raise RuntimeError(f"Màn hình chưa có backing scale 2× (quan sát {factor}, ảo={virtual}, "
-                               f"{q.CGDisplayModeGetWidth(chosen)}/{q.CGDisplayModeGetPixelWidth(chosen)})")
-        return dict(scale=factor, virtual_display=virtual, logical_width=q.CGDisplayModeGetWidth(chosen),
+        factor = q.CGDisplayModeGetPixelWidth(chosen) / q.CGDisplayModeGetWidth(chosen)
+        return dict(scale=factor, virtual_display=False, logical_width=q.CGDisplayModeGetWidth(chosen),
                     pixel_width=q.CGDisplayModeGetPixelWidth(chosen))
     if platform.system() == "Windows":
         import os
