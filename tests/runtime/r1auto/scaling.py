@@ -23,11 +23,16 @@ def configure(percent):
     if platform.system() == "Darwin":
         import Quartz as q
         from AppKit import NSScreen
-        display = q.CGMainDisplayID()
-        before = q.CGDisplayCopyDisplayMode(display)
-        modes = q.CGDisplayCopyAllDisplayModes(display, {"kCGDisplayShowDuplicateLowResolutionModes": True})
-        candidates = [m for m in modes if q.CGDisplayModeGetWidth(m) >= 1440 and
-                      q.CGDisplayModeGetPixelWidth(m) == q.CGDisplayModeGetWidth(m) * 2]
+        def retina_modes(display):
+            modes = q.CGDisplayCopyAllDisplayModes(display, {"kCGDisplayShowDuplicateLowResolutionModes": True})
+            return [m for m in modes or [] if q.CGDisplayModeGetWidth(m) >= 1440 and
+                    q.CGDisplayModeGetPixelWidth(m) == q.CGDisplayModeGetWidth(m) * 2]
+        display, virtual = q.CGMainDisplayID(), False
+        candidates = retina_modes(display)
+        if not candidates:  # runner VMs offer 1x modes only: add a real HiDPI display instead
+            from mac_hidpi import create
+            display, virtual = create(), True
+            candidates = retina_modes(display)
         if not candidates:
             raise RuntimeError("Runner không có chế độ màn hình 2×; cần runner có HiDPI")
         chosen = min(candidates, key=q.CGDisplayModeGetWidth)
@@ -37,7 +42,7 @@ def configure(percent):
         factor = float(NSScreen.mainScreen().backingScaleFactor())
         if factor != 2:
             raise RuntimeError("Màn hình chưa có backing scale 2×")
-        return dict(scale=factor, logical_width=q.CGDisplayModeGetWidth(chosen),
+        return dict(scale=factor, virtual_display=virtual, logical_width=q.CGDisplayModeGetWidth(chosen),
                     pixel_width=q.CGDisplayModeGetPixelWidth(chosen))
     if platform.system() == "Windows":
         import os

@@ -3,7 +3,6 @@
 import os
 from pathlib import Path
 import platform
-import socket
 import subprocess
 import sys
 import time
@@ -26,8 +25,8 @@ class Office(hst_gui.Office):
 
     def start(self):
         import uno
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", self.port))
+        from support import claim_port
+        claim_port(self.port)
         Path(self.workdir).mkdir(parents=True, exist_ok=True)
         if self.profile.exists():
             raise RuntimeError("Profile đã tồn tại; cần thư mục chạy mới")

@@ -3,7 +3,6 @@
 import json
 import os
 from pathlib import Path
-import socket
 import subprocess
 import sys
 import time
@@ -74,8 +73,8 @@ class DefaultSession:
         from support import background
         if self._tool("list", self.office.install):
             raise RuntimeError("Đã có tiến trình HST mặc định; không thể nhận quyền quản lý")
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", self.office.port))
+        from support import claim_port
+        claim_port(self.office.port)
         self.pidfile.with_name("default-install.txt").write_text(str(self.office.install), encoding="utf-8")
         self.log = (self.out / "default-office.log").open("w", encoding="utf-8")
         try:

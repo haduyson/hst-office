@@ -36,6 +36,16 @@ def wait(predicate, timeout=30):
     raise TimeoutError("Hết thời gian chờ trạng thái bắt buộc")
 
 
+def claim_port(port):
+    """Fail only on a live listener: macOS refuses a plain bind while a closed connection of the previous item
+    sits in TIME_WAIT on the port. Windows keeps the plain bind (its SO_REUSEADDR would hide a live listener)."""
+    import socket
+    with socket.socket() as sock:
+        if os.name != "nt":
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", port))
+
+
 def background(fn, *args):
     thread = threading.Thread(target=fn, args=args, daemon=True)
     thread.start()

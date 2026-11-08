@@ -59,24 +59,52 @@ def handlers():
                                      for name, uti in types.items()})
 
 
+CONFIRM = """
+on run argv
+tell application "System Events"
+  repeat with p in (every process whose background only is false or name is "CoreServicesUIAgent")
+    repeat with w in windows of p
+      try
+        set said to (value of every static text of w) as text
+        if said contains "HST Office" and (said contains "Internet" or said contains "internet") then
+          repeat with label in {"Open", "Mở"}
+            if exists button label of w then
+              if item 1 of argv is "click" then click button label of w
+              return (item 1 of argv) & " " & label & " in " & (name of p) & ": " & said
+            end if
+          end repeat
+        end if
+      end try
+    end repeat
+  end repeat
+  return ""
+end tell
+end run
+"""
+
+
 def confirm_download(out):
-    """Confirm only the ordinary downloaded-app Open prompt; never bypass a refusal."""
-    from AppKit import NSWorkspace
+    """Answer only the ordinary downloaded-app Open prompt, as a user does; never bypass a refusal.
+
+    System Events reaches CoreServicesUIAgent's sheet on the runner where the pyobjc AX walk of
+    NSWorkspace's application list does not (r1-auto macOS run 42471573001, M1-startup-failure.png)."""
+    import subprocess
     from native import screenshot
-    for app in NSWorkspace.sharedWorkspace().runningApplications():
-        if app.bundleIdentifier() not in {"com.apple.CoreServicesUIAgent", "com.apple.finder"}:
-            continue
-        labels = texts(app)
-        combined = " ".join(labels)
-        if "HST Office" not in combined or not any(word in combined for word in ("internet", "Internet", "tải")):
-            continue
-        buttons = [attribute(node, "AXTitle") for node in nodes(app) if attribute(node, "AXRole") == "AXButton"]
-        if not set(buttons) & {"Open", "Mở"}:
-            continue
-        screenshot(Path(out) / "M1-download-confirmation.png")
-        press(app, {"Open", "Mở"})
-        return True
-    return False
+    shot = Path(out) / "M1-download-confirmation.png"
+    def script(mode):
+        try:
+            return subprocess.run(["osascript", "-", mode], input=CONFIRM, capture_output=True, text=True,
+                                  timeout=30).stdout.strip()
+        except subprocess.TimeoutExpired:
+            return ""
+    if not script("find"):
+        return False
+    if not shot.exists():
+        screenshot(shot)
+    answer = script("click")
+    with (Path(out) / "os-confirmation.log").open("a", encoding="utf-8") as log:
+        log.write(answer + "\n")
+    return True
 
 
 def close_owned(pids):

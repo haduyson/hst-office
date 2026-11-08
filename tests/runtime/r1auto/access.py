@@ -11,6 +11,8 @@ def walk(node, depth=0):
     if depth > 24:
         return
     ctx = context(node)
+    if ctx is None or not hasattr(ctx, "getAccessibleStateSet"):
+        return  # a macOS top window can expose no accessible context (r1-auto macOS run 42471573001, M4)
     yield ctx
     for index in range(min(ctx.getAccessibleChildCount(), 2500)):
         try:
