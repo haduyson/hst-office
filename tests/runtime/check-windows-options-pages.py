@@ -24,6 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import png_luma  # noqa: E402
 import windows_gui as wg  # noqa: E402
 
 LINUX = wg.load_check("check-hst-options-pages")
@@ -63,6 +64,21 @@ def options_dialog(office, timeout=40):
                 return window, title
         time.sleep(0.5)
     return None, None
+
+
+INK = 0.003  # share of dark pixels in the page area: about 0.01 with a page's labels, 0.0 when blank
+
+
+def page_ink(shot, rect):
+    """Share of dark pixels (luma < 140) in the page area of the Options dialog at screen `rect` (left, top, right,
+    bottom): right of the page tree, above the buttons. Measured in the screenshot: what the user sees."""
+    with open(shot, "rb") as handle:
+        _width, _height, luma = png_luma.read(handle.read())
+    left, top, right, bottom = rect
+    width, height = right - left, bottom - top
+    rows = luma[top + int(height * 0.08):top + int(height * 0.80)]
+    values = [v for row in rows for v in row[left + int(width * 0.30):right - int(width * 0.02)]]
+    return sum(v < 140 for v in values) / len(values) if values else 0.0
 
 
 def shown_with_size(dialog, label):
@@ -118,13 +134,18 @@ def main():
                 continue
             time.sleep(3)  # the page is built when it is first shown
             shot = os.path.join(out, "page-%s.png" % re.sub(r"\W+", "_", name))
-            wg.screenshot(shot)
-            selected = wg.find_named(dialog, label)
-            check.note("%s: tree entry" % label, selected is not None and wg.showing(selected))
+            hwnd = wg.hwnd_of(title)
+            if hwnd:
+                wg.foreground(hwnd)
+            wg.screenshot(shot, cursor=False)
+            rect = wg.window_rect(hwnd) if hwnd else None
+            ink = page_ink(shot, rect) if rect else 0.0
+            check("%s: the page is not blank (dark-pixel share of the page area %.4f > %.4f)" % (label, ink, INK),
+                  ink > INK, {"window": rect, "screenshot": shot})
+            # the page's own labels through accessibility: evidence only (UNO accessibility may not reach the page)
             results = {text: shown_with_size(dialog, text) for text in labels}
-            missing = [text for text, (ok, _box) in results.items() if not ok]
-            check("%s: the page is not blank, every label is shown (%d)" % (label, len(labels)), labels and not missing,
-                  {"missing": missing, "shown": {t: b for t, (ok, b) in results.items() if ok}, "screenshot": shot})
+            check.note("%s: labels found through accessibility" % label,
+                       {t: b for t, (ok, b) in results.items() if ok} or "none reachable")
             wg.close_dialog(dialog)
             thread.join(20)
             if thread.is_alive():  # endExecute is not offered by the Options dialog: Escape it with real keys

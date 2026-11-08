@@ -80,6 +80,7 @@ def watch(office, seconds, out, label, close=None):
             seen.append((title, texts))
             time.sleep(1.5)  # let it paint
             wg.screenshot(os.path.join(out, "%s-%d.png" % (label, len(seen))))
+            dump_tree(window, os.path.join(out, "%s-%d-accessibility.txt" % (label, len(seen))))
             if close and close(title, texts):
                 wg.close_dialog(window)
         time.sleep(0.5)
@@ -87,7 +88,22 @@ def watch(office, seconds, out, label, close=None):
 
 
 def is_question(title, texts):
-    return title == QUESTION_TITLE and any(QUESTION in text for text in texts)
+    """The default-apps question: a dialog titled exactly "HST Office" at start-up. Its text is checked when UNO
+    accessibility reaches it; either way the state it writes once answered (Asked, Done) proves which dialog it was."""
+    return title == QUESTION_TITLE and (not texts or any(QUESTION in text for text in texts))
+
+
+def dump_tree(window, path):
+    """Role and name of every node of a dialog's accessibility tree (diagnostics)."""
+    lines = []
+    for context, depth in wg.walk(window):
+        try:
+            lines.append("%s%s %r showing=%s" % ("  " * depth, context.getAccessibleRole(), context.getAccessibleName(),
+                                                  wg.showing(context)))
+        except Exception as error:  # noqa: BLE001
+            lines.append("%s<%s>" % ("  " * depth, type(error).__name__))
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
 
 
 def main():

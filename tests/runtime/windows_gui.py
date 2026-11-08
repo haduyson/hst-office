@@ -151,11 +151,12 @@ def keys(*names):
         key_press(VK[name])
 
 
-def screenshot(path):
-    """Full-screen PNG with the pointer drawn in; never raises (a missing shot must not hide the check result)."""
+def screenshot(path, cursor=True):
+    """Full-screen PNG, the pointer drawn in unless `cursor` is False; never raises (a missing shot must not hide the
+    check result)."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SHOT_SCRIPT, "-Path", path,
-                    "-WithCursor"], timeout=60, check=False)
+    subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SHOT_SCRIPT, "-Path", path]
+                   + (["-WithCursor"] if cursor else []), timeout=60, check=False)
     return path
 
 
@@ -398,6 +399,12 @@ def close_dialog(window):
     except Exception:  # noqa: BLE001
         keys("escape")
         return "escape"
+
+
+def window_rect(hwnd):
+    rect = _Rect()
+    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    return rect.left, rect.top, rect.right, rect.bottom
 
 
 def hwnd_of(title, timeout=10):
