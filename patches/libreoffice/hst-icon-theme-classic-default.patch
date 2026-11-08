@@ -1,0 +1,143 @@
+HST Office: the classic icon style (Cổ điển, hst_classic) is the default; the colourful one is the option.
+
+Reason: the owner chose the classic style, Colibre plus the HST glyphs Colibre lacks, as the default,
+with the colourful style ("Hiện đại", hst_modern) as an option. Automatic (SymbolStyle "auto", also
+an unset style) now prefers hst_classic / hst_classic_dark, then hst_modern / hst_modern_dark, then
+hst / hst_dark. Explicit values are unchanged: "hst_modern" selects the colourful style, and
+"hst_classic", "hst" and "hst_dark" select the classic one, each following the UI mode.
+
+Applies after hst-icon-theme-modern-default.patch and hst-icon-theme-classic-colibre.patch.
+Test: make CppunitTest_vcl_app_test (test_IconThemeSelector).
+License: upstream files remain MPL-2.0.
+---
+--- a/vcl/inc/HstIconTheme.hxx
++++ b/vcl/inc/HstIconTheme.hxx
+@@ -40,14 +40,14 @@
+         return u"hst_classic"_ustr;
+     if (rTheme == u"hst_dark")
+         return u"hst_classic_dark"_ustr;
+     return OUString(rTheme);
+ }
+ 
+-/// The two HST icon styles a user chooses between: "hst_modern" (colourful, the default) and
+-/// "hst" (classic). Each has a "_dark" variant drawn for dark UI surfaces; a choice made by
++/// The two HST icon styles a user chooses between: "hst_classic" (classic, the default) and
++/// "hst_modern" (colourful); "hst" is the former name of the classic style. Each has a "_dark" variant drawn for dark UI surfaces; a choice made by
+ /// style follows the UI mode, so the options page needs one value per style only.
+ inline OUString styleForMode(std::u16string_view rTheme, bool bDark)
+ {
+     OUString aTheme(rTheme);
+     if (bDark && (rTheme == u"hst" || rTheme == u"hst_modern" || rTheme == u"hst_classic"))
+         aTheme += "_dark";
+--- a/vcl/qa/cppunit/app/test_IconThemeSelector.cxx
++++ b/vcl/qa/cppunit/app/test_IconThemeSelector.cxx
+@@ -17,13 +17,13 @@
+ #include <cppunit/extensions/HelperMacros.h>
+ #include <cppunit/plugin/TestPlugIn.h>
+ 
+ class IconThemeSelectorTest : public CppUnit::TestFixture
+ {
+     void HstAutomaticAndExplicitChoices();
+-    void HstModernIsTheDefaultStyle();
++    void HstClassicIsTheDefaultStyle();
+     void HstClassicIsColibreAndKeepsEarlierProfiles();
+ #ifndef _WIN32 //default theme on Windows is Colibre independently from any desktop environment
+     void BreezeIsReturnedForKde5Desktop();
+     void ElementaryIsReturnedForGnomeDesktop();
+     void ThemeIsOverriddenByPreferredTheme();
+     void ThemeIsOverriddenByHighContrastMode();
+@@ -36,13 +36,13 @@
+     static std::vector<vcl::IconThemeInfo> GetFakeInstalledThemes();
+ #endif
+ 
+     // Adds code needed to register the test suite
+     CPPUNIT_TEST_SUITE(IconThemeSelectorTest);
+     CPPUNIT_TEST(HstAutomaticAndExplicitChoices);
+-    CPPUNIT_TEST(HstModernIsTheDefaultStyle);
++    CPPUNIT_TEST(HstClassicIsTheDefaultStyle);
+     CPPUNIT_TEST(HstClassicIsColibreAndKeepsEarlierProfiles);
+ 
+ #ifndef _WIN32
+     CPPUNIT_TEST(BreezeIsReturnedForKde5Desktop);
+     CPPUNIT_TEST(ElementaryIsReturnedForGnomeDesktop);
+     CPPUNIT_TEST(ThemeIsOverriddenByPreferredTheme);
+@@ -207,32 +207,36 @@
+     // Reduced builds without HST retain upstream desktop selection.
+     themes.erase(themes.begin() + 1, themes.end());
+     CPPUNIT_ASSERT_EQUAL(u"colibre"_ustr,
+         selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
+ }
+ 
+-void IconThemeSelectorTest::HstModernIsTheDefaultStyle()
++void IconThemeSelectorTest::HstClassicIsTheDefaultStyle()
+ {
+     std::vector<vcl::IconThemeInfo> themes;
+     for (const auto& id : { u"colibre"_ustr, u"hst"_ustr, u"hst_dark"_ustr, u"hst_modern"_ustr,
+-                            u"hst_modern_dark"_ustr })
++                            u"hst_modern_dark"_ustr, u"hst_classic"_ustr, u"hst_classic_dark"_ustr })
+     {
+         vcl::IconThemeInfo info;
+         info.mThemeId = id;
+         themes.push_back(info);
+     }
+     vcl::IconThemeSelector selector;
+-    // Automatic ("auto") picks the colourful style, light or dark.
++    // Automatic ("auto", also an unset style) picks the classic style, light or dark.
+     selector.SetPreferredIconTheme(u"colibre"_ustr, false);
+-    CPPUNIT_ASSERT_EQUAL(u"hst_modern"_ustr,
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic"_ustr,
+         selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
+-    CPPUNIT_ASSERT_EQUAL(u"hst"_ustr, selector.SelectIconTheme(themes, u"hst"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"hst_modern"_ustr, selector.SelectIconTheme(themes, u"hst_modern"_ustr));
+     selector.SetPreferredIconTheme(u"colibre"_ustr, true);
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic_dark"_ustr,
++        selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
++    // A build without the classic themes falls back to the colourful style.
++    themes.resize(5);
+     CPPUNIT_ASSERT_EQUAL(u"hst_modern_dark"_ustr,
+         selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
+-    // The two values of the options page follow the dark UI.
++    // There, the style values follow the dark UI too.
+     CPPUNIT_ASSERT_EQUAL(u"hst_dark"_ustr, selector.SelectIconTheme(themes, u"hst"_ustr));
+     CPPUNIT_ASSERT_EQUAL(u"hst_modern_dark"_ustr, selector.SelectIconTheme(themes, u"hst_modern"_ustr));
+     CPPUNIT_ASSERT_EQUAL(u"colibre"_ustr, selector.SelectIconTheme(themes, u"colibre"_ustr));
+ }
+ 
+ void IconThemeSelectorTest::HstClassicIsColibreAndKeepsEarlierProfiles()
+@@ -245,14 +249,14 @@
+         vcl::IconThemeInfo info;
+         info.mThemeId = id;
+         themes.push_back(info);
+     }
+     vcl::IconThemeSelector selector;
+     selector.SetPreferredIconTheme(u"colibre"_ustr, false);
+-    // Automatic stays on the colourful style.
+-    CPPUNIT_ASSERT_EQUAL(u"hst_modern"_ustr,
++    // Automatic is the classic style.
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic"_ustr,
+         selector.SelectIconThemeForDesktopEnvironment(themes, DesktopType::GNOME));
+     // The options page value of the classic style, and the values of earlier profiles.
+     CPPUNIT_ASSERT_EQUAL(u"hst_classic"_ustr, selector.SelectIconTheme(themes, u"hst_classic"_ustr));
+     CPPUNIT_ASSERT_EQUAL(u"hst_classic"_ustr, selector.SelectIconTheme(themes, u"hst"_ustr));
+     CPPUNIT_ASSERT_EQUAL(u"hst_classic_dark"_ustr, selector.SelectIconTheme(themes, u"hst_dark"_ustr));
+     selector.SetPreferredIconTheme(u"colibre"_ustr, true);
+--- a/vcl/source/app/IconThemeSelector.cxx
++++ b/vcl/source/app/IconThemeSelector.cxx
+@@ -110,14 +110,15 @@
+ {
+     // This method is used for Automatic only. SelectIconTheme still honours an
+     // explicit user selection and applies the existing high-contrast override.
+     // A platform that follows the theme colours only names a dark theme here.
+     const bool bPreferDark = mPreferDarkIconTheme || mPreferredIconTheme.endsWith("_dark")
+                              || mPreferredIconTheme.endsWith("_dark_svg");
+-    // HST Office: the colourful style is the default, the classic ones remain for reduced builds.
+-    for (const auto aStyle : { u"hst_modern", u"hst_classic", u"hst" })
++    // HST Office: the classic style (Colibre plus the HST glyphs it lacks) is the default, the
++    // colourful style is the option; the HST-only theme remains for reduced builds.
++    for (const auto aStyle : { u"hst_classic", u"hst_modern", u"hst" })
+     {
+         const OUString aHstTheme = vcl::hst::styleForMode(aStyle, bPreferDark);
+         if (icon_theme_is_in_installed_themes(aHstTheme, installedThemes))
+             return aHstTheme;
+     }
+ 

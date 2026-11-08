@@ -1,14 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Tùy chọn ▸ HST Office ▸ Giao diện: "Kiểu biểu tượng" Hiện đại (nhiều màu, default) or Cổ điển (owner 2026-11-07).
+"""Tùy chọn ▸ HST Office ▸ Giao diện: "Kiểu biểu tượng" Cổ điển (default) or Hiện đại (nhiều màu) (owner 2026-11-08).
 
 Writes /org.openoffice.Office.Common/Misc/SymbolStyle. The office applies it at once: the change notifies
 SvtMiscOptions, which reloads the value and sets the icon theme of every window (svtools miscopt.cxx Notify ->
 SetIconTheme), so no restart is needed.
-  * Hiện đại: "auto"; the office picks the modern pack and its dark variant from the dark mode (hst_modern /
-    hst_modern_dark, icon-theme stream).
-  * Cổ điển: "hst_classic" (LibreOffice Colibre with HST glyphs for the commands Colibre does not draw); the office
-    picks hst_classic_dark itself while the UI is dark. Profiles of earlier versions hold "hst" / "hst_dark" /
-    "hst_classic_dark" for Cổ điển; they read back as Cổ điển and are rewritten as "hst_classic" on the next OK.
+  * Cổ điển: "auto", also an unset value; the office picks the classic pack (LibreOffice Colibre with HST glyphs
+    for the commands Colibre does not draw) and its dark variant from the dark mode (hst_classic /
+    hst_classic_dark, icon-theme stream). Profiles of earlier versions hold "hst_classic", "hst_classic_dark",
+    "hst" or "hst_dark" for Cổ điển; they read back as Cổ điển and are rewritten as "auto" on the next OK.
+  * Hiện đại: "hst_modern"; the office picks hst_modern_dark itself while the UI is dark. A pinned
+    "hst_modern_dark" of an earlier version reads back as Hiện đại and is rewritten as "hst_modern".
 The pack names are the icon-theme stream's; MODERN/CLASSIC below are the only place they appear here.
 """
 import os
@@ -20,30 +21,30 @@ from com.sun.star.lang import XServiceInfo
 
 HANDLER_NAME = "org.hst.office.vi.OptionsAppearance"
 CONFIG_PATH = "/org.openoffice.Office.Common/Misc"
-MODERN = "auto"
-MODERN_NAMES = ("auto", "", "hst_modern", "hst_modern_dark")
-CLASSIC = ("hst_classic", "hst_classic_dark")  # (light, dark)
-CLASSIC_NAMES = CLASSIC + ("hst", "hst_dark")  # "hst" / "hst_dark": the Cổ điển value of earlier versions
+CLASSIC = "auto"
+CLASSIC_NAMES = ("auto", "", "hst_classic", "hst_classic_dark", "hst", "hst_dark")  # hst*: earlier versions' Cổ điển
+MODERN = ("hst_modern", "hst_modern_dark")  # (light, dark)
+MODERN_NAMES = MODERN
 PREVIEWS = {"modernPreview": "icon-style-modern", "classicPreview": "icon-style-classic"}  # + ".png" / "-dark.png"
 
 
 def style_of(value):
     """'modern', 'classic' or None (another theme chosen in the core Appearance page), from SymbolStyle (pure)."""
     value = (value or "").strip()
-    if value in MODERN_NAMES:
-        return "modern"
     if value in CLASSIC_NAMES:
         return "classic"
+    if value in MODERN_NAMES:
+        return "modern"
     return None
 
 
 def value_for(style):
     """SymbolStyle value for a choice (pure). Always the base style: the office's selector adds "_dark" while the UI is
     dark (vcl HstIconTheme styleForMode), so a later switch to a light UI gets the light pack again."""
-    if style == "modern":
-        return MODERN
     if style == "classic":
-        return CLASSIC[0]
+        return CLASSIC
+    if style == "modern":
+        return MODERN[0]
     raise ValueError("unknown icon style: %r" % (style,))
 
 
@@ -109,8 +110,8 @@ class AppearanceOptionsHandler(unohelper.Base, XServiceInfo, XContainerWindowEve
 
     def _load(self, window):
         style = current_style(self.ctx)
-        window.getControl("modern").setState(style == "modern")
         window.getControl("classic").setState(style == "classic")
+        window.getControl("modern").setState(style == "modern")
         from .dialogs import is_dark
         dark = is_dark(self.ctx)
         for name, base in PREVIEWS.items():  # icons drawn by each pack, for the light or the dark UI
@@ -124,7 +125,7 @@ class AppearanceOptionsHandler(unohelper.Base, XServiceInfo, XContainerWindowEve
             control.setVisible(os.path.isfile(path))
 
     def _save(self, window):
-        if window.getControl("modern").getState():
-            save_style(self.ctx, "modern")
-        elif window.getControl("classic").getState():
+        if window.getControl("classic").getState():
             save_style(self.ctx, "classic")
+        elif window.getControl("modern").getState():
+            save_style(self.ctx, "modern")
