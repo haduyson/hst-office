@@ -5,13 +5,16 @@ UpdateControllers -> XUpdatable::update). RemoveControllers() disposes the contr
 dispose() deliberately stops that timer only at its end. A controller's dispose() can release the
 SolarMutex: on Windows a window destroyed by a thread other than the main thread is handed to the main
 thread with SendMessage, and the SolarMutex is released while waiting (WinSalInstance::SendWndMessage_impl).
-That is the case for a document closed over the UNO bridge (XCloseable::close from an automation client).
-The main thread can then run the pending timer and update a controller that is half disposed.
+That is the case for a document loaded or closed over the UNO bridge (an automation client): the toolbars
+of the old view are destroyed on the bridge's request thread. The main thread can then run the pending
+timer and update a controller that is half disposed.
 
-Windows smoke of 1.0.0 crashed this way after documents were closed through UNO: the style box controller
-filled its box after SvxStyleToolBoxControl::disposing() had already moved m_xVclBox out and the box had
-released its weld::ComboBox (read of address 0 in FillStyleBox; earlier builds: ReBind on a released
-family listener).
+Windows smoke of 1.0.0 crashed this way: a request thread in Desktop::loadComponentFromURL was in
+LayoutManager::destroyElement -> ToolBarManager::dispose -> RemoveControllers -> the style box
+controller's disposing() -> the box window's dispose, waiting for the SolarMutex, while the main thread
+ran the timer and the style box controller filled its box: m_xVclBox already moved out, the box's
+weld::ComboBox released, read of address 0 in FillStyleBox (earlier builds: ReBind on a released family
+listener).
 
 AsyncUpdateControllersHdl now returns while RemoveControllers() runs. The toolbar is then being refilled
 (FillToolbar updates its new controllers itself) or disposed, so no update is lost.
@@ -129,8 +132,8 @@ License: modified upstream files keep their license (MPL-2.0).
  
 -    if ( m_bDisposed )
 +    // HST: a controller's dispose() can release the SolarMutex (a window destroyed from a thread other
-+    // than the main thread waits for the main thread with the SolarMutex released, e.g. a document closed
-+    // over the UNO bridge). This timer can then fire in the middle of RemoveControllers() and update a
++    // than the main thread waits for the main thread with the SolarMutex released, e.g. a document loaded or
++    // closed over the UNO bridge). This timer can then fire in the middle of RemoveControllers() and update a
 +    // controller that is half disposed: the style box controller then fills a box whose widget is gone.
 +    // The toolbar is being refilled or disposed then; a refill updates its new controllers itself.
 +    if ( m_bDisposed || m_bRemovingControllers )
