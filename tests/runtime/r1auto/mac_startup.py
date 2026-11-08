@@ -9,6 +9,13 @@ from results import row
 from support import wait
 
 DEFAULT_QUESTION = "Mở tài liệu văn phòng bằng HST Office"
+QUIET = dict(check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=120)
+
+
+def launch(out, name, *args):
+    """`open` waits for the Gatekeeper answer; never block on it, the caller answers the prompt while polling."""
+    log = (Path(out) / (name + "-open.log")).open("w", encoding="utf-8")
+    return subprocess.Popen(["open", *args], stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
 
 
 def prepare(dmg, out, record):
@@ -26,25 +33,25 @@ def prepare(dmg, out, record):
     existing = [p for p in support.glob("*") if p.name.lower().startswith("hst")]
     if existing:
         raise RuntimeError("Runner đã có profile HST; không phải lần mở đầu")
-    subprocess.run(["defaults", "write", "NSGlobalDomain", "AppleLanguages", "-array", "vi", "en"], check=True)
+    subprocess.run(["defaults", "write", "NSGlobalDomain", "AppleLanguages", "-array", "vi", "en"], **QUIET)
     quarantine = f"0081;{int(time.time()):x};Safari;"
-    subprocess.run(["xattr", "-w", "com.apple.quarantine", quarantine, str(dmg)], check=True)
-    actual = subprocess.check_output(["xattr", "-p", "com.apple.quarantine", str(dmg)], text=True).strip()
+    subprocess.run(["xattr", "-w", "com.apple.quarantine", quarantine, str(dmg)], **QUIET)
+    actual = subprocess.run(["xattr", "-p", "com.apple.quarantine", str(dmg)], text=True, **QUIET).stdout.strip()
     subprocess.run(["hdiutil", "attach", "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", str(mount), str(dmg)],
-                   check=True, capture_output=True)
-    owned, first_ok = set(), False
+                   **QUIET)
+    owned, first_ok, openers = set(), False, []
     try:
         source = mount / "HST Office.app"
         if not source.exists():
             raise RuntimeError("Không tìm thấy ứng dụng trong DMG")
-        subprocess.run(["open", "-n", "-a", str(source)], check=True)
+        openers.append(launch(out, "M1", "-n", "-a", str(source)))
         confirmation = []
         def launched():
             app = next(iter(applications()), None)
             if app is None and confirm_download(out):
                 confirmation.append("M1-download-confirmation.png")
             return app
-        app = wait(launched, 60)
+        app = wait(launched, 300)  # "Verifying…" of a quarantined bundle can take minutes
         owned.add(app.processIdentifier())
         (out / "startup-pids.txt").write_text("\n".join(map(str, owned)))
         app.activateWithOptions_(2)
@@ -68,13 +75,15 @@ def prepare(dmg, out, record):
         wait(destination.exists, 180)
         # The product's mover must launch its own installed copy. No ditto workaround.
         def moved():
+            if confirm_download(out):
+                confirmation.append("M1-download-confirmation.png")
             for candidate in applications():
                 owned.add(candidate.processIdentifier())
                 (out / "startup-pids.txt").write_text("\n".join(map(str, owned)))
                 if candidate.executableURL().path().startswith(str(destination) + "/"):
                     return candidate
             return None
-        moved_app = wait(moved, 90)
+        moved_app = wait(moved, 180)
         moved_app.activateWithOptions_(2)
         # One modal question per start (startup_prompts.py): the welcome may take the first start from
         # /Applications; the default-apps question must then come on the next start, never later.
@@ -88,7 +97,7 @@ def prepare(dmg, out, record):
                 except TimeoutError:
                     moved_app.forceTerminate()
                     wait(lambda: moved_app.isTerminated() or None, 20)
-                subprocess.run(["open", "-a", str(destination)], check=True)
+                openers.append(launch(out, "M2", "-a", str(destination)))
                 moved_app, starts = wait(moved, 90), 2
                 moved_app.activateWithOptions_(2)
                 end = time.monotonic() + 60
@@ -98,7 +107,8 @@ def prepare(dmg, out, record):
         screenshot(shot)
         ok = any(DEFAULT_QUESTION in text for text in seen)
         record(row("M2", "PASS" if ok else "FAIL", dict(message="Sau chuyển mới hỏi mở tài liệu văn phòng",
-                   executable=moved_app.executableURL().path(), starts=starts, windows=seen), shot.name))
+                   executable=moved_app.executableURL().path(), starts=starts, windows=seen,
+                   os_confirmation=confirmation), shot.name))
         if not ok:
             raise AssertionError("M2 không có câu hỏi mặc định sau chuyển")
         press(moved_app, {"Đồng ý"})
@@ -107,4 +117,26 @@ def prepare(dmg, out, record):
     finally:
         owned.update(app.processIdentifier() for app in applications())
         close_owned(owned)
-        subprocess.run(["hdiutil", "detach", str(mount)], check=True, capture_output=True)
+        for opener in openers:
+            if opener.poll() is None:
+                opener.kill()
+        subprocess.run(["hdiutil", "detach", "-force", str(mount)], **QUIET)
+
+
+if __name__ == "__main__":
+    # Child mode (prepare.py owns the hard timeout): rows go to a JSON-lines file as soon as they are known, and a
+    # stack of every thread is dumped each 60 s so a stuck step names itself.
+    import faulthandler
+    import json
+    import sys
+    dmg, out, records = sys.argv[1:4]
+    stack = (Path(out) / "startup-stack.log").open("w", encoding="utf-8")
+    faulthandler.dump_traceback_later(60, repeat=True, file=stack)
+    def record(value):
+        with open(records, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(value, ensure_ascii=False) + "\n")
+    try:
+        print(json.dumps(dict(destination=str(prepare(dmg, out, record)))))
+    except Exception as error:
+        print(json.dumps(dict(error=f"{type(error).__name__}: {error}"), ensure_ascii=False))
+        raise SystemExit(1)

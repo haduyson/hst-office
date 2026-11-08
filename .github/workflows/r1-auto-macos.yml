@@ -65,7 +65,19 @@ jobs:
           if [ "$count" = 1 ]; then artifact="$signed"; fi
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "$RUNNER_TEMP/dmg"
           python tests/runtime/r1auto/select-package.py "$RUNNER_TEMP/dmg" .dmg >> "$GITHUB_ENV"
+      - name: Ghi quyền TCC và chế độ màn hình của runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' | tee "$RUNNER_TEMP/r1-evidence/runner-permissions.log"
+          import ApplicationServices as ax, Quartz as q
+          d = q.CGMainDisplayID()
+          modes = q.CGDisplayCopyAllDisplayModes(d, {"kCGDisplayShowDuplicateLowResolutionModes": True}) or []
+          print("accessibility", ax.AXIsProcessTrusted(), "screen_capture", q.CGPreflightScreenCaptureAccess())
+          print("modes", sorted({(q.CGDisplayModeGetWidth(m), q.CGDisplayModeGetPixelWidth(m)) for m in modes}))
+          PY
       - name: Chạy checklist từ DMG cách ly
+        timeout-minutes: 80
         shell: bash
         env:
           R1_RUN_ID: ${{ inputs.run_id }}

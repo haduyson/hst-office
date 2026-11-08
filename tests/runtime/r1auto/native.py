@@ -106,7 +106,7 @@ def screenshot(path):
         import Quartz as q
         if hasattr(q, "CGPreflightScreenCaptureAccess") and not q.CGPreflightScreenCaptureAccess():
             raise RuntimeError("Runner chưa cấp quyền ghi màn hình")
-        subprocess.run(["screencapture", "-x", str(path)], check=True)
+        subprocess.run(["screencapture", "-x", str(path)], check=True, stdin=subprocess.DEVNULL, timeout=60)
     else:
         from PIL import ImageGrab
         ImageGrab.grab().save(path)

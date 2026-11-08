@@ -17,11 +17,14 @@ def attribute(element, name, default=None):
     return value if error == 0 else default
 
 
-def nodes(app):
+def nodes(app, budget=15.0):
+    """Breadth-first AX walk; a busy app answers each call within 2 s and the walk within `budget` s."""
     import ApplicationServices as ax
-    queue = [ax.AXUIElementCreateApplication(app.processIdentifier())]
+    root = ax.AXUIElementCreateApplication(app.processIdentifier())
+    ax.AXUIElementSetMessagingTimeout(ax.AXUIElementCreateSystemWide(), 2.0)  # global: covers every child element
+    queue, end = [root], time.monotonic() + budget
     for _ in range(5000):
-        if not queue:
+        if not queue or time.monotonic() > end:
             break
         node = queue.pop(0)
         yield node

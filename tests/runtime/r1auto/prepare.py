@@ -1,10 +1,41 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Platform prerequisites; startup failures remain failures while unrelated probes continue."""
 import hashlib
+import json
 from pathlib import Path
 import subprocess
+import sys
 from results import row
 from native import screenshot
+
+STARTUP_TIMEOUT = 900  # M1+M2 with Gatekeeper verification and two relaunches; a hang fails here, not at job timeout
+QUIET = dict(check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=300)
+
+
+def startup(package, out):
+    """Run mac_startup.py in its own process so no AX, `open` or hdiutil call can outlive the hard timeout."""
+    out = Path(out)
+    records = out / "startup-records.jsonl"
+    log = out / "startup.log"
+    command = [sys.executable, str(Path(__file__).with_name("mac_startup.py")), str(package), str(out), str(records)]
+    with log.open("w", encoding="utf-8") as stream:
+        child = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+        try:
+            child.wait(STARTUP_TIMEOUT)
+            error = None if child.returncode == 0 else RuntimeError(f"Khởi động M1/M2 thất bại, exit={child.returncode}")
+        except subprocess.TimeoutExpired:
+            try:
+                screenshot(out / "startup-timeout.png")
+            except Exception:
+                pass
+            child.kill()
+            child.wait(30)
+            error = TimeoutError(f"M1/M2 quá {STARTUP_TIMEOUT} s; ngăn xếp trong startup-stack.log")
+    rows = [json.loads(line) for line in records.read_text(encoding="utf-8").splitlines()] if records.exists() else []
+    tail = [line for line in log.read_text(encoding="utf-8").splitlines() if line.startswith("{")]
+    if error and tail:
+        error = type(error)(f"{error}: {json.loads(tail[-1]).get('error', '')}")
+    return rows, error
 
 
 def installation(args, results):
@@ -17,31 +48,42 @@ def installation(args, results):
         from windows_install import install
         root, receipt = install(package, args.out)
         return root, receipt, True
-    from mac_startup import prepare
-    from mac_access import applications
-    if Path("/Applications/HST Office.app").exists() or applications():
+    from mac_access import applications, close_owned
+    destination = Path("/Applications/HST Office.app")
+    if destination.exists() or applications():
         raise RuntimeError("Runner đã có HST Office; không được dùng lại bản cài khác")
     def record(value):
         if value["item"] in {r["item"] for r in results.report["results"]}:
             results.put(value)
-    try:
-        return prepare(package, args.out, record), None, True
-    except Exception as error:
-        for item in ("M1", "M2"):
-            current = next((r for r in results.report["results"] if r["item"] == item), None)
-            if current and current["detail"] == "Chưa chạy: chuẩn bị hoặc tiến trình bị gián đoạn":
-                shot = Path(args.out) / (item + "-startup-failure.png")
-                screenshot(shot)
-                record(row(item, "FAIL", dict(message=f"{type(error).__name__}: {error}"), shot.name))
-        # Continue M4–M8 against the unchanged artifact. This does not satisfy M1–M3.
-        destination = Path("/Applications/HST Office.app")
-        if not destination.exists():
-            mount = Path(args.work) / "fallback-mount"
-            mount.mkdir(parents=True, exist_ok=True)
-            subprocess.run(["hdiutil", "attach", "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", str(mount),
-                            str(package)], check=True, capture_output=True)
+    rows, error = startup(package, args.out)
+    for value in rows:
+        record(value)
+    if error is None:
+        return destination, None, True
+    pids = Path(args.out) / "startup-pids.txt"
+    close_owned({int(pid) for pid in pids.read_text().split()} if pids.exists() else set())
+    close_owned({app.processIdentifier() for app in applications()})
+    subprocess.run(["hdiutil", "detach", "-force", str(Path(args.out).parent / "r1-mounted")],
+                   check=False, capture_output=True, stdin=subprocess.DEVNULL, timeout=120)
+    for item in ("M1", "M2"):
+        current = next((r for r in results.report["results"] if r["item"] == item), None)
+        if current and current["detail"] == "Chưa chạy: chuẩn bị hoặc tiến trình bị gián đoạn":
+            shot = Path(args.out) / (item + "-startup-failure.png")
             try:
-                subprocess.run(["ditto", str(mount / "HST Office.app"), str(destination)], check=True)
-            finally:
-                subprocess.run(["hdiutil", "detach", str(mount)], check=True, capture_output=True)
-        return destination, None, False
+                screenshot(shot)
+            except Exception:
+                pass
+            record(row(item, "FAIL", dict(message=f"{type(error).__name__}: {error}", log="startup.log",
+                                          stack="startup-stack.log"), shot.name if shot.exists() else None))
+    # Continue M4–M8 against the unchanged artifact. This does not satisfy M1–M3. The app is copied without the
+    # quarantine flag: Gatekeeper is M1's subject, and a prompt here would only block the unrelated probes.
+    if not destination.exists():
+        mount = Path(args.work) / "fallback-mount"
+        mount.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["hdiutil", "attach", "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", str(mount),
+                        str(package)], **QUIET)
+        try:
+            subprocess.run(["ditto", "--noqtn", str(mount / "HST Office.app"), str(destination)], **QUIET)
+        finally:
+            subprocess.run(["hdiutil", "detach", "-force", str(mount)], **QUIET)
+    return destination, None, False

@@ -57,7 +57,7 @@ def _open_associated(e, extension, path, service):
         e.require(all(v == handlers["expected"] for k, v in handlers.items() if k != "expected"),
                   "LaunchServices đã gán ba loại tệp", handlers=handlers)
         import subprocess
-        subprocess.run(["open", str(path)], check=True)
+        subprocess.run(["open", str(path)], check=True, stdin=subprocess.DEVNULL, timeout=60)
     def loaded():
         enum = office.desktop().getComponents().createEnumeration()
         while enum.hasMoreElements():
