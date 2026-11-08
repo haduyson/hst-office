@@ -23,8 +23,8 @@ def build():
             b"BT /F1 11 Tf 1 0 0 1 72 160 Tm (Noi dung chi dung cho kiem thu tu dong.) Tj ET",
             b"0.737 w 0 G 343.8 755.5 m 497.8 755.5 l S 128.9 753.3 m 208.4 753.3 l S"]
     # the stamp: rotated 54.7 degrees about the page centre, black fill at /ca 0.1 (structure of signing stamps)
-    stamp = (b"q /gs1 gs /DeviceRGB cs 0 0 0 sc BT /F2 30 Tf 0.57729 0.81654 -0.81654 0.57729 297.66 421.02 Tm "
-             b"-250 0 Td (BAN SAO DIEN TU - KIEM THU) Tj ET Q")
+    stamp = (b"q /gs1 gs /DeviceRGB cs 0 0 0 sc BT /F1 22 Tf 0.57729 0.81654 -0.81654 0.57729 297.66 421.02 Tm "
+             b"-200 0 Td (BAN SAO DIEN TU - KIEM THU - KHONG CO GIA TRI) Tj ET Q")
     content = b"\n".join(text + [stamp])
     appearance = b"q 0 0 1 RG 1 w 1 1 36 13 re S Q"
     objects = [

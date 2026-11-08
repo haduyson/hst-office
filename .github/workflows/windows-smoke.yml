@@ -292,6 +292,10 @@ jobs:
           extra=()
           [ "$SCENARIO" != ui-parity-old-profile ] || extra=(--carried --profile "$(cygpath -w "$RUNNER_TEMP/old-profile-options")")
           timeout 900 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-options-pages.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out/options-pages")" "${extra[@]}"
+          if [ "$SCENARIO" = ui-parity-old-profile ]; then
+            # the same profile at its next start: what the user keeps seeing after the first start of the new version
+            timeout 900 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-options-pages.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out/options-pages-start2")" "${extra[@]}"
+          fi
       - name: UI parity - ND30 "Loại văn bản" list under real pointer moves
         if: ${{ !cancelled() && matrix.scenario == 'ui-parity' && env.HST_INSTALL != '' }}
         shell: bash
