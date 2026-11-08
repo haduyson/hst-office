@@ -1,0 +1,191 @@
+HST Office: narrower Home Paragraph (Writer, Slides) and Font (Slides), so Paragraph stays at 1485 px.
+
+Paragraph's toolboxes are already icon-only, so its only smaller ladder state was its button: at 1485 px
+Slides showed Paragraph as a button. Its width came from the indent column, which also held Find & Replace
+and Select All. Both move to the first row of the last column, whose second row is already as wide
+(Writer: beside the hidden text direction buttons, above shading, borders, sort and formatting marks;
+Slides: beside text direction, above the vertical text alignment), about 50 px narrower. In Slides, Change
+Case moves from the font name row to the end of the second row, under the size box, about 30 px narrower.
+No command is removed; ids are unchanged.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -4017,12 +4017,23 @@
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeOrientation">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="toolbar-style">icons</property>
++                            <property name="show-arrow">False</property>
+                             <child>
+-                              <!-- HST Office: Find & Replace (Ctrl+H), icon only, as in Office's Home tab -->
+-                              <object class="GtkToolButton" id="btnHomeHstSearchDialog">
++                              <object class="GtkToolButton" id="btnHomeParaLeftToRight">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:SearchDialog</property>
++                                <property name="action-name">.uno:ParaLeftToRight</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+@@ -4030,33 +4041,22 @@
+                               </packing>
+                             </child>
+                             <child>
+-                              <object class="GtkToolButton" id="btnHstSelectAll">
++                              <object class="GtkToolButton" id="btnHomeParaRightToLeft">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:SelectAll</property>
++                                <property name="action-name">.uno:ParaRightToLeft</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeOrientation">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">icons</property>
+-                            <property name="show-arrow">False</property>
+                             <child>
+-                              <object class="GtkToolButton" id="btnHomeParaLeftToRight">
++                              <!-- HST Office: Find & Replace (Ctrl+H), icon only, as in Office's Home tab -->
++                              <object class="GtkToolButton" id="btnHomeHstSearchDialog">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ParaLeftToRight</property>
++                                <property name="action-name">.uno:SearchDialog</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+@@ -4064,10 +4064,10 @@
+                               </packing>
+                             </child>
+                             <child>
+-                              <object class="GtkToolButton" id="btnHomeParaRightToLeft">
++                              <object class="GtkToolButton" id="btnHstSelectAll">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ParaRightToLeft</property>
++                                <property name="action-name">.uno:SelectAll</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+--- a/sd/uiconfig/simpress/ui/notebookbar.ui
++++ b/sd/uiconfig/simpress/ui/notebookbar.ui
+@@ -3667,6 +3667,17 @@
+                                 <property name="homogeneous">False</property>
+                               </packing>
+                             </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstChangeCase">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:ChangeCaseRotateCase</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">3</property>
+@@ -3703,17 +3714,6 @@
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHstChangeCase">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ChangeCaseRotateCase</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">4</property>
+@@ -3846,6 +3846,29 @@
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
++                            <child>
++                              <!-- HST Office: Find & Replace (Ctrl+H), icon only, as in Office's Home tab -->
++                              <object class="GtkToolButton" id="btnHomeHstSearchDialog">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:SearchDialog</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnHstSelectAll">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:SelectAll</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">3</property>
+@@ -4053,29 +4076,6 @@
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <!-- HST Office: Find & Replace (Ctrl+H), icon only, as in Office's Home tab -->
+-                              <object class="GtkToolButton" id="btnHomeHstSearchDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:SearchDialog</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHstSelectAll">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:SelectAll</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
