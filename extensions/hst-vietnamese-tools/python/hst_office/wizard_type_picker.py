@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The document-type dropdown of the ND30 wizard with Quick Search: a field to type in and a list that filters live.
 
-The list opens when the user types, presses Down or clicks the arrow. Up/Down move inside it, Enter or Tab chooses (Tab then
-moves on), Esc closes it and brings the chosen type back. While it is open a key handler keeps those keys from the dialog,
-whose default button and Cancel would otherwise take them. Group headings are shown but can't be chosen.
+The list opens when the user types, presses Down or clicks the arrow. Up/Down or the pointer move the highlight in it, a
+click, Enter or Tab chooses (Tab then moves on), Esc closes it and brings the chosen type back. While it is open a key
+handler keeps those keys from the dialog, whose default button and Cancel would otherwise take them. Group headings are
+shown but can't be chosen.
 """
 import unohelper
-from com.sun.star.awt import XFocusListener, XItemListener, XKeyHandler, XTextListener
+from com.sun.star.awt import XFocusListener, XItemListener, XKeyHandler, XMouseMotionListener, XTextListener
 from com.sun.star.awt.Key import DOWN, ESCAPE, RETURN, TAB, UP
 
 from . import nd30_search
@@ -27,7 +28,7 @@ class _Keys(unohelper.Base, XKeyHandler):
         pass
 
 
-class _Events(unohelper.Base, XTextListener, XItemListener, XFocusListener):
+class _Events(unohelper.Base, XTextListener, XItemListener, XFocusListener, XMouseMotionListener):
     def __init__(self, picker):
         self.picker = picker
 
@@ -41,6 +42,12 @@ class _Events(unohelper.Base, XTextListener, XItemListener, XFocusListener):
         self.picker.select_all()
 
     def focusLost(self, event):
+        pass
+
+    def mouseMoved(self, event):
+        self.picker.hovered(self.picker.popup.row_at(event.X, event.Y))
+
+    def mouseDragged(self, event):
         pass
 
     def disposing(self, event):
@@ -67,6 +74,7 @@ class TypePicker:
         self.field.addTextListener(events)
         self.field.addFocusListener(events)
         self.list.addItemListener(events)
+        self.list.addMouseMotionListener(events)
         self.toolkit = self.d.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", self.d.ctx)
         self.handler = _Keys(self)
         self.toolkit.addKeyHandler(self.handler)
@@ -94,14 +102,14 @@ class TypePicker:
         uno.invoke(self.popup.model, "setPropertyValue", ("StringItemList", uno.Any("[]string", tuple(row[0] for row in self.table))))
         self._select(nd30_search.next_row(self.table, -1, 1) if self.table else -1)
 
-    def _select(self, index):
+    def _select(self, index, scroll=True):
         import uno
         self.index = index
         chosen = (index,) if index >= 0 else ()
         self.silent = True
         uno.invoke(self.popup.model, "setPropertyValue", ("SelectedItems", uno.Any("[]short", chosen)))
         self.silent = False
-        if index >= 0:
+        if index >= 0 and scroll:  # never under the pointer: a half-shown last row would scroll away from it
             self.list.makeVisible(index)
 
     def _set_open(self, value):
@@ -121,6 +129,17 @@ class TypePicker:
             self._fill("")
             self._set_open(True)
         self.field.setFocus()
+
+    def hovered(self, position):
+        """The pointer is over row `position` of the open list: highlight it like a dropdown does (a group heading or no
+        row keeps the highlight where it is). Enter or Tab then takes that row, as after Up/Down."""
+        if self.open and position != self.index and 0 <= position < len(self.table) and self.table[position][1]:
+            top = self.popup.top_row()
+            self._select(position, scroll=False)
+            # VCL scrolls a selected row it counts as not fully shown (imp_listbox.cxx SelectEntry ->
+            # ShowProminentEntry), here already rows in the lower half: the list ran away under the pointer
+            if top >= 0 and self.popup.top_row() != top:
+                self.list.makeVisible(top)  # XListBox.makeVisible sets the top row
 
     def clicked(self):
         if self.silent or not self.open:

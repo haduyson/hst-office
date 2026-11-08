@@ -38,13 +38,13 @@ class _Peer:
 
 class _List:
     def __init__(self):
-        self.visible = False
+        self.visible, self.top = False, []
 
     def setVisible(self, value):  # noqa: N802 - UNO method name
         self.visible = value
 
     def makeVisible(self, index):  # noqa: N802 - UNO method name
-        pass
+        self.top.append(index)
 
     def getPeer(self):  # noqa: N802 - UNO method name
         return _Peer()
@@ -55,6 +55,10 @@ class _Popup:
 
     def __init__(self):
         self.model, self.visible = types.SimpleNamespace(StringItemList=(), SelectedItems=()), False
+        self.tops = []  # scroll positions top_row() reports next; 0 when empty
+
+    def top_row(self):
+        return self.tops.pop(0) if self.tops else 0
 
     def show(self, visible):
         self.visible = visible
@@ -115,6 +119,37 @@ class TabLeavesTheList(unittest.TestCase):
     def test_tab_with_the_list_closed_is_left_alone(self):
         self.assertFalse(self.picker.key(_keys.TAB))
         self.assertEqual(self.chosen, [])
+
+    def test_pointer_moves_the_highlight_and_enter_takes_it(self):
+        """A plain VCL list box never follows the pointer (only a dropdown's list does): the picker moves it itself."""
+        self.type_query("")
+        heading = next(i for i, row in enumerate(self.picker.table) if not row[1])
+        row = next(i for i, r in enumerate(self.picker.table) if r[1] and i != self.picker.index)
+        self.picker.hovered(row)
+        self.assertEqual(self.picker.index, row)
+        self.assertEqual(self.picker.popup.model.SelectedItems, (row,))
+        self.picker.hovered(heading)
+        self.picker.hovered(-1)
+        self.assertEqual(self.picker.index, row, "a heading or the border keeps the highlight")
+        self.assertEqual(self.chosen, [], "hovering never chooses")
+        self.assertTrue(self.picker.key(_keys.RETURN))
+        self.assertEqual(self.picker.current, self.picker.table[row][1])
+
+    def test_pointer_keeps_the_scroll_position(self):
+        """VCL scrolls a selected row of the lower half to the middle; under the pointer the list then ran away."""
+        self.type_query("")
+        row = next(i for i, r in enumerate(self.picker.table) if r[1] and i > 8)
+        self.picker.list.top = []
+        self.picker.popup.tops = [0, 5]  # before the selection, after it
+        self.picker.hovered(row)
+        self.assertEqual(self.picker.list.top, [0])
+        self.picker.popup.tops = [0, 0]
+        self.picker.hovered(row + 1 if self.picker.table[row + 1][1] else row + 2)
+        self.assertEqual(self.picker.list.top, [0], "no scroll when VCL kept the position")
+
+    def test_pointer_over_a_closed_list_does_nothing(self):
+        self.picker.hovered(3)
+        self.assertEqual(self.picker.index, -1)
 
     def test_enter_still_chooses_and_is_kept_from_the_dialog(self):
         self.type_query("thong tri")
