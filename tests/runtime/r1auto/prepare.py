@@ -56,6 +56,10 @@ def installation(args, results):
         if value["item"] in {r["item"] for r in results.report["results"]}:
             results.put(value)
     rows, error = startup(package, args.out)
+    from mac_access import dismiss_download
+    for _ in range(5):  # a prompt left by a stopped start would steal the keyboard from the probes
+        if not dismiss_download():
+            break
     for value in rows:
         record(value)
     if error is None:

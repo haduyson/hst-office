@@ -55,6 +55,11 @@ def prepare(dmg, out, record):
         source = mount / "HST Office.app"
         if not source.exists():
             raise RuntimeError("Không tìm thấy ứng dụng trong DMG")
+        def observe(running):
+            # A translocated soffice restarts itself while settling its profile, and macOS asks again.
+            if confirm_download(out):
+                confirmation.append("M1-download-confirmation.png")
+            return texts(running)
         openers.append(launch(out, "M1", "-n", "-a", str(source)))
         confirmation = []
         def launched():
@@ -66,13 +71,13 @@ def prepare(dmg, out, record):
         owned.add(app.processIdentifier())
         (out / "startup-pids.txt").write_text("\n".join(map(str, owned)))
         app.activateWithOptions_(2)
-        seen = wait(lambda: texts(app), 60)
+        seen = wait(lambda: observe(app), 60)
         end = time.monotonic() + 60
         while time.monotonic() < end and not any("Chuyển HST Office" in text for text in seen):
             if (asks(seen) or greets(seen)):
                 break
             time.sleep(0.3)
-            seen = texts(app)
+            seen = observe(app)
         path = app.executableURL().path()
         shot = out / "M1-dmg.png"
         screenshot(shot)
@@ -98,7 +103,7 @@ def prepare(dmg, out, record):
         moved_app.activateWithOptions_(2)
         # One modal question per start (startup_prompts.py): the welcome may take the first start from
         # /Applications; the default-apps question must then come on the next start, never later.
-        seen, starts = wait(lambda: texts(moved_app), 60), 1
+        seen, starts = wait(lambda: observe(moved_app), 60), 1
         end = time.monotonic() + 60
         while time.monotonic() < end and not asks(seen):
             if starts == 1 and greets(seen):
@@ -113,7 +118,7 @@ def prepare(dmg, out, record):
                 moved_app.activateWithOptions_(2)
                 end = time.monotonic() + 60
             time.sleep(0.3)
-            seen = texts(moved_app)
+            seen = observe(moved_app)
         shot = out / "M2-applications.png"
         screenshot(shot)
         ok = asks(seen)

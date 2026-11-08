@@ -30,11 +30,14 @@ def configure(percent):
         candidates = retina_modes(display)
         if not candidates:  # runner VMs offer 1x modes only: add a real HiDPI display instead
             from mac_hidpi import create
-            display, virtual = create(), True
-            # Its only mode is the HiDPI one and it is already active (mode lists omit it on the runner).
+            created, virtual = create(), True
+            # It is now the main display, already in its only (HiDPI) mode; the mode looked up by the id
+            # create() returns was None on the runner while screenshots were 2880x1800 (run 42474965758).
+            display = q.CGMainDisplayID()
             candidates = [q.CGDisplayCopyDisplayMode(display)]
         if not candidates or candidates[0] is None:
-            raise RuntimeError("Runner không có chế độ màn hình 2×; cần runner có HiDPI")
+            raise RuntimeError("Runner không có chế độ màn hình 2×; cần runner có HiDPI"
+                               + (f" (ảo {created}, chính {display})" if virtual else ""))
         chosen = min(candidates, key=q.CGDisplayModeGetWidth)
         if not virtual and q.CGDisplaySetDisplayMode(display, chosen, None):
             raise RuntimeError("Không bật được chế độ màn hình 2×")

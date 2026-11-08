@@ -122,9 +122,11 @@ tell application "System Events"
       try
         set said to (value of every static text of w) as text
         if said contains "HST Office" and (said contains "Internet" or said contains "internet") then
-          repeat with label in {"Open", "Mở"}
+          set labels to {"Open", "Mở"}
+          if item 1 of argv is "cancel" then set labels to {"Cancel", "Hủy"}
+          repeat with label in labels
             if exists button label of w then
-              if item 1 of argv is "click" then click button label of w
+              if item 1 of argv is not "find" then click button label of w
               return (item 1 of argv) & " " & label & " in " & (name of p) & ": " & said
             end if
           end repeat
@@ -160,6 +162,16 @@ def confirm_download(out):
     with (Path(out) / "os-confirmation.log").open("a", encoding="utf-8") as log:
         log.write(answer + "\n")
     return True
+
+
+def dismiss_download():
+    """Cancel a leftover downloaded-app prompt for HST Office whose process the run already stopped."""
+    import subprocess
+    try:
+        return subprocess.run(["osascript", "-", "cancel"], input=CONFIRM, capture_output=True, text=True,
+                              timeout=30).stdout.strip()
+    except subprocess.TimeoutExpired:
+        return ""
 
 
 def close_owned(pids):
