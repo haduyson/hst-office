@@ -203,7 +203,8 @@ def main():
         check.note("start 2: state", second)
         check.note("registry at start 2", registry_evidence())
         if args.expect == "question":
-            check("start 2: the default-apps question is shown", len(questions) == 1, seen)
+            # after Đồng ý a second box, titled the same, says what to do in Settings
+            check("start 2: the default-apps question is shown", bool(questions) and is_question(*seen[0]), seen)
             check("start 2: no welcome again", not any(WELCOME.search(title) for title, _texts in seen), seen)
             check("start 2: the question was answered with the keyboard", answered.get("keys") == args.answer, answered)
             check("start 2: the answer is stored", second.get("Asked") == 1
