@@ -30,16 +30,18 @@ def _has_toolbar(panel):
 
 
 def group_panel(label):
-    """The group a caption belongs to: its parent, or, when the caption sits in a caption row with a launcher, the
-    panel above that row (the first ancestor that holds toolbars)."""
-    node = label.parent
+    """The group a caption belongs to: the first ancestor panel that holds toolbars. A caption row with a launcher
+    holds a toolbar too (the launcher) but is a filler: the group is the panel above it."""
+    node, first = label.parent, None
     for _ in range(3):
         if node is None:
-            return None
+            break
         if _has_toolbar(node):
-            return node
+            if node.getRoleName() == "panel":
+                return node
+            first = first or node
         node = node.parent
-    return label.parent
+    return first or label.parent
 
 
 def is_group_caption(node, box):
