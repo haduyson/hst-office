@@ -79,28 +79,35 @@ run_start() { # run_start <n> <app> <driver mode or ""> <button to press>
   open -n --stdout "$dir/stdout.log" --stderr "$dir/stderr.log" "$app" --args --norestore \
     ${profile_args[@]+"${profile_args[@]}"} "--accept=socket,host=localhost,port=2002;urp;" >"$dir/open.log" 2>&1 \
     || echo "open exit $?" >>"$dir/open.log" &
-  local pid=""
-  for i in $(seq 1 90); do
-    pid="$(pgrep -f "Contents/MacOS/soffice" | head -1)"; [ -n "$pid" ] && break
-    if [ $((i % 5)) -eq 0 ]; then  # a quarantined app: macOS asks once whether to open it; answer Open like a user
-      screencapture -x "$dir/gatekeeper-$i.png" 2>/dev/null || true
-      perl -e 'alarm 30; exec @ARGV' osascript -e 'tell application "System Events" to tell (first process whose name is "CoreServicesUIAgent")
-        set frontmost to true
-        repeat with w in windows
-          repeat with b in (buttons of w)
-            if name of b is in {"Open", "Mở"} then
-              click b
-              return "clicked " & (name of b)
-            end if
-          end repeat
-        end repeat
-        return "no Open button: " & (name of every window as text)
-      end tell' >>"$dir/gatekeeper.log" 2>&1 || true
+  local pid="" i
+  # A quarantined app: macOS first verifies the bundle, then asks once per start whether to open it (the translocated
+  # copy is new each time). Answer Open like a user, until the office shows a window (at most 5 minutes).
+  for i in $(seq 1 100); do
+    pid="$(pgrep -f "Contents/MacOS/soffice" | head -1)"
+    if [ -n "$pid" ] && perl -e 'alarm 20; exec @ARGV' osascript -e "tell application \"System Events\" to count windows of (first process whose unix id is $pid)" 2>/dev/null | grep -qv '^0$'; then
+      break
     fi
-    sleep 1
+    perl -e 'alarm 20; exec @ARGV' osascript -e 'tell application "System Events"
+      repeat with p in (every process whose background only is false or name is "CoreServicesUIAgent")
+        repeat with w in windows of p
+          try
+            click button "Open" of w
+            return "clicked Open in " & (name of p)
+          end try
+          try
+            click button "Mở" of w
+            return "clicked Mở in " & (name of p)
+          end try
+        end repeat
+      end repeat
+      return ""
+    end tell' >>"$dir/gatekeeper.log" 2>&1 || true
+    [ $((i % 10)) -eq 1 ] && { screencapture -x "$dir/wait-$i.png" 2>/dev/null || true; }
+    sleep 3
   done
+  echo "waited $((i * 3))s" >>"$dir/gatekeeper.log"
   echo "pid=$pid" >"$dir/pid.txt"
-  sleep 30
+  sleep 20
   ps -o pid,command -p "${pid:-0}" >"$dir/ps.txt" 2>&1 || true
   lsof -p "${pid:-0}" 2>/dev/null | grep -m3 'soffice\|libmergedlo' >>"$dir/ps.txt" || true
   screencapture -x "$dir/screen.png" || true

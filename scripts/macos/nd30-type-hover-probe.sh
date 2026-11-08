@@ -15,6 +15,7 @@ for label in shipped checkout; do
   ext="$(dirname "$(find "$app/Contents" -path '*hst-vietnamese-tools/python/hst_office/wizard_type_picker.py' -print -quit)")"
   if [ "$label" = checkout ]; then
     cp "$repo"/extensions/hst-vietnamese-tools/python/hst_office/wizard_type_p*.py "$ext/"
+    rm -f "$ext"/__pycache__/wizard_type_p*.pyc  # the bundle ships unchecked-hash .pyc: they would win over the copy
   fi
   bash "$here/adhoc-sign.sh" "$app" >"$out/sign-$label.log" 2>&1 || true
   profile="$work/profile-$label"; mkdir -p "$profile"
