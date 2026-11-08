@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""W8–W10/M7: native shortcuts and hover, observed through UNO accessibility."""
+import time
+from access import box, center, labels, named, snapshot
+from support import native, wait
+from style_hover_preview_gui import state
+
+
+def search(e, doc):
+    from com.sun.star.accessibility.AccessibleRole import LIST_ITEM, MENU_ITEM
+    e.office.focus(doc.CurrentController.Frame.ContainerWindow)
+    anchors = named(e.office, "Tìm tính năng")
+    anchor = next((box(n) for n in anchors if box(n)[1] < 200), None)
+    native("key", "alt+cmd+k" if e.office.system == "Darwin" else "alt+q")
+    native("text", "bảng")
+    found = wait(lambda: [n for n in snapshot(e.office) if "trong tài liệu" in n.getAccessibleName()])
+    e.shot("search")
+    final = found[-1]
+    e.require(final.getAccessibleName() == "Tìm “bảng” trong tài liệu", "Dòng cuối tìm trong tài liệu",
+              labels=labels(e.office))
+    e.require(anchor is not None, "Có ô tìm trên ribbon")
+    popup_rows = [n for n in snapshot(e.office) if n.getAccessibleRole() in (LIST_ITEM, MENU_ITEM) and
+                  box(n)[1] >= anchor[1] + anchor[3] - 2 and box(n)[1] <= box(final)[1]]
+    e.require(len(popup_rows) >= 2 and max(box(n)[1] for n in popup_rows) == box(final)[1],
+              "Kết quả nằm dưới ô tìm, dòng tìm tài liệu ở cuối", anchor=anchor,
+              rows=[(n.getAccessibleName(), box(n)) for n in popup_rows])
+    native("key", "escape")
+
+
+def hover(e, doc):
+    window = doc.CurrentController.Frame.ContainerWindow
+    window.setPosSize(0, 35, 1800, 900, 15)
+    e.office.focus(window)
+    doc.Text.String = "Đoạn văn kiểm tra xem trước kiểu."
+    doc.UndoManager.clear()
+    doc.setModified(False)
+    styles = doc.StyleFamilies.getByName("ParagraphStyles")
+    names = {styles.getByName(name).DisplayName for name in styles.ElementNames}
+    candidates = [n for n in snapshot(e.office) if n.getAccessibleName() in names and
+                  box(window)[1] < box(n)[1] < box(window)[1] + 260 and box(n)[2] > 40]
+    e.require(len(candidates) >= 2, "Có ít nhất hai ô kiểu để rê chuột", names=[n.getAccessibleName() for n in candidates])
+    initial, text = state(doc), doc.Text.String
+    changed = 0
+    for index, node in enumerate(candidates):
+        native("move", *center(node))
+        during = state(doc)
+        if during[0] != initial[0]:
+            changed += 1
+        e.require(during[1:] == initial[1:], "Rê chuột không thêm hoàn tác hoặc sửa tài liệu", before=initial, during=during)
+        e.shot("hover-" + str(index))
+        wx, wy, ww, wh = box(window)
+        native("move", wx + ww // 2, wy + wh - 100)
+        e.require(state(doc) == initial, "Rời chuột trả kiểu ban đầu", after=state(doc))
+    e.require(changed > 0, "Đoạn văn đổi kiểu trong lúc rê", previews=changed)
+    native("key", "cmd+z" if e.office.system == "Darwin" else "ctrl+z")
+    e.require(state(doc) == initial and doc.Text.String == text, "Hoàn tác không đổi gì sau xem trước", after=state(doc))
+    e.shot("after-undo")
+
+
+def run(e):
+    doc = e.office.load("private:factory/swriter")
+    try:
+        time.sleep(3)
+        if e.item in {"W8", "M7"}:
+            from ribbon_fit import run as fit
+            fit(e, doc)
+        if e.item in {"W9", "M7"}:
+            search(e, doc)
+        if e.item in {"W10", "M7"}:
+            hover(e, doc)
+    finally:
+        doc.setModified(False)
+        doc.close(True)

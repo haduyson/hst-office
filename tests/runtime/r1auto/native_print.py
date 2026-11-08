@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""Print through the platform's real PDF destination, without exporting the source."""
+from pathlib import Path
+import time
+from support import wait
+from native import keyboard, screenshot
+
+
+def save_print(target):
+    import platform
+    target = Path(target)
+    if target.exists():
+        raise RuntimeError("Tệp in đã tồn tại")
+    screenshot(target.with_name("print-dialog.png"))
+    if platform.system() == "Windows":
+        from pywinauto import Desktop
+        desktop = Desktop(backend="uia")
+        def print_window():
+            return next((w for w in desktop.windows() if w.window_text().strip() in {"In", "Print"}), None)
+        window = wait(print_window)
+        # An actual Windows virtual printer: never assume printer index zero.
+        chosen = None
+        for combo in window.descendants(control_type="ComboBox"):
+            choices = combo.item_texts()
+            printer = next((name for name in choices if name.endswith("Print to PDF")), None)
+            if printer:
+                chosen = combo, printer
+                break
+        if chosen is None:
+            raise RuntimeError("Runner thiếu máy in PDF hệ thống hoặc không đọc được danh sách máy in")
+        chosen[0].select(chosen[1])
+        button = next(b for b in window.descendants(control_type="Button")
+                      if b.window_text().replace("&", "") in {"In", "Print", "OK"})
+        button.click_input()
+        def save_window():
+            return next((w for w in desktop.windows() if w.child_window(auto_id="1001", control_type="Edit").exists()), None)
+        save = wait(save_window)
+        save.child_window(auto_id="1001", control_type="Edit").set_edit_text(str(target))
+        save.child_window(auto_id="1", control_type="Button").click_input()
+    elif platform.system() == "Darwin":
+        import ApplicationServices as ax
+        from mac_access import applications, attribute, nodes, press
+        app = wait(lambda: next(iter(applications()), None))
+        pdf_button = wait(lambda: next((n for n in nodes(app) if attribute(n, "AXTitle") == "PDF"), None))
+        ax.AXUIElementPerformAction(pdf_button, "AXPress")
+        item = wait(lambda: next((n for n in nodes(app) if attribute(n, "AXTitle") in
+                                 {"Save as PDF", "Save as PDF…", "Lưu dưới dạng PDF", "Lưu dưới dạng PDF…"}), None))
+        ax.AXUIElementPerformAction(item, "AXPress")
+        time.sleep(1)
+        # Save panel Go To Folder uses a native keyboard event, then a native Save button.
+        from Quartz import CGEventCreateKeyboardEvent, CGEventSetFlags, CGEventPost, kCGHIDEventTap
+        for down in (True, False):
+            event = CGEventCreateKeyboardEvent(None, 5, down)  # Cmd+Shift+G
+            CGEventSetFlags(event, (1 << 20) | (1 << 17))
+            CGEventPost(kCGHIDEventTap, event)
+        keyboard(text=str(target.parent))
+        keyboard(["enter"])
+        time.sleep(1)
+        fields = [n for n in nodes(app) if attribute(n, "AXRole") == "AXTextField"]
+        field = next((n for n in fields if attribute(n, "AXValue", "").endswith(".pdf")), None)
+        if field is None:
+            raise RuntimeError("Không đọc được ô tên tệp in")
+        ax.AXUIElementSetAttributeValue(field, "AXValue", target.name)
+        press(app, {"Save", "Lưu"})
+    else:
+        raise RuntimeError("Đường in native chỉ chạy trên Windows/macOS")
+    wait(lambda: target.exists() and target.stat().st_size > 0, 45)
+    previous = -1
+    for _ in range(20):
+        size = target.stat().st_size
+        if size == previous:
+            return dict(path=str(target), bytes=size)
+        previous = size
+        time.sleep(0.5)
+    raise TimeoutError("Tệp in chưa ghi xong")
