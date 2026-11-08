@@ -83,7 +83,7 @@ class Lifecycle:
 
     def report(self, proc):
         state = "running" if proc is None or proc.poll() is None else "exited with %s" % proc.returncode
-        return "office process %s; last events: %s" % (state, " | ".join(self.events[-12:]))
+        return "office process %s; last events: %s" % (state, " | ".join(self.events[-16:]))
 
 
 LIFE = Lifecycle()
@@ -375,6 +375,7 @@ def main():
             record("help root exists", os.path.isfile(path), "%s -> %s" % (root, path))
         except Exception:  # noqa: BLE001
             record("help root exists", False, LIFE.report(proc) + "\n" + traceback.format_exc())
+        LIFE.note("test calls Desktop.terminate")
         try:
             desktop.terminate()
         except Exception:  # noqa: BLE001
