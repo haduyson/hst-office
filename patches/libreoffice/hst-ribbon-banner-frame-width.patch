@@ -1,0 +1,25 @@
+HST Office: a 1280 px window shows the full banner.
+
+The banner switches to its compact artwork below 1280 px of window width, but it measured the system
+window, the client area, which the frame keeps 12 px narrower with gtk3 (the resize borders on Windows):
+at exactly 1280 px every app showed the compact banner. The width now includes a 16 px frame allowance.
+
+- sfx2/source/notebookbar/NotebookbarTabControl.cxx.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -448,7 +448,11 @@
+                                        GetOutputSizePixel().Width() - 2 * aPos.X(),
+                                        pPage->GetSizePixel().Height() };
+         const vcl::Window* pTop = GetSystemWindow();
+-        const tools::Long nWindowWidth = pTop ? pTop->GetSizePixel().Width() : GetSizePixel().Width();
++        // the 1280 px threshold is the window's outer width; the system window is its client area,
++        // which the frame keeps narrower (12 px with gtk3, the resize borders on Windows): add a
++        // frame allowance, or a 1280 px window shows the compact banner
++        const tools::Long nWindowWidth = (pTop ? pTop->GetSizePixel().Width() : GetSizePixel().Width())
++                                         + std::lround(16 * fDpi);
+         tools::Long nPageWidth = aPage.w;
+         const hst::banner::Mode eMode = hst::banner::modeFor(nWindowWidth, aPage.h, fDpi);
+         if (eMode != hst::banner::Mode::Hidden)

@@ -1,0 +1,646 @@
+HST Office: ribbon groups collapse into their captioned button before anything folds.
+
+As in Office, a group can collapse into one button that shows its caption and an arrow and opens the
+group at full size in a popup. The tab's ladder (vcl/inc/HstRibbonLadders.hxx, state 3) says which groups
+may do so and when; the chevron popup stays the last rung.
+
+- PriorityMergedHBox: the group buttons sit right after their groups; the ladder measures them as the
+  group's last state; a collapsed group is neither a folded group nor part of the chevron popup.
+- PriorityHBox: the block beside a merged box (the Home tab's Tools) shows as its button as soon as the
+  groups at their full size would not fit beside it, before any group shrinks. The test depends only on
+  the width, so the block no longer folds at one width and comes back at a narrower one.
+- DropdownBox: such a block's button shows the caption of its group (labelled-by) and an arrow instead
+  of a bare menu symbol, and the block keeps the height of its content while collapsed: the tallest tab
+  page sets the ribbon's height, so the ribbon no longer changed height (Sheets 182/173 px) depending on
+  whether Tools was collapsed at that width.
+- The Styles gallery (a group that expands) keeps room for four previews at its large size and two at
+  medium, so the ladder narrows it only after Font and Clipboard lost their labels.
+- A group collapsed by an earlier step comes back when a later collapse (Paragraph) left room for it.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/vcl/inc/DropdownBox.hxx
++++ b/vcl/inc/DropdownBox.hxx
+@@ -39,6 +39,8 @@
+ 
+     void HideContent() override;
+     void ShowContent() override;
++    /// HST Office: the height of the content also while only the button shows
++    Size calculateRequisition() const override;
+ 
+ private:
+     DECL_LINK(PBClickHdl, Button*, void);
+--- a/vcl/inc/HstRibbonLadder.hxx
++++ b/vcl/inc/HstRibbonLadder.hxx
+@@ -14,6 +14,7 @@
+ // the right; Small drops the labels. A toolbox holding Paste always keeps its authored layout.
+ // The ladder itself (which group goes to which state) is HstRibbonScaling.hxx.
+ 
++#include <rtl/ustring.hxx>
+ #include <sal/types.h>
+ 
+ namespace vcl
+@@ -31,6 +32,11 @@
+     GroupStateCount = 3
+ };
+ 
++/** Not a size of the content: the group shows as one button with its caption, which opens the group
++    at its large size in a popup (Office's collapsed group). Only groups with such a step in their
++    tab's ladder get it; their content stays large meanwhile. */
++constexpr int GroupCollapsed = 3;
++
+ /** The CollapseLadder switch (org.openoffice.Office.HSTRibbon), read once per process; false in
+     LibreOfficeKit. Off: whole groups fold as before. */
+ bool collapseLadderEnabled();
+@@ -38,6 +44,9 @@
+ /** Apply nState to every toolbox inside rGroup (authored styles are remembered on first use). */
+ void SetGroupState(vcl::Window& rGroup, int nState);
+ 
++/** The caption of a ribbon group: its "labelled-by" label, else its first label (no mnemonic). */
++OUString GroupCaption(vcl::Window& rGroup);
++
+ /** Changes when the group's content changes (contextual items shown or hidden), for width caches. */
+ sal_uInt32 GroupContentKey(vcl::Window& rGroup);
+ }
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -49,8 +49,19 @@
+     void HstApplyLadder(tools::Long nWidth);
+     // width of the box with every group at its smallest state, or -1 before all are measured
+     tools::Long HstMinWidth() const;
++    // groups the tab's ladder may collapse into one captioned button (Office's collapsed group), and
++    // their buttons, which sit right after the group and open it at full size in a popup
++    std::map<vcl::Window*, VclPtr<PushButton>> m_aHstGroupButtons;
++    PushButton& HstGroupButton(vcl::Window& rGroup);
++    bool HstIsGroupButton(const vcl::Window* pWindow) const;
++    bool HstIsCollapsed(const vcl::Window* pGroup) const;
++    // in the chevron popup's share: hidden, and neither a group button nor a group shown as its button
++    bool HstIsFolded(const vcl::Window* pWindow) const;
++    // the groups, without the chevron and the group buttons, in their current child order
++    std::vector<vcl::Window*> HstGroups() const;
+ 
+     DECL_LINK(PBClickHdl, Button*, void);
++    DECL_LINK(HstGroupClickHdl, Button*, void);
+ 
+ public:
+     explicit PriorityMergedHBox(vcl::Window* pParent);
+@@ -66,6 +77,10 @@
+     /// HST Office: the width its hidden children would need, added to the requisition
+     tools::Long GetHiddenWidth() const;
+ 
++    /// HST Office: width of the box with every group at its full (authored) size, or -1 before the
++    /// groups are measured; the block beside the box gives way as soon as this does not fit
++    tools::Long HstFullWidth() const;
++
+     Size calculateRequisition() const override;
+     void setAllocation(const Size& rAllocation) override;
+ 
+--- a/vcl/source/control/DropdownBox.cxx
++++ b/vcl/source/control/DropdownBox.cxx
+@@ -20,6 +20,9 @@
+ #include <vcl/toolkit/button.hxx>
+ #include <vcl/layout.hxx>
+ #include <DropdownBox.hxx>
++#include <HstRibbonLadder.hxx>
++
++#include <algorithm>
+ 
+ #define NOTEBOOK_HEADER_HEIGHT 30
+ 
+@@ -57,14 +60,46 @@
+     {
+         m_bInFullView = false;
+ 
++        // HST Office: a block holding a captioned ribbon group (the Home tab's "Tools") shows as
++        // that group's button, its caption and an arrow as Office shows a collapsed group, not as a
++        // bare menu symbol
++        OUString aCaption;
++        for (int i = 0; i < GetChildCount() && aCaption.isEmpty(); i++)
++            if (GetChild(i) != m_pButton)
++                aCaption = hst::ribbon::GroupCaption(*GetChild(i));
++        if (!aCaption.isEmpty() && m_pButton->GetAccessibleName() != aCaption)
++        {
++            m_pButton->SetSymbol(SymbolType::DONTKNOW);
++            m_pButton->SetText(aCaption + u" \u25BE"); // ▾, as the gallery buttons
++            m_pButton->set_width_request(-1);
++            m_pButton->set_valign(VclAlign::Fill);
++            m_pButton->set_vexpand(true);
++            m_pButton->SetAccessibleName(aCaption);
++            m_pButton->SetQuickHelpText(aCaption);
++        }
++
+         for (int i = 0; i < GetChildCount(); i++)
+             GetChild(i)->Hide();
+ 
+         m_pButton->Show();
+-        SetOutputSizePixel(Size(m_pButton->GetSizePixel().Width(), GetSizePixel().Height()));
++        const tools::Long nButton
++            = std::max(m_pButton->GetSizePixel().Width(), m_pButton->get_preferred_size().Width());
++        SetOutputSizePixel(Size(nButton, GetSizePixel().Height()));
+     }
+ }
+ 
++Size DropdownBox::calculateRequisition() const
++{
++    // HST Office: the block is as high with its content hidden as with it shown, so the ribbon (the
++    // tallest tab page) keeps its height when the block gives way to the groups
++    Size aSize = VclHBox::calculateRequisition();
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        if (pChild != m_pButton && !pChild->IsVisible())
++            aSize.setHeight(std::max(aSize.Height(), getLayoutRequisition(*pChild).Height()));
++    return aSize;
++}
++
+ void DropdownBox::ShowContent()
+ {
+     if (!m_bInFullView)
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -14,6 +14,9 @@
+ #include <vcl/event.hxx>
+ #include <vcl/image.hxx>
+ #include <vcl/toolbox.hxx>
++#include <vcl/toolkit/fixed.hxx>
++
++#include <vector>
+ 
+ #include <PriorityMergedHBox.hxx>
+ #include <toolbox.h>
+@@ -116,6 +119,26 @@
+     forToolBoxes(rGroup, [nState](ToolBox& rToolBox) { applyToToolBox(rToolBox, nState); });
+ }
+ 
++OUString GroupCaption(vcl::Window& rGroup)
++{
++    vcl::Window* pLabel = rGroup.GetAccessibleRelationLabeledBy();
++    std::vector<vcl::Window*> aTodo{ &rGroup };
++    while (!pLabel && !aTodo.empty())
++    {
++        vcl::Window* pWindow = aTodo.back();
++        aTodo.pop_back();
++        for (vcl::Window* pChild = pWindow->GetWindow(GetWindowType::FirstChild); pChild && !pLabel;
++             pChild = pChild->GetWindow(GetWindowType::Next))
++        {
++            if (dynamic_cast<FixedText*>(pChild) && !pChild->GetText().isEmpty())
++                pLabel = pChild;
++            else
++                aTodo.push_back(pChild);
++        }
++    }
++    return pLabel ? pLabel->GetText().replaceAll("~", "") : OUString();
++}
++
+ sal_uInt32 GroupContentKey(vcl::Window& rGroup)
+ {
+     sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
+--- a/vcl/source/control/PriorityHBox.cxx
++++ b/vcl/source/control/PriorityHBox.cxx
+@@ -22,6 +22,8 @@
+ #include <PriorityMergedHBox.hxx>
+ #include <comphelper/lok.hxx>
+ 
++#include <algorithm>
++
+ namespace
+ {
+ bool lcl_comparePriority(const vcl::IPrioritable* a, const vcl::IPrioritable* b)
+@@ -115,11 +117,22 @@
+ 
+     // HST Office: groups already folded by a merged child still count, or the block with a
+     // priority would come back as soon as they are hidden, and would never give way to them.
++    // With the collapse ladder the merged child asks only for its smallest width; the block gives
++    // way (shows as its button) as soon as the groups at their full size would not fit beside it,
++    // before any group shrinks, as Office collapses its right-hand group first. This depends only
++    // on the width, never on the states the last layout left.
+     for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
+          pChild = pChild->GetWindow(GetWindowType::Next))
+     {
+         if (const PriorityMergedHBox* pMerged = dynamic_cast<const PriorityMergedHBox*>(pChild))
+-            nCurrentWidth += pMerged->GetHiddenWidth();
++        {
++            const tools::Long nFull = pMerged->HstFullWidth();
++            if (nFull >= 0 && pMerged->IsVisible())
++                nCurrentWidth
++                    += std::max<tools::Long>(0, nFull - getLayoutRequisition(*pMerged).Width());
++            else
++                nCurrentWidth += pMerged->GetHiddenWidth();
++        }
+     }
+ 
+     // Hide lower priority controls
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -32,6 +32,7 @@
+ #endif
+ 
+ #include <algorithm>
++#include <cmath>
+ #include <vcl/event.hxx>
+ 
+ #include <utility>
+@@ -41,6 +42,7 @@
+ * PriorityMergedHBox is a VclHBox which hides its own children if there is no sufficient space.
+ */
+ 
++
+ PriorityMergedHBox::PriorityMergedHBox(vcl::Window* pParent)
+     : PriorityHBox(pParent)
+ {
+@@ -85,17 +87,26 @@
+     // fit folds into the chevron popup below, which stays the last rung
+     if (hst::ribbon::collapseLadderEnabled())
+         HstApplyLadder(nWidth);
++    // the ladder may have made a group button: it goes right after its group
++    HstRestoreOrder();
+     std::vector<std::pair<vcl::Window*, tools::Long>> aGroups;
+     tools::Long nAll = 0;
+-    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
+-         pChild = pChild->GetWindow(GetWindowType::Next))
++    for (vcl::Window* pChild : HstGroups())
+     {
+-        if (pChild == m_pButton)
+-            continue;
+-        const tools::Long nGroup = getLayoutRequisition(*pChild).Width() + pChild->get_padding() * 2;
++        // a collapsed group takes the place of its button
++        vcl::Window& rShown = HstIsCollapsed(pChild) ? *m_aHstGroupButtons[pChild] : *pChild;
++        const tools::Long nGroup = getLayoutRequisition(rShown).Width() + rShown.get_padding() * 2;
+         nAll += (aGroups.empty() ? 0 : nSpacing) + nGroup;
+         aGroups.emplace_back(pChild, nGroup);
+     }
++    // shows a group, its button when it is collapsed, or neither when it is folded
++    const auto place = [this](vcl::Window* pGroup, bool bFolded) {
++        const bool bCollapsed = HstIsCollapsed(pGroup);
++        pGroup->Show(!bFolded && !bCollapsed);
++        const auto it = m_aHstGroupButtons.find(pGroup);
++        if (it != m_aHstGroupButtons.end() && it->second)
++            it->second->Show(!bFolded && bCollapsed);
++    };
+ 
+     // everything fits: no chevron; otherwise the chevron's place is kept and the groups go from the end
+     const bool bFold = nAll > nWidth;
+@@ -123,12 +134,7 @@
+             nTotal -= it->second + nSpacing;
+         }
+         for (const auto& [pGroup, nGroup] : aGroups)
+-        {
+-            if (std::find(aHidden.begin(), aHidden.end(), pGroup) != aHidden.end())
+-                pGroup->Hide();
+-            else
+-                pGroup->Show();
+-        }
++            place(pGroup, std::find(aHidden.begin(), aHidden.end(), pGroup) != aHidden.end());
+     }
+     else
+     {
+@@ -138,13 +144,9 @@
+         {
+             const tools::Long nNext = nUsed + (nUsed ? nSpacing : 0) + nGroup;
+             bFull = bFull || nNext > nRoom;
+-            if (bFull)
+-                pGroup->Hide();
+-            else
+-            {
+-                pGroup->Show();
++            place(pGroup, bFull);
++            if (!bFull)
+                 nUsed = nNext;
+-            }
+         }
+     }
+ 
+@@ -168,7 +170,7 @@
+         // the first layout sees the groups as the .ui file made them, before any fold
+         for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
+              pChild = pChild->GetWindow(GetWindowType::Next))
+-            if (pChild != m_pButton)
++            if (pChild != m_pButton && !HstIsGroupButton(pChild))
+                 m_aHstAuthored.emplace_back(pChild);
+         return;
+     }
+@@ -177,10 +179,16 @@
+          pChild = pChild->GetWindow(GetWindowType::Next))
+         if (pChild != m_pButton)
+             aNow.push_back(pChild);
++    // every group, followed by its group button
+     std::vector<vcl::Window*> aWanted;
+     for (const VclPtr<vcl::Window>& xGroup : m_aHstAuthored)
++    {
+         if (xGroup && !xGroup->isDisposed() && xGroup->GetParent() == this)
+             aWanted.push_back(xGroup.get());
++        const auto it = m_aHstGroupButtons.find(xGroup.get());
++        if (it != m_aHstGroupButtons.end() && it->second && it->second->GetParent() == this)
++            aWanted.push_back(it->second.get());
++    }
+     if (aNow == aWanted)
+         return;
+     // the chevron first, as the constructor made it, then the groups in authored order
+@@ -191,46 +199,96 @@
+         pGroup->reorderWithinParent(nPos++);
+ }
+ 
++std::vector<vcl::Window*> PriorityMergedHBox::HstGroups() const
++{
++    std::vector<vcl::Window*> aGroups;
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        if (pChild != m_pButton && !HstIsGroupButton(pChild))
++            aGroups.push_back(pChild);
++    return aGroups;
++}
++
++bool PriorityMergedHBox::HstIsGroupButton(const vcl::Window* pWindow) const
++{
++    for (const auto& [pGroup, xButton] : m_aHstGroupButtons)
++        if (xButton.get() == pWindow)
++            return true;
++    return false;
++}
++
++bool PriorityMergedHBox::HstIsCollapsed(const vcl::Window* pGroup) const
++{
++    const auto it = m_aHstStates.find(const_cast<vcl::Window*>(pGroup));
++    if (it == m_aHstStates.end() || it->second != hst::ribbon::GroupCollapsed)
++        return false;
++    const auto itButton = m_aHstGroupButtons.find(const_cast<vcl::Window*>(pGroup));
++    return itButton != m_aHstGroupButtons.end() && itButton->second;
++}
++
++bool PriorityMergedHBox::HstIsFolded(const vcl::Window* pWindow) const
++{
++    if (pWindow->IsVisible() || HstIsGroupButton(pWindow))
++        return false;
++    if (HstIsCollapsed(pWindow))
++        return !m_aHstGroupButtons.find(const_cast<vcl::Window*>(pWindow))->second->IsVisible();
++    return true;
++}
++
++PushButton& PriorityMergedHBox::HstGroupButton(vcl::Window& rGroup)
++{
++    VclPtr<PushButton>& rButton = m_aHstGroupButtons[&rGroup];
++    if (!rButton)
++    {
++        // the caption and an arrow, as tall as the groups, as Office shows a collapsed group
++        rButton = VclPtr<PushButton>::Create(this, WB_FLATBUTTON | WB_CENTER | WB_VCENTER);
++        const OUString aCaption = hst::ribbon::GroupCaption(rGroup);
++        rButton->SetText(aCaption + u" \u25BE"); // ▾, as the gallery buttons
++        rButton->SetAccessibleName(aCaption);
++        rButton->SetQuickHelpText(aCaption);
++        rButton->set_valign(VclAlign::Fill);
++        rButton->set_vexpand(true);
++        rButton->SetClickHdl(LINK(this, PriorityMergedHBox, HstGroupClickHdl));
++        rButton->Hide();
++    }
++    return *rButton;
++}
++
++IMPL_LINK(PriorityMergedHBox, HstGroupClickHdl, Button*, pButton, void)
++{
++    vcl::Window* pGroup = nullptr;
++    for (const auto& [pCandidate, xButton] : m_aHstGroupButtons)
++        if (xButton.get() == pButton)
++            pGroup = pCandidate;
++    if (!pGroup || pGroup->GetParent() != this)
++        return;
++    if (m_pPopup)
++        m_pPopup.disposeAndClear();
++    // the group opens at its full size below its button; closing the popup hands it back and lays
++    // this box out again (NotebookbarPopup::PopupModeEnd), which collapses it again
++    m_pPopup = VclPtr<NotebookbarPopup>::Create(this);
++    hst::ribbon::SetGroupState(*pGroup, hst::ribbon::GroupLarge);
++    pGroup->Show();
++    pGroup->SetParent(m_pPopup->getBox());
++    m_pPopup->hideSeparators(true);
++    const tools::Long x = pButton->GetPosPixel().getX();
++    const tools::Long y = pButton->GetPosPixel().getY() + pButton->GetSizePixel().Height();
++    m_pPopup->StartPopupMode(tools::Rectangle(x, y, x, y),
++                             FloatWinPopupFlags::Down | FloatWinPopupFlags::GrabFocus
++                                 | FloatWinPopupFlags::AllMouseButtonClose);
++}
++
+ void PriorityMergedHBox::HstApplyLadder(tools::Long nWidth)
+ {
+     if (m_bHstLadder)
+         return;
+     m_bHstLadder = true;
+     const tools::Long nSpacing = get_spacing();
+-    std::vector<vcl::Window*> aWindows;
+-    std::vector<hst::ribbon::Group> aGroups;
+-    bool bMeasured = false;
+-    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
+-         pChild = pChild->GetWindow(GetWindowType::Next))
+-    {
+-        if (pChild == m_pButton)
+-            continue;
+-        const sal_uInt32 nKey = hst::ribbon::GroupContentKey(*pChild);
+-        auto& rEntry = m_aHstWidths[pChild];
+-        if (rEntry.second.empty() || rEntry.first != nKey)
+-        {
+-            bMeasured = true;
+-            // measure every state once, then go back to the current one
+-            rEntry.first = nKey;
+-            rEntry.second.clear();
+-            for (int nState = 0; nState < hst::ribbon::GroupStateCount; ++nState)
+-            {
+-                hst::ribbon::SetGroupState(*pChild, nState);
+-                rEntry.second.push_back(getLayoutRequisition(*pChild).Width() + pChild->get_padding() * 2);
+-            }
+-            hst::ribbon::SetGroupState(*pChild, m_aHstStates[pChild]);
+-        }
+-        hst::ribbon::Group aGroup;
+-        for (tools::Long nGroupWidth : rEntry.second)
+-            aGroup.widths.push_back(nGroupWidth + (aGroups.empty() ? 0 : nSpacing));
+-        aGroups.push_back(std::move(aGroup));
+-        aWindows.push_back(pChild);
+-    }
+-    const tools::Long nChevron
+-        = getLayoutRequisition(*m_pButton).Width() + m_pButton->get_padding() * 2 + nSpacing;
++    const std::vector<vcl::Window*> aWindows = HstGroups();
+     // the tab's own ladder when the generated table has one for exactly these groups, then the
+     // default ladder (from the right, one state at a time) for anything it leaves out
+     std::vector<hst::ribbon::Step> aSteps;
++    std::vector<bool> aCollapsible(aWindows.size(), false);
+     m_aHstFoldOrder.assign(aWindows.rbegin(), aWindows.rend());
+ #ifdef HST_HAVE_RIBBON_LADDERS
+     for (const auto& rLadder : hst::ribbon::ladders::all)
+@@ -248,20 +306,93 @@
+                                        - aWindows.begin());
+         };
+         for (size_t i = 0; i < rLadder.stepCount; ++i)
+-            aSteps.push_back(hst::ribbon::Step{ indexOf(rLadder.steps[i].group),
+-                                                static_cast<size_t>(rLadder.steps[i].state) });
++        {
++            const size_t nGroup = indexOf(rLadder.steps[i].group);
++            aSteps.push_back(hst::ribbon::Step{ nGroup, static_cast<size_t>(rLadder.steps[i].state) });
++            if (rLadder.steps[i].state == hst::ribbon::GroupCollapsed && nGroup < aWindows.size())
++                aCollapsible[nGroup] = true;
++        }
+         m_aHstFoldOrder.clear();
+         for (size_t i = 0; i < rLadder.groupCount; ++i)
+             m_aHstFoldOrder.push_back(aWindows[indexOf(rLadder.fold[i])]);
+         break;
+     }
+ #endif
++    std::vector<hst::ribbon::Group> aGroups;
++    bool bMeasured = false;
++    for (size_t i = 0; i < aWindows.size(); ++i)
++    {
++        vcl::Window* pChild = aWindows[i];
++        const sal_uInt32 nKey = hst::ribbon::GroupContentKey(*pChild);
++        auto& rEntry = m_aHstWidths[pChild];
++        const size_t nStates = hst::ribbon::GroupStateCount + (aCollapsible[i] ? 1 : 0);
++        if (rEntry.second.size() != nStates || rEntry.first != nKey)
++        {
++            bMeasured = true;
++            // measure every state once, then go back to the current one
++            rEntry.first = nKey;
++            rEntry.second.clear();
++            for (int nState = 0; nState < hst::ribbon::GroupStateCount; ++nState)
++            {
++                hst::ribbon::SetGroupState(*pChild, nState);
++                rEntry.second.push_back(getLayoutRequisition(*pChild).Width() + pChild->get_padding() * 2);
++            }
++            const int nCurrent = m_aHstStates[pChild];
++            hst::ribbon::SetGroupState(*pChild, nCurrent == hst::ribbon::GroupCollapsed ? hst::ribbon::GroupLarge : nCurrent);
++            if (pChild->get_hexpand())
++            {
++                // a gallery group (Styles) takes the room the others leave; its large and medium states
++                // reserve room for more previews, so the ladder gives it four previews (large) or two
++                // (medium) before it is left with one: one preview of the Styles gallery
++                // (stylespreview.ui item-width 100 and padding)
++                const tools::Long nPreview = std::lround(106 * GetDPIScaleFactor());
++                rEntry.second[hst::ribbon::GroupLarge] += 3 * nPreview;
++                rEntry.second[hst::ribbon::GroupMedium] += nPreview;
++            }
++            if (aCollapsible[i])
++            {
++                PushButton& rButton = HstGroupButton(*pChild);
++                rEntry.second.push_back(getLayoutRequisition(rButton).Width() + rButton.get_padding() * 2);
++            }
++        }
++        hst::ribbon::Group aGroup;
++        for (tools::Long nGroupWidth : rEntry.second)
++            aGroup.widths.push_back(nGroupWidth + (aGroups.empty() ? 0 : nSpacing));
++        aGroups.push_back(std::move(aGroup));
++    }
++    const tools::Long nChevron
++        = getLayoutRequisition(*m_pButton).Width() + m_pButton->get_padding() * 2 + nSpacing;
+     if (!aSteps.empty())
+     {
+         const std::vector<hst::ribbon::Step> aDefault = hst::ribbon::defaultLadder(aGroups);
+         aSteps.insert(aSteps.end(), aDefault.begin(), aDefault.end());
+     }
+     hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, aSteps, nWidth, nChevron);
++    if (aLayout.overflow.empty())
++    {
++        // a group collapsed by an earlier step comes back (at its narrowest size) when a later step
++        // has made room for it: a big group's button (Paragraph) can leave room for the gallery, and
++        // the row should not keep both collapsed beside free space; the latest collapse is tried first
++        long nRow = hst::ribbon::rowWidth(aGroups, aLayout.states);
++        for (auto it = aSteps.rbegin(); it != aSteps.rend(); ++it)
++        {
++            if (it->state != static_cast<size_t>(hst::ribbon::GroupCollapsed) || it->group >= aGroups.size()
++                || aLayout.states[it->group] != static_cast<size_t>(hst::ribbon::GroupCollapsed))
++                continue;
++            // the largest state that fits
++            const hst::ribbon::Group& rGroup = aGroups[it->group];
++            for (size_t nState = 0; nState < static_cast<size_t>(hst::ribbon::GroupStateCount); ++nState)
++            {
++                const long nNext = nRow - hst::ribbon::widthOf(rGroup, it->state) + hst::ribbon::widthOf(rGroup, nState);
++                if (nNext <= nWidth)
++                {
++                    aLayout.states[it->group] = nState;
++                    nRow = nNext;
++                    break;
++                }
++            }
++        }
++    }
+     m_aHstFolded.clear();
+     m_nHstFoldedFor = nWidth;
+     if (!aLayout.overflow.empty())
+@@ -334,7 +465,10 @@
+         const int nState = static_cast<int>(aLayout.states[i]);
+         if (m_aHstStates[aWindows[i]] != nState)
+         {
+-            hst::ribbon::SetGroupState(*aWindows[i], nState);
++            // a collapsed group keeps its content large for the popup of its button
++            hst::ribbon::SetGroupState(*aWindows[i], nState == hst::ribbon::GroupCollapsed
++                                                         ? hst::ribbon::GroupLarge
++                                                         : nState);
+             m_aHstStates[aWindows[i]] = nState;
+         }
+     }
+@@ -354,11 +488,8 @@
+         return -1;
+     tools::Long nMin = 0;
+     sal_uInt16 nGroups = 0;
+-    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
+-         pChild = pChild->GetWindow(GetWindowType::Next))
++    for (vcl::Window* pChild : HstGroups())
+     {
+-        if (pChild == m_pButton)
+-            continue;
+         const auto it = m_aHstWidths.find(pChild);
+         if (it == m_aHstWidths.end() || it->second.second.empty())
+             return -1;
+@@ -368,6 +499,20 @@
+     return nGroups ? nMin + get_spacing() * (nGroups - 1) : -1;
+ }
+ 
++tools::Long PriorityMergedHBox::HstFullWidth() const
++{
++    if (HstMinWidth() < 0)
++        return -1;
++    tools::Long nFull = 0;
++    sal_uInt16 nGroups = 0;
++    for (vcl::Window* pChild : HstGroups())
++    {
++        nFull += m_aHstWidths.find(pChild)->second.second.front();
++        ++nGroups;
++    }
++    return nFull + get_spacing() * (nGroups - 1);
++}
++
+ void PriorityMergedHBox::DataChanged(const DataChangedEvent& rEvent)
+ {
+     PriorityHBox::DataChanged(rEvent);
+@@ -382,6 +527,9 @@
+     m_aHstWidths.clear();
+     m_aHstStates.clear();
+     m_aHstAuthored.clear();
++    for (auto& [pGroup, xButton] : m_aHstGroupButtons)
++        xButton.disposeAndClear();
++    m_aHstGroupButtons.clear();
+     m_pButton.disposeAndClear();
+     if (m_pPopup)
+         m_pPopup.disposeAndClear();
+@@ -393,8 +541,8 @@
+     for (int i = GetChildCount() - 1; i >= 0; i--)
+     {
+         vcl::Window* pWindow = GetChild(i);
+-        // HST Office: the hidden chevron is not a folded group
+-        if (pWindow && pWindow != m_pButton && pWindow->GetParent() == this && !pWindow->IsVisible())
++        // HST Office: the hidden chevron is not a folded group, nor is a group shown as its button
++        if (pWindow && pWindow != m_pButton && pWindow->GetParent() == this && HstIsFolded(pWindow))
+             return true;
+     }
+ 
+@@ -410,7 +558,7 @@
+     for (int i = 0; i < GetChildCount(); i++)
+     {
+         vcl::Window* pWindow = GetChild(i);
+-        if (pWindow && pWindow != m_pButton && pWindow->GetParent() == this && !pWindow->IsVisible())
++        if (pWindow && pWindow != m_pButton && pWindow->GetParent() == this && HstIsFolded(pWindow))
+             nWidth += getLayoutRequisition(*pWindow).Width() + get_spacing();
+     }
+     return nWidth;
+@@ -483,7 +631,7 @@
+         vcl::Window* pWindow = GetChild(i);
+         if (pWindow != m_pButton)
+         {
+-            if (!pWindow->IsVisible())
++            if (HstIsFolded(pWindow))
+             {
+                 // HST Office: a folded group opens at its full, authored size
+                 if (m_aHstStates[pWindow] != hst::ribbon::GroupLarge)
