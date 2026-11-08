@@ -1,0 +1,296 @@
+HST Office: the Home tab's Tools button drops its caption before Paragraph collapses.
+
+Tools shows as its captioned button ("Công cụ ▾") as soon as the groups at full size do not fit beside it.
+A later rung now drops the caption for a bare arrow (the caption stays its tooltip and accessible name),
+only when those 60-odd pixels alone keep the merged box from collapsing the group its tab names in
+vcl/inc/HstRibbonBlocks.hxx (Paragraph in Writer and Slides, hst-ribbon-tools-bare-ladders.patch).
+
+- PriorityMergedHBox: keeps the ladder's last input and plans another width without changing anything
+  (HstBlockShouldBeBare); the un-collapse pass is shared by both.
+- DropdownBox: measures its button with the caption and bare once, and switches between them.
+- PriorityHBox: asks the merged box after the block's own collapse.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/vcl/inc/DropdownBox.hxx
++++ b/vcl/inc/DropdownBox.hxx
+@@ -29,6 +29,12 @@
+ {
+ private:
+     bool m_bInFullView;
++    // HST Office: the caption of the group the block holds, its button's width with the caption and
++    // as a bare arrow, and whether it is bare
++    OUString m_aHstCaption;
++    tools::Long m_nHstCaptionWidth = 0;
++    tools::Long m_nHstBareWidth = 0;
++    bool m_bHstBare = false;
+     VclPtr<PushButton> m_pButton;
+     VclPtr<NotebookbarPopup> m_pPopup;
+ 
+@@ -42,6 +48,13 @@
+     /// HST Office: the height of the content also while only the button shows
+     Size calculateRequisition() const override;
+ 
++    /// HST Office: the content shows as the button (captioned or bare)
++    bool HstIsCollapsed() const { return !m_bInFullView; }
++    /// HST Office: the button's width with its caption, or as a bare arrow; the same without a caption
++    tools::Long HstButtonWidth(bool bBare) const;
++    /// HST Office: a bare arrow keeps the caption as its tooltip and accessible name
++    void HstSetBare(bool bBare);
++
+ private:
+     DECL_LINK(PBClickHdl, Button*, void);
+ };
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -20,6 +20,9 @@
+ #include <vcl/toolkit/button.hxx>
+ #include "NotebookbarPopup.hxx"
+ #include "PriorityHBox.hxx"
++#include "HstRibbonScaling.hxx"
++
++#include <cstdint>
+ 
+ #include <map>
+ #include <vector>
+@@ -59,6 +62,11 @@
+     bool HstIsFolded(const vcl::Window* pWindow) const;
+     // the groups, without the chevron and the group buttons, in their current child order
+     std::vector<vcl::Window*> HstGroups() const;
++    // the ladder's last input (widths per state, steps), to plan other widths, and the group the block
++    // beside the box keeps from collapsing by dropping its caption (HstRibbonBlocks.hxx)
++    std::vector<hst::ribbon::Group> m_aHstPlanGroups;
++    std::vector<hst::ribbon::Step> m_aHstPlanSteps;
++    size_t m_nHstBareBefore = SIZE_MAX;
+ 
+     DECL_LINK(PBClickHdl, Button*, void);
+     DECL_LINK(HstGroupClickHdl, Button*, void);
+@@ -81,6 +89,11 @@
+     /// groups are measured; the block beside the box gives way as soon as this does not fit
+     tools::Long HstFullWidth() const;
+ 
++    /// HST Office: whether the block beside the box (Tools, shown as its captioned button) should drop
++    /// its caption: only when the box, nRoom wide, would collapse the group its tab names
++    /// (HstRibbonBlocks.hxx) and nGain more pixels keep it
++    bool HstBlockShouldBeBare(tools::Long nRoom, tools::Long nGain) const;
++
+     Size calculateRequisition() const override;
+     void setAllocation(const Size& rAllocation) override;
+ 
+--- a/vcl/source/control/DropdownBox.cxx
++++ b/vcl/source/control/DropdownBox.cxx
+@@ -70,12 +70,19 @@
+         if (!aCaption.isEmpty() && m_pButton->GetAccessibleName() != aCaption)
+         {
+             m_pButton->SetSymbol(SymbolType::DONTKNOW);
+-            m_pButton->SetText(aCaption + u" \u25BE"); // ▾, as the gallery buttons
+             m_pButton->set_width_request(-1);
+             m_pButton->set_valign(VclAlign::Fill);
+             m_pButton->set_vexpand(true);
+             m_pButton->SetAccessibleName(aCaption);
+             m_pButton->SetQuickHelpText(aCaption);
++            // both widths once, for the bare rung (PriorityHBox)
++            m_aHstCaption = aCaption;
++            m_pButton->SetText(u"\u25BE"_ustr);
++            m_nHstBareWidth = m_pButton->get_preferred_size().Width();
++            m_pButton->SetText(aCaption + u" \u25BE"); // ▾, as the gallery buttons
++            m_nHstCaptionWidth = m_pButton->get_preferred_size().Width();
++            if (m_bHstBare)
++                m_pButton->SetText(u"\u25BE"_ustr);
+         }
+ 
+         for (int i = 0; i < GetChildCount(); i++)
+@@ -88,6 +95,23 @@
+     }
+ }
+ 
++tools::Long DropdownBox::HstButtonWidth(bool bBare) const
++{
++    if (m_aHstCaption.isEmpty())
++        return m_pButton->get_preferred_size().Width();
++    return bBare ? m_nHstBareWidth : m_nHstCaptionWidth;
++}
++
++void DropdownBox::HstSetBare(bool bBare)
++{
++    if (m_aHstCaption.isEmpty() || bBare == m_bHstBare)
++        return;
++    m_bHstBare = bBare;
++    m_pButton->SetText(bBare ? u"\u25BE"_ustr : OUString(m_aHstCaption + u" \u25BE"));
++    if (!m_bInFullView)
++        SetOutputSizePixel(Size(HstButtonWidth(bBare), GetSizePixel().Height()));
++}
++
+ Size DropdownBox::calculateRequisition() const
+ {
+     // HST Office: the block is as high with its content hidden as with it shown, so the ribbon (the
+--- a/vcl/source/control/PriorityHBox.cxx
++++ b/vcl/source/control/PriorityHBox.cxx
+@@ -20,6 +20,7 @@
+ #include <vcl/layout.hxx>
+ #include <PriorityHBox.hxx>
+ #include <PriorityMergedHBox.hxx>
++#include <DropdownBox.hxx>
+ #include <comphelper/lok.hxx>
+ 
+ #include <algorithm>
+@@ -182,6 +183,37 @@
+         pChildR++;
+     }
+ 
++    // HST Office: a block shown as its captioned button (Tools) drops the caption for a bare arrow, which
++    // keeps the caption as its tooltip and accessible name, only when that alone keeps the merged box
++    // beside it from collapsing the group its tab names (HstRibbonBlocks.hxx): a later rung than the
++    // block's own collapse, which happens as soon as the groups do not fit at their full size
++    PriorityMergedHBox* pMerged = nullptr;
++    DropdownBox* pBlock = nullptr;
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (auto* pBox = dynamic_cast<PriorityMergedHBox*>(pChild))
++            pMerged = pBox;
++        else if (auto* pDropdown = dynamic_cast<DropdownBox*>(pChild))
++            pBlock = pDropdown;
++    }
++    if (pMerged && pBlock && pBlock->GetParent() == this)
++    {
++        bool bBare = false;
++        if (pBlock->HstIsCollapsed() && pMerged->IsVisible())
++        {
++            const tools::Long nCaption = pBlock->HstButtonWidth(false);
++            tools::Long nOthers = 0;
++            for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++                 pChild = pChild->GetWindow(GetWindowType::Next))
++                if (pChild != pMerged && pChild != pBlock && pChild->IsVisible())
++                    nOthers += getLayoutRequisition(*pChild).Width() + pChild->get_padding() * 2 + get_spacing();
++            const tools::Long nRoom = nWidth - nOthers - nCaption - get_spacing() - pMerged->get_padding() * 2;
++            bBare = pMerged->HstBlockShouldBeBare(nRoom, nCaption - pBlock->HstButtonWidth(true));
++        }
++        pBlock->HstSetBare(bBare);
++    }
++
+     VclHBox::Resize();
+ }
+ 
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -30,6 +30,10 @@
+ #include <HstRibbonLadders.hxx>
+ #define HST_HAVE_RIBBON_LADDERS 1
+ #endif
++#if __has_include(<HstRibbonBlocks.hxx>)
++#include <HstRibbonBlocks.hxx>
++#define HST_HAVE_RIBBON_BLOCKS 1
++#endif
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -42,6 +46,35 @@
+ * PriorityMergedHBox is a VclHBox which hides its own children if there is no sufficient space.
+ */
+ 
++namespace
++{
++/// HST Office: a group collapsed by an earlier step comes back (in the largest state that fits) when a
++/// later step has made room for it: a big group's button (Paragraph) can leave room for the gallery, and
++/// the row should not keep both collapsed beside free space; the latest collapse is tried first
++void lcl_HstUncollapse(const std::vector<hst::ribbon::Group>& rGroups, const std::vector<hst::ribbon::Step>& rSteps,
++                       long nWidth, hst::ribbon::Layout& rLayout)
++{
++    long nRow = hst::ribbon::rowWidth(rGroups, rLayout.states);
++    for (auto it = rSteps.rbegin(); it != rSteps.rend(); ++it)
++    {
++        if (it->state != static_cast<size_t>(hst::ribbon::GroupCollapsed) || it->group >= rGroups.size()
++            || rLayout.states[it->group] != static_cast<size_t>(hst::ribbon::GroupCollapsed))
++            continue;
++        const hst::ribbon::Group& rGroup = rGroups[it->group];
++        for (size_t nState = 0; nState < static_cast<size_t>(hst::ribbon::GroupStateCount); ++nState)
++        {
++            const long nNext = nRow - hst::ribbon::widthOf(rGroup, it->state) + hst::ribbon::widthOf(rGroup, nState);
++            if (nNext <= nWidth)
++            {
++                rLayout.states[it->group] = nState;
++                nRow = nNext;
++                break;
++            }
++        }
++    }
++}
++}
++
+ 
+ PriorityMergedHBox::PriorityMergedHBox(vcl::Window* pParent)
+     : PriorityHBox(pParent)
+@@ -367,32 +400,26 @@
+         const std::vector<hst::ribbon::Step> aDefault = hst::ribbon::defaultLadder(aGroups);
+         aSteps.insert(aSteps.end(), aDefault.begin(), aDefault.end());
+     }
+-    hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, aSteps, nWidth, nChevron);
+-    if (aLayout.overflow.empty())
++    // what the block beside the box (Tools) asks before it drops its caption: HstBlockShouldBeBare
++    m_aHstPlanGroups = aGroups;
++    m_aHstPlanSteps = aSteps;
++    m_nHstBareBefore = SIZE_MAX;
++#ifdef HST_HAVE_RIBBON_BLOCKS
++    for (const auto& rBlock : hst::ribbon::blocks::all)
+     {
+-        // a group collapsed by an earlier step comes back (at its narrowest size) when a later step
+-        // has made room for it: a big group's button (Paragraph) can leave room for the gallery, and
+-        // the row should not keep both collapsed beside free space; the latest collapse is tried first
+-        long nRow = hst::ribbon::rowWidth(aGroups, aLayout.states);
+-        for (auto it = aSteps.rbegin(); it != aSteps.rend(); ++it)
+-        {
+-            if (it->state != static_cast<size_t>(hst::ribbon::GroupCollapsed) || it->group >= aGroups.size()
+-                || aLayout.states[it->group] != static_cast<size_t>(hst::ribbon::GroupCollapsed))
+-                continue;
+-            // the largest state that fits
+-            const hst::ribbon::Group& rGroup = aGroups[it->group];
+-            for (size_t nState = 0; nState < static_cast<size_t>(hst::ribbon::GroupStateCount); ++nState)
+-            {
+-                const long nNext = nRow - hst::ribbon::widthOf(rGroup, it->state) + hst::ribbon::widthOf(rGroup, nState);
+-                if (nNext <= nWidth)
+-                {
+-                    aLayout.states[it->group] = nState;
+-                    nRow = nNext;
+-                    break;
+-                }
+-            }
+-        }
++        if (rBlock.groupCount != aWindows.size())
++            continue;
++        bool bMatch = true;
++        for (size_t i = 0; i < aWindows.size() && bMatch; ++i)
++            bMatch = aWindows[i]->get_id() == rBlock.groups[i];
++        for (size_t i = 0; i < aWindows.size() && bMatch; ++i)
++            if (aWindows[i]->get_id() == rBlock.bareBefore)
++                m_nHstBareBefore = i;
+     }
++#endif
++    hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, aSteps, nWidth, nChevron);
++    if (aLayout.overflow.empty())
++        lcl_HstUncollapse(aGroups, aSteps, nWidth, aLayout);
+     m_aHstFolded.clear();
+     m_nHstFoldedFor = nWidth;
+     if (!aLayout.overflow.empty())
+@@ -499,6 +526,21 @@
+     return nGroups ? nMin + get_spacing() * (nGroups - 1) : -1;
+ }
+ 
++bool PriorityMergedHBox::HstBlockShouldBeBare(tools::Long nRoom, tools::Long nGain) const
++{
++    if (nGain <= 0 || m_nHstBareBefore >= m_aHstPlanGroups.size())
++        return false;
++    // the ladder's plan for a width, without changing anything: does the named group stay?
++    const auto kept = [this](tools::Long nAvailable) {
++        hst::ribbon::Layout aLayout = hst::ribbon::select(m_aHstPlanGroups, m_aHstPlanSteps, nAvailable, 0);
++        if (!aLayout.overflow.empty())
++            return false;
++        lcl_HstUncollapse(m_aHstPlanGroups, m_aHstPlanSteps, nAvailable, aLayout);
++        return aLayout.states[m_nHstBareBefore] != static_cast<size_t>(hst::ribbon::GroupCollapsed);
++    };
++    return !kept(nRoom) && kept(nRoom + nGain);
++}
++
+ tools::Long PriorityMergedHBox::HstFullWidth() const
+ {
+     if (HstMinWidth() < 0)
