@@ -103,7 +103,7 @@ class ArithmeticTest(unittest.TestCase):
             "1366": width_obs([group("A", 10, 100)], [993, 46, 360, 125]),
             "1024": width_obs([group("A", 10, 100)], [600, 46, 360, 107])}},
             "probes": self.probes({"hover_fill", "paste_32"}),
-            "gallery": {"rendered_previews": {"pass": True}, "four_columns": {"pass": False}}}
+            "gallery": {"two_tiles_1485": {"pass": True}, "four_tiles_1920": {"pass": False}}}
         dark = {"probes": self.probes({"hover_fill", "tab_underline", "pressed"})}
         per_app = {"writer": {"light": light, "dark": dark}}
         parity_report = {"writer": {"d1": 0.8, "d4": 0.5, "counts": {"present": 8, "elsewhere": 1, "missing": 1, "infeasible": 0},

@@ -3,15 +3,16 @@
 
 Usage: python3 tests/runtime/check-ribbon-home-fit.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]
 The X display must already run, at least 2400 px wide. Per app and width:
-  - Clone Formatting and Clear keep their accessible names everywhere and show their labels where there is room: at
-    1920 px (Sheets: 2400); at 1485 px the Styles gallery keeps the room instead (owner and S0, 2026-11-08), so only the name is
-    checked at 1366 and 1485;
+  - Clone Formatting and Clear keep their accessible names everywhere and show their labels where the whole Home
+    content fits (2400 px); below, the collapse ladder makes Font and Clipboard icon-only first, so only the name
+    is checked at 1366 and 1485;
   - at 1366 and 1485 px nothing is folded into the "»" overflow: groups shrink, or become a group button, first;
   - their commands still have a label, from which the tooltip comes; hovering shows it (see --shots);
   - the banner is on screen, inside the window;
-  - the groups named in MUST_SHOW have a visible caption: Sheets' Number and Slides' Paragraph at 1366, Writer's
-    "Kiểu" (Styles) at 1366 and 1485 and Sheets' at 1485, beside the banner;
-  - Find & Replace is a button of the paragraph group (Sheets: alignment); at 1920 px the group "Công cụ" has the
+  - the groups named in MUST_SHOW have a visible caption: Clipboard, Font and Paragraph at 1485 in Writer and Slides
+    (Paragraph is used constantly), Clipboard and Font at 1366; those in SHOW_OR_BUTTON are on the ribbon or are
+    their group button (Styles "Kiểu", Sheets' Number);
+  - Find & Replace is a button of the paragraph group (Sheets: alignment); at 2400 px the group "Công cụ" has the
     tab menu and the HST commands in rows but no "Tìm tính năng" button (the tab row has the search box), and the tab
     menu offers "Tìm tính năng" (ribbon_home_tools_gui.py).
 Prints the visible group captions per width. Exit 1 when a check fails.
@@ -33,21 +34,24 @@ _spec = importlib.util.spec_from_file_location(
 tabs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tabs)
 
-# from this width up Clone Formatting and Clear show their labels (measured: Sheets has more Home groups)
-LABEL_WIDTH = {"writer": 1920, "calc": 2400, "impress": 1920}
+# from this width up Clone Formatting and Clear show their labels: the Tools group (Công cụ) is its button and
+# Font and Clipboard are icon-only first (collapse ladder), so the labels need the whole Home content beside the banner
+LABEL_WIDTH = {"writer": 2400, "calc": 2400, "impress": 2400}
 LABELLED = {"writer", "calc", "impress"}  # apps whose 1.0.0 content patch has these labels; the others are still icon-only
 ICON_MAX = 40  # an icon with its button padding; the same button with its text is over 100 px wide
 PAINTBRUSH = "Sao chép định dạng"
 CLEAR = {"writer": "Xóa", "calc": "Xóa", "impress": "Xóa"}
 CAPTION_BAND = (95, 165)  # the caption row of a ribbon page, y relative to the window
-# Sheets' Kiểu may be a group button at 1366: its gallery needs about 120 px beside Font and Number.
-# at 1366 Kiểu and Đoạn văn may be group buttons (no caption): the paragraph group has no smaller form, and a
-# group button keeps every command one click away, where a fold into » would not
-MUST_SHOW = {("calc", 1366): ["Số"], ("impress", 1366): ["Bảng tạm", "Phông chữ"],
-             ("writer", 1366): ["Bảng tạm", "Phông chữ"], ("calc", 1485): ["Kiểu"],
-             ("writer", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn", "Kiểu"]}
+# groups that stay on the ribbon (caption shown): Paragraph is used constantly, so at 1485 it stays in Writer and
+# Slides; the Styles gallery becomes its "Kiểu ▾" button first
+MUST_SHOW = {("impress", 1366): ["Bảng tạm", "Phông chữ"], ("writer", 1366): ["Bảng tạm", "Phông chữ"],
+             ("impress", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn"],
+             ("writer", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn"]}
+# groups that are on the ribbon or its group button (every command one click away, nothing folded into »)
+SHOW_OR_BUTTON = {("calc", 1366): ["Số", "Kiểu"], ("calc", 1485): ["Số", "Kiểu"], ("writer", 1485): ["Kiểu"],
+                  ("writer", 1366): ["Đoạn văn", "Kiểu"], ("impress", 1366): ["Đoạn văn"]}
 NO_OVERFLOW = (1366, 1485)  # widths at which no group may be folded into the "»" overflow
-WIDE = {"writer": 1920, "calc": 2400, "impress": 1920}  # nothing folds: the whole "Công cụ" group shows
+WIDE = {"writer": 2400, "calc": 2400, "impress": 2400}  # nothing folds: the whole "Công cụ" group shows
 
 
 def showing(node):
@@ -106,6 +110,12 @@ def check_app(app, args, port):
                 tabs.record(f"[{app} {width}] nothing folded into »", chevron is None, chevron)
             for group in MUST_SHOW.get((app, width), []):
                 tabs.record(f"[{app} {width}] group '{group}' shows", group in captions, captions)
+            if SHOW_OR_BUTTON.get((app, width)):
+                named = [n for n, _b in tools.items(tabs)]
+                for group in SHOW_OR_BUTTON[(app, width)]:
+                    as_button = [n for n in named if n.startswith(group)]
+                    tabs.record(f"[{app} {width}] group '{group}' shows or is its button",
+                                group in captions or bool(as_button), (captions, as_button))
             caption_boxes = [(n, b) for n, b in labels if b[3] < 30]
             tools.check_find_in_paragraph(tabs, app, width, caption_boxes)
             for name in (PAINTBRUSH, CLEAR[app]):

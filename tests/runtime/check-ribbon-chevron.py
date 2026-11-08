@@ -3,7 +3,8 @@
 
 Usage: python3 tests/runtime/check-ribbon-chevron.py [--instdir DIR] [--display :71] [--shots DIR]
 The X display must already run, at least 1600 px wide. In Writer's Home tab:
-  - at every width of a sweep the chevron is on the ribbon exactly when one of the groups is not;
+  - at every width of a sweep (1400 to 900 px) the chevron is on the ribbon exactly when one of the groups is
+    folded: neither on the ribbon nor shown as its group button;
   - a click on it opens a popup with the folded groups, and Esc puts them back;
   - with KeyTips (Alt, H, then the chevron's letters) the popup opens with KeyTips on its commands; Esc closes both.
 Writes evidence.json. Runs as the build user under dbus-run-session (AT-SPI).
@@ -20,7 +21,8 @@ import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 
 GROUPS = ["Bảng tạm", "Phông chữ", "Đoạn văn", "Kiểu"]  # Writer's Home tab, left to right
-WIDTHS = list(range(1400, 1285, -5))  # Kiểu keeps one preview down to about 1345 px beside the banner
+BUTTON_ROLES = ("push button", "toggle button", "push button menu", "menu button")
+WIDTHS = list(range(1400, 880, -20))  # groups become their buttons first; Writer folds a group at about 900 px
 ROWS = []
 
 
@@ -36,7 +38,7 @@ def showing(node):
 
 def scan():
     """Group captions, the chevron box (or None), the popup boxes and the key tips now on screen."""
-    captions, chevron, tips = [], None, []
+    captions, chevron, tips, buttons = [], None, [], []
     for node in gui.walk(gui.office_app()):
         try:
             if not showing(node):
@@ -50,6 +52,8 @@ def scan():
             tips.append((name, box))
         elif role == "push button" and not name and box[2] <= 30 and box[3] >= 60 and box[1] < 230:
             chevron = box
+        elif role in BUTTON_ROLES and box[1] < 230 and any(name.startswith(g) for g in GROUPS):
+            buttons.append(next(g for g in GROUPS if name.startswith(g)))  # a group collapsed into its button
     popups = []
     for node in gui.office_app():
         try:
@@ -57,7 +61,7 @@ def scan():
                 popups.append(gui.extents(node))
         except Exception:  # noqa: BLE001
             pass
-    return captions, chevron, popups, tips
+    return captions, chevron, popups, tips, buttons
 
 
 def inside(box, area):
@@ -82,8 +86,8 @@ def check_sweep(args, wid):
     for width in WIDTHS:
         gui.xdo(args.display, "windowsize", wid, str(width), "900")
         time.sleep(2.5)
-        captions, chevron, _popups, _tips = scan()
-        on_ribbon = [n for n, b in captions if b[1] < 230]
+        captions, chevron, _popups, _tips, buttons = scan()
+        on_ribbon = [n for n, b in captions if b[1] < 230] + buttons
         hidden = [g for g in GROUPS if g not in on_ribbon]
         if bool(chevron) != bool(hidden):
             mismatches.append((width, hidden, chevron))
@@ -97,20 +101,20 @@ def check_sweep(args, wid):
 def check_click(office, args, wid, width):
     gui.xdo(args.display, "windowsize", wid, str(width), "900")
     time.sleep(3)
-    captions, chevron, _popups, _tips = scan()
-    hidden = [g for g in GROUPS if g not in [n for n, b in captions if b[1] < 230]]
+    captions, chevron, _popups, _tips, buttons = scan()
+    hidden = [g for g in GROUPS if g not in [n for n, b in captions if b[1] < 230] + buttons]
     if not chevron:
         record(f"[{width}] chevron on the ribbon", False, captions)
         return
     gui.click(args.display, chevron)
     time.sleep(1.5)
-    captions, _chevron, popups, _tips = scan()
+    captions, _chevron, popups, _tips, _buttons = scan()
     shot(office, args, f"{width}-click")
     in_popup = [n for n, b in captions if popups and inside(b, popups[0])]
     record(f"[{width}] click opens a popup with the folded groups", bool(popups) and in_popup == hidden, (hidden, in_popup, popups))
     key(args, "Escape")
-    captions, chevron, popups, _tips = scan()
-    on_ribbon = [n for n, b in captions if b[1] < 230]
+    captions, chevron, popups, _tips, buttons = scan()
+    on_ribbon = [n for n, b in captions if b[1] < 230] + buttons
     record(f"[{width}] Esc closes it, groups and chevron as before", not popups and bool(chevron)
            and [g for g in GROUPS if g not in on_ribbon] == hidden, (on_ribbon, popups))
 
@@ -118,9 +122,9 @@ def check_click(office, args, wid, width):
 def check_keytips(office, args, width):
     gui.xdo(args.display, "mousemove", "500", "550", "click", "1")
     time.sleep(0.8)
-    _captions, chevron, _popups, _tips = scan()
+    _captions, chevron, _popups, _tips, _buttons = scan()
     key(args, "Alt_L", "h")
-    _captions, _chevron, _popups, tips = scan()
+    _captions, _chevron, _popups, tips, _buttons = scan()
     if not chevron or not tips:
         record(f"[{width}] KeyTips on the chevron", False, (chevron, tips))
         return
@@ -129,12 +133,12 @@ def check_keytips(office, args, width):
     record(f"[{width}] the chevron has a KeyTip", True, tip)
     key(args, *tip.lower())
     time.sleep(1)
-    _captions, _chevron, popups, tips = scan()
+    _captions, _chevron, popups, tips, _buttons = scan()
     shot(office, args, f"{width}-keytips")
     in_popup = [t for t, b in tips if popups and inside(b, popups[0])]
     record(f"[{width}] the KeyTip opens the popup with KeyTips on its commands", bool(popups) and bool(in_popup), (popups, in_popup))
     key(args, "Escape")
-    _captions, _chevron, popups, tips = scan()
+    _captions, _chevron, popups, tips, _buttons = scan()
     record(f"[{width}] Esc closes the popup and its KeyTips", not popups and not tips, (popups, tips))
 
 

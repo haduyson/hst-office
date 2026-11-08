@@ -52,10 +52,13 @@ def check_tools_group(tabs, args, app, width, captions):
     if TOOLS not in names:
         return
     left, right = group_range(captions, TOOLS)
-    rows = [n for n, b in sorted((i for i in found if left <= i[1][0] < right), key=lambda i: (i[1][1], i[1][0]))]
+    inside = sorted((i for i in found if left <= i[1][0] < right), key=lambda i: (i[1][1], i[1][0]))
+    rows = [n for n, _b in inside]
     ok = bool(rows) and rows[0] == MENU
-    if app in SECOND_ROW:
-        ok = ok and rows[:2] == [MENU, SECOND_ROW[app]]
+    if ok and app in SECOND_ROW:  # the next row of the first column, under the tab menu
+        menu = inside[0][1]
+        below = [n for n, b in inside if abs(b[0] - menu[0]) < 8 and b[1] >= menu[1] + menu[3]]
+        ok = below[:1] == [SECOND_ROW[app]]
     tabs.record(f"[{app} {width}] '{TOOLS}' rows: {MENU}, …", ok, rows)
     searches = [n for n, _b in found if n == SEARCH]
     tabs.record(f"[{app} {width}] no '{SEARCH}' button on Home (the tab row has the box)", not searches, searches)

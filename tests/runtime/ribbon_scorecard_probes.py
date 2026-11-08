@@ -115,7 +115,9 @@ def focus_probe(session, base):
 
 
 def gallery(session, home):
-    """Writer's Styles gallery: rendered previews, columns at 1485, column shrink, More popup, keyboard apply."""
+    """Writer's Styles gallery: at least 2 tiles at 1485 and 4 at 1920, never more tiles when narrower (at 1366 a
+    "Kiểu" group button, 0 tiles, is fine: the banner takes its room by the owner's choice), More popup, keyboard
+    apply."""
     out = {}
 
     def tiles(width):
@@ -133,9 +135,10 @@ def gallery(session, home):
     count_probe, box = tiles(session.config["probe_width"])
     count_wide, _ = tiles(1920)
     count_narrow, _ = tiles(1366)
-    out["rendered_previews"] = {"pass": count_probe >= 2, "detail": count_probe}
-    out["four_columns"] = {"pass": count_probe >= 4, "detail": count_probe}
-    out["column_shrink"] = {"pass": count_wide > count_narrow >= 1, "detail": [count_wide, count_narrow]}
+    out["two_tiles_1485"] = {"pass": count_probe >= 2, "detail": count_probe}
+    out["four_tiles_1920"] = {"pass": count_wide >= 4, "detail": count_wide}
+    out["column_shrink"] = {"pass": count_wide >= count_probe >= count_narrow,
+                            "detail": [count_wide, count_probe, count_narrow]}
     session.resize(session.config["probe_width"])
     out["more_popup"] = more_popup(session, box)
     out["keyboard_apply"] = keyboard_apply(session, box)
