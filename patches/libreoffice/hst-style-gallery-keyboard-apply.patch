@@ -1,0 +1,150 @@
+HST Office: in the Styles gallery, the arrow keys go on past the visible previews and Enter applies.
+
+The gallery shows one page of previews (one at 1366-1485 px). The arrow keys stopped at the edge of the
+page, so with one preview Right did nothing, and Enter (the icon view's "activate", shared with a double
+click) opened the Modify Style dialog instead of applying the style. Now:
+- Right on the last preview of a page goes on to the next style and Left on the first back to the previous
+  one, paging as needed, and the style is applied as an arrow key inside a page does;
+- Enter and a double click apply the focused style, as in Office; Modify Style stays in the context menu.
+
+- svx StylesPreviewWindow: ApplyStyle (shared by click, arrows and Enter), HstKeyPressHdl.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/svx/source/inc/StylesPreviewWindow.hxx
++++ b/svx/source/inc/StylesPreviewWindow.hxx
+@@ -135,12 +135,15 @@
+     rtl::Reference<HstStylePreview> m_xHstPreview;
+     DECL_LINK(HstMouseMoveHdl, const MouseEvent&, bool);
+     DECL_LINK(HstHoverTimerHdl, Timer*, void);
+     void HstEndPreview();
+ 
+     DECL_LINK(Selected, weld::ItemView&, void);
++    // HST Office: arrow keys page past the edge of the visible previews; Enter applies (ApplyStyle)
++    DECL_LINK(HstKeyPressHdl, const KeyEvent&, bool);
++    void ApplyStyle(const OUString& rStyleName);
+     DECL_LINK(DoubleClick, const weld::TreeIter&, bool);
+     DECL_LINK(DoCommand, const CommandEvent&, bool);
+     DECL_LINK(PageHdl, weld::Button&, void);
+     DECL_LINK(MoreHdl, weld::Button&, void);
+     DECL_LINK(ViewSizeHdl, const Size&, void);
+ 
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -38,12 +38,13 @@
+ #include <vcl/glyphitemcache.hxx>
+ #include <vcl/virdev.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Menu.hxx>
+ #include <vcl/event.hxx>
++#include <vcl/keycodes.hxx>
+ #include <vcl/timer.hxx>
+ 
+ #include <com/sun/star/beans/PropertyAttribute.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/beans/XPropertySetInfo.hpp>
+ #include <com/sun/star/beans/XPropertyState.hpp>
+@@ -482,12 +483,13 @@
+ 
+     m_xStylesView->connect_selection_changed(LINK(this, StylesPreviewWindow_Base, Selected));
+     m_xStylesView->connect_mouse_move(LINK(this, StylesPreviewWindow_Base, HstMouseMoveHdl));
+     m_aHstHoverTimer.SetTimeout(300);
+     m_aHstHoverTimer.SetInvokeHandler(LINK(this, StylesPreviewWindow_Base, HstHoverTimerHdl));
+     m_xStylesView->connect_item_activated(LINK(this, StylesPreviewWindow_Base, DoubleClick));
++    m_xStylesView->connect_key_press(LINK(this, StylesPreviewWindow_Base, HstKeyPressHdl));
+     m_xStylesView->connect_command(LINK(this, StylesPreviewWindow_Base, DoCommand));
+     m_xStylesView->connect_size_allocate(LINK(this, StylesPreviewWindow_Base, ViewSizeHdl));
+     m_xPrevButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, PageHdl));
+     m_xNextButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, PageHdl));
+     m_xMoreButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, MoreHdl));
+ 
+@@ -859,39 +861,74 @@
+         return;
+     if (!m_xHstPreview.is())
+         m_xHstPreview = new HstStylePreview;
+     m_xHstPreview->Begin(m_xFrame, m_sHstHoverStyle);
+ }
+ 
+-IMPL_LINK(StylesPreviewWindow_Base, Selected, weld::ItemView&, rIconView, void)
++void StylesPreviewWindow_Base::ApplyStyle(const OUString& rStyleName)
+ {
+-    // a click applies the style for real: the preview is put back first
++    // the style is applied for real: the hover preview is put back first
+     HstEndPreview();
+-    OUString sStyleName = rIconView.get_selected_id();
+-
++    if (rStyleName.isEmpty())
++        return;
+     css::uno::Sequence<css::beans::PropertyValue> aArgs{
+-        comphelper::makePropertyValue(u"Template"_ustr, sStyleName),
++        comphelper::makePropertyValue(u"Template"_ustr, rStyleName),
+         comphelper::makePropertyValue(u"Family"_ustr, sal_Int16(SfxStyleFamily::Para))
+     };
+     const css::uno::Reference<css::frame::XDispatchProvider> xProvider(m_xFrame,
+                                                                        css::uno::UNO_QUERY);
+     SfxToolBoxControl::Dispatch(xProvider, u".uno:StyleApply"_ustr, aArgs);
+ }
+ 
+-IMPL_LINK_NOARG(StylesPreviewWindow_Base, DoubleClick, const weld::TreeIter&, bool)
++IMPL_LINK(StylesPreviewWindow_Base, Selected, weld::ItemView&, rIconView, void)
+ {
+-    OUString sStyleName = m_xStylesView->get_selected_id();
++    // a click (or an arrow key) applies the style
++    ApplyStyle(rIconView.get_selected_id());
++}
+ 
+-    css::uno::Sequence<css::beans::PropertyValue> aArgs{
+-        comphelper::makePropertyValue(u"Param"_ustr, sStyleName),
+-        comphelper::makePropertyValue(u"Family"_ustr, sal_Int16(SfxStyleFamily::Para))
+-    };
+-    const css::uno::Reference<css::frame::XDispatchProvider> xProvider(m_xFrame,
+-                                                                       css::uno::UNO_QUERY);
+-    SfxToolBoxControl::Dispatch(xProvider, u".uno:EditStyle"_ustr, aArgs);
++// HST Office: Enter (and a double click, the same signal) applies the focused style, as Office's
++// gallery does; it used to open the Modify Style dialog, which the context menu still offers ("edit").
++IMPL_LINK_NOARG(StylesPreviewWindow_Base, DoubleClick, const weld::TreeIter&, bool)
++{
++    ApplyStyle(m_xStylesView->get_selected_id());
++    return true;
++}
+ 
++// HST Office: the view holds one page of previews, so the arrow keys stopped at its edge (with one
++// preview, at once): Right on the last preview of a page goes on to the next style, Left on the first
++// back to the previous one, paging as needed, and applies it as an arrow key inside the page does.
++IMPL_LINK(StylesPreviewWindow_Base, HstKeyPressHdl, const KeyEvent&, rEvent, bool)
++{
++    const vcl::KeyCode& rKey = rEvent.GetKeyCode();
++    const sal_uInt16 nCode = rKey.GetCode();
++    if (rKey.GetModifier() || (nCode != KEY_RIGHT && nCode != KEY_LEFT) || !m_nPageSize)
++        return false;
++    const OUString sId = m_xStylesView->get_selected_id();
++    const auto it = std::find_if(m_aAllStyles.begin(), m_aAllStyles.end(),
++                                 [&sId](const StylePreviewDescriptor& rStyle) { return rStyle.translatedName == sId; });
++    if (it == m_aAllStyles.end())
++        return false;
++    const size_t nCurrent = it - m_aAllStyles.begin();
++    const size_t nEnd = std::min(m_aAllStyles.size(), m_nFirstVisible + m_nPageSize);
++    size_t nTarget;
++    if (nCode == KEY_RIGHT)
++    {
++        if (nCurrent + 1 < nEnd || nCurrent + 1 >= m_aAllStyles.size())
++            return false; // inside the page the view moves itself; at the very end nothing follows
++        nTarget = nCurrent + 1;
++    }
++    else
++    {
++        if (nCurrent > m_nFirstVisible || nCurrent == 0)
++            return false;
++        nTarget = nCurrent - 1;
++    }
++    m_nFirstVisible = nTarget; // ShowPage starts the page at a multiple of the page size
++    m_sSelectedStyle = m_aAllStyles[nTarget].translatedName;
++    ShowPage();
++    ApplyStyle(m_aAllStyles[nTarget].translatedName);
+     return true;
+ }
+ 
+ IMPL_LINK(StylesPreviewWindow_Base, DoCommand, const CommandEvent&, rPos, bool)
+ {
+     return Command(rPos);
