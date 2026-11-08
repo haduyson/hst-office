@@ -7,7 +7,8 @@ reads and writes SymbolStyle. Those build a page outside the dialog, which never
 dialog builds an extension page only when its handler service can be created (cui treeopt.cxx
 ExtensionsTabPage::CreateDialogWithHandler) and leaves the page blank otherwise. So, for every leaf registered under
 the HST Office node (OptionsDialog.xcu, read back from the office): open Công cụ ▸ Tùy chọn on that page
-(.uno:OptionsTreeDialog with OptionsPageURL) and require each label of its .xdl to be shown in the dialog, with a size.
+(.uno:OptionsTreeDialog with OptionsPageURL) and require the page area of the screenshot to carry its labels (dark
+pixels; a blank page has none). UNO accessibility does not reach the dialog's controls on Windows, so pixels decide.
 
 --profile/--carried: use a profile an older version left behind instead of a new one (the owner's case: uninstall,
 install, start). Usage: "<install>\\program\\python.exe" tests/runtime/check-windows-options-pages.py --install DIR
@@ -81,19 +82,6 @@ def page_ink(shot, rect):
     return sum(v < 140 for v in values) / len(values) if values else 0.0
 
 
-def shown_with_size(dialog, label):
-    """(shown, bounds) of the first control named `label` in the dialog's accessibility tree."""
-    for context, _depth in wg.walk(dialog):
-        try:
-            if context.getAccessibleName() != label:
-                continue
-            box = context.getBounds()
-            return wg.showing(context) and box.Width > 2 and box.Height > 2, (box.X, box.Y, box.Width, box.Height)
-        except Exception:  # noqa: BLE001
-            continue
-    return False, None
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--install", required=True)
@@ -127,6 +115,7 @@ def main():
             import uno
             url = office.expand(page.replace("%origin%", "$BUNDLED_EXTENSIONS/hst-vietnamese-tools"))
             labels = expected_labels(uno.fileUrlToSystemPath(url))
+            check("%s: its page file has labels to show" % label, bool(labels), labels)
             thread = office.dispatch_async(frame, ".uno:OptionsTreeDialog", OptionsPageURL=url)
             dialog, title = options_dialog(office)
             check("%s: Công cụ ▸ Tùy chọn opens" % label, dialog is not None, title)
@@ -142,10 +131,6 @@ def main():
             ink = page_ink(shot, rect) if rect else 0.0
             check("%s: the page is not blank (dark-pixel share of the page area %.4f > %.4f)" % (label, ink, INK),
                   ink > INK, {"window": rect, "screenshot": shot})
-            # the page's own labels through accessibility: evidence only (UNO accessibility may not reach the page)
-            results = {text: shown_with_size(dialog, text) for text in labels}
-            check.note("%s: labels found through accessibility" % label,
-                       {t: b for t, (ok, b) in results.items() if ok} or "none reachable")
             wg.close_dialog(dialog)
             thread.join(20)
             if thread.is_alive():  # endExecute is not offered by the Options dialog: Escape it with real keys
