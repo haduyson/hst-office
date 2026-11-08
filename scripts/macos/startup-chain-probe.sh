@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# Start-up questions and HST option pages of a macOS dmg, started the way a user does (Finder-like `open` from the
+# mounted volume), each start with a fresh-profile sequence: start 1-3 from the volume, start 4 after a copy to
+# /Applications. Per start: the office's stdout/stderr, ps, a screenshot, every window with its texts (System Events),
+# and what the extension code sees (startup-chain-probe.py). Evidence only.
+#   startup-chain-probe.sh <dmg> <out-dir> <case: volume | quarantined>
+set -Euo pipefail
+dmg="$1"; out="$2"; case="$3"; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mkdir -p "$out"; work="$(mktemp -d)"
+cp "$dmg" "$work/probe.dmg"
+if [ "$case" = quarantined ]; then
+  xattr -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)" "$work/probe.dmg"
+fi
+xattr -l "$work/probe.dmg" >"$out/dmg-xattr.txt" 2>&1 || true
+hdiutil attach -nobrowse -noautoopen "$work/probe.dmg" >"$out/attach.txt" 2>&1
+mnt="$(awk -F'\t' '/\/Volumes\//{print $NF; exit}' "$out/attach.txt")"
+echo "mounted at: $mnt" | tee "$out/mount.txt"
+volume_app="$mnt/HST Office.app"
+xattr -l "$volume_app" >"$out/app-xattr.txt" 2>&1 || true
+spctl --assess --type execute -vv "$volume_app" >"$out/spctl.txt" 2>&1 || true
+profile="$work/profile"
+rm -rf "$HOME/Library/Application Support/HSTOffice/move-offered"
+
+dump_windows() { # dump_windows <pid> <file>
+  osascript >"$2" 2>&1 <<OSA || echo "osascript exit $?" >>"$2"
+tell application "System Events"
+  set out to ""
+  repeat with p in (every process whose unix id is ${1:-0})
+    repeat with w in windows of p
+      set out to out & "WINDOW: " & (name of w as text) & linefeed
+      try
+        repeat with e in (entire contents of w)
+          try
+            set out to out & "  " & (role of e as text) & " | " & (name of e as text) & " | " & (value of e as text) & linefeed
+          on error
+            try
+              set out to out & "  " & (role of e as text) & " | " & (name of e as text) & linefeed
+            end try
+          end try
+        end repeat
+      end try
+    end repeat
+  end repeat
+  return out
+end tell
+OSA
+}
+
+press() { # press <pid> <button label> <log>
+  osascript >>"$3" 2>&1 <<OSA || echo "osascript exit $?" >>"$3"
+tell application "System Events"
+  set p to first process whose unix id is ${1:-0}
+  set frontmost of p to true
+  delay 0.5
+  repeat with w in windows of p
+    try
+      click button "$2" of w
+      return "clicked $2"
+    end try
+  end repeat
+  return "no button $2"
+end tell
+OSA
+}
+
+run_start() { # run_start <n> <app> <driver mode or ""> <button to press>
+  local n="$1" app="$2" mode="$3" button="$4" dir="$out/start-$1"
+  mkdir -p "$dir"
+  echo "$app" >"$dir/app.txt"
+  open -n --stdout "$dir/stdout.log" --stderr "$dir/stderr.log" "$app" --args --norestore \
+    "-env:UserInstallation=file://$profile" "--accept=socket,host=localhost,port=2002;urp;" >"$dir/open.log" 2>&1 \
+    || echo "open exit $?" >>"$dir/open.log"
+  local pid=""
+  for _ in $(seq 1 60); do pid="$(pgrep -f "UserInstallation=file://$profile" | head -1)"; [ -n "$pid" ] && break; sleep 1; done
+  echo "pid=$pid" >"$dir/pid.txt"
+  sleep 30
+  ps -o pid,command -p "${pid:-0}" >"$dir/ps.txt" 2>&1 || true
+  lsof -p "${pid:-0}" 2>/dev/null | grep -m3 'soffice\|libmergedlo' >>"$dir/ps.txt" || true
+  screencapture -x "$dir/screen.png" || true
+  dump_windows "$pid" "$dir/windows.txt"
+  local py extpy
+  py="$(find "$app/Contents" -path '*bin/python3*' -type f -perm -u+x ! -name '*-config' | head -1)"
+  extpy="$(dirname "$(find "$app/Contents" -path '*hst-vietnamese-tools/python/hst_office/welcome_job.py' -print -quit)")/.."
+  local pyuno; pyuno="$(find "$app/Contents" -name 'pyuno*.so' -o -name 'pyuno*.dylib' | head -1)"
+  for m in state $mode; do
+    URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" \
+      PYTHONPATH="$app/Contents/Resources:$(dirname "$pyuno")" perl -e 'alarm 120; exec @ARGV' "$py" \
+      "$here/startup-chain-probe.py" "$m" "$dir/$m.json" "$extpy" >"$dir/driver-$m.log" 2>&1 || echo "driver exit $?" >>"$dir/driver-$m.log"
+    [ "$m" = options ] && { screencapture -x "$dir/options.png" || true; dump_windows "$pid" "$dir/windows-options.txt"; }
+  done
+  [ -n "$button" ] && press "$pid" "$button" "$dir/press.log"
+  sleep 3
+  dump_windows "$pid" "$dir/windows-after.txt"
+  kill "$pid" 2>/dev/null || true; sleep 4; kill -9 "$pid" 2>/dev/null || true
+  pkill -9 -f "UserInstallation=file://$profile" 2>/dev/null || true
+  sleep 2
+}
+
+run_start 1 "$volume_app" "" "Để sau"
+run_start 2 "$volume_app" "" "Đóng"
+run_start 3 "$volume_app" "" "Để sau"
+ditto "$volume_app" "/Applications/HST Office.app"
+run_start 4 "/Applications/HST Office.app" options "Để sau"
+ls -la "$HOME/Library/Application Support/HSTOffice" >"$out/app-support.txt" 2>&1 || true
+cat "$HOME/Library/Application Support/HSTOffice/move-offered" >>"$out/app-support.txt" 2>&1 || true
+hdiutil detach "$mnt" >/dev/null 2>&1 || true
+for f in "$out"/start-*/windows.txt; do echo "== $f"; cat "$f"; done
+for f in "$out"/start-*/stderr.log; do echo "== $f"; head -60 "$f"; done

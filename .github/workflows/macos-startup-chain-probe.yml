@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: macOS start-up chain probe
+# The macOS arm64 test.1.mac dmg (Desktop macOS run 42421261292) started from the mounted volume: which start-up
+# question each start shows, what the extension code sees, and the HST option pages. Evidence only.
+on:
+  push:
+    branches: [probe/mac-r1-startup]
+permissions:
+  contents: read
+concurrency:
+  group: macos-startup-chain-probe
+  cancel-in-progress: true
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [volume, quarantined]
+    runs-on: macos-15
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Download the test.1.mac arm64 dmg
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 42421261292 --repo "$GITHUB_REPOSITORY" --name hst-office-macos-arm64-dmg-signed-42421261292 --dir "$RUNNER_TEMP/dmg"
+      - name: Probe
+        run: bash scripts/macos/startup-chain-probe.sh "$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)" "$RUNNER_TEMP/out" "${{ matrix.case }}"
+      - name: Upload evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-startup-chain-probe-${{ matrix.case }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/out/
+          retention-days: 7
