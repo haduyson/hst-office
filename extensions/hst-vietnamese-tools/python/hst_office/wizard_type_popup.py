@@ -7,6 +7,10 @@ own: Windows' themed edits redraw on mouse hover and painted white boxes through
 changed did the same, and the multi-line fields drew their scroll bars over it. A FloatingWindow created without frame
 styles is an overlap window inside the dialog's own frame (vcl floatwin.cxx ImplInitFloating): VCL clips the windows
 under it, it gets the mouse before them, it moves with the dialog, and showing it never takes the focus from the field.
+
+A plain (non-dropdown) VCL list box never moves its highlight with the pointer, on any platform: only the list of a
+dropdown turns that on (vcl imp_listbox.cxx, ImplListBoxWindow::MouseMove needs IsMouseMoveSelect(), which only
+ImplListBoxFloatingWindow::StartFloat enables). row_at() finds the row under the pointer so the picker can follow it.
 """
 import uno
 
@@ -54,6 +58,22 @@ class TypePopup:
             return None
         box = self.window.getPosSize()
         return box.X, box.Y, box.Width, box.Height
+
+    def row_at(self, x, y):
+        """Index of the row under (x, y), a mouse position on the list, or -1 (pointer on the border or below the
+        last row). The list's accessible rows know the scroll position and the row height of this platform's font."""
+        from com.sun.star.awt import Point
+        try:
+            rows = self.control.getAccessibleContext().getAccessibleChild(0).getAccessibleContext()
+            origin = rows.getLocation()
+            row = rows.getAccessibleAtPoint(Point(x - origin.X, y - origin.Y))
+            return row.getAccessibleContext().getAccessibleIndexInParent() if row is not None else -1
+        except Exception:  # noqa: BLE001 - no accessible rows (disposed, or not built): the highlight stays
+            return -1
+
+    def top_row(self):
+        """Index of the first row shown (the scroll position), or -1."""
+        return self.row_at(4, 4)
 
     def show(self, visible):
         if self.window is not None:
