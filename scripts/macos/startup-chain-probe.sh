@@ -4,12 +4,14 @@
 # mounted volume), each start with a fresh-profile sequence: start 1-3 from the volume, start 4 after a copy to
 # /Applications. Per start: the office's stdout/stderr, ps, a screenshot, every window with its texts (System Events),
 # and what the extension code sees (startup-chain-probe.py). Evidence only.
-#   startup-chain-probe.sh <dmg> <out-dir> <case: volume | quarantined>
+#   startup-chain-probe.sh <dmg> <out-dir> <case: volume | quarantined | owner> [<older dmg>]
+# owner: Vietnamese macOS in dark mode; the older dmg's app is first installed in /Applications and started three
+# times with the default profile (the user's), then deleted, as an owner who uninstalls it; the profile stays.
 set -Euo pipefail
 dmg="$1"; out="$2"; case="$3"; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$out"; work="$(mktemp -d)"
 cp "$dmg" "$work/probe.dmg"
-if [ "$case" = quarantined ]; then
+if [ "$case" = quarantined ] || [ "$case" = owner ]; then
   xattr -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)" "$work/probe.dmg"
 fi
 xattr -l "$work/probe.dmg" >"$out/dmg-xattr.txt" 2>&1 || true
@@ -20,10 +22,16 @@ volume_app="$mnt/HST Office.app"
 xattr -l "$volume_app" >"$out/app-xattr.txt" 2>&1 || true
 spctl --assess --type execute -vv "$volume_app" >"$out/spctl.txt" 2>&1 || true
 profile="$work/profile"
+profile_args=("-env:UserInstallation=file://$profile")
+if [ "$case" = owner ]; then
+  profile_args=()  # the default profile in ~/Library/Application Support, as a user has it
+  defaults write -g AppleLanguages -array vi en
+  osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' >"$out/dark.log" 2>&1 || true
+fi
 rm -rf "$HOME/Library/Application Support/HSTOffice/move-offered"
 
 dump_windows() { # dump_windows <pid> <file>
-  osascript >"$2" 2>&1 <<OSA || echo "osascript exit $?" >>"$2"
+  perl -e 'alarm 60; exec @ARGV' osascript >"$2" 2>&1 <<OSA || echo "osascript exit $?" >>"$2"
 tell application "System Events"
   set out to ""
   repeat with p in (every process whose unix id is ${1:-0})
@@ -48,7 +56,7 @@ OSA
 }
 
 press() { # press <pid> <button label> <log>
-  osascript >>"$3" 2>&1 <<OSA || echo "osascript exit $?" >>"$3"
+  perl -e 'alarm 60; exec @ARGV' osascript >>"$3" 2>&1 <<OSA || echo "osascript exit $?" >>"$3"
 tell application "System Events"
   set p to first process whose unix id is ${1:-0}
   set frontmost of p to true
@@ -69,10 +77,28 @@ run_start() { # run_start <n> <app> <driver mode or ""> <button to press>
   mkdir -p "$dir"
   echo "$app" >"$dir/app.txt"
   open -n --stdout "$dir/stdout.log" --stderr "$dir/stderr.log" "$app" --args --norestore \
-    "-env:UserInstallation=file://$profile" "--accept=socket,host=localhost,port=2002;urp;" >"$dir/open.log" 2>&1 \
-    || echo "open exit $?" >>"$dir/open.log"
+    ${profile_args[@]+"${profile_args[@]}"} "--accept=socket,host=localhost,port=2002;urp;" >"$dir/open.log" 2>&1 \
+    || echo "open exit $?" >>"$dir/open.log" &
   local pid=""
-  for _ in $(seq 1 60); do pid="$(pgrep -f "UserInstallation=file://$profile" | head -1)"; [ -n "$pid" ] && break; sleep 1; done
+  for i in $(seq 1 90); do
+    pid="$(pgrep -f "Contents/MacOS/soffice" | head -1)"; [ -n "$pid" ] && break
+    if [ $((i % 5)) -eq 0 ]; then  # a quarantined app: macOS asks once whether to open it; answer Open like a user
+      screencapture -x "$dir/gatekeeper-$i.png" 2>/dev/null || true
+      perl -e 'alarm 30; exec @ARGV' osascript -e 'tell application "System Events" to tell (first process whose name is "CoreServicesUIAgent")
+        set frontmost to true
+        repeat with w in windows
+          repeat with b in (buttons of w)
+            if name of b is in {"Open", "Mở"} then
+              click b
+              return "clicked " & (name of b)
+            end if
+          end repeat
+        end repeat
+        return "no Open button: " & (name of every window as text)
+      end tell' >>"$dir/gatekeeper.log" 2>&1 || true
+    fi
+    sleep 1
+  done
   echo "pid=$pid" >"$dir/pid.txt"
   sleep 30
   ps -o pid,command -p "${pid:-0}" >"$dir/ps.txt" 2>&1 || true
@@ -89,14 +115,29 @@ run_start() { # run_start <n> <app> <driver mode or ""> <button to press>
       "$here/startup-chain-probe.py" "$m" "$dir/$m.json" "$extpy" >"$dir/driver-$m.log" 2>&1 || echo "driver exit $?" >>"$dir/driver-$m.log"
     [ "$m" = options ] && { screencapture -x "$dir/options.png" || true; dump_windows "$pid" "$dir/windows-options.txt"; }
   done
-  [ -n "$button" ] && press "$pid" "$button" "$dir/press.log"
+  if [ -n "$button" ]; then  # the Vietnamese label, then the English one (UI language of the runner)
+    press "$pid" "$button" "$dir/press.log"
+    case "$button" in "Để sau") press "$pid" "Later" "$dir/press.log" ;; "Đóng") press "$pid" "Close" "$dir/press.log" ;; esac
+  fi
   sleep 3
   dump_windows "$pid" "$dir/windows-after.txt"
   kill "$pid" 2>/dev/null || true; sleep 4; kill -9 "$pid" 2>/dev/null || true
-  pkill -9 -f "UserInstallation=file://$profile" 2>/dev/null || true
+  pkill -9 -f "Contents/MacOS/soffice" 2>/dev/null || true
   sleep 2
 }
 
+if [ "$case" = owner ]; then
+  older="$4"; omnt="$work/older-mnt"; mkdir -p "$omnt"
+  hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$omnt" "$older" >/dev/null
+  ditto "$omnt/HST Office.app" "/Applications/HST Office.app"; hdiutil detach "$omnt" >/dev/null
+  out_main="$out"; out="$out/older"; mkdir -p "$out"
+  run_start 1 "/Applications/HST Office.app" "" "Đóng"
+  run_start 2 "/Applications/HST Office.app" "" "Để sau"
+  run_start 3 "/Applications/HST Office.app" "" "Để sau"
+  out="$out_main"
+  rm -rf "/Applications/HST Office.app"
+  ls -la "$HOME/Library/Application Support" >"$out/app-support-after-older.txt" 2>&1 || true
+fi
 run_start 1 "$volume_app" "" "Để sau"
 run_start 2 "$volume_app" "" "Đóng"
 run_start 3 "$volume_app" "" "Để sau"
