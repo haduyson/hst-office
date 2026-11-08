@@ -3,6 +3,7 @@
 of one page at a given resolution, for pdf_watermark_metrics.
 
 - viewer: HST PDF's own page bitmap (.uno:HSTPdfInfo RenderFile; the screen and thumbnails use it);
+- recent_thumbnail: the Start Center "Recent documents" thumbnail stored after opening in HST PDF;
 - print: HST PDF's print dialog, "print to file", then pdftoppm of the printed PDF;
 - draw: the PDF opened in HST Draw (hidden loads use Draw), the page exported by Draw's renderer;
 - draw_pdf: that Draw document exported to PDF (optionally signed with a certificate);
@@ -33,6 +34,25 @@ def viewer_png(office, pdf, page, dpi, out):
     frame.close(True)
     time.sleep(0.5)
     assert data.get("RenderFileWritten") is True, data
+    return str(out)
+
+
+def recent_thumbnail_png(office, pdf, out):
+    """Open in HST PDF and close: the first-page thumbnail it stored for the Start Center."""
+    import base64
+    url = _url(pdf)
+    frame, _ = open_viewer(office, pdf)
+    frame.close(True)
+    time.sleep(0.5)
+    provider = office.service("com.sun.star.configuration.ConfigurationProvider")
+    items = provider.createInstanceWithArguments(
+        "com.sun.star.configuration.ConfigurationAccess",
+        signing_props(nodepath="/org.openoffice.Office.Histories/Histories/PickList/ItemList"))
+    assert items.hasByName(url), "not in Recent documents: " + url
+    thumbnail = items.getByName(url).Thumbnail
+    assert thumbnail, "Recent documents entry without a thumbnail"
+    with open(out, "wb") as png:
+        png.write(base64.b64decode(thumbnail))
     return str(out)
 
 
