@@ -3,7 +3,7 @@
 from pathlib import Path
 import subprocess
 import time
-from mac_access import applications, close_owned, confirm_download, press, texts
+from mac_access import applications, close_owned, ended, confirm_download, press, texts
 from native import screenshot
 from results import row
 from support import wait
@@ -93,10 +93,10 @@ def prepare(dmg, out, record):
             if starts == 1 and any("Chào mừng" in text for text in seen):
                 moved_app.terminate()  # a modal welcome can refuse the quit event: force it after 20 s
                 try:
-                    wait(lambda: moved_app.isTerminated() or None, 20)
+                    wait(lambda: ended(moved_app), 20)
                 except TimeoutError:
                     moved_app.forceTerminate()
-                    wait(lambda: moved_app.isTerminated() or None, 20)
+                    wait(lambda: ended(moved_app), 20)
                 openers.append(launch(out, "M2", "-a", str(destination)))
                 moved_app, starts = wait(moved, 90), 2
                 moved_app.activateWithOptions_(2)

@@ -6,9 +6,24 @@ import time
 
 
 def applications():
-    from AppKit import NSWorkspace
-    return [app for app in NSWorkspace.sharedWorkspace().runningApplications()
-            if app.bundleURL() and app.bundleURL().lastPathComponent() == "HST Office.app"]
+    """Running HST Office apps, read fresh from the process table each call. NSWorkspace.runningApplications is
+    only refreshed by the main run loop, which a script never runs: it stayed empty while HST Office ran
+    (r1-auto macOS run 42472920150, M1-startup-failure.png)."""
+    import psutil
+    from AppKit import NSRunningApplication
+    found = []
+    for proc in psutil.process_iter(["pid", "exe"]):
+        if "HST Office.app/Contents/MacOS/" in (proc.info["exe"] or ""):
+            app = NSRunningApplication.runningApplicationWithProcessIdentifier_(proc.info["pid"])
+            if app is not None:
+                found.append(app)
+    return found
+
+
+def ended(app):
+    """True once the app's process is gone (NSRunningApplication.isTerminated is run-loop updated too)."""
+    import psutil
+    return not psutil.pid_exists(app.processIdentifier())
 
 
 def attribute(element, name, default=None):

@@ -22,6 +22,30 @@ class Office(hst_gui.Office):
         self.program = str(self.install / ("Contents/MacOS" if self.system == "Darwin" else "program"))
         self.binary = Path(self.program) / ("soffice.exe" if self.system == "Windows" else "soffice")
         self.logs = []
+        # A socket listener raises macOS's "find devices on local networks" alert, which takes keyboard focus.
+        self.pipe = f"r1office{port}"
+
+    def accept(self):
+        if self.system == "Darwin":
+            return f"--accept=pipe,name={self.pipe};urp;"
+        return f"--accept=socket,host=127.0.0.1,port={self.port};urp;"
+
+    def _connect(self, timeout=120):
+        if self.system != "Darwin":
+            return super()._connect(timeout)
+        import uno
+        local = uno.getComponentContext()
+        resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
+        end = time.monotonic() + timeout
+        while True:
+            try:
+                ctx = resolver.resolve(f"uno:pipe,name={self.pipe};urp;StarOffice.ComponentContext")
+                time.sleep(3)  # let startup settle before the first calls
+                return ctx
+            except Exception:
+                if time.monotonic() > end:
+                    raise
+                time.sleep(1)
 
     def start(self):
         import uno
@@ -56,7 +80,7 @@ class Office(hst_gui.Office):
             log = open(Path(self.workdir) / "office.log", "w", encoding="utf-8")
             self.logs.append(log)
             self.proc = subprocess.Popen([str(self.binary), user, "--nologo", "--norestore", "--nodefault",
-                                          f"--accept=socket,host=127.0.0.1,port={self.port};urp;"],
+                                          self.accept()],
                                          stdout=log, stderr=log, env=env)
             self.ctx = self._connect()
         extensions = list(self.install.glob("**/hst-vietnamese-tools/python"))

@@ -12,7 +12,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
-from mac_access import applications, close_owned, press, texts
+from mac_access import applications, close_owned, ended, press, texts
 from mac_startup import DEFAULT_QUESTION, QUIET, launch
 from native import screenshot
 from support import wait
@@ -76,10 +76,10 @@ class Scenario:
     def quit(self, app):
         app.terminate()
         try:
-            wait(lambda: app.isTerminated() or None, 30)
+            wait(lambda: ended(app), 30)
         except TimeoutError:
             app.forceTerminate()  # a modal dialog can refuse the quit event
-            wait(lambda: app.isTerminated() or None, 20)
+            wait(lambda: ended(app), 20)
         close_owned(self.owned)
 
 

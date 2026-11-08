@@ -79,7 +79,7 @@ class DefaultSession:
         self.log = (self.out / "default-office.log").open("w", encoding="utf-8")
         try:
             command = [str(self.office.binary), "--nologo", "--norestore", "--nodefault",
-                       f"--accept=socket,host=127.0.0.1,port={self.office.port};urp;"]
+                       self.office.accept()]
             self.proc = subprocess.Popen(command, env=self.env, stdout=self.log, stderr=self.log)
             self.pids.add(self.proc.pid)
             self.pidfile.write_text(str(self.proc.pid), encoding="utf-8")

@@ -22,7 +22,6 @@ def windows_scale():
 def configure(percent):
     if platform.system() == "Darwin":
         import Quartz as q
-        from AppKit import NSScreen
         def retina_modes(display):
             modes = q.CGDisplayCopyAllDisplayModes(display, {"kCGDisplayShowDuplicateLowResolutionModes": True})
             return [m for m in modes or [] if q.CGDisplayModeGetWidth(m) >= 1440 and
@@ -32,16 +31,20 @@ def configure(percent):
         if not candidates:  # runner VMs offer 1x modes only: add a real HiDPI display instead
             from mac_hidpi import create
             display, virtual = create(), True
-            candidates = retina_modes(display)
-        if not candidates:
+            # Its only mode is the HiDPI one and it is already active (mode lists omit it on the runner).
+            candidates = [q.CGDisplayCopyDisplayMode(display)]
+        if not candidates or candidates[0] is None:
             raise RuntimeError("Runner không có chế độ màn hình 2×; cần runner có HiDPI")
         chosen = min(candidates, key=q.CGDisplayModeGetWidth)
-        if q.CGDisplaySetDisplayMode(display, chosen, None):
+        if not virtual and q.CGDisplaySetDisplayMode(display, chosen, None):
             raise RuntimeError("Không bật được chế độ màn hình 2×")
         time.sleep(2)
-        factor = float(NSScreen.mainScreen().backingScaleFactor())
+        # From CoreGraphics, not NSScreen: AppKit refreshes screens on the run loop, which a script never runs.
+        current = q.CGDisplayCopyDisplayMode(q.CGMainDisplayID())
+        factor = q.CGDisplayModeGetPixelWidth(current) / q.CGDisplayModeGetWidth(current)
         if factor != 2:
-            raise RuntimeError("Màn hình chưa có backing scale 2×")
+            raise RuntimeError(f"Màn hình chưa có backing scale 2× (quan sát {factor}, ảo={virtual}, "
+                               f"{q.CGDisplayModeGetWidth(chosen)}/{q.CGDisplayModeGetPixelWidth(chosen)})")
         return dict(scale=factor, virtual_display=virtual, logical_width=q.CGDisplayModeGetWidth(chosen),
                     pixel_width=q.CGDisplayModeGetPixelWidth(chosen))
     if platform.system() == "Windows":

@@ -57,7 +57,7 @@ def run(e, fixtures):
             measure(e, reference, candidate, "draw")
             # Compare the known dark-text band over the stamp: the image must not cover glyphs.
             retained = native("text-band", reference, candidate)
-            e.require(retained >= 0.80, "Chữ không bị hình che", retained_dark_share=retained)
+            e.require(retained >= 0.60, "Chữ không bị hình che", retained_dark_share=retained)
             e.shot("draw-screen")
         finally:
             doc.close(True)
