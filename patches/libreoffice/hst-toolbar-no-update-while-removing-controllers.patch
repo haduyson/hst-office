@@ -1,0 +1,147 @@
+HST Office: a toolbar's delayed controller update never runs while the toolbar removes its controllers.
+
+ToolBarManager updates its controllers from a 50 ms timer (AsyncUpdateControllersHdl ->
+UpdateControllers -> XUpdatable::update). RemoveControllers() disposes the controllers one by one, and
+dispose() deliberately stops that timer only at its end. A controller's dispose() can release the
+SolarMutex: on Windows a window destroyed by a thread other than the main thread is handed to the main
+thread with SendMessage, and the SolarMutex is released while waiting (WinSalInstance::SendWndMessage_impl).
+That is the case for a document loaded or closed over the UNO bridge (an automation client): the toolbars
+of the old view are destroyed on the bridge's request thread. The main thread can then run the pending
+timer and update a controller that is half disposed.
+
+Windows smoke of 1.0.0 crashed this way: a request thread in Desktop::loadComponentFromURL was in
+LayoutManager::destroyElement -> ToolBarManager::dispose -> RemoveControllers -> the style box
+controller's disposing() -> the box window's dispose, waiting for the SolarMutex, while the main thread
+ran the timer and the style box controller filled its box: m_xVclBox already moved out, the box's
+weld::ComboBox released, read of address 0 in FillStyleBox (earlier builds: ReBind on a released family
+listener).
+
+AsyncUpdateControllersHdl now returns while RemoveControllers() runs. The toolbar is then being refilled
+(FillToolbar updates its new controllers itself) or disposed, so no update is lost.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/framework/inc/uielement/toolbarmanager.hxx
++++ b/framework/inc/uielement/toolbarmanager.hxx
+@@ -212,17 +212,19 @@
+         void impl_elementChanged(bool _bRemove,const css::ui::ConfigurationEvent& Event );
+ 
+         typedef std::unordered_map< ToolBoxItemId, css::uno::Reference< css::frame::XStatusListener > >  ToolBarControllerMap;
+         typedef ::std::vector< css::uno::Reference< css::frame::XSubToolbarController > >             SubToolBarControllerVector;
+         typedef std::unordered_map<OUString, SubToolBarControllerVector>                                                SubToolBarToSubToolBarControllerMap;
+ 
+         bool m_bDisposed : 1,
+              m_bFrameActionRegistered : 1,
+-             m_bUpdateControllers : 1;
++             m_bUpdateControllers : 1,
++             // HST: RemoveControllers() is disposing the controllers; the update timer must not reach them
++             m_bRemovingControllers : 1;
+ 
+         sal_Int16 m_eSymbolSize;
+         sal_uInt16 m_nContextMinPos;
+ 
+         std::unique_ptr<ToolBarManagerImpl>                          m_pImpl;
+         VclPtr<ToolBox>                                              m_pToolBar;
+         weld::Toolbar*                                               m_pWeldedToolBar;
+ 
+--- a/framework/source/uielement/toolbarmanager.cxx
++++ b/framework/source/uielement/toolbarmanager.cxx
+@@ -55,16 +55,17 @@
+ #include <com/sun/star/lang/DisposedException.hpp>
+ #include <com/sun/star/util/URLTransformer.hpp>
+ 
+ #include <svtools/toolboxcontroller.hxx>
+ #include <unotools/cmdoptions.hxx>
+ #include <toolkit/helper/vclunohelper.hxx>
+ #include <unotools/mediadescriptor.hxx>
+ #include <comphelper/propertyvalue.hxx>
++#include <comphelper/scopeguard.hxx>
+ #include <comphelper/propertysequence.hxx>
+ #include <comphelper/sequenceashashmap.hxx>
+ #include <svtools/miscopt.hxx>
+ #include <svtools/imgdef.hxx>
+ #include <utility>
+ #include <vcl/event.hxx>
+ #include <vcl/graph.hxx>
+ #include <vcl/image.hxx>
+@@ -537,16 +538,17 @@
+ 
+ ToolBarManager::ToolBarManager( const Reference< XComponentContext >& rxContext,
+                                 const Reference< XFrame >& rFrame,
+                                 OUString aResourceName,
+                                 ToolBox* pToolBar ) :
+     m_bDisposed( false ),
+     m_bFrameActionRegistered( false ),
+     m_bUpdateControllers( false ),
++    m_bRemovingControllers( false ),
+     m_eSymbolSize(SvtMiscOptions::GetCurrentSymbolsSize()),
+     m_nContextMinPos(0),
+     m_pImpl( new VclToolBarManager( pToolBar ) ),
+     m_pToolBar( pToolBar ),
+     m_pWeldedToolBar( nullptr ),
+     m_aResourceName(std::move( aResourceName )),
+     m_xFrame( rFrame ),
+     m_xContext( rxContext ),
+@@ -559,16 +561,17 @@
+ ToolBarManager::ToolBarManager( const Reference< XComponentContext >& rxContext,
+                                 const Reference< XFrame >& rFrame,
+                                 OUString aResourceName,
+                                 weld::Toolbar* pToolBar,
+                                 weld::Builder* pBuilder ) :
+     m_bDisposed( false ),
+     m_bFrameActionRegistered( false ),
+     m_bUpdateControllers( false ),
++    m_bRemovingControllers( false ),
+     m_eSymbolSize( SvtMiscOptions::GetCurrentSymbolsSize() ),
+     m_nContextMinPos(0),
+     m_pImpl( new WeldToolBarManager( pToolBar, pBuilder ) ),
+     m_pWeldedToolBar( pToolBar ),
+     m_aResourceName(std::move( aResourceName )),
+     m_xFrame( rFrame ),
+     m_xContext( rxContext ),
+     m_aAsyncUpdateControllersTimer( "framework::ToolBarManager m_aAsyncUpdateControllersTimer" ),
+@@ -992,16 +995,20 @@
+     impl_elementChanged(false,Event);
+ }
+ 
+ void ToolBarManager::RemoveControllers()
+ {
+     DBG_TESTSOLARMUTEX();
+     assert(!m_bDisposed);
+ 
++    // HST: see AsyncUpdateControllersHdl
++    m_bRemovingControllers = true;
++    comphelper::ScopeGuard aRemoved([this] { m_bRemovingControllers = false; });
++
+     m_aSubToolBarControllerMap.clear();
+ 
+     if (m_aImageController)
+         m_aImageController->dispose();
+     m_aImageController.clear();
+ 
+     // i90033
+     // Remove item window pointers from the toolbar. They were
+@@ -2284,17 +2291,22 @@
+ IMPL_LINK_NOARG(ToolBarManager, AsyncUpdateControllersHdl, Timer *, void)
+ {
+     // The guard must be in its own context as the we can get destroyed when our
+     // own xInterface reference get destroyed!
+     Reference< XComponent > xThis(this);
+ 
+     SolarMutexGuard g;
+ 
+-    if ( m_bDisposed )
++    // HST: a controller's dispose() can release the SolarMutex (a window destroyed from a thread other
++    // than the main thread waits for the main thread with the SolarMutex released, e.g. a document loaded or
++    // closed over the UNO bridge). This timer can then fire in the middle of RemoveControllers() and update a
++    // controller that is half disposed: the style box controller then fills a box whose widget is gone.
++    // The toolbar is being refilled or disposed then; a refill updates its new controllers itself.
++    if ( m_bDisposed || m_bRemovingControllers )
+         return;
+ 
+     // Request to update our controllers
+     m_aAsyncUpdateControllersTimer.Stop();
+     UpdateControllers();
+ }
+ 
+ IMPL_STATIC_LINK( ToolBarManager, ExecuteHdl_Impl, void*, p, void )

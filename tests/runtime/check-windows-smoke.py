@@ -38,6 +38,64 @@ def record(name, ok, detail=""):
     return ok
 
 
+class Lifecycle:
+    """Office life-cycle evidence for a failed check: Desktop terminate requests and global document events, timestamped.
+
+    The listeners live in this process; the office calls them over the UNO bridge. When the office quits, the last
+    entries show whether it went through Desktop.terminate (a clean quit) and which document event came before."""
+
+    def __init__(self):
+        self.events = []
+        self.started = time.time()
+
+    def note(self, text):
+        self.events.append("%.2f %s" % (time.time() - self.started, text))
+
+    def attach(self, ctx, desktop):
+        import unohelper
+        from com.sun.star.document import XDocumentEventListener
+        from com.sun.star.frame import XTerminateListener
+        owner = self
+
+        class Terminate(unohelper.Base, XTerminateListener):
+            def queryTermination(self, event):
+                owner.note("queryTermination")
+
+            def notifyTermination(self, event):
+                owner.note("notifyTermination")
+
+            def disposing(self, event):
+                owner.note("desktop disposing")
+
+        class Documents(unohelper.Base, XDocumentEventListener):
+            def documentEventOccured(self, event):
+                try:
+                    title = event.Source.getTitle()
+                except Exception:  # noqa: BLE001 - a closing model may not answer
+                    title = "?"
+                owner.note("%s %s" % (event.EventName, title))
+
+            def disposing(self, event):
+                pass
+
+        desktop.addTerminateListener(Terminate())
+        ctx.getValueByName("/singletons/com.sun.star.frame.theGlobalEventBroadcaster").addDocumentEventListener(Documents())
+
+    def report(self, proc):
+        state = "running" if proc is None or proc.poll() is None else "exited with %s" % proc.returncode
+        return "office process %s; last events: %s" % (state, " | ".join(self.events[-16:]))
+
+
+LIFE = Lifecycle()
+
+
+def office_alive(ctx):
+    try:
+        return ctx.ServiceManager is not None
+    except Exception:  # noqa: BLE001 - a dead bridge
+        return False
+
+
 def find_extension(install):
     for path in glob.glob(os.path.join(install, "share", "extensions", "hst-vietnamese-tools")):
         return path
@@ -240,8 +298,10 @@ def tab_checks(ctx, desktop):
     for doc in docs:
         try:
             doc.close(True)
-        except Exception:  # noqa: BLE001 - already closed
-            pass
+            LIFE.note("test closed a tab document")
+        except Exception as error:  # noqa: BLE001 - already closed (DisposedException) or the office is gone
+            LIFE.note("test close raised %s" % type(error).__name__)
+        LIFE.note("office %s, frames=%s" % ("alive" if office_alive(ctx) else "GONE", len(frames()) if office_alive(ctx) else "-"))
 
 
 def main():
@@ -273,6 +333,7 @@ def main():
         profile = "file:///" + os.path.join(out, "profile").replace("\\", "/")
         proc, ctx = start_office(program, profile, args.port, os.path.join(out, "soffice.err"), env)
         desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        LIFE.attach(ctx, desktop)
         record("office started", True, ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx) is not None)
         for service in ("org.hst.office.vi.DispatchProvider", "org.hst.office.vi.UpdateDispatchProvider"):
             try:
@@ -313,7 +374,8 @@ def main():
             path = uno.fileUrlToSystemPath(expanded)
             record("help root exists", os.path.isfile(path), "%s -> %s" % (root, path))
         except Exception:  # noqa: BLE001
-            record("help root exists", False, traceback.format_exc())
+            record("help root exists", False, LIFE.report(proc) + "\n" + traceback.format_exc())
+        LIFE.note("test calls Desktop.terminate")
         try:
             desktop.terminate()
         except Exception:  # noqa: BLE001
@@ -326,6 +388,9 @@ def main():
                 proc.wait(30)
             except subprocess.TimeoutExpired:
                 proc.kill()
+    with open(os.path.join(out, "office-lifecycle.txt"), "w", encoding="utf-8") as handle:
+        handle.write(LIFE.report(proc) + "\n" + "\n".join(LIFE.events) + "\n")
+    print("office life cycle: " + LIFE.report(proc))
     failed = [r for r in ROWS if r["status"] == "FAIL"]
     with open(os.path.join(out, "smoke-results.json"), "w", encoding="utf-8") as handle:
         json.dump({"results": ROWS, "failed": len(failed)}, handle, ensure_ascii=False, indent=1)

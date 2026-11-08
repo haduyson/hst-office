@@ -29,6 +29,27 @@ foreach ($f in $files) {
     if (-not $cdb) { continue }
     # Microsoft's symbols for the system DLLs; the office's own DLLs resolve to their exported names only.
     $symbols = "srv*$env:RUNNER_TEMP\symbols*https://msdl.microsoft.com/download/symbols;$Install\program"
-    & $cdb -z $f.FullName -y $symbols -i "$Install\program" -c '.ecxr; .exr -1; kn 60; lm o; q' 2>&1 |
-        Where-Object { $_ -notmatch '^\s*$' } | Select-Object -First 400
+    $stack = @(& $cdb -z $f.FullName -y $symbols -i "$Install\program" -c '.ecxr; .exr -1; kn 60; lm o; q' 2>&1 |
+        Where-Object { $_ -notmatch '^\s*$' } | Select-Object -First 400)
+    $stack
+    # A fault the office's own handler caught (it then aborts from inside the handler) shows up as a nested
+    # exception: the original fault's CONTEXT record lies at the Child-SP of the KiUserExceptionDispatch frame.
+    # Print that context's registers, the code around the faulting instruction and the call sites of the next
+    # frames, so the faulting function can be identified from its disassembly without the office's PDBs.
+    $frames = @($stack | Select-String -Pattern '^\s*([0-9a-f]{2})\s+([0-9a-f`]+)\s+([0-9a-f`]+)\s+(\S+)')
+    $dispatch = $frames | Where-Object { $_.Matches[0].Groups[4].Value -like 'ntdll!KiUserExceptionDispatch*' } | Select-Object -First 1
+    if ($dispatch) {
+        $index = [array]::IndexOf($frames, $dispatch)
+        $commands = @(".cxr $($dispatch.Matches[0].Groups[2].Value)", 'r', 'ub @rip L40', 'u @rip L12')
+        # the return addresses of the faulting frame and the four frames above it: their call instructions
+        $last = [Math]::Min($index + 5, $frames.Count - 1)
+        foreach ($frame in $(if ($last -gt $index) { $frames[($index + 1)..$last] } else { @() })) {
+            $commands += "ub $($frame.Matches[0].Groups[3].Value) L12"
+        }
+        # every thread's stack: a fault from a timer often races with a document closed on another thread
+        $commands += '~*kn 40'
+        "--- original fault context (.cxr at the KiUserExceptionDispatch frame)"
+        & $cdb -z $f.FullName -y $symbols -i "$Install\program" -c (($commands + 'q') -join '; ') 2>&1 |
+            Where-Object { $_ -notmatch '^\s*$' } | Select-Object -First 1200
+    }
 }
