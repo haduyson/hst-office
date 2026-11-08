@@ -299,8 +299,8 @@ def tab_checks(ctx, desktop):
         try:
             doc.close(True)
             LIFE.note("test closed a tab document")
-        except Exception:  # noqa: BLE001 - already closed
-            LIFE.note("test close: already closed")
+        except Exception as error:  # noqa: BLE001 - already closed (DisposedException) or the office is gone
+            LIFE.note("test close raised %s" % type(error).__name__)
         LIFE.note("office %s, frames=%s" % ("alive" if office_alive(ctx) else "GONE", len(frames()) if office_alive(ctx) else "-"))
 
 
