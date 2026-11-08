@@ -12,7 +12,7 @@ dmg="$1"; out="$2"; case="$3"; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pw
 mkdir -p "$out"; work="$(mktemp -d)"
 brew list cliclick >/dev/null 2>&1 || brew install cliclick >"$out/brew.log" 2>&1
 cp "$dmg" "$work/probe.dmg"
-if [ "$case" = quarantined ] || [ "$case" = owner ]; then
+if [ "$case" = quarantined ] || [ "$case" = owner ] || [ "$case" = owner-fixed ]; then
   xattr -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)" "$work/probe.dmg"
 fi
 xattr -l "$work/probe.dmg" >"$out/dmg-xattr.txt" 2>&1 || true
@@ -24,7 +24,7 @@ xattr -l "$volume_app" >"$out/app-xattr.txt" 2>&1 || true
 spctl --assess --type execute -vv "$volume_app" >"$out/spctl.txt" 2>&1 || true
 profile="$work/profile"
 profile_args=("-env:UserInstallation=file://$profile")
-if [ "$case" = owner ]; then
+if [ "$case" = owner ] || [ "$case" = owner-fixed ]; then
   profile_args=()  # the default profile in ~/Library/Application Support, as a user has it
   defaults write -g AppleLanguages -array vi en
   osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' >"$out/dark.log" 2>&1 || true
@@ -145,7 +145,7 @@ run_start() { # run_start <n> <app> <driver mode or ""> <button to press>
   sleep 2
 }
 
-if [ "$case" = owner ]; then
+if [ "$case" = owner ] || [ "$case" = owner-fixed ]; then
   older="$4"; omnt="$work/older-mnt"; mkdir -p "$omnt"
   hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$omnt" "$older" >/dev/null
   ditto "$omnt/HST Office.app" "/Applications/HST Office.app"; hdiutil detach "$omnt" >/dev/null
@@ -156,6 +156,17 @@ if [ "$case" = owner ]; then
   out="$out_main"
   rm -rf "/Applications/HST Office.app"
   ls -la "$HOME/Library/Application Support" >"$out/app-support-after-older.txt" 2>&1 || true
+fi
+if [ "$case" = owner-fixed ]; then
+  # the per-build extension version (scripts/build-extensions.py): the same bundle with only description.xml's version
+  # changed, ad-hoc signed, started from ~/Downloads (not quarantined: an ad-hoc signature is refused when quarantined)
+  mkdir -p "$HOME/Downloads"; ditto "$volume_app" "$HOME/Downloads/HST Office.app"
+  volume_app="$HOME/Downloads/HST Office.app"
+  xattr -dr com.apple.quarantine "$volume_app" 2>/dev/null || true
+  desc="$volume_app/Contents/Resources/extensions/hst-vietnamese-tools/description.xml"
+  sed -i '' 's|<version value="1.0.0"/>|<version value="1.0.0.10000.probe"/>|' "$desc"
+  grep -n '<version' "$desc" >"$out/description-version.txt"
+  bash "$here/adhoc-sign.sh" "$volume_app" >"$out/adhoc-sign.log" 2>&1 || echo "adhoc-sign failed" >>"$out/adhoc-sign.log"
 fi
 run_start 1 "$volume_app" "" "Để sau"
 run_start 2 "$volume_app" "" "Đóng"

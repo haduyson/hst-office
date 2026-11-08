@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: [owner]
+        case: [owner, owner-fixed]
     runs-on: macos-15
     timeout-minutes: 50
     permissions:
@@ -26,12 +26,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Download the test.1.mac and the beta.5 arm64 dmgs
+      - name: Download the test.1.mac and the beta.5 release (5e49d28) arm64 dmgs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh run download 42421261292 --repo "$GITHUB_REPOSITORY" --name hst-office-macos-arm64-dmg-signed-42421261292 --dir "$RUNNER_TEMP/dmg"
-          gh run download 42381462878 --repo "$GITHUB_REPOSITORY" --name hst-office-macos-arm64-dmg-signed-42381462878 --dir "$RUNNER_TEMP/older"
+          gh run download 42264935810 --repo "$GITHUB_REPOSITORY" --name hst-office-macos-arm64-dmg-signed-42264935810 --dir "$RUNNER_TEMP/older"
       - name: Probe
         run: |
           bash scripts/macos/startup-chain-probe.sh "$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)" "$RUNNER_TEMP/out" \
