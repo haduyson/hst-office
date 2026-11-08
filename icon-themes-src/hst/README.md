@@ -1,12 +1,12 @@
 # Bộ biểu tượng ribbon HST — hướng A
 
 **Hai kiểu biểu tượng (1.0.0):** Tùy chọn ▸ HST Office ▸ Giao diện cho chọn giữa
-- **Hiện đại (nhiều màu)**, mặc định: `hst_modern` / `hst_modern_dark`, vẽ từ mẫu gốc trong
+- **Hiện đại (nhiều màu)**, tùy chọn: `hst_modern` / `hst_modern_dark`, vẽ từ mẫu gốc trong
   `../hst-modern/`. Mực nét lấy từ `../hst-modern/metadata/ink.json` lúc dựng (sáng `#1D2F42`, tối
   `#EEF4F9`), và ở 16 px nét 1 px được làm dày thành 2 px khi glyph còn chỗ
   (`scripts/brand/hst_icon_weight.py`: không lấp khe 1 px, không bít lỗ chữ, không chạm nét khác,
   vùng màu còn thấy). Mẫu gốc không đổi nên các đợt vẽ mới cũng được xử lý giống vậy.
-- **Cổ điển**: `hst_classic` / `hst_classic_dark` là bộ Colibre SVG của LibreOffice, chồng thêm
+- **Cổ điển**, mặc định (từ 08/11/2026): `hst_classic` / `hst_classic_dark` là bộ Colibre SVG của LibreOffice, chồng thêm
   glyph HST (thư mục này, theo màu mực của Colibre) cho những lệnh Colibre không có, như các lệnh
   `org.hst.office.vi:*` hay hộp thoại thống kê. Gói chỉ chứa phần glyph HST đó; phần còn lại VCL lấy
   từ `colibre_svg` / `colibre_dark_svg` (`patches/libreoffice/hst-icon-theme-classic-colibre.patch`).

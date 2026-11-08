@@ -5,7 +5,7 @@
 --out DIR writes images_<theme>.zip and unpacked themes for inspection.
 --tree DIR stages the same resources for postprocess/images and the installers.
 --check verifies bytes without writing. No generated files belong in git.
-Themes: hst* (HST glyphs), hst_modern* (colourful, the default), hst_classic* ("Cổ điển": Colibre
+Themes: hst* (HST glyphs), hst_modern* (colourful, the option), hst_classic* ("Cổ điển", the default: Colibre
 plus HST glyphs where it has none; needs the tree, --tree or --lo-tree, for Colibre's coverage).
 """
 import argparse

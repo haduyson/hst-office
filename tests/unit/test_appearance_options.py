@@ -29,31 +29,41 @@ DLG = "{http://openoffice.org/2000/dialog}"
 
 
 class Mapping(unittest.TestCase):
-    def test_modern_is_auto_and_follows_dark_mode(self):
-        self.assertEqual(ao.value_for("modern"), "auto")
+    def test_classic_is_auto_and_follows_dark_mode(self):
+        # the default: the office's selector resolves "auto" to hst_classic, or hst_classic_dark on a dark UI
+        self.assertEqual(ao.value_for("classic"), "auto")
 
-    def test_classic_stores_the_base_style(self):
+    def test_modern_stores_the_base_style(self):
         # the base style in both modes: the office's selector adds "_dark" in dark mode, and a light UI later
         # must not keep a pinned dark pack
-        self.assertEqual(ao.value_for("classic"), "hst_classic")
+        self.assertEqual(ao.value_for("modern"), "hst_modern")
         with self.assertRaises(ValueError):
             ao.value_for("emoji")
 
-    def test_saving_classic_in_dark_mode_replaces_a_pinned_dark_pack(self):
+    def test_saving_modern_in_dark_mode_replaces_a_pinned_dark_pack(self):
+        from unittest import mock
+        node = mock.Mock()
+        node.getPropertyValue.return_value = "hst_modern_dark"  # a pinned dark pack
+        from hst_office import dialogs
+        with mock.patch.object(ao, "_node", return_value=node), mock.patch.object(dialogs, "is_dark", return_value=True):
+            self.assertEqual(ao.save_style(None, "modern"), "hst_modern")
+        node.setPropertyValue.assert_called_once_with("SymbolStyle", "hst_modern")
+        node.commitChanges.assert_called_once()
+
+    def test_saving_classic_rewrites_an_earlier_classic_value_as_auto(self):
         from unittest import mock
         node = mock.Mock()
         node.getPropertyValue.return_value = "hst_classic_dark"  # written by an earlier version in dark mode
-        from hst_office import dialogs
-        with mock.patch.object(ao, "_node", return_value=node), mock.patch.object(dialogs, "is_dark", return_value=True):
-            self.assertEqual(ao.save_style(None, "classic"), "hst_classic")
-        node.setPropertyValue.assert_called_once_with("SymbolStyle", "hst_classic")
-        node.commitChanges.assert_called_once()
+        with mock.patch.object(ao, "_node", return_value=node):
+            self.assertEqual(ao.save_style(None, "classic"), "auto")
+        node.setPropertyValue.assert_called_once_with("SymbolStyle", "auto")
 
     def test_reading_back(self):
-        for value in ("auto", "", None, "hst_modern", "hst_modern_dark"):
-            self.assertEqual(ao.style_of(value), "modern", value)
-        for value in ("hst_classic", "hst_classic_dark", "hst", "hst_dark"):  # hst*: profiles of earlier versions
+        # "auto" / unset is the default, Cổ điển; hst*: profiles of earlier versions
+        for value in ("auto", "", None, "hst_classic", "hst_classic_dark", "hst", "hst_dark"):
             self.assertEqual(ao.style_of(value), "classic", value)
+        for value in ("hst_modern", "hst_modern_dark"):
+            self.assertEqual(ao.style_of(value), "modern", value)
         self.assertIsNone(ao.style_of("colibre"))  # chosen in the core Appearance page: neither box is ticked
 
 

@@ -1,0 +1,35 @@
+HST Office: in the Styles gallery, the keyboard cursor follows the selected preview.
+
+Every page of the gallery is refilled from scratch, which leaves the icon view without a keyboard
+cursor; selecting the current style's preview does not set one. An arrow key inside the page then
+started from the page's first preview (Right) or last (Left) instead of the selected one. With two
+previews per page, Left after paging back stayed on the same style, and Right after paging on did too.
+UpdateSelection now puts the cursor on the preview it selects (set_cursor sends no selection signal).
+
+- svx StylesPreviewWindow: UpdateSelection sets the cursor.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -1072,13 +1072,19 @@
+     const size_t nEnd = std::min(m_aAllStyles.size(), m_nFirstVisible + m_nPageSize);
+     for (StylePreviewList::size_type i = m_nFirstVisible; i < nEnd; ++i)
+     {
+         if (m_aAllStyles[i].commonName == m_sSelectedStyle
+             || m_aAllStyles[i].translatedName == m_sSelectedStyle)
+         {
+-            m_xStylesView->select(i - m_nFirstVisible);
++            const int nPos = static_cast<int>(i - m_nFirstVisible);
++            m_xStylesView->select(nPos);
++            // HST Office: the keyboard cursor follows the selection. A page is refilled from scratch,
++            // which leaves the view without a cursor, and an arrow key then starts from the page's
++            // first (Right) or last (Left) preview instead of the selected one, so it did nothing.
++            if (std::unique_ptr<weld::TreeIter> xIter = m_xStylesView->get_iterator(nPos))
++                m_xStylesView->set_cursor(*xIter);
+             return;
+         }
+     }
+     m_xStylesView->unselect_all();
+ }
+ 
