@@ -46,9 +46,46 @@ def nodes(app, budget=15.0):
         queue.extend(attribute(node, "AXChildren", []) or [])
 
 
+# System Events reads HST's modal dialogs where the pyobjc AX walk returned nothing (r1-auto macOS run
+# 42474965758, beta5-start.png); the start-up probe (probe/mac-r1-startup) read and clicked them this way.
+EVENTS = """
+on run argv
+tell application "System Events"
+  set out to ""
+  repeat with p in (every process whose unix id is (item 1 of argv as integer))
+    repeat with w in windows of p
+      if item 2 of argv is "read" then
+        set out to out & "WINDOW: " & (name of w as text) & linefeed
+        try
+          repeat with t in (value of every static text of w)
+            set out to out & (t as text) & linefeed
+          end repeat
+        end try
+      else if exists button (item 2 of argv) of w then
+        click button (item 2 of argv) of w
+        return "clicked"
+      end if
+    end repeat
+  end repeat
+  return out
+end tell
+end run
+"""
+
+
+def events(app, action):
+    import subprocess
+    try:
+        return subprocess.run(["osascript", "-", str(app.processIdentifier()), action], input=EVENTS,
+                              capture_output=True, text=True, timeout=30).stdout.strip()
+    except subprocess.TimeoutExpired:
+        return ""
+
+
 def texts(app):
-    return [str(value) for node in nodes(app) for key in ("AXTitle", "AXDescription", "AXValue")
-            if isinstance(value := attribute(node, key), str) and value]
+    found = [str(value) for node in nodes(app) for key in ("AXTitle", "AXDescription", "AXValue")
+             if isinstance(value := attribute(node, key), str) and value]
+    return found + [line for line in events(app, "read").splitlines() if line]
 
 
 def press(app, names):
@@ -58,6 +95,9 @@ def press(app, names):
             error = ax.AXUIElementPerformAction(node, "AXPress")
             if error:
                 raise RuntimeError("Không bấm được nút native")
+            return
+    for name in sorted(names):
+        if events(app, name) == "clicked":
             return
     raise RuntimeError("Không tìm thấy nút: " + ", ".join(names))
 

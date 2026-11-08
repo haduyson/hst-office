@@ -9,6 +9,17 @@ from results import row
 from support import wait
 
 DEFAULT_QUESTION = "Mở tài liệu văn phòng bằng HST Office"
+WELCOME = ("Chào mừng bạn", "chào đón bạn")  # dialog heading and title; the Start Center says "Chào mừng đến"
+
+
+def asks(seen):
+    """The default-apps question: its text, or its window titled exactly "HST Office" (System Events reads VCL
+    dialogs' titles only; the Start Center's window has no name), as check-windows-startup-prompts.py decides."""
+    return any(DEFAULT_QUESTION in t or t == "WINDOW: HST Office" for t in seen)
+
+
+def greets(seen):
+    return any(w in t for t in seen for w in WELCOME)
 QUIET = dict(check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=120)
 
 
@@ -58,7 +69,7 @@ def prepare(dmg, out, record):
         seen = wait(lambda: texts(app), 60)
         end = time.monotonic() + 60
         while time.monotonic() < end and not any("Chuyển HST Office" in text for text in seen):
-            if any(DEFAULT_QUESTION in text or "Chào mừng" in text for text in seen):
+            if (asks(seen) or greets(seen)):
                 break
             time.sleep(0.3)
             seen = texts(app)
@@ -66,7 +77,7 @@ def prepare(dmg, out, record):
         shot = out / "M1-dmg.png"
         screenshot(shot)
         first_ok = ("/AppTranslocation/" in path and any("Chuyển HST Office" in text for text in seen)
-                    and not any(DEFAULT_QUESTION in text or "Chào mừng" in text for text in seen))
+                    and not (asks(seen) or greets(seen)))
         record(row("M1", "PASS" if first_ok else "FAIL", dict(message="Câu hỏi chuyển ứng dụng phải hiện đầu tiên",
                    quarantine=actual, executable=path, windows=seen, os_confirmation=confirmation), shot.name))
         if not first_ok:
@@ -89,8 +100,8 @@ def prepare(dmg, out, record):
         # /Applications; the default-apps question must then come on the next start, never later.
         seen, starts = wait(lambda: texts(moved_app), 60), 1
         end = time.monotonic() + 60
-        while time.monotonic() < end and not any(DEFAULT_QUESTION in text for text in seen):
-            if starts == 1 and any("Chào mừng" in text for text in seen):
+        while time.monotonic() < end and not asks(seen):
+            if starts == 1 and greets(seen):
                 moved_app.terminate()  # a modal welcome can refuse the quit event: force it after 20 s
                 try:
                     wait(lambda: ended(moved_app), 20)
@@ -105,7 +116,7 @@ def prepare(dmg, out, record):
             seen = texts(moved_app)
         shot = out / "M2-applications.png"
         screenshot(shot)
-        ok = any(DEFAULT_QUESTION in text for text in seen)
+        ok = asks(seen)
         record(row("M2", "PASS" if ok else "FAIL", dict(message="Sau chuyển mới hỏi mở tài liệu văn phòng",
                    executable=moved_app.executableURL().path(), starts=starts, windows=seen,
                    os_confirmation=confirmation), shot.name))

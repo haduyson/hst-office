@@ -13,12 +13,11 @@ import shutil
 import subprocess
 import time
 from mac_access import applications, close_owned, ended, press, texts
-from mac_startup import DEFAULT_QUESTION, QUIET, launch
+from mac_startup import QUIET, asks, greets, launch
 from native import screenshot
 from support import wait
 
 APP = Path("/Applications/HST Office.app")
-WELCOME = ("Chào mừng", "chào đón")
 PIPE = "r1oldprofile"
 
 
@@ -61,7 +60,7 @@ class Scenario:
         seen, end = [], time.monotonic() + 60
         while time.monotonic() < end:
             seen = texts(app)
-            if any(DEFAULT_QUESTION in t or any(w in t for w in WELCOME) for t in seen):
+            if (asks(seen) or greets(seen)):
                 break
             time.sleep(0.5)
         return app, seen
@@ -107,13 +106,13 @@ def main():
         for start in (1, 2):
             app, seen = s.start(f"new-start{start}")
             shot = s.shot(f"new-start{start}")
-            if any(DEFAULT_QUESTION in t for t in seen):
+            if asks(seen):
                 asked = start
                 s.check(f"start {start}: the default-apps question appears", True, seen, shot)
                 s.answer(app, {"Để sau", "Later"})
                 s.quit(app)
                 break
-            welcome = any(w in t for t in seen for w in WELCOME)
+            welcome = greets(seen)
             welcomes.append(start)
             s.check(f"start {start}: a start-up question appears", welcome and start == 1, seen, shot)
             s.answer(app, {"Đóng", "Close"})
@@ -123,7 +122,7 @@ def main():
         s.check("the default-apps question comes at the first start after the welcome",
                 asked is not None and asked == len(welcomes) + 1, dict(asked=asked, welcomes=welcomes))
         app, seen = s.start("options", f"--accept=pipe,name={PIPE};urp;")
-        if any(DEFAULT_QUESTION in t or any(w in t for w in WELCOME) for t in seen):
+        if (asks(seen) or greets(seen)):
             # nothing is due at this start; a modal question would block the Options dialog
             s.check("no start-up dialog left at the options start", False, seen, s.shot("options-startup"))
             s.answer(app, {"Để sau", "Later", "Đóng", "Close"})
