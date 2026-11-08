@@ -59,7 +59,9 @@ def main():
         status = "SKIP" if args.item == "M4" else "PASS"
         message = "Chủ sở hữu duyệt độ sắc nét; kiểm tra trang tùy chọn đã đạt" if args.item == "M4" else "Đạt các phép đo tự động"
     except Exception as error:
+        import traceback
         message = f"{type(error).__name__}: {error}"
+        e.checks.append(dict(ok=False, message="traceback", where=traceback.format_exc().splitlines()[-6:]))
         try:
             e.shot("failure")
         except Exception:
@@ -70,7 +72,7 @@ def main():
             office.stop()
         except Exception as error:
             status = "FAIL"
-            detail["cleanup_error"] = type(error).__name__
+            detail["cleanup_error"] = f"{type(error).__name__}: {error} {getattr(error, 'stderr', '') or ''}"[-600:]
         payload = dict(result=row(args.item, status, detail, e.shots[-1] if e.shots else None), owner_review=e.owner)
         Path(args.result).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return int(status == "FAIL")

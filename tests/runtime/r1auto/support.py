@@ -36,6 +36,13 @@ def wait(predicate, timeout=30):
     raise TimeoutError("Hết thời gian chờ trạng thái bắt buộc")
 
 
+def says(text, *variants):
+    """The variant shown, or None. The core UI follows the OS language (vi pack only on Vietnamese Windows), so a
+    check names the vi msgstr and its en-US msgid of the same patch string; mnemonics (~) are ignored."""
+    text = str(text).replace("~", "")
+    return next((variant for variant in variants if variant in text), None)
+
+
 def claim_port(port):
     """Fail only on a live listener: macOS refuses a plain bind while a closed connection of the previous item
     sits in TIME_WAIT on the port. Windows keeps the plain bind (its SO_REUSEADDR would hide a live listener)."""
@@ -83,5 +90,11 @@ class Evidence:
                                screenshot=path.relative_to(self.out.parent).as_posix()))
 
     def detail(self, message):
-        return dict(message=message, checks=self.checks, screenshots=self.shots,
-                    windows=self.office.titles() if self.office.ctx else [])
+        try:
+            windows = self.office.titles() if self.office.ctx else []
+        except Exception as error:  # a dead bridge must not cost the item its evidence
+            windows = [f"{type(error).__name__}: {error}"]
+        proc = getattr(self.office, "proc", None)
+        exit_code = proc.poll() if proc is not None else None
+        return dict(message=message, checks=self.checks, screenshots=self.shots, windows=windows,
+                    **({} if exit_code is None else dict(office_exit_code=exit_code)))

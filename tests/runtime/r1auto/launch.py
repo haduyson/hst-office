@@ -17,7 +17,8 @@ def interpreter(install):
     if platform.system() == "Windows":
         program = install / "program"
         python = program / "python.exe"
-        env.update(UNO_PATH=str(program), PATH=str(program) + os.pathsep + env["PATH"])
+        tools = [env["R1_POPPLER_BIN"]] if env.get("R1_POPPLER_BIN") else []
+        env.update(UNO_PATH=str(program), PATH=os.pathsep.join(tools + [str(program), env["PATH"]]))
     elif platform.system() == "Darwin":
         candidates = [p for p in install.glob("Contents/**/bin/python3*")
                       if p.is_file() and not p.name.endswith("-config") and os.access(p, os.X_OK)]

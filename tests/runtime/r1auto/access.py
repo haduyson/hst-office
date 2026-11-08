@@ -29,6 +29,8 @@ def visible(node):
 
 def box(node):
     node = context(node)
+    if not hasattr(node, "getLocationOnScreen"):
+        return -100000, -100000, 0, 0  # no XAccessibleComponent: never inside any measured region
     point, size = node.getLocationOnScreen(), node.getSize()
     return point.X, point.Y, size.Width, size.Height
 

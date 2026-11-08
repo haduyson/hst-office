@@ -99,10 +99,20 @@ class DefaultSession:
                 raise RuntimeError("Không kết nối được profile mặc định") from connected.get("error")
             self.office.ctx = connected["ctx"]
             self._record()
+            self._welcome_seen()
             return self
         except Exception:
             self.stop()
             raise
+
+    def _welcome_seen(self):
+        """The owner opens Writer (W2) before double-clicking a file (W3), so the default profile has shown its
+        welcome by then; an unseen modal welcome would hold the shell-opened document behind it."""
+        from pdf_viewer_uno import signing_props
+        access = self.office.service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
+            "com.sun.star.configuration.ConfigurationUpdateAccess", signing_props(nodepath="/org.hasontech.hstoffice.Welcome"))
+        access.setPropertyValue("Shown", True)
+        access.commitChanges()
 
     def stop(self):
         from support import background
