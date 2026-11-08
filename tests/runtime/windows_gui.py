@@ -152,10 +152,10 @@ def keys(*names):
 
 
 def screenshot(path):
-    """Full-screen PNG; never raises (a missing shot must not hide the check result)."""
+    """Full-screen PNG with the pointer drawn in; never raises (a missing shot must not hide the check result)."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SHOT_SCRIPT, "-Path", path],
-                   timeout=60, check=False)
+    subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SHOT_SCRIPT, "-Path", path,
+                    "-WithCursor"], timeout=60, check=False)
     return path
 
 
@@ -286,6 +286,18 @@ class WinOffice:
     def service(self, name):
         return self.ctx.ServiceManager.createInstanceWithContext(name, self.ctx)
 
+    def expand(self, text):
+        """A vnd.sun.star.expand: URL or a $MACRO text as the office expands it (a file URL for the install)."""
+        text = text.replace("vnd.sun.star.expand:", "", 1) if text.startswith("vnd.sun.star.expand:") else text
+        return self.ctx.getValueByName("/singletons/com.sun.star.util.theMacroExpander").expandMacros(text)
+
+    @staticmethod
+    def bin_pids():
+        """Process ids of every soffice.bin (a change between two calls shows the office restarted itself)."""
+        listing = subprocess.run(["tasklist", "/FI", "IMAGENAME eq soffice.bin", "/FO", "CSV", "/NH"],
+                                 capture_output=True, text=True, check=False).stdout
+        return sorted(int(row.split('","')[1]) for row in listing.splitlines() if row.startswith('"soffice.bin"'))
+
     @property
     def desktop(self):
         return self.service("com.sun.star.frame.Desktop")
@@ -359,24 +371,21 @@ def window_title(window):
     return ""
 
 
-def is_dialog(window):
-    """A dialog or message box, not a document or Start Center frame (both may be titled "HST Office")."""
-    try:
-        role = window.getAccessibleContext().getAccessibleRole()
-    except Exception:  # noqa: BLE001 - disposed while we looked
-        return False
-    return role in (_role("DIALOG"), _role("ALERT"), _role("FILE_CHOOSER"))
-
-
 def dialogs(office):
-    """[(window, title)] of the office's open dialogs."""
+    """[(window, title)] of the office's shown dialogs and message boxes: every shown top window that is not the
+    container window of a frame (Start Center, documents; those may be titled "HST Office" as well)."""
+    try:
+        frames = office.desktop.getFrames()
+        containers = [frames.getByIndex(i).getContainerWindow() for i in range(frames.getCount())]
+    except Exception:  # noqa: BLE001 - frames come and go while the office starts
+        containers = []
     found = []
     for window in office.top_windows():
         try:
-            if window.isVisible() if hasattr(window, "isVisible") else True:
-                if is_dialog(window):
-                    found.append((window, window_title(window)))
-        except Exception:  # noqa: BLE001
+            if any(window == other for other in containers) or not window.isVisible():
+                continue
+            found.append((window, window_title(window)))
+        except Exception:  # noqa: BLE001 - disposed while we looked
             continue
     return found
 
@@ -433,17 +442,18 @@ class Results:
         return 1 if failed else 0
 
 
-def dismiss_startup(office, shot_path, timeout=40):
-    """A new profile shows the welcome first (start-up chain, one modal per start): close the start-up dialog that
-    comes, so a check can drive the office. Returns its title or None."""
-    import re
-    startup = re.compile(r"chào đón bạn|Chào mừng|^HST Office$")
-    deadline = time.time() + timeout
+def dismiss_startup(office, shot_path, timeout=40, settle=8):
+    """Close the dialogs a start shows (the HST welcome, any core start-up dialog) so a check can drive the office.
+    Waits up to `timeout` for the first one, then `settle` seconds for more. Returns their titles (screenshot of the
+    first one at `shot_path`)."""
+    seen, deadline = [], time.time() + timeout
     while time.time() < deadline:
         for window, title in dialogs(office):
-            if startup.search(title):
+            if not seen:
+                time.sleep(1.5)
                 screenshot(shot_path)
-                close_dialog(window)
-                return title
+            seen.append(title)
+            close_dialog(window)
+            deadline = min(deadline, time.time() + settle)
         time.sleep(0.5)
-    return None
+    return seen

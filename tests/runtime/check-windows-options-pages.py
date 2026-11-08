@@ -88,7 +88,6 @@ def main():
     args = parser.parse_args()
     out, install = os.path.abspath(args.out), os.path.abspath(args.install)
     check = wg.Results(out, "options-pages" + ("-carried" if args.carried else ""))
-    extension = os.path.join(install, "share", "extensions", "hst-vietnamese-tools")
     office = wg.WinOffice(install, os.path.abspath(args.profile or os.path.join(out, "profile")), args.port,
                           os.path.join(out, "logs"))
     try:
@@ -109,10 +108,9 @@ def main():
             except Exception as error:  # noqa: BLE001
                 made = "%s: %s" % (type(error).__name__, error)
             check("%s: its handler %s can be created" % (label, handler), made is True, made)
-            xdl = page.replace("%origin%", extension.replace("\\", "/"))
             import uno
-            url = uno.systemPathToFileUrl(os.path.normpath(xdl))
-            labels = expected_labels(os.path.normpath(xdl))
+            url = office.expand(page.replace("%origin%", "$BUNDLED_EXTENSIONS/hst-vietnamese-tools"))
+            labels = expected_labels(uno.fileUrlToSystemPath(url))
             thread = office.dispatch_async(frame, ".uno:OptionsTreeDialog", OptionsPageURL=url)
             dialog, title = options_dialog(office)
             check("%s: Công cụ ▸ Tùy chọn opens" % label, dialog is not None, title)

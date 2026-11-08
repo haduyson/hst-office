@@ -118,8 +118,10 @@ def main():
         # ---- start 1 ----
         began = time.time()
         office.start(fresh=not args.carried)
-        check.note("start 1: UNO up after", "%.1f s" % (time.time() - began))
+        check.note("start 1: UNO up after", "%.1f s, soffice.bin %s" % (time.time() - began, office.bin_pids()))
+        check.note("start 1: state at once", state(office))
         seen = watch(office, 45, out, "start1", close=lambda title, texts: WELCOME.search(title) is not None)
+        check.note("start 1: soffice.bin after 45 s (another id: the office restarted itself)", office.bin_pids())
         check.note("start 1: dialogs", seen)
         welcome = [title for title, _texts in seen if WELCOME.search(title)]
         if args.carried:
@@ -137,6 +139,7 @@ def main():
         check.note("start 1: exit code", office.stop())
         # ---- start 2 ----
         office.start()
+        check.note("start 2: soffice.bin", office.bin_pids())
         answered = {}
 
         def answer(title, texts):
