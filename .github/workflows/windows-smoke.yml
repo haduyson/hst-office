@@ -123,6 +123,7 @@ jobs:
           # one copy for each check: both see the profile as beta.5 left it
           cp -r "$RUNNER_TEMP/old-profile" "$RUNNER_TEMP/old-profile-options"
           ls "$RUNNER_TEMP/old-profile/user" "$RUNNER_TEMP/old-profile/user/extensions" || true
+          bash scripts/windows/print-extension-sync-state.sh "$RUNNER_TEMP/old-profile" "$(dirname "$program")" | tee "$RUNNER_TEMP/out/old-version/sync-state-beta5.txt"
       - name: Install the MSI silently
         if: ${{ matrix.scenario == 'commands' || startsWith(matrix.scenario, 'ui-parity') }}
         shell: bash
@@ -315,6 +316,13 @@ jobs:
           if [ -n "${HST_INSTALL:-}" ]; then
             pwsh -NoProfile -File scripts/windows/print-office-crashes.ps1 -Install "$HST_INSTALL" -Dumps "$(cygpath -w "$RUNNER_TEMP/out/crash")" \
               | tee "$RUNNER_TEMP/out/crash/office-crashes.txt" || echo "crash report failed"
+          fi
+          if [ "${{ matrix.scenario }}" = ui-parity-old-profile ] && [ -n "${HST_INSTALL:-}" ]; then
+            # whether this version re-registered its bundled extension in the profile beta.5 left (user/extensions/buildid,
+            # lastsynchronized against the install's share/extensions)
+            for profile in old-profile old-profile-options; do
+              bash scripts/windows/print-extension-sync-state.sh "$RUNNER_TEMP/$profile" "$(cygpath -u "$HST_INSTALL")" | tee "$RUNNER_TEMP/out/sync-state-$profile.txt"
+            done
           fi
           for results in "$RUNNER_TEMP"/out/*/results.json; do
             [ -f "$results" ] || continue
