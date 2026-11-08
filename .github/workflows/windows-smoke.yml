@@ -233,6 +233,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          install="$(cygpath -u "$HST_INSTALL")"
+          # COM starts the office on the user's default profile (bootstrap.ini UserInstallation). Its first visible
+          # start shows the modal welcome dialog, which holds Documents.Open until someone closes it: take that profile
+          # past its first start, as a user's is (the start-up questions themselves are checked by ui-parity).
+          raw="$(sed -n 's/^UserInstallation=//p' "$install/program/bootstrap.ini" | tr -d '\r')"
+          raw="${raw//\$SYSUSERCONFIG/$(cygpath -m "$APPDATA")}"
+          profile="$(cygpath -w "$(python -I -c 'import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]).removeprefix("file:///"))' "$raw")")"
+          echo "default profile: $profile"
+          timeout 600 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-startup-prompts.py --install "$HST_INSTALL" \
+            --out "$(cygpath -w "$RUNNER_TEMP/out/com-warm")" --profile "$profile" --warm-only
           timeout 900 pwsh -NoProfile -File scripts/windows/smoke-com-automation.ps1 -Out "$(cygpath -w "$RUNNER_TEMP/out/com")"
       - name: Update now - download, verify and dry-run the msiexec helper
         if: ${{ matrix.scenario == 'commands' && !inputs.update_policy_only }}
