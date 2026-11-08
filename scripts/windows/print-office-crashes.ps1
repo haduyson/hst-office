@@ -46,8 +46,10 @@ foreach ($f in $files) {
         foreach ($frame in $(if ($last -gt $index) { $frames[($index + 1)..$last] } else { @() })) {
             $commands += "ub $($frame.Matches[0].Groups[3].Value) L12"
         }
+        # every thread's stack: a fault from a timer often races with a document closed on another thread
+        $commands += '~*kn 40'
         "--- original fault context (.cxr at the KiUserExceptionDispatch frame)"
         & $cdb -z $f.FullName -y $symbols -i "$Install\program" -c (($commands + 'q') -join '; ') 2>&1 |
-            Where-Object { $_ -notmatch '^\s*$' } | Select-Object -First 400
+            Where-Object { $_ -notmatch '^\s*$' } | Select-Object -First 1200
     }
 }
