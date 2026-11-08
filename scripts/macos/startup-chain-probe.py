@@ -4,6 +4,7 @@
   startup-chain-probe.py options <out.json> <extension python dir>  builds both HST option pages and dumps them
 Evidence only."""
 import json
+import os
 import sys
 import time
 import traceback
@@ -88,7 +89,7 @@ def options(ctx, result):
         except Exception:  # noqa: BLE001
             entry["error"] = traceback.format_exc()
     # the real dialog, opened at the Appearance page
-    url = origin + "/dialogs/Appearance.xdl"
+    url = origin + "/dialogs/" + os.environ.get("OPTIONS_PAGE", "Appearance") + ".xdl"
     import threading
     dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
@@ -97,7 +98,7 @@ def options(ctx, result):
                      daemon=True).start()
     time.sleep(6)
     top = toolkit.getActiveTopWindow()
-    result["options_dialog"] = walk(top, limit=9) if top is not None else None
+    result["options_dialog_title"] = top.getAccessibleContext().getAccessibleName() if top is not None else None
 
 
 def main():

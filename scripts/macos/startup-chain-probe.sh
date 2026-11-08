@@ -117,10 +117,22 @@ run_start() { # run_start <n> <app> <driver mode or ""> <button to press>
   extpy="$(dirname "$(find "$app/Contents" -path '*hst-vietnamese-tools/python/hst_office/welcome_job.py' -print -quit)")/.."
   local pyuno; pyuno="$(find "$app/Contents" -name 'pyuno*.so' -o -name 'pyuno*.dylib' | head -1)"
   for m in state $mode; do
-    URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" \
+    OPTIONS_PAGE=DefaultApps URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" \
       PYTHONPATH="$app/Contents/Resources:$(dirname "$pyuno")" perl -e 'alarm 120; exec @ARGV' "$py" \
       "$here/startup-chain-probe.py" "$m" "$dir/$m.json" "$extpy" >"$dir/driver-$m.log" 2>&1 || echo "driver exit $?" >>"$dir/driver-$m.log"
-    [ "$m" = options ] && { screencapture -x "$dir/options.png" || true; dump_windows "$pid" "$dir/windows-options.txt"; }
+    if [ "$m" = options ]; then  # opened at "Mở tài liệu": go to "Giao diện" in the tree like a user, away and back
+      screencapture -x "$dir/options-0-opened.png" || true
+      for step in 1-up:126 2-down:125 3-up:126; do
+        perl -e 'alarm 30; exec @ARGV' osascript -e "tell application \"System Events\"
+          set frontmost of (first process whose unix id is $pid) to true
+          delay 0.5
+          key code ${step#*:}
+        end tell" >>"$dir/options-keys.log" 2>&1 || true
+        sleep 3
+        screencapture -x "$dir/options-${step%%:*}.png" || true
+        dump_windows "$pid" "$dir/windows-options-${step%%:*}.txt"
+      done
+    fi
   done
   if [ -n "$button" ]; then  # the Vietnamese label, then the English one (UI language of the runner)
     press "$pid" "$button" "$dir/press.log"
