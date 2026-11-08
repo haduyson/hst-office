@@ -64,6 +64,16 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/source-run.json"
           python tests/runtime/r1auto/verify-source.py "$RUNNER_TEMP/source-run.json" windows
           bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/msi" HST_MSI
+      - name: Bật minidump của Windows cho soffice.bin
+        shell: bash
+        run: |
+          set -euo pipefail
+          dumps="$(cygpath -w "$RUNNER_TEMP/r1-evidence/crash")"
+          mkdir -p "$RUNNER_TEMP/r1-evidence/crash"
+          key='HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\soffice.bin'
+          MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpFolder /t REG_EXPAND_SZ /d "$dumps" /f
+          MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpType /t REG_DWORD /d 1 /f
+          MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpCount /t REG_DWORD /d 5 /f
       - name: Chạy checklist trên bản đã cài
         shell: bash
         env:
@@ -81,6 +91,14 @@ jobs:
         run: |
           set -euo pipefail
           python tests/runtime/r1auto/cleanup.py "$RUNNER_TEMP/r1-work" "$RUNNER_TEMP/r1-evidence"
+      - name: Ghi các lần office đóng đột ngột
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File scripts/windows/print-office-crashes.ps1 -Install 'C:\Program Files\HSTOffice' \
+            -Dumps "$(cygpath -w "$RUNNER_TEMP/r1-evidence/crash")" > "$RUNNER_TEMP/r1-evidence/crash/office-crashes.log" 2>&1 \
+            || echo "không đọc được báo cáo crash" >> "$RUNNER_TEMP/r1-evidence/crash/office-crashes.log"
       - name: Ghi tóm tắt từng mục
         if: ${{ always() }}
         shell: bash
