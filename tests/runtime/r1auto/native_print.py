@@ -67,22 +67,20 @@ def mac_print(target):
                                  {"Save as PDF", "Save as PDF…", "Lưu thành PDF", "Lưu thành PDF…",
                                   "Lưu dưới dạng PDF", "Lưu dưới dạng PDF…"}), None))
         ax.AXUIElementPerformAction(item, "AXPress")
-        time.sleep(1)
-        # Save panel Go To Folder uses a native keyboard event, then a native Save button.
+        time.sleep(2)
+        # The save panel runs out of process on macOS 15 (absent from the app's AX tree, run 42897049569):
+        # keys as a user types them. The name field opens focused with the name selected; then Go To Folder.
+        keyboard(text=target.stem)
         from Quartz import CGEventCreateKeyboardEvent, CGEventSetFlags, CGEventPost, kCGHIDEventTap
         for down in (True, False):
             event = CGEventCreateKeyboardEvent(None, 5, down)  # Cmd+Shift+G
             CGEventSetFlags(event, (1 << 20) | (1 << 17))
             CGEventPost(kCGHIDEventTap, event)
+        time.sleep(1)
         keyboard(text=str(target.parent))
         keyboard(["enter"])
-        time.sleep(1)
-        fields = [n for n in nodes(app) if attribute(n, "AXRole") == "AXTextField"]
-        field = next((n for n in fields if attribute(n, "AXValue", "").endswith(".pdf")), None)
-        if field is None:
-            raise RuntimeError("Không đọc được ô tên tệp in")
-        ax.AXUIElementSetAttributeValue(field, "AXValue", target.name)
-        press(app, {"Save", "Lưu"})
+        time.sleep(1.5)
+        keyboard(["enter"])  # Lưu, the panel's default button
 
 
 def finish(target):
