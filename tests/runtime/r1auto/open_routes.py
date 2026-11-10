@@ -68,6 +68,27 @@ def fixtures(install, work):
     return out
 
 
+def painted(rect):
+    """The document's content is drawn: a window still loading is one flat colour (the frame is shown before the
+    import, loadenv.cxx), a loaded one has the ribbon, rulers or grid."""
+    from PIL import ImageGrab
+    left, top, right, bottom = rect
+    if right - left < 300 or bottom - top < 200:
+        return False
+    image = ImageGrab.grab(bbox=(left + 8, top + 40, right - 8, bottom - 8), all_screens=True)
+    return len(set(image.convert("RGB").resize((160, 90)).getdata())) > 40
+
+
+def scrub_recovery(profile):
+    """After a forced stop: drop the recovery list, so the next start is not a recovery start (that dialog would
+    hide every later route's own result)."""
+    xcu = Path(profile) / "user" / "registrymodifications.xcu"
+    if xcu.is_file():
+        lines = xcu.read_text(encoding="utf-8").splitlines(keepends=True)
+        xcu.write_text("".join(l for l in lines if "org.openoffice.Office.Recovery" not in l), encoding="utf-8")
+    shutil.rmtree(Path(profile) / "user" / "backup", ignore_errors=True)
+
+
 def default_profile(install):
     """bootstrap.ini UserInstallation of the installed office ($SYSUSERCONFIG = %APPDATA%)."""
     import urllib.parse
@@ -136,17 +157,12 @@ class Routes:
     def close_office(self, limit=45):
         """Close every office window as a person does (WM_CLOSE, Escape on a dialog); kill only what is left."""
         import psutil
-        from open_routes_windows import census, close_windows, bring_to_front
-        from native import keyboard
+        from open_routes_windows import census, close_windows
         started, killed = time.monotonic(), []
         while self.ours() and time.monotonic() - started < limit:
             windows = [w for w in census()[0] if w["proc"] == "soffice.bin" and w["title"]]
             dialogs = [w for w in windows if w["enabled"] and w["owner"]]
-            if dialogs:
-                bring_to_front(dialogs[0]["hwnd"])
-                keyboard(["escape"])
-            else:
-                close_windows([w["hwnd"] for w in windows if w["enabled"]])
+            close_windows([w["hwnd"] for w in (dialogs or [w for w in windows if w["enabled"]])])
             time.sleep(2)
         left = self.ours()
         for proc in left:
@@ -156,6 +172,8 @@ class Routes:
             except psutil.NoSuchProcess:
                 pass
         psutil.wait_procs(left, timeout=10)
+        if killed:
+            scrub_recovery(self.profile)
         return dict(exit_seconds=round(time.monotonic() - started, 1), killed=killed)
 
     def new_profile(self):
@@ -167,7 +185,7 @@ class Routes:
     def watch(self, matches, limit, label):
         """Poll the census until the document window is shown, enabled and in front of Explorer, or the limit."""
         from open_routes_windows import census, office_processes, dismiss_system_notices
-        start, timeline, last, shots, result = time.monotonic(), [], None, [], None
+        start, timeline, last, shots, result, first_window = time.monotonic(), [], None, [], None, None
         marks = [2, 10, 25, 60]
         while True:
             now = round(time.monotonic() - start, 1)
@@ -186,15 +204,19 @@ class Routes:
             if marks and now >= marks[0]:
                 marks.pop(0)
                 shots.append(screenshot(self.out / ("%s-%02ds.png" % (label, int(now)))))
-            if doc and doc["enabled"] and not doc["iconic"] and (doc["z"] < explorer_z or fg["proc"] == "soffice.bin"):
-                result = dict(status="OK", seconds=now, title=doc["title"], foreground=fg["title"],
-                              doc_is_foreground=fg["hwnd"] == doc["hwnd"])
+            if doc and first_window is None:
+                first_window = now
+            front = doc and not doc["iconic"] and (doc["z"] < explorer_z or fg["proc"] == "soffice.bin")
+            if front and doc["enabled"] and painted(doc["rect"]):
+                result = dict(status="OK", seconds=now, window_seconds=first_window, title=doc["title"],
+                              foreground=fg["title"], doc_is_foreground=fg["hwnd"] == doc["hwnd"])
                 break
             if now >= limit:
                 dialogs = [w["title"] for w in office if not matches(w["title"])]
-                status = ("BLOCKED" if doc and not doc["enabled"] else "BEHIND" if doc else
-                          "DIALOG" if dialogs else "NO WINDOW")
-                result = dict(status=status, seconds=None, office_windows=[w["title"] for w in office],
+                status = ("BLOCKED" if doc and not doc["enabled"] else "BEHIND" if doc and not front else
+                          "BLANK" if doc else "DIALOG" if dialogs else "NO WINDOW")
+                result = dict(status=status, seconds=None, window_seconds=first_window,
+                              office_windows=[w["title"] for w in office],
                               dialogs=dialogs, foreground=fg["title"], processes=office_processes())
                 break
             time.sleep(0.4)
@@ -206,18 +228,20 @@ class Routes:
     def unblock(self, matches, label):
         """After a failed wait: bring the office's own dialog (or the document) forward, press Escape, wait again;
         tells whether a person who finds the dialog gets the document."""
-        from open_routes_windows import census, bring_to_front
-        from native import keyboard
+        from open_routes_windows import census, bring_to_front, close_windows
         office = [w for w in census()[0] if w["proc"] == "soffice.bin" and w["title"]]
         target = next((w for w in office if w["enabled"] and not matches(w["title"])), None) or \
             next((w for w in office), None)
         if target is None:
             return dict(action="nothing to bring forward")
-        bring_to_front(target["hwnd"])
-        if not matches(target["title"]):
-            keyboard(["escape"])
+        if matches(target["title"]):
+            bring_to_front(target["hwnd"])
+            action = "front " + target["title"]
+        else:
+            close_windows([target["hwnd"]])  # the dialog's own close button, no focus needed
+            action = "close " + target["title"]
         again = self.watch(matches, 45, label + "-after")
-        return dict(action="front+escape " + target["title"], status=again["status"], seconds=again["seconds"],
+        return dict(action=action, status=again["status"], seconds=again["seconds"],
                     timeline=again["timeline"][-3:], screenshots=again["screenshots"])
 
     # ---- one route -------------------------------------------------------------------------------------------
@@ -281,8 +305,11 @@ class Routes:
         self.rows.append(record)
         (self.out / "open-routes.json").write_text(json.dumps(self.rows, ensure_ascii=False, indent=1),
                                                     encoding="utf-8")
-        print("%-7s %-5s %-12s %-8s %-9s %s" % (app, ext, how, state, record.get("status"), record.get("seconds")),
-              flush=True)
+        unblock = record.get("unblock") or {}
+        print("%-7s %-5s %-12s %-8s %-9s %s window=%s dialogs=%s unblock=%s/%s/%s killed=%s" % (
+            app, ext, how, state, record.get("status"), record.get("seconds"), record.get("window_seconds"),
+            record.get("dialogs"), unblock.get("action"), unblock.get("status"), unblock.get("seconds"),
+            (record.get("before") or {}).get("killed")), flush=True)
         return record
 
     def plan(self):
