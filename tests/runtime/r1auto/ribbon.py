@@ -9,20 +9,20 @@ def search(e, doc):
     import ribbon_os
     e.office.focus(doc.CurrentController.Frame.ContainerWindow)
     before = ribbon_os.read(e, "search-before")
-    anchors = ribbon_os.named(before, "Tìm tính năng", "Search features")
+    anchors = ribbon_os.named(before, "Tìm tính năng")
     anchor = anchors[0] if anchors else None
     native("key", "alt+cmd+k" if e.office.system == "Darwin" else "alt+q")
     native("text", "bảng")
     def rows():
         nodes = ribbon_os.read(e)
-        return nodes if [n for n in nodes if says(n.name, "trong tài liệu", "in the document")] else None
+        return nodes if [n for n in nodes if says(n.name, "trong tài liệu")] else None
     e.require(anchor is not None, "Có ô tìm trên ribbon", method="OS accessibility tree")
     nodes = wait(rows, 30)
     ribbon_os.read(e, "search-open")
     e.shot("search")
-    finals = [n for n in nodes if says(n.name, "trong tài liệu", "in the document")]
+    finals = [n for n in nodes if says(n.name, "trong tài liệu")]
     final = max(finals, key=lambda n: n.y)
-    e.require(final.name in ("Tìm “bảng” trong tài liệu", "Find “bảng” in the document"), "Dòng cuối tìm trong tài liệu",
+    e.require(final.name == "Tìm “bảng” trong tài liệu", "Dòng cuối tìm trong tài liệu",
               method="OS accessibility tree", final=final.name)
     popup = [n for n in nodes if n.name and n.kind in ("item", "button", "label") and n.h > 0 and
              anchor.y + anchor.h - 2 <= n.y <= final.y and abs(n.x - final.x) < 40]

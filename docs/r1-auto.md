@@ -82,10 +82,11 @@ W1/W2/W6/W11 gọi các script `check-windows-*.py` mà `windows-smoke.yml` dùn
 cùng tham số (W1/W2: `--expect registered`, vì ô mặc định đã tích lúc cài). Mỗi
 script có giới hạn 900 s; dòng `FAIL` hoặc mã thoát khác 0 là FAIL.
 
-Giao diện lõi theo ngôn ngữ hệ điều hành: MSI chỉ cài gói giao diện tiếng Việt trên
-Windows tiếng Việt, runner là Windows tiếng Anh. Kiểm tra chữ của giao diện lõi (W9,
-W12, W14) nhận msgstr tiếng Việt hoặc msgid en-US của cùng chuỗi trong bản vá, và ghi
-lại ngôn ngữ thấy được. Hộp thoại của extension vẫn kiểm bằng tiếng Việt.
+Giao diện mặc định là tiếng Việt trên mọi hệ điều hành: MSI luôn cài gói giao diện
+tiếng Việt (kèm en-US), và ngôn ngữ giao diện mặc định là `vi`. Profile của mỗi mục
+không lưu ngôn ngữ giao diện; trước mỗi mục, probe kiểm tra trên runner tiếng Anh rằng
+profile mới dùng giao diện lõi tiếng Việt. Kiểm tra chữ của giao diện lõi (W9, W12,
+W14) chỉ nhận chữ tiếng Việt.
 
 ## Không treo
 

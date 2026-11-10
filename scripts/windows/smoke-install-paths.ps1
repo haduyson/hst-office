@@ -23,6 +23,12 @@
 #   upgrade-from-beta5: OtherMsi is beta.5 (HST Office's own UpgradeCode, 1.0.0.500). The new MSI replaces it
 #                       without forcing a reinstall: one product and one Programs and Features entry, the new
 #                       version, every file, its own keys, ProgIDs and automation names, and it starts.
+#                       Two profiles used by beta.5 on this English Windows: one without a language choice shows the
+#                       Vietnamese core UI after the upgrade; one where English was chosen keeps English and can
+#                       switch to Vietnamese.
+# UI language (every scenario that installs HST Office): the vi and en-US language packs are installed whatever
+# the Windows display language (gm_Langpack_r_vi, also over a beta that left it out). hst-first also starts a
+# fresh profile: Vietnamese core UI with no choice stored; English chosen wins after a restart; back to Vietnamese.
 param(
     [Parameter(Mandatory=$true)][ValidateSet('libreoffice-first', 'hst-first', 'uninstall-beta4-then-install', 'upgrade-from-beta4', 'upgrade-from-beta5')][string]$Scenario,
     [Parameter(Mandatory=$true)][string]$HstMsi,
@@ -276,6 +282,26 @@ function Assert-Starts([string]$Location, [string]$Expect, [string]$Name) {
     Assert (Test-Path -LiteralPath (Join-Path $work 'start.pdf')) "$Name starts and converts a document (exit $($p.ExitCode))"
 }
 
+function Assert-UiLanguagePacks([string]$Location, [string]$Name) {
+    # Files of gm_Langpack_r_vi / gm_Langpack_r_en_US: the registrations and the vi translations of the core UI.
+    foreach ($rel in 'share\registry\Langpack-vi.xcd', 'share\registry\Langpack-en-US.xcd', 'program\resource\vi\LC_MESSAGES\vcl.mo') {
+        Assert (Test-Path -LiteralPath (Join-Path $Location $rel)) "$Name installed the UI language file $rel (English Windows)"
+    }
+}
+
+function Invoke-UiLanguage([string]$Location, [string]$Label, [string]$ProfileDir, [string[]]$Arguments) {
+    # One headless start of the installed office on $ProfileDir, with the office's own Python (uno).
+    $python = Join-Path $Location 'program\python.exe'
+    $script = Join-Path $PSScriptRoot '..\..\tests\runtime\check-windows-ui-language.py'
+    $argv = @('-X', 'utf8', "`"$script`"", '--install', "`"$($Location.TrimEnd('\'))`"", '--profile', "`"$ProfileDir`"",
+              '--label', $Label, '--out', "`"$(Join-Path $Out 'ui-language')`"") + $Arguments
+    $p = Start-Process $python -PassThru -NoNewWindow -ArgumentList $argv `
+        -RedirectStandardOutput (Join-Path $Out "ui-language-$Label.log") -RedirectStandardError (Join-Path $Out "ui-language-$Label.err")
+    if (-not $p.WaitForExit(600000)) { $p.Kill(); throw "FAIL: UI language check $Label did not finish within 10 minutes" }
+    Get-Content -LiteralPath (Join-Path $Out "ui-language-$Label.log") | ForEach-Object { Write-Host "  $_" }
+    Assert ($p.ExitCode -eq 0) "UI language check $Label (exit $($p.ExitCode), $Out\ui-language-$Label.err)"
+}
+
 if ($Scenario -in 'libreoffice-first', 'hst-first') {
     $first, $second = if ($Scenario -eq 'libreoffice-first') { 'libreoffice', 'hst-office' } else { 'hst-office', 'libreoffice' }
     $msi = @{ 'libreoffice' = $OtherMsi; 'hst-office' = $HstMsi }
@@ -289,6 +315,12 @@ if ($Scenario -in 'libreoffice-first', 'hst-first') {
         Assert-NoLibreOfficeNames $alone.coexist
         Assert-HstCoexistKeys $alone.coexist $alone.hst[0].Location
         Assert-AllFiles $HstMsi $alone.hst[0].ProductCode 'hst-office'
+        $loc = $alone.hst[0].Location
+        Assert-UiLanguagePacks $loc 'hst-office'
+        $fresh = Join-Path $Out 'profile-ui-language'
+        Invoke-UiLanguage $loc 'fresh-default' $fresh @('--expect-stored', 'none', '--expect-ui', 'vi', '--need-vi', '--set', 'en-US')
+        Invoke-UiLanguage $loc 'fresh-english' $fresh @('--expect-stored', 'en-US', '--expect-ui', 'en-US', '--set', 'vi')
+        Invoke-UiLanguage $loc 'fresh-back-to-vi' $fresh @('--expect-stored', 'vi', '--expect-ui', 'vi')
     }
     Install-Msi $msi[$second] $second
     $both = Show-State 'after-both'
@@ -349,12 +381,17 @@ if ($Scenario -in 'libreoffice-first', 'hst-first') {
     Assert-HstCoexistKeys $after.coexist $loc
     Assert-Owns $after.registry 'hst' $loc
     Assert-AllFiles $HstMsi $after.hst[0].ProductCode 'hst-office-after-beta4-uninstall'
+    Assert-UiLanguagePacks $loc 'hst-office-after-beta4-uninstall'
     & (Join-Path $PSScriptRoot 'check-app-user-model-ids.ps1') -Install $loc
     Assert-Starts $loc 'HST Office' 'hst-office'
 } elseif ($Scenario -eq 'upgrade-from-beta5') {
     Install-Msi $OtherMsi 'hst-office-beta5'
     $before = Show-State 'after-beta5'
     Assert ($before.hst.Count -eq 1 -and $before.hst[0].Version -eq '1.0.0.500' -and $before.libreoffice_code.Count -eq 0) 'beta.5 is installed under HST Office''s UpgradeCode as 1.0.0.500'
+    # Profiles of beta.5 users on this English Windows: one never chose a language, one chose English.
+    $plain, $english = (Join-Path $Out 'profile-beta5-no-choice'), (Join-Path $Out 'profile-beta5-english')
+    Invoke-UiLanguage $before.hst[0].Location 'beta5-no-choice' $plain @()
+    Invoke-UiLanguage $before.hst[0].Location 'beta5-english' $english @('--set', 'en-US')
     Install-Msi $HstMsi 'hst-office'
     Assert-InstallLog $HstMsi 'hst-office' $false
     $after = Show-State 'after-hst-office'
@@ -367,6 +404,10 @@ if ($Scenario -in 'libreoffice-first', 'hst-first') {
     Assert-HstCoexistKeys $after.coexist $loc
     Assert-Owns $after.registry 'hst' $loc
     Assert-AllFiles $HstMsi $after.hst[0].ProductCode 'hst-office-after-beta5'
+    Assert-UiLanguagePacks $loc 'hst-office-after-beta5'
+    Invoke-UiLanguage $loc 'upgraded-no-choice' $plain @('--expect-stored', 'none', '--expect-ui', 'vi', '--need-vi')
+    Invoke-UiLanguage $loc 'upgraded-english' $english @('--expect-stored', 'en-US', '--expect-ui', 'en-US', '--need-vi', '--set', 'vi')
+    Invoke-UiLanguage $loc 'upgraded-switched-to-vi' $english @('--expect-stored', 'vi', '--expect-ui', 'vi')
     Assert-Starts $loc 'HST Office' 'hst-office'
 } else {
     Install-Msi $OtherMsi 'hst-office-beta4'
@@ -385,6 +426,7 @@ if ($Scenario -in 'libreoffice-first', 'hst-first') {
     Assert-HstCoexistKeys $after.coexist $loc
     Assert-Owns $after.registry 'hst' $loc
     Assert-AllFiles $HstMsi $after.hst[0].ProductCode 'hst-office-after-upgrade'
+    Assert-UiLanguagePacks $loc 'hst-office-after-upgrade'
     Assert-Starts $loc 'HST Office' 'hst-office'
     # Uninstalling the upgraded install removes it completely, as for a fresh install.
     Uninstall-Product $after.hst[0].ProductCode 'hst-office-upgraded'
