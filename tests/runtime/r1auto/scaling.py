@@ -56,28 +56,12 @@ def configure(percent):
         return dict(scale=factor, virtual_display=False, logical_width=q.CGDisplayModeGetWidth(chosen),
                     pixel_width=q.CGDisplayModeGetPixelWidth(chosen))
     if platform.system() == "Windows":
-        import os
-        from pywinauto import Desktop
-        from support import wait
         ctypes.windll.user32.SetProcessDPIAware()
         before, wanted = windows_scale(), int(percent)
         if before != wanted:
-            os.startfile("ms-settings:display")
-            desktop = Desktop(backend="uia")
-            def scale_box():
-                for window in desktop.windows():
-                    for combo in window.descendants(control_type="ComboBox"):
-                        if "%" in combo.window_text():
-                            return window, combo
-                return None
-            window, combo = wait(scale_box)
-            try:
-                options = combo.item_texts()
-                selected = next(text for text in options if text.startswith(str(percent) + "%"))
-                combo.select(selected)
-                time.sleep(3)
-            finally:
-                window.close()
+            from windows_dpi import set_scale
+            set_scale(wanted)
+            time.sleep(3)
         actual = windows_scale()
         if actual != wanted:
             raise RuntimeError(f"Không đặt được tỉ lệ màn hình thật: yêu cầu {wanted}, quan sát {actual}")

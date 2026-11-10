@@ -106,7 +106,10 @@ def about(e):
         release = native("product-version", Path(office.program) / "soffice.bin")
         e.require(release.startswith("1.0.0"), "Giới thiệu hiển thị phiên bản 1.0.0", window=shown,
                   release=release, source="ProductVersion = HST_RELEASE, the About dialog's version string")
+    if office.system == "Windows":
+        native("foreground", shown[0])  # Escape must reach the About dialog, not the window in front
     native("key", "escape")
+    time.sleep(1)
     doc.close(True)
 
 

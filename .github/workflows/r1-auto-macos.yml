@@ -138,7 +138,7 @@ jobs:
       contents: read
       actions: read
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       BETA5_DMG_URL: https://office.hasontech.vn/tai/1.0.0-beta.5/HSTOffice_1.0.0-beta.5_macOS_arm64.dmg
       BETA5_DMG_SHA256: 0959c057f27abc8838425c5ecdea9b15ce446da7779d34c452ec3127f20db4b2
@@ -157,7 +157,7 @@ jobs:
             pyobjc-framework-Cocoa==11.1 pyobjc-framework-Quartz==11.1 \
             pyobjc-framework-ApplicationServices==11.1 pyobjc-framework-CoreServices==11.1
       - name: Tải DMG beta.5 đã phát hành và DMG cần kiểm tra
-        timeout-minutes: 25
+        timeout-minutes: 40
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -166,8 +166,8 @@ jobs:
           set -euo pipefail
           [[ "$RUN_ID" =~ ^[0-9]+$ ]]
           mkdir -p "$RUNNER_TEMP/old" "$RUNNER_TEMP/dmg"
-          # a stalled transfer (under 200 kB/s for 60 s) is retried, never left to the job timeout
-          curl -fsSL --retry 4 --retry-all-errors --speed-limit 200000 --speed-time 60 --max-time 900 \
+          # a stalled transfer (under 30 kB/s for 120 s) is retried, never left to the job timeout
+          curl -fsSL --retry 3 --retry-all-errors --speed-limit 30000 --speed-time 120 --max-time 1200 \
             -o "$RUNNER_TEMP/old/beta5.dmg" "$BETA5_DMG_URL"
           echo "$BETA5_DMG_SHA256  $RUNNER_TEMP/old/beta5.dmg" | shasum -a 256 -c
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/source-run.json"
