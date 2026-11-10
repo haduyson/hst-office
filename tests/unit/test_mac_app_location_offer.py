@@ -145,9 +145,11 @@ class QuitAndReopen(unittest.TestCase):
                 ctx, calls = mock.Mock(), []
                 spawn.side_effect = lambda argv, system: calls.append(("spawn", argv, system)) or "proc"
                 desktop = ctx.ServiceManager.createInstanceWithContext.return_value
+                desktop.setPropertyValue.side_effect = lambda name, value: calls.append(("set", name, value))
                 desktop.terminate.side_effect = lambda: calls.append(("terminate",)) or closing
                 location._quit_and_reopen(ctx, argv)
-                self.assertEqual(calls, [("spawn", argv, "Darwin"), ("terminate",)])
+                # The quick starter's veto (macOS Dock menu) is lifted, else terminate() only closes the windows.
+                self.assertEqual(calls[:3], [("spawn", argv, "Darwin"), ("set", "SuspendQuickstartVeto", True), ("terminate",)])
                 self.assertEqual(cancel.call_args_list, [] if closing else [mock.call("proc")])
 
 
