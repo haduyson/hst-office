@@ -75,4 +75,6 @@ def run(ctx, frame):
             text = result_text(strings, *setup(ctx))
         except Exception as exc:  # noqa: BLE001 - one dialog; never log vendor output
             text, error = strings["failed"].format(error=vietnamese_error(exc)), True
+            from . import diag_log
+            diag_log.warning("usb_token", "set-up failed: %s" % type(exc).__name__)  # the type only: no vendor output
     message_box(ctx, peer, strings["title"], text, error=error)

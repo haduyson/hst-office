@@ -12,7 +12,6 @@ import os
 import platform
 import threading
 import time
-import traceback
 
 import uno
 
@@ -24,6 +23,7 @@ from . import update_ui as ui
 from .update_download import DownloadCancelled
 from .update_prepare import PrepareError, prepare
 from .update_texts import texts
+from . import diag_log
 
 DRY_RUN_ENV = "HST_UPDATE_DRY_RUN"  # test packages only (update_test_mode); release packages ignore it
 NOTES_FALLBACK = "https://office.hasontech.vn/#tai-ve"
@@ -93,7 +93,7 @@ def _download_dialog(ctx, peer, info, proxy):
             print("HST update install: %s" % exc, flush=True)
             outcome["code"] = exc.code
         except Exception:  # noqa: BLE001 - never let the worker die silently
-            traceback.print_exc()
+            diag_log.exception("update_install")
             outcome["code"] = "err_network"
         while not closed.is_set():  # a request to end before the modal loop runs is lost: repeat until it is closed
             ui.on_main_thread(ctx, lambda: None if closed.is_set() else dialog.end(1))
@@ -160,12 +160,12 @@ def start(ctx, peer):
             try:
                 launch_and_quit(ctx, outcome["result"], info)
             except Exception:  # noqa: BLE001 - helper could not be written or started
-                traceback.print_exc()
+                diag_log.exception("update_install")
                 fail(ctx, peer, "err_launch")
     except Exception:  # noqa: BLE001 - report instead of failing inside the UI thread
-        traceback.print_exc()
+        diag_log.exception("update_install")
         try:  # never silent: the user clicked "Cập nhật ngay" and must learn that nothing was installed
             fail(ctx, peer, "err_unexpected")
         except Exception:  # noqa: BLE001 - not even the message could be shown
-            traceback.print_exc()
+            diag_log.exception("update_install")
     return None

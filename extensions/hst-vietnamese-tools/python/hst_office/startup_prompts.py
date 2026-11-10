@@ -13,11 +13,11 @@ itself is not modal (an infobar) and always runs last.
 Runs on the main thread after the Start Center has painted (welcome_job.run_later), never inside the job.
 """
 import platform
-import traceback
 
 import unohelper
 from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
+from . import diag_log
 
 JOB_NAME = "org.hst.office.vi.StartupPromptsJob"
 ORDER = ("mac_move", "crash", "welcome", "default_apps", "update_outcome")
@@ -32,7 +32,7 @@ def run_chain(steps):
             if step():
                 return name
         except Exception:  # noqa: BLE001 - never break start-up
-            traceback.print_exc()
+            diag_log.exception("startup_prompts")
     return None
 
 
@@ -97,7 +97,7 @@ def run(ctx, steps=None, after=None):
     try:
         (after or _update_check)(ctx)
     except Exception:  # noqa: BLE001 - never break start-up
-        traceback.print_exc()
+        diag_log.exception("startup_prompts")
     return shown
 
 
@@ -119,5 +119,5 @@ class StartupPromptsJob(unohelper.Base, XServiceInfo, XJob):
             from .welcome_job import run_later
             run_later(self.ctx, lambda: run(self.ctx))
         except Exception:  # noqa: BLE001 - never block start-up
-            traceback.print_exc()
+            diag_log.exception("startup_prompts")
         return None

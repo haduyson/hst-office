@@ -14,8 +14,8 @@ TEXT = {
     "diagnostics": "Gửi kèm thông tin chẩn đoán",
     "diagnostics_note": "Thông tin hệ thống và nhật ký lỗi gần đây của HST Office, đã lọc bỏ tên tệp, "
                         "đường dẫn và tên người dùng.",
-    "diagnostics_note_crash": "Thông tin hệ thống, những gì đã biết về lần đóng đột ngột và nhật ký lỗi gần đây "
-                              "của HST Office, đã lọc bỏ tên tệp, đường dẫn và tên người dùng.",
+    "diagnostics_note_crash": "Thông tin hệ thống, vị trí lỗi khi bị đóng đột ngột và nhật ký lỗi gần đây của "
+                              "HST Office, đã lọc bỏ tên tệp, đường dẫn và tên người dùng.",
     "preview": "Xem nội dung sẽ gửi",
     "send": "Gửi",
     "cancel": "Hủy",

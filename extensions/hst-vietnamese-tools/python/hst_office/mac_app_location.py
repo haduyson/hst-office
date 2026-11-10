@@ -10,9 +10,9 @@ its path (".../AppTranslocation/<id>/d/..."): without native libraries its origi
 """
 import os
 import platform
-import traceback
 
 from . import mac_move_script as move
+from . import diag_log
 
 APP_NAME = "HST Office.app"
 DESTINATION = "/Applications/" + APP_NAME
@@ -80,7 +80,7 @@ def remember(release, home=None):
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(release + "\n")
     except OSError:
-        traceback.print_exc()  # asked again next time rather than never
+        diag_log.exception("mac_app_location")  # asked again next time rather than never
 
 
 def _running_bundle(ctx):
@@ -102,7 +102,7 @@ def _tell(ctx, text, message):
     try:
         _ask(ctx, text["move_title"], message, [(text["close"], "close")])
     except Exception:  # noqa: BLE001 - not even the message could be shown
-        traceback.print_exc()
+        diag_log.exception("mac_app_location")
 
 
 def _with_progress(ctx, title, message, work):
@@ -118,7 +118,7 @@ def _with_progress(ctx, title, message, work):
         try:
             result[0] = work()
         except Exception:  # noqa: BLE001 - reported as a failed move
-            traceback.print_exc()
+            diag_log.exception("mac_app_location")
         while not closed.is_set():  # an end() requested before the modal loop runs is lost: repeat until closed
             ui.on_main_thread(ctx, lambda: None if closed.is_set() else dialog.end(1))
             closed.wait(0.3)
@@ -175,7 +175,7 @@ def _offer(ctx, home=None):
         try:
             _move(ctx, text, place, exists)
         except Exception:  # noqa: BLE001 - never silent after the click: script, path or start of the helper failed
-            traceback.print_exc()
+            diag_log.exception("mac_app_location")
             _tell(ctx, text, text["move_error"])
     return True
 
@@ -190,5 +190,5 @@ def offer_move_once(ctx):
     try:
         return _offer(ctx)
     except Exception:  # noqa: BLE001 - never block start-up; the updater still installs into /Applications
-        traceback.print_exc()
+        diag_log.exception("mac_app_location")
         return False

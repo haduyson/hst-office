@@ -8,7 +8,6 @@ execute((Model, FilterName, Export)) returns False to cancel the save. Choices:
     its formulas back right after the save (or keeps the values, as one undo step, when the box is ticked);
   - "Vẫn lưu": unchanged; - "Hủy" (or closing the dialog): nothing is saved.
 """
-import traceback
 
 import unohelper
 from com.sun.star.document import XDocumentEventListener
@@ -19,6 +18,7 @@ from . import utilities_texts as T
 from .vietnamese_calc_logic import FUNCTION_NAMES, functions_used
 from .undo import undo_locked, undo_step
 from .vba_template import is_excel_filter
+from . import diag_log
 
 SERVICE_NAME = "org.hst.office.vi.SaveFormatCheck"
 FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
@@ -73,7 +73,7 @@ class _Restore(unohelper.Base, XDocumentEventListener):
                     cell.setFormula(formula)
             self.doc.setModified(False if event.EventName in DONE_EVENTS else self.modified)
         except Exception:  # noqa: BLE001 - never raise into the save
-            traceback.print_exc()
+            diag_log.exception("save_format_check")
 
     def disposing(self, event):
         pass
@@ -141,5 +141,5 @@ class SaveFormatCheck(unohelper.Base, XServiceInfo, XJob):
         try:
             return check(self.ctx, _argument(arguments, "Model"), _argument(arguments, "FilterName", ""))
         except Exception:  # noqa: BLE001 - a broken check must never block saving
-            traceback.print_exc()
+            diag_log.exception("save_format_check")
             return True

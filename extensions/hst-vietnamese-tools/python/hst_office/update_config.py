@@ -16,7 +16,7 @@ Precedence of one setting: core finalized > macOS managed preference > legacy fi
 import os
 import plistlib
 import sys
-import traceback
+from . import diag_log
 
 CORE_PATH = "/org.openoffice.Office.HSTUpdate"
 LEGACY_PATH = "/org.hasontech.hstoffice.UpdateCheck"
@@ -161,7 +161,7 @@ def migrate(ctx):
             _log("migrated %s from %s" % (", ".join(sorted(plan)), LEGACY_PATH))
         return plan
     except Exception:  # noqa: BLE001 - no core schema or a locked flag: nothing to migrate
-        traceback.print_exc()
+        diag_log.exception("update_config")
         return {}
 
 
@@ -192,5 +192,5 @@ def save(ctx, name, value):
         node.commitChanges()
         return True
     except Exception:  # noqa: BLE001 - a failing config write must never disturb the office
-        traceback.print_exc()
+        diag_log.exception("update_config")
         return False

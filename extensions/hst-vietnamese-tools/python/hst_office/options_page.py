@@ -3,11 +3,11 @@
 
 The page stores nothing (OK/Cancel have nothing to save); its one button runs the same action as the HST menu item.
 """
-import traceback
 
 import unohelper
 from com.sun.star.awt import XContainerWindowEventHandler
 from com.sun.star.lang import XServiceInfo
+from . import diag_log
 
 HANDLER_NAME = "org.hst.office.vi.OptionsPage"
 METHODS = ("external_event", "defaultApps")
@@ -35,6 +35,6 @@ class OptionsPageHandler(unohelper.Base, XServiceInfo, XContainerWindowEventHand
                 from .default_apps import run_from_menu
                 run_from_menu(self.ctx, window.getPeer() if window is not None else None)
             except Exception:  # noqa: BLE001 - never raise into the options dialog
-                traceback.print_exc()
+                diag_log.exception("options_page")
             return True
         return method == "external_event"  # ok / back / initialize: nothing to load or save

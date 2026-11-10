@@ -10,7 +10,8 @@
     <node oor:name="org.hst.office.vi.StartupPromptsJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.StartupPromptsJob</value></prop>
     </node>
-    <!-- after an abnormal exit: OnStartApp reads the recovery state; the start-up dispatcher asks (hst_office/error_report_crash.py) -->
+    <!-- after an abnormal exit: OnStartApp reads the recovery state and HST's session marker, OnCloseApp removes the
+         marker; the start-up dispatcher asks (hst_office/error_report_crash.py, hst_office/diag_crash.py) -->
     <node oor:name="org.hst.office.vi.CrashReportJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.CrashReportJob</value></prop>
     </node>
@@ -27,6 +28,11 @@
       </node>
     </node>
     <node oor:name="OnStartApp" oor:op="fuse">
+      <node oor:name="JobList">
+        <node oor:name="org.hst.office.vi.CrashReportJob" oor:op="replace"/>
+      </node>
+    </node>
+    <node oor:name="OnCloseApp" oor:op="fuse">
       <node oor:name="JobList">
         <node oor:name="org.hst.office.vi.CrashReportJob" oor:op="replace"/>
       </node>

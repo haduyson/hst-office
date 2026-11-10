@@ -7,8 +7,9 @@ Usage: python3 tests/runtime/check-error-report.py [--instdir upstream/libreoffi
 Uses a hard-linked instdir copy with the test package (error_report_gui.prepare_instdir) and sends only to the local
 fake server of tests/unit/error_report_fake_server.py (HST_ERROR_REPORT_TEST_URL, honoured by test packages only):
   1. the entry is in the classic Help menu of the Start Center, Writer, Sheets and Slides and in the ribbon ≡ menu;
-  2. the dialog opens (light and dark), the preview shows the JSON, Gửi sends the payload typed in, without
-     diagnostics; with the box ticked, systemInfo and the filtered HST log come along, free of profile paths;
+  2. the dialog opens (light and dark), the preview shows the JSON, Gửi sends the payload typed in; the diagnostics
+     box is ticked by default: systemInfo and the filtered HST log come along, free of profile paths; unticked,
+     nothing but the summary is sent;
   3. a 503 answer offers the e-mail fallback;
   4. Crashed = true in the profile: the next start asks once; Gửi opens the dialog with kind=crash.
 The Xvfb display must already run; it is never started or stopped here. Exit 1 when a check fails.
@@ -35,8 +36,8 @@ def record(label, ok, detail=""):
     print("%-4s %s%s" % ("PASS" if ok else "FAIL", label, (" (%s)" % detail) if detail and not ok else ""), flush=True)
 
 
-def send_report(office, frame, server, shots, name, text, diagnostics=False, crash_wid=None):
-    """Open (or reuse) the dialog, type `text`, optionally tick the box, preview, send; returns the dialog wid."""
+def send_report(office, frame, server, shots, name, text, untick=False, crash_wid=None):
+    """Open (or reuse) the dialog, type `text`, optionally untick the box, preview, send; returns the dialog wid."""
     thread = None if crash_wid else gui.dispatch_async(office, frame)
     wid = crash_wid or gui.dialog(office)
     record(name + ": dialog opens", wid)
@@ -46,7 +47,7 @@ def send_report(office, frame, server, shots, name, text, diagnostics=False, cra
         gui.xdo(office, "windowfocus", "--sync", wid)
         gui.click(office, wid, 160, 70, DIALOG)
         gui.xdo(office, "type", "--delay", "40", text)
-    if diagnostics:
+    if untick:
         gui.click(office, wid, 40, 191, DIALOG)
     time.sleep(0.8)
     gui.shot(office, wid, os.path.join(shots, name + "-dialog.png"))
@@ -79,6 +80,14 @@ def check_payload(name, server, profile_dir, expect):
     raw = server.requests[-1]["body"].decode("utf-8") if server.requests else ""
     record(name + ": no profile path or user name", raw and profile_dir not in raw and hst_gui.BUILD_USER not in raw)
     return doc
+
+
+def seed_log(profile, line):
+    folder = os.path.join(profile, "profile", "user", "hst-office")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "hst-office.log"), "a", encoding="utf-8") as log:
+        log.write(line)
+    os.system("chmod -R a+rwX %s" % folder)
 
 
 def menus(office, shots):
@@ -118,7 +127,7 @@ def crash_phase(instdir, out, shots, server, display):
         gui.shot(office, prompt[0][0], os.path.join(shots, "crash-prompt.png"))
         gui.click(office, prompt[0][0], 193, 49, PROMPT)
         wid = gui.dialog(office)
-        send_report(office, None, server, shots, "crash", "", diagnostics=True, crash_wid=wid)
+        send_report(office, None, server, shots, "crash", "", crash_wid=wid)
         check_payload("crash", server, os.path.join(out, "gui"), {
             "kind": "crash", "diagnostics": lambda d: bool(d) and "Emergency save ran: yes" in d.get("crash", "")})
         node = office.service("com.sun.star.configuration.ConfigurationProvider")
@@ -142,13 +151,9 @@ def main():
     instdir = gui.prepare_instdir(args.instdir, args.out)
     hst_gui.setup_uno(instdir)
     server = FakeServer()
-    tmp = os.path.join(args.out, "tmp")
-    os.makedirs(tmp, exist_ok=True)  # TMPDIR of soffice: holds the HST log the filter must clean
     profile = os.path.join(args.out, "gui")
-    with open(os.path.join(tmp, "hst-office-errors.log"), "w", encoding="utf-8") as log:
-        log.write("2026-11-06 10:00:01 ConvertEncoding\nIOError: %s/home/Tài liệu/Báo cáo.docx\n" % profile)
-    os.system("chmod -R a+rwX %s" % tmp)
-    env = {"HST_ERROR_REPORT_TEST_URL": server.url, "TMPDIR": tmp}
+    seeded = "2026-11-06T10:00:01Z ERROR dispatch ConvertEncoding: IOError: %s/home/Tài liệu/Báo cáo.docx\n" % profile
+    env = {"HST_ERROR_REPORT_TEST_URL": server.url}
     try:
         for dark in (False, True):
             config = [("/org.openoffice.Office.Common/Appearance", "ApplicationAppearance", "2" if dark else "1"),
@@ -157,21 +162,22 @@ def main():
                                     env=dict(env, GTK_THEME="Adwaita:dark" if dark else "Adwaita"), config=config)
             try:
                 office.start()
+                seed_log(profile, seeded)  # an entry as an older client could have written it: filtered on reading
                 if gui.wait(office.close_welcome, 20):  # the test profile shows it; it would cover the menus
                     gui.wait(lambda: not gui.windows(office, "chào đón"), 10)
                 tag = "dark" if dark else "light"
                 frame = menus(office, args.shots) if not dark else office.load("private:factory/swriter") \
                     .getCurrentController().getFrame()
-                send_report(office, frame, server, args.shots, tag, "Khong luu duoc tep docx")
+                send_report(office, frame, server, args.shots, tag, "Khong luu duoc tep docx", untick=True)
                 check_payload(tag, server, profile, {"kind": "user", "app": "writer", "diagnostics": None,
                                                     "description": "Khong luu duoc tep docx"})
                 if not dark:
-                    send_report(office, frame, server, args.shots, "diagnostics", "Loi khi in", diagnostics=True)
+                    send_report(office, frame, server, args.shots, "diagnostics", "Loi khi in")
                     check_payload("diagnostics", server, profile, {"diagnostics": lambda d: bool(d)
                                   and "VCL: gtk3" in d.get("systemInfo", "") and "<PATH>" in d.get("log", "")
                                   and "Báo cáo" not in d.get("log", "")})  # noqa: E127
                     server.mode = 503
-                    send_report(office, frame, server, args.shots, "server-error", "Loi 503")
+                    send_report(office, frame, server, args.shots, "server-error", "Loi 503", untick=True)
                     server.mode = None
                     wid = gui.dialog(office)
                     if wid:

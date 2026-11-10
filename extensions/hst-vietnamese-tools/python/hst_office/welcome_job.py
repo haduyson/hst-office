@@ -5,7 +5,6 @@ Persistent flag: /org.hasontech.hstoffice.Welcome/Shown (boolean, per user; sche
 written as soon as the dialog is displayed, so a crash or kill never makes the dialog loop. The "do not show
 again" tick is on by default; closing with it cleared writes Shown=false so the dialog appears again next start.
 """
-import traceback
 
 import unohelper
 from com.sun.star.awt import XCallback
@@ -14,6 +13,7 @@ from com.sun.star.task import XJob
 
 from .data_files import load_locale
 from .welcome_dialog import Welcome
+from . import diag_log
 
 JOB_NAME = "org.hst.office.vi.WelcomeJob"
 CONFIG_PATH = "/org.hasontech.hstoffice.Welcome"
@@ -54,7 +54,7 @@ def _safe(fn, *args):
     try:
         fn(*args)
     except Exception:  # noqa: BLE001 - a failing config write must not break the office start
-        traceback.print_exc()
+        diag_log.exception("welcome_job")
 
 
 class _Later(unohelper.Base, XCallback):
@@ -71,7 +71,7 @@ class _Later(unohelper.Base, XCallback):
             else:
                 self.fn()
         except Exception:  # noqa: BLE001 - never raise into the office's event loop
-            traceback.print_exc()
+            diag_log.exception("welcome_job")
 
 
 def _post(ctx, callback):
@@ -111,5 +111,5 @@ class WelcomeJob(unohelper.Base, XServiceInfo, XJob):
             if not is_shown(self.ctx):
                 show_after_start_center(self.ctx)
         except Exception:  # noqa: BLE001 - never block start-up
-            traceback.print_exc()
+            diag_log.exception("welcome_job")
         return None

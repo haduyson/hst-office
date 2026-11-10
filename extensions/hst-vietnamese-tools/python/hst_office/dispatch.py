@@ -1,15 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """ProtocolHandler (Vietnamese in every UI language: product policy) for the org.hst.office.vi: command URLs used by the HST menu and toolbar."""
-import os
-import tempfile
-import time
-import traceback
-
 import unohelper
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from . import ui_language, usb_token
+from . import diag_log, ui_language, usb_token
 from .actions import COMMANDS, Host
 from .data_files import load_locale
 
@@ -26,13 +21,8 @@ DUPLEX = "ToggleDuplex"  # HST ▸ In hai mặt: a check item showing the docume
 
 
 def log_error(command):
-    """Print the traceback and append it to hst-office-errors.log in the temp directory (the Windows office has no console)."""
-    traceback.print_exc()
-    try:
-        with open(os.path.join(tempfile.gettempdir(), "hst-office-errors.log"), "a", encoding="utf-8") as handle:
-            handle.write("%s %s\n%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), command, traceback.format_exc()))
-    except OSError:
-        pass
+    """Print the traceback and add it to HST's local log (diag_log; the Windows office has no console)."""
+    diag_log.exception("dispatch " + command)
 
 
 class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, XDispatch):
@@ -115,7 +105,7 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
             peer = self.frame.getContainerWindow() if self.frame else None
             show_welcome(self.ctx, "menu", peer)  # introductory content: always Vietnamese
         except Exception:  # noqa: BLE001 - report instead of failing silently inside the UI thread
-            traceback.print_exc()
+            log_error(SHOW_SOLUTIONS)
 
     def _duplex_state(self):
         from .nd30_duplex import read_choice

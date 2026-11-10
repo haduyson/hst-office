@@ -6,21 +6,22 @@ decide on document recovery (desktop/source/app/app.cxx impl_checkRecoveryState)
   * RecoveryInfo/Crashed: set by the emergency save after a crash;
   * RecoveryList not empty while RecoveryInfo/SessionData is false: documents were open when the office ended without
     closing them (killed, power loss, a crash before the emergency save).
-No crash handler of its own. The state is read at OnStartApp, before document recovery runs and resets it; the
+The office's recovery state is combined with HST's own session marker and crash signature (diag_crash: the fatal
+signal and stack the office or the OS recorded). The state is read at OnStartApp, before document recovery runs and resets it; the
 question is asked after onFirstVisibleTask, i.e. after the recovery dialog has closed and the recovered documents or
 the Start Center are shown, so both never compete. Crashed is then cleared, as recovery itself does, so the same exit
 is asked about once; "Không hỏi lại" stores /org.hasontech.hstoffice.ErrorReport/AskAfterCrash = false.
 
-The crash facts are what the office knows: which signal, how many documents were open and in which apps. Never
-their names or locations.
+The crash facts are what the office knows: how many documents were open and in which apps, whether the session marker
+was left and the crash signature (faulting module and offsets). Never document names or locations.
+OnCloseApp removes the session marker: a normal exit is never reported.
 """
-import traceback
-
 import unohelper
 from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
-from .error_report_info import app_of_module
+from . import diag_crash, diag_log
+from .error_report_info import app_of_module, environment
 from .error_report_texts import TEXT
 
 JOB_NAME = "org.hst.office.vi.CrashReportJob"
@@ -64,12 +65,14 @@ def abnormal(state):
 
 
 def crash_facts(state):
-    """(diagnostics.crash text, app) from the recovery state; the app is known when all open documents share it."""
+    """(diagnostics.crash text, app) from the recovery state and the session marker (state["session_marker"]); the app
+    is known when all open documents share it."""
     apps = sorted({app_of_module(module) for module in state["modules"]})
     lines = ["Previous session: ended abnormally (detected at the next start)",
              "Emergency save ran: %s" % ("yes" if state["crashed"] else "no"),
              "Documents open at exit: %d%s" % (len(state["modules"]), (" (%s)" % ", ".join(apps)) if apps else ""),
              "Document recovery offered: %s" % ("yes" if state["modules"] and not state["session"] else "no")]
+    lines += diag_crash.facts(state.get("session_marker"))
     return "\n".join(lines), apps[0] if len(apps) == 1 else "unknown"
 
 
@@ -81,9 +84,11 @@ def ask_enabled(ctx):
 
 
 def capture(ctx):
-    """OnStartApp: remember an abnormal previous exit before recovery runs."""
+    """OnStartApp: start this session's diagnostics, remember an abnormal previous exit before recovery runs."""
+    previous = diag_crash.start(ctx, environment(ctx, None))
     state = recovery_state(ctx)
-    if abnormal(state) and ask_enabled(ctx):
+    state["session_marker"] = previous
+    if (abnormal(state) or previous) and ask_enabled(ctx):
         STATE["pending"] = state
 
 
@@ -96,7 +101,7 @@ def ask(ctx, frame=None, show=None, open_report=None):
         try:
             _write(ctx, RECOVERY + "/RecoveryInfo", "Crashed", False)  # asked once per exit
         except Exception:  # noqa: BLE001
-            traceback.print_exc()
+            diag_log.exception("error_report_crash")
     if frame is None:
         frame = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).getCurrentFrame()
     answer = (show or _question)(ctx, frame.getContainerWindow() if frame is not None else None)
@@ -157,9 +162,11 @@ class CrashReportJob(unohelper.Base, XServiceInfo, XJob):
             event = _event(arguments)
             if event == "OnStartApp":
                 capture(self.ctx)
+            elif event == "OnCloseApp":
+                diag_crash.stop()
             elif event == "onFirstVisibleTask" and STATE["pending"] is not None:
                 from .welcome_job import run_later
                 run_later(self.ctx, lambda: ask(self.ctx))
         except Exception:  # noqa: BLE001 - never block or break start-up
-            traceback.print_exc()
+            diag_log.exception("error_report_crash")
         return None
