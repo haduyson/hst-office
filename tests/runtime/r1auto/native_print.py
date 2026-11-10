@@ -56,7 +56,12 @@ def mac_print(target):
         import ApplicationServices as ax
         from mac_access import applications, attribute, nodes, press
         app = wait(lambda: next(iter(applications()), None))
-        pdf_button = wait(lambda: next((n for n in nodes(app) if attribute(n, "AXTitle") == "PDF"), None))
+        # The panel's "PDF" is a label button plus an AXMenuButton; only the menu button opens the PDF menu
+        # (print-tree.log of r1-auto macOS run 42892534997).
+        def pdf_menu():
+            found = [n for n in nodes(app) if attribute(n, "AXTitle") == "PDF" or attribute(n, "AXDescription") == "PDF"]
+            return next((n for n in found if attribute(n, "AXRole") == "AXMenuButton"), None)
+        pdf_button = wait(pdf_menu)
         ax.AXUIElementPerformAction(pdf_button, "AXPress")
         item = wait(lambda: next((n for n in nodes(app) if attribute(n, "AXTitle") in
                                  {"Save as PDF", "Save as PDF…", "Lưu dưới dạng PDF", "Lưu dưới dạng PDF…"}), None))
