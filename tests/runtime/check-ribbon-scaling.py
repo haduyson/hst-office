@@ -2,7 +2,7 @@
 """Check the Office-style collapse ladder of the ribbon on a real GUI (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-ribbon-scaling.py [--instdir DIR] [--display :71] [--shots DIR]
-           [--apps writer,calc,impress] [--out DIR]
+           [--apps writer,calc,impress,draw] [--out DIR]
 
 Per app, on the Home tab (Trang đầu), the window is narrowed through 1920, 1600, 1485, 1366, 1280, 1100,
 1000 and 900 px (900 px high). Each ribbon toolbar is identified by the names of its first items:
@@ -33,7 +33,7 @@ import ribbon_tabs_gui as gui  # noqa: E402
 from ribbon_scaling_scan import scan  # noqa: E402
 
 WIDTHS = [1920, 1600, 1485, 1366, 1280, 1100, 1000, 900]
-PORTS = {"writer": 7430, "calc": 7431, "impress": 7432}
+PORTS = {"writer": 7430, "calc": 7431, "impress": 7432, "draw": 7433}
 ROWS = []
 
 
@@ -144,7 +144,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--instdir", default=os.path.join(hst_gui.ROOT, "upstream/libreoffice/instdir"))
     parser.add_argument("--display", default=":71")
-    parser.add_argument("--apps", default="writer,calc,impress")
+    parser.add_argument("--apps", default="writer,calc,impress,draw")
     parser.add_argument("--out", default=os.path.join(hst_gui.ROOT, "tests/output/ribbon-scaling"))
     parser.add_argument("--shots")
     args = parser.parse_args()
