@@ -26,6 +26,21 @@ def write_helper(helper, directory):
     return path
 
 
+# macOS helpers start with a login-like environment, not the office's own. The office process carries variables that
+# point into the bundle it runs from (URE_BOOTSTRAP, PYTHONPATH, ...). `open` passes the caller's environment on, so
+# a copy opened from a helper of a translocated office looked for its UNO types in the old, unmounted bundle and
+# crashed at start (SIGSEGV in LocaleBackend::getPropertyValue). Kept: what the scripts and LaunchServices need.
+MAC_HELPER_ENV = ("HOME", "USER", "LOGNAME", "TMPDIR")
+MAC_HELPER_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def mac_helper_environment(environ=None):
+    environ = os.environ if environ is None else environ
+    env = {name: environ[name] for name in MAC_HELPER_ENV if environ.get(name)}
+    env["PATH"] = MAC_HELPER_PATH
+    return env
+
+
 def spawn(argv, system, log_dir=None):
     """Start a detached helper; log_dir optionally ensures the log's parent exists."""
     if system not in ("Windows", "Darwin", "Linux"):
@@ -40,6 +55,8 @@ def spawn(argv, system, log_dir=None):
                                     | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
     else:
         options["start_new_session"] = True
+    if system == "Darwin":
+        options["env"] = mac_helper_environment()
     return subprocess.Popen(argv, **options)
 
 
