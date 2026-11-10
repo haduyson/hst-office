@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """ProtocolHandler (Vietnamese in every UI language: product policy) for the org.hst.office.vi: command URLs used by the HST menu and toolbar."""
+import os
+
 import unohelper
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
@@ -17,12 +19,31 @@ SHOW_SOLUTIONS = "ShowSolutions"  # needs no document, so it also works in the S
 USB_TOKEN = "SetupUsbToken"
 REPORT_ERROR = "ReportError"  # Trợ giúp ▸ Báo lỗi cho HASON TECH; needs no document either
 DEFAULT_APPS = "DefaultApps"  # HST ▸ Dùng HST Office để mở tài liệu văn phòng; needs no document
+TEST_RAISE_ENV = "HST_DIAG_TEST_RAISE"
 DUPLEX = "ToggleDuplex"  # HST ▸ In hai mặt: a check item showing the document's choice
 
 
 def log_error(command):
     """Print the traceback and add it to HST's local log (diag_log; the Windows office has no console)."""
     diag_log.exception("dispatch " + command)
+
+
+def has_document(frame):
+    """Whether the frame shows a document (the Start Center has a controller but no model)."""
+    controller = frame.getController() if frame is not None else None
+    return controller is not None and controller.getModel() is not None
+
+
+def raise_for_test(command, environ=None):
+    """Test packages only (release.json update_test_mode, see build-extensions.py --update-test-mode):
+    HST_DIAG_TEST_RAISE=<command> makes that command fail inside this UNO entry point, so the runtime checks can
+    prove the exception reaches the local log. Inert in release packages and when the variable is unset."""
+    environ = os.environ if environ is None else environ
+    if environ.get(TEST_RAISE_ENV) != command:
+        return
+    from .update_fetch import release_info
+    if release_info().get("test_mode") is True:
+        raise RuntimeError("diagnostics test hook: %s" % command)
 
 
 class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, XDispatch):
@@ -78,6 +99,9 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
         frame = self.frame
         try:
             frame = self._frame_for(url.Path)
+            raise_for_test(url.Path)
+            if not has_document(frame):  # the HST menu is in the Start Center too: say what is missing
+                return self._say(frame, load_locale("vi")["common"]["noDocument"])
             COMMANDS[url.Path](Host(self.ctx, frame, load_locale("vi")))
             if url.Path == DUPLEX:
                 self._send_duplex_state()
@@ -87,6 +111,10 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
                 Host(self.ctx, frame, load_locale("vi")).say("%s: %s" % (type(exc).__name__, exc), error=True)
             except Exception:  # noqa: BLE001
                 pass
+
+    def _say(self, frame, text):
+        from .dialogs import message_box
+        message_box(self.ctx, frame.getContainerWindow() if frame else None, load_locale("vi")["common"]["error"], text)
 
     def _frame_for(self, command):
         """Frame of a document of the kind the command works on; opens a blank one from the Start Center or another module."""

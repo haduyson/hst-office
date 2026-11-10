@@ -5,7 +5,7 @@ Usage: python3 tests/runtime/check-local-diagnostics.py [--instdir upstream/libr
            [--out tests/output/local-diagnostics] [--display :75]
 
 Uses a hard-linked instdir copy with the test package (error_report_gui.prepare_instdir) and the local fake server:
-  1. a Python exception in an HST component (an HST document command dispatched to the Start Center) lands in
+  1. a Python exception in an HST component (the dispatcher's test-package hook, HST_DIAG_TEST_RAISE) lands in
      <profile>/user/hst-office/hst-office.log with its traceback, filtered; the session start entry is there too;
   2. the office is killed with SIGSEGV: faulthandler and the office's own fatal-signal handler write the signal and
      the stack to last-session.err (kept as crashed-session.err in --out), the session marker stays;
@@ -28,7 +28,8 @@ from error_report_fake_server import FakeServer, invalid  # noqa: E402
 
 UNO_PORT = 22193
 DIALOG, PROMPT = (320, 262), (280, 62)
-FAILING_COMMAND = "org.hst.office.vi:ToggleDuplex"  # a document command: the Start Center has no document
+FAILING_COMMAND = "org.hst.office.vi:ToggleDuplex"
+TEST_RAISE = {"HST_DIAG_TEST_RAISE": "ToggleDuplex"}  # read by test packages only (hst_office.dispatch.raise_for_test)
 RESULTS = []
 
 
@@ -72,9 +73,9 @@ def first_session(office, diag, out):
     thread.join(10)
     log = read(os.path.join(diag, "hst-office.log"))
     record("log: session start with version and OS", "INFO session: start " in log and " python " in log, log[:300])
-    record("log: the exception with its traceback", "ERROR dispatch ToggleDuplex: AttributeError" in log
-           and "\n  Traceback (most recent call last):" in log and "<PATH>/actions.py" in log, log[-600:])
-    record("log: the user-visible error as a warning", "WARNING command: AttributeError" in log, log[-300:])
+    record("log: the exception with its traceback", "ERROR dispatch ToggleDuplex: RuntimeError: diagnostics test" in log
+           and "\n  Traceback (most recent call last):" in log and "<PATH>/dispatch.py" in log, log[-600:])
+    record("log: the user-visible error as a warning", "WARNING command: RuntimeError" in log, log[-300:])
     record("log: no profile path or build user", office.workdir not in log and hst_gui.BUILD_USER not in log)
     record("session marker written", os.path.exists(os.path.join(diag, "session.json")))
     pid = office.pid
@@ -120,7 +121,7 @@ def crash_report(office, server, out):
     record("server accepts the payload", doc and not invalid(doc), invalid(doc) if doc else "no request")
     record("payload: kind crash", doc.get("kind") == "crash")
     record("payload: systemInfo", "VCL: gtk3" in diagnostics.get("systemInfo", ""), diagnostics.get("systemInfo"))
-    record("payload: log with the exception", "AttributeError" in diagnostics.get("log", ""), diagnostics.get("log"))
+    record("payload: log with the exception", "diagnostics test hook" in diagnostics.get("log", ""), diagnostics.get("log"))
     crash = diagnostics.get("crash", "")
     record("payload: crash signature", "Fatal signal: Segmentation fault" in crash and ".so " in crash, crash)
     raw = server.requests[-1]["body"].decode("utf-8") if len(server.requests) > before else ""
@@ -141,7 +142,7 @@ def main():
     profile = os.path.join(args.out, "gui")
     diag = os.path.join(profile, "profile", "user", "hst-office")
     office = hst_gui.Office(instdir, profile, UNO_PORT, display=args.display, nodefault=False,
-                            env={"HST_ERROR_REPORT_TEST_URL": server.url})
+                            env=dict(TEST_RAISE, HST_ERROR_REPORT_TEST_URL=server.url))
     try:
         first_session(office, diag, args.out)
         crash_report(office, server, args.out)
