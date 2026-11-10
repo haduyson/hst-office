@@ -330,6 +330,13 @@ jobs:
           set -euo pipefail
           install="$(cygpath -u "$HST_INSTALL")"
           timeout 600 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-pdf-selection.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out/pdf-selection")"
+      - name: UI parity - translucent rectangles stay translucent (Impress edit view and slide show)
+        if: ${{ !cancelled() && matrix.scenario == 'ui-parity' && env.HST_INSTALL != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          install="$(cygpath -u "$HST_INSTALL")"
+          timeout 600 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-transparent-rects.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out/transparent-rects")"
       - name: UI parity - diagnostics
         if: ${{ always() && startsWith(matrix.scenario, 'ui-parity') }}
         shell: bash
