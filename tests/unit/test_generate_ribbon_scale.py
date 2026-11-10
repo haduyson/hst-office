@@ -41,7 +41,32 @@ class GenerateRibbonScaleTest(unittest.TestCase):
         # the first ladders stay as committed; the follow-up patch changes them to the current data
         base = os.path.join(ROOT, "patches/libreoffice/hst-ribbon-scale-ladders.patch")
         with open(os.path.join(ROOT, "patches/libreoffice/hst-ribbon-scale-ladders-collapse.patch"), encoding="utf-8") as handle:
-            self.assertEqual(handle.read(), gen.follow_up_text(gen.base_header(base), gen.header(DATA)))
+            self.assertEqual(handle.read(), gen.follow_up_text(gen.base_header(base), gen.header(gen.stage(DATA))))
+
+    def test_draw_follow_up_is_current_and_applies_after_the_committed_ladders(self):
+        # HST Draw's ladder came later: its own follow-up patch adds it on top of the committed header
+        old, new = gen.header(gen.stage(DATA)), gen.header(gen.stage(DATA, "draw"))
+        text = gen.follow_up_text(old, new, gen.FOLLOW_UPS["draw"])
+        with open(os.path.join(ROOT, "patches/libreoffice", gen.STAGES["draw"]), encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), text)
+        self.assertNotIn("draw_pmhbHome", old)
+        self.assertIn("draw_pmhbHome", new)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, gen.HEADER)
+            os.makedirs(os.path.dirname(target))
+            with open(target, "w", encoding="utf-8") as handle:
+                handle.write(old)
+            run = subprocess.run(["patch", "-p1", "--fuzz=0", "-s", "-d", tmp], input=text, text=True, capture_output=True)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            self.assertEqual(open(target, encoding="utf-8").read(), new)
+
+    def test_draw_home_is_slides_home_without_the_slide_group(self):
+        impress = next(l for l in DATA["ladders"] if l["app"] == "impress")
+        draw = next(l for l in DATA["ladders"] if l["app"] == "draw")
+        self.assertEqual(draw["groups"], [g for g in impress["groups"] if g != "gdHomeSlide"])
+        self.assertEqual(draw["steps"], [s for s in impress["steps"] if s[0] != "gdHomeSlide"])
+        with self.assertRaises(gen.LadderError):
+            gen.stage(DATA, "nope")
 
     def test_follow_up_applies_to_the_base_header(self):
         base = os.path.join(ROOT, "patches/libreoffice/hst-ribbon-scale-ladders.patch")
@@ -54,9 +79,9 @@ class GenerateRibbonScaleTest(unittest.TestCase):
             with open(target, "w", encoding="utf-8") as handle:
                 handle.write(old)
             run = subprocess.run(["patch", "-p1", "--fuzz=0", "-s", "-d", tmp],
-                                 input=gen.follow_up_text(old, gen.header(DATA)), text=True, capture_output=True)
+                                 input=gen.follow_up_text(old, gen.header(gen.stage(DATA))), text=True, capture_output=True)
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-            self.assertEqual(open(target, encoding="utf-8").read(), gen.header(DATA))
+            self.assertEqual(open(target, encoding="utf-8").read(), gen.header(gen.stage(DATA)))
 
     def test_collapse_steps(self):
         # Home: Tools gives way first (PriorityHBox), then the ladder; Styles collapses into its
