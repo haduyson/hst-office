@@ -135,6 +135,16 @@ def click(x, y):
     time.sleep(0.3)
 
 
+def drag(start, end, steps=10):
+    """Press the left button at screen pixel `start`, move to `end` in `steps` moves and release, as a hand does."""
+    mouse_move(*start)
+    _send(_mouse(_LEFTDOWN))
+    time.sleep(0.1)
+    mouse_move(*end, steps=steps, pause=0.05)
+    _send(_mouse(_LEFTUP))
+    time.sleep(0.3)
+
+
 def key_press(vk):
     down, up = _Input(type=1), _Input(type=1)
     down.u.ki = _KeyInput(vk, 0, 0, 0, 0)

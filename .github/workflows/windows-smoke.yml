@@ -56,9 +56,10 @@ jobs:
         # upgrade-from-beta5: the new MSI installed over beta.5 (HST Office's own code): one entry, every file, own ProgIDs.
         # ui-parity: the MSI with its default-apps box ticked; start-up questions of starts 1-3 of a new user, every
         # Tùy chọn ▸ HST Office page inside the Options dialog, the ND30 "Loại văn bản" list under real pointer moves and
-        # the recent-documents thumbnail of a PDF with a faint stamp. ui-parity-unticked: the box left unticked (the
-        # question comes on start 2) and the option pages. ui-parity-old-profile: HST beta.5 installed, started once,
-        # uninstalled, then this MSI (unticked) on the profile beta.5 left: option pages and start-up questions.
+        # the recent-documents thumbnail of a PDF with a faint stamp, text selected in HST PDF (light highlight, readable
+        # text). ui-parity-unticked: the box left unticked (the question comes on start 2) and the option pages.
+        # ui-parity-old-profile: HST beta.5 installed, started once, uninstalled, then this MSI (unticked) on the profile
+        # beta.5 left: option pages and start-up questions.
         # Each scenario runs on a fresh runner.
         scenario: ${{ fromJSON(inputs.scenarios != '' && inputs.scenarios || (inputs.install_paths && '["commands","ui-parity","ui-parity-unticked","ui-parity-old-profile","libreoffice-first","hst-first","uninstall-beta4-then-install","upgrade-from-beta4","upgrade-from-beta5"]' || '["commands","ui-parity","ui-parity-unticked","ui-parity-old-profile"]')) }}
     env:
@@ -322,6 +323,13 @@ jobs:
           set -euo pipefail
           install="$(cygpath -u "$HST_INSTALL")"
           timeout 600 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-pdf-recent-thumbnail.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out/pdf-recent-thumbnail")"
+      - name: UI parity - text selected in HST PDF stays readable under a light highlight
+        if: ${{ !cancelled() && matrix.scenario == 'ui-parity' && env.HST_INSTALL != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          install="$(cygpath -u "$HST_INSTALL")"
+          timeout 600 "$install/program/python.exe" -X utf8 tests/runtime/check-windows-pdf-selection.py --install "$HST_INSTALL" --out "$(cygpath -w "$RUNNER_TEMP/out/pdf-selection")"
       - name: UI parity - diagnostics
         if: ${{ always() && startsWith(matrix.scenario, 'ui-parity') }}
         shell: bash
