@@ -59,11 +59,11 @@ def background(fn, *args):
     return thread
 
 
-def native(action, *args):
+def native(action, *args, timeout=60):
     command = [os.environ.get("R1_TOOLS_PYTHON", sys.executable), str(HERE / "native.py"), action]
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME", "URE_BOOTSTRAP", "PYTHONNOUSERSITE")}
     done = subprocess.run(command + [str(a) for a in args], env=env, capture_output=True,
-                          text=True, encoding="utf-8", timeout=60)
+                          text=True, encoding="utf-8", timeout=timeout)
     if done.returncode:  # the tooling side's own traceback is the evidence
         raise RuntimeError(f"native {action}: " + (done.stderr.strip().splitlines() or ["exit %d" % done.returncode])[-1][-400:])
     return json.loads(done.stdout or "null")

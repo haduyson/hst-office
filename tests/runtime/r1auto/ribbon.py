@@ -59,10 +59,22 @@ def hover(e, doc):
     e.shot("after-undo")
 
 
+def dump_os_tree(e, label):
+    import json
+    for kind, arg in (("os-a11y", "diagnose"), ("native-tree", 2500)):
+        try:
+            value = native("tree", arg, timeout=180)
+        except Exception as error:
+            value = f"{type(error).__name__}: {error}"
+        (e.out / f"{kind}-{label}.log").write_text(json.dumps(value, ensure_ascii=False, default=str), encoding="utf-8")
+
+
 def run(e):
     doc = e.office.load("private:factory/swriter")
     try:
         time.sleep(3)
+        e.office.focus(doc.CurrentController.Frame.ContainerWindow)
+        dump_os_tree(e, "open")  # while the document is on screen (a dump after close saw no window at all)
         if e.item in {"W8", "M7"}:
             from ribbon_fit import run as fit
             fit(e, doc)
