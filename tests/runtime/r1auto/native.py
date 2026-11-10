@@ -158,6 +158,9 @@ def main():
         from AppKit import NSRunningApplication
         app = NSRunningApplication.runningApplicationWithProcessIdentifier_(int(args[0]))
         return bool(app and app.activateWithOptions_(3))
+    if action == "tree":
+        from native_tree import tree
+        return tree(*args)
     if action == "foreground":
         from windows_focus import foreground
         return foreground(*args)
