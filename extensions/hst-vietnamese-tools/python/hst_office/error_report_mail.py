@@ -22,11 +22,18 @@ def subject(payload):
 
 
 def summary_lines(payload):
-    """Version, OS and app lines, as the dialog's read-only summary shows them."""
+    """Version, OS and app lines, as the dialog's read-only summary shows them: the HST version only (the engine
+    version is a technical field of the report, see plain_text and the systemInfo "Engine:" line)."""
     product, system = payload["product"], payload["os"]
-    return ["Phiên bản: HST Office %s (bản dựng %s, lõi %s)" % (product["version"], product["build"], product["engine"]),
+    return ["Phiên bản: HST Office %s (bản dựng %s)" % (product["version"], product["build"]),
             "Hệ điều hành: %s (%s)" % (system["version"], system["arch"]),
             "Ứng dụng: %s" % APP_NAMES.get(payload["app"], payload["app"])]
+
+
+def engine_line(payload):
+    """The engine version, labelled as a technical field so it is never read as the HST Office version."""
+    engine = payload["product"].get("engine")
+    return ["Phiên bản lõi xử lý (thông tin kỹ thuật): " + engine] if engine else []
 
 
 def plain_text(payload):
@@ -34,7 +41,7 @@ def plain_text(payload):
     lines = [payload.get("description") or "(không có mô tả)", ""]
     if payload.get("contactEmail"):
         lines.append("Thư điện tử liên hệ: " + payload["contactEmail"])
-    lines += summary_lines(payload)
+    lines += summary_lines(payload) + engine_line(payload)
     lines += ["Mã báo cáo trong máy: " + payload["reportId"], "Thời điểm (UTC): " + payload["createdAt"]]
     for name, title in DIAGNOSTIC_TITLES:
         value = payload.get("diagnostics", {}).get(name)

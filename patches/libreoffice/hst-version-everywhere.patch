@@ -1,0 +1,628 @@
+HST Office: the HST version everywhere a user can see a version, in place of the engine's.
+
+The engine version (26.8.x) stays internal (extension dependencies, help paths, first-start
+detection, utl::ConfigManager::getProductVersion()). What users see now carries the HST
+release from include/hst_version.h (scripts/write-hst-version.py):
+
+- Document metadata: meta:generator (ODF) and docProps/app.xml Application (OOXML) are
+  "HSTOffice/<HST release>$<OS>_<ARCH>", e.g. "HSTOffice/1.0.1$Linux_X86_64", without the
+  engine version and the "LibreOffice_project/<build id>" part (was "HST_Office/26.8.1.1$...
+  LibreOffice_project/..."). OOXML AppVersion stays "15.0000" (an Office compatibility value
+  that other office suites parse). On import, xmloff maps "HSTOffice/1.0.x" to engine 26.8, so
+  documents saved by HST Office keep the treatment of documents from that engine version.
+- PDF: Producer "HST Office <HST release> (<arch>)" (was the engine version); Creator, which
+  PDF readers show as the application, is "HST Writer", "HST Sheets", "HST Slides", "HST Draw",
+  "HST Math" (was Writer, Calc, Impress, ...).
+- EPS export: "%%Creator: HST Office <HST release>".
+- HTML export generator and other "%PRODUCTVERSION%PRODUCTEXTENSION" texts: the HST release
+  (was "1.0" followed by the engine's ".1.1", i.e. "HST Office 1.0.1.1").
+- Insert > Object > OLE Object list, Writer AutoCaption object list and interaction message
+  titles: %PRODUCTVERSION through the UI string hook (HST "1.0"), not the engine version.
+- About: "Misc" reads "Sheets: tính đa luồng" (was "Calc: threaded"; Vietnamese like the
+  rest of the dialog's introductory text, "Sheets: threaded" in "Copy version info"); "Copy
+  version info" no longer has the "Engine:" line (Help > Báo lỗi still sends the engine
+  version, labelled as such).
+- Windows file description of the launchers: "HST Writer", "HST Sheets", "HST Slides",
+  "HST Writer (Web)" (was "HST Office Writer", "HST Office Calc", "HST Office Impress").
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_xmloff_uxmloff (HST generators); tests/unit/test_hst_version_everywhere.py;
+tests/runtime/check-hst-version-everywhere.py.
+---
+--- a/cui/source/dialogs/about.cxx
++++ b/cui/source/dialogs/about.cxx
+@@ -134,30 +134,24 @@
+ AboutDialog::~AboutDialog() {}
+ 
+ bool AboutDialog::IsStringValidGitHash(std::u16string_view hash)
+ {
+     return std::all_of(hash.begin(), hash.end(),
+                        [](auto& rSymbol) { return std::isxdigit(rSymbol); });
+ }
+ 
+-// Engine (LibreOffice) version, kept for support tickets.
+-static OUString GetEngineVersion()
+-{
+-    return CuiResId(TranslateId(nullptr, "%ABOUTBOXPRODUCTVERSION%ABOUTBOXPRODUCTVERSIONSUFFIX"));
+-}
+-
+ OUString AboutDialog::GetVersionString()
+ {
+     OUString arch;
+     auto const ok = rtl::Bootstrap::get(u"_ARCH"_ustr, arch);
+     assert(ok);
+     (void)ok;
+-    // HST Office: show the full HST release id (e.g. 1.0.0-beta.4.1); the engine version is
+-    // internal and only added to "Copy version info" (see HandleClick).
++    // HST Office: show the full HST release id (e.g. 1.0.0-beta.4.1). The engine version is
++    // not shown here nor in "Copy version info"; the error report (Help menu) carries it.
+     return u"" HST_RELEASE " (" + arch + u")";
+ }
+ 
+ OUString AboutDialog::GetBuildString()
+ {
+     OUString sBuildId(utl::Bootstrap::getBuildIdData(u""_ustr));
+     SAL_WARN_IF(sBuildId.isEmpty(), "cui.dialogs", "No BUILDID in bootstrap file");
+ 
+@@ -197,47 +191,51 @@
+                                 "doesn't contain $LOCALE placeholder");
+         sUILocaleStr += " $LOCALE";
+     }
+     sUILocaleStr = sUILocaleStr.replaceAll("$LOCALE", aUILocaleStr);
+ 
+     return sLocaleStr + "; " + sUILocaleStr;
+ }
+ 
+-OUString AboutDialog::GetMiscString()
++// HST Office: the spreadsheet calculation mode, named after HST Sheets. Vietnamese in the
++// dialog (like the rest of its introductory text), English in "Copy version info".
++static OUString lcl_GetMiscString(bool bVietnamese)
+ {
+-    OUString sMisc;
+-
+-    // HST Office: EXTRA_BUILDID (names the upstream engine) is not shown.
+     OUString aCalcMode; // Calc calculation mode
++    const auto addMode = [&aCalcMode](const OUString& sMode) {
++        if (!aCalcMode.isEmpty())
++            aCalcMode += ", ";
++        aCalcMode += sMode;
++    };
+ 
+ #if HAVE_FEATURE_OPENCL
+     if (openclwrapper::GPUEnv::isOpenCLEnabled())
+-        aCalcMode += " CL";
++        addMode(u"OpenCL"_ustr);
+ #endif
+ 
+     static const bool bThreadingProhibited = std::getenv("SC_NO_THREADED_CALCULATION");
+     bool bThreadedCalc = officecfg::Office::Calc::Formula::Calculation::
+         UseThreadedCalculationForFormulaGroups::get();
+ 
+     if (!bThreadingProhibited && bThreadedCalc)
+-    {
+-        aCalcMode += " threaded";
+-    }
++        addMode(bVietnamese ? u"t\u00EDnh \u0111a lu\u1ED3ng"_ustr : u"threaded"_ustr);
+ 
+     if (officecfg::Office::Calc::Defaults::Sheet::JumboSheets::get())
+-    {
+-        aCalcMode += " Jumbo";
+-    }
++        addMode(bVietnamese ? u"trang t\u00EDnh c\u1EF1c l\u1EDBn"_ustr : u"jumbo"_ustr);
+ 
+     if (aCalcMode.isEmpty())
+-        aCalcMode = " default";
+-    sMisc += "Calc:" + aCalcMode;
++        addMode(bVietnamese ? u"m\u1EB7c \u0111\u1ECBnh"_ustr : u"default"_ustr);
++    return "Sheets: " + aCalcMode;
++}
+ 
+-    return sMisc;
++OUString AboutDialog::GetMiscString()
++{
++    // HST Office: EXTRA_BUILDID (names the upstream engine) is not shown.
++    return lcl_GetMiscString(true);
+ }
+ 
+ OUString AboutDialog::GetCopyrightString()
+ {
+     // HST Office: the publisher line is Vietnamese in every UI language, like the rest of
+     // this introductory text ("Bản phát hành này do <vendor> cung cấp.").
+     OUString sVendorTextStr(u"B\u1EA3n ph\u00E1t h\u00E0nh n\u00E0y do "_ustr
+                             + utl::ConfigManager::getVendor() + u" cung c\u1EA5p."_ustr);
+@@ -259,21 +257,20 @@
+ // special labels to comply with previous version info
+ // untranslated English for QA
+ IMPL_LINK_NOARG(AboutDialog, HandleClick, weld::Button&, void)
+ {
+     css::uno::Reference<css::datatransfer::clipboard::XClipboard> xClipboard
+         = m_pVersionLabel->get_clipboard();
+ 
+     OUString sInfo = "Version: " + m_pVersionLabel->get_label()
+-                     + "\nEngine: " + GetEngineVersion()
+                      + "\n" // version
+                        "Build ID: "
+                      + GetBuildString() + "\n" + // build id
+                      Application::GetHWOSConfInfo(0, false)
+                      + "\n" // env+UI
+                        "Locale: "
+                      + GetLocaleString(false) + "\n" + // locale
+-                     GetMiscString(); // misc
++                     lcl_GetMiscString(false); // misc
+ 
+     vcl::unohelper::TextDataObject::CopyStringTo(sInfo, xClipboard);
+ }
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/desktop/Executable_scalc.mk
++++ b/desktop/Executable_scalc.mk
+@@ -20,11 +20,11 @@
+ ))
+ 
+ $(eval $(call gb_Executable_add_exception_objects,scalc,\
+     desktop/win32/source/applauncher/scalc \
+ ))
+ 
+ $(eval $(call gb_Executable_add_nativeres,scalc,scalc/launcher))
+ 
+-$(eval $(call gb_Executable_add_default_nativeres,scalc,$(PRODUCTNAME) Calc))
++$(eval $(call gb_Executable_add_default_nativeres,scalc,HST Sheets))
+ 
+ # vim: set ts=4 sw=4 et:
+--- a/desktop/Executable_simpress.mk
++++ b/desktop/Executable_simpress.mk
+@@ -20,11 +20,11 @@
+ ))
+ 
+ $(eval $(call gb_Executable_add_exception_objects,simpress,\
+     desktop/win32/source/applauncher/simpress \
+ ))
+ 
+ $(eval $(call gb_Executable_add_nativeres,simpress,simpress/launcher))
+ 
+-$(eval $(call gb_Executable_add_default_nativeres,simpress,$(PRODUCTNAME) Impress))
++$(eval $(call gb_Executable_add_default_nativeres,simpress,HST Slides))
+ 
+ # vim: set ts=4 sw=4 et:
+--- a/desktop/Executable_sweb.mk
++++ b/desktop/Executable_sweb.mk
+@@ -20,11 +20,11 @@
+ ))
+ 
+ $(eval $(call gb_Executable_add_exception_objects,sweb,\
+     desktop/win32/source/applauncher/sweb \
+ ))
+ 
+ $(eval $(call gb_Executable_add_nativeres,sweb,sweb/launcher))
+ 
+-$(eval $(call gb_Executable_add_default_nativeres,sweb,$(PRODUCTNAME) Writer (Web)))
++$(eval $(call gb_Executable_add_default_nativeres,sweb,HST Writer (Web)))
+ 
+ # vim: set ts=4 sw=4 et:
+--- a/desktop/Executable_swriter.mk
++++ b/desktop/Executable_swriter.mk
+@@ -20,11 +20,11 @@
+ ))
+ 
+ $(eval $(call gb_Executable_add_exception_objects,swriter,\
+     desktop/win32/source/applauncher/swriter \
+ ))
+ 
+ $(eval $(call gb_Executable_add_nativeres,swriter,swriter/launcher))
+ 
+-$(eval $(call gb_Executable_add_default_nativeres,swriter,$(PRODUCTNAME) Writer))
++$(eval $(call gb_Executable_add_default_nativeres,swriter,HST Writer))
+ 
+ # vim: set ts=4 sw=4 et:
+--- a/desktop/source/app/app.cxx
++++ b/desktop/source/app/app.cxx
+@@ -431,16 +431,19 @@
+     OUString sRet(rStr);
+     if (sRet.indexOf("%PRODUCT") != -1 || sRet.indexOf("%ABOUTBOX") != -1)
+     {
+         // HST Office: inside the application the modules are named Writer, Sheets and Slides.
+         sRet = sRet.replaceAll( "%PRODUCTNAME Writer", "Writer" );
+         sRet = sRet.replaceAll( "%PRODUCTNAME Calc", "Sheets" );
+         sRet = sRet.replaceAll( "%PRODUCTNAME Impress", "Slides" );
+         sRet = sRet.replaceAll( "%PRODUCTNAME", sBrandName );
++        // HST Office: "%PRODUCTVERSION%PRODUCTEXTENSION" (the full version, e.g. the HTML
++        // generator) is the HST release; the engine's ".micro.patch" never follows "1.0".
++        sRet = sRet.replaceAll( "%PRODUCTVERSION%PRODUCTEXTENSION", u"" HST_RELEASE ""_ustr );
+         sRet = sRet.replaceAll( "%PRODUCTVERSION", sVersion );
+         sRet = sRet.replaceAll( "%BUILDID", sBuildId );
+         sRet = sRet.replaceAll( "%ABOUTBOXPRODUCTVERSIONSUFFIX", sAboutBoxVersionSuffix );
+         sRet = sRet.replaceAll( "%ABOUTBOXPRODUCTVERSION", sAboutBoxVersion );
+         sRet = sRet.replaceAll( "%PRODUCTEXTENSION", sExtension );
+     }
+ 
+     if ( sRet.indexOf( "%OOOVENDOR" ) != -1 )
+--- a/filter/source/pdf/pdfexport.cxx
++++ b/filter/source/pdf/pdfexport.cxx
+@@ -13,16 +13,17 @@
+  *   with this work for additional information regarding copyright
+  *   ownership. The ASF licenses this file to you under the Apache
+  *   License, Version 2.0 (the "License"); you may not use this file
+  *   except in compliance with the License. You may obtain a copy of
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
+ 
++#include <hst_version.h> // HST_RELEASE (generated from release.json)
+ #include <osl/file.hxx>
+ #include <tools/debug.hxx>
+ #include <tools/mapunit.hxx>
+ #include <tools/urlobj.hxx>
+ #include <tools/poly.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+ #include <utility>
+ #include <vcl/canvastools.hxx>
+@@ -514,25 +515,33 @@
+                 OUString arch;
+                 auto const ok = rtl::Bootstrap::get(u"_ARCH"_ustr, arch);
+                 assert(ok); (void) ok;
+                 // getting the string for the producer
+                 OUString aProducerOverride = officecfg::Office::Common::Save::Document::GeneratorOverride::get();
+                 if (!aProducerOverride.isEmpty())
+                     aContext.DocumentInfo.Producer = aProducerOverride;
+                 else
++                    // HST Office: the HST release, not the engine version.
+                     aContext.DocumentInfo.Producer =
+                         utl::ConfigManager::getProductName() +
+-                        " " +
+-                        utl::ConfigManager::getAboutBoxProductVersion() +
+-                        " (" + arch + ")"
++                        " " HST_RELEASE " (" + arch + ")"
+                         ;
+             }
+ 
+-            aContext.DocumentInfo.Creator = aCreator;
++            // HST Office: PDF readers show the creator as the application; use the HST
++            // application names. aCreator keeps the module name for the checks below.
++            if (aCreator == "Writer")
++                aContext.DocumentInfo.Creator = u"HST Writer"_ustr;
++            else if (aCreator == "Calc")
++                aContext.DocumentInfo.Creator = u"HST Sheets"_ustr;
++            else if (aCreator == "Impress")
++                aContext.DocumentInfo.Creator = u"HST Slides"_ustr;
++            else if (!aCreator.isEmpty())
++                aContext.DocumentInfo.Creator = "HST " + aCreator;
+ 
+             OUString aSignCertificateSubjectName;
+             OUString aSignCertificateCertPem;
+             OUString aSignCertificateKeyPem;
+             OUString aSignCertificateCaPem;
+             for ( const beans::PropertyValue& rProp : rFilterData )
+             {
+                 if ( rProp.Name == "PageRange" )
+--- a/svtools/source/dialogs/insdlg.cxx
++++ b/svtools/source/dialogs/insdlg.cxx
+@@ -17,16 +17,17 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
+ #include <svtools/insdlg.hxx>
+ #include <svtools/strings.hrc>
+ #include <svtools/svtresid.hxx>
+ 
+ #include <unotools/configmgr.hxx>
++#include <unotools/resmgr.hxx>
+ #include <comphelper/classids.hxx>
+ #include <sot/stg.hxx>
+ #include <sal/macros.h>
+ #include <vcl/transfer.hxx>
+ 
+ #include <com/sun/star/lang/XMultiServiceFactory.hpp>
+ #include <com/sun/star/configuration/theDefaultProvider.hpp>
+ #include <comphelper/processfactory.hxx>
+@@ -120,21 +121,20 @@
+             xNameAccess->getByName( rName ) >>= xEntry;
+             if ( xEntry.is() )
+             {
+                 OUString aUIName;
+                 OUString aClassID;
+                 xEntry->getByName(u"ObjectUIName"_ustr) >>= aUIName;
+                 xEntry->getByName(u"ClassID"_ustr) >>= aClassID;
+ 
++                // HST Office: expand the variables as every UI text does, so the version
++                // is the HST version, not the engine version.
+                 if ( !aUIName.isEmpty() )
+-                {
+-                    aUIName = aUIName.replaceAll("%PRODUCTNAME", utl::ConfigManager::getProductName());
+-                    aUIName = aUIName.replaceAll("%PRODUCTVERSION", utl::ConfigManager::getProductVersion());
+-                }
++                    aUIName = Translate::ExpandVariables(aUIName);
+ 
+                 SvGlobalName aClassName;
+                 if( aClassName.MakeId( aClassID) )
+                 {
+                     if( !Get( aClassName ) )
+                         // not entered yet
+                         aObjectServerList.emplace_back( aClassName, aUIName );
+                 }
+--- a/sw/source/ui/config/optload.cxx
++++ b/sw/source/ui/config/optload.cxx
+@@ -41,16 +41,17 @@
+ 
+ #include <svtools/insdlg.hxx>
+ #include <svtools/unitconv.hxx>
+ #include <tools/resary.hxx>
+ #include <vcl/settings.hxx>
+ 
+ #include <comphelper/classids.hxx>
+ #include <unotools/configmgr.hxx>
++#include <unotools/resmgr.hxx>
+ #include <SwStyleNameMapper.hxx>
+ #include <numrule.hxx>
+ 
+ #include <doc.hxx>
+ #include <svl/cjkoptions.hxx>
+ #include <svl/eitem.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Button.hxx>
+@@ -1118,19 +1119,18 @@
+     m_xCheckLB->set_toggle(nPos, TRISTATE_FALSE);
+     m_xCheckLB->set_text(nPos, m_sSWGraphic, 0);
+     bReadOnly = officecfg::Office::Writer::Insert::Caption::WriterObject::Graphic::Enable::isReadOnly();
+     m_xCheckLB->set_sensitive(nPos, !bReadOnly);
+     SetOptions(nPos++, GRAPHIC_CAP);
+ 
+     // get Productname and -version
+     const OUString sWithoutVersion( utl::ConfigManager::getProductName() );
+-    const OUString sComplete(
+-        sWithoutVersion + " " +
+-        utl::ConfigManager::getProductVersion() );
++    // HST Office: object names carry the HST version (see SvObjectServerList::FillInsertObjects).
++    const OUString sComplete( Translate::ExpandVariables(u"%PRODUCTNAME %PRODUCTVERSION"_ustr) );
+ 
+     SvObjectServerList aObjS;
+     aObjS.FillInsertObjects();
+     aObjS.Remove( SvGlobalName( SO3_SW_CLASSID ) ); // remove Writer-ID
+ 
+     for ( sal_uLong i = 0; i < aObjS.Count(); ++i )
+     {
+         const SvGlobalName &rOleId = aObjS[i].GetClassName();
+--- a/unotools/source/config/docinfohelper.cxx
++++ b/unotools/source/config/docinfohelper.cxx
+@@ -18,88 +18,39 @@
+  */
+ 
+ #include <rtl/ustrbuf.hxx>
+ #include <unotools/configmgr.hxx>
+ #include <unotools/bootstrap.hxx>
+ #include <unotools/docinfohelper.hxx>
+ #include <rtl/bootstrap.hxx>
+ #include <officecfg/Office/Common.hxx>
++#include <hst_version.h> // HST_RELEASE (generated from release.json)
+ 
+ using namespace ::com::sun::star;
+ 
+ namespace utl
+ {
+ 
+ OUString DocInfoHelper::GetGeneratorString()
+ {
+     static const OUString sGenerator = []()
+             {
+             OUString aResultOverride = officecfg::Office::Common::Save::Document::GeneratorOverride::get();
+             if( !aResultOverride.isEmpty())
+                 return aResultOverride;
+ 
+-            OUStringBuffer aResult(128);
+-
+-            // First product: branded name + version
+-            // version is <product_versions>_<product_extension>$<platform>
+-
+-            // plain product name
+-            OUString aValue( utl::ConfigManager::getProductName() );
+-            if ( !aValue.isEmpty() )
+-            {
+-                aResult.append( aValue.replace( ' ', '_' ) + "/" );
+-
+-                aValue = utl::ConfigManager::getProductVersion();
+-                if ( !aValue.isEmpty() )
+-                {
+-                    aResult.append( aValue.replace( ' ', '_' ) );
+-
+-                    aValue = utl::ConfigManager::getProductExtension();
+-                    if ( !aValue.isEmpty() )
+-                    {
+-                        aResult.append( aValue.replace( ' ', '_' ) );
+-                    }
+-                }
+-
+-                OUString os( u"$_OS"_ustr );
+-                OUString arch( u"$_ARCH"_ustr );
+-                ::rtl::Bootstrap::expandMacros(os);
+-                ::rtl::Bootstrap::expandMacros(arch);
+-                aResult.append( "$" + os + "_" + arch + " " );
+-            }
+-
+-            // second product: LibreOffice_project/<build_information>
+-            // build_information has '(' and '[' encoded as '$', ')' and ']' ignored
+-            // and ':' replaced by '-'
+-            {
+-                aResult.append( "LibreOffice_project/" );
+-                OUString aBuildId( Bootstrap::getBuildIdData( OUString() ) );
+-                for( sal_Int32 i=0; i < aBuildId.getLength(); i++ )
+-                {
+-                    sal_Unicode c = aBuildId[i];
+-                    switch( c )
+-                    {
+-                    case '(':
+-                    case '[':
+-                        aResult.append( '$' );
+-                        break;
+-                    case ')':
+-                    case ']':
+-                        break;
+-                    case ':':
+-                        aResult.append( '-' );
+-                        break;
+-                    default:
+-                        aResult.append( c );
+-                        break;
+-                    }
+-                }
+-            }
+-
+-            return aResult.makeStringAndClear();
++            // HST Office: the generator names the HST release, e.g. "HSTOffice/1.0.1$Linux_X86_64";
++            // neither the engine version nor the upstream "LibreOffice_project/<build id>" part
++            // is written. HST Office maps "HSTOffice/" back to its engine version when it reads
++            // the document (xmloff/source/meta/xmlmetai.cxx).
++            OUString os( u"$_OS"_ustr );
++            OUString arch( u"$_ARCH"_ustr );
++            ::rtl::Bootstrap::expandMacros(os);
++            ::rtl::Bootstrap::expandMacros(arch);
++            return OUString( u"HSTOffice/" HST_RELEASE "$"_ustr + os + "_" + arch );
+     }();
+     return sGenerator;
+ }
+ 
+ } // end of namespace utl
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/uui/source/iahndl.cxx
++++ b/uui/source/iahndl.cxx
+@@ -1121,20 +1121,18 @@
+     VclMessageType eMessageType;
+     if( xApprove.is() && xDisapprove.is() )
+         eMessageType = VclMessageType::Question;
+     else if ( xAbort.is() )
+         eMessageType = VclMessageType::Warning;
+     else
+         return;
+ 
+-    OUString title(
+-        utl::ConfigManager::getProductName() +
+-        " " +
+-        utl::ConfigManager::getProductVersion() );
++    // HST Office: the HST version, not the engine version.
++    OUString title( Translate::ExpandVariables(u"%PRODUCTNAME %PRODUCTVERSION"_ustr) );
+ 
+     uno::Reference<awt::XWindow> xParent = getParentXWindow();
+     switch (executeMessageBox(Application::GetFrameWeld(xParent), title, aMessage, eMessageType))
+     {
+     case DialogMask::ButtonsOk:
+         OSL_ENSURE( xAbort.is(), "unexpected situation" );
+         if (xAbort.is())
+             xAbort->select();
+--- a/vcl/source/filter/eps/eps.cxx
++++ b/vcl/source/filter/eps/eps.cxx
+@@ -12,16 +12,17 @@
+  *   contributor license agreements. See the NOTICE file distributed
+  *   with this work for additional information regarding copyright
+  *   ownership. The ASF licenses this file to you under the Apache
+  *   License, Version 2.0 (the "License"); you may not use this file
+  *   except in compliance with the License. You may obtain a copy of
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <hst_version.h> // HST_RELEASE (generated from release.json)
+ #include <filter/EpsWriter.hxx>
+ #include <tools/mapunit.hxx>
+ #include <tools/stream.hxx>
+ #include <tools/poly.hxx>
+ #include <tools/fract.hxx>
+ #include <tools/helpers.hxx>
+ #include <tools/UnitConversion.hxx>
+ #include <unotools/resmgr.hxx>
+@@ -453,18 +454,18 @@
+     ImplWriteLong( aSizePoint.Width() );
+     ImplWriteLong( aSizePoint.Height() ,PS_RET );
+     ImplWriteLine( "%%Pages: 0" );
+     OUString aCreator;
+     OUString aCreatorOverride = officecfg::Office::Common::Save::Document::GeneratorOverride::get();
+     if( !aCreatorOverride.isEmpty())
+         aCreator = aCreatorOverride;
+     else
+-        aCreator = "%%Creator: " + utl::ConfigManager::getProductName() + " " +
+-                   utl::ConfigManager::getProductVersion();
++        // HST Office: the HST release, not the engine version.
++        aCreator = "%%Creator: " + utl::ConfigManager::getProductName() + " " HST_RELEASE;
+     ImplWriteLine( OUStringToOString( aCreator, RTL_TEXTENCODING_UTF8 ).getStr() );
+     ImplWriteLine( "%%Title: none" );
+     ImplWriteLine( "%%CreationDate: none" );
+ 
+ // defaults
+ 
+     mpPS->WriteOString( "%%LanguageLevel: " );                       // Language level
+     ImplWriteLong( mnLevel, PS_RET );
+--- a/xmloff/qa/unit/uxmloff.cxx
++++ b/xmloff/qa/unit/uxmloff.cxx
+@@ -200,17 +200,23 @@
+         { "LibreOfficeDev/7.0.6.0.0$Linux_X86_64 LibreOffice_project/dfc40e2292c6e19e285c10ed8c8044d9454107d0", ";7.0.6.0.0", SvXMLImport::LO_7x },
+         { "CIB_OfficeDev/6.4.0.19$Linux_X86_64 LibreOffice_project/2e04f804b5f82770435f250873f07b3384d95504", ";6.4.0.19", SvXMLImport::LO_63x },
+         { "LibreOfficeDev/24.2.0.0.alpha0$Linux_X86_64 LibreOffice_project/b81e7b6f3c71fb3ade1cb665444ac730dac0a9a9", ";24.2.0.0.", SvXMLImport::LO_242 },
+         { "LibreOfficeDev/24.8.6.2$Linux_X86_64 LibreOffice_project/dc6216c3d2b4ec3bcdba950f1e6ee1d013adb2d6", ";24.8.6.2", SvXMLImport::LO_248 },
+         { "LibreOffice/25.2.6.2$Linux_X86_64 LibreOffice_project/520$Build-2", ";25.2.6.2", SvXMLImport::LO_252 },
+         { "LibreOfficeDev/25.8.0.0.alpha0$Linux_X86_64 LibreOffice_project/308705574842e0c36f7385f73fc47da9a4542367", ";25.8.0.0.", SvXMLImport::LO_258 },
+         { "LibreOfficeDev/26.2.0.0.alpha0$Linux_X86_64 LibreOffice_project/d7e24df067ba6af0043e70750ad2b97e21201fa9", ";26.2.0.0.", SvXMLImport::LO_262 },
+         { "LibreOfficeDev/26.8.0.0.alpha0$Linux_X86_64 LibreOffice_project/d7e24df067ba6af0043e70750ad2b97e21201fa9", ";26.8.0.0.", SvXMLImport::LO_268 },
+-        { "LibreOfficeDev/27.2.0.0.alpha0$Linux_X86_64 LibreOffice_project/d7e24df067ba6af0043e70750ad2b97e21201fa9", ";27.2.0.0.", SvXMLImport::LO_New }
++        { "LibreOfficeDev/27.2.0.0.alpha0$Linux_X86_64 LibreOffice_project/d7e24df067ba6af0043e70750ad2b97e21201fa9", ";27.2.0.0.", SvXMLImport::LO_New },
++
++        // HST Office: betas up to 1.0.0-beta.5 wrote the engine version; later releases write
++        // "HSTOffice/<HST release>" and are mapped to the engine that wrote them
++        { "HST_Office/26.8.1.1$Linux_X86_64 LibreOffice_project/680$Build-1", ";26.8.1.1", SvXMLImport::LO_268 },
++        { "HSTOffice/1.0.1$Linux_X86_64", ";26.8", SvXMLImport::LO_268 },
++        { "HSTOffice/1.0.1-beta.6$Windows_X86_64", ";26.8", SvXMLImport::LO_268 }
+     };
+ 
+     for (auto const[pGenerator, pBuildId, nResult] : tests)
+     {
+         // the DocumentInfo instance is cached so need fresh SvXMLImport
+         rtl::Reference<SvXMLImport> const pImport(new SvXMLImport(
+             comphelper::getProcessComponentContext(), u"testdummy"_ustr,
+             SvXMLImportFlags::ALL));
+--- a/xmloff/source/meta/xmlmetai.cxx
++++ b/xmloff/source/meta/xmlmetai.cxx
+@@ -13,16 +13,17 @@
+  *   with this work for additional information regarding copyright
+  *   ownership. The ASF licenses this file to you under the Apache
+  *   License, Version 2.0 (the "License"); you may not use this file
+  *   except in compliance with the License. You may obtain a copy of
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
+ #include <sal/config.h>
++#include <config_version.h>
+ 
+ #include <string_view>
+ 
+ #include <com/sun/star/lang/WrappedTargetRuntimeException.hpp>
+ #include <com/sun/star/xml/dom/SAXDocumentBuilder.hpp>
+ #include <com/sun/star/xml/dom/XSAXDocumentBuilder2.hpp>
+ #include <com/sun/star/xml/xpath/XPathAPI.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+@@ -293,16 +294,31 @@
+             }
+         }
+         if (!sNumber.isEmpty())
+         {
+             sBuildId += ";" + sNumber;
+         }
+     }
+ 
++    // HST Office writes "HSTOffice/<HST release>$<os>_<arch>" (utl::DocInfoHelper::
++    // GetGeneratorString), without the engine version. Map the HST release to the engine
++    // version that wrote it, so the import treats the document like one from that engine
++    // (SvXMLImport::getGeneratorVersion), as for the "LibreOffice_project/" form above.
++    if (o3tl::starts_with(i_rBuildId, u"HSTOffice/"))
++    {
++        // HST Office 1.0.x is built on engine 26.8. Add a line here when HST Office moves to
++        // a newer engine; releases not listed are taken to come from this engine.
++        std::u16string_view const aRelease(i_rBuildId.substr(10));
++        if (o3tl::starts_with(aRelease, u"1.0."))
++            sBuildId += ";26.8";
++        else
++            sBuildId += ";" LIBO_VERSION_DOTTED_2;
++    }
++
+     if ( sBuildId.isEmpty() )
+         return;
+ 
+     try
+     {
+         if( xImportInfo.is() )
+         {
+             static constexpr OUString aPropName(u"BuildId"_ustr);

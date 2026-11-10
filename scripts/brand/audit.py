@@ -131,3 +131,60 @@ def scan_tree(install_root, entries):
                     start = max(0, match.start() - 30)
                     hits.append((rel, number, line[start:match.end() + 30].strip()))
     return hits, scanned
+
+
+# The LibreOffice engine version HST Office is built on (docs/UPSTREAM_BASELINE.md). Users must never see it as
+# the product version: OS-visible version fields carry the HST release.
+ENGINE_VERSION = re.compile(r"(?<![\d.])26\.8(?![\d])")
+_PLIST_VERSION_KEYS = ("CFBundleShortVersionString", "CFBundleVersion", "CFBundleGetInfoString")
+# Desktop entry keys shown by menus and launchers (comments, MimeType and the spec Version= are not shown).
+_DESKTOP_VISIBLE = re.compile(r"^(Name|GenericName|Comment|Keywords|X-GNOME-FullName)(\[[^]]*\])?=")
+
+
+def _plist_strings(text):
+    return dict(re.findall(r"<key>([^<]+)</key>\s*<string>([^<]*)</string>", text))
+
+
+def check_version_fields(install_root, release):
+    """Problems in the version fields the operating system shows (empty == OK).
+
+    Linux: the visible keys of .desktop entries (Version= is the Desktop Entry spec version) and AppStream
+    metainfo/appdata (<release version> must be the HST release). macOS: Info.plist CFBundleShortVersionString
+    (MAJOR.MINOR.MICRO of the release), CFBundleVersion (numeric build) and CFBundleGetInfoString (names the
+    release). None of them may carry the engine version or the upstream product name; NSHumanReadableCopyright
+    is a legal notice and is not a version field. Windows version resources are checked on the sources
+    (tests/unit/test_hst_version_everywhere.py)."""
+    core = release.split("-")[0].split("+")[0]
+    problems = []
+    for folder, _dirs, files in os.walk(install_root):
+        for name in sorted(files):
+            full = os.path.join(folder, name)
+            rel = os.path.relpath(full, install_root).replace(os.sep, "/")
+            if os.path.islink(full):
+                continue
+            if name.endswith(".desktop"):
+                for number, line in enumerate(_read(full).splitlines(), 1):
+                    if _DESKTOP_VISIBLE.match(line) and (ENGINE_VERSION.search(line) or FORBIDDEN.search(line)):
+                        problems.append(f"{rel}:{number}: engine version or upstream name: {line.strip()}")
+            elif name.endswith((".metainfo.xml", ".appdata.xml")):
+                text = _read(full)
+                versions = re.findall(r'<release\b[^>]*\bversion="([^"]*)"', text)
+                if not versions:
+                    problems.append(f"{rel}: no <release version>")
+                problems += [f"{rel}: release version {v!r} is not {release!r}" for v in versions if v != release]
+                if ENGINE_VERSION.search(text) or FORBIDDEN.search(text):
+                    problems.append(f"{rel}: engine version or upstream name")
+            elif name == "Info.plist" and rel.endswith("Contents/Info.plist"):
+                keys = _plist_strings(_read(full))
+                values = {key: keys.get(key, "") for key in _PLIST_VERSION_KEYS}
+                if values["CFBundleShortVersionString"] != core:
+                    problems.append(f"{rel}: CFBundleShortVersionString {values['CFBundleShortVersionString']!r} "
+                                    f"is not {core!r}")
+                if not values["CFBundleVersion"].isdigit():
+                    problems.append(f"{rel}: CFBundleVersion {values['CFBundleVersion']!r} is not a build number")
+                if release not in values["CFBundleGetInfoString"]:
+                    problems.append(f"{rel}: CFBundleGetInfoString {values['CFBundleGetInfoString']!r} "
+                                    f"does not name {release!r}")
+                problems += [f"{rel}: {key} carries the engine version or upstream name"
+                             for key, value in values.items() if ENGINE_VERSION.search(value) or FORBIDDEN.search(value)]
+    return problems

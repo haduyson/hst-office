@@ -165,6 +165,16 @@ class MailTests(unittest.TestCase):
         self.assertIn("Không lưu được tệp.", query["body"][0])
         self.assertIn(payload["reportId"], query["body"][0])
 
+    def test_summary_shows_the_hst_version_and_the_mail_labels_the_engine(self):
+        payload = build()
+        summary = "\n".join(mail.summary_lines(payload))
+        self.assertIn("Phiên bản: HST Office 1.0.0-beta.5 (bản dựng 500)", summary)
+        self.assertNotIn("26.8", summary)
+        body = mail.plain_text(payload)
+        self.assertIn("Phiên bản lõi xử lý (thông tin kỹ thuật): 26.8.1.1", body)
+        self.assertEqual(body.count("26.8"), 1)
+        self.assertEqual(mail.engine_line(build(product=dict(PRODUCT, engine=""))), [])
+
     def test_long_report_is_shortened_with_a_note(self):
         payload = build(description="Mô tả dài " * 400, diagnostics={"log": "dòng nhật ký\n" * 500})
         url = mail.mailto_url(payload)
