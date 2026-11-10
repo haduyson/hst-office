@@ -27,10 +27,8 @@ def run(e, fixtures):
             e.require(data.get("SignatureProblems") == ("rewritten",) or data.get("SignatureProblems") == ["rewritten"],
                       "Phát hiện tệp thay đổi sau khi ký", problems=data.get("SignatureProblems"))
             details = str(data.get("SignatureDetails")) + str(data.get("SignatureLines"))
-            e.require(says(details, "(chưa xác minh)", "(not verified)") and
-                      says(details, "đã thay đổi sau khi ký", "changed after signing"),
-                      "Hiển thị chữ ký chưa xác minh và lý do", text=details,
-                      language="vi" if says(details, "(chưa xác minh)") else "en-US")
+            e.require(says(details, "(chưa xác minh)") and says(details, "đã thay đổi sau khi ký"),
+                      "Hiển thị chữ ký chưa xác minh và lý do", text=details)
             target = (e.out / "viewer.png").resolve()
             rendered = info(office, frame, RenderPage=1, RenderDpi=96, RenderFile=target.as_uri())
             e.require(rendered.get("RenderFileWritten"), "Xuất bitmap của trình xem")

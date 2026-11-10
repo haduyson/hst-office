@@ -71,8 +71,9 @@ class Office(hst_gui.Office):
                 break
         else:
             raise RuntimeError("Không khởi tạo được profile")
+        # No UI language is stored: every item runs on the product's default, which must be Vietnamese on an
+        # English runner too (probe.py checks it before each item).
         hst_gui.seed_profile(str(self.profile), [
-            ("/org.openoffice.Office.Linguistic/General", "UILocale", "vi"),
             ("/org.hasontech.hstoffice.Welcome", "Shown", "true"),
             ("/org.hasontech.hstoffice.DefaultApps", "Ask", "false"),
             ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false"),
@@ -95,6 +96,15 @@ class Office(hst_gui.Office):
             raise RuntimeError("Không xác định được extension đã cài")
         sys.path.insert(0, str(extensions[0]))
         return self
+
+    def ui_language(self):
+        """(UI language choice stored in the profile file or None, effective choice, core UI language in use)."""
+        import re
+        text = (self.profile / "user/registrymodifications.xcu").read_text(encoding="utf-8")
+        stored = re.findall(r'<item oor:path="/org.openoffice.Office.Linguistic/General">'
+                            r'<prop oor:name="UILocale" oor:op="fuse">(?:<value>(.*?)</value>|<value/>)</prop></item>', text)
+        return (stored[-1] if stored else None, self.config("/org.openoffice.Office.Linguistic/General", "UILocale"),
+                self.config("/org.openoffice.Setup/L10N", "ooLocale"))
 
     def titles(self):
         try:

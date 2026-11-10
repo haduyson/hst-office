@@ -30,8 +30,7 @@ def run(e, fixtures):
         label = {p.Name: p.Value for p in win.getChild("yes").getState()}.get("Text", "")
         status = info(e.office, frame).get("StatusText", "")
         e.shot("permission-refusal")
-        e.require(says(status, "không cho phép ký số", "does not allow digital signing") and
-                  says(label, "Nhập mật khẩu quyền", "Enter Permissions Password"),
+        e.require(says(status, "không cho phép ký số") and says(label, "Nhập mật khẩu quyền"),
                   "Từ chối ký và có nút nhập mật khẩu quyền", status=status, button=label)
         dialogs.later(win.getChild("close")).join(10)
         thread.join(10)

@@ -37,8 +37,8 @@ def wait(predicate, timeout=30):
 
 
 def says(text, *variants):
-    """The variant shown, or None. The core UI follows the OS language (vi pack only on Vietnamese Windows), so a
-    check names the vi msgstr and its en-US msgid of the same patch string; mnemonics (~) are ignored."""
+    """The variant shown, or None; mnemonics (~) are ignored. The core UI is Vietnamese on the English runners too
+    (checked before every item in probe.py), so the checks name the vi msgstr only."""
     text = str(text).replace("~", "")
     return next((variant for variant in variants if variant in text), None)
 

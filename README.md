@@ -11,7 +11,7 @@ Do Công ty TNHH Công nghệ Hà Sơn (**HASON TECH**) phát triển.
 ## Điểm khác so với LibreOffice gốc
 
 - Nhận diện HST Office (splash, About, icon, launcher).
-- Tiếng Việt: giao diện tiếng Việt khi hệ điều hành dùng tiếng Việt; từ điển chính tả `vi`; khổ A4 và Times New Roman mặc định; lưu mặc định `.docx`/`.xlsx`/`.pptx`; [phím tắt theo Microsoft Office](docs/SHORTCUTS-MSOFFICE.md).
+- Tiếng Việt: giao diện tiếng Việt mặc định trên mọi hệ điều hành (đổi tại Công cụ → Tùy chọn → Ngôn ngữ và Địa phương → Chung → Giao diện người dùng hoặc Xem lại → Ngôn ngữ giao diện; lựa chọn được giữ qua các bản cập nhật); từ điển chính tả `vi`; khổ A4 và Times New Roman mặc định; lưu mặc định `.docx`/`.xlsx`/`.pptx`; [phím tắt theo Microsoft Office](docs/SHORTCUTS-MSOFFICE.md).
 - Công cụ tích hợp: soạn văn bản hành chính theo **NĐ 30/2020/NĐ-CP**, chuyển mã **TCVN3/VNI → Unicode**, định dạng **VND / dd/mm/yyyy / ngày … tháng … năm …**, **tiện ích tiếng Việt** (hàm DOCSO, DOCTIEN, BODAU, TACHHO, TACHTEN; đọc số thành chữ; bỏ dấu, tách họ tên, sắp xếp theo tên, xóa dòng trống), nhập **CSV UTF-8** an toàn, 84 mẫu (Tệp tin → Mẫu, các nhóm "HST — Văn bản hành chính / Văn bản quy phạm pháp luật / Văn bản của Đảng / Biểu mẫu văn thư / Bảng tính / Trình chiếu").
 - Mở nhiều tài liệu dạng **thẻ** trong một cửa sổ (Văn bản, Bảng tính, Trình chiếu lẫn nhau): nút đóng trên từng thẻ, nút "+" mở tài liệu mới, chuyển thẻ bằng Ctrl+Alt+. / Ctrl+Alt+, ; nút đóng cửa sổ đóng mọi thẻ (hỏi lưu từng tài liệu đã sửa); tắt tại Công cụ → Tùy chọn → HST Office → Chung → "Thẻ tài liệu".
 - Không telemetry, không cần tài khoản hay Internet. Báo cáo lỗi (Trợ giúp → Báo lỗi cho HASON TECH) chỉ được gửi khi người dùng bấm Gửi và xem trước được toàn bộ nội dung.

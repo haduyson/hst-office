@@ -13,8 +13,18 @@ from office import Office
 A11Y = {"W7", "W8", "W9", "W10", "M4", "M5", "M7"}  # accessibility reads: ribbon, glyph bounds (office.py)
 
 
+def vietnamese_by_default(e):
+    """The runner's Windows/macOS is English and the profile stores no UI language: the core UI must be Vietnamese
+    (the vi language pack is installed on every system and the UI language defaults to Vietnamese)."""
+    stored, effective, used = e.office.ui_language()
+    e.require(stored is None and effective == "vi" and used == "vi",
+              "Profile mới trên hệ điều hành tiếng Anh: giao diện lõi tiếng Việt", stored=stored, effective=effective,
+              used=used)
+
+
 def execute(e, fixtures):
     item = e.item
+    vietnamese_by_default(e)
     if item in {"W5", "W7", "M5", "M6"}:
         import nd30
         nd30.run(e)
