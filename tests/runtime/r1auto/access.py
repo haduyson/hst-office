@@ -69,12 +69,29 @@ def census(office):
     out = []
     for i in range(toolkit.getTopWindowCount()):
         window = toolkit.getTopWindow(i)
-        try:
-            ctx = context(window)
-            out.append((getattr(window, "Title", ""), ctx.getAccessibleRole(), ctx.getAccessibleChildCount()))
-        except Exception as error:
-            out.append((getattr(window, "Title", ""), f"{type(error).__name__}: {error}"[:160]))
+        out.append(probe_node(window))
+    try:
+        frame = office.desktop().getCurrentFrame()
+        out.append(("container", probe_node(frame.getContainerWindow())))
+        out.append(("component", probe_node(frame.getComponentWindow())))
+    except Exception as error:
+        out.append(("frame", type(error).__name__))
     return out
+
+
+def probe_node(node):
+    """How this proxy answers each accessibility route (evidence for choosing the route that works)."""
+    import uno
+    found = {}
+    for name, step in (("types", lambda: sorted(t.typeName.rsplit(".", 1)[-1] for t in node.getTypes())[:40]),
+                       ("qi", lambda: repr(node.queryInterface(uno.getTypeByName("com.sun.star.accessibility.XAccessible")))[:80]),
+                       ("role", lambda: context(node).getAccessibleRole()),
+                       ("children", lambda: context(node).getAccessibleChildCount())):
+        try:
+            found[name] = step()
+        except Exception as error:
+            found[name] = f"{type(error).__name__}: {error}"[:120]
+    return found
 
 
 def named(office, text):

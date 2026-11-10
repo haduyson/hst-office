@@ -89,7 +89,8 @@ def prepare(dmg, out, record):
             raise AssertionError("M1 không đạt; giữ quarantine và không bỏ qua cơ chế bảo vệ")
         press(app, {"Chuyển"})
         wait(destination.exists, 180)
-        # The product's mover must launch its own installed copy. No ditto workaround.
+        # The product's own copy (no ditto); it should quit and reopen from /Applications by itself. The owner's
+        # step is "rồi mở lại từ Applications": when it does not within 90 s, record that and reopen like the owner.
         def moved():
             if confirm_download(out):
                 confirmation.append("M1-download-confirmation.png")
@@ -99,7 +100,19 @@ def prepare(dmg, out, record):
                 if candidate.executableURL().path().startswith(str(destination) + "/"):
                     return candidate
             return None
-        moved_app = wait(moved, 180)
+        try:
+            moved_app, auto_reopen = wait(moved, 90), True
+        except TimeoutError:
+            auto_reopen = False
+            screenshot(out / "M2-no-reopen.png")
+            for left in applications():  # the translocated copy that did not quit
+                left.terminate()
+                try:
+                    wait(lambda: ended(left), 20)
+                except TimeoutError:
+                    left.forceTerminate()
+            openers.append(launch(out, "M2", "-a", str(destination)))
+            moved_app = wait(moved, 180)
         moved_app.activateWithOptions_(2)
         # One modal question per start (startup_prompts.py): the welcome may take the first start from
         # /Applications; the default-apps question must then come on the next start, never later.
@@ -124,6 +137,7 @@ def prepare(dmg, out, record):
         ok = asks(seen)
         record(row("M2", "PASS" if ok else "FAIL", dict(message="Sau chuyển mới hỏi mở tài liệu văn phòng",
                    executable=moved_app.executableURL().path(), starts=starts, windows=seen,
+                   product_reopened_itself=auto_reopen,
                    os_confirmation=confirmation), shot.name))
         if not ok:
             raise AssertionError("M2 không có câu hỏi mặc định sau chuyển")
