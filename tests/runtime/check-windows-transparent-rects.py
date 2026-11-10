@@ -84,18 +84,21 @@ def main():
             wg.foreground(window[0])
         edit = wg.screenshot(os.path.join(out, "edit-view.png"), cursor=False)
         check.note("edit view: rectangle luma (drawinglayer path)", blue_luma(edit))
-        doc.getPresentation().start()
+        presentation = doc.getPresentation()
+        presentation.IsFullScreen = True
+        office.dispatch_async(doc.getCurrentController().getFrame(), ".uno:Presentation")
         luma = None
-        for attempt in range(4):  # the full-screen show window takes a moment to appear and paint
+        for attempt in range(5):  # the full-screen show window takes a moment to appear and paint
             time.sleep(3)
             show = wg.screenshot(os.path.join(out, "slide-show-%d.png" % attempt), cursor=False)
             luma = blue_luma(show)
-            check.note("slide show shot %d: rectangle luma" % attempt, luma)
+            check.note("slide show shot %d: rectangle luma, office windows" % attempt,
+                       (luma, [(w[1], w[2], w[3]) for w in wg.office_windows()]))
             if luma is not None:
                 break
         check("slide show: the 50%% transparent rectangle stays light (luma >= %d)" % LIGHT,
               luma is not None and luma >= LIGHT, luma)
-        doc.getPresentation().end()
+        presentation.end()
         time.sleep(2)
         doc.close(True)
     except Exception:  # noqa: BLE001
