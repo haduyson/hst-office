@@ -96,7 +96,7 @@ jobs:
           set -euo pipefail
           dir="$RUNNER_TEMP/reopen-override"; mkdir -p "$dir"
           src=extensions/hst-vietnamese-tools/python/hst_office
-          cp tests/runtime/r1auto/reopen_override/sitecustomize.py "$dir/"
+          cp tests/runtime/r1auto/reopen_override/sitecustomize.py tests/runtime/r1auto/reopen_override/reopen-probe.sh "$dir/"
           cp "$src/mac_app_location.py" "$dir/fixed_mac_app_location.py"
           cat "$src/update_launch.py" tests/runtime/r1auto/reopen_override/instrument.py.txt > "$dir/fixed_update_launch.py"
           echo "R1_PRODUCT_PYTHONPATH=$dir" >> "$GITHUB_ENV"
@@ -128,32 +128,6 @@ jobs:
             ls -la "$d" 2>/dev/null
             for f in "$d"/*; do
               case "$f" in *soffice*|*HST*|*sh-*) cp "$f" "$RUNNER_TEMP/r1-evidence/crash-$(basename "$f").log" ;; esac
-            done
-          done
-      - name: Probe - terminate() của bản đã phát hành, có và không có SuspendQuickstartVeto
-        if: ${{ always() }}
-        timeout-minutes: 15
-        shell: bash
-        run: |
-          set -uo pipefail
-          mnt="$(mktemp -d)"; hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$R1_PACKAGE" >/dev/null
-          mkdir -p "$RUNNER_TEMP/copy"; ditto "$mnt/HST Office.app" "$RUNNER_TEMP/copy/HST Office.app"
-          hdiutil detach "$mnt" >/dev/null
-          cd tests/runtime/r1auto
-          python - "$RUNNER_TEMP/copy/HST Office.app" "$RUNNER_TEMP/reopen-work" "$RUNNER_TEMP/r1-evidence" <<'PY'
-          import subprocess, sys
-          sys.path.insert(0, ".")
-          from launch import interpreter
-          python, env = interpreter(sys.argv[1])
-          done = subprocess.run([str(python), "mac_reopen_probe.py", *sys.argv[1:4]], env=env, timeout=600)
-          print("probe exit", done.returncode)
-          PY
-          cp "$RUNNER_TEMP/reopen-work/office.log" "$RUNNER_TEMP/r1-evidence/reopen-office.log" 2>/dev/null || true
-          screencapture -x "$RUNNER_TEMP/r1-evidence/reopen-probe-end.png" || true
-          ps -axo pid,ppid,etime,command | grep -i -E "hst|soffice" > "$RUNNER_TEMP/r1-evidence/reopen-probe-ps.log" || true
-          for d in ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports; do
-            for f in "$d"/*; do
-              case "$f" in *soffice*|*HST*) cp "$f" "$RUNNER_TEMP/r1-evidence/crash-end-$(basename "$f").log" ;; esac
             done
           done
       - name: Ghi tóm tắt từng mục

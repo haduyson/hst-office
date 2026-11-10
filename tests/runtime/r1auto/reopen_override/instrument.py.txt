@@ -11,8 +11,10 @@ _probe_spawn, _probe_quit = spawn, quit_office
 
 
 def spawn(argv, system, log_dir=None):
+    if len(argv) > 2 and argv[2] == "--reopen":  # probe stand-in that tries the reopen several ways
+        argv = ["/bin/sh", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reopen-probe.sh")] + list(argv[1:])
     proc = _probe_spawn(argv, system, log_dir)
-    _probe_log("spawn %s -> pid %s" % (argv[2:4], proc.pid))
+    _probe_log("spawn %s -> pid %s" % (argv[1:5], proc.pid))
     return proc
 
 
@@ -20,6 +22,12 @@ def quit_office(ctx):
     import threading as _th
     _probe_log("quit_office on thread %s" % _th.current_thread().name)
     try:
+        desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        _probe_log("before: frames=%d SuspendQuickstartVeto=%r" % (desktop.getFrames().getCount(), desktop.getPropertyValue("SuspendQuickstartVeto")))
+        plain = desktop.terminate()  # what the shipped code does
+        _probe_log("plain terminate() -> %r; frames=%d" % (plain, desktop.getFrames().getCount()))
+        if plain:
+            return True
         result = _probe_quit(ctx)
     except Exception as error:
         _probe_log("quit_office raised %r" % (error,))
