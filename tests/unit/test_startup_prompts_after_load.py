@@ -113,9 +113,10 @@ class Later(unittest.TestCase):
         ctx.ServiceManager.createInstanceWithContext.side_effect = RuntimeError("no desktop")
         ran = []
         later = wj._Later(ctx, lambda: ran.append(True), 0, clock=lambda: 0.0, timer=lambda *a: None)
-        with mock.patch("traceback.print_exc"):
+        with mock.patch.object(wj.diag_log, "exception") as logged:
             later.notify(None)
         self.assertEqual(ran, [True])
+        logged.assert_called_once_with("welcome_job.loading")
 
 
 if __name__ == "__main__":

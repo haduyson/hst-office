@@ -107,7 +107,7 @@ def _safe_loading(ctx):
     try:
         return loading(ctx)
     except Exception:  # noqa: BLE001 - a broken check must not hold the start-up prompts forever
-        traceback.print_exc()
+        diag_log.exception("welcome_job.loading")
         return False
 
 
