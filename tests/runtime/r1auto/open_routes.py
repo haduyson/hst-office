@@ -215,7 +215,13 @@ class Routes:
                 dialogs = [w["title"] for w in office if not matches(w["title"])]
                 status = ("BLOCKED" if doc and not doc["enabled"] else "BEHIND" if doc and not front else
                           "BLANK" if doc else "DIALOG" if dialogs else "NO WINDOW")
-                result = dict(status=status, seconds=None, window_seconds=first_window,
+                if status in ("NO WINDOW", "BLANK", "BLOCKED"):
+                    from open_routes_windows import minidump
+                    result_dumps = [minidump(p["pid"], self.out.parent / "crash" / ("hang-%s-%d.dmp" % (label, p["pid"])))
+                                    for p in office_processes() if p["name"].lower() == "soffice.bin"]
+                else:
+                    result_dumps = []
+                result = dict(status=status, seconds=None, window_seconds=first_window, dumps=result_dumps,
                               office_windows=[w["title"] for w in office],
                               dialogs=dialogs, foreground=fg["title"], processes=office_processes())
                 break

@@ -254,3 +254,22 @@ class Explorer:
     def close(self):
         if self.window is not None:
             close_windows([self.window.handle])
+
+
+def minidump(pid, path):
+    """A small dump (threads and their stacks) of a process that shows no window, for print-office-crashes.ps1."""
+    kernel32, dbghelp = ctypes.windll.kernel32, ctypes.windll.dbghelp
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    process = kernel32.OpenProcess(0x0410 | 0x0040, False, pid)  # QUERY_INFORMATION | VM_READ | DUP_HANDLE
+    if not process:
+        return dict(pid=pid, error=ctypes.GetLastError())
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    handle = kernel32.CreateFileW(str(path), 0x40000000, 0, None, 2, 0x80, None)  # GENERIC_WRITE, CREATE_ALWAYS
+    try:
+        # MiniDumpWithDataSegs | WithHandleData | WithUnloadedModules | WithThreadInfo
+        ok = dbghelp.MiniDumpWriteDump(process, pid, handle, 0x1 | 0x4 | 0x20 | 0x1000, None, None, None)
+        return dict(pid=pid, dump=Path(path).name, ok=bool(ok))
+    finally:
+        kernel32.CloseHandle(wintypes.HANDLE(handle))
+        kernel32.CloseHandle(wintypes.HANDLE(process))
