@@ -40,18 +40,22 @@ def aligned(reference, candidate):
     pixels landed on paper. A pure translation; the shift is reported with the measurement."""
     import numpy as np
     from PIL import Image, ImageChops
-    def centroid(path):
-        rgb = np.asarray(Image.open(path).convert("RGB"), dtype=np.int16)
+    size = Image.open(reference).size
+    image = Image.open(candidate).convert("RGB")
+    if image.size != size:  # a thumbnail: compare at the reference's size, as pdf_watermark_metrics.measure does
+        image = image.resize(size)
+    def centroid(source):
+        rgb = np.asarray(source if isinstance(source, Image.Image) else Image.open(source).convert("RGB"),
+                         dtype=np.int16)
         red = (rgb[..., 0] > 140) & (rgb[..., 0] > rgb[..., 1] * 1.5) & (rgb[..., 0] > rgb[..., 2] * 1.5)
         ys, xs = np.nonzero(red)
         return (float(xs.mean()), float(ys.mean())) if len(xs) > 100 else None
-    a, b = centroid(reference), centroid(candidate)
+    a, b = centroid(reference), centroid(image)
     if not a or not b:
         return candidate, None
     dx, dy = round(a[0] - b[0]), round(a[1] - b[1])
     if abs(dx) <= 1 and abs(dy) <= 1:
         return candidate, [0, 0]
-    image = Image.open(candidate).convert("RGB")
     moved = ImageChops.offset(image, dx, dy)
     target = Path(candidate).with_name(Path(candidate).stem + "-aligned.png")
     moved.save(target)
