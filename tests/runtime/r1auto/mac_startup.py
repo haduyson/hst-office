@@ -117,6 +117,8 @@ def prepare(dmg, out, record):
             openers.append(launch(out, "M2", "-a", str(destination)))
             moved_app = wait(moved, 180)
         moved_app.activateWithOptions_(2)
+        (out / "M2-reopened-ps.log").write_text(subprocess.run(["ps", "-axo", "pid,ppid,etime,command"],
+                                                capture_output=True, text=True, timeout=30).stdout, encoding="utf-8")
         # One modal question per start (startup_prompts.py): the welcome may take the first start from
         # /Applications; the default-apps question must then come on the next start, never later.
         seen, starts = wait(lambda: observe(moved_app), 60), 1

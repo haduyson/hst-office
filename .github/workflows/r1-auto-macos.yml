@@ -124,6 +124,12 @@ jobs:
           cp ~/hst-reopen-probe.log "$RUNNER_TEMP/r1-evidence/" 2>/dev/null || echo "không có hst-reopen-probe.log"
           cp ~/Library/Caches/HSTOffice/update/move.log "$RUNNER_TEMP/r1-evidence/move-final.log" 2>/dev/null || true
           cat "$RUNNER_TEMP/r1-evidence/hst-reopen-probe.log" "$RUNNER_TEMP/r1-evidence/move-final.log" 2>/dev/null || true
+          for d in ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports; do
+            ls -la "$d" 2>/dev/null
+            for f in "$d"/*; do
+              case "$f" in *soffice*|*HST*|*sh-*) cp "$f" "$RUNNER_TEMP/r1-evidence/crash-$(basename "$f").log" ;; esac
+            done
+          done
       - name: Probe - terminate() của bản đã phát hành, có và không có SuspendQuickstartVeto
         if: ${{ always() }}
         timeout-minutes: 15
@@ -143,6 +149,13 @@ jobs:
           print("probe exit", done.returncode)
           PY
           cp "$RUNNER_TEMP/reopen-work/office.log" "$RUNNER_TEMP/r1-evidence/reopen-office.log" 2>/dev/null || true
+          screencapture -x "$RUNNER_TEMP/r1-evidence/reopen-probe-end.png" || true
+          ps -axo pid,ppid,etime,command | grep -i -E "hst|soffice" > "$RUNNER_TEMP/r1-evidence/reopen-probe-ps.log" || true
+          for d in ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports; do
+            for f in "$d"/*; do
+              case "$f" in *soffice*|*HST*) cp "$f" "$RUNNER_TEMP/r1-evidence/crash-end-$(basename "$f").log" ;; esac
+            done
+          done
       - name: Ghi tóm tắt từng mục
         if: ${{ always() }}
         shell: bash
