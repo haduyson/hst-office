@@ -77,6 +77,8 @@ def main():
         if args.item in A11Y:  # the OS tree the ribbon checks must be rewritten against
             try:
                 from support import native
+                (e.out / "os-a11y.log").write_text(json.dumps(native("tree", "diagnose"), ensure_ascii=False,
+                                                                default=str), encoding="utf-8")
                 (e.out / "native-tree.log").write_text(json.dumps(native("tree", 2500), ensure_ascii=False),
                                                        encoding="utf-8")
             except Exception as dump_error:

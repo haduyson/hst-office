@@ -44,5 +44,8 @@ def windows_nodes(limit):
 
 
 def tree(limit="4000"):
+    if limit == "diagnose":
+        from os_a11y_diagnose import diagnose
+        return diagnose()
     limit = int(limit)
     return mac_nodes(limit) if platform.system() == "Darwin" else windows_nodes(limit)
