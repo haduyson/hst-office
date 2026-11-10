@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Translucent rectangles stay translucent on an INSTALLED HST Office (Windows): Impress edit view and slide show.
+"""Translucent rectangles stay translucent on an INSTALLED HST Office (Windows): Impress slide show, Calc Text Import.
 
 VCL on Windows sends a translucent RECTANGLE drawn with OutputDevice::DrawTransparent(tools::PolyPolygon, percent) to
 DrawAlphaRect, which with Skia overwrote the pixels with the premultiplied colour (dark boxes) instead of blending. The
@@ -36,6 +36,40 @@ def blue_luma(path):
               if 30 < luma[y][x] < 235]
     values.sort()
     return values[len(values) // 2] if len(values) > 200 else None
+
+
+def dark_pixels(path, rect):
+    """Pixels darker than luma 40 inside the screen rectangle (left, top, right, bottom) of a screenshot."""
+    with open(path, "rb") as handle:
+        _width, _height, luma = png_luma.read(handle.read())
+    left, top, right, bottom = rect
+    return sum(v < 40 for row in luma[max(0, top):bottom] for v in row[max(0, left):right])
+
+
+def csv_column_header(check, office, out):
+    """Calc's Text Import dialog tints a selected column header with the selection colour at 85% transparency."""
+    import threading
+    import uno
+    path = os.path.join(out, "cot.csv")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("".join("ten%d,so%d,ghichu%d\n" % (n, n, n) for n in range(30)))
+    threading.Thread(target=lambda: office.load(uno.systemPathToFileUrl(path)), daemon=True).start()
+    window = wg.find_window(lambda title: title.startswith("Text Import") or title.startswith("Nhập văn bản"), 40)
+    check.note("Text Import dialog", window)
+    if window is None:
+        return
+    wg.foreground(window[0])
+    time.sleep(1.5)
+    left, top, right, bottom = wg.window_rect(window[0])
+    before = wg.screenshot(os.path.join(out, "csv-before.png"), cursor=False)
+    wg.click(left + (right - left) // 5, bottom - 110)  # a cell of the first column in the preview selects it
+    wg.mouse_move(right - 10, top + 10)
+    time.sleep(1.5)
+    after = wg.screenshot(os.path.join(out, "csv-after.png"), cursor=False)
+    dark = dark_pixels(after, (left, top, right, bottom)) - dark_pixels(before, (left, top, right, bottom))
+    check("Text Import: a selected column header is not painted dark (new near-black pixels <= 300)", dark <= 300, dark)
+    wg.keys("escape")
+    time.sleep(2)
 
 
 def add_rectangle(doc):
@@ -101,6 +135,7 @@ def main():
         presentation.end()
         time.sleep(2)
         doc.close(True)
+        csv_column_header(check, office, out)
     except Exception:  # noqa: BLE001
         import traceback
         check("harness", False, traceback.format_exc())
