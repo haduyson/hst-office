@@ -3,9 +3,9 @@
 
 The way back from "Chỉnh sửa bằng HST Draw" of HST PDF: a PDF opened in HST Draw and not changed is shown as it
 is; anything else (a changed PDF, a drawing, a text, a sheet) is exported to a PDF in a folder of its own under
-the temporary directory first, so the original file is never written. The PDF is then loaded like a file the
-user opens, which HST PDF's frame loader takes (unless Tools ▸ Options ▸ HST Office turned HST PDF off; the
-PDF then opens in HST Draw, as every PDF does).
+the temporary directory first, so the original file is never written. The PDF is then loaded with
+HSTPdfOpenInViewer, so HST PDF's frame loader takes it even when Tools ▸ Options ▸ HST Office set PDF files to
+open in HST Draw (hst-pdf-open-in-viewer-explicit.patch): the user asked for HST PDF.
 """
 import os
 import re
@@ -19,6 +19,7 @@ PDF_FILTERS = (
     ("com.sun.star.sheet.SpreadsheetDocument", "calc_pdf_Export"),
 )
 FALLBACK_NAME = "Bản vẽ"
+VIEWER_FLAG = "HSTPdfOpenInViewer"  # load argument: HST PDF opens it whatever the Options setting
 
 
 def pdf_filter(services):
@@ -67,6 +68,9 @@ def run(host):
     url = reusable_pdf(doc.getLocation() if doc.hasLocation() else "", doc.isModified())
     if url is None:
         url = export_copy(doc, tempfile.mkdtemp(prefix="hst-pdf-"))
+    import uno
+    force = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    force.Name, force.Value = VIEWER_FLAG, True
     desktop = host.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", host.ctx)
-    desktop.loadComponentFromURL(url, "_blank", 0, ())
+    desktop.loadComponentFromURL(url, "_blank", 0, (force,))
     return url

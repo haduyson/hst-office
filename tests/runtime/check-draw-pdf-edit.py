@@ -10,7 +10,8 @@ A two-page PDF made by HST Office itself (pdf_samples) opens in HST PDF; "Chỉn
     Xuất/PDF, Xem lại, Trợ giúp, Phần mở rộng), and nothing of Trang đầu is folded into "»";
   - a text box of the PDF is edited by keyboard (selected, F2, End, typed);
   - the drawing is exported to PDF and saved as .odg, and the exported PDF holds the edit (pdftotext);
-  - Xuất/PDF ▸ "Mở trong HST PDF" (org.hst.office.vi:OpenInHstPdf) shows the edited drawing in HST PDF.
+  - Xuất/PDF ▸ "Mở trong HST PDF" (org.hst.office.vi:OpenInHstPdf) shows the edited drawing in HST PDF, also
+    with "Open PDF files in HST PDF" turned off in Options (an explicit command asks for the viewer).
 The display must already run. Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json
 and draw-1485.png. Exit 1 on a failed check.
 """
@@ -156,6 +157,17 @@ def check(args, office, sample):
     record("Mở trong HST PDF shows the edited drawing in HST PDF", bool(viewer))
     for viewer_frame in viewer_frames(office):
         viewer_frame.close(True)
+
+    # an explicit command opens HST PDF even when PDF files are set to open in HST Draw
+    office.set_config("/org.openoffice.Office.HSTPdfViewer/Viewer", "OpenPdfInViewer", False)
+    try:
+        threading.Thread(target=office.dispatch, args=(frame, "org.hst.office.vi:OpenInHstPdf"), daemon=True).start()
+        viewer = wait(lambda: len(viewer_frames(office)) > 0, 60)
+        record("with HST PDF turned off in Options, Mở trong HST PDF still opens HST PDF", bool(viewer))
+        for viewer_frame in viewer_frames(office):
+            viewer_frame.close(True)
+    finally:
+        office.set_config("/org.openoffice.Office.HSTPdfViewer/Viewer", "OpenPdfInViewer", True)
     draw.close(True)
 
 
