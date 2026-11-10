@@ -52,6 +52,7 @@ class StartupJob(unittest.TestCase):
             mock.patch.object(job.ui, "save", lambda ctx, k, v: self.prefs.__setitem__(k, v)),
             mock.patch.object(job.ui, "proxy", lambda ctx: None),
             mock.patch.object(job, "RETRY_DELAYS", (0, 0)),
+            mock.patch.object(job.update_install_id, "for_check", lambda ctx: None),  # tested in test_update_install_id
             mock.patch.object(job.ui, "on_main_thread", lambda ctx, fn: fn()),
             mock.patch.object(job.ui, "notify", lambda ctx, rel, installed: self.notified.append(rel["version"])),
             mock.patch.object(job.ui, "release_info_for",

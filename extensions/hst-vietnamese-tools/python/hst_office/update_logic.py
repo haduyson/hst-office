@@ -186,6 +186,6 @@ def download_url(release, platform):
 
 
 def user_agent(installed, system):
-    """The only data sent with the request: product version and operating system name."""
+    """Product version and OS name: with the optional install ID (update_install_id.feed_url), all a check sends."""
     os_name = {"windows": "Windows", "darwin": "macOS", "linux": "Linux"}.get((system or "").lower(), "Other")
     return "HSTOffice/%s (%s)" % (installed, os_name)

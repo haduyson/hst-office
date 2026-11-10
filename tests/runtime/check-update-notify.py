@@ -40,7 +40,7 @@ REQUESTS = []
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - http.server API
-        status, body = SERVED.get(self.path, (404, b""))
+        status, body = SERVED.get(self.path.split("?")[0], (404, b""))  # a static server ignores ?i=<install ID>
         REQUESTS.append(self.path)
         print("server: %s %s -> %d (%s)" % (self.command, self.path, status, self.headers.get("User-Agent")), flush=True)
         self.send_response(status)

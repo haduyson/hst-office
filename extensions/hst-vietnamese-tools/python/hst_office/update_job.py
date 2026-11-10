@@ -6,6 +6,8 @@ Start-up: only when AutoCheck is on and the last successful check is 24 h old. A
 the manifest (update_fetch), so start-up is never blocked or slowed. A failure is logged (stderr), shows nothing and
 is retried twice (RETRY_DELAYS), then waits for the next start; the check time is stored on success only, so a machine
 that was offline at start-up is not skipped for a whole day. Results reach the UI through the main thread only.
+Both entry points add the anonymous install ID (update_install_id) to the request, unless SendInstallId is off; the
+"Cập nhật ngay" flow (update_prepare) fetches the manifest again without it.
 """
 import threading
 import time
@@ -16,6 +18,7 @@ from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 from com.sun.star.task import XJob
 
+from . import update_install_id
 from . import update_logic as logic
 from . import update_outcome
 from . import update_result as result
@@ -79,7 +82,7 @@ def automatic_check(ctx, now=None):
     now = int(time.time() if now is None else now)
     if not prefs["AutoCheck"] or not logic.check_due(now, prefs["LastCheck"], prefs["CheckIntervalHours"] * 3600):
         return None
-    info = ui.release_info_for(ctx)
+    info = update_install_id.add_to(ctx, ui.release_info_for(ctx))
     started = time.monotonic()
 
     def done(release, failed):
@@ -154,7 +157,7 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
         try:
             if not ui.settings(self.ctx)["ManualCheck"]:  # locked off by the administrator: never contact the server
                 return None
-            info = ui.release_info_for(self.ctx)
+            info = update_install_id.add_to(self.ctx, ui.release_info_for(self.ctx))
         except Exception:  # noqa: BLE001 - no release stamp: report "could not check"
             diag_log.exception("update_job")
             return result.show_result(self.ctx, peer, None, "", True)

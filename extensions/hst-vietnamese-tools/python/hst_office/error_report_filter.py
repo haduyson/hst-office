@@ -10,7 +10,9 @@ type) and replaces everything that could identify a person or a document:
   * every absolute path (POSIX, Windows drive or UNC) -> <PATH>, keeping only the base name of a Python module
     (".../hst_office/dispatch.py" -> "<PATH>/dispatch.py");
   * every name with a document extension (Báo cáo.docx, "so lieu.xlsx") -> <FILE>;
-  * e-mail addresses -> <EMAIL>.
+  * e-mail addresses -> <EMAIL>;
+  * every UUID -> <ID>, so the anonymous install ID of the update check (update_install_id) can never reach the local
+    log or a report, whatever message carried it.
 """
 import os
 import re
@@ -22,6 +24,7 @@ DOC_EXT = ("doc", "docx", "docm", "dot", "dotx", "dotm", "odt", "ott", "fodt", "
 _URL = re.compile(r"\b(?:file|vnd\.sun\.star\.[\w.-]+|private|https?|ftp|smb|webdav|davs?|mailto|data):[^\s\"'<>]*",
                   re.I)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_UUID = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}(?![0-9A-Fa-f])")
 # A path segment may contain spaces (C:\Users\Nguyen Van A\...); it stops at quotes, commas, colons and line ends.
 _SEG = r"[^\s\\/\"'<>|:,;()\[\]]+(?: [^\s\\/\"'<>|:,;()\[\]]+)*"
 _PATH = re.compile(r"(?:\b[A-Za-z]:|\\\\" + _SEG + r")(?:[\\/]" + _SEG + r")+[\\/]?|\b[A-Za-z]:[\\/]"
@@ -71,11 +74,12 @@ def _path(match):
 
 
 def scrub(text, secrets=None):
-    """`text` with personal strings, URLs, paths, document names and e-mail addresses replaced."""
+    """`text` with personal strings, URLs, UUIDs, paths, document names and e-mail addresses replaced."""
     if not text:
         return ""
     secrets = personal_strings() if secrets is None else secrets
     text = _URL.sub("<URL>", text)
+    text = _UUID.sub("<ID>", text)
     text = _EMAIL.sub("<EMAIL>", text)
     text = _PATH.sub(_path, text)
     for secret in secrets:  # what is left outside paths: a user name inside a message, a profile in another form
