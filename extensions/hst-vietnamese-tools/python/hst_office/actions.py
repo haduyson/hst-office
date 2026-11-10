@@ -5,6 +5,7 @@ import unohelper
 from . import diag_log
 from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_layout, nd30_open, nd30_writer,
                blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
+from . import open_in_hst_pdf
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -173,6 +174,7 @@ COMMANDS = {
     "ImportCsv": import_csv,
     "EditVba": vba.run,
     "NumberToWords": number_words_action.run,
+    "OpenInHstPdf": open_in_hst_pdf.run,  # Xuất/PDF ▸ Mở trong HST PDF (HST Draw's ribbon)
     "RemoveDiacritics": sheet_utility(vietnamese_calc.remove_diacritics),
     "SplitName": sheet_utility(vietnamese_calc.split_name),
     "SortByGivenName": sheet_utility(vietnamese_calc.sort_by_given_name),
