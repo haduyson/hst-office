@@ -38,6 +38,7 @@ def save_print(target):
         save.child_window(auto_id="1001", control_type="Edit").set_edit_text(str(target))
         save.child_window(auto_id="1", control_type="Button").click_input()
     elif platform.system() == "Darwin":
+        saved_copy(target).unlink(missing_ok=True)  # an old file must not pass for this print
         try:
             mac_print(target)
         except Exception:
@@ -48,6 +49,11 @@ def save_print(target):
     else:
         raise RuntimeError("Đường in native chỉ chạy trên Windows/macOS")
     return finish(target)
+
+
+def saved_copy(target):
+    """Where the macOS save panel's default folder puts the file."""
+    return Path.home() / "Documents" / target.name
 
 
 def mac_print(target):
@@ -68,26 +74,23 @@ def mac_print(target):
                                   "Lưu dưới dạng PDF", "Lưu dưới dạng PDF…"}), None))
         ax.AXUIElementPerformAction(item, "AXPress")
         time.sleep(2)
-        # The save panel runs out of process on macOS 15 (absent from the app's AX tree, run 42897049569):
-        # keys as a user types them. The name field opens focused with the name selected; then Go To Folder.
+        # The save panel runs out of process on macOS 15 (absent from the app's AX tree, run 42897049569) and its
+        # Go To Folder shortcut did not open (run 42900251744): type the name as a user does, save to the panel's
+        # default folder (Tài liệu), then move the file to the evidence path.
         keyboard(text=target.stem)
         screenshot(target.with_name("save-1-name.png"))
-        from Quartz import CGEventCreateKeyboardEvent, CGEventSetFlags, CGEventPost, kCGHIDEventTap
-        for down in (True, False):
-            event = CGEventCreateKeyboardEvent(None, 5, down)  # Cmd+Shift+G
-            CGEventSetFlags(event, (1 << 20) | (1 << 17))
-            CGEventPost(kCGHIDEventTap, event)
-        time.sleep(1)
-        keyboard(text=str(target.parent))
-        keyboard(["enter"])
-        time.sleep(1.5)
-        screenshot(target.with_name("save-2-folder.png"))
         keyboard(["enter"])  # Lưu, the panel's default button
         time.sleep(2)
-        screenshot(target.with_name("save-3-saved.png"))
+        screenshot(target.with_name("save-2-saved.png"))
 
 
 def finish(target):
+    import platform
+    if platform.system() == "Darwin":
+        copy = saved_copy(target)
+        wait(lambda: copy.exists() and copy.stat().st_size > 0, 45)
+        time.sleep(2)
+        copy.replace(target)
     wait(lambda: target.exists() and target.stat().st_size > 0, 45)
     previous = -1
     for _ in range(20):
