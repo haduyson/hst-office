@@ -56,7 +56,17 @@ def hover(e, doc):
     nodes = ribbon_os.read(e, "hover")
     dx, dy = ribbon_os.screen_mapper(e, nodes, window)
     frame = ribbon_os.ribbon_frame(nodes)
-    candidates = [n for n in nodes if n.name in names - {current} and n.w > 40 and frame and frame.contains(n)]
+    def gallery(nodes):  # entries under the tab row (the menu bar's "Bảng" shares a style's name)
+        top = ribbon_os.tabs_bottom(nodes)
+        return [n for n in nodes if n.name in names - {current} and n.w > 40 and n.y >= top and frame.contains(n)]
+    candidates = gallery(nodes) if frame else []
+    if not candidates:  # the gallery scrolled to the current style alone: show the next entries
+        step = [n for n in nodes if n.kind == "button" and n.name in ("▸", "▶") and n.y >= ribbon_os.tabs_bottom(nodes)]
+        if step:
+            native("click", *map(int, (step[0].center()[0] + dx, step[0].center()[1] + dy)))
+            time.sleep(1)
+            nodes = ribbon_os.read(e, "hover-next")
+            candidates = gallery(nodes)
     # At 150% or 1440 pt the gallery shows a single entry: hover what is shown, at least one.
     e.require(len(candidates) >= 1, "Có ô kiểu trong nhóm Kiểu để rê chuột", method="OS accessibility tree",
               names=[n.name for n in candidates], offset=[dx, dy])

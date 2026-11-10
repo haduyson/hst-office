@@ -47,13 +47,18 @@ def ribbon_frame(nodes):
     return max(frames, key=lambda n: n.w * n.h) if frames else None
 
 
+def tabs_bottom(nodes):
+    frame = ribbon_frame(nodes)
+    tabs = [n for n in nodes if n.kind == "tab" and n.h > 0 and frame and frame.contains(n)]
+    return max((t.y + t.h for t in tabs), default=frame.y + 30 if frame else 0)
+
+
 def scan(nodes):
     """Groups (with captions), folded group buttons, the chevron and the banner, like ribbon_fit.scan did over UNO."""
     frame = ribbon_frame(nodes)
     if frame is None:
         return dict(frame=None, groups={}, buttons={}, banner=None, chevron=None)
-    tabs = [n for n in nodes if n.kind == "tab" and n.h > 0 and frame.contains(n)]
-    top = max((t.y + t.h for t in tabs), default=frame.y + 30)
+    top = tabs_bottom(nodes)
     band = [n for n in nodes if n.w > 0 and n.h > 0 and n.y >= top - 2 and n.y + n.h <= frame.y + frame.h + 8]
     boxes = [n for n in band if n.kind == "group" and 50 <= n.h <= 140]
     groups = {}
