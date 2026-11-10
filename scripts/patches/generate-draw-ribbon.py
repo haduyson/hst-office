@@ -22,14 +22,13 @@ the slide-only tabs and groups left out and three tabs for editing PDFs:
 The patch replaces sd/uiconfig/sdraw/ui/notebookbar.ui, regenerates the button-no-label lines of
 solenv/sanitizers/ui/modules/sdraw.suppr for it, makes the ribbon Draw's active UI mode (as
 hst-defaults.patch does for the other three apps) and adds the Vietnamese of the new strings to
-translations/source/vi/sd/messages.po, after an entry that the series leaves as in the tarball.
+translations/source/vi/sd/messages.po, where the tarball and an l10n-filled tree agree (PO_ANCHOR).
 The output is byte-stable; --check only compares it with the existing patch.
 """
 import argparse
 import copy
 import difflib
 import os
-import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -439,16 +438,21 @@ def po_entry(context, msgid, msgstr):
     return (f'#. hstDR\n#: {DRAW_UI}\nmsgctxt "{context}"\nmsgid "{msgid}"\nmsgstr "{msgstr}"\n\n')
 
 
+# The new strings go before this entry: it and the eight lines around it are the same in the tarball's
+# sd/messages.po and in a tree whose Vietnamese l10n/ already filled (the TabbedDraw entries are not).
+PO_ANCHOR = 'msgctxt "insertslidesdialog|links"'
+
+
 def po(tree):
-    """New entries right after the first TabbedDraw entry of the tarball's sd/messages.po."""
+    """New entries before PO_ANCHOR's entry of sd/messages.po."""
     with open(os.path.join(tree, VI_PO), encoding="utf-8") as handle:
         text = handle.read()
-    match = re.search(r'#: sd/uiconfig/sdraw/ui/notebookbar\.ui(?::\d+)?\nmsgctxt "TabbedDraw\|[^"]*"\nmsgid "[^"]*"\n'
-                      r'msgstr "[^"]*"\n\n', text)
-    if not match:
-        raise DrawRibbonError("sd/messages.po has no TabbedDraw entry to anchor the new strings")
+    at = text.find(PO_ANCHOR)
+    start = text.rfind("\n\n", 0, at) + 2 if at >= 0 else -1
+    if at < 0 or text.count(PO_ANCHOR) != 1 or not text.startswith("#. ", start):
+        raise DrawRibbonError("sd/messages.po: the anchor entry for the new strings is missing")
     entries = "".join(po_entry(*s) for s in STRINGS)
-    return text[:match.end()] + entries + text[match.end():]
+    return text[:start] + entries + text[start:]
 
 
 def file_diff(tree, path, new, context):
