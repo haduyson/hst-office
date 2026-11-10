@@ -56,6 +56,11 @@ def main():
                 continue
             out, work = Path(args.out) / item, Path(args.work) / item
             try:
+                if item == "W16":
+                    # Explorer routes in the tooling Python: the office is reached only through the shell.
+                    import open_routes
+                    results.put(open_routes.run(install, out, work))
+                    continue
                 if item in {"W1", "W2", "W6", "W11"}:
                     import delegated
                     # The child needs the bundled bridge search path without contaminating this tooling interpreter.

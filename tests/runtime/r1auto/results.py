@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path, PureWindowsPath
 
-ITEMS = {"windows": tuple(f"W{i}" for i in range(1, 16)),
+ITEMS = {"windows": tuple(f"W{i}" for i in range(1, 17)),
          "macos": tuple(f"M{i}" for i in range(1, 9))}
 OWNER_ONLY = {"M4"}
 
@@ -20,7 +20,7 @@ def parse_items(text, platform):
             raise ValueError(f"Bộ lọc không hợp lệ: {token}")
         prefix, first, other, last = match.groups()
         start, end = int(first), int(last or first)
-        if other and other != prefix or end < start or end > 15:
+        if other and other != prefix or end < start or end > 16:
             raise ValueError(f"Khoảng không hợp lệ: {token}")
         for number in range(start, end + 1):
             item = f"{prefix}{number}"

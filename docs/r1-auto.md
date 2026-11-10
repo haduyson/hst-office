@@ -31,6 +31,7 @@ lỗi chuẩn bị, crash hoặc timeout không biến thành thành công. `sum
 | W13 | Đọc PDF trong Draw, đo độ mờ và chữ đen trên ảnh | `pdf_checks.py` | Tự động |
 | W14 | Chứng thư phần mềm thử; PDF cấm ký, nút mật khẩu quyền, SHA-256 không đổi | `permission_check.py`, `software_certificate.py` | Một phần; token thật chỉ chủ sở hữu |
 | W15 | Văn bản Đảng hai mặt, đo PDF lề trang lẻ/chẵn, ảnh xem trước in | `documents.py` | Tự động |
+| W16 | Mở `.xlsx/.ods`, `.docx/.odt`, `.pptx/.odp` từ Explorer: nhấp đúp, chuột phải ▸ Open, Open with ▸ HST, động từ shell; profile mới, office tắt, đang chạy, vừa đóng; đo thời gian tới cửa sổ tài liệu đứng trước Explorer | `open_routes.py`, `open_routes_windows.py` | Tự động |
 | M1 | Quarantine DMG, mở từ DMG, xác minh App Translocation, câu hỏi chuyển trước tiên | `mac_startup.py` | Tự động |
 | M2 | Bấm Chuyển; ứng dụng tự mở từ Applications rồi hỏi mở tài liệu | `mac_startup.py` | Tự động |
 | M3 | Đồng ý ở M2; LaunchServices và mở ba loại tệp qua Finder/shell | `documents.py`, `mac_access.py` | Tự động |
