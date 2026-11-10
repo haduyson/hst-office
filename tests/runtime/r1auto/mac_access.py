@@ -39,7 +39,10 @@ def nodes(app, budget=15.0):
     ax.AXUIElementSetMessagingTimeout(ax.AXUIElementCreateSystemWide(), 2.0)  # global: covers every child element
     # AXChildren of an exec-started office held only its menu bar (r1-auto macOS run 42748669345, M7 tree):
     # its windows are listed under AXWindows.
-    queue, end = [root] + list(attribute(root, "AXWindows", []) or []), time.monotonic() + budget
+    windows = list(attribute(root, "AXWindows", []) or [])
+    # Windows only when the app lists them: AXChildren repeats them and adds the menu bar, whose ~1000 items
+    # would use up the walk (r1-auto macOS run 42779349486). An app without windows still yields its own children.
+    queue, end = (windows or [root]), time.monotonic() + budget
     for _ in range(5000):
         if not queue or time.monotonic() > end:
             break

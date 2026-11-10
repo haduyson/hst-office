@@ -99,12 +99,15 @@ def about(e):
     shown = wait(lambda: [t for t in office.titles() if t.startswith(("About", "Giới thiệu"))], 30)
     time.sleep(2)
     e.shot("about")
-    found = [label for label in labels(office) if "1.0.0" in label]
+    # The release of the build's own commit (workflow: VERSION at the source run's head), e.g. 1.0.1.
+    release_wanted = os.environ.get("R1_RELEASE", "1.0.0")
+    found = [label for label in labels(office) if release_wanted in label]
     if found or office.system != "Windows":
-        e.require(bool(found), "Giới thiệu hiển thị phiên bản 1.0.0", window=shown, labels=found)
+        e.require(bool(found), "Giới thiệu hiển thị đúng phiên bản", wanted=release_wanted, window=shown, labels=found)
     else:  # UNO accessibility does not reach dialog contents on Windows: read the text the dialog prints
         release = native("product-version", Path(office.program) / "soffice.bin")
-        e.require(release.startswith("1.0.0"), "Giới thiệu hiển thị phiên bản 1.0.0", window=shown,
+        e.require(release == release_wanted, "Giới thiệu hiển thị đúng phiên bản", wanted=release_wanted,
+                  window=shown,
                   release=release, source="ProductVersion = HST_RELEASE, the About dialog's version string")
     if office.system == "Windows":
         native("foreground", shown[0])  # Escape must reach the About dialog, not the window in front

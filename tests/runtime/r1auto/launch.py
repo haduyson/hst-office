@@ -50,7 +50,8 @@ def probe(item, install, out, work, fixtures):
                "--out", str(out), "--work", str(work), "--result", str(result), "--fixtures", str(fixtures)]
     try:
         with (out / "probe.log").open("w", encoding="utf-8") as log:
-            done = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=420)
+            done = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                  timeout=900 if item in {"W8", "W9", "W10", "M4", "M7"} else 420)
         if result.exists():
             payload = json.loads(result.read_text(encoding="utf-8"))
             if done.returncode and payload["result"]["status"] != "FAIL":

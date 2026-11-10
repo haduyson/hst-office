@@ -9,7 +9,7 @@ import time
 _ALIVE = []
 
 
-def create(width=1440, height=900):
+def create(width=1920, height=1200):
     import objc
     import Quartz as q
     from dispatch import dispatch_queue_create
@@ -17,7 +17,7 @@ def create(width=1440, height=900):
     descriptor.setName_("R1 Retina")
     descriptor.setMaxPixelsWide_(width * 2)
     descriptor.setMaxPixelsHigh_(height * 2)
-    descriptor.setSizeInMillimeters_((330.0, 206.0))  # a 15" panel: about 220 ppi at 2880x1800
+    descriptor.setSizeInMillimeters_((440.0, 275.0))  # a 20" panel: about 220 ppi at 3840x2400
     descriptor.setVendorID_(0x4853)
     descriptor.setProductID_(0x5231)
     descriptor.setSerialNum_(1)

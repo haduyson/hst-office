@@ -38,32 +38,59 @@ def save_print(target):
         save.child_window(auto_id="1001", control_type="Edit").set_edit_text(str(target))
         save.child_window(auto_id="1", control_type="Button").click_input()
     elif platform.system() == "Darwin":
+        saved_copy(target).unlink(missing_ok=True)  # an old file must not pass for this print
+        try:
+            mac_print(target)
+        except Exception:
+            import json
+            from native_tree import mac_nodes
+            target.with_name("print-tree.log").write_text(json.dumps(mac_nodes(3000), ensure_ascii=False))
+            raise
+    else:
+        raise RuntimeError("Đường in native chỉ chạy trên Windows/macOS")
+    return finish(target)
+
+
+def saved_copy(target):
+    """Where the macOS save panel's default folder puts the file."""
+    return Path.home() / "Documents" / target.name
+
+
+def mac_print(target):
+    """macOS print sheet: PDF ▸ Save as PDF, then the save panel; its AX tree is dumped on failure."""
+    if True:
         import ApplicationServices as ax
         from mac_access import applications, attribute, nodes, press
         app = wait(lambda: next(iter(applications()), None))
-        pdf_button = wait(lambda: next((n for n in nodes(app) if attribute(n, "AXTitle") == "PDF"), None))
+        # The panel's "PDF" is a label button plus an AXMenuButton; only the menu button opens the PDF menu
+        # (print-tree.log of r1-auto macOS run 42892534997).
+        def pdf_menu():
+            found = [n for n in nodes(app) if attribute(n, "AXTitle") == "PDF" or attribute(n, "AXDescription") == "PDF"]
+            return next((n for n in found if attribute(n, "AXRole") == "AXMenuButton"), None)
+        pdf_button = wait(pdf_menu)
         ax.AXUIElementPerformAction(pdf_button, "AXPress")
         item = wait(lambda: next((n for n in nodes(app) if attribute(n, "AXTitle") in
-                                 {"Save as PDF", "Save as PDF…", "Lưu dưới dạng PDF", "Lưu dưới dạng PDF…"}), None))
+                                 {"Save as PDF", "Save as PDF…", "Lưu thành PDF", "Lưu thành PDF…",
+                                  "Lưu dưới dạng PDF", "Lưu dưới dạng PDF…"}), None))
         ax.AXUIElementPerformAction(item, "AXPress")
-        time.sleep(1)
-        # Save panel Go To Folder uses a native keyboard event, then a native Save button.
-        from Quartz import CGEventCreateKeyboardEvent, CGEventSetFlags, CGEventPost, kCGHIDEventTap
-        for down in (True, False):
-            event = CGEventCreateKeyboardEvent(None, 5, down)  # Cmd+Shift+G
-            CGEventSetFlags(event, (1 << 20) | (1 << 17))
-            CGEventPost(kCGHIDEventTap, event)
-        keyboard(text=str(target.parent))
-        keyboard(["enter"])
-        time.sleep(1)
-        fields = [n for n in nodes(app) if attribute(n, "AXRole") == "AXTextField"]
-        field = next((n for n in fields if attribute(n, "AXValue", "").endswith(".pdf")), None)
-        if field is None:
-            raise RuntimeError("Không đọc được ô tên tệp in")
-        ax.AXUIElementSetAttributeValue(field, "AXValue", target.name)
-        press(app, {"Save", "Lưu"})
-    else:
-        raise RuntimeError("Đường in native chỉ chạy trên Windows/macOS")
+        time.sleep(2)
+        # The save panel runs out of process on macOS 15 (absent from the app's AX tree, run 42897049569) and its
+        # Go To Folder shortcut did not open (run 42900251744): type the name as a user does, save to the panel's
+        # default folder (Tài liệu), then move the file to the evidence path.
+        keyboard(text=target.stem)
+        screenshot(target.with_name("save-1-name.png"))
+        keyboard(["enter"])  # Lưu, the panel's default button
+        time.sleep(2)
+        screenshot(target.with_name("save-2-saved.png"))
+
+
+def finish(target):
+    import platform
+    if platform.system() == "Darwin":
+        copy = saved_copy(target)
+        wait(lambda: copy.exists() and copy.stat().st_size > 0, 45)
+        time.sleep(2)
+        copy.replace(target)
     wait(lambda: target.exists() and target.stat().st_size > 0, 45)
     previous = -1
     for _ in range(20):

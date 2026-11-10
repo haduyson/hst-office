@@ -135,7 +135,11 @@ def prepare(dmg, out, record):
         shot = out / "M2-applications.png"
         screenshot(shot)
         ok = asks(seen)
-        record(row("M2", "PASS" if ok else "FAIL", dict(message="Sau chuyển mới hỏi mở tài liệu văn phòng",
+        # The product must reopen itself from /Applications (update_launch.py); the owner-style reopen above is only
+        # a fallback so M3 can still run, never a pass.
+        message = ("Sau chuyển mới hỏi mở tài liệu văn phòng" if auto_reopen else
+                   "Sau khi chuyển, HST Office không tự mở lại từ Applications (đã mở thay để chạy M3)")
+        record(row("M2", "PASS" if ok and auto_reopen else "FAIL", dict(message=message,
                    executable=moved_app.executableURL().path(), starts=starts, windows=seen,
                    product_reopened_itself=auto_reopen,
                    os_confirmation=confirmation), shot.name))

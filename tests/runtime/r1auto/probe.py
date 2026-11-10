@@ -17,9 +17,11 @@ def vietnamese_by_default(e):
     """The runner's Windows/macOS is English and the profile stores no UI language: the core UI must be Vietnamese
     (the vi language pack is installed on every system and the UI language defaults to Vietnamese)."""
     stored, effective, used = e.office.ui_language()
-    e.require(stored is None and effective == "vi" and used == "vi",
-              "Profile mới trên hệ điều hành tiếng Anh: giao diện lõi tiếng Việt", stored=stored, effective=effective,
-              used=used)
+    # Recorded, not raised: the item still FAILs (probe.main fails any recorded failed check), but its own
+    # measurements are kept, so an older build without the Vietnamese default still yields evidence.
+    e.checks.append(dict(ok=stored is None and effective == "vi" and used == "vi",
+                         message="Profile mới trên hệ điều hành tiếng Anh: giao diện lõi tiếng Việt", stored=stored,
+                         effective=effective, used=used))
 
 
 def execute(e, fixtures):
@@ -84,13 +86,6 @@ def main():
             e.checks.append(dict(ok=False, message="accessibility census", top_windows=census(office)))
         except Exception:
             pass
-        if args.item in A11Y:  # the OS tree the ribbon checks must be rewritten against
-            try:
-                from support import native
-                (e.out / "native-tree.log").write_text(json.dumps(native("tree", 2500), ensure_ascii=False),
-                                                       encoding="utf-8")
-            except Exception as dump_error:
-                e.checks.append(dict(ok=False, message="native tree", error=f"{type(dump_error).__name__}: {dump_error}"))
         try:
             e.shot("failure")
         except Exception:

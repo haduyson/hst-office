@@ -16,28 +16,36 @@ def install(msi, out):
     try:
         deadline = time.monotonic() + 600
         while time.monotonic() < deadline and process.poll() is None:
-            windows = [w for w in Desktop(backend="uia").windows() if "HST Office" in w.window_text()]
-            for window in windows:
-                title = window.window_text()
-                if title not in seen:
-                    seen.append(title)
-                window.set_focus()
-                for control in window.descendants(control_type="CheckBox"):
-                    label = control.window_text()
-                    if "HST Office" in label and ("tài liệu" in label or "documents" in label):
-                        checked = control.get_toggle_state() == 1
-                        shot = out / "W1-default-apps.png"
-                        screenshot(shot)
-                        shots.append(shot.name)
-                        if not checked:
-                            raise AssertionError("Ô mở tài liệu không được tích sẵn")
-                buttons = [b for b in window.descendants(control_type="Button") if b.is_enabled()]
-                for labels in (("Tiếp", "Next"), ("Cài đặt", "Install"), ("Hoàn tất", "Finish")):
-                    button = next((b for b in buttons if any(t in b.window_text().replace("&", "") for t in labels)), None)
-                    if button:
-                        button.click_input()
-                        time.sleep(1)
-                        break
+            try:
+                windows = [w for w in Desktop(backend="uia").windows() if "HST Office" in w.window_text()]
+                for window in windows:
+                    title = window.window_text()
+                    if title not in seen:
+                        seen.append(title)
+                    window.set_focus()
+                    for control in window.descendants(control_type="CheckBox"):
+                        label = control.window_text()
+                        if "HST Office" in label and ("tài liệu" in label or "documents" in label):
+                            checked = control.get_toggle_state() == 1
+                            shot = out / "W1-default-apps.png"
+                            screenshot(shot)
+                            shots.append(shot.name)
+                            if not checked:
+                                raise AssertionError("Ô mở tài liệu không được tích sẵn")
+                    buttons = [b for b in window.descendants(control_type="Button") if b.is_enabled()]
+                    for labels in (("Tiếp", "Next"), ("Cài đặt", "Install"), ("Hoàn tất", "Finish")):
+                        button = next((b for b in buttons if any(t in b.window_text().replace("&", "") for t in labels)), None)
+                        if button:
+                            button.click_input()
+                            time.sleep(1)
+                            break
+            except AssertionError:
+                raise
+            except Exception as error:  # transient UIA COMError (run 42779344554): poll again
+                if f"UIA: {type(error).__name__}" not in seen:
+                    seen.append(f"UIA: {type(error).__name__}")
+                time.sleep(1)
+                continue
             time.sleep(0.5)
         code = process.wait(10)
         if code not in (0, 3010) or checked is not True:

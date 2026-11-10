@@ -25,8 +25,38 @@ def run(action, reference, candidate, crop=None):
         if before < 40:
             raise ValueError("Thiếu chữ đối chiếu trên con dấu")
         return min(1.0, after / before)
+    candidate, shift = aligned(reference, candidate)
     result = pdf_watermark_metrics.measure(reference, candidate, crop)
+    result["alignment_shift"] = shift
     pixels = np.asarray(Image.open(candidate).convert("RGB"), dtype=np.int16)
     result["red_pixels"] = int(((pixels[:, :, 0] > 140) & (pixels[:, :, 0] > pixels[:, :, 1] * 1.5) &
                                 (pixels[:, :, 0] > pixels[:, :, 2] * 1.5)).sum())
     return result
+
+
+def aligned(reference, candidate):
+    """The candidate shifted onto the reference by the red stamp's centroid. macOS "Lưu thành PDF" places the page
+    about 25 px right and 21 px down at 96 dpi with the same scale (r1-auto macOS run 42902193858), so fixed watermark
+    pixels landed on paper. A pure translation; the shift is reported with the measurement."""
+    import numpy as np
+    from PIL import Image, ImageChops
+    size = Image.open(reference).size
+    image = Image.open(candidate).convert("RGB")
+    if image.size != size:  # a thumbnail: compare at the reference's size, as pdf_watermark_metrics.measure does
+        image = image.resize(size)
+    def centroid(source):
+        rgb = np.asarray(source if isinstance(source, Image.Image) else Image.open(source).convert("RGB"),
+                         dtype=np.int16)
+        red = (rgb[..., 0] > 140) & (rgb[..., 0] > rgb[..., 1] * 1.5) & (rgb[..., 0] > rgb[..., 2] * 1.5)
+        ys, xs = np.nonzero(red)
+        return (float(xs.mean()), float(ys.mean())) if len(xs) > 100 else None
+    a, b = centroid(reference), centroid(image)
+    if not a or not b:
+        return candidate, None
+    dx, dy = round(a[0] - b[0]), round(a[1] - b[1])
+    if abs(dx) <= 1 and abs(dy) <= 1:
+        return candidate, [0, 0]
+    moved = ImageChops.offset(image, dx, dy)
+    target = Path(candidate).with_name(Path(candidate).stem + "-aligned.png")
+    moved.save(target)
+    return target, [dx, dy]
