@@ -4,13 +4,15 @@
 
   build-update-policy-oxt.py [--output dist/hst-update-policy.oxt] [--xcd FILE] [--reg FILE] [--mobileconfig FILE]
                              [--enable] [--no-install] [--keep-autocheck] [--no-manual-check] [--channel stable|beta]
+                             [--no-install-id]
   build-update-policy-oxt.py --templates DIR    (the downloadable templates of the user guide, see PROFILES)
 
 The settings live in the core schema /org.openoffice.Office.HSTUpdate (hst-update-config.patch). The lock sets
 AutoCheck (false, or true with --enable) with oor:finalized="true", so user profiles cannot change it. --no-install
 also locks AllowInstall=false ("Cập nhật ngay" disappears, only "Tải về" remains); --no-manual-check locks
 ManualCheck=false (the "Kiểm tra cập nhật…" menu entries are disabled); --channel locks Channel (stable: only
-final releases are offered); --keep-autocheck leaves AutoCheck to the user.
+final releases are offered); --no-install-id locks SendInstallId=false (the anonymous install ID is never sent with
+the update check, docs/PRIVACY.md); --keep-autocheck leaves AutoCheck to the user.
 
 --xcd FILE writes the same lock as a .xcd to copy into <install>/share/registry (Linux/Windows); this is the
 preferred form from beta.4 on (docs/UPDATE_ADMIN.md). The .oxt is for installs before beta.4 and for admins who
@@ -85,7 +87,7 @@ MAC_DOMAIN, MAC_IDENTIFIER = "vn.hasontech.hstoffice", "vn.hasontech.hstoffice.u
 
 def typed(name, text):
     """Plist value of one lock (the .xcd/.reg carry text, a configuration profile carries typed values)."""
-    if name in ("AutoCheck", "ManualCheck", "AllowInstall"):
+    if name in ("AutoCheck", "ManualCheck", "AllowInstall", "SendInstallId"):
         return text == "true"
     return int(text) if name == "CheckIntervalHours" else text
 
@@ -144,6 +146,7 @@ def main():
     ap.add_argument("--keep-autocheck", action="store_true", help="do not set AutoCheck")
     ap.add_argument("--no-manual-check", action="store_true", help="lock ManualCheck off: no menu check either")
     ap.add_argument("--channel", choices=("stable", "beta"), help="lock the release channel")
+    ap.add_argument("--no-install-id", action="store_true", help="lock SendInstallId off: no anonymous install ID is sent")
     ap.add_argument("--xcd", help="also write the lock as a .xcd file for <install>/share/registry")
     ap.add_argument("--reg", help="also write the lock as a Windows .reg file")
     ap.add_argument("--mobileconfig", help="also write the lock as a macOS configuration profile")
@@ -155,11 +158,12 @@ def main():
     locks = ([] if args.keep_autocheck else [("AutoCheck", "true" if args.enable else "false")]) \
         + ([("AllowInstall", "false")] if args.no_install else []) \
         + ([("ManualCheck", "false")] if args.no_manual_check else []) \
-        + ([("Channel", args.channel)] if args.channel else [])
+        + ([("Channel", args.channel)] if args.channel else []) \
+        + ([("SendInstallId", "false")] if args.no_install_id else [])
     if not locks:
-        ap.error("nothing to lock: --keep-autocheck needs --no-install, --no-manual-check or --channel")
+        ap.error("nothing to lock: --keep-autocheck needs --no-install, --no-manual-check, --channel or --no-install-id")
     core = "".join(PROP % lock for lock in locks)
-    legacy = "".join(PROP % lock for lock in locks if lock[0] in ("AutoCheck", "AllowInstall"))  # old schema
+    legacy = "".join(PROP % lock for lock in locks if lock[0] in ("AutoCheck", "AllowInstall", "SendInstallId"))  # update.xcs
     files = {"description.xml": DESCRIPTION, "META-INF/manifest.xml": MANIFEST,
              "policy.xcu": POLICY % legacy, "policy-core.xcu": CORE % core}
     if args.xcd:

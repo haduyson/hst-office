@@ -1,0 +1,51 @@
+HST Office: administrators can lock the anonymous install ID of the update check like the other update settings.
+
+From 1.0.1 the HST extension sends a random install ID with the update check (?i=<uuid4> on the manifest request),
+so HASON TECH can count the machines in use; the user turns it off in Tools > Options > HST Office > Updates. The
+switch SendInstallId is added to the core schema org.openoffice.Office.HSTUpdate (hst-update-config.patch), so a
+finalized value in a share/registry .xcd or the HKLM policy key locks it: both are read before the extension
+schemas, which therefore cannot be locked that way. The ID itself stays in the extension schema (per-user state).
+
+License: MPL-2.0, like the schema it extends.
+
+--- a/officecfg/registry/schema/org/openoffice/Office/HSTUpdate.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTUpdate.xcs
+@@ -8,17 +8,18 @@
+  -->
+ 
+ <!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
+ <oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" oor:name="HSTUpdate" oor:package="org.openoffice.Office" xml:lang="en-US">
+   <info>
+     <desc>HST Office update check (the bundled HST extension reads these settings). Every property can be
+       locked by an administrator with oor:finalized="true" in a share/registry .xcd file, in the Windows
+       registry (HKLM\SOFTWARE\Policies\LibreOffice\org.openoffice.Office.HSTUpdate\...) or in a shared
+-      extension. Only the product version and the OS name are sent to office.hasontech.vn.</desc>
++      extension. Only the product version, the OS name and, unless SendInstallId is false, the anonymous
++      install ID are sent to office.hasontech.vn.</desc>
+   </info>
+   <component>
+     <prop oor:name="AutoCheck" oor:type="xs:boolean" oor:nillable="false">
+       <info>
+         <desc>Check for a new HST Office version at start-up, at most once per CheckIntervalHours.</desc>
+       </info>
+       <value>true</value>
+     </prop>
+@@ -86,10 +87,18 @@
+     </prop>
+     <prop oor:name="LegacyMigrated" oor:type="xs:boolean" oor:nillable="false">
+       <info>
+         <desc>True once the per-user values of the old extension schema
+           (/org.hasontech.hstoffice.UpdateCheck) were copied here (internal).</desc>
+       </info>
+       <value>false</value>
+     </prop>
++    <prop oor:name="SendInstallId" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Send the anonymous install ID (a random UUID kept in the user profile, see the HST extension)
++          with the update check, so HASON TECH can count the machines in use. When false no ID is sent or
++          created; the update check works the same.</desc>
++      </info>
++      <value>true</value>
++    </prop>
+   </component>
+ </oor:component-schema>

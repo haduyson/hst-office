@@ -19,9 +19,13 @@ Cách kiểm tra cập nhật hoạt động: [UPDATE_CHECK](UPDATE_CHECK.md). C
 | `CheckIntervalHours` | int | `24` | Khoảng cách tối thiểu giữa hai lần tự kiểm tra, tính bằng giờ (1–8760) |
 | `AllowInstall` | boolean | `true` | Hiện nút "Cập nhật ngay". `false`: chỉ còn "Tải về" thủ công |
 | `Channel` | string | rỗng | Kênh phát hành. Rỗng: theo bản đang cài (bản beta thấy beta và chính thức). `stable`: chỉ bản chính thức. `beta`: cả beta |
+| `SendInstallId` | boolean | `true` | Từ 1.0.1. Gửi mã máy ẩn danh cùng lần kiểm tra cập nhật ([PRIVACY](PRIVACY.md)). `false`: không gửi, không tạo mã; ô tương ứng trong Tùy chọn ▸ HST Office ▸ Cập nhật bị làm mờ. Lõi chưa có thuộc tính này (bản build trước `hst-update-install-id-config.patch`) thì đọc `/org.hasontech.hstoffice.UpdateCheck/SendInstallId` của extension, chỉ khóa được bằng gói chính sách dùng chung hoặc hồ sơ macOS |
 | `LastCheck`, `SkippedVersion` | long, string | `0`, rỗng | Trạng thái riêng của từng người dùng; không cần khóa |
 
-Muốn tắt hẳn mọi kết nối tới máy chủ cập nhật, khóa cả `AutoCheck = false` và `ManualCheck = false`.
+Muốn tắt hẳn mọi kết nối tới máy chủ cập nhật, khóa cả `AutoCheck = false` và `ManualCheck = false`. Muốn vẫn kiểm
+tra cập nhật nhưng không gửi mã máy ẩn danh, khóa `SendInstallId = false` theo cùng cách (ví dụ
+`build-update-policy-oxt.py --keep-autocheck --no-install-id --xcd ... --reg ... --mobileconfig ...`; khóa macOS
+là `<key>SendInstallId</key><false/>` trong từ điển `HSTUpdate`).
 
 ## Tệp mẫu tải sẵn
 

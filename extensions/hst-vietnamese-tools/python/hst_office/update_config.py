@@ -11,6 +11,7 @@ Earlier releases kept the settings in the extension schema /org.hasontech.hstoff
 - the per-user values there are copied once into the core schema (migrate);
 - a value finalized there (old hst-update-policy.oxt) is still honoured as a lock.
 
+Install ID (update_install_id): SendInstallId in the core (hst-update-install-id-config.patch), update.xcs as fallback.
 Precedence of one setting: core finalized > macOS managed preference > legacy finalized > core (user or default).
 """
 import os
@@ -25,9 +26,10 @@ MACOS_KEY = "HSTUpdate"
 MANAGED_DIR = "/Library/Managed Preferences"
 
 DEFAULTS = {"AutoCheck": True, "ManualCheck": True, "CheckIntervalHours": 24, "AllowInstall": True, "Channel": "",
-            "LastCheck": 0, "SkippedVersion": ""}
-ADMIN_KEYS = ("AutoCheck", "ManualCheck", "CheckIntervalHours", "AllowInstall", "Channel")
-LEGACY_KEYS = ("AutoCheck", "AllowInstall", "LastCheck", "SkippedVersion")  # what update.xcs ever had
+            "LastCheck": 0, "SkippedVersion": "", "SendInstallId": True, "InstallId": ""}
+ADMIN_KEYS = ("AutoCheck", "ManualCheck", "CheckIntervalHours", "AllowInstall", "Channel", "SendInstallId")
+LEGACY_KEYS = ("AutoCheck", "AllowInstall", "LastCheck", "SkippedVersion")  # what update.xcs had before the core schema
+EXTENSION_KEYS = LEGACY_KEYS + ("SendInstallId", "InstallId")  # what update.xcs has now (InstallId only there)
 CHANNELS = ("", "stable", "beta")
 READONLY = 16  # com.sun.star.beans.PropertyAttribute.READONLY: set on finalized properties of an update access
 
@@ -60,7 +62,7 @@ def _read(ctx, path, names):
 
 def normalize(name, value):
     """Clamp an administrator-supplied value to what the update check understands."""
-    if name in ("AutoCheck", "ManualCheck", "AllowInstall"):
+    if name in ("AutoCheck", "ManualCheck", "AllowInstall", "SendInstallId"):
         return bool(value)
     if name == "CheckIntervalHours":
         try:
@@ -169,7 +171,7 @@ def load(ctx):
     """(values, locked names) of every setting, after migration and with all administrator locks applied."""
     migrate(ctx)
     core = _read(ctx, CORE_PATH, DEFAULTS)
-    legacy = _read(ctx, LEGACY_PATH, LEGACY_KEYS)
+    legacy = _read(ctx, LEGACY_PATH, EXTENSION_KEYS)
     return resolve(core, legacy, macos_managed() if sys.platform == "darwin" else {})
 
 

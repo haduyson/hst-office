@@ -3,7 +3,9 @@
 
 One GET for the manifest and one for its detached signature (legacy fallback on fetch errors only), 5 s timeout,
 at most 64 KiB each, redirects only within the same origin, no cookies, no personal data: the User-Agent
-("HSTOffice/<release> (<OS>)") is the only information sent. The manifest is used only when its Ed25519
+("HSTOffice/<release> (<OS>)") and, unless the user or the administrator turned it off, the anonymous install ID as
+?i=<uuid4> on the manifest request only (info["install_id"], update_install_id) are the only information sent. The ID
+never appears in an error message: they name the URL without it. The manifest is used only when its Ed25519
 signature verifies with the public key built into the extension; anything else raises UpdateError, which
 the caller logs without showing UI.
 
@@ -22,6 +24,7 @@ import urllib.request
 from . import ed25519
 from . import update_logic as logic
 from .data_files import load_data
+from .update_install_id import current as current_install_id, feed_url
 
 TEST_URL_ENV = "HST_UPDATE_TEST_URL"
 CA_BUNDLES = ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt")
@@ -76,10 +79,16 @@ def _opener(proxy):
     return urllib.request.build_opener(*handlers)
 
 
-def _get(opener, url, agent, allow_test):
+def _redact(text, install_id):
+    return text.replace(install_id, "<ID>") if install_id else text
+
+
+def _get(opener, url, agent, allow_test, install_id=None):
+    """Bytes of `url` (with ?i=<install_id> when given); errors name `url` only, never the install ID."""
     if not logic.is_fetch_url(url, allow_test):
         raise UpdateError("refused URL %s" % url)
-    request = urllib.request.Request(url, headers={"User-Agent": agent, "Accept": "*/*", "Cache-Control": "no-cache"})
+    request_url = feed_url(url, install_id)
+    request = urllib.request.Request(request_url, headers={"User-Agent": agent, "Accept": "*/*", "Cache-Control": "no-cache"})
     try:
         with opener.open(request, timeout=logic.TIMEOUT) as response:
             if not logic.is_fetch_url(response.geturl(), allow_test):
@@ -87,8 +96,8 @@ def _get(opener, url, agent, allow_test):
             data = response.read(logic.MAX_BYTES + 1)
     except UpdateError:
         raise
-    except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
-        raise FetchError("%s: %s" % (type(exc).__name__, exc)) from exc
+    except (OSError, ValueError, urllib.error.URLError, http.client.HTTPException) as exc:
+        raise FetchError(_redact("%s: %s" % (type(exc).__name__, exc), install_id)) from None  # the cause may hold the URL
     if len(data) > logic.MAX_BYTES:
         raise UpdateError("response too large")
     return data
@@ -116,10 +125,11 @@ def fetch_channels(info, proxy=None, environ=None):
     override = allow_test and environ.get(TEST_URL_ENV) == url
     urls = (url,) if override else (url, logic.LEGACY_MANIFEST_URL)
     agent = logic.user_agent(info["release"], platform.system())
+    install_id = current_install_id(info.get("install_id"))  # None: the user or the administrator turned it off
     opener = _opener(proxy)
     for url in urls:
         try:
-            data = _get(opener, url, agent, allow_test)
+            data = _get(opener, url, agent, allow_test, install_id)
             signature = _get(opener, url + logic.SIGNATURE_SUFFIX, agent, allow_test)
         except FetchError:
             if url == urls[-1]:

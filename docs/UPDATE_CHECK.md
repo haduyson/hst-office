@@ -28,6 +28,18 @@ HST Office tự biết khi có bản mới và báo cho người dùng kèm liê
   lại kiểm tra. Luồng nền tải tối đa 64 KiB mỗi tệp, timeout 5 giây, HTTPS tới
   `office.hasontech.vn`, chỉ theo chuyển hướng cùng nguồn. Ngoại tuyến hay lỗi: không hiện gì.
   Proxy: theo Công cụ ▸ Tùy chọn ▸ Internet ▸ Proxy (không dùng / thủ công HTTPS / theo hệ thống).
+- **Mã máy ẩn danh (từ 1.0.1, [PRIVACY](PRIVACY.md)):** để đếm số máy đang dùng (lượt tải không đếm được vì mỗi lần
+  cập nhật là một lượt tải mới), cả lần kiểm tra khi khởi động lẫn lệnh "Kiểm tra cập nhật" thêm `?i=<UUID4>` vào yêu
+  cầu tải manifest, và chỉ yêu cầu đó (không vào `.sig`, không vào luồng "Cập nhật ngay"). Dòng yêu cầu máy chủ thấy:
+  `GET /update/latest-2.json?i=3f2b8c1e-9a4d-4e6f-8b7a-0c1d2e3f4a5b HTTP/1.1`, User-Agent `HSTOffice/<bản> (<Windows|macOS|Linux|Other>)`
+  (manifest dự phòng: `/update/latest.json?i=...`). Máy chủ tĩnh bỏ qua tham số, nhật ký truy cập giữ nó; đếm máy =
+  đếm giá trị `i` khác nhau (khớp `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`), tách theo
+  User-Agent nếu cần. Không có `i`: người dùng hoặc quản trị viên đã tắt, hoặc bản trước 1.0.1.
+  Mã: `update_install_id.py` (tạo bằng `uuid.uuid4()` ở lần kiểm tra đầu, trên luồng chính, lưu vào
+  `/org.hasontech.hstoffice.UpdateCheck/InstallId`; không lưu được thì không gửi), `update_logic.feed_url`,
+  `update_fetch` (thông báo lỗi không chứa mã), `error_report_filter.scrub` thay mọi UUID bằng `<ID>` trước khi ghi
+  nhật ký cục bộ. Tắt: `SendInstallId = false` (Công cụ ▸ Tùy chọn ▸ HST Office ▸ Cập nhật; khóa được, xem
+  [UPDATE_ADMIN](UPDATE_ADMIN.md)).
 - **Thông báo:** thanh thông tin (infobar) trên Văn bản/Bảng tính/Trình chiếu: "Đã có HST Office X — bản mới."
   với [Tải về] [Xem điểm mới] [Bỏ qua phiên bản này]. Nếu lúc đó chỉ có Start Center, thông báo hiện ở tài liệu
   đầu tiên được mở. Liên kết mở bằng trình duyệt hệ thống.
@@ -41,7 +53,8 @@ Mã: `extensions/hst-vietnamese-tools/python/hst_office/update_*.py`. Các mô-�
 ## Cài đặt và khóa tập trung
 
 Từ beta.4 cài đặt nằm trong lõi, nút `/org.openoffice.Office.HSTUpdate` (`AutoCheck`, `ManualCheck`,
-`CheckIntervalHours`, `AllowInstall`, `Channel`, cùng trạng thái người dùng `LastCheck`, `SkippedVersion`). Mã đọc
+`CheckIntervalHours`, `AllowInstall`, `Channel`, `SendInstallId` (từ 1.0.1), cùng trạng thái người dùng `LastCheck`,
+`SkippedVersion`; mã máy ẩn danh `InstallId` nằm ở `/org.hasontech.hstoffice.UpdateCheck`). Mã đọc
 cài đặt: `update_config.py` (chép một lần giá trị cũ từ `/org.hasontech.hstoffice.UpdateCheck` của `update.xcs`, vẫn
 tôn trọng gói chính sách cũ). Người dùng đổi bằng Công cụ ▸ Tùy chọn ▸ Nâng cao ▸ Trình soạn cấu hình chuyên gia
 (tìm `HSTUpdate`).
