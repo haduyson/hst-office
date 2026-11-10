@@ -184,7 +184,7 @@ def keep_groups(box, wanted):
     missing = [g for g in wanted if g not in holders]
     if missing:
         raise DrawRibbonError(f"{box.get('id')!r} lacks {missing}")
-    for child in list(box):
+    for child in box.findall("child"):  # the box's own properties (visible, valign) stay
         box.remove(child)
     for gid in wanted:
         box.append(holders[gid])
@@ -208,8 +208,9 @@ def tab_label(tab):
     return next(o for o in tab.iter("object") if o.get("class") == "GtkLabel")
 
 
-def new_tab(home_tab, label_id, context, text, taken):
-    tab = copy.deepcopy(home_tab)
+def new_tab(template, label_id, context, text, taken):
+    """A tab label like Insert's: shown in every context, never the one selected for a context."""
+    tab = copy.deepcopy(template)
     label = tab_label(tab)
     if label_id in taken:
         raise DrawRibbonError(f"tab label id {label_id!r} is taken")
@@ -293,7 +294,7 @@ def build_ui(tree):
     pages = {pid: (page, tab) for pid, page, tab in tab_pages(container)}
     draw_pages = {pid: (page, tab) for pid, page, tab in tab_pages(find(draw, "ContextContainer"))}
     taken = ids(impress)
-    home_tab = pages["Home Tab"][1]
+    insert_tab = pages["Insert"][1]
 
     # Sắp xếp: the arrange groups of Shape Format.
     arrange_page = copy.deepcopy(pages["Draw"][0])
@@ -303,7 +304,7 @@ def build_ui(tree):
     box.set("id", "pmhbArrange")
     keep_groups(box, [g.replace("Draw", "Arrange", 1) for g in ARRANGE_GROUPS])
     remove_commands(arrange_page, ARRANGE_DROP_COMMANDS)
-    arrange_tab = new_tab(home_tab, "ArrangeLabel", *STRINGS[0][:2], taken)
+    arrange_tab = new_tab(insert_tab, "ArrangeLabel", *STRINGS[0][:2], taken)
 
     # Trang: Draw's page groups, in a copy of Draw's Layout tab page.
     page_page = copy.deepcopy(draw_pages["Layout"][0])
@@ -321,7 +322,7 @@ def build_ui(tree):
         grid = find(page_page, new)
         caption = next(o for o in grid.iter("object") if o.get("class") == "GtkLabel")
         set_label(caption, context, msgid)
-    page_tab = new_tab(home_tab, "LayoutLabel", *STRINGS[1][:2], taken)
+    page_tab = new_tab(insert_tab, "LayoutLabel", *STRINGS[1][:2], taken)
 
     # Xem: Draw's own view modes in place of the slide modes.
     view_box = merged_box(pages["View"][0])
@@ -331,7 +332,7 @@ def build_ui(tree):
     # Xuất/PDF: a new tab from a copy of the File tab page.
     export_page = copy.deepcopy(pages["File"][0])
     export_box = merged_box(export_page)
-    for child in list(export_box):
+    for child in export_box.findall("child"):
         export_box.remove(child)
     rename_ids(export_page, lambda old: old.replace("File", "Export", 1) if "File" in old else old + "Export", taken)
     export_page.find("object").set("id", "Export")
@@ -348,7 +349,7 @@ def build_ui(tree):
             taken.add(oid)
         holder = ET.SubElement(export_box, "child")
         holder.append(grid)
-    export_tab = new_tab(home_tab, "ExportLabel", *STRINGS[2][:2], taken)
+    export_tab = new_tab(insert_tab, "ExportLabel", *STRINGS[2][:2], taken)
 
     # Assemble the tab control in Draw's order.
     for child in list(container):
@@ -369,7 +370,8 @@ def build_ui(tree):
     # Draw's view modes take the first place of the View tab; their ids are free once the slide modes left.
     taken = ids(impress)
     rename_ids(draw_view_mode, lambda old: old if old not in taken else old + "Draw", taken)
-    view_box.insert(0, draw_view_mode)
+    # before the first group, after the box's properties: VclBuilder makes the widget at its first child
+    view_box.insert(list(view_box).index(view_box.find("child")), draw_view_mode)
 
     # Objects the copied Draw groups refer to (menus, images) come along when Slides lacks them.
     top = {o.get("id"): o for o in draw.findall("object")}
@@ -400,6 +402,10 @@ def check_unique(root):
     for node in root.iter("relation"):
         if node.get("target") not in seen:
             raise DrawRibbonError(f"relation to a missing object {node.get('target')!r}")
+    for obj in root.iter("object"):  # VclBuilder makes a widget at its first child: later properties are lost
+        kinds = [c.tag for c in obj if c.tag in ("property", "child")]
+        if "child" in kinds and "property" in kinds[kinds.index("child"):]:
+            raise DrawRibbonError(f"{obj.get('id')!r} has a property after a child")
 
 
 def serialize(root):
@@ -431,7 +437,16 @@ def toolbar_mode(tree):
     old = '    <node oor:name="Draw" oor:op="replace">\n      <prop oor:name="Active">\n        <value>Default</value>'
     if text.count(old) != 1:
         raise DrawRibbonError("ToolbarMode.xcu: Draw's active mode is not the tarball's")
-    return text.replace(old, old.replace("Default", "notebookbar.ui"))
+    text = text.replace(old, old.replace("Default", "notebookbar.ui"))
+    # Draw's Tabbed mode keeps the menu bar upstream; the other apps' Tabbed modes have none
+    draw = text.index('    <node oor:name="Draw" oor:op="replace">')
+    tabbed = text.index('        <node oor:name="Tabbed" oor:op="replace">', draw)
+    end = text.index("\n        </node>", tabbed)
+    menubar = '          <prop oor:name="HasMenubar">\n            <value>true</value>'
+    at = text.find(menubar, tabbed, end)
+    if at < 0:
+        raise DrawRibbonError("ToolbarMode.xcu: Draw's Tabbed mode has no menu bar setting to turn off")
+    return text[:at] + menubar.replace("true", "false") + text[at + len(menubar):]
 
 
 def po_entry(context, msgid, msgstr):
@@ -478,7 +493,8 @@ engine (ladders, compact banner, tab search, keytips, launchers, accessibility g
 
 - sd/uiconfig/sdraw/ui/notebookbar.ui: the new ribbon; solenv sdraw.suppr: its unlabelled buttons take
   their accessible name from their command.
-- ToolbarMode.xcu: the ribbon is Draw's active UI mode, as hst-defaults.patch sets it for the other apps.
+- ToolbarMode.xcu: the ribbon is Draw's active UI mode, as hst-defaults.patch sets it for the other apps, and
+  without the menu bar that upstream keeps in Draw's Tabbed mode only.
 - translations/source/vi/sd/messages.po: the new strings.
 
 License: these upstream files remain under their original license (MPL-2.0).

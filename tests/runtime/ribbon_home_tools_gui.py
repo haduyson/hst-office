@@ -9,7 +9,7 @@ MENU = "Trang đầu"
 SEARCH = "Tìm tính năng"
 FIND = "Tìm và thay thế"
 SECOND_ROW = {"writer": "Văn bản hành chính"}  # Sheets: sort and filter icons; Slides: the slide show icon
-PARAGRAPH = {"writer": "Đoạn văn", "calc": "Căn chỉnh", "impress": "Đoạn văn"}
+PARAGRAPH = {"writer": "Đoạn văn", "calc": "Căn chỉnh", "impress": "Đoạn văn", "draw": "Đoạn văn"}
 ROLES = ("push button", "toggle button", "push button menu", "menu button")
 
 

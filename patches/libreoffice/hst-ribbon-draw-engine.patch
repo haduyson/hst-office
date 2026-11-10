@@ -1,0 +1,263 @@
+HST Office: HST Draw has the ribbon's banner, feature search and keytips, and its own Tệp tin backstage.
+
+HST Draw gets the HST ribbon (hst-ribbon-draw.patch). The banner, the feature search box (Alt+Q) and the
+keytips (Alt) were attached only to the Tabbed notebookbar of Writer, Calc and Impress; Draw's now gets
+them too. The Tệp tin backstage treated a drawing as "other": its blank document was a text document's
+"Văn bản trống" and Lưu thành listed no format. It now knows Draw: HST Draw's amber, "Bản vẽ trống", and
+ODF drawing (.odg) for Lưu thành.
+
+- sfx2 NotebookbarTabControl: Draw's notebookbar.ui is a Tabbed HST ribbon.
+- sfx2 backstage: BackstageApp::Draw (colour, blank drawing, ODG); strings in hstbackstage.hrc and
+  translations/source/vi/sfx2/messages.po (where the tarball and an l10n-filled tree agree).
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sfx2/inc/backstage/hstbackstage.hrc
++++ b/sfx2/inc/backstage/hstbackstage.hrc
+@@ -17,16 +17,17 @@
+ // the Vietnamese translations are in translations/source/vi/sfx2/messages.po.
+ 
+ #define STR_HST_BS_MORNING              NC_("STR_HST_BS_MORNING", "Good morning")
+ #define STR_HST_BS_AFTERNOON            NC_("STR_HST_BS_AFTERNOON", "Good afternoon")
+ #define STR_HST_BS_EVENING              NC_("STR_HST_BS_EVENING", "Good evening")
+ #define STR_HST_BS_BLANK_WRITER         NC_("STR_HST_BS_BLANK_WRITER", "Blank document")
+ #define STR_HST_BS_BLANK_CALC           NC_("STR_HST_BS_BLANK_CALC", "Blank spreadsheet")
+ #define STR_HST_BS_BLANK_IMPRESS        NC_("STR_HST_BS_BLANK_IMPRESS", "Blank presentation")
++#define STR_HST_BS_BLANK_DRAW           NC_("STR_HST_BS_BLANK_DRAW", "Blank drawing")
+ #define STR_HST_BS_ND30                 NC_("STR_HST_BS_ND30", "Administrative document (Decree 30)")
+ #define STR_HST_BS_TPL_CONG_VAN         NC_("STR_HST_BS_TPL_CONG_VAN", "Official letter")
+ #define STR_HST_BS_TPL_BAO_CAO          NC_("STR_HST_BS_TPL_BAO_CAO", "Report")
+ #define STR_HST_BS_TPL_GIAY_MOI         NC_("STR_HST_BS_TPL_GIAY_MOI", "Invitation")
+ #define STR_HST_BS_TPL_CHAM_CONG        NC_("STR_HST_BS_TPL_CHAM_CONG", "Attendance")
+ #define STR_HST_BS_TPL_BANG_LUONG       NC_("STR_HST_BS_TPL_BANG_LUONG", "Payroll")
+ #define STR_HST_BS_TPL_DU_TOAN          NC_("STR_HST_BS_TPL_DU_TOAN", "Budget")
+ #define STR_HST_BS_TPL_HOP_CO_QUAN      NC_("STR_HST_BS_TPL_HOP_CO_QUAN", "Agency meeting")
+@@ -51,11 +52,12 @@
+ #define STR_HST_BS_FMT_TXT              NC_("STR_HST_BS_FMT_TXT", "Plain text (.txt)")
+ #define STR_HST_BS_FMT_XLSX             NC_("STR_HST_BS_FMT_XLSX", "XLSX spreadsheet (.xlsx)")
+ #define STR_HST_BS_FMT_XLS              NC_("STR_HST_BS_FMT_XLS", "XLS 97–2003 spreadsheet (.xls)")
+ #define STR_HST_BS_FMT_ODS              NC_("STR_HST_BS_FMT_ODS", "ODF spreadsheet (.ods)")
+ #define STR_HST_BS_FMT_CSV              NC_("STR_HST_BS_FMT_CSV", "Comma-separated values (.csv)")
+ #define STR_HST_BS_FMT_PPTX             NC_("STR_HST_BS_FMT_PPTX", "PPTX presentation (.pptx)")
+ #define STR_HST_BS_FMT_PPT              NC_("STR_HST_BS_FMT_PPT", "PPT 97–2003 presentation (.ppt)")
+ #define STR_HST_BS_FMT_ODP              NC_("STR_HST_BS_FMT_ODP", "ODF presentation (.odp)")
++#define STR_HST_BS_FMT_ODG              NC_("STR_HST_BS_FMT_ODG", "ODF drawing (.odg)")
+ #define STR_HST_BS_DEFAULT_FORMAT       NC_("STR_HST_BS_DEFAULT_FORMAT", "%1 — default")
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/backstage/hstbackstagedata.hxx
++++ b/sfx2/source/backstage/hstbackstagedata.hxx
+@@ -20,16 +20,17 @@
+ namespace sfx2::hst
+ {
+ /// The document application a backstage belongs to (decides colour, blank document, templates).
+ enum class BackstageApp
+ {
+     Writer,
+     Calc,
+     Impress,
++    Draw,
+     Other
+ };
+ 
+ /// The HST administrative document wizard (Decree 30/2020/ND-CP) of the HST extension.
+ inline constexpr OUString ND30_COMMAND = u"org.hst.office.vi:Nd30Wizard"_ustr;
+ 
+ struct BackstageTemplate
+ {
+--- a/sfx2/source/backstage/hstbackstagedata.cxx
++++ b/sfx2/source/backstage/hstbackstagedata.cxx
+@@ -77,16 +77,17 @@
+     { BackstageApp::Writer, u"Text"_ustr, STR_HST_BS_FMT_TXT },
+     { BackstageApp::Calc, u"Calc MS Excel 2007 XML"_ustr, STR_HST_BS_FMT_XLSX },
+     { BackstageApp::Calc, u"calc8"_ustr, STR_HST_BS_FMT_ODS },
+     { BackstageApp::Calc, u"MS Excel 97"_ustr, STR_HST_BS_FMT_XLS },
+     { BackstageApp::Calc, u"Text - txt - csv (StarCalc)"_ustr, STR_HST_BS_FMT_CSV },
+     { BackstageApp::Impress, u"Impress MS PowerPoint 2007 XML"_ustr, STR_HST_BS_FMT_PPTX },
+     { BackstageApp::Impress, u"impress8"_ustr, STR_HST_BS_FMT_ODP },
+     { BackstageApp::Impress, u"MS PowerPoint 97"_ustr, STR_HST_BS_FMT_PPT },
++    { BackstageApp::Draw, u"draw8"_ustr, STR_HST_BS_FMT_ODG },
+ };
+ 
+ bool lcl_fileExists(const OUString& rURL)
+ {
+     osl::DirectoryItem aItem;
+     return osl::DirectoryItem::get(rURL, aItem) == osl::FileBase::E_None;
+ }
+ 
+@@ -205,29 +206,31 @@
+ OUString GetFactoryURL(BackstageApp eApp)
+ {
+     switch (eApp)
+     {
+         case BackstageApp::Calc:
+             return u"private:factory/scalc"_ustr;
+         case BackstageApp::Impress:
+             return u"private:factory/simpress"_ustr;
++        case BackstageApp::Draw:
+         case BackstageApp::Other:
+             return u"private:factory/sdraw"_ustr;
+         case BackstageApp::Writer:
+             break;
+     }
+     return u"private:factory/swriter"_ustr;
+ }
+ 
+ std::vector<BackstageTemplate> GetNewDocumentChoices(BackstageApp eApp)
+ {
+     std::vector<BackstageTemplate> aChoices;
+     aChoices.push_back({ SfxResId(eApp == BackstageApp::Calc      ? STR_HST_BS_BLANK_CALC
+                                   : eApp == BackstageApp::Impress ? STR_HST_BS_BLANK_IMPRESS
++                                  : eApp == BackstageApp::Draw    ? STR_HST_BS_BLANK_DRAW
+                                                                   : STR_HST_BS_BLANK_WRITER),
+                          GetFactoryURL(eApp), BackstageTemplate::Kind::Factory });
+     if (eApp == BackstageApp::Writer)
+         aChoices.push_back(
+             { SfxResId(STR_HST_BS_ND30), ND30_COMMAND, BackstageTemplate::Kind::Command });
+ 
+     const std::vector<OUString> aFolders = lcl_templateFolders();
+     for (const HstTemplateFile& rTemplate : aHstTemplates)
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -54,16 +54,18 @@
+ namespace sfx2::hst
+ {
+ namespace
+ {
+ // HST Office application colours, the same as the ribbon tint of NotebookBar::UpdateBackground()
+ constexpr Color WRITER_COLOR(0x1a, 0x85, 0xd1);
+ constexpr Color CALC_COLOR(0x3c, 0xbc, 0x45);
+ constexpr Color IMPRESS_COLOR(0xe7, 0x57, 0x29);
++// HST Draw's amber (branding/icons/app/hst-draw.svg)
++constexpr Color DRAW_COLOR(0xf2, 0xa9, 0x00);
+ constexpr Color OTHER_COLOR(0x5b, 0x6b, 0x7f);
+ 
+ // sizes at 100 %, scaled with the UI scale (BackstageWindow::Scaled)
+ constexpr tools::Long PANEL_WIDTH = 780;
+ constexpr tools::Long PANEL_HEIGHT = 580;
+ constexpr tools::Long PANEL_INSET = 8; // from the left edge of the ribbon, and kept free below the panel
+ constexpr tools::Long NAV_ITEM_HEIGHT = 36;
+ constexpr tools::Long NAV_ICON_INDENT = 14;
+@@ -84,16 +86,17 @@
+ }
+ 
+ /// The application colour, darkened until white text on it has at least a 4.5:1 contrast (WCAG AA).
+ Color lcl_navColor(BackstageApp eApp)
+ {
+     Color aBase = eApp == BackstageApp::Writer    ? WRITER_COLOR
+                   : eApp == BackstageApp::Calc    ? CALC_COLOR
+                   : eApp == BackstageApp::Impress ? IMPRESS_COLOR
++                  : eApp == BackstageApp::Draw    ? DRAW_COLOR
+                                                   : OTHER_COLOR;
+     for (double fFactor = 1.0; fFactor > 0.3; fFactor -= 0.02)
+     {
+         Color aColor(static_cast<sal_uInt8>(aBase.GetRed() * fFactor),
+                      static_cast<sal_uInt8>(aBase.GetGreen() * fFactor),
+                      static_cast<sal_uInt8>(aBase.GetBlue() * fFactor));
+         if (1.05 / (lcl_luminance(aColor) + 0.05) >= 4.5)
+             return aColor;
+@@ -111,16 +114,19 @@
+         if (xInfo.is())
+         {
+             if (xInfo->supportsService(u"com.sun.star.text.TextDocument"_ustr))
+                 return BackstageApp::Writer;
+             if (xInfo->supportsService(u"com.sun.star.sheet.SpreadsheetDocument"_ustr))
+                 return BackstageApp::Calc;
+             if (xInfo->supportsService(u"com.sun.star.presentation.PresentationDocument"_ustr))
+                 return BackstageApp::Impress;
++            // after Impress: a presentation is a drawing document too
++            if (xInfo->supportsService(u"com.sun.star.drawing.DrawingDocument"_ustr))
++                return BackstageApp::Draw;
+         }
+     }
+     catch (const uno::Exception&)
+     {
+         TOOLS_WARN_EXCEPTION("sfx.backstage", "detecting the document type");
+     }
+     return BackstageApp::Other;
+ }
+@@ -342,16 +348,17 @@
+     m_xMoreTemplates->connect_activate_link(LINK(this, BackstageWindow, MoreTemplatesHdl));
+     for (weld::Button* pButton :
+          { m_xNewBlank.get(), m_xNewNd30.get(), m_xNewManage.get(), m_xOpenBrowse.get(),
+            m_xInfoProperties.get(), m_xInfoSign.get(), m_xInfoUsbToken.get(), m_xSaveAsBrowse.get() })
+         pButton->connect_clicked(LINK(this, BackstageWindow, ButtonClickHdl));
+ 
+     m_xNewBlank->set_label(SfxResId(m_eApp == BackstageApp::Calc      ? STR_HST_BS_BLANK_CALC
+                                     : m_eApp == BackstageApp::Impress ? STR_HST_BS_BLANK_IMPRESS
++                                    : m_eApp == BackstageApp::Draw    ? STR_HST_BS_BLANK_DRAW
+                                                                       : STR_HST_BS_BLANK_WRITER));
+     m_xNewNd30->set_label(SfxResId(STR_HST_BS_ND30));
+     m_xNewNd30->set_visible(m_eApp == BackstageApp::Writer);
+ 
+ #ifdef MACOSX
+     m_xShortcut->hide(); // Alt+F is not bound on macOS, where Option+F types a character
+ #endif
+     m_xPanel->connect_key_press(LINK(this, BackstageWindow, KeyPressHdl));
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -397,30 +397,30 @@
+     {
+         RemoveChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+         m_pHstBanner.disposeAndClear();
+         m_pHstSearch.disposeAndClear();
+     }
+     NotebookbarTabControlBase::dispose();
+ }
+ 
+-// HST Office: the banner belongs to the Tabbed notebookbar (notebookbar.ui) of Writer, Calc and
+-// Impress only; Draw, the compact and the other variants keep the upstream layout.
++// HST Office: the banner belongs to the Tabbed notebookbar (notebookbar.ui) of Writer, Calc, Impress
++// and Draw only; the compact and the other variants keep the upstream layout.
+ void NotebookbarTabControl::HstCreateBanner()
+ {
+     if (m_pHstBanner)
+         return;
+     for (vcl::Window* pParent = GetParent(); pParent; pParent = pParent->GetParent())
+     {
+         if (NotebookBar* pBar = dynamic_cast<NotebookBar*>(pParent))
+         {
+             const OUString& rFile = pBar->GetUIFilePath();
+             if (!rFile.endsWith("/notebookbar.ui")
+                 || (rFile.indexOf("/swriter/") < 0 && rFile.indexOf("/scalc/") < 0
+-                    && rFile.indexOf("/simpress/") < 0))
++                    && rFile.indexOf("/simpress/") < 0 && rFile.indexOf("/sdraw/") < 0))
+                 return;
+             m_pHstSearch = VclPtr<HstTabSearchBox>::Create(this);
+             m_pHstSearch->Show();
+             m_pHstBanner = VclPtr<HstRibbonBanner>::Create(this);
+             m_pHstBanner->SetLayoutHdl(LINK(this, NotebookbarTabControl, HstBannerLayoutHdl));
+             hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
+             AddChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+             HstLayoutBanner();
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -6211,16 +6211,28 @@
+ #. hstBS
+ #: sfx2/inc/backstage/hstbackstage.hrc
+ msgctxt "STR_HST_BS_BLANK_IMPRESS"
+ msgid "Blank presentation"
+ msgstr "Bản trình chiếu trống"
+ 
+ #. hstBS
+ #: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_BLANK_DRAW"
++msgid "Blank drawing"
++msgstr "Bản vẽ trống"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_FMT_ODG"
++msgid "ODF drawing (.odg)"
++msgstr "Bản vẽ ODF (.odg)"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
+ msgctxt "STR_HST_BS_ND30"
+ msgid "Administrative document (Decree 30)"
+ msgstr "Văn bản hành chính (NĐ 30)"
+ 
+ #. hstBS
+ #: sfx2/inc/backstage/hstbackstage.hrc
+ msgctxt "STR_HST_BS_TPL_CONG_VAN"
+ msgid "Official letter"
