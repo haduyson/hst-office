@@ -43,19 +43,29 @@ def run(e):
             e.review("Độ sắc nét biểu tượng ở tỉ lệ Retina 2×: " + ("Hiện đại" if name == "modern" else "Cổ điển"), name)
         repaint = native("icon-change", e.out / "classic.png", e.out / "modern.png", *toolbar_box)
         e.require(repaint["changed_pixels"] > 20, "Biểu tượng vẽ lại ngay trong cùng phiên", **repaint)
-        # The real Options dialog opened on the Giao diện page, as mac_options_pages.py does; its labels are read
-        # from the OS accessibility tree.
+        # The real Options dialog opened on the Giao diện page and judged by the ink of its page area, as the
+        # old-profile scenario does (mac_options_pages.py, 20/20 on this runner).
         from pdf_viewer_uno import signing_props
+        from mac_options_pages import INK, page_ink
         expander = office.ctx.getValueByName("/singletons/com.sun.star.util.theMacroExpander")
         url = expander.expandMacros(base.replace("vnd.sun.star.expand:", "", 1) + "Appearance.xdl")
-        background(office.dispatch, doc.CurrentController.Frame, ".uno:OptionsTreeDialog",
-                   signing_props(OptionsPageURL=url))
-        shown = wait(lambda: ribbon_os.named(ribbon_os.read(e), "Hiện đại"), 40)
-        ribbon_os.read(e, "options-page")
-        e.shot("options-page")
-        e.require(bool(shown), "Trang Giao diện hiển thị trong Tùy chọn", method="OS accessibility tree",
-                  labels=[n.name for n in shown])
+        task = background(office.dispatch, doc.CurrentController.Frame, ".uno:OptionsTreeDialog",
+                          signing_props(OptionsPageURL=url))
+        toolkit = office.service("com.sun.star.awt.Toolkit")
+        def dialog():
+            windows = [toolkit.getTopWindow(i) for i in range(toolkit.getTopWindowCount())]
+            return next((w for w in windows if w.isVisible() and str(getattr(w, "Title", "")).startswith("Tùy chọn")), None)
+        window = wait(dialog, 40)
+        time.sleep(3)
+        window.toFront()
+        shot = e.shot("options-page")
+        box = window.getPosSize()
+        ink = page_ink(shot, (box.X, box.Y, box.X + box.Width, box.Y + box.Height), toolkit.getWorkArea().Width)
+        e.require(ink > INK, "Trang Giao diện hiển thị trong Tùy chọn", method="screenshot ink of the page area",
+                  ink=round(ink, 4), title=window.Title)
+        office.focus(window)
         native("key", "escape")
+        task.join(20)
     finally:
         for page in pages:
             if page:

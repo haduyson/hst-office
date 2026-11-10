@@ -38,6 +38,21 @@ def save_print(target):
         save.child_window(auto_id="1001", control_type="Edit").set_edit_text(str(target))
         save.child_window(auto_id="1", control_type="Button").click_input()
     elif platform.system() == "Darwin":
+        try:
+            mac_print(target)
+        except Exception:
+            import json
+            from native_tree import mac_nodes
+            target.with_name("print-tree.log").write_text(json.dumps(mac_nodes(3000), ensure_ascii=False))
+            raise
+    else:
+        raise RuntimeError("Đường in native chỉ chạy trên Windows/macOS")
+    return finish(target)
+
+
+def mac_print(target):
+    """macOS print sheet: PDF ▸ Save as PDF, then the save panel; its AX tree is dumped on failure."""
+    if True:
         import ApplicationServices as ax
         from mac_access import applications, attribute, nodes, press
         app = wait(lambda: next(iter(applications()), None))
@@ -62,8 +77,9 @@ def save_print(target):
             raise RuntimeError("Không đọc được ô tên tệp in")
         ax.AXUIElementSetAttributeValue(field, "AXValue", target.name)
         press(app, {"Save", "Lưu"})
-    else:
-        raise RuntimeError("Đường in native chỉ chạy trên Windows/macOS")
+
+
+def finish(target):
     wait(lambda: target.exists() and target.stat().st_size > 0, 45)
     previous = -1
     for _ in range(20):
