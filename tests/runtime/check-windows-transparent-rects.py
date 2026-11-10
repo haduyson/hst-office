@@ -62,7 +62,7 @@ def csv_column_header(check, office, out):
     time.sleep(1.5)
     left, top, right, bottom = wg.window_rect(window[0])
     before = wg.screenshot(os.path.join(out, "csv-before.png"), cursor=False)
-    wg.click(left + (right - left) // 5, bottom - 110)  # a cell of the first column in the preview selects it
+    wg.click(left + (right - left) * 14 // 100, bottom - 215)  # a cell of the first column in the preview selects it
     wg.mouse_move(right - 10, top + 10)
     time.sleep(1.5)
     after = wg.screenshot(os.path.join(out, "csv-after.png"), cursor=False)
