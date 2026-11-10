@@ -1,0 +1,120 @@
+HST PDF: selected text, search matches and the signature box stay readable on Windows.
+
+On Windows, selecting text in HST PDF painted solid dark navy bars that hid the selected words. The
+search matches and the signature placement box had the same fault: dark olive and near-black boxes.
+macOS and Linux showed the intended light tint.
+
+The viewer tinted each box with OutputDevice::DrawTransparent(tools::PolyPolygon, percent). On
+Windows only, that overload sends a rectangle to the emulation path, which calls DrawAlphaRect, to
+avoid GDI+ dithering on remote displays. Skia's drawAlphaRect fills with the "source" blend mode, so
+it writes the colour with its alpha into the window surface instead of blending it over the page.
+The screen then shows the premultiplied colour: 35% of the selection blue over black, the
+(20, 46, 83) of the report, and no text. Other platforms take the native path, which blends.
+
+The viewer now tints with the basegfx overload of DrawTransparent. That overload draws the polygon
+with the backend's blending fill on every platform: Skia on Windows, macOS and Linux, GDI+, cairo and
+Quartz. The colours and their transparency are unchanged: the selection blue at 65% transparency,
+the search yellow and orange at 55%, the signature green at 93%. Black text under the selection
+stays dark, on a light blue background.
+
+tests/runtime/check-pdf-selection.py (Linux, Xvfb) and check-windows-pdf-selection.py (the Windows
+smoke) select text with the real mouse and check the screen: the highlight stays light and the
+selected glyphs stay much darker than it.
+
+License: the modified file keeps its license (MPL-2.0).
+
+--- a/xmlsecurity/source/hstpdf/pdfpageview.cxx
++++ b/xmlsecurity/source/hstpdf/pdfpageview.cxx
+@@ -7,16 +7,20 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+  */
+ 
+ #include "pdfpageview.hxx"
+ 
+ #include <resourcemanager.hxx>
+ #include <strings.hrc>
+ 
++#include <basegfx/matrix/b2dhommatrix.hxx>
++#include <basegfx/polygon/b2dpolygontools.hxx>
++#include <basegfx/polygon/b2dpolypolygon.hxx>
++#include <basegfx/range/b2drange.hxx>
+ #include <tools/poly.hxx>
+ #include <tools/mapunit.hxx>
+ #include <vcl/commandevent.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/lineinfo.hxx>
+ #include <vcl/ptrstyle.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/svapp.hxx>
+@@ -47,16 +51,31 @@
+ constexpr size_t PAGE_CACHE = 10;
+ constexpr size_t THUMB_CACHE = 600;
+ constexpr double MIN_ZOOM = 0.1;
+ constexpr double MAX_ZOOM = 6.4;
+ /// Smallest signature box a drag makes (points); a click places a box of the default size.
+ constexpr double MIN_PLACEMENT = 24.0;
+ constexpr double DEFAULT_PLACEMENT_W = 200.0;
+ constexpr double DEFAULT_PLACEMENT_H = 70.0;
++
++/// Tints rBox with aColor over what is already painted (the page and its text); fTransparency is
++/// 0 (opaque) to 1 (invisible). The basegfx overload blends on every VCL backend. The
++/// tools::PolyPolygon overload sends a rectangle, on Windows only, to DrawAlphaRect, which with Skia
++/// replaces the pixels with the colour's premultiplied value: dark bars that hide the text.
++void tintRect(vcl::RenderContext& rRenderContext, const tools::Rectangle& rBox, const Color& aColor,
++              double fTransparency)
++{
++    rRenderContext.SetLineColor();
++    rRenderContext.SetFillColor(aColor);
++    const basegfx::B2DRange aRange(rBox.Left(), rBox.Top(), rBox.Right(), rBox.Bottom());
++    rRenderContext.DrawTransparent(basegfx::B2DHomMatrix(),
++                                   basegfx::B2DPolyPolygon(basegfx::utils::createPolygonFromRect(aRange)),
++                                   fTransparency);
++}
+ }
+ 
+ PdfPageView::PdfPageView(Mode eMode, std::unique_ptr<weld::Scrollbar> xVScroll,
+                          std::unique_ptr<weld::Scrollbar> xHScroll)
+     : m_eMode(eMode)
+     , m_xVScroll(std::move(xVScroll))
+     , m_xHScroll(std::move(xHScroll))
+     , m_aSmoothScroll("hstpdf::PdfPageView m_aSmoothScroll")
+@@ -417,35 +436,30 @@
+ 
+     if (m_pMatches)
+     {
+         for (size_t i = 0; i < m_pMatches->size(); ++i)
+         {
+             const TextMatch& rMatch = (*m_pMatches)[i];
+             if (rMatch.nPage != nPage)
+                 continue;
+-            rRenderContext.SetLineColor();
+-            rRenderContext.SetFillColor(static_cast<int>(i) == m_nCurrentMatch ? COL_CURRENT_MATCH : COL_MATCH);
++            const Color aColor = static_cast<int>(i) == m_nCurrentMatch ? COL_CURRENT_MATCH : COL_MATCH;
+             for (const PointRect& rBox : rMatch.aBoxes)
+-                rRenderContext.DrawTransparent(tools::PolyPolygon(tools::Polygon(toPixel(nPage, rBox))), 55);
++                tintRect(rRenderContext, toPixel(nPage, rBox), aColor, 0.55);
+         }
+     }
+     if (m_nSelectionPage == nPage)
+     {
+-        rRenderContext.SetLineColor();
+-        rRenderContext.SetFillColor(COL_SELECTION);
+         for (const PointRect& rBox : m_aSelectionBoxes)
+-            rRenderContext.DrawTransparent(tools::PolyPolygon(tools::Polygon(toPixel(nPage, rBox))), 65);
++            tintRect(rRenderContext, toPixel(nPage, rBox), COL_SELECTION, 0.65);
+     }
+     if (m_oPlacement && m_oPlacement->first == nPage)
+     {
+         const tools::Rectangle aBox = toPixel(nPage, m_oPlacement->second);
+-        rRenderContext.SetLineColor();
+-        rRenderContext.SetFillColor(COL_SIGN_GREEN);
+-        rRenderContext.DrawTransparent(tools::PolyPolygon(tools::Polygon(aBox)), 93);
++        tintRect(rRenderContext, aBox, COL_SIGN_GREEN, 0.93);
+         LineInfo aDash(LineStyle::Dash, 2);
+         aDash.SetDashLen(8);
+         aDash.SetDashCount(1);
+         aDash.SetDistance(5);
+         rRenderContext.SetLineColor(COL_SIGN_GREEN);
+         rRenderContext.SetFillColor();
+         rRenderContext.DrawPolyLine(tools::Polygon(aBox), aDash);
+         vcl::Font aFont = rRenderContext.GetFont();
