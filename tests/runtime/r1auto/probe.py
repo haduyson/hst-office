@@ -60,6 +60,9 @@ def main():
     try:
         office.start()
         execute(e, args.fixtures)
+        failed = [c["message"] for c in e.checks if not c["ok"]]
+        if failed:  # recorded without raising (e.g. the office died on close): still a failure
+            raise AssertionError("; ".join(failed))
         status = "SKIP" if args.item == "M4" else "PASS"
         message = "Chủ sở hữu duyệt độ sắc nét; kiểm tra trang tùy chọn đã đạt" if args.item == "M4" else "Đạt các phép đo tự động"
     except Exception as error:

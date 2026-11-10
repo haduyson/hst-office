@@ -71,5 +71,8 @@ def run(e):
         if e.item in {"W10", "M7"}:
             hover(e, doc)
     finally:
-        doc.setModified(False)
-        doc.close(True)
+        try:
+            doc.setModified(False)
+            doc.close(True)
+        except Exception as error:  # an office that dies on close must not hide what the item measured
+            e.checks.append(dict(ok=False, message="Đóng tài liệu làm office dừng", error=f"{type(error).__name__}"))
