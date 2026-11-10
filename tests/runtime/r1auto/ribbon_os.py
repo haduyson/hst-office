@@ -15,7 +15,6 @@ KINDS = {"AXTabGroup": "ribbon", "Tab": "ribbon", "AXRadioButton": "tab", "TabIt
          "AXLink": "link", "Hyperlink": "link", "AXTextField": "edit", "AXComboBox": "edit", "Edit": "edit",
          "ComboBox": "edit", "ListItem": "item", "MenuItem": "item", "AXMenuItem": "item", "AXRow": "item",
          "AXCell": "item", "TreeItem": "item", "AXWindow": "window", "Window": "window"}
-BANNER = "HASON TECH"
 
 
 class Node:
@@ -63,10 +62,12 @@ def scan(nodes):
         if holders:
             groups[caption.name] = min(holders, key=lambda g: g.w * g.h).box
     inside = lambda b: any(b.x >= g[0] - 1 and b.x + b.w <= g[0] + g[2] + 1 for g in groups.values())  # noqa: E731
-    buttons = {b.name: b.box for b in band if b.kind == "button" and b.name and b.h >= 60 and not inside(b)
-               and not b.name.startswith(BANNER)}
+    buttons = {b.name: b.box for b in band if b.kind == "button" and b.name and b.h >= 60 and not inside(b)}
     chevron = next((b.box for b in band if b.kind == "button" and b.name in ("", "»") and b.w <= 35 and b.h >= 60), None)
-    banner = next((n.box for n in nodes if n.name.startswith(BANNER) and n.w >= 100 and n.h >= 40), None)
+    # The banner rotates between products (HASON TECH, AIOS, ...): it is the one tall link (AX) or edit (UIA) of the
+    # ribbon, never matched by its name (r1-auto Windows run 42785792856 at 1300 px).
+    banner = next((n.box for n in nodes if n.kind in ("link", "edit") and n.w >= 100 and n.h >= 40
+                   and frame.contains(n, slack=20)), None)
     return dict(frame=frame.box, groups=groups, buttons=buttons, banner=banner, chevron=chevron)
 
 
