@@ -1,0 +1,68 @@
+HST Office: a document closed while the feature search is open no longer deletes the search twice.
+
+CommandPopupHandler (owned by SfxViewFrame) keeps the open feature search (CommandListBox) and
+deletes it from the popover's closed handler (PopupModeEnd -> mpListBox.reset()). A popover that is
+destroyed while still shown pops itself down (~SalInstancePopover -> ImplPopDown -> signal_closed).
+When the view frame closes with the search open, ~SfxViewFrame -> m_pCommandPopupHandler.reset()
+-> ~CommandListBox -> ~SalInstancePopover -> PopupModeEnd -> mpListBox.reset() deletes the list box
+that is being destroyed (a std::unique_ptr does not clear itself in its destructor): its members are
+destroyed and freed a second time.
+
+Windows r1-auto W9 (Alt+Q, then the document closed over UNO) died with heap corruption
+0xC0000374 in that free (ProcDump full dump, run 42779319665: SwXTextDocument::close ->
+~SfxViewFrame -> ~SalInstancePopover -> PopupModeEnd -> ~CommandListBox -> free; after the heap
+error the second ~CommandListBox called release() through a cleared interface).
+
+~CommandListBox now disconnects the closed handler first: whoever destroys the list box already
+owns that deletion, so nothing is lost. Inherited from upstream (same code in 26.8).
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/sfx2/inc/commandpopup/CommandPopup.hxx
++++ b/sfx2/inc/commandpopup/CommandPopup.hxx
+@@ -124,16 +124,17 @@
+     void addFindInDocumentRow(OUString const& rText);
+ 
+ public:
+     /** HST Office: pAnchor (in pParent coordinates) is the feature search box of the ribbon tab
+         row, the popup opens under it; rInitialText is typed and searched at once. */
+     CommandListBox(weld::Window* pParent, css::uno::Reference<css::frame::XFrame> const& xFrame,
+                    tools::Rectangle const* pAnchor = nullptr,
+                    OUString const& rInitialText = OUString());
++    ~CommandListBox();
+     void connect_closed(const Link<weld::Popover&, void>& rLink)
+     {
+         mxPopover->connect_closed(rLink);
+     }
+ };
+ 
+ class CommandPopupHandler final
+ {
+--- a/sfx2/source/commandpopup/CommandPopup.cxx
++++ b/sfx2/source/commandpopup/CommandPopup.cxx
+@@ -449,16 +449,25 @@
+         // the character typed into the search box: searched at once, the cursor after it
+         mpEntry->set_text(rInitialText);
+         mpEntry->set_position(-1);
+         ModifyHdl(*mpEntry);
+     }
+     mpEntry->grab_focus();
+ }
+ 
++CommandListBox::~CommandListBox()
++{
++    // The popover pops down when it is destroyed while still shown (its view frame closes with the
++    // search open) and then calls its closed handler. That handler is the owner's PopupModeEnd, which
++    // deletes this list box: a second delete of the box that is being destroyed. Nobody is told any
++    // more that a popover closes which is being destroyed.
++    mxPopover->connect_closed(Link<weld::Popover&, void>());
++}
++
+ IMPL_LINK_NOARG(CommandListBox, QueryTooltip, const weld::TreeIter&, OUString)
+ {
+     size_t nSelected = mpCommandTreeView->get_selected_index();
+     if (nSelected < maCommandList.size())
+     {
+         auto const& rCurrent = maCommandList[nSelected];
+         return rCurrent.m_aTooltip;
+     }
