@@ -47,9 +47,13 @@ TAB_ORDER = ["File", "Home Tab", "Insert", "Arrange", "Page", "View", "Export", 
              "3D", "Help Tab", "Extension"]
 # Slides-only groups and commands (slides, layouts, transitions, header and footer, interaction).
 DROP_GROUPS = {"gdHomeSlide", "gdInsertSlide", "gdViewMode", "gdViewMaster"}
-# Draw has no slot for hiding a page: HidePage/ShowPage of its own Layout tab never worked.
+# Slide show, slide views and animation (in the Tools block and the tab menus Draw takes from Slides); Draw has
+# no slot for hiding a page either: HidePage/ShowPage of its own Layout tab never worked.
 DROP_COMMANDS = {".uno:PhotoAlbumDialog", ".uno:AnimationEffects", ".uno:HeaderAndFooter", ".uno:SlideChangeWindow",
-                 ".uno:PresentationCurrentSlide", ".uno:HideSlide", ".uno:ShowSlide", ".uno:HidePage", ".uno:ShowPage"}
+                 ".uno:PresentationCurrentSlide", ".uno:HideSlide", ".uno:ShowSlide", ".uno:HidePage", ".uno:ShowPage",
+                 ".uno:Presentation", ".uno:PresentationDialog", ".uno:PresentationLayout", ".uno:PresentationMinimizer",
+                 ".uno:RehearseTimings", ".uno:CustomShowDialog", ".uno:CustomAnimation", ".uno:AnimationObjects",
+                 ".uno:NotesMode", ".uno:NotesMasterPage", ".uno:HandoutMode", ".uno:OutlineMode"}
 # Slide commands of the Slides menus and groups, as Draw names them for pages.
 SWAP_COMMANDS = {".uno:LeftPaneImpress": ".uno:LeftPaneDraw", ".uno:InsertSlide": ".uno:InsertPage",
                  ".uno:DuplicateSlide": ".uno:DuplicatePage", ".uno:DeleteSlide": ".uno:DeletePage",
