@@ -70,6 +70,19 @@ jobs:
           if [ "$count" = 1 ]; then artifact="$signed"; fi
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "$RUNNER_TEMP/dmg"
           python tests/runtime/r1auto/select-package.py "$RUNNER_TEMP/dmg" .dmg >> "$GITHUB_ENV"
+          echo "artifact=$artifact" | tee "$RUNNER_TEMP/r1-evidence/package-signature.log"
+      - name: Ghi chữ ký và công chứng của DMG (trước khi gắn quarantine)
+        shell: bash
+        run: |
+          set -uo pipefail
+          log="$RUNNER_TEMP/r1-evidence/package-signature.log"
+          { spctl -a -t open --context context:primary-signature -vv "$R1_PACKAGE" 2>&1
+            xcrun stapler validate "$R1_PACKAGE" 2>&1
+            mnt="$(mktemp -d)"; hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$R1_PACKAGE" >/dev/null
+            spctl -a -t execute -vv "$mnt/HST Office.app" 2>&1
+            codesign -dv --verbose=2 "$mnt/HST Office.app" 2>&1 | grep -E "Authority|TeamIdentifier|Timestamp|Notarization|flags"
+            hdiutil detach "$mnt" >/dev/null; } >> "$log" 2>&1
+          cat "$log"
       - name: Ghi quyền TCC và chế độ màn hình của runner
         shell: bash
         run: |
@@ -144,6 +157,7 @@ jobs:
             pyobjc-framework-Cocoa==11.1 pyobjc-framework-Quartz==11.1 \
             pyobjc-framework-ApplicationServices==11.1 pyobjc-framework-CoreServices==11.1
       - name: Tải DMG beta.5 đã phát hành và DMG cần kiểm tra
+        timeout-minutes: 25
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -152,7 +166,9 @@ jobs:
           set -euo pipefail
           [[ "$RUN_ID" =~ ^[0-9]+$ ]]
           mkdir -p "$RUNNER_TEMP/old" "$RUNNER_TEMP/dmg"
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/old/beta5.dmg" "$BETA5_DMG_URL"
+          # a stalled transfer (under 200 kB/s for 60 s) is retried, never left to the job timeout
+          curl -fsSL --retry 4 --retry-all-errors --speed-limit 200000 --speed-time 60 --max-time 900 \
+            -o "$RUNNER_TEMP/old/beta5.dmg" "$BETA5_DMG_URL"
           echo "$BETA5_DMG_SHA256  $RUNNER_TEMP/old/beta5.dmg" | shasum -a 256 -c
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/source-run.json"
           python tests/runtime/r1auto/verify-source.py "$RUNNER_TEMP/source-run.json" macos

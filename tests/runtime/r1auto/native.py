@@ -171,6 +171,10 @@ def main():
     if action == "product-version":
         from windows_install import product_version
         return product_version(args[0])
+    if action == "activate":  # macOS: a soffice started directly is never the active app until asked
+        from AppKit import NSRunningApplication
+        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(int(args[0]))
+        return bool(app and app.activateWithOptions_(3))
     if action == "front":
         return front()
     if action == "cleanup":

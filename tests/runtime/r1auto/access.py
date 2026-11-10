@@ -4,7 +4,16 @@ from support import native
 
 
 def context(node):
-    return node.getAccessibleContext() if hasattr(node, "getAccessibleContext") else node
+    """The node's XAccessibleContext. A toolkit top window does not advertise XAccessible to pyuno's attribute
+    lookup over the bridge (census of r1-auto macOS run 42478506783: AttributeError for every top window), so
+    ask for the interface explicitly."""
+    if hasattr(node, "getAccessibleContext"):
+        return node.getAccessibleContext()
+    if hasattr(node, "getAccessibleRole") or not hasattr(node, "queryInterface"):
+        return node
+    import uno
+    accessible = node.queryInterface(uno.getTypeByName("com.sun.star.accessibility.XAccessible"))
+    return accessible.getAccessibleContext() if accessible else node
 
 
 def walk(node, depth=0):
@@ -64,7 +73,7 @@ def census(office):
             ctx = context(window)
             out.append((getattr(window, "Title", ""), ctx.getAccessibleRole(), ctx.getAccessibleChildCount()))
         except Exception as error:
-            out.append((getattr(window, "Title", ""), type(error).__name__))
+            out.append((getattr(window, "Title", ""), f"{type(error).__name__}: {error}"[:160]))
     return out
 
 

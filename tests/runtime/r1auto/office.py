@@ -119,6 +119,8 @@ class Office(hst_gui.Office):
         # first (as windows_gui.foreground does), but never while HST is in front (Alt would focus its menu).
         if self.system == "Windows" and not native("front").lower().startswith("soffice"):
             native("key", "alt")
+        if self.system == "Darwin" and self.proc is not None:
+            native("activate", self.proc.pid)
         window.setVisible(True)
         window.toFront()
         window.setFocus()
