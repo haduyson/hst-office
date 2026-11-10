@@ -43,6 +43,7 @@ def keyboard(names=None, text=None):
                 code = int.from_bytes(data[i:i + 2], "little")
                 win_event(1, 0, code, 4)
                 win_event(1, 0, code, 6)
+                time.sleep(0.08)  # a person's pace; back-to-back events lost all but the first characters (W7)
         else:
             for name in names:
                 win_event(1, KEYS[name][0], 0, 0)
@@ -58,6 +59,7 @@ def keyboard(names=None, text=None):
                     event = q.CGEventCreateKeyboardEvent(None, 0, pressed)
                     q.CGEventKeyboardSetUnicodeString(event, len(char.encode("utf-16-le")) // 2, char)
                     q.CGEventPost(q.kCGHIDEventTap, event)
+                time.sleep(0.08)
         else:
             flags = 0
             for pressed, sequence in ((True, names), (False, reversed(names))):

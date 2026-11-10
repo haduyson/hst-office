@@ -35,6 +35,8 @@ def run(e):
                 control.setFocus()
                 native("key", "cmd+a" if office.system == "Darwin" else "ctrl+a")
                 native("text", text)
+                time.sleep(1)
+                e.shot("typed-" + name)  # before any check: shows a popup that took the keyboard, if one did
                 e.require(control.getText() == text, "Giữ đúng chữ và dấu khi nhập", field=name,
                           value=control.getText(), bounds=box(control))
                 accessible = context(control)

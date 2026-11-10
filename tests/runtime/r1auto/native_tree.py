@@ -31,9 +31,13 @@ def windows_nodes(limit):
     import psutil
     from pywinauto import Desktop
     pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == "soffice.bin"}
-    out = []
+    out, seen = [], []
     for window in Desktop(backend="uia").windows():
         if window.process_id() not in pids:
+            try:
+                seen.append(["top", window.window_text()[:60], psutil.Process(window.process_id()).name()])
+            except Exception:
+                pass
             continue
         for element in [window] + window.descendants():
             info = element.element_info
@@ -41,7 +45,7 @@ def windows_nodes(limit):
             out.append([info.control_type or "", (info.name or "")[:80], [r.left, r.top, r.width(), r.height()]])
             if len(out) >= limit:
                 return out
-    return out
+    return out or [["no soffice.bin window", sorted(pids), None]] + seen
 
 
 def tree(limit="4000"):
