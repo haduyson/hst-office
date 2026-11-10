@@ -37,11 +37,24 @@ class LaunchContract(unittest.TestCase):
                 self.assertIs(options["close_fds"], True)
                 for stream in ("stdin", "stdout", "stderr"):
                     self.assertEqual(options[stream], subprocess.DEVNULL)
+                if system == "Darwin":
+                    self.assertEqual(options["env"]["PATH"], launch.MAC_HELPER_PATH)
+                else:
+                    self.assertNotIn("env", options)
                 if system == "Windows":
                     self.assertEqual(options["creationflags"], 0x08000208)
                     self.assertNotIn("start_new_session", options)
                 else:
                     self.assertIs(options["start_new_session"], True)
+
+    def test_mac_helpers_do_not_inherit_the_office_environment(self):
+        office = {"HOME": "/Users/u", "USER": "u", "LOGNAME": "u", "TMPDIR": "/var/folders/x/T/", "PATH": "/opt/odd/bin",
+                  "URE_BOOTSTRAP": "file:///private/var/folders/x/T/AppTranslocation/1/d/HST%20Office.app/Contents/Resources/fundamentalrc",
+                  "PYTHONPATH": "/private/var/folders/x/T/AppTranslocation/1/d/HST Office.app/Contents/Resources",
+                  "LANGUAGE": "vi_VN.UTF-8", "LIBO_VERSION": "26.8.1.1"}
+        self.assertEqual(launch.mac_helper_environment(office), {"HOME": "/Users/u", "USER": "u", "LOGNAME": "u",
+                         "TMPDIR": "/var/folders/x/T/", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"})
+        self.assertEqual(launch.mac_helper_environment({}), {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"})
 
     def test_cancel_exited_running_and_stubborn(self):
         proc = mock.Mock(pid=123)
