@@ -27,7 +27,9 @@ USB_TOKEN_NSS = "python/hst_office/usb_token_nss.py"  # local NSS tools only; no
 CRASH_SIGNATURE = "python/hst_office/crash_signature.py"  # wevtutil (Windows event log) only; no shell or network
 # "Mở tài liệu văn phòng bằng HST Office?": xdg-mime (Linux) and LaunchServices through ctypes (macOS), after the
 # user agrees; never any network module
-DEFAULT_APPS = ("python/hst_office/default_apps_linux.py", "python/hst_office/default_apps_os.py")
+# Local OS tools only (xdg-mime, LaunchServices, defaults/killall Dock, gio), never the network.
+DEFAULT_APPS = ("python/hst_office/default_apps_linux.py", "python/hst_office/default_apps_os.py",
+                "python/hst_office/app_shortcuts.py")
 UPDATE_LAUNCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|ctypes)\b", re.M)
 LOCAL_TOOL_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc)\b", re.M)
 USB_WORKER_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess)\b", re.M)

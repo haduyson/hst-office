@@ -26,6 +26,8 @@
 #                       Two profiles used by beta.5 on this English Windows: one without a language choice shows the
 #                       Vietnamese core UI after the upgrade; one where English was chosen keeps English and can
 #                       switch to Vietnamese.
+# App shortcuts (upgrade-from-beta4, upgrade-from-beta5): HST Writer, HST Sheets and HST Slides once each on the
+# desktop and in the Start menu after the upgrade (check-app-shortcuts.ps1); none left after the uninstall of beta4's.
 # UI language (every scenario that installs HST Office): the vi and en-US language packs are installed whatever
 # the Windows display language (gm_Langpack_r_vi, also over a beta that left it out). hst-first also starts a
 # fresh profile: Vietnamese core UI with no choice stored; English chosen wins after a restart; back to Vietnamese.
@@ -405,6 +407,8 @@ if ($Scenario -in 'libreoffice-first', 'hst-first') {
     Assert-Owns $after.registry 'hst' $loc
     Assert-AllFiles $HstMsi $after.hst[0].ProductCode 'hst-office-after-beta5'
     Assert-UiLanguagePacks $loc 'hst-office-after-beta5'
+    # One HST Writer, HST Sheets and HST Slides each on the desktop and in the Start menu after the upgrade.
+    & (Join-Path $PSScriptRoot 'check-app-shortcuts.ps1') -Expect installed -Install $loc
     Invoke-UiLanguage $loc 'upgraded-no-choice' $plain @('--expect-stored', 'none', '--expect-ui', 'vi', '--need-vi')
     Invoke-UiLanguage $loc 'upgraded-english' $english @('--expect-stored', 'en-US', '--expect-ui', 'en-US', '--need-vi', '--set', 'vi')
     Invoke-UiLanguage $loc 'upgraded-switched-to-vi' $english @('--expect-stored', 'vi', '--expect-ui', 'vi')
@@ -427,10 +431,12 @@ if ($Scenario -in 'libreoffice-first', 'hst-first') {
     Assert-Owns $after.registry 'hst' $loc
     Assert-AllFiles $HstMsi $after.hst[0].ProductCode 'hst-office-after-upgrade'
     Assert-UiLanguagePacks $loc 'hst-office-after-upgrade'
+    & (Join-Path $PSScriptRoot 'check-app-shortcuts.ps1') -Expect installed -Install $loc
     Assert-Starts $loc 'HST Office' 'hst-office'
     # Uninstalling the upgraded install removes it completely, as for a fresh install.
     Uninstall-Product $after.hst[0].ProductCode 'hst-office-upgraded'
     $gone = Show-State 'after-upgraded-uninstall'
     Assert-BetaRemoved $gone $loc 'upgraded-uninstall'
+    & (Join-Path $PSScriptRoot 'check-app-shortcuts.ps1') -Expect removed
 }
 Write-Host "Scenario $Scenario passed"

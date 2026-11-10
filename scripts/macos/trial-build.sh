@@ -284,6 +284,9 @@ do_collect() { # the single HST Office dmg -> $WORK/dmg with SHA256SUMS; signing
   if [ -n "$f" ]; then tar -xjf "$f" -C "$app"; rc=$?; fi
   hdiutil detach "$mnt" || return 1
   [ "$rc" -eq 0 ] || { echo "collect: could not merge the Vietnamese language pack"; return 1; }
+  # HST Writer, HST Sheets and HST Slides launcher apps (Contents/Helpers), pinned to the Dock from
+  # Tùy chọn ▸ HST Office; signed below with the bundle.
+  "$PY" -I "$REPO/scripts/macos/make-app-launchers.py" "$app" --arch "$ARCH" || return 1
   # Repack with the HST layout: upstream's dmg carries the LibreOffice background and a DS_Store
   # whose icon positions name LibreOffice.app.
   # Valid, sealed Python bytecode (upstream ships only stale .pyc); the last change to the bundle's files.
@@ -353,6 +356,19 @@ do_verify() { # mount the dmg read-only and check product identity and Vietnames
     done
     compgen -G "$mnt/.background*" >/dev/null || { echo "FAIL: volume lacks the HST background"; bad=1; }
     cp "$mnt"/.background* "$WORK/artifacts/" 2>/dev/null || true
+    # Launchers HST Writer, HST Sheets and HST Slides (scripts/macos/make-app-launchers.py).
+    local name module launcher
+    for name in "HST Writer:writer" "HST Sheets:calc" "HST Slides:impress"; do
+      module="${name#*:}"; name="${name%%:*}"; launcher="$app/Contents/Helpers/$name.app"
+      if [ ! -d "$launcher" ]; then echo "FAIL: launcher $name.app missing"; bad=1; continue; fi
+      [ "$(/usr/libexec/PlistBuddy -c 'Print :HSTOfficeModule' "$launcher/Contents/Info.plist")" = "$module" ] \
+        || { echo "FAIL: $name.app does not open --$module"; bad=1; }
+      [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$launcher/Contents/Info.plist")" = "$name" ] \
+        || { echo "FAIL: $name.app display name"; bad=1; }
+      lipo -archs "$launcher/Contents/MacOS/hst-app-launcher" | grep -qw "$ARCH" || { echo "FAIL: $name.app is not $ARCH"; bad=1; }
+      [ -s "$launcher/Contents/Resources/app.icns" ] || { echo "FAIL: $name.app has no icon"; bad=1; }
+      if codesign --verify --strict "$launcher"; then echo "launcher ok: $name.app (--$module)"; else echo "FAIL: $name.app signature"; bad=1; fi
+    done
     # Ad-hoc signature from scripts/macos/adhoc-sign.sh must survive the dmg copy intact.
     if codesign --verify --deep --strict --verbose=2 "$app"; then echo "codesign: valid ad-hoc signature"; else echo "FAIL: codesign --verify --deep --strict"; bad=1; fi
     codesign -dv "$app" 2>&1 | grep -E '^(Identifier|Signature|Sealed Resources)'
