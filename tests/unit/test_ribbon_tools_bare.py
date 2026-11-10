@@ -36,11 +36,15 @@ class BlocksTable(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             gen.validate(DATA, fixture_tree(tmp, DATA))
         with open(TABLE, encoding="utf-8") as handle:
-            self.assertEqual(handle.read(), gen.patch_text(gen.header(DATA)))
+            self.assertEqual(handle.read(), gen.patch_text(gen.header(gen.scale.stage(DATA))))
+        with open(os.path.join(PATCHES, gen.STAGES["draw"]), encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), gen.scale.follow_up_text(
+                gen.header(gen.scale.stage(DATA)), gen.header(gen.scale.stage(DATA, "draw")), gen.FOLLOW_UPS["draw"], gen.HEADER))
 
-    def test_paragraph_in_writer_and_slides_only(self):
+    def test_paragraph_in_writer_slides_and_draw(self):
         named = {ladder["app"]: ladder.get("bare_block_before") for ladder in DATA["ladders"]}
-        self.assertEqual(named, {"writer": "gdHomeParagraph", "calc": None, "impress": "gdHomeParagraph"})
+        self.assertEqual(named, {"writer": "gdHomeParagraph", "calc": None, "impress": "gdHomeParagraph",
+                                 "draw": "gdHomeParagraph"})
 
     def test_the_named_group_must_collapse(self):
         data = copy.deepcopy(DATA)
