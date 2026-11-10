@@ -15,14 +15,13 @@ OFFICE = ("soffice.bin", "soffice.exe")
 WM_CLOSE = 0x0010
 
 
-def _name(pid, cache={}):
+def _name(pid):
+    """Process name now (no cache: Windows reuses process ids within a run)."""
     import psutil
-    if pid not in cache:
-        try:
-            cache[pid] = psutil.Process(pid).name().lower()
-        except Exception:
-            return ""
-    return cache[pid]
+    try:
+        return psutil.Process(pid).name().lower()
+    except Exception:
+        return ""
 
 
 def _text(hwnd, getter=user32.GetWindowTextW):
@@ -273,3 +272,42 @@ def minidump(pid, path):
     finally:
         kernel32.CloseHandle(wintypes.HANDLE(handle))
         kernel32.CloseHandle(wintypes.HANDLE(process))
+
+
+class Launches:
+    """Every launcher and office process seen during a route, polled every 50 ms in a thread: a launcher that hands
+    the file to a running (or exiting) office lives well under the census interval."""
+    NAMES = ("scalc.exe", "swriter.exe", "simpress.exe", "soffice.exe", "soffice.bin")
+
+    def __init__(self):
+        import threading
+        self.seen, self.stop = {}, threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.start = time.monotonic()
+
+    def _run(self):
+        import psutil
+        while not self.stop.is_set():
+            now = round(time.monotonic() - self.start, 2)
+            alive = set()
+            for proc in psutil.process_iter(["pid", "ppid", "name", "create_time"]):
+                if (proc.info["name"] or "").lower() in self.NAMES:
+                    key = (proc.info["pid"], proc.info["create_time"])
+                    alive.add(key)
+                    self.seen.setdefault(key, dict(pid=key[0], ppid=proc.info["ppid"], name=proc.info["name"],
+                                                   first=now, last=now))["last"] = now
+            for key, value in self.seen.items():
+                if key not in alive and "gone" not in value:
+                    value["gone"] = now
+            self.stop.wait(0.05)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_):
+        self.stop.set()
+        self.thread.join(5)
+
+    def report(self):
+        return sorted(self.seen.values(), key=lambda v: v["first"])

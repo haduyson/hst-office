@@ -68,15 +68,20 @@ def fixtures(install, work):
     return out
 
 
-def painted(rect):
-    """The document's content is drawn: a window still loading is one flat colour (the frame is shown before the
-    import, loadenv.cxx), a loaded one has the ribbon, rulers or grid."""
-    from PIL import ImageGrab
+def painted(rect, covers=()):
+    """The document's content is drawn: a window still loading is one flat colour with a progress text in its status
+    bar (the frame is shown before the import, loadenv.cxx), a loaded one has the ribbon, rulers or grid. Dialogs
+    over the window (`covers`) are blanked out first, so a start-up question over a loaded document still counts."""
+    from PIL import ImageDraw, ImageGrab
     left, top, right, bottom = rect
     if right - left < 300 or bottom - top < 200:
         return False
-    image = ImageGrab.grab(bbox=(left + 8, top + 40, right - 8, bottom - 8), all_screens=True)
-    return len(set(image.convert("RGB").resize((160, 90)).getdata())) > 40
+    box = (left + 8, top + 40, right - 8, bottom - 60)  # no title bar, no status bar
+    image = ImageGrab.grab(bbox=box, all_screens=True).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    for c in covers:
+        draw.rectangle((c[0] - box[0], c[1] - box[1], c[2] - box[0], c[3] - box[1]), fill=(0, 0, 0))
+    return len(set(image.resize((160, 90)).getdata())) > 40
 
 
 def scrub_recovery(profile):
@@ -207,9 +212,11 @@ class Routes:
             if doc and first_window is None:
                 first_window = now
             front = doc and not doc["iconic"] and (doc["z"] < explorer_z or fg["proc"] == "soffice.bin")
-            if front and doc["enabled"] and painted(doc["rect"]):
+            over = [w for w in office if w["owner"] or not matches(w["title"])]
+            if front and painted(doc["rect"], [w["rect"] for w in over]):
                 result = dict(status="OK", seconds=now, window_seconds=first_window, title=doc["title"],
-                              foreground=fg["title"], doc_is_foreground=fg["hwnd"] == doc["hwnd"])
+                              foreground=fg["title"], doc_is_foreground=fg["hwnd"] == doc["hwnd"],
+                              dialog_over_document=[w["title"] for w in over] if not doc["enabled"] else [])
                 break
             if now >= limit:
                 dialogs = [w["title"] for w in office if not matches(w["title"])]
@@ -265,7 +272,7 @@ class Routes:
         return base, waited["status"]
 
     def route(self, app, label, ext, how, state):
-        from open_routes_windows import Explorer, shell_execute, census, close_windows
+        from open_routes_windows import Explorer, Launches, shell_execute, census, close_windows
         record = dict(app=app, ext=ext, route=how, state=state)
         try:
             if state == "fresh":
@@ -289,6 +296,7 @@ class Routes:
                                and base.stem in w["title"]])
                 time.sleep(0.3)
             limit = LIMIT_FRESH if state == "fresh" else LIMIT_WARM
+            launches = Launches().__enter__()
             started = time.monotonic()
             if how == "double-click":
                 record["input"] = explorer.double_click()
@@ -299,7 +307,11 @@ class Routes:
             else:
                 record["input"] = shell_execute(path, None if how == "verb-default" else "new")
             record["input_seconds"] = round(time.monotonic() - started, 1)
-            result = self.watch(matches, limit, name)
+            try:
+                result = self.watch(matches, limit, name)
+            finally:
+                launches.__exit__()
+                record["launches"] = launches.report()
             record.update(result)
             if result["status"] != "OK":
                 record["unblock"] = self.unblock(matches, name)
