@@ -42,6 +42,14 @@ def main():
         results.save()
         from prepare import installation
         install, receipt, startup_ok = installation(args, results)
+        if os.environ.get("R1_OVERLAY_OXT"):
+            # a fix of the bundled extension tried on this build, before any profile has registered the old one
+            import shutil
+            import zipfile
+            target = Path(install) / "share" / "extensions" / "hst-vietnamese-tools"
+            shutil.rmtree(target)
+            zipfile.ZipFile(os.environ["R1_OVERLAY_OXT"]).extractall(target)
+            results.report["overlay_extension"] = os.environ["R1_OVERLAY_OXT"]
         from launch import interpreter, probe
         from fixtures import generate
         fixtures = Path(args.work) / "fixtures"
@@ -56,6 +64,11 @@ def main():
                 continue
             out, work = Path(args.out) / item, Path(args.work) / item
             try:
+                if item == "W16":
+                    # Explorer routes in the tooling Python: the office is reached only through the shell.
+                    import open_routes
+                    results.put(open_routes.run(install, out, work))
+                    continue
                 if item in {"W1", "W2", "W6", "W11"}:
                     import delegated
                     # The child needs the bundled bridge search path without contaminating this tooling interpreter.

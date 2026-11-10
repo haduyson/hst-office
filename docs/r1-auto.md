@@ -31,6 +31,7 @@ lỗi chuẩn bị, crash hoặc timeout không biến thành thành công. `sum
 | W13 | Đọc PDF trong Draw, đo độ mờ và chữ đen trên ảnh | `pdf_checks.py` | Tự động |
 | W14 | Chứng thư phần mềm thử; PDF cấm ký, nút mật khẩu quyền, SHA-256 không đổi | `permission_check.py`, `software_certificate.py` | Một phần; token thật chỉ chủ sở hữu |
 | W15 | Văn bản Đảng hai mặt, đo PDF lề trang lẻ/chẵn, ảnh xem trước in | `documents.py` | Tự động |
+| W16 | Mở `.xlsx/.ods`, `.docx/.odt`, `.pptx/.odp` từ Explorer: nhấp đúp, chuột phải ▸ Open, Open with ▸ HST, động từ shell; profile mới, office tắt, đang chạy, vừa đóng; đo thời gian tới cửa sổ tài liệu đứng trước Explorer | `open_routes.py`, `open_routes_windows.py` | Tự động |
 | M1 | Quarantine DMG, mở từ DMG, xác minh App Translocation, câu hỏi chuyển trước tiên | `mac_startup.py` | Tự động |
 | M2 | Bấm Chuyển; ứng dụng tự mở từ Applications rồi hỏi mở tài liệu | `mac_startup.py` | Tự động |
 | M3 | Đồng ý ở M2; LaunchServices và mở ba loại tệp qua Finder/shell | `documents.py`, `mac_access.py` | Tự động |
@@ -57,6 +58,18 @@ quarantine hay ký lại. Bộ lọc nhận danh sách, khoảng và `all`; sai 
 Các bước chuẩn bị cần thiết vẫn chạy khi lọc mục. Nếu M1/M2 hỏng, M3 FAIL; M4–M8
 vẫn có thể chạy trên bản sao từ chính DMG để thu thêm bằng chứng, không ghi nhận
 bản sao đó là đã đạt thao tác chuyển ứng dụng.
+
+Windows có thêm `-f overlay_extension=true`: extension HST dựng từ commit của nhánh
+thay bản đi kèm ngay sau khi cài, trước lần khởi động đầu, để thử một bản sửa
+extension trên bộ cài có sẵn mà không dựng lại (kết quả đó không phải duyệt bản dựng).
+
+W16 dùng profile mặc định như Explorer: mở bằng nhấp đúp, chuột phải ▸ Open,
+Open with ▸ HST Sheets/Writer/Slides và động từ `open`/`new` của ProgID, khi profile
+mới, khi office đã tắt, khi đang chạy (tài liệu thành một tab) và ngay khi tài liệu
+cuối vừa đóng. Đạt khi cửa sổ tài liệu đã vẽ nội dung và đứng trước Explorer; câu
+hỏi khởi động phủ lên tài liệu đã mở xong vẫn đạt. `W16/open-routes.json` ghi thời
+gian, cửa sổ theo thứ tự chồng, cửa sổ đang được chọn và mọi tiến trình khởi chạy;
+office không hiện cửa sổ được lấy dump vào `crash/`.
 
 Các job R1 cần quyền chỉ đọc `contents` và `actions`; chúng nằm trong allowlist
 đọc artifact của [`scripts/check-workflows.py`](../scripts/check-workflows.py).

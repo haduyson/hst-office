@@ -18,6 +18,8 @@ from . import diag_log
 JOB_NAME = "org.hst.office.vi.WelcomeJob"
 CONFIG_PATH = "/org.hasontech.hstoffice.Welcome"
 DEFER_TURNS = 1  # event-loop passes to wait before the dialog opens
+LOAD_POLL = 0.25  # seconds between checks while a document is still loading
+LOAD_WAIT = 300  # seconds after which a modal start-up step runs even if a load never ends
 
 
 def _access(ctx, writable):
@@ -57,21 +59,56 @@ def _safe(fn, *args):
         diag_log.exception("welcome_job")
 
 
-class _Later(unohelper.Base, XCallback):
-    """Runs `fn` on the office's main thread after `turns` further passes of the event loop."""
+def loading(ctx):
+    """True while a shown task frame of the desktop has no controller yet, i.e. a document is still being imported.
 
-    def __init__(self, ctx, fn, turns):
+    A document opened from the file manager (double click, Open, Open with) starts the office with that file: the
+    loader shows the document's frame BEFORE the import, to parent its dialogs, so onFirstVisibleTask fires mid-load,
+    and the import reschedules the event loop for its progress bar. A modal dialog run from that nested loop holds the
+    import under it: the window stays blank ("Load document") until the dialog is closed, and when the dialog is not
+    noticed the document never appears. The controller is attached only when the import ends."""
+    frames = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).getFrames()
+    for index in range(frames.getCount()):
+        frame = frames.getByIndex(index)
+        window = frame.getContainerWindow()
+        # hidden loads (macros, conversions) never show a dialog parent, so they do not hold the prompts
+        if frame.getController() is None and window is not None and window.isVisible():
+            return True
+    return False
+
+
+class _Later(unohelper.Base, XCallback):
+    """Runs `fn` on the office's main thread after `turns` further passes of the event loop, and only once no document
+    is loading (checked every LOAD_POLL seconds, at most LOAD_WAIT seconds)."""
+
+    def __init__(self, ctx, fn, turns, clock=None, timer=None):
+        import time
+        import threading
         self.ctx, self.fn, self.turns = ctx, fn, turns
+        self.clock = clock or time.monotonic
+        self.timer = timer or (lambda delay, action: threading.Timer(delay, action).start())
+        self.deadline = self.clock() + LOAD_WAIT
 
     def notify(self, data):
         try:
             if self.turns > 0:
                 self.turns -= 1
                 _post(self.ctx, self)
+            elif self.clock() < self.deadline and _safe_loading(self.ctx):
+                # not from this (possibly nested) event loop: ask again shortly, from a timer thread
+                self.timer(LOAD_POLL, lambda: _post(self.ctx, self))
             else:
                 self.fn()
         except Exception:  # noqa: BLE001 - never raise into the office's event loop
             diag_log.exception("welcome_job")
+
+
+def _safe_loading(ctx):
+    try:
+        return loading(ctx)
+    except Exception:  # noqa: BLE001 - a broken check must not hold the start-up prompts forever
+        traceback.print_exc()
+        return False
 
 
 def _post(ctx, callback):
@@ -79,7 +116,8 @@ def _post(ctx, callback):
 
 
 def run_later(ctx, fn, turns=DEFER_TURNS):
-    """Run fn() on the main thread after `turns` further passes of the event loop (not inside a start-up job)."""
+    """Run fn() on the main thread after `turns` further passes of the event loop (not inside a start-up job) and
+    after every document being opened has finished loading (see loading())."""
     _post(ctx, _Later(ctx, fn, turns))
 
 

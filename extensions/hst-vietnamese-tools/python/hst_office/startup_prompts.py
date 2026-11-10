@@ -10,7 +10,8 @@ until it is shown (welcome: Shown; default apps: Asked/LastAsked; update outcome
 skipped behind the move question is not carried over: the recovery state is read once per start. The update check
 itself is not modal (an infobar) and always runs last.
 
-Runs on the main thread after the Start Center has painted (welcome_job.run_later), never inside the job.
+Runs on the main thread after the Start Center has painted and after a document opened at start has loaded
+(welcome_job.run_later), never inside the job and never inside a document import.
 """
 import platform
 

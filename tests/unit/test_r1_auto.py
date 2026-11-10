@@ -14,7 +14,7 @@ from r1auto import results
 
 class ItemSelectionTests(unittest.TestCase):
     def test_default_and_all_select_the_platform_in_checklist_order(self):
-        for platform, prefix, count in (("windows", "W", 15), ("macos", "M", 8)):
+        for platform, prefix, count in (("windows", "W", 16), ("macos", "M", 8)):
             for text in ("", "  ", "all", " ALL "):
                 with self.subTest(platform=platform, text=text):
                     self.assertEqual(results.parse_items(text, platform),
@@ -27,8 +27,8 @@ class ItemSelectionTests(unittest.TestCase):
                          ["M1", "M4", "M5", "M6", "M8"])
 
     def test_wrong_platform_invalid_ranges_and_malformed_tokens_are_rejected(self):
-        cases = {"windows": ("M1", "W1 M2", "W0", "W16", "W2-1", "W1-M3",
-                             "W1-16", "W1--3", "W1:3", "1", "W1,*", "all,W1"),
+        cases = {"windows": ("M1", "W1 M2", "W0", "W17", "W2-1", "W1-M3",
+                             "W1-17", "W1--3", "W1:3", "1", "W1,*", "all,W1"),
                  "macos": ("W1", "M0", "M9", "M7-9", "M4-2", "M1-W3")}
         for platform, values in cases.items():
             for text in values:
@@ -54,7 +54,7 @@ class ResultSchemaTests(unittest.TestCase):
             results.validate_row(dict(valid, passed=True))
 
     def test_invalid_item_status_and_empty_or_non_evidence_detail_are_rejected(self):
-        invalid = [("item", value) for value in ("W0", "W16", "M9", "X1", None)]
+        invalid = [("item", value) for value in ("W0", "W17", "M9", "X1", None)]
         invalid += [("status", value) for value in ("pass", "PENDING", "", None)]
         invalid += [("detail", value) for value in ("", {}, [], ["text"], None, 0, True)]
         for key, value in invalid:

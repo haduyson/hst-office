@@ -9,7 +9,7 @@ from native import cleanup
 from default_session import stop_recorded
 
 work, out = map(lambda p: Path(p).resolve(), sys.argv[1:3])
-for item in [f"W{i}" for i in range(1, 16)] + [f"M{i}" for i in range(1, 9)]:
+for item in [f"W{i}" for i in range(1, 17)] + [f"M{i}" for i in range(1, 9)]:
     cleanup((work / item / "profile").as_uri())
     cleanup((out / item).as_uri())
     stop_recorded(work / item / "default-pids.txt")
