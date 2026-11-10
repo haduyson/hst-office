@@ -136,12 +136,8 @@ def launch_and_quit(ctx, result, info):
                               release_from=info["release"], release_to=result["release"]["version"])
     if not update_config.settings(ctx)["AllowInstall"]:  # the policy may have changed since the click
         return
-    proc, closing = launch.spawn(cmd.argv(helper, launch.write_helper(helper, cache)), system), False
-    try:
-        closing = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).terminate()
-    finally:
-        if not closing:  # Cancel in a save prompt (or an error): nothing is updated, the file stays for later
-            launch.cancel(proc)
+    # Cancel in a save prompt (or an error): nothing is updated, the file stays for later.
+    launch.spawn_and_quit(ctx, cmd.argv(helper, launch.write_helper(helper, cache)), system)
 
 
 def start(ctx, peer):
