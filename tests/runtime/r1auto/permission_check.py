@@ -2,7 +2,7 @@
 """W14's machine-checkable refusal, with a temporary software certificate."""
 import hashlib
 from pathlib import Path
-from support import background, wait
+from support import background, says, wait
 from pdf_viewer_uno import open_viewer, info, signing_props
 from pdf_watermark_paths import choose_viewer_certificate
 from pdf_signature_fixtures import SIGNER_CN
@@ -30,7 +30,8 @@ def run(e, fixtures):
         label = {p.Name: p.Value for p in win.getChild("yes").getState()}.get("Text", "")
         status = info(e.office, frame).get("StatusText", "")
         e.shot("permission-refusal")
-        e.require("không cho phép ký số" in status and label == "Nhập mật khẩu quyền",
+        e.require(says(status, "không cho phép ký số", "does not allow digital signing") and
+                  says(label, "Nhập mật khẩu quyền", "Enter Permissions Password"),
                   "Từ chối ký và có nút nhập mật khẩu quyền", status=status, button=label)
         dialogs.later(win.getChild("close")).join(10)
         thread.join(10)

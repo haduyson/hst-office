@@ -10,6 +10,8 @@ from support import Evidence
 from results import row
 from office import Office
 
+A11Y = {"W7", "W8", "W9", "W10", "M4", "M5", "M7"}  # accessibility reads: ribbon, glyph bounds (office.py)
+
 
 def execute(e, fixtures):
     item = e.item
@@ -50,16 +52,35 @@ def main():
     for name in ("item", "install", "out", "work", "result", "fixtures"):
         parser.add_argument("--" + name, required=True)
     args = parser.parse_args()
+    if args.item in A11Y:
+        os.environ["R1_A11Y"] = "1"
     office = Office(args.install, args.work)
     e = Evidence(args.item, args.out, office)
     status, message = "FAIL", "Chưa chạy"
     try:
         office.start()
         execute(e, args.fixtures)
+        failed = [c["message"] for c in e.checks if not c["ok"]]
+        if failed:  # recorded without raising (e.g. the office died on close): still a failure
+            raise AssertionError("; ".join(failed))
         status = "SKIP" if args.item == "M4" else "PASS"
         message = "Chủ sở hữu duyệt độ sắc nét; kiểm tra trang tùy chọn đã đạt" if args.item == "M4" else "Đạt các phép đo tự động"
     except Exception as error:
+        import traceback
         message = f"{type(error).__name__}: {error}"
+        e.checks.append(dict(ok=False, message="traceback", where=traceback.format_exc().splitlines()[-6:]))
+        try:
+            from access import census
+            e.checks.append(dict(ok=False, message="accessibility census", top_windows=census(office)))
+        except Exception:
+            pass
+        if args.item in A11Y:  # the OS tree the ribbon checks must be rewritten against
+            try:
+                from support import native
+                (e.out / "native-tree.log").write_text(json.dumps(native("tree", 2500), ensure_ascii=False),
+                                                       encoding="utf-8")
+            except Exception as dump_error:
+                e.checks.append(dict(ok=False, message="native tree", error=f"{type(dump_error).__name__}: {dump_error}"))
         try:
             e.shot("failure")
         except Exception:
@@ -70,7 +91,7 @@ def main():
             office.stop()
         except Exception as error:
             status = "FAIL"
-            detail["cleanup_error"] = type(error).__name__
+            detail["cleanup_error"] = f"{type(error).__name__}: {error} {getattr(error, 'stderr', '') or ''}"[-600:]
         payload = dict(result=row(args.item, status, detail, e.shots[-1] if e.shots else None), owner_review=e.owner)
         Path(args.result).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return int(status == "FAIL")

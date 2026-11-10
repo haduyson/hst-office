@@ -2,21 +2,23 @@
 """W8–W10/M7: native shortcuts and hover, observed through UNO accessibility."""
 import time
 from access import box, center, labels, named, snapshot
-from support import native, wait
+from support import native, says, wait
 from style_hover_preview_gui import state
 
 
 def search(e, doc):
     from com.sun.star.accessibility.AccessibleRole import LIST_ITEM, MENU_ITEM
     e.office.focus(doc.CurrentController.Frame.ContainerWindow)
-    anchors = named(e.office, "Tìm tính năng")
+    anchors = named(e.office, "Tìm tính năng") or named(e.office, "Search features")
     anchor = next((box(n) for n in anchors if box(n)[1] < 200), None)
     native("key", "alt+cmd+k" if e.office.system == "Darwin" else "alt+q")
     native("text", "bảng")
-    found = wait(lambda: [n for n in snapshot(e.office) if "trong tài liệu" in n.getAccessibleName()])
+    found = wait(lambda: [n for n in snapshot(e.office)
+                          if says(n.getAccessibleName(), "trong tài liệu", "in the document")])
     e.shot("search")
     final = found[-1]
-    e.require(final.getAccessibleName() == "Tìm “bảng” trong tài liệu", "Dòng cuối tìm trong tài liệu",
+    e.require(final.getAccessibleName() in ("Tìm “bảng” trong tài liệu", "Find “bảng” in the document"),
+              "Dòng cuối tìm trong tài liệu",
               labels=labels(e.office))
     e.require(anchor is not None, "Có ô tìm trên ribbon")
     popup_rows = [n for n in snapshot(e.office) if n.getAccessibleRole() in (LIST_ITEM, MENU_ITEM) and
@@ -69,5 +71,8 @@ def run(e):
         if e.item in {"W10", "M7"}:
             hover(e, doc)
     finally:
-        doc.setModified(False)
-        doc.close(True)
+        try:
+            doc.setModified(False)
+            doc.close(True)
+        except Exception as error:  # an office that dies on close must not hide what the item measured
+            e.checks.append(dict(ok=False, message="Đóng tài liệu làm office dừng", error=f"{type(error).__name__}"))

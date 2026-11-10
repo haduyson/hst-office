@@ -55,3 +55,22 @@ def install(msi, out):
         if process.poll() is None:
             process.terminate()
             process.wait(10)
+
+
+def product_version(path):
+    """ProductVersion of a Windows binary: HST_RELEASE (include/default.rc), the text the About dialog shows."""
+    import ctypes
+    from ctypes import wintypes
+    version = ctypes.windll.version
+    size = version.GetFileVersionInfoSizeW(str(path), None)
+    if not size:
+        raise OSError("Không có thông tin phiên bản: " + str(path))
+    data = ctypes.create_string_buffer(size)
+    version.GetFileVersionInfoW(str(path), 0, size, data)
+    pointer, length = ctypes.c_void_p(), wintypes.UINT()
+    version.VerQueryValueW(data, "\\VarFileInfo\\Translation", ctypes.byref(pointer), ctypes.byref(length))
+    lang, codepage = ctypes.cast(pointer, ctypes.POINTER(wintypes.WORD * 2)).contents
+    key = "\\StringFileInfo\\%04x%04x\\ProductVersion" % (lang, codepage)
+    if not version.VerQueryValueW(data, key, ctypes.byref(pointer), ctypes.byref(length)):
+        raise OSError("Không đọc được ProductVersion")
+    return ctypes.wstring_at(pointer, length.value).rstrip("\0")

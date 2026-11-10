@@ -35,16 +35,18 @@ def run(e):
                 control.setFocus()
                 native("key", "cmd+a" if office.system == "Darwin" else "ctrl+a")
                 native("text", text)
+                time.sleep(1)
+                e.shot("typed-" + name)  # before any check: shows a popup that took the keyboard, if one did
                 e.require(control.getText() == text, "Giữ đúng chữ và dấu khi nhập", field=name,
                           value=control.getText(), bounds=box(control))
-                accessible = context(control)
-                height = accessible.getSize().Height
-                glyphs = [accessible.getCharacterBounds(i) for i in (0, 1)]
-                measured = [(r.X, r.Y, r.Width, r.Height) for r in glyphs]
-                e.require(all(r.Height > 0 and r.Y >= 0 and r.Y + r.Height <= height for r in glyphs),
-                          "Khung chữ Ủy nằm trọn trong ô", field=name, height=height, glyphs=measured)
-                e.require(all(abs(r.Y - (height - r.Y - r.Height)) <= max(3, height * 0.2) for r in glyphs),
-                          "Khung chữ được căn giữa theo chiều dọc", field=name, height=height, glyphs=measured)
+                # Glyph rows measured in the screenshot (getCharacterBounds returned only empty rectangles).
+                area = office.service("com.sun.star.awt.Toolkit").getWorkArea().Width
+                shot = e.out / ("typed-" + name + ".png")
+                band = native("field-text", shot, *box(control), area)
+                e.require(band.get("ink") and not band.get("clipped"), "Khung chữ Ủy nằm trọn trong ô",
+                          field=name, **band)
+                e.require(abs(band["above"] - band["below"]) <= max(3, band["inner_height"] * 0.2),
+                          "Khung chữ được căn giữa theo chiều dọc", field=name, **band)
             e.review("Kiểm tra căn giữa, đuôi chữ y và dấu Ủ trên các ô nhập", "vietnamese-fields")
         else:
             native("click", *center(dialog.getControl("typeOpen")))

@@ -43,6 +43,7 @@ def keyboard(names=None, text=None):
                 code = int.from_bytes(data[i:i + 2], "little")
                 win_event(1, 0, code, 4)
                 win_event(1, 0, code, 6)
+                time.sleep(0.08)  # a person's pace; back-to-back events lost all but the first characters (W7)
         else:
             for name in names:
                 win_event(1, KEYS[name][0], 0, 0)
@@ -58,6 +59,7 @@ def keyboard(names=None, text=None):
                     event = q.CGEventCreateKeyboardEvent(None, 0, pressed)
                     q.CGEventKeyboardSetUnicodeString(event, len(char.encode("utf-16-le")) // 2, char)
                     q.CGEventPost(q.kCGHIDEventTap, event)
+                time.sleep(0.08)
         else:
             flags = 0
             for pressed, sequence in ((True, names), (False, reversed(names))):
@@ -106,33 +108,46 @@ def screenshot(path):
         import Quartz as q
         if hasattr(q, "CGPreflightScreenCaptureAccess") and not q.CGPreflightScreenCaptureAccess():
             raise RuntimeError("Runner chưa cấp quyền ghi màn hình")
-        subprocess.run(["screencapture", "-x", str(path)], check=True)
+        subprocess.run(["screencapture", "-x", str(path)], check=True, stdin=subprocess.DEVNULL, timeout=60)
     else:
         from PIL import ImageGrab
         ImageGrab.grab().save(path)
     return str(path)
 
 
+def owned(profile):
+    """PIDs of this run's soffice/oosplash processes, recognised by their profile URL."""
+    import psutil
+    return [proc.pid for proc in psutil.process_iter(["pid", "cmdline", "name"])
+            if proc.pid != os_pid() and (proc.info["name"] or "").lower().startswith(("soffice", "oosplash"))
+            and any(profile in arg for arg in (proc.info["cmdline"] or []))]
+
+
 def cleanup(profile):
     import psutil
-    owned = []
-    for proc in psutil.process_iter(["pid", "cmdline", "name"]):
-        if proc.pid == os_pid() or not (proc.info["name"] or "").lower().startswith(("soffice", "oosplash")):
-            continue
-        if any(profile in arg for arg in (proc.info["cmdline"] or [])):
-            owned.append(proc)
-    for proc in owned:
-        proc.terminate()
-    _, alive = psutil.wait_procs(owned, timeout=10)
+    procs = []
+    for pid in owned(profile):
+        try:
+            procs.append(psutil.Process(pid))
+        except psutil.NoSuchProcess:
+            pass
+    for proc in procs:
+        try:
+            proc.terminate()
+        except psutil.NoSuchProcess:
+            pass  # it ended between the listing and the signal
+    _, alive = psutil.wait_procs(procs, timeout=10)
     for proc in alive:
-        proc.kill()
+        try:
+            proc.kill()
+        except psutil.NoSuchProcess:
+            pass
     psutil.wait_procs(alive, timeout=5)
-    return [p.pid for p in owned]
+    return [p.pid for p in procs]
 
 
 def os_pid():
-    import os
-    return os.getpid()
+    return __import__("os").getpid()
 
 
 def main():
@@ -145,6 +160,21 @@ def main():
         return keyboard(text=args[0])
     if action in {"move", "click", "wheel"}:
         return pointer(action, *map(int, args))
+    if action == "product-version":
+        from windows_install import product_version
+        return product_version(args[0])
+    if action == "activate":  # macOS: a soffice started directly is never the active app until asked
+        from AppKit import NSRunningApplication
+        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(int(args[0]))
+        return bool(app and app.activateWithOptions_(3))
+    if action == "tree":
+        from native_tree import tree
+        return tree(*args)
+    if action == "foreground":
+        from windows_focus import foreground
+        return foreground(*args)
+    if action == "cleanup-list":
+        return owned(args[0])
     if action == "cleanup":
         return cleanup(args[0])
     if action == "print":
@@ -153,6 +183,9 @@ def main():
     if action in {"measure", "text-band"}:
         from pdf_metrics import run
         return run(action, *args)
+    if action == "field-text":
+        from visual_metrics import field_text
+        return field_text(*args)
     if action == "icon-change":
         from visual_metrics import icon_change
         return icon_change(*args)

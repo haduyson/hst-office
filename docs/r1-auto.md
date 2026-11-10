@@ -3,7 +3,9 @@
 Hai workflow `r1-auto-windows.yml` và `r1-auto-macos.yml` kiểm tra hiện vật của một
 lần dựng đã hoàn tất thành công. Không thay extension hoặc ký lại ứng dụng.
 Windows chạy hai máy sạch ở tỉ lệ 100% và 150%; macOS dùng runner arm64 và yêu cầu
-chế độ màn hình thực 2×. Ảnh không được phóng to để thay thế HiDPI.
+chế độ màn hình thực 2×. Runner macOS chỉ có chế độ 1×, nên `mac_hidpi.py` thêm một
+màn hình ảo HiDPI của WindowServer (CGVirtualDisplay) làm màn hình chính: ứng dụng vẽ
+thật ở backing scale 2. Ảnh không được phóng to để thay thế HiDPI.
 
 Mỗi lượt có `results.json`: `platform`, `run_id`, mã SHA-256 bộ cài, `display`,
 `results`, `owner_review`. Mỗi phần tử kết quả có `item`, `status`, `detail`,
@@ -14,17 +16,17 @@ lỗi chuẩn bị, crash hoặc timeout không biến thành thành công. `sum
 
 | Mục | Kiểm tra | Script trong `tests/runtime/r1auto/` | Phạm vi |
 |---|---|---|---|
-| W1 | UI MSI, ô mặc định tích sẵn, mã cài đặt, dấu đăng ký; wrapper câu hỏi khởi động | `windows_install.py`, `delegated.py` | Tự động; chờ wrapper Windows |
-| W2 | Giới thiệu chứa 1.0.0; wrapper không hỏi mặc định lần đầu | `documents.py`, `delegated.py` | Tự động; chờ wrapper Windows |
+| W1 | UI MSI, ô mặc định tích sẵn, mã cài đặt, dấu đăng ký; không câu hỏi mặc định ở ba lần mở | `windows_install.py`, `delegated.py` | Tự động |
+| W2 | Giới thiệu chứa 1.0.0; không hỏi lại mặc định | `documents.py`, `delegated.py` | Tự động |
 | W3 | UserChoice/ProgID/open command và mở `.docx` qua shell | `documents.py`, `default_session.py` | Tự động |
 | W4 | Mở Writer, đóng, mở Sheets ba lượt trong cùng tiến trình | `documents.py` | Tự động |
 | W5 | Nhập `quyet`, Tab, đọc loại đã chọn, popup và focus | `nd30.py` | Tự động |
-| W6 | Gọi kiểm tra hover Windows của nhánh phụ trách | `delegated.py` | Tự động khi có wrapper |
+| W6 | `check-windows-nd30-type-hover.py`: rê chuột thật trên danh sách Loại văn bản | `delegated.py` | Tự động |
 | W7 | Nhập chữ có dấu, khung ký tự, ảnh 100%/150% | `nd30.py` | Một phần; duyệt nét chữ |
 | W8 | Hình học nhóm ribbon, thứ tự thu nhỏ/gập, banner gọn | `ribbon_fit.py` | Tự động |
 | W9 | Alt+Q, `bảng`, vị trí và dòng cuối danh sách | `ribbon.py` | Tự động |
 | W10 | Rê qua ô kiểu, đọc kiểu và undo/redo trước/trong/sau, Ctrl+Z | `ribbon.py` | Tự động |
-| W11 | Gọi kiểm tra trang tùy chọn Windows của nhánh phụ trách | `delegated.py` | Tự động khi có wrapper |
+| W11 | `check-windows-options-pages.py`: từng trang HST Office trong hộp Tùy chọn thật | `delegated.py` | Tự động |
 | W12 | PDF tổng hợp: dấu đỏ, độ mờ, lý do chữ ký, đường in và thumbnail gần đây | `pdf_checks.py` | Một phần; giấy in thật do chủ sở hữu duyệt |
 | W13 | Đọc PDF trong Draw, đo độ mờ và chữ đen trên ảnh | `pdf_checks.py` | Tự động |
 | W14 | Chứng thư phần mềm thử; PDF cấm ký, nút mật khẩu quyền, SHA-256 không đổi | `permission_check.py`, `software_certificate.py` | Một phần; token thật chỉ chủ sở hữu |
@@ -56,10 +58,8 @@ Các bước chuẩn bị cần thiết vẫn chạy khi lọc mục. Nếu M1/M
 vẫn có thể chạy trên bản sao từ chính DMG để thu thêm bằng chứng, không ghi nhận
 bản sao đó là đã đạt thao tác chuyển ứng dụng.
 
-Hai workflow cần quyền chỉ đọc `contents` và `actions`. Chính sách tại
-[`scripts/check-workflows.py`](../scripts/check-workflows.py) cần cho phép hai job
-R1 đọc artifact; yêu cầu cập nhật allowlist đang chờ chủ sở hữu xác nhận theo giới
-hạn không sửa các script kiểm tra cũ của công việc này.
+Các job R1 cần quyền chỉ đọc `contents` và `actions`; chúng nằm trong allowlist
+đọc artifact của [`scripts/check-workflows.py`](../scripts/check-workflows.py).
 
 ## Điều kiện môi trường và bằng chứng
 
@@ -78,10 +78,44 @@ Fixture PDF được sinh tại chỗ bằng generator chữ ký, dấu và quy�
 log kiểm tra và JSON được upload; khóa thử, PFX và profile nằm ngoài artifact.
 Chứng thư W14 được xóa sau kiểm tra. Không đọc tài liệu riêng của chủ sở hữu.
 
-Các mục Windows giao cho `test/windows-r1-checks` chỉ chạy script có giao diện
-`--install/--out`; nhận thêm `--screenshots` khi script công bố. Khi chỉ có phiên
-bản Linux hoặc chưa có script hover, kết quả là `SKIP: pending test/windows-r1-checks`.
-SKIP này làm gate thất bại. Không tạo bản kiểm tra Windows thay thế.
+W1/W2/W6/W11 gọi các script `check-windows-*.py` mà `windows-smoke.yml` dùng, với
+cùng tham số (W1/W2: `--expect registered`, vì ô mặc định đã tích lúc cài). Mỗi
+script có giới hạn 900 s; dòng `FAIL` hoặc mã thoát khác 0 là FAIL.
+
+Giao diện lõi theo ngôn ngữ hệ điều hành: MSI chỉ cài gói giao diện tiếng Việt trên
+Windows tiếng Việt, runner là Windows tiếng Anh. Kiểm tra chữ của giao diện lõi (W9,
+W12, W14) nhận msgstr tiếng Việt hoặc msgid en-US của cùng chuỗi trong bản vá, và ghi
+lại ngôn ngữ thấy được. Hộp thoại của extension vẫn kiểm bằng tiếng Việt.
+
+## Không treo
+
+Mọi bước chờ đều có hạn. M1/M2 chạy trong tiến trình con (`prepare.py`, 900 s) có
+`startup-stack.log` ghi ngăn xếp mỗi 60 s; `open` không chặn, hộp “tải từ Internet”
+của Gatekeeper được trả lời Mở qua System Events (chỉ hộp nêu tên HST Office), mỗi
+lần duyệt cây Trợ năng có hạn 2 s/lệnh và 15 s/lượt. Mỗi mục khác chạy trong probe
+có hạn 420 s. Hết hạn là FAIL kèm ảnh, rồi lượt chạy tiếp mục sau.
+
+## Giới hạn đã chứng minh trên runner
+
+- Engine hiện tại không đưa `XAccessible` của cửa sổ toolkit qua UNO (cửa sổ khai báo 18 interface, không có
+  accessibility; `queryInterface` trả về rỗng) trên cả Windows và macOS. Các phép đo đọc ribbon qua cây
+  accessibility UNO (W8, W9, W10, M4 phần thanh công cụ, M7) vì vậy FAIL do harness; cần đọc cây accessibility
+  của hệ điều hành (UIA/AX) như bản Linux đọc AT-SPI. Khi các mục này FAIL, `native-tree.log` ghi cây đó.
+- `getCharacterBounds` của ô nhập trả về khung rỗng: W7/M5 đo hàng chữ ngay trên ảnh chụp sau khi gõ.
+- Phím thật gõ theo nhịp người (80 ms/ký tự); trên Windows tiến trình công cụ tự đưa cửa sổ office lên trước.
+- macOS: office của probe được mở qua LaunchServices (`open -n -W`).
+- M2: bản cài tự chuyển rồi phải tự mở lại từ Applications; nếu sau 90 s không mở, kết quả ghi
+  `product_reopened_itself: false` và harness mở lại từ Applications như bước của chủ sở hữu.
+
+## Hồ sơ beta.5 cũ (macOS)
+
+Job `old-profile` của `r1-auto-macos.yml` (runner riêng) làm như kịch bản
+`ui-parity-old-profile` của `windows-smoke.yml`: tải DMG beta.5 **đã phát hành**
+(`office.hasontech.vn/tai/1.0.0-beta.5/`, SHA-256 cố định), cài vào Applications, mở
+một lần với hồ sơ mặc định, gỡ ứng dụng (hồ sơ còn), cài bản cần kiểm tra rồi mở.
+Yêu cầu: câu hỏi khởi động xuất hiện (lần đầu có thể là lời chào, câu hỏi mặc định
+phải đến ở lần mở kế tiếp) và mọi trang Tùy chọn ▸ HST Office không trắng
+(`mac_old_profile.py`, `mac_options_pages.py`). Kết quả: `old-profile-results.json`.
 
 Chỉ M4 được phép SKIP với ảnh sau khi phép kiểm trang tùy chọn đạt. PASS ở mục
 một phần xác nhận phần tự động trong bảng; không thay thế kiểm giấy in, token thật

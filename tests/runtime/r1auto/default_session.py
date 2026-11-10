@@ -3,7 +3,6 @@
 import json
 import os
 from pathlib import Path
-import socket
 import subprocess
 import sys
 import time
@@ -39,15 +38,18 @@ def stop_recorded(pidfile):
             proc.terminate()
         except psutil.NoSuchProcess:
             pass
-    _, alive = psutil.wait_procs(owned, timeout=5)
+    _, alive = psutil.wait_procs(owned, timeout=20)  # a quitting office saves its profile first
     for proc in alive:
         try:
             proc.kill()
         except psutil.NoSuchProcess:
             pass
-    _, remaining = psutil.wait_procs(alive, timeout=5)
+    _, remaining = psutil.wait_procs(alive, timeout=10)
+    # A zombie has exited; only its parent (the probe that started it) can reap it.
+    remaining = [p for p in remaining if p.is_running() and p.status() != psutil.STATUS_ZOMBIE]
     if remaining:
-        raise RuntimeError("Không dừng được tiến trình mặc định của lượt kiểm tra")
+        raise RuntimeError("Không dừng được tiến trình mặc định của lượt kiểm tra: "
+                           + ", ".join(f"{p.pid} {p.status()}" for p in remaining))
     return [proc.pid for proc in owned]
 
 
@@ -61,7 +63,10 @@ class DefaultSession:
     def _tool(self, action, value):
         command = [os.environ.get("R1_TOOLS_PYTHON", sys.executable), str(Path(__file__).resolve()), action, str(value)]
         done = subprocess.run(command, env=self.env, capture_output=True, text=True,
-                              encoding="utf-8", check=True, timeout=20)
+                              encoding="utf-8", timeout=60)
+        if done.returncode:
+            raise RuntimeError(f"{action} thất bại: " + done.stderr.strip().splitlines()[-1][-300:]
+                               if done.stderr.strip() else f"{action} thất bại, exit={done.returncode}")
         return json.loads(done.stdout)
 
     def _record(self):
@@ -74,13 +79,13 @@ class DefaultSession:
         from support import background
         if self._tool("list", self.office.install):
             raise RuntimeError("Đã có tiến trình HST mặc định; không thể nhận quyền quản lý")
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", self.office.port))
+        from support import claim_port
+        claim_port(self.office.port)
         self.pidfile.with_name("default-install.txt").write_text(str(self.office.install), encoding="utf-8")
         self.log = (self.out / "default-office.log").open("w", encoding="utf-8")
         try:
             command = [str(self.office.binary), "--nologo", "--norestore", "--nodefault",
-                       f"--accept=socket,host=127.0.0.1,port={self.office.port};urp;"]
+                       self.office.accept()]
             self.proc = subprocess.Popen(command, env=self.env, stdout=self.log, stderr=self.log)
             self.pids.add(self.proc.pid)
             self.pidfile.write_text(str(self.proc.pid), encoding="utf-8")
@@ -100,10 +105,20 @@ class DefaultSession:
                 raise RuntimeError("Không kết nối được profile mặc định") from connected.get("error")
             self.office.ctx = connected["ctx"]
             self._record()
+            self._welcome_seen()
             return self
         except Exception:
             self.stop()
             raise
+
+    def _welcome_seen(self):
+        """The owner opens Writer (W2) before double-clicking a file (W3), so the default profile has shown its
+        welcome by then; an unseen modal welcome would hold the shell-opened document behind it."""
+        from pdf_viewer_uno import signing_props
+        access = self.office.service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
+            "com.sun.star.configuration.ConfigurationUpdateAccess", signing_props(nodepath="/org.hasontech.hstoffice.Welcome"))
+        access.setPropertyValue("Shown", True)
+        access.commitChanges()
 
     def stop(self):
         from support import background

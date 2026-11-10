@@ -3,7 +3,6 @@
 import os
 from pathlib import Path
 import platform
-import socket
 import subprocess
 import sys
 import time
@@ -23,11 +22,35 @@ class Office(hst_gui.Office):
         self.program = str(self.install / ("Contents/MacOS" if self.system == "Darwin" else "program"))
         self.binary = Path(self.program) / ("soffice.exe" if self.system == "Windows" else "soffice")
         self.logs = []
+        # A socket listener raises macOS's "find devices on local networks" alert, which takes keyboard focus.
+        self.pipe = f"r1office{port}"
+
+    def accept(self):
+        if self.system == "Darwin":
+            return f"--accept=pipe,name={self.pipe};urp;"
+        return f"--accept=socket,host=127.0.0.1,port={self.port};urp;"
+
+    def _connect(self, timeout=120):
+        if self.system != "Darwin":
+            return super()._connect(timeout)
+        import uno
+        local = uno.getComponentContext()
+        resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
+        end = time.monotonic() + timeout
+        while True:
+            try:
+                ctx = resolver.resolve(f"uno:pipe,name={self.pipe};urp;StarOffice.ComponentContext")
+                time.sleep(3)  # let startup settle before the first calls
+                return ctx
+            except Exception:
+                if time.monotonic() > end:
+                    raise
+                time.sleep(1)
 
     def start(self):
         import uno
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", self.port))
+        from support import claim_port
+        claim_port(self.port)
         Path(self.workdir).mkdir(parents=True, exist_ok=True)
         if self.profile.exists():
             raise RuntimeError("Profile đã tồn tại; cần thư mục chạy mới")
@@ -35,6 +58,10 @@ class Office(hst_gui.Office):
         from hst_gui_macos import DRIVER_ONLY
         env = {k: v for k, v in os.environ.items() if k not in DRIVER_ONLY}
         env.update(LANG="vi_VN.UTF-8")
+        if os.environ.get("R1_A11Y") == "1":
+            # Only the items that read the ribbon through accessibility (probe.py A11Y): VCL builds toolbar and
+            # top-window accessibility with AT support on; the other items keep the owner's configuration.
+            env["SAL_ACCESSIBILITY_ENABLED"] = "1"
         empty = Path(self.workdir) / "init.txt"
         empty.write_text("", encoding="utf-8")
         for _ in range(3):
@@ -54,11 +81,14 @@ class Office(hst_gui.Office):
             self.proc, self.ctx = smoke.start_office(self.program, self.profile.as_uri(), self.port,
                                                     str(Path(self.workdir) / "office.log"), env)
         else:
-            log = open(Path(self.workdir) / "office.log", "w", encoding="utf-8")
-            self.logs.append(log)
-            self.proc = subprocess.Popen([str(self.binary), user, "--nologo", "--norestore", "--nodefault",
-                                          f"--accept=socket,host=127.0.0.1,port={self.port};urp;"],
-                                         stdout=log, stderr=log, env=env)
+            # Through LaunchServices, as a user starts it: an exec-started soffice exposed only its menu bar to
+            # macOS accessibility (r1-auto run 42751957019, M7 tree). `open -W` lives as long as the office.
+            log = Path(self.workdir) / "office.log"
+            passed = [arg for key in ("LANG", "SAL_ACCESSIBILITY_ENABLED") if key in env
+                      for arg in ("--env", f"{key}={env[key]}")]
+            self.proc = subprocess.Popen(["open", "-n", "-W", "-a", str(self.install), *passed, "--stdout", str(log),
+                                          "--stderr", str(log), "--args", user, "--nologo", "--norestore",
+                                          "--nodefault", self.accept()], stdin=subprocess.DEVNULL, env=env)
             self.ctx = self._connect()
         extensions = list(self.install.glob("**/hst-vietnamese-tools/python"))
         if len(extensions) != 1:
@@ -90,10 +120,15 @@ class Office(hst_gui.Office):
         self.ctx = None
 
     def focus(self, window):
+        if self.system == "Darwin":
+            for pid in native("cleanup-list", self.profile.as_uri()):  # soffice itself, not `open`
+                native("activate", pid)
         window.setVisible(True)
         window.toFront()
         window.setFocus()
         time.sleep(0.5)
+        if self.system == "Windows":  # toFront() is refused across processes: raise it from the tooling side
+            self.focused = native("foreground", getattr(window, "Title", "") or "")
 
     def config(self, node, name):
         from pdf_viewer_uno import signing_props

@@ -36,7 +36,9 @@ def scan(office, window):
 def run(e, doc):
     window = doc.CurrentController.Frame.ContainerWindow
     observations = []
-    for width in (1800, 1600, 1450, 1300, 1200, 1100):
+    # From full screen down to about 1100 px; the runner's screen may be narrower than 1800 logical px.
+    area = e.office.service("com.sun.star.awt.Toolkit").getWorkArea().Width
+    for width in [area] + [w for w in (1800, 1600, 1450, 1300, 1200, 1100) if w < area - 50]:
         window.setPosSize(0, 35, width, 900, 15)
         time.sleep(2)
         sample = scan(e.office, window)

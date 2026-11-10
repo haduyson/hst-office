@@ -6,9 +6,24 @@ import time
 
 
 def applications():
-    from AppKit import NSWorkspace
-    return [app for app in NSWorkspace.sharedWorkspace().runningApplications()
-            if app.bundleURL() and app.bundleURL().lastPathComponent() == "HST Office.app"]
+    """Running HST Office apps, read fresh from the process table each call. NSWorkspace.runningApplications is
+    only refreshed by the main run loop, which a script never runs: it stayed empty while HST Office ran
+    (r1-auto macOS run 42472920150, M1-startup-failure.png)."""
+    import psutil
+    from AppKit import NSRunningApplication
+    found = []
+    for proc in psutil.process_iter(["pid", "exe"]):
+        if "HST Office.app/Contents/MacOS/" in (proc.info["exe"] or ""):
+            app = NSRunningApplication.runningApplicationWithProcessIdentifier_(proc.info["pid"])
+            if app is not None:
+                found.append(app)
+    return found
+
+
+def ended(app):
+    """True once the app's process is gone (NSRunningApplication.isTerminated is run-loop updated too)."""
+    import psutil
+    return not psutil.pid_exists(app.processIdentifier())
 
 
 def attribute(element, name, default=None):
@@ -17,20 +32,62 @@ def attribute(element, name, default=None):
     return value if error == 0 else default
 
 
-def nodes(app):
+def nodes(app, budget=15.0):
+    """Breadth-first AX walk; a busy app answers each call within 2 s and the walk within `budget` s."""
     import ApplicationServices as ax
-    queue = [ax.AXUIElementCreateApplication(app.processIdentifier())]
+    root = ax.AXUIElementCreateApplication(app.processIdentifier())
+    ax.AXUIElementSetMessagingTimeout(ax.AXUIElementCreateSystemWide(), 2.0)  # global: covers every child element
+    # AXChildren of an exec-started office held only its menu bar (r1-auto macOS run 42748669345, M7 tree):
+    # its windows are listed under AXWindows.
+    queue, end = [root] + list(attribute(root, "AXWindows", []) or []), time.monotonic() + budget
     for _ in range(5000):
-        if not queue:
+        if not queue or time.monotonic() > end:
             break
         node = queue.pop(0)
         yield node
         queue.extend(attribute(node, "AXChildren", []) or [])
 
 
+# System Events reads HST's modal dialogs where the pyobjc AX walk returned nothing (r1-auto macOS run
+# 42474965758, beta5-start.png); the start-up probe (probe/mac-r1-startup) read and clicked them this way.
+EVENTS = """
+on run argv
+tell application "System Events"
+  set out to ""
+  repeat with p in (every process whose unix id is (item 1 of argv as integer))
+    repeat with w in windows of p
+      if item 2 of argv is "read" then
+        set out to out & "WINDOW: " & (name of w as text) & linefeed
+        try
+          repeat with t in (value of every static text of w)
+            set out to out & (t as text) & linefeed
+          end repeat
+        end try
+      else if exists button (item 2 of argv) of w then
+        click button (item 2 of argv) of w
+        return "clicked"
+      end if
+    end repeat
+  end repeat
+  return out
+end tell
+end run
+"""
+
+
+def events(app, action):
+    import subprocess
+    try:
+        return subprocess.run(["osascript", "-", str(app.processIdentifier()), action], input=EVENTS,
+                              capture_output=True, text=True, timeout=30).stdout.strip()
+    except subprocess.TimeoutExpired:
+        return ""
+
+
 def texts(app):
-    return [str(value) for node in nodes(app) for key in ("AXTitle", "AXDescription", "AXValue")
-            if isinstance(value := attribute(node, key), str) and value]
+    found = [str(value) for node in nodes(app) for key in ("AXTitle", "AXDescription", "AXValue")
+             if isinstance(value := attribute(node, key), str) and value]
+    return found + [line for line in events(app, "read").splitlines() if line]
 
 
 def press(app, names):
@@ -40,6 +97,9 @@ def press(app, names):
             error = ax.AXUIElementPerformAction(node, "AXPress")
             if error:
                 raise RuntimeError("Không bấm được nút native")
+            return
+    for name in sorted(names):
+        if events(app, name) == "clicked":
             return
     raise RuntimeError("Không tìm thấy nút: " + ", ".join(names))
 
@@ -56,24 +116,64 @@ def handlers():
                                      for name, uti in types.items()})
 
 
+CONFIRM = """
+on run argv
+tell application "System Events"
+  repeat with p in (every process whose background only is false or name is "CoreServicesUIAgent")
+    repeat with w in windows of p
+      try
+        set said to (value of every static text of w) as text
+        if said contains "HST Office" and (said contains "Internet" or said contains "internet") then
+          set labels to {"Open", "Mở"}
+          if item 1 of argv is "cancel" then set labels to {"Cancel", "Hủy"}
+          repeat with label in labels
+            if exists button label of w then
+              if item 1 of argv is not "find" then click button label of w
+              return (item 1 of argv) & " " & label & " in " & (name of p) & ": " & said
+            end if
+          end repeat
+        end if
+      end try
+    end repeat
+  end repeat
+  return ""
+end tell
+end run
+"""
+
+
 def confirm_download(out):
-    """Confirm only the ordinary downloaded-app Open prompt; never bypass a refusal."""
-    from AppKit import NSWorkspace
+    """Answer only the ordinary downloaded-app Open prompt, as a user does; never bypass a refusal.
+
+    System Events reaches CoreServicesUIAgent's sheet on the runner where the pyobjc AX walk of
+    NSWorkspace's application list does not (r1-auto macOS run 42471573001, M1-startup-failure.png)."""
+    import subprocess
     from native import screenshot
-    for app in NSWorkspace.sharedWorkspace().runningApplications():
-        if app.bundleIdentifier() not in {"com.apple.CoreServicesUIAgent", "com.apple.finder"}:
-            continue
-        labels = texts(app)
-        combined = " ".join(labels)
-        if "HST Office" not in combined or not any(word in combined for word in ("internet", "Internet", "tải")):
-            continue
-        buttons = [attribute(node, "AXTitle") for node in nodes(app) if attribute(node, "AXRole") == "AXButton"]
-        if not set(buttons) & {"Open", "Mở"}:
-            continue
-        screenshot(Path(out) / "M1-download-confirmation.png")
-        press(app, {"Open", "Mở"})
-        return True
-    return False
+    shot = Path(out) / "M1-download-confirmation.png"
+    def script(mode):
+        try:
+            return subprocess.run(["osascript", "-", mode], input=CONFIRM, capture_output=True, text=True,
+                                  timeout=30).stdout.strip()
+        except subprocess.TimeoutExpired:
+            return ""
+    if not script("find"):
+        return False
+    if not shot.exists():
+        screenshot(shot)
+    answer = script("click")
+    with (Path(out) / "os-confirmation.log").open("a", encoding="utf-8") as log:
+        log.write(answer + "\n")
+    return True
+
+
+def dismiss_download():
+    """Cancel a leftover downloaded-app prompt for HST Office whose process the run already stopped."""
+    import subprocess
+    try:
+        return subprocess.run(["osascript", "-", "cancel"], input=CONFIRM, capture_output=True, text=True,
+                              timeout=30).stdout.strip()
+    except subprocess.TimeoutExpired:
+        return ""
 
 
 def close_owned(pids):
