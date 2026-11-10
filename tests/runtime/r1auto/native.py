@@ -11,7 +11,7 @@ import time
 SYSTEM = platform.system()
 KEYS = {"tab": (9, 48), "enter": (13, 36), "escape": (27, 53), "a": (65, 0),
         "q": (81, 12), "k": (75, 40), "z": (90, 6), "down": (40, 125),
-        "ctrl": (17, 59), "alt": (18, 58), "cmd": (91, 55)}
+        "ctrl": (17, 59), "alt": (18, 58), "cmd": (91, 55), "w": (87, 13), "f4": (115, 118)}
 
 
 def win_event(kind, *args):
@@ -170,6 +170,20 @@ def main():
     if action == "tree":
         from native_tree import tree
         return tree(*args)
+    if action == "close-button":  # probe: screen point whose WM_NCHITTEST is HTCLOSE on the titled window
+        from ctypes import wintypes
+        from windows_focus import office_windows
+        user32 = ctypes.windll.user32
+        user32.SetProcessDPIAware()
+        hwnd = next(h for h, t in office_windows() if args[0] in t)
+        rect = wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        user32.SendMessageW.restype = ctypes.c_ssize_t
+        for y in range(max(rect.top, 0), max(rect.top, 0) + 80, 2):
+            for x in range(rect.right - 1, rect.right - 160, -2):
+                if user32.SendMessageW(hwnd, 0x84, 0, (y & 0xffff) << 16 | (x & 0xffff)) == 20:
+                    return [x - 6, y + 6, rect.left, rect.top, rect.right, rect.bottom]
+        return [None, None, rect.left, rect.top, rect.right, rect.bottom]
     if action == "foreground":
         from windows_focus import foreground
         return foreground(*args)

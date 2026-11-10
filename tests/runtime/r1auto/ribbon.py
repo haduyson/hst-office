@@ -59,7 +59,40 @@ def hover(e, doc):
     e.shot("after-undo")
 
 
+def manual_close(e, how):
+    """Probe: close the Writer window by real input while the feature search popup is open (no UNO close)."""
+    import os
+    doc = e.office.load("private:factory/swriter")
+    time.sleep(3)
+    title = doc.CurrentController.Frame.Title
+    e.office.focus(doc.CurrentController.Frame.ContainerWindow)
+    native("key", "alt+q")
+    native("text", "bảng")
+    time.sleep(3)
+    e.shot("manual-" + how + "-open")
+    point = None
+    if how == "x":
+        point = native("close-button", title)
+        native("click", point[0], point[1])
+    elif how == "ctrlw":
+        native("key", "ctrl+w")
+    else:
+        native("key", "alt+f4")
+    time.sleep(8)
+    code = e.office.proc.poll()
+    e.checks.append(dict(ok=code is None, message="probe: close by " + how + " with the search open",
+                         point=point, office_exit=code, titles=e.office.titles() if code is None else []))
+    e.shot("manual-" + how + "-after")
+    return code is None
+
+
 def run(e):
+    import os
+    if os.environ.get("R1_PROBE_MANUAL") == "1" and e.item == "W9":
+        for how in ("x", "ctrlw", "altf4"):
+            if not manual_close(e, how):
+                break
+        return
     doc = e.office.load("private:factory/swriter")
     try:
         time.sleep(3)

@@ -11,6 +11,10 @@ on:
         description: 'Các mục cần chạy, ví dụ W3-W5,W12; để trống chạy tất cả'
         type: string
         default: ''
+      manual_close:
+        description: 'probe: W9 closes Writer by real input (X, Ctrl+W, Alt+F4) with the search open'
+        type: boolean
+        default: false
       page_heap:
         description: 'probe: full page heap for soffice.bin'
         type: boolean
@@ -105,6 +109,7 @@ jobs:
           R1_RUN_ID: ${{ inputs.run_id }}
           R1_ITEMS: ${{ inputs.items }}
           R1_SCALE: ${{ matrix.scale }}
+          R1_PROBE_MANUAL: ${{ inputs.manual_close && '1' || '0' }}
         run: |
           set -euo pipefail
           python tests/runtime/r1auto/run.py --platform windows --run-id "$R1_RUN_ID" \
