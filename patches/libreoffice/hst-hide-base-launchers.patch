@@ -1,0 +1,142 @@
+HST Office: no HST Base launcher anywhere; Base stays installed so that .odb files still open.
+
+Owner decision (2026-11-11): users are offered HST Writer, HST Sheets and HST Slides only.
+- scp2 folderitem_base.scp: the Windows Start menu entry "HST Base" (and its AppUserModelID property)
+  is gone. A major upgrade removes the old product's shortcuts, so an older "HST Base" entry goes too.
+  The .odb file type keeps its open command (program\sbase.exe -o).
+- Common.xcu Menus/New: no "Database" item (private:factory/sdatabase). File ▸ New lists it no more,
+  and neither does the macOS Dock menu nor the Windows tray menu, which show only the File ▸ New apps.
+  The Start Center already has no Base button (hst-start-center-banner.patch).
+- sysui base.desktop: NoDisplay=true. The launcher stays installed as the handler of .odb files
+  (MimeType unchanged) but no app menu lists it. startcenter.desktop: no "Base" action.
+macOS ships no Base launcher (scripts/macos/make-app-launchers.py builds Writer, Sheets and Slides).
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/unit/test_hide_base_launchers.py; scripts/linux/check-desktop-entries.py (Base hidden, .odb
+handled); windows-smoke (scripts/windows/check-app-shortcuts.ps1: no "HST Base" shortcut after install,
+upgrade or uninstall, .odb still opens with HST Office); scripts/macos/app-launchers-probe.sh (.odb opens).
+--- a/scp2/source/base/folderitem_base.scp
++++ b/scp2/source/base/folderitem_base.scp
+@@ -13,28 +13,10 @@
+  *   ownership. The ASF licenses this file to you under the Apache
+  *   License, Version 2.0 (the "License"); you may not use this file
+  *   except in compliance with the License. You may obtain a copy of
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
+ #include "macros.inc"
+ 
+-#ifndef ENABLE_SILENT_MSI
+-FolderItem gid_Folderitem_Sbase
+-    Name = "HST Base";
+-    ModuleID = gid_Module_Prg_Base_Bin;
+-    FolderID = gid_Folder_Staroffice51;
+-    FileID = auto_base_brand_exe_sbase;
+-    IconFile = auto_base_brand_exe_sbase;
+-    IconID = 0;
+-    WkDir = gid_Brand_Dir_Program;
+-    Parameter = "";
+-    Styles = (NON_ADVERTISED);
+-    ALL_LANG(Tooltip, STR_FI_TOOLTIP_BASE);
+-End
+-
+-FolderItemProperty gid_Fip_Sbase_AppID
+-    ShortcutID = gid_Folderitem_Sbase;
+-    Key = "System.AppUserModel.ID";
+-    Value = "HASONTECH.HSTOffice.Base";
+-End
+-#endif
++// HST Office shows no HST Base launcher (owner decision 2026-11-11): Base stays installed so that
++// .odb files still open, but neither the Start menu nor the desktop offers it.
+--- a/officecfg/registry/data/org/openoffice/Office/Common.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Common.xcu
+@@ -147,30 +147,16 @@
+         </prop>
+         <prop oor:name="Title">
+           <value xml:lang="en-US">F~ormula</value>
+         </prop>
+         <prop oor:name="TargetName" oor:type="xs:string">
+           <value>_default</value>
+         </prop>
+       </node>
+-      <node oor:name="m5" oor:op="replace" install:module="base">
+-        <prop oor:name="URL" oor:type="xs:string">
+-          <value>private:factory/sdatabase?Interactive</value>
+-        </prop>
+-        <prop oor:name="Title">
+-          <value xml:lang="en-US">Database</value>
+-        </prop>
+-        <prop oor:name="TargetName" oor:type="xs:string">
+-          <value>_default</value>
+-        </prop>
+-        <prop oor:name="ImageIdentifier" oor:type="xs:string">
+-          <value>private:image/3245</value>
+-        </prop>
+-      </node>
+       <node oor:name="m6" oor:op="replace">
+         <prop oor:name="URL" oor:type="xs:string">
+           <value>private:separator</value>
+         </prop>
+         <prop oor:name="TargetName" oor:type="xs:string">
+           <value>_default</value>
+         </prop>
+       </node>
+--- a/sysui/desktop/menus/base.desktop
++++ b/sysui/desktop/menus/base.desktop
+@@ -13,16 +13,17 @@
+ #   ownership. The ASF licenses this file to you under the Apache
+ #   License, Version 2.0 (the "License"); you may not use this file
+ #   except in compliance with the License. You may obtain a copy of
+ #   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+ #
+ [Desktop Entry]
+ Version=1.0
+ Terminal=false
++NoDisplay=true
+ Icon=base
+ Type=Application
+ Categories=Office;Database;X-Red-Hat-Base;
+ Exec=${UNIXBASISROOTNAME} --base %%FILE%%
+ MimeType=application/vnd.oasis.opendocument.base;application/vnd.sun.xml.base;
+ Name=%PRODUCTNAME Base
+ GenericName=Database Development
+ Comment=Manage databases, create queries and reports to track and manage your information.
+--- a/sysui/desktop/menus/startcenter.desktop
++++ b/sysui/desktop/menus/startcenter.desktop
+@@ -29,17 +29,17 @@
+ GenericName=Office
+ Comment=Launch applications to create text documents, spreadsheets, presentations, drawings, formulas, and databases, or open recently used documents.
+ StartupNotify=true
+ X-GIO-NoFuse=true
+ StartupWMClass=vn.hasontech.hstoffice-startcenter
+ X-KDE-Protocols=file,http,webdav,webdavs
+ 
+ ##Define Actions
+-Actions=Writer;Calc;Impress;Draw;Base;Math;
++Actions=Writer;Calc;Impress;Draw;Math;
+ 
+ [Desktop Action Writer]
+ Name=Writer
+ Exec=${UNIXBASISROOTNAME} --writer
+ 
+ [Desktop Action Calc]
+ Name=Sheets
+ Exec=${UNIXBASISROOTNAME} --calc
+@@ -47,17 +47,13 @@
+ [Desktop Action Impress]
+ Name=Slides
+ Exec=${UNIXBASISROOTNAME} --impress
+ 
+ [Desktop Action Draw]
+ Name=Draw
+ Exec=${UNIXBASISROOTNAME} --draw
+ 
+-[Desktop Action Base]
+-Name=Base
+-Exec=${UNIXBASISROOTNAME} --base
+-
+ [Desktop Action Math]
+ Name=Math
+ Exec=${UNIXBASISROOTNAME} --math
+ 
+ ##End of actions menu

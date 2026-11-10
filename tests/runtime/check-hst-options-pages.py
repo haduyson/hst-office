@@ -32,9 +32,19 @@ def page_checks(service, parent, check):
     labels, and "Kiểu biểu tượng" reading and writing SymbolStyle. `service(name)` makes an office service; shared with
     check-windows-options-pages.py."""
     provider = service("com.sun.star.awt.ContainerWindowProvider")
-    apps = provider.createContainerWindow(EXTENSION + "DefaultApps.xdl", "", parent, service("org.hst.office.vi.OptionsPage"))
+    page = service("org.hst.office.vi.OptionsPage")
+    apps = provider.createContainerWindow(EXTENSION + "DefaultApps.xdl", "", parent, page)
     check("Mở tài liệu page loads with its button", apps is not None and apps.getControl("defaultApps") is not None)
     check("its button says what it does", apps.getControl("defaultApps").getModel().Label == "Dùng HST Office để mở tài liệu văn phòng")
+    # "Lối tắt ứng dụng": labelled for this OS when the page opens; hidden on Windows (the installer makes them)
+    page.callHandlerMethod(apps, "initialize", "external_event")
+    button = apps.getControl("appShortcuts")
+    if sys.platform.startswith("win"):
+        check("Lối tắt ứng dụng is hidden on Windows", button is not None and not button.isVisible())
+    else:
+        expected = "Thêm vào Dock" if sys.platform == "darwin" else "Tạo lối tắt trên màn hình nền"
+        check("Lối tắt ứng dụng offers %s" % expected, button is not None and button.isVisible()
+              and button.getModel().Label == expected, button.getModel().Label if button is not None else None)
     handler = service("org.hst.office.vi.OptionsAppearance")
     check("the Giao diện handler service exists (without it the Options dialog builds no page)", handler is not None)
     look = provider.createContainerWindow(EXTENSION + "Appearance.xdl", "", parent, handler)

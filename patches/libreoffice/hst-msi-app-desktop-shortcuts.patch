@@ -1,0 +1,355 @@
+Windows installer: desktop shortcuts HST Writer, HST Sheets and HST Slides, chosen on the setup-type page.
+
+The installer created one desktop shortcut, "HST Office <version>" (the Start Center), behind the
+"Create a shortcut on desktop" box of the Ready to Install page. Users look for the three apps.
+- scp2 folderitem_writer/calc/impress: a desktop shortcut per app (same name, target, icon and
+  AppUserModelID as its Start menu entry). Each belongs to its own helper file,
+  program/desktophelper_<module>.txt, in that app's brand module with ComponentCondition
+  CREATEDESKTOPLINK=1: the shortcut is installed only with its app and only when the box is
+  ticked, and uninstall removes it with that component. A major upgrade removes the old product's
+  shortcuts first, so they are never doubled. The Start menu entries were already there.
+- setup_native Package_misc.mk: the three helper files (copies of desktophelper.txt).
+- Setup type page: the box "Create desktop shortcuts" ("Tạo lối tắt trên màn hình nền"), ticked by
+  default (CREATEDESKTOPLINK is 1 when the package has desktop shortcuts), under the default-apps box
+  and shown for Typical and Custom. It replaces the Ready to Install page's box for the same property,
+  so the choice is asked once. Silent installs keep the default (1); CREATEDESKTOPLINK=0 leaves
+  every desktop shortcut out, the existing "HST Office" one included.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/unit/test_msi_app_desktop_shortcuts.py; windows-smoke (scripts/windows/check-app-shortcuts.ps1:
+shortcuts after install, none on the desktop with CREATEDESKTOPLINK=0, none left after uninstall).
+--- a/instsetoo_native/inc_openoffice/windows/msi_languages/Control.ulf
++++ b/instsetoo_native/inc_openoffice/windows/msi_languages/Control.ulf
+@@ -709,8 +709,11 @@
+ [OOO_CONTROL_HST_LEGACY_CONTINUE]
+ en-US = "Continue"
+ 
+ [OOO_CONTROL_HST_LEGACY_EXIT]
+ en-US = "Exit"
+ 
+ [OOO_CONTROL_HST_DEFAULT_APPS]
+ en-US = "Use HST Office to open office documents"
++
++[OOO_CONTROL_HST_DESKTOP_SHORTCUTS]
++en-US = "Create desktop shortcuts"
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/Control.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/Control.idt
+@@ -200,26 +200,25 @@
+ PatchWelcome	DlgLine	Line	0	234	474	0	1				
+ PatchWelcome	Image	Bitmap	0	0	122	234	1		ImageBmp		
+ PatchWelcome	Next	PushButton	330	243	66	17	3		OOO_CONTROL_160	Cancel	
+ PatchWelcome	TextLine1	Text	135	8	325	45	65539		OOO_CONTROL_161		
+ PatchWelcome	TextLine2	Text	135	54	328	45	65539		OOO_CONTROL_162		
+ ReadyToInstall	Back	PushButton	264	243	66	17	3		OOO_CONTROL_163	InstallNow	
+ ReadyToInstall	Banner	Bitmap	0	0	474	44	1		BannerBmp		
+ ReadyToInstall	BannerLine	Line	0	44	474	0	1				
+-ReadyToInstall	Cancel	PushButton	401	243	66	17	3		OOO_CONTROL_166	DesktopLink	
++ReadyToInstall	Cancel	PushButton	401	243	66	17	3		OOO_CONTROL_166	EnableQuickstart	
+ ReadyToInstall	DlgDesc	Text	21	23	372	25	65539		OOO_CONTROL_167		
+ ReadyToInstall	DlgLine	Line	0	234	474	0	1				
+ ReadyToInstall	DlgText	Text	21	51	426	20	3		OOO_CONTROL_168		
+ ReadyToInstall	DlgText1	Text	21	70	430	24	3		OOO_CONTROL_169		
+ ReadyToInstall	DlgTitle	Text	13	6	380	25	65538		OOO_CONTROL_170		
+ ReadyToInstall	DlgTitle2	Text	13	6	380	25	65538		OOO_CONTROL_171		
+ ReadyToInstall	DlgTitle3	Text	13	6	380	25	65538		OOO_CONTROL_172		
+ ReadyToInstall	InstallNow	PushButton	330	243	66	17	3		OOO_CONTROL_173	Cancel	
+-ReadyToInstall	DesktopLink	CheckBox	21	100	300	15	3	CREATEDESKTOPLINK	OOO_CONTROL_319	EnableQuickstart	
+ ReadyToInstall	EnableQuickstart	CheckBox	21	130	400	15	3	QUICKSTART	OOO_CONTROL_321	Back	
+ ReadyToRemove	Back	PushButton	264	243	66	17	3		OOO_CONTROL_174	RemoveNow	
+ ReadyToRemove	Banner	Bitmap	0	0	474	44	1		BannerBmp		
+ ReadyToRemove	BannerLine	Line	0	44	474	0	1				
+ ReadyToRemove	Cancel	PushButton	401	243	66	17	3		OOO_CONTROL_177	Back	
+ ReadyToRemove	DlgDesc	Text	21	23	372	25	65539		OOO_CONTROL_178		
+ ReadyToRemove	DlgLine	Line	0	234	474	0	1				
+ ReadyToRemove	DlgText	Text	21	51	426	24	3		OOO_CONTROL_179		
+@@ -310,19 +309,20 @@
+ SetupType	CompText	Text	80	94	346	40	3		OOO_CONTROL_255		
+ SetupType	CustomIco	Icon	34	154	24	24	5242881		SetupPartialIco		
+ SetupType	CustText	Text	80	154	346	40	3		OOO_CONTROL_256		
+ SetupType	DlgDesc	Text	21	23	372	25	65539		OOO_CONTROL_257		
+ SetupType	DlgLine	Line	0	234	474	0	1				
+ SetupType	DlgText	Text	21	51	426	15	3		OOO_CONTROL_258		
+ SetupType	DlgTitle	Text	13	6	380	25	65539		OOO_CONTROL_259		
+ SetupType	Next	PushButton	330	243	66	17	3		OOO_CONTROL_260	Cancel	
+-SetupType	RadioGroup	RadioButtonGroup	21	79	364	120	3	_IsSetupTypeMin		DefaultApps	
++SetupType	RadioGroup	RadioButtonGroup	21	79	364	115	3	_IsSetupTypeMin		DefaultApps	
+ SplashBitmap	Back	PushButton	264	243	66	17	1		OOO_CONTROL_262	Next	
+ SplashBitmap	Cancel	PushButton	401	243	66	17	3		OOO_CONTROL_265	Back	
+ SplashBitmap	DlgLine	Line	0	234	474	0	1				
+ SplashBitmap	Image	Bitmap	13	12	114	211	1		ImageBmp		
+ SplashBitmap	Next	PushButton	330	243	66	17	3		OOO_CONTROL_266	Cancel	
+ HstLegacyBeta	Icon	Icon	15	15	24	24	5242881		CautionIco		
+ HstLegacyBeta	Text	Text	48	15	194	49	3		OOO_CONTROL_HST_LEGACY_BETA		
+ HstLegacyBeta	Continue	PushButton	62	76	66	17	3		OOO_CONTROL_HST_LEGACY_CONTINUE	Exit	
+ HstLegacyBeta	Exit	PushButton	135	76	66	17	3		OOO_CONTROL_HST_LEGACY_EXIT	Continue	
+-SetupType	DefaultApps	CheckBox	21	208	426	15	3	HSTDEFAULTAPPS	OOO_CONTROL_HST_DEFAULT_APPS	Back	
++SetupType	DefaultApps	CheckBox	21	196	426	15	3	HSTDEFAULTAPPS	OOO_CONTROL_HST_DEFAULT_APPS	DesktopLink	
++SetupType	DesktopLink	CheckBox	21	214	426	15	3	CREATEDESKTOPLINK	OOO_CONTROL_HST_DESKTOP_SHORTCUTS	Back	
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/ControlC.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/ControlC.idt
+@@ -18,17 +18,16 @@
+ FileTypeDialog	CheckBox4	Disable	NOT ( &gm_p_Draw=3 OR ( !gm_p_Draw=3 AND &gm_p_Draw=-1 ) )
+ InstallWelcome	Copyright	Hide	SHOWCOPYRIGHT="No"
+ InstallWelcome	Copyright	Show	SHOWCOPYRIGHT="Yes"
+ LicenseAgreement	Next	Disable	AgreeToLicense <> "Yes"
+ LicenseAgreement	Next	Enable	AgreeToLicense = "Yes"
+ ReadyToInstall	DlgTitle	Show	ProgressType0="Modify"
+ ReadyToInstall	DlgTitle2	Show	ProgressType0="Repair"
+ ReadyToInstall	DlgTitle3	Show	ProgressType0="install"
+-ReadyToInstall	DesktopLink	Hide	NOT DESKTOPLINKEXISTS
+ ReadyToInstall	EnableQuickstart	Hide	NOT ( &gm_o_Quickstart=3 OR ( !gm_o_Quickstart=3 AND &gm_o_Quickstart=-1 ) )
+ SetupCompleteError	Back	Default	UpdateStarted
+ SetupCompleteError	Back	Disable	NOT UpdateStarted
+ SetupCompleteError	Back	Enable	UpdateStarted
+ SetupCompleteError	Cancel	Disable	NOT UpdateStarted
+ SetupCompleteError	Cancel	Enable	UpdateStarted
+ SetupCompleteError	Finish	Default	NOT UpdateStarted
+ SetupCompleteError	FinishText1	Hide	UpdateStarted
+--- a/scp2/source/calc/folderitem_calc.scp
++++ b/scp2/source/calc/folderitem_calc.scp
+@@ -32,9 +32,40 @@
+     ALL_LANG(Tooltip, STR_FI_TOOLTIP_CALC);
+ End
+ 
+ FolderItemProperty gid_Fip_Scalc_AppID
+     ShortcutID = gid_Folderitem_Scalc;
+     Key = "System.AppUserModel.ID";
+     Value = "HASONTECH.HSTOffice.Calc";
+ End
++
++// Desktop shortcut, created when "Create desktop shortcuts" is ticked (CREATEDESKTOPLINK=1). Its
++// component is a helper file of this module, so it is installed and removed with HST Sheets.
++File gid_Brand_File_Desktophelper_Calc_Txt
++    TXT_FILE_BODY;
++    Styles = (PACKED);
++    Dir = gid_Brand_Dir_Program;
++    Name = "desktophelper_calc.txt";
++    ComponentCondition = "CREATEDESKTOPLINK=1";
++End
++
++FolderItem gid_Folderitem_Scalc_Desktop
++    Name = "HST Sheets";
++    ModuleID = gid_Module_Prg_Calc_Bin;
++    FolderID = PREDEFINED_DESKTOP;
++    FileID = auto_calc_brand_exe_scalc;
++    IconFile = auto_calc_brand_exe_scalc;
++    IconID = 0;
++    ComponentIDFile = "gid_Brand_File_Desktophelper_Calc_Txt";
++    WkDir = gid_Brand_Dir_Program;
++    Parameter = "";
++    Styles = (NON_ADVERTISED,USE_HELPER_FILENAME);
++    ALL_LANG(Tooltip, STR_FI_TOOLTIP_CALC);
++    ComponentCondition = "CREATEDESKTOPLINK=1";
++End
++
++FolderItemProperty gid_Fip_Scalc_Desktop_AppID
++    ShortcutID = gid_Folderitem_Scalc_Desktop;
++    Key = "System.AppUserModel.ID";
++    Value = "HASONTECH.HSTOffice.Calc";
++End
+ #endif
+--- a/scp2/source/calc/module_calc.scp
++++ b/scp2/source/calc/module_calc.scp
+@@ -53,17 +53,21 @@
+     PackageInfo = "packinfo_brand.txt";
+     Name = "gid_Module_Brand_Prg_Calc";
+     Description = "gid_Module_Brand_Prg_Calc";
+     ParentID = gid_Module_Prg_Calc;
+     Sortkey = "100";
+     InstallOrder = "1040";
+     Default = YES;
+     Styles = (HIDDEN_ROOT);
+-    Files = (auto_calc_brand_ALL);
++    Files = (auto_calc_brand_ALL
++#ifdef WNT
++             , gid_Brand_File_Desktophelper_Calc_Txt
++#endif
++             );
+ End
+ 
+ Module gid_Module_Langpack_Calc_Template
+     ParentID = gid_Module_Prg_Calc_Bin;
+     Name = "gid_Module_Langpack_Calc_Template";
+     Description = "gid_Module_Langpack_Calc_Template";
+     Styles = (TEMPLATEMODULE);
+     Files = ();
+--- a/scp2/source/impress/folderitem_impress.scp
++++ b/scp2/source/impress/folderitem_impress.scp
+@@ -32,9 +32,40 @@
+     ALL_LANG(Tooltip, STR_FI_TOOLTIP_IMPRESS);
+ End
+ 
+ FolderItemProperty gid_Fip_Simpress_AppID
+     ShortcutID = gid_Folderitem_Simpress;
+     Key = "System.AppUserModel.ID";
+     Value = "HASONTECH.HSTOffice.Impress";
+ End
++
++// Desktop shortcut, created when "Create desktop shortcuts" is ticked (CREATEDESKTOPLINK=1). Its
++// component is a helper file of this module, so it is installed and removed with HST Slides.
++File gid_Brand_File_Desktophelper_Impress_Txt
++    TXT_FILE_BODY;
++    Styles = (PACKED);
++    Dir = gid_Brand_Dir_Program;
++    Name = "desktophelper_impress.txt";
++    ComponentCondition = "CREATEDESKTOPLINK=1";
++End
++
++FolderItem gid_Folderitem_Simpress_Desktop
++    Name = "HST Slides";
++    ModuleID = gid_Module_Prg_Impress_Bin;
++    FolderID = PREDEFINED_DESKTOP;
++    FileID = auto_impress_brand_exe_simpress;
++    IconFile = auto_impress_brand_exe_simpress;
++    IconID = 0;
++    ComponentIDFile = "gid_Brand_File_Desktophelper_Impress_Txt";
++    WkDir = gid_Brand_Dir_Program;
++    Parameter = "";
++    Styles = (NON_ADVERTISED,USE_HELPER_FILENAME);
++    ALL_LANG(Tooltip, STR_FI_TOOLTIP_IMPRESS);
++    ComponentCondition = "CREATEDESKTOPLINK=1";
++End
++
++FolderItemProperty gid_Fip_Simpress_Desktop_AppID
++    ShortcutID = gid_Folderitem_Simpress_Desktop;
++    Key = "System.AppUserModel.ID";
++    Value = "HASONTECH.HSTOffice.Impress";
++End
+ #endif
+--- a/scp2/source/impress/module_impress.scp
++++ b/scp2/source/impress/module_impress.scp
+@@ -48,17 +48,21 @@
+     PackageInfo = "packinfo_brand.txt";
+     Name = "gid_Module_Brand_Prg_Impress";
+     Description = "gid_Module_Brand_Prg_Impress";
+     ParentID = gid_Module_Prg_Impress;
+     Sortkey = "100";
+     InstallOrder = "1040";
+     Default = YES;
+     Styles = (HIDDEN_ROOT);
+-    Files = (auto_impress_brand_ALL);
++    Files = (auto_impress_brand_ALL
++#ifdef WNT
++             , gid_Brand_File_Desktophelper_Impress_Txt
++#endif
++             );
+ End
+ 
+ Module gid_Module_Langpack_Impress_Template
+     ParentID = gid_Module_Prg_Impress_Bin;
+     Name = "gid_Module_Langpack_Impress_Template";
+     Description = "gid_Module_Langpack_Impress_Template";
+     Styles = (TEMPLATEMODULE);
+     Files = ();
+--- a/scp2/source/writer/folderitem_writer.scp
++++ b/scp2/source/writer/folderitem_writer.scp
+@@ -32,9 +32,40 @@
+     ALL_LANG(Tooltip, STR_FI_TOOLTIP_WRITER);
+ End
+ 
+ FolderItemProperty gid_Fip_Swriter_AppID
+     ShortcutID = gid_Folderitem_Swriter;
+     Key = "System.AppUserModel.ID";
+     Value = "HASONTECH.HSTOffice.Writer";
+ End
++
++// Desktop shortcut, created when "Create desktop shortcuts" is ticked (CREATEDESKTOPLINK=1). Its
++// component is a helper file of this module, so it is installed and removed with HST Writer.
++File gid_Brand_File_Desktophelper_Writer_Txt
++    TXT_FILE_BODY;
++    Styles = (PACKED);
++    Dir = gid_Brand_Dir_Program;
++    Name = "desktophelper_writer.txt";
++    ComponentCondition = "CREATEDESKTOPLINK=1";
++End
++
++FolderItem gid_Folderitem_Swriter_Desktop
++    Name = "HST Writer";
++    ModuleID = gid_Module_Prg_Wrt_Bin;
++    FolderID = PREDEFINED_DESKTOP;
++    FileID = auto_writer_brand_exe_swriter;
++    IconFile = auto_writer_brand_exe_swriter;
++    IconID = 0;
++    ComponentIDFile = "gid_Brand_File_Desktophelper_Writer_Txt";
++    WkDir = gid_Brand_Dir_Program;
++    Parameter = "";
++    Styles = (NON_ADVERTISED,USE_HELPER_FILENAME);
++    ALL_LANG(Tooltip, STR_FI_TOOLTIP_WRITER);
++    ComponentCondition = "CREATEDESKTOPLINK=1";
++End
++
++FolderItemProperty gid_Fip_Swriter_Desktop_AppID
++    ShortcutID = gid_Folderitem_Swriter_Desktop;
++    Key = "System.AppUserModel.ID";
++    Value = "HASONTECH.HSTOffice.Writer";
++End
+ #endif
+--- a/scp2/source/writer/module_writer.scp
++++ b/scp2/source/writer/module_writer.scp
+@@ -44,17 +44,21 @@
+     PackageInfo = "packinfo_brand.txt";
+     Name = "gid_Module_Brand_Prg_Wrt";
+     Description = "gid_Module_Brand_Prg_Wrt";
+     ParentID = gid_Module_Prg_Wrt;
+     Sortkey = "100";
+     InstallOrder = "1040";
+     Default = YES;
+     Styles = (HIDDEN_ROOT);
+-    Files = (auto_writer_brand_ALL);
++    Files = (auto_writer_brand_ALL
++#ifdef WNT
++             , gid_Brand_File_Desktophelper_Writer_Txt
++#endif
++             );
+ End
+ 
+ Module gid_Module_Langpack_Writer_Template
+     ParentID = gid_Module_Prg_Wrt_Bin;
+     Name = "gid_Module_Langpack_Writer_Template";
+     Description = "gid_Module_Langpack_Writer_Template";
+     Styles = (TEMPLATEMODULE);
+     Files = ();
+--- a/setup_native/Package_misc.mk
++++ b/setup_native/Package_misc.mk
+@@ -5,10 +5,13 @@
+ # This Source Code Form is subject to the terms of the Mozilla Public
+ # License, v. 2.0. If a copy of the MPL was not distributed with this
+ # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ #
+ 
+ $(eval $(call gb_Package_Package,setup_native_misc,$(SRCDIR)/setup_native/source))
+ 
+ $(eval $(call gb_Package_add_file,setup_native_misc,$(LIBO_BIN_FOLDER)/desktophelper.txt,win32/desktophelper.txt))
++$(eval $(call gb_Package_add_file,setup_native_misc,$(LIBO_BIN_FOLDER)/desktophelper_writer.txt,win32/desktophelper.txt))
++$(eval $(call gb_Package_add_file,setup_native_misc,$(LIBO_BIN_FOLDER)/desktophelper_calc.txt,win32/desktophelper.txt))
++$(eval $(call gb_Package_add_file,setup_native_misc,$(LIBO_BIN_FOLDER)/desktophelper_impress.txt,win32/desktophelper.txt))
+ 
+ # vim: set noet sw=4 ts=4:
+--- a/translations/source/vi/instsetoo_native/inc_openoffice/windows/msi_languages.po
++++ b/translations/source/vi/instsetoo_native/inc_openoffice/windows/msi_languages.po
+@@ -24,16 +24,25 @@
+ "LngText.text"
+ msgid "Use HST Office to open office documents"
+ msgstr "Dùng HST Office để mở tài liệu văn phòng"
+ 
+ #. hstMSI
+ #: Control.ulf
+ msgctxt ""
+ "Control.ulf\n"
++"OOO_CONTROL_HST_DESKTOP_SHORTCUTS\n"
++"LngText.text"
++msgid "Create desktop shortcuts"
++msgstr "Tạo lối tắt trên màn hình nền"
++
++#. hstMSI
++#: Control.ulf
++msgctxt ""
++"Control.ulf\n"
+ "OOO_CONTROL_HST_LEGACY_BETA\n"
+ "LngText.text"
+ msgid "An earlier HST Office test version is installed on this computer. Setup will remove it and then install the new version. Your documents are not affected."
+ msgstr "Máy đang có bản HST Office thử nghiệm cũ. Bộ cài sẽ gỡ bản cũ rồi cài bản mới. Tài liệu của bạn không bị ảnh hưởng."
+ 
+ #. hstMSI
+ #: Control.ulf
+ msgctxt ""

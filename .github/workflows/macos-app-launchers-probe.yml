@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: macOS app launchers probe
+# HST Writer, HST Sheets and HST Slides (HST Office.app/Contents/Helpers): each launcher opens HST Office in its own
+# module, from a stopped office and into a running one, "Thêm vào Dock" pins all three, HST Base is offered nowhere
+# but an .odb still opens. Needs a desktop-macos
+# build that contains the launchers (scripts/macos/make-app-launchers.py); the signed dmg is used when that run has one.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Desktop macOS run whose arm64 dmg is probed'
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: macos-app-launchers-probe
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Download the arm64 dmg of the build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          mkdir -p "$RUNNER_TEMP/dmg"
+          signed="hst-office-macos-arm64-dmg-signed-$RUN_ID"
+          count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --paginate \
+            --jq ".artifacts[] | select(.name == \"$signed\" and .expired == false) | .id" | wc -l | tr -d ' ')
+          artifact="hst-office-macos-arm64-dmg-$RUN_ID"
+          if [ "$count" = 1 ]; then artifact="$signed"; fi
+          echo "artifact: $artifact"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "$RUNNER_TEMP/dmg"
+      - name: Probe the launchers
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
+          [ -n "$dmg" ] || { echo "no dmg in the artifact" >&2; exit 1; }
+          bash scripts/macos/app-launchers-probe.sh "$dmg" "$RUNNER_TEMP/launchers"
+      - name: Summarize
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/launchers/summary.md" ]; then
+            cat "$RUNNER_TEMP/launchers/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload probe evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-app-launchers-probe-${{ github.run_id }}
+          path: ${{ runner.temp }}/launchers/
+          if-no-files-found: error
+          retention-days: 7

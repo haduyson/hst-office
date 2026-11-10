@@ -16,7 +16,9 @@ MOD = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(MOD)
 
 CLEAN = """[Desktop Entry]
-Name=HST Office Văn bản
+Type=Application
+Name=HST Writer
+Categories=Office;WordProcessor;
 Comment=Soạn thảo văn bản
 Keywords=Text;Letter;Microsoft Word;odt;docx;
 Exec=hst-office1.0 --writer %U
@@ -93,6 +95,46 @@ class PackageTest(unittest.TestCase):
             code, out = self.run_main(self.build(base / "b", {xdg: wrong}, link))
             self.assertEqual(code, 1)
             self.assertIn("launcher id vn.hasontech.hstoffice-writer", out)
+
+    def test_app_launchers_keep_their_menu_name_icon_and_category(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            xdg = "opt/hst-office1.0/share/xdg/writer.desktop"
+            link = {"usr/share/applications/vn.hasontech.hstoffice-writer.desktop": "/" + xdg}
+            code, out = self.run_main(self.build(base / "a", {xdg: CLEAN}, link))
+            self.assertEqual(code, 0, out)
+            self.assertIn("apps: HST Writer", out)
+            for bad, word in ((CLEAN.replace("Name=HST Writer", "Name=HST Office Writer"), "Name="),
+                              (CLEAN.replace("Icon=vn.hasontech.hstoffice-writer", "Icon=writer"), "Icon="),
+                              (CLEAN.replace("Categories=Office;WordProcessor;", "Categories=Utility;"), "Categories="),
+                              (CLEAN + "NoDisplay=true\n", "hidden")):
+                code, out = self.run_main(self.build(base / word.strip("="), {xdg: bad}, link))
+                self.assertEqual(code, 1, word)
+                self.assertIn(word, out)
+
+    def test_app_check_reads_only_the_main_group(self):
+        action = CLEAN + "\n[Desktop Action NewDocument]\nName=New Document\nIcon=document-new\n"
+        self.assertEqual(MOD.app_hits(action, "vn.hasontech.hstoffice-writer"), [])
+        self.assertEqual(MOD.app_hits(CLEAN, "vn.hasontech.hstoffice-base"), [])
+
+
+class HiddenBase(unittest.TestCase):
+    BASE = ("[Desktop Entry]\nNoDisplay=true\nType=Application\nName=HST Base\nIcon=vn.hasontech.hstoffice-base\n"
+            "MimeType=application/vnd.oasis.opendocument.base;application/vnd.sun.xml.base;\n")
+    START = "[Desktop Entry]\nName=HST Office\nActions=Writer;Calc;Impress;Draw;Math;\n\n[Desktop Action Math]\nName=Math\n"
+
+    def test_base_launcher_is_hidden_but_opens_odb(self):
+        self.assertEqual(MOD.base_hits(self.BASE, MOD.BASE_ID), [])
+        shown = self.BASE.replace("NoDisplay=true\n", "")
+        self.assertEqual(MOD.base_hits(shown, MOD.BASE_ID), ["HST Base is listed in the app menus"])
+        no_odb = self.BASE.replace("application/vnd.oasis.opendocument.base;", "")
+        self.assertEqual(len(MOD.base_hits(no_odb, MOD.BASE_ID)), 1)
+
+    def test_office_launcher_has_no_base_action(self):
+        self.assertEqual(MOD.base_hits(self.START, MOD.START_ID), [])
+        with_base = self.START.replace("Draw;Math;", "Draw;Base;Math;")
+        self.assertEqual(MOD.base_hits(with_base, MOD.START_ID), ["the HST Office launcher offers a Base action"])
+        self.assertEqual(MOD.base_hits(with_base, "vn.hasontech.hstoffice-writer"), [])
 
 
 if __name__ == "__main__":

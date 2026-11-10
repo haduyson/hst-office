@@ -158,6 +158,23 @@ do_sign() {
   env BUILDDIR="$TMP/kit/build" SRCDIR="$TMP/kit/src" MACOSX_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     MACOSX_CODESIGNING_IDENTITY="$MACOS_SIGNING_IDENTITY" ENABLE_MACOSX_SANDBOX= ENABLE_RELEASE_BUILD=TRUE \
     bash "$kit/macosx-codesign-app-bundle" "$app" 2>&1 | { grep -v 'replacing existing signature' || :; }
+  # 2b. The launchers HST Writer/Sheets/Slides (Contents/Helpers, scripts/macos/make-app-launchers.py) are started
+  #     by the Dock or Finder, never by HST Office: upstream's pass gave them its parent-process launch constraint,
+  #     which would stop them. Re-sign them without it (hardened runtime, no entitlements), then re-seal the app
+  #     exactly as upstream's last step does.
+  local launcher launchers=0
+  for launcher in "$app/Contents/Helpers/"*.app; do
+    [ -d "$launcher" ] || continue
+    codesign --force --timestamp --options=runtime \
+      --identifier "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$launcher/Contents/Info.plist")" \
+      --sign "$MACOS_SIGNING_IDENTITY" "$launcher" 2>&1 | { grep -v 'replacing existing signature' || :; }
+    launchers=$((launchers + 1))
+  done
+  if [ "$launchers" -gt 0 ]; then
+    codesign --force --timestamp --options=runtime --identifier="$BUNDLE_ID" --sign "$MACOS_SIGNING_IDENTITY" \
+      --entitlements "$TMP/kit/build/hardened_runtime.xcent" "$app" 2>&1 | { grep -v 'replacing existing signature' || :; }
+    echo "re-signed $launchers app launchers without a launch constraint, then the app"
+  fi
   # 3. Gates before spending a notarization round trip.
   check_signatures "$app"
   codesign --verify --deep --strict "$app"

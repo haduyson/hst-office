@@ -10,6 +10,10 @@ The window class a launcher claims (StartupWMClass) must be its own launcher id:
 usr/share/applications/<id>.desktop links to it and StartupWMClass=<id> (vn.hasontech.hstoffice-writer),
 the class HST's windows carry. A class or Icon of LibreOffice's (libreoffice-*, openoffice*)
 would group HST windows with an installed LibreOffice's, and LibreOffice's windows with HST's.
+The menu launchers of the three apps (vn.hasontech.hstoffice-writer, -calc, -impress) are named HST Writer,
+HST Sheets and HST Slides, show their own HST icon (Icon=<launcher id>) and are listed under Office.
+HST Base is offered nowhere: its launcher (vn.hasontech.hstoffice-base) is NoDisplay=true but still handles
+.odb files, and the HST Office launcher has no Base action.
 Exit 0 = clean, 1 = a hit or no launcher in a package, 2 = bad arguments. Needs dpkg-deb.
 """
 import io
@@ -62,6 +66,60 @@ def identity_hits(text, launcher_id):
     return found
 
 
+# launcher id -> the name the app menu shows
+APP_NAMES = {"vn.hasontech.hstoffice-writer": "HST Writer", "vn.hasontech.hstoffice-calc": "HST Sheets",
+             "vn.hasontech.hstoffice-impress": "HST Slides"}
+
+
+def app_hits(text, launcher_id):
+    """Problems of an app launcher of the menu (only for the APP_NAMES ids): its name, icon, Office category and
+    visibility, read from the [Desktop Entry] group."""
+    if launcher_id not in APP_NAMES:
+        return []
+    entry = main_group(text)
+    found = []
+    expected = {"Name": APP_NAMES[launcher_id], "Icon": launcher_id, "Type": "Application"}
+    for key, value in expected.items():
+        if entry.get(key) != value:
+            found.append(f"{key}={entry.get(key)} (expected {value})")
+    if "Office" not in entry.get("Categories", "").split(";"):
+        found.append(f"Categories={entry.get('Categories')} (expected Office)")
+    if entry.get("NoDisplay", "").lower() == "true" or entry.get("Hidden", "").lower() == "true":
+        found.append("hidden from the app menu")
+    return found
+
+
+BASE_ID, START_ID = "vn.hasontech.hstoffice-base", "vn.hasontech.hstoffice-startcenter"
+ODB = "application/vnd.oasis.opendocument.base"
+
+
+def main_group(text):
+    """{key: value} of the [Desktop Entry] group (first value of a key)."""
+    entry, group = {}, None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            group = line[1:-1]
+        elif group == "Desktop Entry" and "=" in line:
+            key, _, value = line.partition("=")
+            entry.setdefault(key.strip(), value.strip())
+    return entry
+
+
+def base_hits(text, launcher_id):
+    """HST Base shown somewhere: its own launcher in the app menus (or no longer opening .odb), or a Base action of
+    the HST Office launcher."""
+    entry = main_group(text)
+    if launcher_id == BASE_ID:
+        found = [] if entry.get("NoDisplay", "").lower() == "true" else ["HST Base is listed in the app menus"]
+        if ODB not in entry.get("MimeType", "").split(";"):
+            found.append(f"HST Base no longer opens .odb files (MimeType={entry.get('MimeType')})")
+        return found
+    if launcher_id == START_ID and ("Base" in entry.get("Actions", "").split(";") or "[Desktop Action Base]" in text):
+        return ["the HST Office launcher offers a Base action"]
+    return []
+
+
 def hits(text):
     """Visible/searchable launcher lines that name an upstream product."""
     found = []
@@ -83,10 +141,12 @@ def main(argv):
             print(f"FAIL {deb}: no .desktop launcher in the package")
             failures += 1
         for path, text in entries:
-            for line in hits(text) + identity_hits(text, ids.get(path)):
+            for line in hits(text) + identity_hits(text, ids.get(path)) + app_hits(text, ids.get(path)) \
+                    + base_hits(text, ids.get(path)):
                 print(f"FAIL {path}: {line}")
                 failures += 1
-        print(f"desktop entries: {deb}: {len(entries)} launchers checked")
+        apps = sorted(APP_NAMES[i] for i in ids.values() if i in APP_NAMES)
+        print(f"desktop entries: {deb}: {len(entries)} launchers checked" + (f"; apps: {', '.join(apps)}" if apps else ""))
     return 1 if failures else 0
 
 
