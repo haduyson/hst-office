@@ -67,22 +67,23 @@ class Header(unittest.TestCase):
             self.assertIn(line, text)
 
     def test_cli_outputs_and_header_rewritten_only_on_change(self):
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()  # the script checks the release against it
         with tempfile.TemporaryDirectory() as tmp:
             release = Path(tmp) / "release.json"
-            release.write_text('{"release": "1.0.0-beta.4.1"}', encoding="utf-8")
+            release.write_text('{"release": "%s-beta.4.1"}' % version, encoding="utf-8")
             run = lambda *args: subprocess.run(["python3", "-I", str(SCRIPT), "--release-file", str(release), *args],
                                                capture_output=True, text=True, check=True).stdout
-            self.assertEqual(run("--release").strip(), "1.0.0-beta.4.1")
+            self.assertEqual(run("--release").strip(), version + "-beta.4.1")
             self.assertEqual(run("--build").strip(), "401")
             env = run("--env")
-            self.assertIn("export HST_RELEASE=1.0.0-beta.4.1", env)
+            self.assertIn("export HST_RELEASE=%s-beta.4.1" % version, env)
             self.assertIn("export HST_VERSION_BUILD=401", env)
             header = Path(tmp) / "include" / "hst_version.h"
             self.assertIn("written", run("--header", str(header)))
             self.assertIn("unchanged", run("--header", str(header)))
-            release.write_text('{"release": "1.0.0-beta.5"}', encoding="utf-8")
+            release.write_text('{"release": "%s-beta.5"}' % version, encoding="utf-8")
             self.assertIn("written", run("--header", str(header)))
-            self.assertIn('HST_RELEASE "1.0.0-beta.5"', header.read_text(encoding="utf-8"))
+            self.assertIn('HST_RELEASE "%s-beta.5"' % version, header.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
