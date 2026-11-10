@@ -71,6 +71,7 @@ def mac_print(target):
         # The save panel runs out of process on macOS 15 (absent from the app's AX tree, run 42897049569):
         # keys as a user types them. The name field opens focused with the name selected; then Go To Folder.
         keyboard(text=target.stem)
+        screenshot(target.with_name("save-1-name.png"))
         from Quartz import CGEventCreateKeyboardEvent, CGEventSetFlags, CGEventPost, kCGHIDEventTap
         for down in (True, False):
             event = CGEventCreateKeyboardEvent(None, 5, down)  # Cmd+Shift+G
@@ -80,7 +81,10 @@ def mac_print(target):
         keyboard(text=str(target.parent))
         keyboard(["enter"])
         time.sleep(1.5)
+        screenshot(target.with_name("save-2-folder.png"))
         keyboard(["enter"])  # Lưu, the panel's default button
+        time.sleep(2)
+        screenshot(target.with_name("save-3-saved.png"))
 
 
 def finish(target):

@@ -37,7 +37,7 @@ def run(e, fixtures):
             printed = (e.out / "printed.pdf").resolve()
             task = background(office.dispatch, frame, ".uno:Print")
             try:
-                native("print", printed)
+                native("print", printed, timeout=180)
             except Exception:
                 native("key", "escape")  # an open menu, then the modal print dialog: either would block the close
                 native("key", "escape")
