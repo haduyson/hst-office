@@ -1,0 +1,48 @@
+HST Office: a ribbon toolbox does not reload its command images from a view frame that is closing.
+
+The ribbon's collapse ladder (vcl HstRibbonLadder.cxx) sends DataChanged(NONE) to a toolbox whose
+button size it changes, and SidebarToolBox::ChangedDataHandler then reloads the command images
+(ChangedIconHandler) for the frame of SfxViewFrame::Current(). SfxBaseController::dispose clears that
+SfxFrame's frame interface before SfxFrame::DoClose_Impl, so while a view frame closes its frame
+interface is empty, and vcl::CommandInfoProvider::GetXGraphicForCommand calls getController()
+through it.
+
+That happens when a document is closed from another thread (UNO bridge, automation): the request
+thread disposes the sidebar in DoClose_Impl, a window destroyed there is handed to the main thread
+with SendMessage, which releases the SolarMutex, and the main thread handles a pending resize; the
+ladder steps and the toolbox reads the empty frame. Windows r1-auto W4 (Writer, then Sheets, closed
+over UNO) died this way at every run (ProcDump full dumps, runs 42779319665 and 42781778730: main
+thread WM_SIZE -> layout -> ToolBox::DataChanged -> SidebarToolBox handlers -> GetImageForCommand ->
+GetXGraphicForCommand, read of address 0; request thread in SfxBaseModel::close -> DoClose_Impl ->
+~SidebarChildWindow -> vcl::Window::dispose waiting for the SolarMutex). The office's own crash
+handler then faulted as well, so the office exited with 255 and left no dump.
+
+ChangedIconHandler now keeps the current images when the frame interface is empty: the view is
+going away.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/sfx2/source/sidebar/SidebarToolBox.cxx
++++ b/sfx2/source/sidebar/SidebarToolBox.cxx
+@@ -276,16 +276,21 @@
+             // The button should show the last function that was selected from the
+             // dropdown. The controller should know better than us what it was.
+             xController->updateImage();
+         }
+         else if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
+         {
+             OUString aCommandURL = GetItemCommand(it.first);
+             css::uno::Reference<frame::XFrame> xFrame = pViewFrm->GetFrame().GetFrameInterface();
++            // HST Office: a view frame that is being closed has no frame interface any more
++            // (SfxBaseController::dispose clears it before SfxFrame::DoClose_Impl), and the command
++            // image lookup dereferences the frame: keep the current images
++            if (!xFrame.is())
++                continue;
+             Image aImage = vcl::CommandInfoProvider::GetImageForCommand(aCommandURL, xFrame, GetImageSize());
+             // HST Office: commands of extensions have no command image; the image the .ui file names
+             // is loaded again from the new icon theme (e.g. HST after HST (dark)).
+             if (!aImage && !GetItemImage(it.first).GetStock().isEmpty())
+                 aImage = Image(StockImage::Yes, GetItemImage(it.first).GetStock());
+             SetItemImage(it.first, aImage);
+         }
+     }
