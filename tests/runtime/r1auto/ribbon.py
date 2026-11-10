@@ -7,7 +7,11 @@ from style_hover_preview_gui import state
 
 def search(e, doc):
     import ribbon_os
-    e.office.focus(doc.CurrentController.Frame.ContainerWindow)
+    window = doc.CurrentController.Frame.ContainerWindow
+    area = e.office.service("com.sun.star.awt.Toolkit").getWorkArea()
+    window.setPosSize(area.X, area.Y + 35, area.Width, area.Height - 60, 15)  # full screen, as the owner works
+    time.sleep(2)
+    e.office.focus(window)
     before = ribbon_os.read(e, "search-before")
     anchors = ribbon_os.named(before, "Tìm tính năng")
     anchor = anchors[0] if anchors else None
@@ -38,6 +42,12 @@ def hover(e, doc):
     window.setPosSize(area.X, area.Y + 35, area.Width, area.Height - 60, 15)
     e.office.focus(window)
     doc.Text.String = "Đoạn văn kiểm tra xem trước kiểu."
+    # Start from a style other than the default: at 150% the gallery shows only the default entry, and hovering
+    # the paragraph's own style can show no change (r1-auto Windows run 42883100228).
+    cursor = doc.Text.createTextCursor()
+    cursor.gotoEnd(True)
+    cursor.setPropertyValue("ParaStyleName", "Heading 1")
+    current = doc.StyleFamilies.getByName("ParagraphStyles").getByName("Heading 1").DisplayName
     doc.UndoManager.clear()
     doc.setModified(False)
     time.sleep(2)
@@ -46,7 +56,7 @@ def hover(e, doc):
     nodes = ribbon_os.read(e, "hover")
     dx, dy = ribbon_os.screen_mapper(e, nodes, window)
     frame = ribbon_os.ribbon_frame(nodes)
-    candidates = [n for n in nodes if n.name in names and n.w > 40 and frame and frame.contains(n)]
+    candidates = [n for n in nodes if n.name in names - {current} and n.w > 40 and frame and frame.contains(n)]
     # At 150% or 1440 pt the gallery shows a single entry: hover what is shown, at least one.
     e.require(len(candidates) >= 1, "Có ô kiểu trong nhóm Kiểu để rê chuột", method="OS accessibility tree",
               names=[n.name for n in candidates], offset=[dx, dy])
