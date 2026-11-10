@@ -135,12 +135,8 @@ def _with_progress(ctx, title, message, work):
 def _quit_and_reopen(ctx, argv):
     """Start the waiter that opens the moved copy, then close this office the normal way (save prompts included)."""
     from . import update_launch as launch
-    proc, closing = launch.spawn(argv, "Darwin"), False
-    try:
-        closing = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).terminate()
-    finally:
-        if not closing:  # Cancel at a save prompt: this copy keeps running, the moved one stays in /Applications
-            launch.cancel(proc)
+    # Cancel at a save prompt: this copy keeps running, the moved one stays in /Applications.
+    launch.spawn_and_quit(ctx, argv, "Darwin")
 
 
 def _move(ctx, text, place, exists):
