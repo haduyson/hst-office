@@ -125,17 +125,21 @@ class FilterTests(unittest.TestCase):
         secrets = flt.personal_strings({"USER": "minh"})
         self.assertEqual(flt.scrub("Minh: minhanh, minh.", secrets), "<USER>: minhanh, <USER>.")
 
-    def test_recent_log_reads_the_filtered_tail(self):
+    def test_recent_log_reads_the_filtered_tail_of_the_local_log(self):
+        from hst_office import diag_log
         with tempfile.TemporaryDirectory() as folder:
-            path = os.path.join(folder, info.LOG_NAME)
-            with open(path, "w", encoding="utf-8") as handle:
-                for number in range(1000):
-                    handle.write("%d open /home/nguyenvana/Tài liệu/%d.docx\n" % (number, number))
-            text = info.recent_log(SECRETS, path)
+            diag_log.configure(folder, SECRETS)
+            try:
+                self.assertEqual(info.recent_log(SECRETS), "")  # no log yet
+                with open(os.path.join(folder, diag_log.LOG_NAME), "w", encoding="utf-8") as handle:
+                    for number in range(1000):
+                        handle.write("%d open /home/nguyenvana/Tài liệu/%d.docx\n" % (number, number))
+                text = info.recent_log(SECRETS)
+            finally:
+                diag_log.configure(None)
             self.assertEqual(len(text.splitlines()), p.LOG_LINES)
             self.assertTrue(text.endswith("999 open <PATH>"))
             self.assertNotIn("nguyenvana", text)
-            self.assertEqual(info.recent_log(SECRETS, os.path.join(folder, "missing.log")), "")
 
     def test_system_info_and_vcl_backend(self):
         text = info.system_info_text({"Version": "1.0.0-beta.5 (x86_64)", "Engine": "26.8.1.1", "OS": "", "VCL": "gtk3"})

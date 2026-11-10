@@ -2,24 +2,20 @@
 """What an error report says about this installation, read on the main thread when the dialog opens.
 
 Always in the report (the dialog shows it read-only): HST Office version, build and engine, OS family/version/arch,
-office locale and the app (Writer, Sheets, Slides, Start Center...). Only when the user ticks "Gửi kèm thông tin
-chẩn đoán": systemInfo (the lines of Help ▸ About ▸ Copy version info this extension can read, plus VCL backend,
-UI scale and the Skia setting) and the last lines of HST's own error log (hst-office-errors.log in the temp directory,
-written by dispatch.log_error), passed through error_report_filter. Nothing here touches documents.
+office locale and the app (Writer, Sheets, Slides, Start Center...). With "Gửi kèm thông tin chẩn đoán" (ticked by
+default, the user can untick it): systemInfo (the lines of Help ▸ About ▸ Copy version info this extension can read,
+plus VCL backend, UI scale and the Skia setting) and the last lines of HST's local log (diag_log: hst-office.log in
+the user profile, already filtered when written and filtered again here). Nothing here touches documents.
 """
-import os
 import platform
 import re
 import sys
-import tempfile
-import traceback
 
 from .data_files import load_data
-from .error_report_filter import personal_strings, scrub, tail_lines
+from .error_report_filter import personal_strings, scrub
 from .error_report_payload import LOG_BYTES, LOG_LINES, os_info
+from . import diag_log
 
-LOG_NAME = "hst-office-errors.log"
-LOG_READ = 256 * 1024  # bytes read from the end of the log
 MODULE_APPS = {"com.sun.star.text.TextDocument": "writer", "com.sun.star.text.GlobalDocument": "writer",
                "com.sun.star.text.WebDocument": "writer", "com.sun.star.sheet.SpreadsheetDocument": "calc",
                "com.sun.star.presentation.PresentationDocument": "impress",
@@ -56,7 +52,7 @@ def product(ctx):
         values = _config(ctx, "/org.openoffice.Setup/Product", ("ooSetupVersionAboutBox", "ooSetupVersionAboutBoxSuffix"))
         engine = "".join(values.values())
     except Exception:  # noqa: BLE001
-        traceback.print_exc()
+        diag_log.exception("error_report_info")
     return {"version": info["release"], "build": str(info.get("build", "")), "engine": engine}
 
 
@@ -133,16 +129,10 @@ def office_secrets(ctx):
     return personal_strings(extra=extra)
 
 
-def recent_log(secrets, path=None):
-    """HST's own recent log lines, filtered; "" when there is no log."""
-    path = path or os.path.join(tempfile.gettempdir(), LOG_NAME)
-    try:
-        with open(path, "rb") as handle:
-            handle.seek(max(0, os.path.getsize(path) - LOG_READ))
-            text = handle.read().decode("utf-8", "replace")
-    except OSError:
-        return ""
-    return tail_lines(scrub(text, secrets), LOG_LINES, LOG_BYTES).strip()
+def recent_log(secrets):
+    """HST's recent local log lines, filtered; "" when there is no log."""
+    from . import diag_log
+    return scrub(diag_log.recent(LOG_LINES, LOG_BYTES), secrets).strip()
 
 
 def environment(ctx, frame):

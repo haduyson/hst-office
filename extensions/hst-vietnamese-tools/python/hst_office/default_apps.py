@@ -19,9 +19,9 @@ Per-OS actions (the user's own choice, never at install time alone):
 Product rule: the text names file types only ("tài liệu văn bản (.doc, .docx)"), never another vendor's product.
 """
 import time
-import traceback
 
 from . import default_apps_os as osx
+from . import diag_log
 
 CONFIG_PATH = "/org.hasontech.hstoffice.DefaultApps"
 SNOOZE_DAYS = 14
@@ -82,7 +82,7 @@ def load_state(ctx):
         node = _access(ctx, False)
         return {key: node.getPropertyValue(key) for key in DEFAULT_STATE}
     except Exception:  # noqa: BLE001 - schema missing: never ask rather than ask every start
-        traceback.print_exc()
+        diag_log.exception("default_apps")
         return dict(DEFAULT_STATE, Ask=False)
 
 
@@ -93,7 +93,7 @@ def save_state(ctx, state):
             node.setPropertyValue(key, state[key])
         node.commitChanges()
     except Exception:  # noqa: BLE001 - a failing write must not break the start
-        traceback.print_exc()
+        diag_log.exception("default_apps")
 
 
 def make_default(ctx):
@@ -102,7 +102,7 @@ def make_default(ctx):
         ok, kind = osx.make_default(osx.system())
         return ok, WINDOWS_TEXT if kind == "settings" else ""
     except Exception as exc:  # noqa: BLE001 - reported to the user, never raised into the UI thread
-        traceback.print_exc()
+        diag_log.exception("default_apps")
         return False, FAILED_TEXT % exc
 
 
@@ -127,7 +127,7 @@ def _release():
         from .update_fetch import release_info
         return release_info()["release"]
     except Exception:  # noqa: BLE001 - never block the start-up chain
-        traceback.print_exc()
+        diag_log.exception("default_apps")
         return ""
 
 
@@ -142,7 +142,7 @@ def offer_at_startup(ctx, parent_peer=None, now=None, ask=None, act=None, releas
     try:
         registered = osx.is_registered(osx.system())
     except Exception:  # noqa: BLE001 - unknown state: ask, the action is harmless when already set
-        traceback.print_exc()
+        diag_log.exception("default_apps")
         registered = False
     if registered:
         save_state(ctx, dict(state, Done=True))

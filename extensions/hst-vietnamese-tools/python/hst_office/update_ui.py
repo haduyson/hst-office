@@ -7,7 +7,6 @@ AllowInstall, Channel, LastCheck, SkippedVersion), read through update_config wi
 Texts follow the UI language (Vietnamese or English); the other HST commands are always Vietnamese.
 """
 import platform
-import traceback
 
 import uno
 import unohelper
@@ -19,6 +18,7 @@ from . import update_installer as installer
 from . import update_logic as logic
 from .update_fetch import release_info
 from .update_texts import texts
+from . import diag_log
 
 PROTOCOL = "org.hst.office.update:"
 INFOBAR_ID = "hst-update-available"
@@ -72,7 +72,7 @@ class _Callback(unohelper.Base, XCallback):
         try:
             self.fn()
         except Exception:  # noqa: BLE001 - UI on the main thread must never raise into the office
-            traceback.print_exc()
+            diag_log.exception("update_ui")
 
 
 def on_main_thread(ctx, fn):
@@ -119,7 +119,7 @@ def show_infobar(frame, release, installed):
                                  0, tuple(buttons), True)  # 0 = InfobarType.INFO
         return True
     except Exception:  # noqa: BLE001 - controllers without infobar support
-        traceback.print_exc()
+        diag_log.exception("update_ui")
         return False
 
 
@@ -148,7 +148,7 @@ class _FirstView(unohelper.Base, XDocumentEventListener):
                 STATE["pending"] = None
                 _broadcaster(self.ctx).removeDocumentEventListener(self)
         except Exception:  # noqa: BLE001
-            traceback.print_exc()
+            diag_log.exception("update_ui")
 
     def disposing(self, event):
         pass

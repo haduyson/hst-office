@@ -8,13 +8,13 @@ left out. A Word file keeps the VBA project it was read with (Save As asks first
 edited). Fixed list items are not stored in Office files either. Runs as a job on OnSaveDone / OnSaveAsDone (Jobs.xcu);
 the message is Vietnamese (HST policy).
 """
-import traceback
 
 import unohelper
 from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
 from .vba_template import bound_form_controls, is_excel_filter, is_word_filter, unwritable_form_content
+from . import diag_log
 
 JOB_NAME = "org.hst.office.vi.VbaSaveCheckJob"
 EVENTS = ("OnSaveDone", "OnSaveAsDone")
@@ -144,5 +144,5 @@ class VbaSaveCheckJob(unohelper.Base, XServiceInfo, XJob):
             if _argument(environment, "EventName") in EVENTS:
                 check(self.ctx, _argument(environment, "Model"))
         except Exception:  # noqa: BLE001 - a save must never fail because of this hint
-            traceback.print_exc()
+            diag_log.exception("vba_save_check")
         return None

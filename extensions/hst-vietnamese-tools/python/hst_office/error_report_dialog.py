@@ -2,14 +2,14 @@
 """Trợ giúp ▸ Báo lỗi cho HASON TECH…: the error report dialog (also opened by the crash prompt with kind=crash).
 
 Nothing is sent until the user presses "Gửi". The summary (version, OS, app) is always part of the report and shown
-read-only; "Gửi kèm thông tin chẩn đoán" is off by default; "Xem nội dung sẽ gửi" shows the exact object that would
+read-only; "Gửi kèm thông tin chẩn đoán" (systemInfo, the local log, the crash facts) is ticked by default and can be
+unticked; "Xem nội dung sẽ gửi" shows the exact object that would
 be sent now. Sending runs on a worker thread (error_report_send, 15 s deadline); the answer comes back to the main
 thread. A retry keeps the same reportId. On 429, 5xx or no answer the e-mail fallback is offered.
 """
 import threading
-import traceback
 
-from . import error_report_info as info
+from . import diag_log, error_report_info as info
 from .dialogs import Dialog, message_box, palette
 from .error_report_mail import mailto_url, summary_lines
 from .error_report_payload import build_payload, encode, new_report_id, preview_text, problems, utc_now
@@ -63,7 +63,7 @@ class ReportDialog:
                                                         self.locale, self.app)))
         d.edit("summary", 8, 148, WIDTH - 16, 32, text=summary, multiline=True, readonly=True,
                help_text=TEXT["summary"])
-        d.check("diagnostics", TEXT["diagnostics"], 8, 186, WIDTH - 16, state=False)
+        d.check("diagnostics", TEXT["diagnostics"], 8, 186, WIDTH - 16, state=True)
         note = d.label("note", TEXT["diagnostics_note_crash" if crash else "diagnostics_note"], 18, 197,
                        WIDTH - 26, 18, wrap=True)
         note.TextColor = colours["muted"]
@@ -104,7 +104,7 @@ class ReportDialog:
             view.button("close", TEXT["close"], 380 - 8 - 54, 242, 54, kind=1, default=True)
             view.execute(self._peer())
         except Exception:  # noqa: BLE001 - never raise into the dialog's event loop
-            traceback.print_exc()
+            diag_log.exception("error_report_dialog")
 
     def on_send(self):
         payload = self.payload()
@@ -153,7 +153,7 @@ def open_mail(ctx, payload, parent=None):
         shell = ctx.ServiceManager.createInstanceWithContext("com.sun.star.system.SystemShellExecute", ctx)
         shell.execute(mailto_url(payload), "", 1)  # 1 = URIS_ONLY
     except Exception:  # noqa: BLE001 - no mail program
-        traceback.print_exc()
+        diag_log.exception("error_report_dialog")
         message_box(ctx, parent, TEXT["title"], TEXT["mail_failed"], error=True)
 
 

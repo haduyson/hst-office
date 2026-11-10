@@ -2,6 +2,7 @@
 """User-facing HST commands: gather UI input, call the logic modules, report results. One function per command."""
 import unohelper
 
+from . import diag_log
 from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_layout, nd30_open, nd30_writer,
                blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
 from .dialogs import message_box
@@ -20,6 +21,8 @@ class Host:
         self.peer = frame.getContainerWindow()
 
     def say(self, text, error=False):
+        if error:  # what the user was told, filtered when written: no document text is passed here
+            diag_log.warning("command", text.splitlines()[0] if text else "error")
         message_box(self.ctx, self.peer, self.s["common"]["error"], text, error=error)
 
     def refuse(self, reasons):

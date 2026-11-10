@@ -13,11 +13,11 @@ SetIconTheme), so no restart is needed.
 The pack names are the icon-theme stream's; MODERN/CLASSIC below are the only place they appear here.
 """
 import os
-import traceback
 
 import unohelper
 from com.sun.star.awt import XContainerWindowEventHandler
 from com.sun.star.lang import XServiceInfo
+from . import diag_log
 
 HANDLER_NAME = "org.hst.office.vi.OptionsAppearance"
 CONFIG_PATH = "/org.openoffice.Office.Common/Misc"
@@ -105,7 +105,7 @@ class AppearanceOptionsHandler(unohelper.Base, XServiceInfo, XContainerWindowEve
             elif event == "ok":
                 self._save(window)
         except Exception:  # noqa: BLE001 - never raise into the options dialog
-            traceback.print_exc()
+            diag_log.exception("appearance_options")
         return True
 
     def _load(self, window):

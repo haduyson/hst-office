@@ -9,7 +9,6 @@ that was offline at start-up is not skipped for a whole day. Results reach the U
 """
 import threading
 import time
-import traceback
 
 import uno
 import unohelper
@@ -22,6 +21,7 @@ from . import update_outcome
 from . import update_result as result
 from . import update_ui as ui
 from .update_fetch import UpdateError, fetch_channels
+from . import diag_log
 
 JOB_NAME = "org.hst.office.vi.UpdateCheckJob"
 HANDLER_NAME = "org.hst.office.vi.UpdateDispatchProvider"
@@ -32,6 +32,7 @@ _automatic_thread = None  # a retrying check must not be doubled by a second sta
 
 def _log(message):
     print("HST update check: %s" % message, flush=True)
+    diag_log.warning("update", "check failed: %s" % message)
 
 
 def _fetch_update(info, proxy):
@@ -42,7 +43,7 @@ def _fetch_update(info, proxy):
     except UpdateError as exc:
         _log(exc)
     except Exception:  # noqa: BLE001 - never crash the office from the worker thread
-        traceback.print_exc()
+        diag_log.exception("update_job")
     return None, True
 
 
@@ -112,7 +113,7 @@ class UpdateCheckJob(unohelper.Base, XServiceInfo, XJob):
             update_outcome.show_pending(self.ctx)
             automatic_check(self.ctx)
         except Exception:  # noqa: BLE001 - never block or break start-up
-            traceback.print_exc()
+            diag_log.exception("update_job")
         return None
 
 
@@ -145,7 +146,7 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
         try:
             getattr(self, "_" + url.Path.lower())()
         except Exception:  # noqa: BLE001 - report instead of failing inside the UI thread
-            traceback.print_exc()
+            diag_log.exception("update_job")
 
     def _check(self):
         frame = self.frame
@@ -155,7 +156,7 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
                 return None
             info = ui.release_info_for(self.ctx)
         except Exception:  # noqa: BLE001 - no release stamp: report "could not check"
-            traceback.print_exc()
+            diag_log.exception("update_job")
             return result.show_result(self.ctx, peer, None, "", True)
         start_background(self.ctx, info, lambda release, failed: result.show_result(self.ctx, peer, release, info["release"], failed))
 
@@ -188,7 +189,7 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
             event.Source = self
             control.statusChanged(event)
         except Exception:  # noqa: BLE001 - the menu stays enabled; _check still refuses
-            traceback.print_exc()
+            diag_log.exception("update_job")
 
     def removeStatusListener(self, control, url):
         pass
