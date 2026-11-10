@@ -96,17 +96,26 @@ của Gatekeeper được trả lời Mở qua System Events (chỉ hộp nêu t
 lần duyệt cây Trợ năng có hạn 2 s/lệnh và 15 s/lượt. Mỗi mục khác chạy trong probe
 có hạn 420 s. Hết hạn là FAIL kèm ảnh, rồi lượt chạy tiếp mục sau.
 
-## Giới hạn đã chứng minh trên runner
+## Đọc ribbon qua accessibility của hệ điều hành
 
-- Engine hiện tại không đưa `XAccessible` của cửa sổ toolkit qua UNO (cửa sổ khai báo 18 interface, không có
-  accessibility; `queryInterface` trả về rỗng) trên cả Windows và macOS. Các phép đo đọc ribbon qua cây
-  accessibility UNO (W8, W9, W10, M4 phần thanh công cụ, M7) vì vậy FAIL do harness; cần đọc cây accessibility
-  của hệ điều hành (UIA/AX) như bản Linux đọc AT-SPI. Khi các mục này FAIL, `native-tree.log` ghi cây đó.
+Engine hiện tại không đưa `XAccessible` của cửa sổ toolkit qua UNO (cửa sổ khai báo 18 interface, không có
+accessibility). W8, W9, W10, phần thanh công cụ của M4 và M7 vì vậy đọc cây accessibility của hệ điều hành, như
+bản Linux đọc AT-SPI: UI Automation từ HWND của office trên Windows (cầu MSAA/IAccessible2 của VCL tự bật khi có
+client hỏi), AX từ cửa sổ của ứng dụng trên macOS (không cần `AXEnhancedUserInterface`). `ribbon_os.py` chuẩn hóa
+vai trò (nhóm có chú thích, nút nhóm đã gập, dấu », banner — nhận theo vai trò và kích thước vì banner đổi sản
+phẩm). Mỗi kết quả ghi `method`; cây được lưu `os-tree-*.log`.
+
+- Hình học ribbon được so trong chính hệ tọa độ của cây. Trên macOS AX báo ribbon lệch dọc khoảng 150 điểm, nên
+  điểm rê chuột được đổi sang màn hình bằng một lần hiệu chỉnh (gốc ribbon → gốc vùng khách của khung).
+- Màn hình ảo HiDPI macOS rộng 1920 điểm: ở 1440 điểm ribbon đã gọn sẵn, không thấy bước thu nhỏ trước khi gập.
+- W10 bắt đầu từ đoạn “Tiêu đề 1” và chỉ rê các mục của bộ sưu tập kiểu nằm dưới hàng thẻ; nếu bộ sưu tập chỉ hiện
+  kiểu hiện tại thì cuộn sang mục kế.
+- Trang Giao diện của M4 được đo bằng độ đậm vùng trang trên ảnh chụp, như kịch bản hồ sơ beta.5.
 - `getCharacterBounds` của ô nhập trả về khung rỗng: W7/M5 đo hàng chữ ngay trên ảnh chụp sau khi gõ.
 - Phím thật gõ theo nhịp người (80 ms/ký tự); trên Windows tiến trình công cụ tự đưa cửa sổ office lên trước.
 - macOS: office của probe được mở qua LaunchServices (`open -n -W`).
-- M2: bản cài tự chuyển rồi phải tự mở lại từ Applications; nếu sau 90 s không mở, kết quả ghi
-  `product_reopened_itself: false` và harness mở lại từ Applications như bước của chủ sở hữu.
+- M2: HST Office phải tự mở lại từ Applications sau khi chuyển; nếu không, M2 FAIL và harness mở lại như chủ sở
+  hữu chỉ để M3 vẫn chạy.
 
 ## Hồ sơ beta.5 cũ (macOS)
 
