@@ -59,6 +59,18 @@ Các bước chuẩn bị cần thiết vẫn chạy khi lọc mục. Nếu M1/M
 vẫn có thể chạy trên bản sao từ chính DMG để thu thêm bằng chứng, không ghi nhận
 bản sao đó là đã đạt thao tác chuyển ứng dụng.
 
+Windows có thêm `-f overlay_extension=true`: extension HST dựng từ commit của nhánh
+thay bản đi kèm ngay sau khi cài, trước lần khởi động đầu, để thử một bản sửa
+extension trên bộ cài có sẵn mà không dựng lại (kết quả đó không phải duyệt bản dựng).
+
+W16 dùng profile mặc định như Explorer: mở bằng nhấp đúp, chuột phải ▸ Open,
+Open with ▸ HST Sheets/Writer/Slides và động từ `open`/`new` của ProgID, khi profile
+mới, khi office đã tắt, khi đang chạy (tài liệu thành một tab) và ngay khi tài liệu
+cuối vừa đóng. Đạt khi cửa sổ tài liệu đã vẽ nội dung và đứng trước Explorer; câu
+hỏi khởi động phủ lên tài liệu đã mở xong vẫn đạt. `W16/open-routes.json` ghi thời
+gian, cửa sổ theo thứ tự chồng, cửa sổ đang được chọn và mọi tiến trình khởi chạy;
+office không hiện cửa sổ được lấy dump vào `crash/`.
+
 Các job R1 cần quyền chỉ đọc `contents` và `actions`; chúng nằm trong allowlist
 đọc artifact của [`scripts/check-workflows.py`](../scripts/check-workflows.py).
 
