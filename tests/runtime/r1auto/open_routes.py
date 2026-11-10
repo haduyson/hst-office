@@ -150,11 +150,11 @@ class Routes:
 
     # ---- office lifetime -------------------------------------------------------------------------------------
     def ours(self):
-        import psutil
+        from open_routes_windows import processes
         found = []
-        for proc in psutil.process_iter(["name", "exe"]):
-            exe = proc.info["exe"] or ""
-            if (proc.info["name"] or "").lower() in ("soffice.bin", "soffice.exe") and \
+        for proc, info in processes(["name", "exe"]):
+            exe = info["exe"] or ""
+            if (info["name"] or "").lower() in ("soffice.bin", "soffice.exe") and \
                     exe.lower().startswith(str(self.install).lower()):
                 found.append(proc)
         return found

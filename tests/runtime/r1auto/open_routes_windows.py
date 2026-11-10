@@ -61,19 +61,31 @@ def foreground():
     return dict(hwnd=hwnd, proc=_name(pid.value), title=_text(hwnd))
 
 
-def office_processes():
+def processes(attrs):
+    """[(Process, info)] of every process. psutil.process_iter(attrs) stores `info` on Process objects it shares
+    between threads, so the Launches thread and the census would overwrite each other's: read our own copy."""
     import psutil
     found = []
-    for proc in psutil.process_iter(["pid", "ppid", "name", "cmdline", "create_time", "status"]):
-        if (proc.info["name"] or "").lower() in OFFICE:
+    for proc in psutil.process_iter():
+        try:
+            found.append((proc, proc.as_dict(attrs=attrs)))
+        except psutil.Error:
+            pass
+    return found
+
+
+def office_processes():
+    found = []
+    for proc, info in processes(["pid", "ppid", "name", "cmdline", "create_time", "status"]):
+        if (info["name"] or "").lower() in OFFICE:
             try:
                 cpu = sum(proc.cpu_times()[:2])
                 threads = proc.num_threads()
             except Exception:
                 cpu, threads = None, None
-            found.append(dict(pid=proc.info["pid"], ppid=proc.info["ppid"], name=proc.info["name"],
-                              status=proc.info["status"], cpu=cpu, threads=threads,
-                              cmdline=" ".join(proc.info["cmdline"] or [])[:300]))
+            found.append(dict(pid=info["pid"], ppid=info["ppid"], name=info["name"],
+                              status=info["status"], cpu=cpu, threads=threads,
+                              cmdline=" ".join(info["cmdline"] or [])[:300]))
     return found
 
 
@@ -286,15 +298,14 @@ class Launches:
         self.start = time.monotonic()
 
     def _run(self):
-        import psutil
         while not self.stop.is_set():
             now = round(time.monotonic() - self.start, 2)
             alive = set()
-            for proc in psutil.process_iter(["pid", "ppid", "name", "create_time"]):
-                if (proc.info["name"] or "").lower() in self.NAMES:
-                    key = (proc.info["pid"], proc.info["create_time"])
+            for _, info in processes(["pid", "ppid", "name", "create_time"]):
+                if (info["name"] or "").lower() in self.NAMES:
+                    key = (info["pid"], info["create_time"])
                     alive.add(key)
-                    self.seen.setdefault(key, dict(pid=key[0], ppid=proc.info["ppid"], name=proc.info["name"],
+                    self.seen.setdefault(key, dict(pid=key[0], ppid=info["ppid"], name=info["name"],
                                                    first=now, last=now))["last"] = now
             for key, value in self.seen.items():
                 if key not in alive and "gone" not in value:
