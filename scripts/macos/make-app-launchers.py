@@ -116,7 +116,7 @@ def build(app, arch, icons=ICONS):
             run(["iconutil", "-c", "icns", "-o", bundle / "Contents" / "Resources" / "app.icns", iconset])
             run(["plutil", "-lint", bundle / "Contents" / "Info.plist"])
             print("built %s (%s, --%s)" % (bundle, info["CFBundleIdentifier"], info["HSTOfficeModule"]), flush=True)
-    run(["lipo", "-verify_arch", bundle_path(app, LAUNCHERS[0][1]) / "Contents" / "MacOS" / EXECUTABLE, arch])
+    run(["lipo", bundle_path(app, LAUNCHERS[0][1]) / "Contents" / "MacOS" / EXECUTABLE, "-verify_arch", arch])
 
 
 def main(argv=None):
