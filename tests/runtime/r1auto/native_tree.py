@@ -28,24 +28,19 @@ def mac_nodes(limit):
 
 
 def windows_nodes(limit):
-    import psutil
-    from pywinauto import Desktop
-    pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == "soffice.bin"}
-    out, seen = [], []
-    for window in Desktop(backend="uia").windows():
-        if window.process_id() not in pids:
-            try:
-                seen.append(["top", window.window_text()[:60], psutil.Process(window.process_id()).name()])
-            except Exception:
-                pass
-            continue
-        for element in [window] + window.descendants():
-            info = element.element_info
+    """UI Automation from the office's own HWNDs: the UIA desktop root listed no soffice.bin window although
+    EnumWindows finds them (r1-auto Windows run 42751960237, W8 tree)."""
+    from pywinauto.uia_element_info import UIAElementInfo
+    from windows_focus import office_windows
+    out = []
+    for hwnd, _title in office_windows():
+        root = UIAElementInfo(handle=hwnd)
+        for info in [root] + root.descendants():
             r = info.rectangle
             out.append([info.control_type or "", (info.name or "")[:80], [r.left, r.top, r.width(), r.height()]])
             if len(out) >= limit:
                 return out
-    return out or [["no soffice.bin window", sorted(pids), None]] + seen
+    return out or [["no soffice.bin window", [t for _, t in office_windows()], None]]
 
 
 def tree(limit="4000"):

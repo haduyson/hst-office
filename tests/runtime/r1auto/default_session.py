@@ -45,6 +45,8 @@ def stop_recorded(pidfile):
         except psutil.NoSuchProcess:
             pass
     _, remaining = psutil.wait_procs(alive, timeout=10)
+    # A zombie has exited; only its parent (the probe that started it) can reap it.
+    remaining = [p for p in remaining if p.is_running() and p.status() != psutil.STATUS_ZOMBIE]
     if remaining:
         raise RuntimeError("Không dừng được tiến trình mặc định của lượt kiểm tra: "
                            + ", ".join(f"{p.pid} {p.status()}" for p in remaining))

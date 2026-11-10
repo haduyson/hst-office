@@ -10,7 +10,7 @@ from support import Evidence
 from results import row
 from office import Office
 
-A11Y = {"W8", "W9", "W10", "M4", "M7"}  # read the ribbon through accessibility (office.py)
+A11Y = {"W7", "W8", "W9", "W10", "M4", "M5", "M7"}  # accessibility reads: ribbon, glyph bounds (office.py)
 
 
 def execute(e, fixtures):

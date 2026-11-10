@@ -115,32 +115,39 @@ def screenshot(path):
     return str(path)
 
 
+def owned(profile):
+    """PIDs of this run's soffice/oosplash processes, recognised by their profile URL."""
+    import psutil
+    return [proc.pid for proc in psutil.process_iter(["pid", "cmdline", "name"])
+            if proc.pid != os_pid() and (proc.info["name"] or "").lower().startswith(("soffice", "oosplash"))
+            and any(profile in arg for arg in (proc.info["cmdline"] or []))]
+
+
 def cleanup(profile):
     import psutil
-    owned = []
-    for proc in psutil.process_iter(["pid", "cmdline", "name"]):
-        if proc.pid == os_pid() or not (proc.info["name"] or "").lower().startswith(("soffice", "oosplash")):
-            continue
-        if any(profile in arg for arg in (proc.info["cmdline"] or [])):
-            owned.append(proc)
-    for proc in owned:
+    procs = []
+    for pid in owned(profile):
+        try:
+            procs.append(psutil.Process(pid))
+        except psutil.NoSuchProcess:
+            pass
+    for proc in procs:
         try:
             proc.terminate()
         except psutil.NoSuchProcess:
             pass  # it ended between the listing and the signal
-    _, alive = psutil.wait_procs(owned, timeout=10)
+    _, alive = psutil.wait_procs(procs, timeout=10)
     for proc in alive:
         try:
             proc.kill()
         except psutil.NoSuchProcess:
             pass
     psutil.wait_procs(alive, timeout=5)
-    return [p.pid for p in owned]
+    return [p.pid for p in procs]
 
 
 def os_pid():
-    import os
-    return os.getpid()
+    return __import__("os").getpid()
 
 
 def main():
@@ -166,6 +173,8 @@ def main():
     if action == "foreground":
         from windows_focus import foreground
         return foreground(*args)
+    if action == "cleanup-list":
+        return owned(args[0])
     if action == "cleanup":
         return cleanup(args[0])
     if action == "print":
@@ -174,6 +183,9 @@ def main():
     if action in {"measure", "text-band"}:
         from pdf_metrics import run
         return run(action, *args)
+    if action == "field-text":
+        from visual_metrics import field_text
+        return field_text(*args)
     if action == "icon-change":
         from visual_metrics import icon_change
         return icon_change(*args)

@@ -81,11 +81,14 @@ class Office(hst_gui.Office):
             self.proc, self.ctx = smoke.start_office(self.program, self.profile.as_uri(), self.port,
                                                     str(Path(self.workdir) / "office.log"), env)
         else:
-            log = open(Path(self.workdir) / "office.log", "w", encoding="utf-8")
-            self.logs.append(log)
-            self.proc = subprocess.Popen([str(self.binary), user, "--nologo", "--norestore", "--nodefault",
-                                          self.accept()],
-                                         stdout=log, stderr=log, env=env)
+            # Through LaunchServices, as a user starts it: an exec-started soffice exposed only its menu bar to
+            # macOS accessibility (r1-auto run 42751957019, M7 tree). `open -W` lives as long as the office.
+            log = Path(self.workdir) / "office.log"
+            passed = [arg for key in ("LANG", "SAL_ACCESSIBILITY_ENABLED") if key in env
+                      for arg in ("--env", f"{key}={env[key]}")]
+            self.proc = subprocess.Popen(["open", "-n", "-W", "-a", str(self.install), *passed, "--stdout", str(log),
+                                          "--stderr", str(log), "--args", user, "--nologo", "--norestore",
+                                          "--nodefault", self.accept()], stdin=subprocess.DEVNULL, env=env)
             self.ctx = self._connect()
         extensions = list(self.install.glob("**/hst-vietnamese-tools/python"))
         if len(extensions) != 1:
@@ -117,8 +120,9 @@ class Office(hst_gui.Office):
         self.ctx = None
 
     def focus(self, window):
-        if self.system == "Darwin" and self.proc is not None:
-            native("activate", self.proc.pid)
+        if self.system == "Darwin":
+            for pid in native("cleanup-list", self.profile.as_uri()):  # soffice itself, not `open`
+                native("activate", pid)
         window.setVisible(True)
         window.toFront()
         window.setFocus()
