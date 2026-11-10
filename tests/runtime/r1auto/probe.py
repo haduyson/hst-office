@@ -10,6 +10,8 @@ from support import Evidence
 from results import row
 from office import Office
 
+A11Y = {"W8", "W9", "W10", "M4", "M7"}  # read the ribbon through accessibility (office.py)
+
 
 def execute(e, fixtures):
     item = e.item
@@ -50,6 +52,8 @@ def main():
     for name in ("item", "install", "out", "work", "result", "fixtures"):
         parser.add_argument("--" + name, required=True)
     args = parser.parse_args()
+    if args.item in A11Y:
+        os.environ["R1_A11Y"] = "1"
     office = Office(args.install, args.work)
     e = Evidence(args.item, args.out, office)
     status, message = "FAIL", "Chưa chạy"

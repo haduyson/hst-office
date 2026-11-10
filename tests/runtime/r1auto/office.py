@@ -57,9 +57,11 @@ class Office(hst_gui.Office):
         user = "-env:UserInstallation=" + self.profile.as_uri()
         from hst_gui_macos import DRIVER_ONLY
         env = {k: v for k, v in os.environ.items() if k not in DRIVER_ONLY}
-        # VCL builds the accessibility of toolbars and top windows only with AT support on (Linux has AT-SPI);
-        # the probes read the ribbon and popups through it (MiscSettings::GetEnableATToolSupport).
-        env.update(LANG="vi_VN.UTF-8", SAL_ACCESSIBILITY_ENABLED="1")
+        env.update(LANG="vi_VN.UTF-8")
+        if os.environ.get("R1_A11Y") == "1":
+            # Only the items that read the ribbon through accessibility (probe.py A11Y): VCL builds toolbar and
+            # top-window accessibility with AT support on; the other items keep the owner's configuration.
+            env["SAL_ACCESSIBILITY_ENABLED"] = "1"
         empty = Path(self.workdir) / "init.txt"
         empty.write_text("", encoding="utf-8")
         for _ in range(3):
@@ -115,16 +117,14 @@ class Office(hst_gui.Office):
         self.ctx = None
 
     def focus(self, window):
-        # Windows refuses the foreground to a background process unless the last input came from it: press Alt
-        # first (as windows_gui.foreground does), but never while HST is in front (Alt would focus its menu).
-        if self.system == "Windows" and not native("front").lower().startswith("soffice"):
-            native("key", "alt")
         if self.system == "Darwin" and self.proc is not None:
             native("activate", self.proc.pid)
         window.setVisible(True)
         window.toFront()
         window.setFocus()
         time.sleep(0.5)
+        if self.system == "Windows":  # toFront() is refused across processes: raise it from the tooling side
+            self.focused = native("foreground", getattr(window, "Title", "") or "")
 
     def config(self, node, name):
         from pdf_viewer_uno import signing_props

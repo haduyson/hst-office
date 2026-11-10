@@ -113,23 +113,6 @@ def screenshot(path):
     return str(path)
 
 
-def front():
-    """Process name owning the foreground window (Windows), to decide whether the foreground lock applies.
-    The runner's "System Properties" paging-file notice can pop up mid-run: close it (WM_CLOSE) first."""
-    import psutil
-    notice = ctypes.windll.user32.FindWindowW("#32770", "System Properties")
-    if notice:
-        ctypes.windll.user32.PostMessageW(notice, 0x0010, 0, 0)
-        time.sleep(0.5)
-    from ctypes import wintypes
-    pid = wintypes.DWORD()
-    ctypes.windll.user32.GetWindowThreadProcessId(ctypes.windll.user32.GetForegroundWindow(), ctypes.byref(pid))
-    try:
-        return psutil.Process(pid.value).name()
-    except Exception:
-        return ""
-
-
 def cleanup(profile):
     import psutil
     owned = []
@@ -175,8 +158,9 @@ def main():
         from AppKit import NSRunningApplication
         app = NSRunningApplication.runningApplicationWithProcessIdentifier_(int(args[0]))
         return bool(app and app.activateWithOptions_(3))
-    if action == "front":
-        return front()
+    if action == "foreground":
+        from windows_focus import foreground
+        return foreground(*args)
     if action == "cleanup":
         return cleanup(args[0])
     if action == "print":
