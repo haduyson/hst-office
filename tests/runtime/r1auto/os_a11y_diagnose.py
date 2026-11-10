@@ -71,7 +71,7 @@ def windows():
             w["msaa"] = f"{type(error).__name__}: {error}"[:200]
         try:
             from pywinauto.uia_element_info import UIAElementInfo
-            info = UIAElementInfo(handle=w["hwnd"])
+            info = UIAElementInfo(w["hwnd"])
             kids = info.children()
             w["uia"] = dict(children=len(kids), first=[(k.control_type, k.name[:40]) for k in kids[:12]],
                             descendants=len(info.descendants()))

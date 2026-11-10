@@ -34,7 +34,7 @@ def windows_nodes(limit):
     from windows_focus import office_windows
     out = []
     for hwnd, _title in office_windows():
-        root = UIAElementInfo(handle=hwnd)
+        root = UIAElementInfo(hwnd)
         for info in [root] + root.descendants():
             r = info.rectangle
             out.append([info.control_type or "", (info.name or "")[:80], [r.left, r.top, r.width(), r.height()]])
