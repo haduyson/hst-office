@@ -60,7 +60,9 @@ class Run(unittest.TestCase):
         host, desktop = self.host("file:///tmp/ban-ve.pdf", False)
         self.assertEqual(op.run(host), "file:///tmp/ban-ve.pdf")
         host.doc.storeToURL.assert_not_called()
-        desktop.loadComponentFromURL.assert_called_once_with("file:///tmp/ban-ve.pdf", "_blank", 0, ())
+        (url, target, flags, args), _ = desktop.loadComponentFromURL.call_args
+        self.assertEqual((url, target, flags), ("file:///tmp/ban-ve.pdf", "_blank", 0))
+        self.assertEqual([(a.Name, a.Value) for a in args], [("HSTPdfOpenInViewer", True)])  # whatever the Options say
 
     def test_changed_drawing_is_exported_to_a_folder_of_its_own(self):
         host, desktop = self.host("file:///tmp/ban-ve.pdf", True)
@@ -70,7 +72,9 @@ class Run(unittest.TestCase):
         (target, args), _ = host.doc.storeToURL.call_args
         self.assertEqual(target, url)
         self.assertEqual((args[0].Name, args[0].Value), ("FilterName", "draw_pdf_Export"))
-        desktop.loadComponentFromURL.assert_called_once_with(url, "_blank", 0, ())
+        (loaded, _target, _flags, args), _ = desktop.loadComponentFromURL.call_args
+        self.assertEqual(loaded, url)
+        self.assertEqual([(a.Name, a.Value) for a in args], [("HSTPdfOpenInViewer", True)])
 
 
 if __name__ == "__main__":
