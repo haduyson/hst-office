@@ -42,6 +42,14 @@ def main():
         results.save()
         from prepare import installation
         install, receipt, startup_ok = installation(args, results)
+        if os.environ.get("R1_OVERLAY_OXT"):
+            # a fix of the bundled extension tried on this build, before any profile has registered the old one
+            import shutil
+            import zipfile
+            target = Path(install) / "share" / "extensions" / "hst-vietnamese-tools"
+            shutil.rmtree(target)
+            zipfile.ZipFile(os.environ["R1_OVERLAY_OXT"]).extractall(target)
+            results.report["overlay_extension"] = os.environ["R1_OVERLAY_OXT"]
         from launch import interpreter, probe
         from fixtures import generate
         fixtures = Path(args.work) / "fixtures"

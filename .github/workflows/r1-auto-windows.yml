@@ -11,6 +11,10 @@ on:
         description: 'Các mục cần chạy, ví dụ W3-W5,W12; để trống chạy tất cả'
         type: string
         default: ''
+      overlay_extension:
+        description: 'Thay extension HST đi kèm bằng bản dựng từ commit này (thử bản sửa không cần dựng lại bộ cài)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 env:
@@ -64,6 +68,13 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/source-run.json"
           python tests/runtime/r1auto/verify-source.py "$RUNNER_TEMP/source-run.json" windows
           bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/msi" HST_MSI
+      - name: Dựng extension từ commit này để thay bản đi kèm
+        if: ${{ inputs.overlay_extension }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I scripts/build-extensions.py --output "$RUNNER_TEMP/oxt"
+          echo "R1_OVERLAY_OXT=$(cygpath -w "$RUNNER_TEMP/oxt/hst-vietnamese-tools.oxt")" >> "$GITHUB_ENV"
       - name: Bật minidump của Windows cho soffice.bin
         shell: bash
         run: |
