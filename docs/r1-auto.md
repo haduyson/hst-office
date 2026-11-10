@@ -95,6 +95,18 @@ của Gatekeeper được trả lời Mở qua System Events (chỉ hộp nêu t
 lần duyệt cây Trợ năng có hạn 2 s/lệnh và 15 s/lượt. Mỗi mục khác chạy trong probe
 có hạn 420 s. Hết hạn là FAIL kèm ảnh, rồi lượt chạy tiếp mục sau.
 
+## Giới hạn đã chứng minh trên runner
+
+- Engine hiện tại không đưa `XAccessible` của cửa sổ toolkit qua UNO (cửa sổ khai báo 18 interface, không có
+  accessibility; `queryInterface` trả về rỗng) trên cả Windows và macOS. Các phép đo đọc ribbon qua cây
+  accessibility UNO (W8, W9, W10, M4 phần thanh công cụ, M7) vì vậy FAIL do harness; cần đọc cây accessibility
+  của hệ điều hành (UIA/AX) như bản Linux đọc AT-SPI. Khi các mục này FAIL, `native-tree.log` ghi cây đó.
+- `getCharacterBounds` của ô nhập trả về khung rỗng: W7/M5 đo hàng chữ ngay trên ảnh chụp sau khi gõ.
+- Phím thật gõ theo nhịp người (80 ms/ký tự); trên Windows tiến trình công cụ tự đưa cửa sổ office lên trước.
+- macOS: office của probe được mở qua LaunchServices (`open -n -W`).
+- M2: bản cài tự chuyển rồi phải tự mở lại từ Applications; nếu sau 90 s không mở, kết quả ghi
+  `product_reopened_itself: false` và harness mở lại từ Applications như bước của chủ sở hữu.
+
 ## Hồ sơ beta.5 cũ (macOS)
 
 Job `old-profile` của `r1-auto-macos.yml` (runner riêng) làm như kịch bản
