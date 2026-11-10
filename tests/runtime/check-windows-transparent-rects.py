@@ -9,7 +9,7 @@ blue rectangle at 50% fill transparency on white is shown in the edit view and i
 centre must be light (about (154, 193, 241)), not dark (about (26, 66, 114)).
 
 Usage: "<install>\\program\\python.exe" tests/runtime/check-windows-transparent-rects.py --install DIR --out DIR
-[--port 2123]. Evidence: <out>/edit-view.png, <out>/slide-show.png. Exit 1 on any FAIL.
+[--port 2123]. Evidence: <out>/edit-view.png, <out>/slide-show-N.png. Exit 1 on any FAIL.
 """
 import argparse
 import os
@@ -65,7 +65,18 @@ def main():
     try:
         office.start(fresh=True)
         check.note("start-up dialog closed first", wg.dismiss_startup(office, os.path.join(out, "startup-dialog.png")))
+        tips = office.config("/org.openoffice.Office.Common/Misc", None)
+        import uno
+        arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+        arg.Name, arg.Value = "nodepath", "/org.openoffice.Office.Common/Misc"
+        update = office.service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
+            "com.sun.star.configuration.ConfigurationUpdateAccess", (arg,))
+        update.setPropertyValue("ShowTipOfTheDay", False)
+        update.commitChanges()
+        check.note("Tip of the Day was on", tips.getPropertyValue("ShowTipOfTheDay"))
         doc = office.load("private:factory/simpress")
+        check.note("dialogs closed after the new presentation",
+                   wg.dismiss_startup(office, os.path.join(out, "presentation-dialog.png"), timeout=8, settle=3))
         add_rectangle(doc)
         time.sleep(3)
         window = wg.find_window(lambda title: "HST" in title and "Start" not in title, timeout=10)
@@ -74,9 +85,14 @@ def main():
         edit = wg.screenshot(os.path.join(out, "edit-view.png"), cursor=False)
         check.note("edit view: rectangle luma (drawinglayer path)", blue_luma(edit))
         doc.getPresentation().start()
-        time.sleep(5)
-        show = wg.screenshot(os.path.join(out, "slide-show.png"), cursor=False)
-        luma = blue_luma(show)
+        luma = None
+        for attempt in range(4):  # the full-screen show window takes a moment to appear and paint
+            time.sleep(3)
+            show = wg.screenshot(os.path.join(out, "slide-show-%d.png" % attempt), cursor=False)
+            luma = blue_luma(show)
+            check.note("slide show shot %d: rectangle luma" % attempt, luma)
+            if luma is not None:
+                break
         check("slide show: the 50%% transparent rectangle stays light (luma >= %d)" % LIGHT,
               luma is not None and luma >= LIGHT, luma)
         doc.getPresentation().end()
