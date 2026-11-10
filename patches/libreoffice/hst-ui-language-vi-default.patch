@@ -1,0 +1,37 @@
+HST Office: the user interface is Vietnamese by default on every system, whatever its language
+(owner decision 2026-11-10).
+- officecfg Linguistic.xcs: the default of /org.openoffice.Office.Linguistic/General/UILocale is
+  "vi" instead of empty ("use the desktop's UI language"). It is a schema default, the lowest
+  configuration layer: a value in the user's profile (registrymodifications.xcu, written by
+  Tools > Options > Languages and Locales > General > User interface or by HST > Ngôn ngữ giao
+  diện; empty is "Default", the system's language) and a finalized administrator value win over
+  it, and survive updates, which replace only the installation's main.xcd. A profile that never
+  chose a language (no stored value) follows the new default. When the vi pack is missing,
+  desktop langselect falls back as for "Default" without erasing anything
+  (hst-language-selection.patch).
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_vi_ui_default.py, tests/runtime/check-language-selection.py --phases default.
+--- a/officecfg/registry/schema/org/openoffice/Office/Linguistic.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Linguistic.xcs
+@@ -138,17 +138,20 @@
+       </info>
+       <prop oor:name="UILocale" oor:type="xs:string" oor:nillable="false">
+         <!-- UIHints: Tools - Options - General - Languages and Locales - General
+         -->
+         <info>
+           <desc>Specifies the UI language. An empty string means: use the
+           desktop's UI language if possible.</desc>
+         </info>
+-        <value/>
++        <!-- HST Office: Vietnamese on every system, whatever its language. A value in the user's
++             profile (Options or HST > Ngôn ngữ giao diện; empty is "Default", the system's
++             language) or a finalized administrator value wins over this default. -->
++        <value>vi</value>
+       </prop>
+       <prop oor:name="IsIgnoreControlCharacters" oor:type="xs:boolean" oor:nillable="false">
+         <info>
+           <desc>Ignores the control characters (ASCII characters &lt; 32) for
+           spell checking, hyphenation and the thesaurus.</desc>
+         </info>
+         <value>true</value>
+       </prop>

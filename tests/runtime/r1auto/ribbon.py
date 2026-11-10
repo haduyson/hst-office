@@ -9,15 +9,15 @@ from style_hover_preview_gui import state
 def search(e, doc):
     from com.sun.star.accessibility.AccessibleRole import LIST_ITEM, MENU_ITEM
     e.office.focus(doc.CurrentController.Frame.ContainerWindow)
-    anchors = named(e.office, "Tìm tính năng") or named(e.office, "Search features")
+    anchors = named(e.office, "Tìm tính năng")
     anchor = next((box(n) for n in anchors if box(n)[1] < 200), None)
     native("key", "alt+cmd+k" if e.office.system == "Darwin" else "alt+q")
     native("text", "bảng")
     found = wait(lambda: [n for n in snapshot(e.office)
-                          if says(n.getAccessibleName(), "trong tài liệu", "in the document")])
+                          if says(n.getAccessibleName(), "trong tài liệu")])
     e.shot("search")
     final = found[-1]
-    e.require(final.getAccessibleName() in ("Tìm “bảng” trong tài liệu", "Find “bảng” in the document"),
+    e.require(final.getAccessibleName() == "Tìm “bảng” trong tài liệu",
               "Dòng cuối tìm trong tài liệu",
               labels=labels(e.office))
     e.require(anchor is not None, "Có ô tìm trên ribbon")

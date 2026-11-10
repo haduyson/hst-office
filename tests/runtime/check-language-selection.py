@@ -3,13 +3,19 @@
 
 Usage: python3 tests/runtime/check-language-selection.py [--instdir upstream/libreoffice/instdir]
            [--out tests/output/language-selection] [--display :97] [--port 23950]
-           [--phases resolution,partial,lock,restart,shortcut]
+           [--phases default,resolution,partial,lock,restart,shortcut]
 
 Phases (each starts soffice as the build user with fresh profiles on an existing X display):
+  default     HST Office's UI language is Vietnamese by default whatever the OS language: a fresh
+              profile on en_US stores no UILocale, reads "vi" (the installation's default) and shows
+              the Vietnamese core UI; English chosen in the profile then wins after a restart of the
+              same profile, is written to registrymodifications.xcu and comes back as the choice
+              after another restart.
   resolution  the stored UILocale (Tools > Options > Languages and Locales > General > User
               interface) is never erased: en, en-GB, EN-us resolve to the installed en-US, vi-VN to
-              vi, an uninstalled language (de) falls back like "Default"; Default follows the OS
-              (vi_VN -> vi, en_US and fr_FR -> en-US).
+              vi, an uninstalled language (de) falls back like "Default"; nothing stored gives
+              Vietnamese on every OS; a stored "Default" (empty) follows the OS (vi_VN -> vi, en_US
+              and fr_FR -> en-US).
   partial     on a hard-linked copy of the installation without program/resource/vi the UI falls
               back to English for the session (no half-translated UI) and keeps the choice "vi";
               without any Vietnamese registration either, the choice "vi" is still kept.
@@ -48,6 +54,7 @@ LOCK_XCD = """<?xml version="1.0" encoding="UTF-8"?>
 </oor:data>
 """
 SHORTCUT = "org.hst.office.vi:UILanguage"
+DEFAULT = "vi"  # UILocale of a profile that stores no choice (hst-ui-language-vi-default.patch)
 
 
 class Office(hst_gui.Office):
@@ -126,14 +133,66 @@ def untitled(locale):
     return "Không tên" if locale.startswith("vi") else "Untitled"
 
 
+def stored_text(stored):
+    return "nothing stored" if stored is None else (stored or "Default")
+
+
+def profile_file_value(office):
+    """UILocale as written in the profile's registrymodifications.xcu (None: no item)."""
+    import re
+    path = os.path.join(office.workdir, "profile", "user", "registrymodifications.xcu")
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    found = re.findall(r'<item oor:path="/org.openoffice.Office.Linguistic/General">'
+                       r'<prop oor:name="UILocale" oor:op="fuse">(?:<value>(.*?)</value>|<value/>)</prop></item>', text)
+    return found[-1] if found else None
+
+
+def phase_default(args, check):
+    base = os.path.join(args.out, "default")
+    office = Office(args.instdir, base, args.port, display=args.display, lang="en_US.UTF-8")
+    try:
+        office.start()
+        check("[default] fresh profile stores no UI language", profile_file_value(office) is None,
+              repr(profile_file_value(office)))
+        raw, used, title = office.ui_state()
+        check("[default] en_US, nothing stored: Vietnamese core UI", raw == DEFAULT and used == "vi"
+              and title.startswith(untitled("vi")), f"{raw}, {used}, {title!r}")
+        office.screenshot(os.path.join(args.out, "default-vi.png"))
+        office.set_config(GENERAL, "UILocale", "en-US")  # as Options or HST > Ngôn ngữ giao diện > English write it
+        office.stop()
+        check("[default] English choice written to the profile", profile_file_value(office) == "en-US",
+              repr(profile_file_value(office)))
+        for attempt in ("after restart", "after a second restart"):
+            office.start(fresh=False)
+            raw, used, title = office.ui_state()
+            check(f"[default] user's English wins {attempt}", raw == "en-US" and used == "en-US"
+                  and title.startswith(untitled("en-US")), f"{raw}, {used}, {title!r}")
+            office.stop()
+        check("[default] English choice still in the profile", profile_file_value(office) == "en-US",
+              repr(profile_file_value(office)))
+        office.start(fresh=False)
+        office.set_config(GENERAL, "UILocale", "vi")
+        office.stop()
+        office.start(fresh=False)
+        raw, used, title = office.ui_state()
+        check("[default] switching back to Vietnamese works", raw == "vi" and used == "vi"
+              and title.startswith(untitled("vi")), f"{raw}, {used}, {title!r}")
+    except Exception as error:  # noqa: BLE001
+        check("[default] completed", False, repr(error))
+    finally:
+        office.stop()
+
+
 def phase_resolution(args, check):
-    cases = (  # (OS locale, stored UILocale or None for Default, expected UI language)
-        ("en_US.UTF-8", None, "en-US"), ("vi_VN.UTF-8", None, "vi"), ("fr_FR.UTF-8", None, "en-US"),
+    cases = (  # (OS locale, stored UILocale or None when nothing is stored, expected UI language)
+        ("en_US.UTF-8", None, "vi"), ("vi_VN.UTF-8", None, "vi"), ("fr_FR.UTF-8", None, "vi"),
+        ("en_US.UTF-8", "", "en-US"), ("vi_VN.UTF-8", "", "vi"), ("fr_FR.UTF-8", "", "en-US"),
         ("vi_VN.UTF-8", "en-US", "en-US"), ("en_US.UTF-8", "vi", "vi"),
         ("vi_VN.UTF-8", "en-GB", "en-US"), ("vi_VN.UTF-8", "EN-us", "en-US"), ("en_US.UTF-8", "en", "en-US"),
         ("en_US.UTF-8", "vi-VN", "vi"), ("vi_VN.UTF-8", "de", "vi"), ("en_US.UTF-8", "de", "en-US"))
     for index, (lang, stored, expected) in enumerate(cases):
-        tag = f"{lang[:5]} {stored or 'Default'}"
+        tag = f"{lang[:5]} {stored_text(stored)}"
         config = [(GENERAL, "UILocale", stored)] if stored is not None else []
         office = Office(args.instdir, os.path.join(args.out, "resolution", str(index)), args.port, display=args.display,
                         lang=lang, config=config)
@@ -141,7 +200,7 @@ def phase_resolution(args, check):
             office.start()
             raw, used, title = office.ui_state()
             check(f"[{tag}] UI language {expected}", used == expected and title.startswith(untitled(used)), f"{used}, {title!r}")
-            check(f"[{tag}] stored choice kept", raw == (stored or ""), repr(raw))
+            check(f"[{tag}] stored choice kept", raw == (DEFAULT if stored is None else stored), repr(raw))
         except Exception as error:  # noqa: BLE001
             check(f"[{tag}] office starts", False, repr(error))
         finally:
@@ -175,7 +234,7 @@ def phase_partial(args, check):
              (no_vi, "no-vi", "en_US.UTF-8", "vi"))
     try:
         for index, (instdir, name, lang, stored) in enumerate(cases):
-            tag = f"{name} {lang[:5]} {stored or 'Default'}"
+            tag = f"{name} {lang[:5]} {stored_text(stored)}"
             config = [(GENERAL, "UILocale", stored)] if stored is not None else []
             office = Office(instdir, os.path.join(base, str(index)), args.port, display=args.display, lang=lang, config=config)
             try:
@@ -183,7 +242,7 @@ def phase_partial(args, check):
                 raw, used, title = office.ui_state()
                 check(f"[{tag}] falls back to English for the session", used == "en-US" and title.startswith("Untitled"),
                       f"{used}, {title!r}")
-                check(f"[{tag}] stored choice kept", raw == (stored or ""), repr(raw))
+                check(f"[{tag}] stored choice kept", raw == (DEFAULT if stored is None else stored), repr(raw))
             except Exception as error:  # noqa: BLE001
                 check(f"[{tag}] office starts", False, repr(error))
             finally:
@@ -334,7 +393,7 @@ def check_reopened(office, check, tag, saved_odt, on_disk):
 def phase_restart(args, check):
     base = os.path.join(args.out, "restart")
     office = Office(args.instdir, os.path.join(base, "office"), args.port, display=args.display, lang="en_US.UTF-8",
-                    restore=True)
+                    restore=True, config=[(GENERAL, "UILocale", "en-US")])  # the user chose English before
     try:
         office.start()
         saved_odt, on_disk = open_documents(office, os.path.join(base, "files"))
@@ -405,7 +464,7 @@ def answer(office, title, key, timeout=30):
 def phase_shortcut(args, check):
     base = os.path.join(args.out, "shortcut")
     office = Office(args.instdir, os.path.join(base, "office"), args.port, display=args.display, lang="en_US.UTF-8",
-                    restore=True)
+                    restore=True, config=[(GENERAL, "UILocale", "")])  # the user chose "Default" (the OS language)
     try:
         office.start()
         saved_odt, on_disk = open_documents(office, os.path.join(base, "files"))
@@ -441,7 +500,7 @@ def phase_shortcut(args, check):
         office.stop()
 
 
-PHASES = {"resolution": phase_resolution, "partial": phase_partial, "lock": phase_lock,
+PHASES = {"default": phase_default, "resolution": phase_resolution, "partial": phase_partial, "lock": phase_lock,
           "restart": phase_restart, "shortcut": phase_shortcut}
 
 

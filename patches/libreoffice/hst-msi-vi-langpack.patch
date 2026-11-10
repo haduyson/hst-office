@@ -1,0 +1,98 @@
+HST Office: the Windows installer always installs the Vietnamese and the en-US language packs.
+Upstream SelectLanguage keeps only the packs that match the Windows UI languages, so on an English
+Windows the vi pack (gm_Langpack_r_vi) was left out and the core UI stayed English although HST
+Office's UI language defaults to Vietnamese (hst-ui-language-vi-default.patch).
+- sellang.cxx SelectLanguage: without UI_LANGS, "vi" and "en" are always relevant UI languages
+  (en matches en_US). An administrator's UI_LANGS=... still selects exactly the packs listed.
+  The selected packs and their dictionaries are set to install locally.
+- windowscustomaction_ooo.scp: SelectLanguage runs behind MigrateFeatureStates instead of before
+  it, so a major upgrade from a build that left the vi pack out (its "absent" state is migrated)
+  installs it too. Unchanged: it runs only on a first install of this product (NOT Installed), and
+  not when the features are chosen in Custom Setup or on the command line (ADDLOCAL).
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_vi_ui_default.py; windows-smoke (vi pack in the MSI log of every install
+scenario) and r1-auto-windows (W1: fresh profile on English Windows shows the Vietnamese core UI).
+--- a/setup_native/source/win32/customactions/sellang/sellang.cxx
++++ b/setup_native/source/win32/customactions/sellang/sellang.cxx
+@@ -318,16 +318,21 @@
+     if ( (GetMsiPropA( handle, "UI_LANGS", &pVal )) && pVal ) {
+         char *str_ptr;
+         str_ptr = strtok(pVal, ",");
+         for(; str_ptr != nullptr ;) {
+             add_ui_lang(str_ptr);
+             str_ptr = strtok(nullptr, ",");
+         }
+     } else {
++        // HST Office: the Vietnamese user interface is the default on every Windows display
++        // language (the office's UILocale defaults to "vi"), and en-US stays installed as the
++        // fallback; so both language packs are always relevant.
++        add_ui_lang("vi");
++        add_ui_lang("en");
+         add_ui_lang(langid_to_string(GetSystemDefaultUILanguage()));
+         add_ui_lang(langid_to_string(LANGIDFROMLCID(GetThreadLocale())));
+             //TODO: are the above two explicit additions necessary, or will
+             // those values always be included in the below EnumUILanguages
+             // anyway?
+         if (GetMsiPropA(handle, "ProductLanguage", &pVal))
+         {
+             // This addition might refer to a language without an installed system language pack
+@@ -367,28 +372,32 @@
+                 langs[i].install = true;
+             }
+         }
+     }
+ 
+     for (int i = 0; i < nlangs; i++) {
+         if (langs[i].install) {
+             addMatchingDictionaries(langs[i].lang, dicts, ndicts);
++            // HST Office: this action runs behind MigrateFeatureStates, which copies the
++            // feature states of the product being upgraded (an older build left the vi pack
++            // out on non-Vietnamese Windows): select the relevant packs explicitly.
++            sprintf(feature, "gm_Langpack_r_%s", langs[i].lang);
++            MsiSetFeatureStateA(handle, feature, INSTALLSTATE_LOCAL);
+         } else {
+             sprintf(feature, "gm_Langpack_r_%s", langs[i].lang);
+             MsiSetFeatureStateA(handle, feature, INSTALLSTATE_ABSENT);
+         }
+     }
+ 
+     // Select just those dictionaries that match any of the selected langpacks:
+     for (int i = 0; i != ndicts; ++i) {
+-        if (!dicts[i].install) {
+-            sprintf(feature, "gm_r_ex_Dictionary_%s", dicts[i].lang);
+-            MsiSetFeatureStateA(handle, feature, INSTALLSTATE_ABSENT);
+-        }
++        sprintf(feature, "gm_r_ex_Dictionary_%s", dicts[i].lang);
++        // HST Office: also select the matching ones, past a migrated "absent" state (see above).
++        MsiSetFeatureStateA(handle, feature, dicts[i].install ? INSTALLSTATE_LOCAL : INSTALLSTATE_ABSENT);
+     }
+ 
+     MsiCloseHandle(database);
+ 
+     return ERROR_SUCCESS;
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/scp2/source/ooo/windowscustomaction_ooo.scp
++++ b/scp2/source/ooo/windowscustomaction_ooo.scp
+@@ -167,18 +167,18 @@
+ End
+ 
+ WindowsCustomAction gid_Customaction_SelectLanguage
+     Name = "SelectLanguage";
+     Typ = "321";
+     Source = "sellangmsi.dll";
+     Target = "SelectLanguage";
+     Inbinarytable = 1;
+-    Assignment1 = ("InstallExecuteSequence", "NOT Installed And (ADDLOCAL=\"\" Or NOT UI_LANGS=\"\")", "MigrateFeatureStates");
+-    Assignment2 = ("InstallUISequence", "NOT Installed And (ADDLOCAL=\"\" Or NOT UI_LANGS=\"\")", "MigrateFeatureStates");
++    Assignment1 = ("InstallExecuteSequence", "NOT Installed And (ADDLOCAL=\"\" Or NOT UI_LANGS=\"\")", "behind_MigrateFeatureStates");
++    Assignment2 = ("InstallUISequence", "NOT Installed And (ADDLOCAL=\"\" Or NOT UI_LANGS=\"\")", "behind_MigrateFeatureStates");
+ End
+ 
+ WindowsCustomAction gid_Customaction_SortTree
+     Name = "SortTree";
+     Typ = "321";
+     Source = "sellangmsi.dll";
+     Target = "SortTree";
+     Inbinarytable = 1;
