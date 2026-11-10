@@ -26,6 +26,9 @@ QUIET = dict(check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=
 def launch(out, name, *args):
     """`open` waits for the Gatekeeper answer; never block on it, the caller answers the prompt while polling."""
     log = (Path(out) / (name + "-open.log")).open("w", encoding="utf-8")
+    import os
+    if os.environ.get("R1_PRODUCT_PYTHONPATH"):  # probe only: the fixed modules, loaded by sitecustomize
+        args = ("--env", "PYTHONPATH=" + os.environ["R1_PRODUCT_PYTHONPATH"], *args)
     return subprocess.Popen(["open", *args], stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
 
 

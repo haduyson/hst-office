@@ -1,0 +1,28 @@
+
+
+# --- probe instrumentation (appended by the probe workflow) ---
+def _probe_log(message):
+    import time as _t
+    with open(os.path.expanduser("~/hst-reopen-probe.log"), "a", encoding="utf-8") as _h:
+        _h.write("%s pid=%d %s\n" % (_t.strftime("%H:%M:%S"), os.getpid(), message))
+
+
+_probe_spawn, _probe_quit = spawn, quit_office
+
+
+def spawn(argv, system, log_dir=None):
+    proc = _probe_spawn(argv, system, log_dir)
+    _probe_log("spawn %s -> pid %s" % (argv[2:4], proc.pid))
+    return proc
+
+
+def quit_office(ctx):
+    import threading as _th
+    _probe_log("quit_office on thread %s" % _th.current_thread().name)
+    try:
+        result = _probe_quit(ctx)
+    except Exception as error:
+        _probe_log("quit_office raised %r" % (error,))
+        raise
+    _probe_log("quit_office -> %r" % (result,))
+    return result
