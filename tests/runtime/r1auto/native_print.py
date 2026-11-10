@@ -64,7 +64,8 @@ def mac_print(target):
         pdf_button = wait(pdf_menu)
         ax.AXUIElementPerformAction(pdf_button, "AXPress")
         item = wait(lambda: next((n for n in nodes(app) if attribute(n, "AXTitle") in
-                                 {"Save as PDF", "Save as PDF…", "Lưu dưới dạng PDF", "Lưu dưới dạng PDF…"}), None))
+                                 {"Save as PDF", "Save as PDF…", "Lưu thành PDF", "Lưu thành PDF…",
+                                  "Lưu dưới dạng PDF", "Lưu dưới dạng PDF…"}), None))
         ax.AXUIElementPerformAction(item, "AXPress")
         time.sleep(1)
         # Save panel Go To Folder uses a native keyboard event, then a native Save button.

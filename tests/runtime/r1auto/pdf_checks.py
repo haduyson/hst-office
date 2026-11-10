@@ -39,7 +39,8 @@ def run(e, fixtures):
             try:
                 native("print", printed)
             except Exception:
-                native("key", "escape")  # a modal print dialog left open would block every later close
+                native("key", "escape")  # an open menu, then the modal print dialog: either would block the close
+                native("key", "escape")
                 task.join(10)
                 raise
             task.join(10)
