@@ -5,7 +5,7 @@
 Opens a synthetic text page (pdf_selection_highlight.sample) in HST PDF on an X display, selects text with a real
 mouse drag (xdotool), screenshots the screen before and after and measures the highlight and the selected glyphs
 (pdf_selection_highlight.measure), with the light and the dark application appearance (the page view paints the
-same colours in both; toolbar_luma shows whether the VCL plugin turned dark, gen and gtk3 on a bare Xvfb do not).
+same colours in both; toolbar_luma shows whether the VCL plugin turned dark).
 Also checks that the status bar counts the selected characters. Screenshots go to --workdir.
 
   check-pdf-selection.py --instdir upstream/libreoffice/instdir --workdir /tmp/pdfsel --display :71
@@ -24,7 +24,7 @@ import pdf_selection_highlight as selection
 import png_luma
 from pdf_viewer_uno import info, open_viewer, signing_props
 
-APPEARANCES = {"light": "1", "dark": "2"}  # Common/Misc ApplicationAppearance
+APPEARANCES = {"light": "1", "dark": "2"}  # Common/Appearance ApplicationAppearance
 
 
 def xdotool(display, *args):
@@ -41,7 +41,7 @@ def run(instdir, workdir, display, appearance):
     out = os.path.join(workdir, appearance)
     os.makedirs(out, exist_ok=True)
     pdf = selection.write(os.path.join(out, "chon-van-ban.pdf"))
-    config = [("/org.openoffice.Office.Common/Misc", "ApplicationAppearance", APPEARANCES[appearance])]
+    config = [("/org.openoffice.Office.Common/Appearance", "ApplicationAppearance", APPEARANCES[appearance])]
     office = hst_gui.Office(instdir, os.path.join(out, "office"), hst_gui.free_port(), display=display, config=config)
     office.start()
     try:

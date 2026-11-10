@@ -6,7 +6,7 @@ Opens a synthetic text page (pdf_selection_highlight.sample) in HST PDF, selects
 (SendInput), screenshots the screen before and after and measures the highlight and the selected glyphs
 (pdf_selection_highlight.measure): the highlight stays light and the selected glyphs much darker than it. Before the
 fix, Windows with Skia painted the selection as solid (20, 46, 83) bars that hid the text. Runs with the light and then
-the dark application appearance (Common/Misc ApplicationAppearance, the office restarted in between).
+the dark application appearance (Common/Appearance ApplicationAppearance, the office restarted in between).
 
 Usage: "<install>\\program\\python.exe" tests/runtime/check-windows-pdf-selection.py --install DIR --out DIR
 [--port 2121]. Evidence: <out>/<appearance>-before.png, <out>/<appearance>-after.png. Exit 1 on any FAIL.
@@ -35,10 +35,10 @@ def luma(path):
 def set_appearance(office, value):
     import uno
     arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-    arg.Name, arg.Value = "nodepath", "/org.openoffice.Office.Common/Misc"
+    arg.Name, arg.Value = "nodepath", "/org.openoffice.Office.Common/Appearance"
     access = office.service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
         "com.sun.star.configuration.ConfigurationUpdateAccess", (arg,))
-    access.setPropertyValue("ApplicationAppearance", value)
+    uno.invoke(access, "setPropertyValue", ("ApplicationAppearance", uno.Any("short", value)))  # xs:short
     access.commitChanges()
 
 
