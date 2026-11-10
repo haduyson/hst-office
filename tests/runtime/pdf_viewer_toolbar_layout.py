@@ -7,9 +7,9 @@ control, relative to the toolbar) and ToolbarScreen (the toolbar's screen x, y, 
   clipped  a control narrower or lower than it asks to be, or reaching past the toolbar's right edge;
   ghost    a gap between two neighbouring controls that is not plain background in the screenshot (luma rows from
            png_luma.read): stale copies of moved controls, as the Windows dark appearance left before the fix.
-A separator line in a gap is one or two columns and is allowed.
+A separator line in a gap is one column and is allowed; the stale copies the dark appearance left measured 3-4.
 """
-GHOST_COLUMNS = 4  # more columns than a separator line that differ from the gap's background
+GHOST_COLUMNS = 2  # more columns than a separator line (one column) that differ from the gap's background
 GHOST_LUMA = 24
 
 

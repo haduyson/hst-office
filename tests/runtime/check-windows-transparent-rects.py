@@ -3,13 +3,16 @@
 """Translucent rectangles stay translucent on an INSTALLED HST Office (Windows): Impress slide show, Calc Text Import.
 
 VCL on Windows sends a translucent RECTANGLE drawn with OutputDevice::DrawTransparent(tools::PolyPolygon, percent) to
-DrawAlphaRect, which with Skia overwrote the pixels with the premultiplied colour (dark boxes) instead of blending. The
-slide show draws with the VCL canvas when Skia is on, and the canvas fills translucent shapes that way. A slide with a
-blue rectangle at 50% fill transparency on white is shown in the edit view and in the slide show; the rectangle's
-centre must be light (about (154, 193, 241)), not dark (about (26, 66, 114)).
+DrawAlphaRect, which with Skia overwrote the pixels with the premultiplied colour (dark boxes) instead of blending.
+  - Calc's Text Import dialog tints the header of a selected column (selection colour at 85% transparency): before
+    the fix it was a near-black block that hid the column type. A click selects the first column; the header must not
+    be mostly near-black (the column's cells are inverted, black by design).
+  - The slide show (VCL canvas when Skia is on) shows a blue rectangle at 50% fill transparency on white; its centre
+    must be light (about (154, 193, 241)). This path blended correctly before the fix too; it guards the canvas.
 
 Usage: "<install>\\program\\python.exe" tests/runtime/check-windows-transparent-rects.py --install DIR --out DIR
-[--port 2123]. Evidence: <out>/edit-view.png, <out>/slide-show-N.png. Exit 1 on any FAIL.
+[--port 2123]. Evidence: <out>/edit-view.png, <out>/slide-show-N.png, <out>/csv-before.png,
+<out>/csv-after.png. Exit 1 on any FAIL.
 """
 import argparse
 import os
@@ -38,12 +41,40 @@ def blue_luma(path):
     return values[len(values) // 2] if len(values) > 200 else None
 
 
-def dark_pixels(path, rect):
-    """Pixels darker than luma 40 inside the screen rectangle (left, top, right, bottom) of a screenshot."""
-    with open(path, "rb") as handle:
-        _width, _height, luma = png_luma.read(handle.read())
+def header_dark_share(before_path, after_path, rect):
+    """Share of near-black pixels (luma < 40) in the header of the column a click selected inside `rect` (left, top,
+    right, bottom), or None when no column changed. The selected column's cells are inverted (black, by design); the
+    column is where many rows changed, and its header the grey rows just above its first white (before) cell.
+    The header is tinted with the selection colour and must stay light."""
+    with open(before_path, "rb") as handle:
+        before = png_luma.read(handle.read())[2]
+    with open(after_path, "rb") as handle:
+        after = png_luma.read(handle.read())[2]
     left, top, right, bottom = rect
-    return sum(v < 40 for row in luma[max(0, top):bottom] for v in row[max(0, left):right])
+    columns = [x for x in range(left, right)
+               if sum(abs(after[y][x] - before[y][x]) > 40 for y in range(top, bottom)) >= 60]
+    if not columns:
+        return None
+    x0, x1 = min(columns), max(columns)
+
+    def grey(y):  # median luma of the column's row y before the click
+        row = sorted(before[y][x0:x1 + 1])
+        return row[len(row) // 2]
+    middle = (x0 + x1) // 2
+    cells = [y for y in range(top, bottom) if grey(y) >= 250 and abs(after[y][middle] - before[y][middle]) > 40]
+    if not cells:
+        return None
+    y = min(cells) - 1
+    if grey(y) < 220:  # the grid line between header and cells
+        y -= 1
+    header = []
+    while y > top and 220 <= grey(y) <= 250:
+        header.append(y)
+        y -= 1
+    if not header:
+        return None
+    band = [after[y][x] for y in header for x in range(x0, x1 + 1)]
+    return sum(v < 40 for v in band) / len(band)
 
 
 def csv_column_header(check, office, out):
@@ -66,8 +97,10 @@ def csv_column_header(check, office, out):
     wg.mouse_move(right - 10, top + 10)
     time.sleep(1.5)
     after = wg.screenshot(os.path.join(out, "csv-after.png"), cursor=False)
-    dark = dark_pixels(after, (left, top, right, bottom)) - dark_pixels(before, (left, top, right, bottom))
-    check("Text Import: a selected column header is not painted dark (new near-black pixels <= 300)", dark <= 300, dark)
+    # the preview grid is in the lower half of the dialog (the title bar changes too when the dialog activates)
+    share = header_dark_share(before, after, (left, top + (bottom - top) // 2, right, bottom))
+    check("Text Import: the selected column's header is tinted, not painted near-black (dark share < 0.5)",
+          share is not None and share < 0.5, share)
     wg.keys("escape")
     time.sleep(2)
 
