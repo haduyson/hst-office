@@ -11,7 +11,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
-from brand.audit import check_assets, load_allowlist, scan_tree  # noqa: E402
+from brand.audit import check_assets, check_version_fields, load_allowlist, scan_tree  # noqa: E402
 
 with open(os.path.join(ROOT, "assets", "brand", "brand-spec.json"), encoding="utf-8") as fh:
     SPEC = json.load(fh)
@@ -161,6 +161,65 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(dirty.returncode, 1)
         self.assertIn("NAME: share/registry/main.xcd", dirty.stderr)
         self.assertEqual(run("--install-root", os.path.join(self.tmp, "nope")).returncode, 2)
+
+
+class VersionFieldTests(unittest.TestCase):
+    """OS-visible version fields name the HST release, never the engine version (26.8) or LibreOffice."""
+    RELEASE = "1.0.1"
+    PLIST = ("<plist><dict><key>CFBundleShortVersionString</key><string>{short}</string>"
+             "<key>CFBundleVersion</key><string>{build}</string>"
+             "<key>CFBundleGetInfoString</key><string>{info}</string>"
+             "<key>NSHumanReadableCopyright</key><string>© 2026 HASON TECH · © The Document Foundation và các tác giả "
+             "LibreOffice</string></dict></plist>")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def good_tree(self):
+        write(self.tmp, "opt/hst-office1.0/share/xdg/calc.desktop",
+              "[Desktop Entry]\nVersion=1.0\nName=HST Sheets\nName[vi]=HST Sheets\n")
+        write(self.tmp, "usr/share/metainfo/vn.hasontech.hstoffice.metainfo.xml",
+              '<component><name>HST Office</name><releases><release version="1.0.1" date="2026-11-11"/>'
+              "</releases></component>")
+        write(self.tmp, "HST Office.app/Contents/Info.plist",
+              self.PLIST.format(short="1.0.1", build="10000", info="HST Office 1.0.1"))
+
+    def test_hst_release_everywhere_passes_and_copyright_is_not_a_version_field(self):
+        self.good_tree()
+        self.assertEqual(check_version_fields(self.tmp, self.RELEASE), [])
+
+    def test_engine_version_or_upstream_name_is_reported(self):
+        self.good_tree()
+        write(self.tmp, "opt/hst-office1.0/share/xdg/calc.desktop", "[Desktop Entry]\nName=HST Office 26.8 Calc\n")
+        write(self.tmp, "usr/share/metainfo/vn.hasontech.hstoffice.metainfo.xml",
+              '<component><releases><release version="26.8.1.1"/></releases></component>')
+        write(self.tmp, "HST Office.app/Contents/Info.plist",
+              self.PLIST.format(short="26.8.1", build="26.8.1.1", info="LibreOffice 26.8.1.1"))
+        problems = " | ".join(check_version_fields(self.tmp, self.RELEASE))
+        for expected in ("calc.desktop:2", "release version '26.8.1.1' is not '1.0.1'",
+                         "CFBundleShortVersionString '26.8.1' is not '1.0.1'", "CFBundleVersion '26.8.1.1' is not",
+                         "CFBundleGetInfoString 'LibreOffice 26.8.1.1' does not name",
+                         "CFBundleGetInfoString carries the engine version"):
+            self.assertIn(expected, problems)
+
+    def test_pre_release_keeps_the_core_version_in_the_short_string(self):
+        write(self.tmp, "HST Office.app/Contents/Info.plist",
+              self.PLIST.format(short="1.0.1", build="600", info="HST Office 1.0.1-beta.6"))
+        self.assertEqual(check_version_fields(self.tmp, "1.0.1-beta.6"), [])
+
+    def test_cli_release_option(self):
+        self.good_tree()
+        run = lambda *a: subprocess.run([sys.executable, CLI, *a], capture_output=True, text=True)
+        empty = os.path.join(self.tmp, "allow.json")
+        write(self.tmp, "allow.json", json.dumps({"entries": []}))
+        ok = run("--install-root", self.tmp, "--allowlist", empty, "--release", self.RELEASE)
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertIn("version fields: ok", ok.stdout)
+        bad = run("--install-root", self.tmp, "--allowlist", empty, "--release", "1.0.2")
+        self.assertEqual(bad.returncode, 1)
+        self.assertIn("VERSION: ", bad.stderr)
+        self.assertEqual(run("--release", self.RELEASE).returncode, 2)
 
 
 if __name__ == "__main__":
