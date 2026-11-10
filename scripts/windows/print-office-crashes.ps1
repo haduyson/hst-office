@@ -52,4 +52,10 @@ foreach ($f in $files) {
         & $cdb -z $f.FullName -y $symbols -i "$Install\program" -c (($commands + 'q') -join '; ') 2>&1 |
             Where-Object { $_ -notmatch '^\s*$' } | Select-Object -First 1200
     }
+    else {
+        # a dump written by a debugger (ProcDump) at the original fault: its context, code and every thread
+        "--- fault context and all threads"
+        & $cdb -z $f.FullName -y $symbols -i "$Install\program" -c '.ecxr; r; ub @rip L40; u @rip L12; ~*kn 40; q' 2>&1 |
+            Where-Object { $_ -notmatch '^\s*$' } | Select-Object -First 1500
+    }
 }

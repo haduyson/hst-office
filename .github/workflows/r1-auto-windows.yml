@@ -11,6 +11,10 @@ on:
         description: 'Các mục cần chạy, ví dụ W3-W5,W12; để trống chạy tất cả'
         type: string
         default: ''
+      page_heap:
+        description: 'probe: full page heap for soffice.bin'
+        type: boolean
+        default: false
 permissions:
   contents: read
 env:
@@ -30,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scale: [100, 150]
+        scale: [100]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -74,6 +78,27 @@ jobs:
           MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpFolder /t REG_EXPAND_SZ /d "$dumps" /f
           MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpType /t REG_DWORD /d 1 /f
           MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpCount /t REG_DWORD /d 5 /f
+      - name: Probe - attach ProcDump to every soffice.bin
+        shell: pwsh
+        env:
+          PAGE_HEAP: ${{ inputs.page_heap }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pd = Join-Path $env:RUNNER_TEMP 'procdump'
+          Invoke-WebRequest https://download.sysinternals.com/files/Procdump.zip -OutFile "$pd.zip"
+          Expand-Archive "$pd.zip" -DestinationPath $pd
+          $dumps = Join-Path $env:RUNNER_TEMP 'r1-evidence\crash'
+          if ($env:PAGE_HEAP -eq 'true') {
+            $ifeo = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\soffice.bin'
+            New-Item -Path $ifeo -Force | Out-Null
+            New-ItemProperty -Path $ifeo -Name GlobalFlag -PropertyType DWord -Value 0x02000000 -Force | Out-Null
+            New-ItemProperty -Path $ifeo -Name PageHeapFlags -PropertyType DWord -Value 0x3 -Force | Out-Null
+            'full page heap on for soffice.bin'
+          }
+          $w = Start-Process pwsh -ArgumentList @('-NoProfile', '-File', "$env:GITHUB_WORKSPACE\scripts\windows\probe-attach-procdump.ps1",
+            '-ProcDump', "$pd\procdump64.exe", '-Dumps', $dumps) -WindowStyle Hidden -PassThru
+          "watcher $($w.Id)"
+          "PROBE_WATCHER=$($w.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Chạy checklist trên bản đã cài
         shell: bash
         env:
@@ -91,6 +116,13 @@ jobs:
         run: |
           set -euo pipefail
           python tests/runtime/r1auto/cleanup.py "$RUNNER_TEMP/r1-work" "$RUNNER_TEMP/r1-evidence"
+      - name: Probe - stop the ProcDump watcher
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          if ($env:PROBE_WATCHER) { Stop-Process -Id $env:PROBE_WATCHER -ErrorAction SilentlyContinue }
+          Get-Process procdump64 -ErrorAction SilentlyContinue | Stop-Process -ErrorAction SilentlyContinue
+          Get-ChildItem (Join-Path $env:RUNNER_TEMP 'r1-evidence\crash') | Format-Table Name, Length
       - name: Ghi các lần office đóng đột ngột
         if: ${{ always() }}
         shell: bash
@@ -116,6 +148,7 @@ jobs:
             ${{ runner.temp }}/r1-evidence/**/*.png
             ${{ runner.temp }}/r1-evidence/**/*.pdf
             ${{ runner.temp }}/r1-evidence/**/*.log
+            ${{ runner.temp }}/r1-evidence/**/*.dmp
             ${{ runner.temp }}/source-run.json
           if-no-files-found: error
           retention-days: 14
