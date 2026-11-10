@@ -38,15 +38,16 @@ def stop_recorded(pidfile):
             proc.terminate()
         except psutil.NoSuchProcess:
             pass
-    _, alive = psutil.wait_procs(owned, timeout=5)
+    _, alive = psutil.wait_procs(owned, timeout=20)  # a quitting office saves its profile first
     for proc in alive:
         try:
             proc.kill()
         except psutil.NoSuchProcess:
             pass
-    _, remaining = psutil.wait_procs(alive, timeout=5)
+    _, remaining = psutil.wait_procs(alive, timeout=10)
     if remaining:
-        raise RuntimeError("Không dừng được tiến trình mặc định của lượt kiểm tra")
+        raise RuntimeError("Không dừng được tiến trình mặc định của lượt kiểm tra: "
+                           + ", ".join(f"{p.pid} {p.status()}" for p in remaining))
     return [proc.pid for proc in owned]
 
 
@@ -60,7 +61,10 @@ class DefaultSession:
     def _tool(self, action, value):
         command = [os.environ.get("R1_TOOLS_PYTHON", sys.executable), str(Path(__file__).resolve()), action, str(value)]
         done = subprocess.run(command, env=self.env, capture_output=True, text=True,
-                              encoding="utf-8", check=True, timeout=20)
+                              encoding="utf-8", timeout=60)
+        if done.returncode:
+            raise RuntimeError(f"{action} thất bại: " + done.stderr.strip().splitlines()[-1][-300:]
+                               if done.stderr.strip() else f"{action} thất bại, exit={done.returncode}")
         return json.loads(done.stdout)
 
     def _record(self):

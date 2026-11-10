@@ -38,7 +38,12 @@ def run(e, fixtures):
             e.shot("viewer-screen")
             printed = (e.out / "printed.pdf").resolve()
             task = background(office.dispatch, frame, ".uno:Print")
-            native("print", printed)
+            try:
+                native("print", printed)
+            except Exception:
+                native("key", "escape")  # a modal print dialog left open would block every later close
+                task.join(10)
+                raise
             task.join(10)
             e.require(printed.exists() and printed.stat().st_size > 0, "Đường in sinh tệp PDF")
             measure(e, reference, metrics.render(printed, 1, 96, e.out / "print-render"), "print")

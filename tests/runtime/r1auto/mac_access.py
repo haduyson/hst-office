@@ -37,7 +37,9 @@ def nodes(app, budget=15.0):
     import ApplicationServices as ax
     root = ax.AXUIElementCreateApplication(app.processIdentifier())
     ax.AXUIElementSetMessagingTimeout(ax.AXUIElementCreateSystemWide(), 2.0)  # global: covers every child element
-    queue, end = [root], time.monotonic() + budget
+    # AXChildren of an exec-started office held only its menu bar (r1-auto macOS run 42748669345, M7 tree):
+    # its windows are listed under AXWindows.
+    queue, end = [root] + list(attribute(root, "AXWindows", []) or []), time.monotonic() + budget
     for _ in range(5000):
         if not queue or time.monotonic() > end:
             break
