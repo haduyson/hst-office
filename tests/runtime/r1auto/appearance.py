@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """macOS options regression gate and native Retina owner evidence."""
 import time
-from access import box, click, named, snapshot
 from support import background, existing, native, wait
 
 
@@ -12,12 +11,15 @@ def run(e):
     base = existing("check-hst-options-pages").EXTENSION
     handler = office.service("org.hst.office.vi.OptionsAppearance")
     parent = doc.CurrentController.Frame.ContainerWindow
-    from com.sun.star.accessibility.AccessibleRole import TOOL_BAR
+    import ribbon_os
     office.focus(parent)
-    toolbar = wait(lambda: next((n for n in snapshot(office) if n.getAccessibleRole() == TOOL_BAR
-                                and box(parent)[1] + 40 < box(n)[1] < box(parent)[1] + 230
-                                and box(n)[2] > 50), None))
-    toolbar_box = box(toolbar)
+    time.sleep(2)
+    # The ribbon's own region from the OS accessibility tree (UNO has none for toolkit windows), on screen.
+    nodes = ribbon_os.read(e, "appearance")
+    frame = ribbon_os.ribbon_frame(nodes)
+    e.require(frame is not None, "Đo được vùng ribbon", method="OS accessibility tree")
+    dx, dy = ribbon_os.screen_mapper(e, nodes, parent)
+    toolbar_box = (frame.x + dx, frame.y + dy + 30, min(frame.w, 900), 90)
     pages = []
     try:
         apps = provider.createContainerWindow(base + "DefaultApps.xdl", "", parent,
@@ -41,14 +43,18 @@ def run(e):
             e.review("Độ sắc nét biểu tượng ở tỉ lệ Retina 2×: " + ("Hiện đại" if name == "modern" else "Cổ điển"), name)
         repaint = native("icon-change", e.out / "classic.png", e.out / "modern.png", *toolbar_box)
         e.require(repaint["changed_pixels"] > 20, "Biểu tượng vẽ lại ngay trong cùng phiên", **repaint)
-        background(office.dispatch, doc.CurrentController.Frame, ".uno:OptionsTreeDialog")
-        root = wait(lambda: named(office, "HST Office"))
-        click(root[-1])
-        native("key", "down")
-        page = wait(lambda: named(office, "Giao diện"))
-        click(page[-1])
-        e.require(bool(wait(lambda: named(office, "Hiện đại"))), "Trang Giao diện hiển thị trong Tùy chọn")
+        # The real Options dialog opened on the Giao diện page, as mac_options_pages.py does; its labels are read
+        # from the OS accessibility tree.
+        from pdf_viewer_uno import signing_props
+        expander = office.ctx.getValueByName("/singletons/com.sun.star.util.theMacroExpander")
+        url = expander.expandMacros(base.replace("vnd.sun.star.expand:", "", 1) + "Appearance.xdl")
+        background(office.dispatch, doc.CurrentController.Frame, ".uno:OptionsTreeDialog",
+                   signing_props(OptionsPageURL=url))
+        shown = wait(lambda: ribbon_os.named(ribbon_os.read(e), "Hiện đại"), 40)
+        ribbon_os.read(e, "options-page")
         e.shot("options-page")
+        e.require(bool(shown), "Trang Giao diện hiển thị trong Tùy chọn", method="OS accessibility tree",
+                  labels=[n.name for n in shown])
         native("key", "escape")
     finally:
         for page in pages:
