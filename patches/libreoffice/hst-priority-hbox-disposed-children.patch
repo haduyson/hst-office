@@ -14,7 +14,9 @@ document closed over UNO; the ribbon is narrower than its groups at that scale) 
 (ProcDump full dump, run 42955213065: main thread WM_SIZE -> VclContainer::setLayoutPosSize ->
 ImplCallResize -> PriorityHBox::Resize -> vcl::Window::GetParent with a null this; request
 thread in SwXTextDocument::close -> SfxFrame::DoClose -> VCLXWindow::dispose ->
-SfxToolBoxControl::disposing -> InterimItemWindow::dispose -> ComboBox::dispose -> SendMessage). The office's own crash handler then faulted as well, so
+SfxToolBoxControl::disposing -> InterimItemWindow::dispose -> ComboBox::dispose -> SendMessage).
+The faulting frame disassembles to the reverse loop of PriorityHBox::Resize: the dynamic_cast of a
+list entry returned null and GetParent was called on it before the null check. The office's own crash handler then faulted as well, so
 the office exited with 255 and left no Windows dump.
 
 Resize now touches an entry only when it is still one of the box's current children (compared
