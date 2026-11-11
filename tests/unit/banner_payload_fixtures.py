@@ -58,7 +58,7 @@ def service_module():
              "com.sun.star.lang": SimpleNamespace(XServiceInfo=type("XServiceInfo", (), {})),
              "com.sun.star.task": SimpleNamespace(XJob=type("XJob", (), {})),
              "hst_office.update_config": SimpleNamespace(_node=None),
-             "hst_office.update_ui": SimpleNamespace(proxy=None)}
+             "hst_office.office_proxy": SimpleNamespace(proxy=None)}
     path = Path(ROOT) / "extensions/hst-vietnamese-tools/python/hst_office/banner_uno.py"
     spec = importlib.util.spec_from_file_location("hst_office._payload_service_test", path)
     module = importlib.util.module_from_spec(spec)

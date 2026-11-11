@@ -1,26 +1,57 @@
-HST Office: the office never writes Python bytecode caches into its installation.
+HST Office: the office never writes Python bytecode into its installation; on Windows and Linux it
+keeps a bytecode cache in the user profile instead.
 
 Without this an HST Office.app the user can write to (an admin's /Applications) gets __pycache__
 folders and rewritten stale .pyc files inside the bundle on every start, and
 codesign --verify --deep --strict fails afterwards. Upstream's HAVE_FEATURE_READONLY_INSTALLSET
 branch sets PyConfig.write_bytecode = 0 on macOS, but that PyConfig is never passed to Python
-(Py_Initialize() is called, not Py_InitializeFromConfig()). PYTHONDONTWRITEBYTECODE=1 is read by
-Py_Initialize() and is inherited by the helper processes the office starts with the bundled
-python3 (the update helper, the USB token worker). A value already set is kept.
+(Py_Initialize() is called, not Py_InitializeFromConfig()). Environment variables are read by
+Py_Initialize() and inherited by the helper processes the office starts with the bundled python3
+(the update helper, the USB token worker). A value already set is kept.
+- macOS: PYTHONDONTWRITEBYTECODE=1; the bundle ships checked bytecode (precompile-python.sh).
+- Windows and Linux: the installers ship no bytecode, and with PYTHONDONTWRITEBYTECODE=1 every start
+  compiled each module of the HST extension and the standard library again while the splash screen
+  was up (scripts/perf/startup-timing.py). PYTHONPYCACHEPREFIX=<user installation>/cache/python makes
+  Python write the bytecode there once and read it on later starts; nothing is written next to the
+  installed sources. PYTHONDONTWRITEBYTECODE=1 when the profile path cannot be resolved. Python
+  trusts a cached .pyc while the source's mtime and size match, so scripts/build-extensions.py gives
+  every file of the bundled extension a content-derived time (an edited module never keeps the time
+  of the previous release).
 
 --- a/pyuno/source/loader/pyuno_loader.cxx
 +++ b/pyuno/source/loader/pyuno_loader.cxx
-@@ -238,6 +238,14 @@
+@@ -238,6 +238,35 @@
      o3tl::setEnvironment(u"PATH"_ustr, sPath);
  #endif
  
-+    // HST Office: never write Python bytecode caches into the installation. In an app bundle the user
-+    // can write to (an admin's /Applications) Python would add __pycache__ folders and rewrite shipped
-+    // .pyc files, which breaks the bundle's code signature seal. Py_Initialize() below reads the
-+    // environment (the PyConfig above is not passed to it, so its write_bytecode is not used), and every
-+    // process the office starts with the bundled python3 inherits the variable.
-+    if (o3tl::getEnvironment(u"PYTHONDONTWRITEBYTECODE"_ustr).isEmpty())
++    // HST Office: Python never writes bytecode into the installation. An HST Office.app the user can write
++    // to (an admin's /Applications) would get __pycache__ folders and rewritten .pyc files, which breaks the
++    // bundle's code signature seal; a per-machine Windows or Linux installation would keep them after an
++    // uninstall. Py_Initialize() below reads the environment (the PyConfig above is not passed to it, so its
++    // write_bytecode is not used), and the processes the office starts with the bundled python3 inherit it
++    // (unless they run it with -I). A value already set is kept.
++    if (o3tl::getEnvironment(u"PYTHONDONTWRITEBYTECODE"_ustr).isEmpty()
++        && o3tl::getEnvironment(u"PYTHONPYCACHEPREFIX"_ustr).isEmpty())
++    {
++#ifdef MACOSX
++        // The app bundle ships checked bytecode (scripts/macos/precompile-python.sh); a cache folder
++        // elsewhere would make Python look past it.
 +        o3tl::setEnvironment(u"PYTHONDONTWRITEBYTECODE"_ustr, u"1"_ustr);
++#else
++        // Windows and Linux installations ship no bytecode, so without a cache every start compiled each
++        // module again while the splash screen was up (scripts/perf/startup-timing.py). Python keeps it in
++        // the user profile's cache folder, next to the office's own caches.
++        OUString aCache(u"${$BRAND_BASE_DIR/" LIBO_ETC_FOLDER "/" SAL_CONFIGFILE("bootstrap")
++                        ":UserInstallation}/cache/python"_ustr);
++        rtl::Bootstrap::expandMacros(aCache);
++        OUString aCachePath;
++        if (osl::FileBase::getSystemPathFromFileURL(aCache, aCachePath) == osl::FileBase::E_None
++            && !aCachePath.isEmpty())
++            o3tl::setEnvironment(u"PYTHONPYCACHEPREFIX"_ustr, aCachePath);
++        else
++            o3tl::setEnvironment(u"PYTHONDONTWRITEBYTECODE"_ustr, u"1"_ustr);
++#endif
++    }
 +
      PyImport_AppendInittab( "pyuno", PyInit_pyuno );
  

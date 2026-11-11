@@ -25,7 +25,7 @@ class OptionsPage(unittest.TestCase):
         self.assertEqual(props["OptionsPage"], "%origin%/dialogs/Update.xdl")
         self.assertEqual(props["EventHandlerService"], opts.HANDLER_NAME)
         with open(os.path.join(EXT, "python", "hst_office_component.py"), encoding="utf-8") as handle:
-            self.assertIn("UpdateOptionsHandler, UPDATE_OPTIONS_NAME", handle.read())
+            self.assertIn('("update_options", "UpdateOptionsHandler", "%s"' % opts.HANDLER_NAME, handle.read())
 
     def test_checkbox_label_and_default(self):
         box = self.controls()["sendInstallId"]

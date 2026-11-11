@@ -13,6 +13,7 @@ server (HST_UPDATE_TEST_URL, and HST_ERROR_REPORT_TEST_URL for the error report)
 (scripts/check-extensions.py rejects them). The copy also carries the numeric build (scripts/write-hst-version.py).
 """
 import argparse
+import datetime
 import hashlib
 import importlib.util
 import json
@@ -37,6 +38,18 @@ BRAND_IMAGES = {
     "icons/hst-slides-64.png": "assets/brand/icons/hst-slides-64.png",
 }
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
+ENTRY_TIME_SPAN = 180 * 86400  # seconds after FIXED_TIME over which entry times spread
+
+
+def entry_time(data):
+    """A reproducible ZIP time for one entry, derived from its content (2 s steps, the ZIP resolution).
+
+    The office's Python keeps a bytecode cache in the user profile (hst-python-no-bytecode.patch) and trusts a cached
+    .pyc while the source's mtime and size are unchanged. With one fixed time for every file in every build, a module
+    edited without changing its size would keep the bytecode of the previous release; a content-derived time changes
+    with the content."""
+    offset = int(hashlib.sha256(data).hexdigest()[:12], 16) % (ENTRY_TIME_SPAN // 2) * 2
+    return (datetime.datetime(*FIXED_TIME) + datetime.timedelta(seconds=offset)).timetuple()[:6]
 # The HST templates (templates/*.json -> scripts/generate-templates.py) ship in the
 # extension: Paths.xcu adds %origin%/template to the template paths, so the Template
 # Manager lists them on every OS without installer changes. Folder -> group shown in the UI.
@@ -166,7 +179,7 @@ def write_oxt(files, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for name in sorted(files):
-            info = zipfile.ZipInfo(name, FIXED_TIME)
+            info = zipfile.ZipInfo(name, entry_time(files[name]))
             info.compress_type, info.external_attr, info.create_system = zipfile.ZIP_DEFLATED, 0o644 << 16, 3
             z.writestr(info, files[name])
 

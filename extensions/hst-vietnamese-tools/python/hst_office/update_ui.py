@@ -14,6 +14,7 @@ from com.sun.star.awt import XCallback
 from com.sun.star.document import XDocumentEventListener
 
 from . import update_config
+from .office_proxy import proxy  # noqa: F401 - ui.proxy, used by the update check and its tests
 from . import update_installer as installer
 from . import update_logic as logic
 from .update_fetch import release_info
@@ -47,21 +48,6 @@ def release_info_for(ctx):
     """release_info() with the release channel the administrator may have set (Channel)."""
     info = release_info()
     return dict(info, channel=logic.effective_channel(info["channel"], settings(ctx)["Channel"]))
-
-
-def proxy(ctx):
-    """Proxy from Tools > Options > Internet > Proxy: None = system/environment, {} = none, else manual HTTPS proxy."""
-    try:
-        node = _node(ctx, "/org.openoffice.Inet/Settings")
-        kind = node.getPropertyValue("ooInetProxyType")
-        if kind == 0:
-            return {}
-        host, port = node.getPropertyValue("ooInetHTTPSProxyName"), node.getPropertyValue("ooInetHTTPSProxyPort")
-        if kind == 1 and host:
-            return {"https": "%s:%s" % (host, port or 8080)}  # urllib reads host:port as an HTTP proxy
-    except Exception:  # noqa: BLE001 - missing keys: fall back to urllib's defaults
-        pass
-    return None
 
 
 class _Callback(unohelper.Base, XCallback):

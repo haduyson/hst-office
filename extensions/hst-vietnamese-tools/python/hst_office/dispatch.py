@@ -6,8 +6,7 @@ import unohelper
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from . import diag_log, ui_language, usb_token
-from .actions import COMMANDS, Host
+from . import diag_log, ui_language
 from .data_files import load_locale
 
 IMPLEMENTATION_NAME = "org.hst.office.vi.DispatchProvider"
@@ -21,6 +20,31 @@ REPORT_ERROR = "ReportError"  # Trợ giúp ▸ Báo lỗi cho HASON TECH; needs
 DEFAULT_APPS = "DefaultApps"  # HST ▸ Dùng HST Office để mở tài liệu văn phòng; needs no document
 TEST_RAISE_ENV = "HST_DIAG_TEST_RAISE"
 DUPLEX = "ToggleDuplex"  # HST ▸ In hai mặt: a check item showing the document's choice
+# The commands of actions.COMMANDS, by name. The Start Center creates this handler and asks it about every HST menu
+# item while the splash screen is still up; answering from names keeps the command code (actions: ND30, encodings,
+# CSV, VBA, ...) out of every start. actions is imported when a command runs (tests/unit/test_dispatch_no_document.py
+# checks that the names match).
+ACTION_COMMANDS = frozenset((
+    "Nd30Wizard", "ToggleDuplex", "ConvertEncoding", "FormatDate", "FormatDateLong", "FormatMonthYear", "FormatDateDash",
+    "FormatVnd", "FormatPercent", "ImportCsv", "EditVba", "NumberToWords", "RemoveDiacritics", "SplitName",
+    "SortByGivenName", "DeleteBlankRows"))
+
+
+def _actions():
+    """(actions.COMMANDS, actions.Host), loaded into this module on first use (a test may have set its own first)."""
+    names = globals()
+    if "COMMANDS" not in names or "Host" not in names:
+        from . import actions
+        names.setdefault("COMMANDS", actions.COMMANDS)
+        names.setdefault("Host", actions.Host)
+    return names["COMMANDS"], names["Host"]
+
+
+def __getattr__(name):
+    """dispatch.COMMANDS and dispatch.Host, as before they were imported on use."""
+    if name in ("COMMANDS", "Host"):
+        return _actions()[0 if name == "COMMANDS" else 1]
+    raise AttributeError(name)
 
 
 def log_error(command):
@@ -65,7 +89,7 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
         return ("com.sun.star.frame.ProtocolHandler",)
 
     def queryDispatch(self, url, target_frame_name, search_flags):
-        return self if url.Protocol == PROTOCOL and (url.Path in COMMANDS or url.Path in ui_language.COMMANDS
+        return self if url.Protocol == PROTOCOL and (url.Path in ACTION_COMMANDS or url.Path in ui_language.COMMANDS
                                                     or url.Path in (SHOW_SOLUTIONS, USB_TOKEN, REPORT_ERROR, DEFAULT_APPS)) else None
 
     def queryDispatches(self, requests):
@@ -73,6 +97,7 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
 
     def dispatch(self, url, arguments):
         if url.Path == USB_TOKEN:
+            from . import usb_token
             return usb_token.run(self.ctx, self.frame)
         if url.Path == SHOW_SOLUTIONS:
             return self._show_solutions()
@@ -98,17 +123,18 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
             return
         frame = self.frame
         try:
+            commands, host = _actions()
             frame = self._frame_for(url.Path)
             raise_for_test(url.Path)
             if not has_document(frame):  # the HST menu is in the Start Center too: say what is missing
                 return self._say(frame, load_locale("vi")["common"]["noDocument"])
-            COMMANDS[url.Path](Host(self.ctx, frame, load_locale("vi")))
+            commands[url.Path](host(self.ctx, frame, load_locale("vi")))
             if url.Path == DUPLEX:
                 self._send_duplex_state()
         except Exception as exc:  # noqa: BLE001 - never fail silently inside the office UI thread
             log_error(url.Path)
             try:
-                Host(self.ctx, frame, load_locale("vi")).say("%s: %s" % (type(exc).__name__, exc), error=True)
+                _actions()[1](self.ctx, frame, load_locale("vi")).say("%s: %s" % (type(exc).__name__, exc), error=True)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -136,10 +162,10 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
             log_error(SHOW_SOLUTIONS)
 
     def _duplex_state(self):
-        from .nd30_duplex import read_choice
         model = self.frame.getController().getModel() if self.frame and self.frame.getController() else None
         if model is None or not model.supportsService("com.sun.star.text.TextDocument"):
             return False, False
+        from .nd30_duplex import read_choice  # Writer only: other frames never load the ND30 code
         return True, read_choice(model, model.getCurrentController().getViewCursor())[0]  # the page the user is on
 
     def _send_duplex_state(self, listeners=None):

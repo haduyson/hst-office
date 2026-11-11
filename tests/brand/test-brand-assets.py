@@ -50,6 +50,17 @@ class BrandAssetTests(unittest.TestCase):
             mask.paste(0, tuple(box))
         self.assertIsNone(mask.getbbox())
 
+    def test_splash_progress_track_spans_the_card_between_its_margins(self):
+        """The track ends as far from the right edge as it starts from the left (the mark's and the tagline's 30 px
+        margin); a track ending two thirds across looked cut off on the right."""
+        cfg = SPEC["libreofficeBranding"]
+        x, _y = (int(v) for v in cfg["progress"]["PROGRESSPOSITION"].split(","))
+        width, _height = (int(v) for v in cfg["progress"]["PROGRESSSIZE"].split(","))
+        self.assertEqual(x, cfg["introMarkPos"][0])
+        self.assertEqual(x + width, cfg["introSize"][0] - x)
+        with open(path(os.path.join(cfg["dir"], "progress.conf")), encoding="utf-8") as fh:
+            self.assertIn('PROGRESSSIZE="%s"' % cfg["progress"]["PROGRESSSIZE"], fh.read())
+
     def test_icon_sizes(self):
         for size in SPEC["outputs"]["iconSizes"]:
             icon = Image.open(path(SPEC["outputs"]["iconPattern"].format(size=size)))
