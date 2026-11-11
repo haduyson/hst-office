@@ -9,6 +9,8 @@
 # Start Center at 150 %), scan (last: the runner's Defender exclusions of C:\ and D:\ removed and real-time scanning
 # on, as on a user's PC, then hst, lazy, lazy-pyc and lo again). "cold" empties the file cache (standby list) with
 # RAMMap first: a start after a reboot. Evidence only; fails only when nothing could be installed.
+# $BASE_MSI (optional): an earlier HST MSI timed on the same runner as "base" (installed, timed and uninstalled before
+# the MSI under test), and as "scan-base" after the scan variants, for a before/after comparison of two builds.
 set -Eeuo pipefail
 msi="$1"; out="$2"; variants=",${3:-hst,trace,noext,lazy,lazy-trace,lazy-cache,lazy-pyc,lo,scale150,scan},"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; repo="$(cd "$here/../.." && pwd)"
@@ -32,8 +34,26 @@ fi
 cold="rem"
 if [ -n "$rammap" ]; then r="\"$(w "$rammap")\""; cold="$r -Ew && $r -Es && $r -Em && $r -Et"; fi
 
+hst_soffice() { find '/c/Program Files' -maxdepth 4 -ipath '*HST*' -iname soffice.exe | head -n 1; }
+base_timing() { # base_timing <label>: install $BASE_MSI, time it, uninstall it
+  [ -n "${BASE_MSI:-}" ] || return 0
+  msiexec_q /i "$(w "$BASE_MSI")" /qn /norestart /l*v "$(w "$out/$1-install.log")"
+  local office; office="$(hst_soffice)"
+  if [ -n "$office" ]; then timing "$1" "$office" "$starts" --trace; fi
+  msiexec_q /x "$(w "$BASE_MSI")" /qn /norestart /l*v "$(w "$out/$1-uninstall.log")" || echo "$1 uninstall exit $?" >> "$out/failures.txt"
+}
+starts="${STARTS:-fresh,warm,warm,warm,cold}"  # $STARTS: another sequence, e.g. more cold starts
+timing() { # timing <label> <soffice> <starts> [more harness options]
+  local label="$1" office="$2" starts="$3"; shift 3
+  python -I "$(w "$here/startup-timing.py")" --soffice "$(w "$office")" --python "$(w "$(dirname "$office")/python.exe")" \
+    --intro "$(w "$(dirname "$office")/intro.png")" --profile "$(w "$work/profile-$label")" --out "$(w "$out")" \
+    --label "$label" --starts "$starts" --cold-command "$cold" "$@" || echo "$label: no window seen" >> "$out/failures.txt"
+  MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe >/dev/null 2>&1 || echo "no office left running"
+}
+base_timing base
+
 msiexec_q /i "$(w "$msi")" /qn /norestart /l*v "$(w "$out/hst-install.log")"
-soffice="$(find '/c/Program Files' -maxdepth 4 -ipath '*HST*' -iname soffice.exe | head -n 1)"
+soffice="$(hst_soffice)"
 [ -n "$soffice" ] || { echo "HST soffice.exe not found after install" >&2; exit 1; }
 program="$(dirname "$soffice")"; install="$(dirname "$program")"
 echo "HST installed at $install"
@@ -60,14 +80,6 @@ use_pyc() { # use_pyc on|off: unchecked-hash bytecode next to every Python modul
   echo "pyc files now: $(find "$install" -name '*.pyc' | wc -l)" >> "$out/pyc-compile.log"
 }
 
-timing() { # timing <label> <soffice> <starts> [more harness options]
-  local label="$1" office="$2" starts="$3"; shift 3
-  python -I "$(w "$here/startup-timing.py")" --soffice "$(w "$office")" --python "$(w "$(dirname "$office")/python.exe")" \
-    --intro "$(w "$(dirname "$office")/intro.png")" --profile "$(w "$work/profile-$label")" --out "$(w "$out")" \
-    --label "$label" --starts "$starts" --cold-command "$cold" "$@" || echo "$label: no window seen" >> "$out/failures.txt"
-  MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe >/dev/null 2>&1 || echo "no office left running"
-}
-starts="${STARTS:-fresh,warm,warm,warm,cold}"  # $STARTS: another sequence, e.g. more cold starts
 lazy_runs() { # lazy_runs <label prefix>: the extension of this checkout, without and with bytecode
   [ -n "${HST_OVERLAY_OXT:-}" ] || { echo "no overlay extension: lazy variants skipped" >> "$out/failures.txt"; return 0; }
   use_ext overlay
@@ -117,6 +129,10 @@ if has scan; then
   timing scan-hst "$soffice" "$starts" --trace
   lazy_runs scan-
   if [ -n "$lo" ]; then timing scan-lo "$lo" "$starts"; fi
+  if [ -n "${BASE_MSI:-}" ]; then
+    msiexec_q /x "$(w "$msi")" /qn /norestart /l*v "$(w "$out/hst-uninstall.log")" || echo "uninstall exit $?" >> "$out/failures.txt"
+    base_timing scan-base
+  fi
 fi
 python -I "$(w "$here/startup-timing-summary.py")" "$(w "$out")" > "$out/summary.md"
 cat "$out/summary.md"

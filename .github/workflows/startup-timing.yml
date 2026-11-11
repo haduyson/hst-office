@@ -12,6 +12,10 @@ on:
         description: 'Desktop Windows run whose MSI is timed (empty: skip Windows)'
         type: string
         default: ''
+      windows_baseline_run_id:
+        description: 'Optional earlier Desktop Windows run whose MSI is timed on the same runner first, for a before/after'
+        type: string
+        default: ''
       macos_run_id:
         description: 'Desktop macOS run whose arm64 dmg is timed, the signed one when the run has it (empty: skip macOS)'
         type: string
@@ -75,6 +79,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OS: ${{ matrix.os }}
           WINDOWS_RUN: ${{ inputs.windows_run_id }}
+          WINDOWS_BASELINE_RUN: ${{ inputs.windows_baseline_run_id }}
           MACOS_RUN: ${{ inputs.macos_run_id }}
           LINUX_RUN: ${{ inputs.linux_run_id }}
           VARIANTS: ${{ inputs.variants }}
@@ -99,6 +104,11 @@ jobs:
             windows)
               RUN_ID="$run" bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/msi" HST_MSI
               msi="$(grep '^HST_MSI=' "$GITHUB_ENV" | tail -n 1 | cut -d= -f2-)"
+              if [ -n "${WINDOWS_BASELINE_RUN:-}" ]; then
+                [[ "$WINDOWS_BASELINE_RUN" =~ ^[0-9]+$ ]]
+                RUN_ID="$WINDOWS_BASELINE_RUN" bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/base-msi" BASE_MSI
+                export BASE_MSI="$(cygpath -u "$(grep '^BASE_MSI=' "$GITHUB_ENV" | tail -n 1 | cut -d= -f2-)")"
+              fi
               bash scripts/perf/startup-timing-windows.sh "$(cygpath -u "$msi")" "$out" "$VARIANTS" ;;
             macos)
               signed="hst-office-macos-arm64-dmg-signed-$run"
