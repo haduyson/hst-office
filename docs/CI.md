@@ -204,13 +204,17 @@ tải dmg đã ký lên artifact `macos-signing-probe-arm64-dmg-signed-<run_id>`
 mọi tệp app ghi vào chính bundle sẽ phá niêm phong chữ ký. Python từng ghi `__pycache__/*.pyc` vào bundle
 (upstream chép framework Python bằng `cp -R` nên mọi `.pyc` kèm theo đều cũ so với `.py`). Hai lớp chặn:
 [hst-python-no-bytecode.patch](../patches/libreoffice/hst-python-no-bytecode.patch) đặt
-`PYTHONDONTWRITEBYTECODE=1` trước `Py_Initialize()` (tiến trình con dùng python3 đóng gói cũng thừa hưởng), và
+`PYTHONDONTWRITEBYTECODE=1` trước `Py_Initialize()` trên macOS (tiến trình con dùng python3 đóng gói cũng thừa
+hưởng; trên Windows và Linux bản vá đặt `PYTHONPYCACHEPREFIX=<hồ sơ người dùng>/cache/python` thay vào đó: bộ cài
+không kèm bytecode, nên nếu không có bộ nhớ đệm này mỗi lần mở đều biên dịch lại mọi mô-đun Python trong lúc màn
+hình chờ hiện — xem [Startup timing](../.github/workflows/startup-timing.yml)), và
 `--collect` chạy [precompile-python.sh](../scripts/macos/precompile-python.sh) trước khi ký (bytecode
 unchecked-hash hợp lệ cho thư viện chuẩn, mô-đun của office và phần mở rộng). Kiểm tra:
 [macos-bundle-seal-probe.yml](../.github/workflows/macos-bundle-seal-probe.yml) (input `tag` hoặc `run_id`,
 `baseline=required` mặc định: sau một phiên Writer + Kiểm tra cập nhật + trình hướng dẫn Văn bản hành chính,
 danh sách tệp trong bundle không đổi và `codesign --verify --deep --strict` vẫn đạt; dmg trước bản sửa dùng
-`informational`); trên Linux `tests/runtime/check-python-no-bytecode.py` (instdir).
+`informational`); trên Linux `tests/runtime/check-python-no-bytecode.py` (instdir: không có bytecode trong
+bản cài, bytecode của phần mở rộng HST nằm trong `cache/python` của hồ sơ).
 
 Người dùng macOS 15: mở app → hộp "Apple không thể xác minh…" → **Xong** → **Cài đặt hệ thống ▸ Quyền riêng
 tư & Bảo mật ▸ Vẫn mở** (*Open Anyway*) → xác nhận mật khẩu → mở lại, chọn **Vẫn mở**. Dự phòng:
@@ -242,6 +246,18 @@ build. Sau đó dựng lại dmg cùng bố cục, ký dmg, `notarytool submit -
 `spctl -a -t open --context context:primary-signature -v` và `codesign --verify --deep --strict`.
 Artifact: `hst-office-macos-<arch>-dmg-signed-<run_id>`. `check-workflows.py` chỉ cho phép secret trong
 job này, ở bước `gate` hoặc bước có điều kiện `steps.gate.outputs.enabled == 'true'`.
+
+## Đo thời gian khởi động
+
+Workflow [startup-timing.yml](../.github/workflows/startup-timing.yml) (chạy tay; input `windows_run_id`,
+`macos_run_id`, `linux_run_id`, `variants`, `overlay_extension`) cài bộ cài của các lần build đó trên runner Windows,
+macOS và Ubuntu rồi đo từ lúc mở đến khi màn hình chờ hiện, tắt và cửa sổ Start Center đầu tiên hiện: lần đầu với
+hồ sơ mới, các lần sau và một lần sau khi xóa bộ nhớ đệm tệp của hệ điều hành (như vừa khởi động lại máy). Các biến
+thể tách thời gian: bộ theo dõi Python (`scripts/perf/startup_trace/sitecustomize.py`: import, biên dịch, job HST,
+kết nối mạng và luồng của chúng), bỏ phần mở rộng HST, phần mở rộng dựng từ commit đang chạy, bytecode, quét thời
+gian thực của Windows và LibreOffice gốc cùng phiên bản trên cùng runner. Kịch bản:
+`scripts/perf/startup-timing-{windows,macos,linux}.sh`; kết quả: artifact `startup-timing-<os>-<run_id>`
+(`summary.md`, JSON từng lần mở, ảnh màn hình chờ). Chỉ là bằng chứng: workflow chỉ lỗi khi không cài được.
 
 ## Phát hành (Release)
 
