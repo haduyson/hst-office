@@ -4,10 +4,12 @@
 #   startup-timing-macos.sh <HSTOffice_*.dmg> <out-dir> [variants]
 # First the Gatekeeper cost of a downloaded copy: the dmg gets the quarantine flag a browser sets, the app is copied
 # from it to /Applications, and the system's assessment and the deep signature check are timed. The quarantine flag
-# is then removed (the first-launch prompt would block the timing) and the variants run: hst (fresh, warm, warm,
-# cold), trace, noext, lo (stock LibreOffice dmg of $LO_DMG_URL). "cold" runs `purge` first. Evidence only.
+# is then removed (the first-launch prompt would block the timing) and the variants run: hst (fresh, warm x3, cold),
+# trace (with the Python tracer), noext (the HST extension moved out), lazy / lazy-trace (the extension of
+# $HST_OVERLAY_OXT, built from this checkout and compiled to bytecode as the build does), lo (stock LibreOffice dmg of
+# $LO_DMG_URL). "cold" runs `purge` first. Evidence only.
 set -Eeuo pipefail
-dmg="$1"; out="$2"; variants=",${3:-hst,trace,noext,lo},"
+dmg="$1"; out="$2"; variants=",${3:-hst,trace,noext,lazy,lazy-trace,lo},"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$out"; work="$RUNNER_TEMP/startup-work"; mkdir -p "$work/mnt"
 has() { [[ "$variants" == *",$1,"* ]]; }
@@ -29,15 +31,6 @@ hdiutil detach "$work/mnt" > /dev/null
   echo "bundled extensions: $(ls "$app/Contents/Resources/extensions" | tr '\n' ' ')"
 } > "$out/gatekeeper.txt" 2>&1 || echo "gatekeeper facts incomplete" >> "$out/gatekeeper.txt"
 xattr -dr com.apple.quarantine "$app"
-SUDO=""
-overlay() { # overlay <extension dir>: the HST extension built from this commit instead of the bundled one
-  [ -n "${HST_OVERLAY_OXT:-}" ] || return 0
-  $SUDO rm -rf "$1" && $SUDO mkdir -p "$1"
-  python3 -I -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$HST_OVERLAY_OXT" "$1"
-  echo "overlaid $1 with $(basename "$HST_OVERLAY_OXT")" | tee -a "$out/overlay.txt"
-}
-overlay "$app/Contents/Resources/extensions/hst-vietnamese-tools"
-
 office_python() { # the bundled interpreter with uno on its path
   local bundle="$1"
   printf '#!/bin/sh\nPYTHONPATH="%s/Contents/Resources" URE_BOOTSTRAP="vnd.sun.star.pathname:%s/Contents/Resources/fundamentalrc" exec "%s" "$@"\n' \
@@ -54,13 +47,22 @@ timing() { # timing <label> <bundle> <starts> [more harness options]
     --starts "$starts" --cold-command "sync && sudo purge" "$@" || echo "$label: no window seen" >> "$out/failures.txt"
 }
 
-has hst && timing hst "$app" fresh,warm,warm,cold --shots
-has trace && timing hst-trace "$app" fresh,warm,cold --trace
-if has noext; then
-  ext="$app/Contents/Resources/extensions/hst-vietnamese-tools"
-  mv "$ext" "$work/hst-ext-aside"
-  timing hst-noext "$app" fresh,warm,cold
-  mv "$work/hst-ext-aside" "$ext"
+starts=fresh,warm,warm,warm,cold
+ext="$app/Contents/Resources/extensions/hst-vietnamese-tools"
+if has hst; then timing hst "$app" "$starts" --shots; fi
+if has trace; then timing hst-trace "$app" fresh,warm,cold --trace; fi
+if has noext; then mv "$ext" "$work/hst-ext-aside"; timing hst-noext "$app" "$starts"; mv "$work/hst-ext-aside" "$ext"; fi
+if [ -n "${HST_OVERLAY_OXT:-}" ] && { has lazy || has lazy-trace; }; then
+  mv "$ext" "$work/hst-ext-installed"
+  mkdir -p "$ext"
+  python3 -I -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$HST_OVERLAY_OXT" "$ext"
+  # as scripts/macos/precompile-python.sh does for the shipped bundle
+  py="$(find "$app/Contents/Frameworks" -path '*/bin/python3.*' -type f -perm -u+x ! -name '*-config' | head -n 1)"
+  env -u PYTHONDONTWRITEBYTECODE "$py" -I -m compileall -q --invalidation-mode unchecked-hash "$ext" > "$out/overlay-pyc.log" 2>&1 \
+    || echo "compileall exit $?" >> "$out/overlay-pyc.log"
+  if has lazy; then timing lazy "$app" "$starts"; fi
+  if has lazy-trace; then timing lazy-trace "$app" fresh,warm,cold --trace; fi
+  rm -rf "$ext"; mv "$work/hst-ext-installed" "$ext"
 fi
 if has lo && [ -n "${LO_DMG_URL:-}" ]; then
   if curl -fsSL --retry 3 -o "$work/lo.dmg" "$LO_DMG_URL"; then
@@ -69,7 +71,7 @@ if has lo && [ -n "${LO_DMG_URL:-}" ]; then
     hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$work/lo-mnt" "$work/lo.dmg" > /dev/null
     ditto "$work/lo-mnt/LibreOffice.app" /Applications/LibreOffice.app
     hdiutil detach "$work/lo-mnt" > /dev/null
-    timing lo /Applications/LibreOffice.app fresh,warm,warm,cold
+    timing lo /Applications/LibreOffice.app "$starts"
   fi
 fi
 python3 -I "$here/startup-timing-summary.py" "$out" > "$out/summary.md"

@@ -7,6 +7,7 @@ installation never contains this file. One JSON object per line, "t" in seconds 
   {"ev": "python-init"}                                       the interpreter is up (sitecustomize imported)
   {"ev": "import", "mod", "dt", "src"}                        one module executed: own time plus its imports,
                                                               src "pyc" (bytecode read) or "py" (compiled now)
+  {"ev": "compile", "path", "dt"}                             one source file compiled to bytecode (no usable .pyc)
   {"ev": "call", "what", "dt", "thread"}                      an HST job/handler method or a start-up callback
   {"ev": "net", "what", "host", "thread"}                     a DNS lookup or socket connect, with its thread
 """
@@ -127,6 +128,20 @@ class _HstFinder(_Finder):
         return spec
 
 
+def _wrap_compile():
+    """Every source compile of the import system, timed (it runs only when no usable .pyc exists)."""
+    from importlib import _bootstrap_external
+    original = _bootstrap_external.SourceLoader.source_to_code
+
+    def source_to_code(self, data, path, *args, **kwargs):
+        began = time.perf_counter()
+        try:
+            return original(self, data, path, *args, **kwargs)
+        finally:
+            emit("compile", path=os.path.basename(str(path)), dt=round(time.perf_counter() - began, 6))
+    _bootstrap_external.SourceLoader.source_to_code = source_to_code
+
+
 def _wrap_network():
     import socket
     getaddrinfo, connect = socket.getaddrinfo, socket.socket.connect
@@ -147,6 +162,7 @@ if _PATH:
          dont_write_bytecode=sys.dont_write_bytecode)
     sys.meta_path.insert(0, _HstFinder())
     try:
+        _wrap_compile()
         _wrap_network()
     except Exception as error:  # noqa: BLE001 - tracing must never stop the office's Python
         emit("tracer-error", error=repr(error))

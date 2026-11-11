@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Start-up timing of an HST Office MSI on a GitHub Windows runner (Git Bash), with the variants that split the time.
 #   startup-timing-windows.sh <HST msi> <out-dir> [variants]
-# variants (comma list, default all): hst (fresh, warm, warm, cold), trace (the Python tracer), noext (the HST
-# extension moved out), pyc (the installation's Python modules compiled to unchecked-hash bytecode first), defender (real-time scanning on, then the install excluded), lo (stock LibreOffice MSI of
-# $LO_MSI_URL / $LO_MSI_SHA256), scale150 (splash and Start Center at 150 %). "cold" empties the standby list (the
-# file cache) with RAMMap first: a start after a reboot. Evidence only; fails only when nothing could be installed.
+# variants (comma list, default all): hst (the installed office: fresh, warm x3, cold), trace (with the Python
+# tracer), noext (the HST extension moved out), lazy / lazy-trace (the extension of $HST_OVERLAY_OXT, built from this
+# checkout, instead of the installed one), lazy-pyc (that extension, and the installation's Python modules compiled to
+# unchecked-hash bytecode), lo (stock LibreOffice MSI of $LO_MSI_URL / $LO_MSI_SHA256), scale150 (the splash and the
+# Start Center at 150 %), scan (last: the runner's Defender exclusions of C:\ and D:\ removed and real-time scanning
+# on, as on a user's PC, then hst, lazy, lazy-pyc and lo again). "cold" empties the file cache (standby list) with
+# RAMMap first: a start after a reboot. Evidence only; fails only when nothing could be installed.
 set -Eeuo pipefail
-msi="$1"; out="$2"; variants=",${3:-hst,trace,noext,pyc,defender,lo,scale150},"
+msi="$1"; out="$2"; variants=",${3:-hst,trace,noext,lazy,lazy-trace,lazy-pyc,lo,scale150,scan},"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; repo="$(cd "$here/../.." && pwd)"
 mkdir -p "$out"; work="$(cygpath -u "$RUNNER_TEMP")/startup-work"; mkdir -p "$work"
 w() { cygpath -w "$1"; }
@@ -40,14 +43,22 @@ echo "HST installed at $install"
   echo "share/extensions files: $(find "$install/share/extensions" -type f | wc -l)"
   grep -iE '^(Logo|NativeProgress|Progress)' "$program/soffice.ini" "$program/sofficerc" 2>/dev/null || true
 } > "$out/hst-install-facts.txt"
-SUDO=""
-overlay() { # overlay <extension dir>: the HST extension built from this commit instead of the bundled one
-  [ -n "${HST_OVERLAY_OXT:-}" ] || return 0
-  $SUDO rm -rf "$1" && $SUDO mkdir -p "$1"
-  python -I -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$HST_OVERLAY_OXT" "$(w "$1")"
-  echo "overlaid $1 with $(basename "$HST_OVERLAY_OXT")" | tee -a "$out/overlay.txt"
+ext="$install/share/extensions/hst-vietnamese-tools"
+cp -r "$ext" "$work/ext-installed"
+use_ext() { # use_ext installed|overlay: which HST extension the next starts load
+  rm -rf "$ext"
+  if [ "$1" = installed ]; then cp -r "$work/ext-installed" "$ext"; return 0; fi
+  mkdir -p "$ext"
+  python -I -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$HST_OVERLAY_OXT" "$(w "$ext")"
 }
-overlay "$install/share/extensions/hst-vietnamese-tools"
+use_pyc() { # use_pyc on|off: unchecked-hash bytecode next to every Python module of the installation (it ships none)
+  if [ "$1" = off ]; then find "$install" -name __pycache__ -type d -prune -exec rm -rf {} +; return 0; fi
+  for dir in "$program" "$install/share/extensions"; do
+    "$program/python.exe" -m compileall -q --invalidation-mode unchecked-hash "$(w "$dir")" >> "$out/pyc-compile.log" 2>&1 \
+      || echo "compileall $dir exit $?" >> "$out/pyc-compile.log"
+  done
+  echo "pyc files now: $(find "$install" -name '*.pyc' | wc -l)" >> "$out/pyc-compile.log"
+}
 
 timing() { # timing <label> <soffice> <starts> [more harness options]
   local label="$1" office="$2" starts="$3"; shift 3
@@ -56,35 +67,20 @@ timing() { # timing <label> <soffice> <starts> [more harness options]
     --label "$label" --starts "$starts" --cold-command "$cold" "$@" || echo "$label: no window seen" >> "$out/failures.txt"
   MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe >/dev/null 2>&1 || echo "no office left running"
 }
+starts=fresh,warm,warm,warm,cold
+lazy_runs() { # lazy_runs <label prefix>: the extension of this checkout, without and with bytecode
+  [ -n "${HST_OVERLAY_OXT:-}" ] || { echo "no overlay extension: lazy variants skipped" >> "$out/failures.txt"; return 0; }
+  use_ext overlay
+  if has lazy; then timing "${1}lazy" "$soffice" "$starts"; fi
+  if has lazy-trace; then timing "${1}lazy-trace" "$soffice" fresh,warm,cold --trace; fi
+  if has lazy-pyc; then use_pyc on; timing "${1}lazy-pyc" "$soffice" "$starts" --trace; use_pyc off; fi
+  use_ext installed
+}
 
-has hst && timing hst "$soffice" fresh,warm,warm,cold --shots
-has trace && timing hst-trace "$soffice" fresh,warm,cold --trace
-if has noext; then
-  mv "$install/share/extensions/hst-vietnamese-tools" "$work/hst-ext-aside"
-  timing hst-noext "$soffice" fresh,warm,cold
-  mv "$work/hst-ext-aside" "$install/share/extensions/hst-vietnamese-tools"
-fi
-if has pyc; then
-  # what a build step would ship: bytecode the office's Python uses without checking the source
-  for dir in "$program" "$install/share/extensions"; do
-    "$program/python.exe" -I -m compileall -q -j 0 --invalidation-mode unchecked-hash "$(w "$dir")" \
-      >> "$out/pyc-compile.log" 2>&1 || echo "compileall $dir exit $?" >> "$out/pyc-compile.log"
-  done
-  echo "pyc files now: $(find "$install" -name '*.pyc' | wc -l)" >> "$out/pyc-compile.log"
-  timing hst-pyc "$soffice" fresh,warm,cold --trace
-  # back to the installed state (it shipped no bytecode when the facts above count none)
-  if grep -q '^pyc files: 0$' "$out/hst-install-facts.txt"; then find "$install" -name __pycache__ -type d -prune -exec rm -rf {} +; fi
-fi
-if has defender; then
-  # real-time scanning as users have it, then with the install folder excluded
-  pwsh -NoProfile -Command 'Set-MpPreference -DisableRealtimeMonitoring $false; Start-Sleep 3; (Get-MpComputerStatus).RealTimeProtectionEnabled' \
-    > "$out/defender-on.txt" 2>&1 || echo "could not enable" >> "$out/defender-on.txt"
-  timing hst-scan-on "$soffice" fresh,warm,cold --trace
-  pwsh -NoProfile -Command "Add-MpPreference -ExclusionPath '$(w "$install")'; Start-Sleep 2; (Get-MpPreference).ExclusionPath" \
-    > "$out/defender-exclusion.txt" 2>&1 || echo "could not exclude" >> "$out/defender-exclusion.txt"
-  timing hst-scan-excluded "$soffice" fresh,warm,cold --trace
-  pwsh -NoProfile -Command "Remove-MpPreference -ExclusionPath '$(w "$install")'" >/dev/null 2>&1 || echo "exclusion kept"
-fi
+if has hst; then timing hst "$soffice" "$starts" --shots; fi
+if has trace; then timing hst-trace "$soffice" fresh,warm,cold --trace; fi
+if has noext; then rm -rf "$ext"; timing hst-noext "$soffice" "$starts"; use_ext installed; fi
+lazy_runs ""
 if has scale150; then
   python -I -c "import sys; sys.path.insert(0, sys.argv[1]); import windows_dpi; print(windows_dpi.set_scale(150))" \
     "$(w "$repo/tests/runtime/r1auto")" > "$out/scale150.txt" 2>&1 || echo "scale not set" >> "$out/scale150.txt"
@@ -92,14 +88,26 @@ if has scale150; then
   python -I -c "import sys; sys.path.insert(0, sys.argv[1]); import windows_dpi; print(windows_dpi.set_scale(100))" \
     "$(w "$repo/tests/runtime/r1auto")" >> "$out/scale150.txt" 2>&1 || echo "scale not reset" >> "$out/scale150.txt"
 fi
-if has lo && [ -n "${LO_MSI_URL:-}" ]; then
+lo=""
+if { has lo || has scan; } && [ -n "${LO_MSI_URL:-}" ]; then
   lo_msi="$work/LibreOffice.msi"
   if curl -fsSL --retry 3 -o "$lo_msi" "$LO_MSI_URL" || curl -fsSL --retry 3 -o "$lo_msi" "${LO_MSI_ARCHIVE_URL:-}"; then
     echo "$LO_MSI_SHA256  $lo_msi" | sha256sum -c
     msiexec_q /i "$(w "$lo_msi")" /qn /norestart /l*v "$(w "$out/lo-install.log")"
     lo="$(find '/c/Program Files/LibreOffice/program' -maxdepth 1 -iname soffice.exe | head -n 1)"
-    [ -z "$lo" ] || timing lo "$lo" fresh,warm,warm,cold
   fi
+fi
+if has lo && [ -n "$lo" ]; then timing lo "$lo" "$starts"; fi
+if has scan; then
+  # as on a user's PC: no exclusions, real-time scanning on (the runner image excludes C:\ and D:\ and turns it off)
+  pwsh -NoProfile -Command 'Remove-MpPreference -ExclusionPath "C:\","D:\" -ErrorAction SilentlyContinue;
+    Set-MpPreference -DisableRealtimeMonitoring $false; Start-Sleep 5;
+    Get-MpComputerStatus | Select-Object AMServiceEnabled,RealTimeProtectionEnabled,OnAccessProtectionEnabled | Format-List;
+    Get-MpPreference | Select-Object ExclusionPath,DisableRealtimeMonitoring | Format-List' > "$out/scan-state.txt" 2>&1 \
+    || echo "scan state not fully set" >> "$out/scan-state.txt"
+  timing scan-hst "$soffice" "$starts" --trace
+  lazy_runs scan-
+  if [ -n "$lo" ]; then timing scan-lo "$lo" "$starts"; fi
 fi
 python -I "$(w "$here/startup-timing-summary.py")" "$(w "$out")" > "$out/summary.md"
 cat "$out/summary.md"

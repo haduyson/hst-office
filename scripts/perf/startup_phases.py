@@ -58,9 +58,10 @@ def python_breakdown(events, launched):
     """Python's share of a start from the tracer's events (scripts/perf/startup_trace/sitecustomize.py).
 
     Returns {"python_init_s": first interpreter start after launch, "imports_s": top-level import time per process,
-    "compiled": modules compiled from source, "from_bytecode": modules read from .pyc, "slowest": the ten slowest
+    "compiled": source files compiled, "compile_s": time spent compiling them, "from_bytecode": the other
+    Python modules (bytecode, frozen), "slowest": the ten slowest
     top-level imports, "calls": HST entry points with their thread, "network": DNS lookups and connects}."""
-    out = {"python_init_s": None, "imports_s": 0.0, "compiled": 0, "from_bytecode": 0, "slowest": [], "calls": [],
+    out = {"python_init_s": None, "imports_s": 0.0, "compiled": 0, "compile_s": 0.0, "from_bytecode": 0, "slowest": [], "calls": [],
            "network": []}
     inits = [e for e in events if e.get("ev") == "python-init"]
     if inits:
@@ -71,8 +72,11 @@ def python_breakdown(events, launched):
     top = [e for start, end, e in spans
            if not any(s < start and end <= t2 and other is not e and other["pid"] == e["pid"] for s, t2, other in spans)]
     out["imports_s"] = round(sum(e["dt"] for e in top), 3)
-    out["compiled"] = sum(e.get("src") == "py" for e in imports)
-    out["from_bytecode"] = sum(e.get("src") == "pyc" for e in imports)
+    compiles = [e for e in events if e.get("ev") == "compile"]
+    out["compiled"] = len(compiles)
+    out["compile_s"] = round(sum(e["dt"] for e in compiles), 3)
+    out["from_bytecode"] = sum(e.get("src") == "pyc" for e in imports) + sum(e.get("src") == "py" for e in imports) \
+        - len(compiles)
     out["slowest"] = [(e["mod"], round(e["dt"], 3)) for e in sorted(top, key=lambda e: -e["dt"])[:10]]
     out["calls"] = [(round(e["t"] - e["dt"] - launched, 3), e["what"], round(e["dt"], 3), e.get("thread"))
                     for e in events if e.get("ev") == "call"]

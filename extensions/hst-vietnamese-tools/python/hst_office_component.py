@@ -1,5 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""UNO component entry point registered in META-INF/manifest.xml (application/vnd.sun.star.uno-component;type=Python)."""
+"""UNO component entry point registered in META-INF/manifest.xml (application/vnd.sun.star.uno-component;type=Python).
+
+The office loads this file the first time it needs any HST service, and the first one is the crash job at OnStartApp,
+while the splash screen is up. So this file imports no HST module itself: every service is registered by name with a
+constructor that imports its module when the office first creates it (scripts/perf/startup-timing.py measured the
+eager imports of every module at about 0.3 s of each start on Windows and 0.5 s on Linux, before the first window).
+"""
+import importlib
 import os
 import sys
 
@@ -10,37 +17,43 @@ if _HERE not in sys.path:
 
 import unohelper  # noqa: E402
 
-from hst_office.dispatch import IMPLEMENTATION_NAME, Handler  # noqa: E402
-from hst_office.welcome_job import JOB_NAME, WelcomeJob  # noqa: E402
-from hst_office.update_job import HANDLER_NAME, JOB_NAME as UPDATE_JOB_NAME, UpdateCheckJob, UpdateHandler  # noqa: E402
-from hst_office.startup_prompts import JOB_NAME as STARTUP_JOB_NAME, StartupPromptsJob  # noqa: E402
-from hst_office.options_page import HANDLER_NAME as OPTIONS_NAME, OptionsPageHandler  # noqa: E402
-from hst_office.appearance_options import HANDLER_NAME as APPEARANCE_NAME, AppearanceOptionsHandler  # noqa: E402
-from hst_office.update_options import HANDLER_NAME as UPDATE_OPTIONS_NAME, UpdateOptionsHandler  # noqa: E402
-from hst_office.error_report_crash import JOB_NAME as CRASH_JOB_NAME, CrashReportJob  # noqa: E402
-from hst_office.vba_save_check import JOB_NAME as VBA_SAVE_JOB_NAME, VbaSaveCheckJob  # noqa: E402
-from hst_office.save_format_check import SERVICE_NAME as SAVE_CHECK_NAME, SaveFormatCheck  # noqa: E402
+JOB = ("com.sun.star.task.Job",)
+PROTOCOL_HANDLER = ("com.sun.star.frame.ProtocolHandler",)
+# (module in hst_office, class, implementation name, service names); each name equals the module's own constant
+# (tests/unit/test_component_lazy_registration.py)
+SERVICES = (
+    ("dispatch", "Handler", "org.hst.office.vi.DispatchProvider", PROTOCOL_HANDLER),
+    ("welcome_job", "WelcomeJob", "org.hst.office.vi.WelcomeJob", JOB),
+    ("update_job", "UpdateCheckJob", "org.hst.office.vi.UpdateCheckJob", JOB),
+    ("update_job", "UpdateHandler", "org.hst.office.vi.UpdateDispatchProvider", PROTOCOL_HANDLER),
+    ("startup_prompts", "StartupPromptsJob", "org.hst.office.vi.StartupPromptsJob", JOB),
+    ("options_page", "OptionsPageHandler", "org.hst.office.vi.OptionsPage", ("org.hst.office.vi.OptionsPage",)),
+    ("appearance_options", "AppearanceOptionsHandler", "org.hst.office.vi.OptionsAppearance",
+     ("org.hst.office.vi.OptionsAppearance",)),
+    ("update_options", "UpdateOptionsHandler", "org.hst.office.vi.OptionsUpdate", ("org.hst.office.vi.OptionsUpdate",)),
+    ("error_report_crash", "CrashReportJob", "org.hst.office.vi.CrashReportJob", JOB),
+    ("vba_save_check", "VbaSaveCheckJob", "org.hst.office.vi.VbaSaveCheckJob", JOB),
+    # asked by the core before an Excel file is written (hst-save-format-check.patch)
+    ("save_format_check", "SaveFormatCheck", "org.hst.office.vi.SaveFormatCheck", ("org.hst.office.vi.SaveFormatCheck",)),
+    ("banner_uno", "BannerService", "org.hst.office.BannerFeed", ("org.hst.office.BannerFeed",) + JOB),
+    ("banner_uno", "BannerStartup", "org.hst.office.BannerStartup", ("org.hst.office.BannerStartup",) + JOB),
+)
 
-from hst_office.banner_uno import BannerService, BannerStartup, SERVICE_NAME, _START_NAME  # noqa: E402
+
+def lazy(module, name):
+    """A constructor for unohelper's factory (called as ctor(ctx, *args)) that imports hst_office.<module> first."""
+    def create(ctx, *args):
+        return getattr(importlib.import_module("hst_office." + module), name)(ctx, *args)
+    create.__qualname__ = "%s.%s" % (module, name)
+    return create
+
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
-g_ImplementationHelper.addImplementation(Handler, IMPLEMENTATION_NAME, ("com.sun.star.frame.ProtocolHandler",))
-g_ImplementationHelper.addImplementation(WelcomeJob, JOB_NAME, ("com.sun.star.task.Job",))
-g_ImplementationHelper.addImplementation(UpdateCheckJob, UPDATE_JOB_NAME, ("com.sun.star.task.Job",))
-g_ImplementationHelper.addImplementation(UpdateHandler, HANDLER_NAME, ("com.sun.star.frame.ProtocolHandler",))
-g_ImplementationHelper.addImplementation(StartupPromptsJob, STARTUP_JOB_NAME, ("com.sun.star.task.Job",))
-g_ImplementationHelper.addImplementation(OptionsPageHandler, OPTIONS_NAME, (OPTIONS_NAME,))
-g_ImplementationHelper.addImplementation(AppearanceOptionsHandler, APPEARANCE_NAME, (APPEARANCE_NAME,))
-g_ImplementationHelper.addImplementation(UpdateOptionsHandler, UPDATE_OPTIONS_NAME, (UPDATE_OPTIONS_NAME,))
-g_ImplementationHelper.addImplementation(CrashReportJob, CRASH_JOB_NAME, ("com.sun.star.task.Job",))
-g_ImplementationHelper.addImplementation(VbaSaveCheckJob, VBA_SAVE_JOB_NAME, ("com.sun.star.task.Job",))
-# asked by the core before an Excel file is written (hst-save-format-check.patch)
-g_ImplementationHelper.addImplementation(SaveFormatCheck, SAVE_CHECK_NAME, (SAVE_CHECK_NAME,))
-g_ImplementationHelper.addImplementation(BannerService, SERVICE_NAME, (SERVICE_NAME, "com.sun.star.task.Job"))
-g_ImplementationHelper.addImplementation(BannerStartup, _START_NAME, (_START_NAME, "com.sun.star.task.Job"))
+for _module, _class, _implementation, _services in SERVICES:
+    g_ImplementationHelper.addImplementation(lazy(_module, _class), _implementation, _services)
 
 # Sheets functions: their interface type comes from types/hst-calc-functions.rdb. Should it be missing, only the
-# functions are lost, never the other HST services of this component.
+# functions are lost, never the other HST services of this component. Registered only when the type exists, as before.
 try:
     from hst_office.calc_functions import SERVICES as CALC_SERVICES, implementation as _calc_functions  # noqa: E402
     g_ImplementationHelper.addImplementation(_calc_functions(), CALC_SERVICES[0], CALC_SERVICES)
