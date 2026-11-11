@@ -10,134 +10,20 @@ A route passes when the document's window is shown, enabled (no modal dialog ove
 its limit. The census lists top-level windows in z-order, so a window or a dialog hidden behind Explorer shows in the
 data. Runs in the tooling Python; the office is driven only through the shell and real input."""
 import json
-import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import time
-import zipfile
 
 from native import screenshot
+from open_routes_fixtures import fixtures
+from open_routes_system import default_profile, registration, scrub_recovery
+import open_routes_watch as watching
 from results import row
 
 APPS = (("sheets", "Sheets", "xlsx", "ods"), ("writer", "Writer", "docx", "odt"), ("slides", "Slides", "pptx", "odp"))
 LIMIT_FRESH, LIMIT_WARM = 90, 30
 NEW_TITLE = re.compile(r"Untitled|Không tên")
-NS = ('xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
-      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
-      'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
-      'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
-      'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"')
-BODY = {"odt": ("application/vnd.oasis.opendocument.text", "<office:text><text:p>HST</text:p></office:text>"),
-        "ods": ("application/vnd.oasis.opendocument.spreadsheet",
-                '<office:spreadsheet><table:table table:name="Sheet1"><table:table-row><table:table-cell '
-                'office:value-type="string"><text:p>HST</text:p></table:table-cell></table:table-row></table:table>'
-                '</office:spreadsheet>'),
-        "odp": ("application/vnd.oasis.opendocument.presentation",
-                '<office:presentation><draw:page draw:name="p1"><draw:frame svg:x="2cm" svg:y="2cm" svg:width="12cm" '
-                'svg:height="3cm"><draw:text-box><text:p>HST</text:p></draw:text-box></draw:frame></draw:page>'
-                '</office:presentation>')}
-
-
-def fixtures(install, work):
-    """One small document per format: ODF written here, OOXML converted by the installed office on its own
-    throw-away profile (the default profile stays new)."""
-    out = Path(work) / "fixtures"
-    out.mkdir(parents=True, exist_ok=True)
-    soffice = Path(install) / "program" / "soffice.exe"
-    for ext, (mime, body) in BODY.items():
-        path = out / ("mau." + ext)
-        with zipfile.ZipFile(path, "w") as z:
-            z.writestr(zipfile.ZipInfo("mimetype"), mime)
-            z.writestr("META-INF/manifest.xml", '<?xml version="1.0" encoding="UTF-8"?><manifest:manifest '
-                       'xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3">'
-                       '<manifest:file-entry manifest:full-path="/" manifest:media-type="%s" manifest:version="1.3"/>'
-                       '<manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>'
-                       '</manifest:manifest>' % mime, zipfile.ZIP_DEFLATED)
-            z.writestr("content.xml", '<?xml version="1.0" encoding="UTF-8"?><office:document-content %s '
-                       'office:version="1.3"><office:body>%s</office:body></office:document-content>' % (NS, body),
-                       zipfile.ZIP_DEFLATED)
-    profile = (Path(work) / "convert-profile").resolve().as_uri()
-    for odf, ooxml in (("odt", "docx"), ("ods", "xlsx"), ("odp", "pptx")):
-        subprocess.run([str(soffice), "--headless", "--norestore", "-env:UserInstallation=" + profile,
-                        "--convert-to", ooxml, "--outdir", str(out), str(out / ("mau." + odf))],
-                       check=True, capture_output=True, timeout=300, stdin=subprocess.DEVNULL)
-        if not (out / ("mau." + ooxml)).is_file():
-            raise RuntimeError("Không tạo được tệp mẫu ." + ooxml)
-    return out
-
-
-def painted(rect, covers=()):
-    """The document's content is drawn: a window still loading is one flat colour with a progress text in its status
-    bar (the frame is shown before the import, loadenv.cxx), a loaded one has the ribbon, rulers or grid. Dialogs
-    over the window (`covers`) are blanked out first, so a start-up question over a loaded document still counts."""
-    from PIL import ImageDraw, ImageGrab
-    left, top, right, bottom = rect
-    if right - left < 300 or bottom - top < 200:
-        return False
-    box = (left + 8, top + 40, right - 8, bottom - 60)  # no title bar, no status bar
-    image = ImageGrab.grab(bbox=box, all_screens=True).convert("RGB")
-    draw = ImageDraw.Draw(image)
-    for c in covers:
-        draw.rectangle((c[0] - box[0], c[1] - box[1], c[2] - box[0], c[3] - box[1]), fill=(0, 0, 0))
-    return len(set(image.resize((160, 90)).getdata())) > 40
-
-
-def scrub_recovery(profile):
-    """After a forced stop: drop the recovery list, so the next start is not a recovery start (that dialog would
-    hide every later route's own result)."""
-    xcu = Path(profile) / "user" / "registrymodifications.xcu"
-    if xcu.is_file():
-        lines = xcu.read_text(encoding="utf-8").splitlines(keepends=True)
-        xcu.write_text("".join(l for l in lines if "org.openoffice.Office.Recovery" not in l), encoding="utf-8")
-    shutil.rmtree(Path(profile) / "user" / "backup", ignore_errors=True)
-
-
-def default_profile(install):
-    """bootstrap.ini UserInstallation of the installed office ($SYSUSERCONFIG = %APPDATA%)."""
-    import urllib.parse
-    text = (Path(install) / "program" / "bootstrap.ini").read_text(encoding="utf-8", errors="replace")
-    raw = re.search(r"^UserInstallation=(.*)$", text, re.M).group(1).strip()
-    raw = raw.replace("$SYSUSERCONFIG", Path(os.environ["APPDATA"]).as_uri().removeprefix("file:///"))
-    return Path(urllib.parse.unquote(raw.removeprefix("file:///")))
-
-
-def registration():
-    """What Explorer reads for each type: the default ProgID, Open-with ProgIDs, the user's choice and every verb."""
-    import winreg
-    def value(hive, key, name=""):
-        try:
-            with winreg.OpenKey(hive, key) as handle:
-                return winreg.QueryValueEx(handle, name)[0]
-        except OSError:
-            return None
-    def names(hive, key, values=False):
-        try:
-            with winreg.OpenKey(hive, key) as handle:
-                enum = winreg.EnumValue if values else winreg.EnumKey
-                found, i = [], 0
-                while True:
-                    try:
-                        item = enum(handle, i)
-                    except OSError:
-                        return found
-                    found.append(item[0] if values else item)
-                    i += 1
-        except OSError:
-            return []
-    out = {}
-    for ext in ("xlsx", "ods", "docx", "odt", "pptx", "odp"):
-        progids = names(winreg.HKEY_CLASSES_ROOT, "." + ext + r"\OpenWithProgids", values=True)
-        default = value(winreg.HKEY_CLASSES_ROOT, "." + ext)
-        verbs = {}
-        for progid in {p for p in progids + [default] if p and p.lower().startswith("hst")}:
-            for verb in names(winreg.HKEY_CLASSES_ROOT, progid + r"\shell"):
-                verbs[progid + " " + verb] = value(winreg.HKEY_CLASSES_ROOT, progid + r"\shell\%s\command" % verb)
-        out[ext] = dict(default=default, open_with=progids, verbs=verbs, user_choice=value(
-            winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.%s\UserChoice"
-            % ext, "ProgId"))
-    return out
 
 
 class Routes:
@@ -186,77 +72,6 @@ class Routes:
         shutil.rmtree(self.profile, ignore_errors=True)
         return closed
 
-    # ---- measuring -------------------------------------------------------------------------------------------
-    def watch(self, matches, limit, label):
-        """Poll the census until the document window is shown, enabled and in front of Explorer, or the limit."""
-        from open_routes_windows import census, office_processes, dismiss_system_notices
-        start, timeline, last, shots, result, first_window = time.monotonic(), [], None, [], None, None
-        marks = [2, 10, 25, 60]
-        while True:
-            now = round(time.monotonic() - start, 1)
-            windows, fg = census()
-            dismiss_system_notices()
-            office = [w for w in windows if w["proc"] == "soffice.bin" and w["title"]]
-            explorer_z = min([w["z"] for w in windows if w["cls"] == "CabinetWClass"] or [10 ** 6])
-            doc = next((w for w in office if matches(w["title"]) and not w["owner"]), None)
-            state = (tuple((w["title"], w["enabled"], w["z"] < explorer_z) for w in office), fg["title"])
-            if state != last:
-                timeline.append(dict(t=now, office=[dict(title=w["title"], cls=w["cls"], enabled=w["enabled"],
-                                                         above_explorer=w["z"] < explorer_z, owner=bool(w["owner"]),
-                                                         iconic=w["iconic"]) for w in office],
-                                     foreground=fg, processes=office_processes()))
-                last = state
-            if marks and now >= marks[0]:
-                marks.pop(0)
-                shots.append(screenshot(self.out / ("%s-%02ds.png" % (label, int(now)))))
-            if doc and first_window is None:
-                first_window = now
-            front = doc and not doc["iconic"] and (doc["z"] < explorer_z or fg["proc"] == "soffice.bin")
-            over = [w for w in office if w["owner"] or not matches(w["title"])]
-            if front and painted(doc["rect"], [w["rect"] for w in over]):
-                result = dict(status="OK", seconds=now, window_seconds=first_window, title=doc["title"],
-                              foreground=fg["title"], doc_is_foreground=fg["hwnd"] == doc["hwnd"],
-                              dialog_over_document=[w["title"] for w in over] if not doc["enabled"] else [])
-                break
-            if now >= limit:
-                dialogs = [w["title"] for w in office if not matches(w["title"])]
-                status = ("BLOCKED" if doc and not doc["enabled"] else "BEHIND" if doc and not front else
-                          "BLANK" if doc else "DIALOG" if dialogs else "NO WINDOW")
-                if status in ("NO WINDOW", "BLANK", "BLOCKED"):
-                    from open_routes_windows import minidump
-                    result_dumps = [minidump(p["pid"], self.out.parent / "crash" / ("hang-%s-%d.dmp" % (label, p["pid"])))
-                                    for p in office_processes() if p["name"].lower() == "soffice.bin"]
-                else:
-                    result_dumps = []
-                result = dict(status=status, seconds=None, window_seconds=first_window, dumps=result_dumps,
-                              office_windows=[w["title"] for w in office],
-                              dialogs=dialogs, foreground=fg["title"], processes=office_processes())
-                break
-            time.sleep(0.4)
-        shots.append(screenshot(self.out / ("%s-end.png" % label)))
-        result["timeline"] = timeline
-        result["screenshots"] = [Path(s).name for s in shots]
-        return result
-
-    def unblock(self, matches, label):
-        """After a failed wait: bring the office's own dialog (or the document) forward, press Escape, wait again;
-        tells whether a person who finds the dialog gets the document."""
-        from open_routes_windows import census, bring_to_front, close_windows
-        office = [w for w in census()[0] if w["proc"] == "soffice.bin" and w["title"]]
-        target = next((w for w in office if w["enabled"] and not matches(w["title"])), None) or \
-            next((w for w in office), None)
-        if target is None:
-            return dict(action="nothing to bring forward")
-        if matches(target["title"]):
-            bring_to_front(target["hwnd"])
-            action = "front " + target["title"]
-        else:
-            close_windows([target["hwnd"]])  # the dialog's own close button, no focus needed
-            action = "close " + target["title"]
-        again = self.watch(matches, 45, label + "-after")
-        return dict(action=action, status=again["status"], seconds=again["seconds"],
-                    timeline=again["timeline"][-3:], screenshots=again["screenshots"])
-
     # ---- one route -------------------------------------------------------------------------------------------
     def copy(self, app, ext, tag):
         self.count += 1
@@ -265,14 +80,16 @@ class Routes:
         return path
 
     def open_base(self, app, ext):
-        from open_routes_windows import shell_execute
+        from open_routes_explorer import shell_execute
         base = self.copy(app, ext, "base")
         shell_execute(base, None)
-        waited = self.watch(lambda t: base.name in t or base.stem in t, LIMIT_FRESH, "%02d-base" % self.count)
+        waited = watching.watch(self.out, lambda t: base.name in t or base.stem in t, LIMIT_FRESH,
+                                "%02d-base" % self.count)
         return base, waited["status"]
 
     def route(self, app, label, ext, how, state):
-        from open_routes_windows import Explorer, Launches, shell_execute, census, close_windows
+        from open_routes_explorer import Explorer, shell_execute
+        from open_routes_windows import Launches, census, close_windows
         record = dict(app=app, ext=ext, route=how, state=state)
         try:
             if state == "fresh":
@@ -316,13 +133,13 @@ class Routes:
                 record["input"] = shell_execute(path, None if how == "verb-default" else "new")
             record["input_seconds"] = round(time.monotonic() - started, 1)
             try:
-                result = self.watch(matches, limit, name)
+                result = watching.watch(self.out, matches, limit, name)
             finally:
                 launches.__exit__()
                 record["launches"] = launches.report()
             record.update(result)
             if result["status"] != "OK":
-                record["unblock"] = self.unblock(matches, name)
+                record["unblock"] = watching.unblock(self.out, matches, name)
             if explorer:
                 explorer.close()
         except Exception as error:  # noqa: BLE001 - one broken route must not hide the others

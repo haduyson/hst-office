@@ -9,6 +9,10 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # also under python -I, which leaves it out
+from workflow_build_rules import (SIGNING_JOB, SIGNING_ENVIRONMENT, SIGNING_GATE, check_signing_job,  # noqa: E402
+                                  check_macos_build, check_windows_build, check_linux_build, check_release)
+
 PINS = {
     "actions/checkout": "11bd71901bbe5b1630ceea73d27597364c9af683",
     "actions/setup-python": "a26af69be951a213d495a4c3e4e4022e16d87065",
@@ -22,11 +26,8 @@ REQUIRED = {"quality.yml", "desktop-linux.yml", "desktop-windows.yml", "desktop-
 RELEASE_PERMISSIONS = {"contents": "write", "actions": "read"}
 # The only jobs that may read secrets: macOS signing behind a reviewable environment, in the build
 # workflow and in the signing probe. Each may be skipped only by its own job condition.
-SIGNING_JOB, SIGNING_ENVIRONMENT = "sign", "macos-signing"
 SIGNING_JOBS = {("desktop-macos.yml", SIGNING_JOB): "${{ inputs.mode == 'full' }}",
                 ("macos-signature-probe.yml", SIGNING_JOB): "${{ inputs.sign }}"}
-SIGNING_GATE = "steps.gate.outputs.enabled == 'true'"
-MACOS_STAGES = ["probe", "free-disk", "tools", "extract", "patch", "configure", "fetch", "build", "collect", "verify"]
 CYGWIN_SHELL = "C:/cygwin64/bin/bash.exe"
 SCRIPT = re.compile(r"\bscripts/[\w./-]+\.(?:py|sh|ps1|mjs|js)\b")
 
@@ -57,21 +58,6 @@ WorkflowLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, u
 
 def active_lines(run):
     return [line.strip() for line in run.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-
-
-def check_signing_job(job, require):
-    """Rules shared by every job that may read the macOS signing secrets."""
-    require(job.get("environment") == SIGNING_ENVIRONMENT, "signing must run behind the macos-signing environment")
-    steps = job.get("steps", [])
-    gate = [step for step in steps if step.get("id") == "gate"]
-    require(len(gate) == 1 and "sign-notarize.sh --enabled" in gate[0].get("run", "") and "if" not in gate[0],
-            "signing needs one unconditional gate that skips cleanly without secrets")
-    cleanup = [step for step in steps if "sign-notarize.sh --cleanup" in step.get("run", "")]
-    require(len(cleanup) == 1 and "always()" in str(cleanup[0].get("if", "")),
-            "the temporary keychain must be deleted even when signing fails")
-    uploads = [step for step in steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
-    require(all(SIGNING_GATE in str(step.get("if", "")) and "success()" in str(step.get("if", "")) for step in uploads),
-            "signed dmg upload must depend on the gate and success")
 
 
 def check_workflow(path, root=ROOT):
@@ -159,92 +145,15 @@ def check_workflow(path, root=ROOT):
                 "quality must execute scripts/ci-quality.sh")
         require(all("if" not in step for step in runs), "quality commands must not be skipped")
     elif path.name == "desktop-macos.yml":
-        require(set(jobs) == {"build", SIGNING_JOB}, "macOS needs exactly a build job and a signing job")
-        build_job, sign_job = jobs.get("build", {}), jobs.get(SIGNING_JOB, {})
-        matrix = build_job.get("strategy", {}).get("matrix", {}).get("include", [])
-        require(sorted(entry.get("arch", "") for entry in matrix) == ["arm64", "x86_64"]
-                and all(str(entry.get("runner", "")).startswith("macos-") for entry in matrix)
-                and build_job.get("runs-on") == "${{ matrix.runner }}",
-                "macOS build must run natively on hosted macos-* runners for arm64 and x86_64")
-        require(type(build_job.get("timeout-minutes")) is int and build_job["timeout-minutes"] >= 300,
-                "macOS build needs a long timeout to finish the build")
-        build_steps = build_job.get("steps", [])
-        text_runs = "\n".join(step["run"] for step in build_steps if "run" in step)
-        require("fetch-sources.py" in text_runs, "macOS build must download and verify pinned tarballs")
-        require(re.findall(r"trial-build\.sh --([\w-]+)", text_runs) == MACOS_STAGES,
-                "macOS build stages must follow " + "/".join(MACOS_STAGES))
-        modes = events.get("workflow_dispatch", {}).get("inputs", {}).get("mode", {}) if isinstance(events, dict) else {}
-        require(modes.get("options") == ["preflight", "full"] and modes.get("default") == "preflight",
-                "mode input must offer preflight (default) and full")
-        build = [step for step in build_steps if "trial-build.sh --build" in step.get("run", "")]
-        require(len(build) == 1 and "full" in str(build[0].get("if", "")) and "HST_BUILD_DEADLINE" in build[0]["run"],
-                "build step must run only in full mode with a time budget")
-        uploads = [step for step in build_steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
-        evidence = [step for step in uploads if "artifacts" in str(step.get("with", {}).get("path", ""))]
-        require(len(evidence) == 1 and "always()" in str(evidence[0].get("if", "")),
-                "macOS build must upload evidence even when earlier steps fail")
-        dmgs = [step for step in uploads if step not in evidence]
-        require(len(dmgs) == 1 and "success()" in str(dmgs[0].get("if", ""))
-                and str(dmgs[0].get("with", {}).get("name", "")).startswith("hst-office-macos-${{ matrix.arch }}-dmg-"),
-                "the unsigned dmg must be uploaded once, only after a successful build")
-        require(sign_job.get("needs") == "build", "signing must follow the build")
+        check_macos_build(jobs, events, require)
     elif path.name == "macos-signature-probe.yml":
         require(set(jobs) == {"probe", SIGNING_JOB}, "the probe needs exactly a probe job and a signing job")
     elif path.name == "desktop-windows.yml":
-        require(len(jobs) == 1, "Windows trial must be a single job on one runner")
-        job = next(iter(jobs.values()))
-        require(str(job.get("runs-on", "")).startswith("windows-"), "Windows trial must run on a hosted windows runner")
-        require(type(job.get("timeout-minutes")) is int and job["timeout-minutes"] >= 300,
-                "Windows trial needs a long timeout to measure the build")
-        text_runs = "\n".join(step["run"] for step in runs)
-        require("fetch-sources.py" in text_runs, "trial must download and verify pinned tarballs")
-        require(all(re.search(rf'trial-build\.sh"? --{stage}\b', text_runs) for stage in ("extract", "patch", "configure", "build")),
-                "trial must extract, patch, configure and build")
-        modes = events.get("workflow_dispatch", {}).get("inputs", {}).get("mode", {}) if isinstance(events, dict) else {}
-        require(modes.get("options") == ["preflight", "full"] and modes.get("default") == "preflight",
-                "mode input must offer preflight (default) and full")
-        build = [step for step in all_steps if "trial-build.sh" in step.get("run", "") and "--build" in step["run"]]
-        require(len(build) == 1 and "full" in str(build[0].get("if", "")), "build step must run only in full mode")
-        require("HST_BUILD_DEADLINE" in text_runs, "build step must carry a time budget")
-        uploads = [step for step in all_steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
-        evidence = [step for step in uploads if "artifacts" in str(step.get("with", {}).get("path", ""))]
-        require(len(evidence) == 1 and "always()" in str(evidence[0].get("if", "")),
-                "trial must upload artifacts even when earlier steps fail")
-        # Other uploads (the built installer) only publish output of a successful build.
-        require(all("success" in str(step.get("if", "")) for step in uploads if step not in evidence),
-                "installer upload must depend on a successful build")
+        check_windows_build(jobs, events, runs, all_steps, require)
     elif path.name == "desktop-linux.yml":
-        require(len(jobs) == 1, "Linux deb build must be a single job on one runner")
-        job = next(iter(jobs.values()))
-        require(str(job.get("runs-on", "")).startswith("ubuntu-"), "Linux deb build must run on a hosted ubuntu runner")
-        require(type(job.get("timeout-minutes")) is int and job["timeout-minutes"] >= 300,
-                "Linux deb build needs a long timeout to finish the build")
-        text_runs = "\n".join(step["run"] for step in runs)
-        require("fetch-sources.py" in text_runs, "Linux build must download and verify pinned tarballs")
-        order = re.findall(r"ci-build\.sh --(\w+)", text_runs)
-        require(order == ["deps", "extract", "patch", "configure", "fetch", "build", "package"],
-                "Linux build stages must follow deps/extract/patch/configure/fetch/build/package order")
-        modes = events.get("workflow_dispatch", {}).get("inputs", {}).get("mode", {}) if isinstance(events, dict) else {}
-        require(sorted(modes.get("options") or []) == ["full", "preflight"], "mode input must offer full and preflight")
-        build = [step for step in runs if "ci-build.sh --build" in step["run"]]
-        require(len(build) == 1 and "full" in str(build[0].get("if", "")), "build step must run only in full mode")
-        require(len(build) == 1 and "HST_BUILD_DEADLINE" in build[0]["run"], "build step must carry a time budget")
-        uploads = [step for step in all_steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
-        evidence = [step for step in uploads if "artifacts" in str(step.get("with", {}).get("path", ""))]
-        require(len(evidence) == 1 and "always()" in str(evidence[0].get("if", "")),
-                "Linux build must upload evidence even when earlier steps fail")
-        debs = [step for step in uploads if step not in evidence]
-        require(len(debs) == 1 and "success" in str(debs[0].get("if", ""))
-                and str(debs[0].get("with", {}).get("name", "")).startswith("hst-office-linux-deb-"),
-                "the .deb artifact must be uploaded once, only after a successful build")
+        check_linux_build(jobs, events, runs, all_steps, require)
     if path.name == "release.yml":
-        # A later macOS commit is allowed only through the collector, which runs the path rule
-        # (scripts/release/macos-commit-paths.sh) against the release commit.
-        inputs = events.get("workflow_dispatch", {}).get("inputs", {}) if isinstance(events, dict) else {}
-        collect = [step for step in all_steps if "collect-release-assets.sh" in step.get("run", "")]
-        require("macos_commit" in inputs and len(collect) == 1
-                and collect[0].get("env", {}).get("MACOS_COMMIT") == "${{ inputs.macos_commit }}",
-                "release must pass macos_commit to collect-release-assets.sh, which enforces the macOS-only rule")
+        check_release(events, all_steps, require)
     for (workflow_name, job_name) in SIGNING_JOBS:
         if path.name == workflow_name:
             check_signing_job(jobs.get(job_name, {}), require)
