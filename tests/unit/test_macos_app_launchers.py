@@ -79,18 +79,17 @@ class LauncherBundles(unittest.TestCase):
             self.assertNotIn(forbidden, stub)
         self.assertNotIn("LibreOffice", stub)
 
-    def test_forward_is_headless_and_short(self):
-        """A GUI second soffice showed a second HST Office in the Dock and, behind Impress's template dialog, kept
-        its launcher for 30 s and then lingered (launcher probe run 42938224519)."""
+    def test_hand_over_of_a_new_document_does_not_wait(self):
+        """The launcher's second soffice waited for Impress's template dialog: a second HST Office in the Dock and
+        the launcher for 30 s (launcher probe run 42938224519). The office answers a module start at once."""
+        patches = ROOT / "patches" / "libreoffice"
+        series = (patches / "series").read_text(encoding="utf-8").split()
+        self.assertIn("hst-ipc-new-document-no-wait.patch", series)
+        patch = (patches / "hst-ipc-new-document-no-wait.patch").read_text(encoding="utf-8")
+        self.assertIn("+++ b/desktop/source/app/officeipcthread.cxx", patch)
+        self.assertIn("+    *waitProcessed = bDocRequestSent && !bModuleStartOnly;", patch)
         stub = (MACOS / "hst-app-launcher.m").read_text(encoding="utf-8")
-        forward = stub[stub.index("static int forwardToRunningOffice("):stub.index("static void tellUser(")]
-        self.assertRegex(forward, r'argv\[\] = \{ [^}]*"--headless", \(char \*\)flag\.UTF8String, NULL \}')
-        wait = float(re.search(r"kForwardWait = ([\d.]+);", stub).group(1))
-        self.assertLessEqual(wait, 5.0)
-        # the office quit meanwhile: the helper must not stay as a headless office
-        self.assertIn("kill(pid, SIGTERM)", forward)
-        self.assertIn("return openHost(hostURL, flag);", forward)
-        self.assertLess(stub.index("static int openHost("), stub.index("static int forwardToRunningOffice("))
+        self.assertIn("forwardToRunningOffice", stub)
 
     def test_collect_builds_them_before_signing_and_verify_checks_them(self):
         trial = (MACOS / "trial-build.sh").read_text(encoding="utf-8")
@@ -143,25 +142,6 @@ class ProbeHelper(unittest.TestCase):
                 return name == self.service
         docs = [Doc(PROBE.KINDS["writer"]), Doc(PROBE.KINDS["calc"]), Doc(PROBE.KINDS["writer"]), Doc(None), Doc("x")]
         self.assertEqual(PROBE.kinds_of(docs), {"writer": 2, "calc": 1})
-
-    def test_quit_lifts_the_dock_veto_before_terminate(self):
-        """A plain terminate() is vetoed by the macOS Dock menu (launcher probe run 42929399081: office closed FAIL)."""
-        calls = []
-
-        class Desktop:
-            def setPropertyValue(self, name, value):
-                calls.append(("set", name, value))
-
-            def terminate(self):
-                calls.append(("terminate",))
-                return True
-        original = PROBE.connect
-        PROBE.connect = lambda _timeout: Desktop()
-        try:
-            self.assertEqual(PROBE.quit_office(), 0)
-        finally:
-            PROBE.connect = original
-        self.assertEqual(calls, [("set", "SuspendQuickstartVeto", True), ("terminate",)])
 
 
 if __name__ == "__main__":

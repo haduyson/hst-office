@@ -1,0 +1,45 @@
+HST Office: a second office that only asks for a new document of a module does not wait for it.
+
+`soffice --writer|--calc|--impress` started while HST Office runs hands its request to the running
+office over the single-instance pipe (D-Bus on Linux) and used to wait until the request had been
+processed. The macOS launchers HST Writer, HST Sheets and HST Slides do exactly this when the office
+is running (scripts/macos/hst-app-launcher.m). A new presentation first shows Impress's modal
+template dialog ("Lựa chọn mẫu"), so the second soffice, a second HST Office in the Dock, stayed
+until the user closed that dialog, its launcher waited 30 s, and the pipe thread accepted no other
+request meanwhile (launcher probe run 42938224519, three-apps.png and processes.log).
+
+A request that only creates a new document of a module (no file, print or conversion) is answered
+as soon as it is queued; the document is created exactly as before. Requests with files still wait.
+
+License: modified upstream files keep their license (MPL-2.0).
+---
+--- a/desktop/source/app/officeipcthread.cxx
++++ b/desktop/source/app/officeipcthread.cxx
+@@ -901,6 +901,7 @@
+     }
+ 
+     bool bDocRequestSent = false;
++    bool bModuleStartOnly = false;
+ 
+     OUString aUnknown( aCmdLineArgs->GetUnknown() );
+     if (aUnknown.isEmpty() && !aCmdLineArgs->IsHelp() && !aCmdLineArgs->IsVersion())
+@@ -979,6 +980,10 @@
+             // the first process, see OpenClients() (call to OpenDefault()) in app.cxx
+             if ( aCmdLineArgs->HasModuleParam() && !bDocRequestSent )
+             {
++                // HST Office: a new document of a module needs no answer. The second process
++                // (the HST Writer/Sheets/Slides launchers' hand-over) must not wait while the
++                // new document shows a modal dialog, e.g. Impress's template selection.
++                bModuleStartOnly = true;
+                 SvtModuleOptions aOpt;
+                 SvtModuleOptions::EFactory eFactory = SvtModuleOptions::EFactory::WRITER;
+                 if ( aCmdLineArgs->IsWriter() )
+@@ -1080,7 +1085,7 @@
+             ImplPostForeignAppEvent( pAppEvent );
+         }
+     }
+-    *waitProcessed = bDocRequestSent;
++    *waitProcessed = bDocRequestSent && !bModuleStartOnly;
+     return true;
+ }
+ 

@@ -5,7 +5,7 @@
                                                           no welcome or default-apps question, UNO acceptor on a pipe
   app-launchers-probe.py wait <kinds> [--timeout S]      (bundled python, uno) until the open documents are exactly
                                                           <kinds> (comma list of writer, calc, impress), one each
-  app-launchers-probe.py quit                            (bundled python, uno) quit the office as its Quit does
+  app-launchers-probe.py frames                          (bundled python, uno) list the frames (quit diagnostics)
   app-launchers-probe.py make-odb <file.odb>             (bundled python, uno) store a small dBase-backed database
   app-launchers-probe.py no-base-menu                    (bundled python, uno) File ▸ New (and the Dock menu built
                                                           from it) offers no database
@@ -109,15 +109,19 @@ def wait(expected, timeout):
     return 1
 
 
-def quit_office():
-    """Quit like the office's own Quit (Desktop::QueryExit, update_launch.quit_office): on macOS the Dock menu (the
-    quick starter) vetoes a plain terminate(), which then only closes the windows and returns False."""
-    try:
-        desktop = connect(20)
-        desktop.setPropertyValue("SuspendQuickstartVeto", True)
-        print("terminate: %s" % desktop.terminate())
-    except Exception as exc:  # noqa: BLE001 - the bridge drops while the office exits
-        print("terminate: %s" % exc)
+def frames():
+    """Diagnostic: title and document kind of each frame of the desktop (what a quit has to close)."""
+    desktop = connect(20)
+    rows = []
+    for index in range(desktop.Frames.getCount()):
+        frame = desktop.Frames.getByIndex(index)
+        controller = frame.getController()
+        model = controller.getModel() if controller is not None else None
+        kind = kinds_of([model]) if model is not None else {}
+        rows.append({"title": frame.Title, "kind": next(iter(kind), "none"),
+                     "modified": bool(model.isModified()) if model is not None and hasattr(model, "isModified")
+                     else None})
+    print(json.dumps({"frames": rows}, ensure_ascii=False))
     return 0
 
 
@@ -155,8 +159,8 @@ def main(argv):
     if len(argv) >= 2 and argv[0] == "wait":
         timeout = int(argv[3]) if len(argv) >= 4 and argv[2] == "--timeout" else 120
         return wait(argv[1], timeout)
-    if argv[:1] == ["quit"]:
-        return quit_office()
+    if argv[:1] == ["frames"]:
+        return frames()
     if len(argv) >= 2 and argv[0] == "make-odb":
         return make_odb(argv[1])
     if argv[:1] == ["no-base-menu"]:
