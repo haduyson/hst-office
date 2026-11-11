@@ -300,6 +300,13 @@ class Routes:
             started = time.monotonic()
             if how == "double-click":
                 record["input"] = explorer.double_click()
+                # The shell starting nothing at all means the double-click never reached Explorer as one: no HST
+                # process ran, so the office cannot have failed. Seen once in 18 closing routes with launch tracking
+                # (r1-auto Windows run 42947181746, 100%: the closing office exited at 0.7 s as in every passing
+                # route, then no launcher for 25 s). Double-click again and keep the lost input as evidence.
+                if not launches.launched(5):
+                    record["input_lost"] = record["input"]
+                    record["input"] = explorer.double_click()
             elif how == "open":
                 record["input"] = explorer.choose("Open")
             elif how == "open-with":

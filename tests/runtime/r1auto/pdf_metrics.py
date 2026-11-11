@@ -48,7 +48,12 @@ def aligned(reference, candidate):
         rgb = np.asarray(source if isinstance(source, Image.Image) else Image.open(source).convert("RGB"),
                          dtype=np.int16)
         red = (rgb[..., 0] > 140) & (rgb[..., 0] > rgb[..., 1] * 1.5) & (rgb[..., 0] > rgb[..., 2] * 1.5)
-        ys, xs = np.nonzero(red)
+        # Only the stamp's solid strokes: a red pixel whose four neighbours are red too. Windows' Draw export
+        # fringes black glyph edges red (subpixel text); those 1 px fringes on the title moved the centroid by
+        # (10, 23) px, the shift moved the watermark off the reference (r1-auto Windows run 42947181746, W13).
+        solid = np.zeros_like(red)
+        solid[1:-1, 1:-1] = (red[1:-1, 1:-1] & red[:-2, 1:-1] & red[2:, 1:-1] & red[1:-1, :-2] & red[1:-1, 2:])
+        ys, xs = np.nonzero(solid)
         return (float(xs.mean()), float(ys.mean())) if len(xs) > 100 else None
     a, b = centroid(reference), centroid(image)
     if not a or not b:
