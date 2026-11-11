@@ -110,7 +110,7 @@ def check_workflow(path, root=ROOT):
         # the public release and the draft "test-builds" release for maintainers.
         writers = {("release.yml", "publish"), ("test-build-share.yml", "share")}
         # The tab and spell probes only read a run artifact (gh run download needs actions: read).
-        readers = {("macos-tab-probe.yml", "probe"), ("macos-bundle-seal-probe.yml", "probe"), ("macos-spell-probe.yml", "probe"), ("macos-app-launchers-probe.yml", "probe"), ("windows-smoke.yml", "smoke"), ("r1-auto-windows.yml", "r1"), ("r1-auto-macos.yml", "r1"), ("r1-auto-macos.yml", "old-profile")}
+        readers = {("macos-tab-probe.yml", "probe"), ("macos-bundle-seal-probe.yml", "probe"), ("macos-spell-probe.yml", "probe"), ("macos-app-launchers-probe.yml", "probe"), ("windows-smoke.yml", "smoke"), ("r1-auto-windows.yml", "r1"), ("r1-auto-macos.yml", "r1"), ("r1-auto-macos.yml", "old-profile"), ("startup-timing.yml", "timing")}
         allowed = RELEASE_PERMISSIONS if (path.name, name) in writers else \
             {"contents": "read", "actions": "read"} if (path.name, name) in readers else {"contents": "read"}
         require(job.get("permissions", {"contents": "read"}) == allowed, f"{name}: permissions escalation")
