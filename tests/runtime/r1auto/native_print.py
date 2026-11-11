@@ -17,7 +17,14 @@ def save_print(target):
         desktop = Desktop(backend="uia")
         def print_window():
             return next((w for w in desktop.windows() if w.window_text().strip() in {"In", "Print"}), None)
-        window = wait(print_window)
+        try:
+            window = wait(print_window, 60)
+        except TimeoutError:
+            # what is on screen instead of the print dialog (a message box, a hidden dialog, nothing)
+            screenshot(target.with_name("print-timeout.png"))
+            shown = [(w.window_text(), w.class_name(), w.process_id()) for w in desktop.windows()]
+            target.with_name("print-timeout.log").write_text(repr(shown), encoding="utf-8")
+            raise RuntimeError("Không thấy hộp thoại In sau 60 giây (print-timeout.png, print-timeout.log)")
         # An actual Windows virtual printer: never assume printer index zero.
         chosen = None
         for combo in window.descendants(control_type="ComboBox"):
