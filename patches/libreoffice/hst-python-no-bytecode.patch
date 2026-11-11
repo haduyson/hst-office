@@ -13,7 +13,10 @@ Py_Initialize() and inherited by the helper processes the office starts with the
   compiled each module of the HST extension and the standard library again while the splash screen
   was up (scripts/perf/startup-timing.py). PYTHONPYCACHEPREFIX=<user installation>/cache/python makes
   Python write the bytecode there once and read it on later starts; nothing is written next to the
-  installed sources. PYTHONDONTWRITEBYTECODE=1 when the profile path cannot be resolved.
+  installed sources. PYTHONDONTWRITEBYTECODE=1 when the profile path cannot be resolved. Python
+  trusts a cached .pyc while the source's mtime and size match, so scripts/build-extensions.py gives
+  every file of the bundled extension a content-derived time (an edited module never keeps the time
+  of the previous release).
 
 --- a/pyuno/source/loader/pyuno_loader.cxx
 +++ b/pyuno/source/loader/pyuno_loader.cxx
@@ -25,8 +28,8 @@ Py_Initialize() and inherited by the helper processes the office starts with the
 +    // to (an admin's /Applications) would get __pycache__ folders and rewritten .pyc files, which breaks the
 +    // bundle's code signature seal; a per-machine Windows or Linux installation would keep them after an
 +    // uninstall. Py_Initialize() below reads the environment (the PyConfig above is not passed to it, so its
-+    // write_bytecode is not used), and every process the office starts with the bundled python3 (the update
-+    // helper, the USB token worker) inherits it. A value already set is kept.
++    // write_bytecode is not used), and the processes the office starts with the bundled python3 inherit it
++    // (unless they run it with -I). A value already set is kept.
 +    if (o3tl::getEnvironment(u"PYTHONDONTWRITEBYTECODE"_ustr).isEmpty()
 +        && o3tl::getEnvironment(u"PYTHONPYCACHEPREFIX"_ustr).isEmpty())
 +    {
