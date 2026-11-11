@@ -18,7 +18,7 @@ def splash_sizes(bitmap):
 
 
 def kind_of(window, bitmap):
-    _pid, width, height, _title, kind = window
+    _pid, width, height, _title, kind = window[:5]  # Windows samples add the left and top pixel
     if kind:
         return kind
     for w, h in splash_sizes(bitmap):
@@ -69,8 +69,9 @@ def python_breakdown(events, launched, frame_shown=None):
     imports = [e for e in events if e.get("ev") == "import"]
     # an import event is written when its module finished: one that ends inside another's span is nested in it
     spans = [(e["t"] - e["dt"], e["t"], e) for e in imports]
-    top = [e for start, end, e in spans
-           if not any(s < start and end <= t2 and other is not e and other["pid"] == e["pid"] for s, t2, other in spans)]
+    top = [e for start, end, e in spans  # nested: inside a longer span of the same process (1 us clock slack)
+           if not any(s <= start + 1e-6 and end <= t2 + 1e-6 and t2 - s > end - start and other["pid"] == e["pid"]
+                      for s, t2, other in spans)]
     out["imports_s"] = round(sum(e["dt"] for e in top), 3)
     compiles = [e for e in events if e.get("ev") == "compile"]
     out["compiled"] = len(compiles)
