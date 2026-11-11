@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Update check entry points: the start-up job (Jobs.xcu, onFirstVisibleTask) and the org.hst.office.update:
-command handler (menu "Kiểm tra cập nhật" and the infobar buttons).
+"""Update check: the start-up job (Jobs.xcu, onFirstVisibleTask) and the check the org.hst.office.update: command
+handler starts (update_handler.py: menu "Kiểm tra cập nhật" and the infobar buttons).
 
 Start-up: only when AutoCheck is on and the last successful check is 24 h old. A daemon thread fetches and verifies
 the manifest (update_fetch), so start-up is never blocked or slowed. A failure is logged (stderr), shows nothing and
@@ -12,23 +12,18 @@ Both entry points add the anonymous install ID (update_install_id) to the reques
 import threading
 import time
 
-import uno
 import unohelper
-from com.sun.star.frame import XDispatch, XDispatchProvider
-from com.sun.star.lang import XInitialization, XServiceInfo
+from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
 from . import update_install_id
 from . import update_logic as logic
 from . import update_outcome
-from . import update_result as result
 from . import update_ui as ui
 from .update_fetch import UpdateError, fetch_channels
 from . import diag_log
 
 JOB_NAME = "org.hst.office.vi.UpdateCheckJob"
-HANDLER_NAME = "org.hst.office.vi.UpdateDispatchProvider"
-COMMANDS = ("Check", "Download", "Install", "Notes", "Skip")
 RETRY_DELAYS = (120, 600)  # seconds before each new automatic attempt, e.g. the network comes up after login
 _automatic_thread = None  # a retrying check must not be doubled by a second start-up event of the same process
 
@@ -120,79 +115,5 @@ class UpdateCheckJob(unohelper.Base, XServiceInfo, XJob):
         return None
 
 
-class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, XDispatch):
-    """org.hst.office.update:Check | Download | Install | Notes | Skip."""
-
-    def __init__(self, ctx):
-        self.ctx, self.frame = ctx, None
-
-    def initialize(self, args):
-        if args:
-            self.frame = args[0]
-
-    def getImplementationName(self):
-        return HANDLER_NAME
-
-    def supportsService(self, name):
-        return name in self.getSupportedServiceNames()
-
-    def getSupportedServiceNames(self):
-        return ("com.sun.star.frame.ProtocolHandler",)
-
-    def queryDispatch(self, url, target_frame_name, search_flags):
-        return self if url.Protocol == ui.PROTOCOL and url.Path in COMMANDS else None
-
-    def queryDispatches(self, requests):
-        return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in requests)
-
-    def dispatch(self, url, arguments):
-        try:
-            getattr(self, "_" + url.Path.lower())()
-        except Exception:  # noqa: BLE001 - report instead of failing inside the UI thread
-            diag_log.exception("update_job")
-
-    def _check(self):
-        frame = self.frame
-        peer = frame.getContainerWindow() if frame else None
-        try:
-            if not ui.settings(self.ctx)["ManualCheck"]:  # locked off by the administrator: never contact the server
-                return None
-            info = update_install_id.add_to(self.ctx, ui.release_info_for(self.ctx))
-        except Exception:  # noqa: BLE001 - no release stamp: report "could not check"
-            diag_log.exception("update_job")
-            return result.show_result(self.ctx, peer, None, "", True)
-        start_background(self.ctx, info, lambda release, failed: result.show_result(self.ctx, peer, release, info["release"], failed))
-
-    def _download(self):
-        if ui.STATE["release"]:
-            ui.open_url(self.ctx, ui.release_download(ui.STATE["release"]))
-
-    def _install(self):
-        from .update_install import start  # imported on use: start-up never loads the installer flow
-        frame = self.frame
-        start(self.ctx, frame.getContainerWindow() if frame else None)
-
-    def _notes(self):
-        if ui.STATE["release"]:
-            ui.open_url(self.ctx, ui.STATE["release"]["notes"])
-
-    def _skip(self):
-        if ui.STATE["release"]:
-            ui.save(self.ctx, "SkippedVersion", ui.STATE["release"]["version"])
-        if self.frame is not None:
-            ui.remove_infobar(self.frame)
-
-    def addStatusListener(self, control, url):
-        """Menu entries of :Check are disabled when the administrator set ManualCheck = false."""
-        if url.Path != "Check":
-            return
-        try:
-            event = uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent")
-            event.FeatureURL, event.IsEnabled, event.Requery = url, bool(ui.settings(self.ctx)["ManualCheck"]), False
-            event.Source = self
-            control.statusChanged(event)
-        except Exception:  # noqa: BLE001 - the menu stays enabled; _check still refuses
-            diag_log.exception("update_job")
-
-    def removeStatusListener(self, control, url):
-        pass
+# The command handler lives in its own small module (the Start Center creates it while the splash screen is up).
+from .update_handler import COMMANDS, HANDLER_NAME, UpdateHandler  # noqa: E402,F401 - names of this module before

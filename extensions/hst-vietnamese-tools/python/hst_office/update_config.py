@@ -47,6 +47,24 @@ def _node(ctx, path, writable=False):
     return provider.createInstanceWithArguments("com.sun.star.configuration." + kind, (arg,))
 
 
+def proxy(ctx):
+    """Proxy from Tools > Options > Internet > Proxy: None = system/environment, {} = none, else manual HTTPS proxy.
+
+    Used by the update check and the banner feed; it lives here so the banner start-up job need not import update_ui
+    (and with it the network modules) before the first window."""
+    try:
+        node = _node(ctx, "/org.openoffice.Inet/Settings")
+        kind = node.getPropertyValue("ooInetProxyType")
+        if kind == 0:
+            return {}
+        host, port = node.getPropertyValue("ooInetHTTPSProxyName"), node.getPropertyValue("ooInetHTTPSProxyPort")
+        if kind == 1 and host:
+            return {"https": "%s:%s" % (host, port or 8080)}  # urllib reads host:port as an HTTP proxy
+    except Exception:  # noqa: BLE001 - missing keys: fall back to urllib's defaults
+        pass
+    return None
+
+
 def _read(ctx, path, names):
     """{name: (value, finalized)} of an update access, or None when the node does not exist."""
     try:

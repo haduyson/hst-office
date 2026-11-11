@@ -25,7 +25,7 @@ SERVICES = (
     ("dispatch", "Handler", "org.hst.office.vi.DispatchProvider", PROTOCOL_HANDLER),
     ("welcome_job", "WelcomeJob", "org.hst.office.vi.WelcomeJob", JOB),
     ("update_job", "UpdateCheckJob", "org.hst.office.vi.UpdateCheckJob", JOB),
-    ("update_job", "UpdateHandler", "org.hst.office.vi.UpdateDispatchProvider", PROTOCOL_HANDLER),
+    ("update_handler", "UpdateHandler", "org.hst.office.vi.UpdateDispatchProvider", PROTOCOL_HANDLER),
     ("startup_prompts", "StartupPromptsJob", "org.hst.office.vi.StartupPromptsJob", JOB),
     ("options_page", "OptionsPageHandler", "org.hst.office.vi.OptionsPage", ("org.hst.office.vi.OptionsPage",)),
     ("appearance_options", "AppearanceOptionsHandler", "org.hst.office.vi.OptionsAppearance",

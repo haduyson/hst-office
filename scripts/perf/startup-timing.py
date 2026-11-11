@@ -83,7 +83,11 @@ def kill_own(proc, profile):
     if sys.platform == "win32":
         subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, check=False)
         return [proc.pid]
-    proc.kill()
+    proc.terminate()  # the office quits cleanly on SIGTERM unless a modal dialog holds it
+    try:
+        proc.wait(15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
     listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, check=False).stdout
     killed = []
     for line in listing.splitlines():
@@ -149,7 +153,7 @@ def one_start(args, index, kind, sample, bitmap):
     quit_out = subprocess.run([args.python, os.path.join(HERE, "startup-quit-office.py"), str(PORT)], capture_output=True,
                               text=True, check=False, timeout=120)
     try:
-        code = proc.wait(45)
+        code = proc.wait(30)
     except subprocess.TimeoutExpired:
         code = "killed %s" % kill_own(proc, args.profile)
         proc.wait(30)
@@ -164,7 +168,7 @@ def one_start(args, index, kind, sample, bitmap):
               "windows_seen": sorted({(w[1], w[2], w[3], startup_phases.kind_of(w, bitmap)) for _t, ws in samples for w in ws}),
               "splash_shot": shot}
     if events:
-        result["python"] = startup_phases.python_breakdown(events, launched)
+        result["python"] = startup_phases.python_breakdown(events, launched, result["phases"]["frame_shown"])
     with open(os.path.join(args.out, "%s-%d-samples.json" % (args.label, index)), "w", encoding="utf-8") as handle:
         json.dump(samples, handle)
     return result
@@ -199,9 +203,9 @@ def main():
         py = result.get("python", {})
         print("%-24s start %d %-5s frame %6s s  splash %5s s visible  pids %s  exit %s%s" % (
             args.label, index, kind, p["launch_to_frame_s"], p["splash_visible_s"], len(p["pids"]), result["exit"],
-            ("  python init %s s, imports %s s (%d compiled, %d pyc)" % (
-                py.get("python_init_s"), py.get("imports_s"), py.get("compiled", 0), py.get("from_bytecode", 0))
-             if py else "")), flush=True)
+            ("  python up %s s; before the window: imports %s s, %s modules, %s compiled in %s s" % (
+                py.get("python_init_s"), *[py.get("before_frame", {}).get(k) for k in (
+                    "imports_s", "modules", "compiled", "compile_s")]) if py else "")), flush=True)
     with open(os.path.join(args.out, args.label + ".json"), "w", encoding="utf-8") as handle:
         json.dump({"label": args.label, "splash_bitmap": bitmap, "starts": results}, handle, ensure_ascii=False,
                   indent=1)

@@ -17,17 +17,18 @@ def rows(path):
         p, py = start["phases"], start.get("python") or {}
         slow = ", ".join("%s %.2f" % tuple(item) for item in py.get("slowest", [])[:4])
         net = [n for n in py.get("network", []) if n[3] == "MainThread"]
+        before = py.get("before_frame") or {}
         yield "| %s | %d %s | %s | %s | %s | %d | %s | %s | %s | %s | %s |" % (
             data["label"], start["start"], start["kind"], p["launch_to_frame_s"], p["splash_shown"],
-            p["splash_visible_s"], len(p["pids"]), start["exit"], py.get("python_init_s", ""), py.get("imports_s", ""),
-            "%s/%s" % (py.get("compiled", ""), py.get("from_bytecode", "")) if py else "",
-            ("%s; main-thread net %d" % (slow, len(net))) if py else "")
+            p["splash_visible_s"], len(p["pids"]), start["exit"], py.get("python_init_s", ""), before.get("imports_s", ""),
+            "%s in %s s" % (before.get("compiled", ""), before.get("compile_s", "")) if before else "",
+            ("%d HST modules; %s; main-thread net %d" % (len(before.get("hst_modules", [])), slow, len(net))) if py else "")
 
 
 def main():
     out = sys.argv[1]
     print("| run | start | launch to frame s | splash shown s | splash visible s | processes | exit | python up s |"
-          " imports s | compiled/pyc | slowest imports s |")
+          " imports before frame s | compiled before frame | slowest imports s |")
     print("|---|---|---|---|---|---|---|---|---|---|---|")
     for path in sorted(glob.glob(os.path.join(out, "*.json"))):
         if path.endswith("-samples.json"):

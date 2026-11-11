@@ -31,10 +31,12 @@ hdiutil detach "$work/mnt" > /dev/null
   echo "bundled extensions: $(ls "$app/Contents/Resources/extensions" | tr '\n' ' ')"
 } > "$out/gatekeeper.txt" 2>&1 || echo "gatekeeper facts incomplete" >> "$out/gatekeeper.txt"
 xattr -dr com.apple.quarantine "$app"
+echo "pyuno: $(find "$app/Contents" -maxdepth 3 -name 'pyuno*' | tr '\n' ' ')" >> "$out/gatekeeper.txt"
 office_python() { # the bundled interpreter with uno on its path
   local bundle="$1"
-  printf '#!/bin/sh\nPYTHONPATH="%s/Contents/Resources" URE_BOOTSTRAP="vnd.sun.star.pathname:%s/Contents/Resources/fundamentalrc" exec "%s" "$@"\n' \
-    "$bundle" "$bundle" "$(find "$bundle/Contents/Frameworks" -path '*/bin/python3.*' -type f -perm -u+x ! -name '*-config' | head -n 1)" \
+  # uno.py is in Resources, pyuno.so in Frameworks (next to the office's libraries)
+  printf '#!/bin/sh\nPYTHONPATH="%s/Contents/Resources:%s/Contents/Frameworks" URE_BOOTSTRAP="vnd.sun.star.pathname:%s/Contents/Resources/fundamentalrc" exec "%s" "$@"\n' \
+    "$bundle" "$bundle" "$bundle" "$(find "$bundle/Contents/Frameworks" -path '*/bin/python3.*' -type f -perm -u+x ! -name '*-config' | head -n 1)" \
     > "$work/python-$(basename "$bundle" .app | tr ' ' -)"
   chmod +x "$work/python-$(basename "$bundle" .app | tr ' ' -)"
   echo "$work/python-$(basename "$bundle" .app | tr ' ' -)"

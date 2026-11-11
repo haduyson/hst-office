@@ -5,6 +5,7 @@ The timing harness puts this directory on PYTHONPATH and names a trace file in H
 Py_Initialize() then imports this module (site.py imports sitecustomize). Nothing here runs in a normal start: the
 installation never contains this file. One JSON object per line, "t" in seconds since the epoch:
   {"ev": "python-init"}                                       the interpreter is up (sitecustomize imported)
+HST_STARTUP_PYCACHE=<dir> also turns on a bytecode cache in <dir> (sys.pycache_prefix), as a per-user cache would.
   {"ev": "import", "mod", "dt", "src"}                        one module executed: own time plus its imports,
                                                               src "pyc" (bytecode read) or "py" (compiled now)
   {"ev": "compile", "path", "dt"}                             one source file compiled to bytecode (no usable .pyc)
@@ -101,7 +102,7 @@ def _wrap_hst(module):
     """Time the job, handler and start-up callback entry points of an HST module (classes with execute/dispatch)."""
     for name, value in list(vars(module).items()):
         if isinstance(value, type) and value.__module__ == module.__name__:
-            for method in ("execute", "dispatch", "trigger"):
+            for method in ("execute", "dispatch", "trigger", "queryDispatch", "queryDispatches", "addStatusListener"):
                 if method in vars(value):
                     setattr(value, method, _timed("%s.%s.%s" % (module.__name__, name, method), vars(value)[method]))
     if module.__name__ == "hst_office.welcome_job" and hasattr(module, "run_later"):
@@ -157,8 +158,12 @@ def _wrap_network():
     socket.socket.connect = traced_connect
 
 
+_CACHE = os.environ.get("HST_STARTUP_PYCACHE")
+if _CACHE:  # what a per-user bytecode cache would do: write and reuse .pyc there, never next to the sources
+    sys.pycache_prefix, sys.dont_write_bytecode = _CACHE, False
+
 if _PATH:
-    emit("python-init", executable=sys.executable, version=sys.version.split()[0],
+    emit("python-init", pycache_prefix=sys.pycache_prefix, executable=sys.executable, version=sys.version.split()[0],
          dont_write_bytecode=sys.dont_write_bytecode)
     sys.meta_path.insert(0, _HstFinder())
     try:

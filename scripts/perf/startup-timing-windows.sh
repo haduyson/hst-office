@@ -4,13 +4,13 @@
 #   startup-timing-windows.sh <HST msi> <out-dir> [variants]
 # variants (comma list, default all): hst (the installed office: fresh, warm x3, cold), trace (with the Python
 # tracer), noext (the HST extension moved out), lazy / lazy-trace (the extension of $HST_OVERLAY_OXT, built from this
-# checkout, instead of the installed one), lazy-pyc (that extension, and the installation's Python modules compiled to
-# unchecked-hash bytecode), lo (stock LibreOffice MSI of $LO_MSI_URL / $LO_MSI_SHA256), scale150 (the splash and the
+# checkout, instead of the installed one), lazy-cache (that extension with a per-user bytecode cache in the profile),
+# lazy-pyc (that extension, and the installation's Python modules compiled to unchecked-hash bytecode), lo (stock LibreOffice MSI of $LO_MSI_URL / $LO_MSI_SHA256), scale150 (the splash and the
 # Start Center at 150 %), scan (last: the runner's Defender exclusions of C:\ and D:\ removed and real-time scanning
 # on, as on a user's PC, then hst, lazy, lazy-pyc and lo again). "cold" empties the file cache (standby list) with
 # RAMMap first: a start after a reboot. Evidence only; fails only when nothing could be installed.
 set -Eeuo pipefail
-msi="$1"; out="$2"; variants=",${3:-hst,trace,noext,lazy,lazy-trace,lazy-pyc,lo,scale150,scan},"
+msi="$1"; out="$2"; variants=",${3:-hst,trace,noext,lazy,lazy-trace,lazy-cache,lazy-pyc,lo,scale150,scan},"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; repo="$(cd "$here/../.." && pwd)"
 mkdir -p "$out"; work="$(cygpath -u "$RUNNER_TEMP")/startup-work"; mkdir -p "$work"
 w() { cygpath -w "$1"; }
@@ -73,6 +73,9 @@ lazy_runs() { # lazy_runs <label prefix>: the extension of this checkout, withou
   use_ext overlay
   if has lazy; then timing "${1}lazy" "$soffice" "$starts"; fi
   if has lazy-trace; then timing "${1}lazy-trace" "$soffice" fresh,warm,cold --trace; fi
+  if has lazy-cache; then  # a per-user bytecode cache in the profile, as the office would keep one
+    timing "${1}lazy-cache" "$soffice" "$starts" --trace --env "HST_STARTUP_PYCACHE=$(w "$work/profile-${1}lazy-cache/cache/python")"
+  fi
   if has lazy-pyc; then use_pyc on; timing "${1}lazy-pyc" "$soffice" "$starts" --trace; use_pyc off; fi
   use_ext installed
 }

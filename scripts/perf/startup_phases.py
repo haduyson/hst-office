@@ -54,7 +54,7 @@ def phases(samples, bitmap):
             "launch_to_frame_s": frame_shown, "pids": pids, "splash_windows": splash_windows}
 
 
-def python_breakdown(events, launched):
+def python_breakdown(events, launched, frame_shown=None):
     """Python's share of a start from the tracer's events (scripts/perf/startup_trace/sitecustomize.py).
 
     Returns {"python_init_s": first interpreter start after launch, "imports_s": top-level import time per process,
@@ -78,6 +78,14 @@ def python_breakdown(events, launched):
     out["from_bytecode"] = sum(e.get("src") == "pyc" for e in imports) + sum(e.get("src") == "py" for e in imports) \
         - len(compiles)
     out["slowest"] = [(e["mod"], round(e["dt"], 3)) for e in sorted(top, key=lambda e: -e["dt"])[:10]]
+    if frame_shown is not None:  # the part the user waits for: Python work before the first window was on screen
+        cut = launched + frame_shown
+        out["before_frame"] = {
+            "imports_s": round(sum(min(e["t"], cut) - (e["t"] - e["dt"]) for e in top if e["t"] - e["dt"] < cut), 3),
+            "modules": sum(e["t"] <= cut for e in imports),
+            "compiled": sum(e["t"] <= cut for e in compiles),
+            "compile_s": round(sum(e["dt"] for e in compiles if e["t"] <= cut), 3),
+            "hst_modules": sorted(e["mod"] for e in imports if e["t"] <= cut and e["mod"].startswith("hst_office"))}
     out["calls"] = [(round(e["t"] - e["dt"] - launched, 3), e["what"], round(e["dt"], 3), e.get("thread"))
                     for e in events if e.get("ev") == "call"]
     out["network"] = [(round(e["t"] - launched, 3), e["what"], str(e.get("host")), e.get("thread"))

@@ -6,6 +6,8 @@ imports delays the first window of every start (scripts/perf/startup-timing.py).
 with the UNO modules stubbed, so the modules other tests imported do not hide an eager import."""
 import json
 import os
+import pathlib
+import re
 import subprocess
 import sys
 import textwrap
@@ -101,10 +103,30 @@ class LazyRegistration(unittest.TestCase):
                 self.assertTrue(row["module_constant"], "the name is not the module's own constant")
                 self.assertEqual(sorted(row["services"]), sorted(row["supported"]))
 
+    def test_the_services_created_before_the_first_window_stay_light(self):
+        """Created while the splash screen is up or as the Start Center appears: the crash job (OnStartApp), both
+        command handlers (the Start Center's menus ask them about every item) and the onFirstVisibleTask jobs. None
+        may pull in the command code or the network stack; those load when a command or a background check runs."""
+        result = run('''
+            for name in ("org.hst.office.vi.CrashReportJob", "org.hst.office.vi.DispatchProvider",
+                         "org.hst.office.vi.UpdateDispatchProvider", "org.hst.office.BannerStartup",
+                         "org.hst.office.vi.StartupPromptsJob"):
+                helper.impls[name][0](None)
+            print(json.dumps(sorted(sys.modules)))
+        ''')
+        heavy = {"hst_office.actions", "hst_office.update_fetch", "hst_office.update_ui", "hst_office.update_job",
+                 "hst_office.nd30", "hst_office.usb_token", "ssl", "http.client", "urllib.request", "email"}
+        self.assertEqual(heavy & set(result), set())
+        package = pathlib.Path(PYTHON_DIR, "hst_office")
+        update_ui = (package / "update_ui.py").read_text(encoding="utf-8")
+        handler = (package / "update_handler.py").read_text(encoding="utf-8")
+        protocol = 'PROTOCOL = "org.hst.office.update:"'
+        self.assertIn(protocol, update_ui)
+        self.assertIn(protocol, handler)
+
     def test_the_jobs_and_handlers_the_configuration_names_are_registered(self):
         names = set(run('print(json.dumps(sorted(helper.impls)))'))
         ext = os.path.dirname(PYTHON_DIR)
-        import re
         configured = set()
         for xcu in ("Jobs.xcu", "ProtocolHandler.xcu", "OptionsDialog.xcu", "CalcAddIns.xcu"):
             with open(os.path.join(ext, xcu), encoding="utf-8") as handle:

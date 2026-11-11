@@ -3,12 +3,13 @@
 # Start-up timing of the HST Office .deb on a GitHub Ubuntu runner (Xvfb, no window manager), with the variants that
 # split the time. Usage: startup-timing-linux.sh <deb-dir> <out-dir> [variants]
 # variants (default all): hst (the installed office: fresh, warm x3, cold), trace (with the Python tracer), noext (the
-# HST extension moved out), lazy / lazy-trace (the extension of $HST_OVERLAY_OXT, built from this checkout), lazy-pyc
+# HST extension moved out), lazy / lazy-trace (the extension of $HST_OVERLAY_OXT, built from this checkout), lazy-cache
+# (that extension with a per-user bytecode cache in the profile), lazy-pyc
 # (that extension and the installation's Python modules compiled to unchecked-hash bytecode), lo (stock LibreOffice
 # debs of $LO_DEB_URL, unpacked, not installed). "cold" drops the kernel's page cache first: a start after a reboot.
 # Evidence only.
 set -Eeuo pipefail
-debs="$1"; out="$2"; variants=",${3:-hst,trace,noext,lazy,lazy-trace,lazy-pyc,lo},"
+debs="$1"; out="$2"; variants=",${3:-hst,trace,noext,lazy,lazy-trace,lazy-cache,lazy-pyc,lo},"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$out"; work="$RUNNER_TEMP/startup-work"; mkdir -p "$work"
 has() { [[ "$variants" == *",$1,"* ]]; }
@@ -60,6 +61,9 @@ if [ -n "${HST_OVERLAY_OXT:-}" ]; then
   use_ext overlay
   if has lazy; then timing lazy "$soffice" "$starts"; fi
   if has lazy-trace; then timing lazy-trace "$soffice" fresh,warm,cold --trace; fi
+  if has lazy-cache; then  # a per-user bytecode cache in the profile, as the office would keep one
+    timing lazy-cache "$soffice" "$starts" --trace --env "HST_STARTUP_PYCACHE=$work/profile-lazy-cache/cache/python"
+  fi
   if has lazy-pyc; then use_pyc on; timing lazy-pyc "$soffice" "$starts" --trace; use_pyc off; fi
   use_ext installed
 fi

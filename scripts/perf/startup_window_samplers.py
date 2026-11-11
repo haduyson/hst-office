@@ -199,7 +199,7 @@ def _macos():
             for index in range(cf.CFArrayGetCount(array)):
                 info = cf.CFArrayGetValueAtIndex(array, index)
                 owner = text(cf.CFDictionaryGetValue(info, keys["kCGWindowOwnerName"]))
-                if "soffice" not in owner and "HST Office" not in owner:
+                if not any(name in owner for name in ("soffice", "HST Office", "LibreOffice")):
                     continue
                 if number(cf.CFDictionaryGetValue(info, keys["kCGWindowLayer"])) != 0:
                     continue

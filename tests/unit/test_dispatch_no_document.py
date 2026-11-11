@@ -43,6 +43,7 @@ for _name, _module in list(sys.modules.items()):  # stubs other tests registered
     if (_name == "com" or _name.startswith("com.")) and not hasattr(_module, "__path__"):
         _module.__path__ = []
 from hst_office import dispatch  # noqa: E402
+from hst_office import actions  # noqa: E402,F401 - dispatch imports it on first use; it needs the stubs too
 from hst_office.data_files import load_locale  # noqa: E402
 
 sys.meta_path.remove(_FINDER)  # only this import needed the office's modules; other tests see the real absence
@@ -90,6 +91,16 @@ class NoDocumentTests(unittest.TestCase):
                 mock.patch.object(dispatch, "Host"), mock.patch.object(h, "_send_duplex_state"):
             h.dispatch(URL, ())
         command.assert_called_once()
+
+
+class CommandNamesTests(unittest.TestCase):
+    def test_the_handler_answers_for_exactly_the_commands_of_actions(self):
+        """queryDispatch answers from dispatch.ACTION_COMMANDS so the Start Center does not import actions."""
+        self.assertEqual(dispatch.ACTION_COMMANDS, frozenset(dispatch.COMMANDS))
+        url = type("URL", (), {"Protocol": dispatch.PROTOCOL, "Path": "Nd30Wizard"})
+        self.assertIs(dispatch.Handler(None).queryDispatch(url, "", 0) is not None, True)
+        url.Path = "NoSuchCommand"
+        self.assertIsNone(dispatch.Handler(None).queryDispatch(url, "", 0))
 
 
 class TestHookTests(unittest.TestCase):
