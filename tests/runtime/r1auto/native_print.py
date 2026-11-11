@@ -86,11 +86,23 @@ def windows_print(target):
         window.close()  # Hủy: the document must not be closed under its open print dialog
         raise
 
+    # The driver's "Save Print Output As" dialog: the file name box (automation id 1001) and Save (id 1).
+    # windows() yields wrappers, which have descendants() but not the child_window() of a window specification.
+    def control(parent, kind, automation_id):
+        return next((c for c in parent.descendants(control_type=kind)
+                     if c.element_info.automation_id == automation_id), None)
+
     def save_window():
-        return next((w for w in windows() if w.child_window(auto_id="1001", control_type="Edit").exists()), None)
-    save = wait(save_window)
-    save.child_window(auto_id="1001", control_type="Edit").set_edit_text(str(target))
-    save.child_window(auto_id="1", control_type="Button").click_input()
+        for w in windows():
+            try:
+                if control(w, "Edit", "1001") is not None:
+                    return w
+            except Exception:  # noqa: BLE001 - a window that went away while it was read
+                continue
+        return None
+    save = wait(save_window, 60)
+    control(save, "Edit", "1001").set_edit_text(str(target))
+    control(save, "Button", "1").click_input()
 
 
 def printer_value(combo):
