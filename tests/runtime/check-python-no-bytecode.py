@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Runtime check that the office writes no Python bytecode caches into its installation (hst-python-no-bytecode.patch).
+"""Runtime check that the office writes no Python bytecode into its installation and keeps a bytecode cache in the user
+profile instead (hst-python-no-bytecode.patch, Linux).
 
     python3 tests/runtime/check-python-no-bytecode.py [--instdir upstream/libreoffice/instdir] [--out tests/output/python-no-bytecode]
 
@@ -8,13 +9,16 @@ owns, so Python could write caches there. The copy starts without any __pycache_
 pyuno loader and the HST extension's Python (a Writer document, the state of HST ▸ Kiểm tra cập nhật… and of the
 Văn bản hành chính wizard) and checks:
   - the HST Python protocol handler answered (Python really ran);
-  - a Python script run by the office sees sys.flags.dont_write_bytecode and PYTHONDONTWRITEBYTECODE=1, and a
-    process it starts inherits the variable (as the update helper and the USB token worker do);
-  - after the office quit, the copy has no .pyc file and no __pycache__ folder.
+  - a Python script run by the office sees sys.pycache_prefix = <profile>/cache/python with bytecode writing on and
+    no PYTHONDONTWRITEBYTECODE, and a process it starts inherits PYTHONPYCACHEPREFIX (as the update helper and the
+    USB token worker do);
+  - after the office quit, the copy has no .pyc file and no __pycache__ folder, and the profile's cache holds the
+    bytecode of the HST extension (later starts read it instead of compiling every module again).
 Exit status 1 when a check fails. The original instdir is never written.
 """
 import argparse
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -63,15 +67,16 @@ def fresh_copy(instdir, copy):
         subprocess.run(["chown", "-R", BUILD_USER, shared], check=True)
 
 
-SCRIPT = """import os, subprocess, sys
+SCRIPT = """import json, os, subprocess, sys
 def probe(*args):
-    child = subprocess.run(["/bin/sh", "-c", "printf %s \\"$PYTHONDONTWRITEBYTECODE\\""], capture_output=True, text=True).stdout
-    return "%d %s %s" % (sys.flags.dont_write_bytecode, os.environ.get("PYTHONDONTWRITEBYTECODE"), child)
+    child = subprocess.run(["/bin/sh", "-c", "printf %s \\"$PYTHONPYCACHEPREFIX\\""], capture_output=True, text=True).stdout
+    return json.dumps({"dont_write": sys.flags.dont_write_bytecode, "dont_write_env": os.environ.get("PYTHONDONTWRITEBYTECODE"),
+                       "prefix": sys.pycache_prefix, "child_prefix": child})
 """
 
 
 def office_python(ctx, profile):
-    """sys.flags.dont_write_bytecode, the variable and a child's view of it, from a user Python script."""
+    """The bytecode settings a user Python script sees, and a child process's view of the cache folder (JSON)."""
     folder = os.path.join(profile, "user", "Scripts", "python")
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, "hst_bytecode_probe.py"), "w", encoding="utf-8") as handle:
@@ -112,8 +117,13 @@ def main():
         frame = doc.CurrentController.Frame
         states = {command: policy.command_enabled(ctx, frame, command) for command in COMMANDS}
         record("HST Python protocol handler answered", any(state is not None for state in states.values()), states)
-        seen = office_python(ctx, os.path.join(work, "profile"))
-        record("office Python and its child processes write no bytecode", seen == "1 1 1", seen)
+        seen = json.loads(office_python(ctx, os.path.join(work, "profile")))
+        cache = os.path.join(work, "profile", "cache", "python")
+        record("office Python keeps its bytecode in the profile's cache folder",
+               seen["dont_write"] == 0 and seen["dont_write_env"] is None
+               and os.path.realpath(seen["prefix"] or "") == os.path.realpath(cache), seen)
+        record("its child processes inherit the cache folder", os.path.realpath(seen["child_prefix"] or "/nonexistent")
+               == os.path.realpath(cache), seen)
         time.sleep(3)
         doc.close(True)
     except Exception as error:  # noqa: BLE001 - report instead of hanging
@@ -122,6 +132,8 @@ def main():
         policy.stop_office(proc, ctx, work)
     left = caches(copy)
     record("no Python caches in the installation after the session", not left, left[:5])
+    cached = [path for path in caches(os.path.join(work, "profile", "cache", "python")) if "hst_office" in path]
+    record("the profile's cache holds the HST extension's bytecode", bool(cached), cached[:3])
     shutil.rmtree(copy, ignore_errors=True)
     print("python no-bytecode: %d failed check(s)" % ROWS.count(False))
     return 1 if False in ROWS else 0
