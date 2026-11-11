@@ -9,7 +9,8 @@ from .banner_click import destination
 from .banner_feed import BannerFeed, get_banners, test_mode_from_release
 from .banner_snapshot import selected_json
 from .data_files import load_data
-from .update_config import _node, proxy
+from .office_proxy import proxy
+from .update_config import _node
 
 SERVICE_NAME = "org.hst.office.BannerFeed"
 _START_NAME = "org.hst.office.BannerStartup"

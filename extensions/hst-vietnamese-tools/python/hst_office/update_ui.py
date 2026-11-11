@@ -14,7 +14,7 @@ from com.sun.star.awt import XCallback
 from com.sun.star.document import XDocumentEventListener
 
 from . import update_config
-from .update_config import proxy  # noqa: F401 - ui.proxy, used by the update check and its tests
+from .office_proxy import proxy  # noqa: F401 - ui.proxy, used by the update check and its tests
 from . import update_installer as installer
 from . import update_logic as logic
 from .update_fetch import release_info
