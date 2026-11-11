@@ -49,13 +49,18 @@ for entry in "HST Writer:writer" "HST Sheets:calc" "HST Slides:impress"; do
 done
 check "HST Office.app signature is still valid with the launchers inside" codesign --verify --deep --strict "$app"
 
-# Office: default profile (the launchers cannot pass -env), created headless first, then seeded.
+# Office: default profile (the launchers cannot pass -env), created by a full headless start, then seeded. Not
+# --terminate_after_init: it ends before the bundled extensions are registered (desktop/source/app/app.cxx), and the
+# first real start then dropped the seeded extension settings (Welcome Shown: a hidden modal welcome refused every
+# quit in launcher probe run 42943021139).
 raw="$(sed -n 's/^UserInstallation=//p' "$app/Contents/Resources/bootstraprc" | head -1)"
 profile="${raw/\$SYSUSERCONFIG/$HOME/Library/Application Support}"
 profile="${profile#file://}"
 echo "profile: $profile" >> "$out/checks.log"
+init="$(mktemp -d)"; : > "$init/init.txt"
 for _ in 1 2 3; do
-  "$app/Contents/MacOS/soffice" --headless --norestore --terminate_after_init >>"$out/profile-init.log" 2>&1 && break
+  "$app/Contents/MacOS/soffice" --headless --norestore --convert-to pdf --outdir "$init" "$init/init.txt" \
+    >>"$out/profile-init.log" 2>&1 && [ -s "$init/init.pdf" ] && break
 done
 check "probe profile seeded (no start-up question, UNO pipe)" python3 -I "$here/app-launchers-probe.py" seed "$profile"
 py="$(find "$app/Contents" -path '*bin/python3*' -type f -perm -u+x ! -name '*-config' | head -1)"
@@ -88,13 +93,17 @@ one_office() {
   if [ "$(dock_icons)" = 1 ] && [ "$(soffices)" = 1 ]; then return 0; fi
   processes "office count"; return 1
 }
-close_template() { # Impress's "Lựa chọn mẫu" opens with every new presentation: close it as a user does (Esc)
+close_template() { # Impress's "Lựa chọn mẫu": close it as a user does (Esc), checked over UNO
   local office
   office="$(pgrep -o -f "$app/Contents/MacOS/soffice")" || return 1
-  osascript -e 'on run argv' -e 'tell application "System Events"' \
-    -e 'set frontmost of (first process whose unix id is (item 1 of argv as integer)) to true' -e 'delay 1' \
-    -e 'key code 53' -e 'end tell' -e 'end run' "$office" >>"$out/checks.log" 2>&1 || return 1
-  sleep 2; processes "template closed"
+  for _ in 1 2 3; do
+    osascript -e 'on run argv' -e 'tell application "System Events"' \
+      -e 'set frontmost of (first process whose unix id is (item 1 of argv as integer)) to true' -e 'delay 1' \
+      -e 'key code 53' -e 'end tell' -e 'end run' "$office" >>"$out/checks.log" 2>&1
+    sleep 2
+    uno window-gone "Lựa chọn mẫu" >>"$out/checks.log" 2>&1 && { processes "template closed"; return 0; }
+  done
+  processes "template still open"; return 1
 }
 launch() { open "$app/Contents/Helpers/$1.app"; }
 quit_office() { # as a user quits (Cmd-Q, the Dock's Quit: the Quit Apple Event, Desktop::QueryExit); a kill fails
@@ -112,17 +121,19 @@ opens() { # opens <launcher> <documents expected afterwards>
 
 check "HST Writer opens Writer when HST Office is not running" opens "HST Writer" writer
 check "HST Sheets opens a spreadsheet in the running office" opens "HST Sheets" writer,calc
+# A new presentation shows Impress's modal template dialog (the product default): the hand-over must not wait for it.
+uno template true >>"$out/checks.log" 2>&1
 check "HST Slides opens a presentation in the running office" opens "HST Slides" writer,calc,impress
 settled
 check "one HST Office (Dock and processes) after three launchers" one_office
 check "no launcher left running" no_launcher_left
 screencapture -x "$out/three-apps.png" 2>/dev/null || true
-check "the template dialog closes and the hand-over ends" close_template
+check "the template dialog closes" close_template
+uno template false >>"$out/checks.log" 2>&1
 check "office closed" quit_office
 check "HST Sheets opens Sheets when HST Office is not running" opens "HST Sheets" calc
 check "office closed after HST Sheets" quit_office
 check "HST Slides opens Slides when HST Office is not running" opens "HST Slides" impress
-check "the template dialog of a cold HST Slides closes" close_template
 check "office closed after HST Slides" quit_office
 
 # Thêm vào Dock: the extension's own code (no dialog), then the Dock settings must hold the three launchers.

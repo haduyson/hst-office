@@ -6,6 +6,8 @@
   app-launchers-probe.py wait <kinds> [--timeout S]      (bundled python, uno) until the open documents are exactly
                                                           <kinds> (comma list of writer, calc, impress), one each
   app-launchers-probe.py frames                          (bundled python, uno) list frames and top windows (quit diagnostics)
+  app-launchers-probe.py template true|false            (bundled python, uno) Impress's template dialog on or off
+  app-launchers-probe.py window-gone <title>             (bundled python, uno) no visible top window of that title
   app-launchers-probe.py make-odb <file.odb>             (bundled python, uno) store a small dBase-backed database
   app-launchers-probe.py no-base-menu                    (bundled python, uno) File ▸ New (and the Dock menu built
                                                           from it) offers no database
@@ -27,6 +29,8 @@ SEED = (("/org.hasontech.hstoffice.Welcome", "Shown", "true"),
         ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false"),
         # a quit the probe had to force must not put the crash question in front of the next checks
         ("/org.hasontech.hstoffice.ErrorReport", "AskAfterCrash", "false"),
+        # Impress's template dialog only where a check turns it on (template true)
+        ("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false"),
         ("/org.openoffice.Setup/Office", "ooSetupConnectionURL", "pipe,name=%s;urp;" % PIPE))
 
 
@@ -136,6 +140,30 @@ def frames():
     return 0
 
 
+def template(enabled):
+    """Impress's template dialog with every new presentation (Options ▸ Impress ▸ General), read when Impress loads."""
+    import uno
+    ctx = context(30)
+    arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    arg.Name, arg.Value = "nodepath", "/org.openoffice.Office.Impress/Misc/NewDoc"
+    node = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)\
+        .createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess", (arg,))
+    node.setPropertyValue("AutoPilot", enabled)
+    node.commitChanges()
+    return 0
+
+
+def window_gone(title):
+    """0 when no visible top window of the office has this title."""
+    ctx = context(30)
+    toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    for index in range(toolkit.getTopWindowCount()):
+        window = toolkit.getTopWindow(index)
+        if getattr(window, "Title", "") == title and window.isVisible():
+            return 1
+    return 0
+
+
 def make_odb(path):
     import os
     import uno
@@ -172,6 +200,10 @@ def main(argv):
         return wait(argv[1], timeout)
     if argv[:1] == ["frames"]:
         return frames()
+    if len(argv) >= 2 and argv[0] == "template" and argv[1] in ("true", "false"):
+        return template(argv[1] == "true")
+    if len(argv) >= 2 and argv[0] == "window-gone":
+        return window_gone(argv[1])
     if len(argv) >= 2 and argv[0] == "make-odb":
         return make_odb(argv[1])
     if argv[:1] == ["no-base-menu"]:
