@@ -98,7 +98,7 @@ class CommandNamesTests(unittest.TestCase):
         """queryDispatch answers from dispatch.ACTION_COMMANDS so the Start Center does not import actions."""
         self.assertEqual(dispatch.ACTION_COMMANDS, frozenset(dispatch.COMMANDS))
         url = type("URL", (), {"Protocol": dispatch.PROTOCOL, "Path": "Nd30Wizard"})
-        self.assertIs(dispatch.Handler(None).queryDispatch(url, "", 0) is not None, True)
+        self.assertIsNotNone(dispatch.Handler(None).queryDispatch(url, "", 0))
         url.Path = "NoSuchCommand"
         self.assertIsNone(dispatch.Handler(None).queryDispatch(url, "", 0))
 

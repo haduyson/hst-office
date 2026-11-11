@@ -43,7 +43,7 @@ def _actions():
 def __getattr__(name):
     """dispatch.COMMANDS and dispatch.Host, as before they were imported on use."""
     if name in ("COMMANDS", "Host"):
-        return dict(zip(("COMMANDS", "Host"), _actions()))[name]
+        return _actions()[0 if name == "COMMANDS" else 1]
     raise AttributeError(name)
 
 
@@ -162,10 +162,10 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
             log_error(SHOW_SOLUTIONS)
 
     def _duplex_state(self):
-        from .nd30_duplex import read_choice
         model = self.frame.getController().getModel() if self.frame and self.frame.getController() else None
         if model is None or not model.supportsService("com.sun.star.text.TextDocument"):
             return False, False
+        from .nd30_duplex import read_choice  # Writer only: other frames never load the ND30 code
         return True, read_choice(model, model.getCurrentController().getViewCursor())[0]  # the page the user is on
 
     def _send_duplex_state(self, listeners=None):

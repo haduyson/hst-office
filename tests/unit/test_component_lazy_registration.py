@@ -62,7 +62,7 @@ PRELUDE = textwrap.dedent('''
 
 def run(body):
     """JSON printed by `body` (after PRELUDE) in a fresh interpreter."""
-    done = subprocess.run([sys.executable, "-I", "-c", PRELUDE + textwrap.dedent(body), COMPONENT],
+    done = subprocess.run([sys.executable, "-I", "-B", "-c", PRELUDE + textwrap.dedent(body), COMPONENT],
                           capture_output=True, text=True, check=False, cwd=PYTHON_DIR, timeout=120)
     if done.returncode:
         raise AssertionError(done.stderr[-3000:])
@@ -108,10 +108,31 @@ class LazyRegistration(unittest.TestCase):
         command handlers (the Start Center's menus ask them about every item) and the onFirstVisibleTask jobs. None
         may pull in the command code or the network stack; those load when a command or a background check runs."""
         result = run('''
-            for name in ("org.hst.office.vi.CrashReportJob", "org.hst.office.vi.DispatchProvider",
-                         "org.hst.office.vi.UpdateDispatchProvider", "org.hst.office.BannerStartup",
-                         "org.hst.office.vi.StartupPromptsJob"):
-                helper.impls[name][0](None)
+            from types import SimpleNamespace as NS
+            made = {name: helper.impls[name][0](None) for name in (
+                "org.hst.office.vi.CrashReportJob", "org.hst.office.vi.DispatchProvider",
+                "org.hst.office.vi.UpdateDispatchProvider", "org.hst.office.BannerStartup",
+                "org.hst.office.vi.StartupPromptsJob")}
+            control = NS(statusChanged=lambda event: None)
+            # what the Start Center's menus do: ask about every item and listen to its state
+            urls = [NS(Protocol="org.hst.office.vi:", Path=p) for p in ("Nd30Wizard", "ToggleDuplex", "UILanguageVi",
+                                                                         "ReportError", "NoSuchCommand")]
+            urls += [NS(Protocol="org.hst.office.update:", Path=p) for p in ("Check", "Download")]
+            for handler in (made["org.hst.office.vi.DispatchProvider"], made["org.hst.office.vi.UpdateDispatchProvider"]):
+                for url in urls:
+                    for call in (lambda: handler.queryDispatch(url, "", 0),
+                                 lambda: handler.queryDispatches([NS(FeatureURL=url, FrameName="", SearchFlags=0)]),
+                                 lambda: handler.addStatusListener(control, url)):
+                        try:
+                            call()
+                        except Exception:  # noqa: BLE001 - no office behind the stubs; only the imports matter
+                            pass
+            for job in ("org.hst.office.vi.CrashReportJob", "org.hst.office.BannerStartup",
+                        "org.hst.office.vi.StartupPromptsJob"):
+                try:
+                    made[job].execute(())
+                except Exception:  # noqa: BLE001
+                    pass
             print(json.dumps(sorted(sys.modules)))
         ''')
         heavy = {"hst_office.actions", "hst_office.update_fetch", "hst_office.update_ui", "hst_office.update_job",
