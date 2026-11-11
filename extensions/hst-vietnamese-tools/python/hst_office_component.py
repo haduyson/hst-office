@@ -3,8 +3,8 @@
 
 The office loads this file the first time it needs any HST service, and the first one is the crash job at OnStartApp,
 while the splash screen is up. So this file imports no HST module itself: every service is registered by name with a
-constructor that imports its module when the office first creates it (scripts/perf/startup-timing.py measured the
-eager imports of every module at about 0.3 s of each start on Windows and 0.5 s on Linux, before the first window).
+constructor that imports its module when the office first creates it. Importing every module here took 0.26 s
+(Windows) and 0.42 s (Linux) of each start before the first window (scripts/perf/startup-timing.py on GitHub runners).
 """
 import importlib
 import os
