@@ -119,6 +119,11 @@ class _HstHook(_TimedLoader):
         super().exec_module(module)
         if module.__name__.startswith("hst_office"):
             _wrap_hst(module)
+        elif module.__name__ == "socket":  # wrapped once someone imports it: the tracer itself never does
+            try:
+                _wrap_network(module)
+            except Exception as error:  # noqa: BLE001
+                emit("tracer-error", error=repr(error))
 
 
 class _HstFinder(_Finder):
@@ -143,8 +148,7 @@ def _wrap_compile():
     _bootstrap_external.SourceLoader.source_to_code = source_to_code
 
 
-def _wrap_network():
-    import socket
+def _wrap_network(socket):
     getaddrinfo, connect = socket.getaddrinfo, socket.socket.connect
 
     def traced_getaddrinfo(host, *args, **kwargs):
@@ -168,6 +172,7 @@ if _PATH:
     sys.meta_path.insert(0, _HstFinder())
     try:
         _wrap_compile()
-        _wrap_network()
+        if "socket" in sys.modules:  # imported before this tracer was installed
+            _wrap_network(sys.modules["socket"])
     except Exception as error:  # noqa: BLE001 - tracing must never stop the office's Python
         emit("tracer-error", error=repr(error))
