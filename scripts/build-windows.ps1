@@ -12,7 +12,9 @@ $CygwinMirror = 'https://mirrors.kernel.org/sourceware/cygwin/'
 $CygwinRoot = 'C:\cygwin64'
 # Package set for the LibreOffice Windows build (wiki Development/BuildingOnWindows).
 $CygwinPackages = 'autoconf,automake,bison,flex,gawk,gettext,gettext-devel,git,gperf,libtool,m4,make,patch,perl,pkg-config,python3,rsync,unzip,zip,libxml2,libxslt,perl-Archive-Zip,perl-Font-TTF,perl-IO-String,curl,wget,cabextract,diffutils,findutils,grep,sed,tar,xz'
-$MakeUrl = 'https://dev-www.libreoffice.org/bin/cygwin/make-4.2.1-msvc.exe'
+$FlexVersion = '2.6.4-2'
+$FlexSha512 = '283E462FC23117D865B5D6963E69693FB624FD355CB5113BB2DCA9C0A9262E95ABF025A5B6ACC2AAE5CA8B7C07210A060402FE35B84346DBDEE51FC23B65DDD2'
+$MakeUrl ='https://dev-www.libreoffice.org/bin/cygwin/make-4.2.1-msvc.exe'
 
 function Install-ChocoPackage([string]$Name) {
     # The community feed has transient outages; retry before failing the job.
@@ -56,6 +58,17 @@ function Invoke-FreeDisk {
     Write-Summary ('### Free disk' + "`n" + ('- C: free before/after: {0:N1} / {1:N1} GiB; removed Android SDK, Julia, Strawberry Perl, ghcup, Rust, Temurin cache' -f $before, ((Get-PSDrive C).Free / 1GB)))
 }
 
+function Install-PinnedFlex {
+    # flex 2.6.5 (Cygwin, 2026-11-11) generates a scanner where connectivity's sqlflex.cxx fails with C3861
+    # 'yy_fatal_error'. Overlay the previous release, checked against the mirror's setup.ini sha512.
+    $tarball = "$Work\cygpkgs\flex-$FlexVersion.tar.xz"
+    Invoke-WebRequest -UseBasicParsing -Uri "${CygwinMirror}x86_64/release/flex/flex-$FlexVersion.tar.xz" -OutFile $tarball
+    if ((Get-FileHash -Algorithm SHA512 $tarball).Hash -ne $FlexSha512) { throw "flex $FlexVersion sha512 mismatch" }
+    & "$CygwinRoot\bin\bash.exe" --login -c "tar -xJf `"`$(cygpath -u '$tarball')`" -C / && flex --version"
+    if ($LASTEXITCODE -ne 0) { throw "flex $FlexVersion overlay failed" }
+    Write-Summary "- flex pinned to $FlexVersion"
+}
+
 function Invoke-Cygwin {
     New-Item -ItemType Directory -Force -Path $Work, "$Work\logs", "$Work\bin" | Out-Null
     $setup = "$Work\setup-x86_64.exe"
@@ -75,6 +88,7 @@ function Invoke-Cygwin {
         '--local-package-dir', "$Work\cygpkgs", '--root', $CygwinRoot, '--packages', $CygwinPackages)
     $p = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru -NoNewWindow
     if ($p.ExitCode -ne 0) { throw "Cygwin setup failed: $($p.ExitCode)" }
+    Install-PinnedFlex
     & "$CygwinRoot\bin\cygcheck.exe" -c | Set-Content -LiteralPath "$Work\logs\cygwin-packages.txt"
     if ($LASTEXITCODE -ne 0) { throw 'cygcheck failed' }
 }
