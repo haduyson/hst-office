@@ -1,0 +1,83 @@
+HST Office: the ribbon's priority box lays out only the children it still has.
+
+PriorityHBox (the notebookbar box whose groups give way by priority) collects its prioritized
+children once, at its first layout, as plain pointers in m_aSortedChildren, and every later
+Resize walks that list. A child disposed since then is gone from the child list but stays in the
+list; once it is deleted the pointer is stale. The loop that shows the higher priority children
+again read the parent of dynamic_cast<vcl::Window*>(entry) before checking it for null.
+
+That happens when a document is closed from another thread (UNO bridge, automation): the request
+thread disposes the notebookbar in SfxFrame::DoClose, a window destroyed there is handed to the
+main thread with SendMessage, which releases the SolarMutex, and the main thread handles a
+pending resize of the notebookbar. Windows r1-auto W15 at 150% (Writer, print preview, then the
+document closed over UNO; the ribbon is narrower than its groups at that scale) died this way
+(ProcDump full dump, run 42955213065: main thread WM_SIZE -> VclContainer::setLayoutPosSize ->
+ImplCallResize -> PriorityHBox::Resize -> vcl::Window::GetParent with a null this; request
+thread in SwXTextDocument::close -> SfxFrame::DoClose -> VCLXWindow::dispose ->
+SfxToolBoxControl::disposing -> InterimItemWindow::dispose -> ComboBox::dispose -> SendMessage). The office's own crash handler then faulted as well, so
+the office exited with 255 and left no Windows dump.
+
+Resize now touches an entry only when it is still one of the box's current children (compared
+by address, the entry itself is not read) and checks the cast. Inherited from upstream (same
+code in 26.8).
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/vcl/source/control/PriorityHBox.cxx
++++ b/vcl/source/control/PriorityHBox.cxx
+@@ -24,6 +24,7 @@
+ #include <comphelper/lok.hxx>
+ 
+ #include <algorithm>
++#include <unordered_set>
+ 
+ namespace
+ {
+@@ -136,12 +137,29 @@
+         }
+     }
+ 
++    // HST Office: m_aSortedChildren keeps plain pointers from the first layout. A child that has
++    // been disposed (and possibly deleted) since then is no longer in the child list: only the
++    // children still there are touched. A document closed from another thread (UNO) disposes the
++    // notebookbar while the main thread lays it out (a window destroyed on the request thread is
++    // handed to the main thread, which releases the SolarMutex), and the stale entry gave a null
++    // window whose parent was read below.
++    std::unordered_set<const vcl::IPrioritable*> aLive;
++    for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (const vcl::IPrioritable* pLive = dynamic_cast<const vcl::IPrioritable*>(pChild))
++            aLive.insert(pLive);
++    }
++
+     // Hide lower priority controls
+     for (vcl::IPrioritable* pPrioritable : m_aSortedChildren)
+     {
+         if (nCurrentWidth <= nWidth)
+             break;
+ 
++        if (!aLive.count(pPrioritable))
++            continue;
++
+         vcl::Window* pWindow = dynamic_cast<vcl::Window*>(pPrioritable);
+ 
+         if (pWindow && pWindow->GetParent() == this)
+@@ -157,10 +175,16 @@
+     // Show higher priority controls if we already have enough space
+     while (pChildR != m_aSortedChildren.rend())
+     {
++        if (!aLive.count(*pChildR))
++        {
++            pChildR++;
++            continue;
++        }
++
+         vcl::Window* pWindow = dynamic_cast<vcl::Window*>(*pChildR);
+         vcl::IPrioritable* pPrioritable = *pChildR;
+ 
+-        if (pWindow->GetParent() != this)
++        if (!pWindow || pWindow->GetParent() != this)
+         {
+             pChildR++;
+             continue;
