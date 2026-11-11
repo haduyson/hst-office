@@ -5,7 +5,9 @@
                                                           no welcome or default-apps question, UNO acceptor on a pipe
   app-launchers-probe.py wait <kinds> [--timeout S]      (bundled python, uno) until the open documents are exactly
                                                           <kinds> (comma list of writer, calc, impress), one each
-  app-launchers-probe.py quit                            (bundled python, uno) close the office
+  app-launchers-probe.py frames                          (bundled python, uno) list frames and top windows (quit diagnostics)
+  app-launchers-probe.py template true|false            (bundled python, uno) Impress's template dialog on or off
+  app-launchers-probe.py window-gone <title>             (bundled python, uno) no visible top window of that title
   app-launchers-probe.py make-odb <file.odb>             (bundled python, uno) store a small dBase-backed database
   app-launchers-probe.py no-base-menu                    (bundled python, uno) File ▸ New (and the Dock menu built
                                                           from it) offers no database
@@ -25,6 +27,10 @@ KINDS = {"writer": "com.sun.star.text.TextDocument", "calc": "com.sun.star.sheet
 SEED = (("/org.hasontech.hstoffice.Welcome", "Shown", "true"),
         ("/org.hasontech.hstoffice.DefaultApps", "Done", "true"),
         ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false"),
+        # a quit the probe had to force must not put the crash question in front of the next checks
+        ("/org.hasontech.hstoffice.ErrorReport", "AskAfterCrash", "false"),
+        # Impress's template dialog only where a check turns it on (template true)
+        ("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false"),
         ("/org.openoffice.Setup/Office", "ooSetupConnectionURL", "pipe,name=%s;urp;" % PIPE))
 
 
@@ -109,11 +115,52 @@ def wait(expected, timeout):
     return 1
 
 
-def quit_office():
-    try:
-        connect(20).terminate()
-    except Exception as exc:  # noqa: BLE001 - the bridge drops while the office exits
-        print("terminate: %s" % exc)
+def frames():
+    """Diagnostic: title and document kind of each frame of the desktop (what a quit has to close)."""
+    desktop = connect(20)
+    rows = []
+    for index in range(desktop.Frames.getCount()):
+        frame = desktop.Frames.getByIndex(index)
+        controller = frame.getController()
+        model = controller.getModel() if controller is not None else None
+        kind = kinds_of([model]) if model is not None else {}
+        rows.append({"title": frame.Title, "kind": next(iter(kind), "none"),
+                     "modified": bool(model.isModified()) if model is not None and hasattr(model, "isModified")
+                     else None})
+    ctx = context(20)
+    toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    windows = []
+    for index in range(toolkit.getTopWindowCount()):
+        window = toolkit.getTopWindow(index)
+        accessible = window.getAccessibleContext() if hasattr(window, "getAccessibleContext") else None
+        title = getattr(window, "Title", None) or (accessible.getAccessibleName() if accessible else "")
+        windows.append({"title": title, "visible": bool(window.isVisible()) if hasattr(window, "isVisible") else None,
+                        "role": accessible.getAccessibleRole() if accessible else None})
+    print(json.dumps({"frames": rows, "top_windows": windows}, ensure_ascii=False))
+    return 0
+
+
+def template(enabled):
+    """Impress's template dialog with every new presentation (Options ▸ Impress ▸ General), read when Impress loads."""
+    import uno
+    ctx = context(30)
+    arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    arg.Name, arg.Value = "nodepath", "/org.openoffice.Office.Impress/Misc/NewDoc"
+    node = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)\
+        .createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess", (arg,))
+    node.setPropertyValue("AutoPilot", enabled)
+    node.commitChanges()
+    return 0
+
+
+def window_gone(title):
+    """0 when no visible top window of the office has this title."""
+    ctx = context(30)
+    toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    for index in range(toolkit.getTopWindowCount()):
+        window = toolkit.getTopWindow(index)
+        if getattr(window, "Title", "") == title and window.isVisible():
+            return 1
     return 0
 
 
@@ -151,8 +198,12 @@ def main(argv):
     if len(argv) >= 2 and argv[0] == "wait":
         timeout = int(argv[3]) if len(argv) >= 4 and argv[2] == "--timeout" else 120
         return wait(argv[1], timeout)
-    if argv[:1] == ["quit"]:
-        return quit_office()
+    if argv[:1] == ["frames"]:
+        return frames()
+    if len(argv) >= 2 and argv[0] == "template" and argv[1] in ("true", "false"):
+        return template(argv[1] == "true")
+    if len(argv) >= 2 and argv[0] == "window-gone":
+        return window_gone(argv[1])
     if len(argv) >= 2 and argv[0] == "make-odb":
         return make_odb(argv[1])
     if argv[:1] == ["no-base-menu"]:

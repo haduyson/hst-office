@@ -79,6 +79,18 @@ class LauncherBundles(unittest.TestCase):
             self.assertNotIn(forbidden, stub)
         self.assertNotIn("LibreOffice", stub)
 
+    def test_hand_over_of_a_new_document_does_not_wait(self):
+        """The launcher's second soffice waited for Impress's template dialog: a second HST Office in the Dock and
+        the launcher for 30 s (launcher probe run 42938224519). The office answers a module start at once."""
+        patches = ROOT / "patches" / "libreoffice"
+        series = (patches / "series").read_text(encoding="utf-8").split()
+        self.assertIn("hst-ipc-new-document-no-wait.patch", series)
+        patch = (patches / "hst-ipc-new-document-no-wait.patch").read_text(encoding="utf-8")
+        self.assertIn("+++ b/desktop/source/app/officeipcthread.cxx", patch)
+        self.assertIn("+    *waitProcessed = bDocRequestSent && !bModuleStartOnly;", patch)
+        stub = (MACOS / "hst-app-launcher.m").read_text(encoding="utf-8")
+        self.assertIn("forwardToRunningOffice", stub)
+
     def test_collect_builds_them_before_signing_and_verify_checks_them(self):
         trial = (MACOS / "trial-build.sh").read_text(encoding="utf-8")
         collect = trial[trial.index("do_collect()"):trial.index("do_verify()")]

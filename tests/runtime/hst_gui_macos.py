@@ -117,7 +117,12 @@ class Office:
 
     def _terminate(self):
         try:
-            self.desktop().terminate()
+            desktop = self.desktop()
+            # Like the office's own Quit (desktop/source/app/app.cxx Desktop::QueryExit): on macOS the Dock menu
+            # (quick starter) vetoes a plain terminate(), the office stays up and is then killed, which its next
+            # start reports as a crash ("Lần trước HST Office bị đóng đột ngột", r1-auto macOS run 42929394182 M3).
+            desktop.setPropertyValue("SuspendQuickstartVeto", True)
+            desktop.terminate()
         except Exception:  # noqa: BLE001 - the bridge drops while terminating
             pass
 

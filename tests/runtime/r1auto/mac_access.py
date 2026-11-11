@@ -179,15 +179,29 @@ def dismiss_download():
         return ""
 
 
-def close_owned(pids):
+def close_owned(pids, quit_timeout=20):
+    """Quit the owned offices the way a user does (the Quit Apple Event: Desktop::QueryExit lifts the Dock menu's
+    veto and the office closes its session), then signal what is left. SIGTERM ends the office without OnCloseApp:
+    the next start of that profile asks "Lần trước HST Office bị đóng đột ngột" over the first document, which
+    vetoed M3's close (r1-auto macOS run 42929394182)."""
     import psutil
-    processes = []
+    from AppKit import NSRunningApplication
+    offices = []
     for pid in pids:
         try:
             proc = psutil.Process(pid)
             if proc.name().startswith("soffice"):
-                proc.terminate()
-                processes.append(proc)
+                offices.append(proc)
+        except psutil.NoSuchProcess:
+            continue
+    for proc in offices:
+        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(proc.pid)
+        if app is not None:
+            app.terminate()
+    _, processes = psutil.wait_procs(offices, timeout=quit_timeout if offices else 0)
+    for proc in processes:  # a modal dialog refuses the quit event
+        try:
+            proc.terminate()
         except psutil.NoSuchProcess:
             continue
     _, alive = psutil.wait_procs(processes, timeout=10)

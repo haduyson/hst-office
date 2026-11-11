@@ -125,6 +125,11 @@ class DefaultSession:
         try:
             if self.office.ctx is not None:
                 background(self.office._terminate).join(5)
+                if self.proc is not None:
+                    try:  # a quitting office saves its profile and ends its session: a signal now reads as a crash
+                        self.proc.wait(timeout=20)
+                    except subprocess.TimeoutExpired:
+                        pass
             if self.proc is not None:
                 try:
                     self._record()
