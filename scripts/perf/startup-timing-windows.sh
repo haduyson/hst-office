@@ -25,7 +25,7 @@ pwsh -NoProfile -Command 'Get-CimInstance Win32_Processor | Select-Object Name,N
 
 # RAMMap empties the standby list: the next start reads every file from disk again.
 rammap=""
-if curl -fsSL --retry 3 -o "$work/RAMMap.zip" https://download.sysinternals.com/files/RAMMap.zip; then
+if curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o "$work/RAMMap.zip" https://download.sysinternals.com/files/RAMMap.zip; then
   unzip -oq "$work/RAMMap.zip" -d "$work/rammap" && rammap="$work/rammap/RAMMap64.exe"
   MSYS2_ARG_CONV_EXCL='*' reg.exe add 'HKCU\Software\Sysinternals\RamMap' /v EulaAccepted /t REG_DWORD /d 1 /f >/dev/null
 fi
@@ -100,7 +100,7 @@ fi
 lo=""
 if { has lo || has scan; } && [ -n "${LO_MSI_URL:-}" ]; then
   lo_msi="$work/LibreOffice.msi"
-  if curl -fsSL --retry 3 -o "$lo_msi" "$LO_MSI_URL" || curl -fsSL --retry 3 -o "$lo_msi" "${LO_MSI_ARCHIVE_URL:-}"; then
+  if curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o "$lo_msi" "$LO_MSI_URL" || curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o "$lo_msi" "${LO_MSI_ARCHIVE_URL:-}"; then
     echo "$LO_MSI_SHA256  $lo_msi" | sha256sum -c
     msiexec_q /i "$(w "$lo_msi")" /qn /norestart /l*v "$(w "$out/lo-install.log")"
     lo="$(find '/c/Program Files/LibreOffice/program' -maxdepth 1 -iname soffice.exe | head -n 1)"

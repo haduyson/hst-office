@@ -68,7 +68,7 @@ if [ -n "${HST_OVERLAY_OXT:-}" ]; then
   use_ext installed
 fi
 if has lo && [ -n "${LO_DEB_URL:-}" ]; then
-  if curl -fsSL --retry 3 -o "$work/lo.tar.gz" "$LO_DEB_URL"; then
+  if curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o "$work/lo.tar.gz" "$LO_DEB_URL"; then
     sha256sum "$work/lo.tar.gz" > "$out/lo-deb.sha256"
     mkdir -p "$work/lo-debs" "$work/lo-root"
     tar -xzf "$work/lo.tar.gz" -C "$work/lo-debs"

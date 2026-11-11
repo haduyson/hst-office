@@ -67,7 +67,7 @@ if [ -n "${HST_OVERLAY_OXT:-}" ] && { has lazy || has lazy-trace; }; then
   rm -rf "$ext"; mv "$work/hst-ext-installed" "$ext"
 fi
 if has lo && [ -n "${LO_DMG_URL:-}" ]; then
-  if curl -fsSL --retry 3 -o "$work/lo.dmg" "$LO_DMG_URL"; then
+  if curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o "$work/lo.dmg" "$LO_DMG_URL"; then
     shasum -a 256 "$work/lo.dmg" > "$out/lo-dmg.sha256"
     mkdir -p "$work/lo-mnt"
     hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$work/lo-mnt" "$work/lo.dmg" > /dev/null
