@@ -56,16 +56,24 @@ def windows_print(target):
         raise RuntimeError("Không thấy hộp thoại In sau 60 giây (print-timeout.png, print-timeout.log)")
     try:
         # An actual Windows virtual printer: never assume printer index zero.
+        # (the UI Automation ComboBoxWrapper of pywinauto 0.6.9 lists its items with texts(), not item_texts())
         chosen = None
         for combo in window.descendants(control_type="ComboBox"):
-            choices = combo.item_texts()
-            printer = next((name for name in choices if name.endswith("Print to PDF")), None)
+            try:
+                shown = combo.selected_text() or combo.window_text() or ""
+            except Exception:  # noqa: BLE001 - a combo without a selection pattern
+                shown = ""
+            if shown.endswith("Print to PDF"):  # the runner's default printer
+                chosen = combo, None
+                break
+            printer = next((name for name in combo.texts() if name.endswith("Print to PDF")), None)
             if printer:
                 chosen = combo, printer
                 break
         if chosen is None:
             raise RuntimeError("Runner thiếu máy in PDF hệ thống hoặc không đọc được danh sách máy in")
-        chosen[0].select(chosen[1])
+        if chosen[1]:
+            chosen[0].select(chosen[1])
         button = next(b for b in window.descendants(control_type="Button")
                       if b.window_text().replace("&", "") in {"In", "Print", "OK"})
         button.click_input()
