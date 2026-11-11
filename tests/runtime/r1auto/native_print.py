@@ -13,30 +13,7 @@ def save_print(target):
         raise RuntimeError("Tệp in đã tồn tại")
     screenshot(target.with_name("print-dialog.png"))
     if platform.system() == "Windows":
-        from pywinauto import Desktop
-        desktop = Desktop(backend="uia")
-        def print_window():
-            return next((w for w in desktop.windows() if w.window_text().strip() in {"In", "Print"}), None)
-        window = wait(print_window)
-        # An actual Windows virtual printer: never assume printer index zero.
-        chosen = None
-        for combo in window.descendants(control_type="ComboBox"):
-            choices = combo.item_texts()
-            printer = next((name for name in choices if name.endswith("Print to PDF")), None)
-            if printer:
-                chosen = combo, printer
-                break
-        if chosen is None:
-            raise RuntimeError("Runner thiếu máy in PDF hệ thống hoặc không đọc được danh sách máy in")
-        chosen[0].select(chosen[1])
-        button = next(b for b in window.descendants(control_type="Button")
-                      if b.window_text().replace("&", "") in {"In", "Print", "OK"})
-        button.click_input()
-        def save_window():
-            return next((w for w in desktop.windows() if w.child_window(auto_id="1001", control_type="Edit").exists()), None)
-        save = wait(save_window)
-        save.child_window(auto_id="1001", control_type="Edit").set_edit_text(str(target))
-        save.child_window(auto_id="1", control_type="Button").click_input()
+        windows_print(target)
     elif platform.system() == "Darwin":
         saved_copy(target).unlink(missing_ok=True)  # an old file must not pass for this print
         try:
@@ -49,6 +26,97 @@ def save_print(target):
     else:
         raise RuntimeError("Đường in native chỉ chạy trên Windows/macOS")
     return finish(target)
+
+
+def windows_print(target):
+    """The office's print dialog: Microsoft Print to PDF, In, then the driver's save dialog."""
+    from pywinauto import Desktop
+    desktop = Desktop(backend="uia")
+
+    def windows():
+        # UI Automation shows an owned window (a dialog) under its owner, not under the desktop: the office's
+        # print dialog is a child of the document window there (r1-auto Windows run 42959783025, W12: the
+        # dialog was on screen for 60 s and absent from the desktop's windows).
+        for top in desktop.windows():
+            yield top
+            try:
+                yield from top.children(control_type="Window")
+            except Exception:  # noqa: BLE001 - a window that went away while listed
+                continue
+
+    def print_window():
+        return next((w for w in windows() if w.window_text().strip() in {"In", "Print"}), None)
+    try:
+        window = wait(print_window, 60)
+    except TimeoutError:
+        # what is on screen instead of the print dialog (a message box, a hidden dialog, nothing)
+        screenshot(target.with_name("print-timeout.png"))
+        shown = [(w.window_text(), w.class_name(), w.process_id()) for w in windows()]
+        target.with_name("print-timeout.log").write_text(repr(shown), encoding="utf-8")
+        raise RuntimeError("Không thấy hộp thoại In sau 60 giây (print-timeout.png, print-timeout.log)")
+    try:
+        # An actual Windows virtual printer: never assume printer index zero.
+        # The office's printer box is a UI Automation ComboBox named after its label ("Máy in") whose value is
+        # the printer, also in its Edit child (print-dialog-tree.log, r1-auto Windows run 42963590336); pywinauto
+        # 0.6.9 lists the items of a ComboBoxWrapper with texts(), not item_texts().
+        chosen = None
+        for combo in window.descendants(control_type="ComboBox"):
+            if printer_value(combo).endswith("Print to PDF"):  # the runner's default printer
+                chosen = combo, None
+                break
+            printer = next((name for name in combo.texts() if name.endswith("Print to PDF")), None)
+            if printer:
+                chosen = combo, printer
+                break
+        if chosen is None:
+            raise RuntimeError("Runner thiếu máy in PDF hệ thống hoặc không đọc được danh sách máy in")
+        if chosen[1]:
+            chosen[0].select(chosen[1])
+        button = next(b for b in window.descendants(control_type="Button")
+                      if b.window_text().replace("&", "") in {"In", "Print", "OK"})
+        button.click_input()
+    except Exception:
+        screenshot(target.with_name("print-dialog-failed.png"))
+        try:  # the dialog as UI Automation sees it: the controls a fixed selector must be rewritten against
+            tree = [(c.element_info.control_type, c.window_text(), c.element_info.class_name)
+                    for c in window.descendants()]
+            target.with_name("print-dialog-tree.log").write_text(repr(tree), encoding="utf-8")
+        except Exception:  # noqa: BLE001 - evidence only
+            pass
+        window.close()  # Hủy: the document must not be closed under its open print dialog
+        raise
+
+    # The driver's "Save Print Output As" dialog: the file name box (automation id 1001) and Save (id 1).
+    # windows() yields wrappers, which have descendants() but not the child_window() of a window specification.
+    def control(parent, kind, automation_id):
+        return next((c for c in parent.descendants(control_type=kind)
+                     if c.element_info.automation_id == automation_id), None)
+
+    def save_window():
+        for w in windows():
+            try:
+                if control(w, "Edit", "1001") is not None:
+                    return w
+            except Exception:  # noqa: BLE001 - a window that went away while it was read
+                continue
+        return None
+    save = wait(save_window, 60)
+    control(save, "Edit", "1001").set_edit_text(str(target))
+    control(save, "Button", "1").click_input()
+
+
+def printer_value(combo):
+    """The text a combo box shows: its value pattern, else its Edit child's value, else its selection."""
+    for read in (lambda: combo.iface_value.CurrentValue,
+                 lambda: combo.children(control_type="Edit")[0].get_value(),
+                 lambda: combo.selected_text()):
+        try:
+            value = read()
+        except Exception:  # noqa: BLE001 - a pattern this combo does not have
+            continue
+        if value:
+            return str(value)
+    return ""
 
 
 def saved_copy(target):

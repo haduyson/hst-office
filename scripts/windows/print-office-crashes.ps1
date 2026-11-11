@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Windows smoke diagnostics: print every soffice.bin crash of this runner session, the Application log entry
 # (faulting module, offset, exception code) and, when the Windows SDK debugger is present, the crashing thread's stack
-# from each minidump that Windows Error Reporting wrote into -Dumps (LocalDumps key set by the workflow).
+# from each minidump that Windows Error Reporting (LocalDumps key set by the workflow) or ProcDump
+# (attach-procdump.ps1) wrote into -Dumps.
 # Usage: pwsh -File print-office-crashes.ps1 -Install "C:\Program Files\HSTOffice" -Dumps D:\a\_temp\out\crash
 param(
     [Parameter(Mandatory = $true)][string]$Install,
@@ -51,5 +52,11 @@ foreach ($f in $files) {
         "--- original fault context (.cxr at the KiUserExceptionDispatch frame)"
         & $cdb -z $f.FullName -y $symbols -i "$Install\program" -c (($commands + 'q') -join '; ') 2>&1 |
             Where-Object { $_ -notmatch '^\s*$' } | Select-Object -First 1200
+    }
+    else {
+        # a dump written by a debugger (attach-procdump.ps1) at the original fault: its context, code and every thread
+        "--- fault context and all threads"
+        & $cdb -z $f.FullName -y $symbols -i "$Install\program" -c '.ecxr; r; ub @rip L40; u @rip L12; ~*kn 40; q' 2>&1 |
+            Where-Object { $_ -notmatch '^\s*$' } | Select-Object -First 1500
     }
 }

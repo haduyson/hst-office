@@ -15,6 +15,10 @@ on:
         description: 'Thay extension HST đi kèm bằng bản dựng từ commit này (thử bản sửa không cần dựng lại bộ cài)'
         type: boolean
         default: false
+      procdump:
+        description: 'Gắn ProcDump vào soffice.bin để có dump tại lỗi gốc (tắt để chạy như máy người dùng, không có trình gỡ lỗi)'
+        type: boolean
+        default: true
 permissions:
   contents: read
 env:
@@ -90,6 +94,14 @@ jobs:
           MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpFolder /t REG_EXPAND_SZ /d "$dumps" /f
           MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpType /t REG_DWORD /d 1 /f
           MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpCount /t REG_DWORD /d 5 /f
+      - name: Gắn ProcDump vào mọi soffice.bin để lấy dump tại lỗi gốc
+        if: ${{ inputs.procdump }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          watcher=$(pwsh -NoProfile -File scripts/windows/attach-procdump.ps1 -Dumps "$(cygpath -w "$RUNNER_TEMP/r1-evidence/crash")" | tail -n 1 | tr -d '\r')
+          [[ "$watcher" =~ ^[0-9]+$ ]]
+          echo "PROCDUMP_WATCHER=$watcher" >> "$GITHUB_ENV"
       - name: Chạy checklist trên bản đã cài
         shell: bash
         env:
@@ -107,6 +119,13 @@ jobs:
         run: |
           set -euo pipefail
           python tests/runtime/r1auto/cleanup.py "$RUNNER_TEMP/r1-work" "$RUNNER_TEMP/r1-evidence"
+      - name: Dừng ProcDump
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File scripts/windows/attach-procdump.ps1 -Dumps "$(cygpath -w "$RUNNER_TEMP/r1-evidence/crash")" \
+            -Stop -Watcher "${PROCDUMP_WATCHER:-0}"
       - name: Ghi các lần office đóng đột ngột
         if: ${{ always() }}
         shell: bash
@@ -136,3 +155,14 @@ jobs:
             ${{ runner.temp }}/source-run.json
           if-no-files-found: error
           retention-days: 14
+      - name: Lưu dump của office (nếu có)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: r1-windows-dumps-${{ inputs.run_id }}-${{ matrix.scale }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/r1-evidence/crash/office-crashes.log
+            ${{ runner.temp }}/r1-evidence/crash/*.dmp
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 3

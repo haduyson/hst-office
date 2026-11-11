@@ -86,3 +86,40 @@ class WatermarkMeasurementTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StampAlignmentTests(unittest.TestCase):
+    """pdf_metrics.aligned moves a page that was placed elsewhere onto the reference by the stamp's solid strokes."""
+
+    def setUp(self):
+        sys.path.insert(0, str(Path(ROOT) / "tests/runtime/r1auto"))
+        import pdf_metrics
+        self.aligned = pdf_metrics.aligned
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+
+    def page(self, name, offset=(0, 0), fringes=False):
+        image = Image.new("RGB", (200, 200), "white")
+        draw = ImageDraw.Draw(image)
+        x, y = 120 + offset[0], 120 + offset[1]
+        draw.ellipse((x, y, x + 60, y + 60), outline=(220, 60, 70), width=5)
+        if fringes:  # subpixel text: 1 px red edges along black glyphs far from the stamp
+            for column in range(10, 90, 4):
+                draw.rectangle((column, 10, column + 1, 30), fill=(0, 0, 0))
+                draw.line((column + 2, 10, column + 2, 30), fill=(200, 40, 40))
+        path = self.root / (name + ".png")
+        image.save(path)
+        return str(path)
+
+    def test_red_glyph_fringes_do_not_move_the_page(self):
+        reference = self.page("reference")
+        candidate, shift = self.aligned(reference, self.page("fringed", fringes=True))
+        self.assertEqual(shift, [0, 0])
+        self.assertEqual(candidate, str(self.root / "fringed.png"))
+
+    def test_a_moved_page_is_moved_back_onto_the_stamp(self):
+        reference = self.page("reference")
+        candidate, shift = self.aligned(reference, self.page("moved", offset=(-12, -9), fringes=True))
+        self.assertEqual(shift, [12, 9])
+        self.assertEqual(Path(candidate).name, "moved-aligned.png")

@@ -322,3 +322,14 @@ class Launches:
 
     def report(self):
         return sorted(self.seen.values(), key=lambda v: v["first"])
+
+    def launched(self, timeout):
+        """Whether a launcher or office process started after the route began (a process running before it, e.g.
+        the office that is closing, is seen at 0.0), waiting up to `timeout` seconds."""
+        end = time.monotonic() + timeout
+        while True:
+            if any(value["first"] > 0 for value in list(self.seen.values())):
+                return True
+            if time.monotonic() >= end:
+                return False
+            time.sleep(0.1)
