@@ -7,17 +7,23 @@
 // HST Office. The host is the bundle three levels up (Contents/Helpers/<launcher>.app), never looked up elsewhere.
 //   - HST Office not running: Launch Services opens the host with "--<module>" (it starts in that module and is its
 //     own responsible process for privacy prompts).
-//   - running: the host's soffice runs once with "--<module>"; it hands the request to the running office over its
-//     single-instance pipe and exits. The running office is then brought to the front.
+//   - running: the host's soffice runs once with "--headless --<module>"; it hands the request to the running office
+//     over its single-instance pipe and exits once the office has processed it. Headless, it has no Dock icon of its
+//     own (a GUI second instance showed a second HST Office in the Dock). The office answers only after the new
+//     document is ready, and HST Slides first shows Impress's template dialog (modal, synchronous): the launcher waits
+//     a moment for the hand-over, then leaves the invisible helper to finish by itself (launcher probe run
+//     42938224519: a GUI forwarder and its launcher stayed while "Lựa chọn mẫu" was open).
 // No shell, no AppleScript; the launcher exits as soon as the request is handed over.
 #import <AppKit/AppKit.h>
+#include <errno.h>
+#include <signal.h>
 #include <spawn.h>
 #include <sys/wait.h>
 
 extern char **environ;
 
 static const NSTimeInterval kOpenTimeout = 60.0;      // Launch Services answers long before the office is ready
-static const NSTimeInterval kForwardTimeout = 30.0;   // a second soffice exits right after the hand-over
+static const NSTimeInterval kForwardWait = 3.0;       // Writer and Sheets hand over within about 2 s
 
 static int fail(NSString *message) {
     NSLog(@"HST launcher: %@", message);
@@ -41,30 +47,6 @@ static void bringToFront(NSRunningApplication *app) {
     }
 }
 
-static int forwardToRunningOffice(NSBundle *host, NSString *flag, NSRunningApplication *running) {
-    NSString *soffice = host.executablePath;
-    if (soffice.length == 0 || ![NSFileManager.defaultManager isExecutableFileAtPath:soffice])
-        return fail([NSString stringWithFormat:@"no executable in %@", host.bundlePath]);
-    if (@available(macOS 14.0, *))
-        [NSApp yieldActivationToApplication:running];  // lets the office raise the new window itself
-    char *argv[] = { (char *)soffice.fileSystemRepresentation, (char *)flag.UTF8String, NULL };
-    pid_t pid = 0;
-    int rc = posix_spawn(&pid, argv[0], NULL, NULL, argv, environ);
-    if (rc != 0)
-        return fail([NSString stringWithFormat:@"cannot start %@: %s", soffice, strerror(rc)]);
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:kForwardTimeout];
-    int status = 0;
-    pid_t done = 0;
-    while ((done = waitpid(pid, &status, WNOHANG)) == 0 && deadline.timeIntervalSinceNow > 0)
-        [NSThread sleepForTimeInterval:0.1];
-    if (done == 0)  // the running office quit meanwhile and this one became the office: leave it running
-        NSLog(@"HST launcher: soffice %d still running after %.0f s", pid, kForwardTimeout);
-    else if (done < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
-        NSLog(@"HST launcher: hand-over ended with status %d", status);
-    bringToFront(running);
-    return 0;
-}
-
 static int openHost(NSURL *hostURL, NSString *flag) {
     NSWorkspaceOpenConfiguration *config = [NSWorkspaceOpenConfiguration configuration];
     config.arguments = @[ flag ];
@@ -85,6 +67,40 @@ static int openHost(NSURL *hostURL, NSString *flag) {
         return fail(@"Launch Services did not answer");
     if (failure)
         return fail([NSString stringWithFormat:@"cannot open %@: %@", hostURL.path, failure.localizedDescription]);
+    return 0;
+}
+
+static BOOL alive(pid_t pid) {
+    return kill(pid, 0) == 0 || errno == EPERM;
+}
+
+static int forwardToRunningOffice(NSBundle *host, NSURL *hostURL, NSString *flag, NSRunningApplication *running) {
+    NSString *soffice = host.executablePath;
+    if (soffice.length == 0 || ![NSFileManager.defaultManager isExecutableFileAtPath:soffice])
+        return fail([NSString stringWithFormat:@"no executable in %@", host.bundlePath]);
+    if (@available(macOS 14.0, *))
+        [NSApp yieldActivationToApplication:running];  // lets the office raise the new window itself
+    char *argv[] = { (char *)soffice.fileSystemRepresentation, (char *)"--headless", (char *)flag.UTF8String, NULL };
+    pid_t pid = 0;
+    int rc = posix_spawn(&pid, argv[0], NULL, NULL, argv, environ);
+    if (rc != 0)
+        return fail([NSString stringWithFormat:@"cannot start %@: %s", soffice, strerror(rc)]);
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:kForwardWait];
+    int status = 0;
+    pid_t done = 0;
+    while ((done = waitpid(pid, &status, WNOHANG)) == 0 && deadline.timeIntervalSinceNow > 0)
+        [NSThread sleepForTimeInterval:0.05];
+    if (done == 0 && !alive(running.processIdentifier)) {
+        // The office quit meanwhile: the helper may have become a headless office. Start the real one instead.
+        kill(pid, SIGTERM);
+        waitpid(pid, &status, 0);
+        return openHost(hostURL, flag);
+    }
+    if (done == 0)  // still waiting for the office (a dialog of the new document): it exits by itself, unseen
+        NSLog(@"HST launcher: hand-over %d continues after %.0f s", pid, kForwardWait);
+    else if (done < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        NSLog(@"HST launcher: hand-over ended with status %d", status);
+    bringToFront(running);
     return 0;
 }
 
@@ -120,6 +136,6 @@ int main(void) {
         for (NSRunningApplication *app in [NSRunningApplication runningApplicationsWithBundleIdentifier:hostId]) {
             if (!app.terminated) { running = app; break; }
         }
-        return running ? forwardToRunningOffice(host, flag, running) : openHost(hostURL, flag);
+        return running ? forwardToRunningOffice(host, hostURL, flag, running) : openHost(hostURL, flag);
     }
 }

@@ -79,6 +79,19 @@ class LauncherBundles(unittest.TestCase):
             self.assertNotIn(forbidden, stub)
         self.assertNotIn("LibreOffice", stub)
 
+    def test_forward_is_headless_and_short(self):
+        """A GUI second soffice showed a second HST Office in the Dock and, behind Impress's template dialog, kept
+        its launcher for 30 s and then lingered (launcher probe run 42938224519)."""
+        stub = (MACOS / "hst-app-launcher.m").read_text(encoding="utf-8")
+        forward = stub[stub.index("static int forwardToRunningOffice("):stub.index("static void tellUser(")]
+        self.assertRegex(forward, r'argv\[\] = \{ [^}]*"--headless", \(char \*\)flag\.UTF8String, NULL \}')
+        wait = float(re.search(r"kForwardWait = ([\d.]+);", stub).group(1))
+        self.assertLessEqual(wait, 5.0)
+        # the office quit meanwhile: the helper must not stay as a headless office
+        self.assertIn("kill(pid, SIGTERM)", forward)
+        self.assertIn("return openHost(hostURL, flag);", forward)
+        self.assertLess(stub.index("static int openHost("), stub.index("static int forwardToRunningOffice("))
+
     def test_collect_builds_them_before_signing_and_verify_checks_them(self):
         trial = (MACOS / "trial-build.sh").read_text(encoding="utf-8")
         collect = trial[trial.index("do_collect()"):trial.index("do_verify()")]

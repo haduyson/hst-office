@@ -3,7 +3,8 @@
 # macOS probe of the launchers HST Writer, HST Sheets and HST Slides (scripts/macos/make-app-launchers.py) on a GUI
 # runner: install the dmg's app into /Applications, check each launcher bundle (module, icon, signature, Gatekeeper
 # when Developer ID signed), then open them the way the Dock does (Launch Services) and check over UNO that the right
-# document opens, from a stopped office and into a running one (one office process, no launcher left running).
+# document opens, from a stopped office and into a running one (one HST Office in the Dock, no launcher left running,
+# Impress's template dialog closed by Esc), and that a headless soffice hands its request over without a Dock icon.
 # Then "Thêm vào Dock" (hst_office.app_shortcuts) pins the three launchers in this runner's Dock. Last, HST Base:
 # no launcher and no File ▸ New entry, but an .odb still opens.
 #   app-launchers-probe.sh <dmg> <out-dir>          writes <out-dir>/summary.md; exit 1 when a check fails
@@ -63,27 +64,55 @@ uno() { # uno <args...>: the helper under the bundled python with pyuno
   URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" \
     PYTHONPATH="$app/Contents/Resources:$(dirname "$pyuno")" perl -e 'alarm 200; exec @ARGV' "$py" "$here/app-launchers-probe.py" "$@"
 }
+bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app/Contents/Info.plist")"
 soffices() { pgrep -f "$app/Contents/MacOS/soffice" | wc -l | tr -d ' '; }
+helpers() { pgrep -f "$app/Contents/MacOS/soffice --headless" | wc -l | tr -d ' '; }
 launchers_running() { pgrep -f "Contents/Helpers/.*\.app/Contents/MacOS/hst-app-launcher" | wc -l | tr -d ' '; }
-processes() { # processes <label>: the HST rows of the process table, the evidence of the two counts below
-  echo "-- processes $1 (soffice $(soffices), launchers $(launchers_running))"
+dock_icons() { # HST Office apps known to Launch Services: what the Dock shows (a headless soffice is not one)
+  lsappinfo list | grep -c "bundleID=\"$bundle_id\""
+}
+processes() { # processes <label>: the HST rows of the process table, the evidence of the counts below
+  echo "-- processes $1 (soffice $(soffices), headless $(helpers), Dock $(dock_icons), launchers $(launchers_running))"
   pids="$(pgrep -d, -f 'HST (Office|Writer|Sheets|Slides)\.app/Contents/MacOS/')"
   [ -z "$pids" ] || ps -o pid,ppid,etime,command -p "$pids"
 } >>"$out/processes.log" 2>&1
-settled() { # the hand-over ends when the running office has processed the request: allow it 20 s, then report
-  for _ in $(seq 1 20); do
-    [ "$(soffices)" = 1 ] && [ "$(launchers_running)" = 0 ] && { processes settled; return 0; }
+settled() { # a launcher hands over within a few seconds (HST Slides: while Impress's template dialog is up)
+  for _ in $(seq 1 10); do
+    [ "$(dock_icons)" = 1 ] && [ "$(launchers_running)" = 0 ] && { processes settled; return 0; }
     processes waiting; sleep 1
   done
   processes "not settled"; return 0
 }
 no_launcher_left() { [ "$(launchers_running)" = 0 ] || { processes "launcher left"; return 1; }; }
-one_office() { [ "$(soffices)" = 1 ] || { processes "office count"; return 1; }; }
+# One HST Office for the user: one app in the Dock and one office besides hand-over helpers (soffice --headless)
+one_office() {
+  if [ "$(dock_icons)" = 1 ] && [ $(($(soffices) - $(helpers))) = 1 ]; then return 0; fi
+  processes "office count"; return 1
+}
+close_template() { # Impress's "Lựa chọn mẫu" opens with every new presentation: close it as a user does (Esc); the
+  # pending hand-over then completes and its helper exits
+  osascript -e "tell application id \"$bundle_id\" to activate" -e 'delay 1' \
+    -e 'tell application "System Events" to key code 53' >>"$out/checks.log" 2>&1
+  for _ in $(seq 1 15); do [ "$(helpers)" = 0 ] && { processes "template closed"; return 0; }; sleep 1; done
+  processes "helper left"; return 1
+}
+headless_hand_over() { # what the launchers rely on: soffice --headless hands its request to the running office
+  # over the pipe, the document opens there, and the helper never appears in the Dock
+  "$app/Contents/MacOS/soffice" --headless --writer >>"$out/checks.log" 2>&1 &
+  local pid=$! most=0 now
+  for _ in $(seq 1 150); do
+    now="$(dock_icons)"; [ "$now" -gt "$most" ] && most="$now"
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.2
+  done
+  processes "headless hand-over (most Dock icons $most)"
+  uno wait calc,writer --timeout 60 >>"$out/checks.log" 2>&1 && ! kill -0 "$pid" 2>/dev/null && [ "$most" = 1 ]
+}
 launch() { open "$app/Contents/Helpers/$1.app"; }
 quit_office() { # the way the office's own Quit does it (app-launchers-probe.py quit); a kill fails the check
   uno quit >>"$out/checks.log" 2>&1
   for _ in $(seq 1 30); do [ "$(soffices)" = 0 ] && return 0; sleep 1; done
-  processes "quit refused"
+  processes "quit refused"; screencapture -x "$out/quit-refused-$(date +%H%M%S).png" 2>/dev/null
   pkill -TERM -f "$app/Contents/MacOS/soffice"; sleep 3; pkill -KILL -f "$app/Contents/MacOS/soffice"; return 1
 }
 opens() { # opens <launcher> <documents expected afterwards>
@@ -95,13 +124,16 @@ check "HST Writer opens Writer when HST Office is not running" opens "HST Writer
 check "HST Sheets opens a spreadsheet in the running office" opens "HST Sheets" writer,calc
 check "HST Slides opens a presentation in the running office" opens "HST Slides" writer,calc,impress
 settled
-check "one office process after three launchers" one_office
+check "one HST Office (Dock and processes) after three launchers" one_office
 check "no launcher left running" no_launcher_left
 screencapture -x "$out/three-apps.png" 2>/dev/null || true
+check "the template dialog closes and the hand-over ends" close_template
 check "office closed" quit_office
 check "HST Sheets opens Sheets when HST Office is not running" opens "HST Sheets" calc
+check "a headless soffice hands --writer to the running office, no Dock icon" headless_hand_over
 check "office closed after HST Sheets" quit_office
 check "HST Slides opens Slides when HST Office is not running" opens "HST Slides" impress
+check "the template dialog of a cold HST Slides closes" close_template
 check "office closed after HST Slides" quit_office
 
 # Thêm vào Dock: the extension's own code (no dialog), then the Dock settings must hold the three launchers.
