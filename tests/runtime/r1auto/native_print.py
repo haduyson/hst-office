@@ -13,18 +13,48 @@ def save_print(target):
         raise RuntimeError("Tệp in đã tồn tại")
     screenshot(target.with_name("print-dialog.png"))
     if platform.system() == "Windows":
-        from pywinauto import Desktop
-        desktop = Desktop(backend="uia")
-        def print_window():
-            return next((w for w in desktop.windows() if w.window_text().strip() in {"In", "Print"}), None)
+        windows_print(target)
+    elif platform.system() == "Darwin":
+        saved_copy(target).unlink(missing_ok=True)  # an old file must not pass for this print
         try:
-            window = wait(print_window, 60)
-        except TimeoutError:
-            # what is on screen instead of the print dialog (a message box, a hidden dialog, nothing)
-            screenshot(target.with_name("print-timeout.png"))
-            shown = [(w.window_text(), w.class_name(), w.process_id()) for w in desktop.windows()]
-            target.with_name("print-timeout.log").write_text(repr(shown), encoding="utf-8")
-            raise RuntimeError("Không thấy hộp thoại In sau 60 giây (print-timeout.png, print-timeout.log)")
+            mac_print(target)
+        except Exception:
+            import json
+            from native_tree import mac_nodes
+            target.with_name("print-tree.log").write_text(json.dumps(mac_nodes(3000), ensure_ascii=False))
+            raise
+    else:
+        raise RuntimeError("Đường in native chỉ chạy trên Windows/macOS")
+    return finish(target)
+
+
+def windows_print(target):
+    """The office's print dialog: Microsoft Print to PDF, In, then the driver's save dialog."""
+    from pywinauto import Desktop
+    desktop = Desktop(backend="uia")
+
+    def windows():
+        # UI Automation shows an owned window (a dialog) under its owner, not under the desktop: the office's
+        # print dialog is a child of the document window there (r1-auto Windows run 42959783025, W12: the
+        # dialog was on screen for 60 s and absent from the desktop's windows).
+        for top in desktop.windows():
+            yield top
+            try:
+                yield from top.children(control_type="Window")
+            except Exception:  # noqa: BLE001 - a window that went away while listed
+                continue
+
+    def print_window():
+        return next((w for w in windows() if w.window_text().strip() in {"In", "Print"}), None)
+    try:
+        window = wait(print_window, 60)
+    except TimeoutError:
+        # what is on screen instead of the print dialog (a message box, a hidden dialog, nothing)
+        screenshot(target.with_name("print-timeout.png"))
+        shown = [(w.window_text(), w.class_name(), w.process_id()) for w in windows()]
+        target.with_name("print-timeout.log").write_text(repr(shown), encoding="utf-8")
+        raise RuntimeError("Không thấy hộp thoại In sau 60 giây (print-timeout.png, print-timeout.log)")
+    try:
         # An actual Windows virtual printer: never assume printer index zero.
         chosen = None
         for combo in window.descendants(control_type="ComboBox"):
@@ -39,23 +69,16 @@ def save_print(target):
         button = next(b for b in window.descendants(control_type="Button")
                       if b.window_text().replace("&", "") in {"In", "Print", "OK"})
         button.click_input()
-        def save_window():
-            return next((w for w in desktop.windows() if w.child_window(auto_id="1001", control_type="Edit").exists()), None)
-        save = wait(save_window)
-        save.child_window(auto_id="1001", control_type="Edit").set_edit_text(str(target))
-        save.child_window(auto_id="1", control_type="Button").click_input()
-    elif platform.system() == "Darwin":
-        saved_copy(target).unlink(missing_ok=True)  # an old file must not pass for this print
-        try:
-            mac_print(target)
-        except Exception:
-            import json
-            from native_tree import mac_nodes
-            target.with_name("print-tree.log").write_text(json.dumps(mac_nodes(3000), ensure_ascii=False))
-            raise
-    else:
-        raise RuntimeError("Đường in native chỉ chạy trên Windows/macOS")
-    return finish(target)
+    except Exception:
+        screenshot(target.with_name("print-dialog-failed.png"))
+        window.close()  # Hủy: the document must not be closed under its open print dialog
+        raise
+
+    def save_window():
+        return next((w for w in windows() if w.child_window(auto_id="1001", control_type="Edit").exists()), None)
+    save = wait(save_window)
+    save.child_window(auto_id="1001", control_type="Edit").set_edit_text(str(target))
+    save.child_window(auto_id="1", control_type="Button").click_input()
 
 
 def saved_copy(target):
