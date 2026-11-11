@@ -82,8 +82,14 @@ if has trace; then timing hst-trace "$soffice" fresh,warm,cold --trace; fi
 if has noext; then rm -rf "$ext"; timing hst-noext "$soffice" "$starts"; use_ext installed; fi
 lazy_runs ""
 if has scale150; then
+  # 150 % needs a larger display than the runner's 1024x768 (which offers 100 and 125 % only); 125 % first
+  python -I -c "import sys; sys.path.insert(0, sys.argv[1]); import windows_dpi; print(windows_dpi.set_scale(125))" \
+    "$(w "$repo/tests/runtime/r1auto")" > "$out/scale125.txt" 2>&1 || echo "scale not set" >> "$out/scale125.txt"
+  timing hst-scale125 "$soffice" fresh,warm --shots
+  pwsh -NoProfile -Command 'Set-DisplayResolution -Width 1920 -Height 1080 -Force' >> "$out/scale150.txt" 2>&1 \
+    || echo "display resolution unchanged" >> "$out/scale150.txt"
   python -I -c "import sys; sys.path.insert(0, sys.argv[1]); import windows_dpi; print(windows_dpi.set_scale(150))" \
-    "$(w "$repo/tests/runtime/r1auto")" > "$out/scale150.txt" 2>&1 || echo "scale not set" >> "$out/scale150.txt"
+    "$(w "$repo/tests/runtime/r1auto")" >> "$out/scale150.txt" 2>&1 || echo "scale not set" >> "$out/scale150.txt"
   timing hst-scale150 "$soffice" fresh,warm --shots
   python -I -c "import sys; sys.path.insert(0, sys.argv[1]); import windows_dpi; print(windows_dpi.set_scale(100))" \
     "$(w "$repo/tests/runtime/r1auto")" >> "$out/scale150.txt" 2>&1 || echo "scale not reset" >> "$out/scale150.txt"

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Visible office windows right now, per OS, for scripts/perf/startup-timing.py: [(pid, width, height, title, kind)].
+"""Visible office windows right now, per OS, for scripts/perf/startup-timing.py: [(pid, width, height, title, kind)],
+on Windows followed by the window's left and top screen pixel.
 
 Windows: EnumWindows over the windows of soffice.bin / soffice.exe processes; a captionless unowned popup is the
 splash, an owned captioned window a dialog, an unowned captioned window a frame. Linux (X11): the mapped children of
@@ -62,7 +63,7 @@ def _windows():
             captioned = style & 0x00C00000 == 0x00C00000  # WS_CAPTION
             owned = bool(user32.GetWindow(hwnd, 4))  # GW_OWNER
             kind = "dialog" if owned and captioned else "frame" if captioned else "splash" if not owned else ""
-            found.append((pid.value, width, height, title.value, kind))
+            found.append((pid.value, width, height, title.value, kind, rect.left, rect.top))
             return True
         user32.EnumWindows(callback(visit), 0)
         return found

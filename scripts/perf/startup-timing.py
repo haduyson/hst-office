@@ -62,10 +62,15 @@ def profile_facts(profile):
     return facts
 
 
-def screenshot(path):
+def screenshot(path, box=None):
+    """The screen (or the `box` left, top, right, bottom around it with a 20 px margin) as a PNG."""
     try:
         from PIL import ImageGrab
-        ImageGrab.grab().save(path)
+        image = ImageGrab.grab(all_screens=True)
+        if box:
+            image.crop((box[0] - 20, box[1] - 20, box[2] + 20, box[3] + 20)).save(path)
+            return "%s window %s" % (os.path.basename(path), list(box))
+        image.save(path)
         return os.path.basename(path)
     except Exception as error:  # noqa: BLE001 - screenshots are optional evidence
         return "no screenshot: %s" % error
@@ -120,14 +125,18 @@ def one_start(args, index, kind, sample, bitmap):
     samples, shot = [], None
     launched = time.time()
     proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-    frame_at = None
+    frame_at = splash_at = None
     while True:
         now = time.time() - launched
         windows = sample()
         samples.append((round(now, 3), windows))
         kinds = [startup_phases.kind_of(w, bitmap) for w in windows]
-        if shot is None and "splash" in kinds and args.shots:
-            shot = screenshot(os.path.join(args.out, "%s-%d-splash.png" % (args.label, index)))
+        if "splash" in kinds and splash_at is None:
+            splash_at = now
+        if shot is None and args.shots and "splash" in kinds and now > splash_at + 0.4:  # painted, progress drawn
+            splash = windows[kinds.index("splash")]
+            shot = screenshot(os.path.join(args.out, "%s-%d-splash.png" % (args.label, index)),
+                              (splash[5], splash[6], splash[5] + splash[1], splash[6] + splash[2]) if len(splash) > 6 else None)
         if frame_at is None and "frame" in kinds:
             frame_at = now
         if frame_at is not None and now > frame_at + args.settle:
