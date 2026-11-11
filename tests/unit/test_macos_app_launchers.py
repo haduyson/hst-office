@@ -131,6 +131,25 @@ class ProbeHelper(unittest.TestCase):
         docs = [Doc(PROBE.KINDS["writer"]), Doc(PROBE.KINDS["calc"]), Doc(PROBE.KINDS["writer"]), Doc(None), Doc("x")]
         self.assertEqual(PROBE.kinds_of(docs), {"writer": 2, "calc": 1})
 
+    def test_quit_lifts_the_dock_veto_before_terminate(self):
+        """A plain terminate() is vetoed by the macOS Dock menu (launcher probe run 42929399081: office closed FAIL)."""
+        calls = []
+
+        class Desktop:
+            def setPropertyValue(self, name, value):
+                calls.append(("set", name, value))
+
+            def terminate(self):
+                calls.append(("terminate",))
+                return True
+        original = PROBE.connect
+        PROBE.connect = lambda _timeout: Desktop()
+        try:
+            self.assertEqual(PROBE.quit_office(), 0)
+        finally:
+            PROBE.connect = original
+        self.assertEqual(calls, [("set", "SuspendQuickstartVeto", True), ("terminate",)])
+
 
 if __name__ == "__main__":
     unittest.main()

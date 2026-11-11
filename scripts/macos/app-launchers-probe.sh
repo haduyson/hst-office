@@ -64,22 +64,37 @@ uno() { # uno <args...>: the helper under the bundled python with pyuno
     PYTHONPATH="$app/Contents/Resources:$(dirname "$pyuno")" perl -e 'alarm 200; exec @ARGV' "$py" "$here/app-launchers-probe.py" "$@"
 }
 soffices() { pgrep -f "$app/Contents/MacOS/soffice" | wc -l | tr -d ' '; }
-no_launcher_left() { ! pgrep -f "Contents/Helpers/.*\.app/Contents/MacOS/hst-app-launcher"; }
-one_office() { [ "$(soffices)" = 1 ]; }
+launchers_running() { pgrep -f "Contents/Helpers/.*\.app/Contents/MacOS/hst-app-launcher" | wc -l | tr -d ' '; }
+processes() { # processes <label>: the HST rows of the process table, the evidence of the two counts below
+  echo "-- processes $1 (soffice $(soffices), launchers $(launchers_running))"
+  pids="$(pgrep -d, -f 'HST (Office|Writer|Sheets|Slides)\.app/Contents/MacOS/')"
+  [ -z "$pids" ] || ps -o pid,ppid,etime,command -p "$pids"
+} >>"$out/processes.log" 2>&1
+settled() { # the hand-over ends when the running office has processed the request: allow it 20 s, then report
+  for _ in $(seq 1 20); do
+    [ "$(soffices)" = 1 ] && [ "$(launchers_running)" = 0 ] && { processes settled; return 0; }
+    processes waiting; sleep 1
+  done
+  processes "not settled"; return 0
+}
+no_launcher_left() { [ "$(launchers_running)" = 0 ] || { processes "launcher left"; return 1; }; }
+one_office() { [ "$(soffices)" = 1 ] || { processes "office count"; return 1; }; }
 launch() { open "$app/Contents/Helpers/$1.app"; }
-quit_office() {
+quit_office() { # the way the office's own Quit does it (app-launchers-probe.py quit); a kill fails the check
   uno quit >>"$out/checks.log" 2>&1
   for _ in $(seq 1 30); do [ "$(soffices)" = 0 ] && return 0; sleep 1; done
+  processes "quit refused"
   pkill -TERM -f "$app/Contents/MacOS/soffice"; sleep 3; pkill -KILL -f "$app/Contents/MacOS/soffice"; return 1
 }
 opens() { # opens <launcher> <documents expected afterwards>
-  launch "$1" && uno wait "$2" --timeout 120 >>"$out/checks.log" 2>&1
+  launch "$1" && uno wait "$2" --timeout 120 >>"$out/checks.log" 2>&1; local rc=$?
+  processes "after $1"; return "$rc"
 }
 
 check "HST Writer opens Writer when HST Office is not running" opens "HST Writer" writer
 check "HST Sheets opens a spreadsheet in the running office" opens "HST Sheets" writer,calc
 check "HST Slides opens a presentation in the running office" opens "HST Slides" writer,calc,impress
-sleep 3
+settled
 check "one office process after three launchers" one_office
 check "no launcher left running" no_launcher_left
 screencapture -x "$out/three-apps.png" 2>/dev/null || true
