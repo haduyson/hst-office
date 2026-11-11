@@ -1,0 +1,228 @@
+HST PDF: the toolbar keeps a clean background with the Windows dark appearance.
+
+With the dark appearance on Windows, the HST PDF toolbar showed stale copies of its controls: a
+second outline of the search box with "Se" to its left, the "/ 1" label over that outline, a cut
+edge before "Edit in HST Draw", and labels that looked bold (their text painted again over the
+old copy). The controls had moved after their first paint, and the pixels they left were never
+cleared. The light appearance did not show it.
+
+The viewer is an InterimItemWindow, which is transparent and has no background of its own, so
+the area under the toolbar is cleared only when a window below it paints. The viewer now paints
+its own background, as the Start Center does, in the workspace colour that showed through before
+(on Windows the dialog colour in both appearances, so the light look is unchanged), and repaints
+it when the style settings change.
+
+HSTPdfInfo also reports ToolbarLayout, the position, size and preferred size of every visible
+toolbar control relative to the toolbar, and ToolbarScreen, the toolbar's screen rectangle. The
+runtime checks use them: no control may overlap another or be narrower than it asks to be (cut
+off), and the space between controls must be plain background.
+
+License: the modified files keep their license (MPL-2.0).
+
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -197,22 +197,24 @@
+     }
+ 
+ private:
+     std::optional<CertificateDescription> m_oDescription;
+ };
+ 
+ PdfViewerWindow::PdfViewerWindow(vcl::Window* pParent)
+     : InterimItemWindow(pParent, u"xmlsec/ui/hstpdfviewer.ui"_ustr, u"HstPdfViewer"_ustr, false)
++    , m_xToolbar(m_xBuilder->weld_widget(u"toolbar"_ustr))
+     , m_xOpen(m_xBuilder->weld_button(u"open"_ustr))
+     , m_xPrint(m_xBuilder->weld_button(u"print"_ustr))
+     , m_xZoomOut(m_xBuilder->weld_button(u"zoomout"_ustr))
+     , m_xZoom(m_xBuilder->weld_combo_box(u"zoom"_ustr))
+     , m_xZoomIn(m_xBuilder->weld_button(u"zoomin"_ustr))
+     , m_xFitPage(m_xBuilder->weld_button(u"fitpage"_ustr))
++    , m_xPageLabel(m_xBuilder->weld_label(u"pagelabel"_ustr))
+     , m_xPage(m_xBuilder->weld_entry(u"page"_ustr))
+     , m_xPageCount(m_xBuilder->weld_label(u"pagecount"_ustr))
+     , m_xSearch(m_xBuilder->weld_entry(u"search"_ustr))
+     , m_xFindPrev(m_xBuilder->weld_button(u"findprev"_ustr))
+     , m_xFindNext(m_xBuilder->weld_button(u"findnext"_ustr))
+     , m_xEdit(m_xBuilder->weld_button(u"edit"_ustr))
+     , m_xSign(m_xBuilder->weld_toggle_button(u"sign"_ustr))
+     , m_xThumbs(new PdfPageView(PdfPageView::Mode::Thumbnails,
+@@ -253,16 +255,39 @@
+     m_xPages->setZoomChangedHdl(LINK(this, PdfViewerWindow, ViewZoomChangedHdl));
+     m_xPages->setFirstPaintHdl(LINK(this, PdfViewerWindow, FirstPaintHdl));
+     m_xPages->setSelectionHdl(LINK(this, PdfViewerWindow, SelectionHdl));
+     m_xPages->setPlacementChangedHdl(LINK(this, PdfViewerWindow, PlacementHdl));
+     m_xThumbs->setPageActivatedHdl(LINK(this, PdfViewerWindow, ThumbActivatedHdl));
+ 
+     paintPrimaryButton(*m_xSign, XsResId(STR_HSTPDF_SIGN), false, true);
+     m_xSign->set_accessible_name(XsResId(STR_HSTPDF_SIGN));
++
++    // Paint our own background, as the Start Center does: InterimItemWindow leaves the window
++    // transparent, and with the Windows dark appearance nothing repainted the area under the
++    // toolbar, so labels and boxes kept stale copies of themselves after a relayout. The colour
++    // is the one the frame showed through before (the dialog colour on Windows).
++    SetPaintTransparent(false);
++    applyBackground();
++}
++
++void PdfViewerWindow::applyBackground()
++{
++    SetBackground(Wallpaper(GetSettings().GetStyleSettings().GetWorkspaceColor()));
++}
++
++void PdfViewerWindow::DataChanged(const DataChangedEvent& rDCEvt)
++{
++    InterimItemWindow::DataChanged(rDCEvt);
++    if (rDCEvt.GetType() == DataChangedEventType::SETTINGS
++        && (rDCEvt.GetFlags() & AllSettingsFlags::STYLE))
++    {
++        applyBackground();
++        Invalidate();
++    }
+ }
+ 
+ PdfViewerWindow::~PdfViewerWindow() { disposeOnce(); }
+ 
+ void PdfViewerWindow::dispose()
+ {
+     if (m_pSignatureCheckEvent)
+     {
+@@ -288,23 +313,25 @@
+     m_xPages.reset();
+     m_xThumbsWeld.reset();
+     m_xThumbs.reset();
+     m_xSign.reset();
+     m_xEdit.reset();
+     m_xFindNext.reset();
+     m_xFindPrev.reset();
+     m_xSearch.reset();
++    m_xPageLabel.reset();
+     m_xPageCount.reset();
+     m_xPage.reset();
+     m_xFitPage.reset();
+     m_xZoomIn.reset();
+     m_xZoom.reset();
+     m_xZoomOut.reset();
+     m_xPrint.reset();
++    m_xToolbar.reset();
+     m_xOpen.reset();
+     m_xDocument.reset();
+     InterimItemWindow::dispose();
+ }
+ 
+ bool PdfViewerWindow::loadDocument(const OUString& rURL, std::vector<sal_uInt8>&& rData,
+                                    std::chrono::steady_clock::time_point tStart,
+                                    const OString& rPassword)
+@@ -988,16 +1015,50 @@
+                                     + " | " + m_xStatusFind->get_label() + " | "
+                                     + m_xStatusInfo->get_label()));
+         aInfo.emplace_back(u"SignPanelVisible"_ustr, uno::Any(m_xSignPanel->get_visible()));
+         aInfo.emplace_back(u"Certificate"_ustr, uno::Any(m_xCertCard->getSubject()));
+         aInfo.emplace_back(u"MatchCount"_ustr, uno::Any(sal_Int32(m_aMatches.size())));
+         aInfo.emplace_back(u"CurrentMatch"_ustr, uno::Any(sal_Int32(m_nCurrentMatch + 1)));
+         aInfo.emplace_back(u"MatchPage"_ustr,
+                            uno::Any(sal_Int32(m_nCurrentMatch >= 0 ? m_aMatches[m_nCurrentMatch].nPage + 1 : 0)));
++        {
++            // toolbar layout check: "id x y width height preferredWidth preferredHeight" of each
++            // visible control relative to the toolbar, and the toolbar's screen rectangle
++            const std::pair<const char*, weld::Widget*> aControls[]
++                = { { "open", m_xOpen.get() },         { "print", m_xPrint.get() },
++                    { "zoomout", m_xZoomOut.get() },   { "zoom", m_xZoom.get() },
++                    { "zoomin", m_xZoomIn.get() },     { "fitpage", m_xFitPage.get() },
++                    { "pagelabel", m_xPageLabel.get() }, { "page", m_xPage.get() },
++                    { "pagecount", m_xPageCount.get() }, { "search", m_xSearch.get() },
++                    { "findprev", m_xFindPrev.get() }, { "findnext", m_xFindNext.get() },
++                    { "edit", m_xEdit.get() },         { "sign", m_xSign.get() } };
++            std::vector<OUString> aLayout;
++            for (const auto& [pId, pWidget] : aControls)
++            {
++                int nX = 0, nY = 0, nWidth = 0, nHeight = 0;
++                if (!pWidget->get_visible()
++                    || !pWidget->get_extents_relative_to(*m_xToolbar, nX, nY, nWidth, nHeight))
++                    continue;
++                const Size aPreferred = pWidget->get_preferred_size();
++                aLayout.push_back(OUString::createFromAscii(pId) + " " + OUString::number(nX) + " "
++                                  + OUString::number(nY) + " " + OUString::number(nWidth) + " "
++                                  + OUString::number(nHeight) + " "
++                                  + OUString::number(aPreferred.Width()) + " "
++                                  + OUString::number(aPreferred.Height()));
++            }
++            aInfo.emplace_back(u"ToolbarLayout"_ustr,
++                               uno::Any(comphelper::containerToSequence(aLayout)));
++            int nX = 0, nY = 0, nWidth = 0, nHeight = 0;
++            m_xToolbar->get_extents_relative_to(*m_xContainer, nX, nY, nWidth, nHeight);
++            const AbsoluteScreenPixelPoint aOrigin = OutputToAbsoluteScreenPixel(Point(nX, nY));
++            aInfo.emplace_back(u"ToolbarScreen"_ustr,
++                               uno::Any(uno::Sequence<sal_Int32>{ sal_Int32(aOrigin.X()), sal_Int32(aOrigin.Y()),
++                                                                  sal_Int32(nWidth), sal_Int32(nHeight) }));
++        }
+         if (m_xDocument && rArgs.getUnpackedValueOrDefault(u"RenderPage"_ustr, sal_Int32(0)) > 0)
+         {
+             // render check: share of non-white pixels of a page at 50%, and the pixels that are
+             // clearly red or clearly blue (the bitmap screen, thumbnails and printing all use)
+             const int nPage = std::min(rArgs.getUnpackedValueOrDefault(u"RenderPage"_ustr, sal_Int32(1)),
+                                        sal_Int32(m_xDocument->getPageCount())) - 1;
+             const basegfx::B2DSize aSize = m_xDocument->getPageSize(nPage);
+             // RenderDpi: another resolution than 48 dpi (two thirds of the page size in points)
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
+@@ -35,16 +35,17 @@
+ 
+ class PdfViewerWindow final : public InterimItemWindow
+ {
+ public:
+     explicit PdfViewerWindow(vcl::Window* pParent);
+     virtual ~PdfViewerWindow() override;
+     virtual void dispose() override;
+     virtual bool PreNotify(NotifyEvent& rNEvt) override;
++    virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
+ 
+     void setFrame(const css::uno::Reference<css::frame::XFrame>& xFrame) { m_xFrame = xFrame; }
+ 
+     /// Shows the PDF in rData (read from rURL); false when PDFium cannot open it.
+     /// tStart is when loading began, for the "opened in" figure.
+     /// rPassword is tried first on an encrypted file, before asking for one.
+     bool loadDocument(const OUString& rURL, std::vector<sal_uInt8>&& rData,
+                       std::chrono::steady_clock::time_point tStart,
+@@ -55,16 +56,17 @@
+ 
+     /// The viewer's commands (".uno:HSTPdf..." plus Print and Copy), for buttons, keys and
+     /// the dispatch API; rResult gets named values for queries.
+     static bool isCommand(std::u16string_view rCommand);
+     bool executeCommand(std::u16string_view rCommand, const comphelper::SequenceAsHashMap& rArgs,
+                         css::uno::Any& rResult);
+ 
+ private:
++    void applyBackground();
+     void updatePageWidgets();
+     void updateZoomWidget();
+     void updateStatus();
+     void setInfo(const OUString& rText);
+     void find(const OUString& rText, bool bBackwards);
+     void copySelection();
+     void print();
+     void editInDraw();
+@@ -108,22 +110,24 @@
+     OUString m_aSearchText;
+     int m_nCurrentMatch = -1;
+ 
+     css::uno::Reference<css::security::XCertificate> m_xCertificate;
+     bool m_bCertificateLookedUp = false;
+     SignatureSummary m_aSignatures;
+     bool m_bSignaturesChecked = false;
+ 
++    std::unique_ptr<weld::Widget> m_xToolbar;
+     std::unique_ptr<weld::Button> m_xOpen;
+     std::unique_ptr<weld::Button> m_xPrint;
+     std::unique_ptr<weld::Button> m_xZoomOut;
+     std::unique_ptr<weld::ComboBox> m_xZoom;
+     std::unique_ptr<weld::Button> m_xZoomIn;
+     std::unique_ptr<weld::Button> m_xFitPage;
++    std::unique_ptr<weld::Label> m_xPageLabel;
+     std::unique_ptr<weld::Entry> m_xPage;
+     std::unique_ptr<weld::Label> m_xPageCount;
+     std::unique_ptr<weld::Entry> m_xSearch;
+     std::unique_ptr<weld::Button> m_xFindPrev;
+     std::unique_ptr<weld::Button> m_xFindNext;
+     std::unique_ptr<weld::Button> m_xEdit;
+     std::unique_ptr<weld::ToggleButton> m_xSign;
+ 

@@ -1,0 +1,162 @@
+Skia: a translucent rectangle blends over what is drawn, on Windows as on other platforms.
+
+On Windows, OutputDevice::DrawTransparent(tools::PolyPolygon, percent) sends a rectangle to the
+emulation path, which calls DrawAlphaRect, to avoid GDI+ dithering on remote displays. Skia's
+drawAlphaRect filled (and outlined) with the "source" blend mode, the default since the alpha
+device was removed from OutputDevice. That stores the colour with its alpha instead of blending
+it, and the screen shows the premultiplied colour: a dark box over whatever was there. Upstream
+fixed the polygon path the same way (tdf#167643, tdf#169914); the rectangle path was left.
+
+User-visible in HST Office on Windows (where 26.8 always renders with Skia):
+- Calc's Text Import dialog: the header of a selected column became a near-black block,
+  (23, 27, 31) for the active colour at 85% transparency, and hid the column type;
+- Calc's reference marks while editing a formula (the corner squares, 40% transparency);
+- ValueSet hover outlines (55%), DrawSelectionBackground for flat rectangles (header bars,
+  icon views), and other rectangle DrawTransparent callers.
+
+drawAlphaRect now uses SrcOver when the rectangle is translucent; an opaque one (drawRect) keeps
+the "source" mode, and the XOR and invert modes are unchanged. The unit test draws a translucent
+filled and outlined rectangle on white and checks that it blends.
+tests/runtime/check-windows-transparent-rects.py checks the Text Import header on Windows.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/vcl/skia/gdiimpl.cxx
++++ b/vcl/skia/gdiimpl.cxx
+@@ -800,29 +800,35 @@
+ {
+     preDraw();
+     SAL_INFO("vcl.skia.trace", "privatedrawrect("
+                                    << this << "): " << SkIRect::MakeXYWH(nX, nY, nWidth, nHeight)
+                                    << ":" << dumpOptionalColor(moLineColor) << ":"
+                                    << dumpOptionalColor(moFillColor) << ":" << fTransparency);
+     addUpdateRegion(SkRect::MakeXYWH(nX, nY, nWidth, nHeight));
+     SkCanvas* canvas = getDrawCanvas();
++    // A translucent rectangle (drawAlphaRect, which OutputDevice::DrawTransparent uses for
++    // rectangles on Windows) blends over what is drawn, as the polygon path does; the "source"
++    // blend mode would store the colour with its alpha and show it premultiplied (dark).
++    const bool bBlend = fTransparency != 0.0;
+     if (moFillColor)
+     {
+-        SkPaint paint = makeFillPaint(fTransparency);
++        SkPaint paint = makeFillPaint(fTransparency, bBlend);
+         paint.setAntiAlias(!blockAA && mParent.getAntiAlias());
+         // HACK: If the polygon is just a line, it still should be drawn. But when filling
+         // Skia doesn't draw empty polygons, so in that case ensure the line is drawn.
+         if (!moLineColor && SkSize::Make(nWidth, nHeight).isEmpty())
+             paint.setStyle(SkPaint::kStroke_Style);
+         canvas->drawIRect(SkIRect::MakeXYWH(nX, nY, nWidth, nHeight), paint);
+     }
+     if (moLineColor && moLineColor != moFillColor) // otherwise handled by fill
+     {
+         SkPaint paint = makeLinePaint(fTransparency);
++        if (bBlend && mXorMode == XorMode::None)
++            paint.setBlendMode(SkBlendMode::kSrcOver);
+         paint.setAntiAlias(!blockAA && mParent.getAntiAlias());
+ #ifdef MACOSX
+         // tdf#162646 set extra drawing constraints when scaling
+         // Previously, setting stroke width and cap was only done when running
+         // unit tests. But the same drawing constraints are necessary when
+         // running with a Retina display on macOS and antialiasing is disabled.
+         if (mScaling != 1 && (isUnitTestRunning() || !paint.isAntiAlias()))
+ #else
+--- a/vcl/qa/cppunit/skia/skia.cxx
++++ b/vcl/qa/cppunit/skia/skia.cxx
+@@ -11,16 +11,18 @@
+ 
+ #include <basegfx/matrix/b2dhommatrix.hxx>
+ 
+ #include <vcl/alpha.hxx>
+ #include <vcl/rendercontext/AntialiasingFlags.hxx>
+ #include <vcl/virdev.hxx>
+ #include <vcl/skia/SkiaHelper.hxx>
+ 
++#include <salgdi.hxx>
++#include <skia/gdiimpl.hxx>
+ #include <skia/salbmp.hxx>
+ #include <skia/utils.hxx>
+ #include <vcl/BitmapWriteAccess.hxx>
+ 
+ using namespace SkiaHelper;
+ 
+ // This tests backends that use Skia (i.e. intentionally not the svp one, which is the default.)
+ // Note that you still may need to actually set for Skia to be used (see vcl/README.vars).
+@@ -43,31 +45,33 @@
+     void testMatrixQuality();
+     void testDelayedScale();
+     void testDelayedScaleAlphaImage();
+     void testDrawDelayedScaleImage();
+     void testChecksum();
+     void testTdf137329();
+     void testTdf140848();
+     void testTdf132367();
++    void testDrawAlphaRectBlends();
+ 
+     CPPUNIT_TEST_SUITE(SkiaTest);
+     CPPUNIT_TEST(testBitmapErase);
+     CPPUNIT_TEST(testDrawShaders);
+     CPPUNIT_TEST(testInterpretAs8Bit);
+     CPPUNIT_TEST(testAlphaBlendWith);
+     CPPUNIT_TEST(testBitmapCopyOnWrite);
+     CPPUNIT_TEST(testMatrixQuality);
+     CPPUNIT_TEST(testDelayedScale);
+     CPPUNIT_TEST(testDelayedScaleAlphaImage);
+     CPPUNIT_TEST(testDrawDelayedScaleImage);
+     CPPUNIT_TEST(testChecksum);
+     CPPUNIT_TEST(testTdf137329);
+     CPPUNIT_TEST(testTdf140848);
+     CPPUNIT_TEST(testTdf132367);
++    CPPUNIT_TEST(testDrawAlphaRectBlends);
+     CPPUNIT_TEST_SUITE_END();
+ 
+ private:
+ #if 0
+     void savePNG(const OUString& sWhere, const Bitmap& rBmp)
+     {
+         SvFileStream aStream(sWhere, StreamMode::WRITE | StreamMode::TRUNC);
+         GraphicFilter& rFilter = GraphicFilter::GetGraphicFilter();
+@@ -577,15 +581,44 @@
+     // Now it will need to be converted to pixel buffer, check it's converted properly
+     // from the SkImage.
+     BitmapReadAccess access(bitmap);
+     CPPUNIT_ASSERT_EQUAL(tools::Long(4), access.Width());
+     CPPUNIT_ASSERT_EQUAL(tools::Long(4), access.Height());
+     CPPUNIT_ASSERT_EQUAL(BitmapColor(COL_WHITE), access.GetColor(3, 3));
+ }
+ 
++void SkiaTest::testDrawAlphaRectBlends()
++{
++    if (!SkiaHelper::isVCLSkiaEnabled())
++        return;
++    // A translucent rectangle (the Windows path of DrawTransparent for rectangles) blends over
++    // the white background instead of storing a premultiplied, dark colour.
++    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::WITHOUT_ALPHA);
++    device->SetOutputSizePixel(Size(20, 20));
++    device->SetBackground(Wallpaper(COL_WHITE));
++    device->Erase();
++    SalGraphics* pGraphics = device->GetGraphics();
++    CPPUNIT_ASSERT(pGraphics);
++    SkiaSalGraphicsImpl* pImpl = dynamic_cast<SkiaSalGraphicsImpl*>(pGraphics->GetImpl());
++    CPPUNIT_ASSERT(pImpl);
++    pImpl->SetLineColor();
++    pImpl->SetFillColor(Color(0x00, 0x00, 0xFF));
++    CPPUNIT_ASSERT(pImpl->drawAlphaRect(2, 2, 16, 16, 50));
++    const Color aFilled = device->GetPixel(Point(10, 10));
++    // half blue over white is about (127, 127, 255); premultiplied it was about (0, 0, 127)
++    CPPUNIT_ASSERT_GREATER(sal_uInt8(100), aFilled.GetRed());
++    CPPUNIT_ASSERT_GREATER(sal_uInt8(200), aFilled.GetBlue());
++    CPPUNIT_ASSERT_EQUAL(COL_WHITE, device->GetPixel(Point(0, 0)));
++    // a translucent outline blends too
++    pImpl->SetFillColor();
++    pImpl->SetLineColor(Color(0x00, 0x00, 0xFF));
++    CPPUNIT_ASSERT(pImpl->drawAlphaRect(0, 0, 20, 20, 50));
++    CPPUNIT_ASSERT_GREATER(sal_uInt8(100), device->GetPixel(Point(0, 10)).GetRed());
++}
++
+ } // namespace
+ 
+ CPPUNIT_TEST_SUITE_REGISTRATION(SkiaTest);
+ 
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

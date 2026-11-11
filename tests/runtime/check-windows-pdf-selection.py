@@ -5,8 +5,11 @@
 Opens a synthetic text page (pdf_selection_highlight.sample) in HST PDF, selects text with a real mouse drag
 (SendInput), screenshots the screen before and after and measures the highlight and the selected glyphs
 (pdf_selection_highlight.measure): the highlight stays light and the selected glyphs much darker than it. Before the
-fix, Windows with Skia painted the selection as solid (20, 46, 83) bars that hid the text. Runs with the light and then
-the dark application appearance (Common/Appearance ApplicationAppearance, the office restarted in between).
+fix, Windows with Skia painted the selection as solid (20, 46, 83) bars that hid the text. Also checks the toolbar
+(pdf_viewer_toolbar_layout, with HSTPdfInfo ToolbarLayout): no control overlaps another or is cut off, and the gaps
+between controls are plain background (the dark appearance left stale copies of moved controls there). Runs with the
+light and then the dark application appearance (Common/Appearance ApplicationAppearance, the office restarted in
+between).
 
 Usage: "<install>\\program\\python.exe" tests/runtime/check-windows-pdf-selection.py --install DIR --out DIR
 [--port 2121]. Evidence: <out>/<appearance>-before.png, <out>/<appearance>-after.png. Exit 1 on any FAIL.
@@ -21,6 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import pdf_selection_highlight as selection  # noqa: E402
+import pdf_viewer_toolbar_layout as toolbar_layout  # noqa: E402
 import png_luma  # noqa: E402
 import windows_gui as wg  # noqa: E402
 
@@ -69,6 +73,16 @@ def select_and_measure(check, office, url, out, appearance):
     time.sleep(1.5)
     after = wg.screenshot(os.path.join(out, "%s-after.png" % appearance), cursor=False)
     rows_before, rows_after = luma(before), luma(after)
+    info = office.service("com.sun.star.frame.DispatchHelper").executeDispatch(frame, ".uno:HSTPdfInfo", "", 0, ())
+    data = {item.Name: item.Value for item in info.Result}
+    if "ToolbarLayout" in data:
+        layout = toolbar_layout.evaluate(data["ToolbarLayout"], data["ToolbarScreen"], rows_before)
+        check.note("%s: toolbar layout (screen rectangle, then id x y w h preferred w h)" % appearance,
+                   [list(data["ToolbarScreen"])] + list(data["ToolbarLayout"]))
+        check("%s: no toolbar control overlaps another, is cut off or leaves a stale copy" % appearance,
+              layout["ok"], layout)
+    else:
+        check.note("%s: toolbar layout" % appearance, "this build's HSTPdfInfo has no ToolbarLayout")
     box = (max(0, left), max(0, top + 60), min(len(rows_after[0]), right), min(len(rows_after), bottom - 30))
     result = selection.measure(rows_before, rows_after, box)
     toolbar = [v for row in rows_after[top + 35:top + 45] for v in row[left + 10:right - 10]]
