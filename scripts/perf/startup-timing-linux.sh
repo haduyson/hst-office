@@ -52,7 +52,7 @@ timing() { # timing <label> <soffice> <starts> [more harness options]
     --intro "$(dirname "$office")/intro.png" --profile "$work/profile-$label" --out "$out" --label "$label" \
     --starts "$starts" --cold-command "$cold" "$@" || echo "$label: no window seen" >> "$out/failures.txt"
 }
-starts=fresh,warm,warm,warm,cold
+starts="${STARTS:-fresh,warm,warm,warm,cold}"  # $STARTS: another sequence, e.g. more cold starts
 
 if has hst; then timing hst "$soffice" "$starts" --shots; fi
 if has trace; then timing hst-trace "$soffice" fresh,warm,cold --trace; fi

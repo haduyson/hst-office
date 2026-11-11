@@ -67,7 +67,7 @@ timing() { # timing <label> <soffice> <starts> [more harness options]
     --label "$label" --starts "$starts" --cold-command "$cold" "$@" || echo "$label: no window seen" >> "$out/failures.txt"
   MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM soffice.bin /IM soffice.exe >/dev/null 2>&1 || echo "no office left running"
 }
-starts=fresh,warm,warm,warm,cold
+starts="${STARTS:-fresh,warm,warm,warm,cold}"  # $STARTS: another sequence, e.g. more cold starts
 lazy_runs() { # lazy_runs <label prefix>: the extension of this checkout, without and with bytecode
   [ -n "${HST_OVERLAY_OXT:-}" ] || { echo "no overlay extension: lazy variants skipped" >> "$out/failures.txt"; return 0; }
   use_ext overlay

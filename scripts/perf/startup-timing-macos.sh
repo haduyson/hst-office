@@ -49,7 +49,7 @@ timing() { # timing <label> <bundle> <starts> [more harness options]
     --starts "$starts" --cold-command "sync && sudo purge" "$@" || echo "$label: no window seen" >> "$out/failures.txt"
 }
 
-starts=fresh,warm,warm,warm,cold
+starts="${STARTS:-fresh,warm,warm,warm,cold}"  # $STARTS: another sequence, e.g. more cold starts
 ext="$app/Contents/Resources/extensions/hst-vietnamese-tools"
 if has hst; then timing hst "$app" "$starts" --shots; fi
 if has trace; then timing hst-trace "$app" fresh,warm,cold --trace; fi

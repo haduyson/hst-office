@@ -24,6 +24,10 @@ on:
         description: 'Comma list of variants (empty: all of the OS; see scripts/perf/startup-timing-*.sh)'
         type: string
         default: ''
+      starts:
+        description: 'Start sequence of each variant (empty: fresh,warm,warm,warm,cold; see scripts/perf/startup-timing.py)'
+        type: string
+        default: ''
       overlay_extension:
         description: 'Replace the bundled HST extension with one built from this commit before timing'
         type: boolean
@@ -74,6 +78,7 @@ jobs:
           MACOS_RUN: ${{ inputs.macos_run_id }}
           LINUX_RUN: ${{ inputs.linux_run_id }}
           VARIANTS: ${{ inputs.variants }}
+          STARTS: ${{ inputs.starts }}
           OVERLAY: ${{ inputs.overlay_extension }}
         run: |
           set -euo pipefail
@@ -82,6 +87,8 @@ jobs:
           case "$OS" in windows) run="$WINDOWS_RUN" ;; macos) run="$MACOS_RUN" ;; *) run="$LINUX_RUN" ;; esac
           if [ -z "$run" ]; then echo "no run id for $OS: skipped" | tee "$out/skipped.txt"; exit 0; fi
           [[ "$run" =~ ^[0-9]+$ ]]
+          [[ "$STARTS" =~ ^[a-z,]*$ ]]
+          export STARTS
           python -m pip install -q pillow
           export HST_OVERLAY_OXT=""
           if [ "$OVERLAY" = true ]; then
