@@ -22,7 +22,7 @@ Trang tĩnh HTML/CSS/JS, không cần bước build. `index.html` là trang chí
 Lúc phát hành không sửa tay bản nháp: chạy lại script trên đúng các tệp đã tải từ bản phát hành nháp (ghi đè `update/latest*.json` đang chạy), ký cả hai tệp, đối chiếu với bản nháp rồi xóa thư mục nháp:
 
 ```bash
-python3 scripts/release/generate-update-manifest.py --tag v1.0.1 --date 2026-11-10 \
+python3 scripts/release/generate-update-manifest.py --tag v1.0.1 --date 2026-11-11 \
   --notes "https://office.hasontech.vn/diem-moi/#v1.0.1" \
   --assets-dir <thư-mục-tải> --sums <thư-mục-tải>/SHA256SUMS
 python3 scripts/release/sign-update-manifest.py website/office.hasontech.vn/update/latest-2.json
