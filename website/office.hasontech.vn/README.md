@@ -6,8 +6,8 @@ Trang tĩnh HTML/CSS/JS, không cần bước build. `index.html` là trang chí
 ## Bản phát hành và liên kết tải
 
 - Sửa trạng thái nền tảng, phiên bản và nhãn trong [config.js](config.js).
-- Sửa đích chuyển hướng GitHub trong [.htaccess](.htaccess), giữ nguyên các URL `/tai/*`.
-- Windows, Linux và `/tai/sha256` đang được bật; hai bản macOS đang chuẩn bị.
+- Sửa đích chuyển hướng trong [.htaccess](.htaccess) (tệp trong `tai/<phiên bản>/`), giữ nguyên các URL `/tai/*`.
+- Cả bốn link `/tai/windows`, `/tai/macos-arm`, `/tai/macos-intel`, `/tai/linux` và `/tai/sha256` đang được bật, phục vụ từ `tai/<phiên bản>/` trên site.
 - Khi đổi trạng thái phát hành, cập nhật cả HTML dự phòng trong [index.html](index.html) để trang vẫn đúng khi tắt JavaScript.
 - `.htaccess` cần Apache/LiteSpeed hỗ trợ rewrite. Máy chủ tĩnh thông thường chỉ xem được giao diện, không xử lý các chuyển hướng này.
 
