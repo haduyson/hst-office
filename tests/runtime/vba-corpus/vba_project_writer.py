@@ -51,6 +51,21 @@ def is_class(source):
     return source.startswith('Attribute VB_Base')
 
 
+# ThisWorkbook, a worksheet and Word's ThisDocument; a class module's base is the generic class id instead.
+DOCUMENT_BASES = ("0{00020819-0000-0000-C000-000000000046}", "0{00020820-0000-0000-C000-000000000046}", "1Normal.ThisDocument")
+
+
+def is_document(source):
+    """Document modules (ThisWorkbook, Sheet1, ThisDocument) carry the host's VB_Base: a class id with prefix 0, or Normal.ThisDocument."""
+    return source.startswith(tuple(f'Attribute VB_Base = "{base}' for base in DOCUMENT_BASES))
+
+
+def project_line(name, source):
+    if is_document(source):
+        return f"Document={name}/&H00000000"
+    return f"{'Class' if is_class(source) else 'Module'}={name}"
+
+
 def record(rid, payload):
     return struct.pack("<HI", rid, len(payload)) + payload
 
@@ -70,7 +85,7 @@ def dir_stream(modules, codepage, project):
 
 
 def project_stream(modules, project, codepage):
-    lines = ['ID="{00000000-0000-0000-0000-000000000000}"'] + [f"{'Class' if is_class(source) else 'Module'}={name}" for name, source in modules]
+    lines = ['ID="{00000000-0000-0000-0000-000000000000}"'] + [project_line(name, source) for name, source in modules]
     lines += [f'Name="{project}"', 'HelpContextID="0"', 'VersionCompatible32="393222000"', 'CMG=""', 'DPB=""', 'GC=""', ""]
     return "\r\n".join(lines).encode(f"cp{codepage}", "replace")
 

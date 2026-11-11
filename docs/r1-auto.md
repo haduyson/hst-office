@@ -144,3 +144,23 @@ Chỉ M4 được phép SKIP với ảnh sau khi phép kiểm trang tùy chọn 
 một phần xác nhận phần tự động trong bảng; không thay thế kiểm giấy in, token thật
 hoặc đánh giá hình ảnh. Duyệt bản dựng đòi cả hai workflow chạy đủ mục, mọi kiểm
 tra bắt buộc đạt, rồi chủ sở hữu duyệt phần còn lại.
+
+## Máy Windows thật trong mạng LAN (`tests/realwin/`)
+
+Bộ công cụ chạy trên hai PC Windows thật của chủ sở hữu qua SSH (khóa `HST_WINTEST_KEY`), không qua CI.
+Mọi tệp chỉ nằm dưới `C:\hst-test` (tệp lớn: `D:\hst-test`); `remote.py` từ chối ghi ra ngoài.
+
+- `remote.py HOST ps|push|pull|ui`: chạy PowerShell bằng `-File` (không dùng `-Command -`), chép tệp, và chạy lệnh
+  trong phiên người dùng đang đăng nhập qua `interactive-task.ps1` (tác vụ lập lịch tạm, chạy ẩn qua wscript,
+  chỉ bắt đầu khi bàn phím/chuột đã rảnh ≥ 1 phút theo `GetLastInputInfo`, luôn xóa tác vụ).
+- `install-msi.ps1`: cài/nâng cấp MSI với tùy chọn mặc định; `hst-state.ps1`: sản phẩm đã đăng ký, hồ sơ HST
+  (băm, số mục, UILocale, SymbolStyle — không đọc nội dung khác).
+- `hst_session_probe.py` (Python đi kèm HST): mở Writer/Sheets/Slides như người dùng, đo thời gian tới cửa sổ tài
+  liệu, đọc ngôn ngữ giao diện và kiểu biểu tượng, chụp ảnh và đóng sạch (`Desktop.terminate`).
+- `window-shot.ps1`: chỉ chụp cửa sổ HST/bộ office tham chiếu; mọi điểm ảnh mà cửa sổ khác (ứng dụng khác,
+  thông báo, màn hình nền) che đều tô đen, góc thông báo luôn tô đen. Không dùng `PrintWindow` (không vẽ được
+  vùng Skia/GPU).
+- So sánh VBA: `make-vba-corpus.py` sinh tài liệu macro tổng hợp; `vba-reference-run.ps1` chạy trong bộ office
+  tham chiếu qua COM (PowerShell 32-bit, kiểm tra máy chủ COM đúng là Microsoft Office — WPS có thể chiếm CLSID);
+  `vba_hst_run.py` chạy trong HST qua UNO (`--visible` cho kết quả như người dùng; headless thiếu sự kiện và
+  Names); `vba_compare.py` lập bảng khác biệt. `collect-results.py` ghi `results.json` theo dạng r1auto.
