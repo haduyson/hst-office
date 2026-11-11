@@ -1,0 +1,159 @@
+HST PDF: the viewer cannot be closed under its own print dialog.
+
+The viewer prints asynchronously (Printer::PrintJob posts the job; the print dialog runs from a
+user event) and the print controller keeps the viewer's document and its window as the dialog
+parent. A close() of the viewer's frame while the dialog was open, from another thread (UNO
+automation), disposed both under the running dialog; when the dialog returned, the print code
+wrote through the destroyed window and the office died (exit 255: its own crash handler faulted
+as well, no Windows dump).
+
+Windows r1-auto W12 failed this way in every run: the check never found the print dialog (UI
+Automation lists it under its owner window), so it closed the viewer with the dialog still open.
+A probe that closes the viewer over UNO with the dialog open crashed at 100% and 150% (ProcDump
+full dumps, run 42963658080: main thread PrintJobAsync -> Printer::ImplPrintJob, access
+violation writing address 0x1c0 after the dialog; office exit 255).
+
+The print controller now holds an action lock on the viewer's frame from the print command to
+the end of the job. A close() meanwhile is refused with a CloseVetoException (as for a frame that
+is loading); with ownership delivered the frame closes itself when the lock is released. The lock
+is released from a user event, after the print code has unwound.
+
+License: the modified files keep their license (MPL-2.0).
+
+--- a/xmlsecurity/source/hstpdf/pdfviewerprint.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerprint.hxx
+@@ -11,6 +11,8 @@
+ 
+ #include "pdfviewerdocument.hxx"
+ 
++#include <com/sun/star/frame/XFrame.hpp>
++
+ namespace weld
+ {
+ class Window;
+@@ -19,8 +21,9 @@
+ namespace hstpdf
+ {
+ /// Shows the standard print dialog (all pages, a page range or the current page) and prints.
++/// xFrame, the viewer's frame, refuses to close until the dialog and the job are over.
+ void printDocument(PdfViewerDocument& rDocument, int nCurrentPage, const OUString& rJobName,
+-                   weld::Window* pParent);
++                   weld::Window* pParent, const css::uno::Reference<css::frame::XFrame>& xFrame);
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/xmlsecurity/source/hstpdf/pdfviewerprint.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerprint.cxx
+@@ -13,15 +13,19 @@
+ #include <strings.hrc>
+ 
+ #include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/document/XActionLockable.hpp>
+ #include <com/sun/star/view/PrintableState.hpp>
+ #include <comphelper/propertyvalue.hxx>
+ #include <comphelper/sequence.hxx>
+ #include <tools/mapunit.hxx>
+ #include <vcl/mapmod.hxx>
++#include <tools/link.hxx>
+ #include <tools/multisel.hxx>
+ #include <vcl/print.hxx>
++#include <vcl/svapp.hxx>
+ 
+ #include <algorithm>
++#include <memory>
+ #include <cmath>
+ 
+ using namespace css;
+@@ -33,12 +37,58 @@
+ /// Printing renders pages at this resolution (enough for text, keeps the spool small).
+ constexpr double PRINT_DPI = 200.0;
+ 
++/** HST Office: an action lock on the viewer's frame for as long as a print job (its dialog
++    included) runs. The job is asynchronous and reads the viewer's document and parent window; a
++    close() of the frame meanwhile (from another thread: UNO automation) disposed both under the
++    running print dialog, and the print code then wrote through a destroyed window (Windows r1-auto
++    W12, run 42963658080: main thread PrintJobAsync -> Printer::ImplPrintJob, access violation
++    after the dialog). A locked frame refuses close() with a CloseVetoException; with ownership
++    delivered it closes itself once the last lock is gone. The lock is released from a user event,
++    after the print code has unwound, so that close does not run inside it. */
++class FramePrintLock
++{
++public:
++    explicit FramePrintLock(const uno::Reference<frame::XFrame>& xFrame)
++        : m_xLock(xFrame, uno::UNO_QUERY)
++    {
++        if (m_xLock.is())
++            m_xLock->addActionLock();
++    }
++
++    ~FramePrintLock()
++    {
++        if (m_xLock.is())
++            Application::PostUserEvent(LINK(nullptr, FramePrintLock, Release),
++                                       new uno::Reference<document::XActionLockable>(m_xLock));
++    }
++
++private:
++    DECL_STATIC_LINK(FramePrintLock, Release, void*, void);
++
++    uno::Reference<document::XActionLockable> m_xLock;
++};
++
++IMPL_STATIC_LINK(FramePrintLock, Release, void*, pLock, void)
++{
++    std::unique_ptr<uno::Reference<document::XActionLockable>> xLock(
++        static_cast<uno::Reference<document::XActionLockable>*>(pLock));
++    try
++    {
++        (*xLock)->removeActionLock(); // a close() refused meanwhile happens now
++    }
++    catch (const uno::Exception&)
++    {
++    }
++}
++
+ class PdfPrinterController final : public vcl::PrinterController
+ {
+ public:
+     PdfPrinterController(const VclPtr<Printer>& rPrinter, weld::Window* pParent,
+-                         PdfViewerDocument& rDocument, int nCurrentPage, const OUString& rJobName)
++                         PdfViewerDocument& rDocument, int nCurrentPage, const OUString& rJobName,
++                         const uno::Reference<frame::XFrame>& xFrame)
+         : PrinterController(rPrinter, pParent)
++        , m_aFrameLock(xFrame)
+         , m_rDocument(rDocument)
+         , m_nCurrentPage(nCurrentPage)
+     {
+@@ -131,16 +181,17 @@
+         return aPages;
+     }
+ 
++    FramePrintLock m_aFrameLock;
+     PdfViewerDocument& m_rDocument;
+     int m_nCurrentPage;
+ };
+ }
+ 
+ void printDocument(PdfViewerDocument& rDocument, int nCurrentPage, const OUString& rJobName,
+-                   weld::Window* pParent)
++                   weld::Window* pParent, const uno::Reference<frame::XFrame>& xFrame)
+ {
+-    auto xController = std::make_shared<PdfPrinterController>(VclPtr<Printer>(), pParent,
+-                                                               rDocument, nCurrentPage, rJobName);
++    auto xController = std::make_shared<PdfPrinterController>(
++        VclPtr<Printer>(), pParent, rDocument, nCurrentPage, rJobName, xFrame);
+     Printer::PrintJob(xController, JobSetup());
+ }
+ }
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -524,7 +524,8 @@
+ void PdfViewerWindow::print()
+ {
+     if (m_xDocument)
+-        printDocument(*m_xDocument, m_xPages->getCurrentPage(), getTitle(), GetFrameWeld());
++        printDocument(*m_xDocument, m_xPages->getCurrentPage(), getTitle(), GetFrameWeld(),
++                      m_xFrame);
+ }
+ 
+ void PdfViewerWindow::dispatch(const OUString& rCommand)

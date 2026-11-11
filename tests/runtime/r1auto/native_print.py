@@ -56,14 +56,12 @@ def windows_print(target):
         raise RuntimeError("Không thấy hộp thoại In sau 60 giây (print-timeout.png, print-timeout.log)")
     try:
         # An actual Windows virtual printer: never assume printer index zero.
-        # (the UI Automation ComboBoxWrapper of pywinauto 0.6.9 lists its items with texts(), not item_texts())
+        # The office's printer box is a UI Automation ComboBox named after its label ("Máy in") whose value is
+        # the printer, also in its Edit child (print-dialog-tree.log, r1-auto Windows run 42963590336); pywinauto
+        # 0.6.9 lists the items of a ComboBoxWrapper with texts(), not item_texts().
         chosen = None
         for combo in window.descendants(control_type="ComboBox"):
-            try:
-                shown = combo.selected_text() or combo.window_text() or ""
-            except Exception:  # noqa: BLE001 - a combo without a selection pattern
-                shown = ""
-            if shown.endswith("Print to PDF"):  # the runner's default printer
+            if printer_value(combo).endswith("Print to PDF"):  # the runner's default printer
                 chosen = combo, None
                 break
             printer = next((name for name in combo.texts() if name.endswith("Print to PDF")), None)
@@ -93,6 +91,20 @@ def windows_print(target):
     save = wait(save_window)
     save.child_window(auto_id="1001", control_type="Edit").set_edit_text(str(target))
     save.child_window(auto_id="1", control_type="Button").click_input()
+
+
+def printer_value(combo):
+    """The text a combo box shows: its value pattern, else its Edit child's value, else its selection."""
+    for read in (lambda: combo.iface_value.CurrentValue,
+                 lambda: combo.children(control_type="Edit")[0].get_value(),
+                 lambda: combo.selected_text()):
+        try:
+            value = read()
+        except Exception:  # noqa: BLE001 - a pattern this combo does not have
+            continue
+        if value:
+            return str(value)
+    return ""
 
 
 def saved_copy(target):
