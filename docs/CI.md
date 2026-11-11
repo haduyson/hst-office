@@ -250,7 +250,8 @@ job này, ở bước `gate` hoặc bước có điều kiện `steps.gate.outpu
 ## Đo thời gian khởi động
 
 Workflow [startup-timing.yml](../.github/workflows/startup-timing.yml) (chạy tay; input `windows_run_id`,
-`macos_run_id`, `linux_run_id`, `variants`, `overlay_extension`) cài bộ cài của các lần build đó trên runner Windows,
+`windows_baseline_run_id` (bản build cũ đo trên cùng runner để so trước/sau), `macos_run_id`, `linux_run_id`,
+`variants`, `starts` (chuỗi lần mở), `overlay_extension`) cài bộ cài của các lần build đó trên runner Windows,
 macOS và Ubuntu rồi đo từ lúc mở đến khi màn hình chờ hiện, tắt và cửa sổ Start Center đầu tiên hiện: lần đầu với
 hồ sơ mới, các lần sau và một lần sau khi xóa bộ nhớ đệm tệp của hệ điều hành (như vừa khởi động lại máy). Các biến
 thể tách thời gian: bộ theo dõi Python (`scripts/perf/startup_trace/sitecustomize.py`: import, biên dịch, job HST,

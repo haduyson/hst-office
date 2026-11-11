@@ -42,7 +42,8 @@ def start_office(soffice, work, port):
     if sys.platform.startswith("linux") and os.geteuid() == 0:  # never run the office as root
         subprocess.run(["chown", "-R", BUILD_USER, work], check=True)
         args = ["runuser", "-u", BUILD_USER, "--", "env", "HOME=" + os.path.join(work, "home")] + args
-    env = {k: v for k, v in os.environ.items() if k not in ("URE_BOOTSTRAP", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE")}  # this probe's, not the office's
+    env = {k: v for k, v in os.environ.items() if k not in ("URE_BOOTSTRAP", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE",
+                                                        "PYTHONPYCACHEPREFIX")}  # this probe's, not the office's
     for _ in range(3):  # a fresh profile makes the office restart itself once: initialise it first
         if subprocess.run(args[:-1] + ["--terminate_after_init"], env=env, timeout=300, check=False,
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
