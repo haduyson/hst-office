@@ -29,7 +29,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)  # also when loaded by file path from another probe
 from update_policy_office import (  # noqa: E402 - after the path setup
-    BUILD_USER, READONLY, command_enabled, core_node, extension_dir, load_file, start_office, stop_office)
+    BUILD_USER, READONLY, command_enabled, core_node, extension_dir, load_extension_module, load_file, start_office,
+    stop_office)
 
 ROOT = os.path.dirname(os.path.dirname(HERE))
 TEMPLATES = os.path.join(ROOT, "extensions", "hst-vietnamese-tools", "help", "files")
@@ -50,8 +51,7 @@ def probe(soffice, name, source, out, port, ignored=(), label=None):
         print("%-4s [%s/%s] %s%s" % ("PASS" if ok else "FAIL", label, source, check, (" (%s)" % detail) if detail else ""), flush=True)
 
     ext = extension_dir(soffice)
-    cfg = load_file("update_config", os.path.join(ext or os.path.join(ROOT, "extensions", "hst-vietnamese-tools"),
-                                                  "python", "hst_office", "update_config.py"))
+    cfg = load_extension_module(ext or os.path.join(ROOT, "extensions", "hst-vietnamese-tools"), "update_config")
     expected = {} if name == "none" else {k: cfg.normalize(k, {"true": True, "false": False}.get(v, v))
                                            for k, v in PROFILES[name][0]}
     work = os.path.join(out, "run-" + label)

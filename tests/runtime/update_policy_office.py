@@ -20,6 +20,25 @@ def load_file(name, path):
     return module
 
 
+def load_extension_module(extension, name):
+    """hst_office.<name> of the extension directory `extension`, imported as a package module: the modules use
+    relative imports (from . import diag_log), which a module loaded by file path cannot resolve. The installed
+    extension is read-only for this probe: no bytecode cache is written next to it."""
+    import importlib
+    python = os.path.join(extension, "python")
+    loaded = sys.modules.get("hst_office")
+    if loaded is not None and os.path.dirname(os.path.dirname(os.path.abspath(loaded.__file__))) != python:
+        raise RuntimeError("hst_office is already imported from %s" % loaded.__file__)
+    keep = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, python)
+    try:
+        return importlib.import_module("hst_office." + name)
+    finally:
+        sys.path.remove(python)
+        sys.dont_write_bytecode = keep
+
+
 
 
 def extension_dir(soffice):
