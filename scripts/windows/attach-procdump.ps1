@@ -5,14 +5,16 @@
 # Windows Error Reporting dump. print-office-crashes.ps1 reads the dumps.
 # Usage: pwsh -File attach-procdump.ps1 -Dumps D:\a\_temp\r1-evidence\crash
 #   downloads ProcDump (Microsoft-signed), starts this script again as a hidden watcher and prints its process id;
-# pwsh -File attach-procdump.ps1 -Dumps <dir> -Stop <id>: stops that watcher and every ProcDump (the dumps stay).
+# pwsh -File attach-procdump.ps1 -Dumps <dir> -Stop [-Watcher <id>]: stops that watcher and every ProcDump (the
+# dumps stay); nothing to stop is not an error.
 param(
     [Parameter(Mandatory = $true)][string]$Dumps,
     [string]$ProcDump = '',
-    [int]$Stop = 0
+    [switch]$Stop,
+    [int]$Watcher = 0
 )
 if ($Stop) {
-    Stop-Process -Id $Stop -Force -ErrorAction SilentlyContinue
+    if ($Watcher) { Stop-Process -Id $Watcher -Force -ErrorAction SilentlyContinue }
     Get-Process procdump64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     exit 0
 }

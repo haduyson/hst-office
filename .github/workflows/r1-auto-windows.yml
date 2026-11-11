@@ -15,6 +15,10 @@ on:
         description: 'Thay extension HST đi kèm bằng bản dựng từ commit này (thử bản sửa không cần dựng lại bộ cài)'
         type: boolean
         default: false
+      procdump:
+        description: 'Gắn ProcDump vào soffice.bin để có dump tại lỗi gốc (tắt để chạy như máy người dùng, không có trình gỡ lỗi)'
+        type: boolean
+        default: true
 permissions:
   contents: read
 env:
@@ -91,6 +95,7 @@ jobs:
           MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpType /t REG_DWORD /d 1 /f
           MSYS2_ARG_CONV_EXCL='*' reg.exe add "$key" /v DumpCount /t REG_DWORD /d 5 /f
       - name: Gắn ProcDump vào mọi soffice.bin để lấy dump tại lỗi gốc
+        if: ${{ inputs.procdump }}
         shell: bash
         run: |
           set -euo pipefail
@@ -120,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           pwsh -NoProfile -File scripts/windows/attach-procdump.ps1 -Dumps "$(cygpath -w "$RUNNER_TEMP/r1-evidence/crash")" \
-            -Stop "${PROCDUMP_WATCHER:-0}"
+            -Stop -Watcher "${PROCDUMP_WATCHER:-0}"
       - name: Ghi các lần office đóng đột ngột
         if: ${{ always() }}
         shell: bash
