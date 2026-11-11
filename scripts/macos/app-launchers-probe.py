@@ -5,7 +5,7 @@
                                                           no welcome or default-apps question, UNO acceptor on a pipe
   app-launchers-probe.py wait <kinds> [--timeout S]      (bundled python, uno) until the open documents are exactly
                                                           <kinds> (comma list of writer, calc, impress), one each
-  app-launchers-probe.py frames                          (bundled python, uno) list the frames (quit diagnostics)
+  app-launchers-probe.py frames                          (bundled python, uno) list frames and top windows (quit diagnostics)
   app-launchers-probe.py make-odb <file.odb>             (bundled python, uno) store a small dBase-backed database
   app-launchers-probe.py no-base-menu                    (bundled python, uno) File ▸ New (and the Dock menu built
                                                           from it) offers no database
@@ -25,6 +25,8 @@ KINDS = {"writer": "com.sun.star.text.TextDocument", "calc": "com.sun.star.sheet
 SEED = (("/org.hasontech.hstoffice.Welcome", "Shown", "true"),
         ("/org.hasontech.hstoffice.DefaultApps", "Done", "true"),
         ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false"),
+        # a quit the probe had to force must not put the crash question in front of the next checks
+        ("/org.hasontech.hstoffice.ErrorReport", "AskAfterCrash", "false"),
         ("/org.openoffice.Setup/Office", "ooSetupConnectionURL", "pipe,name=%s;urp;" % PIPE))
 
 
@@ -121,7 +123,16 @@ def frames():
         rows.append({"title": frame.Title, "kind": next(iter(kind), "none"),
                      "modified": bool(model.isModified()) if model is not None and hasattr(model, "isModified")
                      else None})
-    print(json.dumps({"frames": rows}, ensure_ascii=False))
+    ctx = context(20)
+    toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    windows = []
+    for index in range(toolkit.getTopWindowCount()):
+        window = toolkit.getTopWindow(index)
+        accessible = window.getAccessibleContext() if hasattr(window, "getAccessibleContext") else None
+        title = getattr(window, "Title", None) or (accessible.getAccessibleName() if accessible else "")
+        windows.append({"title": title, "visible": bool(window.isVisible()) if hasattr(window, "isVisible") else None,
+                        "role": accessible.getAccessibleRole() if accessible else None})
+    print(json.dumps({"frames": rows, "top_windows": windows}, ensure_ascii=False))
     return 0
 
 
