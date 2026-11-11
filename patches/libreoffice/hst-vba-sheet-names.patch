@@ -1,0 +1,66 @@
+Subject: [PATCH] VBA: a copied sheet is named "Name (2)" and a taken name raises 1004, as in Excel
+
+Found by running the same macros in the reference office suite and in HST Office on a Windows test PC:
+* Worksheet.Copy named the copy "Name_2"; Excel names it "Name (2)" ("Name (3)" for a copy of "Name (2)") and
+  macros go on with Worksheets("Name (2)"), which then failed with error 9.
+* Setting Worksheet.Name to the name of another sheet left the old name without an error; Excel raises 1004.
+---
+--- a/sc/source/ui/vba/vbaworksheet.cxx
++++ b/sc/source/ui/vba/vbaworksheet.cxx
+@@ -56,9 +56,12 @@
+ #include <ooo/vba/excel/XlSheetVisibility.hpp>
+ #include <ooo/vba/XControlProvider.hpp>
+ 
++#include <algorithm>
++
+ #include <basic/sberrors.hxx>
+ #include <comphelper/processfactory.hxx>
+ #include <comphelper/servicehelper.hxx>
++#include <o3tl/string_view.hxx>
+ #include <utility>
+ #include <vbahelper/vbashapes.hxx>
+ 
+@@ -94,14 +97,27 @@
+ {
+     if (!xSpreadDoc.is())
+         throw lang::IllegalArgumentException( u"getNewSpreadsheetName() xSpreadDoc is null"_ustr, uno::Reference< uno::XInterface  >(), 1 );
+-    static const char aUnderScore[] =  "_";
+-    int currentNum =2;
+-    aNewName = OUString::Concat(aOldName) + aUnderScore + OUString::number(currentNum) ;
++    // HST: Excel names a copy "Name (2)", "Name (3)", ...: macros then refer to the copy by that name. A name that
++    // already ends in " (n)" counts on from n, and the base is shortened to keep Excel's 31 characters.
++    OUString aBase( aOldName );
++    sal_Int32 nNext = 2;
++    const sal_Int32 nOpen = aBase.lastIndexOf( u" (" );
++    if ( nOpen > 0 && aBase.endsWith( u")" ) && aBase.getLength() - nOpen - 3 > 0 && aBase.getLength() - nOpen - 3 < 6 )
++    {
++        const std::u16string_view aDigits = aBase.subView( nOpen + 2, aBase.getLength() - nOpen - 3 );
++        if ( std::all_of( aDigits.begin(), aDigits.end(), []( sal_Unicode c ) { return c >= '0' && c <= '9'; } ) )
++        {
++            nNext = o3tl::toInt32( aDigits ) + 1;
++            aBase = aBase.copy( 0, nOpen );
++        }
++    }
+     SCTAB nTab = 0;
+-    while ( ScVbaWorksheets::nameExists(xSpreadDoc,aNewName, nTab ) )
++    do
+     {
+-        aNewName = OUString::Concat(aOldName) + aUnderScore + OUString::number(++currentNum);
++        const OUString aSuffix = " (" + OUString::number( nNext++ ) + ")";
++        aNewName = aBase.copy( 0, std::min<sal_Int32>( aBase.getLength(), 31 - aSuffix.getLength() ) ) + aSuffix;
+     }
++    while ( ScVbaWorksheets::nameExists( xSpreadDoc, aNewName, nTab ) );
+ }
+ 
+ static void removeAllSheets( const uno::Reference <sheet::XSpreadsheetDocument>& xSpreadDoc, const OUString& aSheetName)
+@@ -263,6 +279,10 @@
+ {
+     uno::Reference< container::XNamed > xNamed( getSheet(), uno::UNO_QUERY_THROW );
+     xNamed->setName( rName );
++    // HST: a name another sheet has, or one a sheet cannot take, left the old name without an error; Excel raises
++    // 1004 and macros rely on it to find a free name
++    if ( xNamed->getName() != rName )
++        DebugHelper::runtimeexception( ERRCODE_BASIC_METHOD_FAILED );
+ }
+ 
+ sal_Int32

@@ -1,0 +1,70 @@
+Subject: [PATCH] VBA: "Next j, i" and a constant division by zero compile
+
+Found by running the same macros in the reference office suite and in HST Office on a Windows test PC:
+* "Next j, i" closes two loops in VBA; Basic expected one variable and reported a syntax error, and the whole
+  module failed to compile, so none of its procedures could run.
+* 1 / 0, 5 \ 0 and 5 Mod 0 with literal operands were folded at compile time into a "Division by zero" compile
+  error; VBA compiles them and raises error 11 when the statement runs, where On Error handles it.
+Both only in VBA mode (Option VBASupport 1).
+---
+--- a/basic/source/comp/exprnode.cxx
++++ b/basic/source/comp/exprnode.cxx
+@@ -238,6 +238,14 @@
+     if( !(pLeft->IsConstant() && pRight->IsConstant()
+         && pLeft->eNodeType == pRight->eNodeType) )
+         return;
++    // HST: VBA compiles 1 / 0, 5 \ 0 and 5 Mod 0 and raises error 11 when the statement runs, where On Error can
++    // handle it; a compile error here would stop every procedure of the module. Leave the operation to run time.
++    if( pParser->IsVBASupportOn() && pRight->eNodeType == SbxNUMVAL && ( eTok == DIV || eTok == IDIV || eTok == MOD ) )
++    {
++        const double nDivisor = eTok == DIV ? pRight->nVal : rtl::math::round( pRight->nVal );
++        if( nDivisor == 0 )
++            return;
++    }
+ 
+     CollectBits();
+     if( eTok == CAT )
+--- a/basic/source/comp/loops.cxx
++++ b/basic/source/comp/loops.cxx
+@@ -280,6 +280,13 @@
+         SbiExpression aVar( this, SbOPERAND );
+         if( aVar.GetRealVar() != aLvalue.GetRealVar() )
+             Error( ERRCODE_BASIC_EXPECTED, aLvalue.GetRealVar()->GetName() );
++        // HST: "Next j, i" closes this loop and the enclosing one, as VBA allows; the enclosing FOR ends its
++        // statement block at once and reads "i" as the variable of its own NEXT
++        if( bVBASupportOn && Peek() == COMMA )
++        {
++            Next();
++            ++nPendingNext;
++        }
+     }
+     aGen.BackChain( nEndTarget );
+     CloseBlock();
+--- a/basic/source/comp/parser.cxx
++++ b/basic/source/comp/parser.cxx
+@@ -321,6 +321,15 @@
+     Peek();
+     bErrorIsSymbol = true;
+ 
++    // HST: the inner FOR of "Next j, i" has read this loop's NEXT; a pending NEXT outside a FOR is an error
++    if( nPendingNext )
++    {
++        --nPendingNext;
++        if( eEndTok == NEXT )
++            return false;
++        Error( ERRCODE_BASIC_BAD_BLOCK, NEXT );
++    }
++
+     if( IsEof() )
+     {
+         // AB #33133: If no sub has been created before,
+--- a/basic/source/inc/parser.hxx
++++ b/basic/source/inc/parser.hxx
+@@ -40,6 +40,7 @@
+     bool        bGblDefs;           // true: global definitions general
+     bool        bNewGblDefs;        // true: globale definitions before sub
+     bool        bSingleLineIf;
++    sal_uInt16  nPendingNext = 0;   // HST: enclosing FOR loops a "Next j, i" has already closed
+     bool        bCodeCompleting;
+ 
+     SbiSymDef*  VarDecl( SbiExprListPtr*, bool, bool );

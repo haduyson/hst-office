@@ -11,6 +11,7 @@ from regression_word import WORD_ONLY
 from regression_word_more import WORD_DIALOGS, WORD_MEMBERS
 from regression_word_tables import WORD_TABLES
 from regression_excel_shapes import EXCEL_SHAPES, EXCEL_WORKBOOK
+from regression_reference_suite import COMPILE_3, FORMAT_CODES, SHEET_NAMES
 
 CHECK = 'If {cond} Then {name} = "{what}": Exit Function\n'
 
@@ -141,6 +142,9 @@ FILES = [
     ("word-dialogs.docm", "writer", [("Cases", WORD_DIALOGS)], None),
     ("excel-shapes.xlsm", "calc", [("Cases", EXCEL_SHAPES)], None),
     ("excel-workbook.xlsm", "calc", [("Cases", EXCEL_WORKBOOK)], None),
+    ("compile-3.xlsm", "calc", [("Cases", COMPILE_3)], None),
+    ("sheet-names.xlsm", "calc", [("Cases", SHEET_NAMES)], None),
+    ("format-codes.xlsm", "calc", [("Cases", FORMAT_CODES)], None),
     ("syntax-error.xlsm", "calc", [("Bad", SYNTAX_ERROR), ("Good", SYNTAX_OK)], [("Good", "StillThere", "OK")]),
     ("syntax-error.docm", "writer", [("Bad", SYNTAX_ERROR), ("Good", SYNTAX_OK)], [("Good", "StillThere", "OK")]),
 ]
