@@ -29,9 +29,9 @@ if (-not $ProcDump) {
         throw "procdump64.exe: unexpected signature $($signature.Status) $($signature.SignerCertificate.Subject)"
     }
     New-Item -ItemType Directory -Force -Path $Dumps | Out-Null
-    $watcher = Start-Process pwsh -ArgumentList @('-NoProfile', '-File', $PSCommandPath, '-Dumps', $Dumps, '-ProcDump', $exe) `
+    $child = Start-Process pwsh -ArgumentList @('-NoProfile', '-File', $PSCommandPath, '-Dumps', $Dumps, '-ProcDump', $exe) `
         -WindowStyle Hidden -PassThru
-    $watcher.Id
+    $child.Id
     exit 0
 }
 $seen = @{}

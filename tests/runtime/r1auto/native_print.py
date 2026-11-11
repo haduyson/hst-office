@@ -79,6 +79,12 @@ def windows_print(target):
         button.click_input()
     except Exception:
         screenshot(target.with_name("print-dialog-failed.png"))
+        try:  # the dialog as UI Automation sees it: the controls a fixed selector must be rewritten against
+            tree = [(c.element_info.control_type, c.window_text(), c.element_info.class_name)
+                    for c in window.descendants()]
+            target.with_name("print-dialog-tree.log").write_text(repr(tree), encoding="utf-8")
+        except Exception:  # noqa: BLE001 - evidence only
+            pass
         window.close()  # Hủy: the document must not be closed under its open print dialog
         raise
 
