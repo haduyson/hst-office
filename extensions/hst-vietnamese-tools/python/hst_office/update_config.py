@@ -14,16 +14,13 @@ Earlier releases kept the settings in the extension schema /org.hasontech.hstoff
 Install ID (update_install_id): SendInstallId in the core (hst-update-install-id-config.patch), update.xcs as fallback.
 Precedence of one setting: core finalized > macOS managed preference > legacy finalized > core (user or default).
 """
-import os
-import plistlib
 import sys
-from . import diag_log
+from . import diag_log, managed_preferences
+from .managed_preferences import MACOS_DOMAIN, MANAGED_DIR  # noqa: F401 - MACOS_DOMAIN kept importable from here
 
 CORE_PATH = "/org.openoffice.Office.HSTUpdate"
 LEGACY_PATH = "/org.hasontech.hstoffice.UpdateCheck"
-MACOS_DOMAIN = "vn.hasontech.hstoffice"
 MACOS_KEY = "HSTUpdate"
-MANAGED_DIR = "/Library/Managed Preferences"
 
 DEFAULTS = {"AutoCheck": True, "ManualCheck": True, "CheckIntervalHours": 24, "AllowInstall": True, "Channel": "",
             "LastCheck": 0, "SkippedVersion": "", "SendInstallId": True, "InstallId": ""}
@@ -81,33 +78,9 @@ def normalize(name, value):
 
 
 def macos_managed(user=None, base=MANAGED_DIR):
-    """Forced values of the macOS configuration profile: the "HSTUpdate" dictionary of the vn.hasontech.hstoffice
-    managed preferences (per user first, then computer-wide). Everything under Managed Preferences is forced."""
-    if not os.path.isdir(base):
-        return {}
-    if user is None:
-        try:
-            import pwd
-            user = pwd.getpwuid(os.getuid()).pw_name
-        except Exception:  # noqa: BLE001 - no user name: only the computer-wide profile
-            user = None
-    out = {}
-    paths = [os.path.join(base, MACOS_DOMAIN + ".plist")]
-    if user:
-        paths.insert(0, os.path.join(base, user, MACOS_DOMAIN + ".plist"))
-    for path in reversed(paths):  # computer-wide first, the per-user profile overrides it
-        try:
-            with open(path, "rb") as fh:
-                doc = plistlib.load(fh)
-        except FileNotFoundError:
-            continue
-        except Exception as exc:  # noqa: BLE001 - a broken profile must not break the office
-            _log("ignoring %s: %s" % (path, exc))
-            continue
-        section = doc.get(MACOS_KEY) if isinstance(doc, dict) else None
-        if isinstance(section, dict):
-            out.update({k: normalize(k, v) for k, v in section.items() if k in ADMIN_KEYS})
-    return out
+    """Forced values of the macOS configuration profile: its "HSTUpdate" dictionary (managed_preferences)."""
+    found = managed_preferences.section(MACOS_KEY, user, base, _log)
+    return {k: normalize(k, v) for k, v in found.items() if k in ADMIN_KEYS}
 
 
 def resolve(core, legacy, managed):

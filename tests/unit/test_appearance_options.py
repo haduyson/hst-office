@@ -77,7 +77,7 @@ class Page(unittest.TestCase):
         leaves = {leaf.get(OOR + "name"): {p.get(OOR + "name"): p.find("value").text for p in leaf.findall("prop")}
                   for leaf in next(n for n in node if n.get(OOR + "name") == "Leaves")}
         labels = sorted(v["Label"] for v in leaves.values())
-        self.assertEqual(labels, ["Cập nhật", "Giao diện", "Mở tài liệu"])
+        self.assertEqual(labels, ["Cập nhật", "Giao diện", "Mở tài liệu", "Phiên bản trước"])
         for leaf in leaves.values():
             self.assertEqual(leaf["Id"], "vn.hasontech.hst.vietnamese-tools")
             self.assertTrue(os.path.isfile(os.path.join(EXT, leaf["OptionsPage"].replace("%origin%/", ""))))
