@@ -1,0 +1,72 @@
+HST Office: "Phiên bản trước" on the Info page of the File panel.
+
+- sfx2 File ▸ Info (hstbackstage.ui, hstbackstagewindow.*): a "Phiên bản trước" button after "Thiết lập USB
+  Token". It closes the panel and runs org.hst.office.vi:PreviousVersions of the bundled extension, the dialog that
+  lists the copies of the document's file kept before each save overwrote it (Khôi phục, Mở xem). The Tabbed UI has
+  no menu bar; the classic File menu gets the same command from the extension's Addons.xcu. Labels of HST commands
+  are Vietnamese in every UI language, as in the HST menu.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: extension side tests/unit/test_version_*.py; GUI check of the Info page pending (Windows, macOS, Linux).
+---
+--- a/sfx2/uiconfig/ui/hstbackstage.ui
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -1492,6 +1492,19 @@
+                     <property name="fill">True</property>
+                   </packing>
+                 </child>
++                <child>
++                  <!-- "Phiên bản trước" of the bundled extension: the versions a save overwrote, Vietnamese in every UI language -->
++                  <object class="GtkButton" id="infoversions">
++                    <property name="label">Phiên bản trước</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -223,6 +223,7 @@
+     std::unique_ptr<weld::Button> m_xInfoProperties;
+     std::unique_ptr<weld::Button> m_xInfoSign;
+     std::unique_ptr<weld::Button> m_xInfoUsbToken;
++    std::unique_ptr<weld::Button> m_xInfoVersions;
+ 
+     std::unique_ptr<weld::Label> m_xSaveAsFolder;
+     std::unique_ptr<weld::TreeView> m_xFormatList;
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -310,6 +310,7 @@
+     , m_xInfoProperties(m_xBuilder->weld_button(u"infoproperties"_ustr))
+     , m_xInfoSign(m_xBuilder->weld_button(u"infosign"_ustr))
+     , m_xInfoUsbToken(m_xBuilder->weld_button(u"infousbtoken"_ustr))
++    , m_xInfoVersions(m_xBuilder->weld_button(u"infoversions"_ustr))
+     , m_xSaveAsFolder(m_xBuilder->weld_label(u"saveasfolder"_ustr))
+     , m_xFormatList(m_xBuilder->weld_tree_view(u"formatlist"_ustr))
+     , m_xSaveAsBrowse(m_xBuilder->weld_button(u"saveasbrowse"_ustr))
+@@ -342,7 +343,8 @@
+     m_xMoreTemplates->connect_activate_link(LINK(this, BackstageWindow, MoreTemplatesHdl));
+     for (weld::Button* pButton :
+          { m_xNewBlank.get(), m_xNewNd30.get(), m_xNewManage.get(), m_xOpenBrowse.get(),
+-           m_xInfoProperties.get(), m_xInfoSign.get(), m_xInfoUsbToken.get(), m_xSaveAsBrowse.get() })
++           m_xInfoProperties.get(), m_xInfoSign.get(), m_xInfoUsbToken.get(), m_xInfoVersions.get(),
++           m_xSaveAsBrowse.get() })
+         pButton->connect_clicked(LINK(this, BackstageWindow, ButtonClickHdl));
+ 
+     m_xNewBlank->set_label(SfxResId(m_eApp == BackstageApp::Calc      ? STR_HST_BS_BLANK_CALC
+@@ -1001,6 +1003,8 @@
+         CloseAndDispatch(u".uno:Signature"_ustr);
+     else if (&rButton == m_xInfoUsbToken.get()) // USB Token setup of the bundled HST extension
+         CloseAndDispatch(u"org.hst.office.vi:SetupUsbToken"_ustr);
++    else if (&rButton == m_xInfoVersions.get()) // "Phiên bản trước" of the bundled HST extension
++        CloseAndDispatch(u"org.hst.office.vi:PreviousVersions"_ustr);
+     else if (&rButton == m_xSaveAsBrowse.get())
+         CloseAndDispatch(u".uno:SaveAs"_ustr);
+ }
