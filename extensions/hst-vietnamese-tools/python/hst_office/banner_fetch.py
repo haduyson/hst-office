@@ -12,6 +12,7 @@ from .update_logic import version_key
 
 TIMEOUT = 5
 PROBE_TIMEOUT = 1.5
+MAX_POST = 8192  # display report body (banner_impressions_report)
 
 
 def interpreter():
@@ -76,3 +77,15 @@ def head_status(url, version, proxy=None, timeout=PROBE_TIMEOUT):
     if len(payload) > 16384:
         raise ValueError("banner request too large")
     return int(_run(payload, timeout))
+
+
+def post_status(url, body, version, proxy=None):
+    """Status of one bounded JSON POST through the same helper, deadline, proxy settings and User-Agent."""
+    if not https_url(url) or not isinstance(body, bytes) or not 0 < len(body) <= MAX_POST:
+        raise ValueError("invalid banner request")
+    version_key(version)
+    text = body.decode("ascii")  # the report is ASCII JSON; anything else is refused before the helper
+    payload = json.dumps(dict(post=True, url=url, body=text, version=version, proxy=proxy)).encode()
+    if len(payload) > 16384:
+        raise ValueError("banner request too large")
+    return int(_run(payload, TIMEOUT))

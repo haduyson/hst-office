@@ -74,11 +74,34 @@ def head_status(url, version, proxy=None, timeout=TIMEOUT):
         return error.code
 
 
+def post_status(url, body, version, proxy=None, timeout=TIMEOUT):
+    """HTTP status of one JSON POST (the display report); no redirects, an error status is an answer."""
+    if not https_url(url):
+        raise ValueError("banner HTTPS required")
+    version_key(version)
+    data = body.encode("ascii")
+    if not 0 < len(data) <= 8192:
+        raise ValueError("banner request too large")
+    handlers = [_NoRedirect(), urllib.request.HTTPSHandler(context=tls_context())]
+    if proxy is not None:
+        handlers.append(urllib.request.ProxyHandler(proxy))
+    post = urllib.request.Request(url, data=data, method="POST", headers={
+        "User-Agent": "HSTOffice/" + version, "Accept": "*/*", "Content-Type": "application/json"})
+    try:
+        with urllib.request.build_opener(*handlers).open(post, timeout=timeout) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        return error.code
+
+
 def main():
     try:
         args = json.loads(sys.stdin.buffer.read(16385))
         if args.pop("head", False):
             sys.stdout.buffer.write(str(head_status(**args)).encode("ascii"))
+            return 0
+        if args.pop("post", False):
+            sys.stdout.buffer.write(str(post_status(**args)).encode("ascii"))
             return 0
         data = request(**args)
         sys.stdout.buffer.write(data)

@@ -3,6 +3,7 @@
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 FEED_URL = "https://system.hasontech.vn/hst-office/banners.json"
+IMPRESSIONS_URL = "https://system.hasontech.vn/hst-office/impressions"  # daily display counts, contract v1
 EXACT_HOSTS = ("echatbot.vn", "espace.vn", "aidelam.com")
 TEST_HOST = "127.0.0.1"
 # Test-stamped packages only (release.json update_test_mode): local feed URL and signing key.

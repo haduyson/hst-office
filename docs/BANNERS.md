@@ -3,7 +3,8 @@
 The shared banner set is available to Writer, Sheets (Calc) and Slides (Impress).
 It consists of artwork, bundled content, the signed feed, profile cache, a registered UNO interface
 and the [native ribbon widget](#ribbon-widget).
-There is no hide preference, administrator disable policy, per-app selection or telemetry.
+There is no hide preference, administrator disable policy or per-app selection. Clicks and displays are counted
+per banner and day, without any machine ID ([Click counting](#click-counting), [Display counting](#display-counting)).
 
 ## Artwork and regeneration
 
@@ -149,7 +150,7 @@ defaults are trusted via the packaged application, not signed with a fake/test k
 
 ## Click counting
 
-Every banner `url`, bundled and online, is `https://system.hasontech.vn/hst-office/go/<id>`. The server adds to a total per banner and day, stores no IP address, and answers 302 to the solution page with the three UTM parameters. Only a user click opens this link in the browser. There is no display telemetry. `data/hst/solutions.json` keeps the direct page for the welcome dialog and Start Center, which are not counted. An id added to the bundled set must be published on the server first, or its clicks go to https://hasontech.vn/ uncounted.
+Every banner `url`, bundled and online, is `https://system.hasontech.vn/hst-office/go/<id>`. The server adds to a total per banner and day, stores no IP address, and answers 302 to the solution page with the three UTM parameters. Only a user click opens this link in the browser. Displays are counted separately, see [Display counting](#display-counting). `data/hst/solutions.json` keeps the direct page for the welcome dialog and Start Center, which are not counted. An id added to the bundled set must be published on the server first, or its clicks go to https://hasontech.vn/ uncounted.
 
 A click first checks that the counter answers, because the server-side fallback needs nginx to be up. Off the UI
 thread, [banner_click.py](../extensions/hst-vietnamese-tools/python/hst_office/banner_click.py) sends one HTTPS HEAD to
@@ -160,6 +161,59 @@ a 5xx opens `https://hasontech.vn` with the same three UTM parameters. Hosts oth
 directly, without a probe. If the Python service is unavailable, the widget opens the URL as it is, so a click then
 fails in the browser when the server is down. No error dialog appears, and clicks within one second of each other
 open one browser tab.
+
+## Display counting
+
+Owner decision of 12/11/2026, from HST Office 1.0.2. The report below is contract v1 with the server.
+
+**What one display is.** A card is drawn in a visible window (not minimized, the banner slot of the ribbon shown, its
+image decoded) and stays there for at least one second. Each rotation to another card is a new display; a window that
+keeps one card counts it once until the card changes. Redrawing the same card (rescaling, the switch between wide and
+compact artwork, a one-item rotation) does not count again; a card replaced within the second is not counted. The
+[widget](#ribbon-widget) checks at the start and at the end of the second, and again every second while a card waits
+in a hidden slot or a minimized window. It then calls `org.hst.office.BannerFeed` with `NamedValue("Shown", id)` on a
+short worker thread, so the UI thread never calls Python.
+
+**Local counts.** [banner_impressions.py](../extensions/hst-vietnamese-tools/python/hst_office/banner_impressions.py)
+adds the display in memory and merges the counts into `$(user)/hst-banners/impressions.json` at most every 60 seconds
+(on that worker thread) and once when the office terminates. The file holds only the local day of the machine, the
+banner id and a number: `{"schemaVersion":1,"days":{"2026-11-12":{"aios":34,"hst-post":12}}}`. It keeps at most 7 days
+(today − 6 … today + 1, so a clock that was set back leaves no far-future day), 24 ids per day and 5000 per id and day.
+Writes are atomic under the kernel lock `impressions.lock`, shared by every office process of the profile; a read-only
+profile keeps the counts in memory only. While `SendInstallId` is off nothing is counted.
+
+**Report.** [banner_impressions_report.py](../extensions/hst-vietnamese-tools/python/hst_office/banner_impressions_report.py)
+sends the stored counts within the feed's attempt of at most once per 86,400 seconds (the same stamp and lock, after
+the stamp is claimed and before the manifest request), on the feed worker, through the private helper with the same
+five-second deadline and proxy settings:
+
+```http
+POST https://system.hasontech.vn/hst-office/impressions
+Content-Type: application/json
+User-Agent: HSTOffice/1.0.2
+
+{"schemaVersion":1,"release":"1.0.2","days":[{"day":"2026-11-12","counts":{"aios":34,"hst-post":12}}]}
+```
+
+This is the whole report: the release, days and counts. It carries no install ID or other machine ID, no account,
+OS (other than the User-Agent), document, window or time of day, and no cookie or Referer. The body is at most 8 KiB;
+the oldest days are left out until it fits. Redirects are not followed. The server keeps totals per banner and day and
+does not store the IP address. Answer handling:
+
+| Answer | Stored counts |
+|---|---|
+| 2xx (received; unknown ids are ignored by the server) or 400 (schema refused) | the sent counts are removed; displays counted meanwhile stay |
+| 413 | the oldest sent day is removed |
+| 429, 5xx, any other status, no answer (DNS, TLS, timeout, redirect) | kept for the next daily attempt, until they are 7 days old |
+
+**When nothing is sent.** No report is made when `SendInstallId` is false, without a valid banner public key (the
+bundled-only path, which makes no banner requests at all), from test-stamped packages or with a `FeedURL` testing
+override (counts stay local and expire), or when there is nothing to send.
+
+**How to stop it.** Untick **Gửi mã máy ẩn danh khi kiểm tra cập nhật** in Công cụ ▸ Tùy chọn ▸ HST Office ▸ Cập nhật
+(`/org.openoffice.Office.HSTUpdate/SendInstallId` = `false`; administrators can lock it, [UPDATE_ADMIN](UPDATE_ADMIN.md)).
+Unticking stops counting and sending at once; ticking it again takes effect at the next start at the latest. Counts stored earlier
+stay in `impressions.json` and are not sent while the box is unticked; they expire after 7 days, or delete the file.
 
 ## Runtime, cache and privacy
 
@@ -189,11 +243,13 @@ manifest endpoint for testing. Empty, non-HTTPS, credentialed, nonstandard-port 
 values are ignored. A valid HTTPS override may use a testing origin outside the content
 allow-list, but signatures and every item/image URL still obey production rules.
 There are no environment overrides, hide keys, administrator disable keys, app-specific
-feeds or dependencies on update-check enable/disable preferences. Standard office proxy
+feeds or dependencies on update-check enable/disable preferences; only the display report follows `SendInstallId`
+([Display counting](#display-counting)). Standard office proxy
 settings are reused solely for transport.
 
 Requests carry the plain `User-Agent: HSTOffice/<release>` and a generic Accept header.
 No OS, device ID, account, document details, cookies, Referer or analytics events are sent.
+The only report is the daily display counts ([Display counting](#display-counting)).
 No click request is made by the feed. The widget opens the system browser only on a click.
 The destination query contains exactly the `source` and `campaign` from the shared
 `solutions.json` UTM block plus `utm_medium=banner`; previous query parameters are removed.
@@ -206,6 +262,7 @@ a separately signed last-eligible `fallback` envelope. Its authenticated generat
 floor even when images are missing. `previous.json` retains the prior authenticated generation
 for metadata recovery;
 `images/<sha256>.<png|jpg|webp>` holds verified image bytes. `last-attempt` stores only a timestamp.
+`impressions.json` holds the display counts and `impressions.lock` is its kernel lock ([Display counting](#display-counting)).
 Publication takes a kernel file lock shared across processes, rereads authenticated current/previous
 metadata, compares the candidate with the highest generation, installs its verified images and
 atomically replaces the current envelope (floor and fallback together). Equal timestamps with
@@ -254,6 +311,9 @@ Implemented by [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banne
   A decoder error skips to the next entry, at most three times in a row.
 - **Rotation:** a main-thread timer requests `Slot + 1` every `rotateSeconds`; paused while hovered or focused; 300 ms
   cross-fade, or a plain switch when `MiscSettings::IsAnimatedOthersAllowed()` is false (reduced motion).
+- **Display counting:** a card change starts a one-second main-thread timer; a card that stood the whole second in
+  view is reported once through `NamedValue("Shown", id)` on a worker thread ([Display counting](#display-counting);
+  [hst-ribbon-banner-impressions.patch](../patches/libreoffice/hst-ribbon-banner-impressions.patch)).
 - **Activation:** click, Enter or Space opens `click_url_with_utm` through `SystemShellExecute`, after the check in [Click counting](#click-counting).
 - **Accessibility:** focusable with a focus ring; role `HYPER_LINK`; accessible name and tooltip `<name> — <tagline>`.
   VCL did not expose the notebookbar to assistive technology at all, so the patch reports it as a child of the
@@ -297,6 +357,8 @@ Nonnegative integers wrap modulo the current slot count; negative/noninteger val
 Eligibility and slot selection use one coherent snapshot, including after campaign changes.
 With `NamedValue("ClickUrl", string)`, the service instead returns the URL to open as a plain string
 (see [Click counting](#click-counting)); it can wait 1.5 seconds, so call it on a worker thread.
+With `NamedValue("Shown", string)` (a banner id), it counts one display and returns an empty string
+(see [Display counting](#display-counting)); call it on a worker thread as well.
 Otherwise the output is a UNO string containing JSON:
 
 ```json

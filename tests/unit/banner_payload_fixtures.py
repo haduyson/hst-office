@@ -55,6 +55,7 @@ class MaximumRemote(Remote):
 def service_module():
     # Load only the product boundary; do not replace modules used by other suites.
     stubs = {"uno": SimpleNamespace(), "unohelper": SimpleNamespace(Base=type("Base", (), {})),
+             "com.sun.star.frame": SimpleNamespace(XTerminateListener=type("XTerminateListener", (), {})),
              "com.sun.star.lang": SimpleNamespace(XServiceInfo=type("XServiceInfo", (), {})),
              "com.sun.star.task": SimpleNamespace(XJob=type("XJob", (), {})),
              "hst_office.update_config": SimpleNamespace(_node=None),
