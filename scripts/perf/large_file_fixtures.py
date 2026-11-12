@@ -17,7 +17,7 @@ Writes, all synthetic (random numbers, generated Vietnamese-like text, noise pic
 - writer-images.docx    fewer pages with a large picture on every page
 - slides-images.pptx    one large picture and a title per slide
 - pdf-mixed.pdf         text pages with a picture on every 5th page
-- text-lines-10mb.txt / text-longlines-10mb.txt / text-lines-50mb.txt  Vietnamese UTF-8 plain text (Writer)
+- text-lines-10mb.txt / text-longlines-10mb.txt / text-lines-50mb.txt / text-oneline-10mb.txt  Vietnamese UTF-8 plain text (Writer)
 Needs Pillow, python-docx and python-pptx. Sizes are printed; nothing here reads a user file.
 """
 import argparse
@@ -434,6 +434,7 @@ def main():
         "text-lines-10mb.txt": lambda p: write_txt(p, 10, 14),
         "text-longlines-10mb.txt": lambda p: write_txt(p, 10, 6000),
         "text-lines-50mb.txt": lambda p: write_txt(p, 50, 14),
+        "text-oneline-10mb.txt": lambda p: write_txt(p, 10, 1_500_000),  # no line break at all
     }
     for name, job in jobs.items():
         if (only and name not in only) or name in a.skip.split(","):

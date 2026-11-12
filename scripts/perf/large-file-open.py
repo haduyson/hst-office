@@ -185,6 +185,7 @@ def one_open(a, path, profile_url, pipe):
         out, _ = client.communicate(timeout=a.timeout)
         line = (out.strip().splitlines() or ["{}"])[-1]
         res = json.loads(line) if line.startswith("{") else {"error": "client: " + line[:200]}
+        res["after"] = round(time.monotonic() - started, 1)
     except subprocess.TimeoutExpired:
         evidence(a, os.path.basename(path), own)
         client.kill()
@@ -198,6 +199,8 @@ def one_open(a, path, profile_url, pipe):
         res.setdefault("note", "office killed after close")
     stop.set()
     sampler.join()
+    if office.returncode not in (None, 0):  # e.g. 3221225725 = 0xC00000FD stack overflow on Windows
+        res["office_exit"] = office.returncode
     kill_tree(office, own)
     res["peak_mb"] = round(peak[0])
     if save_to != "-" and os.path.exists(save_to):
