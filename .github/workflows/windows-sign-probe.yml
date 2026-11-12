@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Proves scripts/windows/sign-msi.ps1 on a built MSI without the owner's USB token: a throwaway certificate,
+# trusted on this runner only, signs every PE, the custom-action DLLs and the MSI; the result is signed again
+# (no change), installed, and every installed program must carry a valid signature. Never publishes anything.
+name: Windows MSI signing probe
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Desktop Windows run whose MSI artifact is signed'
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: windows-sign-probe
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Parse the PowerShell scripts
+        shell: bash
+        run: pwsh -NoProfile -NonInteractive -File scripts/windows/check-ps-syntax.ps1
+      - name: Download the unsigned MSI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/msi" HST_MSI
+      - name: Sign twice, install, check every installed program and soffice --version
+        shell: bash
+        run: |
+          set -euo pipefail
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows/sign-msi-ci-probe.ps1 -Msi "$HST_MSI" -Out "$(cygpath -w "$RUNNER_TEMP/out")"
+      - name: Keep the signing and install logs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-sign-probe-${{ github.run_id }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: error
+          retention-days: 7
