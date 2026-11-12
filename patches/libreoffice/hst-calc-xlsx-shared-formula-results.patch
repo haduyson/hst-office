@@ -1,0 +1,41 @@
+Calc: an .xlsx keeps the cached results of its filled-down (shared) formulas when it is opened.
+
+The import set the cached number of a shared formula but left the cell dirty, unlike a formula of its own
+(applyCellFormulaValues resets it). A dirty cell is calculated again by the first reader of its value, and the
+optimal row height pass at the end of the import (ScDocShell::UpdateAllRowHeights, through
+ScColumn::GetOptimalHeight -> HasEditCells -> GetRangeScriptType -> ScCellFormat::GetString) reads every cell. So a
+large workbook of filled-down SUMIF/VLOOKUP/COUNTIF columns was calculated in full while loading, although formulas
+are never recalculated on load by default (OOXMLRecalcMode = 1): a 24 MB synthetic workbook of 200 000 rows with
+a SUMIF(B:B;B2;K:K) column took 160 s on 32 cores, and on a 4-core PC many minutes, looking like a hang. The same
+workbook with every formula written out per cell (no shared formulas) opened in 24 s.
+
+The shared path now resets the dirty flag as the non-shared path does. A document whose formula results are all 0
+or missing is still recalculated in full (WorkbookFragment::recalcFormulaCells), and OOXMLRecalcMode "always" or
+"ask" behaves as before.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/sc/source/filter/oox/formulabuffer.cxx
++++ b/sc/source/filter/oox/formulabuffer.cxx
+@@ -200,11 +200,16 @@
+                             bHasCalculatedFormulaCells = true;
+                         }
+                         pCell->SetResultDouble(fVal);
+-                        /* TODO: is it on purpose that we never reset dirty here
+-                         * and thus recalculate anyway if cell was dirty? Or is it
+-                         * never dirty and therefore set dirty below otherwise? This
+-                         * is different from the non-shared case in
+-                         * applyCellFormulaValues(). */
++                        // Keep the cached result, as applyCellFormulaValues() does for
++                        // a formula of its own: a cell left dirty is calculated again
++                        // by the first reader of its value, and the optimal row height
++                        // pass at the end of the import reads every cell. A large
++                        // workbook of filled-down (shared) formulas was then calculated
++                        // in full while loading although OOXMLRecalcMode is "never".
++                        // A document whose results are all 0 or missing is still
++                        // calculated in full (WorkbookFragment::recalcFormulaCells).
++                        pCell->ResetDirty();
++                        pCell->SetChanged(false);
+                     }
+                 break;
+                 case XML_str:
