@@ -110,13 +110,32 @@ class GroupGapsPatch(unittest.TestCase):
     def test_merged_box_uses_it_for_its_groups(self):
         merged = added(PATCH, MERGED)
         self.assertIn("pGrid->set_hst_centre_spanned(true);", merged)
-        self.assertIn("return pGrid && pGrid->get_hst_caption_room() > 0;", merged)
-        # authored ladders (the Home tabs) keep every state and their own order
-        self.assertIn("if (nState > 0 && !bOwnLadder && lcl_HstCaptionBound(*pChild))", merged)
-        self.assertIn("rEntry.second.push_back(rEntry.second.back());", merged)
-        self.assertEqual(merged.count("if (!bOwnLadder)"), 1)
-        self.assertIn("if (aLayout.overflow.empty() && !bOwnLadder)", merged)
+        self.assertIn("return pGrid ? pGrid->get_hst_caption_room() : 0;", merged)
+        # the authored ladders (the Home tabs) keep every state and their own order
         self.assertIn("bOwnLadder = true;", merged)
+        self.assertIn("if (nState > 0 && !bOwnLadder)", merged)
+        self.assertIn("if (aLayout.overflow.empty() && !bOwnLadder)", merged)
+
+    def test_default_ladder_is_medium_then_button_then_chevron(self):
+        merged = added(PATCH, MERGED)
+        # every group of a tab without its own ladder can show as its button (not a nested merged box)
+        self.assertIn("aCollapsible[i] = !dynamic_cast<PriorityMergedHBox*>(aWindows[i]);", merged)
+        # Small is no rung, nor a step that saves less than 24 px (scaled) or no more than the empty room
+        self.assertIn("const tools::Long nMinGain = std::lround(24 * GetDPIScaleFactor());", merged)
+        self.assertIn("bSkip = nState == hst::ribbon::GroupSmall || nGain < nMinGain", merged)
+        self.assertIn("|| nGain <= lcl_HstCaptionRoom(*pChild);", merged)
+        self.assertIn("rEntry.second.push_back(bSkip ? rEntry.second.back() : nMeasured);", merged)
+        self.assertIn("nNarrowest - nButton < nMinGain ? rEntry.second.back() : nButton", merged)
+        # collapsed groups come back and shrunk ones grow back with the ladder select() used
+        self.assertIn("aSteps.empty() ? hst::ribbon::defaultLadder(aGroups) : aSteps;", merged)
+        self.assertIn("lcl_HstUncollapse(aGroups, aUsed, nWidth, aLayout);", merged)
+        self.assertIn("lcl_HstUncollapse(aShownGroups, aShownUsed, nRoom, aRefill);", merged)
+
+    def test_one_command_group_stays_large(self):
+        ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn("(bOnlyCommand && rData.meHstAuthoredSize == ToolBoxButtonSize::Large)", ladder)
+        self.assertIn("aToolBoxes.size() == 1 && holdsOneCommand(*aToolBoxes.front())", ladder)
+        self.assertIn("rToolBox.GetItemType(i) == ToolBoxItemType::BUTTON", ladder)
 
     def test_one_button_groups_are_large(self):
         for ui, box in (("sw/uiconfig/swriter/ui/notebookbar.ui", "bxInsertInsertAVMedia"),
