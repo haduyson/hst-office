@@ -55,7 +55,10 @@ jobs:
         # present, no C++ runtime component installed and no component disallowed in the log, one entry left.
         # upgrade-from-beta5: the new MSI installed over beta.5 (HST Office's own code): one entry, every file, own ProgIDs.
         # upgrade-from-1.0.1: the new MSI installed over 1.0.1, which put the CLI-UNO assemblies into the .NET GAC: none
-        # left in the GAC or the program folder, one entry, VBA macros still run headless (probe-upgrade-no-gac.ps1).
+        # left in the GAC or the program folder, one entry, VBA macros still run headless; then repair, a refused
+        # downgrade to 1.0.1 and uninstall (probe-upgrade-no-gac.ps1). upgrade-from-1.0.1-with-libreoffice: the same with
+        # LibreOffice 26.8.2 installed first (the same cli_* strong names in the GAC): LibreOffice's GAC files stay
+        # byte-identical and its VBA macros still run, also after HST Office is uninstalled.
         # ui-parity: the MSI with its default-apps box ticked; start-up questions of starts 1-3 of a new user, every
         # Tùy chọn ▸ HST Office page inside the Options dialog, the ND30 "Loại văn bản" list under real pointer moves and
         # the recent-documents thumbnail of a PDF with a faint stamp, text selected in HST PDF (light highlight, readable
@@ -63,7 +66,7 @@ jobs:
         # ui-parity-old-profile: HST beta.5 installed, started once, uninstalled, then this MSI (unticked) on the profile
         # beta.5 left: option pages and start-up questions.
         # Each scenario runs on a fresh runner.
-        scenario: ${{ fromJSON(inputs.scenarios != '' && inputs.scenarios || (inputs.install_paths && '["commands","ui-parity","ui-parity-unticked","ui-parity-old-profile","libreoffice-first","hst-first","uninstall-beta4-then-install","upgrade-from-beta4","upgrade-from-beta5","upgrade-from-1.0.1"]' || '["commands","ui-parity","ui-parity-unticked","ui-parity-old-profile"]')) }}
+        scenario: ${{ fromJSON(inputs.scenarios != '' && inputs.scenarios || (inputs.install_paths && '["commands","ui-parity","ui-parity-unticked","ui-parity-old-profile","libreoffice-first","hst-first","uninstall-beta4-then-install","upgrade-from-beta4","upgrade-from-beta5","upgrade-from-1.0.1","upgrade-from-1.0.1-with-libreoffice"]' || '["commands","ui-parity","ui-parity-unticked","ui-parity-old-profile"]')) }}
     env:
       # Current LibreOffice stable for Windows x64 (26.8.2.2), GPG-signed by the LibreOffice build key
       # C2839ECAD9408FBE9531C3E9F434A1EFAFEEAEA3; the archive keeps the same file after stable/ moves on.
@@ -432,13 +435,19 @@ jobs:
             curl -fsSL --retry 3 -o "$msi" "$BETA5_MSI_URL"
             echo "$BETA5_MSI_SHA256  $msi" | sha256sum -c
             echo "OTHER_MSI=$(cygpath -w "$PWD/$msi")" >> "$GITHUB_ENV"
-          elif [ "$SCENARIO" = upgrade-from-1.0.1 ]; then
+          elif [[ "$SCENARIO" == upgrade-from-1.0.1* ]]; then
             mkdir -p "$RUNNER_TEMP/first"
             cd "$RUNNER_TEMP/first"
             msi=HSTOffice_1.0.1_Win_x86-64_en-US_vi.msi
             curl -fsSL --retry 3 -o "$msi" "$V101_MSI_URL"
             echo "$V101_MSI_SHA256  $msi" | sha256sum -c
             echo "OTHER_MSI=$(cygpath -w "$PWD/$msi")" >> "$GITHUB_ENV"
+            if [ "$SCENARIO" = upgrade-from-1.0.1-with-libreoffice ]; then
+              msi=LibreOffice_26.8.2_Win_x86-64.msi
+              curl -fsSL --retry 3 -o "$msi" "$LO_MSI_URL" || curl -fsSL --retry 3 -o "$msi" "$LO_MSI_ARCHIVE_URL"
+              echo "$LO_MSI_SHA256  $msi" | sha256sum -c
+              echo "LO_MSI=$(cygpath -w "$PWD/$msi")" >> "$GITHUB_ENV"
+            fi
           else
             RUN_ID='' RELEASE_TAG=v1.0.0-beta.4 bash scripts/windows/download-smoke-msi.sh "$RUNNER_TEMP/first" OTHER_MSI
             # independent of the release's own SHA256SUMS: the pinned hash of the beta.4 MSI
@@ -451,8 +460,8 @@ jobs:
           SCENARIO: ${{ matrix.scenario }}
         run: |
           set -euo pipefail
-          if [ "$SCENARIO" = upgrade-from-1.0.1 ]; then
-            pwsh -NoProfile -File scripts/windows/probe-upgrade-no-gac.ps1 -OldMsi "$OTHER_MSI" -NewMsi "$HST_MSI" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
+          if [[ "$SCENARIO" == upgrade-from-1.0.1* ]]; then
+            pwsh -NoProfile -File scripts/windows/probe-upgrade-no-gac.ps1 -OldMsi "$OTHER_MSI" -NewMsi "$HST_MSI" -LibreOfficeMsi "${LO_MSI:-}" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
           else
             pwsh -NoProfile -File scripts/windows/smoke-install-paths.ps1 -Scenario "$SCENARIO" -HstMsi "$HST_MSI" -OtherMsi "$OTHER_MSI" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
           fi
