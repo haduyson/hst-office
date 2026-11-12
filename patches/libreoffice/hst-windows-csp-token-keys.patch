@@ -11,13 +11,22 @@ user store.
 - xmlsecurity (mscrypt): a certificate counts as personal when CNG opens its key (unchanged) or
   when its key provider info names an installed CryptoAPI CSP. The CSP case is decided from the
   property alone: listing never opens the token or asks for a PIN.
-- svl (PDF signing): CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG: CNG first, then the CSP handle, which
-  CryptMsg accepts with its AT_SIGNATURE / AT_KEYEXCHANGE key spec.
+- svl (PDF signing): CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG: CNG first, then the CSP handle. A CNG key
+  signs through CryptMsg as upstream. A CSP key does not: crypt32's CMS signer with the CSP handle
+  failed on a VNPT-CA token whose ODF signature (below) worked. The CMS is built around the ODF
+  signer's primitive instead: the signed attributes (contentType, messageDigest,
+  signingCertificateV2) are DER-encoded and hashed here and signed with CryptCreateHash(SHA-256) +
+  HP_HASHVAL + CryptSignHash; the signer is added to a DER SignedData skeleton with
+  CMSG_CTRL_ADD_CMS_SIGNER_INFO (time stamps work as before).
+- svl: GetLastSigningError() reports the failing step and Windows error code of the last Sign() on
+  the thread, sorted into key/token not found, PIN cancelled, wrong/blocked PIN and other, for the
+  PDF viewer's message and the HST log.
 - xmlsec mscng (ODF / OOXML signing): when CNG cannot open the key, acquire it through CryptoAPI
   and sign RSA PKCS#1 v1.5 hashes with CryptSignHash (signature byte order reversed).
 
 License: modified upstream files keep their license (MPL-2.0; xmlsec: MIT).
-Test: needs a Windows build and a CSP-only token (not covered by the SoftHSM2 test).
+Test: needs a Windows build and a CSP-only token (not covered by the SoftHSM2 test). The CSP-path CMS
+construction was checked with a software key in a legacy CSP (OpenSSL cms -verify accepts it).
 ---
 diff -ruN a/external/xmlsec/UnpackedTarball_xmlsec.mk b/external/xmlsec/UnpackedTarball_xmlsec.mk
 --- a/external/xmlsec/UnpackedTarball_xmlsec.mk	2026-11-12 18:17:55.432691957 +0700
@@ -261,10 +270,274 @@ diff -ruN a/external/xmlsec/hst-mscng-capi-token-keys.patch.1 b/external/xmlsec/
 +         xmlSecInternalError("xmlSecMSCngKeyDataGetPrivKey", xmlSecTransformGetName(transform));
 +         return(-1);
 +     }
+diff -ruN a/include/svl/cryptosign.hxx b/include/svl/cryptosign.hxx
+--- a/include/svl/cryptosign.hxx	2026-11-12 22:28:18.647637995 +0700
++++ b/include/svl/cryptosign.hxx	2026-11-12 22:37:46.003109608 +0700
+@@ -46,6 +46,28 @@
+ /// Converts a hex-encoded string into a byte array.
+ SVL_DLLPUBLIC std::vector<unsigned char> DecodeHexString(std::string_view rHex);
+ 
++/// HST Office: why the last Signing::Sign on this thread failed, as far as the platform signer can
++/// tell (Windows only; elsewhere eKind stays None). The step and the Windows error code are kept for
++/// the user's message and the HST log; nothing personal (no names, paths, PINs) is recorded.
++enum class SigningFailure
++{
++    None, ///< no failure recorded (success, or not known on this platform)
++    KeyNotFound, ///< no token / reader, or the certificate's private key was not found
++    Cancelled, ///< the user cancelled the PIN prompt
++    WrongPin, ///< wrong PIN, or the PIN is blocked
++    Other ///< any other failure: see aStep and nCode
++};
++
++struct SigningError
++{
++    SigningFailure eKind = SigningFailure::None;
++    OString aStep; ///< e.g. "acquire-key", "sign-hash"
++    sal_uInt32 nCode = 0; ///< Windows error code (GetLastError / HRESULT)
++};
++
++/// HST Office: the failure recorded by the last Signing::Sign on the calling thread.
++SVL_DLLPUBLIC SigningError GetLastSigningError();
++
+ /// Helper to cryptographically sign and verify
+ /// arbitrary data blocks.
+ class SVL_DLLPUBLIC Signing
 diff -ruN a/svl/source/crypto/cryptosign.cxx b/svl/source/crypto/cryptosign.cxx
---- a/svl/source/crypto/cryptosign.cxx	2026-11-12 18:17:55.415691435 +0700
-+++ b/svl/source/crypto/cryptosign.cxx	2026-11-12 18:18:41.264093445 +0700
-@@ -1325,8 +1325,11 @@
+--- a/svl/source/crypto/cryptosign.cxx	2026-09-17 05:11:38.000000000 +0700
++++ b/svl/source/crypto/cryptosign.cxx	2026-11-12 22:37:46.004109632 +0700
+@@ -68,6 +68,9 @@
+ using namespace com::sun::star;
+ 
+ namespace {
++// HST Office: what the last Signing::Sign on this thread recorded (see GetLastSigningError).
++thread_local svl::crypto::SigningError g_aLastSigningError;
++
+ #if USE_CRYPTO_NSS
+ char *PDFSigningPKCS7PasswordCallback(PK11SlotInfo * /*slot*/, PRBool /*retry*/, void *arg)
+ {
+@@ -850,6 +853,200 @@
+ 
+     return true;
+ }
++
++/// HST Office: records why signing failed (step and Windows error code) for GetLastSigningError,
++/// sorted into the cases the user can act on.
++void lcl_signingFailed(const char* pStep, DWORD nCode)
++{
++    static constexpr DWORD aKeyNotFound[] = {
++        0x80090016, // NTE_BAD_KEYSET
++        0x80090019, // NTE_KEYSET_NOT_DEF
++        0x8009000D, // NTE_NO_KEY
++        0x80090011, // NTE_NOT_FOUND
++        0xC0000225, // STATUS_NOT_FOUND (NCrypt)
++        0x8009200B, // CRYPT_E_NO_KEY_PROPERTY
++        0x8010000C, // SCARD_E_NO_SMARTCARD
++        0x80100069, // SCARD_W_REMOVED_CARD
++        0x8010002E, // SCARD_E_NO_READERS_AVAILABLE
++        0x80100017, // SCARD_E_READER_UNAVAILABLE
++        0x8010001D, // SCARD_E_NO_SERVICE
++    };
++    static constexpr DWORD aCancelled[] = {
++        0x8010006E, // SCARD_W_CANCELLED_BY_USER
++        0x80100002, // SCARD_E_CANCELLED
++        0x800704C7, // HRESULT_FROM_WIN32(ERROR_CANCELLED)
++        1223, // ERROR_CANCELLED
++    };
++    static constexpr DWORD aWrongPin[] = {
++        0x8010006B, // SCARD_W_WRONG_CHV
++        0x8010006C, // SCARD_W_CHV_BLOCKED
++        0x80070056, // HRESULT_FROM_WIN32(ERROR_INVALID_PASSWORD)
++        86, // ERROR_INVALID_PASSWORD
++    };
++    auto contains = [nCode](const auto& rCodes)
++    { return std::find(std::begin(rCodes), std::end(rCodes), nCode) != std::end(rCodes); };
++
++    g_aLastSigningError.eKind = contains(aKeyNotFound) ? svl::crypto::SigningFailure::KeyNotFound
++                                : contains(aCancelled) ? svl::crypto::SigningFailure::Cancelled
++                                : contains(aWrongPin)  ? svl::crypto::SigningFailure::WrongPin
++                                                       : svl::crypto::SigningFailure::Other;
++    g_aLastSigningError.aStep = OString(pStep);
++    g_aLastSigningError.nCode = static_cast<sal_uInt32>(nCode);
++    SAL_WARN("svl.crypto", "signing failed at " << pStep << ": " << comphelper::WindowsErrorString(nCode));
++}
++
++/// Writes one DER element: tag, length, contents.
++void lcl_writeDER(SvStream& rStream, sal_uInt8 nTag, const void* pData, size_t nSize)
++{
++    rStream.WriteUInt8(nTag);
++    WriteDERLength(rStream, nSize);
++    rStream.WriteBytes(pData, nSize);
++}
++
++/// HST Office: CMS SignedData (detached, SHA-256, RSA PKCS#1 v1.5) for a key held by a legacy
++/// CryptoAPI CSP - USB token middleware without a CNG key storage provider or smart card minidriver
++/// (VNPT-CA "Ace PKI Token CSP" and similar). With such a key crypt32's own CMS signer
++/// (CryptMsgOpenToEncode with the CSP handle) failed on the token while the ODF signer worked on the
++/// same key, so this uses the ODF signer's primitive (xmlsec mscng, hst-mscng-capi-token-keys):
++/// the DER of the signed attributes is hashed here and signed with CryptCreateHash(CALG_SHA_256) +
++/// HP_HASHVAL + CryptSignHash. The SignedData without signers is DER-encoded here (crypt32 leaves
++/// digestAlgorithms empty for a message without signers), decoded, and the signer added with
++/// CMSG_CTRL_ADD_CMS_SIGNER_INFO. Returns the decoded message that holds the signer (read it with
++/// CMSG_ENCODED_MESSAGE), or nullptr after lcl_signingFailed.
++HCRYPTMSG lcl_signWithCspKey(HCRYPTPROV hProv, DWORD nKeySpec, PCCERT_CONTEXT pCertContext,
++                             const std::vector<std::pair<const void*, sal_Int32>>& rDataBlocks,
++                             const CRYPT_ATTRIBUTE& rSigningCertificate)
++{
++    // messageDigest: SHA-256 of the signed byte ranges
++    comphelper::Hash aContentHash(comphelper::HashType::SHA256);
++    for (const auto& rBlock : rDataBlocks)
++        aContentHash.update(rBlock.first, rBlock.second);
++    const std::vector<unsigned char> aContentDigest = aContentHash.finalize();
++    std::vector<BYTE> aMessageDigest{ static_cast<BYTE>(nASN1_OCTET_STRING),
++                                      static_cast<BYTE>(aContentDigest.size()) };
++    aMessageDigest.insert(aMessageDigest.end(), aContentDigest.begin(), aContentDigest.end());
++    // contentType: id-data (1.2.840.113549.1.7.1)
++    BYTE aContentType[] = { 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01 };
++
++    CRYPT_INTEGER_BLOB aContentTypeBlob{ sizeof(aContentType), aContentType };
++    CRYPT_INTEGER_BLOB aMessageDigestBlob{ static_cast<DWORD>(aMessageDigest.size()),
++                                           aMessageDigest.data() };
++    CRYPT_ATTRIBUTE aAttributes[3] = {
++        { const_cast<LPSTR>(szOID_RSA_contentType), 1, &aContentTypeBlob },
++        { const_cast<LPSTR>(szOID_RSA_messageDigest), 1, &aMessageDigestBlob },
++        rSigningCertificate,
++    };
++    CRYPT_ATTRIBUTES aSignedAttributes{ static_cast<DWORD>(SAL_N_ELEMENTS(aAttributes)), aAttributes };
++
++    // the signature covers the DER of the signed attributes as a SET OF (RFC 5652, 5.4)
++    DWORD nEncoded = 0;
++    if (!CryptEncodeObject(X509_ASN_ENCODING, PKCS_ATTRIBUTES, &aSignedAttributes, nullptr, &nEncoded))
++    {
++        lcl_signingFailed("encode-attributes", GetLastError());
++        return nullptr;
++    }
++    std::vector<BYTE> aEncoded(nEncoded);
++    if (!CryptEncodeObject(X509_ASN_ENCODING, PKCS_ATTRIBUTES, &aSignedAttributes, aEncoded.data(),
++                           &nEncoded))
++    {
++        lcl_signingFailed("encode-attributes", GetLastError());
++        return nullptr;
++    }
++    aEncoded.resize(nEncoded);
++    std::vector<unsigned char> aAttributesDigest = comphelper::Hash::calculateHash(
++        aEncoded.data(), aEncoded.size(), comphelper::HashType::SHA256);
++
++    HCRYPTHASH hHash = 0;
++    if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash))
++    {
++        lcl_signingFailed("create-hash", GetLastError());
++        return nullptr;
++    }
++    comphelper::ScopeGuard aHashGuard([hHash] { CryptDestroyHash(hHash); });
++    if (!CryptSetHashParam(hHash, HP_HASHVAL, aAttributesDigest.data(), 0))
++    {
++        lcl_signingFailed("set-hash", GetLastError());
++        return nullptr;
++    }
++    // the token's middleware asks for the PIN here when it needs it
++    DWORD nSignature = 0;
++    if (!CryptSignHashW(hHash, nKeySpec, nullptr, 0, nullptr, &nSignature))
++    {
++        lcl_signingFailed("sign-hash", GetLastError());
++        return nullptr;
++    }
++    std::vector<BYTE> aSignature(nSignature);
++    if (!CryptSignHashW(hHash, nKeySpec, nullptr, 0, aSignature.data(), &nSignature))
++    {
++        lcl_signingFailed("sign-hash", GetLastError());
++        return nullptr;
++    }
++    aSignature.resize(nSignature);
++    std::reverse(aSignature.begin(), aSignature.end()); // CryptoAPI signatures are little-endian
++
++    // SignedData without signers: version 1, digestAlgorithms { sha256 }, encapContentInfo id-data
++    // (detached), certificates [0] { the signing certificate }, signerInfos { }
++    static const BYTE aVersionAndDigestAlgorithms[]
++        = { 0x02, 0x01, 0x01, 0x31, 0x0f, 0x30, 0x0d, 0x06, 0x09, 0x60,
++            0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00 };
++    static const BYTE aEncapContentInfo[]
++        = { 0x30, 0x0b, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01 };
++    static const BYTE aNoSigners[] = { 0x31, 0x00 };
++    static const BYTE aSignedDataOid[]
++        = { 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02 };
++    SvMemoryStream aSignedDataBody;
++    aSignedDataBody.WriteBytes(aVersionAndDigestAlgorithms, sizeof(aVersionAndDigestAlgorithms));
++    aSignedDataBody.WriteBytes(aEncapContentInfo, sizeof(aEncapContentInfo));
++    lcl_writeDER(aSignedDataBody, nASN1_TAGGED_CONSTRUCTED, pCertContext->pbCertEncoded,
++                 pCertContext->cbCertEncoded);
++    aSignedDataBody.WriteBytes(aNoSigners, sizeof(aNoSigners));
++    SvMemoryStream aSignedData;
++    lcl_writeDER(aSignedData, nASN1_SEQUENCE | nASN1_CONSTRUCTED, aSignedDataBody.GetData(),
++                 aSignedDataBody.TellEnd());
++    SvMemoryStream aContentInfoBody;
++    aContentInfoBody.WriteBytes(aSignedDataOid, sizeof(aSignedDataOid));
++    lcl_writeDER(aContentInfoBody, nASN1_TAGGED_CONSTRUCTED, aSignedData.GetData(),
++                 aSignedData.TellEnd());
++    SvMemoryStream aContentInfo;
++    lcl_writeDER(aContentInfo, nASN1_SEQUENCE | nASN1_CONSTRUCTED, aContentInfoBody.GetData(),
++                 aContentInfoBody.TellEnd());
++
++    HCRYPTMSG hMsg = CryptMsgOpenToDecode(PKCS_7_ASN_ENCODING | X509_ASN_ENCODING, CMSG_DETACHED_FLAG,
++                                          0, 0, nullptr, nullptr);
++    if (!hMsg)
++    {
++        lcl_signingFailed("open-message", GetLastError());
++        return nullptr;
++    }
++    if (!CryptMsgUpdate(hMsg, static_cast<const BYTE*>(aContentInfo.GetData()),
++                        static_cast<DWORD>(aContentInfo.TellEnd()), TRUE))
++    {
++        lcl_signingFailed("decode-message", GetLastError());
++        CryptMsgClose(hMsg);
++        return nullptr;
++    }
++
++    BYTE aRsaParameters[] = { 0x05, 0x00 }; // NULL
++    CMSG_CMS_SIGNER_INFO aSigner = {};
++    aSigner.dwVersion = CMSG_SIGNER_INFO_PKCS_1_5_VERSION;
++    aSigner.SignerId.dwIdChoice = CERT_ID_ISSUER_SERIAL_NUMBER;
++    aSigner.SignerId.IssuerSerialNumber.Issuer = pCertContext->pCertInfo->Issuer;
++    aSigner.SignerId.IssuerSerialNumber.SerialNumber = pCertContext->pCertInfo->SerialNumber;
++    aSigner.HashAlgorithm.pszObjId = const_cast<LPSTR>(szOID_NIST_sha256);
++    aSigner.HashEncryptionAlgorithm.pszObjId = const_cast<LPSTR>(szOID_RSA_RSA);
++    aSigner.HashEncryptionAlgorithm.Parameters.cbData = sizeof(aRsaParameters);
++    aSigner.HashEncryptionAlgorithm.Parameters.pbData = aRsaParameters;
++    aSigner.EncryptedHash.cbData = static_cast<DWORD>(aSignature.size());
++    aSigner.EncryptedHash.pbData = aSignature.data();
++    aSigner.AuthAttrs = aSignedAttributes;
++    if (!CryptMsgControl(hMsg, 0, CMSG_CTRL_ADD_CMS_SIGNER_INFO, &aSigner))
++    {
++        lcl_signingFailed("add-signer", GetLastError());
++        CryptMsgClose(hMsg);
++        return nullptr;
++    }
++    return hMsg;
++}
+ #endif // USE_CRYPTO_MSCAPI
+ 
+ } // anonymous namespace
+@@ -886,8 +1083,11 @@
+     return aRet;
+ }
+ 
++SigningError GetLastSigningError() { return g_aLastSigningError; }
++
+ bool Signing::Sign(OStringBuffer& rCMSHexBuffer)
+ {
++    g_aLastSigningError = SigningError();
+ #if !USE_CRYPTO_ANY
+     (void)rCMSHexBuffer;
+     (void)m_rSigningContext;
+@@ -1312,7 +1512,7 @@
+     PCCERT_CONTEXT pCertContext = CertCreateCertificateContext(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, reinterpret_cast<const BYTE*>(aDerEncoded.getArray()), aDerEncoded.getLength());
+     if (pCertContext == nullptr)
+     {
+-        SAL_WARN("svl.crypto", "CertCreateCertificateContext failed: " << comphelper::WindowsErrorString(GetLastError()));
++        lcl_signingFailed("certificate", GetLastError());
+         return false;
+     }
+ 
+@@ -1325,8 +1525,11 @@
      aPara.cMsgCert = 1;
      aPara.rgpMsgCert = &pCertContext;
  
@@ -278,6 +551,166 @@ diff -ruN a/svl/source/crypto/cryptosign.cxx b/svl/source/crypto/cryptosign.cxx
      HCRYPTPROV_OR_NCRYPT_KEY_HANDLE* phCryptProvOrNCryptKey = &hCryptKey;
      DWORD nKeySpec;
      BOOL bFreeNeeded;
+@@ -1338,11 +1541,12 @@
+                                            &nKeySpec,
+                                            &bFreeNeeded))
+     {
+-        SAL_WARN("svl.crypto", "CryptAcquireCertificatePrivateKey failed: " << comphelper::WindowsErrorString(GetLastError()));
++        lcl_signingFailed("acquire-key", GetLastError());
+         CertFreeCertificateContext(pCertContext);
+         return false;
+     }
+     assert(!bFreeNeeded);
++    SAL_INFO("svl.crypto", "signing key: " << (nKeySpec == CERT_NCRYPT_KEY_SPEC ? "CNG" : "CryptoAPI CSP"));
+ 
+     CMSG_SIGNER_ENCODE_INFO aSignerInfo = {};
+     aSignerInfo.cbSize = sizeof(aSignerInfo);
+@@ -1374,6 +1578,20 @@
+     aSignerInfo.cAuthAttr = 1;
+     aSignerInfo.rgAuthAttr = &aCertificateAttribute;
+ 
++    // HST Office: a CryptoAPI CSP key signs through lcl_signWithCspKey; the result is a decoded
++    // message that already holds the signer, so the time stamp below starts from it.
++    HCRYPTMSG hSignedMsg = nullptr;
++    if (nKeySpec != CERT_NCRYPT_KEY_SPEC)
++    {
++        hSignedMsg = lcl_signWithCspKey(static_cast<HCRYPTPROV>(hCryptKey), nKeySpec, pCertContext,
++                                        m_dataBlocks, aCertificateAttribute);
++        if (!hSignedMsg)
++        {
++            CertFreeCertificateContext(pCertContext);
++            return false;
++        }
++    }
++
+     CMSG_SIGNED_ENCODE_INFO aSignedInfo = {};
+     aSignedInfo.cbSize = sizeof(aSignedInfo);
+     aSignedInfo.cSigners = 1;
+@@ -1387,38 +1605,46 @@
+     aSignedInfo.cCertEncoded = 1;
+     aSignedInfo.rgCertEncoded = &aCertBlob;
+ 
+-    HCRYPTMSG hMsg = CryptMsgOpenToEncode(PKCS_7_ASN_ENCODING | X509_ASN_ENCODING,
+-                                          CMSG_DETACHED_FLAG,
+-                                          CMSG_SIGNED,
+-                                          &aSignedInfo,
+-                                          nullptr,
+-                                          nullptr);
+-    if (!hMsg)
+-    {
+-        SAL_WARN("svl.crypto", "CryptMsgOpenToEncode failed: " << comphelper::WindowsErrorString(GetLastError()));
+-        CertFreeCertificateContext(pCertContext);
+-        return false;
+-    }
+-
+-    for (size_t i = 0; i < m_dataBlocks.size(); ++i)
++    HCRYPTMSG hMsg = hSignedMsg;
++    if (!hSignedMsg)
+     {
+-        const bool last = (i == m_dataBlocks.size() - 1);
+-        if (!CryptMsgUpdate(hMsg, static_cast<const BYTE *>(m_dataBlocks[i].first), m_dataBlocks[i].second, last))
++        hMsg = CryptMsgOpenToEncode(PKCS_7_ASN_ENCODING | X509_ASN_ENCODING,
++                                    CMSG_DETACHED_FLAG,
++                                    CMSG_SIGNED,
++                                    &aSignedInfo,
++                                    nullptr,
++                                    nullptr);
++        if (!hMsg)
+         {
+-            SAL_WARN("svl.crypto", "CryptMsgUpdate failed: " << comphelper::WindowsErrorString(GetLastError()));
+-            CryptMsgClose(hMsg);
++            lcl_signingFailed("cms-open", GetLastError());
+             CertFreeCertificateContext(pCertContext);
+             return false;
+         }
++
++        for (size_t i = 0; i < m_dataBlocks.size(); ++i)
++        {
++            const bool last = (i == m_dataBlocks.size() - 1);
++            if (!CryptMsgUpdate(hMsg, static_cast<const BYTE *>(m_dataBlocks[i].first), m_dataBlocks[i].second, last))
++            {
++                lcl_signingFailed("cms-sign", GetLastError());
++                CryptMsgClose(hMsg);
++                CertFreeCertificateContext(pCertContext);
++                return false;
++            }
++        }
+     }
+     CertFreeCertificateContext(pCertContext);
+ 
+     PCRYPT_TIMESTAMP_CONTEXT pTsContext = nullptr;
+-    DWORD dwEncodedMessageParamType = CMSG_CONTENT_PARAM;
++    // the CSP path's message is decoded: its whole encoding is CMSG_ENCODED_MESSAGE
++    DWORD dwEncodedMessageParamType = hSignedMsg ? CMSG_ENCODED_MESSAGE : CMSG_CONTENT_PARAM;
+ 
+     if( !m_aSignTSA.isEmpty() )
+     {
+-        HCRYPTMSG hDecodedMsg = CryptMsgOpenToDecode(PKCS_7_ASN_ENCODING | X509_ASN_ENCODING,
++        HCRYPTMSG hDecodedMsg = hSignedMsg;
++        if (!hDecodedMsg)
++        {
++        hDecodedMsg = CryptMsgOpenToDecode(PKCS_7_ASN_ENCODING | X509_ASN_ENCODING,
+                                                      CMSG_DETACHED_FLAG,
+                                                      CMSG_SIGNED,
+                                                      0,
+@@ -1426,7 +1652,7 @@
+                                                      nullptr);
+         if (!hDecodedMsg)
+         {
+-            SAL_WARN("svl.crypto", "CryptMsgOpenToDecode failed: " << comphelper::WindowsErrorString(GetLastError()));
++            lcl_signingFailed("timestamp-decode", GetLastError());
+             CryptMsgClose(hMsg);
+             return false;
+         }
+@@ -1435,7 +1661,7 @@
+ 
+         if (!CryptMsgGetParam(hMsg, CMSG_BARE_CONTENT_PARAM, 0, nullptr, &nTsSigLen))
+         {
+-            SAL_WARN("svl.crypto", "CryptMsgGetParam(CMSG_BARE_CONTENT_PARAM) failed: " << comphelper::WindowsErrorString(GetLastError()));
++            lcl_signingFailed("timestamp-decode", GetLastError());
+             CryptMsgClose(hDecodedMsg);
+             CryptMsgClose(hMsg);
+             return false;
+@@ -1447,7 +1673,7 @@
+ 
+         if (!CryptMsgGetParam(hMsg, CMSG_BARE_CONTENT_PARAM, 0, pTsSig.get(), &nTsSigLen))
+         {
+-            SAL_WARN("svl.crypto", "CryptMsgGetParam(CMSG_BARE_CONTENT_PARAM) failed: " << comphelper::WindowsErrorString(GetLastError()));
++            lcl_signingFailed("timestamp-decode", GetLastError());
+             CryptMsgClose(hDecodedMsg);
+             CryptMsgClose(hMsg);
+             return false;
+@@ -1457,10 +1683,11 @@
+ 
+         if (!CryptMsgUpdate(hDecodedMsg, pTsSig.get(), nTsSigLen, TRUE))
+         {
+-            SAL_WARN("svl.crypto", "CryptMsgUpdate failed: " << comphelper::WindowsErrorString(GetLastError()));
++            lcl_signingFailed("timestamp-decode", GetLastError());
+             CryptMsgClose(hDecodedMsg);
+             return false;
+         }
++        }
+ 
+         DWORD nDecodedSignerInfoLen = 0;
+         if (!CryptMsgGetParam(hDecodedMsg, CMSG_SIGNER_INFO_PARAM, 0, nullptr, &nDecodedSignerInfoLen))
+@@ -1503,7 +1730,7 @@
+                      nullptr,
+                      nullptr))
+         {
+-            SAL_WARN("svl.crypto", "CryptRetrieveTimeStamp failed: " << comphelper::WindowsErrorString(GetLastError()));
++            lcl_signingFailed("timestamp", GetLastError());
+             CryptMsgClose(hDecodedMsg);
+             return false;
+         }
+@@ -1558,7 +1785,7 @@
+ 
+     if (!CryptMsgGetParam(hMsg, dwEncodedMessageParamType, 0, nullptr, &nSigLen))
+     {
+-        SAL_WARN("svl.crypto", "Reading the encoded message via CryptMsgGetParam() failed: " << comphelper::WindowsErrorString(GetLastError()));
++        lcl_signingFailed("cms-read", GetLastError());
+         if (pTsContext)
+             CryptMemFree(pTsContext);
+         CryptMsgClose(hMsg);
 diff -ruN a/xmlsecurity/source/xmlsec/mscrypt/securityenvironment_mscryptimpl.cxx b/xmlsecurity/source/xmlsec/mscrypt/securityenvironment_mscryptimpl.cxx
 --- a/xmlsecurity/source/xmlsec/mscrypt/securityenvironment_mscryptimpl.cxx	2026-11-12 18:17:55.401691004 +0700
 +++ b/xmlsecurity/source/xmlsec/mscrypt/securityenvironment_mscryptimpl.cxx	2026-11-12 18:18:41.264093445 +0700
