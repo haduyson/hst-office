@@ -172,6 +172,14 @@ powershell -File D:\hst-build\tools\scripts\windows\hst4-detach.ps1 -Name build 
 powershell -File D:\hst-build\tools\scripts\windows\hst4-build.ps1 -Status   # bước hiện tại, số bước [build], đuôi build.log, dung lượng trống
 ```
 
+Dùng `-ExpectSha <sha>` để build dừng ngay khi nhánh không còn ở đúng commit đã được báo. Số đo
+lần đầu (13/11/2026, `rc/1.0.2-batch2` cac9177, 28 luồng): toàn bộ quy trình mất 86 phút, riêng
+make 71 phút. Trước đó cây đã được build sẵn khoảng 11 phút, xong phần lớn các thư viện ngoài. Để
+so sánh, bước build trên runner CI mất 157 phút. Phần OpenSSL do nmake build chạy một luồng nên
+kéo dài khoảng 30 phút. MSI cuối cùng nặng khoảng 224 MiB. Build lại cùng commit sau khi chạm một
+tệp đã vá trong `sfx2` mất 26 phút: dựng lại cây (giải nén, vá, rsync) 14 phút, configure 1 phút,
+make và đóng gói MSI 10 phút. Ổ D: cần khoảng 35 GB cho cây build.
+
 [build-macos.sh](../scripts/build-macos.sh) (chỉ kiểm kê, không dùng trong CI; CI dùng `scripts/macos/`, xem mục [macOS](#macos)) nhận `--arch arm64|x86_64`, in lệnh từ
 [arm64](../build-config/macos-arm64.conf) hoặc [x86_64](../build-config/macos-x86_64.conf).
 Script kiểm tra host đúng kiến trúc, Xcode từ 14.3, SDK từ 13.3 và công cụ đóng
