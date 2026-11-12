@@ -160,6 +160,12 @@ def sheet_utility(command):
     return run
 
 
+def previous_versions(host):
+    """Tệp tin ▸ Phiên bản trước: the versions a save overwrote (version_dialog, imported on use)."""
+    from .version_dialog import run
+    run(host.ctx, host.frame)
+
+
 COMMANDS = {
     "Nd30Wizard": nd30_wizard,
     "ToggleDuplex": toggle_duplex,
@@ -177,4 +183,5 @@ COMMANDS = {
     "SplitName": sheet_utility(vietnamese_calc.split_name),
     "SortByGivenName": sheet_utility(vietnamese_calc.sort_by_given_name),
     "DeleteBlankRows": sheet_utility(blank_rows_calc.delete_blank_rows),
+    "PreviousVersions": previous_versions,
 }

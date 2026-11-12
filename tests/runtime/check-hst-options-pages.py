@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Tùy chọn ▸ HST Office ▸ Mở tài liệu and ▸ Giao diện on the real build: the pages load from the extension with
-their handlers, "Kiểu biểu tượng" reads and writes SymbolStyle, and the Options tree lists both pages.
+"""Tùy chọn ▸ HST Office ▸ Mở tài liệu, ▸ Giao diện and ▸ Phiên bản trước on the real build: the pages load from the
+extension with their handlers, "Kiểu biểu tượng" reads and writes SymbolStyle, and the Options tree lists the pages.
 
 Usage: python3 tests/runtime/check-hst-options-pages.py --display :131 [--instdir upstream/libreoffice/instdir] [--out DIR]
                                                         [--port 2197]
@@ -71,6 +71,14 @@ def page_checks(service, parent, check):
     check("Cổ điển writes auto", symbol_style() == "auto", symbol_style())
     look.dispose()
     apps.dispose()
+    keeper = service("org.hst.office.vi.OptionsPreviousVersions")
+    check("the Phiên bản trước handler service exists", keeper is not None)
+    kept = provider.createContainerWindow(EXTENSION + "PreviousVersions.xdl", "", parent, keeper)
+    check("Phiên bản trước page loads", kept is not None and kept.getControl("enabled") is not None)
+    keeper.callHandlerMethod(kept, "initialize", "external_event")
+    check("Lưu phiên bản trước khi ghi đè tệp is ticked by default", kept.getControl("enabled").getState() == 1)
+    check("Xóa toàn bộ asks first: its confirmation starts hidden", not kept.getControl("confirmClear").isVisible())
+    kept.dispose()
 
 
 def main():

@@ -93,10 +93,11 @@ class Dialog:
         return self._add("Edit", name, x, y, w, h, Text=text, MultiLine=multiline, VScroll=multiline, HScroll=False,
                          ReadOnly=readonly, HelpText=help_text or name, Tabstop=not readonly or multiline)
 
-    def listbox(self, name, x, y, w, items, selected=0, h=12, help_text=""):
-        return self._add("ListBox", name, x, y, w, h, Dropdown=True, StringItemList=uno.Any("[]string", tuple(items)),
-                         SelectedItems=uno.Any("[]short", (selected,)),
-                         LineCount=min(10, len(items)), HelpText=help_text or name)
+    def listbox(self, name, x, y, w, items, selected=0, h=12, help_text="", dropdown=True):
+        """A drop-down list, or with dropdown=False a list of `h` units showing several rows at once."""
+        return self._add("ListBox", name, x, y, w, h, Dropdown=dropdown, StringItemList=uno.Any("[]string", tuple(items)),
+                         SelectedItems=uno.Any("[]short", (selected,) if items else ()),
+                         LineCount=min(10, max(1, len(items))), HelpText=help_text or name)
 
     def check(self, name, text, x, y, w, state=True, h=10):
         return self._add("CheckBox", name, x, y, w, h, Label=text, State=1 if state else 0, HelpText=text)
