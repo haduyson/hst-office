@@ -149,3 +149,12 @@ jobs:
           path: D:\hst\installer\
           if-no-files-found: error
           retention-days: 14
+      - name: Check the installer has no CLI-UNO bridge and nothing for the GAC
+        if: ${{ steps.installer.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # After the upload, so a failing MSI can still be inspected: no cli_*.dll, policy assembly or MsiAssembly row.
+          for msi in D:/hst/installer/*.msi; do
+            python -I -W ignore::DeprecationWarning scripts/check-msi-no-cli.py --msi "$msi" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
