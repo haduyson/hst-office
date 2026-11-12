@@ -83,7 +83,7 @@ def check(label, got, want, failures):
         failures.append(label)
 
 
-def probe(desktop, out, failures):
+def probe(desktop, out, failures, info_only=()):
     for factory, filter_name, extension, text, body, want in CASES:
         print(f"{factory}: new document", flush=True)
         doc = desktop.loadComponentFromURL(f"private:factory/{factory}", "_blank", 0,
@@ -100,7 +100,14 @@ def probe(desktop, out, failures):
         print(f"{factory}: load the saved .{extension}", flush=True)
         doc = desktop.loadComponentFromURL(url, "_blank", 0, (pv("Hidden", True), pv("MacroExecutionMode", 4)))
         try:
-            check(f"{factory} VBA macro after saving and loading .{extension}", run(doc), want, failures)
+            label = f"{factory} VBA macro after saving and loading .{extension}"
+            if extension in info_only:
+                try:
+                    print(f"INFO: {label}: got {run(doc)!r}, want {want!r}", flush=True)
+                except Exception as error:  # noqa: BLE001 - reported, not counted
+                    print(f"INFO: {label}: {type(error).__name__}: {getattr(error, 'Message', error)}", flush=True)
+            else:
+                check(label, run(doc), want, failures)
         finally:
             doc.close(True)
 
@@ -109,6 +116,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--soffice", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--info-only", default="", help="comma-separated round trips only reported, e.g. docm: stock "
+                        "LibreOffice does not write a VBA project made in Writer into .docm (HST Office keeps it)")
     args = parser.parse_args()
     if not os.path.isfile(args.soffice):
         print(f"FAIL: no office at {args.soffice}")
@@ -121,7 +130,7 @@ def main():
     log = open(os.path.join(out, "soffice.log"), "w")  # noqa: SIM115 - closed after the office exits
     process, desktop = connect(args.soffice, profile, log)
     try:
-        probe(desktop, out, failures)
+        probe(desktop, out, failures, tuple(filter(None, args.info_only.split(","))))
     except Exception as error:  # noqa: BLE001 - a UNO error ends the probe as a failure, not a traceback only
         print(f"FAIL: {type(error).__name__}: {getattr(error, 'Message', error)}")
         failures.append("exception")

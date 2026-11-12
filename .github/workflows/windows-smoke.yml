@@ -482,7 +482,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/windows/run-vba-probe.sh 'C:\Program Files\LibreOffice\program' "$RUNNER_TEMP/out/$SCENARIO/vba-libreoffice"
+          bash scripts/windows/run-vba-probe.sh 'C:\Program Files\LibreOffice\program' "$RUNNER_TEMP/out/$SCENARIO/vba-libreoffice" --info-only docm
         env:
           SCENARIO: ${{ matrix.scenario }}
       - name: Repair, refused downgrade and uninstall leave the GAC as before HST Office
@@ -502,7 +502,7 @@ jobs:
           SCENARIO: ${{ matrix.scenario }}
         run: |
           set -euo pipefail
-          bash scripts/windows/run-vba-probe.sh 'C:\Program Files\LibreOffice\program' "$RUNNER_TEMP/out/$SCENARIO/vba-libreoffice-after"
+          bash scripts/windows/run-vba-probe.sh 'C:\Program Files\LibreOffice\program' "$RUNNER_TEMP/out/$SCENARIO/vba-libreoffice-after" --info-only docm
       - name: Upload install-path evidence
         if: ${{ always() && matrix.scenario != 'commands' && !startsWith(matrix.scenario, 'ui-parity') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
