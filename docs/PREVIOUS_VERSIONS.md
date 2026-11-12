@@ -10,6 +10,14 @@ Hai cơ chế giúp người dùng lấy lại công việc. Hướng dẫn cho 
 `false`: chỉ bản khôi phục trong thư mục backup của hồ sơ được ghi 3 phút một lần, tệp của người dùng không bao giờ bị
 tự lưu đè. Giá trị người dùng (Công cụ ▸ Tùy chọn ▸ Tải/Lưu ▸ Chung) hoặc quản trị viên đặt vẫn thắng giá trị mặc định này.
 
+Tài liệu lớn được lưu thưa hơn để không làm gián đoạn người dùng
+([`hst-adaptive-autorecovery.patch`](../patches/libreoffice/hst-adaptive-autorecovery.patch)): mỗi tài liệu đến hạn
+khi đã có thay đổi chưa lưu khôi phục trong đúng khoảng của nó; tài liệu có tệp hoặc bản khôi phục mới nhất lớn hơn
+`AutoSave/HstLargeDocumentSize` (MB, mặc định `5`, `0` = tắt) dùng
+max(`TimeIntervall`, `AutoSave/HstLargeDocumentTimeIntervall`) (phút, mặc định `10`). Tài liệu chưa lưu lần nào được
+coi là nhỏ cho đến khi có bản khôi phục đầu tiên. Lưu khi sập hoặc khi tắt phiên vẫn lưu mọi tài liệu ngay, kể cả tài
+liệu lớn. Ô thời gian trong Tùy chọn có chú thích (tooltip) về quy tắc này.
+
 ## Phiên bản trước
 
 Mỗi lần lưu đè một tệp đã có trên đĩa (mọi định dạng), bản trên đĩa ngay trước khi ghi đè được cất vào

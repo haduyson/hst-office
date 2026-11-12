@@ -1,0 +1,223 @@
+HST Office: adaptive AutoRecovery interval (owner decision 2026-11-13).
+
+- officecfg Recovery.xcs: new AutoSave/HstLargeDocumentSize (MB, default 5, 0 = off) and
+  AutoSave/HstLargeDocumentTimeIntervall (minutes, default 10). The 3-minute TimeIntervall stays in
+  extensions/hst-vietnamese-tools/RecoveryDefaults.xcu.
+- framework autorecovery.cxx: the global timer still follows TimeIntervall, and each document is
+  due once it has been modified for its own interval (upstream getModifiedStateDuration logic). A
+  document whose last known size exceeds HstLargeDocumentSize waits
+  max(TimeIntervall, HstLargeDocumentTimeIntervall) instead, so large files do not stall the user
+  every 3 minutes. The size is the larger of the local document file and its newest recovery
+  backup, refreshed on load, after a user save and after every recovery save; a never-saved
+  document counts as small until its first backup exists. Remote files are not inspected.
+  Emergency and session saves skip the interval check as upstream, so large documents are still
+  saved on crash and shutdown.
+- cui optsavepage.ui + vi messages.po: tooltip on the interval field explains the large-document rule.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_adaptive_autorecovery_patch.py.
+---
+--- a/officecfg/registry/schema/org/openoffice/Office/Recovery.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Recovery.xcs
+@@ -130,35 +130,68 @@
+       <prop oor:name="TimeIntervall" oor:type="xs:int" oor:nillable="false">
+         <!-- UIHints: Tools  Options - General  Save - [Section] Save -->
+         <info>
+           <desc>Specifies the AutoSave time interval in minutes.</desc>
+           <label>Minutes</label>
+         </info>
+         <constraints>
+           <minInclusive oor:value="1">
+             <info>
+               <desc>Specifies that the minimum time interval is 1 minute.</desc>
+             </info>
+           </minInclusive>
+           <maxInclusive oor:value="60">
+             <info>
+               <desc>Specifies that the maximum time interval is 60 minutes.</desc>
+             </info>
+           </maxInclusive>
+         </constraints>
+         <value>10</value>
+       </prop>
++      <prop oor:name="HstLargeDocumentSize" oor:type="xs:int" oor:nillable="false">
++        <!-- HST Office: adaptive AutoRecovery interval for large documents -->
++        <info>
++          <desc>Size in [MB] above which a document (its file or newest recovery backup) counts as large and is saved for recovery every HstLargeDocumentTimeIntervall minutes instead of TimeIntervall. 0 disables this.</desc>
++        </info>
++        <constraints>
++          <minInclusive oor:value="0">
++            <info>
++              <desc>0 disables the longer interval for large documents.</desc>
++            </info>
++          </minInclusive>
++        </constraints>
++        <value>5</value>
++      </prop>
++      <prop oor:name="HstLargeDocumentTimeIntervall" oor:type="xs:int" oor:nillable="false">
++        <!-- HST Office: adaptive AutoRecovery interval for large documents -->
++        <info>
++          <desc>AutoRecovery time interval in minutes for large documents (see HstLargeDocumentSize). A smaller value than TimeIntervall is ignored.</desc>
++        </info>
++        <constraints>
++          <minInclusive oor:value="1">
++            <info>
++              <desc>Specifies that the minimum time interval is 1 minute.</desc>
++            </info>
++          </minInclusive>
++          <maxInclusive oor:value="60">
++            <info>
++              <desc>Specifies that the maximum time interval is 60 minutes.</desc>
++            </info>
++          </maxInclusive>
++        </constraints>
++        <value>10</value>
++      </prop>
+       <prop oor:name="MinSpaceDocSave" oor:type="xs:int" oor:nillable="false">
+         <info>
+           <desc>Define the minimum space in [MB], which must be available on disc to save backups for open documents. Note: values less than 1 will be ignored.</desc>
+         </info>
+         <value>5</value>
+       </prop>
+       <prop oor:name="MinSpaceConfigSave" oor:type="xs:int" oor:nillable="false">
+         <info>
+           <desc>Define the minimum space in [MB], which must be available on disc to store the recovery configuration. Note: values less than 1 will be ignored.</desc>
+         </info>
+         <value>1</value>
+       </prop>
+     </group>
+   </component>
+ </oor:component-schema>
+--- a/framework/source/services/autorecovery.cxx
++++ b/framework/source/services/autorecovery.cxx
+@@ -391,6 +391,11 @@
+                             ViewNames;      // names of the view which were active at emergency-save time
+ 
+             sal_Int32 ID;
++
++            /** HST Office: last known size in bytes of the document file or of its
++                newest recovery backup (0 if unknown). Large documents use a longer
++                AutoRecovery interval, see hst_docAutoSaveInterval(). */
++            sal_Int64 KnownSize = 0;
+     };
+ 
+     /** @short  used to know every currently open document. */
+@@ -2297,6 +2302,41 @@
+     }
+ }
+ 
++// HST Office: size of a local file in bytes; 0 for remote, empty or missing URLs.
++// Only file: URLs are inspected so the timer never waits for a network share.
++sal_Int64 hst_localFileSize(const OUString& rURL)
++{
++    if (!rURL.startsWithIgnoreAsciiCase("file:"))
++        return 0;
++    osl::DirectoryItem aItem;
++    osl::FileStatus aStatus(osl_FileStatus_Mask_FileSize);
++    if (osl::DirectoryItem::get(rURL, aItem) != osl::FileBase::E_None
++        || aItem.getFileStatus(aStatus) != osl::FileBase::E_None)
++        return 0;
++    return static_cast<sal_Int64>(aStatus.getFileSize());
++}
++
++// HST Office: remember the larger of the document file and its newest recovery backup;
++// a never-saved document has no file, so only its backup counts (none yet: small).
++void hst_refreshKnownSize(AutoRecovery::TDocumentInfo& rInfo)
++{
++    rInfo.KnownSize = std::max(hst_localFileSize(rInfo.OrgURL), hst_localFileSize(rInfo.OldTempURL));
++}
++
++// HST Office: AutoRecovery interval [ms] of one document. Documents larger than
++// AutoSave/HstLargeDocumentSize [MB] (0 = off) wait AutoSave/HstLargeDocumentTimeIntervall
++// minutes, never less than the user's own interval; all other documents keep nNormalMs.
++sal_Int64 hst_docAutoSaveInterval(const AutoRecovery::TDocumentInfo& rInfo, sal_Int64 nNormalMs)
++{
++    const sal_Int64 nLargeMB = officecfg::Office::Recovery::AutoSave::HstLargeDocumentSize::get();
++    if (nLargeMB <= 0 || rInfo.KnownSize <= nLargeMB * sal_Int64(1024 * 1024))
++        return nNormalMs;
++    const sal_Int64 nLargeMs
++        = officecfg::Office::Recovery::AutoSave::HstLargeDocumentTimeIntervall::get()
++          * sal_Int64(60000); // min -> ms
++    return std::max(nNormalMs, nLargeMs);
++}
++
+ void AutoRecovery::implts_updateTimer()
+ {
+     implts_stopTimer();
+@@ -2328,11 +2368,13 @@
+                 sal_Int64 nDirtyDuration = xDocRecovery2->getModifiedStateDuration();
+                 if (nDirtyDuration < 0)
+                     continue;
+-                if (nDirtyDuration > nConfiguredAutoSaveInterval)
+-                    nDirtyDuration = nConfiguredAutoSaveInterval; // nMilliSeconds will be 0
++                // HST Office: large documents are due later (see hst_docAutoSaveInterval).
++                const sal_Int64 nDocInterval
++                    = hst_docAutoSaveInterval(docInfo, nConfiguredAutoSaveInterval);
++                if (nDirtyDuration > nDocInterval)
++                    nDirtyDuration = nDocInterval; // nMilliSeconds will be 0
+ 
+-                nMilliSeconds
+-                    = std::min(nMilliSeconds, nConfiguredAutoSaveInterval - nDirtyDuration);
++                nMilliSeconds = std::min(nMilliSeconds, nDocInterval - nDirtyDuration);
+             }
+         }
+     }
+@@ -2537,6 +2579,7 @@
+ 
+     css::uno::Reference< css::frame::XTitle > xTitle(aNew.Document, css::uno::UNO_QUERY_THROW);
+     aNew.Title = xTitle->getTitle ();
++    hst_refreshKnownSize(aNew); // HST Office
+ 
+     // classify the used application module, which is used by this document.
+     implts_specifyAppModuleAndFactory(aNew);
+@@ -2749,6 +2792,7 @@
+     sRemoveURL2 = aInfo.NewTempURL;
+     aInfo.OldTempURL.clear();
+     aInfo.NewTempURL.clear();
++    hst_refreshKnownSize(aInfo); // HST Office: size of the file just saved
+ 
+     comphelper::SequenceAsHashMap lDescriptor(aInfo.Document->getArgs());
+     aInfo.RealFilter = lDescriptor.getUnpackedValueOrDefault(utl::MediaDescriptor::PROP_FILTERNAME, OUString());
+@@ -3007,7 +3051,8 @@
+             {
+                 const sal_Int64 nDirtyDuration = xDocRecovery2->getModifiedStateDuration();
+                 // Round up to second - if this document is almost ready for autosave, do it now.
+-                if (nDirtyDuration + 999 < nConfiguredAutoSaveInterval)
++                // HST Office: a large document waits for its own, longer interval.
++                if (nDirtyDuration + 999 < hst_docAutoSaveInterval(aInfo, nConfiguredAutoSaveInterval))
+                 {
+                     aInfo.DocumentState |= DocState::Handled;
+                     continue;
+@@ -3279,6 +3324,7 @@
+     OUString sRemoveFile      = rInfo.OldTempURL;
+     rInfo.OldTempURL = rInfo.NewTempURL;
+     rInfo.NewTempURL.clear();
++    hst_refreshKnownSize(rInfo); // HST Office: size of the backup just written
+ 
+     // If it is modified, a recovery file has just been created, so add to RecoveryList.
+     implts_flushConfigItem(rInfo, /*bRemoveIt=*/false, /*bAllowAdd=*/bModified);
+--- a/cui/uiconfig/ui/optsavepage.ui
++++ b/cui/uiconfig/ui/optsavepage.ui
+@@ -190,6 +190,7 @@
+                     <property name="can-focus">True</property>
+                     <property name="activates-default">True</property>
+                     <property name="truncate-multiline">True</property>
++                    <property name="tooltip-text" translatable="yes" context="optsavepage|hstautosavelarge">Documents larger than 5 MB are saved every 10 minutes, or at this interval if it is longer.</property>
+                     <property name="adjustment">adjustment1</property>
+                     <child internal-child="accessible">
+                       <object class="AtkObject" id="autosave_spin-atkobject">
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -17437,6 +17437,12 @@
+ msgid "minutes"
+ msgstr "phút"
+ 
++#. hstAs
++#: cui/uiconfig/ui/optsavepage.ui
++msgctxt "optsavepage|hstautosavelarge"
++msgid "Documents larger than 5 MB are saved every 10 minutes, or at this interval if it is longer."
++msgstr "Tài liệu lớn hơn 5 MB được lưu mỗi 10 phút, hoặc theo khoảng này nếu dài hơn."
++
+ #. M5CMv
+ #: cui/uiconfig/ui/optsavepage.ui:224
+ msgctxt "optsavepage|userautosave"
