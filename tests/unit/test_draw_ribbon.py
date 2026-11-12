@@ -5,6 +5,7 @@ import importlib.util
 import os
 import re
 import unittest
+import xml.etree.ElementTree as ET
 
 from _paths import ROOT
 
@@ -28,6 +29,11 @@ def section(text, path):
 
 def added(text):
     return "\n".join(line[1:] for line in text.splitlines() if line.startswith("+") and not line.startswith("+++"))
+
+
+def new_side(text):
+    """The lines of the patched file the hunks show (added and context lines)."""
+    return "\n".join(line[1:] for line in text.splitlines() if line[:1] in "+ " and not line.startswith("+++"))
 
 
 class DrawRibbonPatch(unittest.TestCase):
@@ -54,9 +60,78 @@ class DrawRibbonPatch(unittest.TestCase):
         self.assertIn("+        <value>notebookbar.ui</value>", xcu)
         self.assertIn("-            <value>true</value>\n+            <value>false</value>", xcu)
 
+    def test_every_group_has_the_hst_look(self):
+        ui = new_side(section(self.patch, gen.DRAW_UI))
+        self.assertNotIn('name="style" value="italic"', ui)
+        self.assertEqual(ui.count('name="style" value="normal"'), ui.count('<attribute name="scale" value="0.9"'))
+
+    def test_only_the_extension_tab_keeps_its_right_hand_block(self):
+        ui = new_side(section(self.patch, gen.DRAW_UI))
+        # the hunks show what changed; Phần mở rộng's block is unchanged, so it may lie outside them
+        self.assertLessEqual(set(re.findall(r'class="sfxlo-DropdownBox" id="([^"]+)"', ui)), gen.KEEP_TAB_BLOCKS)
+        self.assertEqual(gen.KEEP_TAB_BLOCKS, {"Extension-Menu"})
+        self.assertNotIn('"Menu Home"', ui)
+        self.assertIn('id="btnPageDeletePage"', ui)  # a command the dropped Trang ▾ menu held
+        self.assertIn('id="gdInsertHstFields"', ui)
+
+    def test_contextual_tabs_come_after_the_extension_tab(self):
+        main = gen.TAB_ORDER.index("Extension")
+        self.assertEqual(gen.TAB_ORDER[:main + 1], ["File", "Home Tab", "Insert", "Arrange", "Page", "Export", "Review",
+                                                     "View", "Help Tab", "Extension"])
+        self.assertIn("Master", gen.TAB_ORDER[main + 1:])
+
     def test_unlabelled_buttons_are_suppressed(self):
         suppr = section(self.patch, gen.DRAW_SUPPR)
         self.assertIn("sd/uiconfig/sdraw/ui/notebookbar.ui://GtkToolButton[@id='btnExportToPDF'] button-no-label", suppr)
+
+
+GROUPS = """<interface><object class="GtkMenu" id="Menu Home"/><object class="GtkMenu" id="Menu Addons"/>
+<object class="sfxlo-PriorityHBox" id="Home Tab">
+ <child><object class="sfxlo-PriorityMergedHBox" id="pmhbHome">
+  <child><object class="GtkGrid" id="gdB"><property name="margin-start">3</property><property name="margin-end">6</property>
+   <property name="margin-top">6</property><property name="margin-bottom">6</property><property name="row-spacing">3</property>
+   <property name="column-spacing">3</property>
+   <child><object class="GtkBox" id="bxHstCaptionB"><child><object class="GtkLabel" id="lbB">
+    <property name="label">B</property><attributes><attribute name="style" value="italic"/></attributes></object></child></object></child>
+  </object><packing><property name="position">1</property></packing></child>
+  <child><object class="GtkGrid" id="gdA"><property name="margin-start">3</property>
+   <child><object class="GtkLabel" id="lbA"><property name="label">A</property>
+    <attributes><attribute name="style" value="italic"/></attributes></object></child>
+  </object><packing><property name="position">0</property></packing></child>
+ </object></child>
+ <child><object class="sfxlo-DropdownBox" id="Home-Menu"><child>
+  <object class="svtlo-ManagedMenuButton" id="Home-HomeButton:Menu Home"/></child></object></child>
+ <child><object class="sfxlo-DropdownBox" id="Extension-Menu"><child>
+  <object class="svtlo-ManagedMenuButton" id="Extension-ExtensionButton:Menu Addons"/></child></object></child>
+</object></interface>"""
+
+
+class DrawRibbonSteps(unittest.TestCase):
+    def setUp(self):
+        self.root = ET.fromstring(GROUPS)
+
+    def test_groups_take_the_hst_look_whether_or_not_their_caption_is_boxed(self):
+        self.assertEqual(gen.hst_group_look(self.root), 2)
+        for gid in ("gdA", "gdB"):
+            grid = gen.find(self.root, gid)
+            props = {p.get("name"): p.text for p in grid.findall("property")}
+            self.assertEqual({k: props[k] for k, _v in gen.HST_GROUP_GRID}, dict(gen.HST_GROUP_GRID))
+            self.assertEqual(gen.caption_of(grid).find("attributes/attribute").get("value"), "normal")
+        self.assertEqual(gen.hst_group_look(self.root), 0)  # idempotent
+
+    def test_tab_blocks_and_their_menus_go_but_the_extension_menus(self):
+        self.assertEqual(gen.drop_tab_blocks(self.root), 1)
+        left = {o.get("id") for o in self.root.iter("object")}
+        self.assertNotIn("Home-Menu", left)
+        self.assertNotIn("Menu Home", left)
+        self.assertTrue({"Extension-Menu", "Menu Addons"} <= left)
+
+    def test_groups_are_laid_out_in_file_order(self):
+        gen.order_by_position(self.root)
+        box = gen.find(self.root, "pmhbHome")
+        positions = [(h.find("object").get("id"), h.find("packing/property[@name='position']").text)
+                     for h in box.findall("child")]
+        self.assertEqual(positions, [("gdB", "0"), ("gdA", "1")])
 
 
 class DrawEnginePatch(unittest.TestCase):
@@ -71,6 +146,20 @@ class DrawEnginePatch(unittest.TestCase):
         self.assertIn('u"draw8"_ustr, STR_HST_BS_FMT_ODG', body)
         self.assertIn('msgstr "Bản vẽ trống"', body)
         self.assertIn('msgstr "Bản vẽ ODF (.odg)"', body)
+
+
+class DrawMenubarTogglePatch(unittest.TestCase):
+    patch = read("hst-menubar-toggle-draw.patch")
+
+    def test_view_menu_offers_the_menu_bar_after_the_ui_picker(self):
+        menu = section(self.patch, "sd/uiconfig/sdraw/menubar/menubar.xml")
+        self.assertIn('".uno:UIPicker" menu:style="text"/>\n+      <menu:menuitem menu:id=".uno:Menubar"', menu)
+
+    def test_tab_row_menu_starts_with_the_menu_bar_and_drops_file_and_ui_choosers(self):
+        popup = section(self.patch, "sd/uiconfig/sdraw/popupmenu/notebookbar.xml")
+        self.assertIn('+  <menu:menuitem menu:id=".uno:Menubar" menu:style="text"/>', popup)
+        for command in ("AddDirect", "RecentFileList", "CloseDoc", "UIPicker", "AvailableToolbars"):
+            self.assertIn(f'-  <menu:menuitem menu:id=".uno:{command}"', popup)
 
 
 if __name__ == "__main__":

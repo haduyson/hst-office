@@ -25,8 +25,7 @@ import xml.etree.ElementTree as ET
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 UI = {"writer": "sw/uiconfig/swriter/ui/notebookbar.ui", "calc": "sc/uiconfig/scalc/ui/notebookbar.ui",
       "impress": "sd/uiconfig/simpress/ui/notebookbar.ui", "draw": "sd/uiconfig/sdraw/ui/notebookbar.ui"}
-# Ladders added after the committed patches carry "since": <stage>; each stage has its own follow-up patch,
-# which changes the header from the ladders before it to the ladders including it.
+# Ladders added after the committed patches carry "since": <stage>, each written by its stage's follow-up patch.
 STAGES = {"draw": "hst-ribbon-scale-ladders-draw.patch"}
 STATES = {"M": 1, "S": 2, "C": 3}
 HEADER = "vcl/inc/HstRibbonLadders.hxx"
@@ -57,11 +56,8 @@ class LadderError(Exception):
 
 def stage(data, since=None):
     """The ladders up to a stage: without "since" (the committed patches), plus those of `since`."""
-    if since is not None and since not in STAGES:
-        raise LadderError(f"unknown stage {since!r}")
-    for ladder in data["ladders"]:
-        if ladder.get("since") not in (None, *STAGES):
-            raise LadderError(f"{ladder['app']}/{ladder['box']}: unknown stage {ladder['since']!r}")
+    for name in (n for n in [since] + [ladder.get("since") for ladder in data["ladders"]] if n not in (None, *STAGES)):
+        raise LadderError(f"unknown stage {name!r}")
     return dict(data, ladders=[l for l in data["ladders"] if l.get("since") in (None, since)])
 
 
@@ -169,8 +165,7 @@ def main():
     parser.add_argument("--data", default=os.path.join(ROOT, "data/ribbon/scaling-ladders.json"))
     parser.add_argument("--base", default=os.path.join(ROOT, "patches/libreoffice/hst-ribbon-scale-ladders.patch"))
     parser.add_argument("--out", default=os.path.join(ROOT, "patches/libreoffice/hst-ribbon-scale-ladders-collapse.patch"))
-    parser.add_argument("--since", choices=sorted(STAGES),
-                        help="write the follow-up patch of this stage (default --out: its patch in patches/libreoffice)")
+    parser.add_argument("--since", choices=sorted(STAGES), help="write this stage's follow-up patch (its own --out)")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     with open(args.data, encoding="utf-8") as handle:

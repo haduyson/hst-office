@@ -14,7 +14,7 @@ The X display must already run, at least 2400 px wide. Per app and width:
     their group button (Styles "Kiểu", Sheets' Number);
   - Find & Replace is a button of the paragraph group (Sheets: alignment); at 2400 px the group "Công cụ" has the
     tab menu and the HST commands in rows but no "Tìm tính năng" button (the tab row has the search box), and the tab
-    menu offers "Tìm tính năng" (ribbon_home_tools_gui.py).
+    menu offers "Tìm tính năng" (ribbon_home_tools_gui.py); Draw's ribbon has no such block, nor a "Công cụ" caption.
 Prints the visible group captions per width. Exit 1 when a check fails.
 """
 import argparse
@@ -53,6 +53,7 @@ SHOW_OR_BUTTON = {("calc", 1366): ["Số", "Kiểu"], ("calc", 1485): ["Số", "
                   ("writer", 1366): ["Đoạn văn", "Kiểu"], ("impress", 1366): ["Đoạn văn"], ("draw", 1366): ["Đoạn văn"]}
 NO_OVERFLOW = (1366, 1485)  # widths at which no group may be folded into the "»" overflow
 WIDE = {"writer": 2400, "calc": 2400, "impress": 2400, "draw": 2400}  # nothing folds: the whole "Công cụ" group shows
+TOOLS_BLOCK = {"writer", "calc", "impress"}  # Draw's ribbon was built without the tabs' right-hand blocks
 
 
 def showing(node):
@@ -141,8 +142,12 @@ def check_app(app, args, port):
         tabs.xdo(args.display, "windowsize", wid, str(WIDE[app]), "900")
         time.sleep(4)
         labels, _buttons, _banner = measure(WIDE[app])
-        tools.check_tools_group(tabs, args, app, WIDE[app], [(n, b) for n, b in labels if b[3] < 30])
-        tools.check_menu_has_search(tabs, args, app)
+        wide_captions = [(n, b) for n, b in labels if b[3] < 30]
+        if app in TOOLS_BLOCK:
+            tools.check_tools_group(tabs, args, app, WIDE[app], wide_captions)
+            tools.check_menu_has_search(tabs, args, app)
+        else:
+            tabs.record(f"[{app} {WIDE[app]}] no right-hand Tools block", "Công cụ" not in dict(wide_captions), wide_captions)
         if args.shots:
             office.screenshot(os.path.join(args.shots, f"home-fit-{app}-{WIDE[app]}.png"))
     finally:

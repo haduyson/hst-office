@@ -6,8 +6,8 @@ Usage: python3 tests/runtime/check-draw-pdf-edit.py [--instdir DIR] [--display :
 
 A two-page PDF made by HST Office itself (pdf_samples) opens in HST PDF; "Chỉnh sửa bằng HST Draw"
 (.uno:HSTPdfEditInDraw) hands it to HST Draw. Then, with the Draw window 1485 x 900:
-  - the HST ribbon shows, with Draw's tabs in order (Tệp tin, Trang đầu, Chèn, Sắp xếp, Trang, Xem,
-    Xuất/PDF, Xem lại, Trợ giúp, Phần mở rộng), and nothing of Trang đầu is folded into "»";
+  - the HST ribbon shows, without the classic menu bar, with Draw's tabs in order (TABS), and nothing of
+    Trang đầu is folded into "»";
   - a text box of the PDF is edited by keyboard (selected, F2, End, typed);
   - the drawing is exported to PDF and saved as .odg, and the exported PDF holds the edit (pdftotext);
   - Xuất/PDF ▸ "Mở trong HST PDF" (org.hst.office.vi:OpenInHstPdf) shows the edited drawing in HST PDF, also
@@ -37,7 +37,7 @@ _spec.loader.exec_module(home_fit)
 
 PORT = 7436
 WIDTH, HEIGHT = 1485, 900
-TABS = ["Tệp tin", "Trang đầu", "Chèn", "Sắp xếp", "Trang", "Xem", "Xuất/PDF", "Xem lại", "Trợ giúp", "Phần mở rộng"]
+TABS = ["Tệp tin", "Trang đầu", "Chèn", "Sắp xếp", "Trang", "Xuất/PDF", "Xem lại", "Xem", "Trợ giúp", "Phần mở rộng"]
 MARK, EDIT = "HSTPDF-1", " SUA-OK"
 ROWS = []
 
@@ -49,12 +49,9 @@ def record(name, ok, detail=""):
 
 
 def components(office, service):
-    found, enum = [], office.desktop().getComponents().createEnumeration()
-    while enum.hasMoreElements():
-        item = enum.nextElement()
-        if hasattr(item, "supportsService") and item.supportsService(service):
-            found.append(item)
-    return found
+    enum = office.desktop().getComponents().createEnumeration()
+    items = [enum.nextElement() for _ in iter(enum.hasMoreElements, False)]
+    return [item for item in items if hasattr(item, "supportsService") and item.supportsService(service)]
 
 
 def wait(predicate, timeout):
@@ -82,11 +79,8 @@ def open_in_draw(office, sample):
 
 def text_shape(draw, mark):
     page = draw.getDrawPages().getByIndex(0)
-    for i in range(page.getCount()):
-        shape = page.getByIndex(i)
-        if hasattr(shape, "getString") and mark in shape.getString():
-            return shape
-    return None
+    shapes = (page.getByIndex(i) for i in range(page.getCount()))
+    return next((shape for shape in shapes if hasattr(shape, "getString") and mark in shape.getString()), None)
 
 
 def edit_by_keyboard(args, draw, shape):
@@ -132,6 +126,7 @@ def check(args, office, sample):
 
     names = wait(lambda: gui.visible_names() or None, 30) or []
     record(f"[{WIDTH}] the HST ribbon shows Draw's tabs in order", [n for n in names if n in TABS] == TABS, names)
+    record("Draw's Tabbed mode hides the classic menu bar", not frame.LayoutManager.isElementVisible("private:resource/menubar/menubar"))
     home = next((t for t in gui.ribbon_tabs() if t[0] == "Trang đầu"), None)
     if home and not home[2]:
         gui.click(args.display, home[1])
@@ -153,8 +148,7 @@ def check(args, office, sample):
 
     before = len(viewer_frames(office))
     threading.Thread(target=office.dispatch, args=(frame, "org.hst.office.vi:OpenInHstPdf"), daemon=True).start()
-    viewer = wait(lambda: len(viewer_frames(office)) > before, 60)
-    record("Mở trong HST PDF shows the edited drawing in HST PDF", bool(viewer))
+    record("Mở trong HST PDF shows the edited drawing in HST PDF", bool(wait(lambda: len(viewer_frames(office)) > before, 60)))
     for viewer_frame in viewer_frames(office):
         viewer_frame.close(True)
 
@@ -162,8 +156,8 @@ def check(args, office, sample):
     office.set_config("/org.openoffice.Office.HSTPdfViewer/Viewer", "OpenPdfInViewer", False)
     try:
         threading.Thread(target=office.dispatch, args=(frame, "org.hst.office.vi:OpenInHstPdf"), daemon=True).start()
-        viewer = wait(lambda: len(viewer_frames(office)) > 0, 60)
-        record("with HST PDF turned off in Options, Mở trong HST PDF still opens HST PDF", bool(viewer))
+        record("with HST PDF turned off in Options, Mở trong HST PDF still opens HST PDF",
+               bool(wait(lambda: len(viewer_frames(office)) > 0, 60)))
         for viewer_frame in viewer_frames(office):
             viewer_frame.close(True)
     finally:

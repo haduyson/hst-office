@@ -26,8 +26,8 @@ TAIL_1_0 = ["Xem lại", "Xem", "Trợ giúp", "Phần mở rộng"]
 TABS = {"writer": HEAD + ["Thiết kế", "Bố cục", "Tham khảo", "Gửi thư"] + TAIL_1_0,
         "calc": HEAD + ["Bố trí Trang", "Công thức", "Dữ liệu"] + TAIL_1_0,
         "impress": HEAD + ["Thiết kế", "Chuyển tiếp", "Hoạt hình", "Trình chiếu"] + TAIL_1_0,
-        # HST Draw edits PDFs (hst-ribbon-draw.patch): its own tabs, Xem before Xuất/PDF and Xem lại
-        "draw": HEAD + ["Sắp xếp", "Trang", "Xem", "Xuất/PDF", "Xem lại", "Trợ giúp", "Phần mở rộng"]}
+        # HST Draw edits PDFs (hst-ribbon-draw.patch): its own tabs; Xem last, as in the other apps
+        "draw": HEAD + ["Sắp xếp", "Trang", "Xuất/PDF", "Xem lại", "Xem", "Trợ giúp", "Phần mở rộng"]}
 NAMES = {"writer": "HST Writer", "calc": "HST Sheets", "impress": "HST Slides", "draw": "HST Draw"}
 DOCS = {"writer": "com.sun.star.text.TextDocument", "calc": "com.sun.star.sheet.SpreadsheetDocument",
         "impress": "com.sun.star.presentation.PresentationDocument", "draw": "com.sun.star.drawing.DrawingDocument"}
