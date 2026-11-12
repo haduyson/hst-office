@@ -74,6 +74,7 @@ function Get-CliGac([string]$Name) {
 
 function Invoke-Msiexec([string[]]$Arguments, [string]$Name) {
     $log = Join-Path $Out "$Name.log"
+    Write-Host "$(Get-Date -Format o) msiexec $($Arguments -join ' ') ($Name)"
     # Wait for msiexec itself only: -Wait would also wait for applications the Restart Manager restarts (Explorer).
     $p = Start-Process msiexec.exe -PassThru -ArgumentList ($Arguments + '/qn', '/norestart', '/l*v', "`"$log`"")
     $p.WaitForExit()
@@ -109,6 +110,7 @@ function Invoke-VbaProbe([string]$Program, [string]$Name) {
     $p = Start-Process (Join-Path $Program 'python.exe') -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
         -ArgumentList "`"$vbaProbe`"", '--soffice', "`"$(Join-Path $Program 'soffice.exe')`"", '--out', "`"$dir`""
     $null = $p.Handle  # keeps ExitCode readable after WaitForExit
+    Write-Host "$(Get-Date -Format o) VBA probe ($Name) started"
     $done = $p.WaitForExit(900000)
     if (-not $done) {
         $p.Kill()
