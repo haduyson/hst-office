@@ -233,7 +233,7 @@ def main():
     with open(os.path.join(profile, "user", "registrymodifications.xcu"), "w", encoding="utf-8") as f:
         f.write(seed_items(a.seed))
     only = set(filter(None, a.only.split(",")))
-    files = sorted(n for n in os.listdir(a.files) if not only or n in only)
+    files = sorted(n for n in os.listdir(a.files) if not n.startswith(".") and (not only or n in only))
     pipe = "lfo%d" % os.getpid()
     # a first start creates the profile (extension registration, configuration) outside the measurements
     small = os.path.join(a.out, "warm-up.xlsx")
