@@ -1,0 +1,239 @@
+HST Office: count a banner display once the card stood one second in a visible window.
+
+Owner decision (2026-11-12): banner displays are counted, per local day and banner id (docs/BANNERS.md,
+"Display counting").
+
+- sfx2/source/notebookbar/HstRibbonBanner.{hxx,cxx}: when the delivered card has another id than the
+  last card change, a one-second main-thread timer checks that the card is drawn in view: the slot is
+  really visible, the image is decoded and the work window is not minimized, at the start and at the
+  end of the second. Not in view: it checks again every second while the slot is shown (a hidden slot
+  restarts the second when it is placed again). The same card is counted once until the card changes;
+  the compact/wide switch and rescaling, which deliver the same id again, do not count. The count is a
+  call of org.hst.office.BannerFeed with NamedValue("Shown", id) on a short worker thread
+  (ShownThread), so the UI thread never calls Python; nothing is posted back and failures are ignored.
+  The last worker is joined on dispose like the click worker.
+
+--- a/sfx2/source/notebookbar/HstRibbonBanner.hxx
++++ b/sfx2/source/notebookbar/HstRibbonBanner.hxx
+@@ -22,6 +22,7 @@
+ {
+ class ClickThread;
+ class FetchThread;
++class ShownThread;
+ struct Data;
+ }
+ 
+@@ -74,18 +75,29 @@
+     void DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource, Bitmap& rCache,
+                  double fAlpha);
+     bool Paused() const { return mbHover || HasFocus(); }
++    /** The card is drawn in a visible, not minimized window (the slot of the ribbon is shown). */
++    bool InView() const;
++    /** A card change: count maId once it stood one second in view (docs/BANNERS.md, display counting). */
++    void StartShown();
++    void ReportShown();
+ 
+     DECL_LINK(RotateHdl, Timer*, void);
+     DECL_LINK(FadeHdl, Timer*, void);
+     DECL_LINK(DeliverHdl, void*, void);
+     DECL_LINK(OpenHdl, void*, void);
++    DECL_LINK(ShownHdl, Timer*, void);
+ 
+     rtl::Reference<hst::banner::FetchThread> mxThread;
+     rtl::Reference<hst::banner::ClickThread> mxClickThread;
++    rtl::Reference<hst::banner::ShownThread> mxShownThread;
+     std::chrono::steady_clock::time_point maLastOpen; // double clicks open one browser tab
+     bool mbClickPending = false;
+     Timer maRotateTimer;
+     Timer maFadeTimer;
++    Timer maShownTimer; // one-second check of a new card
++    OUString maShownId; // last card change; kept across Reset(), so the same card is not counted again
++    bool mbShownPending = false; // maShownId is not counted yet
++    bool mbShownInView = false; // it was in view at the previous check
+     OUString maId;
+     OUString maUrl;
+     Bitmap maImage; // decoded source variant of the current item
+--- a/sfx2/source/notebookbar/HstRibbonBanner.cxx
++++ b/sfx2/source/notebookbar/HstRibbonBanner.cxx
+@@ -35,6 +35,7 @@
+ #include <vcl/settings.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/sysdata.hxx>
++#include <vcl/wrkwin.hxx>
+ 
+ #include <algorithm>
+ #include <sstream>
+@@ -53,6 +54,7 @@
+ constexpr sal_Int32 MAX_IMAGE_BYTES = 300 * 1024; // data-layer limit per image
+ constexpr sal_Int32 MAX_MANIFEST_BYTES = 512 * 1024;
+ constexpr int FADE_STEPS = 10;
++constexpr sal_uInt64 SHOWN_MS = 1000; // a card counts once it stood this long in view
+ constexpr OUString EXTENSION_DIR
+     = u"$BRAND_BASE_DIR/" LIBO_SHARE_FOLDER "/extensions/hst-vietnamese-tools/"_ustr;
+ }
+@@ -343,6 +345,40 @@
+     VclPtr<HstRibbonBanner> mpBanner;
+     OUString maUrl;
+ };
++
++/** Tells the data layer that a card was displayed (it counts per day and id, and sends the counts at
++    most once a day). The UI thread never calls Python; nothing is posted back. */
++class ShownThread final : public salhelper::Thread
++{
++public:
++    explicit ShownThread(OUString aId)
++        : salhelper::Thread("HstRibbonBannerShown")
++        , maId(std::move(aId))
++    {
++    }
++
++private:
++    void execute() override
++    {
++        try
++        {
++            const uno::Reference<uno::XComponentContext>& xContext
++                = comphelper::getProcessComponentContext();
++            uno::Reference<task::XJob> xFeed(
++                xContext->getServiceManager()->createInstanceWithContext(
++                    u"org.hst.office.BannerFeed"_ustr, xContext),
++                uno::UNO_QUERY);
++            if (xFeed.is()) // older data layers ignore the argument and answer with a slot
++                xFeed->execute({ { u"Shown"_ustr, uno::Any(maId) } });
++        }
++        catch (...)
++        {
++            // service missing or failing: the display is not counted
++        }
++    }
++
++    OUString maId;
++};
+ }
+ 
+ using namespace hst::banner;
+@@ -351,6 +387,7 @@
+     : Control(pParent, WB_TABSTOP)
+     , maRotateTimer("sfx2 HstRibbonBanner rotate")
+     , maFadeTimer("sfx2 HstRibbonBanner fade")
++    , maShownTimer("sfx2 HstRibbonBanner shown")
+ {
+     SetPaintTransparent(true);
+     SetAccessibleRole(accessibility::AccessibleRole::HYPER_LINK);
+@@ -359,6 +396,8 @@
+     maRotateTimer.SetTimeout(mnRotateSeconds * 1000);
+     maFadeTimer.SetInvokeHandler(LINK(this, HstRibbonBanner, FadeHdl));
+     maFadeTimer.SetTimeout(30);
++    maShownTimer.SetInvokeHandler(LINK(this, HstRibbonBanner, ShownHdl));
++    maShownTimer.SetTimeout(SHOWN_MS);
+ }
+ 
+ HstRibbonBanner::~HstRibbonBanner() { disposeOnce(); }
+@@ -367,6 +406,7 @@
+ {
+     maRotateTimer.Stop();
+     maFadeTimer.Stop();
++    maShownTimer.Stop();
+     if (mxThread.is())
+     {
+         SolarMutexReleaser aReleaser; // the worker takes the SolarMutex to post its result
+@@ -377,8 +417,14 @@
+         SolarMutexReleaser aReleaser;
+         mxClickThread->join();
+     }
++    if (mxShownThread.is())
++    {
++        SolarMutexReleaser aReleaser;
++        mxShownThread->join();
++    }
+     mxThread.clear();
+     mxClickThread.clear();
++    mxShownThread.clear();
+     Control::dispose();
+ }
+ 
+@@ -511,6 +557,8 @@
+     mnSourceScale = pData->nScale;
+     maId = pData->aId;
+     maUrl = pData->aUrl;
++    if (maId != maShownId)
++        StartShown();
+     const OUString aName = pData->aName + u" — " + pData->aTagline;
+     SetAccessibleName(aName);
+     SetQuickHelpText(aName);
+@@ -532,6 +580,55 @@
+     Request(mnSlot + 1);
+ }
+ 
++bool HstRibbonBanner::InView() const
++{
++    if (maImage.IsEmpty() || !IsReallyVisible())
++        return false;
++    const WorkWindow* pWork = dynamic_cast<const WorkWindow*>(GetSystemWindow());
++    return !pWork || !pWork->IsMinimized();
++}
++
++void HstRibbonBanner::StartShown()
++{
++    // a new card (another id than the last one): the previous one, if it stood less than a second, is not counted
++    maShownId = maId;
++    mbShownPending = true;
++    mbShownInView = InView();
++    maShownTimer.Start();
++}
++
++IMPL_LINK_NOARG(HstRibbonBanner, ShownHdl, Timer*, void)
++{
++    if (!mbShownPending)
++        return;
++    const bool bInView = InView();
++    if (!bInView || !mbShownInView)
++    {
++        // not in view for the whole second (hidden slot, minimized window): check again
++        mbShownInView = bInView;
++        if (IsVisible())
++            maShownTimer.Start();
++        return;
++    }
++    mbShownPending = false;
++    ReportShown();
++}
++
++void HstRibbonBanner::ReportShown()
++{
++    // one count per card change; the previous report (one call into Python) finished long ago,
++    // because a card stands at least five seconds
++    try
++    {
++        mxShownThread = new ShownThread(maShownId);
++        mxShownThread->launch();
++    }
++    catch (const std::exception&)
++    {
++        mxShownThread.clear(); // no thread available: this display is not counted
++    }
++}
++
+ IMPL_LINK_NOARG(HstRibbonBanner, FadeHdl, Timer*, void)
+ {
+     if (++mnFadeStep >= FADE_STEPS)
+@@ -552,6 +649,7 @@
+         if (IsVisible())
+             Hide();
+         maRotateTimer.Stop();
++        maShownTimer.Stop(); // a hidden slot shows nothing: start the second again when it is back
+         return;
+     }
+     const bool bResized = GetSizePixel() != rSlot.GetSize();
+@@ -559,6 +657,11 @@
+         SetPosSizePixel(rSlot.TopLeft(), rSlot.GetSize());
+     if (!IsVisible())
+         Show();
++    if (mbShownPending && !maShownTimer.IsActive())
++    {
++        mbShownInView = false; // the full second starts at the next check
++        maShownTimer.Start();
++    }
+     const Size aSize = rSlot.GetSize();
+     const Rect aImage = fit(Rect{ 0, 0, static_cast<long>(aSize.Width()), static_cast<long>(aSize.Height()) },
+                             ArtWidth(), ART_HEIGHT);
