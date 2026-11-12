@@ -14,10 +14,13 @@ LIMIT = 6 * MAX_MANIFEST  # current signed envelope plus one last-eligible signe
 
 
 @contextmanager
-def publication_lock(root):
-    """Kernel releases this lock on exit/crash; never expire a lock held by a suspended publisher."""
+def publication_lock(root, name="publish.lock"):
+    """Kernel releases this lock on exit/crash; never expire a lock held by a suspended publisher.
+
+    name: publish.lock for the feed; impressions.lock for the local display counts (banner_impressions)."""
+    root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
-    with open(root / "publish.lock", "a+b") as handle:
+    with open(root / name, "a+b") as handle:
         if os.name == "nt":
             import msvcrt
             if handle.tell() == 0:
