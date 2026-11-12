@@ -1,0 +1,63 @@
+HST Office: the Extension tab hides its trailing block while no extension adds buttons.
+
+The Extension tab ("Phần mở rộng") of Writer, Sheets and Slides ended in a block with a tab menu button, an
+empty icon box and a separator before it. Extensions put their toolbars in the tab's add-on box; when that
+box holds nothing (no extension adds buttons), the block and the separator are hidden, and the page's
+priority layout no longer shows them again. The menu's commands stay in the menu bar and the feature
+search (Alt+Q). With an extension that adds buttons, the tab is as before.
+
+- vcl/source/control/PriorityHBox.cxx.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/vcl/source/control/PriorityHBox.cxx
++++ b/vcl/source/control/PriorityHBox.cxx
+@@ -249,11 +249,48 @@
+     VclHBox::Paint(rRenderContext, rRect);
+ }
+ 
++namespace
++{
++/// HST Office: the add-on box of the Extension tab (a merged group box inside the tab's merged box, where
++/// the toolbars of extensions go) is there and holds nothing but its own chevron: no extension adds buttons
++bool lcl_HstEmptyAddonBox(const vcl::Window& rBox)
++{
++    for (const vcl::Window* pChild = rBox.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (!dynamic_cast<const PriorityMergedHBox*>(pChild))
++            continue;
++        for (const vcl::Window* pInner = pChild->GetWindow(GetWindowType::FirstChild); pInner;
++             pInner = pInner->GetWindow(GetWindowType::Next))
++        {
++            if (!dynamic_cast<const PriorityMergedHBox*>(pInner))
++                continue;
++            bool bEmpty = true;
++            for (const vcl::Window* pItem = pInner->GetWindow(GetWindowType::FirstChild); pItem && bEmpty;
++                 pItem = pItem->GetWindow(GetWindowType::Next))
++                bEmpty = pItem->GetType() == WindowType::PUSHBUTTON;
++            if (bEmpty)
++                return true;
++        }
++    }
++    return false;
++}
++}
++
+ void PriorityHBox::GetChildrenWithPriorities()
+ {
++    // HST Office: without an extension that adds buttons, the Extension tab shows neither its trailing block
++    // (the tab menu, an empty icon box) nor the separator before it; the menu's commands stay in the menu bar
++    // and the feature search
++    const bool bHideBlock = lcl_HstEmptyAddonBox(*this);
+     for (sal_uInt16 i = 0; i < GetChildCount(); ++i)
+     {
+         vcl::Window* pChild = GetChild(i);
++        if (bHideBlock && (dynamic_cast<DropdownBox*>(pChild) || pChild->GetType() == WindowType::FIXEDLINE))
++        {
++            pChild->Hide();
++            continue;
++        }
+ 
+         // Add only containers which have explicitly assigned priority.
+         vcl::IPrioritable* pPrioritable = dynamic_cast<vcl::IPrioritable*>(pChild);
