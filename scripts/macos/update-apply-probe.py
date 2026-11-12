@@ -82,6 +82,12 @@ def office_processes():
     return [line for line in out.splitlines() if line.strip()]
 
 
+def clean_env():
+    """`open` passes the caller's environment on: without this the office would boot from the driver copy's URE."""
+    drop = ("URE_BOOTSTRAP", "PYTHONPATH", "PYTHONHOME", "PYTHONDONTWRITEBYTECODE")
+    return {k: v for k, v in os.environ.items() if k not in drop}
+
+
 def main():
     p = argparse.ArgumentParser()
     for name in ("app", "profile", "dmg", "sha256", "release-from", "release-to", "out", "pipe"):
@@ -99,7 +105,7 @@ def main():
         handle.write(SCRIPT % json.dumps(args))
     accept = "--accept=pipe,name=%s;urp;" % a.pipe
     subprocess.run(["open", "-n", "-a", a.app, "--args", "-env:UserInstallation=" + uno.systemPathToFileUrl(a.profile),
-                    "--norestore", "--nologo", accept], check=True)
+                    "--norestore", "--nologo", accept], check=True, env=clean_env())
     local = uno.getComponentContext()
     resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
     ctx = None
@@ -110,7 +116,7 @@ def main():
         except Exception:  # noqa: BLE001 - not listening yet
             time.sleep(1)
     if ctx is None:
-        raise SystemExit("UNO pipe did not open")
+        raise SystemExit("UNO pipe did not open; offices: %s" % office_processes())
     time.sleep(15)  # let the Start Center and the start-up jobs settle
     toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
     report["top_windows_before"] = toolkit.getTopWindowCount()
