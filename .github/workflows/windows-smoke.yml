@@ -463,10 +463,46 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$SCENARIO" == upgrade-from-1.0.1* ]]; then
-            pwsh -NoProfile -File scripts/windows/probe-upgrade-no-gac.ps1 -OldMsi "$OTHER_MSI" -NewMsi "$HST_MSI" -LibreOfficeMsi "${LO_MSI:-}" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
+            pwsh -NoProfile -File scripts/windows/probe-upgrade-no-gac.ps1 -Phase upgrade -OldMsi "$OTHER_MSI" -NewMsi "$HST_MSI" -LibreOfficeMsi "${LO_MSI:-}" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
           else
             pwsh -NoProfile -File scripts/windows/smoke-install-paths.ps1 -Scenario "$SCENARIO" -HstMsi "$HST_MSI" -OtherMsi "$OTHER_MSI" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
           fi
+      - name: VBA macros run headless in HST Office after the upgrade from 1.0.1
+        if: ${{ startsWith(matrix.scenario, 'upgrade-from-1.0.1') }}
+        timeout-minutes: 16
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -euo pipefail
+          bash scripts/windows/run-vba-probe.sh "$HST_PROGRAM" "$RUNNER_TEMP/out/$SCENARIO/vba-hst"
+      - name: VBA macros run headless in LibreOffice next to HST Office
+        if: ${{ !cancelled() && matrix.scenario == 'upgrade-from-1.0.1-with-libreoffice' }}
+        timeout-minutes: 16
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/windows/run-vba-probe.sh 'C:\Program Files\LibreOffice\program' "$RUNNER_TEMP/out/$SCENARIO/vba-libreoffice"
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+      - name: Repair, refused downgrade and uninstall leave the GAC as before HST Office
+        if: ${{ !cancelled() && startsWith(matrix.scenario, 'upgrade-from-1.0.1') && env.HST_PRODUCT_CODE != '' }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File scripts/windows/probe-upgrade-no-gac.ps1 -Phase maintain -OldMsi "$OTHER_MSI" -NewMsi "$HST_MSI" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
+      - name: VBA macros run headless in LibreOffice after HST Office is uninstalled
+        if: ${{ !cancelled() && matrix.scenario == 'upgrade-from-1.0.1-with-libreoffice' }}
+        timeout-minutes: 16
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -euo pipefail
+          bash scripts/windows/run-vba-probe.sh 'C:\Program Files\LibreOffice\program' "$RUNNER_TEMP/out/$SCENARIO/vba-libreoffice-after"
       - name: Upload install-path evidence
         if: ${{ always() && matrix.scenario != 'commands' && !startsWith(matrix.scenario, 'ui-parity') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

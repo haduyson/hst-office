@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Upgrade probe: a new HST Office MSI over 1.0.1 leaves no CLI-UNO assembly of its own in the .NET GAC, and VBA still runs.
-#   probe-upgrade-no-gac.ps1 -OldMsi <1.0.1 msi> -NewMsi <msi> -Out <dir> [-LibreOfficeMsi <LibreOffice msi>]
+#   probe-upgrade-no-gac.ps1 -Phase upgrade|maintain -OldMsi <1.0.1 msi> -NewMsi <msi> -Out <dir> [-LibreOfficeMsi <msi>]
 # 1.0.0 and 1.0.1 installed cli_ure, cli_basetypes, cli_uretypes, cli_cppuhelper, cli_oootypes and their policy.1.0.*
 # assemblies into the GAC (MsiAssembly rows, the same strong names as LibreOffice's). The new MSI has none
 # (scripts/check-msi-no-cli.py); its RemoveExistingProducts runs before InstallInitialize, so the old product, its GAC
@@ -8,10 +8,13 @@
 # Steps: [LibreOffice first, if given: its cli_* go into the GAC] -> 1.0.1 -> new MSI (upgrade) -> repair (msiexec /fa)
 # -> 1.0.1 again (downgrade, must be refused) -> uninstall. After every step from the upgrade on, the cli_* folders and
 # file hashes in the GAC are exactly those before HST Office came (none, or LibreOffice's untouched), one HST Office
-# product (none after uninstall), no cli_* file in the program folder, no error 1304 in the logs. VBA macros run
-# headless in Sheets and Writer after the upgrade (probe-vba-headless.py with the office's own Python); with
-# LibreOffice, in LibreOffice too, after the upgrade and after HST Office is uninstalled.
+# product (none after uninstall), no cli_* file in the program folder, no error 1304 in the logs.
+# Phase upgrade: up to the upgrade checks; writes HST_PROGRAM and HST_PRODUCT_CODE to $GITHUB_ENV. Phase maintain:
+# repair, downgrade, uninstall, compared with the GAC list the upgrade phase saved. Between and after them the workflow
+# runs probe-vba-headless.py (VBA in Sheets and Writer) in HST Office, and in LibreOffice when it is installed, each in
+# its own time-limited step.
 param(
+    [Parameter(Mandatory=$true)][ValidateSet('upgrade', 'maintain')][string]$Phase,
     [Parameter(Mandatory=$true)][string]$OldMsi,
     [Parameter(Mandatory=$true)][string]$NewMsi,
     [Parameter(Mandatory=$true)][string]$Out,
@@ -21,7 +24,6 @@ $ErrorActionPreference = 'Stop'
 $HstCode = '{A1751BCB-2603-4428-A5DE-419B438ECFBC}'   # docs/BUILD_MATRIX.md, never changes
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 $installer = New-Object -ComObject WindowsInstaller.Installer
-$vbaProbe = Join-Path $PSScriptRoot 'probe-vba-headless.py'
 
 function Assert([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "FAIL: $Message" }
@@ -102,57 +104,44 @@ function Assert-GacAsBefore([string]$Name) {
     Assert ($extra.Count -eq 0 -and $gone.Count -eq 0) "$Name`: the GAC cli_* files are those before HST Office came (extra: $($extra -join '; ') missing: $($gone -join '; '))"
 }
 
-function Invoke-VbaProbe([string]$Program, [string]$Name) {
-    # Bounded: a blocked office must fail this step, not the job's time limit (the probe dumps its stacks after 10 min).
-    $dir = Join-Path $Out "vba-$Name"
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    $stdout, $stderr = (Join-Path $dir 'probe.out'), (Join-Path $dir 'probe.err')
-    $p = Start-Process (Join-Path $Program 'python.exe') -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
-        -ArgumentList "`"$vbaProbe`"", '--soffice', "`"$(Join-Path $Program 'soffice.exe')`"", '--out', "`"$dir`""
-    $null = $p.Handle  # keeps ExitCode readable after WaitForExit
-    Write-Host "$(Get-Date -Format o) VBA probe ($Name) started"
-    $done = $p.WaitForExit(900000)
-    if (-not $done) {
-        $p.Kill()
-        Get-Process soffice, soffice.bin -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$Program*" } | Stop-Process -Force
-    }
-    Get-Content -LiteralPath $stdout, $stderr -ErrorAction SilentlyContinue | Write-Host
-    Assert ($done -and $p.ExitCode -eq 0) "$Name`: VBA macros run headless in Sheets and Writer (probe exit $(if ($done) { $p.ExitCode } else { 'timeout' }))"
-}
-
 $newCode = Get-MsiProperty $NewMsi 'ProductCode'
 $newVersion = [version](Get-MsiProperty $NewMsi 'ProductVersion')
 $oldVersion = [version](Get-MsiProperty $OldMsi 'ProductVersion')
 Write-Host "old $oldVersion, new $newVersion $newCode"
-$loProgram = Join-Path $env:ProgramFiles 'LibreOffice\program'
-if ($LibreOfficeMsi) {
-    Assert-Done (Invoke-Msiexec @('/i', "`"$LibreOfficeMsi`"") 'libreoffice-install') 'LibreOffice installs'
+
+if ($Phase -eq 'upgrade') {
+    if ($LibreOfficeMsi) {
+        Assert-Done (Invoke-Msiexec @('/i', "`"$LibreOfficeMsi`"") 'libreoffice-install') 'LibreOffice installs'
+    }
+    $before = Get-CliGac 'before'
+    if ($LibreOfficeMsi) { Assert ($before.Count -gt 0) "LibreOffice put its cli_* assemblies into the GAC ($($before.Count) files)" }
+
+    $old = Invoke-Msiexec @('/i', "`"$OldMsi`"") 'old-install'
+    Assert-Done $old 'HST Office 1.0.1 installs'
+    $oldGac = Get-CliGac 'old'
+    Assert ($oldGac.Count -gt 0) "the GAC has cli_* assemblies with 1.0.1 installed ($($oldGac.Count) files; $(@($oldGac | Where-Object { $before -notcontains $_ }).Count) new or changed by 1.0.1)"
+
+    $new = Invoke-Msiexec @('/i', "`"$NewMsi`"") 'new-install'
+    Assert-Done $new 'the new MSI installs over 1.0.1'
+    Assert ($new.Errors1304 -eq 0) 'the upgrade log has no error 1304'
+    Assert-GacAsBefore 'upgrade'
+    $products = @(Get-HstProducts)
+    $products | Format-Table -AutoSize | Out-String | Write-Host
+    Assert ($products.Count -eq 1) "one HST Office product registered after the upgrade ($($products.Count))"
+    $product = $products[0]
+    Assert ($product.ProductCode -eq $newCode) "the registered product is the new one ($($product.ProductCode) $($product.Version))"
+    $root = if ($product.Location) { $product.Location.TrimEnd('\') } else { Join-Path $env:ProgramFiles 'HSTOffice' }
+    $program = Join-Path $root 'program'
+    Assert (Test-Path -LiteralPath (Join-Path $program 'soffice.exe')) "soffice.exe under $program"
+    $cliFiles = @(Get-ChildItem -LiteralPath $root -Recurse -File -Include 'cli_*.dll', 'cli_*.config', 'policy.*.cli_*.dll' -ErrorAction SilentlyContinue)
+    Assert ($cliFiles.Count -eq 0) "no CLI-UNO file in the install folder ($($cliFiles.FullName -join ', '))"
+    if ($env:GITHUB_ENV) { "HST_PROGRAM=$program", "HST_PRODUCT_CODE=$newCode" | Add-Content -LiteralPath $env:GITHUB_ENV }
+    Write-Host 'Upgrade phase passed'
+    exit 0
 }
-$before = Get-CliGac 'before'
-if ($LibreOfficeMsi) { Assert ($before.Count -gt 0) "LibreOffice put its cli_* assemblies into the GAC ($($before.Count) files)" }
 
-$old = Invoke-Msiexec @('/i', "`"$OldMsi`"") 'old-install'
-Assert-Done $old 'HST Office 1.0.1 installs'
-$oldGac = Get-CliGac 'old'
-Assert ($oldGac.Count -gt 0) "the GAC has cli_* assemblies with 1.0.1 installed ($($oldGac.Count) files; $(@($oldGac | Where-Object { $before -notcontains $_ }).Count) new or changed by 1.0.1)"
-
-$new = Invoke-Msiexec @('/i', "`"$NewMsi`"") 'new-install'
-Assert-Done $new 'the new MSI installs over 1.0.1'
-Assert ($new.Errors1304 -eq 0) 'the upgrade log has no error 1304'
-Assert-GacAsBefore 'upgrade'
-$products = @(Get-HstProducts)
-$products | Format-Table -AutoSize | Out-String | Write-Host
-Assert ($products.Count -eq 1) "one HST Office product registered after the upgrade ($($products.Count))"
-$product = $products[0]
-Assert ($product.ProductCode -eq $newCode) "the registered product is the new one ($($product.ProductCode) $($product.Version))"
-$root = if ($product.Location) { $product.Location.TrimEnd('\') } else { Join-Path $env:ProgramFiles 'HSTOffice' }
-$program = Join-Path $root 'program'
-Assert (Test-Path -LiteralPath (Join-Path $program 'soffice.exe')) "soffice.exe under $program"
-$cliFiles = @(Get-ChildItem -LiteralPath $root -Recurse -File -Include 'cli_*.dll', 'cli_*.config', 'policy.*.cli_*.dll' -ErrorAction SilentlyContinue)
-Assert ($cliFiles.Count -eq 0) "no CLI-UNO file in the install folder ($($cliFiles.FullName -join ', '))"
-Invoke-VbaProbe $program 'hst-after-upgrade'
-
-$repair = Invoke-Msiexec @('/fa', $product.ProductCode) 'repair'
+$before = @(Get-Content -LiteralPath (Join-Path $Out 'gac-before.txt') -ErrorAction SilentlyContinue | Where-Object { $_ })
+$repair = Invoke-Msiexec @('/fa', $newCode) 'repair'
 Assert-Done $repair 'repair (msiexec /fa) of the new product'
 Assert ($repair.Errors1304 -eq 0) 'the repair log has no error 1304'
 Assert-GacAsBefore 'repair'
@@ -168,10 +157,8 @@ if ([version]"$($newVersion.Major).$($newVersion.Minor).$($newVersion.Build)" -g
 } else {
     Write-Host "NOT TESTED: downgrade ($newVersion is not above $oldVersion in the three fields Windows Installer compares)"
 }
-if ($LibreOfficeMsi) { Invoke-VbaProbe $loProgram 'libreoffice-with-hst' }
 
-Assert-Done (Invoke-Msiexec @('/x', $product.ProductCode) 'uninstall') 'uninstall of the new product'
+Assert-Done (Invoke-Msiexec @('/x', $newCode) 'uninstall') 'uninstall of the new product'
 Assert (@(Get-HstProducts).Count -eq 0) 'no HST Office product left after uninstall'
 Assert-GacAsBefore 'uninstall'
-if ($LibreOfficeMsi) { Invoke-VbaProbe $loProgram 'libreoffice-after-hst-uninstall' }
-Write-Host 'Upgrade over 1.0.1 passed: no CLI-UNO assembly of HST Office in the GAC, VBA runs, repair, downgrade block, uninstall'
+Write-Host 'Maintain phase passed: repair, downgrade block, uninstall; no CLI-UNO assembly of HST Office in the GAC'
