@@ -1,0 +1,160 @@
+HST PDF: the mouse wheel scrolls a full browser step at once and follows touchpads.
+
+Owner report (Windows, 1.0.1/1.0.2): in HST PDF the wheel scrolls slowly and lags, while dragging
+the scrollbar is smooth. Writer, Sheets, Slides and Draw scroll through vcl's
+Window::HandleScrollCommand and are not affected.
+
+The viewer turned a wheel event into pixels as -GetDelta() / 120 * max(1, GetScrollLines()) * 18:
+- a notch scrolled 54 pixels (a 100% A4 page is 1139 pixels: 21 notches a page; web browsers and
+  their PDF viewers scroll 100 pixels a notch), and that through an ease-out of a third of the
+  remaining distance per 16 ms timer tick: 11 ticks, 225 ms measured under Xvfb, about 340 ms on
+  Windows where a 16 ms timer fires on the 15.6 ms clock tick (31 ms), the last ticks one pixel each;
+- GetDelta() is in platform units and GetScrollLines() already carries the part of a notch a
+  touchpad or high-resolution wheel sent (vcl/win salframe: lines = delta / 120 * lines per notch),
+  so small events were scaled down twice and then rounded per event: a precision touchpad gesture
+  worth 3 notches (30 events of delta 12) scrolled 60 pixels instead of 162, a high-resolution
+  wheel notch (8 events of delta 15) 16 instead of 54; on macOS (delta is a few points) a mouse
+  notch scrolled 0 pixels.
+
+Now the distance is what vcl uses for every other window, notches times lines per notch, at 100/3
+pixels a line (100 a notch at the usual three lines). What is below a pixel is kept for the next
+event. A notch of two lines or more glides over a fixed 100 ms (ease-out cubic, 10 ms timer),
+so it ends on time whatever the timer resolution; smaller steps (touchpads) and pixel deltas are
+applied directly. "One screen at a time" scrolls nine tenths of the view, as Page Down does.
+--- a/xmlsecurity/source/hstpdf/pdfpageview.hxx
++++ b/xmlsecurity/source/hstpdf/pdfpageview.hxx
+@@ -121,6 +121,12 @@
+     tools::Long m_nScrollX = 0;
+     tools::Long m_nScrollY = 0;
+     tools::Long m_nScrollTarget = 0;
++    /// Smooth scroll: where the running animation started and when (monotonic microseconds).
++    tools::Long m_nSmoothFrom = 0;
++    sal_uInt64 m_nSmoothStart = 0;
++    /// Wheel distance below one pixel, kept for the next event (touchpads, high-resolution wheels).
++    double m_fWheelRestX = 0.0;
++    double m_fWheelRestY = 0.0;
+     int m_nCurrentPage = 0;
+     int m_nSelectedPage = 0;
+     bool m_bPainted = false;
+--- a/xmlsecurity/source/hstpdf/pdfpageview.cxx
++++ b/xmlsecurity/source/hstpdf/pdfpageview.cxx
+@@ -18,6 +18,7 @@
+ #include <basegfx/range/b2drange.hxx>
+ #include <tools/poly.hxx>
+ #include <tools/mapunit.hxx>
++#include <tools/time.hxx>
+ #include <vcl/commandevent.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/lineinfo.hxx>
+@@ -52,6 +53,11 @@
+ constexpr size_t THUMB_CACHE = 600;
+ constexpr double MIN_ZOOM = 0.1;
+ constexpr double MAX_ZOOM = 6.4;
++/// Pixels of one wheel line: three lines (one notch at the usual system setting) scroll 100 pixels,
++/// as in web browsers and their PDF viewers.
++constexpr double WHEEL_LINE = 100.0 / 3.0;
++/// Length of a smooth scroll; it ends on time whatever the timer resolution (Windows: about 15.6 ms).
++constexpr sal_uInt64 SMOOTH_SCROLL_US = 100000;
+ /// Smallest signature box a drag makes (points); a click places a box of the default size.
+ constexpr double MIN_PLACEMENT = 24.0;
+ constexpr double DEFAULT_PLACEMENT_W = 200.0;
+@@ -89,7 +95,7 @@
+         m_xHScroll->connect_adjustment_value_changed(LINK(this, PdfPageView, HScrollHdl));
+         m_xHScroll->set_visible(false);
+     }
+-    m_aSmoothScroll.SetTimeout(16);
++    m_aSmoothScroll.SetTimeout(10);
+     m_aSmoothScroll.SetInvokeHandler(LINK(this, PdfPageView, SmoothScrollHdl));
+     m_aThumbnailIdle.SetPriority(TaskPriority::LOWEST);
+     m_aThumbnailIdle.SetInvokeHandler(LINK(this, PdfPageView, ThumbnailIdleHdl));
+@@ -286,22 +292,27 @@
+         scrollTo(nTarget, m_nScrollX);
+         return;
+     }
++    // (re)start the animation from where the view is now, so a further notch speeds it up
+     m_nScrollTarget = nTarget;
++    m_nSmoothFrom = m_nScrollY;
++    m_nSmoothStart = tools::Time::GetMonotonicTicks();
+     if (!m_aSmoothScroll.IsActive())
+         m_aSmoothScroll.Start();
+ }
+ 
+ IMPL_LINK_NOARG(PdfPageView, SmoothScrollHdl, Timer*, void)
+ {
+-    const tools::Long nDistance = m_nScrollTarget - m_nScrollY;
+-    if (nDistance == 0)
+-        return;
+-    // ease out: a third of the way per frame, at least one pixel
+-    tools::Long nStep = nDistance / 3;
+-    if (nStep == 0)
+-        nStep = nDistance > 0 ? 1 : -1;
++    // ease out over a fixed time: the view follows the wheel at once and stops on time,
++    // instead of creeping the last pixels one timer tick at a time
+     const tools::Long nTarget = m_nScrollTarget;
+-    scrollTo(m_nScrollY + nStep, m_nScrollX);
++    const double fTime = double(tools::Time::GetMonotonicTicks() - m_nSmoothStart) / SMOOTH_SCROLL_US;
++    if (fTime >= 1.0)
++    {
++        scrollTo(nTarget, m_nScrollX);
++        return;
++    }
++    const double fEase = 1.0 - std::pow(1.0 - fTime, 3.0);
++    scrollTo(m_nSmoothFrom + std::lround((nTarget - m_nSmoothFrom) * fEase), m_nScrollX);
+     m_nScrollTarget = nTarget;
+     if (m_nScrollY != m_nScrollTarget)
+         m_aSmoothScroll.Start();
+@@ -671,23 +682,45 @@
+         setZoom(m_fZoom * (pData->GetDelta() > 0 ? 1.1 : 1.0 / 1.1));
+         return true;
+     }
++    const bool bHorz = pData->IsHorz() || pData->IsShift();
+     double fPixels;
++    bool bSmooth = false;
+     if (pData->IsDeltaPixel())
+-        fPixels = -pData->GetDelta();
+-    else
++        fPixels = -pData->GetDelta(); // already smooth (trackpad): follow it directly
++    else if (pData->GetScrollLines() == COMMAND_WHEEL_PAGESCROLL)
+     {
+-        const double fLines = pData->GetScrollLines() == COMMAND_WHEEL_PAGESCROLL
+-                                  ? GetOutputSizePixel().Height() / 18.0
+-                                  : std::max(1.0, pData->GetScrollLines());
+-        fPixels = -pData->GetDelta() / 120.0 * fLines * 18.0;
++        // system setting "one screen at a time"
++        const Size aView = GetOutputSizePixel();
++        fPixels = (pData->GetDelta() < 0 ? 0.9 : -0.9) * (bHorz ? aView.Width() : aView.Height());
++        bSmooth = true;
+     }
+-    if (pData->IsHorz() || pData->IsShift())
++    else
++    {
++        // As vcl's Window::HandleScrollCommand: notches times lines per notch. GetScrollLines()
++        // already carries the part of a notch that a touchpad or high-resolution wheel sent, and
++        // GetDelta() is in platform units (120 a notch on Windows, a few points on macOS), so it
++        // must not scale the distance again.
++        const double fLines = pData->GetNotchDelta() * pData->GetScrollLines();
++        fPixels = -fLines * WHEEL_LINE;
++        // a whole notch glides; the stream of small steps a touchpad sends is followed directly
++        bSmooth = std::abs(fLines) >= 2.0;
++    }
++    // keep what is below a pixel for the next event, so small steps add up instead of rounding away
++    double& rRest = bHorz ? m_fWheelRestX : m_fWheelRestY;
++    if ((rRest < 0) != (fPixels < 0))
++        rRest = 0.0;
++    rRest += fPixels;
++    const tools::Long nPixels = static_cast<tools::Long>(rRest);
++    rRest -= nPixels;
++    if (nPixels == 0)
++        return true;
++    if (bHorz)
+     {
+         if (m_xHScroll && m_xHScroll->get_visible())
+-            scrollTo(m_nScrollY, m_nScrollX + std::lround(fPixels));
++            scrollTo(m_nScrollY, m_nScrollX + nPixels);
+         return true;
+     }
+-    scrollBy(std::lround(fPixels), true);
++    scrollBy(nPixels, bSmooth);
+     return true;
+ }
+ 
