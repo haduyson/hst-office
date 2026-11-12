@@ -17,6 +17,7 @@ Writes, all synthetic (random numbers, generated Vietnamese-like text, noise pic
 - writer-images.docx    fewer pages with a large picture on every page
 - slides-images.pptx    one large picture and a title per slide
 - pdf-mixed.pdf         text pages with a picture on every 5th page
+- text-lines-10mb.txt / text-longlines-10mb.txt / text-lines-50mb.txt  Vietnamese UTF-8 plain text (Writer)
 Needs Pillow, python-docx and python-pptx. Sizes are printed; nothing here reads a user file.
 """
 import argparse
@@ -344,6 +345,18 @@ def write_pptx(path, slides):
     prs.save(path)
 
 
+def write_txt(path, megabytes, line_words):
+    """Vietnamese UTF-8 plain text of about <megabytes> MB, lines of <line_words> words (one paragraph each)."""
+    rnd = random.Random(23)
+    target = megabytes * 1_000_000
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        size = 0
+        while size < target:
+            line = sentence(rnd, line_words) + ".\n"
+            f.write(line)
+            size += len(line.encode("utf-8"))
+
+
 def write_pdf(path, pages):
     rnd = random.Random(17)
     objs = []  # (number, bytes)
@@ -400,6 +413,7 @@ def main():
     ap.add_argument("--image-pages", type=int, default=40)
     ap.add_argument("--slides", type=int, default=30)
     ap.add_argument("--pdf-pages", type=int, default=1500)
+    ap.add_argument("--skip", default="", help="comma list of fixture names not to write")
     ap.add_argument("--only", default="", help="comma list of the fixture names to write (default: all)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -416,9 +430,13 @@ def main():
         "writer-images.docx": lambda p: write_docx(p, a.image_pages, True),
         "slides-images.pptx": lambda p: write_pptx(p, a.slides),
         "pdf-mixed.pdf": lambda p: write_pdf(p, a.pdf_pages),
+        # plain text in Writer: short lines (many paragraphs) and long lines (~60 KB paragraphs)
+        "text-lines-10mb.txt": lambda p: write_txt(p, 10, 14),
+        "text-longlines-10mb.txt": lambda p: write_txt(p, 10, 6000),
+        "text-lines-50mb.txt": lambda p: write_txt(p, 50, 14),
     }
     for name, job in jobs.items():
-        if only and name not in only:
+        if (only and name not in only) or name in a.skip.split(","):
             continue
         path = os.path.join(a.out, name)
         job(path)
