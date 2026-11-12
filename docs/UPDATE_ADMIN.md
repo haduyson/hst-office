@@ -27,6 +27,14 @@ tra cập nhật nhưng không gửi mã máy ẩn danh, khóa `SendInstallId = 
 `build-update-policy-oxt.py --keep-autocheck --no-install-id --xcd ... --reg ... --mobileconfig ...`; khóa macOS
 là `<key>SendInstallId</key><false/>` trong từ điển `HSTUpdate`).
 
+## Phiên bản trước (từ 1.0.2)
+
+"Lưu phiên bản trước khi ghi đè tệp" (`/org.hasontech.hstoffice.PreviousVersions/Enabled`) khóa được theo cùng cách:
+khóa registry `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\HASON TECH\HST Office\org.hasontech.hstoffice.PreviousVersions\Enabled`
+(`Value` = `"false"`, `Final` = 1) trên Windows, từ điển `PreviousVersions` trong hồ sơ cấu hình macOS, hoặc một extension
+chính sách cài chung. Tệp `.xcd` không dùng được cho thuộc tính này. Chi tiết và ví dụ:
+[PREVIOUS_VERSIONS](PREVIOUS_VERSIONS.md#khóa-cho-quản-trị-viên).
+
 ## Tệp mẫu tải sẵn
 
 Trang hướng dẫn F1 [Cập nhật HST Office](../extensions/hst-vietnamese-tools/help/cap-nhat.html) (mục "Dành cho phòng
