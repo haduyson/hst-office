@@ -19,12 +19,12 @@ class Registration(unittest.TestCase):
         with open(os.path.join(EXT, name), encoding="utf-8") as handle:
             return handle.read()
 
-    def test_job_runs_on_modify_save_and_unload(self):
+    def test_job_runs_on_modify_save_save_done_and_unload(self):
         root = ET.fromstring(self.read("Jobs.xcu"))
         events = {n.get(OOR + "name") for n in root.iter("node")
                   if any(c.get(OOR + "name") == "org.hst.office.vi.PreviousVersionsJob" for c in n.iter("node"))
                   and n.get(OOR + "name") not in ("Events", "Jobs", "JobList", "org.hst.office.vi.PreviousVersionsJob")}
-        self.assertEqual(events, {"OnModifyChanged", "OnSave", "OnUnload"})
+        self.assertEqual(events, {"OnModifyChanged", "OnSave", "OnSaveDone", "OnSaveAsDone", "OnUnload"})
         component = self.read(os.path.join("python", "hst_office_component.py"))
         self.assertIn('("version_job", "PreviousVersionsJob", "org.hst.office.vi.PreviousVersionsJob", JOB)', component)
         self.assertIn('("version_options", "PreviousVersionsOptionsHandler", "%s"' % opts.HANDLER_NAME, component)
