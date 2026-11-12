@@ -35,7 +35,8 @@ if [ "$os" = windows ]; then
 else
   { nproc; grep -m1 'model name' /proc/cpuinfo; free -m; } > "$out/runner.txt" 2>&1 || true
   gh run download "$HST_LINUX_RUN" --repo "$GITHUB_REPOSITORY" --name "hst-office-linux-deb-$HST_LINUX_RUN" --dir "$work/deb"
-  sudo apt-get install -y -q "$work"/deb/*.deb > "$out/hst-install.log" 2>&1
+  sudo apt-get update -q > "$out/hst-install.log" 2>&1 || true
+  sudo apt-get install -y -q "$work"/deb/*.deb >> "$out/hst-install.log" 2>&1
   hst="$(find /opt -maxdepth 3 -path '*hst-office*/program/soffice' | head -n 1)"
   hst_py="$(dirname "$hst")/python"
   curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o "$work/lo.tar.gz" "$LO_DEB_URL"
