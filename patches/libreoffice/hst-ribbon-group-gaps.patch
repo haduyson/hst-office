@@ -1,0 +1,489 @@
+HST Office: ribbon groups are as wide as their controls, with no empty room beside them.
+
+A group whose caption was wider than its controls looked like it had empty slots: the caption stretched
+the group's columns (VclGrid shares a wide caption's extra width out to the columns), the toolboxes filled
+the stretched columns and drew their buttons from the left, and the extra room stayed empty on their
+right. The default collapse ladder (every tab but Home) made it worse: it turned buttons into bare icons
+to save a few pixels (Insert's Extensions and Comments became a small icon under a long caption), and its
+last step could free far more room than was missing, which stayed empty while other groups had shrunk.
+
+- VclGrid (off by default, set_hst_centre_spanned): a ribbon group's caption (a label, or the box of a
+  label and the group's launcher, in the last row) no longer stretches the columns it spans; they keep
+  their width and sit centred under it, and only the caption gets the extra room.
+  get_hst_caption_room tells how much wider the caption is than the controls.
+- PriorityMergedHBox turns it on for its groups.
+- A group of one large command keeps it large with its label at every state (HstRibbonLadder.cxx),
+  as Paste already did.
+- Tabs without a ladder of their own: a group shrinks to medium (small icons with labels), then to its
+  button "caption ▾" (which opens the group at full size, as on Home), then folds into the chevron.
+  Small (labels dropped) is no rung there, nor is a step that saves less than 24 px (scaled) or no more
+  room than the caption leaves empty. After the ladder, collapsed groups come back and shrunk groups grow
+  back, latest first, into the largest state that still fits the room left. The Home tabs' authored
+  ladders are unchanged.
+- The single small buttons of Writer's and Slides' Media group and Sheets' Themes group are large
+  buttons, as the other one-button groups.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/include/vcl/layout.hxx
++++ b/include/vcl/layout.hxx
+@@ -312,6 +312,8 @@
+     bool m_bColumnHomogeneous;
+     int m_nRowSpacing;
+     int m_nColumnSpacing;
++    // HST Office: see set_hst_centre_spanned
++    bool m_bHstCentreSpanned = false;
+ 
+ public:
+     struct Value
+@@ -356,6 +358,23 @@
+     {
+         return m_nColumnSpacing;
+     }
++    /** HST Office: a ribbon group. Its caption (a label, or a box holding one, in the last row) no
++        longer stretches the columns it spans when it is wider than them: they keep their own width
++        and sit centred under it, and the rest of the room is the caption's. Off by default. */
++    void set_hst_centre_spanned(bool bCentre)
++    {
++        if (m_bHstCentreSpanned == bCentre)
++            return;
++        m_bHstCentreSpanned = bCentre;
++        queue_resize();
++    }
++    bool get_hst_centre_spanned() const
++    {
++        return m_bHstCentreSpanned;
++    }
++    /** HST Office: the width a ribbon group's caption (a label in the last row) needs beyond the
++        columns it spans, 0 when the controls are at least as wide as their caption. */
++    tools::Long get_hst_caption_room() const;
+     virtual bool set_property(const OUString &rKey, const OUString &rValue) override;
+ };
+ 
+--- a/vcl/source/window/layout.cxx
++++ b/vcl/source/window/layout.cxx
+@@ -27,6 +27,7 @@
+ #endif
+ 
+ #include <string_view>
++#include <numeric>
+ 
+ #include <config_features.h>
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+@@ -1053,13 +1054,44 @@
+     return !nMaxX || !nMaxY;
+ }
+ 
+-static void calcMaxs(const array_type &A, std::vector<VclGrid::Value> &rWidths, std::vector<VclGrid::Value> &rHeights)
++namespace
++{
++/// HST Office: room kept before and after columns, see VclGrid::set_hst_centre_spanned
++struct HstColumnPads
++{
++    std::vector<tools::Long> aLead;
++    std::vector<tools::Long> aTrail;
++};
++}
++
++/// HST Office: the caption of a ribbon group, a label (or the box of a label and its launcher) in the
++/// grid's last row
++static bool lcl_HstIsCaption(const vcl::Window& rChild, sal_Int32 y, sal_Int32 nHeight, sal_Int32 nMaxY)
++{
++    if (y + nHeight != nMaxY)
++        return false;
++    if (rChild.GetType() == WindowType::FIXEDTEXT)
++        return true;
++    for (const vcl::Window* pChild = rChild.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        if (pChild->GetType() == WindowType::FIXEDTEXT && pChild->IsVisible())
++            return true;
++    return false;
++}
++
++static void calcMaxs(const array_type &A, std::vector<VclGrid::Value> &rWidths, std::vector<VclGrid::Value> &rHeights,
++                     HstColumnPads* pPads = nullptr)
+ {
+     sal_Int32 nMaxX = A.shape()[0];
+     sal_Int32 nMaxY = A.shape()[1];
+ 
+     rWidths.resize(nMaxX);
+     rHeights.resize(nMaxY);
++    if (pPads)
++    {
++        pPads->aLead.assign(nMaxX, 0);
++        pPads->aTrail.assign(nMaxX, 0);
++    }
+ 
+     //first use the non spanning entries to set default width/heights
+     for (sal_Int32 x = 0; x < nMaxX; ++x)
+@@ -1096,7 +1128,8 @@
+             if (nWidth == 1 || nHeight == 1)
+             {
+                 Size aChildSize = VclContainer::getLayoutRequisition(*pChild);
+-                if (nWidth == 1)
++                // HST Office: with centred columns the caption sets no column's width, see below
++                if (nWidth == 1 && !(pPads && lcl_HstIsCaption(*pChild, y, nHeight, nMaxY)))
+                     rWidths[x].m_nValue = std::max(rWidths[x].m_nValue, aChildSize.Width());
+                 if (nHeight == 1)
+                     rHeights[y].m_nValue = std::max(rHeights[y].m_nValue, aChildSize.Height());
+@@ -1124,21 +1157,38 @@
+ 
+             sal_Int32 nWidth = rEntry.nSpanWidth;
+             sal_Int32 nHeight = rEntry.nSpanHeight;
++            // HST Office: a caption wider than its columns pads them (centred columns), even a
++            // caption of one column
++            const bool bCaption = pPads && lcl_HstIsCaption(*pChild, y, nHeight, nMaxY);
+ 
+-            if (nWidth == 1 && nHeight == 1)
++            if (nWidth == 1 && nHeight == 1 && !bCaption)
+                 continue;
+ 
+             Size aChildSize = VclContainer::getLayoutRequisition(*pChild);
+ 
+-            if (nWidth > 1)
++            if (nWidth > 1 || bCaption)
+             {
+                 sal_Int32 nExistingWidth = 0;
+                 for (sal_Int32 nSpanX = 0; nSpanX < nWidth; ++nSpanX)
++                {
+                     nExistingWidth += rWidths[x+nSpanX].m_nValue;
++                    if (pPads)
++                        nExistingWidth += static_cast<sal_Int32>(pPads->aLead[x+nSpanX] + pPads->aTrail[x+nSpanX]);
++                }
+ 
+                 sal_Int32 nExtraWidth = aChildSize.Width() - nExistingWidth;
+ 
+-                if (nExtraWidth > 0)
++                bool bExpandable = false;
++                for (sal_Int32 nSpanX = 0; nSpanX < nWidth; ++nSpanX)
++                    bExpandable = bExpandable || rWidths[x+nSpanX].m_bExpand;
++                if (nExtraWidth > 0 && bCaption && !bExpandable)
++                {
++                    // HST Office: the spanned columns keep their width; the extra is kept before the
++                    // first and after the last of them, so they sit centred under the caption
++                    pPads->aLead[x] += nExtraWidth / 2;
++                    pPads->aTrail[x+nWidth-1] += nExtraWidth - nExtraWidth / 2;
++                }
++                else if (nExtraWidth > 0)
+                 {
+                     bool bForceExpandAll = false;
+                     sal_Int32 nExpandables = 0;
+@@ -1218,7 +1268,12 @@
+ 
+     std::vector<Value> aWidths;
+     std::vector<Value> aHeights;
+-    calcMaxs(A, aWidths, aHeights);
++    HstColumnPads aPads;
++    const bool bCentre = m_bHstCentreSpanned && !get_column_homogeneous();
++    calcMaxs(A, aWidths, aHeights, bCentre ? &aPads : nullptr);
++    if (bCentre)
++        for (size_t x = 0; x < aWidths.size(); ++x)
++            aWidths[x].m_nValue += aPads.aLead[x] + aPads.aTrail[x];
+ 
+     tools::Long nTotalWidth = 0;
+     if (get_column_homogeneous())
+@@ -1249,6 +1304,19 @@
+     return Size(nTotalWidth, nTotalHeight);
+ }
+ 
++tools::Long VclGrid::get_hst_caption_room() const
++{
++    array_type A = assembleGrid(*this);
++    if (isNullGrid(A) || get_column_homogeneous())
++        return 0;
++    std::vector<Value> aWidths;
++    std::vector<Value> aHeights;
++    HstColumnPads aPads;
++    calcMaxs(A, aWidths, aHeights, &aPads);
++    return std::accumulate(aPads.aLead.begin(), aPads.aLead.end(), tools::Long(0))
++           + std::accumulate(aPads.aTrail.begin(), aPads.aTrail.end(), tools::Long(0));
++}
++
+ void VclGrid::setAllocation(const Size& rAllocation)
+ {
+     array_type A = assembleGrid(*this);
+@@ -1262,10 +1330,15 @@
+     Size aRequisition;
+     std::vector<Value> aWidths(nMaxX);
+     std::vector<Value> aHeights(nMaxY);
++    HstColumnPads aPads;
++    const bool bCentre = m_bHstCentreSpanned && !get_column_homogeneous();
+     if (!get_column_homogeneous() || !get_row_homogeneous())
+     {
+         aRequisition = calculateRequisition();
+-        calcMaxs(A, aWidths, aHeights);
++        calcMaxs(A, aWidths, aHeights, bCentre ? &aPads : nullptr);
++        if (bCentre)
++            for (sal_Int32 x = 0; x < nMaxX; ++x)
++                aWidths[x].m_nValue += aPads.aLead[x] + aPads.aTrail[x];
+     }
+ 
+     sal_Int32 nColSpacing(get_column_spacing());
+@@ -1385,7 +1458,20 @@
+                     aChildAlloc.AdjustHeight(aHeights[y+nSpanY].m_nValue );
+                 aChildAlloc.AdjustHeight(nRowSpacing*(nHeight-1) );
+ 
+-                setLayoutAllocation(*pChild, aAllocPos, aChildAlloc);
++                Point aChildPos(aAllocPos);
++                if (bCentre)
++                {
++                    // HST Office: the room kept beside centred columns belongs to the wide child that
++                    // needs it (the caption); every other child stays within its columns
++                    const tools::Long nLead = aPads.aLead[x];
++                    const tools::Long nTrail = aPads.aTrail[x+nWidth-1];
++                    if ((nLead || nTrail) && getLayoutRequisition(*pChild).Width() <= aChildAlloc.Width() - nLead - nTrail)
++                    {
++                        aChildPos.AdjustX(nLead);
++                        aChildAlloc.AdjustWidth(-(nLead + nTrail));
++                    }
++                }
++                setLayoutAllocation(*pChild, aChildPos, aChildAlloc);
+             }
+             aAllocPos.AdjustY(aHeights[y].m_nValue + nRowSpacing );
+         }
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -33,7 +33,18 @@
+     return false;
+ }
+ 
+-void applyToToolBox(ToolBox& rToolBox, int nState)
++/// HST Office: a toolbox that holds one command (separators aside)
++bool holdsOneCommand(const ToolBox& rToolBox)
++{
++    int nCommands = 0;
++    for (ToolBox::ImplToolItems::size_type i = 0; i < rToolBox.GetItemCount(); ++i)
++        if (rToolBox.GetItemType(i) == ToolBoxItemType::BUTTON)
++            ++nCommands;
++    return nCommands == 1;
++}
++
++/// bOnlyCommand: the toolbox is the only one of its group and holds one command
++void applyToToolBox(ToolBox& rToolBox, int nState, bool bOnlyCommand)
+ {
+     ImplToolBoxPrivateData& rData = *rToolBox.ImplGetToolBoxPrivateData();
+     if (!rData.mbHstAuthored)
+@@ -44,7 +55,11 @@
+         rData.meHstAuthoredTextPosition = rData.meHstTextPosition;
+         rData.mbHstKeepLarge = holdsPaste(rToolBox); // Paste stays large, as in Office
+     }
+-    const bool bKeep = rData.mbHstKeepLarge || nState == GroupLarge;
++    // HST Office: a group of one large command (Insert's Comments, Review's Protect) keeps it large with
++    // its label, as Office does: as a bare icon under a longer caption it saved almost nothing and left the
++    // group looking empty
++    const bool bKeep = rData.mbHstKeepLarge || nState == GroupLarge
++                       || (bOnlyCommand && rData.meHstAuthoredSize == ToolBoxButtonSize::Large);
+     const ButtonType eType
+         = bKeep || nState < GroupSmall ? rData.meHstAuthoredType : ButtonType::SYMBOLONLY;
+     const ToolBoxButtonSize eSize
+@@ -116,7 +131,11 @@
+ 
+ void SetGroupState(vcl::Window& rGroup, int nState)
+ {
+-    forToolBoxes(rGroup, [nState](ToolBox& rToolBox) { applyToToolBox(rToolBox, nState); });
++    std::vector<ToolBox*> aToolBoxes;
++    forToolBoxes(rGroup, [&aToolBoxes](ToolBox& rToolBox) { aToolBoxes.push_back(&rToolBox); });
++    const bool bOnlyCommand = aToolBoxes.size() == 1 && holdsOneCommand(*aToolBoxes.front());
++    for (ToolBox* pToolBox : aToolBoxes)
++        applyToToolBox(*pToolBox, nState, bOnlyCommand);
+ }
+ 
+ OUString GroupCaption(vcl::Window& rGroup)
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -73,6 +73,43 @@
+         }
+     }
+ }
++
++/// HST Office: the room a group leaves empty beside its controls because its caption is wider
++/// (VclGrid::get_hst_caption_room), 0 for other groups
++tools::Long lcl_HstCaptionRoom(vcl::Window& rGroup)
++{
++    const VclGrid* pGrid = dynamic_cast<const VclGrid*>(&rGroup);
++    return pGrid ? pGrid->get_hst_caption_room() : 0;
++}
++
++/// HST Office: a tab without a ladder of its own shrinks with the default ladder, one state at a time,
++/// and its last step can free far more than was missing (a large group turned into its button): the
++/// groups an earlier step shrank grow back, latest first, into the largest state that still fits, so no
++/// group stays shrunk beside free room at the end of the row
++void lcl_HstRegrow(const std::vector<hst::ribbon::Group>& rGroups, const std::vector<hst::ribbon::Step>& rSteps,
++                   long nWidth, hst::ribbon::Layout& rLayout)
++{
++    long nRow = hst::ribbon::rowWidth(rGroups, rLayout.states);
++    for (auto it = rSteps.rbegin(); it != rSteps.rend(); ++it)
++    {
++        if (it->group >= rGroups.size())
++            continue;
++        const size_t nCurrent = rLayout.states[it->group];
++        if (nCurrent == 0 || nCurrent >= static_cast<size_t>(hst::ribbon::GroupStateCount))
++            continue;
++        const hst::ribbon::Group& rGroup = rGroups[it->group];
++        for (size_t nState = 0; nState < nCurrent; ++nState)
++        {
++            const long nNext = nRow - hst::ribbon::widthOf(rGroup, nCurrent) + hst::ribbon::widthOf(rGroup, nState);
++            if (nNext <= nWidth)
++            {
++                rLayout.states[it->group] = nState;
++                nRow = nNext;
++                break;
++            }
++        }
++    }
++}
+ }
+ 
+ 
+@@ -113,6 +150,12 @@
+ 
+     HstRestoreOrder();
+ 
++    // HST Office: a group's controls sit centred under a caption wider than they are, as in Office,
++    // instead of the caption stretching the group's columns and leaving empty room on their right
++    for (vcl::Window* pChild : HstGroups())
++        if (VclGrid* pGrid = dynamic_cast<VclGrid*>(pChild))
++            pGrid->set_hst_centre_spanned(true);
++
+     const tools::Long nWidth = GetSizePixel().Width();
+     const tools::Long nSpacing = get_spacing();
+ 
+@@ -323,6 +366,7 @@
+     std::vector<hst::ribbon::Step> aSteps;
+     std::vector<bool> aCollapsible(aWindows.size(), false);
+     m_aHstFoldOrder.assign(aWindows.rbegin(), aWindows.rend());
++    bool bOwnLadder = false; // the tab has a ladder of its own (HstRibbonLadders.hxx)
+ #ifdef HST_HAVE_RIBBON_LADDERS
+     for (const auto& rLadder : hst::ribbon::ladders::all)
+     {
+@@ -348,9 +392,19 @@
+         m_aHstFoldOrder.clear();
+         for (size_t i = 0; i < rLadder.groupCount; ++i)
+             m_aHstFoldOrder.push_back(aWindows[indexOf(rLadder.fold[i])]);
++        bOwnLadder = true;
+         break;
+     }
+ #endif
++    if (!bOwnLadder)
++    {
++        // HST Office: every group of such a tab can show as its button, except a merged box inside this
++        // one (the Extension tab's add-on box), which folds whole
++        for (size_t i = 0; i < aWindows.size(); ++i)
++            aCollapsible[i] = !dynamic_cast<PriorityMergedHBox*>(aWindows[i]);
++    }
++    // HST Office: the smallest gain of a step of the default ladder
++    const tools::Long nMinGain = std::lround(24 * GetDPIScaleFactor());
+     std::vector<hst::ribbon::Group> aGroups;
+     bool bMeasured = false;
+     for (size_t i = 0; i < aWindows.size(); ++i)
+@@ -368,7 +422,21 @@
+             for (int nState = 0; nState < hst::ribbon::GroupStateCount; ++nState)
+             {
+                 hst::ribbon::SetGroupState(*pChild, nState);
+-                rEntry.second.push_back(getLayoutRequisition(*pChild).Width() + pChild->get_padding() * 2);
++                const tools::Long nMeasured = getLayoutRequisition(*pChild).Width() + pChild->get_padding() * 2;
++                // HST Office: a tab without a ladder of its own shrinks a group to medium (small icons with
++                // their labels), then to its button "caption ▾", then folds it into the chevron. Small
++                // (the labels dropped) is no rung there: under a caption wider than its icons the group kept
++                // most of its width and showed empty room beside them. Neither is a step that saves less
++                // than nMinGain, or no more room than the caption leaves empty beside the controls. A
++                // skipped state measures as the one before it, so the ladder passes it over.
++                bool bSkip = false;
++                if (nState > 0 && !bOwnLadder)
++                {
++                    const tools::Long nGain = rEntry.second.back() - nMeasured;
++                    bSkip = nState == hst::ribbon::GroupSmall || nGain < nMinGain
++                            || nGain <= lcl_HstCaptionRoom(*pChild);
++                }
++                rEntry.second.push_back(bSkip ? rEntry.second.back() : nMeasured);
+             }
+             const int nCurrent = m_aHstStates[pChild];
+             hst::ribbon::SetGroupState(*pChild, nCurrent == hst::ribbon::GroupCollapsed ? hst::ribbon::GroupLarge : nCurrent);
+@@ -385,7 +453,10 @@
+             if (aCollapsible[i])
+             {
+                 PushButton& rButton = HstGroupButton(*pChild);
+-                rEntry.second.push_back(getLayoutRequisition(rButton).Width() + rButton.get_padding() * 2);
++                const tools::Long nButton = getLayoutRequisition(rButton).Width() + rButton.get_padding() * 2;
++                // HST Office: the default ladder collapses a group only when its button saves nMinGain
++                const tools::Long nNarrowest = *std::min_element(rEntry.second.begin(), rEntry.second.end());
++                rEntry.second.push_back(!bOwnLadder && nNarrowest - nButton < nMinGain ? rEntry.second.back() : nButton);
+             }
+         }
+         hst::ribbon::Group aGroup;
+@@ -418,8 +489,13 @@
+     }
+ #endif
+     hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, aSteps, nWidth, nChevron);
++    // HST Office: the ladder select() used (the default one when the tab has none of its own), so the
++    // passes below see the collapse steps of the default ladder too
++    const std::vector<hst::ribbon::Step> aUsed = aSteps.empty() ? hst::ribbon::defaultLadder(aGroups) : aSteps;
+     if (aLayout.overflow.empty())
+-        lcl_HstUncollapse(aGroups, aSteps, nWidth, aLayout);
++        lcl_HstUncollapse(aGroups, aUsed, nWidth, aLayout);
++    if (aLayout.overflow.empty() && !bOwnLadder)
++        lcl_HstRegrow(aGroups, aUsed, nWidth, aLayout);
+     m_aHstFolded.clear();
+     m_nHstFoldedFor = nWidth;
+     if (!aLayout.overflow.empty())
+@@ -482,7 +558,14 @@
+         }
+         if (nTotal <= nRoom && !aShownGroups.empty())
+         {
+-            const hst::ribbon::Layout aRefill = hst::ribbon::select(aShownGroups, aShownSteps, nRoom, 0);
++            hst::ribbon::Layout aRefill = hst::ribbon::select(aShownGroups, aShownSteps, nRoom, 0);
++            if (!bOwnLadder)
++            {
++                const std::vector<hst::ribbon::Step> aShownUsed
++                    = aShownSteps.empty() ? hst::ribbon::defaultLadder(aShownGroups) : aShownSteps;
++                lcl_HstUncollapse(aShownGroups, aShownUsed, nRoom, aRefill);
++                lcl_HstRegrow(aShownGroups, aShownUsed, nRoom, aRefill);
++            }
+             for (size_t j = 0; j < aShown.size(); ++j)
+                 aLayout.states[aShown[j]] = aRefill.states[j];
+         }
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -5153,8 +5153,11 @@
+                           <object class="sfxlo-NotebookbarToolBox" id="bxInsertInsertAVMedia">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
+                             <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnInsertInsertAVMedia">
+                                 <property name="visible">True</property>
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -6065,8 +6065,11 @@
+                           <object class="sfxlo-NotebookbarToolBox" id="bxLayoutChooseDesign">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
+                             <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnLayoutChooseDesign">
+                                 <property name="visible">True</property>
+--- a/sd/uiconfig/simpress/ui/notebookbar.ui
++++ b/sd/uiconfig/simpress/ui/notebookbar.ui
+@@ -5944,8 +5944,11 @@
+                           <object class="sfxlo-NotebookbarToolBox" id="bxInsertInsertAVMedia">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
+                             <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnInsertInsertAVMedia">
+                                 <property name="visible">True</property>
