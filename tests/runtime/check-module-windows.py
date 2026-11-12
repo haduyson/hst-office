@@ -137,7 +137,6 @@ def run(args):
                 repr(c.windows()))
 
         # 5. Tab commands act on their window.
-        before = {w for w, _n in c.windows()}
         shown = [f for f in writer_tabs if f.getContainerWindow().isVisible()]
         office.dispatch(shown[0], ".uno:NextDocumentTab")
         c.check("NextDocumentTab: the other tab of the HST Writer window is shown, windows unchanged",
@@ -158,11 +157,10 @@ def run(args):
         c.check("HST Office launcher again: no new window", len(c.windows()) == 6, repr(c.windows()))
 
         # 7. Taskbar identity.
-        classes = {n: c.wm_class(w) for w, n in c.windows() if w not in before or True}
-        module_window = next(w for w, _n in c.windows()
-                             if module_writer.getContainerWindow().isVisible() and module_writer.Title in _n)
-        c.check("WM_CLASS: HST Writer window is a Writer window", "-writer" in c.wm_class(module_window),
-                c.wm_class(module_window))
+        classes = {n: c.wm_class(w) for w, n in c.windows()}
+        module_window = next((w for w, n in c.windows() if any(f.Title in n for f in writer_tabs)), None)
+        c.check("WM_CLASS: the HST Writer window is a Writer window",
+                module_window is not None and "-writer" in c.wm_class(module_window), repr(classes))
         office_window = next((w for w, n in c.windows() if office_writer.Title in n), None)
         c.check("WM_CLASS: a tab of the HST Office window belongs to HST Office",
                 office_window is not None and "startcenter" in c.wm_class(office_window), repr(classes))

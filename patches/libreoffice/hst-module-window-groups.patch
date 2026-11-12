@@ -43,7 +43,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  #include <sal/log.hxx>
  #include <toolkit/helper/vclunohelper.hxx>
  #include <comphelper/lok.hxx>
-@@ -2404,6 +2405,16 @@
+@@ -2404,6 +2405,17 @@
                      xList->getByIndex(0) >>= xTask;
              }
  
@@ -54,7 +54,8 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +            {
 +                if ( framework::DocumentTabs::showOfficeWindow() )
 +                    break;
-+                xTask.clear();
++                if ( framework::DocumentTabs::canOpenOfficeWindow() )
++                    xTask.clear();
 +            }
 +
              if ( xTask.is() )
@@ -129,7 +130,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  
      /// LayoutManager: height to reserve for the strip of xFrame (0 = no strip).
      sal_Int32 tabBarHeight(const css::uno::Reference<css::frame::XFrame>& xFrame,
-@@ -78,22 +108,44 @@
+@@ -78,22 +108,46 @@
      void placeTabBar(const css::uno::Reference<css::frame::XFrame>& xFrame,
                       const tools::Rectangle& rRect);
  
@@ -176,11 +177,13 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +        window to front. Returns false when there is none (the caller opens a Start Center,
 +        which becomes a new HST Office window). */
 +    bool showOfficeWindow();
++    /// A new Start Center may open as a new HST Office window (not while quitting or starting).
++    bool canOpenOfficeWindow() const;
 +
      /// Desktop::terminate: frames are about to be closed one by one, don't re-show neighbours.
      void setClosingAll(bool bClosingAll);
  
-@@ -110,25 +162,44 @@
+@@ -110,25 +164,45 @@
          VclPtr<vcl::Window> pWindow; ///< the frame's container (top-level WorkWindow)
          VclPtr<DocumentTabBar> pBar;
          bool bParked = false;
@@ -229,10 +232,11 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    void update(Group& rGroup);
 +    void updateAll();
 +    bool showsTabBar(const Group& rGroup, const Member& rMember) const;
++    static bool groupIsFullScreen(const Group& rGroup);
  
      static void copyGeometry(vcl::Window* pFrom, vcl::Window* pTo);
  
-@@ -137,12 +208,18 @@
+@@ -137,12 +211,18 @@
      DECL_LINK(DispatchHdl, void*, void);
      DECL_LINK(CloseWindowHdl, void*, void);
  
@@ -524,7 +528,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  
  using namespace css;
  
-@@ -240,6 +248,98 @@
+@@ -240,6 +248,113 @@
      if (xDispatch.is())
          xDispatch->dispatch(aURL, {});
  }
@@ -607,6 +611,21 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +           + OUString::number(static_cast<sal_Int32>(vcl::WindowState::Normal)) + ";";
 +}
 +
++/// Marks the windows we show and hide ourselves (the WindowShow/Hide listener ignores them),
++/// also when a window listener throws.
++struct InternalShow
++{
++    explicit InternalShow(sal_Int32& rCount)
++        : m_rCount(rCount)
++    {
++        ++m_rCount;
++    }
++    ~InternalShow() { --m_rCount; }
++    InternalShow(const InternalShow&) = delete;
++    InternalShow& operator=(const InternalShow&) = delete;
++    sal_Int32& m_rCount;
++};
++
 +void lcl_updateApplicationID(const uno::Reference<frame::XFrame>& xFrame)
 +{
 +    try
@@ -623,7 +642,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  DocumentTabGroup& DocumentTabGroup::get()
-@@ -324,29 +424,70 @@
+@@ -324,29 +439,70 @@
      return {};
  }
  
@@ -659,8 +678,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +}
 +
 +DocumentTabGroup::Member* DocumentTabGroup::findByWindow(const vcl::Window* pWindow, Group** ppGroup)
- {
--    return const_cast<DocumentTabGroup*>(this)->find(xFrame);
++{
 +    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
 +        for (Member& rMember : pGroup->aMembers)
 +            if (rMember.pWindow.get() == pWindow)
@@ -670,21 +688,22 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +                return &rMember;
 +            }
 +    return nullptr;
- }
- 
--DocumentTabGroup::Member* DocumentTabGroup::findByWindow(const vcl::Window* pWindow)
++}
++
 +DocumentTabGroup::Group* DocumentTabGroup::groupById(sal_uInt32 nId)
  {
--    for (Member& rMember : m_aMembers)
--        if (rMember.pWindow.get() == pWindow)
+-    return const_cast<DocumentTabGroup*>(this)->find(xFrame);
 +    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
 +        if (pGroup->nId == nId)
 +            return pGroup.get();
 +    return nullptr;
-+}
-+
+ }
+ 
+-DocumentTabGroup::Member* DocumentTabGroup::findByWindow(const vcl::Window* pWindow)
 +DocumentTabGroup::Member* DocumentTabGroup::activeMember(Group& rGroup)
-+{
+ {
+-    for (Member& rMember : m_aMembers)
+-        if (rMember.pWindow.get() == pWindow)
 +    const uno::Reference<frame::XFrame> xActive = lcl_get(rGroup.xActive);
 +    if (!xActive.is())
 +        return nullptr;
@@ -704,7 +723,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  
  bool DocumentTabGroup::isParked(const uno::Reference<frame::XFrame>& xFrame) const
  {
-@@ -354,39 +495,122 @@
+@@ -354,39 +510,122 @@
      return pMember && pMember->bParked;
  }
  
@@ -844,7 +863,18 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  void DocumentTabGroup::copyGeometry(vcl::Window* pFrom, vcl::Window* pTo)
-@@ -427,14 +651,50 @@
+@@ -407,9 +646,8 @@
+     if (!rMember.pWindow || rMember.pWindow->isDisposed())
+         return;
+     rMember.bParked = true; // before hiding: XFrameImpl::windowHidden asks isParked()
+-    ++m_nInternal;
++    InternalShow aInternal(m_nInternal);
+     rMember.pWindow->Show(false);
+-    --m_nInternal;
+ }
+ 
+ void DocumentTabGroup::focus(const uno::Reference<frame::XFrame>& xFrame)
+@@ -427,14 +665,53 @@
      }
  }
  
@@ -884,8 +914,11 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +                // A tab of a module window got a document of another module: its own window.
 +                detach(xFrame);
 +                if (find(xFrame, &pGroup) && pGroup->aMembers.size() == 1)
++                {
 +                    setKind(*pGroup, aModule);
-+                return;
++                    return;
++                }
++                // full screen: the tab stays, prepared like any other tab of its window
 +            }
 +        }
 +        else
@@ -898,7 +931,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          if (!pPrevious || pPrevious == &rMember || !rMember.pWindow || rMember.pWindow->IsVisible())
              return;
          if (pPrevious->pWindow && pPrevious->pWindow->IsVisible())
-@@ -454,12 +714,24 @@
+@@ -454,12 +731,24 @@
      try
      {
          const VclEventId nId = rEvent.GetId();
@@ -909,7 +942,8 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          vcl::Window* pWindow = static_cast<VclWindowEvent&>(rEvent).GetWindow();
 -        if (m_nInternal || !pWindow || pWindow->GetType() != WindowType::WORKWINDOW)
 +        if (!pWindow || pWindow->GetType() != WindowType::WORKWINDOW)
-+            return;
+             return;
+-    
 +
 +        if (nId == VclEventId::WindowActivate)
 +        {
@@ -920,13 +954,12 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +            return;
 +        }
 +        if (m_nInternal)
-             return;
--    
++            return;
 +
          if (nId == VclEventId::WindowHide)
          {
              // Hidden by someone else (macro, frame being closed, autorecovery): leave the group,
-@@ -469,7 +741,7 @@
+@@ -469,7 +758,7 @@
                      removeMember(lcl_get(pMember->xFrame), true);
              return;
          }
@@ -935,7 +968,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          if (!isEnabled())
              return;
          uno::Reference<frame::XFrame> xFrame = findTaskFrame(pWindow);
-@@ -477,9 +749,9 @@
+@@ -477,9 +766,9 @@
              return;
          const bool bPrepared = lcl_get(m_xPrepared) == xFrame;
          m_xPrepared.clear();
@@ -948,7 +981,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          try
          {
              uno::Reference<frame::XFramesSupplier> xDesktop
-@@ -493,13 +765,17 @@
+@@ -493,13 +782,17 @@
                      continue;
                  VclPtr<vcl::Window> pOther = VCLUnoHelper::GetWindow(xOther->getContainerWindow());
                  if (pOther && !pOther->isDisposed() && pOther->IsVisible())
@@ -968,7 +1001,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          if (pPrevious && lcl_get(pPrevious->xFrame) == xFrame && !pPrevious->bParked)
              return;
          uno::Reference<frame::XFrame> xPrevious;
-@@ -509,15 +785,15 @@
+@@ -509,15 +802,15 @@
              xPrevious = lcl_get(pPrevious->xFrame);
              pPreviousWindow = pPrevious->pWindow;
          }
@@ -989,7 +1022,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
              {
                  if (&rOther != &rMember && !rOther.bParked && rOther.pWindow
                      && !rOther.pWindow->isDisposed() && rOther.pWindow->IsVisible())
-@@ -534,10 +810,10 @@
+@@ -534,10 +827,10 @@
              if (!bPrepared)
                  copyGeometry(pPreviousWindow, pWindow);
              // Park the previous tab once the new window is up (never leave zero windows).
@@ -1002,7 +1035,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      catch (const uno::Exception&)
      {
-@@ -549,14 +825,19 @@
+@@ -549,14 +842,19 @@
  {
      try
      {
@@ -1030,7 +1063,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          }
      }
      catch (const uno::Exception&)
-@@ -569,10 +850,12 @@
+@@ -569,10 +867,12 @@
  {
      try
      {
@@ -1045,11 +1078,22 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          if (pPrevious == pTarget && pTarget->pWindow->IsVisible())
          {
              focus(xFrame);
-@@ -587,12 +870,13 @@
-         ++m_nInternal;
-         pTargetWindow->Show(true, ShowFlags::ForegroundTask);
-         --m_nInternal;
+@@ -584,15 +884,21 @@
+             copyGeometry(pPrevious->pWindow, pTarget->pWindow);
+         pTarget->bParked = false;
+         VclPtr<vcl::Window> pTargetWindow = pTarget->pWindow;
+-        ++m_nInternal;
+-        pTargetWindow->Show(true, ShowFlags::ForegroundTask);
+-        --m_nInternal;
 -        m_xActive = xFrame;
++        const sal_uInt32 nGroup = pGroup->nId;
++        {
++            InternalShow aInternal(m_nInternal);
++            pTargetWindow->Show(true, ShowFlags::ForegroundTask);
++        }
++        pGroup = groupById(nGroup);
++        if (!pGroup || !find(xFrame))
++            return;
 +        pGroup->xActive = xFrame;
          // find() again: Show() can run events that change the member list
          if (Member* pOld = find(xPrevious); pOld && xPrevious != xFrame)
@@ -1061,7 +1105,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      catch (const uno::Exception&)
      {
-@@ -600,16 +884,20 @@
+@@ -600,16 +906,20 @@
      }
  }
  
@@ -1088,7 +1132,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  void DocumentTabGroup::closeTab(const uno::Reference<frame::XFrame>& xFrame)
-@@ -635,7 +923,8 @@
+@@ -635,7 +945,8 @@
  bool DocumentTabGroup::requestCloseWindow(const uno::Reference<frame::XFrame>& xFrame)
  {
      cleanUp();
@@ -1098,7 +1142,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          return false;
      if (!lcl_get(m_xCloseWindowFrom).is())
      {
-@@ -649,11 +938,13 @@
+@@ -649,11 +960,13 @@
  {
      uno::Reference<frame::XFrame> xClicked = lcl_get(m_xCloseWindowFrom);
      m_xCloseWindowFrom.clear();
@@ -1115,7 +1159,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          if (uno::Reference<frame::XFrame> xFrame = lcl_get(rMember.xFrame); xFrame.is() && xFrame != xClicked)
              aOthers.push_back(xFrame);
      for (const uno::Reference<frame::XFrame>& xFrame : aOthers)
-@@ -696,9 +987,9 @@
+@@ -696,9 +1009,9 @@
      }
  }
  
@@ -1127,7 +1171,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      Application::PostUserEvent(LINK(this, DocumentTabGroup, DispatchHdl));
  }
  
-@@ -706,13 +997,21 @@
+@@ -706,13 +1019,21 @@
  {
      try
      {
@@ -1156,7 +1200,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      catch (const uno::Exception&)
      {
-@@ -720,31 +1019,60 @@
+@@ -720,44 +1041,77 @@
      }
  }
  
@@ -1176,10 +1220,11 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    if (aMember.pWindow && !aMember.pWindow->isDisposed() && aMember.pWindow->IsVisible())
 +        copyGeometry(aMember.pWindow, rNext.pWindow);
 +    rNext.bParked = false;
-+    ++m_nInternal;
-+    rNext.pWindow->Show(true, ShowFlags::NoActivate);
-+    --m_nInternal;
-+    rGroup.xActive = rNext.xFrame;
++    const uno::WeakReference<frame::XFrame> xNext = rNext.xFrame;
++    VclPtr<vcl::Window> pNextWindow = rNext.pWindow;
++    rGroup.xActive = xNext;
++    InternalShow aInternal(m_nInternal);
++    pNextWindow->Show(true, ShowFlags::NoActivate);
 +    return aMember;
 +}
 +
@@ -1227,12 +1272,17 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
              if (pGeometry && !pGeometry->isDisposed() && pGeometry->IsVisible())
                  copyGeometry(pGeometry, rNext.pWindow);
              uno::Reference<frame::XFrame> xNext = lcl_get(rNext.xFrame);
-@@ -752,12 +1080,13 @@
-             ++m_nInternal;
-             rNext.pWindow->Show(true, ShowFlags::ForegroundTask);
-             --m_nInternal;
+             rNext.bParked = false;
+-            ++m_nInternal;
+-            rNext.pWindow->Show(true, ShowFlags::ForegroundTask);
+-            --m_nInternal;
 -            m_xActive = xNext;
 +            pGroup->xActive = xNext;
++            VclPtr<vcl::Window> pNextWindow = rNext.pWindow;
++            {
++                InternalShow aInternal(m_nInternal);
++                pNextWindow->Show(true, ShowFlags::ForegroundTask);
++            }
              focus(xNext);
          }
 -        else if (bWasActive && !m_aMembers.empty() && !m_bClosingAll)
@@ -1245,7 +1295,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      catch (const uno::Exception&)
      {
-@@ -775,28 +1104,36 @@
+@@ -775,28 +1129,36 @@
      m_bClosingAll = bClosingAll;
      if (bClosingAll)
          return;
@@ -1299,7 +1349,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  void DocumentTabGroup::optionChanged(bool bEnabled)
-@@ -812,57 +1149,64 @@
+@@ -812,57 +1174,63 @@
  {
      // Option switched off: every tab becomes a window again (cascaded from the shown one).
      cleanUp();
@@ -1330,6 +1380,10 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 -            Point aPos = pAnchor->GetPosPixel();
 -            rMember.pWindow->SetPosSizePixel(aPos + Point(nOffset, nOffset),
 -                                             pAnchor->GetSizePixel());
+-        }
+-        ++m_nInternal;
+-        rMember.pWindow->Show(true, ShowFlags::NoActivate);
+-        --m_nInternal;
 +            aFrames.push_back(lcl_get(rMember.xFrame));
 +            rMember.pBar.disposeAndClear();
 +            if (rMember.pWindow && !rMember.pWindow->isDisposed())
@@ -1347,13 +1401,9 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +                rMember.pWindow->SetPosSizePixel(aPos + Point(nOffset, nOffset),
 +                                                 pAnchor->GetSizePixel());
 +            }
-+            ++m_nInternal;
++            InternalShow aInternal(m_nInternal);
 +            rMember.pWindow->Show(true, ShowFlags::NoActivate);
-+            --m_nInternal;
-         }
--        ++m_nInternal;
--        rMember.pWindow->Show(true, ShowFlags::NoActivate);
--        --m_nInternal;
++        }
      }
 -    m_aMembers.clear();
 -    m_xActive.clear();
@@ -1392,7 +1442,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      {
          if (pMember->pBar)
              pMember->pBar->Hide();
-@@ -884,23 +1228,27 @@
+@@ -884,23 +1252,27 @@
      pMember->pBar->Invalidate();
  }
  
@@ -1430,7 +1480,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
              aTabs.push_back(aInfo);
          }
          return aTabs;
-@@ -912,11 +1260,11 @@
+@@ -912,11 +1284,11 @@
      return {};
  }
  
@@ -1444,7 +1494,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          aFrames.push_back(lcl_get(rMember.xFrame));
      for (const uno::Reference<frame::XFrame>& xFrame : aFrames)
      {
-@@ -927,12 +1275,188 @@
+@@ -927,12 +1299,214 @@
      documentEvent();
  }
  
@@ -1458,16 +1508,21 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +            update(*pGroup);
 +}
 +
++bool DocumentTabGroup::groupIsFullScreen(const Group& rGroup)
++{
++    for (const Member& rMember : rGroup.aMembers)
++        if (!rMember.bParked && lcl_isFullScreen(rMember.pWindow))
++            return true;
++    return false;
++}
++
 +bool DocumentTabGroup::canDetach(const uno::Reference<frame::XFrame>& xFrame) const
 +{
 +    const Group* pGroup = nullptr;
 +    if (!isEnabled() || !find(xFrame, &pGroup) || pGroup->aMembers.size() < 2)
 +        return false;
 +    // A window in full screen (macOS: its own Space, the tabs are native tabs) keeps its tabs.
-+    for (const Member& rMember : pGroup->aMembers)
-+        if (!rMember.bParked && lcl_isFullScreen(rMember.pWindow))
-+            return false;
-+    return true;
++    return !groupIsFullScreen(*pGroup);
 +}
 +
 +void DocumentTabGroup::detach(const uno::Reference<frame::XFrame>& xFrame,
@@ -1492,15 +1547,17 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +        rTarget.aMembers.push_back(aMoved);
 +        rTarget.xActive = xFrame;
 +        hst_vcl_set_tab_group(aMoved.pWindow, rTarget.nId);
-+        ++m_nInternal;
-+        if (!aState.isEmpty())
-+            static_cast<SystemWindow*>(aMoved.pWindow.get())->SetWindowState(aState);
-+        aMoved.pWindow->Show(true, ShowFlags::ForegroundTask);
-+        --m_nInternal;
++        const sal_uInt32 nTarget = rTarget.nId;
++        {
++            InternalShow aInternal(m_nInternal);
++            if (!aState.isEmpty())
++                static_cast<SystemWindow*>(aMoved.pWindow.get())->SetWindowState(aState);
++            aMoved.pWindow->Show(true, ShowFlags::ForegroundTask);
++        }
 +        focus(xFrame);
 +        if (Group* pGroup = groupById(nSource))
 +            update(*pGroup);
-+        if (Group* pGroup = groupById(rTarget.nId))
++        if (Group* pGroup = groupById(nTarget))
 +            update(*pGroup);
 +    }
 +    catch (const uno::Exception&)
@@ -1511,6 +1568,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +
 +void DocumentTabGroup::moveTab(const uno::Reference<frame::XFrame>& xFrame, sal_Int32 nIndex)
 +{
++    cleanUp(); // the index counts the live tabs of getTabs()
 +    Group* pGroup = nullptr;
 +    Member* pMember = find(xFrame, &pGroup);
 +    if (!pMember)
@@ -1537,7 +1595,14 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +            return false;
 +        Group* pSource = nullptr;
 +        Member* pMember = find(xFrame, &pSource);
-+        if (!pMember || lcl_isFullScreen(pMember->pWindow))
++        if (!pMember || groupIsFullScreen(*pSource))
++            return false;
++        // A drop over the window the tab comes from is no drop on a window behind it.
++        if (Member* pShown = activeMember(*pSource); pShown && pShown->pWindow
++            && !pShown->pWindow->isDisposed()
++            && tools::Rectangle(Point(pShown->pWindow->OutputToAbsoluteScreenPixel(Point())),
++                                pShown->pWindow->GetOutputSizePixel())
++                   .Contains(rScreenPos))
 +            return false;
 +        const OUString aModule = lcl_moduleKey(xFrame);
 +        for (const std::unique_ptr<Group>& pGroup : m_aGroups)
@@ -1552,7 +1617,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +                                          pTarget->pBar->GetOutputSizePixel());
 +            if (!aStrip.Contains(rScreenPos))
 +                continue;
-+            if (!accepts(*pGroup, aModule) || lcl_isFullScreen(pTarget->pWindow))
++            if (!accepts(*pGroup, aModule) || groupIsFullScreen(*pGroup))
 +                return false;
 +            // Leave the source window (its neighbour is shown), become the shown tab here.
 +            const sal_uInt32 nSource = pSource->nId;
@@ -1565,11 +1630,13 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +            rTarget.aMembers.insert(it, aMoved);
 +            hst_vcl_set_tab_group(aMoved.pWindow, rTarget.nId);
 +            copyGeometry(pPreviousWindow, aMoved.pWindow);
-+            ++m_nInternal;
-+            aMoved.pWindow->Show(true, ShowFlags::ForegroundTask);
-+            --m_nInternal;
++            const sal_uInt32 nTarget = rTarget.nId;
 +            rTarget.xActive = xFrame;
-+            m_nRecentGroup = rTarget.nId;
++            m_nRecentGroup = nTarget;
++            {
++                InternalShow aInternal(m_nInternal);
++                aMoved.pWindow->Show(true, ShowFlags::ForegroundTask);
++            }
 +            if (Member* pOld = find(xPrevious))
 +                park(*pOld);
 +            focus(xFrame);
@@ -1577,7 +1644,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +            cleanUp(); // the source window may have had this tab only
 +            if (Group* pGroup2 = groupById(nSource))
 +                update(*pGroup2);
-+            if (Group* pGroup2 = groupById(rTarget.nId))
++            if (Group* pGroup2 = groupById(nTarget))
 +                update(*pGroup2);
 +            return true;
 +        }
@@ -1587,6 +1654,13 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: merge");
 +    }
 +    return false;
++}
++
++bool DocumentTabGroup::canOpenOfficeWindow() const
++{
++    // Not while the office quits (a save query runs the event loop) or before the first window
++    // exists (a second start while the office is still starting): then the office comes to front.
++    return isEnabled() && !m_bClosingAll && !m_aGroups.empty();
 +}
 +
 +bool DocumentTabGroup::showOfficeWindow()
@@ -1615,10 +1689,12 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    }
 +    if (!pOffice || pOffice->aMembers.empty())
 +        return false;
++    const sal_uInt32 nOffice = pOffice->nId;
 +    Member* pActive = activeMember(*pOffice);
 +    activate(lcl_get((pActive ? *pActive : pOffice->aMembers.front()).xFrame));
-+    if ((pActive = activeMember(*pOffice)) && pActive->pWindow && !pActive->pWindow->isDisposed()
-+        && pActive->pWindow->IsSystemWindow())
++    pOffice = groupById(nOffice);
++    if (pOffice && (pActive = activeMember(*pOffice)) && pActive->pWindow
++        && !pActive->pWindow->isDisposed() && pActive->pWindow->IsSystemWindow())
 +        static_cast<WorkWindow*>(pActive->pWindow.get())->ToTop(ToTopFlags::RestoreWhenMin | ToTopFlags::ForegroundTask);
 +    return true;
 +}
@@ -1637,7 +1713,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      m_bEnabled = false;
      Application::RemoveEventListener(LINK(this, DocumentTabGroup, WindowEventHdl));
      if (m_xListener.is())
-@@ -955,17 +1479,27 @@
+@@ -955,17 +1529,27 @@
  
  namespace
  {
@@ -1668,7 +1744,20 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      virtual void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>& xListener,
                                              const util::URL& rURL) override
-@@ -982,17 +1516,22 @@
+@@ -975,6 +1559,12 @@
+         frame::FeatureStateEvent aEvent;
+         aEvent.FeatureURL = rURL;
+         aEvent.IsEnabled = true;
++        if (rURL.Complete == ".uno:DetachDocumentTab")
++        {
++            SolarMutexGuard aGuard;
++            aEvent.IsEnabled = DocumentTabGroup::isEnabled()
++                               && DocumentTabGroup::get().canDetach(uno::Reference<frame::XFrame>(m_xFrame));
++        }
+         aEvent.Source = getXWeak();
+         xListener->statusChanged(aEvent);
+     }
+@@ -982,17 +1572,22 @@
                                                 const util::URL&) override
      {
      }
@@ -1694,7 +1783,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  void DocumentTabs::prepareShow(const uno::Reference<frame::XFrame>& xFrame)
-@@ -1001,6 +1540,18 @@
+@@ -1001,6 +1596,24 @@
      if (DocumentTabGroup::isEnabled())
          DocumentTabGroup::get().prepareShow(xFrame);
  }
@@ -1709,6 +1798,12 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +{
 +    SolarMutexGuard aGuard;
 +    return DocumentTabGroup::isEnabled() && DocumentTabGroup::get().showOfficeWindow();
++}
++
++bool DocumentTabs::canOpenOfficeWindow()
++{
++    SolarMutexGuard aGuard;
++    return DocumentTabGroup::isEnabled() && DocumentTabGroup::get().canOpenOfficeWindow();
 +}
  }
  
@@ -1745,7 +1840,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      m_aTabs.clear();
  
      // Natural widths, then shrink evenly when they don't fit next to the "+" button.
-@@ -305,36 +310,154 @@
+@@ -305,36 +310,157 @@
          if (rMEvt.IsMiddle() || (rMEvt.IsLeft() && bClose))
              DocumentTabGroup::get().closeTab(xTarget);
          else if (rMEvt.IsLeft())
@@ -1828,7 +1923,10 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    const Point aScreen(OutputToAbsoluteScreenPixel(rPos));
 +    if (rGroup.mergeAt(xFrame, aScreen))
 +        return;
-+    const Point aGrab = m_aDragStart + GetPosPixel();
++    // where the tab was grabbed, relative to the top-left corner of the window
++    const Point aGrab = Point(OutputToAbsoluteScreenPixel(m_aDragStart))
++                        - (GetParent() ? Point(GetParent()->OutputToAbsoluteScreenPixel(Point()))
++                                       : Point(OutputToAbsoluteScreenPixel(Point())));
 +    rGroup.detach(xFrame, Point(aScreen.X() - aGrab.X(), aScreen.Y() - aGrab.Y()));
 +}
 +
@@ -1925,7 +2023,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  */
  namespace framework::DocumentTabs
  {
-@@ -32,6 +33,15 @@
+@@ -32,6 +33,19 @@
      and the previously shown member is parked once the new one is visible.
      No-op when tabs are disabled. */
  FWK_DLLPUBLIC void prepareShow(const css::uno::Reference<css::frame::XFrame>& xFrame);
@@ -1938,6 +2036,10 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    caller shows a new Start Center, which becomes a new HST Office window. The windows of
 +    HST Writer, HST Sheets, HST Slides and HST PDF are never used for that. */
 +FWK_DLLPUBLIC bool showOfficeWindow();
++
++/// After showOfficeWindow() failed: a new Start Center may open (false while the office quits
++/// or before its first window exists; then the active window comes to front as upstream).
++FWK_DLLPUBLIC bool canOpenOfficeWindow();
  }
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
