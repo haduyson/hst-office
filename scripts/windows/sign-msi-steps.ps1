@@ -2,6 +2,8 @@
 # Steps of scripts/windows/sign-msi.ps1 (dot-sourced; needs the types from msi-authenticode-native.cs).
 $PeSignedOk = 'Valid'
 $NoCompressionAttribute = 0x2000   # msidbFileAttributesNoncompressed: the file is not in a cabinet
+# Full paths: a Unix toolset early in PATH (Git for Windows) has its own expand.
+$System32 = Join-Path $env:SystemRoot 'System32'
 
 function Write-Log([string]$Message) {
     Write-Host $Message
@@ -98,7 +100,7 @@ function New-Cabinet([string]$Directory, [object[]]$Keys, [string]$CabPath, [str
     if ($Compression -eq 'LZX') { $lines += '.Set CompressionMemory=21' }
     $lines += $Keys | ForEach-Object { "`"$(Join-Path $Directory $_)`" `"$_`"" }
     Set-Content -LiteralPath $ddf -Value $lines -Encoding ASCII
-    & makecab.exe /F $ddf | Out-Null
+    & (Join-Path $System32 'makecab.exe') /F $ddf | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "makecab failed ($LASTEXITCODE) for $CabPath" }
     if (@(Get-ChildItem -LiteralPath $out -Filter *.cab).Count -ne 1) { throw "makecab did not write exactly one cabinet for $CabPath" }
 }
@@ -120,7 +122,7 @@ function Invoke-CabinetSigning($Db, [string]$Work, [string]$Compression) {
         New-Item -ItemType Directory -Force $dir | Out-Null
         $cab = Join-Path $Work $stream
         $bytes = $Db.ExportStream('_Streams', $stream, $cab)
-        & expand.exe $cab "-F:*" $dir | Out-Null
+        & (Join-Path $System32 'expand.exe') $cab "-F:*" $dir | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "expand failed ($LASTEXITCODE) for cabinet $stream" }
         Remove-Item -LiteralPath $cab
         $keys = @($inCab | Where-Object { Test-Path -LiteralPath (Join-Path $dir $_[0]) } | ForEach-Object { $_[0] })
@@ -219,7 +221,7 @@ function Test-SignedMsi([string]$Path, [string]$Directory) {
     $failures += Test-PeSet 'Binary table' @($names | ForEach-Object { Join-Path (Join-Path $Directory 'binary') $_ })
     $image = Join-Path $Directory 'admin-image'
     $log = Join-Path $Directory 'admin-install.log'
-    $run = Start-Process msiexec.exe -ArgumentList "/a `"$Path`" /qn TARGETDIR=`"$image`" /l*v `"$log`"" -Wait -PassThru
+    $run = Start-Process (Join-Path $System32 'msiexec.exe') -ArgumentList "/a `"$Path`" /qn TARGETDIR=`"$image`" /l*v `"$log`"" -Wait -PassThru
     if ($run.ExitCode -ne 0) {
         Write-Log "FAIL administrative extraction: msiexec exit $($run.ExitCode), log $log"
         return $failures + 1
