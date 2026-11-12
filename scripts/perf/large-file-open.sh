@@ -5,7 +5,7 @@
 # variants (comma list): hst, lo (stock), hst-noext (HST extension moved out), hst-toolbar (standard toolbars instead
 # of the tabbed bar), lo-tabbed (stock with the tabbed bar), hst-nothreads / lo-nothreads (threaded formula calculation
 # off), hst-norowheight / lo-norowheight (optimal row heights not recalculated on load), hst-save / lo-save (open, then store again with the file's own filter: the cost of a save or an autorecovery
-# copy). HST is the installer of Desktop build run $HST_WIN_RUN / $HST_LINUX_RUN (1.0.1: the released build); stock is $LO_MSI_URL / $LO_DEB_URL. Evidence only.
+# copy), hst-cli / lo-cli (the file on the office's command line, as a double-click; times include the start). HST is the installer of Desktop build run $HST_WIN_RUN / $HST_LINUX_RUN (1.0.1: the released build); stock is $LO_MSI_URL / $LO_DEB_URL. Evidence only.
 set -Eeuo pipefail
 os="$1"; out="$2"; variants=",$3,"; only="${4:-}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -83,6 +83,8 @@ for v in ${variants//,/ }; do
     lo-nothreads) run lo-nothreads "$lo" "$lo_py" --seed nothreads ;;
     hst-norowheight) run hst-norowheight "$hst" "$hst_py" --seed norowheight ;;
     lo-norowheight) run lo-norowheight "$lo" "$lo_py" --seed norowheight ;;
+    hst-cli) run hst-cli "$hst" "$hst_py" --mode cli ;;
+    lo-cli) run lo-cli "$lo" "$lo_py" --mode cli ;;
     hst-save) run hst-save "$hst" "$hst_py" --save ;;
     lo-save) run lo-save "$lo" "$lo_py" --save ;;
     hst-noext)

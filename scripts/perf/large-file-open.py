@@ -2,7 +2,7 @@
 """Open-time of large documents in one office installation (HST Office or stock LibreOffice), one office per open.
 
     python large-file-open.py --soffice <soffice> --python <office python> --files <dir> --out <dir> --label <name>
-        [--mode gui|headless] [--repeat N] [--timeout S] [--seed default|toolbar|tabbed|nothreads|norowheight] [--save] [--only a,b]
+        [--mode gui|headless|cli] [--repeat N] [--timeout S] [--seed default|toolbar|tabbed|nothreads|norowheight] [--save] [--only a,b]
 
 Per file and repeat: a new office process on the label's profile (seeded once: no first-start dialogs, automatic
 spell checking off as in HST), --accept on a private pipe; large_file_open_client.py (the office's Python) loads the
@@ -163,13 +163,15 @@ def one_open(a, path, profile_url, pipe):
             "--norestore", "--nologo", "--nodefault"]
     if a.mode == "headless":
         args.append("--headless")
+    if a.mode == "cli":  # as a double-click: the file on the command line
+        args.append(os.path.abspath(path))
     office = subprocess.Popen(args)
     save_to = "-"
     if a.save:
         save_to = os.path.join(tempfile.gettempdir(), "lfo-save-" + os.path.basename(path))
     client = subprocess.Popen([a.python, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                       "large_file_open_client.py"),
-                               pipe, os.path.abspath(path), "1" if a.mode == "headless" else "0", save_to],
+                               pipe, os.path.abspath(path), {"headless": "1", "gui": "0"}.get(a.mode, "cli"), save_to],
                               stdout=subprocess.PIPE, text=True)
     peak, own, stop = [0.0], set(), threading.Event()
 
@@ -218,7 +220,7 @@ def main():
     ap.add_argument("--files", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--label", required=True)
-    ap.add_argument("--mode", default="gui", choices=("gui", "headless"))
+    ap.add_argument("--mode", default="gui", choices=("gui", "headless", "cli"))
     ap.add_argument("--repeat", type=int, default=2)
     ap.add_argument("--timeout", type=float, default=900)
     ap.add_argument("--seed", default="default", choices=("default", "toolbar", "tabbed", "nothreads", "norowheight"))

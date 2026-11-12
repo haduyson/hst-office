@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """UNO side of scripts/perf/large-file-open.py: run with the office's own Python (it imports uno).
 
-    python large_file_open_client.py <pipe name> <file> <hidden 0|1> <save-to path or ->
+    python large_file_open_client.py <pipe name> <file> <hidden 0|1|cli> <save-to path or ->
 
 Connects to the office listening on the pipe, loads the file, then (visible window) processes events until idle,
 optionally stores the document again, closes it and prints one JSON line:
@@ -27,7 +27,7 @@ def main():
     resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
     started = time.monotonic()
     ctx = None
-    while time.monotonic() - started < 120:
+    while time.monotonic() - started < (3600 if sys.argv[3] == "cli" else 120):
         try:
             ctx = resolver.resolve("uno:pipe,name=%s;urp;StarOffice.ComponentContext" % pipe)
             break
@@ -40,12 +40,24 @@ def main():
     smgr = ctx.ServiceManager
     desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-    toolkit.processEventsToIdle()  # the office's own start-up work first
+    if sys.argv[3] != "cli":
+        toolkit.processEventsToIdle()  # the office's own start-up work first
     url = uno.systemPathToFileUrl(path)
     t0 = time.monotonic()
     doc = None
     try:
-        doc = desktop.loadComponentFromURL(url, "_blank", 0, (prop("Hidden", hidden),))
+        if sys.argv[3] == "cli":  # the office opens the file from its command line, on its main thread
+            t0 = started  # measured from the office's launch (this client starts with it)
+            while doc is None and time.monotonic() - t0 < 3600:
+                comps = desktop.getComponents().createEnumeration()
+                while comps.hasMoreElements():
+                    c = comps.nextElement()
+                    if hasattr(c, "getURL") and c.getURL() == url:
+                        doc = c
+                if doc is None:
+                    time.sleep(0.5)
+        else:
+            doc = desktop.loadComponentFromURL(url, "_blank", 0, (prop("Hidden", hidden),))
         res["load"] = round(time.monotonic() - t0, 2)
         print(json.dumps(dict(res, stage="loaded")), flush=True)  # kept by the controller if idle never comes
         if not hidden:
