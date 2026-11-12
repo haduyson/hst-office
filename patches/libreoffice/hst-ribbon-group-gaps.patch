@@ -442,6 +442,21 @@ License: these upstream files remain under their original license (MPL-2.0).
              for (size_t j = 0; j < aShown.size(); ++j)
                  aLayout.states[aShown[j]] = aRefill.states[j];
          }
+@@ -520,7 +603,13 @@
+         const auto it = m_aHstWidths.find(pChild);
+         if (it == m_aHstWidths.end() || it->second.second.empty())
+             return -1;
+-        nMin += *std::min_element(it->second.second.begin(), it->second.second.end());
++        // HST Office: the button of a group that only the default ladder collapses does not count: a box that
++        // gets just the width it asks for (the Help tab's) would show its only group as its button
++        const auto& rWidths = it->second.second;
++        const bool bDefaultCollapse = m_aHstPlanSteps.empty()
++                                      && rWidths.size() > static_cast<size_t>(hst::ribbon::GroupStateCount);
++        nMin += *std::min_element(rWidths.begin(), bDefaultCollapse ? rWidths.begin() + hst::ribbon::GroupStateCount
++                                                                    : rWidths.end());
+         ++nGroups;
+     }
+     return nGroups ? nMin + get_spacing() * (nGroups - 1) : -1;
 --- a/sw/uiconfig/swriter/ui/notebookbar.ui
 +++ b/sw/uiconfig/swriter/ui/notebookbar.ui
 @@ -5153,8 +5153,11 @@
