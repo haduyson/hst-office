@@ -4,8 +4,8 @@
 #   large-file-open.sh <windows|linux> <out-dir> <variants> [only-files]
 # variants (comma list): hst, lo (stock), hst-noext (HST extension moved out), hst-toolbar (standard toolbars instead
 # of the tabbed bar), lo-tabbed (stock with the tabbed bar), hst-nothreads / lo-nothreads (threaded formula calculation
-# off), hst-save / lo-save (open, then store again with the file's own filter: the cost of a save or an autorecovery
-# copy). HST is the release installer of $HST_RELEASE; stock is $LO_MSI_URL / $LO_DEB_URL. Evidence only.
+# off), hst-norowheight / lo-norowheight (optimal row heights not recalculated on load), hst-save / lo-save (open, then store again with the file's own filter: the cost of a save or an autorecovery
+# copy). HST is the installer of Desktop build run $HST_WIN_RUN / $HST_LINUX_RUN (1.0.1: the released build); stock is $LO_MSI_URL / $LO_DEB_URL. Evidence only.
 set -Eeuo pipefail
 os="$1"; out="$2"; variants=",$3,"; only="${4:-}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,7 +23,7 @@ if [ "$os" = windows ]; then
   pwsh -NoProfile -Command 'Get-CimInstance Win32_Processor | Select-Object Name,NumberOfLogicalProcessors | Format-List;
     Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory | Format-List' > "$out/runner.txt" 2>&1 || true
   msiexec_q() { MSYS2_ARG_CONV_EXCL='*' msiexec.exe "$@"; }
-  RELEASE_TAG="$HST_RELEASE" bash "$here/../windows/download-smoke-msi.sh" "$work/msi" HST_MSI
+  RUN_ID="$HST_WIN_RUN" bash "$here/../windows/download-smoke-msi.sh" "$work/msi" HST_MSI
   msiexec_q /i "$(grep '^HST_MSI=' "$GITHUB_ENV" | tail -n 1 | cut -d= -f2-)" /qn /norestart /l*v "$(w "$out/hst-install.log")"
   hst="$(find '/c/Program Files' -maxdepth 4 -ipath '*HST*' -iname soffice.exe | head -n 1)"
   hst_py="$(dirname "$hst")/python.exe"
@@ -34,7 +34,7 @@ if [ "$os" = windows ]; then
   lo_py="$(dirname "$lo")/python.exe"
 else
   { nproc; grep -m1 'model name' /proc/cpuinfo; free -m; } > "$out/runner.txt" 2>&1 || true
-  gh release download "$HST_RELEASE" --repo "$GITHUB_REPOSITORY" --dir "$work/deb" --pattern 'HSTOffice_*_Linux_x86-64.deb'
+  gh run download "$HST_LINUX_RUN" --repo "$GITHUB_REPOSITORY" --name "hst-office-linux-deb-$HST_LINUX_RUN" --dir "$work/deb"
   sudo apt-get install -y -q "$work"/deb/*.deb > "$out/hst-install.log" 2>&1
   hst="$(find /opt -maxdepth 3 -path '*hst-office*/program/soffice' | head -n 1)"
   hst_py="$(dirname "$hst")/python"
@@ -80,6 +80,8 @@ for v in ${variants//,/ }; do
     lo-tabbed) run lo-tabbed "$lo" "$lo_py" --seed tabbed ;;
     hst-nothreads) run hst-nothreads "$hst" "$hst_py" --seed nothreads ;;
     lo-nothreads) run lo-nothreads "$lo" "$lo_py" --seed nothreads ;;
+    hst-norowheight) run hst-norowheight "$hst" "$hst_py" --seed norowheight ;;
+    lo-norowheight) run lo-norowheight "$lo" "$lo_py" --seed norowheight ;;
     hst-save) run hst-save "$hst" "$hst_py" --save ;;
     lo-save) run lo-save "$lo" "$lo_py" --save ;;
     hst-noext)

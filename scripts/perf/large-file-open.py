@@ -2,7 +2,7 @@
 """Open-time of large documents in one office installation (HST Office or stock LibreOffice), one office per open.
 
     python large-file-open.py --soffice <soffice> --python <office python> --files <dir> --out <dir> --label <name>
-        [--mode gui|headless] [--repeat N] [--timeout S] [--seed default|toolbar|tabbed|nothreads] [--save] [--only a,b]
+        [--mode gui|headless] [--repeat N] [--timeout S] [--seed default|toolbar|tabbed|nothreads|norowheight] [--save] [--only a,b]
 
 Per file and repeat: a new office process on the label's profile (seeded once: no first-start dialogs, automatic
 spell checking off as in HST), --accept on a private pipe; large_file_open_client.py (the office's Python) loads the
@@ -10,7 +10,7 @@ file in a visible window (gui) or hidden (headless) and waits until the office i
 with its own filter (the cost of an autorecovery copy or a save). Peak resident memory of soffice.bin is sampled.
 An open that does not finish within --timeout is killed and recorded as "timeout". Writes <label>.jsonl and prints.
 --seed toolbar: standard toolbars instead of the tabbed bar in Writer/Calc/Impress; tabbed: the tabbed bar;
-nothreads: threaded formula-group calculation off.
+nothreads: threaded formula-group calculation off; norowheight: optimal row heights not recalculated on load.
 """
 import argparse
 import json
@@ -39,6 +39,8 @@ def seed_items(seed):
     if seed == "nothreads":
         items.append(("/org.openoffice.Office.Calc/Formula/Calculation", "UseThreadedCalculationForFormulaGroups",
                       "false"))
+    if seed == "norowheight":  # Tools - Options - Calc - Formula: recalculation on load of optimal row heights: never
+        items.append(("/org.openoffice.Office.Calc/Formula/Load", "RecalcOptimalRowHeightMode", "1"))
     mode = {"toolbar": "Default", "tabbed": "notebookbar.ui"}.get(seed)
     if mode:
         for app in APPS[:3]:
@@ -204,8 +206,8 @@ def main():
     ap.add_argument("--label", required=True)
     ap.add_argument("--mode", default="gui", choices=("gui", "headless"))
     ap.add_argument("--repeat", type=int, default=2)
-    ap.add_argument("--timeout", type=float, default=600)
-    ap.add_argument("--seed", default="default", choices=("default", "toolbar", "tabbed", "nothreads"))
+    ap.add_argument("--timeout", type=float, default=900)
+    ap.add_argument("--seed", default="default", choices=("default", "toolbar", "tabbed", "nothreads", "norowheight"))
     ap.add_argument("--save", action="store_true")
     ap.add_argument("--only", default="")
     ap.add_argument("--profile", default="")
@@ -234,6 +236,8 @@ def main():
                 log.write(json.dumps(res, ensure_ascii=False) + "\n")
                 log.flush()
                 print(json.dumps(res, ensure_ascii=False), flush=True)
+                if res.get("error") == "timeout":
+                    break  # a second run would only time out again
     return 0
 
 
