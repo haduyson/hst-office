@@ -58,6 +58,10 @@ class ModuleWindowGroups(unittest.TestCase):
         self.assertEqual(loadenv.count("lcl_prepareDocumentTab(xTargetFrame")
                          + loadenv.count("lcl_prepareDocumentTab(m_xTargetFrame"), 2)
         self.assertIn('aOrigin.aModule = u"pdf"_ustr', loadenv)
+        # an outside document never replaces a tab of a window with several tabs (upstream recycling)
+        self.assertEqual(loadenv.count("lcl_mayRecycleForDocumentTabs("), 3)
+        # SfxFrame::Appear() can show the frame before LoadEnv: the model keeps the Referer
+        self.assertIn("lcl_openedFromOutside(xFrame)", text("framework/source/services/documenttabgroup.cxx"))
 
     def test_routing_rules(self):
         group = text("framework/source/services/documenttabgroup.cxx")

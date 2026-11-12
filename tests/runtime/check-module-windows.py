@@ -127,7 +127,10 @@ def run(args):
                 c.wait(lambda: len(c.frames()) == 6 and len(c.windows()) == 4), repr(c.windows()))
         c.shot("03-writer-window-rules.png")
 
-        # 4. A file from outside (file manager double-click).
+        # 4. A file from outside (file manager double-click). Every document is modified first: an untouched new
+        #    document of the same module in the active window would otherwise be replaced (upstream recycling).
+        for doc in office.desktop().getComponents():
+            doc.setModified(True)
         fixture = os.path.join(office.workdir, "tep-ngoai.csv")
         with open(fixture, "w", encoding="utf-8") as handle:
             handle.write("Họ tên,Điểm\nAn,9\n")
