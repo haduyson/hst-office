@@ -361,8 +361,10 @@ throttle_links() { # keep at most one heavy (>= 1 GiB RSS) linker running
   while read -r pid; do
     comm=$(cat "/proc/$pid/comm" 2>/dev/null) || continue
     case "$comm" in ld|ld.bfd|ld.gold|ld.lld|lld) ;; *) continue ;; esac
-    rss=$(awk '/VmRSS/ {print $2}' "/proc/$pid/status" 2>/dev/null); [ "${rss:-0}" -ge 1048576 ] || continue
-    state=$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null)
+    # Processes come and go between reads: a vanished one is simply skipped.
+    rss=$(awk '/VmRSS/ {print $2}' "/proc/$pid/status" 2>/dev/null) || continue
+    [ "${rss:-0}" -ge 1048576 ] || continue
+    state=$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null) || continue
     if [ "$state" = T ]; then stopped+=("$pid")
     elif [ -z "$running" ]; then running=$pid
     else kill -STOP "$pid" 2>/dev/null && log "link throttle: paused linker $pid (another heavy link is running)"; fi
@@ -400,7 +402,7 @@ do_build() {
       tail -60 "$RUN_LOGS/build.log"; return "$rc"
     fi
     sleep 5
-    throttle_links
+    throttle_links || true
     printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$jobs" "$(mem_avail_gib)" "$(swap_used_mib)" "$(free_gib)" >> "$RUN_LOGS/memory.tsv"
     if [ "$(free_gib)" -lt "$MIN_FREE_GIB" ]; then stop_make; die "disk-stop: less than $MIN_FREE_GIB GiB free on $ROOT"; fi
     local reason=""
