@@ -53,6 +53,11 @@ def seed_items(seed):
             + body + "</oor:items>\n")
 
 
+def profile_dir(url):
+    path = url[len("file://"):]
+    return path[1:] if sys.platform == "win32" else path
+
+
 def file_url(path):
     path = os.path.abspath(path).replace("\\", "/")
     return "file:///" + path.lstrip("/")
@@ -149,6 +154,10 @@ def one_open(a, path, profile_url, pipe):
     lock = os.path.join(os.path.dirname(path), ".~lock.%s#" % os.path.basename(path))
     if os.path.exists(lock):  # left by an office killed after a timeout: it would ask "document in use"
         os.remove(lock)
+    # HST's crash question after an office this harness had to kill (its session marker stays): not part of an open
+    marker = os.path.join(profile_dir(profile_url), "user", "hst-office", "session.json")
+    if os.path.exists(marker):
+        os.remove(marker)
     before = set(office_pids())
     args = [a.soffice, "-env:UserInstallation=" + profile_url, "--accept=pipe,name=%s;urp;" % pipe,
             "--norestore", "--nologo", "--nodefault"]
@@ -184,7 +193,7 @@ def one_open(a, path, profile_url, pipe):
         res = json.loads(lines[-1]) if lines else {}
         res.update({"error": "timeout", "after": round(time.monotonic() - started, 1)})
     try:
-        office.wait(timeout=60)
+        office.wait(timeout=120)
     except subprocess.TimeoutExpired:
         res.setdefault("note", "office killed after close")
     stop.set()
