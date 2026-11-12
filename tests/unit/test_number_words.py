@@ -6,6 +6,7 @@ from decimal import Decimal
 import _paths  # noqa: F401
 
 from hst_office import number_words as nw
+from hst_office import utilities_texts as T
 from hst_office.number_words_choice import error_text, formula, words
 
 
@@ -75,11 +76,29 @@ class ReadMoney(unittest.TestCase):
     def test_vnd(self):
         self.assertEqual(nw.read_money(10000000), "Mười triệu đồng chẵn")
         self.assertEqual(nw.read_money(1000001), "Một triệu không trăm lẻ một đồng chẵn")
-        self.assertEqual(nw.read_money(1500.75), "Một nghìn năm trăm đồng bảy mươi lăm xu")
-        self.assertEqual(nw.read_money(0.5), "Năm mươi xu")
         self.assertEqual(nw.read_money(0), "Không đồng chẵn")
         self.assertEqual(nw.read_money(-10), "Âm mười đồng chẵn")
-        self.assertEqual(nw.read_money(1.005), "Một đồng một xu")  # half up on the decimal text, not the binary float
+
+    def test_vnd_default_reads_whole_dong(self):
+        # no "xu" part by default: the amount is rounded half up (away from zero) to the nearest đồng
+        self.assertEqual(nw.read_money(1000.4), "Một nghìn đồng chẵn")
+        self.assertEqual(nw.read_money(1000.5), "Một nghìn không trăm lẻ một đồng chẵn")
+        self.assertEqual(nw.read_money(1500.75), "Một nghìn năm trăm lẻ một đồng chẵn")
+        self.assertEqual(nw.read_money(0.5), "Một đồng chẵn")
+        self.assertEqual(nw.read_money(0.4), "Không đồng chẵn")
+        self.assertEqual(nw.read_money(-0.4), "Không đồng chẵn")
+        self.assertEqual(nw.read_money(-0.5), "Âm một đồng chẵn")
+        self.assertEqual(nw.read_money(-1000.5), "Âm một nghìn không trăm lẻ một đồng chẵn")
+        self.assertEqual(nw.read_money(2.5), "Ba đồng chẵn")  # half up, not to the even đồng
+        self.assertEqual(nw.read_money("1.250.000,5"), "Một triệu hai trăm năm mươi nghìn không trăm lẻ một đồng chẵn")
+        self.assertEqual(nw.read_money(1000.5, "đồng"), nw.read_money(1000.5))  # sub-unit left out: still whole đồng
+
+    def test_explicit_xu(self):
+        self.assertEqual(nw.read_money(1500.75, "đồng", "xu"), "Một nghìn năm trăm đồng bảy mươi lăm xu")
+        self.assertEqual(nw.read_money(1000.5, "đồng", "xu"), "Một nghìn đồng năm mươi xu")
+        self.assertEqual(nw.read_money(0.5, "đồng", "xu"), "Năm mươi xu")
+        self.assertEqual(nw.read_money(-0.5, "đồng", "xu"), "Âm năm mươi xu")
+        self.assertEqual(nw.read_money(1.005, "đồng", "xu"), "Một đồng một xu")  # half up on the decimal text
 
     def test_units(self):
         self.assertEqual(nw.read_money(12.5, "đô la", "xu"), "Mười hai đô la năm mươi xu")
@@ -92,6 +111,7 @@ class ReadMoney(unittest.TestCase):
         self.assertEqual(nw.read_money(1, options=en), "One dollar")
         self.assertEqual(nw.read_money(1.01, options=en), "One dollar and one cent")
         self.assertEqual(nw.read_money(1500.75, options=en), "One thousand five hundred dollars and seventy-five cents")
+        self.assertEqual(nw.read_money(1000.5, options=en), "One thousand dollars and fifty cents")  # cents by default
         self.assertEqual(nw.read_money(2, "euro", "cent", en), "Two euros")
         self.assertEqual(nw.read_money(3, "dong", "", en), "Three dong")
 
@@ -115,16 +135,27 @@ class ParseNumberText(unittest.TestCase):
 
 
 class DialogChoice(unittest.TestCase):
-    def choice(self, money=False, unit="đồng", sub="xu", options=""):
+    def choice(self, money=False, unit="đồng", sub="", options=""):
         return {"money": money, "unit": unit, "sub_unit": sub, "options": opts(options)}
 
     def test_formula(self):
         self.assertEqual(formula(self.choice(), "A1"), "=DOCSO(A1)")
         self.assertEqual(formula(self.choice(options="ngàn linh"), "A1"), '=DOCSO(A1;"ngàn linh")')
         self.assertEqual(formula(self.choice(True), "B2"), "=DOCTIEN(B2)")
+        self.assertEqual(formula(self.choice(True, "đồng", "xu"), "B2"), '=DOCTIEN(B2;"đồng";"xu")')
+        self.assertEqual(formula(self.choice(True, options="ngàn"), "B2"), '=DOCTIEN(B2;"đồng";"";"ngàn")')
+        self.assertEqual(formula(self.choice(True, "dollar", "cent", "en"), "B2"), '=DOCTIEN(B2;"dollar";"cent";"en")')
         self.assertEqual(formula(self.choice(True, "dollar", "cent"), "B2"), '=DOCTIEN(B2;"dollar";"cent")')
         self.assertEqual(formula(self.choice(True, "dollar", "cent", "en"), "B2"), '=DOCTIEN(B2;"dollar";"cent";"en")')
         self.assertEqual(formula(self.choice(True, 'a"b', "", ""), "B2"), '=DOCTIEN(B2;"a""b";"")')
+
+    def test_presets(self):
+        self.assertEqual(T.DIALOG["presets"][0], "đồng")
+        self.assertEqual(T.PRESETS, (("đồng", ""), ("dollar", "cent")))
+        unit, sub = T.PRESETS[0]
+        self.assertEqual(formula(self.choice(True, unit, sub), "A1"), "=DOCTIEN(A1)")
+        self.assertEqual(words(1000.5, self.choice(True, unit, sub)), "Một nghìn không trăm lẻ một đồng chẵn")
+        self.assertEqual(words(1000.5, self.choice(True, *T.PRESETS[1], "en")), "One thousand dollars and fifty cents")
 
     def test_words_and_errors(self):
         self.assertEqual(words(105.0, self.choice()), "Một trăm lẻ năm")

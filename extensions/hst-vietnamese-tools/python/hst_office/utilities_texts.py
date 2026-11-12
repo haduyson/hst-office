@@ -32,7 +32,7 @@ DIALOG = {
     "writerTitle": "Đổi số thành chữ",
     "source": "Ô chứa số:", "target": "Ghi vào ô:", "number": "Số được chọn:",
     "kind": "Đọc thành:", "kinds": ("Số (hàm DOCSO)", "Số tiền (hàm DOCTIEN)"), "writerKinds": ("Số", "Số tiền"),
-    "unitPreset": "Đơn vị tiền:", "presets": ("đồng / xu", "dollar / cent", "Tùy chỉnh"),
+    "unitPreset": "Đơn vị tiền:", "presets": ("đồng", "dollar / cent", "Tùy chỉnh"),
     "unit": "Đơn vị:", "subUnit": "Đơn vị lẻ:",
     "thousand": "Hàng nghìn:", "thousands": ("nghìn", "ngàn"),
     "odd": "Số 0 hàng chục:", "odds": ("lẻ (một trăm lẻ năm)", "linh (một trăm linh năm)"),
@@ -41,7 +41,8 @@ DIALOG = {
     "output": "Ghi kết quả:", "outputs": ("Chữ (giữ nguyên khi mở bằng Excel)", "Công thức (tự cập nhật, chỉ HST Office hiểu)"),
     "preview": "Xem trước:", "insert": "Chèn", "replace": "Thay thế",
 }
-PRESETS = (("đồng", "xu"), ("dollar", "cent"))
+# unit, sub-unit of each preset; "đồng" reads whole đồng (to read "xu", choose "Tùy chỉnh" and type it)
+PRESETS = (("đồng", ""), ("dollar", "cent"))
 # Saving an Excel file with cells that use the HST functions (save_format_check.py)
 SAVE_TITLE = "Lưu tệp Excel"
 SAVE_TEXT = ("Microsoft Excel sẽ không hiểu các hàm riêng của HST Office (%s): trong Excel, %d ô dùng các hàm này sẽ "
