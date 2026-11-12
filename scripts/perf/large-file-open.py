@@ -53,6 +53,20 @@ def seed_items(seed):
             + body + "</oor:items>\n")
 
 
+def reseed(profile, seed):
+    """Put the seed items back before every start: a first start rewrites registrymodifications.xcu and drops items
+    of schemas it did not know yet (the HST extension's are registered during that start), so without this HST asks
+    its default-apps question in every measured window and the stock office keeps automatic spell checking on."""
+    xcu = os.path.join(profile, "user", "registrymodifications.xcu")
+    if not os.path.exists(xcu):
+        return
+    with open(xcu, encoding="utf-8") as f:
+        text = f.read()
+    body = seed_items(seed).split("\n", 2)[2].rsplit("</oor:items>", 1)[0]
+    with open(xcu, "w", encoding="utf-8") as f:
+        f.write(text.replace("</oor:items>", body + "</oor:items>", 1))
+
+
 def profile_dir(url):
     path = url[len("file://"):]
     return path[1:] if sys.platform == "win32" else path
@@ -158,6 +172,7 @@ def one_open(a, path, profile_url, pipe):
     marker = os.path.join(profile_dir(profile_url), "user", "hst-office", "session.json")
     if os.path.exists(marker):
         os.remove(marker)
+    reseed(profile_dir(profile_url), a.seed)
     before = set(office_pids())
     args = [a.soffice, "-env:UserInstallation=" + profile_url, "--accept=pipe,name=%s;urp;" % pipe,
             "--norestore", "--nologo", "--nodefault"]
