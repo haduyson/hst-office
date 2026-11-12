@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Dialog "Đọc số thành chữ" (Sheets: source and target cell, text or formula) and "Đổi số thành chữ" (Writer: the
+"""Dialog "Đọc số thành chữ" (Sheets: source and target cell, text or formula) and Writer (same name: the
 selected number). Number or money, unit, nghìn/ngàn, lẻ/linh, bốn/tư, Vietnamese/English, with a live preview."""
 from . import number_words
 from . import utilities_texts as T

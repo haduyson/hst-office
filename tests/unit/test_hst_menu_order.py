@@ -26,6 +26,14 @@ def menu_urls():
     return urls
 
 
+def all_urls():
+    """The URL of every item of the HST menu and its submenus."""
+    root = ET.parse(ADDONS).getroot()
+    top = next(n for n in root.iter("node") if n.get(NAME) == "org.hst.office.vi")
+    return [next((p.find("value").text for p in n.findall("prop") if p.get(NAME) == "URL"), None)
+            for n in top.iter("node") if n is not top and n.get(NAME) != "Submenu"]
+
+
 class HstMenuOrder(unittest.TestCase):
     def test_solutions_and_update_are_last(self):
         self.assertEqual(menu_urls()[-2:], ["org.hst.office.vi:ShowSolutions", "org.hst.office.update:Check"])
@@ -38,6 +46,19 @@ class HstMenuOrder(unittest.TestCase):
 
     def test_duplex_and_default_apps_come_before_macro_vba(self):
         self.assertEqual(menu_urls()[-6:-4], ["org.hst.office.vi:ToggleDuplex", "org.hst.office.vi:DefaultApps"])
+
+    def test_file_order_is_the_shown_order(self):
+        # Addons.xcu lists the items as the menu shows them, so the source does not mislead (Ngôn ngữ giao diện
+        # once sat after m15 in the file but was shown eighth)
+        root = ET.parse(ADDONS).getroot()
+        top = next(n for n in root.iter("node") if n.get(NAME) == "org.hst.office.vi")
+        for submenu in (n for n in top.iter("node") if n.get(NAME) == "Submenu"):
+            names = [n.get(NAME) for n in submenu.findall("node")]
+            self.assertEqual(names, sorted(names, key=lambda n: (len(n), n)))
+
+    def test_no_command_is_listed_twice(self):
+        urls = [u for u in all_urls() if u]
+        self.assertEqual(sorted({u for u in urls if urls.count(u) > 1}), [])
 
 
 if __name__ == "__main__":

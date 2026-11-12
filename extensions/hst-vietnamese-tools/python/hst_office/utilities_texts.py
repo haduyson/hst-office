@@ -3,7 +3,7 @@
 
 TITLE = "Tiện ích tiếng Việt"
 UNDO = {"diacritics": "Bỏ dấu", "split": "Tách họ tên", "sort": "Sắp xếp theo tên", "blank": "Xóa dòng trống",
-        "words": "Đổi số thành chữ", "toText": "Đổi hàm HST thành chữ"}
+        "words": "Đọc số thành chữ", "toText": "Đổi hàm HST thành chữ"}
 NUMBER_ERRORS = {
     "too-many-digits": "Số có hơn 15 chữ số phần nguyên: bảng tính không lưu chính xác số lớn như vậy, nên không đọc.",
     "not-a-number": "Không đọc được số: %s",
@@ -29,7 +29,7 @@ MESSAGES = {
 HEADER_FAMILY, HEADER_GIVEN = "Họ đệm", "Tên"
 DIALOG = {
     "title": "Đọc số thành chữ",
-    "writerTitle": "Đổi số thành chữ",
+    "writerTitle": "Đọc số thành chữ",  # one name in every app, as the HST menu shows it
     "source": "Ô chứa số:", "target": "Ghi vào ô:", "number": "Số được chọn:",
     "kind": "Đọc thành:", "kinds": ("Số (hàm DOCSO)", "Số tiền (hàm DOCTIEN)"), "writerKinds": ("Số", "Số tiền"),
     "unitPreset": "Đơn vị tiền:", "presets": ("đồng", "dollar / cent", "Tùy chỉnh"),
