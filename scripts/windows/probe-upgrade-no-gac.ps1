@@ -5,7 +5,7 @@
 # assemblies into the GAC (MsiAssembly rows, the same strong names as LibreOffice's). The new MSI has none
 # (scripts/check-msi-no-cli.py); its RemoveExistingProducts runs before InstallInitialize, so the old product, its GAC
 # references included, is uninstalled first.
-# Steps: [LibreOffice first, if given: its cli_* go into the GAC] -> 1.0.1 -> new MSI (upgrade) -> repair (msiexec /fa)
+# Steps: [LibreOffice first, if given: its cli_* go into the GAC] -> 1.0.1 -> new MSI (upgrade) -> repair (msiexec /fomus)
 # -> 1.0.1 again (downgrade, must be refused) -> uninstall. After every step from the upgrade on, the cli_* folders and
 # file hashes in the GAC are exactly those before HST Office came (none, or LibreOffice's untouched), one HST Office
 # product (none after uninstall), no cli_* file in the program folder, no error 1304 in the logs.
@@ -148,8 +148,11 @@ if ($Phase -eq 'upgrade') {
 }
 
 $before = @(Get-Content -LiteralPath (Join-Path $Out 'gac-before.txt') -ErrorAction SilentlyContinue | Where-Object { $_ })
-$repair = Invoke-Msiexec @('/fa', $newCode) 'repair'
-Assert-Done $repair 'repair (msiexec /fa) of the new product'
+# The repair Programs and Features runs (REINSTALLMODE omus: missing or older files, all registry and shortcuts). A
+# forced /fa would also rewrite the system C++ runtime, and the Restart Manager then stops whatever uses it, the
+# runner's own agent included.
+$repair = Invoke-Msiexec @('/fomus', $newCode) 'repair'
+Assert-Done $repair 'repair (msiexec /fomus) of the new product'
 Assert ($repair.Errors1304 -eq 0) 'the repair log has no error 1304'
 Assert-GacAsBefore 'repair'
 
