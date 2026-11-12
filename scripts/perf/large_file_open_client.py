@@ -60,6 +60,15 @@ def main():
             doc.storeToURL(uno.systemPathToFileUrl(save_to),
                            (prop("Overwrite", True), prop("FilterName", res["filter"])))
             res["save"] = round(time.monotonic() - t1, 2)
+            # what AutoRecovery writes every few minutes while the document is modified: an ODF copy
+            odf = {"com.sun.star.sheet.SpreadsheetDocument": "calc8", "com.sun.star.text.TextDocument": "writer8",
+                   "com.sun.star.presentation.PresentationDocument": "impress8"}
+            kind = next((odf[k] for k in odf if doc.supportsService(k)), "")
+            if kind:
+                t2 = time.monotonic()
+                doc.storeToURL(uno.systemPathToFileUrl(save_to + ".odf"), (prop("Overwrite", True),
+                                                                           prop("FilterName", kind)))
+                res["save_odf"] = round(time.monotonic() - t2, 2)
     except Exception as e:  # noqa: BLE001 - reported, the controller decides
         res["error"] = "%s: %s" % (type(e).__name__, getattr(e, "Message", str(e))[:200])
     print(json.dumps(res), flush=True)

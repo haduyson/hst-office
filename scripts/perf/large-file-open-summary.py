@@ -34,6 +34,8 @@ def main():
                 cell = "%s / %s s, %d MB" % (med("load"), med("idle"), max(r["peak_mb"] for r in ok))
                 if med("save") is not None:
                     cell += ", save %s s" % med("save")
+                if med("save_odf") is not None:
+                    cell += ", ODF copy %s s" % med("save_odf")
                 if any(r.get("modified") for r in ok):
                     cell += ", modified"
             elif runs:

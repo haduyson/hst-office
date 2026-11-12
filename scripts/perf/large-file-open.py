@@ -203,6 +203,8 @@ def one_open(a, path, profile_url, pipe):
     if save_to != "-" and os.path.exists(save_to):
         res["saved_mb"] = round(os.path.getsize(save_to) / 1e6, 1)
         os.remove(save_to)
+    if save_to != "-" and os.path.exists(save_to + ".odf"):
+        os.remove(save_to + ".odf")
     return res
 
 
