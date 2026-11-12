@@ -8,7 +8,7 @@ set -uo pipefail
 program="${1:?program directory required}"; out="${2:?output directory required}"
 mkdir -p "$out"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-timeout 840 "$(cygpath -u "$program")/python.exe" "$(cygpath -w "$here/probe-vba-headless.py")" \
+timeout 500 "$(cygpath -u "$program")/python.exe" "$(cygpath -w "$here/probe-vba-headless.py")" \
   --soffice "$(cygpath -w "$program")\\soffice.exe" --out "$(cygpath -w "$out")"
 code=$?
 if [ "$code" -ne 0 ]; then

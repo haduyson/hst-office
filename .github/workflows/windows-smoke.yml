@@ -40,7 +40,7 @@ concurrency:
 jobs:
   smoke:
     runs-on: windows-2022
-    timeout-minutes: 40
+    timeout-minutes: 70
     permissions:
       contents: read
       actions: read
@@ -456,7 +456,7 @@ jobs:
       - name: Install both and check them
         if: ${{ matrix.scenario != 'commands' && !startsWith(matrix.scenario, 'ui-parity') }}
         # below the job limit, so a blocked install or office fails this step and the evidence is still uploaded
-        timeout-minutes: 30
+        timeout-minutes: 15
         shell: bash
         env:
           SCENARIO: ${{ matrix.scenario }}
@@ -469,7 +469,7 @@ jobs:
           fi
       - name: VBA macros run headless in HST Office after the upgrade from 1.0.1
         if: ${{ startsWith(matrix.scenario, 'upgrade-from-1.0.1') }}
-        timeout-minutes: 16
+        timeout-minutes: 10
         shell: bash
         env:
           SCENARIO: ${{ matrix.scenario }}
@@ -478,7 +478,7 @@ jobs:
           bash scripts/windows/run-vba-probe.sh "$HST_PROGRAM" "$RUNNER_TEMP/out/$SCENARIO/vba-hst"
       - name: VBA macros run headless in LibreOffice next to HST Office
         if: ${{ !cancelled() && matrix.scenario == 'upgrade-from-1.0.1-with-libreoffice' }}
-        timeout-minutes: 16
+        timeout-minutes: 10
         shell: bash
         run: |
           set -euo pipefail
@@ -487,7 +487,7 @@ jobs:
           SCENARIO: ${{ matrix.scenario }}
       - name: Repair, refused downgrade and uninstall leave the GAC as before HST Office
         if: ${{ !cancelled() && startsWith(matrix.scenario, 'upgrade-from-1.0.1') && env.HST_PRODUCT_CODE != '' }}
-        timeout-minutes: 20
+        timeout-minutes: 15
         shell: bash
         env:
           SCENARIO: ${{ matrix.scenario }}
@@ -496,7 +496,7 @@ jobs:
           pwsh -NoProfile -File scripts/windows/probe-upgrade-no-gac.ps1 -Phase maintain -OldMsi "$OTHER_MSI" -NewMsi "$HST_MSI" -Out "$(cygpath -w "$RUNNER_TEMP/out/$SCENARIO")"
       - name: VBA macros run headless in LibreOffice after HST Office is uninstalled
         if: ${{ !cancelled() && matrix.scenario == 'upgrade-from-1.0.1-with-libreoffice' }}
-        timeout-minutes: 16
+        timeout-minutes: 10
         shell: bash
         env:
           SCENARIO: ${{ matrix.scenario }}

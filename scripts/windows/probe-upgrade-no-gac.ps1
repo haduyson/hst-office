@@ -79,10 +79,17 @@ function Invoke-Msiexec([string[]]$Arguments, [string]$Name) {
     Write-Host "$(Get-Date -Format o) msiexec $($Arguments -join ' ') ($Name)"
     # Wait for msiexec itself only: -Wait would also wait for applications the Restart Manager restarts (Explorer).
     $p = Start-Process msiexec.exe -PassThru -ArgumentList ($Arguments + '/qn', '/norestart', '/l*v', "`"$log`"")
-    $p.WaitForExit()
+    $null = $p.Handle  # keeps ExitCode readable after WaitForExit
+    # Bounded, so a blocked msiexec fails this step with its log instead of running into the job's time limit.
+    $exit = if ($p.WaitForExit(240000)) { $p.ExitCode } else { 'timeout' }
     $errors1304 = @(Select-String -LiteralPath $log -Pattern 'Error 1304' -SimpleMatch -ErrorAction SilentlyContinue)
-    Write-Host "$Name`: msiexec exit $($p.ExitCode), error 1304 lines: $($errors1304.Count)"
-    [pscustomobject]@{ ExitCode = $p.ExitCode; Log = $log; Errors1304 = $errors1304.Count }
+    Write-Host "$(Get-Date -Format o) $Name`: msiexec exit $exit, error 1304 lines: $($errors1304.Count)"
+    if ($exit -ne 0 -and $exit -ne 3010) {
+        Get-Content -LiteralPath $log -Tail 60 -ErrorAction SilentlyContinue | Write-Host
+        Get-Process | Where-Object { $_.Name -match 'msiexec|soffice|python' } | Format-Table Id, Name, StartTime, Path -AutoSize | Out-String | Write-Host
+        if ($exit -eq 'timeout') { $p.Kill() }
+    }
+    [pscustomobject]@{ ExitCode = $exit; Log = $log; Errors1304 = $errors1304.Count }
 }
 
 function Assert-Done($Result, [string]$Name) {
