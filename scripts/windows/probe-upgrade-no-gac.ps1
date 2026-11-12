@@ -86,16 +86,36 @@ function Assert-Done($Result, [string]$Name) {
     Assert ($Result.ExitCode -eq 0 -or $Result.ExitCode -eq 3010) "$Name (msiexec exit $($Result.ExitCode), log $($Result.Log))"
 }
 
+# Known leftover of 1.0.0/1.0.1 (and of LibreOffice x64): scp2 declares cli_cppuhelper processorArchitecture="x86",
+# but the x64 build's assembly is AMD64 and Fusion puts it in GAC_64. The old product's own uninstall (run by
+# RemoveExistingProducts, or msiexec /x) asks Fusion to remove the x86 name, which is not there, so this one file stays.
+# The new MSI cannot change the old product's uninstall; nothing loads the file. Reported, not failed; anything else fails.
+$KnownOrphan = '\Microsoft.NET\assembly\GAC_64\cli_cppuhelper\v4.0_1.0.23.0__ce2cb7e279207b9e\cli_cppuhelper.dll '
+
 function Assert-GacAsBefore([string]$Name) {
     $now = Get-CliGac $Name
-    $extra = @($now | Where-Object { $before -notcontains $_ })
+    $orphans = @($now | Where-Object { $before -notcontains $_ -and $_ -like "*$KnownOrphan*" })
+    if ($orphans.Count) { Write-Host "KNOWN: $Name`: left by the old product's uninstall (x86 name for an AMD64 assembly): $($orphans -join '; ')" }
+    $extra = @($now | Where-Object { $before -notcontains $_ -and $orphans -notcontains $_ })
     $gone = @($before | Where-Object { $now -notcontains $_ })
     Assert ($extra.Count -eq 0 -and $gone.Count -eq 0) "$Name`: the GAC cli_* files are those before HST Office came (extra: $($extra -join '; ') missing: $($gone -join '; '))"
 }
 
 function Invoke-VbaProbe([string]$Program, [string]$Name) {
-    & (Join-Path $Program 'python.exe') $vbaProbe --soffice (Join-Path $Program 'soffice.exe') --out (Join-Path $Out "vba-$Name")
-    Assert ($LASTEXITCODE -eq 0) "$Name`: VBA macros run headless in Sheets and Writer (probe exit $LASTEXITCODE)"
+    # Bounded: a blocked office must fail this step, not the job's time limit (the probe dumps its stacks after 10 min).
+    $dir = Join-Path $Out "vba-$Name"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $stdout, $stderr = (Join-Path $dir 'probe.out'), (Join-Path $dir 'probe.err')
+    $p = Start-Process (Join-Path $Program 'python.exe') -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
+        -ArgumentList "`"$vbaProbe`"", '--soffice', "`"$(Join-Path $Program 'soffice.exe')`"", '--out', "`"$dir`""
+    $null = $p.Handle  # keeps ExitCode readable after WaitForExit
+    $done = $p.WaitForExit(900000)
+    if (-not $done) {
+        $p.Kill()
+        Get-Process soffice, soffice.bin -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$Program*" } | Stop-Process -Force
+    }
+    Get-Content -LiteralPath $stdout, $stderr -ErrorAction SilentlyContinue | Write-Host
+    Assert ($done -and $p.ExitCode -eq 0) "$Name`: VBA macros run headless in Sheets and Writer (probe exit $(if ($done) { $p.ExitCode } else { 'timeout' }))"
 }
 
 $newCode = Get-MsiProperty $NewMsi 'ProductCode'

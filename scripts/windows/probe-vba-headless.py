@@ -9,6 +9,7 @@ saved as .xlsm/.docm, closed, loaded again with macros allowed and run again, so
 are covered too. Prints one "ok:"/"FAIL:" line per check; exit 1 on any failure. The office runs on a fresh,
 temporary user profile."""
 import argparse
+import faulthandler
 import os
 import shutil
 import subprocess
@@ -19,7 +20,8 @@ import time
 import uno
 from com.sun.star.beans import PropertyValue
 
-PIPE = "hst_vba_probe"
+PORT = 22981  # UNO socket of the probed office (127.0.0.1 only)
+HANG_SECONDS = 600  # a UNO call that blocks this long dumps every thread's stack to stderr
 NORMAL_MODULE = 1  # com.sun.star.script.ModuleType.NORMAL
 CASES = (  # (factory, filter, extension, setup text, VBA function body, expected result)
     ("scalc", "Calc MS Excel 2007 VBA XML", "xlsm", None,
@@ -36,16 +38,18 @@ def pv(name, value):
     return prop
 
 
-def connect(soffice, profile):
+def connect(soffice, profile, log):
     args = [soffice, "--headless", "--invisible", "--norestore", "--nologo", "--nodefault",
-            "-env:UserInstallation=" + uno.systemPathToFileUrl(profile), f"--accept=pipe,name={PIPE};urp;"]
-    process = subprocess.Popen(args)
+            "-env:UserInstallation=" + uno.systemPathToFileUrl(profile), f"--accept=socket,host=127.0.0.1,port={PORT};urp;"]
+    print("starting", " ".join(args), flush=True)
+    process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
     resolver = uno.getComponentContext().ServiceManager.createInstanceWithContext(
         "com.sun.star.bridge.UnoUrlResolver", uno.getComponentContext())
     deadline = time.monotonic() + 180
     while True:
         try:
-            ctx = resolver.resolve(f"uno:pipe,name={PIPE};urp;StarOffice.ComponentContext")
+            ctx = resolver.resolve(f"uno:socket,host=127.0.0.1,port={PORT};urp;StarOffice.ComponentContext")
+            print("connected", flush=True)
             return process, ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
         except Exception:  # noqa: BLE001 - NoConnectException until the office listens
             if process.poll() is not None or time.monotonic() > deadline:
@@ -81,6 +85,7 @@ def check(label, got, want, failures):
 
 def probe(desktop, out, failures):
     for factory, filter_name, extension, text, body, want in CASES:
+        print(f"{factory}: new document", flush=True)
         doc = desktop.loadComponentFromURL(f"private:factory/{factory}", "_blank", 0,
                                            (pv("Hidden", True), pv("MacroExecutionMode", 4)))
         try:
@@ -92,6 +97,7 @@ def probe(desktop, out, failures):
             doc.storeToURL(url, (pv("FilterName", filter_name),))
         finally:
             doc.close(True)
+        print(f"{factory}: load the saved .{extension}", flush=True)
         doc = desktop.loadComponentFromURL(url, "_blank", 0, (pv("Hidden", True), pv("MacroExecutionMode", 4)))
         try:
             check(f"{factory} VBA macro after saving and loading .{extension}", run(doc), want, failures)
@@ -110,8 +116,10 @@ def main():
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     failures = []
+    faulthandler.dump_traceback_later(HANG_SECONDS, repeat=True)
     profile = tempfile.mkdtemp(prefix="hst-vba-profile-")
-    process, desktop = connect(args.soffice, profile)
+    log = open(os.path.join(out, "soffice.log"), "w")  # noqa: SIM115 - closed after the office exits
+    process, desktop = connect(args.soffice, profile, log)
     try:
         probe(desktop, out, failures)
     except Exception as error:  # noqa: BLE001 - a UNO error ends the probe as a failure, not a traceback only
@@ -126,6 +134,7 @@ def main():
             process.wait(timeout=60)
         except subprocess.TimeoutExpired:
             process.kill()
+        log.close()
         shutil.rmtree(profile, ignore_errors=True)
     print(f"VBA headless probe: {len(failures)} failures.")
     return 1 if failures else 0
