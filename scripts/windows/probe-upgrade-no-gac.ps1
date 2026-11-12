@@ -45,6 +45,19 @@ function Get-HstProducts {
     }
 }
 
+function Get-MsiProperty([string]$Msi, [string]$Property) {
+    $db = $installer.GetType().InvokeMember('OpenDatabase', [Reflection.BindingFlags]::InvokeMethod, $null, $installer, @($Msi, 0))
+    $view = $db.GetType().InvokeMember('OpenView', [Reflection.BindingFlags]::InvokeMethod, $null, $db,
+        @("SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = '$Property'"))
+    $view.GetType().InvokeMember('Execute', [Reflection.BindingFlags]::InvokeMethod, $null, $view, $null) | Out-Null
+    $record = $view.GetType().InvokeMember('Fetch', [Reflection.BindingFlags]::InvokeMethod, $null, $view, $null)
+    $value = Get-ComProperty $record 'StringData' @(1)
+    $view.GetType().InvokeMember('Close', [Reflection.BindingFlags]::InvokeMethod, $null, $view, $null) | Out-Null
+    # Let go of the database so msiexec can open the package afterwards.
+    foreach ($o in $record, $view, $db) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($o) }
+    return $value
+}
+
 function Get-CliGac([string]$Name) {
     # "<path> <sha256>" of every file in the cli_* / policy.*.cli_* assembly folders of the .NET 4 and .NET 2 GACs.
     $roots = foreach ($base in "$env:WINDIR\Microsoft.NET\assembly", "$env:WINDIR\assembly") {
@@ -85,6 +98,10 @@ function Invoke-VbaProbe([string]$Program, [string]$Name) {
     Assert ($LASTEXITCODE -eq 0) "$Name`: VBA macros run headless in Sheets and Writer (probe exit $LASTEXITCODE)"
 }
 
+$newCode = Get-MsiProperty $NewMsi 'ProductCode'
+$newVersion = [version](Get-MsiProperty $NewMsi 'ProductVersion')
+$oldVersion = [version](Get-MsiProperty $OldMsi 'ProductVersion')
+Write-Host "old $oldVersion, new $newVersion $newCode"
 $loProgram = Join-Path $env:ProgramFiles 'LibreOffice\program'
 if ($LibreOfficeMsi) {
     Assert-Done (Invoke-Msiexec @('/i', "`"$LibreOfficeMsi`"") 'libreoffice-install') 'LibreOffice installs'
@@ -105,7 +122,7 @@ $products = @(Get-HstProducts)
 $products | Format-Table -AutoSize | Out-String | Write-Host
 Assert ($products.Count -eq 1) "one HST Office product registered after the upgrade ($($products.Count))"
 $product = $products[0]
-Assert ($product.Version -ne '1.0.1.10000') "the registered product is the new one ($($product.Version))"
+Assert ($product.ProductCode -eq $newCode) "the registered product is the new one ($($product.ProductCode) $($product.Version))"
 $root = if ($product.Location) { $product.Location.TrimEnd('\') } else { Join-Path $env:ProgramFiles 'HSTOffice' }
 $program = Join-Path $root 'program'
 Assert (Test-Path -LiteralPath (Join-Path $program 'soffice.exe')) "soffice.exe under $program"
@@ -118,11 +135,17 @@ Assert-Done $repair 'repair (msiexec /fa) of the new product'
 Assert ($repair.Errors1304 -eq 0) 'the repair log has no error 1304'
 Assert-GacAsBefore 'repair'
 
-$down = Invoke-Msiexec @('/i', "`"$OldMsi`"") 'downgrade'
-Assert ($down.ExitCode -ne 0 -and $down.ExitCode -ne 3010) "installing 1.0.1 over the new version is refused (msiexec exit $($down.ExitCode))"
-$after = @(Get-HstProducts)
-Assert ($after.Count -eq 1 -and $after[0].Version -eq $product.Version) "the new version stays installed after the refused downgrade ($($after.Version -join ', '))"
-Assert-GacAsBefore 'downgrade'
+# Windows Installer compares three version fields; a build of the same release (1.0.1 before VERSION moves on) would
+# simply replace 1.0.1 again, so the downgrade check needs a higher version.
+if ([version]"$($newVersion.Major).$($newVersion.Minor).$($newVersion.Build)" -gt [version]"$($oldVersion.Major).$($oldVersion.Minor).$($oldVersion.Build)") {
+    $down = Invoke-Msiexec @('/i', "`"$OldMsi`"") 'downgrade'
+    Assert ($down.ExitCode -ne 0 -and $down.ExitCode -ne 3010) "installing 1.0.1 over the new version is refused (msiexec exit $($down.ExitCode))"
+    $after = @(Get-HstProducts)
+    Assert ($after.Count -eq 1 -and $after[0].ProductCode -eq $newCode) "the new version stays installed after the refused downgrade ($($after.Version -join ', '))"
+    Assert-GacAsBefore 'downgrade'
+} else {
+    Write-Host "NOT TESTED: downgrade ($newVersion is not above $oldVersion in the three fields Windows Installer compares)"
+}
 if ($LibreOfficeMsi) { Invoke-VbaProbe $loProgram 'libreoffice-with-hst' }
 
 Assert-Done (Invoke-Msiexec @('/x', $product.ProductCode) 'uninstall') 'uninstall of the new product'
