@@ -1,0 +1,181 @@
+HST Office: the ribbon's File tab ("Tệp tin") is a filled button in the brand colour.
+
+Owner request (2026-11-12): the File tab beside the Home tab was hard to see. It was drawn like every
+unselected tab: plain text in the tab text colour, no fill, and it never shows a selection marker
+because it opens the File panel and the previous tab is selected again.
+
+- include/vcl/HstRibbonPaint.hxx, vcl/source/control/HstRibbonPaint.cxx: fileTabColorsFor() and
+  DrawFileTab(): a rounded fill (2 px inset, 4 px radius, scaled with the UI scale) in the HST brand
+  blue #0072BB with white text; hovered #00619F, pressed #004F82. The dark theme is one step lighter
+  (#0A7AC6, hovered #0072BB, pressed #00619F) so that the button stands out from the dark tab row.
+  White text is at least 4.5:1 on every fill. In high contrast the fill and the text are the system
+  selection colours, with an outline in the text colour while hovered or pressed.
+- vcl/source/control/tabctrl.cxx: TabControl::ImplDrawItem draws the notebookbar tab named
+  "FileLabel" with DrawFileTab instead of the tab look or the native tab, with a bold label in the
+  returned colour; the font is set back for the tabs after it. It is pressed while it is the current
+  page (from the click until the previous tab is selected again). NotebookbarTabControlBase::
+  ImplPlaceTabs makes it 14 px (scaled) wider than a plain tab for the bold label and the padding;
+  its height and text baseline are those of the tabs.
+- The OwnerDraw switch (org.openoffice.Office.HSTRibbon) turns it off together with the ribbon look.
+  No UI text changes.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_ribbon_file_button.py.
+---
+--- a/include/vcl/HstRibbonPaint.hxx
++++ b/include/vcl/HstRibbonPaint.hxx
+@@ -14,6 +14,7 @@
+ // native theme. High contrast always uses the native theme, and the OwnerDraw switch
+ // (org.openoffice.Office.HSTRibbon) turns it off without a new build.
+ 
++#include <rtl/ustring.hxx>
+ #include <tools/color.hxx>
+ #include <tools/gen.hxx>
+ #include <vcl/dllapi.h>
+@@ -58,6 +59,29 @@
+     short accent bar under its label (nLabelWidth pixels wide). */
+ SAL_DLLPRIVATE void DrawTabItem(vcl::RenderContext& rDev, const tools::Rectangle& rItem,
+                                 tools::Long nLabelWidth, bool bSelected, bool bHover);
++
++/** The name of the File tab ("Tệp tin") in the notebookbar .ui files. It opens the File panel and
++    never shows ribbon content of its own, so it is drawn as a button, not as a tab. */
++inline constexpr OUString FILE_TAB_NAME = u"FileLabel"_ustr;
++
++/** The fill and text colours of the File button: the HST brand blue with white text; darker when
++    hovered, darkest while it is pressed. In high contrast: the system selection colours. */
++struct FileTabColors
++{
++    Color aFill;
++    Color aText;
++};
++VCL_DLLPUBLIC FileTabColors fileTabColorsFor(const StyleSettings& rStyle, bool bPressed, bool bHover);
++
++/** The extra width of the File button over a plain tab: room for its bold label and the padding
++    inside the filled shape. */
++SAL_DLLPRIVATE tools::Long FileTabExtraWidth(const OutputDevice& rDev);
++
++/** The filled, rounded File button inside rItem (the full height of the tab row, like the tabs);
++    in high contrast with an outline in the text colour while hovered or pressed. Returns the
++    colour for its label. */
++SAL_DLLPRIVATE Color DrawFileTab(vcl::RenderContext& rDev, const tools::Rectangle& rItem,
++                                 bool bPressed, bool bHover);
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/HstRibbonPaint.cxx
++++ b/vcl/source/control/HstRibbonPaint.cxx
+@@ -126,6 +126,46 @@
+     }
+     rDev.Pop();
+ }
++
++FileTabColors fileTabColorsFor(const StyleSettings& rStyle, bool bPressed, bool bHover)
++{
++    if (rStyle.GetHighContrastMode())
++        return FileTabColors{ rStyle.GetHighlightColor(), rStyle.GetHighlightTextColor() };
++    // white text reads at 4.5:1 or more on every fill; the dark theme starts one step lighter so
++    // that the button stands out from the dark tab row
++    constexpr Color aBrand(0x00, 0x72, 0xBB);
++    constexpr Color aDarker(0x00, 0x61, 0x9F);
++    if (rStyle.GetDialogColor().IsDark())
++        return FileTabColors{ bPressed ? aDarker : bHover ? aBrand : Color(0x0A, 0x7A, 0xC6),
++                              COL_WHITE };
++    return FileTabColors{ bPressed ? Color(0x00, 0x4F, 0x82) : bHover ? aDarker : aBrand,
++                          COL_WHITE };
++}
++
++tools::Long FileTabExtraWidth(const OutputDevice& rDev) { return scaled(rDev, 14); }
++
++Color DrawFileTab(vcl::RenderContext& rDev, const tools::Rectangle& rItem, bool bPressed,
++                  bool bHover)
++{
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    const FileTabColors aColors = fileTabColorsFor(rStyle, bPressed, bHover);
++    const tools::Long nInset = scaled(rDev, 2);
++    tools::Rectangle aFill(rItem);
++    aFill.AdjustLeft(nInset);
++    aFill.AdjustTop(nInset);
++    aFill.AdjustRight(-nInset);
++    aFill.AdjustBottom(-nInset);
++    rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    // high contrast has one fill colour only: the state shows as an outline
++    if (rStyle.GetHighContrastMode() && (bPressed || bHover))
++        rDev.SetLineColor(aColors.aText);
++    else
++        rDev.SetLineColor();
++    rDev.SetFillColor(aColors.aFill);
++    rDev.DrawRect(aFill, scaled(rDev, 4), scaled(rDev, 4));
++    rDev.Pop();
++    return aColors.aText;
++}
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -881,13 +881,23 @@
+     const bool bHstOwnerDraw = dynamic_cast<const NotebookbarTabControlBase*>(this)
+                                && hst::ribbon::ownerDrawEnabled()
+                                && hst::ribbon::ownerDrawAllowed(rStyleSettings);
+-    if (bHstOwnerDraw)
++    // HST Office: the File tab is a filled button in the brand colour, also in high contrast
++    // (there in the system selection colours); it is pressed while it is the current page
++    const bool bHstFileTab = pItem->maTabName == hst::ribbon::FILE_TAB_NAME
++                             && dynamic_cast<const NotebookbarTabControlBase*>(this)
++                             && hst::ribbon::ownerDrawEnabled();
++    Color aHstFileText;
++    if (bHstFileTab)
++        aHstFileText = hst::ribbon::DrawFileTab(rRenderContext, pItem->maRect,
++                                                bool(nState & ControlState::SELECTED),
++                                                bool(nState & ControlState::ROLLOVER));
++    else if (bHstOwnerDraw)
+         hst::ribbon::DrawTabItem(rRenderContext, pItem->maRect,
+                                  rRenderContext.GetCtrlTextWidth(pItem->maFormatText),
+                                  bool(nState & ControlState::SELECTED), bool(nState & ControlState::ROLLOVER));
+-    bNativeOK = bHstOwnerDraw
++    bNativeOK = bHstOwnerDraw || bHstFileTab
+                 || rRenderContext.IsNativeControlSupported(ControlType::TabItem, ControlPart::Entire);
+-    if ( bNativeOK && !bHstOwnerDraw )
++    if ( bNativeOK && !bHstOwnerDraw && !bHstFileTab )
+     {
+         TabitemValue tiValue(tools::Rectangle(pItem->maRect.Left() + TAB_ITEM_OFFSET_X,
+                                               pItem->maRect.Top() + TAB_ITEM_OFFSET_Y,
+@@ -962,6 +972,9 @@
+     // we set the font attributes always before drawing to be re-entrant (DrawNativeControl may trigger additional paints)
+     vcl::Font aFont(rRenderContext.GetFont());
+     aFont.SetTransparent(true);
++    const vcl::Font aHstPlainFont(aFont);
++    if (bHstFileTab)
++        aFont.SetWeight(WEIGHT_BOLD); // HST Office: the File button has a bold label
+     rRenderContext.SetFont(aFont);
+ 
+     Size aTabSize = aRect.GetSize();
+@@ -987,6 +1000,8 @@
+             aColor = rStyleSettings.GetTabHighlightTextColor();
+         else if (nState & ControlState::ROLLOVER)
+             aColor = rStyleSettings.GetTabRolloverTextColor();
++        if (bHstFileTab)
++            aColor = aHstFileText;
+ 
+         Color aOldColor(rRenderContext.GetTextColor());
+         rRenderContext.SetTextColor(aColor);
+@@ -998,6 +1013,8 @@
+ 
+         rRenderContext.SetTextColor(aOldColor);
+     }
++    if (bHstFileTab)
++        rRenderContext.SetFont(aHstPlainFont); // the tabs after it are not bold
+ 
+     if (!!pItem->maTabImage)
+     {
+@@ -2497,6 +2514,10 @@
+         if( !item.maText.isEmpty() && aSize.getHeight() < 28 )
+             aSize.setHeight( 28 );
+ 
++        // HST Office: the File button is wider than a tab: a bold label inside a filled shape
++        if (item.maTabName == hst::ribbon::FILE_TAB_NAME && hst::ribbon::ownerDrawEnabled())
++            aSize.AdjustWidth(hst::ribbon::FileTabExtraWidth(*GetOutDev()));
++
+         tools::Rectangle aNewRect( Point( nX, nY ), aSize );
+         if ( mbSmallInvalidate && (item.maRect != aNewRect) )
+             mbSmallInvalidate = false;
