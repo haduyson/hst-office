@@ -19,7 +19,7 @@ Mỗi lần lưu đè một tệp đã có trên đĩa (mọi định dạng), b
 | Thành phần | Tệp |
 |---|---|
 | Kho (chép, trùng, giới hạn, dọn, khóa, chỉ mục hỏng) | `python/hst_office/version_store.py`, `version_files.py` |
-| Thời điểm chép | `version_capture.py`, job `version_job.py` (`Jobs.xcu`: `OnModifyChanged`, `OnSave`, `OnUnload`) |
+| Thời điểm chép | `version_capture.py`, job `version_job.py` (`Jobs.xcu`: `OnModifyChanged`, `OnSave`, `OnSaveDone`, `OnSaveAsDone`, `OnUnload`) |
 | Hộp thoại, khôi phục | `version_dialog.py`, `version_restore.py`, chuỗi `version_texts.py` |
 | Cài đặt, khóa quản trị | `version_config.py`, schema `previousversions.xcs`, trang `dialogs/PreviousVersions.xdl` + `version_options.py` |
 | Menu | `Addons.xcu` (`OfficeMenuBarMerging`: Tệp tin ▸ Phiên bản trước, sau "Phiên bản"), `FeatureSearch.xcu` |
@@ -50,6 +50,16 @@ chép). Tại `OnSave` chỉ còn so kích thước + thời gian sửa của t�
 (một `rename` và một chỉ mục nhỏ). Chỉ khi không có bản dùng được (lưu mà không sửa, tệp bị chương trình khác đổi,
 bản chép chưa xong) thì `OnSave` mới chờ/chép, tối đa `WAIT_SECONDS` = 3 giây; quá hạn thì bỏ phiên bản đó, ghi nhật ký,
 và việc lưu vẫn tiếp tục. Lỗi chép không bao giờ chặn việc lưu. `OnUnload` xóa bản chép không dùng đến.
+
+Lưu lại tài liệu chưa sửa: tệp OOXML và ODF ghi giờ lưu vào bên trong, nên mỗi lần lưu cho ra byte khác và so trùng
+SHA-256 không nhận ra. Vì vậy sau mỗi lần lưu (`OnSaveDone`, `OnSaveAsDone`) chương trình ghi nhớ trong bộ nhớ kích
+thước, thời gian sửa và mã tệp (`st_ino`) của tệp vừa ghi (một lần `stat`, không đọc tệp). Tại `OnSave`, nếu tài liệu
+chưa sửa (`isModified()` là sai) và tệp trên đĩa vẫn đúng như vậy thì không cất gì (kết quả `unchanged`): tệp đó chính
+là nội dung đang mở. Nếu chương trình khác đã đổi tệp (khác kích thước, thời gian hoặc mã tệp) thì tệp đó vẫn được
+cất, dù tài liệu chưa sửa. Lần lưu đầu sau khi mở chưa có ghi nhớ nên tệp trên đĩa được cất như trước (có thể là nội
+dung chưa từng được cất; nhiều nhất một bản trùng mỗi lần mở). Đóng tài liệu (`OnUnload`) hay tắt tính năng thì
+xóa ghi nhớ. Trên ổ FAT (thời gian sửa làm tròn 2 giây), một thay đổi bên ngoài giữ nguyên kích thước trong cùng 2
+giây có thể không được nhận ra.
 
 Đo bằng `version_store` trên máy build Linux (SSD, tệp vừa ghi nên còn trong bộ đệm; trung vị 3 lần):
 

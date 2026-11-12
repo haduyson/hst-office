@@ -13,6 +13,14 @@ the store (version_store.add: a rename and a small index write). Only when there
 without a change, the file changed on disk, a copy still running) does OnSave wait or copy itself, bounded by
 WAIT_SECONDS; past that the version is skipped, so a slow network or USB drive costs at most WAIT_SECONDS, never a
 failed save. Nothing here raises into the save: every outcome is a status string for the local log.
+
+A save of an unmodified document rewrites the file with new bytes (OOXML and ODF store the save time inside), so the
+SHA-256 dedupe of the store cannot see it as a repeat. remember() records, after each save of this office (OnSaveDone,
+OnSaveAsDone), the identity of the file it wrote (size, modification time, file id: one stat, no read). An OnSave of an
+unmodified document whose file still has that identity keeps nothing ("unchanged"): the file is what this office last
+wrote and its content is the open document. If another program changed the file since, the identity differs and the
+file is kept as before. With no record (the first save after opening) the file is kept: it may hold content that was
+never stored, and a duplicate of it is at most one copy per opening.
 """
 import os
 import threading
@@ -24,6 +32,7 @@ WAIT_SECONDS = 3.0  # longest OnSave may wait for a copy (finishing a staged one
 _LOCK = threading.Lock()
 _PENDING = {}  # key_for(path) -> Pending
 _PRUNING = {}  # "thread": the background store-wide prune, if one runs
+_WRITTEN = {}  # key_for(path) -> identity of the file this office last wrote there (remember)
 
 
 class Pending:
@@ -57,6 +66,22 @@ def _stat(path):
         return None
 
 
+def _identity(stat):
+    return None if stat is None else (stat.st_size, stat.st_mtime_ns, stat.st_ino)
+
+
+def remember(path):
+    """A save of this office finished (OnSaveDone, OnSaveAsDone): record the identity of the file it wrote.
+    Returns "recorded" or "missing"."""
+    identity = _identity(_stat(path))
+    with _LOCK:
+        if identity is None:
+            _WRITTEN.pop(key_for(path), None)
+            return "missing"
+        _WRITTEN[key_for(path)] = identity
+    return "recorded"
+
+
 def prepare(store, path, max_bytes=MAX_FILE_BYTES):
     """The document became modified: start copying its file in the background, unless a copy of the current file
     is already staged or running. Returns "started", "pending", "missing" or "too-large"."""
@@ -79,8 +104,9 @@ def prepare(store, path, max_bytes=MAX_FILE_BYTES):
 
 
 def discard(path):
-    """The document was closed (or the feature turned off): drop any staged copy of its file."""
+    """The document was closed (or the feature turned off): drop any staged copy of its file and its save record."""
     with _LOCK:
+        _WRITTEN.pop(key_for(path), None)
         pending = _PENDING.pop(key_for(path), None)
     if pending is not None:
         pending.discard()
@@ -105,13 +131,19 @@ def prune_soon(store):
         return thread
 
 
-def before_save(store, path, wait=WAIT_SECONDS, max_bytes=MAX_FILE_BYTES, clock=time.monotonic):
-    """OnSave: store the file as it is on disk now. Returns "stored", "duplicate", "missing" (first save, nothing to
-    keep), "too-large", "timeout", "changed", "busy" or "failed"."""
+def before_save(store, path, modified=True, wait=WAIT_SECONDS, max_bytes=MAX_FILE_BYTES, clock=time.monotonic):
+    """OnSave: store the file as it is on disk now. Returns "stored", "duplicate", "unchanged" (unmodified document,
+    file still as this office wrote it), "missing" (first save, nothing to keep), "too-large", "timeout", "changed",
+    "busy" or "failed"."""
     deadline = clock() + wait
+    stat = _stat(path)
     with _LOCK:
         pending = _PENDING.pop(key_for(path), None)
-    stat = _stat(path)
+        unchanged = not modified and stat is not None and _WRITTEN.get(key_for(path)) == _identity(stat)
+    if unchanged:
+        if pending is not None:
+            pending.discard()
+        return "unchanged"
     if stat is None or stat.st_size > max_bytes:
         if pending is not None:
             pending.discard()
