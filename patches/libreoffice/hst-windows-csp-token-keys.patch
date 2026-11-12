@@ -1,0 +1,404 @@
+HST Office: Windows - list and use signing certificates whose key lives in a legacy CryptoAPI CSP.
+
+USB tokens of the Vietnamese CAs (VNPT-CA "Ace PKI Token CSP v1.0" and other CSP-only middleware)
+register their certificates in CurrentUser\My with a key provider info that names a CryptoAPI
+CSP, but ship no CNG key storage provider and no smart card minidriver. Upstream Windows signing
+is CNG-only (CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG in the certificate list, the PDF signer and xmlsec
+mscng), so CryptAcquireCertificatePrivateKey fails with NTE_NOT_FOUND and the "Select
+certificate" dialog is empty although the token is plugged in and its certificates are in the
+user store.
+
+- xmlsecurity (mscrypt): a certificate counts as personal when CNG opens its key (unchanged) or
+  when its key provider info names an installed CryptoAPI CSP. The CSP case is decided from the
+  property alone: listing never opens the token or asks for a PIN.
+- svl (PDF signing): CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG: CNG first, then the CSP handle, which
+  CryptMsg accepts with its AT_SIGNATURE / AT_KEYEXCHANGE key spec.
+- xmlsec mscng (ODF / OOXML signing): when CNG cannot open the key, acquire it through CryptoAPI
+  and sign RSA PKCS#1 v1.5 hashes with CryptSignHash (signature byte order reversed).
+
+License: modified upstream files keep their license (MPL-2.0; xmlsec: MIT).
+Test: needs a Windows build and a CSP-only token (not covered by the SoftHSM2 test).
+---
+diff -ruN a/external/xmlsec/UnpackedTarball_xmlsec.mk b/external/xmlsec/UnpackedTarball_xmlsec.mk
+--- a/external/xmlsec/UnpackedTarball_xmlsec.mk	2026-11-12 18:17:55.432691957 +0700
++++ b/external/xmlsec/UnpackedTarball_xmlsec.mk	2026-11-12 18:18:41.265093476 +0700
+@@ -13,4 +13,9 @@
+ 
+ $(eval $(call gb_UnpackedTarball_update_autoconf_configs,xmlsec))
+ 
++# HST Office: sign with keys held by a legacy CryptoAPI CSP (USB tokens without a CNG KSP)
++$(eval $(call gb_UnpackedTarball_add_patches,xmlsec,\
++    external/xmlsec/hst-mscng-capi-token-keys.patch.1 \
++))
++
+ # vim: set noet sw=4 ts=4:
+diff -ruN a/external/xmlsec/hst-mscng-capi-token-keys.patch.1 b/external/xmlsec/hst-mscng-capi-token-keys.patch.1
+--- a/external/xmlsec/hst-mscng-capi-token-keys.patch.1	1970-01-01 08:00:00.000000000 +0800
++++ b/external/xmlsec/hst-mscng-capi-token-keys.patch.1	2026-11-12 18:18:53.996480475 +0700
+@@ -0,0 +1,225 @@
++diff -ru a/src/mscng/certkeys.c b/src/mscng/certkeys.c
++--- a/src/mscng/certkeys.c	2026-11-12 18:16:27.187953011 +0700
+++++ b/src/mscng/certkeys.c	2026-11-12 18:17:05.625152995 +0700
++@@ -39,6 +39,9 @@
++     NCRYPT_KEY_HANDLE privkey;
++     BCRYPT_KEY_HANDLE pubkey;
++     BOOL privkeyNeedsFree;
+++    HCRYPTPROV capiProv;       /* legacy CryptoAPI CSP key, when CNG has no provider for it */
+++    DWORD capiKeySpec;
+++    BOOL capiProvNeedsFree;
++     BCRYPT_KEY_HANDLE bcryptPrivkey; /* BCrypt DH private key (loaded from DER/PKCS8) */
++     xmlSecBuffer dhQ;
++ };
++@@ -126,6 +129,53 @@
++     return(-1);
++ }
++ 
+++/* HST Office: some smart card / USB token middleware registers only a CryptoAPI CSP (no CNG key
+++ * storage provider, no smart card minidriver). CNG cannot open such keys (NTE_NOT_FOUND), so the
+++ * certificate's key is acquired through CryptoAPI instead. Only called after the CNG attempt failed. */
+++static int
+++xmlSecMSCngKeyDataCertGetCapiPrivkey(PCCERT_CONTEXT cert, HCRYPTPROV* prov, DWORD* keySpec, BOOL* needsFree) {
+++    HCRYPTPROV_OR_NCRYPT_KEY_HANDLE handle = 0;
+++    DWORD spec = 0;
+++    BOOL callerFree = FALSE;
+++
+++    xmlSecAssert2(cert != NULL, -1);
+++    xmlSecAssert2(prov != NULL, -1);
+++    xmlSecAssert2(keySpec != NULL, -1);
+++    xmlSecAssert2(needsFree != NULL, -1);
+++
+++    /* no NCRYPT flag: CryptoAPI only */
+++    if(!CryptAcquireCertificatePrivateKey(cert, CRYPT_ACQUIRE_COMPARE_KEY_FLAG, NULL, &handle, &spec, &callerFree)) {
+++        xmlSecMSCngLastError("CryptAcquireCertificatePrivateKey(CryptoAPI)", NULL);
+++        return(-1);
+++    }
+++    if((spec != AT_SIGNATURE) && (spec != AT_KEYEXCHANGE)) {
+++        if(callerFree) {
+++            CryptReleaseContext((HCRYPTPROV)handle, 0);
+++        }
+++        xmlSecInvalidIntegerDataError("keySpec", spec, "AT_SIGNATURE or AT_KEYEXCHANGE", NULL);
+++        return(-1);
+++    }
+++    (*prov) = (HCRYPTPROV)handle;
+++    (*keySpec) = spec;
+++    (*needsFree) = callerFree;
+++    return(0);
+++}
+++
+++HCRYPTPROV
+++xmlSecMSCngKeyDataGetCapiPrivKey(xmlSecKeyDataPtr data, DWORD* keySpec) {
+++    xmlSecMSCngKeyDataCtxPtr ctx;
+++
+++    xmlSecAssert2(xmlSecKeyDataIsValid(data), 0);
+++    xmlSecAssert2(xmlSecKeyDataCheckSize(data, xmlSecMSCngKeyDataSize), 0);
+++    xmlSecAssert2(keySpec != NULL, 0);
+++
+++    ctx = xmlSecMSCngKeyDataGetCtx(data);
+++    xmlSecAssert2(ctx != NULL, 0);
+++
+++    (*keySpec) = ctx->capiKeySpec;
+++    return(ctx->capiProv);
+++}
+++
++ /**
++  * @brief Sets the value of key data.
++  * @param data the pointer to MSCng pccert data.
++@@ -156,13 +206,16 @@
++         BOOL needsFree = TRUE;
++ 
++         ret = xmlSecMSCngKeyDataCertGetPrivkey(cert, &hPrivKey, &needsFree);
++-        if(ret < 0) {
++-            xmlSecInternalError("xmlSecMSCngKeyDataCertGetPrivkey", NULL);
++-            return(-1);
+++        if(ret >= 0) {
+++            ctx->privkey = hPrivKey;
+++            ctx->privkeyNeedsFree = needsFree;
+++        } else {
+++            ret = xmlSecMSCngKeyDataCertGetCapiPrivkey(cert, &ctx->capiProv, &ctx->capiKeySpec, &ctx->capiProvNeedsFree);
+++            if(ret < 0) {
+++                xmlSecInternalError("xmlSecMSCngKeyDataCertGetPrivkey", NULL);
+++                return(-1);
+++            }
++         }
++-
++-        ctx->privkey = hPrivKey;
++-        ctx->privkeyNeedsFree = needsFree;
++     }
++ 
++     ret = xmlSecMSCngKeyDataCertGetPubkey(&(cert->pCertInfo->SubjectPublicKeyInfo), &hPubKey);
++@@ -445,6 +498,10 @@
++         }
++     }
++ 
+++    if((ctx->capiProv != 0) && (ctx->capiProvNeedsFree == TRUE)) {
+++        CryptReleaseContext(ctx->capiProv, 0);
+++    }
+++
++     if(ctx->pubkey != 0) {
++         status = BCryptDestroyKey(ctx->pubkey);
++         if(status != STATUS_SUCCESS) {
++@@ -514,6 +571,17 @@
++         }
++     }
++ 
+++    if(srcCtx->capiProv != 0) {
+++        /* share the CSP handle: no second key acquisition (no second token PIN prompt) */
+++        if(!CryptContextAddRef(srcCtx->capiProv, NULL, 0)) {
+++            xmlSecMSCngLastError("CryptContextAddRef", NULL);
+++            return(-1);
+++        }
+++        dstCtx->capiProv = srcCtx->capiProv;
+++        dstCtx->capiKeySpec = srcCtx->capiKeySpec;
+++        dstCtx->capiProvNeedsFree = TRUE;
+++    }
+++
++     if(dstCtx->cert != NULL) {
++         /* avoid BCryptDuplicateKey() here as that works for symmetric keys only */
++         ret = xmlSecMSCngKeyDataCertGetPubkey(&(dstCtx->cert->pCertInfo->SubjectPublicKeyInfo), &dstCtx->pubkey);
++@@ -700,6 +768,10 @@
++         return(xmlSecKeyDataTypePrivate | xmlSecKeyDataTypePublic);
++     }
++ 
+++    if(ctx->capiProv != 0) {
+++        return(xmlSecKeyDataTypePrivate | xmlSecKeyDataTypePublic);
+++    }
+++
++     if(ctx->bcryptPrivkey != 0) {
++         return(xmlSecKeyDataTypePrivate | xmlSecKeyDataTypePublic);
++     }
++diff -ru a/src/mscng/private.h b/src/mscng/private.h
++--- a/src/mscng/private.h	2026-11-12 18:16:27.200953419 +0700
+++++ b/src/mscng/private.h	2026-11-12 18:17:05.620152840 +0700
++@@ -64,6 +64,9 @@
++ int                 xmlSecMSCngKeyDataAdoptBCryptPrivKey            (xmlSecKeyDataPtr data,
++                                                                      BCRYPT_KEY_HANDLE hKey);
++ BCRYPT_KEY_HANDLE    xmlSecMSCngKeyDataGetBCryptPrivKey             (xmlSecKeyDataPtr data);
+++/* HST Office: private key held by a legacy CryptoAPI CSP (USB tokens without a CNG KSP or minidriver) */
+++HCRYPTPROV           xmlSecMSCngKeyDataGetCapiPrivKey               (xmlSecKeyDataPtr data,
+++                                                                     DWORD* keySpec);
++ 
++ 
++ xmlSecSize         xmlSecMSCngCertKeyDataGetSize                    (xmlSecKeyDataPtr data);
++diff -ru a/src/mscng/signatures.c b/src/mscng/signatures.c
++--- a/src/mscng/signatures.c	2026-11-12 18:16:27.193953200 +0700
+++++ b/src/mscng/signatures.c	2026-11-12 18:17:05.626153026 +0700
++@@ -895,6 +895,66 @@
++     return(0);
++ }
++ 
+++/* HST Office: sign the already computed hash with a key held by a legacy CryptoAPI CSP.
+++ * RSA PKCS#1 v1.5 only (what CSP-only tokens offer). CryptoAPI returns little-endian signatures. */
+++static int
+++xmlSecMSCngSignatureSignCapi(xmlSecTransformPtr transform, xmlSecMSCngSignatureCtxPtr ctx,
+++                             HCRYPTPROV prov, DWORD keySpec) {
+++    HCRYPTHASH hHash = 0;
+++    ALG_ID algId;
+++    DWORD cbSignature = 0;
+++    xmlSecSize outSize;
+++    int ret;
+++    int res = -1;
+++
+++    if(ctx->dwInfoFlags != BCRYPT_PAD_PKCS1) {
+++        xmlSecNotImplementedError("CryptoAPI keys support RSA PKCS#1 v1.5 signatures only");
+++        return(-1);
+++    }
+++    if(wcscmp(ctx->pszHashAlgId, BCRYPT_SHA1_ALGORITHM) == 0) {
+++        algId = CALG_SHA1;
+++    } else if(wcscmp(ctx->pszHashAlgId, BCRYPT_SHA256_ALGORITHM) == 0) {
+++        algId = CALG_SHA_256;
+++    } else if(wcscmp(ctx->pszHashAlgId, BCRYPT_SHA384_ALGORITHM) == 0) {
+++        algId = CALG_SHA_384;
+++    } else if(wcscmp(ctx->pszHashAlgId, BCRYPT_SHA512_ALGORITHM) == 0) {
+++        algId = CALG_SHA_512;
+++    } else {
+++        xmlSecNotImplementedError("CryptoAPI keys: unsupported hash algorithm");
+++        return(-1);
+++    }
+++
+++    if(!CryptCreateHash(prov, algId, 0, 0, &hHash)) {
+++        xmlSecMSCngLastError("CryptCreateHash", xmlSecTransformGetName(transform));
+++        return(-1);
+++    }
+++    if(!CryptSetHashParam(hHash, HP_HASHVAL, ctx->pbHash, 0)) {
+++        xmlSecMSCngLastError("CryptSetHashParam(HP_HASHVAL)", xmlSecTransformGetName(transform));
+++        goto done;
+++    }
+++    if(!CryptSignHashW(hHash, keySpec, NULL, 0, NULL, &cbSignature)) {
+++        xmlSecMSCngLastError("CryptSignHash(size)", xmlSecTransformGetName(transform));
+++        goto done;
+++    }
+++    XMLSEC_SAFE_CAST_ULONG_TO_SIZE(cbSignature, outSize, goto done, xmlSecTransformGetName(transform));
+++    ret = xmlSecBufferSetSize(&(transform->outBuf), outSize);
+++    if(ret < 0) {
+++        xmlSecInternalError2("xmlSecBufferSetSize", xmlSecTransformGetName(transform),
+++            "size=" XMLSEC_SIZE_FMT, outSize);
+++        goto done;
+++    }
+++    if(!CryptSignHashW(hHash, keySpec, NULL, 0, (BYTE*)xmlSecBufferGetData(&(transform->outBuf)), &cbSignature)) {
+++        xmlSecMSCngLastError("CryptSignHash", xmlSecTransformGetName(transform));
+++        goto done;
+++    }
+++    xmlSecMSCngReverseBytes((BYTE*)xmlSecBufferGetData(&(transform->outBuf)), cbSignature);
+++    res = 0;
+++
+++done:
+++    CryptDestroyHash(hHash);
+++    return(res);
+++}
+++
++ static int
++ xmlSecMSCngSignatureSign(
++     xmlSecTransformPtr transform,
++@@ -920,6 +980,11 @@
++ 
++     privkey = xmlSecMSCngKeyDataGetPrivKey(ctx->data);
++     if (privkey == 0) {
+++        DWORD capiKeySpec = 0;
+++        HCRYPTPROV capiProv = xmlSecMSCngKeyDataGetCapiPrivKey(ctx->data, &capiKeySpec);
+++        if (capiProv != 0) {
+++            return(xmlSecMSCngSignatureSignCapi(transform, ctx, capiProv, capiKeySpec));
+++        }
++         xmlSecInternalError("xmlSecMSCngKeyDataGetPrivKey", xmlSecTransformGetName(transform));
++         return(-1);
++     }
+diff -ruN a/svl/source/crypto/cryptosign.cxx b/svl/source/crypto/cryptosign.cxx
+--- a/svl/source/crypto/cryptosign.cxx	2026-11-12 18:17:55.415691435 +0700
++++ b/svl/source/crypto/cryptosign.cxx	2026-11-12 18:18:41.264093445 +0700
+@@ -1325,8 +1325,11 @@
+     aPara.cMsgCert = 1;
+     aPara.rgpMsgCert = &pCertContext;
+ 
+-    NCRYPT_KEY_HANDLE hCryptKey = 0;
+-    DWORD dwFlags = CRYPT_ACQUIRE_CACHE_FLAG | CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG;
++    // HST Office: CNG first, then the legacy CryptoAPI CSP of USB tokens that ship no CNG key
++    // storage provider. CMSG_SIGNER_ENCODE_INFO takes either handle (hCryptProv and hNCryptKey
++    // share a union); dwKeySpec tells crypt32 which one it is.
++    HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hCryptKey = 0;
++    DWORD dwFlags = CRYPT_ACQUIRE_CACHE_FLAG | CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG;
+     HCRYPTPROV_OR_NCRYPT_KEY_HANDLE* phCryptProvOrNCryptKey = &hCryptKey;
+     DWORD nKeySpec;
+     BOOL bFreeNeeded;
+diff -ruN a/xmlsecurity/source/xmlsec/mscrypt/securityenvironment_mscryptimpl.cxx b/xmlsecurity/source/xmlsec/mscrypt/securityenvironment_mscryptimpl.cxx
+--- a/xmlsecurity/source/xmlsec/mscrypt/securityenvironment_mscryptimpl.cxx	2026-11-12 18:17:55.401691004 +0700
++++ b/xmlsecurity/source/xmlsec/mscrypt/securityenvironment_mscryptimpl.cxx	2026-11-12 18:18:41.264093445 +0700
+@@ -21,6 +21,7 @@
+ 
+ #include <cstddef>
+ #include <string.h>
++#include <vector>
+ 
+ #include <xmlsec/base64.h>
+ 
+@@ -63,6 +64,63 @@
+ 
+ namespace {
+ 
++// HST Office: whether the CryptoAPI CSP named in a certificate's key provider info is installed.
++bool lcl_isCspInstalled(const wchar_t* pProvName, DWORD nProvType)
++{
++    for (DWORD nIndex = 0;; ++nIndex)
++    {
++        DWORD nType = 0;
++        DWORD cbName = 0;
++        if (!CryptEnumProvidersW(nIndex, nullptr, 0, &nType, nullptr, &cbName))
++            return false; // ERROR_NO_MORE_ITEMS
++        std::vector<wchar_t> aName(cbName / sizeof(wchar_t) + 1);
++        if (CryptEnumProvidersW(nIndex, nullptr, 0, &nType, aName.data(), &cbName)
++            && nType == nProvType && _wcsicmp(aName.data(), pProvName) == 0)
++            return true;
++    }
++}
++
++// HST Office: whether a certificate has a usable private key. CNG keys (KSPs, smart card
++// minidrivers) are checked as upstream does. Many USB token middlewares (e.g. the Vietnamese
++// CA tokens) register only a legacy CryptoAPI CSP: CNG cannot open those keys (NTE_NOT_FOUND),
++// so upstream hid every such certificate. Those are accepted from the certificate's key
++// provider property alone - no key is opened, so listing never touches the token or its PIN.
++bool lcl_hasPrivateKey(PCCERT_CONTEXT pCert, DWORD nCngFlags)
++{
++    NCRYPT_KEY_HANDLE hKey = 0;
++    DWORD nKeySpec = 0;
++    BOOL bFree = FALSE;
++    if (CryptAcquireCertificatePrivateKey(pCert, nCngFlags | CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG,
++                                          nullptr, &hKey, &nKeySpec, &bFree))
++    {
++        if (hKey && bFree)
++            NCryptFreeObject(hKey);
++        return true;
++    }
++
++    DWORD cbInfo = 0;
++    if (!CertGetCertificateContextProperty(pCert, CERT_KEY_PROV_INFO_PROP_ID, nullptr, &cbInfo)
++        || cbInfo < sizeof(CRYPT_KEY_PROV_INFO))
++        return false;
++    std::vector<BYTE> aInfo(cbInfo);
++    if (!CertGetCertificateContextProperty(pCert, CERT_KEY_PROV_INFO_PROP_ID, aInfo.data(), &cbInfo))
++        return false;
++    const auto* pInfo = reinterpret_cast<const CRYPT_KEY_PROV_INFO*>(aInfo.data());
++    if (pInfo->dwProvType == 0) // a CNG key: the CNG attempt above is authoritative
++        return false;
++    if (!pInfo->pwszProvName || !pInfo->pwszContainerName
++        || (pInfo->dwKeySpec != AT_SIGNATURE && pInfo->dwKeySpec != AT_KEYEXCHANGE))
++        return false;
++    const bool bInstalled = lcl_isCspInstalled(pInfo->pwszProvName, pInfo->dwProvType);
++    SAL_INFO_IF(bInstalled, "xmlsecurity.xmlsec", "certificate key held by CryptoAPI CSP "
++                                                      << OUString(o3tl::toU(pInfo->pwszProvName)));
++    return bInstalled;
++}
++
++}
++
++namespace {
++
+ struct CertErrorToString{
+     DWORD error;
+     char const * name;
+@@ -317,8 +375,6 @@
+     //Thirdly, we try to find certificate from system default key store.
+     if( m_bEnableDefault ) {
+         HCERTSTORE hSystemKeyStore ;
+-        DWORD      dwKeySpec;
+-        NCRYPT_KEY_HANDLE hCryptKey;
+ 
+ #ifdef SAL_LOG_INFO
+         CertEnumSystemStore(CERT_SYSTEM_STORE_CURRENT_USER, nullptr, nullptr, cert_enum_system_store_callback);
+@@ -330,14 +386,7 @@
+             while (pCertContext)
+             {
+                 // for checking whether the certificate is a personal certificate or not.
+-                DWORD dwFlags = CRYPT_ACQUIRE_COMPARE_KEY_FLAG | CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG;
+-                HCRYPTPROV_OR_NCRYPT_KEY_HANDLE* phCryptProvOrNCryptKey = &hCryptKey;
+-                if(!(CryptAcquireCertificatePrivateKey(pCertContext,
+-                        dwFlags,
+-                        nullptr,
+-                        phCryptProvOrNCryptKey,
+-                        &dwKeySpec,
+-                        nullptr)))
++                if (!lcl_hasPrivateKey(pCertContext, CRYPT_ACQUIRE_COMPARE_KEY_FLAG))
+                 {
+                     // Not Privatekey found. SKIP this one.
+                     pCertContext = CertEnumCertificatesInStore( hSystemKeyStore, pCertContext );
+@@ -1005,22 +1054,8 @@
+ 
+     //Secondly, make sentence whether or not the cert has a private key.
+     {
+-        BOOL    fCallerFreeProv ;
+-        DWORD   dwKeySpec ;
+-        NCRYPT_KEY_HANDLE hKey = 0;
+-        DWORD dwFlags = CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG;
+-        HCRYPTPROV_OR_NCRYPT_KEY_HANDLE* phCryptProvOrNCryptKey = &hKey;
+-        if( CryptAcquireCertificatePrivateKey( pCertContext ,
+-                   dwFlags,
+-                   nullptr ,
+-                   phCryptProvOrNCryptKey,
+-                   &dwKeySpec,
+-                   &fCallerFreeProv )
+-        ) {
++        if (lcl_hasPrivateKey(pCertContext, 0)) {
+             characters |=  css::security::CertificateCharacters::HAS_PRIVATE_KEY ;
+-
+-            if (hKey && fCallerFreeProv)
+-                NCryptFreeObject(hKey);
+         } else {
+             characters &= ~ css::security::CertificateCharacters::HAS_PRIVATE_KEY ;
+         }
