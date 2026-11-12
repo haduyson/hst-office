@@ -141,6 +141,37 @@ Cygwin, make native, NASM, pkgconf). Các bước build nằm trong
 xác minh được trên runner Windows; [preflight-local.sh](../scripts/windows/preflight-local.sh)
 chạy trong `ci-quality.sh` (shellcheck, actionlint, CRLF, mô phỏng giải nén/vá/tùy chọn trên Linux).
 
+### Build Windows cục bộ trên HST4 (bản thử, không phải bản phát hành)
+
+Máy thử HST4 (28 luồng, 32 GB RAM) build MSI để phát triển và thử nghiệm. Bản phát hành chính thức
+vẫn lấy từ CI. Máy này đi theo đúng các bước của workflow: dùng `trial-build.sh` của chính commit
+được build, cùng gói Cygwin, ghim flex, make native, pkgconf, NASM, Python 3.12 + Pillow 10.4.0 và
+cùng cách đổi tên MSI/`SHA256SUMS`. Toàn bộ nằm trên ổ D:, trong đường dẫn không có dấu cách vì
+ổ D: tắt tên 8.3. Bộ công cụ được cài một lần bằng
+[hst4-setup.ps1](../scripts/windows/hst4-setup.ps1) gồm: VS 2022 Build Tools tại `D:\VS2022BT`
+với đúng các thành phần mà `configure.log` của CI dùng (MSVC v143, ATL kể cả Spectre, clang-cl,
+merge module MSVC, CMake/Ninja, Windows SDK 10.0.26100, .NET Framework 4.8.1 SDK), Cygwin tại
+`D:\cygwin64` (qua `build-windows.ps1 -CygwinRoot`), cùng ngoại lệ Defender cho `D:\hst-build` và
+`D:\cygwin64`. Windows SDK và trình cài VS luôn nằm trên C:, và C: phải còn trống ít nhất 3 GB.
+
+[hst4-build.ps1](../scripts/windows/hst4-build.ps1) build một nhánh hoặc commit vào `D:\hst-build`
+(thư mục `repo`, `lo`, `dl`, `branding`, `logs`, `metrics`, `out`). MSI cùng `SHA256SUMS` và
+`build-info.json` (thời gian từng bước, sha, kích thước) được ghi vào
+`D:\hst-build\out\<nhánh>-<sha7>\`. Mặc định script dùng mọi luồng, ưu tiên Normal; có thể đổi
+bằng `-Jobs N` và `-Priority BelowNormal`. Lần sau build tăng dần: mỗi lần chạy, script giải nén
+và vá một cây mới vào `stage\`, rồi `rsync --checksum` chỉ chép sang `lo\` các tệp có nội dung
+khác, nên make chỉ build lại phần mà commit thay đổi. Tệp bị commit mới xóa vẫn còn lại trong
+`lo\`; khi cần thì dùng `-Clean` để build lại từ đầu. Build dài phải chạy tách khỏi phiên SSH bằng
+[hst4-detach.ps1](../scripts/windows/hst4-detach.ps1). Script này tạo task `hst-build-<tên>`
+chạy dưới tài khoản `kiemtra` (S4U, ưu tiên Normal) và tự xóa task khi xong.
+
+```powershell
+# một lần: chép script ra ngoài checkout (checkout bị đổi sang commit cần build)
+Copy-Item scripts\build-windows.ps1 D:\hst-build\tools\scripts\; Copy-Item scripts\windows\hst4-*.ps1 D:\hst-build\tools\scripts\windows\
+powershell -File D:\hst-build\tools\scripts\windows\hst4-detach.ps1 -Name build -Script D:\hst-build\tools\scripts\windows\hst4-build.ps1 -ScriptArgs '-Ref rc/1.0.2-batch1'
+powershell -File D:\hst-build\tools\scripts\windows\hst4-build.ps1 -Status   # bước hiện tại, số bước [build], đuôi build.log, dung lượng trống
+```
+
 [build-macos.sh](../scripts/build-macos.sh) (chỉ kiểm kê, không dùng trong CI; CI dùng `scripts/macos/`, xem mục [macOS](#macos)) nhận `--arch arm64|x86_64`, in lệnh từ
 [arm64](../build-config/macos-arm64.conf) hoặc [x86_64](../build-config/macos-x86_64.conf).
 Script kiểm tra host đúng kiến trúc, Xcode từ 14.3, SDK từ 13.3 và công cụ đóng
