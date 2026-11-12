@@ -13,6 +13,8 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from . import number_words_en as en
 
 MAX_DIGITS = 15
+# DOCTIEN default units in Vietnamese: whole đồng, no "xu" part (the amount is rounded to the nearest đồng)
+DEFAULT_UNIT, DEFAULT_SUB_UNIT = "đồng", ""
 DIGITS = ("không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín")
 _SPLIT = re.compile(r"[\s,;]+")
 # option word (without diacritics) -> (setting, value)
@@ -177,11 +179,12 @@ def read_number(value, options=None):
 
 def read_money(value, unit=None, sub_unit=None, options=None):
     """DOCTIEN: "Mười triệu đồng chẵn", "Một nghìn đồng năm mươi xu". `unit`/`sub_unit` None = the default of the
-    language (đồng/xu, dollar/cent); sub_unit "" rounds to a whole amount. English: "Ten dollars and fifty cents"."""
+    language: Vietnamese reads whole đồng (no sub-unit), English dollar/cent. sub_unit "" rounds half up (away from
+    zero) to a whole amount: 1000,5 -> "Một nghìn không trăm lẻ một đồng chẵn". English: "Ten dollars and fifty cents"."""
     options = options or Options()
     english = options.language == "en"
-    unit = (en.DEFAULT_UNIT if english else "đồng") if unit is None else unit.strip()
-    sub_unit = (en.DEFAULT_SUB_UNIT if english else "xu") if sub_unit is None else sub_unit.strip()
+    unit = (en.DEFAULT_UNIT if english else DEFAULT_UNIT) if unit is None else unit.strip()
+    sub_unit = (en.DEFAULT_SUB_UNIT if english else DEFAULT_SUB_UNIT) if sub_unit is None else sub_unit.strip()
     amount = to_decimal(value).quantize(Decimal("0.01") if sub_unit else Decimal(1), rounding=ROUND_HALF_UP)
     negative, whole, digits = _split(amount)
     cents = int(digits.ljust(2, "0")) if digits else 0
