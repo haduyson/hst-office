@@ -1,0 +1,2082 @@
+HST Office: HST Writer, HST Sheets, HST Slides and HST PDF open in windows of their own; a document tab
+can be moved into a new window.
+Owner decisions (12/11/2026): "HST Office" (the Start Center) keeps one window with every document as a
+tab. The HST Writer/Sheets/Slides/PDF launchers and documents opened from a file manager get a window of
+their module and never join the HST Office window or another module's window. Inside a module window,
+File > New / File > Open / "+" of the same module add a tab; a document of another module opens a
+window of that module. Dragging a tab out of the strip (or "Move to New Window" in its context menu,
+.uno:DetachDocumentTab) moves it into a new window.
+Design (framework/inc/documenttabgroup.hxx): DocumentTabGroup manages several tab groups, each of kind
+"office" or a module key (writer, calc, impress, draw, pdf, other module ids).
+- Routing of a frame about to be shown: Start Center -> an HST Office window; opened from outside (LoadEnv
+  Referer private:OpenEvent, set by DispatchWatcher for every command line/IPC request: launchers with
+  --writer/--calc/--impress, Windows shortcuts and open verbs, Linux .desktop %U, macOS Finder) -> a new
+  window of its module; otherwise the window the user works in (Desktop active frame, else the group used
+  last) when it accepts the module (HST Office accepts all), else a new window of the module. The first
+  window of the process is an HST Office window (autorecovery, macros). LoadEnv passes the module of a
+  frame without component (SvtModuleOptions::ClassifyFactoryByURL, PDF type -> HST PDF).
+- A lone Start Center replaced by a document from a launcher becomes that module's window (macOS shows
+  the Start Center first, tdf#41775); a lone tab of a module window that gets another module's document
+  becomes that module's window.
+- "+" offers the module's new document and Open in a module window (Open only for HST PDF/Draw), every
+  application in the HST Office window. Next/PrevDocumentTab and the title-bar close act on the window of
+  the frame. A second "soffice" without arguments (HST Office launcher) brings an HST Office window to the
+  front or opens a new Start Center (desktop app.cxx, Appear event).
+- Detach: a window with 2+ tabs, not in full screen; the new window has the kind of the old one, the
+  restored size of the old one and its top-left at the drop point (menu/command: cascaded). Drag within
+  the strip reorders; a drop on the strip of another window that accepts the module moves the tab there
+  (not on Wayland, where window positions are unknown). Inactive tabs are shown on release.
+- Taskbar identity (TitleBarUpdate::updateApplicationID): tabs of an HST Office window use the Start
+  Center id (HST Office), module windows their module id.
+- vcl: hst_vcl_set_tab_group(window, group id); macOS joins native full screen tabs of the same group only.
+- Vietnamese strings for the new texts.
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_window_groups.py.
+---
+--- a/desktop/source/app/app.cxx
++++ b/desktop/source/app/app.cxx
+@@ -82,6 +82,7 @@
+ #include <com/sun/star/loader/XImplementationLoader.hpp>
+ 
+ #include <desktop/exithelper.h>
++#include <framework/documenttabs.hxx>
+ #include <sal/log.hxx>
+ #include <toolkit/helper/vclunohelper.hxx>
+ #include <comphelper/lok.hxx>
+@@ -2404,6 +2405,16 @@
+                     xList->getByIndex(0) >>= xTask;
+             }
+ 
++            // HST Office: "HST Office" started again shows its own window (the Start Center
++            // window with its tabs), never a window of HST Writer, HST Sheets, HST Slides or
++            // HST PDF; without one, a new Start Center opens as a new HST Office window.
++            if ( framework::DocumentTabs::isEnabled() )
++            {
++                if ( framework::DocumentTabs::showOfficeWindow() )
++                    break;
++                xTask.clear();
++            }
++
+             if ( xTask.is() )
+             {
+                 Reference< css::awt::XTopWindow > xTop( xTask->getContainerWindow(), UNO_QUERY );
+--- a/framework/inc/documenttabgroup.hxx
++++ b/framework/inc/documenttabgroup.hxx
+@@ -19,6 +19,8 @@
+ #include <tools/link.hxx>
+ #include <vcl/vclptr.hxx>
+ 
++#include <memory>
++#include <optional>
+ #include <vector>
+ 
+ class VclSimpleEvent;
+@@ -42,14 +44,35 @@
+     Color aModuleColor;
+ };
+ 
++/// Where a frame that is about to be shown comes from (DocumentTabGroup::prepareShow).
++struct DocumentTabShowOrigin
++{
++    bool bExternal = false; ///< opened from outside the office (launcher, file manager)
++    OUString aModule; ///< module key when the frame has no component yet ("" = unknown)
++};
++
+ /** HST Office: browser-like document tabs on top of ordinary task frames.
+ 
+     Every document keeps its own task frame and top-level WorkWindow (menubar, ribbon,
+-    sidebar, status bar and window title stay per document, exactly as upstream). The
+-    members of the (single, per-process) group share one position/size/maximized state;
+-    only the active member is shown, the others are "parked" (hidden). A DocumentTabBar,
+-    placed by the LayoutManager between the top docking area and the document, lists the
+-    members and switches between them.
++    sidebar, status bar and window title stay per document, exactly as upstream). A tab
++    window is a *group* of such frames: its members share one position/size/maximized
++    state; only the active member is shown, the others are "parked" (hidden). A
++    DocumentTabBar, placed by the LayoutManager between the top docking area and the
++    document, lists the members of its group and switches between them.
++
++    This class manages all groups of the process. Every group has a kind: "office" (the
++    HST Office window, any document) or a module key ("writer", "calc", "impress", "draw",
++    "pdf" or another module id) for the window of one application (HST Writer, ...).
++    A frame that is about to be shown chooses its group (chooseGroup()):
++      - the Start Center joins an HST Office window (a new one when there is none);
++      - a document opened from outside (launcher, file manager: LoadEnv sees the Referer
++        private:OpenEvent of the command line/IPC requests) gets a new window of its module;
++      - otherwise it joins the window the user works in when that window accepts its module
++        (an HST Office window accepts all), else it gets a new window of its module;
++      - the very first window of the process is an HST Office window (Start Center,
++        autorecovery, documents opened by macros at startup).
++    A tab can be detached into a new window of the same kind, moved within its strip, and
++    dropped on the strip of another window that accepts it.
+ 
+     Membership is decided when a task frame's window is shown: by prepareShow() from the
+     code paths that know they are about to show a frame (LoadEnv, SfxFrame::Appear,
+@@ -68,8 +91,15 @@
+     /// Option Office.Common/Misc/DocumentTabs, and never under headless or LibreOfficeKit.
+     static bool isEnabled();
+ 
+-    void prepareShow(const css::uno::Reference<css::frame::XFrame>& xFrame);
++    using ShowOrigin = DocumentTabShowOrigin;
++
++    void prepareShow(const css::uno::Reference<css::frame::XFrame>& xFrame,
++                     const ShowOrigin& rOrigin = ShowOrigin());
+     bool isParked(const css::uno::Reference<css::frame::XFrame>& xFrame) const;
++    /// xFrame is a tab of an HST Office (mixed) window: its taskbar identity is HST Office's.
++    bool isOfficeWindow(const css::uno::Reference<css::frame::XFrame>& xFrame) const;
++    /// Kind of xFrame's window: "office", a module key, or "" when xFrame is no member.
++    OUString windowKind(const css::uno::Reference<css::frame::XFrame>& xFrame) const;
+ 
+     /// LayoutManager: height to reserve for the strip of xFrame (0 = no strip).
+     sal_Int32 tabBarHeight(const css::uno::Reference<css::frame::XFrame>& xFrame,
+@@ -78,22 +108,44 @@
+     void placeTabBar(const css::uno::Reference<css::frame::XFrame>& xFrame,
+                      const tools::Rectangle& rRect);
+ 
+-    std::vector<DocumentTabInfo> getTabs() const;
++    /// The tabs of xFrame's window.
++    std::vector<DocumentTabInfo> getTabs(const css::uno::Reference<css::frame::XFrame>& xFrame) const;
+     void activate(const css::uno::Reference<css::frame::XFrame>& xFrame);
+-    void activateRelative(sal_Int32 nDelta);
++    /// Next (+1) or previous (-1) tab of xFrame's window.
++    void activateRelative(const css::uno::Reference<css::frame::XFrame>& xFrame, sal_Int32 nDelta);
+     void closeTab(const css::uno::Reference<css::frame::XFrame>& xFrame);
+-    /// Dispatch rURL ("private:factory/..." into a new task, or ".uno:Open") asynchronously.
+-    void newTab(const OUString& rURL);
++    /** Dispatch rURL ("private:factory/..." into a new task, or ".uno:Open") asynchronously
++        from xFrame, so that the new document is routed by xFrame's window. */
++    void newTab(const css::uno::Reference<css::frame::XFrame>& xFrame, const OUString& rURL);
++
++    /// xFrame's window has another tab and is not in (native) full screen.
++    bool canDetach(const css::uno::Reference<css::frame::XFrame>& xFrame) const;
++    /** Move xFrame out of its window into a new window of the same kind: the restored size of
++        the window, its top-left corner at rTopLeft (absolute screen pixels) or cascaded. */
++    void detach(const css::uno::Reference<css::frame::XFrame>& xFrame,
++                const std::optional<Point>& rTopLeft = std::nullopt);
++    /// Move xFrame to position nIndex within its strip.
++    void moveTab(const css::uno::Reference<css::frame::XFrame>& xFrame, sal_Int32 nIndex);
++    /** Drop of a dragged tab at rScreenPos (absolute screen pixels): when it is over the strip of
++        another window that accepts xFrame's module, xFrame becomes the shown tab there.
++        Returns false when there is no such window (or the platform cannot tell, Wayland). */
++    bool mergeAt(const css::uno::Reference<css::frame::XFrame>& xFrame, const Point& rScreenPos);
+ 
+-    /// .uno:NextDocumentTab / .uno:PrevDocumentTab (DispatchProvider routes them here).
++    /// .uno:NextDocumentTab, .uno:PrevDocumentTab, .uno:DetachDocumentTab
+     static bool isTabCommand(std::u16string_view rCommand);
+-    static css::uno::Reference<css::frame::XDispatch> createCommandDispatch();
++    static css::uno::Reference<css::frame::XDispatch>
++    createCommandDispatch(const css::uno::Reference<css::frame::XFrame>& xFrame);
+ 
+     /** Title-bar close of a member window: close the whole group like a browser window,
+         asking to save each modified document in turn (Cancel stops and keeps the rest).
+         Returns false when xFrame is no member of a group with several tabs. */
+     bool requestCloseWindow(const css::uno::Reference<css::frame::XFrame>& xFrame);
+ 
++    /** "HST Office" started again (a second office without arguments): bring an HST Office
++        window to front. Returns false when there is none (the caller opens a Start Center,
++        which becomes a new HST Office window). */
++    bool showOfficeWindow();
++
+     /// Desktop::terminate: frames are about to be closed one by one, don't re-show neighbours.
+     void setClosingAll(bool bClosingAll);
+ 
+@@ -110,25 +162,44 @@
+         VclPtr<vcl::Window> pWindow; ///< the frame's container (top-level WorkWindow)
+         VclPtr<DocumentTabBar> pBar;
+         bool bParked = false;
++        OUString aModule; ///< module key last seen ("start" for the Start Center)
++    };
++
++    struct Group
++    {
++        sal_uInt32 nId = 0; ///< also the vcl tab group id (macOS native full screen tabs)
++        OUString aKind; ///< "office" or a module key
++        std::vector<Member> aMembers;
++        css::uno::WeakReference<css::frame::XFrame> xActive;
+     };
+ 
+     DocumentTabGroup();
+ 
+     bool isCandidate(const css::uno::Reference<css::frame::XFrame>& xFrame) const;
+     css::uno::Reference<css::frame::XFrame> findTaskFrame(const vcl::Window* pWindow) const;
+-    Member* find(const css::uno::Reference<css::frame::XFrame>& xFrame);
+-    const Member* find(const css::uno::Reference<css::frame::XFrame>& xFrame) const;
+-    Member* findByWindow(const vcl::Window* pWindow);
+-    Member* activeMember();
+-    Member& join(const css::uno::Reference<css::frame::XFrame>& xFrame);
++    Member* find(const css::uno::Reference<css::frame::XFrame>& xFrame, Group** ppGroup = nullptr);
++    const Member* find(const css::uno::Reference<css::frame::XFrame>& xFrame,
++                       const Group** ppGroup = nullptr) const;
++    Member* findByWindow(const vcl::Window* pWindow, Group** ppGroup = nullptr);
++    Group* groupById(sal_uInt32 nId);
++    static Member* activeMember(Group& rGroup);
++    static bool accepts(const Group& rGroup, const OUString& rModule);
++
++    Group& newGroup(const OUString& rKind);
++    Group* contextGroup();
++    Group& chooseGroup(const OUString& rModule, bool bExternal);
++    void setKind(Group& rGroup, const OUString& rKind);
++    Member& join(Group& rGroup, const css::uno::Reference<css::frame::XFrame>& xFrame);
++    Member takeOut(Group& rGroup, size_t nIndex);
+     void removeMember(const css::uno::Reference<css::frame::XFrame>& xFrame,
+                       bool bShowNeighbour);
+     void cleanUp();
+     void park(Member& rMember);
+     void focus(const css::uno::Reference<css::frame::XFrame>& xFrame);
+     void dissolve();
+-    void update();
+-    bool showsTabBar(const Member& rMember) const;
++    void update(Group& rGroup);
++    void updateAll();
++    bool showsTabBar(const Group& rGroup, const Member& rMember) const;
+ 
+     static void copyGeometry(vcl::Window* pFrom, vcl::Window* pTo);
+ 
+@@ -137,12 +208,18 @@
+     DECL_LINK(DispatchHdl, void*, void);
+     DECL_LINK(CloseWindowHdl, void*, void);
+ 
++    struct PendingDispatch
++    {
++        css::uno::WeakReference<css::frame::XFrame> xFrame;
++        OUString aURL;
++    };
+ 
+-    std::vector<Member> m_aMembers;
+-    css::uno::WeakReference<css::frame::XFrame> m_xActive;
++    std::vector<std::unique_ptr<Group>> m_aGroups;
++    sal_uInt32 m_nNextGroupId = 1;
++    sal_uInt32 m_nRecentGroup = 0; ///< the group used last (fallback for the user's window)
+     css::uno::WeakReference<css::frame::XFrame> m_xPrepared; ///< geometry already applied
+-    css::uno::WeakReference<css::frame::XFrame> m_xToPark;
+-    std::vector<OUString> m_aPendingURLs;
++    std::vector<css::uno::WeakReference<css::frame::XFrame>> m_aToPark;
++    std::vector<PendingDispatch> m_aPendingDispatches;
+     css::uno::WeakReference<css::frame::XFrame> m_xCloseWindowFrom;
+     rtl::Reference<DocumentTabGroupListener> m_xListener;
+     sal_Int32 m_nInternal = 0; ///< >0 while we show/hide windows ourselves
+--- a/framework/inc/helper/titlebarupdate.hxx
++++ b/framework/inc/helper/titlebarupdate.hxx
+@@ -85,6 +85,13 @@
+         // XEventListener
+         virtual void SAL_CALL disposing(const css::lang::EventObject& aEvent) override;
+ 
++        /** HST Office: (re)set the taskbar/window manager application id of xFrame's window.
++            The document tab group calls it when a frame moves into a window of another kind:
++            the tabs of an HST Office window carry the Start Center id, the tabs of a module
++            window (HST Writer, ...) the id of their module. */
++        static void updateApplicationID(const css::uno::Reference< css::uno::XComponentContext >& xContext,
++                                        const css::uno::Reference< css::frame::XFrame >& xFrame);
++
+     // helper
+ 
+     private:
+--- a/framework/inc/strings.hrc
++++ b/framework/inc/strings.hrc
+@@ -91,5 +91,6 @@
+ #define STR_DOCTAB_OPEN                             NC_("STR_DOCTAB_OPEN", "Open File...")
+ #define STR_DOCTAB_START                            NC_("STR_DOCTAB_START", "Start Center")
+ #define STR_DOCTAB_MODIFIED                         NC_("STR_DOCTAB_MODIFIED", "Modified, not saved")
++#define STR_DOCTAB_DETACH                           NC_("STR_DOCTAB_DETACH", "Move to New Window")
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/framework/inc/uielement/documenttabbar.hxx
++++ b/framework/inc/uielement/documenttabbar.hxx
+@@ -20,7 +20,11 @@
+     window and placed by the LayoutManager. Content comes from DocumentTabGroup::getTabs():
+     title, modified marker and module colour per tab, a close button on each tab and a "+"
+     button that offers new documents or File > Open.
+-    Mouse: left click switches, middle click or the close button closes, "+" opens a menu.
++    Mouse: left click switches, middle click or the close button closes, "+" opens a menu
++    (the HST Office window offers every application, a module window only its own module).
++    Dragging a tab reorders it within the strip; dropped outside the strip it moves into a new
++    window (or onto the strip of another window that accepts it). The context menu of a tab
++    offers the same "move to new window".
+ */
+ class DocumentTabBar final : public vcl::Window
+ {
+@@ -33,6 +37,8 @@
+                        const tools::Rectangle& rRect) override;
+     virtual void MouseMove(const MouseEvent& rMEvt) override;
+     virtual void MouseButtonDown(const MouseEvent& rMEvt) override;
++    virtual void Tracking(const TrackingEvent& rTEvt) override;
++    virtual void Command(const CommandEvent& rCEvt) override;
+     virtual void RequestHelp(const HelpEvent& rHEvt) override;
+     virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
+     virtual void Resize() override;
+@@ -49,6 +55,7 @@
+     void ImplInitSettings();
+     sal_Int32 ImplHitTab(const Point& rPos, bool* pOnClose) const;
+     void ImplShowNewMenu();
++    void ImplEndDrag(const Point& rPos, bool bCancelled);
+ 
+     css::uno::WeakReference<css::frame::XFrame> m_xFrame;
+     std::vector<TabLayout> m_aTabs;
+@@ -56,6 +63,11 @@
+     sal_Int32 m_nHoverTab = -1;
+     bool m_bHoverClose = false;
+     bool m_bHoverPlus = false;
++    // tab drag: the tab pressed, where, and whether the pointer moved far enough to drag
++    css::uno::WeakReference<css::frame::XFrame> m_xDragFrame;
++    Point m_aDragStart;
++    bool m_bDragging = false;
++    bool m_bActivateOnRelease = false;
+ };
+ }
+ 
+--- a/framework/source/dispatch/dispatchprovider.cxx
++++ b/framework/source/dispatch/dispatchprovider.cxx
+@@ -342,9 +342,10 @@
+         }
+         else if ( aURL.Complete == ".uno:CloseFrame" )
+             xDispatcher = implts_getOrCreateDispatchHelper( E_CLOSEDISPATCHER, xFrame );
+-        // HST Office: document tab switching (bound in the Global accelerators)
++        // HST Office: document tab switching (bound in the Global accelerators) and detaching,
++        // within the tab window of this frame
+         else if ( DocumentTabGroup::isTabCommand(aURL.Complete) )
+-            xDispatcher = DocumentTabGroup::createCommandDispatch();
++            xDispatcher = DocumentTabGroup::createCommandDispatch(xFrame);
+ 
+         if ( ! xDispatcher.is())
+         {
+--- a/framework/source/helper/titlebarupdate.cxx
++++ b/framework/source/helper/titlebarupdate.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <helper/titlebarupdate.hxx>
++#include <documenttabgroup.hxx>
+ 
+ #include <properties.h>
+ 
+@@ -117,6 +118,14 @@
+ //http://msdn.microsoft.com/en-us/library/dd378459(v=VS.85).aspx
+ void TitleBarUpdate::impl_updateApplicationID(const css::uno::Reference< css::frame::XFrame >& xFrame)
+ {
++    updateApplicationID(m_xContext, xFrame);
++}
++
++void TitleBarUpdate::updateApplicationID(const css::uno::Reference< css::uno::XComponentContext >& xContext,
++                                         const css::uno::Reference< css::frame::XFrame >& xFrame)
++{
++    if ( ! xFrame.is() )
++        return;
+     css::uno::Reference< css::awt::XWindow > xWindow = xFrame->getContainerWindow ();
+     if ( ! xWindow.is() )
+         return;
+@@ -126,11 +135,20 @@
+     try
+     {
+         css::uno::Reference< css::frame::XModuleManager2 > xModuleManager =
+-            css::frame::ModuleManager::create( m_xContext );
++            css::frame::ModuleManager::create( xContext );
+ 
+         OUString sDesktopName;
+-        OUString aModuleId = xModuleManager->identify(xFrame);
+-        if ( aModuleId.startsWith("com.sun.star.text.") || aModuleId.startsWith("com.sun.star.xforms.") )
++        // HST Office: every tab of an HST Office window belongs to HST Office on the taskbar,
++        // the tabs of an HST Writer/Sheets/Slides window to that application.
++        bool bOfficeWindow = false;
++        {
++            SolarMutexGuard aGuard;
++            bOfficeWindow = DocumentTabGroup::isEnabled() && DocumentTabGroup::get().isOfficeWindow(xFrame);
++        }
++        OUString aModuleId = bOfficeWindow ? OUString() : xModuleManager->identify(xFrame);
++        if ( bOfficeWindow )
++            sDesktopName = "Startcenter";
++        else if ( aModuleId.startsWith("com.sun.star.text.") || aModuleId.startsWith("com.sun.star.xforms.") )
+             sDesktopName = "Writer";
+         else if ( aModuleId.startsWith("com.sun.star.sheet.") )
+             sDesktopName = "Calc";
+@@ -157,6 +175,7 @@
+     {
+     }
+ #else
++    (void)xContext;
+     OUString const sApplicationID;
+ #endif
+ 
+--- a/framework/source/loadenv/loadenv.cxx
++++ b/framework/source/loadenv/loadenv.cxx
+@@ -28,7 +28,7 @@
+ #include <protocols.h>
+ #include <services.h>
+ #include <targets.h>
+-#include <framework/documenttabs.hxx>
++#include <documenttabgroup.hxx>
+ #include <comphelper/interaction.hxx>
+ #include <comphelper/lok.hxx>
+ #include <comphelper/namedvaluecollection.hxx>
+@@ -103,6 +103,54 @@
+ 
+ namespace {
+ 
++/** HST Office: the document tab window of a frame that is about to be shown depends on where
++    its document comes from (see documenttabgroup.hxx). Requests of the command line and of a
++    second office (launchers, file manager, HST PDF) come from DispatchWatcher, which marks them
++    with the Referer private:OpenEvent. Before loading, the frame has no component yet: the
++    module is known from the URL and the type detection. */
++void lcl_prepareDocumentTab(const css::uno::Reference<css::frame::XFrame>& xFrame,
++                            const OUString& rURL, const comphelper::SequenceAsHashMap& rDescriptor)
++{
++    SolarMutexGuard aGuard;
++    if (!DocumentTabGroup::isEnabled())
++        return;
++    DocumentTabGroup::ShowOrigin aOrigin;
++    aOrigin.bExternal = rDescriptor.getUnpackedValueOrDefault(utl::MediaDescriptor::PROP_REFERRER,
++                                                               OUString()) == "private:OpenEvent";
++    const OUString aType
++        = rDescriptor.getUnpackedValueOrDefault(utl::MediaDescriptor::PROP_TYPENAME, OUString());
++    if (aType == "pdf_Portable_Document_Format"
++        && !rDescriptor.contains(utl::MediaDescriptor::PROP_DOCUMENTSERVICE)
++        && !rDescriptor.contains(u"HSTPdfOpenInDraw"_ustr))
++        aOrigin.aModule = u"pdf"_ustr; // HST PDF (it hands over to Draw for hybrid files)
++    else
++    {
++        switch (SvtModuleOptions::ClassifyFactoryByURL(rURL, rDescriptor.getAsConstPropertyValueList()))
++        {
++            case SvtModuleOptions::EFactory::WRITER:
++            case SvtModuleOptions::EFactory::WRITERWEB:
++            case SvtModuleOptions::EFactory::WRITERGLOBAL:
++                aOrigin.aModule = u"writer"_ustr;
++                break;
++            case SvtModuleOptions::EFactory::CALC:
++                aOrigin.aModule = u"calc"_ustr;
++                break;
++            case SvtModuleOptions::EFactory::IMPRESS:
++                aOrigin.aModule = u"impress"_ustr;
++                break;
++            case SvtModuleOptions::EFactory::DRAW:
++                aOrigin.aModule = u"draw"_ustr;
++                break;
++            case SvtModuleOptions::EFactory::STARTMODULE:
++                aOrigin.aModule = u"start"_ustr;
++                break;
++            default:
++                break;
++        }
++    }
++    DocumentTabGroup::get().prepareShow(xFrame, aOrigin);
++}
++
+ class LoadEnvListener : public ::cppu::WeakImplHelper< css::frame::XLoadEventListener      ,
+                                                         css::frame::XDispatchResultListener >
+ {
+@@ -1144,7 +1192,7 @@
+             {
+                 // HST Office: the new window joins the document tab group before it is shown.
+                 if (shouldFocusAndToFront())
+-                    DocumentTabs::prepareShow(xTargetFrame);
++                    lcl_prepareDocumentTab(xTargetFrame, m_aURL.Complete, m_lMediaDescriptor);
+                 impl_makeFrameWindowVisible(xWindow, shouldFocusAndToFront());
+                 m_bFocusedAndToFront = true; // no need to ask shouldFocusAndToFront second time
+             }
+@@ -1621,7 +1669,7 @@
+             // But do nothing if it's already visible!
+             // HST Office: an already open document brought to front becomes the shown tab.
+             if (shouldFocusAndToFront())
+-                DocumentTabs::prepareShow(m_xTargetFrame);
++                lcl_prepareDocumentTab(m_xTargetFrame, m_aURL.Complete, m_lMediaDescriptor);
+             impl_makeFrameWindowVisible(xWindow, !m_bFocusedAndToFront && shouldFocusAndToFront());
+         }
+ 
+--- a/framework/source/services/documenttabgroup.cxx
++++ b/framework/source/services/documenttabgroup.cxx
+@@ -11,6 +11,7 @@
+ 
+ #include <documenttabgroup.hxx>
+ #include <framework/documenttabs.hxx>
++#include <helper/titlebarupdate.hxx>
+ #include <uielement/documenttabbar.hxx>
+ 
+ #include <classes/fwkresid.hxx>
+@@ -30,6 +31,7 @@
+ #include <com/sun/star/frame/XTitle.hpp>
+ #include <com/sun/star/frame/theGlobalEventBroadcaster.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
+ #include <com/sun/star/util/URLTransformer.hpp>
+ #include <com/sun/star/util/CloseVetoException.hpp>
+ #include <com/sun/star/util/XCloseBroadcaster.hpp>
+@@ -37,6 +39,8 @@
+ #include <com/sun/star/util/XCloseListener.hpp>
+ #include <com/sun/star/util/XModifiable.hpp>
+ 
++#include <algorithm>
++
+ #include <comphelper/configurationlistener.hxx>
+ #include <comphelper/lok.hxx>
+ #include <comphelper/processfactory.hxx>
+@@ -48,10 +52,14 @@
+ #include <vcl/svapp.hxx>
+ #include <vcl/syswin.hxx>
+ #include <vcl/vclevent.hxx>
++#include <vcl/windowstate.hxx>
+ #include <vcl/wrkwin.hxx>
++#include <o3tl/string_view.hxx>
+ 
+-// Implemented in vcl (syswin.cxx): marks the window's frame as a document tab (macOS only).
+-void hst_vcl_set_tab_group_member(vcl::Window* pWindow, bool bMember);
++// Implemented in vcl (syswin.cxx): marks the window's frame as a document tab of the tab window
++// nGroup (0 = none); macOS and Windows switch tabs without animation, macOS joins native full
++// screen tabs of the same window only.
++void hst_vcl_set_tab_group(vcl::Window* pWindow, sal_uInt32 nGroup);
+ 
+ using namespace css;
+ 
+@@ -240,6 +248,98 @@
+     if (xDispatch.is())
+         xDispatch->dispatch(aURL, {});
+ }
++
++constexpr OUString OFFICE_KIND = u"office"_ustr;
++constexpr OUString START_MODULE = u"start"_ustr;
++
++/// Module key of a module identifier: the application a window of that module belongs to.
++OUString lcl_moduleKeyOf(const OUString& rModule)
++{
++    if (rModule.startsWith("com.sun.star.text.") || rModule == "com.sun.star.xforms.XMLFormDocument")
++        return u"writer"_ustr;
++    if (rModule == "com.sun.star.sheet.SpreadsheetDocument")
++        return u"calc"_ustr;
++    if (rModule == "com.sun.star.presentation.PresentationDocument")
++        return u"impress"_ustr;
++    if (rModule == "com.sun.star.drawing.DrawingDocument")
++        return u"draw"_ustr;
++    if (rModule == "com.sun.star.frame.StartModule")
++        return START_MODULE;
++    return rModule;
++}
++
++/// Module key of the component in xFrame: "pdf" for HST PDF, "" while it has none.
++OUString lcl_moduleKey(const uno::Reference<frame::XFrame>& xFrame)
++{
++    try
++    {
++        uno::Reference<frame::XController> xController = xFrame.is() ? xFrame->getController() : nullptr;
++        if (!xController.is())
++            return {};
++        uno::Reference<lang::XServiceInfo> xInfo(xController, uno::UNO_QUERY);
++        if (xInfo.is() && xInfo->supportsService(u"org.hasontech.hstoffice.PdfViewer"_ustr))
++            return u"pdf"_ustr;
++        uno::Reference<frame::XModuleManager2> xManager
++            = frame::ModuleManager::create(comphelper::getProcessComponentContext());
++        return lcl_moduleKeyOf(xManager->identify(xFrame));
++    }
++    catch (const uno::Exception&)
++    {
++    }
++    return {};
++}
++
++/// Window state numbers "X,Y,W,H;STATE;..." of a system window (see vcl::WindowData::toStr).
++std::vector<sal_Int32> lcl_windowState(vcl::Window* pWindow, vcl::WindowDataMask nMask)
++{
++    std::vector<sal_Int32> aValues;
++    if (!pWindow || pWindow->isDisposed() || !pWindow->IsSystemWindow())
++        return aValues;
++    const OUString aState = static_cast<SystemWindow*>(pWindow)->GetWindowState(nMask);
++    sal_Int32 nIndex = 0;
++    for (int i = 0; i < 5 && nIndex >= 0; ++i)
++        aValues.push_back(o3tl::toInt32(o3tl::getToken(aState, 0, i < 3 ? ',' : ';', nIndex)));
++    return aValues;
++}
++
++/// Internal full screen (slide show, View > Full Screen) or the native full screen of macOS.
++bool lcl_isFullScreen(vcl::Window* pWindow)
++{
++    if (!pWindow || pWindow->isDisposed() || !pWindow->IsSystemWindow())
++        return false;
++    if (static_cast<WorkWindow*>(pWindow)->IsFullScreenMode())
++        return true;
++    const std::vector<sal_Int32> aState = lcl_windowState(pWindow, vcl::WindowDataMask::State);
++    return aState.size() == 5
++           && (static_cast<vcl::WindowState>(aState[4]) & vcl::WindowState::FullScreen);
++}
++
++/** Window state of a detached tab: the restored (never maximized) size of pSource, the top-left
++    corner at rTopLeft (absolute screen pixels) or cascaded from pSource. Empty when unknown. */
++OUString lcl_detachedState(vcl::Window* pSource, const std::optional<Point>& rTopLeft)
++{
++    const std::vector<sal_Int32> aState = lcl_windowState(pSource, vcl::WindowDataMask::PosSize);
++    if (aState.size() < 4 || aState[2] <= 0 || aState[3] <= 0)
++        return {};
++    const Point aPos = rTopLeft ? *rTopLeft : Point(aState[0] + 30, aState[1] + 30);
++    return OUString::number(aPos.X()) + "," + OUString::number(aPos.Y()) + ","
++           + OUString::number(aState[2]) + "," + OUString::number(aState[3]) + ";"
++           + OUString::number(static_cast<sal_Int32>(vcl::WindowState::Normal)) + ";";
++}
++
++void lcl_updateApplicationID(const uno::Reference<frame::XFrame>& xFrame)
++{
++    try
++    {
++        // nothing to identify before the component is attached (TitleBarUpdate does it then)
++        if (!xFrame.is() || !xFrame->getController().is())
++            return;
++        TitleBarUpdate::updateApplicationID(comphelper::getProcessComponentContext(), xFrame);
++    }
++    catch (const uno::Exception&)
++    {
++    }
++}
+ }
+ 
+ DocumentTabGroup& DocumentTabGroup::get()
+@@ -324,29 +424,70 @@
+     return {};
+ }
+ 
+-DocumentTabGroup::Member* DocumentTabGroup::find(const uno::Reference<frame::XFrame>& xFrame)
++DocumentTabGroup::Member* DocumentTabGroup::find(const uno::Reference<frame::XFrame>& xFrame,
++                                                 Group** ppGroup)
+ {
+-    for (Member& rMember : m_aMembers)
+-        if (xFrame.is() && lcl_get(rMember.xFrame) == xFrame)
+-            return &rMember;
++    if (!xFrame.is())
++        return nullptr;
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        for (Member& rMember : pGroup->aMembers)
++            if (lcl_get(rMember.xFrame) == xFrame)
++            {
++                if (ppGroup)
++                    *ppGroup = pGroup.get();
++                return &rMember;
++            }
+     return nullptr;
+ }
+ 
+ const DocumentTabGroup::Member*
+-DocumentTabGroup::find(const uno::Reference<frame::XFrame>& xFrame) const
++DocumentTabGroup::find(const uno::Reference<frame::XFrame>& xFrame, const Group** ppGroup) const
++{
++    Group* pGroup = nullptr;
++    const Member* pMember = const_cast<DocumentTabGroup*>(this)->find(xFrame, &pGroup);
++    if (ppGroup)
++        *ppGroup = pGroup;
++    return pMember;
++}
++
++DocumentTabGroup::Member* DocumentTabGroup::findByWindow(const vcl::Window* pWindow, Group** ppGroup)
+ {
+-    return const_cast<DocumentTabGroup*>(this)->find(xFrame);
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        for (Member& rMember : pGroup->aMembers)
++            if (rMember.pWindow.get() == pWindow)
++            {
++                if (ppGroup)
++                    *ppGroup = pGroup.get();
++                return &rMember;
++            }
++    return nullptr;
+ }
+ 
+-DocumentTabGroup::Member* DocumentTabGroup::findByWindow(const vcl::Window* pWindow)
++DocumentTabGroup::Group* DocumentTabGroup::groupById(sal_uInt32 nId)
+ {
+-    for (Member& rMember : m_aMembers)
+-        if (rMember.pWindow.get() == pWindow)
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        if (pGroup->nId == nId)
++            return pGroup.get();
++    return nullptr;
++}
++
++DocumentTabGroup::Member* DocumentTabGroup::activeMember(Group& rGroup)
++{
++    const uno::Reference<frame::XFrame> xActive = lcl_get(rGroup.xActive);
++    if (!xActive.is())
++        return nullptr;
++    for (Member& rMember : rGroup.aMembers)
++        if (lcl_get(rMember.xFrame) == xActive)
+             return &rMember;
+     return nullptr;
+ }
+ 
+-DocumentTabGroup::Member* DocumentTabGroup::activeMember() { return find(lcl_get(m_xActive)); }
++bool DocumentTabGroup::accepts(const Group& rGroup, const OUString& rModule)
++{
++    // The Start Center (and a frame whose module is not known yet) fits in every window.
++    return rGroup.aKind == OFFICE_KIND || rModule.isEmpty() || rModule == START_MODULE
++           || rModule == rGroup.aKind;
++}
+ 
+ bool DocumentTabGroup::isParked(const uno::Reference<frame::XFrame>& xFrame) const
+ {
+@@ -354,39 +495,122 @@
+     return pMember && pMember->bParked;
+ }
+ 
+-DocumentTabGroup::Member& DocumentTabGroup::join(const uno::Reference<frame::XFrame>& xFrame)
++bool DocumentTabGroup::isOfficeWindow(const uno::Reference<frame::XFrame>& xFrame) const
++{
++    return windowKind(xFrame) == OFFICE_KIND;
++}
++
++OUString DocumentTabGroup::windowKind(const uno::Reference<frame::XFrame>& xFrame) const
++{
++    const Group* pGroup = nullptr;
++    return find(xFrame, &pGroup) ? pGroup->aKind : OUString();
++}
++
++DocumentTabGroup::Group& DocumentTabGroup::newGroup(const OUString& rKind)
++{
++    auto pGroup = std::make_unique<Group>();
++    pGroup->nId = m_nNextGroupId++;
++    pGroup->aKind = rKind.isEmpty() || rKind == START_MODULE ? OFFICE_KIND : rKind;
++    m_aGroups.push_back(std::move(pGroup));
++    m_nRecentGroup = m_aGroups.back()->nId;
++    return *m_aGroups.back();
++}
++
++DocumentTabGroup::Group* DocumentTabGroup::contextGroup()
++{
++    // The window the user works in: the desktop's active task frame (File > Open, File > New,
++    // "+", the Start Center and macros all run while their window is the active one).
++    try
++    {
++        uno::Reference<frame::XDesktop2> xDesktop
++            = frame::Desktop::create(comphelper::getProcessComponentContext());
++        Group* pGroup = nullptr;
++        if (find(xDesktop->getActiveFrame(), &pGroup))
++            return pGroup;
++    }
++    catch (const uno::Exception&)
++    {
++    }
++    return groupById(m_nRecentGroup);
++}
++
++DocumentTabGroup::Group& DocumentTabGroup::chooseGroup(const OUString& rModule, bool bExternal)
+ {
+-    if (Member* pMember = find(xFrame))
+-        return *pMember;
+     cleanUp();
++    if (rModule == START_MODULE)
++    {
++        // The Start Center belongs to HST Office: the window used last, else a new one.
++        Group* pRecent = groupById(m_nRecentGroup);
++        if (pRecent && pRecent->aKind == OFFICE_KIND)
++            return *pRecent;
++        for (auto it = m_aGroups.rbegin(); it != m_aGroups.rend(); ++it)
++            if ((*it)->aKind == OFFICE_KIND)
++                return **it;
++        return newGroup(OFFICE_KIND);
++    }
++    // Opened from outside (HST Writer/Sheets/Slides/PDF launcher, file manager): its own window.
++    if (bExternal)
++        return newGroup(rModule);
++    // The first window of the process is an HST Office window (autorecovery, macros).
++    if (m_aGroups.empty())
++        return newGroup(OFFICE_KIND);
++    Group* pContext = contextGroup();
++    if (pContext && accepts(*pContext, rModule))
++        return *pContext;
++    return newGroup(rModule);
++}
++
++void DocumentTabGroup::setKind(Group& rGroup, const OUString& rKind)
++{
++    if (rKind.isEmpty() || rKind == START_MODULE || rGroup.aKind == rKind)
++        return;
++    rGroup.aKind = rKind;
++    for (const Member& rMember : rGroup.aMembers)
++        lcl_updateApplicationID(lcl_get(rMember.xFrame));
++    update(rGroup);
++}
++
++DocumentTabGroup::Member& DocumentTabGroup::join(Group& rGroup,
++                                                 const uno::Reference<frame::XFrame>& xFrame)
++{
++    Group* pOld = nullptr;
++    if (Member* pMember = find(xFrame, &pOld))
++        return *pMember;
+     Member aMember;
+     aMember.xFrame = xFrame;
+     aMember.pWindow = VCLUnoHelper::GetWindow(xFrame->getContainerWindow());
+-    hst_vcl_set_tab_group_member(aMember.pWindow, true);
++    aMember.aModule = lcl_moduleKey(xFrame);
++    hst_vcl_set_tab_group(aMember.pWindow, rGroup.nId);
+     // New tabs open to the right of the active one, like a browser.
+-    auto it = m_aMembers.end();
+-    if (Member* pActive = activeMember())
+-        it = m_aMembers.begin() + (pActive - m_aMembers.data()) + 1;
+-    it = m_aMembers.insert(it, aMember);
++    auto it = rGroup.aMembers.end();
++    if (Member* pActive = activeMember(rGroup))
++        it = rGroup.aMembers.begin() + (pActive - rGroup.aMembers.data()) + 1;
++    it = rGroup.aMembers.insert(it, aMember);
+     // A tab that is already shown when the group first learns of it (the Start Center frame
+     // that becomes the first document is joined by prepareShow() and never gets a show event)
+     // is the active one; without this the next window would not find a tab to park.
+-    if (!activeMember() && it->pWindow && !it->pWindow->isDisposed() && it->pWindow->IsVisible())
+-        m_xActive = xFrame;
++    if (!activeMember(rGroup) && it->pWindow && !it->pWindow->isDisposed() && it->pWindow->IsVisible())
++        rGroup.xActive = xFrame;
++    m_nRecentGroup = rGroup.nId;
+     uno::Reference<util::XCloseBroadcaster> xClose(xFrame, uno::UNO_QUERY);
+     if (xClose.is() && m_xListener.is())
+         xClose->addCloseListener(m_xListener);
+-    return *it;
++    Member& rJoined = *it;
++    // The taskbar identity follows the kind of the window (HST Office or the module).
++    lcl_updateApplicationID(xFrame);
++    return rJoined;
+ }
+ 
+ void DocumentTabGroup::cleanUp()
+ {
+-    std::erase_if(m_aMembers, [](Member& rMember) {
+-        if (lcl_get(rMember.xFrame).is() && rMember.pWindow && !rMember.pWindow->isDisposed())
+-            return false;
+-        rMember.pBar.disposeAndClear();
+-        return true;
+-    });
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        std::erase_if(pGroup->aMembers, [](Member& rMember) {
++            if (lcl_get(rMember.xFrame).is() && rMember.pWindow && !rMember.pWindow->isDisposed())
++                return false;
++            rMember.pBar.disposeAndClear();
++            return true;
++        });
++    std::erase_if(m_aGroups, [](const std::unique_ptr<Group>& pGroup) { return pGroup->aMembers.empty(); });
+ }
+ 
+ void DocumentTabGroup::copyGeometry(vcl::Window* pFrom, vcl::Window* pTo)
+@@ -427,14 +651,50 @@
+     }
+ }
+ 
+-void DocumentTabGroup::prepareShow(const uno::Reference<frame::XFrame>& xFrame)
++void DocumentTabGroup::prepareShow(const uno::Reference<frame::XFrame>& xFrame,
++                                   const ShowOrigin& rOrigin)
+ {
+     try
+     {
+         if (!isCandidate(xFrame))
+             return;
+-        Member& rMember = join(xFrame);
+-        Member* pPrevious = activeMember(); // after join(): it may move members
++        // Before the document is loaded the frame has no component: LoadEnv knows the module.
++        OUString aModule = lcl_moduleKey(xFrame);
++        if (aModule.isEmpty())
++            aModule = rOrigin.aModule;
++        Group* pGroup = nullptr;
++        if (Member* pKnown = find(xFrame, &pGroup))
++        {
++            // A known frame gets a new component, e.g. the Start Center turns into a document.
++            const OUString aBefore = pKnown->aModule;
++            if (!aModule.isEmpty())
++                pKnown->aModule = aModule;
++            const bool bFromStartCenter = aBefore == START_MODULE && aModule != START_MODULE;
++            if (pGroup->aMembers.size() == 1)
++            {
++                // A window with this tab only becomes the window of the new module when it does
++                // not accept it, or when a launcher/file manager replaced the HST Office Start
++                // Center (macOS shows it before the first document, tdf#41775).
++                if (!accepts(*pGroup, aModule)
++                    || (bFromStartCenter && rOrigin.bExternal && pGroup->aKind == OFFICE_KIND))
++                    setKind(*pGroup, aModule);
++            }
++            else if (!accepts(*pGroup, aModule))
++            {
++                // A tab of a module window got a document of another module: its own window.
++                detach(xFrame);
++                if (find(xFrame, &pGroup) && pGroup->aMembers.size() == 1)
++                    setKind(*pGroup, aModule);
++                return;
++            }
++        }
++        else
++            pGroup = &chooseGroup(aModule, rOrigin.bExternal);
++
++        Member& rMember = join(*pGroup, xFrame);
++        if (rMember.aModule.isEmpty())
++            rMember.aModule = aModule;
++        Member* pPrevious = activeMember(*pGroup); // after join(): it may move members
+         if (!pPrevious || pPrevious == &rMember || !rMember.pWindow || rMember.pWindow->IsVisible())
+             return;
+         if (pPrevious->pWindow && pPrevious->pWindow->IsVisible())
+@@ -454,12 +714,24 @@
+     try
+     {
+         const VclEventId nId = rEvent.GetId();
+-        if (nId != VclEventId::WindowShow && nId != VclEventId::WindowHide)
++        if (nId != VclEventId::WindowShow && nId != VclEventId::WindowHide
++            && nId != VclEventId::WindowActivate)
+             return;
+         vcl::Window* pWindow = static_cast<VclWindowEvent&>(rEvent).GetWindow();
+-        if (m_nInternal || !pWindow || pWindow->GetType() != WindowType::WORKWINDOW)
++        if (!pWindow || pWindow->GetType() != WindowType::WORKWINDOW)
++            return;
++
++        if (nId == VclEventId::WindowActivate)
++        {
++            // The window the user works in: new documents without a known origin go there.
++            Group* pGroup = nullptr;
++            if (findByWindow(pWindow, &pGroup))
++                m_nRecentGroup = pGroup->nId;
++            return;
++        }
++        if (m_nInternal)
+             return;
+-    
++
+         if (nId == VclEventId::WindowHide)
+         {
+             // Hidden by someone else (macro, frame being closed, autorecovery): leave the group,
+@@ -469,7 +741,7 @@
+                     removeMember(lcl_get(pMember->xFrame), true);
+             return;
+         }
+-    
++
+         if (!isEnabled())
+             return;
+         uno::Reference<frame::XFrame> xFrame = findTaskFrame(pWindow);
+@@ -477,9 +749,9 @@
+             return;
+         const bool bPrepared = lcl_get(m_xPrepared) == xFrame;
+         m_xPrepared.clear();
+-        // A tab that was shown before the group knew it (for example the Start Center frame that
+-        // becomes the first document) has no member yet: adopt every other visible task frame so
+-        // it is parked like any other previous tab.
++        // A tab that was shown before the groups knew it (for example the Start Center frame that
++        // becomes the first document) has no member yet: every other visible task frame joins
++        // the window it belongs to, so that it is parked like any other previous tab.
+         try
+         {
+             uno::Reference<frame::XFramesSupplier> xDesktop
+@@ -493,13 +765,17 @@
+                     continue;
+                 VclPtr<vcl::Window> pOther = VCLUnoHelper::GetWindow(xOther->getContainerWindow());
+                 if (pOther && !pOther->isDisposed() && pOther->IsVisible())
+-                    join(xOther);
++                    join(chooseGroup(lcl_moduleKey(xOther), false), xOther);
+             }
+         }
+         catch (const uno::Exception&)
+         {
+         }
+-        Member* pPrevious = activeMember();
++        Group* pGroup = nullptr;
++        if (!find(xFrame, &pGroup))
++            pGroup = &chooseGroup(lcl_moduleKey(xFrame), false);
++        m_nRecentGroup = pGroup->nId;
++        Member* pPrevious = activeMember(*pGroup);
+         if (pPrevious && lcl_get(pPrevious->xFrame) == xFrame && !pPrevious->bParked)
+             return;
+         uno::Reference<frame::XFrame> xPrevious;
+@@ -509,15 +785,15 @@
+             xPrevious = lcl_get(pPrevious->xFrame);
+             pPreviousWindow = pPrevious->pWindow;
+         }
+-    
+-        Member& rMember = join(xFrame);
++
++        Member& rMember = join(*pGroup, xFrame);
+         rMember.bParked = false;
+-        m_xActive = xFrame;
++        pGroup->xActive = xFrame;
+         if (!xPrevious.is())
+         {
+             // No active tab was known (the shown tab joined the group without a show event):
+-            // never leave another tab shown next to the new one.
+-            for (const Member& rOther : m_aMembers)
++            // never leave another tab of this window shown next to the new one.
++            for (const Member& rOther : pGroup->aMembers)
+             {
+                 if (&rOther != &rMember && !rOther.bParked && rOther.pWindow
+                     && !rOther.pWindow->isDisposed() && rOther.pWindow->IsVisible())
+@@ -534,10 +810,10 @@
+             if (!bPrepared)
+                 copyGeometry(pPreviousWindow, pWindow);
+             // Park the previous tab once the new window is up (never leave zero windows).
+-            m_xToPark = xPrevious;
++            m_aToPark.push_back(xPrevious);
+             Application::PostUserEvent(LINK(this, DocumentTabGroup, ParkPreviousHdl));
+         }
+-        update();
++        update(*pGroup);
+     }
+     catch (const uno::Exception&)
+     {
+@@ -549,14 +825,19 @@
+ {
+     try
+     {
+-        uno::Reference<frame::XFrame> xToPark = lcl_get(m_xToPark);
+-        m_xToPark.clear();
+-        Member* pMember = find(xToPark);
+-        if (pMember && xToPark != lcl_get(m_xActive) && !pMember->bParked)
+-        {
+-            park(*pMember);
+-            focus(lcl_get(m_xActive));
+-            update();
++        std::vector<uno::WeakReference<frame::XFrame>> aToPark;
++        aToPark.swap(m_aToPark);
++        for (const uno::WeakReference<frame::XFrame>& rWeak : aToPark)
++        {
++            uno::Reference<frame::XFrame> xToPark = lcl_get(rWeak);
++            Group* pGroup = nullptr;
++            Member* pMember = find(xToPark, &pGroup);
++            if (pMember && xToPark != lcl_get(pGroup->xActive) && !pMember->bParked)
++            {
++                park(*pMember);
++                focus(lcl_get(pGroup->xActive));
++                update(*pGroup);
++            }
+         }
+     }
+     catch (const uno::Exception&)
+@@ -569,10 +850,12 @@
+ {
+     try
+     {
+-        Member* pTarget = find(xFrame);
++        Group* pGroup = nullptr;
++        Member* pTarget = find(xFrame, &pGroup);
+         if (!pTarget || !pTarget->pWindow || pTarget->pWindow->isDisposed())
+             return;
+-        Member* pPrevious = activeMember();
++        m_nRecentGroup = pGroup->nId;
++        Member* pPrevious = activeMember(*pGroup);
+         if (pPrevious == pTarget && pTarget->pWindow->IsVisible())
+         {
+             focus(xFrame);
+@@ -587,12 +870,13 @@
+         ++m_nInternal;
+         pTargetWindow->Show(true, ShowFlags::ForegroundTask);
+         --m_nInternal;
+-        m_xActive = xFrame;
++        pGroup->xActive = xFrame;
+         // find() again: Show() can run events that change the member list
+         if (Member* pOld = find(xPrevious); pOld && xPrevious != xFrame)
+             park(*pOld);
+         focus(xFrame);
+-        update();
++        if (find(xFrame, &pGroup))
++            update(*pGroup);
+     }
+     catch (const uno::Exception&)
+     {
+@@ -600,16 +884,20 @@
+     }
+ }
+ 
+-void DocumentTabGroup::activateRelative(sal_Int32 nDelta)
++void DocumentTabGroup::activateRelative(const uno::Reference<frame::XFrame>& xFrame,
++                                        sal_Int32 nDelta)
+ {
+     cleanUp();
+-    Member* pActive = activeMember();
+-    if (!pActive || m_aMembers.size() < 2)
++    Group* pGroup = nullptr;
++    if (!find(xFrame, &pGroup))
++        return;
++    Member* pActive = activeMember(*pGroup);
++    if (!pActive || pGroup->aMembers.size() < 2)
+         return;
+-    const sal_Int32 nCount = m_aMembers.size();
+-    const sal_Int32 nIndex = pActive - m_aMembers.data();
++    const sal_Int32 nCount = pGroup->aMembers.size();
++    const sal_Int32 nIndex = pActive - pGroup->aMembers.data();
+     const sal_Int32 nNew = ((nIndex + nDelta) % nCount + nCount) % nCount;
+-    activate(lcl_get(m_aMembers[nNew].xFrame));
++    activate(lcl_get(pGroup->aMembers[nNew].xFrame));
+ }
+ 
+ void DocumentTabGroup::closeTab(const uno::Reference<frame::XFrame>& xFrame)
+@@ -635,7 +923,8 @@
+ bool DocumentTabGroup::requestCloseWindow(const uno::Reference<frame::XFrame>& xFrame)
+ {
+     cleanUp();
+-    if (!isEnabled() || !find(xFrame) || m_aMembers.size() < 2)
++    Group* pGroup = nullptr;
++    if (!isEnabled() || !find(xFrame, &pGroup) || pGroup->aMembers.size() < 2)
+         return false;
+     if (!lcl_get(m_xCloseWindowFrom).is())
+     {
+@@ -649,11 +938,13 @@
+ {
+     uno::Reference<frame::XFrame> xClicked = lcl_get(m_xCloseWindowFrom);
+     m_xCloseWindowFrom.clear();
+-    if (!xClicked.is())
++    Group* pGroup = nullptr;
++    if (!xClicked.is() || !find(xClicked, &pGroup))
+         return;
+-    // The other tabs first, each shown before its save query; Cancel ends the whole action.
++    // The other tabs of this window first, each shown before its save query; Cancel ends the
++    // whole action. Other windows stay open.
+     std::vector<uno::Reference<frame::XFrame>> aOthers;
+-    for (const Member& rMember : m_aMembers)
++    for (const Member& rMember : pGroup->aMembers)
+         if (uno::Reference<frame::XFrame> xFrame = lcl_get(rMember.xFrame); xFrame.is() && xFrame != xClicked)
+             aOthers.push_back(xFrame);
+     for (const uno::Reference<frame::XFrame>& xFrame : aOthers)
+@@ -696,9 +987,9 @@
+     }
+ }
+ 
+-void DocumentTabGroup::newTab(const OUString& rURL)
++void DocumentTabGroup::newTab(const uno::Reference<frame::XFrame>& xFrame, const OUString& rURL)
+ {
+-    m_aPendingURLs.push_back(rURL);
++    m_aPendingDispatches.push_back({ xFrame, rURL });
+     Application::PostUserEvent(LINK(this, DocumentTabGroup, DispatchHdl));
+ }
+ 
+@@ -706,13 +997,21 @@
+ {
+     try
+     {
+-        std::vector<OUString> aURLs;
+-        aURLs.swap(m_aPendingURLs);
+-        uno::Reference<frame::XFrame> xActive = lcl_get(m_xActive);
+-        if (!xActive.is())
+-            return;
+-        for (const OUString& rURL : aURLs)
+-            lcl_dispatch(xActive, rURL, rURL.startsWith(".uno:") ? u"_self"_ustr : u"_blank"_ustr);
++        std::vector<PendingDispatch> aPending;
++        aPending.swap(m_aPendingDispatches);
++        for (const PendingDispatch& rPending : aPending)
++        {
++            // From the window whose "+" was used: the new document is routed by that window.
++            uno::Reference<frame::XFrame> xFrame = lcl_get(rPending.xFrame);
++            Group* pGroup = nullptr;
++            if (!find(xFrame, &pGroup))
++                continue;
++            m_nRecentGroup = pGroup->nId;
++            if (uno::Reference<frame::XFrame> xActive = lcl_get(pGroup->xActive); xActive.is())
++                xFrame = xActive;
++            lcl_dispatch(xFrame, rPending.aURL,
++                         rPending.aURL.startsWith(".uno:") ? u"_self"_ustr : u"_blank"_ustr);
++        }
+     }
+     catch (const uno::Exception&)
+     {
+@@ -720,31 +1019,60 @@
+     }
+ }
+ 
++DocumentTabGroup::Member DocumentTabGroup::takeOut(Group& rGroup, size_t nIndex)
++{
++    // The member leaves rGroup with its window as it is (shown or parked). When it was the shown
++    // tab, the neighbour takes over the window geometry and is shown.
++    Member aMember = rGroup.aMembers[nIndex];
++    const bool bWasActive = lcl_get(rGroup.xActive) == lcl_get(aMember.xFrame);
++    rGroup.aMembers.erase(rGroup.aMembers.begin() + nIndex);
++    if (!bWasActive || rGroup.aMembers.empty())
++        return aMember;
++    rGroup.xActive.clear();
++    Member& rNext = rGroup.aMembers[std::min(nIndex, rGroup.aMembers.size() - 1)];
++    if (!rNext.pWindow || rNext.pWindow->isDisposed())
++        return aMember;
++    if (aMember.pWindow && !aMember.pWindow->isDisposed() && aMember.pWindow->IsVisible())
++        copyGeometry(aMember.pWindow, rNext.pWindow);
++    rNext.bParked = false;
++    ++m_nInternal;
++    rNext.pWindow->Show(true, ShowFlags::NoActivate);
++    --m_nInternal;
++    rGroup.xActive = rNext.xFrame;
++    return aMember;
++}
++
+ void DocumentTabGroup::removeMember(const uno::Reference<frame::XFrame>& xFrame,
+                                     bool bShowNeighbour)
+ {
+     try
+     {
+-        Member* pMember = find(xFrame);
++        Group* pGroup = nullptr;
++        Member* pMember = find(xFrame, &pGroup);
+         if (!pMember)
+             return;
+-        const bool bWasActive = lcl_get(m_xActive) == xFrame;
++        const bool bWasActive = lcl_get(pGroup->xActive) == xFrame;
+         VclPtr<vcl::Window> pGeometry = pMember->pWindow;
+-        size_t nIndex = pMember - m_aMembers.data();
++        size_t nIndex = pMember - pGroup->aMembers.data();
+         pMember->pBar.disposeAndClear();
+         if (pGeometry && !pGeometry->isDisposed())
+-            hst_vcl_set_tab_group_member(pGeometry, false);
++            hst_vcl_set_tab_group(pGeometry, 0);
+         uno::Reference<util::XCloseBroadcaster> xClose(xFrame, uno::UNO_QUERY);
+         if (xClose.is() && m_xListener.is())
+             xClose->removeCloseListener(m_xListener);
+-        m_aMembers.erase(m_aMembers.begin() + nIndex);
+-        cleanUp();
++        pGroup->aMembers.erase(pGroup->aMembers.begin() + nIndex);
+         if (bWasActive)
+-            m_xActive.clear();
+-    
+-        if (bWasActive && bShowNeighbour && !m_bClosingAll && !m_aMembers.empty())
++            pGroup->xActive.clear();
++        // pGroup stays valid during cleanUp() unless it became empty
++        const sal_uInt32 nGroup = pGroup->nId;
++        cleanUp();
++        pGroup = groupById(nGroup);
++        if (!pGroup)
++            return;
++
++        if (bWasActive && bShowNeighbour && !m_bClosingAll && !pGroup->aMembers.empty())
+         {
+-            Member& rNext = m_aMembers[std::min(nIndex, m_aMembers.size() - 1)];
++            Member& rNext = pGroup->aMembers[std::min(nIndex, pGroup->aMembers.size() - 1)];
+             if (pGeometry && !pGeometry->isDisposed() && pGeometry->IsVisible())
+                 copyGeometry(pGeometry, rNext.pWindow);
+             uno::Reference<frame::XFrame> xNext = lcl_get(rNext.xFrame);
+@@ -752,12 +1080,13 @@
+             ++m_nInternal;
+             rNext.pWindow->Show(true, ShowFlags::ForegroundTask);
+             --m_nInternal;
+-            m_xActive = xNext;
++            pGroup->xActive = xNext;
+             focus(xNext);
+         }
+-        else if (bWasActive && !m_aMembers.empty() && !m_bClosingAll)
+-            m_xActive = m_aMembers.front().xFrame;
+-        update();
++        else if (bWasActive && !pGroup->aMembers.empty() && !m_bClosingAll)
++            pGroup->xActive = pGroup->aMembers.front().xFrame;
++        if ((pGroup = groupById(nGroup)))
++            update(*pGroup);
+     }
+     catch (const uno::Exception&)
+     {
+@@ -775,28 +1104,36 @@
+     m_bClosingAll = bClosingAll;
+     if (bClosingAll)
+         return;
+-    // Termination was cancelled: make sure one tab is shown.
++    // Termination was cancelled: make sure every window shows one tab.
+     cleanUp();
+-    if (m_aMembers.empty())
+-        return;
+-    Member* pActive = activeMember();
+-    if (pActive && pActive->pWindow->IsVisible())
+-        return;
+-    for (const Member& rMember : m_aMembers)
+-        if (rMember.pWindow->IsVisible())
+-        {
+-            m_xActive = rMember.xFrame;
+-            update();
+-            return;
+-        }
+-    activate(lcl_get((pActive ? *pActive : m_aMembers.back()).xFrame));
++    std::vector<uno::Reference<frame::XFrame>> aToActivate;
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++    {
++        Member* pActive = activeMember(*pGroup);
++        if (pActive && pActive->pWindow->IsVisible())
++            continue;
++        bool bShown = false;
++        for (const Member& rMember : pGroup->aMembers)
++            if (rMember.pWindow->IsVisible())
++            {
++                pGroup->xActive = rMember.xFrame;
++                bShown = true;
++                break;
++            }
++        if (!bShown)
++            aToActivate.push_back(lcl_get((pActive ? *pActive : pGroup->aMembers.back()).xFrame));
++    }
++    for (const uno::Reference<frame::XFrame>& xFrame : aToActivate)
++        activate(xFrame);
++    updateAll();
+ }
+ 
+ void DocumentTabGroup::documentEvent()
+ {
+-    for (const Member& rMember : m_aMembers)
+-        if (rMember.pBar && !rMember.pBar->isDisposed())
+-            rMember.pBar->Invalidate();
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        for (const Member& rMember : pGroup->aMembers)
++            if (rMember.pBar && !rMember.pBar->isDisposed())
++                rMember.pBar->Invalidate();
+ }
+ 
+ void DocumentTabGroup::optionChanged(bool bEnabled)
+@@ -812,57 +1149,64 @@
+ {
+     // Option switched off: every tab becomes a window again (cascaded from the shown one).
+     cleanUp();
+-    Member* pActive = activeMember();
+-    VclPtr<vcl::Window> pAnchor = pActive ? pActive->pWindow : nullptr;
+     std::vector<uno::Reference<frame::XFrame>> aFrames;
+-    tools::Long nOffset = 0;
+-    for (Member& rMember : m_aMembers)
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
+     {
+-        aFrames.push_back(lcl_get(rMember.xFrame));
+-        rMember.pBar.disposeAndClear();
+-        if (rMember.pWindow && !rMember.pWindow->isDisposed())
+-            hst_vcl_set_tab_group_member(rMember.pWindow, false);
+-        uno::Reference<util::XCloseBroadcaster> xClose(aFrames.back(), uno::UNO_QUERY);
+-        if (xClose.is() && m_xListener.is())
+-            xClose->removeCloseListener(m_xListener);
+-        if (!rMember.bParked)
+-            continue;
+-        rMember.bParked = false;
+-        if (pAnchor)
++        Member* pActive = activeMember(*pGroup);
++        VclPtr<vcl::Window> pAnchor = pActive ? pActive->pWindow : nullptr;
++        tools::Long nOffset = 0;
++        for (Member& rMember : pGroup->aMembers)
+         {
+-            nOffset += 30;
+-            Point aPos = pAnchor->GetPosPixel();
+-            rMember.pWindow->SetPosSizePixel(aPos + Point(nOffset, nOffset),
+-                                             pAnchor->GetSizePixel());
++            aFrames.push_back(lcl_get(rMember.xFrame));
++            rMember.pBar.disposeAndClear();
++            if (rMember.pWindow && !rMember.pWindow->isDisposed())
++                hst_vcl_set_tab_group(rMember.pWindow, 0);
++            uno::Reference<util::XCloseBroadcaster> xClose(aFrames.back(), uno::UNO_QUERY);
++            if (xClose.is() && m_xListener.is())
++                xClose->removeCloseListener(m_xListener);
++            if (!rMember.bParked)
++                continue;
++            rMember.bParked = false;
++            if (pAnchor)
++            {
++                nOffset += 30;
++                Point aPos = pAnchor->GetPosPixel();
++                rMember.pWindow->SetPosSizePixel(aPos + Point(nOffset, nOffset),
++                                                 pAnchor->GetSizePixel());
++            }
++            ++m_nInternal;
++            rMember.pWindow->Show(true, ShowFlags::NoActivate);
++            --m_nInternal;
+         }
+-        ++m_nInternal;
+-        rMember.pWindow->Show(true, ShowFlags::NoActivate);
+-        --m_nInternal;
+     }
+-    m_aMembers.clear();
+-    m_xActive.clear();
++    m_aGroups.clear();
++    m_nRecentGroup = 0;
+     for (const uno::Reference<frame::XFrame>& xFrame : aFrames)
+         if (xFrame.is())
++        {
+             lcl_relayout(xFrame);
++            lcl_updateApplicationID(xFrame);
++        }
+ }
+ 
+-bool DocumentTabGroup::showsTabBar(const Member& rMember) const
++bool DocumentTabGroup::showsTabBar(const Group& rGroup, const Member& rMember) const
+ {
+     if (!isEnabled() || !rMember.pWindow || rMember.pWindow->isDisposed())
+         return false;
+     if (static_cast<WorkWindow*>(rMember.pWindow.get())->IsFullScreenMode())
+         return false;
+     // A lone Start Center needs no strip; a lone document shows its tab and "+".
+-    return m_aMembers.size() > 1 || lcl_model(lcl_get(rMember.xFrame)).is();
++    return rGroup.aMembers.size() > 1 || lcl_model(lcl_get(rMember.xFrame)).is();
+ }
+ 
+ sal_Int32 DocumentTabGroup::tabBarHeight(const uno::Reference<frame::XFrame>& xFrame,
+                                          bool bLayoutVisible)
+ {
+-    Member* pMember = find(xFrame);
++    Group* pGroup = nullptr;
++    Member* pMember = find(xFrame, &pGroup);
+     if (!pMember)
+         return 0;
+-    if (!bLayoutVisible || !showsTabBar(*pMember))
++    if (!bLayoutVisible || !showsTabBar(*pGroup, *pMember))
+     {
+         if (pMember->pBar)
+             pMember->pBar->Hide();
+@@ -884,23 +1228,27 @@
+     pMember->pBar->Invalidate();
+ }
+ 
+-std::vector<DocumentTabInfo> DocumentTabGroup::getTabs() const
++std::vector<DocumentTabInfo>
++DocumentTabGroup::getTabs(const uno::Reference<frame::XFrame>& xFrame) const
+ {
+     try
+     {
+         std::vector<DocumentTabInfo> aTabs;
+-        const uno::Reference<frame::XFrame> xActive = lcl_get(m_xActive);
+-        for (const Member& rMember : m_aMembers)
++        const Group* pGroup = nullptr;
++        if (!find(xFrame, &pGroup))
++            return aTabs;
++        const uno::Reference<frame::XFrame> xActive = lcl_get(pGroup->xActive);
++        for (const Member& rMember : pGroup->aMembers)
+         {
+-            uno::Reference<frame::XFrame> xFrame = lcl_get(rMember.xFrame);
+-            if (!xFrame.is())
++            uno::Reference<frame::XFrame> xMember = lcl_get(rMember.xFrame);
++            if (!xMember.is())
+                 continue;
+             DocumentTabInfo aInfo;
+-            aInfo.xFrame = xFrame;
+-            aInfo.aTitle = lcl_title(xFrame);
+-            aInfo.bModified = lcl_isModified(xFrame);
+-            aInfo.bActive = xFrame == xActive;
+-            aInfo.aModuleColor = lcl_moduleColor(xFrame);
++            aInfo.xFrame = xMember;
++            aInfo.aTitle = lcl_title(xMember);
++            aInfo.bModified = lcl_isModified(xMember);
++            aInfo.bActive = xMember == xActive;
++            aInfo.aModuleColor = lcl_moduleColor(xMember);
+             aTabs.push_back(aInfo);
+         }
+         return aTabs;
+@@ -912,11 +1260,11 @@
+     return {};
+ }
+ 
+-void DocumentTabGroup::update()
++void DocumentTabGroup::update(Group& rGroup)
+ {
+     // Strip visibility can change with the member count: relayout every member.
+     std::vector<uno::Reference<frame::XFrame>> aFrames;
+-    for (const Member& rMember : m_aMembers)
++    for (const Member& rMember : rGroup.aMembers)
+         aFrames.push_back(lcl_get(rMember.xFrame));
+     for (const uno::Reference<frame::XFrame>& xFrame : aFrames)
+     {
+@@ -927,12 +1275,188 @@
+     documentEvent();
+ }
+ 
++void DocumentTabGroup::updateAll()
++{
++    std::vector<sal_uInt32> aIds;
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        aIds.push_back(pGroup->nId);
++    for (sal_uInt32 nId : aIds)
++        if (Group* pGroup = groupById(nId))
++            update(*pGroup);
++}
++
++bool DocumentTabGroup::canDetach(const uno::Reference<frame::XFrame>& xFrame) const
++{
++    const Group* pGroup = nullptr;
++    if (!isEnabled() || !find(xFrame, &pGroup) || pGroup->aMembers.size() < 2)
++        return false;
++    // A window in full screen (macOS: its own Space, the tabs are native tabs) keeps its tabs.
++    for (const Member& rMember : pGroup->aMembers)
++        if (!rMember.bParked && lcl_isFullScreen(rMember.pWindow))
++            return false;
++    return true;
++}
++
++void DocumentTabGroup::detach(const uno::Reference<frame::XFrame>& xFrame,
++                              const std::optional<Point>& rTopLeft)
++{
++    try
++    {
++        if (!canDetach(xFrame))
++            return;
++        Group* pSource = nullptr;
++        Member* pMember = find(xFrame, &pSource);
++        Member* pShown = activeMember(*pSource);
++        VclPtr<vcl::Window> pSourceWindow = pShown ? pShown->pWindow : pMember->pWindow;
++        // computed before anything moves: the size the window has when not maximized
++        const OUString aState = lcl_detachedState(pSourceWindow, rTopLeft);
++        const sal_uInt32 nSource = pSource->nId;
++        Member aMoved = takeOut(*pSource, pMember - pSource->aMembers.data());
++        // A tab of an HST Office window becomes an HST Office window, a tab of HST Writer a
++        // window of HST Writer.
++        Group& rTarget = newGroup(pSource->aKind);
++        aMoved.bParked = false;
++        rTarget.aMembers.push_back(aMoved);
++        rTarget.xActive = xFrame;
++        hst_vcl_set_tab_group(aMoved.pWindow, rTarget.nId);
++        ++m_nInternal;
++        if (!aState.isEmpty())
++            static_cast<SystemWindow*>(aMoved.pWindow.get())->SetWindowState(aState);
++        aMoved.pWindow->Show(true, ShowFlags::ForegroundTask);
++        --m_nInternal;
++        focus(xFrame);
++        if (Group* pGroup = groupById(nSource))
++            update(*pGroup);
++        if (Group* pGroup = groupById(rTarget.nId))
++            update(*pGroup);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: detach");
++    }
++}
++
++void DocumentTabGroup::moveTab(const uno::Reference<frame::XFrame>& xFrame, sal_Int32 nIndex)
++{
++    Group* pGroup = nullptr;
++    Member* pMember = find(xFrame, &pGroup);
++    if (!pMember)
++        return;
++    const sal_Int32 nCount = pGroup->aMembers.size();
++    const sal_Int32 nFrom = pMember - pGroup->aMembers.data();
++    const sal_Int32 nTo = std::clamp<sal_Int32>(nIndex, 0, nCount - 1);
++    if (nFrom == nTo)
++        return;
++    auto aBegin = pGroup->aMembers.begin();
++    if (nFrom < nTo)
++        std::rotate(aBegin + nFrom, aBegin + nFrom + 1, aBegin + nTo + 1);
++    else
++        std::rotate(aBegin + nTo, aBegin + nFrom, aBegin + nFrom + 1);
++    documentEvent();
++}
++
++bool DocumentTabGroup::mergeAt(const uno::Reference<frame::XFrame>& xFrame, const Point& rScreenPos)
++{
++    try
++    {
++        // Wayland does not tell where a window is: a drop cannot be matched to another window.
++        if (Application::GetPlatform() == Platform::Wayland)
++            return false;
++        Group* pSource = nullptr;
++        Member* pMember = find(xFrame, &pSource);
++        if (!pMember || lcl_isFullScreen(pMember->pWindow))
++            return false;
++        const OUString aModule = lcl_moduleKey(xFrame);
++        for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        {
++            if (pGroup.get() == pSource)
++                continue;
++            Member* pTarget = activeMember(*pGroup);
++            if (!pTarget || !pTarget->pBar || pTarget->pBar->isDisposed()
++                || !pTarget->pBar->IsReallyVisible())
++                continue;
++            const tools::Rectangle aStrip(Point(pTarget->pBar->OutputToAbsoluteScreenPixel(Point())),
++                                          pTarget->pBar->GetOutputSizePixel());
++            if (!aStrip.Contains(rScreenPos))
++                continue;
++            if (!accepts(*pGroup, aModule) || lcl_isFullScreen(pTarget->pWindow))
++                return false;
++            // Leave the source window (its neighbour is shown), become the shown tab here.
++            const sal_uInt32 nSource = pSource->nId;
++            Member aMoved = takeOut(*pSource, pMember - pSource->aMembers.data());
++            Group& rTarget = *pGroup;
++            const uno::Reference<frame::XFrame> xPrevious = lcl_get(rTarget.xActive);
++            VclPtr<vcl::Window> pPreviousWindow = pTarget->pWindow;
++            auto it = rTarget.aMembers.begin() + (pTarget - rTarget.aMembers.data()) + 1;
++            aMoved.bParked = false;
++            rTarget.aMembers.insert(it, aMoved);
++            hst_vcl_set_tab_group(aMoved.pWindow, rTarget.nId);
++            copyGeometry(pPreviousWindow, aMoved.pWindow);
++            ++m_nInternal;
++            aMoved.pWindow->Show(true, ShowFlags::ForegroundTask);
++            --m_nInternal;
++            rTarget.xActive = xFrame;
++            m_nRecentGroup = rTarget.nId;
++            if (Member* pOld = find(xPrevious))
++                park(*pOld);
++            focus(xFrame);
++            lcl_updateApplicationID(xFrame);
++            cleanUp(); // the source window may have had this tab only
++            if (Group* pGroup2 = groupById(nSource))
++                update(*pGroup2);
++            if (Group* pGroup2 = groupById(rTarget.nId))
++                update(*pGroup2);
++            return true;
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: merge");
++    }
++    return false;
++}
++
++bool DocumentTabGroup::showOfficeWindow()
++{
++    cleanUp();
++    // the HST Office window used last
++    Group* pOffice = groupById(m_nRecentGroup);
++    if (!pOffice || pOffice->aKind != OFFICE_KIND)
++    {
++        pOffice = nullptr;
++        for (auto it = m_aGroups.rbegin(); it != m_aGroups.rend() && !pOffice; ++it)
++            if ((*it)->aKind == OFFICE_KIND)
++                pOffice = it->get();
++    }
++    if (!pOffice)
++    {
++        // A window that only shows the Start Center is as good as an HST Office window.
++        for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++            if (pGroup->aMembers.size() == 1
++                && lcl_moduleKey(lcl_get(pGroup->aMembers[0].xFrame)) == START_MODULE)
++            {
++                pOffice = pGroup.get();
++                setKind(*pOffice, OFFICE_KIND);
++                break;
++            }
++    }
++    if (!pOffice || pOffice->aMembers.empty())
++        return false;
++    Member* pActive = activeMember(*pOffice);
++    activate(lcl_get((pActive ? *pActive : pOffice->aMembers.front()).xFrame));
++    if ((pActive = activeMember(*pOffice)) && pActive->pWindow && !pActive->pWindow->isDisposed()
++        && pActive->pWindow->IsSystemWindow())
++        static_cast<WorkWindow*>(pActive->pWindow.get())->ToTop(ToTopFlags::RestoreWhenMin | ToTopFlags::ForegroundTask);
++    return true;
++}
++
+ void DocumentTabGroup::shutdown()
+ {
+-    for (Member& rMember : m_aMembers)
+-        rMember.pBar.disposeAndClear();
+-    m_aMembers.clear();
+-    m_xActive.clear();
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        for (Member& rMember : pGroup->aMembers)
++            rMember.pBar.disposeAndClear();
++    m_aGroups.clear();
++    m_nRecentGroup = 0;
+     m_bEnabled = false;
+     Application::RemoveEventListener(LINK(this, DocumentTabGroup, WindowEventHdl));
+     if (m_xListener.is())
+@@ -955,17 +1479,27 @@
+ 
+ namespace
+ {
+-/// Keyboard/menu commands: switch to the next or previous tab.
++/// Keyboard/menu commands of the window of one frame: next/previous tab, detach the tab.
+ class DocumentTabCommandDispatch final : public cppu::WeakImplHelper<frame::XDispatch>
+ {
+ public:
++    explicit DocumentTabCommandDispatch(const uno::Reference<frame::XFrame>& xFrame)
++        : m_xFrame(xFrame)
++    {
++    }
++
+     virtual void SAL_CALL dispatch(const util::URL& rURL,
+                                    const uno::Sequence<beans::PropertyValue>&) override
+     {
+         SolarMutexGuard aGuard;
+-        if (!DocumentTabGroup::isEnabled())
++        const uno::Reference<frame::XFrame> xFrame(m_xFrame);
++        if (!DocumentTabGroup::isEnabled() || !xFrame.is())
+             return;
+-        DocumentTabGroup::get().activateRelative(rURL.Complete == ".uno:PrevDocumentTab" ? -1 : 1);
++        if (rURL.Complete == ".uno:DetachDocumentTab")
++            DocumentTabGroup::get().detach(xFrame);
++        else
++            DocumentTabGroup::get().activateRelative(
++                xFrame, rURL.Complete == ".uno:PrevDocumentTab" ? -1 : 1);
+     }
+     virtual void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>& xListener,
+                                             const util::URL& rURL) override
+@@ -982,17 +1516,22 @@
+                                                const util::URL&) override
+     {
+     }
++
++private:
++    uno::WeakReference<frame::XFrame> m_xFrame;
+ };
+ }
+ 
+ bool DocumentTabGroup::isTabCommand(std::u16string_view rCommand)
+ {
+-    return rCommand == u".uno:NextDocumentTab" || rCommand == u".uno:PrevDocumentTab";
++    return rCommand == u".uno:NextDocumentTab" || rCommand == u".uno:PrevDocumentTab"
++           || rCommand == u".uno:DetachDocumentTab";
+ }
+ 
+-uno::Reference<frame::XDispatch> DocumentTabGroup::createCommandDispatch()
++uno::Reference<frame::XDispatch>
++DocumentTabGroup::createCommandDispatch(const uno::Reference<frame::XFrame>& xFrame)
+ {
+-    return new DocumentTabCommandDispatch;
++    return new DocumentTabCommandDispatch(xFrame);
+ }
+ 
+ void DocumentTabs::prepareShow(const uno::Reference<frame::XFrame>& xFrame)
+@@ -1001,6 +1540,18 @@
+     if (DocumentTabGroup::isEnabled())
+         DocumentTabGroup::get().prepareShow(xFrame);
+ }
++
++bool DocumentTabs::isEnabled()
++{
++    SolarMutexGuard aGuard;
++    return DocumentTabGroup::isEnabled();
++}
++
++bool DocumentTabs::showOfficeWindow()
++{
++    SolarMutexGuard aGuard;
++    return DocumentTabGroup::isEnabled() && DocumentTabGroup::get().showOfficeWindow();
++}
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/framework/source/uielement/documenttabbar.cxx
++++ b/framework/source/uielement/documenttabbar.cxx
+@@ -15,8 +15,10 @@
+ #include <strings.hrc>
+ 
+ #include <algorithm>
++#include <cstdlib>
+ 
+ #include <vcl/event.hxx>
++#include <vcl/ptrstyle.hxx>
+ #include <vcl/commandevent.hxx>
+ #include <vcl/help.hxx>
+ #include <vcl/menu.hxx>
+@@ -39,6 +41,9 @@
+ constexpr sal_uInt16 MENU_CALC = 2;
+ constexpr sal_uInt16 MENU_IMPRESS = 3;
+ constexpr sal_uInt16 MENU_OPEN = 4;
++constexpr sal_uInt16 MENU_DETACH = 5;
++/// pointer movement (100% pixels) that turns a press on a tab into a drag
++constexpr tools::Long DRAG_THRESHOLD = 6;
+ 
+ /// Scale a 100% pixel size by the window's DPI factor.
+ tools::Long Px(const vcl::Window& rWindow, double fPixels)
+@@ -78,7 +83,7 @@
+     const tools::Long nPad = Px(*this, TAB_PAD);
+     const tools::Long nMin = Px(*this, TAB_MIN_WIDTH);
+ 
+-    std::vector<DocumentTabInfo> aInfos = DocumentTabGroup::get().getTabs();
++    std::vector<DocumentTabInfo> aInfos = DocumentTabGroup::get().getTabs(m_xFrame);
+     m_aTabs.clear();
+ 
+     // Natural widths, then shrink evenly when they don't fit next to the "+" button.
+@@ -305,36 +310,154 @@
+         if (rMEvt.IsMiddle() || (rMEvt.IsLeft() && bClose))
+             DocumentTabGroup::get().closeTab(xTarget);
+         else if (rMEvt.IsLeft())
+-            DocumentTabGroup::get().activate(xTarget);
++        {
++            // The press may start a drag. An inactive tab is shown on release: showing it now
++            // would hide this window (and end the drag) under the pointer.
++            m_xDragFrame = xTarget;
++            m_aDragStart = rMEvt.GetPosPixel();
++            m_bDragging = false;
++            m_bActivateOnRelease = !m_aTabs[nTab].aInfo.bActive;
++            StartTracking();
++        }
+         return;
+     }
+     if (rMEvt.IsLeft() && m_aPlusRect.Contains(rMEvt.GetPosPixel()))
+         ImplShowNewMenu();
+ }
+ 
++void DocumentTabBar::Tracking(const TrackingEvent& rTEvt)
++{
++    const Point aPos = rTEvt.GetMouseEvent().GetPosPixel();
++    if (rTEvt.IsTrackingEnded())
++    {
++        ImplEndDrag(aPos, rTEvt.IsTrackingCanceled());
++        return;
++    }
++    if (!m_bDragging)
++    {
++        const tools::Long nThreshold = Px(*this, DRAG_THRESHOLD);
++        if (std::abs(aPos.X() - m_aDragStart.X()) < nThreshold
++            && std::abs(aPos.Y() - m_aDragStart.Y()) < nThreshold)
++            return;
++        m_bDragging = true;
++    }
++    // Outside the strip (one strip height of tolerance above and below) the tab is detached.
++    const tools::Long nHeight = GetOutputSizePixel().Height();
++    const bool bInside = tools::Rectangle(Point(0, -nHeight),
++                                          Size(GetOutputSizePixel().Width(), 3 * nHeight))
++                             .Contains(aPos);
++    SetPointer(bInside ? PointerStyle::Arrow : PointerStyle::Move);
++}
++
++void DocumentTabBar::ImplEndDrag(const Point& rPos, bool bCancelled)
++{
++    css::uno::Reference<css::frame::XFrame> xFrame(m_xDragFrame);
++    m_xDragFrame.clear();
++    const bool bDragging = m_bDragging;
++    m_bDragging = false;
++    SetPointer(PointerStyle::Arrow);
++    if (!xFrame.is() || bCancelled)
++        return;
++    DocumentTabGroup& rGroup = DocumentTabGroup::get();
++    if (!bDragging)
++    {
++        if (m_bActivateOnRelease)
++            rGroup.activate(xFrame);
++        return;
++    }
++    const tools::Long nHeight = GetOutputSizePixel().Height();
++    if (tools::Rectangle(Point(0, -nHeight), Size(GetOutputSizePixel().Width(), 3 * nHeight))
++            .Contains(rPos))
++    {
++        // Within the strip: the tab moves to the place it is dropped on.
++        sal_Int32 nIndex = -1;
++        const std::vector<DocumentTabInfo> aTabs = rGroup.getTabs(m_xFrame);
++        for (size_t i = 0; i < m_aTabs.size(); ++i)
++            if (rPos.X() >= m_aTabs[i].aRect.Left() && rPos.X() <= m_aTabs[i].aRect.Right())
++                for (size_t j = 0; j < aTabs.size(); ++j)
++                    if (aTabs[j].xFrame == m_aTabs[i].aInfo.xFrame)
++                        nIndex = j;
++        if (nIndex < 0 && !m_aTabs.empty() && rPos.X() > m_aTabs.back().aRect.Right())
++            nIndex = aTabs.size() - 1;
++        if (nIndex >= 0)
++            rGroup.moveTab(xFrame, nIndex);
++        return;
++    }
++    // Outside: onto the strip of another window that takes it, else into a new window whose
++    // tab lands under the pointer (Wayland: the compositor places the window).
++    const Point aScreen(OutputToAbsoluteScreenPixel(rPos));
++    if (rGroup.mergeAt(xFrame, aScreen))
++        return;
++    const Point aGrab = m_aDragStart + GetPosPixel();
++    rGroup.detach(xFrame, Point(aScreen.X() - aGrab.X(), aScreen.Y() - aGrab.Y()));
++}
++
++void DocumentTabBar::Command(const CommandEvent& rCEvt)
++{
++    if (rCEvt.GetCommand() != CommandEventId::ContextMenu)
++    {
++        vcl::Window::Command(rCEvt);
++        return;
++    }
++    // the tab under the pointer, or the shown tab (context menu key)
++    Point aPos = rCEvt.GetMousePosPixel();
++    sal_Int32 nTab = rCEvt.IsMouseEvent() ? ImplHitTab(aPos, nullptr) : -1;
++    if (!rCEvt.IsMouseEvent())
++        for (size_t i = 0; i < m_aTabs.size(); ++i)
++            if (m_aTabs[i].aInfo.bActive)
++            {
++                nTab = i;
++                aPos = m_aTabs[i].aRect.Center();
++            }
++    if (nTab < 0)
++    {
++        vcl::Window::Command(rCEvt);
++        return;
++    }
++    const css::uno::Reference<css::frame::XFrame> xTarget = m_aTabs[nTab].aInfo.xFrame;
++    VclPtrInstance<PopupMenu> aMenu;
++    aMenu->InsertItem(MENU_DETACH, FwkResId(STR_DOCTAB_DETACH));
++    aMenu->EnableItem(MENU_DETACH, DocumentTabGroup::get().canDetach(xTarget));
++    const sal_uInt16 nId = aMenu->Execute(this, tools::Rectangle(aPos, Size(1, 1)));
++    aMenu.disposeAndClear();
++    if (nId == MENU_DETACH)
++        DocumentTabGroup::get().detach(xTarget);
++}
++
+ void DocumentTabBar::ImplShowNewMenu()
+ {
++    // The HST Office window offers every application, an application window its own documents.
++    const OUString aKind = DocumentTabGroup::get().windowKind(m_xFrame);
++    const bool bAll = aKind.isEmpty() || aKind == "office";
+     VclPtrInstance<PopupMenu> aMenu;
+-    aMenu->InsertItem(MENU_WRITER, FwkResId(STR_DOCTAB_NEW_WRITER));
+-    aMenu->InsertItem(MENU_CALC, FwkResId(STR_DOCTAB_NEW_CALC));
+-    aMenu->InsertItem(MENU_IMPRESS, FwkResId(STR_DOCTAB_NEW_IMPRESS));
+-    aMenu->InsertSeparator();
+-    aMenu->InsertItem(MENU_OPEN, FwkResId(STR_DOCTAB_OPEN));
+-    const sal_uInt16 nId = aMenu->Execute(this, m_aPlusRect, PopupMenuFlags::ExecuteDown);
++    if (bAll || aKind == "writer")
++        aMenu->InsertItem(MENU_WRITER, FwkResId(STR_DOCTAB_NEW_WRITER));
++    if (bAll || aKind == "calc")
++        aMenu->InsertItem(MENU_CALC, FwkResId(STR_DOCTAB_NEW_CALC));
++    if (bAll || aKind == "impress")
++        aMenu->InsertItem(MENU_IMPRESS, FwkResId(STR_DOCTAB_NEW_IMPRESS));
++    sal_uInt16 nId = MENU_OPEN; // HST PDF and other windows: File > Open only, no menu needed
++    if (aMenu->GetItemCount() > 0)
++    {
++        aMenu->InsertSeparator();
++        aMenu->InsertItem(MENU_OPEN, FwkResId(STR_DOCTAB_OPEN));
++        nId = aMenu->Execute(this, m_aPlusRect, PopupMenuFlags::ExecuteDown);
++    }
+     aMenu.disposeAndClear();
++    const css::uno::Reference<css::frame::XFrame> xFrame(m_xFrame);
+     switch (nId)
+     {
+         case MENU_WRITER:
+-            DocumentTabGroup::get().newTab(u"private:factory/swriter"_ustr);
++            DocumentTabGroup::get().newTab(xFrame, u"private:factory/swriter"_ustr);
+             break;
+         case MENU_CALC:
+-            DocumentTabGroup::get().newTab(u"private:factory/scalc"_ustr);
++            DocumentTabGroup::get().newTab(xFrame, u"private:factory/scalc"_ustr);
+             break;
+         case MENU_IMPRESS:
+-            DocumentTabGroup::get().newTab(u"private:factory/simpress"_ustr);
++            DocumentTabGroup::get().newTab(xFrame, u"private:factory/simpress"_ustr);
+             break;
+         case MENU_OPEN:
+-            DocumentTabGroup::get().newTab(u".uno:Open"_ustr);
++            DocumentTabGroup::get().newTab(xFrame, u".uno:Open"_ustr);
+             break;
+         default:
+             break;
+--- a/include/framework/documenttabs.hxx
++++ b/include/framework/documenttabs.hxx
+@@ -21,8 +21,9 @@
+ 
+     Documents keep their own task frame and top-level window. The windows of a tab group
+     share one geometry and only the active one is shown (the others are "parked", i.e.
+-    hidden); a tab strip in every member switches between them. The implementation lives
+-    in framework/source/services/documenttabgroup.cxx.
++    hidden); a tab strip in every member switches between them. A tab group is either the
++    HST Office window (any document) or the window of one application (HST Writer, ...).
++    The implementation lives in framework/source/services/documenttabgroup.cxx.
+ */
+ namespace framework::DocumentTabs
+ {
+@@ -32,6 +33,15 @@
+     and the previously shown member is parked once the new one is visible.
+     No-op when tabs are disabled. */
+ FWK_DLLPUBLIC void prepareShow(const css::uno::Reference<css::frame::XFrame>& xFrame);
++
++/// Tabs are on (option Office.Common/Misc/DocumentTabs, not headless).
++FWK_DLLPUBLIC bool isEnabled();
++
++/** "HST Office" was started again while the office runs: bring an HST Office window (the
++    mixed window of the Start Center) to front. Returns false when there is none, then the
++    caller shows a new Start Center, which becomes a new HST Office window. The windows of
++    HST Writer, HST Sheets, HST Slides and HST PDF are never used for that. */
++FWK_DLLPUBLIC bool showOfficeWindow();
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
+@@ -4255,6 +4255,14 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:DetachDocumentTab" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Move Document Tab to New Window</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:CloseWin" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Close Window</value>
+--- a/translations/source/vi/framework/messages.po
++++ b/translations/source/vi/framework/messages.po
+@@ -502,3 +502,9 @@
+ msgctxt "STR_DOCTAB_MODIFIED"
+ msgid "Modified, not saved"
+ msgstr "Đã sửa đổi, chưa lưu"
++
++#. hstMW
++#: framework/inc/strings.hrc
++msgctxt "STR_DOCTAB_DETACH"
++msgid "Move to New Window"
++msgstr "Tách ra cửa sổ mới"
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -16898,6 +16898,16 @@
+ msgid "Previous Document Tab"
+ msgstr "Thẻ tài liệu trước"
+ 
++#. hstMW
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:DetachDocumentTab\n"
++"Label\n"
++"value.text"
++msgid "Move Document Tab to New Window"
++msgstr "Tách thẻ tài liệu ra cửa sổ mới"
++
+ #. hstBS
+ #: GenericCommands.xcu
+ msgctxt ""
+--- a/vcl/inc/osx/salframe.h
++++ b/vcl/inc/osx/salframe.h
+@@ -110,6 +110,7 @@
+ 
+     // HST Office: window of a document tab group (see DocumentTabGroup in the framework)
+     bool                            mbTabGroupMember;
++    sal_uInt32                      mnTabGroupId;
+ 
+     // Is window in native full screen mode
+     bool                            mbNativeFullScreen;
+@@ -136,6 +137,7 @@
+     /// HST Office: mark the window as a document tab (no window animation, tabs of a native
+     /// full screen window join its Space instead of opening their own).
+     virtual void                SetTabGroupMember( bool bMember ) override;
++    virtual void                SetTabGroupId( sal_uInt32 nGroup ) override;
+     void                        joinNativeFullScreenTabs();
+     virtual void                SetMenu( SalMenu* pSalMenu ) override;
+     virtual void                Show( bool bVisible, bool bNoActivate = false ) override;
+--- a/vcl/inc/salframe.hxx
++++ b/vcl/inc/salframe.hxx
+@@ -147,6 +147,9 @@
+     /// HST Office: the frame belongs to the document tab group (see DocumentTabGroup); the macOS
+     /// and Windows backends turn off window animations for it.
+     virtual void            SetTabGroupMember( bool ) {}
++    /// HST Office: which tab window (tab group) the frame belongs to, 0 = none; macOS joins the
++    /// native full screen tabs of windows of the same group only.
++    virtual void            SetTabGroupId( sal_uInt32 ) {}
+     virtual void            SetMenu( SalMenu *pSalMenu ) = 0;
+ 
+     virtual void            SetExtendedFrameStyle( SalExtStyle nExtStyle ) = 0;
+--- a/vcl/osx/salframe.cxx
++++ b/vcl/osx/salframe.cxx
+@@ -92,6 +92,7 @@
+     maInternalFullScreenRestoreRect( NSZeroRect ),
+     maInternalFullScreenExpectedRect( NSZeroRect ),
+     mbTabGroupMember( false ),
++    mnTabGroupId( 0 ),
+     mbNativeFullScreen( false ),
+     maNativeFullScreenRestoreRect( NSZeroRect ),
+     mbHeadlessMode(Application::IsBitmapRendering())
+@@ -413,6 +414,19 @@
+         [[mpNSWindow tabGroup] removeWindow: mpNSWindow];
+ }
+ 
++void AquaSalFrame::SetTabGroupId( sal_uInt32 nGroup )
++{
++    OSX_SALDATA_RUNINMAIN( SetTabGroupId( nGroup ) )
++
++    if( mnTabGroupId == nGroup )
++        return;
++    mnTabGroupId = nGroup;
++    // windows of different tab windows never become native tabs of each other
++    if( mpNSWindow && !mbHeadlessMode && mbTabGroupMember )
++        [mpNSWindow setTabbingIdentifier:
++            [NSString stringWithFormat: @"org.hasontech.hstoffice.document.%u", nGroup]];
++}
++
+ void AquaSalFrame::joinNativeFullScreenTabs()
+ {
+     if( !mpNSWindow || mbHeadlessMode || [mpNSWindow tabbedWindows] != nil )
+@@ -423,7 +437,7 @@
+     // tab bar stays hidden: the document tab strip of HST Office is the one the user sees.
+     for( AquaSalFrame* pOther : s_aTabGroupFrames )
+     {
+-        if( pOther == this || !pOther->mpNSWindow )
++        if( pOther == this || !pOther->mpNSWindow || pOther->mnTabGroupId != mnTabGroupId )
+             continue;
+         NSWindow* pWindow = pOther->mpNSWindow;
+         if( !([pWindow styleMask] & NSWindowStyleMaskFullScreen) )
+--- a/vcl/source/window/syswin.cxx
++++ b/vcl/source/window/syswin.cxx
+@@ -346,6 +346,19 @@
+         pFrame->SetTabGroupMember(bMember);
+ }
+ 
++// HST Office: several tab windows can exist (the HST Office window, windows of HST Writer, ...);
++// nGroup identifies the tab window of pWindow, 0 = none.
++SAL_DLLPUBLIC_EXPORT void hst_vcl_set_tab_group(vcl::Window* pWindow, sal_uInt32 nGroup)
++{
++    if (!pWindow)
++        return;
++    if (SalFrame* pFrame = pWindow->ImplGetFrame())
++    {
++        pFrame->SetTabGroupMember(nGroup != 0);
++        pFrame->SetTabGroupId(nGroup);
++    }
++}
++
+ void SystemWindow::SetIcon( sal_uInt16 nIcon )
+ {
+     if ( mnIcon == nIcon )
