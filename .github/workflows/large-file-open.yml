@@ -5,7 +5,7 @@ name: Large file open
 on:
   workflow_dispatch:
   push:
-    branches: [probe/large-file-open]
+    branches: [probe/large-file-open, probe/large-file-open-linux]
 permissions:
   contents: read
 concurrency:
@@ -22,12 +22,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: windows, runner: windows-2022, name: core, variants: 'hst,lo', only: ''}
-          - {os: windows, runner: windows-2022, name: split, variants: 'hst-noext,hst-toolbar,lo-tabbed', only: ''}
-          - {os: windows, runner: windows-2022, name: calc-settings, variants: 'hst-norowheight,lo-norowheight,hst-nothreads,lo-nothreads',
-             only: 'calc-values.xlsx,calc-formulas.xlsx,calc-formulas-plain.xlsx,calc-formulas-other.xlsx,calc-styles.xlsx,calc-sheets.xlsx,calc-formulas-60k.xls'}
-          - {os: windows, runner: windows-2022, name: calc-save, variants: 'hst-save,lo-save',
-             only: 'calc-values.xlsx,calc-formulas.xlsx,calc-styles.xlsx,calc-sheets.xlsx,calc-formulas-60k.xls'}
           - {os: linux, runner: ubuntu-24.04, name: core, variants: 'hst,lo', only: ''}
     env:
       PYTHONUTF8: '1'
