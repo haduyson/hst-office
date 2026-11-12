@@ -5,7 +5,7 @@ name: Large file open
 on:
   workflow_dispatch:
   push:
-    branches: [probe/large-file-open]
+    branches: [probe/large-file-open, probe/large-file-open-fix]
 permissions:
   contents: read
 concurrency:
@@ -22,17 +22,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: windows, runner: windows-2022, name: core, variants: 'hst,lo', only: ''}
-          - {os: windows, runner: windows-2022, name: split, variants: 'hst-noext,hst-toolbar,lo-tabbed', only: ''}
-          - {os: windows, runner: windows-2022, name: calc-settings, variants: 'hst-norowheight,lo-norowheight,hst-nothreads,lo-nothreads',
-             only: 'calc-values.xlsx,calc-formulas.xlsx,calc-formulas-plain.xlsx,calc-formulas-other.xlsx,calc-styles.xlsx,calc-sheets.xlsx,calc-formulas-60k.xls'}
-          - {os: windows, runner: windows-2022, name: calc-save, variants: 'hst-save,lo-save',
-             only: 'calc-values.xlsx,calc-formulas.xlsx,calc-styles.xlsx,calc-sheets.xlsx,calc-formulas-60k.xls'}
-          - {os: linux, runner: ubuntu-24.04, name: core, variants: 'hst,lo', only: ''}
+          - {os: windows, runner: windows-2022, name: fix, variants: 'hst,lo', only: 'calc-formulas.xlsx,calc-formulas-other.xlsx,calc-formulas-plain.xlsx,calc-values.xlsx,calc-sheets.xlsx'}
     env:
       PYTHONUTF8: '1'
       # the Desktop builds of the 1.0.1 release commit (the draft release is not readable with this token)
-      HST_WIN_RUN: '43060593422'
+      HST_WIN_RUN: '43197507751'  # diag build: main + hst-calc-xlsx-shared-formula-results.patch
       HST_LINUX_RUN: '43060587987'
       LO_MSI_URL: https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.1.1/win/x86_64/LibreOffice_26.8.1.1_Win_x86-64.msi
       LO_DEB_URL: https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.1.1/deb/x86_64/LibreOffice_26.8.1.1_Linux_x86-64_deb.tar.gz
