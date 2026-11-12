@@ -2,16 +2,17 @@
 <#
 Development/test build of the HST Office MSI on a local Windows PC (HST4), following the same steps as
 .github/workflows/desktop-windows.yml. Official releases still come from CI. Toolchain: hst4-setup.ps1.
-  powershell -File D:\hst-build\tools\scripts\windows\hst4-build.ps1 -Ref rc/1.0.2-batch1 [-ExpectSha <sha>] [-Jobs 28] [-Priority Normal] [-Clean]
+  powershell -File D:\hst-build\tools\scripts\windows\hst4-build.ps1 -Ref rc/1.0.2-batch1 [-ExpectSha <sha>] [-Jobs 28] [-Priority Normal] [-Clean] [-VerifyTree]
   powershell -File D:\hst-build\tools\scripts\windows\hst4-build.ps1 -Status
 Long builds: start it with hst4-detach.ps1 (scheduled task) so it survives the SSH session.
 Layout under -Root (the same as the runner's D:\hst; all paths are free of spaces):
   repo\  checkout of -Ref       lo\  LibreOffice tree + workdir (kept between runs = incremental build)
   dl\  pinned tarballs  branding\  staged branding  bin\  native make, pkgconf  logs\ metrics\  trial-build.sh output
+  pristine\<key>\ cached extract   stage\ last patched tree (see hst4-tree.sh)
   out\<ref>-<sha7>\  renamed MSI + SHA256SUMS + build-info.json   status.json  current state for -Status
-Incremental: every run extracts and patches a fresh tree into stage\ with the checkout's own trial-build.sh, then
-copies only files whose content changed into lo\ (rsync --checksum), so make rebuilds just what the commit changed.
-Files that a newer commit deletes from the tree stay in lo\; use -Clean when that matters.
+Incremental: hst4-tree.sh re-applies the checkout's patch steps (its own trial-build.sh) on a cached extract and
+copies only files whose content changed into lo\, so make rebuilds just what the commit changed. -Clean rebuilds
+lo\ from scratch (only needed after a tarball change left stale upstream files in lo\).
 #>
 [CmdletBinding(DefaultParameterSetName = 'Build')]
 param(
@@ -19,6 +20,8 @@ param(
     [Parameter(ParameterSetName = 'Build')][ValidateRange(1, 256)][int]$Jobs = [Environment]::ProcessorCount,
     [Parameter(ParameterSetName = 'Build')][ValidateSet('Normal', 'BelowNormal', 'Idle')][string]$Priority = 'Normal',
     [Parameter(ParameterSetName = 'Build')][switch]$Clean,
+    # Also compare the updated tree with a fresh extract+patch (adds ~10 min); see hst4-tree.sh.
+    [Parameter(ParameterSetName = 'Build')][switch]$VerifyTree,
     # Fail unless -Ref resolves to this commit (prefix of at least 7 hex digits), e.g. the sha announced for a batch.
     [Parameter(ParameterSetName = 'Build')][ValidatePattern('^[0-9a-f]{7,40}$')][string]$ExpectSha = '',
     [Parameter(Mandatory, ParameterSetName = 'Status')][switch]$Status,
@@ -34,7 +37,6 @@ $ProgressPreference = 'SilentlyContinue'
 
 $Repo = Join-Path $Root 'repo'
 $Lo = Join-Path $Root 'lo'
-$Stage = Join-Path $Root 'stage'
 $StatusFile = Join-Path $Root 'status.json'
 $Bash = Join-Path $CygwinRoot 'bin\bash.exe'
 $Python = Join-Path $Root 'tools\python\tools\python.exe'
@@ -136,19 +138,10 @@ function Sync-Tarballs {
 }
 
 function Sync-Tree {
-    # Fresh extract + patch into stage\ with the checkout's own steps, then update lo\ by content.
-    Remove-Tree $Stage
-    Invoke-Trial 'extract' $Stage
-    Invoke-Trial 'patch' $Stage
-    if ($Clean) { Remove-Tree $Lo }
-    if (-not (Test-Path -LiteralPath (Join-Path $Lo 'configure.ac'))) {
-        Remove-Tree $Lo
-        Move-Item -LiteralPath (Join-Path $Stage 'lo') -Destination $Lo
-    } else {
-        # No --times: rewritten files get a new mtime so make sees them; unchanged files keep theirs.
-        Invoke-Cygwin "rsync -rlc --stats $(ConvertTo-CygPath $Stage)/lo/ $(ConvertTo-CygPath $Lo)/"
-    }
-    Remove-Tree $Stage
+    # hst4-tree.sh lives next to this script: the checkout may predate it.
+    $env:HST_ROOT = ConvertTo-CygPath $Root
+    $treeArgs = @(if ($Clean) { '--clean' }) + @(if ($VerifyTree) { '--verify' })
+    Invoke-Cygwin "exec bash -o igncr $(ConvertTo-CygPath (Join-Path $PSScriptRoot 'hst4-tree.sh')) $($treeArgs -join ' ')"
 }
 
 function Invoke-Build {

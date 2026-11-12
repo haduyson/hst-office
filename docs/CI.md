@@ -158,16 +158,23 @@ merge module MSVC, CMake/Ninja, Windows SDK 10.0.26100, .NET Framework 4.8.1 SDK
 (thư mục `repo`, `lo`, `dl`, `branding`, `logs`, `metrics`, `out`). MSI cùng `SHA256SUMS` và
 `build-info.json` (thời gian từng bước, sha, kích thước) được ghi vào
 `D:\hst-build\out\<nhánh>-<sha7>\`. Mặc định script dùng mọi luồng, ưu tiên Normal; có thể đổi
-bằng `-Jobs N` và `-Priority BelowNormal`. Lần sau build tăng dần: mỗi lần chạy, script giải nén
-và vá một cây mới vào `stage\`, rồi `rsync --checksum` chỉ chép sang `lo\` các tệp có nội dung
-khác, nên make chỉ build lại phần mà commit thay đổi. Tệp bị commit mới xóa vẫn còn lại trong
-`lo\`; khi cần thì dùng `-Clean` để build lại từ đầu. Build dài phải chạy tách khỏi phiên SSH bằng
+bằng `-Jobs N` và `-Priority BelowNormal`. Lần sau build tăng dần nhờ
+[hst4-tree.sh](../scripts/windows/hst4-tree.sh). Bản giải nén gốc được giữ trong `pristine\<khóa>\`,
+với khóa tính từ sha256 của tarball và `trial-build.sh`. `stage\` giữ cây đã vá của lần chạy
+trước. Mỗi lần chạy, script đưa những tệp và thư mục mà lần vá trước đã đổi, tạo hay xóa về lại bản
+gốc, rồi vá lại bằng `trial-build.sh --patch` của commit đang build. Những gì vừa đổi được nhận ra
+bằng ctime và danh sách tệp, và chỉ những tệp có nội dung khác mới được chép sang `lo\`, nên make
+chỉ build lại phần mà commit thay đổi. Nếu đổi tarball, `trial-build.sh` hoặc dùng `-Clean`, cây
+được dựng lại đầy đủ. Khi đổi tarball, tệp upstream cũ có thể còn sót trong `lo\`; lúc đó nên dùng
+`-Clean`. Thêm `-VerifyTree` để so `stage\` và `lo\` với một cây vừa giải nén và vá mới (mất thêm
+khoảng 13 phút). `lo\` chỉ được phép khác ở `configure`, `aclocal.m4` và `openoffice.lst`, là
+những tệp do bước configure ghi lại. Build dài phải chạy tách khỏi phiên SSH bằng
 [hst4-detach.ps1](../scripts/windows/hst4-detach.ps1). Script này tạo task `hst-build-<tên>`
 chạy dưới tài khoản `kiemtra` (S4U, ưu tiên Normal) và tự xóa task khi xong.
 
 ```powershell
 # một lần: chép script ra ngoài checkout (checkout bị đổi sang commit cần build)
-Copy-Item scripts\build-windows.ps1 D:\hst-build\tools\scripts\; Copy-Item scripts\windows\hst4-*.ps1 D:\hst-build\tools\scripts\windows\
+Copy-Item scripts\build-windows.ps1 D:\hst-build\tools\scripts\; Copy-Item scripts\windows\hst4-* D:\hst-build\tools\scripts\windows\
 powershell -File D:\hst-build\tools\scripts\windows\hst4-detach.ps1 -Name build -Script D:\hst-build\tools\scripts\windows\hst4-build.ps1 -ScriptArgs '-Ref rc/1.0.2-batch1'
 powershell -File D:\hst-build\tools\scripts\windows\hst4-build.ps1 -Status   # bước hiện tại, số bước [build], đuôi build.log, dung lượng trống
 ```
@@ -176,9 +183,11 @@ Dùng `-ExpectSha <sha>` để build dừng ngay khi nhánh không còn ở đú
 lần đầu (13/11/2026, `rc/1.0.2-batch2` cac9177, 28 luồng): toàn bộ quy trình mất 86 phút, riêng
 make 71 phút. Trước đó cây đã được build sẵn khoảng 11 phút, xong phần lớn các thư viện ngoài. Để
 so sánh, bước build trên runner CI mất 157 phút. Phần OpenSSL do nmake build chạy một luồng nên
-kéo dài khoảng 30 phút. MSI cuối cùng nặng khoảng 224 MiB. Build lại cùng commit sau khi chạm một
-tệp đã vá trong `sfx2` mất 26 phút: dựng lại cây (giải nén, vá, rsync) 14 phút, configure 1 phút,
-make và đóng gói MSI 10 phút. Ổ D: cần khoảng 35 GB cho cây build.
+kéo dài khoảng 30 phút. MSI cuối cùng nặng khoảng 224 MiB. Một lần build tăng dần mất khoảng 17
+phút. Riêng bước cây mất 5,5 phút (trước khi có bộ đệm `pristine\` là 14 phút): đưa tệp về bản gốc
+5 giây, vá lại 5 phút, quét và chép 8 giây. Sau đó configure 1 phút, make và đóng gói MSI 10 phút.
+Lần đầu dùng một khóa tarball mới phải giải nén thêm khoảng 5 phút. Ổ D: cần khoảng 45 GB cho cây
+build, `pristine\` và `stage\`.
 
 [build-macos.sh](../scripts/build-macos.sh) (chỉ kiểm kê, không dùng trong CI; CI dùng `scripts/macos/`, xem mục [macOS](#macos)) nhận `--arch arm64|x86_64`, in lệnh từ
 [arm64](../build-config/macos-arm64.conf) hoặc [x86_64](../build-config/macos-x86_64.conf).
