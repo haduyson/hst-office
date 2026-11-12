@@ -5,7 +5,7 @@ name: Large file open
 on:
   workflow_dispatch:
   push:
-    branches: [probe/large-file-open]
+    branches: [probe/large-file-open, probe/large-file-open-cli]
 permissions:
   contents: read
 concurrency:
@@ -14,7 +14,7 @@ concurrency:
 jobs:
   open:
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 340
+    timeout-minutes: 300
     permissions:
       contents: read
       actions: read
@@ -22,13 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: windows, runner: windows-2022, name: core, variants: 'hst,lo', only: ''}
-          - {os: windows, runner: windows-2022, name: split, variants: 'hst-noext,hst-toolbar,lo-tabbed', only: ''}
-          - {os: windows, runner: windows-2022, name: calc-settings, variants: 'hst-norowheight,lo-norowheight,hst-nothreads,lo-nothreads',
-             only: 'calc-values.xlsx,calc-formulas.xlsx,calc-formulas-plain.xlsx,calc-formulas-other.xlsx,calc-styles.xlsx,calc-sheets.xlsx,calc-formulas-60k.xls'}
-          - {os: windows, runner: windows-2022, name: calc-save, variants: 'hst-save,lo-save',
-             only: 'calc-values.xlsx,calc-formulas.xlsx,calc-styles.xlsx,calc-sheets.xlsx,calc-formulas-60k.xls'}
-          - {os: linux, runner: ubuntu-24.04, name: core, variants: 'hst,lo', only: ''}
+          - {os: windows, runner: windows-2022, name: cli-hst, variants: 'hst-cli', only: 'calc-formulas.xlsx,calc-formulas-plain.xlsx,writer-text.docx,text-lines-50mb.txt,text-oneline-10mb.txt'}
+          - {os: windows, runner: windows-2022, name: cli-lo, variants: 'lo-cli', only: 'calc-formulas.xlsx,calc-formulas-plain.xlsx,writer-text.docx,text-lines-50mb.txt,text-oneline-10mb.txt'}
     env:
       PYTHONUTF8: '1'
       # the Desktop builds of the 1.0.1 release commit (the draft release is not readable with this token)
