@@ -28,7 +28,10 @@ def person(name, opts, form=None, vi_form=None):
         family, given = _family(name, upper), name.get("given", "")
         if vi_form == "given-comma-initials" and given:
             words = given.split(" ")
-            return clean(words[-1] + ", " + names.initials(name.get("family", "") + " " + " ".join(words[:-1])))
+            initials = names.initials(name.get("family", "") + " " + " ".join(words[:-1]))
+            if form == "initials-family":  # editors and translators: "L. T. Hoa" (NXB ĐH Cần Thơ)
+                return clean(initials + " " + words[-1])
+            return clean(words[-1] + ", " + initials)
         return clean(" ".join(p for p in (family, given) if p))
     form = form or opts.get("foreignName", "family-comma-initials")
     family, given = clean(_family(name, upper)), clean(name.get("given", ""))

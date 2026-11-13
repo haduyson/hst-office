@@ -88,9 +88,30 @@ def _who(item, opts, lang, initials_for=()):
     return [(fields.quote(title, opts["quotes"] if opts["quotes"] != "none" else "curly"), "")]
 
 
-def _year(item, opts, suffix):
+def _year(item, style, lang, suffix):
+    """The year as the bibliography prints it ("2010b", "không năm", "n.d."), so readers can find the entry;
+    APA 7 adds the original year of a translation or reissue: "1776/1997"."""
+    opts = style.options
     text = year_text(item.get("issued"), suffix)
-    return text or term("no-date", opts["language"]) + ("-" + suffix if suffix else "")
+    if not text:
+        return term("no-date", lang, overrides=style.terms) + ("-" + suffix if suffix else "")
+    original = year_text(item.get("original-date"))
+    return original + "/" + text if opts["citeOriginalYear"] and original and original != text[:4] else text
+
+
+def _cluster_order(prepared, opts, narrative):
+    """Cites in print order: sorted when the style asks (by author, or by year as NXB ĐH Cần Thơ wants), and
+    the works of one author together in year order when years collapse ("Trần Văn Bình, 2010a, 2010b")."""
+    if opts["citeSort"] and not narrative:
+        if opts["citeSortBy"] == "year":
+            prepared.sort(key=lambda p: (p[1] is None, p[3], bib_order.alpha_key(p[1], opts) if p[1] else ()))
+        else:
+            prepared.sort(key=lambda p: bib_order.alpha_key(p[1], opts) if p[1] else ((), 0, ()))
+    if opts["collapseYears"] and not narrative:
+        groups = {}
+        for entry in prepared:
+            groups.setdefault("".join(t for t, _ in entry[2]), []).append(entry)
+        prepared[:] = [entry for group in groups.values() for entry in sorted(group, key=lambda p: p[3])]
 
 
 def author_date_cluster(cites, items, suffixes, style, narrative=False, ambiguous_authors=(), initials_for=()):
@@ -104,9 +125,8 @@ def author_date_cluster(cites, items, suffixes, style, narrative=False, ambiguou
             continue
         lang = opts["language"] if opts["termLanguage"] == "document" else language.group_of(item)
         who = _who(item, opts, lang, initials_for)
-        prepared.append((cite, item, who, _year(item, opts, suffixes.get(item["id"], ""))))
-    if opts["citeSort"] and not narrative:
-        prepared.sort(key=lambda p: bib_order.alpha_key(p[1], opts) if p[1] else ((), 0, ()))
+        prepared.append((cite, item, who, _year(item, style, lang, suffixes.get(item["id"], ""))))
+    _cluster_order(prepared, opts, narrative)
     pieces, previous = [], None
     for cite, item, who, year in prepared:
         loc = locator_text(opts, cite.get("locator"), cite.get("label", "page"), style.terms)

@@ -17,7 +17,7 @@ _THESIS = re.compile(r"(Luận án [^,.;\]]+|Luận văn [^,.;\]]+|Ph\.?D\.? (?:
 _LEGAL = re.compile(r"^(Thông tư|Nghị định|Luật|Quyết định|Nghị quyết|Chỉ thị|Hiến pháp|Pháp lệnh|Bộ luật)\b")
 _CONFERENCE = re.compile(r"\b(Kỷ yếu|Hội thảo|Hội nghị|Proceedings|Proc\.|Conference|Symposium|Workshop)\b", re.I)
 _BRACKET_THESIS = re.compile(r"\[([^\]]*(?:Luận|thesis|dissertation)[^\]]*)\]", re.I)
-_EDITION = re.compile(r"\(?\b(\d+)(?:st|nd|rd|th)? (?:ed\.|edn\.?)\)?|\(?\btái bản lần thứ (\d+)\)?", re.I)
+_EDITION = re.compile(r"\(?\b(\d+)(?:st|nd|rd|th)? (?:ed\.|edn\.?)\)?|\(?\bxuất bản lần thứ (\d+)\)?|\(?\btái bản lần thứ (\d+)\)?", re.I)
 _TRANSLATOR = re.compile(r"\(([^()]+?),\s*(?:dịch|Trans\.|trans\.)\)|,?\s*dịch bởi ([^,.]+)")
 _ORIGINAL = re.compile(r"\((?:Sách gốc xuất bản năm|Original work published)\s+(\d{4})\)", re.I)
 _EDITORS = re.compile(r"\b(?:[Tt]rong|In:?)\s+(.+?)\s*[(,]\s*(?:chủ biên|cb\.|eds?\.|editors?)\)?[,.]?\s*"
@@ -44,7 +44,8 @@ def _extras(item, rest):
             item["publisher"] = school.strip()
     match, rest = take(_EDITION, rest)
     if match:
-        item["edition"] = match.group(1) or match.group(2)
+        # "tái bản lần thứ 2" is the third printing in Vietnamese usage; "xuất bản lần thứ 2" the second
+        item["edition"] = match.group(1) or match.group(2) or str(int(match.group(3)) + 1)
     match, rest = take(_TRANSLATOR, rest)
     if match:
         item["translator"] = split_authors(match.group(1) or match.group(2))

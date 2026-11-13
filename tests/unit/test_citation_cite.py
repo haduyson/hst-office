@@ -21,15 +21,20 @@ def ids(*names):
 
 
 class Numeric(unittest.TestCase):
-    def test_vietnamese_combined_compressed(self):
-        self.assertEqual(numeric("vn-so", ids("e", "a", "b", "c", "d", "f")), "[1–4, 7, 9]")
-        self.assertEqual(numeric("vn-so", ids("a", "b")), "[1, 2]")
+    def test_vietnamese_one_bracket_per_number(self):
+        """Học viện Tài chính 2022: [19], [25], [41]; numbers ascending, no ranges."""
+        self.assertEqual(numeric("vn-so", ids("e", "a", "b", "c", "d", "f")), "[1], [2], [3], [4], [7], [9]")
         self.assertEqual(numeric("vn-so", [{"id": "c", "locator": "314-315"}]), "[3, tr. 314–315]")
-        self.assertEqual(numeric("vn-so", [{"id": "c", "locator": "12"}, {"id": "a"}]), "[1; 3, tr. 12]")
+        self.assertEqual(numeric("vn-so", [{"id": "c", "locator": "12"}, {"id": "a"}]), "[1], [3, tr. 12]")
         self.assertEqual(numeric("vn-so", [{"id": "zzz"}]), "[?]")
 
+    def test_vietnamese_combined_preset(self):
+        self.assertEqual(numeric("vn-so", ids("e", "a", "b", "c", "d", "f"), "gop-ngoac"), "[1–4, 7, 9]")
+        self.assertEqual(numeric("vn-so", ids("a", "b"), "gop-ngoac"), "[1, 2]")
+        self.assertEqual(numeric("vn-so", [{"id": "c", "locator": "12"}, {"id": "a"}], "gop-ngoac"), "[1; 3, tr. 12]")
+
     def test_variants(self):
-        self.assertEqual(numeric("vn-so", ids("f", "a", "e"), "tung-ngoac"), "[1], [7], [9]")
+        self.assertEqual(numeric("vn-so", ids("f", "a", "e"), "khong-nhom"), "[1], [7], [9]")
         self.assertEqual(numeric("vn-so", [{"id": "c", "locator": "314-315"}], "thu-tu-trich"), "[3, 314–315]")
         self.assertEqual(numeric("ieee", ids("a", "b", "c", "e")), "[1]–[3], [7]")
         self.assertEqual(numeric("ama-11", ids("a", "b", "c", "e")), "^1-3,7^")

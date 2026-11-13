@@ -137,6 +137,10 @@ class Lookups(unittest.TestCase):
                                                                        ("10.1145/3448250", 48)])
         with self.assertRaises(LookupFailure):
             lookup.lookup_reference("short", lookup.LookupConfig(), Recorded())
+        with self.assertRaises(LookupFailure) as caught:  # the administrator switch blocks this path as well
+            lookup.lookup_reference("LeCun Bengio Hinton 2015 Deep learning Nature",
+                                    lookup.LookupConfig(enabled=False), Recorded(), gate=gate())
+        self.assertEqual(caught.exception.kind, "disabled")
 
 
 class Helper(unittest.TestCase):

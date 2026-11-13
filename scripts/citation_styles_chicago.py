@@ -78,14 +78,29 @@ NOTE_AUTHOR = v("author", nameForm="given-family", etAl="noteEtAl",
 NOTE_PUB = g(g(v("publisher-place", suffix=": "), v("publisher")), v("issued", form="year"), delimiter=", ",
              wrap="()", prefix=" ")
 NOTE_LOC = v("locator", prefix=", ")
+BOOKS = ",".join(["book"] + sorted(kind for kind, target in ALIAS.items() if target == "book"))
+VN_TITLE = v("title-or-short", italic=True, suffix=", ",
+             **{"if": "type=" + BOOKS + ",report,thesis,webpage,legislation,document",
+                "else": [v("title-or-short", quotes=True, suffix=", ")]})
+# Tạp chí Luật học, mục 2.6: from the second cite on, "author, sđd" for a book and "tlđd" for anything else; the
+# title comes first when the author has several cited works; no form for "the previous note".
+VN_NOTES = {
+    "id": "chu-thich-viet-nam", "name": "Chú thích kiểu Việt Nam: sđd, tlđd, tr. (theo Tạp chí Luật học)",
+    "source": "Tạp chí Luật học (Trường ĐH Luật Hà Nội), Yêu cầu đối với bài đăng, mục 2.6: https://tapchi.hlu.edu.vn/"
+              "Images/Post/files/Ho%E1%BA%A1t%20%C4%91%E1%BB%99ng%20%C4%91%C6%A1n%20v%E1%BB%8B/Yeu%20cau%20doi%20voi"
+              "%20bai%20dang%20Tap%20chi%20Luat%20hoc.pdf",
+    "options": {"ibid": False, "locatorLabel": True},
+    "notes": {"short": [v("author", form="short", etAl="noteEtAl", suffix=", ", **{"if": "!suppress-author"}),
+                        g(VN_TITLE, **{"if": "shared-author", "else": [g(VN_TITLE, **{"if": "suppress-author"})]}),
+                        term("op-cit", **{"if": "type=" + BOOKS, "else": [term("loc-cit")]}), NOTE_LOC]},
+}
 STYLES["chicago-chu-thich"] = {
     "id": "chicago-chu-thich", "name": "Chicago 18 – chú thích cuối trang", "class": "note",
     "description": "Mỗi trích dẫn là một chú thích cuối trang: lần đầu ghi đủ, lần sau ghi ngắn (tác giả, tên ngắn, trang). "
                    "Mẫu “chú thích kiểu Việt Nam” dùng Sđd, Tlđd và “tr.”.",
     "source": ["The Chicago Manual of Style, 18th ed. (2024), chương 14"],
     "options": intl_opts(ibid=False, **CH_OPTS),
-    "presets": [{"id": "chu-thich-viet-nam", "name": "Chú thích kiểu Việt Nam: Sđd, Tlđd, tr.",
-                 "options": {"ibid": True, "shortNoteVi": "sdd", "locatorLabel": True}}],
+    "presets": [VN_NOTES],
     "terms": {"en": {"editor": ["ed.", "eds."]}},
     "macros": {},
     "layouts": chicago_bib(False),

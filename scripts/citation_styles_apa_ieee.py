@@ -16,19 +16,38 @@ APA_ORIGINAL = g(t({"vi": "Sách gốc xuất bản năm ", "other": "Original w
                  wrap="()", prefix=" ")
 APA_RETRIEVED = g(term("retrieved"), v("accessed", form="full", suffix=","), term("from"), delimiter=" ",
                   case="capfirst", suffix=" ", **{"if": "!issued"})
+CTU = ("NXB Đại học Cần Thơ, QĐ 06/QĐ.NXB Quy định trình bày trích dẫn và tài liệu tham khảo (2023), mục 2–4: "
+       "https://ph.ctu.edu.vn/wp-content/uploads/2024/06/Quy-dinh-trinh-bay-trich-dan-va-TLTK_NXB-DHCT.pdf")
+# Like every international style, the words follow the document's language (owner decision 13/11/2026 16:28: no
+# per-item English words for this preset); "trang" is the publisher's page label in a Vietnamese document.
+CTU_PRESET = {
+    "id": "dao-ten-viet", "name": "NXB Đại học Cần Thơ (QĐ 06/QĐ.NXB, 2023): Hoàng, N. T.; (Hoàng, 2016); “và ctv.”",
+    "source": CTU,
+    "options": {"viName": "given-comma-initials", "citeViName": "given", "viSort": "given",
+                "etAlTerm": {"vi": "và ctv.", "other": "et al."}, "citeSortBy": "year"},
+    "terms": {"vi": {"editor": "Chủ biên"}},
+    "layouts": {
+        "chapter": [APA_AUTHOR, APA_DATE, v("title", suffix=". "), APA_IN,
+                    g(v("edition"), g(t({"vi": "trang", "other": ""}), term("page", plural=True, **{"if": "opt.language=en"}),
+                                      v("page"), delimiter=" "), delimiter=", ", wrap="()", prefix=" "),
+                    t(". "), v("publisher", suffix=". "), LINK],
+        "thesis": [APA_AUTHOR, APA_DATE, v("title", italic=True), v("genre", fallbackTerm="phd-thesis", wrap="()", prefix=" "),
+                   t(". "), v("publisher", suffix=". "), LINK],
+        "webpage": [APA_AUTHOR, APA_DATE, v("title", italic=True, suffix=". "), v("container-title", suffix=". "),
+                    APA_RETRIEVED, v("URL")],
+    },
+}
 STYLES["apa-7"] = {
     "id": "apa-7", "name": "APA 7", "class": "author-date",
     "description": "(Smith & Doe, 2020), (Smith et al., 2020), Smith (2020). Danh mục: Smith, J. A., & Doe, B. (2020). "
                    "Tên tác giả Việt mặc định viết đủ, không đảo; có mẫu đảo tên kiểu ĐH Cần Thơ.",
     "source": ["APA Publication Manual, 7th ed. (2020); apastyle.apa.org",
                "ĐH Tài chính – Marketing, hướng dẫn APA 7 (2022)", "ĐH Cần Thơ, QĐ 06/QĐ.NXB (2023)"],
-    "options": intl_opts(viSort="family", disambiguateInitials=True, bibAnd="&", bibAndComma="always", bibEtAl={"min": 21, "use": 19, "last": True},
+    "options": intl_opts(viSort="family", disambiguateInitials=True, citeOriginalYear=True, bibAnd="&", bibAndComma="always", bibEtAl={"min": 21, "use": 19, "last": True},
                     citeAnd="&", collapseYears=True, yearSuffix=True, quotes="none",
                     bibTitle={"vi": "TÀI LIỆU THAM KHẢO", "other": "References"}),
     "presets": [
-        {"id": "dao-ten-viet", "name": "Đảo tên Việt: Hoàng, N. T.; trích (Hoàng, 2016), “và ctv.” (ĐH Cần Thơ)",
-         "options": {"viName": "given-comma-initials", "citeViName": "given", "viSort": "given",
-                     "etAlTerm": {"vi": "và ctv.", "other": "et al."}}},
+        CTU_PRESET,
     ],
     "terms": {"en": {"editor": ["Ed.", "Eds."], "translator": "Trans."}},
     "macros": {},
@@ -73,7 +92,8 @@ STYLES["ieee"] = {
                     bibAnd={"vi": "và", "other": "and"}, bibAndComma="3+", bibEtAl={"min": 7, "use": 1},
                     multiCite="separate", punctInQuote=True, bibLabel="[%s]", doiPrefix="doi: ",
                     bibTitle={"vi": "TÀI LIỆU THAM KHẢO", "other": "References"}),
-    "presets": [{"id": "ten-viet-bo-dau", "name": "Tên Việt viết tắt, bỏ dấu: P. Huynh, Y. N. Lam (ĐH KHTN)",
+    "presets": [{"id": "ten-viet-bo-dau", "name": "Tên Việt viết tắt, bỏ dấu: P. Huynh (ĐH KHTN – ĐHQG TP.HCM, đồ án thạc sĩ)",
+                 "source": "ĐH Khoa học Tự nhiên – ĐHQG TP.HCM, mẫu đồ án thạc sĩ (tệp DOC, báo cáo nghiên cứu)",
                  "options": {"viName": "as-foreign", "viAscii": True}}],
     "terms": {"en": {"editor": ["Ed.", "Eds."], "translator": "Trans."}},
     "macros": {"author": [v("author", substitute=[v("editor", nameForm="initials-family", label="editor",

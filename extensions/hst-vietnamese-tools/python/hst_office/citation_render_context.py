@@ -9,13 +9,14 @@ class Context:
     """State of one rendering: the item, the style, its language and what was already printed."""
 
     def __init__(self, style, item, year_suffix="", position="first", locator="", label="page", number=None,
-                 subsequent_author=False):
+                 subsequent_author=False, flags=()):
         """``locator`` is already formatted with its label ("tr. 15", "15") by citation_cite.locator_text."""
         self.style, self.item, self.opts = style, item, style.options
         self.lang = language.group_of(item)
         self.term_lang = self.lang if self.opts["termLanguage"] == "item" else self.opts["language"]
         self.year_suffix, self.position, self.locator, self.label = year_suffix, position, locator, label
         self.number, self.subsequent_author = number, subsequent_author
+        self.flags = frozenset(flags)  # "shared-author", "suppress-author" (note styles)
         self.used = set()
 
     def term(self, name, plural=False):
@@ -49,6 +50,8 @@ def condition(cond, ctx):
             ok = ctx.position in body[4:].split("|")
         elif body == "loc":
             ok = bool(ctx.locator)
+        elif body in ("shared-author", "suppress-author"):
+            ok = body in ctx.flags
         elif body.startswith("day="):
             parts = ((ctx.item.get(body[4:]) or {}).get("date-parts") or [[]])[0]
             ok = len(parts) >= 3

@@ -41,7 +41,7 @@ class RoundTrip(unittest.TestCase):
 
     def test_bibtex(self):
         # BibTeX has no legislation type and no field for a web page's site name
-        self.check("bibtex", {"vi-law": ("type",), "en-who": ("container-title",),
+        self.check("bibtex", {"vi-law": ("type",), "vi-decree": ("type",), "en-who": ("container-title",),
                               "en-nodate": ("container-title",)})
 
     def test_csl_json(self):

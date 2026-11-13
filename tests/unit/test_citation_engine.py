@@ -25,7 +25,7 @@ class Process(unittest.TestCase):
         group = bibliography["groups"][0]
         self.assertEqual((group["language"], group["heading"]), ("vi", "Tiếng Việt"))
         entry = group["entries"][0]
-        self.assertEqual((entry["id"], entry["number"], entry["label"]), ("vi-book-2", 1, "[1]"))
+        self.assertEqual((entry["id"], entry["number"], entry["label"]), ("vi-book-2", 1, "1."))
         self.assertIn("<i>Cơ sở di truyền học ứng dụng</i>", entry["html"])
         self.assertEqual(result["numbers"]["vi-book-2"], 1)
 
@@ -34,7 +34,7 @@ class Process(unittest.TestCase):
         clusters = [{"citationID": "x", "items": [{"id": "a"}, {"id": "gone"}]}, {"citationID": "bad", "items": []},
                     "garbage", {"citationID": "y", "items": [{"id": "a", "label": "nonsense", "locator": 5}]}]
         result = engine.process(styles.load_style("vn-so"), items, clusters)
-        self.assertEqual([c["text"] for c in result["citations"]], ["[1, ?]", "?", "?", "[1]"])
+        self.assertEqual([c["text"] for c in result["citations"]], ["[1], [?]", "?", "?", "[1]"])
         self.assertEqual(result["missing"], ["gone"])
         self.assertEqual(len(result["warnings"]), 3)
         with self.assertRaises(ValueError):

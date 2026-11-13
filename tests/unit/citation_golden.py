@@ -14,7 +14,7 @@ from hst_office import citation_engine, citation_runs, citation_style
 
 FIXTURES = os.path.join(_paths.ROOT, "tests", "fixtures", "citations")
 GOLDEN = os.path.join(FIXTURES, "golden")
-CASES = ("vn-so", "vn-so@tung-ngoac", "vn-so@thu-tu-trich", "vn-so@khong-nhom", "vn-tac-gia-nam",
+CASES = ("vn-so", "vn-so@gop-ngoac", "vn-so@thu-tu-trich", "vn-so@khong-nhom", "vn-tac-gia-nam",
          "vn-tac-gia-nam@mot-danh-muc-theo-ho", "vn-tac-gia-nam@et-al", "apa-7", "apa-7@dao-ten-viet", "apa-7+en",
          "ieee", "ieee@ten-viet-bo-dau", "vancouver", "ama-11", "harvard", "chicago-tac-gia-nam",
          "chicago-chu-thich", "chicago-chu-thich@chu-thich-viet-nam", "mla-9", "iso-690-so", "iso-690-tac-gia-nam")
@@ -38,6 +38,8 @@ def clusters(items):
         {"citationID": "same-year", "items": [{"id": "vi-book"}, {"id": "vi-book-b"}]},
         {"citationID": "suppress", "items": [{"id": "en-krugman", "suppressAuthor": True, "locator": "12"}]},
         {"citationID": "prefixed", "items": [{"id": "vi-thesis", "prefix": "xem ", "locator": "3", "label": "chapter"}]},
+        {"citationID": "narrative-2", "items": [{"id": "vi-article-2"}], "mode": "narrative"},
+        {"citationID": "article-adjacent", "items": [{"id": "vi-article-2", "locator": "4"}]},
     ]
     return result
 
