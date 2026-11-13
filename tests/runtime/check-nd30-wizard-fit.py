@@ -8,7 +8,7 @@ every form control into view, saves a screenshot, cancels.
 Linux (Xvfb; the display must run and is never started here; HST dialogs need a D-Bus session, so run it under
 dbus-run-session as the build user):
     <instdir>/program/python tests/runtime/check-nd30-wizard-fit.py --display :173 --instdir <instdir> --out DIR
-        [--scale 1.25]       # GDK_DPI_SCALE for the office: 125 % on an Xvfb of 1366x708 = 1366x768 minus a taskbar
+        [--scale 1.25]       # GDK_DPI_SCALE for the office: 125 % on an Xvfb of 1366x768 (a panel margin is kept)
 Windows (in an interactive session, see windows-own-session-task.ps1; the shot is taken with PrintWindow, which
 works in a disconnected session):
     <instdir>\\program\\python.exe tests\\runtime\\check-nd30-wizard-fit.py --windows --instdir <instdir> --out DIR
@@ -28,7 +28,6 @@ sys.path[:0] = [HERE, os.path.join(os.path.dirname(os.path.dirname(HERE)), "exte
 import hst_gui  # noqa: E402
 
 ROWS = []
-DECORATION_PX = 48  # the window frame and title bar (wizard_scroll_band.DECORATION_PX)
 
 
 def check(name, ok, detail=""):
@@ -37,27 +36,39 @@ def check(name, ok, detail=""):
 
 
 def capture_windows(title, path):
-    """BMP of the top-level window titled `title`, through PrintWindow (PW_RENDERFULLCONTENT)."""
+    """BMP of the top-level window titled `title` through PrintWindow (works in a disconnected session), and of the
+    whole desktop next to it (`desktop.bmp`, only in a connected session: shows the dialog against the taskbar).
+    Returns the window rectangle (left, top, right, bottom) or None."""
     import ctypes
-    import struct
-    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    user32 = ctypes.windll.user32
+    user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))  # device pixels, as the office uses them
     hwnd = user32.FindWindowW(None, title)
     if not hwnd:
         return None
     rect = (ctypes.c_long * 4)()
     user32.GetWindowRect(hwnd, rect)
-    width, height = rect[2] - rect[0], rect[3] - rect[1]
+    _bitmap(hwnd, rect[2] - rect[0], rect[3] - rect[1], path, window=True)
+    _bitmap(None, user32.GetSystemMetrics(0), user32.GetSystemMetrics(1), os.path.join(os.path.dirname(path), "desktop.bmp"))
+    user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE: Cancel
+    return tuple(rect)
+
+
+def _bitmap(hwnd, width, height, path, window=False):
+    import ctypes
+    import struct
+    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
     screen = user32.GetDC(hwnd)
     memory, bitmap = gdi32.CreateCompatibleDC(screen), gdi32.CreateCompatibleBitmap(screen, width, height)
     gdi32.SelectObject(memory, bitmap)
-    user32.PrintWindow(hwnd, memory, 2)
+    if window:
+        user32.PrintWindow(hwnd, memory, 2)  # PW_RENDERFULLCONTENT
+    elif not gdi32.BitBlt(memory, 0, 0, width, height, screen, 0, 0, 0x00CC0020):  # SRCCOPY
+        return
     header = struct.pack("<IiiHHIIiiII", 40, width, -height, 1, 32, 0, 0, 0, 0, 0, 0)
     pixels = ctypes.create_string_buffer(width * height * 4)
     gdi32.GetDIBits(memory, bitmap, 0, height, pixels, header, 0)
     with open(path, "wb") as out:
         out.write(b"BM" + struct.pack("<IHHI", 54 + len(pixels.raw), 0, 0, 54) + header + pixels.raw)
-    user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE: Cancel
-    return hwnd
 
 
 def main():
@@ -93,12 +104,15 @@ def main():
         runner = threading.Thread(target=wizard.run, args=(doc.getCurrentController().getFrame().getContainerWindow(),), daemon=True)
         runner.start()
         time.sleep(12)
-        area = office.service("com.sun.star.awt.Toolkit").getWorkArea()
+        from hst_office import screen_work_area
+        toolkit = office.service("com.sun.star.awt.Toolkit")
+        area = screen_work_area.work_area(toolkit)  # taskbar excluded (getWorkArea() is the whole display)
         size = wizard.d.dialog.getPeer().getPosSize()
         model = wizard.d.model
-        summary = {"workArea": [area.Width, area.Height], "dialogPx": [size.Width, size.Height], "units": [model.Width, model.Height],
-                   "compact": wizard.compact, "scrolls": wizard.band is not None}
-        check("dialog fits the work area", size.Width <= area.Width and size.Height + DECORATION_PX <= area.Height + 2, summary)
+        summary = {"display": [toolkit.getWorkArea().Width, toolkit.getWorkArea().Height], "workArea": list(area),
+                   "dialogPx": [size.Width, size.Height], "units": [model.Width, model.Height], "compact": wizard.compact,
+                   "scrolls": wizard.band is not None}
+        check("dialog fits the work area with its title bar", not screen_work_area.exceeds(toolkit, size), summary)
         for name in ("applyPage", "pageNumbers", "duplex", "btnOk", "btnCancel"):
             item = model.getByName(name)
             check("%s stays in view" % name, item.EnableVisible and item.PositionY + item.Height <= model.Height,
@@ -115,7 +129,11 @@ def main():
             wizard.band.scroll_to(0)
         time.sleep(2)
         if args.windows:
-            check("screenshot", capture_windows(model.Title, os.path.join(out, "wizard.bmp")), out)
+            rect = capture_windows(model.Title, os.path.join(out, "wizard.bmp"))
+            summary["windowRect"] = rect
+            # the window itself (frame and title bar included) inside the taskbar-free work area
+            check("window inside the work area", rect and rect[1] >= 0 and rect[3] <= area[1] and rect[2] - rect[0] <= area[0],
+                  (rect, area))
         else:
             shot = os.path.join(out, "wizard.png")
             subprocess.run(["import", "-window", "root", shot], env=dict(os.environ, DISPLAY=args.display), check=False)

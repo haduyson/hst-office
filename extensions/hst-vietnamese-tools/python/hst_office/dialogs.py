@@ -8,7 +8,7 @@ import uno
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
-from . import dialog_edit_heights
+from . import dialog_edit_heights, screen_work_area
 
 OK, CANCEL = 1, 2
 # Accent text colours that stay readable (contrast >= 4.5:1) on the light and on the dark dialog background.
@@ -135,9 +135,8 @@ class Dialog:
 
     def _exceeds_screen(self, toolkit):
         """True when the created dialog (pixels) does not fit the work area, e.g. Windows display scaling on a small screen."""
-        try:
-            size, area = self.dialog.getPeer().getPosSize(), toolkit.getWorkArea()
-            return size.Width > area.Width or size.Height > area.Height
+        try:  # the real work area: getWorkArea() is the whole display (see screen_work_area)
+            return screen_work_area.exceeds(toolkit, self.dialog.getPeer().getPosSize())
         except Exception:  # noqa: BLE001 - unknown geometry: keep the full layout
             return False
 

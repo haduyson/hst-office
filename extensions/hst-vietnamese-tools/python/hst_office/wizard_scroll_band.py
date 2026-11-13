@@ -12,9 +12,10 @@ All positions are Map AppFont units.
 import unohelper
 from com.sun.star.awt import XAdjustmentListener, XFocusListener
 
+from . import screen_work_area
+
 BAR = "bandScroll"
 BAR_WIDTH = 8
-DECORATION_PX = 48  # title bar and frame of the dialog window, which the work area must hold as well
 
 
 class _Adjust(unohelper.Base, XAdjustmentListener):
@@ -49,12 +50,13 @@ class _Focus(unohelper.Base, XFocusListener):
 
 
 def max_height(dialog):
-    """The dialog height (AppFont) the screen's work area holds, or None when it cannot be measured."""
+    """The dialog height (AppFont) the screen's work area holds, frame and title bar included, or None."""
     try:
         toolkit = dialog.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", dialog.ctx)
-        area, size = toolkit.getWorkArea(), dialog.dialog.getPeer().getPosSize()
+        size = dialog.dialog.getPeer().getPosSize()
         per_unit = size.Height / float(dialog.model.Height)
-        return int((area.Height - DECORATION_PX) / per_unit) if per_unit > 0 else None
+        height = screen_work_area.work_area(toolkit)[1]
+        return int((height - screen_work_area.DECORATION_PX) / per_unit) if per_unit > 0 else None
     except Exception:  # noqa: BLE001 - no peer or no work area: leave the layout as it is
         return None
 
