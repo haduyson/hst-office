@@ -1,0 +1,178 @@
+Calc: an .xlsx keeps the cached results of its filled-down (shared) formulas when it is opened.
+
+The import set the cached number of a shared formula but left the cell dirty, unlike a formula of its own
+(applyCellFormulaValues resets it). A dirty cell is calculated again by the first reader of its value, and the
+optimal row height pass at the end of the import (ScDocShell::UpdateAllRowHeights, through
+ScColumn::GetOptimalHeight -> HasEditCells -> GetRangeScriptType -> ScCellFormat::GetString) reads every cell. So a
+large workbook of filled-down SUMIF/VLOOKUP/COUNTIF columns was calculated in full while loading, although formulas
+are never recalculated on load by default (OOXMLRecalcMode = 1): a 24 MB synthetic workbook of 200 000 rows with
+a SUMIF(B:B;B2;K:K) column took 160 s on 32 cores, and on a 4-core PC many minutes, looking like a hang. The same
+workbook with every formula written out per cell (no shared formulas) opened in 24 s.
+
+The shared path now resets the dirty flag as the non-shared path does. A document whose formula results are all 0
+or missing is still recalculated in full (WorkbookFragment::recalcFormulaCells), and OOXMLRecalcMode "always" or
+"ask" behaves as before.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sc_subsequent_filters_test5 testXlsxSharedFormulaCachedResults (builds a small .xlsx whose
+shared formulas carry cached results that differ from the calculated ones; fails without the fix);
+tests/unit/test_large_file_open_patches.py.
+
+--- a/sc/source/filter/oox/formulabuffer.cxx
++++ b/sc/source/filter/oox/formulabuffer.cxx
+@@ -200,11 +200,16 @@
+                             bHasCalculatedFormulaCells = true;
+                         }
+                         pCell->SetResultDouble(fVal);
+-                        /* TODO: is it on purpose that we never reset dirty here
+-                         * and thus recalculate anyway if cell was dirty? Or is it
+-                         * never dirty and therefore set dirty below otherwise? This
+-                         * is different from the non-shared case in
+-                         * applyCellFormulaValues(). */
++                        // Keep the cached result, as applyCellFormulaValues() does for
++                        // a formula of its own: a cell left dirty is calculated again
++                        // by the first reader of its value, and the optimal row height
++                        // pass at the end of the import reads every cell. A large
++                        // workbook of filled-down (shared) formulas was then calculated
++                        // in full while loading although OOXMLRecalcMode is "never".
++                        // A document whose results are all 0 or missing is still
++                        // calculated in full (WorkbookFragment::recalcFormulaCells).
++                        pCell->ResetDirty();
++                        pCell->SetChanged(false);
+                     }
+                 break;
+                 case XML_str:
+--- a/sc/qa/unit/subsequent_filters_test5.cxx
++++ b/sc/qa/unit/subsequent_filters_test5.cxx
+@@ -22,10 +22,15 @@
+ #include <types.hxx>
+ #include <undomanager.hxx>
+ 
++#include <formulacell.hxx>
++#include <rtl/crc.h>
+ #include <sfx2/dispatch.hxx>
+ #include <sfx2/viewfrm.hxx>
++#include <tools/stream.hxx>
+ 
+ #include <array>
++#include <utility>
++#include <vector>
+ 
+ using namespace css;
+ using namespace css::uno;
+@@ -437,6 +442,115 @@
+     CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(ScAddress(10, 1, 0)));
+ }
+ 
++namespace
++{
++/// Writes a zip archive of stored (uncompressed) entries: enough for a minimal .xlsx built by a test.
++void writeStoredZip(const OUString& rURL, const std::vector<std::pair<OString, OString>>& rEntries)
++{
++    SvFileStream aStream(rURL, StreamMode::WRITE | StreamMode::TRUNC);
++    aStream.SetEndian(SvStreamEndian::LITTLE);
++    std::vector<sal_uInt32> aOffsets;
++    for (const auto& [rName, rData] : rEntries)
++    {
++        aOffsets.push_back(aStream.Tell());
++        const sal_uInt32 nCrc = rtl_crc32(0, rData.getStr(), rData.getLength());
++        // signature, version, flags, method (stored), time, date (1980-01-01), crc, sizes, name and extra lengths
++        aStream.WriteUInt32(0x04034b50).WriteUInt16(20).WriteUInt16(0).WriteUInt16(0);
++        aStream.WriteUInt16(0).WriteUInt16(0x21).WriteUInt32(nCrc);
++        aStream.WriteUInt32(rData.getLength()).WriteUInt32(rData.getLength());
++        aStream.WriteUInt16(rName.getLength()).WriteUInt16(0);
++        aStream.WriteBytes(rName.getStr(), rName.getLength());
++        aStream.WriteBytes(rData.getStr(), rData.getLength());
++    }
++    const sal_uInt32 nDirStart = aStream.Tell();
++    for (size_t i = 0; i < rEntries.size(); ++i)
++    {
++        const auto& [rName, rData] = rEntries[i];
++        const sal_uInt32 nCrc = rtl_crc32(0, rData.getStr(), rData.getLength());
++        aStream.WriteUInt32(0x02014b50).WriteUInt16(20).WriteUInt16(20).WriteUInt16(0).WriteUInt16(0);
++        aStream.WriteUInt16(0).WriteUInt16(0x21).WriteUInt32(nCrc);
++        aStream.WriteUInt32(rData.getLength()).WriteUInt32(rData.getLength());
++        // name, extra and comment lengths, disk, internal and external attributes, offset
++        aStream.WriteUInt16(rName.getLength()).WriteUInt16(0).WriteUInt16(0);
++        aStream.WriteUInt16(0).WriteUInt16(0).WriteUInt32(0).WriteUInt32(aOffsets[i]);
++        aStream.WriteBytes(rName.getStr(), rName.getLength());
++    }
++    const sal_uInt32 nDirSize = aStream.Tell() - nDirStart;
++    aStream.WriteUInt32(0x06054b50).WriteUInt16(0).WriteUInt16(0);
++    aStream.WriteUInt16(rEntries.size()).WriteUInt16(rEntries.size());
++    aStream.WriteUInt32(nDirSize).WriteUInt32(nDirStart).WriteUInt16(0);
++    CPPUNIT_ASSERT_EQUAL(ERRCODE_NONE, aStream.GetError());
++}
++}
++
++CPPUNIT_TEST_FIXTURE(ScFiltersTest5, testXlsxSharedFormulaCachedResults)
++{
++    // B1:B4 is one shared (filled-down) formula =A1*2. B1:B3 carry cached results that differ from
++    // what the formula calculates, B4 has none. The import must keep the cached results, as it does
++    // for a formula of its own: a shared formula cell left dirty was calculated again by the first
++    // reader of its value (the optimal row height pass at the end of the import reads every cell),
++    // so large workbooks of filled-down formulas were calculated in full while loading.
++    static constexpr OString aSheet
++        = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++          "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>"
++          "<row r=\"1\"><c r=\"A1\"><v>1</v></c>"
++          "<c r=\"B1\"><f t=\"shared\" ref=\"B1:B4\" si=\"0\">A1*2</f><v>100</v></c></row>"
++          "<row r=\"2\"><c r=\"A2\"><v>2</v></c><c r=\"B2\"><f t=\"shared\" si=\"0\"/><v>200</v></c></row>"
++          "<row r=\"3\"><c r=\"A3\"><v>3</v></c><c r=\"B3\"><f t=\"shared\" si=\"0\"/><v>300</v></c></row>"
++          "<row r=\"4\"><c r=\"A4\"><v>4</v></c><c r=\"B4\"><f t=\"shared\" si=\"0\"/></c></row>"
++          "</sheetData></worksheet>"_ostr;
++    static constexpr OString aRels = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"_ostr;
++    static constexpr OString aMain
++        = "application/vnd.openxmlformats-officedocument.spreadsheetml"_ostr;
++    writeStoredZip(
++        maTempFile.GetURL(),
++        { { "[Content_Types].xml"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
++            "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
++            "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
++            "<Override PartName=\"/xl/workbook.xml\" ContentType=\""
++                + aMain + ".sheet.main+xml\"/>"
++                          "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\""
++                + aMain + ".worksheet+xml\"/></Types>" },
++          { "_rels/.rels"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
++            "<Relationship Id=\"rId1\" Type=\""
++                + aRels + "/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>" },
++          { "xl/workbook.xml"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\""
++                + aRels + "\"><sheets><sheet name=\"Sheet1\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>" },
++          { "xl/_rels/workbook.xml.rels"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
++            "<Relationship Id=\"rId1\" Type=\""
++                + aRels + "/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>" },
++          { "xl/worksheets/sheet1.xml"_ostr, aSheet } });
++
++    loadFromURL(maTempFile.GetURL(),
++                { comphelper::makePropertyValue(u"FilterName"_ustr, u"Calc Office Open XML"_ustr) });
++    ScDocument* pDoc = getScDoc();
++
++    for (SCROW nRow = 0; nRow < 3; ++nRow)
++    {
++        const ScFormulaCell* pCell = pDoc->GetFormulaCell(ScAddress(1, nRow, 0));
++        CPPUNIT_ASSERT(pCell);
++        CPPUNIT_ASSERT_MESSAGE("shared formula cell with a cached result is dirty", !pCell->GetDirty());
++        // Without the fix this was the calculated value 2 * (nRow + 1).
++        CPPUNIT_ASSERT_EQUAL(100.0 * (nRow + 1), pDoc->GetValue(ScAddress(1, nRow, 0)));
++    }
++    // No cached result: calculated as before.
++    CPPUNIT_ASSERT_EQUAL(8.0, pDoc->GetValue(ScAddress(1, 3, 0)));
++    CPPUNIT_ASSERT_EQUAL(u"=A1*2"_ustr, pDoc->GetFormula(1, 0, 0));
++
++    // The cells still listen to their references.
++    pDoc->SetValue(ScAddress(0, 0, 0), 10.0);
++    CPPUNIT_ASSERT_EQUAL(20.0, pDoc->GetValue(ScAddress(1, 0, 0)));
++    CPPUNIT_ASSERT_EQUAL(200.0, pDoc->GetValue(ScAddress(1, 1, 0)));
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
