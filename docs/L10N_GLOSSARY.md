@@ -79,6 +79,10 @@ của bản rà soát ribbon, chỉ nhãn lệnh trong `UI.po` và chuỗi giao 
 | Che mờ | Che thông tin | | Chèn đối tượng OLE | Đối tượng khác |
 | Ô trang (Draw) | Ngăn trang | | Basic | Quản lý macro |
 
+Zoom: tên nhóm trên ribbon là "Phóng to/thu nhỏ" ở mọi ứng dụng (thẻ Xem và Xem trước khi in; quyết định 13/11/2026), để
+không trùng nút "Thu phóng" (co bản in, `.uno:PrintScaleMenu`) cạnh nó trong Xem trước khi in của Sheets; lệnh Zoom vẫn là
+"Thu phóng".
+
 Bookmark: "Đánh dấu trang" ở mọi nơi (quyết định của chủ dự án 13/11/2026 15:12; thay "Liên kết lưu", "Dấu trang", "Thẻ
 đánh dấu"; "Chèn đánh dấu trang", "Đi tới đánh dấu trang"). Dấu trang của cơ sở dữ liệu (vị trí dòng) giữ nguyên. Tên quen bằng tiếng Anh ("pivot", "freeze", "vlookup", "word count", "margin") là từ khóa ẩn của Tìm
 tính năng ([`FeatureSearch.xcu`](../extensions/hst-vietnamese-tools/FeatureSearch.xcu)), không hiện trên nhãn. Nhãn và trang
