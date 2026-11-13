@@ -78,5 +78,21 @@ class LocalBuildPackagesTest(unittest.TestCase):
         self.assertNotEqual(bash(f"copy_packages {other} {self.dest}", self.dir).returncode, 0)
 
 
+class LocalBuildTestOptionTest(unittest.TestCase):
+    def run_script(self, *args):
+        return subprocess.run(["bash", str(ROOT / "scripts/linux/local-build.sh"), *args],
+                              capture_output=True, text=True, check=False, timeout=60)
+
+    def test_rejects_targets_that_are_not_tests(self):
+        for bad in ("UITest_writer", "Library_merged", "CppunitTest_x;id"):
+            done = self.run_script("--slot", "1", "--test", bad, "main")
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("--test", done.stderr)
+
+    def test_inner_make_runs_the_test_target_itself(self):
+        self.assertIn('test) exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" "$@" ;;', SCRIPT)
+        self.assertIn("timed tests run_tests", SCRIPT)
+
+
 if __name__ == "__main__":
     unittest.main()

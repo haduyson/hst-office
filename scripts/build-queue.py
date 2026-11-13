@@ -3,9 +3,12 @@
 """HST Office local build queue: agents submit builds themselves, a dispatcher runs them on the build slots.
 
   build-queue.sh submit --platform linux|windows --ref <branch|sha> [--priority N] [--no-package] [--modules a,b]
+                        [--test "CppunitTest_sc_ucalc ..."]   (Linux) build, then run the test targets
                                                   prints the job id (an existing identical job's id when deduplicated)
   build-queue.sh status <id> [--json]             state, slot/host, output, log
-  build-queue.sh wait <id> [--timeout S]          blocks; prints the output path(s) (exit 0) or the log tail (exit 1)
+  build-queue.sh wait <id> [--timeout S]          blocks; prints the output path(s) (exit 0) or the log tail (exit 1);
+                                                  test jobs: PASS/FAIL per target (exit 3 when a test failed)
+  build-queue.sh compare <base-id> <id>           test results of two jobs side by side (e.g. baseline vs branch)
   build-queue.sh list [--all] [--json]            queued/running jobs and the recent finished ones
   build-queue.sh cancel <id>                      queued: dropped at once; running: stopped by the dispatcher
   build-queue.sh drain <host> [--no-wait|--cancel] Windows host: no new jobs there, wait until it is idle, deploy the
@@ -37,6 +40,8 @@ ACTIVE = ("queued", "running")
 TERMINAL = ("done", "failed", "cancelled")
 REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
 MODULE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,79}$")
+# What local-build.sh --test accepts: unit/integration test targets that run headless in the slot chroot.
+TEST_RE = re.compile(r"^((CppunitTest|PythonTest)_[A-Za-z0-9_]{1,100}|[a-z0-9_]{1,40}\.(check|unitcheck|slowcheck|subsequentcheck))$")
 ID_RE = re.compile(r"^q\d{6}-\d{6}-[0-9a-f]{4}$")
 DEFAULT_CONFIG = {
     "retention_per_branch": 3,
@@ -156,8 +161,24 @@ class Store:
 
 
 # ---------------------------------------------------------------- pure helpers (unit tested)
-def job_key(platform, sha, package, modules):
-    return f"{platform}:{sha}:{'package' if package else 'nopackage'}:{','.join(sorted(modules))}"
+def job_key(platform, sha, package, modules, tests=()):
+    key = f"{platform}:{sha}:{'package' if package else 'nopackage'}:{','.join(sorted(modules))}"
+    return key + (":test=" + ",".join(sorted(tests)) if tests else "")
+
+
+def job_kind(job):
+    """Retention group: package builds, module overlays and test runs of a branch are kept separately."""
+    return "test" if job.get("tests") else "modules" if job.get("modules") else "build"
+
+
+def parse_tests(text):
+    tests = [t for t in re.split(r"[\s,]+", text or "") if t]
+    for t in tests:
+        if not TEST_RE.match(t):
+            raise QueueError(f"bad test target {t!r} (CppunitTest_*, PythonTest_* or <module>.check/unitcheck/...)")
+    if text and not tests:
+        raise QueueError("--test needs at least one target")
+    return list(dict.fromkeys(tests))
 
 
 def label_for(ref, sha):
@@ -189,7 +210,7 @@ def retention_victims(jobs, keep):
     groups = {}
     for job in jobs:
         if job["state"] == "done" and not job.get("output_deleted") and not job.get("dedupe_of"):
-            groups.setdefault((job["platform"], job["label"]), []).append(job)
+            groups.setdefault((job["platform"], job["label"], job_kind(job)), []).append(job)
     victims = []
     for group in groups.values():
         group.sort(key=lambda j: j.get("finished") or j["submitted"], reverse=True)
@@ -252,7 +273,7 @@ def resolve_ref(ref, repo=REPO):
 
 
 # ---------------------------------------------------------------- commands
-def submit(store, platform, ref, priority=0, package=True, modules=(), resolver=resolve_ref, submitter=None):
+def submit(store, platform, ref, priority=0, package=True, modules=(), resolver=resolve_ref, submitter=None, tests=()):
     if platform not in PLATFORMS:
         raise QueueError(f"--platform must be one of {', '.join(PLATFORMS)}")
     if not -100 <= priority <= 100:
@@ -260,17 +281,21 @@ def submit(store, platform, ref, priority=0, package=True, modules=(), resolver=
     modules = list(modules)
     if platform == "windows" and not package and not modules:
         raise QueueError("Windows make always builds the MSI; omit --no-package")
-    if modules:
+    tests = list(tests)
+    if tests and platform != "linux":
+        raise QueueError("--test runs on Linux slots only")
+    if modules or tests:
         package = False
     sha = resolver(ref)
-    key = job_key(platform, sha, package, modules)
+    key = job_key(platform, sha, package, modules, tests)
     with store.lock():
         dup = find_duplicate(store.all(), key)
         if dup:
             return dup, True
         t = time.time()
         job = {"id": new_id(t), "platform": platform, "ref": ref, "sha": sha, "label": label_for(ref, sha),
-               "priority": priority, "package": package, "modules": modules, "key": key, "state": "queued",
+               "priority": priority, "package": package, "modules": modules, "tests": tests, "key": key,
+               "state": "queued",
                "submitted": t, "submitted_at": now_iso(t), "submitter": submitter or os.environ.get("SUDO_USER")
                or os.environ.get("USER", "?"), "output": []}
         job["log"] = store.log_path(job["id"])
@@ -305,9 +330,51 @@ def describe(job):
              f"prio {job['priority']}", f"slot {where}"]
     if job.get("modules"):
         parts.append("modules " + ",".join(job["modules"]))
-    elif not job.get("package", True):
+    if job.get("tests"):
+        res = job.get("test_results") or {}
+        failed = sum(1 for r in res.values() if r["result"] != "pass")
+        parts.append(f"tests {len(job['tests'])}" + (f" ({len(res) - failed} pass, {failed} fail)" if res else ""))
+    elif not job.get("package", True) and not job.get("modules"):
         parts.append("no-package")
     return "  ".join(parts)
+
+
+def print_tests(store, job, out):
+    """PASS/FAIL per test target with its log; returns the number of failures."""
+    res = job.get("test_results") or {}
+    failed = 0
+    base = store.job_out(job["id"])
+    for target in job.get("tests", []):
+        r = res.get(target)
+        if r is None:
+            print(f"MISSING {target} (no result recorded)", file=out)
+            failed += 1
+            continue
+        ok = r["result"] == "pass"
+        failed += not ok
+        print(f"{'PASS' if ok else 'FAIL'} {target} ({r['seconds']} s) {os.path.join(base, r['log'])}", file=out)
+    for target in job.get("tests", []):
+        r = res.get(target)
+        if r and r["result"] != "pass":
+            print(f"--- tail of {target}", file=out)
+            print(log_tail(os.path.join(base, r["log"]), 25), file=out, end="")
+    return failed
+
+
+def compare(store, base_id, job_id, out=sys.stdout):
+    """Per-target results of two test jobs (baseline first); exit 3 when a test passes on the base but not the job."""
+    a, b = store.load(base_id), store.load(job_id)
+    ra, rb = a.get("test_results") or {}, b.get("test_results") or {}
+    targets = list(dict.fromkeys(list(a.get("tests", [])) + list(b.get("tests", []))))
+    print(f"{'target':<45} {a['label'] + '@' + a['sha'][:8]:<28} {b['label'] + '@' + b['sha'][:8]}", file=out)
+    regressions = 0
+    for t in targets:
+        x = ra.get(t, {}).get("result", "-")
+        y = rb.get(t, {}).get("result", "-")
+        mark = "  REGRESSION" if x == "pass" and y != "pass" else "  fixed" if x == "fail" and y == "pass" else ""
+        regressions += bool(mark.strip() == "REGRESSION")
+        print(f"{t:<45} {x:<28} {y}{mark}", file=out)
+    return 3 if regressions else 0
 
 
 def wait(store, job_id, timeout=None, interval=15, out=sys.stdout):
@@ -323,6 +390,8 @@ def wait(store, job_id, timeout=None, interval=15, out=sys.stdout):
     if job["state"] == "done":
         for path in job.get("output", []):
             print(path, file=out)
+        if job.get("tests"):
+            return 3 if print_tests(store, job, out) else 0
         return 0
     print(f"job {job_id} {job['state']}: {job.get('error', '')}", file=out)
     print(log_tail(job["log"]), file=out, end="")
@@ -372,6 +441,7 @@ def main(argv=None):
     s.add_argument("--priority", type=int, default=0)
     s.add_argument("--no-package", action="store_true")
     s.add_argument("--modules", default="")
+    s.add_argument("--test", default="", help="Linux: test targets to run after the build (space/comma separated)")
     st = sub.add_parser("status")
     st.add_argument("id")
     st.add_argument("--json", action="store_true")
@@ -383,6 +453,9 @@ def main(argv=None):
     li.add_argument("--json", action="store_true")
     c = sub.add_parser("cancel")
     c.add_argument("id")
+    cp = sub.add_parser("compare")
+    cp.add_argument("base")
+    cp.add_argument("id")
     dr = sub.add_parser("drain")
     dr.add_argument("host")
     dr.add_argument("--no-wait", action="store_true")
@@ -395,7 +468,7 @@ def main(argv=None):
     try:
         if args.cmd == "submit":
             job, dup = submit(store, args.platform, args.ref, args.priority, not args.no_package,
-                              parse_modules(args.modules))
+                              parse_modules(args.modules), tests=parse_tests(args.test))
             if dup:
                 print(f"deduplicated: identical job {job['id']} is {job['state']}", file=sys.stderr)
             print(job["id"])
@@ -411,6 +484,8 @@ def main(argv=None):
                         print(f"  {k}: {job[k]}")
                 for p in job.get("output", []):
                     print(f"  output: {p}{' (deleted by retention)' if job.get('output_deleted') else ''}")
+                if job.get("tests") and job["state"] == "done":
+                    print_tests(store, job, sys.stdout)
                 print(f"  log: {job['log']}")
             return 0
         if args.cmd == "wait":
@@ -430,6 +505,8 @@ def main(argv=None):
             job = cancel(store, args.id)
             print(f"{job['id']}: {'cancel requested' if job['state'] == 'running' else job['state']}")
             return 0
+        if args.cmd == "compare":
+            return compare(store, args.base, args.id)
         if args.cmd == "drain":
             return drain(store, args.host, not args.no_wait, timeout=args.timeout, cancel=args.cancel)
         if args.cmd == "dispatch":

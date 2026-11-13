@@ -41,7 +41,8 @@ scripts/build-queue.sh drain hst5           # máy Windows: ngừng nhận job m
 scripts/build-queue.sh drain hst5 --cancel  # thôi chờ (khi máy còn một build dài), nhận job lại ngay
 ```
 
-**Quy tắc cho agent (bắt buộc):** cần mã nguồn/header LibreOffice để đọc hay kiểm cú pháp thì đọc thẳng
+**Quy tắc cho agent (bắt buộc):** chạy CppunitTest bằng `submit --test` (mục dưới), không dựng cây riêng để chạy test.
+Cần mã nguồn/header LibreOffice để đọc hay kiểm cú pháp thì đọc thẳng
 `/data/hst-office-build/src/lo` (cây của slot 1), **không chép cả cây** sang chỗ khác. Chỉ khi thật sự cần một cây đã
 build và ghi được (ví dụ cho unit test) mới được giữ **một** cây riêng dưới `/data/hst-agents/<việc>/`, và phải xoá
 khi xong việc. Cần bản build thì gửi vào hàng đợi. Khi `/data` không còn đủ chỗ, bộ điều phối từ chối build và in
@@ -54,7 +55,7 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
 - Dữ liệu dưới `/data/hst-build-queue/`: `jobs/<id>.json`, `logs/<id>.log`, `out/<id>/` (`.deb`/`.msi`/overlay +
   `SHA256SUMS`; với nhánh có `ci-build.sh --rpm-appimage`, tức từ 1.0.2, job Linux có thêm `.rpm` và `.AppImage`
   đóng lại từ chính `.deb`, nhánh cũ chỉ có `.deb`), `config.json` (ghi đè mặc định trong `build-queue.py`: số đầu ra giữ lại, danh sách slot Windows).
-  Giữ `retention_per_branch` (3) đầu ra mới nhất cho mỗi nền tảng + nhánh; đầu ra cũ hơn bị xoá (job vẫn còn,
+  Giữ `retention_per_branch` (3) đầu ra mới nhất cho mỗi nền tảng + nhánh + loại job (gói, overlay, test); đầu ra cũ hơn bị xoá (job vẫn còn,
   đánh dấu `output_deleted`). Job Windows ghi máy đã build (`host`, `slot`).
 - Dispatcher là dịch vụ systemd `hst-build-queue` ([unit](../scripts/linux/hst-build-queue.service), `Restart=on-failure`,
   `Nice=10`, I/O idle; `journalctl -u hst-build-queue`), chạy từ bản triển khai `/data/hst-build/infra-current`
@@ -69,6 +70,23 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
   (`D:\hst-build\tools\scripts`) khi chúng đổi, chạy build thành scheduled task qua
   [`hst-queue-remote.ps1`](../scripts/windows/hst-queue-remote.ps1), kéo MSI về `out/<id>/` rồi xoá bản trên máy
   Windows. Slot có `build.lock` do người khác giữ (ví dụ một lượt `hst4-build.ps1` chạy tay) bị bỏ qua tới khi rảnh.
+
+### `--test`: chạy test LibreOffice trong slot (không cần cây riêng)
+
+```bash
+scripts/build-queue.sh submit --platform linux --ref feat/x --test 'CppunitTest_sc_ucalc CppunitTest_xmlsecurity_signing'
+scripts/build-queue.sh submit --platform linux --ref rc/1.0.2-batch4 --test 'CppunitTest_sc_ucalc CppunitTest_xmlsecurity_signing'
+scripts/build-queue.sh wait <id>            # PASS/FAIL từng target + đuôi log của target hỏng; thoát 3 nếu có test hỏng
+scripts/build-queue.sh compare <id-nền> <id-nhánh>   # so sánh từng target; "REGRESSION" (thoát 3) khi nền đạt mà nhánh hỏng
+```
+
+Chỉ Linux. Job build tăng dần nhánh đó trong một slot (`make` đầy đủ, không đóng gói), rồi chạy lần lượt `make <target>`
+trong chroot của slot với cùng môi trường như build (`HST_VERSION_*`, `HST_REPO_ROOT`, scope systemd, bộ điều phối,
+cùng các bảo vệ RAM/đĩa). Target hợp lệ: `CppunitTest_*`, `PythonTest_*`, `<module>.check|unitcheck|slowcheck|
+subsequentcheck` (UITest cần màn hình nên không nhận). Kết quả nằm trong job (`status --json`: `test_results`) và
+`out/<id>/test-results.json`, log từng target ở `out/<id>/test-logs/<target>.log`. Test hỏng không làm job hỏng (job
+`done`, `wait` thoát 3); build hỏng thì job `failed` như thường. Muốn so với nền thì gửi cùng danh sách `--test` cho nhánh
+nền (ví dụ `rc/1.0.2-batch4`) rồi `compare`. Job giống hệt (cùng commit + cùng danh sách test) được dùng lại.
 
 ### `--modules`: bản vá nhanh để thử (không dùng cho batch)
 

@@ -15,6 +15,10 @@
 #                      (scripts/linux/build-slots.py) decides the real -j from the other running slots
 #   --modules a,b,...  test-only partial build: `make <module>.build` (or a make target containing "." or "_")
 #                      instead of a full make, then a patch overlay of the changed instdir files instead of a .deb
+#   --test "T1 T2 ..."  after the (incremental, unpackaged) build, run these test targets one by one with
+#                      `make <target>` in the slot chroot (CppunitTest_*, PythonTest_*, <module>.check/.unitcheck/
+#                      .slowcheck/.subsequentcheck); pass/fail per target in <out>/test-results.json, logs in
+#                      <out>/test-logs/; failing tests do not fail the run (comma or space separated)
 #   --label NAME       output label (default: the branch name)
 #   --out DIR          output directory (default $HST_BUILD_ROOT/out/<label>-<sha>)
 #   --reconfigure      run the configure phase even when nothing it depends on changed
@@ -64,7 +68,7 @@ RESUME_MEM_GIB="${HST_LOCAL_RESUME_MEM_GIB:-8}"; MAX_JOBS=20
 MEM_WAIT_MIN="${HST_LOCAL_MEM_WAIT_MIN:-30}"; MIN_FREE_GIB="${HST_LOCAL_MIN_FREE_GIB:-5}"
 CCACHE_MAX="${HST_CCACHE_MAX:-30G}"
 JOBS=$MAX_JOBS; RECONFIGURE=0; FRESH=0; PACKAGE=1; TARGET=""; BUILD_PGID=""; MOUNTED=0; ADMITTED=0; BASE_MOUNTED=0
-SLOT=auto; MODULES=""; LABEL_OPT=""; OUT_OPT=""; UMOUNT_ONLY=0
+SLOT=auto; MODULES=""; TESTS=""; LABEL_OPT=""; OUT_OPT=""; UMOUNT_ONLY=0
 
 usage() { sed -n '7,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 64; }
 die() { echo "local-build: $*" >&2; exit 1; }
@@ -76,6 +80,7 @@ while [ $# -gt 0 ]; do
     -j[0-9]*) JOBS="${1#-j}"; shift ;;
     --slot) SLOT="${2:-}"; shift 2 ;;
     --modules) MODULES="${2:-}"; shift 2 ;;
+    --test) TESTS="${2:-}"; shift 2 ;;
     --label) LABEL_OPT="${2:-}"; shift 2 ;;
     --out) OUT_OPT="${2:-}"; shift 2 ;;
     --reconfigure) RECONFIGURE=1; shift ;;
@@ -105,6 +110,17 @@ if [ -n "$MODULES" ]; then
   [ "${#MAKE_TARGETS[@]}" -gt 0 ] || die "--modules needs at least one module"
   PACKAGE=0
 fi
+TEST_TARGETS=()
+if [ -n "$TESTS" ]; then
+  read -r -a TEST_TARGETS <<< "${TESTS//,/ }"
+  for t in "${TEST_TARGETS[@]}"; do
+    [[ "$t" =~ ^((CppunitTest|PythonTest)_[A-Za-z0-9_]+|[a-z0-9_]+\.(check|unitcheck|slowcheck|subsequentcheck))$ ]] \
+      || die "--test: '$t' is not a CppunitTest_*/PythonTest_* or <module>.check-style target"
+  done
+  [ "${#TEST_TARGETS[@]}" -gt 0 ] || die "--test needs at least one target"
+  PACKAGE=0
+fi
+MAKE_KIND=full; [ -z "$MODULES" ] || MAKE_KIND=modules
 [ "$(id -u)" -eq 0 ] || die "needs root (chroot and mounts)"
 for tool in git rsync docker chroot mount flock python3 sha256sum systemd-run systemctl ionice; do
   command -v "$tool" >/dev/null || die "missing host tool: $tool"
@@ -417,7 +433,7 @@ start_make() { # make like ci-build.sh --build (or the --modules targets), in a 
   local jobs="$1" max high
   SCOPE_N=$(( ${SCOPE_N:-0} + 1 )); SCOPE="hst-local-build-s$SLOT-$RUN_ID-$SCOPE_N"
   max=$(budget_mib "$jobs"); high=$(( max * 9 / 10 ))
-  log "make -j$jobs ${MAKE_TARGETS[*]:-(full)} in $SCOPE.scope (MemoryMax=${max}M MemoryHigh=${high}M" \
+  log "make -j$jobs ${MAKE_TARGETS[*]:-(full)} [$MAKE_KIND] in $SCOPE.scope (MemoryMax=${max}M MemoryHigh=${high}M" \
     "MemorySwapMax=0 CPUQuota=$(( jobs * 100 ))%, nice 19, idle I/O; MemAvailable $(mem_avail_gib) GiB," \
     "swap used $(swap_used_mib) MiB, /data free $(free_gib) GiB)"
   # shellcheck disable=SC2016 # expanded by the inner shell
@@ -428,12 +444,15 @@ start_make() { # make like ci-build.sh --build (or the --modules targets), in a 
     /bin/bash -c 'echo 500 > /proc/self/oom_score_adj
       eval "$(python3 "$HST_REPO_ROOT/scripts/write-hst-version.py" --env)"
       export HST_VERSION_MAJOR HST_VERSION_MINOR HST_VERSION_MICRO
-      cd "$0" || exit 1; jobs="$1"; shift
-      if [ "$#" -eq 0 ]; then exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs"; fi
+      cd "$0" || exit 1; jobs="$1"; kind="$2"; shift 2
+      case "$kind" in
+        full) exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" ;;
+        test) exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" "$@" ;;
+      esac
       # Module builds: the UNO API headers first, in their own invocation (docs/SHARED_BUILD_SLOTS.md).
       make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" udkapi.build offapi.build oovbaapi.build || exit $?
-      exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" "$@"' "$C_SRC" "$jobs" "${MAKE_TARGETS[@]}" \
-    >> "$RUN_LOGS/build.log" 2>&1 &
+      exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" "$@"' "$C_SRC" "$jobs" "$MAKE_KIND" "${MAKE_TARGETS[@]}" \
+    >> "$BUILD_LOG" 2>&1 &
   BUILD_PGID=$!; PAUSES=0
   "${SLOTS_PY[@]}" update --slot "$SLOT" --jobs "$jobs" --scope "$SCOPE" || true
 }
@@ -487,18 +506,18 @@ pause_for_memory() { # pause_for_memory <reason>; returns 0 to thaw, 1 to restar
 
 do_build() {
   local jobs="$JOBS" rc waited oom_retries=0 tick=0 action value
-  : > "$RUN_LOGS/build.log"
+  : > "$BUILD_LOG"
   start_make "$jobs"
   while true; do
     if ! kill -0 "$BUILD_PGID" 2>/dev/null; then
       rc=0; wait "$BUILD_PGID" || rc=$?; BUILD_PGID=""
       [ "$rc" -ne 0 ] || break
-      if tail -200 "$RUN_LOGS/build.log" | grep -qE 'Killed|Error 137|signal 9' && [ "$oom_retries" -lt 3 ] && [ "$jobs" -gt 2 ]; then
+      if tail -200 "$BUILD_LOG" | grep -qE 'Killed|Error 137|signal 9' && [ "$oom_retries" -lt 3 ] && [ "$jobs" -gt 2 ]; then
         oom_retries=$(( oom_retries + 1 )); jobs=$(( jobs / 2 )); [ "$jobs" -ge 2 ] || jobs=2
         "${SLOTS_PY[@]}" update --slot "$SLOT" --want "$jobs" || true
         log "make killed (scope memory cap?), retrying with -j$jobs"; sleep 30; start_make "$jobs"; continue
       fi
-      tail -60 "$RUN_LOGS/build.log"; return "$rc"
+      tail -60 "$BUILD_LOG"; return "$rc"
     fi
     sleep 5; tick=$(( tick + 1 ))
     throttle_links || true
@@ -528,7 +547,28 @@ do_build() {
     start_make "$jobs"
   done
   log "make done (final -j$jobs)"
-  test -x "$SRC/instdir/program/soffice" || die "build did not produce instdir/program/soffice"
+  [ "$MAKE_KIND" = test ] || test -x "$SRC/instdir/program/soffice" || die "build did not produce instdir/program/soffice"
+}
+
+run_tests() { # each --test target in turn, same scope guards as the build; results never fail the run
+  local t rc start
+  mkdir -p "$TEST_OUT/test-logs"; : > "$RUN_LOGS/tests.tsv"
+  MAKE_KIND="test"
+  for t in "${TEST_TARGETS[@]}"; do
+    MAKE_TARGETS=("$t"); BUILD_LOG="$RUN_LOGS/test-$t.log"; start=$(date +%s); rc=0
+    log "test $t: start"
+    do_build || rc=$?
+    cp "$BUILD_LOG" "$TEST_OUT/test-logs/$t.log"
+    printf '%s\t%s\t%s\n' "$t" "$rc" "$(( $(date +%s) - start ))" >> "$RUN_LOGS/tests.tsv"
+    log "test $t: $([ "$rc" -eq 0 ] && echo PASS || echo "FAIL (make exit $rc)") in $(( $(date +%s) - start ))s"
+  done
+  python3 -I -c 'import json, sys
+rows = [line.rstrip("\n").split("\t") for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+results = {t: {"result": "pass" if rc == "0" else "fail", "exit": int(rc), "seconds": int(sec),
+               "log": "test-logs/" + t + ".log"} for t, rc, sec in rows}
+json.dump({"ref": sys.argv[3], "sha": sys.argv[4], "results": results}, open(sys.argv[2], "w"), indent=1, sort_keys=True)
+' "$RUN_LOGS/tests.tsv" "$TEST_OUT/test-results.json" "$LABEL" "$SHA"
+  log "tests: $(grep -c $'\t0\t' "$RUN_LOGS/tests.tsv" || true) of ${#TEST_TARGETS[@]} passed"
 }
 
 admit() { # wait for the admission controller; it decides -j
@@ -594,11 +634,11 @@ do_overlay() { # test-only patch overlay: the instdir files the module build rew
 
 # ---------------------------------------------------------------- main
 resolve_source
-RUN_LOGS="$LOGROOT/$RUN_ID-$LABEL"; mkdir -p "$RUN_LOGS"
-DEST="$OUT/$LABEL-$SHA"; [ -z "$MODULES" ] || DEST="$DEST-modules-${MODULES//,/+}"
+RUN_LOGS="$LOGROOT/$RUN_ID-$LABEL"; mkdir -p "$RUN_LOGS"; BUILD_LOG="$RUN_LOGS/build.log"
+DEST="$OUT/$LABEL-$SHA"; [ -z "$MODULES" ] || DEST="$DEST-modules-${MODULES//,/+}"; [ -z "$TESTS" ] || DEST="$DEST-tests"
 [ -z "$OUT_OPT" ] || DEST="$OUT_OPT"
 exec > >(tee -a "$RUN_LOGS/wrapper.log") 2>&1
-log "slot $SLOT: building $LABEL @ $SHA, up to -j$JOBS${MODULES:+, modules $MODULES}, logs in $RUN_LOGS"
+log "slot $SLOT: building $LABEL @ $SHA, up to -j$JOBS${MODULES:+, modules $MODULES}${TESTS:+, tests $TESTS}, logs in $RUN_LOGS"
 [ -L "$WORK/logs" ] || { rm -rf "$WORK/logs"; ln -s "$C_LOGROOT/ci" "$WORK/logs"; }
 total_start=$(date +%s)
 timed toolchain ensure_toolchain
@@ -616,10 +656,16 @@ fi
 admit
 touch "$ROOT/.build-start"
 timed build do_build
+TEST_OUT="$RUN_LOGS/test-out"
+[ "${#TEST_TARGETS[@]}" -eq 0 ] || timed tests run_tests
 # Packaging/overlay are light: free the memory reservation and jobs for other slots now.
 "${SLOTS_PY[@]}" release --slot "$SLOT" || true; ADMITTED=0
 if [ -n "$MODULES" ]; then timed overlay do_overlay
 elif [ "$PACKAGE" -eq 1 ]; then timed package do_package; fi
+if [ "${#TEST_TARGETS[@]}" -gt 0 ]; then   # after overlay/package, which recreate $DEST
+  mkdir -p "$DEST"; cp -r "$TEST_OUT/." "$DEST/"
+  log "tests: results in $DEST/test-results.json"
+fi
 in_chroot / ccache -s | sed -n '/[Hh]its\|[Mm]isses\|[Cc]ache size/p' || true
 log "total $(( $(date +%s) - total_start ))s; timings in $RUN_LOGS/timings.tsv"
 log "output: $DEST"

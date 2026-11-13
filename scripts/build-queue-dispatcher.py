@@ -84,6 +84,8 @@ class LinuxRunner:
             cmd += ["--modules", ",".join(job["modules"])]
         elif not job["package"]:
             cmd.append("--no-package")
+        if job.get("tests"):
+            cmd += ["--test", " ".join(job["tests"])]
         cmd.append(job["sha"])
         rc = self.rc_path(job)
         if os.path.exists(rc):
@@ -107,7 +109,15 @@ class LinuxRunner:
             files = sorted(os.path.join(out, n) for n in os.listdir(out)
                            if n.endswith((".deb", ".rpm", ".AppImage", ".tar.gz"))) if os.path.isdir(out) else []
             if rc == 0:
-                return "done", {"output": files}
+                fields = {"output": files}
+                results = os.path.join(out, "test-results.json")
+                if job.get("tests"):
+                    try:
+                        with open(results, encoding="utf-8") as f:
+                            fields["test_results"] = json.load(f)["results"]
+                    except (OSError, ValueError, KeyError) as exc:
+                        return "failed", {"error": f"test results missing: {exc}"}
+                return "done", fields
             return ("cancelled" if job.get("cancel_requested") else "failed"), {"error": f"local-build.sh exit {rc}"}
         if not _pid_alive(job.get("pid")):
             return ("cancelled" if job.get("cancel_requested") else "failed"), {"error": "runner exited without a status"}
