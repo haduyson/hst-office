@@ -20,12 +20,12 @@ def config(ctx):
     from .citation_lookup import LookupConfig
     from .office_proxy import proxy
     from .update_config import _node
-    enabled, contact = True, None
+    enabled, contact = True, ""
     try:
         node = _node(ctx, CONFIG)
         enabled = bool(node.getPropertyValue("OnlineLookup"))
-        contact = node.getPropertyValue("LookupContact") or None  # empty: HST's built-in project address
-    except Exception:  # noqa: BLE001 - schema missing (development tree): lookups allowed, built-in contact
+        contact = node.getPropertyValue("LookupContact") or ""  # empty (default): no address is sent
+    except Exception:  # noqa: BLE001 - schema missing (development tree): lookups allowed, no contact
         pass
     try:
         from .update_fetch import release_info

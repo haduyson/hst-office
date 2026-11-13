@@ -50,8 +50,8 @@ class Plan(unittest.TestCase):
         result = refresh_plan.plan(self.doc, {"style": "vn-so", "opts": {}}, ENGINE)
         self.assertEqual(result["bib_roles"], ["title", "heading", "entry", "heading", "entry"])
         html = result["bibliography"][0][1]
-        self.assertTrue(html.startswith("<p>TÀI LIỆU THAM KHẢO</p><p>Tiếng Việt</p><p>[1] Nguyễn Văn An (2010), <i>"))
-        self.assertEqual([e["label"] for e in result["entries"]], ["[1]", "[2]"])
+        self.assertTrue(html.startswith("<p>TÀI LIỆU THAM KHẢO</p><p>Tiếng Việt</p><p>1. Nguyễn Văn An (2010), <i>"))
+        self.assertEqual([e["label"] for e in result["entries"]], ["1.", "2."])
 
     def test_nothing_changes_when_results_are_current(self):
         first = refresh_plan.plan(self.doc, {"style": "apa-7", "opts": {}}, ENGINE)

@@ -6,6 +6,7 @@ only "Tra cứu" and "Tìm theo dòng đã dán" reach the network, never typing
 the form; a result only fills the fields and nothing reaches the library before the form is saved; the
 administrator key /org.hasontech.hstoffice.Citations/OnlineLookup switches both off and the form says so; the
 line beside each button says what is sent where, in the UI language; the update check's proxy is used."""
+import itertools
 import pathlib
 import re
 import types
@@ -44,7 +45,8 @@ class SourceFormLookupTest(unittest.TestCase):
         for target, attribute, value in (
                 (entry, "Dialog", FakeDialog),
                 (citation_lookup, "http_transport", lambda timeout=None: self.transport),
-                (citation_lookup, "_GATE", citation_lookup.RateGate(clock=lambda: 1e9)),
+                # clicks an hour apart: the per-host spacing never refuses a click in these tests
+                (citation_lookup, "_GATE", citation_lookup.RateGate(clock=itertools.count(0, 3600).__next__)),
                 (citation_lookup_action, "config", lambda ctx: citation_lookup.LookupConfig(enabled=self.enabled))):
             patcher = mock.patch.object(target, attribute, value)
             patcher.start()
@@ -137,12 +139,15 @@ class SourceFormLookupTest(unittest.TestCase):
 
 class LookupSettingsTest(unittest.TestCase):
     def test_key_and_proxy_reach_the_lookup_settings(self):
-        node = types.SimpleNamespace(getPropertyValue={"OnlineLookup": False, "LookupContact": ""}.get)
+        node = types.SimpleNamespace(getPropertyValue={"OnlineLookup": False, "LookupContact": "it@school.edu.vn"}.get)
         with mock.patch("hst_office.update_config._node", lambda ctx, path: node), \
                 mock.patch("hst_office.office_proxy.proxy", lambda ctx: {"https": "proxy.lan:3128"}):
             settings = citation_lookup_action.config(None)
         self.assertEqual((False, {"https": "proxy.lan:3128"}), (settings.enabled, settings.proxy))
-        self.assertEqual(citation_lookup.DEFAULT_CONTACT, settings.contact)
+        self.assertEqual("it@school.edu.vn", settings.contact)  # only an administrator's address is ever sent
+        with mock.patch("hst_office.update_config._node", side_effect=RuntimeError):
+            self.assertEqual((True, ""), (citation_lookup_action.config(None).enabled,
+                                          citation_lookup_action.config(None).contact))  # default: no address
         self.assertEqual("/org.hasontech.hstoffice.Citations/OnlineLookup", citation_lookup_action.KEY)
         schema = XCS.read_text(encoding="utf-8")
         self.assertRegex(schema, r'oor:name="OnlineLookup" oor:type="xs:boolean"[^>]*>\s*<info>[\s\S]*?'
