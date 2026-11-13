@@ -14,13 +14,15 @@ is asked about once; "Không hỏi lại" stores /org.hasontech.hstoffice.ErrorR
 
 The crash facts are what the office knows: how many documents were open and in which apps, whether the session marker
 was left and the crash signature (faulting module and offsets). Never document names or locations.
-OnCloseApp removes the session marker: a normal exit is never reported.
+OnCloseApp removes the session marker: a normal exit is never reported. While the office runs, session_heartbeat keeps
+the apps of the open documents and the last time the office answered in the marker, so a session that ended with
+unchanged documents still names its app, and one closed while "not responding" (Windows' hang events) reads as a hang.
 """
 import unohelper
 from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
-from . import diag_crash, diag_log
+from . import diag_crash, diag_log, session_facts, session_heartbeat
 from .error_report_info import app_of_module, environment
 from .error_report_texts import TEXT
 
@@ -70,7 +72,8 @@ def crash_facts(state):
     apps = sorted({app_of_module(module) for module in state["modules"]})
     lines = ["Previous session: ended abnormally (detected at the next start)",
              "Emergency save ran: %s" % ("yes" if state["crashed"] else "no"),
-             "Documents open at exit: %d%s" % (len(state["modules"]), (" (%s)" % ", ".join(apps)) if apps else ""),
+             "Documents in the recovery list (modified) at exit: %d%s" % (
+                 len(state["modules"]), (" (%s)" % ", ".join(apps)) if apps else ""),
              "Document recovery offered: %s" % ("yes" if state["modules"] and not state["session"] else "no")]
     lines += diag_crash.facts(state.get("session_marker"))
     return "\n".join(lines), apps[0] if len(apps) == 1 else "unknown"
@@ -109,6 +112,8 @@ def ask(ctx, frame=None, show=None, open_report=None):
         _write(ctx, SETTINGS, "AskAfterCrash", False)
     elif answer == "send":
         text, app = crash_facts(state)
+        # the recovery list names modified documents only: unchanged ones leave the app to the session heartbeat
+        app = app if app != "unknown" else (session_facts.last_app(state.get("session_marker")) or app)
         if open_report is None:
             from .error_report_dialog import run as open_report
         open_report(ctx, frame, "crash", text, app)
@@ -162,7 +167,9 @@ class CrashReportJob(unohelper.Base, XServiceInfo, XJob):
             event = _event(arguments)
             if event == "OnStartApp":
                 capture(self.ctx)
+                session_heartbeat.start(self.ctx)
             elif event == "OnCloseApp":
+                session_heartbeat.stop()
                 diag_crash.stop()
             elif event == "onFirstVisibleTask" and STATE["pending"] is not None:
                 from .welcome_job import run_later
