@@ -89,6 +89,10 @@ class Durability(unittest.TestCase):
         self.assertIn("HST_FIRST_COPY_MS = 20000", ar)  # + 10 s user-idle wait = 30 s
         self.assertIn("rInfo.OldTempURL.isEmpty() ? std::min(nNormalMs, HST_FIRST_COPY_MS) : nNormalMs", ar)
         self.assertTrue(ordered(ar, "bFirstChange = pIt->OldTempURL.isEmpty();", "implts_updateTimer();"))
+        # modify listeners hear of the first change before the model starts its dirty clock
+        self.assertTrue(ordered(ar, "sal_Int64 nDirtyDuration = xDocRecovery2->getModifiedStateDuration();",
+                                "!docInfo.OldTempURL.isEmpty() || !xModifiable.is() || !xModifiable->isModified()",
+                                "nDirtyDuration = 0;"))
 
     def test_session_flags_dropped_when_reading_the_list(self):
         # an early flush may store "handled" of a running AutoSave; recovery would skip such an entry

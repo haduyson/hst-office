@@ -14,7 +14,9 @@ documents closed without saving kept for 7 days.
   lu*.tmp, .~lock.*#) are removed; *.bak and HST files are never touched.
 - First recovery copy: a document without any copy (new, or just saved) is due 20 seconds after its first
   change; with upstream's 10-second wait for a pause in typing the copy lands about 30 seconds after the
-  change. Then the normal interval; documents above the large-document size keep their own interval.
+  change (a document that reports itself modified while its dirty clock has not started yet, as during the
+  first modify notification, counts as just changed). Then the normal interval; documents above the
+  large-document size keep their own interval.
 - "Tài liệu chưa lưu": a document closed while modified keeps its last recovery copy in user/hst-unsaved
   (<time>-<id>.<ext> + .txt description: title, original URL, module, times) instead of deleting it;
   the store is pruned to 7 days and 500 MB (oldest first) at every close and start. The bundled extension
@@ -281,7 +283,24 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      const sal_Int64 nLargeMs
          = officecfg::Office::Recovery::AutoSave::HstLargeDocumentTimeIntervall::get()
            * sal_Int64(60000); // min -> ms
-@@ -2685,11 +2702,36 @@ void AutoRecovery::implts_deregisterDocument(const css::uno::Reference< css::fra
+@@ -2367,7 +2384,15 @@ void AutoRecovery::implts_updateTimer()
+             {
+                 sal_Int64 nDirtyDuration = xDocRecovery2->getModifiedStateDuration();
+                 if (nDirtyDuration < 0)
+-                    continue;
++                {
++                    // HST Office: the model tells its modify listeners (this service among them) about the
++                    // first change before it starts its dirty clock; a document without any copy that
++                    // reports itself modified has just become dirty (its first copy is due, see above).
++                    css::uno::Reference<css::util::XModifiable> xModifiable(docInfo.Document, css::uno::UNO_QUERY);
++                    if (!docInfo.OldTempURL.isEmpty() || !xModifiable.is() || !xModifiable->isModified())
++                        continue;
++                    nDirtyDuration = 0;
++                }
+                 // HST Office: large documents are due later (see hst_docAutoSaveInterval).
+                 const sal_Int64 nDocInterval
+                     = hst_docAutoSaveInterval(docInfo, nConfiguredAutoSaveInterval);
+@@ -2685,11 +2710,36 @@ void AutoRecovery::implts_deregisterDocument(const css::uno::Reference< css::fra
      if (bStopListening)
          implts_stopModifyListeningOnDoc(aInfo);
  
@@ -318,7 +337,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      CacheLockGuard aCacheLock(this, cppu::WeakComponentImplHelperBase::rBHelper.rMutex, m_nDocCacheLock, LOCK_FOR_CACHE_USE);
  
      /* SAFE */ {
-@@ -2704,9 +2746,14 @@ void AutoRecovery::implts_markDocumentModifiedAgainstLastBackup(const css::uno::
+@@ -2704,9 +2754,14 @@ void AutoRecovery::implts_markDocumentModifiedAgainstLastBackup(const css::uno::
             But if the document was saved as temp. file we start listening for this event again.
          */
          implts_stopModifyListeningOnDoc(*pIt);
@@ -333,7 +352,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
  }
  
  void AutoRecovery::implts_updateModifiedState(const css::uno::Reference< css::frame::XModel >& xDocument)
-@@ -2817,6 +2864,7 @@ void AutoRecovery::implts_markDocumentAsSaved(const css::uno::Reference< css::fr
+@@ -2817,6 +2872,7 @@ void AutoRecovery::implts_markDocumentAsSaved(const css::uno::Reference< css::fr
  
      aCacheLock.unlock();
  
@@ -341,7 +360,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      AutoRecovery::st_impl_removeFile(sRemoveURL1);
      AutoRecovery::st_impl_removeFile(sRemoveURL2);
  }
-@@ -3332,6 +3380,9 @@ void AutoRecovery::implts_saveOneDoc(const OUString&
+@@ -3332,6 +3388,9 @@ void AutoRecovery::implts_saveOneDoc(const OUString&
      // We must know if the user modifies the document again ...
      implts_startModifyListeningOnDoc(rInfo);
  
@@ -351,7 +370,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      AutoRecovery::st_impl_removeFile(sRemoveFile);
  }
  
-@@ -3841,6 +3892,10 @@ void AutoRecovery::implts_prepareEmergencySave()
+@@ -3841,6 +3900,10 @@ void AutoRecovery::implts_prepareEmergencySave()
      // Be sure to know all open documents really .-)
      implts_verifyCacheAgainstDesktopDocumentList();
  
@@ -362,7 +381,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      // hide all docs, so the user can't disturb our emergency save .-)
      implts_changeAllDocVisibility(false);
  }
-@@ -3921,6 +3976,9 @@ void AutoRecovery::implts_doSessionSave(const DispatchParams& aParams)
+@@ -3921,6 +3984,9 @@ void AutoRecovery::implts_doSessionSave(const DispatchParams& aParams)
  {
      SAL_INFO("fwk.autorecovery", "AutoRecovery::implts_doSessionSave()");
  

@@ -50,14 +50,17 @@ def main():
                                                        (_prop("AsTemplate", True),))
         record("Mở opens it as a new untitled document with the text",
                store_doc is not None and "CHUA-LUU-GIU-LAI" in rr.text_of(store_doc) and not store_doc.hasLocation())
-        store_doc.close(True)
-        frame = off.desktop().getCurrentFrame() or off.desktop().getFrames().getByIndex(0)
+        # the menu entry runs in the window of the opened copy (--nodefault: no other window is left)
+        frame = store_doc.getCurrentController().getFrame()
         import threading
         threading.Thread(target=lambda: off.dispatch(frame, "org.hst.office.vi:UnsavedDocuments"), daemon=True).start()
         shown = rr.wait(lambda: [w for w in hst_gui.toplevels(off.display, off.pid) if w[1] == "Tài liệu chưa lưu"], 20)
         record("the dialog Tài liệu chưa lưu opens", shown)
         if shown:
             hst_gui.send_close_request(shown[0][0], off.display)
+            rr.wait(lambda: not [w for w in hst_gui.toplevels(off.display, off.pid) if w[1] == "Tài liệu chưa lưu"], 10)
+        store_doc.setModified(False)
+        store_doc.close(True)
         # age it: the description says it was closed 8 days ago
         with open(kept[0].info, "a", encoding="utf-8") as handle:
             handle.write("closed\t%d\n" % (time.time() - 8 * 86400))
