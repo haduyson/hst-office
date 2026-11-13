@@ -1,0 +1,280 @@
+Calc: cell formats are registered through a hash index (workbooks with thousands of formats open faster).
+
+CellAttributeHelper::registerAndCheck() looked for an equal registered ScPatternAttr by scanning all
+registered entries with the same cell style name and comparing hash codes. Workbooks with thousands of
+distinct cell formats (one style, many fonts/fills/borders/number formats) register patterns for every
+attribute run while loading, so loading was O(formats x runs): a synthetic 4000-format .xlsx spent
+74 % of a 290 s load in that scan.
+
+The helper now also keeps every registered entry in an unordered_multimap keyed by its hash code
+(which includes the style name), and looks candidates up there. Each entry remembers the key it was
+indexed under, so unregistering finds it again. The operations that change registered entries in place
+(cell style deleted/created/renamed, all style sheets updated or turned into names, re-index) rebuild
+the index; a rename now also drops the stale cached hash codes of the renamed entries.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sc_ucalc testCellAttributeRegistryManyFormats; tests/unit/test_large_file_open_patches.py.
+
+--- a/sc/inc/patattr.hxx
++++ b/sc/inc/patattr.hxx
+@@ -68,16 +68,24 @@
+         size_t operator()(const std::optional<OUString>&) const;
+     };
+     typedef std::unordered_map<std::optional<OUString>, o3tl::sorted_vector<const ScPatternAttr*>, RegisteredAttrMapHash> RegisteredAttrMap;
++    // All registered entries by their hash code, so registerAndCheck() does not scan every entry of
++    // a style: workbooks with thousands of distinct cell formats of one style took minutes to load.
++    typedef std::unordered_multimap<size_t, const ScPatternAttr*> RegisteredAttrHashIndex;
+ 
+     SfxItemPool&                                        mrSfxItemPool;
+     mutable ScPatternAttr*                              mpDefaultCellAttribute;
+     mutable RegisteredAttrMap                           maRegisteredCellAttributes;
++    mutable RegisteredAttrHashIndex                     maRegisteredByHash;
+     mutable const ScPatternAttr*                        mpLastHit;
+     mutable sal_uInt64                                  mnCurrentMaxKey;
+ 
+     // only to be used from CellAttributeHolder, so private
+     const ScPatternAttr* registerAndCheck(const ScPatternAttr& rCandidate, bool bPassingOwnership) const;
+     void doUnregister(const ScPatternAttr& rCandidate);
++    void addToHashIndex(const ScPatternAttr* pPattern) const;
++    void removeFromHashIndex(const ScPatternAttr* pPattern) const;
++    // after entries were changed in place (style name, style sheet): their hash codes may differ
++    void rebuildHashIndex() const;
+ 
+ public:
+     explicit CellAttributeHelper(SfxItemPool& rSfxItemPool);
+@@ -135,6 +143,8 @@
+     CellAttributeHelper*        pCellAttributeHelper;
+     sal_uInt64                  mnPAKey;
+     mutable size_t              mnRefCount;
++    // key of this entry in CellAttributeHelper::maRegisteredByHash while registered
++    mutable size_t              mnIndexedHashCode;
+ #ifdef DBG_UTIL
+     [[maybe_unused]] sal_uInt32 m_nSerialNumber;
+     bool                        m_bDeleted;
+--- a/sc/source/core/data/patattr.cxx
++++ b/sc/source/core/data/patattr.cxx
+@@ -103,22 +103,18 @@
+             delete &rCandidate;
+         return mpLastHit;
+     }
+-    const OUString* pCandidateStyleName = rCandidate.GetStyleName();
+-    auto it = maRegisteredCellAttributes.find(pCandidateStyleName ? std::optional<OUString>(*pCandidateStyleName) : std::nullopt);
+-    if (it != maRegisteredCellAttributes.end())
++    // The hash code covers the style name, so equal entries share the hash bucket.
++    const auto aRange = maRegisteredByHash.equal_range(rCandidate.GetHashCode());
++    for (auto it = aRange.first; it != aRange.second; ++it)
+     {
+-        const size_t nCandidateHashCode = rCandidate.GetHashCode();
+-        for (const ScPatternAttr* pCheck : it->second)
++        const ScPatternAttr* pCheck = it->second;
++        if (ScPatternAttr::areSame(pCheck, &rCandidate))
+         {
+-            if (nCandidateHashCode == pCheck->GetHashCode()
+-                && ScPatternAttr::areSame(pCheck, &rCandidate))
+-            {
+-                pCheck->mnRefCount++;
+-                if (bPassingOwnership)
+-                    delete &rCandidate;
+-                mpLastHit = pCheck;
+-                return pCheck;
+-            }
++            pCheck->mnRefCount++;
++            if (bPassingOwnership)
++                delete &rCandidate;
++            mpLastHit = pCheck;
++            return pCheck;
+         }
+     }
+ 
+@@ -127,10 +123,39 @@
+     const_cast<ScPatternAttr*>(pCandidate)->SetPAKey(mnCurrentMaxKey++);
+     const OUString* pStyleName = pCandidate->GetStyleName();
+     maRegisteredCellAttributes[pStyleName ? std::optional<OUString>(*pStyleName) : std::nullopt].insert(pCandidate);
++    addToHashIndex(pCandidate);
+     mpLastHit = pCandidate;
+     return pCandidate;
+ }
+ 
++void CellAttributeHelper::addToHashIndex(const ScPatternAttr* pPattern) const
++{
++    pPattern->mnIndexedHashCode = pPattern->GetHashCode();
++    maRegisteredByHash.emplace(pPattern->mnIndexedHashCode, pPattern);
++}
++
++void CellAttributeHelper::removeFromHashIndex(const ScPatternAttr* pPattern) const
++{
++    const auto aRange = maRegisteredByHash.equal_range(pPattern->mnIndexedHashCode);
++    for (auto it = aRange.first; it != aRange.second; ++it)
++    {
++        if (it->second == pPattern)
++        {
++            maRegisteredByHash.erase(it);
++            return;
++        }
++    }
++    assert(false && "registered CellAttribute missing from the hash index (!)");
++}
++
++void CellAttributeHelper::rebuildHashIndex() const
++{
++    maRegisteredByHash.clear();
++    for (const auto & rPair : maRegisteredCellAttributes)
++        for (const ScPatternAttr* p : rPair.second)
++            addToHashIndex(p);
++}
++
+ void CellAttributeHelper::doUnregister(const ScPatternAttr& rCandidate)
+ {
+     if (&rCandidate == mpDefaultCellAttribute)
+@@ -151,6 +176,7 @@
+     it->second.erase(&rCandidate);
+     if (it->second.empty())
+         maRegisteredCellAttributes.erase(it);
++    removeFromHashIndex(&rCandidate);
+     delete &rCandidate;
+ }
+ 
+@@ -190,6 +216,7 @@
+             if (&rStyle == pCheck->GetStyleSheet())
+                 const_cast<ScPatternAttr*>(pCheck)->StyleToName();
+         }
++    rebuildHashIndex();
+ }
+ 
+ void CellAttributeHelper::RenameCellStyle(ScStyleSheet& rStyle, const OUString& rNewName)
+@@ -222,7 +249,10 @@
+     {
+         const OUString* pStyleName = p->GetStyleName();
+         maRegisteredCellAttributes[pStyleName ? std::optional<OUString>(*pStyleName) : std::nullopt].insert(p);
++        // the style name is part of the hash code
++        const_cast<ScPatternAttr*>(p)->InvalidateCaches();
+     }
++    rebuildHashIndex();
+ }
+ 
+ void CellAttributeHelper::CellStyleCreated(const ScDocument& rDoc, const OUString& rName)
+@@ -261,6 +291,7 @@
+         const OUString* pStyleName = p->GetStyleName();
+         maRegisteredCellAttributes[pStyleName ? std::optional<OUString>(*pStyleName) : std::nullopt].insert(p);
+     }
++    rebuildHashIndex();
+ }
+ 
+ void CellAttributeHelper::UpdateAllStyleSheets(const ScDocument& rDoc)
+@@ -271,6 +302,8 @@
+             bNameChanged |= const_cast<ScPatternAttr*>(pCheck)->UpdateStyleSheet(rDoc);
+     if (bNameChanged)
+         ReIndexRegistered();
++    else
++        rebuildHashIndex();
+ 
+     // force existence, then access
+     getDefaultCellAttribute();
+@@ -282,6 +315,7 @@
+     for (const auto & rPair : maRegisteredCellAttributes)
+         for (const ScPatternAttr* pCheck : rPair.second)
+             const_cast<ScPatternAttr*>(pCheck)->StyleToName();
++    rebuildHashIndex();
+ 
+     // force existence, then access
+     getDefaultCellAttribute();
+@@ -300,6 +334,7 @@
+         }
+ 
+     maRegisteredCellAttributes = std::move(aNewMap);
++    rebuildHashIndex();
+ }
+ 
+ size_t CellAttributeHelper::RegisteredAttrMapHash::operator()(const std::optional<OUString>& p) const
+@@ -390,6 +425,7 @@
+ , pCellAttributeHelper(&rHelper)
+ , mnPAKey(0)
+ , mnRefCount(0)
++, mnIndexedHashCode(0)
+ #ifdef DBG_UTIL
+ , m_nSerialNumber(nUsedScPatternAttr++)
+ , m_bDeleted(false)
+@@ -421,6 +457,7 @@
+ , pCellAttributeHelper(rPatternAttr.pCellAttributeHelper)
+ , mnPAKey(rPatternAttr.mnPAKey)
+ , mnRefCount(0)
++, mnIndexedHashCode(0)
+ #ifdef DBG_UTIL
+ , m_nSerialNumber(nUsedScPatternAttr++)
+ , m_bDeleted(false)
+--- a/sc/qa/unit/ucalc.cxx
++++ b/sc/qa/unit/ucalc.cxx
+@@ -46,6 +46,9 @@
+ #include <postit.hxx>
+ #include <tabprotection.hxx>
+ #include <undomanager.hxx>
++#include <patattr.hxx>
++#include <stlpool.hxx>
++#include <stlsheet.hxx>
+ #include <token.hxx>
+ 
+ #include <formula/IFunctionDescription.hxx>
+@@ -7945,6 +7948,63 @@
+     m_pDoc->DeleteTab(0);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(Test, testCellAttributeRegistryManyFormats)
++{
++    // Thousands of distinct cell formats of one cell style: every distinct content is registered
++    // once and found again (through the hash index), also after the style was renamed.
++    m_pDoc->InsertTab(0, u"Test"_ustr);
++    CellAttributeHelper& rHelper = m_pDoc->getCellAttributeHelper();
++    ScStyleSheetPool* pStylePool = m_pDoc->GetStyleSheetPool();
++    ScStyleSheet& rStyle = static_cast<ScStyleSheet&>(
++        pStylePool->Make(u"HashIndexStyle"_ustr, SfxStyleFamily::Para, SfxStyleSearchBits::UserDefined));
++
++    constexpr sal_uInt32 nFormats = 4000;
++    auto makePattern = [&](sal_uInt32 i) {
++        ScPatternAttr aPattern(rHelper);
++        aPattern.SetStyleSheet(&rStyle);
++        aPattern.ItemSetPut(SvxBrushItem(Color(ColorTransparency, 0x10000 + i), ATTR_BACKGROUND));
++        return aPattern;
++    };
++    std::vector<CellAttributeHolder> aRegistered;
++    for (sal_uInt32 i = 0; i < nFormats; ++i)
++    {
++        ScPatternAttr aPattern(makePattern(i));
++        aRegistered.emplace_back(&aPattern);
++        CPPUNIT_ASSERT(aRegistered.back().getScPatternAttr() != &aPattern);
++    }
++    // all distinct
++    for (sal_uInt32 i = 1; i < nFormats; ++i)
++        CPPUNIT_ASSERT(aRegistered[i].getScPatternAttr() != aRegistered[i - 1].getScPatternAttr());
++    // equal contents give the registered entries, in reverse order to avoid the last-hit cache
++    for (sal_uInt32 i = nFormats; i-- > 0;)
++    {
++        ScPatternAttr aPattern(makePattern(i));
++        CellAttributeHolder aAgain(&aPattern);
++        CPPUNIT_ASSERT_EQUAL(aRegistered[i].getScPatternAttr(), aAgain.getScPatternAttr());
++    }
++
++    // Renaming the style changes the hash code of the entries that use it.
++    pStylePool->Rename(rStyle, u"HashIndexStyleRenamed"_ustr, SfxStyleFamily::Para);
++    for (sal_uInt32 i = 0; i < nFormats; i += 97)
++    {
++        ScPatternAttr aPattern(makePattern(i));
++        CellAttributeHolder aAgain(&aPattern);
++        CPPUNIT_ASSERT_EQUAL(aRegistered[i].getScPatternAttr(), aAgain.getScPatternAttr());
++    }
++
++    // Dropping the entries unregisters them (and takes them out of the index); registering again
++    // gives one shared entry.
++    aRegistered.clear();
++    ScPatternAttr aPattern(makePattern(0));
++    CellAttributeHolder aNew(&aPattern);
++    CellAttributeHolder aNewAgain(&aPattern);
++    CPPUNIT_ASSERT(aNew.getScPatternAttr() != &aPattern);
++    CPPUNIT_ASSERT(ScPatternAttr::areSame(aNew.getScPatternAttr(), &aPattern));
++    CPPUNIT_ASSERT_EQUAL(aNew.getScPatternAttr(), aNewAgain.getScPatternAttr());
++
++    m_pDoc->DeleteTab(0);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
