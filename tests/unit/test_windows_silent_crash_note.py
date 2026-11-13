@@ -24,6 +24,13 @@ class FaultNoteTests(unittest.TestCase):
         self.assertEqual(windows_fault_note.signature(""), "")
         self.assertEqual(windows_fault_note.signature("end=exit255\n"), "")
 
+    def test_the_note_adds_the_real_fault_to_the_office_raised_event(self):
+        event = "Exception 00000000 in KERNELBASE.dll 10.0.26100.9974 at offset 00000000000c569a (soffice 1.0.2)"
+        note = windows_fault_note.signature("code=0xC0000005 module=python313.dll offset=0x1D2F4A thread=1\n")
+        self.assertEqual(windows_fault_note.combined(event, note), event + "; first fault: " + note)
+        self.assertEqual(windows_fault_note.combined(event, ""), event)
+        self.assertEqual(windows_fault_note.combined("", note), note)
+
 
 class PreviousSessionTests(unittest.TestCase):
     def setUp(self):

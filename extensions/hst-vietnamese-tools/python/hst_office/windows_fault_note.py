@@ -33,6 +33,14 @@ def signature(text):
     return text_out
 
 
+def combined(event, note):
+    """The Windows event's signature and the note's (pure). When the office ended the crash itself, the event names
+    only where it raised its own exception (KERNELBASE, code 0): the note adds where the crash really happened."""
+    if event and note:
+        return "%s; first fault: %s" % (event, note)
+    return event or note
+
+
 def read(path, started):
     """The note of the session that started at `started` (a note older than that session is not its own); ""."""
     try:

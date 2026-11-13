@@ -83,8 +83,9 @@ def previous_session(system=None, marker=None, stderr_text=None, now=None, note_
     elif system == "Darwin":
         signature = crash_signature.from_mac_reports(os.path.expanduser("~/Library/Logs/DiagnosticReports"), started)
     elif system == "Windows":
-        signature = crash_signature.from_windows_events(started) or windows_fault_note.signature(
-            windows_fault_note.read(_path(windows_fault_note.NAME), started) if note_text is None else note_text)
+        note = windows_fault_note.read(_path(windows_fault_note.NAME), started) if note_text is None else note_text
+        signature = windows_fault_note.combined(crash_signature.from_windows_events(started),
+                                                windows_fault_note.signature(note))
     else:
         signature = ""
     hang = crash_signature.windows_hang(started) if system == "Windows" and not signature else None
