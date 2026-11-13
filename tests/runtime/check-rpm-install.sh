@@ -5,7 +5,8 @@
 # Vietnamese text as a normal user -> GUI start under Xvfb -> optional distribution LibreOffice side by side ->
 # upgrade/reinstall with `rpm -U --replacepkgs` -> erase -> nothing left, user documents kept.
 #   tests/runtime/check-rpm-install.sh <rpm-file> [out-dir]
-# Environment: IMAGE (default fedora:42; fedora:40/41, opensuse/leap:15.6, opensuse/tumbleweed, rockylinux:9 work),
+# Environment: IMAGE (default fedora:42; fedora:40/41, opensuse/leap:15.6, opensuse/tumbleweed work; rockylinux:9 fails
+#              by design: glibc 2.34 < the package's GLIBC_2.35, see docs/LINUX_PACKAGES.md),
 #              COEXIST=1 also installs the distribution's LibreOffice Writer first and checks both run.
 # Needs network inside the container (dependencies). Exit 0 = every check passed.
 set -euo pipefail

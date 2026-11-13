@@ -73,10 +73,12 @@ def external_requires(scans, bundled_names):
     return sorted(wanted)
 
 
-def glibc_baseline(requires):
-    """Highest GLIBC_x.y symbol version the package needs (the oldest glibc it runs on), or None."""
-    found = [tuple(int(p) for p in m.groups()) for r in requires for m in [re.fullmatch(r"libc\.so\.6\(GLIBC_(\d+)\.(\d+)(?:\.\d+)?\)\(64bit\)", r)] if m]
-    return "%d.%d" % max(found) if found else None
+def baseline(requires, prefix="GLIBC_"):
+    """Highest <prefix>x.y[.z] symbol version needed from any library (GLIBC_: the oldest glibc it runs on, from libc,
+    libm, ...; GLIBCXX_: the oldest libstdc++), or None."""
+    found = [tuple(int(p) for p in m.group(1).split(".")) for r in requires
+             for m in [re.search(r"\(" + prefix + r"(\d+(?:\.\d+)+)\)\(64bit\)$", r)] if m]
+    return ".".join(map(str, max(found))) if found else None
 
 
 def file_list(payload_paths):

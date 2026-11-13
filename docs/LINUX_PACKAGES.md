@@ -6,8 +6,8 @@ loại tệp), build **một lần**:
 | Tệp | Cho ai | Cài |
 |---|---|---|
 | `HSTOffice_<release>_Linux_x86-64.deb` | Ubuntu 22.04+, Debian 12/13, Linux Mint 21/22 | nhấn đúp, hoặc `sudo apt install ./<tệp>` |
-| `HSTOffice_<release>_Linux_x86-64.rpm` | Fedora 40–42, openSUSE Leap 15.6 / Tumbleweed, RHEL 9 và họ hàng | `sudo dnf install ./<tệp>` / `sudo zypper install --allow-unsigned-rpm ./<tệp>` |
-| `HSTOffice_<release>_Linux_x86-64.AppImage` | mọi bản Linux x86-64 có glibc ≥ 2.34 và GTK 3 | `chmod +x <tệp>` rồi chạy, không cần quyền quản trị |
+| `HSTOffice_<release>_Linux_x86-64.rpm` | Fedora 40–42, openSUSE Leap 15.6 / Tumbleweed (RHEL/Rocky/Alma 9 **không**: glibc 2.34 quá cũ) | `sudo dnf install ./<tệp>` / `sudo zypper install --allow-unsigned-rpm ./<tệp>` |
+| `HSTOffice_<release>_Linux_x86-64.AppImage` | mọi bản Linux x86-64 có glibc ≥ 2.35, libstdc++ của GCC ≥ 12 và GTK 3 | `chmod +x <tệp>` rồi chạy, không cần quyền quản trị |
 
 `<release>` là mã bản phát hành của [data/hst/release.json](../data/hst/release.json) (ví dụ `1.0.2`, `1.0.2-beta.1`);
 phiên bản lõi 26.8.1.1 không xuất hiện ở tên hay siêu dữ liệu gói.
@@ -50,9 +50,12 @@ chạy `--package` rồi `--rpm-appimage` trong cùng bước, tải lên cùng 
 
 ## glibc và thư viện
 
-Build trong Ubuntu 22.04 (glibc 2.35). Ký hiệu glibc cao nhất mà các tệp ELF cần là **`GLIBC_2.34`** → chạy được trên
-mọi bản có glibc ≥ 2.34 (RHEL/Rocky/Alma 9, Fedora 35+, openSUSE Leap 15.6 có glibc 2.38, Debian 12 có 2.36, Ubuntu 22.04
-có 2.35). `.rpm` ghi điều này thành `Requires`, nên `dnf`/`zypper` từ chối rõ ràng trên máy cũ hơn. AppImage **không**
+Build trong Ubuntu 22.04 (glibc 2.35, libstdc++ của GCC 12). Phiên bản ký hiệu cao nhất mà các tệp ELF cần:
+**`GLIBC_2.35`** (từ `libm`; `libc` chỉ cần 2.34) và **`GLIBCXX_3.4.30`** / `CXXABI_1.3.13` (libstdc++ GCC 12) —
+`make-rpm.py` in cả hai sau mỗi lần đóng gói. Chạy được: Ubuntu 22.04+, Debian 12+, Fedora 36+, openSUSE Leap 15.6 và
+Tumbleweed, Arch. **Không** chạy: RHEL/Rocky/Alma 9 (glibc 2.34, GCC 11) — `dnf` báo rõ `nothing provides
+libm.so.6(GLIBC_2.35)(64bit)` vì `.rpm` ghi các phiên bản này thành `Requires` (đã thử trên `rockylinux:9`); AppImage trên
+máy như vậy không khởi động (thử trên `rockylinux:9`: thiếu `GLIBCXX_3.4.30`). AppImage **không**
 mang theo thư viện hệ thống: máy cần GTK 3, NSS, CUPS, GStreamer base, X11/xcb — một máy để bàn bình thường đã có
 (container tối giản thì phải cài, xem `tests/runtime/check-appimage-inside.sh`).
 
@@ -124,4 +127,7 @@ IMAGE=ubuntu:22.04 tests/runtime/check-appimage.sh dist/linux/HSTOffice_<release
 ```
 
 `IMAGE` đã chạy: rpm — `fedora:40`, `fedora:41`, `fedora:42`, `opensuse/leap:15.6`, `opensuse/tumbleweed`; AppImage —
-`ubuntu:22.04`, `ubuntu:24.04`, `debian:12`, `fedora:41`, `archlinux:latest`. Unit: `tests/unit/test_linux_rpm_appimage_packaging.py`.
+`ubuntu:22.04`, `ubuntu:24.04`, `debian:12`, `fedora:41`, `archlinux:latest` (bước GUI tự bỏ qua trong container Arch: bộ
+nạp ảnh glycin của GTK cần namespace của `bwrap` mà docker không cho, một chương trình GTK 3 bất kỳ cũng lỗi y hệt).
+Cập nhật trong ứng dụng, bước cài thật: `tests/runtime/check-linux-package-update.sh rpm|appimage <cũ> <mới> [image]`
+(Fedora 42 qua dnf5, Tumbleweed qua zypper, AppImage trên Ubuntu 24.04). Unit: `tests/unit/test_linux_rpm_appimage_packaging.py`.

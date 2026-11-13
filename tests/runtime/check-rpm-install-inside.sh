@@ -80,9 +80,9 @@ rpm -U --replacepkgs /pkg/hst.rpm >/tmp/upgrade.log 2>&1 && [ -x $BIN ] && pass 
 
 step erase
 pm_remove hst-office >/tmp/remove.log 2>&1 || { tail -5 /tmp/remove.log; fail remove; }
-! rpm -q hst-office >/dev/null && [ ! -e /opt/hst-office1.0 ] && ! ls /usr/share/applications | grep -q hasontech && ! command -v hst-office >/dev/null \
+! rpm -q hst-office >/dev/null && [ ! -e /opt/hst-office1.0 ] && ! find /usr/share/applications -name '*hasontech*' | grep -q . && ! command -v hst-office >/dev/null \
   && pass "erase clean (/opt, launchers, PATH)" || fail "leftovers after erase"
-! ls /usr/share/icons/hicolor/*/apps 2>/dev/null | grep -q hasontech && pass "icons removed" || fail "icons left"
+! find /usr/share/icons/hicolor -name '*hasontech*' | grep -q . && pass "icons removed" || fail "icons left"
 as_user "test -s ~/Documents/keep.docx" && pass "user documents kept" || fail "user documents lost"
 if [ -n "${COEXIST:-}" ]; then
   as_user "cd /tmp && libreoffice --headless --convert-to pdf ~/Documents/keep.docx >/dev/null 2>&1 && test -s /tmp/keep.pdf" && pass "distro LibreOffice works after HST erase" || fail "distro LibreOffice after erase"

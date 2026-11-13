@@ -128,8 +128,9 @@ def main():
         out, version, rel, requires = build(args.deb.resolve(), args.out_dir.resolve(), pathlib.Path(tmp))
     digest = sha256(out)
     add_sum(args.out_dir, out.name, digest)
-    print("rpm: %s (%d MiB, %s-%s, %d requires, glibc >= %s)" % (out, out.stat().st_size // 2**20, version, rel,
-                                                                   len(requires), rpm_spec.glibc_baseline(requires)))
+    print("rpm: %s (%d MiB, %s-%s, %d requires, glibc >= %s, libstdc++ GLIBCXX_%s)" % (
+        out, out.stat().st_size // 2**20, version, rel, len(requires), rpm_spec.baseline(requires),
+        rpm_spec.baseline(requires, "GLIBCXX_")))
     print("%s  %s" % (digest, out.name))
 
 

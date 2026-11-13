@@ -16,8 +16,8 @@ case "$ID" in
     PKGS="gtk3 nss cups-libs gstreamer1-plugins-base libXinerama libSM krb5-libs xorg-x11-server-Xvfb procps-ng desktop-file-utils shared-mime-info shadow-utils util-linux"
     add() { dnf install -y -q "$@" >/tmp/pkg.log 2>&1; } ;;
   arch)
-    pacman -Sy --noconfirm >/dev/null 2>&1
-    PKGS="gtk3 nss libcups gst-plugins-base-libs libxinerama libsm krb5 xorg-server-xvfb procps-ng desktop-file-utils shared-mime-info"
+    pacman -Syu --noconfirm >/dev/null 2>&1
+    PKGS="gtk3 adwaita-icon-theme bubblewrap nss libcups gst-plugins-base-libs libxinerama libsm krb5 xorg-server-xvfb procps-ng desktop-file-utils shared-mime-info"
     add() { pacman -S --noconfirm --needed "$@" >/tmp/pkg.log 2>&1; } ;;
   *) echo "FAIL unsupported image $ID"; exit 2 ;;
 esac
@@ -73,6 +73,11 @@ as_user "cd /tmp && $A --appimage-extract >/dev/null 2>&1"
 as_user "/tmp/squashfs-root/opt/hst-office1.0/program/python /roundtrip.py /tmp/rt $A" && pass "roundtrip through the AppImage" || fail roundtrip
 
 step gui
+# GTK's glycin image loaders (Arch, newer Fedora) sandbox themselves with bwrap, which cannot create its network
+# namespace inside docker: then no GTK 3 program can load an icon here (a plain python-gobject one fails the same way).
+if [ -d /usr/lib/glycin-loaders ] && ! as_user "bwrap --unshare-all --ro-bind /usr /usr --symlink /usr/lib /lib64 /usr/bin/true" >/dev/null 2>&1; then
+  echo "INFO GUI step skipped: glycin needs bwrap namespaces that this container does not allow"; pkill Xvfb || :; echo DONE; exit 0
+fi
 (Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &); sleep 3
 as_user "DISPLAY=:99 $A --writer --norestore >/tmp/gui.log 2>&1 & sleep 25; pgrep -x soffice.bin >/dev/null && echo GUI-ALIVE; pkill -x soffice.bin; true" | grep -q GUI-ALIVE \
   && pass "GUI start under Xvfb" || { tail -5 /tmp/gui.log; fail "GUI start"; }

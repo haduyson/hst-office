@@ -42,8 +42,12 @@ class Rpm(unittest.TestCase):
         self.assertEqual(scan[0], "libmergedlo.so")
         requires = rpm_spec.external_requires([scan], {"libuno_sal.so.3"})
         self.assertEqual(requires, ["libc.so.6()(64bit)", "libc.so.6(GLIBC_2.2.5)(64bit)", "libc.so.6(GLIBC_2.34)(64bit)"])
-        self.assertEqual(rpm_spec.glibc_baseline(requires), "2.34")
-        self.assertIsNone(rpm_spec.glibc_baseline([]))
+        self.assertEqual(rpm_spec.baseline(requires), "2.34")
+        more = requires + ["libm.so.6(GLIBC_2.35)(64bit)", "libstdc++.so.6(GLIBCXX_3.4.30)(64bit)",
+                           "libstdc++.so.6(GLIBCXX_3.4.9)(64bit)", "libstdc++.so.6(CXXABI_1.3.13)(64bit)"]
+        self.assertEqual(rpm_spec.baseline(more), "2.35")  # libm counts as much as libc
+        self.assertEqual(rpm_spec.baseline(more, "GLIBCXX_"), "3.4.30")
+        self.assertIsNone(rpm_spec.baseline([]))
 
     def test_files_and_spec(self):
         paths = ["/opt/hst-office1.0/program/soffice", "/usr/bin/hst-office", "/usr/share/doc/hst-office/copyright",
