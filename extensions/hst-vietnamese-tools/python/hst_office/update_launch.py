@@ -4,6 +4,7 @@ import os
 import signal
 import subprocess
 
+from .update_elevate_windows import ElevationDeclined  # noqa: F401 - raised through elevate_and_quit
 from .update_helper_cmd import argv as helper_argv
 
 
@@ -50,8 +51,9 @@ def spawn(argv, system, log_dir=None):
     options = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
                "stderr": subprocess.DEVNULL, "close_fds": True, "shell": False}
     if system == "Windows":
-        options["creationflags"] = (getattr(subprocess, "DETACHED_PROCESS", 0x8)
-                                    | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
+        # A new console without a window, not DETACHED_PROCESS: powershell.exe started with no console at all exits
+        # at once with code 0 and never runs its -File script (checked on Windows 11), so no update ever ran.
+        options["creationflags"] = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
                                     | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
     else:
         options["start_new_session"] = True
@@ -113,4 +115,38 @@ def spawn_and_quit(ctx, argv, system):
     finally:
         if not closing:
             cancel(proc)
+    return closing
+
+
+# Windows: the helper must start elevated *before* the office closes (update_elevate_windows). The office cannot
+# stop an elevated process, so a quit cancelled at a save prompt leaves this marker, which the helper obeys.
+CANCEL_NAME = "update-cancel"  # read by the Windows helper (update_helper_scripts_windows)
+
+
+def cancel_marker(cache_dir):
+    return os.path.join(cache_dir, CANCEL_NAME)
+
+
+def run_elevated(argv):
+    """Start argv elevated (update_elevate_windows.run_elevated); ElevationDeclined when the user says No."""
+    from .update_elevate_windows import run_elevated as run
+    return run(argv[0], subprocess.list2cmdline(argv[1:]))
+
+
+def elevate_and_quit(ctx, argv, cache_dir, run=run_elevated):
+    """Windows: start the elevated helper, then quit the office (quit_office). The office cannot stop an elevated
+    process, so a quit cancelled at a save prompt leaves the cancel marker, which the helper obeys. True when quitting."""
+    marker = cancel_marker(cache_dir)
+    try:
+        os.unlink(marker)
+    except FileNotFoundError:
+        pass
+    run(argv)  # ElevationDeclined / OSError: the office has not been asked to close
+    closing = False
+    try:
+        closing = quit_office(ctx)
+    finally:
+        if not closing:
+            with open(marker, "w", encoding="ascii") as handle:
+                handle.write("cancel\n")
     return closing

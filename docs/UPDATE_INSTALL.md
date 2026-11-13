@@ -33,13 +33,14 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
 | `wait` | HST Office không thoát trong 30 phút | HST Office không đóng hẳn |
 
    Không ghi gì (không có thông báo) khi: cài thành công; chọn **Hủy** ở hộp hỏi lưu (trợ giúp dừng, **không** mở lại, vì
-   HST Office vẫn đang mở); người dùng tự từ chối ở hộp mật khẩu (`pkexec` 126, UAC bị từ chối hoặc `msiexec` 1602, macOS
-   lỗi `-128`), bản cũ vẫn được mở lại. Bản ghi có `from` (bản đang cài lúc thử) và `to`: nếu bản đang chạy khác `from`
+   HST Office vẫn đang mở); người dùng tự từ chối ở hộp mật khẩu (`pkexec` 126, `msiexec` 1602, macOS
+   lỗi `-128`), bản cũ vẫn được mở lại. Windows: câu hỏi quyền quản trị (UAC) hiện **trước khi** HST Office đóng; chọn
+   Không thì HST Office vẫn mở và báo ngay "cần quyền quản trị" kèm nút Tải về. Bản ghi có `from` (bản đang cài lúc thử) và `to`: nếu bản đang chạy khác `from`
    (đã cài bằng cách khác) thì bản ghi bị bỏ qua.
 
 | Hệ điều hành | Cách cài |
 |---|---|
-| Windows | `powershell` chạy `msiexec /i <msi> /passive /norestart` nâng quyền qua UAC (MSI nâng cấp bản cũ) |
+| Windows | Lúc HST Office còn là cửa sổ đang dùng, nó chạy trợ giúp `powershell` **đã nâng quyền** (`ShellExecuteExW` "runas", cửa sổ HST Office làm chủ, nên hộp UAC hiện ngay trước mặt người dùng), rồi mới đóng. Trợ giúp chạy `msiexec /i <msi> /passive /norestart /l*v msi-install.log` (MSI nâng cấp bản cũ), rồi mở lại HST Office qua `explorer.exe` để bản mới chạy với quyền thường. Hủy ở hộp hỏi lưu: HST Office ghi tệp `update-cancel`, trợ giúp thấy tệp thì dừng. Trợ giúp không được chạy với `DETACHED_PROCESS`: `powershell.exe` không có console sẽ thoát mã 0 ngay mà không chạy tập lệnh (bản 1.0.1 trở về trước bị lỗi này) |
 | Linux | `.deb` đơn: `pkexec env DEBIAN_FRONTEND=noninteractive apt-get install -y <deb>`, hoặc `pkcon install-local` (hỏi mật khẩu quản trị). Thiếu cả hai: báo rõ trước khi đóng, dùng "Tải về" |
 | macOS | gắn dmg, `codesign --verify --deep --strict`, `spctl --assess`, Team ID phải là `74AT34P945`; chép bản mới cạnh bản cũ, kiểm lại, đổi tên bản cũ sang `.hst-old`, đưa bản mới vào chỗ, rồi mới xóa bản cũ (hỏng thì khôi phục); quyền quản trị qua `osascript ... with administrator privileges` khi thư mục không ghi được; mở lại bằng `open` |
 
@@ -89,6 +90,10 @@ macOS; tài liệu quản trị do phần khóa cấu hình cập nhật nắm) 
   `python3 tests/runtime/check-update-outcome.py` (trợ giúp thật với `pkexec` giả trả 127, bản cũ mở lại và hiện thông báo
   một lần; Hủy ở hộp hỏi lưu).
 - Windows: `tests/runtime/check-update-install-smoke.py` trong [windows-smoke.yml](../.github/workflows/windows-smoke.yml),
-  gồm cả bản ghi cài lỗi do PowerShell viết.
-- Chưa chạy thật trên Windows/macOS (không có máy): nhánh UAC, `msiexec`, `osascript`, `hdiutil` mới chỉ kiểm bằng nội dung
+  gồm cả bản ghi cài lỗi do PowerShell viết. Trợ giúp được khởi chạy bằng `update_launch.spawn` như trong HST Office (không
+  dùng `subprocess.run`), nên cờ tiến trình sai làm bước "ran its script" đỏ.
+- Đã chạy trên máy Windows 11 thật: nâng quyền bằng `ShellExecuteExW` (tham số có dấu cách giữ nguyên), mở lại qua
+  `explorer.exe` ở mức quyền thường (Medium), trợ giúp sống tiếp sau khi tiến trình cha thoát, tệp `update-cancel`.
+  Máy thử tự nâng quyền không hỏi, nên vị trí hộp UAC (trước mặt hay nháy ở thanh tác vụ) chưa quan sát trực tiếp.
+- Chưa chạy thật trên macOS (không có máy): `osascript`, `hdiutil` mới chỉ kiểm bằng nội dung
   tập lệnh hoặc công cụ giả. Chưa thử cài `.deb` thật với `pkexec` thật cho nhánh lỗi (máy build không có polkit).

@@ -10,92 +10,10 @@ import unicodedata
 
 from . import update_helper_scripts as scripts
 from . import update_helper_scripts_mac as mac_scripts
+from .update_helper_scripts_windows import POWERSHELL
 
 TEAM_ID = "74AT34P945"
 SCRIPT_PATH = "{script}"
-
-POWERSHELL = r'''# SPDX-License-Identifier: AGPL-3.0-only
-param(
-    [Parameter(Mandatory=$true)][int]$ProcessId,
-    [Parameter(Mandatory=$true)][string]$Installer,
-    [Parameter(Mandatory=$true)][string]$Soffice,
-    [Parameter(Mandatory=$true)][string]$Log,
-    [Parameter(Mandatory=$true)][string]$Sha256,
-    [switch]$DryRun
-)
-$ErrorActionPreference = 'Stop'
-function Write-Step([string]$Message) {
-    Add-Content -LiteralPath $Log -Encoding UTF8 -Value ((Get-Date -Format o) + ' ' + $Message)
-}
-$state = Join-Path (Split-Path -Parent $Log) 'update-result.json'
-# The start-up job shows this once (update_outcome.py); it stays on this machine.
-function Write-Failure([string]$Reason, [int]$ExitCode) {
-    try {
-        $json = @{schema=1; code=$Reason; exit=$ExitCode; from='@FROM_RELEASE@'; to='@TO_RELEASE@'} | ConvertTo-Json -Compress
-        Set-Content -LiteralPath "$state.tmp" -Encoding ASCII -Value $json
-        Move-Item -LiteralPath "$state.tmp" -Destination $state -Force
-        Write-Step ("Recorded failure: $Reason ($ExitCode)")
-    } catch { Write-Step 'Failure not recorded' }
-}
-$code = 1
-$fail = 'wait'
-try {
-    Write-Step "Waiting for process $ProcessId"
-    $seconds = 0
-    while (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
-        if ($seconds -ge 1800) {
-            Write-Step 'Timed out after 30 minutes; installation skipped'
-            throw 'wait-timeout'
-        }
-        Start-Sleep -Seconds 1
-        $seconds++
-    }
-    Write-Step 'Process exited'
-    Remove-Item -LiteralPath $state -ErrorAction SilentlyContinue
-    $fail = 'verify'
-    if (-not (Test-Path -LiteralPath $Installer -PathType Leaf)) {
-        throw 'SHA256 verification failed: installer missing'
-    }
-    $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $Installer
-    if ($hash.Hash -ine $Sha256) { throw 'SHA256 mismatch; installation skipped' }
-    $fail = 'install'
-    if ($DryRun) {
-        Write-Step ('DRYRUN install: msiexec.exe /i "' + $Installer + '" /passive /norestart')
-        $code = 0
-    } else {
-        Write-Step 'Installing with msiexec'
-        try {
-            $result = Start-Process msiexec.exe -Verb RunAs -Wait -PassThru -ArgumentList '/i', "`"$Installer`"", '/passive', '/norestart'
-            Write-Step ("Installer exited with code " + $result.ExitCode)
-            if ($result.ExitCode -eq 0 -or $result.ExitCode -eq 3010) {
-                $code = 0
-                Remove-Item -LiteralPath $Installer
-                Write-Step 'Deleted installer'
-            } else {
-                $code = $result.ExitCode
-                if ($code -eq 1602) { $fail = 'cancel' }  # the installer's own Cancel button
-            }
-        } catch {
-            # Start-Process only fails here when the UAC question is declined: the user's choice.
-            Write-Step 'Installer failed or UAC was declined; exit code 1'
-            $code = 1
-            $fail = 'cancel'
-        }
-    }
-} catch {
-    Write-Step ('Helper failed; exit code 1: ' + $_.Exception.Message)
-} finally {
-    if ($code -ne 0 -and $fail -ne 'cancel') { Write-Failure $fail $code }
-    if ($DryRun) {
-        Write-Step ('DRYRUN relaunch: Start-Process "' + $Soffice + '"')
-    } elseif (Test-Path -LiteralPath $Soffice) {
-        Write-Step 'Relaunching HST Office'
-        try { Start-Process $Soffice | Out-Null }
-        catch { Write-Step 'Relaunch failed' }
-    } else { Write-Step 'Relaunch unavailable: executable missing' }
-}
-exit $code
-'''
 
 
 def preflight(system, which=shutil.which):
