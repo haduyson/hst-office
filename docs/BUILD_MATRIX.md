@@ -112,3 +112,20 @@ một major upgrade như upstream.
 - Kiểm tra: `scripts/check-msi-upgrade.py` (Quality CI, đọc patch) và `scripts/check-msi-upgrade.py --msi <tệp>`
   (đọc bảng Upgrade và Property của MSI đã build; workflow Windows smoke chạy bước này và thử cài cạnh LibreOffice,
   nâng cấp từ beta.4).
+- Không có cầu nối CLI-UNO (.NET Framework) cũ, không ghi gì vào GAC (từ 1.0.2; quyết định của chủ dự án): bản Windows
+  cấu hình `--disable-cli` (cùng `--without-dotnet`) và
+  [`hst-windows-no-cli-uno.patch`](../patches/libreoffice/hst-windows-no-cli-uno.patch) chỉ đưa các mục ASSEMBLY của scp2
+  vào gói khi có `ENABLE_CLI`, nên MSI không còn `cli_ure.dll`, `cli_basetypes.dll`, `cli_uretypes.dll`,
+  `cli_cppuhelper.dll`, `cli_oootypes.dll`, `cli_uno.dll`, các `policy.1.0.cli_*.dll`/`cli_*.config` và không còn dòng
+  `MsiAssembly`. 1.0.0/1.0.1 cài chúng vào GAC, bước đó lỗi trên một số máy (lỗi 1304 khi ghi `cli_uretypes.dll`, Smart
+  App Control chặn `policy.1.0.cli_cppuhelper.dll` chưa ký). Basic, macro VBA, cầu nối OLE/COM (`HSTOffice.*`), Python
+  và phần mở rộng HST không dùng chúng; chỉ chương trình .NET viết cho binding CLI cũ mới cần. Nâng cấp từ 1.0.0/1.0.1:
+  `RemoveExistingProducts` (675) chạy trước `InstallInitialize` (700), gỡ bản cũ, kể cả assembly trong GAC, trước khi
+  cài bản mới. Ngoại lệ đã biết: bản gỡ của 1.0.0/1.0.1 (và của LibreOffice x64) để lại một tệp
+  `GAC_64\cli_cppuhelper\v4.0_1.0.23.0__ce2cb7e279207b9e\cli_cppuhelper.dll` (scp2 khai báo `x86`, assembly thực là
+  AMD64 nên Fusion không tìm thấy tên `x86` khi gỡ); MSI mới không sửa được bước gỡ của bản cũ, tệp không được nạp.
+  Kiểm tra: `scripts/check-msi-no-cli.py` (Quality CI: tùy chọn configure và series) và
+  `scripts/check-msi-no-cli.py --msi <tệp>` (bảng File, MsiAssembly, MsiAssemblyName, InstallExecuteSequence; chạy trong
+  Desktop Windows sau khi build và trong Windows smoke); kịch bản smoke `upgrade-from-1.0.1`
+  ([`probe-upgrade-no-gac.ps1`](../scripts/windows/probe-upgrade-no-gac.ps1)) cài 1.0.1 rồi MSI mới, kiểm GAC sạch và
+  chạy macro VBA headless trong Sheets và Writer.

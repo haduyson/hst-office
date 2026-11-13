@@ -37,6 +37,7 @@ Một bản phát hành chỉ được đánh dấu sẵn sàng khi **mọi mụ
 - [ ] Windows x64 `.msi` (OPS-01, SIGN-01, QA-01).
 - [ ] Windows smoke: `uninstall-beta4-then-install` đạt (gỡ beta.4 rồi cài: đủ tệp, khóa riêng, mở được). `upgrade-from-beta4` chỉ ghi nhận; nếu phiên bản tệp thực thi còn thấp hơn bản trước thì ghi chú phát hành phải yêu cầu gỡ bản cũ trước khi cài, và bản Windows không có trong nguồn cập nhật cho các bản đó.
 - [ ] Windows: `scripts/check-msi-upgrade.py --msi <tệp>` không lỗi (UpgradeCode riêng, không component nào còn GUID của beta 1–4); không phiên bản tệp khóa nào giảm so với bản trước, nếu buộc phải giảm thì đổi `COMPONENTGUIDSEED` ([BUILD_MATRIX](BUILD_MATRIX.md#mã-msi-trên-windows-upgradecode)).
+- [ ] Windows: `scripts/check-msi-no-cli.py --msi <tệp>` không lỗi (không tệp `cli_*`, không dòng `MsiAssembly`: không ghi gì vào GAC) và kịch bản smoke `upgrade-from-1.0.1` đạt (nâng cấp từ 1.0.1 không để lại assembly `cli_*` trong GAC, macro VBA vẫn chạy).
 - [ ] macOS arm64 `.dmg` + notarization (OPS-01, SIGN-01, MAC-01) — kèm số đo độ trễ chuột phải trước/sau trên Mac thật.
 
 ## Đưa bản phát hành lên office.hasontech.vn (mọi phiên bản từ beta 4.1)
