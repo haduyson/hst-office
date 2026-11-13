@@ -4,6 +4,11 @@ Development/test build of the HST Office MSI on a local Windows PC (HST4), follo
 .github/workflows/desktop-windows.yml. Official releases still come from CI. Toolchain: hst4-setup.ps1.
   powershell -File D:\hst-build\tools\scripts\windows\hst4-build.ps1 -Ref rc/1.0.2-batch1 [-ExpectSha <sha>] [-Jobs 28] [-Priority Normal] [-Clean] [-VerifyTree]
   powershell -File D:\hst-build\tools\scripts\windows\hst4-build.ps1 -Status
+Parallel slots / build queue (scripts/build-queue.sh): every slot has its own -Root (D:\hst-build, D:\hst-build-s2, ...)
+with its own repo\ lo\ stage\ pristine\ and build.lock; Cygwin, VS and Python stay under -ToolsRoot (D:\hst-build).
+-OutName names the output folder (the queue passes its job name). -Modules sc,sw (TEST ONLY) runs
+`make <module>.build` instead of the full make and writes a patch overlay zip (instdir files the build rewrote, with
+apply-build-overlay.ps1 for an admin-install image) instead of an MSI; the slot needs one full build first.
 Long builds: start it with hst4-detach.ps1 (scheduled task) so it survives the SSH session.
 Layout under -Root (the same as the runner's D:\hst; all paths are free of spaces):
   repo\  checkout of -Ref       lo\  LibreOffice tree + workdir (kept between runs = incremental build)
@@ -24,8 +29,11 @@ param(
     [Parameter(ParameterSetName = 'Build')][switch]$VerifyTree,
     # Fail unless -Ref resolves to this commit (prefix of at least 7 hex digits), e.g. the sha announced for a batch.
     [Parameter(ParameterSetName = 'Build')][ValidatePattern('^[0-9a-f]{7,40}$')][string]$ExpectSha = '',
+    [Parameter(ParameterSetName = 'Build')][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9-]{0,59}$')][string]$OutName = '',
+    [Parameter(ParameterSetName = 'Build')][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_.+-]*(,[A-Za-z0-9][A-Za-z0-9_.+-]*)*$')][string]$Modules = '',
     [Parameter(Mandatory, ParameterSetName = 'Status')][switch]$Status,
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$Root = 'D:\hst-build',
+    [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$ToolsRoot = 'D:\hst-build',
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$CygwinRoot = 'D:\cygwin64',
     [string]$RepoUrl = 'https://github.com/haduyson/hst-office.git',
     [int]$MinFreeCGiB = 3,
@@ -39,7 +47,7 @@ $Repo = Join-Path $Root 'repo'
 $Lo = Join-Path $Root 'lo'
 $StatusFile = Join-Path $Root 'status.json'
 $Bash = Join-Path $CygwinRoot 'bin\bash.exe'
-$Python = Join-Path $Root 'tools\python\tools\python.exe'
+$Python = Join-Path $ToolsRoot 'tools\python\tools\python.exe'
 $MsiDir = Join-Path $Lo 'workdir\installation\HSTOffice\msi\install\en-US_vi'   # "Collect installer" step
 
 function Write-Log([string]$Text) { Write-Output "[$(Get-Date -Format s)] $Text" }
@@ -152,14 +160,66 @@ function Invoke-Build {
     finally { Remove-Item Env:\MAKEFLAGS, Env:\HST_BUILD_DEADLINE -ErrorAction SilentlyContinue }
 }
 
+function Get-OutDir {
+    if ($OutName) { return Join-Path $Root "out\$OutName" }
+    $refName = if ($Ref -match '^[0-9a-f]{7,40}$') { 'commit' } else { $Ref -replace '[^A-Za-z0-9._-]', '-' }
+    Join-Path $Root "out\$refName-$($script:Info.sha.Substring(0, 7))"
+}
+
+function Invoke-Modules {
+    # Module names get .build (sc -> sc.build); names with '.' or '_' are make targets as they are.
+    $targets = @($Modules -split ',' | ForEach-Object { if ($_ -match '[._]') { $_ } else { "$_.build" } })
+    $env:MAKEFLAGS = "PARALLELISM=$Jobs"
+    $env:HST_WORK = ConvertTo-CygPath $Root
+    try { Invoke-Cygwin "exec bash -o igncr $(ConvertTo-CygPath (Join-Path $PSScriptRoot 'hst4-make-targets.sh')) $($targets -join ' ')" }
+    finally { Remove-Item Env:\MAKEFLAGS -ErrorAction SilentlyContinue }
+}
+
+function Export-Overlay([datetime]$Since) {
+    # TEST ONLY patch overlay: instdir files this module build rewrote (not sdk\), laid out like the install root.
+    $inst = Join-Path $Lo 'instdir'
+    $name = "HSTOffice-overlay-$($script:Info.sha.Substring(0, 10))-$($Modules -replace ',', '+')"
+    $stage = Join-Path $Root "tmp\$name"
+    Remove-Tree $stage
+    $files = @(Get-ChildItem -LiteralPath $inst -Recurse -File | Where-Object {
+            $_.LastWriteTime -ge $Since -and -not $_.FullName.StartsWith((Join-Path $inst 'sdk\'), 'OrdinalIgnoreCase') })
+    $rels = foreach ($f in $files) {
+        $rel = $f.FullName.Substring($inst.Length + 1)
+        $dest = Join-Path $stage "files\$rel"
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+        Copy-Item -LiteralPath $f.FullName -Destination $dest
+        $rel
+    }
+    New-Item -ItemType Directory -Force -Path $stage | Out-Null
+    [IO.File]::WriteAllText((Join-Path $stage 'FILES'), ((@($rels) -join "`n") + "`n"))
+    $sums = foreach ($rel in $rels) { "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $stage "files\$rel")).Hash.ToLower())  $rel" }
+    [IO.File]::WriteAllText((Join-Path $stage 'SHA256SUMS'), ((@($sums) -join "`n") + "`n"))
+    Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'overlay\apply-build-overlay.ps1') -Destination $stage
+    @("HST Office patch overlay - TEST ONLY. Never ship it or install it on user machines.",
+        "commit $($script:Info.sha); modules $Modules; built $(Get-Date -Format s) on $env:COMPUTERNAME in $Root",
+        'Apply onto an administrative install image of a reference MSI of the same base:',
+        '  msiexec /a HSTOffice_<release>_Win_x86-64_en-US_vi.msi /qn TARGETDIR=C:\hst-test\ref',
+        '  powershell -File apply-build-overlay.ps1 -Image C:\hst-test\ref',
+        "$(@($rels).Count) files: list in FILES, checksums in SHA256SUMS.") | Set-Content -LiteralPath (Join-Path $stage 'README.txt')
+    $out = Get-OutDir
+    Remove-Tree $out
+    New-Item -ItemType Directory -Force -Path $out | Out-Null
+    $zip = Join-Path $out "$name.zip"
+    Compress-Archive -Path $stage -DestinationPath $zip
+    Remove-Tree $stage
+    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLower()
+    [IO.File]::WriteAllText((Join-Path $out 'SHA256SUMS'), "$hash  $name.zip`n")
+    $script:Info.msi += [ordered]@{ name = "$name.zip"; bytes = (Get-Item $zip).Length; sha256 = $hash; files = @($rels).Count }
+    $script:Info.out = $out
+}
+
 function Export-Msi([datetime]$Since) {
     # Same renaming and SHA256SUMS as the workflow's "Collect installer" step.
     $release = (& $Python -I (Join-Path $Repo 'scripts\write-hst-version.py') --release).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $release) { throw 'write-hst-version.py --release failed' }
     $msis = @(Get-ChildItem -LiteralPath $MsiDir -Filter '*.msi' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $Since })
     if ($msis.Count -eq 0) { throw "no MSI written by this build under $MsiDir" }
-    $refName = if ($Ref -match '^[0-9a-f]{7,40}$') { 'commit' } else { $Ref -replace '[^A-Za-z0-9._-]', '-' }
-    $out = Join-Path $Root "out\$refName-$($script:Info.sha.Substring(0, 7))"
+    $out = Get-OutDir
     Remove-Tree $out
     New-Item -ItemType Directory -Force -Path $out | Out-Null
     $sums = foreach ($m in $msis) {
@@ -179,12 +239,16 @@ function Export-Msi([datetime]$Since) {
 if ($Status) { Show-Status; exit 0 }
 
 New-Item -ItemType Directory -Force -Path $Root, (Join-Path $Root 'tmp') | Out-Null
-foreach ($tool in $Bash, $Python, (Join-Path $Root 'bin\make.exe')) {
+foreach ($tool in $Bash, $Python, (Join-Path $ToolsRoot 'bin\make.exe')) {
     if (-not (Test-Path -LiteralPath $tool)) { throw "missing $tool; run hst4-setup.ps1 first" }
+}
+# trial-build.sh puts <work>\bin (native make, pkgconf shim) first in PATH: a new slot root gets a copy.
+if (-not (Test-Path -LiteralPath (Join-Path $Root 'bin\make.exe'))) {
+    Copy-Item -Recurse -Force -LiteralPath (Join-Path $ToolsRoot 'bin') -Destination $Root
 }
 $lockFile = [IO.File]::Open((Join-Path $Root 'build.lock'), 'OpenOrCreate', 'ReadWrite', 'None')   # one build at a time
 $script:Info = [ordered]@{ ref = $Ref; sha = ''; state = 'starting'; step = ''; jobs = $Jobs; priority = $Priority
-    clean = [bool]$Clean; started = (Get-Date).ToString('s'); updated = ''; seconds = [ordered]@{}; msi = @(); release = ''; out = '' }
+    clean = [bool]$Clean; modules = $Modules; outName = $OutName; started = (Get-Date).ToString('s'); updated = ''; seconds = [ordered]@{}; msi = @(); release = ''; out = '' }
 try {
     # Child processes (bash, make, cl, link) inherit the priority class; TEMP on D: keeps compiler/packager scratch off C:.
     (Get-Process -Id $PID).PriorityClass = $Priority
@@ -202,9 +266,17 @@ try {
     Invoke-Step 'tree' { Sync-Tree }
     Invoke-Step 'configure' { Invoke-Trial 'configure' $Root }
     Invoke-Step 'fetch' { Invoke-Trial 'fetch' $Root }
+    if ($Modules -and -not (Test-Path -LiteralPath (Join-Path $Lo 'instdir\program\soffice.exe'))) {
+        throw "no complete build in $Root yet; -Modules needs one full build in this slot first"
+    }
     $buildStart = Get-Date
-    Invoke-Step 'build' { Invoke-Build }
-    Invoke-Step 'collect' { Export-Msi $buildStart }
+    if ($Modules) {
+        Invoke-Step 'build' { Invoke-Modules }
+        Invoke-Step 'collect' { Export-Overlay $buildStart }
+    } else {
+        Invoke-Step 'build' { Invoke-Build }
+        Invoke-Step 'collect' { Export-Msi $buildStart }
+    }
     $script:Info.seconds['total'] = [int]((Get-Date) - $t0).TotalSeconds
     Set-Status 'done' ''
     Copy-Item -LiteralPath $StatusFile -Destination (Join-Path $script:Info.out 'build-info.json') -Force

@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Dispatcher of the local build queue (scripts/build-queue.sh dispatch). Install:
+#   sudo install -m 644 scripts/linux/hst-build-queue.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now hst-build-queue
+# WorkingDirectory/ExecStart point at a stable checkout of the build infrastructure (not a worktree that agents
+# switch); edit both when the checkout moves. Builds started by the dispatcher keep running in their own
+# process groups and systemd scopes; KillMode=process leaves them alone when the dispatcher restarts.
+[Unit]
+Description=HST Office local build queue dispatcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/wt-build-infra
+ExecStart=/usr/bin/python3 -I /home/wt-build-infra/scripts/build-queue.py dispatch
+Environment=HST_QUEUE_ROOT=/data/hst-build-queue HST_BUILD_ROOT=/data/hst-build
+Restart=on-failure
+RestartSec=30
+KillMode=process
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

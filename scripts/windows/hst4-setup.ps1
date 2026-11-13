@@ -2,14 +2,16 @@
 <#
 One-time toolchain for a local Windows build PC (HST4) that builds the same MSI as
 .github/workflows/desktop-windows.yml. Run elevated (kiemtra over SSH, or detached with hst4-detach.ps1):
-  powershell -File scripts\windows\hst4-setup.ps1 [-Step All | -Step Cygwin,Tools,...]  (Defender VisualStudio Cygwin Tools Python Report)
+  powershell -File scripts\windows\hst4-setup.ps1 [-Step All | -Step Cygwin,Tools,...]  (Defender Prereqs VisualStudio Cygwin Tools Python Report)
+Used for every local Windows build PC (HST4, HST5). Prereqs installs Chocolatey (CI's source for NASM and pkgconfiglite)
+and Git for Windows when they are missing.
 Steps are idempotent. Everything big goes to D: (8.3 names are off there, so no path may contain a space);
 the Windows SDK and the VS installer itself always land on C:, which must keep -MinFreeCGiB free.
 #>
 [CmdletBinding()]
 param(
-    # Comma-separated so it survives `powershell -File`: All or any of Defender,VisualStudio,Cygwin,Tools,Python,Report.
-    [ValidatePattern('^(All|Defender|VisualStudio|Cygwin|Tools|Python|Report)(,(Defender|VisualStudio|Cygwin|Tools|Python|Report))*$')][string]$Step = 'All',
+    # Comma-separated so it survives `powershell -File`: All or any of Defender,Prereqs,VisualStudio,Cygwin,Tools,Python,Report.
+    [ValidatePattern('^(All|Defender|Prereqs|VisualStudio|Cygwin|Tools|Python|Report)(,(Defender|Prereqs|VisualStudio|Cygwin|Tools|Python|Report))*$')][string]$Step = 'All',
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$Root = 'D:\hst-build',
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$CygwinRoot = 'D:\cygwin64',
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$VsPath = 'D:\VS2022BT',
@@ -66,6 +68,31 @@ function Invoke-Defender {
     }
 }
 
+function Invoke-Prereqs {
+    $choco = "$env:ProgramData\chocolatey\bin\choco.exe"
+    if (-not (Test-Path -LiteralPath $choco)) {
+        # Official install script; refuse it unless Chocolatey's Authenticode signature is valid.
+        $script = Join-Path $Root 'setup\chocolatey-install.ps1'
+        New-Item -ItemType Directory -Force -Path (Split-Path $script) | Out-Null
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://community.chocolatey.org/install.ps1' -OutFile $script
+        $sig = Get-AuthenticodeSignature -LiteralPath $script
+        if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'Chocolatey Software') {
+            throw "chocolatey install.ps1 signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
+        }
+        Assert-FreeC 1
+        & $script
+        if (-not (Test-Path -LiteralPath $choco)) { throw 'Chocolatey install failed' }
+        Write-Log 'Chocolatey installed'
+    } else { Write-Log 'Chocolatey present' }
+    $env:Path = "$env:Path;$env:ProgramData\chocolatey\bin"
+    if (-not (Get-Command git.exe -ErrorAction SilentlyContinue) -and -not (Test-Path 'C:\Program Files\Git\cmd\git.exe')) {
+        & $choco install git --no-progress -y
+        # choco can exit 0 after a failed feed lookup ("installed 0/0"): check the result itself.
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path 'C:\Program Files\Git\cmd\git.exe')) { throw "choco install git failed: $LASTEXITCODE" }
+        Write-Log 'Git for Windows installed'
+    } else { Write-Log 'Git present' }
+}
+
 function Get-VsInstance {
     if (-not (Test-Path -LiteralPath $Vswhere)) { return $null }
     $json = & $Vswhere -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | Out-String
@@ -120,7 +147,7 @@ function Invoke-Python {
 
 function Invoke-Report {
     $vs = Get-VsInstance
-    Write-Output '### HST4 build toolchain'
+    Write-Output "### build toolchain on $env:COMPUTERNAME"
     if ($vs) { Write-Output "- VS: $($vs.displayName) $($vs.installationVersion) at $($vs.installationPath)" }
     else { Write-Output "- VS: not installed at $VsPath" }
     $msvc = Get-ChildItem "$VsPath\VC\Tools\MSVC" -Directory -ErrorAction SilentlyContinue
@@ -152,11 +179,12 @@ function Invoke-Report {
 $steps = $Step -split ','
 $all = $steps -contains 'All'
 New-Item -ItemType Directory -Force -Path $Root, $Logs | Out-Null
-foreach ($s in 'Defender', 'VisualStudio', 'Cygwin', 'Tools', 'Python', 'Report') {
+foreach ($s in 'Defender', 'Prereqs', 'VisualStudio', 'Cygwin', 'Tools', 'Python', 'Report') {
     if (-not ($all -or $steps -contains $s)) { continue }
     Write-Log "== $s"
     switch ($s) {
         'Defender' { Invoke-Defender }
+        'Prereqs' { Invoke-Prereqs }
         'VisualStudio' { Invoke-VisualStudio }
         'Cygwin' { Assert-FreeC 0; Invoke-BuildWindows 'Cygwin' }
         'Tools' { Assert-FreeC 0.5; Invoke-BuildWindows 'Tools' }

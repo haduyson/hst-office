@@ -1,57 +1,67 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # Local incremental build of the HST Office Linux .deb, with the same steps as CI
-# (.github/workflows/desktop-linux.yml + scripts/linux/ci-build.sh of the branch being built).
+# (.github/workflows/desktop-linux.yml + scripts/linux/ci-build.sh of the branch being built), in one of the
+# parallel build slots under HST_BUILD_ROOT (default /data/hst-build). Agents normally go through the queue
+# (scripts/build-queue.sh, docs/BUILD_MATRIX.md); this script is what the queue runs.
 #
 #   sudo scripts/linux/local-build.sh [options] <ref | worktree-path>
 #     <ref>            branch, tag or sha of this repository (fetched from origin first;
 #                      origin/<ref> wins over a local branch of the same name)
 #     <worktree-path>  a checkout; its tracked + untracked (not ignored) files, uncommitted
 #                      changes included, are built (output label gets "-dirty")
-#   -j, --jobs N       make parallelism (default 12); lowered automatically on low memory
+#   --slot N|auto      build slot (default auto: the first idle slot the admission controller accepts)
+#   -j, --jobs N       upper limit for make parallelism (default 20); the admission controller
+#                      (scripts/linux/build-slots.py) decides the real -j from the other running slots
+#   --modules a,b,...  test-only partial build: `make <module>.build` (or a make target containing "." or "_")
+#                      instead of a full make, then a patch overlay of the changed instdir files instead of a .deb
+#   --label NAME       output label (default: the branch name)
+#   --out DIR          output directory (default $HST_BUILD_ROOT/out/<label>-<sha>)
 #   --reconfigure      run the configure phase even when nothing it depends on changed
 #   --fresh            re-extract the pristine tarballs (full rebuild)
 #   --no-package       stop after make (skip the single-.deb packaging)
-#   --umount           only unmount the build chroot (after a crashed run) and exit
+#   --umount           only unmount the slot's chroot (after a crashed run) and exit (needs --slot N)
 #
-# Layout under HST_LOCAL_ROOT (default /data/hst-office-build):
-#   chroot/    Ubuntu 22.04 root file system exported from the CI container image (same digest),
-#              build dependencies installed by `ci-build.sh --deps` (clang from apt.llvm.org) + ccache
-#   checkout/  plain copy of the repository being built (only changed files are rewritten)
-#   src/       HST_WORK of ci-build.sh: lo/ (LibreOffice tree), dl/ (pinned tarballs), branding/,
-#              pristine.git (index of the untouched tarball tree), installer/, metrics/
-#   ccache/    CCACHE_DIR (max 20 GB)
-#   external-tarballs/  hard links of src/lo/external/tarballs, kept across --fresh
-#   logs/      <time>-<label>/ per run (wrapper.log, build.log, timings.tsv); ci/ phase logs
-#   out/       <label>-<sha>/HSTOffice_<release>_Linux_x86-64.deb + SHA256SUMS
+# Layout under HST_BUILD_ROOT:
+#   chroot/    base root file system of the CI container image (same digest), build deps from
+#              `ci-build.sh --deps` + ccache; read-only for builds (overlayfs lower layer of every slot)
+#   ccache/    shared CCACHE_DIR (max HST_CCACHE_MAX, default 30G)   external-tarballs/  hard-link cache
+#   out/       <label>-<sha>/ outputs of direct runs     locks/  admission state (build-slots.py), chroot lock
+#   slots/<N>/ one build tree each: root/ (overlay of chroot/ + chroot-upper/), checkout/, src/ (HST_WORK:
+#              lo/, dl/, pristine.git, installer/), logs/<time>-<label>/ (wrapper.log, build.log, timings.tsv,
+#              memory.tsv), .lock
+# Inside every slot's chroot the tree is mounted at the same canonical paths (/data/hst-office-build/src,
+# checkout, ccache, logs: where slot 1 was first built). LibreOffice build trees are not relocatable, so this
+# keeps a tree valid when it is copied to another slot and lets all slots share ccache hits.
 #
 # Patch re-sync: every run resets the files the previous series touched to the pristine
 # tarball state, applies the series exactly like CI (`ci-build.sh --patch`), and gives files
 # whose content did not change their previous mtime back, so make rebuilds only what changed.
 # Differences from CI, none of which changes what is compiled: a chroot instead of a docker
-# container (keeps the 5+ GB toolchain off the root disk), ccache, -j N (default 12, max 16) instead
-# of nproc, and resource caps for a shared server: make runs in a systemd scope (MemoryMax
-# HST_LOCAL_MEMORY_MAX=24G, MemorySwapMax=0, CPUQuota HST_LOCAL_CPU_QUOTA=1600%) at nice 19 and
-# idle I/O priority; MemAvailable below HST_LOCAL_MIN_MEM_GIB (6) or swap use grown by more than
-# HST_LOCAL_SWAP_GROW_GIB (1) freezes it until HST_LOCAL_RESUME_MEM_GIB (8) GiB are available
-# (repeated or swap pauses restart make with half the jobs, min 2; abort after
-# HST_LOCAL_MEM_WAIT_MIN, default 30, minutes); only one heavy (>= 1 GiB) link runs at a time.
+# container, ccache, -j from the admission controller instead of nproc, and resource caps for a shared
+# server: make runs in a systemd scope (MemoryMax = the slot budget, MemoryHigh 90 % of it, MemorySwapMax=0,
+# CPUQuota = jobs x 100 %) at nice 19 and idle I/O priority. The controller's global guard tells the most
+# recently admitted slot to freeze when MemAvailable < 6 GiB or swap use grew by > 1 GiB; a slot thaws at
+# HST_LOCAL_RESUME_MEM_GIB (8) GiB, and a repeated or swap pause restarts its make with half the jobs (min 2;
+# abort after HST_LOCAL_MEM_WAIT_MIN, default 30, minutes); only one heavy (>= 1 GiB) link per slot at a time.
 set -Eeuo pipefail
 trap 'echo "FAILED line $LINENO: $BASH_COMMAND" >&2' ERR
 
 SELF_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ROOT="${HST_LOCAL_ROOT:-/data/hst-office-build}"
-CHROOT="$ROOT/chroot"; CHECKOUT="$ROOT/checkout"; STAGE="$ROOT/stage"
-WORK="$ROOT/src"; SRC="$WORK/lo"; DL="$WORK/dl"; PRISTINE="$WORK/pristine.git"; SYNC="$WORK/sync"
-EXT_CACHE="$ROOT/external-tarballs"; CCACHE="$ROOT/ccache"; OUT="$ROOT/out"; LOGROOT="$ROOT/logs"
+SLOTS_PY=(python3 -I "$SELF_REPO/scripts/linux/build-slots.py")
+BUILD_ROOT="${HST_BUILD_ROOT:-/data/hst-build}"
+BASE="$BUILD_ROOT/chroot"; CCACHE="$BUILD_ROOT/ccache"; EXT_CACHE="$BUILD_ROOT/external-tarballs"
+# Canonical paths inside every slot chroot (see the header).
+C_ROOT=/data/hst-office-build; C_WORK="$C_ROOT/src"; C_SRC="$C_WORK/lo"; C_CHECKOUT="$C_ROOT/checkout"
+C_CCACHE="$C_ROOT/ccache"; C_LOGROOT="$C_ROOT/logs"
 TARBALL_CACHE="${HST_LOCAL_TARBALL_CACHE:-/home/office/upstream/cache/libreoffice}"
-MIN_MEM_GIB="${HST_LOCAL_MIN_MEM_GIB:-6}"; RESUME_MEM_GIB="${HST_LOCAL_RESUME_MEM_GIB:-8}"
-SWAP_GROW_GIB="${HST_LOCAL_SWAP_GROW_GIB:-1}"; MAX_JOBS=16
-MEM_MAX="${HST_LOCAL_MEMORY_MAX:-24G}"; CPU_QUOTA="${HST_LOCAL_CPU_QUOTA:-1600%}"
+RESUME_MEM_GIB="${HST_LOCAL_RESUME_MEM_GIB:-8}"; MAX_JOBS=20
 MEM_WAIT_MIN="${HST_LOCAL_MEM_WAIT_MIN:-30}"; MIN_FREE_GIB="${HST_LOCAL_MIN_FREE_GIB:-5}"
-JOBS=12; RECONFIGURE=0; FRESH=0; PACKAGE=1; TARGET=""; BUILD_PGID=""; MOUNTED=0
+CCACHE_MAX="${HST_CCACHE_MAX:-30G}"
+JOBS=$MAX_JOBS; RECONFIGURE=0; FRESH=0; PACKAGE=1; TARGET=""; BUILD_PGID=""; MOUNTED=0; ADMITTED=0; BASE_MOUNTED=0
+SLOT=auto; MODULES=""; LABEL_OPT=""; OUT_OPT=""; UMOUNT_ONLY=0
 
-usage() { sed -n '4,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 64; }
+usage() { sed -n '7,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 64; }
 die() { echo "local-build: $*" >&2; exit 1; }
 log() { echo "[$(date '+%F %T')] $*"; }
 
@@ -59,49 +69,83 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -j|--jobs) JOBS="${2:-}"; shift 2 ;;
     -j[0-9]*) JOBS="${1#-j}"; shift ;;
+    --slot) SLOT="${2:-}"; shift 2 ;;
+    --modules) MODULES="${2:-}"; shift 2 ;;
+    --label) LABEL_OPT="${2:-}"; shift 2 ;;
+    --out) OUT_OPT="${2:-}"; shift 2 ;;
     --reconfigure) RECONFIGURE=1; shift ;;
     --fresh) FRESH=1; shift ;;
     --no-package) PACKAGE=0; shift ;;
-    --umount) TARGET=--umount; shift ;;
+    --umount) UMOUNT_ONLY=1; shift ;;
     -h|--help) usage ;;
     -*) die "unknown option $1" ;;
     *) [ -z "$TARGET" ] || die "only one ref or worktree"; TARGET="$1"; shift ;;
   esac
 done
-[ -n "$TARGET" ] || usage
+[ -n "$TARGET" ] || [ "$UMOUNT_ONLY" -eq 1 ] || usage
 if ! [[ "$JOBS" =~ ^[1-9][0-9]*$ ]]; then die "--jobs needs a positive number"; fi
 if [ "$JOBS" -gt "$MAX_JOBS" ]; then echo "local-build: -j capped at $MAX_JOBS" >&2; JOBS=$MAX_JOBS; fi
-[ "$(id -u)" -eq 0 ] || die "needs root (chroot and bind mounts)"
+[[ "$SLOT" =~ ^(auto|[1-9][0-9]?)$ ]] || die "--slot needs a slot number or auto"
+[ -z "$LABEL_OPT" ] || [[ "$LABEL_OPT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ ]] || die "--label: letters, digits, . _ - only"
+[ -z "$OUT_OPT" ] || [[ "$OUT_OPT" = /* ]] || die "--out needs an absolute path"
+MAKE_TARGETS=()
+if [ -n "$MODULES" ]; then
+  IFS=, read -r -a mods <<< "$MODULES"
+  for m in "${mods[@]}"; do
+    [[ "$m" =~ ^[A-Za-z0-9][A-Za-z0-9_.+-]*$ ]] || die "--modules: bad module or target '$m'"
+    # A bare module name builds just that module (`sc.build`); names with "." or "_" are make targets as is
+    # (Library_merged, sc.check, ...).
+    if [[ "$m" == *[._]* ]]; then MAKE_TARGETS+=("$m"); else MAKE_TARGETS+=("$m.build"); fi
+  done
+  [ "${#MAKE_TARGETS[@]}" -gt 0 ] || die "--modules needs at least one module"
+  PACKAGE=0
+fi
+[ "$(id -u)" -eq 0 ] || die "needs root (chroot and mounts)"
 for tool in git rsync docker chroot mount flock python3 sha256sum systemd-run systemctl ionice; do
   command -v "$tool" >/dev/null || die "missing host tool: $tool"
 done
+if [ ! -d "$BASE" ] || [ ! -d "$BUILD_ROOT/slots" ]; then die "$BUILD_ROOT is not set up (scripts/linux/build-slots-setup.sh)"; fi
 
-mkdir -p "$ROOT" "$WORK" "$CCACHE" "$OUT" "$LOGROOT/ci" "$CHECKOUT"
+# ---------------------------------------------------------------- slot selection and lock
+if [ "$SLOT" = auto ]; then
+  [ "$UMOUNT_ONLY" -eq 0 ] || die "--umount needs --slot N"
+  SLOT="$("${SLOTS_PY[@]}" free-slot --want "$JOBS")" || die "no idle admissible slot now (see: ${SLOTS_PY[*]} status)"
+fi
+ROOT="$BUILD_ROOT/slots/$SLOT"
+[ -d "$ROOT/src" ] || die "slot $SLOT does not exist under $BUILD_ROOT/slots"
+CHROOT="$ROOT/root"; UPPER="$ROOT/chroot-upper"; OVLWORK="$ROOT/chroot-work"
+CHECKOUT="$ROOT/checkout"; STAGE="$ROOT/stage"; LOGROOT="$ROOT/logs"
+WORK="$ROOT/src"; SRC="$WORK/lo"; DL="$WORK/dl"; PRISTINE="$WORK/pristine.git"; SYNC="$WORK/sync"
+OUT="$BUILD_ROOT/out"
+mkdir -p "$WORK" "$CCACHE" "$OUT" "$LOGROOT/ci" "$CHECKOUT" "$BUILD_ROOT/locks"
 exec 9>"$ROOT/.lock"
-flock -n 9 || die "another local build holds $ROOT/.lock"
+flock -n 9 || die "slot $SLOT is busy (another local build holds $ROOT/.lock)"
+# Base chroot: builds hold it shared while their overlay is mounted; only a deps update takes it exclusively.
+exec 8>"$BUILD_ROOT/locks/chroot.lock"
 
 # ---------------------------------------------------------------- chroot and mounts
-chroot_mounts() { awk -v p="$CHROOT/" 'index($5, p) == 1 {print $5}' /proc/self/mountinfo; }
+mounts_under() { awk -v p="$1/" 'index($5, p) == 1 {print $5}' /proc/self/mountinfo; }
 
-umount_chroot() {
+umount_tree() { # umount_tree <dir>: everything mounted below <dir>, deepest first, then <dir> itself
   local m
-  # Deepest first; /sys is an rslave rbind, so nothing propagates back to the host.
-  chroot_mounts | sort -r | while IFS= read -r m; do umount -R "$m" 2>/dev/null || umount -R -l "$m" || true; done
-  MOUNTED=0
-  [ -z "$(chroot_mounts)" ] || die "could not unmount: $(chroot_mounts | tr '\n' ' ')"
+  mounts_under "$1" | sort -r | while IFS= read -r m; do umount -R "$m" 2>/dev/null || umount -R -l "$m" || true; done
+  if mountpoint -q "$1"; then umount "$1" 2>/dev/null || umount -l "$1" || true; fi
+  if [ -n "$(mounts_under "$1")" ] || mountpoint -q "$1"; then die "could not unmount $1: $(mounts_under "$1" | tr '\n' ' ')"; fi
+}
+umount_chroot() { umount_tree "$CHROOT"; MOUNTED=0; }
+
+bind_at() { # bind_at <root> <host dir> <path inside the root>
+  mkdir -p "$1$3"
+  mountpoint -q "$1$3" || { mount --bind "$2" "$1$3"; mount --make-private "$1$3"; }
 }
 
-bind_at_same_path() { # bind_at_same_path <host dir>: visible at the same path in the chroot
-  mkdir -p "$CHROOT$1"
-  mountpoint -q "$CHROOT$1" || { mount --bind "$1" "$CHROOT$1"; mount --make-private "$CHROOT$1"; }
-}
-
-mount_chroot() {
-  mountpoint -q "$CHROOT/proc" || mount -t proc proc "$CHROOT/proc"
-  mountpoint -q "$CHROOT/sys" || { mount --rbind /sys "$CHROOT/sys"; mount --make-rslave "$CHROOT/sys"; }
+mount_system() { # mount_system <root>: proc, sys and an own minimal /dev
+  local r="$1"
+  mountpoint -q "$r/proc" || mount -t proc proc "$r/proc"
+  mountpoint -q "$r/sys" || { mount --rbind /sys "$r/sys"; mount --make-rslave "$r/sys"; }
   # Own minimal /dev (not a bind of the host's): device permissions stay standard whatever the host has.
-  if ! mountpoint -q "$CHROOT/dev"; then
-    local d=$CHROOT/dev
+  if ! mountpoint -q "$r/dev"; then
+    local d=$r/dev
     mount -t tmpfs -o mode=755,size=16m,nosuid tmpfs "$d"; mount --make-private "$d"
     mknod -m 666 "$d/null" c 1 3; mknod -m 666 "$d/zero" c 1 5; mknod -m 666 "$d/full" c 1 7
     mknod -m 666 "$d/random" c 1 8; mknod -m 666 "$d/urandom" c 1 9; mknod -m 666 "$d/tty" c 5 0
@@ -110,33 +154,48 @@ mount_chroot() {
     mount -t devpts -o newinstance,ptmxmode=0666,mode=620 devpts "$d/pts"; ln -s pts/ptmx "$d/ptmx"
     mount -t tmpfs -o mode=1777,size=2g,nosuid,nodev tmpfs "$d/shm"
   fi
-  bind_at_same_path "$WORK"; bind_at_same_path "$CCACHE"; bind_at_same_path "$CHECKOUT"
-  bind_at_same_path "$LOGROOT"
-  cp -L /etc/resolv.conf "$CHROOT/etc/resolv.conf"
+  bind_at "$r" "$WORK" "$C_WORK"; bind_at "$r" "$CCACHE" "$C_CCACHE"; bind_at "$r" "$CHECKOUT" "$C_CHECKOUT"
+  bind_at "$r" "$LOGROOT" "$C_LOGROOT"
+}
+
+base_marker() { cat "$BASE/.hst-image" "$BASE/.hst-deps" 2>/dev/null | sha256sum | cut -c1-16; }
+
+mount_chroot() { # the slot's overlay of the base chroot (writes go to chroot-upper/, reset when the base changes)
+  if ! mountpoint -q "$CHROOT"; then
+    if [ "$(cat "$ROOT/.chroot-base" 2>/dev/null)" != "$(base_marker)" ]; then rm -rf "$UPPER" "$OVLWORK"; fi
+    mkdir -p "$CHROOT" "$UPPER" "$OVLWORK"
+    mount -t overlay overlay -o "lowerdir=$BASE,upperdir=$UPPER,workdir=$OVLWORK" "$CHROOT"
+    mount --make-private "$CHROOT"
+    base_marker > "$ROOT/.chroot-base"
+  fi
   MOUNTED=1
+  mount_system "$CHROOT"
+  cp -L /etc/resolv.conf "$CHROOT/etc/resolv.conf"
 }
 
 cleanup() {
   local rc=$?
   if [ -n "$BUILD_PGID" ]; then log "stopping make ($SCOPE.scope)"; stop_make; fi
+  [ "$ADMITTED" -eq 0 ] || "${SLOTS_PY[@]}" release --slot "$SLOT" || true
   [ "$MOUNTED" -eq 0 ] || umount_chroot || true
+  if [ -n "$(mounts_under "$BASE")" ] && [ "$BASE_MOUNTED" -eq 1 ]; then umount_tree "$BASE" || true; fi
   rm -rf "$STAGE"
   exit "$rc"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-if [ "$TARGET" = --umount ]; then umount_chroot; log "chroot unmounted"; exit 0; fi
+if [ "$UMOUNT_ONLY" -eq 1 ]; then umount_chroot; log "slot $SLOT chroot unmounted"; exit 0; fi
 
-# in_chroot <dir> <cmd...>: run in the build chroot with the same environment docker exec gives CI
+# in_chroot <dir> <cmd...>: run in the slot chroot with the same environment docker exec gives CI
 in_chroot() {
   local dir="$1"; shift
   # shellcheck disable=SC2016 # expanded by the inner shell
-  nice -n 19 ionice -c3 chroot "$CHROOT" /usr/bin/env -i HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-    HST_IN_CONTAINER=1 HST_SUDO= HST_WORK="$WORK" HST_DL="$DL" HST_CLANG="$CLANG" CCACHE_DIR="$CCACHE" \
+  nice -n 19 ionice -c3 chroot "${IN_ROOT:-$CHROOT}" /usr/bin/env -i HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    HST_IN_CONTAINER=1 HST_SUDO= HST_WORK="$C_WORK" HST_DL="$C_WORK/dl" HST_CLANG="$CLANG" CCACHE_DIR="$C_CCACHE" \
     /bin/bash -c 'cd "$0" && exec "$@"' "$dir" "$@"
 }
-ci() { in_chroot "$CHECKOUT" bash "$CHECKOUT/scripts/linux/ci-build.sh" "$@"; }
+ci() { in_chroot "$C_CHECKOUT" bash "$C_CHECKOUT/scripts/linux/ci-build.sh" "$@"; }
 
 # ---------------------------------------------------------------- timings
 RUN_ID="$(date +%Y%m%d-%H%M%S)"
@@ -166,6 +225,7 @@ resolve_source() {
     SHA="$(git -C "$SELF_REPO" rev-parse --short=10 "$full")"; LABEL="$TARGET"
     git -C "$SELF_REPO" archive "$full" | tar -xf - -C "$STAGE"
   fi
+  [ -z "$LABEL_OPT" ] || LABEL="$LABEL_OPT"
   LABEL="${LABEL//\//_}"
   # Content compare (-c, no -t): unchanged files keep their mtime, so HST make rules stay up to date.
   rsync -rlpc --delete "$STAGE/" "$CHECKOUT/"
@@ -176,30 +236,46 @@ resolve_source() {
   [ -n "$IMAGE" ] || die "HST_CONTAINER not found in $wf"
 }
 
-# ---------------------------------------------------------------- toolchain
-ensure_chroot() { # root file system of the CI container image (same digest), kept on $ROOT
-  [ "$(cat "$CHROOT/.hst-image" 2>/dev/null)" = "$IMAGE" ] && return 0
-  [ -z "$(chroot_mounts)" ] || die "chroot still mounted; run with --umount first"
-  log "creating chroot from $IMAGE"
-  local had_image=0 cid
-  docker image inspect "$IMAGE" >/dev/null 2>&1 && had_image=1
-  [ "$had_image" -eq 1 ] || docker pull -q "$IMAGE" >/dev/null
-  rm -rf "$CHROOT"; mkdir -p "$CHROOT"
-  cid="$(docker create "$IMAGE" true)"
-  docker export "$cid" | tar -xf - -C "$CHROOT"
-  docker rm "$cid" >/dev/null
-  [ "$had_image" -eq 1 ] || docker rmi "$IMAGE" >/dev/null || true # keep the root disk clean
-  printf '%s\n' "$IMAGE" > "$CHROOT/.hst-image"
+# ---------------------------------------------------------------- toolchain (base chroot, shared by all slots)
+deps_want() {
+  echo "clang=$CLANG $(sed -n '/^do_deps()/,/^}/p' "$CHECKOUT/scripts/linux/ci-build.sh" | sha256sum | cut -c1-16)"
+}
+base_current() { [ "$(cat "$BASE/.hst-image" 2>/dev/null)" = "$IMAGE" ] && [ "$(cat "$BASE/.hst-deps" 2>/dev/null)" = "$(deps_want)" ]; }
+
+update_base() { # recreate/extend the base chroot; runs with the chroot lock held exclusively
+  if grep -q " overlay .*lowerdir=${BASE}[,:]" /proc/self/mountinfo; then
+    die "another slot still has an overlay of $BASE mounted (crashed run? local-build.sh --umount --slot N)"
+  fi
+  if [ "$(cat "$BASE/.hst-image" 2>/dev/null)" != "$IMAGE" ]; then
+    [ -z "$(mounts_under "$BASE")" ] || die "base chroot still mounted"
+    log "creating base chroot from $IMAGE"
+    local had_image=0 cid
+    docker image inspect "$IMAGE" >/dev/null 2>&1 && had_image=1
+    [ "$had_image" -eq 1 ] || docker pull -q "$IMAGE" >/dev/null
+    rm -rf "$BASE"; mkdir -p "$BASE"
+    cid="$(docker create "$IMAGE" true)"
+    docker export "$cid" | tar -xf - -C "$BASE"
+    docker rm "$cid" >/dev/null
+    [ "$had_image" -eq 1 ] || docker rmi "$IMAGE" >/dev/null || true # keep the root disk clean
+    printf '%s\n' "$IMAGE" > "$BASE/.hst-image"
+  fi
+  if [ "$(cat "$BASE/.hst-deps" 2>/dev/null)" != "$(deps_want)" ]; then
+    BASE_MOUNTED=1; mount_system "$BASE"
+    IN_ROOT="$BASE" ci --deps
+    IN_ROOT="$BASE" in_chroot / env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ccache
+    deps_want > "$BASE/.hst-deps"
+    umount_tree "$BASE"; BASE_MOUNTED=0
+  fi
 }
 
-ensure_deps() { # ci-build.sh --deps (re-run when its deps step or the clang version changes) + ccache
-  local want
-  want="clang=$CLANG $(sed -n '/^do_deps()/,/^}/p' "$CHECKOUT/scripts/linux/ci-build.sh" | sha256sum | cut -c1-16)"
-  [ "$(cat "$CHROOT/.hst-deps" 2>/dev/null)" = "$want" ] && return 0
-  ci --deps
-  in_chroot / env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ccache
-  in_chroot / ccache --max-size=20G >/dev/null
-  printf '%s\n' "$want" > "$CHROOT/.hst-deps"
+ensure_toolchain() {
+  if ! base_current; then
+    log "base chroot needs an update: waiting until no other slot uses it"
+    flock -x 8
+    base_current || update_base
+  fi
+  flock -s 8   # (downgrades an exclusive lock) held until exit
+  base_current || die "base chroot changed under us; rerun"
 }
 
 # ---------------------------------------------------------------- pristine tree
@@ -299,7 +375,7 @@ needs_configure() {
   grep -qE '^(autogen\.sh|config_host(_lang)?\.mk\.in|Makefile\.in|instsetoo_native/util/openoffice\.lst\.in|configure\.ac|config_host/.*\.h\.in|download\.lst|m4/.*\.m4|distro-configs/.*)$' \
     "$SYNC/changed.txt" && return 0
   cmp -s "$SRC/autogen.input" "$WORK/autogen.input.last" || return 0
-  in_chroot / python3 "$CHECKOUT/scripts/write-hst-version.py" --header "$SYNC/hst_version.h" >/dev/null
+  in_chroot / python3 "$C_CHECKOUT/scripts/write-hst-version.py" --header "$C_WORK/sync/hst_version.h" >/dev/null
   cmp -s "$SYNC/hst_version.h" "$SRC/include/hst_version.h" || return 0
   return 1
 }
@@ -317,29 +393,42 @@ configure_if_needed() {
 }
 
 # ---------------------------------------------------------------- build with resource guards
-# make runs in a transient systemd scope (MemoryMax, MemorySwapMax=0, CPUQuota) at nice 19 / idle
-# I/O, so the kernel caps it instead of OOM-killing other services. On top of that:
-# - memory: MemAvailable < MIN_MEM_GIB or swap use grown by > SWAP_GROW_GIB freezes the scope;
-#   it thaws at RESUME_MEM_GIB (a repeated or swap-triggered pause restarts make with half the jobs);
-# - heavy links: only one linker using >= 1 GiB runs at a time, the others are stopped until it ends.
+# make runs in a transient systemd scope (MemoryMax = slot budget, MemorySwapMax=0, CPUQuota = jobs x 100 %)
+# at nice 19 / idle I/O, so the kernel caps it instead of OOM-killing other services. On top of that:
+# - admission (build-slots.py): -j and the budget come from the controller; when the slots' fair share changes
+#   (another slot starts or ends) make is restarted with the new -j;
+# - memory: the controller's global guard tells the youngest running slot to freeze its scope; it thaws at
+#   RESUME_MEM_GIB (a repeated or swap-triggered pause restarts make with half the jobs);
+# - heavy links: only one linker using >= 1 GiB runs per slot at a time, the others are stopped until it ends.
 mem_avail_gib() { awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo; }
 swap_used_mib() { awk '/SwapTotal/{t=$2}/SwapFree/{f=$2}END{print int((t-f)/1024)}' /proc/meminfo; }
-free_gib() { df -BG --output=avail "$ROOT" | tail -1 | tr -dc 0-9; }
+free_gib() { df -BG --output=avail "$BUILD_ROOT" | tail -1 | tr -dc 0-9; }
 scope_cg() { echo "/sys/fs/cgroup/system.slice/$SCOPE.scope"; }
+budget_mib() { "${SLOTS_PY[@]}" budget --jobs "$1"; }
 
-start_make() { # make like ci-build.sh --build, inside a capped scope, in its own session (pgid = pid)
-  local jobs="$1"; SCOPE_N=$(( ${SCOPE_N:-0} + 1 )); SCOPE="hst-local-build-$RUN_ID-$SCOPE_N"
-  log "make -j$jobs in $SCOPE.scope (MemoryMax=$MEM_MAX MemorySwapMax=0 CPUQuota=$CPU_QUOTA, nice 19, idle I/O;" \
-    "MemAvailable $(mem_avail_gib) GiB, swap used $(swap_used_mib) MiB, /data free $(free_gib) GiB)"
+start_make() { # make like ci-build.sh --build (or the --modules targets), in a capped scope, own session
+  local jobs="$1" max high
+  SCOPE_N=$(( ${SCOPE_N:-0} + 1 )); SCOPE="hst-local-build-s$SLOT-$RUN_ID-$SCOPE_N"
+  max=$(budget_mib "$jobs"); high=$(( max * 9 / 10 ))
+  log "make -j$jobs ${MAKE_TARGETS[*]:-(full)} in $SCOPE.scope (MemoryMax=${max}M MemoryHigh=${high}M" \
+    "MemorySwapMax=0 CPUQuota=$(( jobs * 100 ))%, nice 19, idle I/O; MemAvailable $(mem_avail_gib) GiB," \
+    "swap used $(swap_used_mib) MiB, /data free $(free_gib) GiB)"
   # shellcheck disable=SC2016 # expanded by the inner shell
-  systemd-run --scope --quiet --unit="$SCOPE" -p MemoryMax="$MEM_MAX" -p MemorySwapMax=0 -p CPUQuota="$CPU_QUOTA" -- \
+  systemd-run --scope --quiet --unit="$SCOPE" -p MemoryMax="${max}M" -p MemoryHigh="${high}M" \
+    -p MemorySwapMax=0 -p CPUQuota="$(( jobs * 100 ))%" -- \
     setsid nice -n 19 ionice -c3 chroot "$CHROOT" /usr/bin/env -i HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-    CCACHE_DIR="$CCACHE" HST_REPO_ROOT="$CHECKOUT" HST_ICON_DIR="$CHECKOUT/assets/brand/icons" \
+    CCACHE_DIR="$C_CCACHE" HST_REPO_ROOT="$C_CHECKOUT" HST_ICON_DIR="$C_CHECKOUT/assets/brand/icons" \
     /bin/bash -c 'echo 500 > /proc/self/oom_score_adj
       eval "$(python3 "$HST_REPO_ROOT/scripts/write-hst-version.py" --env)"
       export HST_VERSION_MAJOR HST_VERSION_MINOR HST_VERSION_MICRO
-      cd "$0" && exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$1"' "$SRC" "$jobs" >> "$RUN_LOGS/build.log" 2>&1 &
-  BUILD_PGID=$!; SWAP_BASE=$(swap_used_mib); PAUSES=0
+      cd "$0" || exit 1; jobs="$1"; shift
+      if [ "$#" -eq 0 ]; then exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs"; fi
+      # Module builds: the UNO API headers first, in their own invocation (docs/SHARED_BUILD_SLOTS.md).
+      make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" udkapi.build offapi.build oovbaapi.build || exit $?
+      exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" "$@"' "$C_SRC" "$jobs" "${MAKE_TARGETS[@]}" \
+    >> "$RUN_LOGS/build.log" 2>&1 &
+  BUILD_PGID=$!; PAUSES=0
+  "${SLOTS_PY[@]}" update --slot "$SLOT" --jobs "$jobs" --scope "$SCOPE" || true
 }
 
 freeze() { [ ! -w "$(scope_cg)/cgroup.freeze" ] || echo "$1" > "$(scope_cg)/cgroup.freeze"; }
@@ -354,7 +443,7 @@ stop_make() {
   BUILD_PGID=""
 }
 
-throttle_links() { # keep at most one heavy (>= 1 GiB RSS) linker running
+throttle_links() { # keep at most one heavy (>= 1 GiB RSS) linker running in this slot
   local procs pid comm rss state running="" stopped=()
   procs="$(scope_cg)/cgroup.procs"
   [ -r "$procs" ] || return 0
@@ -382,13 +471,15 @@ pause_for_memory() { # pause_for_memory <reason>; returns 0 to thaw, 1 to restar
     sleep 15; waited=$(( waited + 15 ))
   done
   if [ "$(mem_avail_gib)" -ge "$RESUME_MEM_GIB" ] && [ "$PAUSES" -eq 1 ] && [[ "$reason" != swap* ]]; then
-    log "resource guard: MemAvailable $(mem_avail_gib) GiB, thawing make"; freeze 0; SWAP_BASE=$(swap_used_mib); return 0
+    log "resource guard: MemAvailable $(mem_avail_gib) GiB, thawing make"; freeze 0
+    "${SLOTS_PY[@]}" update --slot "$SLOT" --frozen 0 || true
+    return 0
   fi
   return 1
 }
 
 do_build() {
-  local jobs="$JOBS" rc waited oom_retries=0
+  local jobs="$JOBS" rc waited oom_retries=0 tick=0 action value
   : > "$RUN_LOGS/build.log"
   start_make "$jobs"
   while true; do
@@ -397,60 +488,110 @@ do_build() {
       [ "$rc" -ne 0 ] || break
       if tail -200 "$RUN_LOGS/build.log" | grep -qE 'Killed|Error 137|signal 9' && [ "$oom_retries" -lt 3 ] && [ "$jobs" -gt 2 ]; then
         oom_retries=$(( oom_retries + 1 )); jobs=$(( jobs / 2 )); [ "$jobs" -ge 2 ] || jobs=2
+        "${SLOTS_PY[@]}" update --slot "$SLOT" --want "$jobs" || true
         log "make killed (scope memory cap?), retrying with -j$jobs"; sleep 30; start_make "$jobs"; continue
       fi
       tail -60 "$RUN_LOGS/build.log"; return "$rc"
     fi
-    sleep 5
+    sleep 5; tick=$(( tick + 1 ))
     throttle_links || true
     printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$jobs" "$(mem_avail_gib)" "$(swap_used_mib)" "$(free_gib)" >> "$RUN_LOGS/memory.tsv"
-    if [ "$(free_gib)" -lt "$MIN_FREE_GIB" ]; then stop_make; die "disk-stop: less than $MIN_FREE_GIB GiB free on $ROOT"; fi
-    local reason=""
-    if [ "$(mem_avail_gib)" -lt "$MIN_MEM_GIB" ]; then reason="MemAvailable below $MIN_MEM_GIB GiB"
-    elif [ $(( $(swap_used_mib) - SWAP_BASE )) -gt $(( SWAP_GROW_GIB * 1024 )) ]; then reason="swap use grew by more than $SWAP_GROW_GIB GiB"
+    if [ "$(free_gib)" -lt "$MIN_FREE_GIB" ]; then stop_make; die "disk-stop: less than $MIN_FREE_GIB GiB free on $BUILD_ROOT"; fi
+    [ $(( tick % 2 )) -eq 0 ] || continue   # the controller is asked every 10 s
+    read -r action value < <("${SLOTS_PY[@]}" poll --slot "$SLOT" --jobs "$jobs" || echo "ok $jobs")
+    if [ "$action" = ok ]; then
+      # Shrink at once (keeps the total within the server budget); grow only when it is worth a restart.
+      if [ "$value" -lt "$jobs" ] || [ "$value" -ge $(( jobs + 6 )) ]; then
+        log "admission: share changed, restarting make with -j$value"
+        jobs="$value"; stop_make; start_make "$jobs"
+      fi
+      continue
     fi
-    [ -n "$reason" ] || continue
-    pause_for_memory "$reason" && continue
+    pause_for_memory "$value" && continue
     stop_make
     [ "$jobs" -gt 2 ] || die "resource guard: still short of memory at -j2, aborting"
     jobs=$(( jobs / 2 )); [ "$jobs" -ge 2 ] || jobs=2
+    "${SLOTS_PY[@]}" update --slot "$SLOT" --want "$jobs" || true
     waited=0
     while [ "$(mem_avail_gib)" -lt "$RESUME_MEM_GIB" ]; do
       [ "$waited" -lt $(( MEM_WAIT_MIN * 60 )) ] || die "resource guard: MemAvailable stayed below $RESUME_MEM_GIB GiB for $MEM_WAIT_MIN min, aborting"
       sleep 15; waited=$(( waited + 15 ))
     done
+    "${SLOTS_PY[@]}" update --slot "$SLOT" --frozen 0 || true
     start_make "$jobs"
   done
   log "make done (final -j$jobs)"
   test -x "$SRC/instdir/program/soffice" || die "build did not produce instdir/program/soffice"
 }
 
+admit() { # wait for the admission controller; it decides -j
+  local granted kind=full
+  [ -z "$MODULES" ] || kind=modules
+  log "admission: asking for slot $SLOT (up to -j$JOBS)"
+  granted="$("${SLOTS_PY[@]}" acquire --slot "$SLOT" --pid "$$" --want "$JOBS" --kind "$kind")"
+  ADMITTED=1
+  JOBS="${granted%% *}"
+  log "admission: slot $SLOT admitted with -j$JOBS, memory budget ${granted#* } GiB"
+}
+
 do_package() {
   ci --package
-  local dest="$OUT/$LABEL-$SHA"
-  rm -rf "$dest"; mkdir -p "$dest"
-  cp -p "$WORK/installer/"*.deb "$WORK/installer/SHA256SUMS" "$dest/"
-  (cd "$dest" && sha256sum -c --quiet SHA256SUMS)
-  log "package: $(ls "$dest"/*.deb) ($(du -h "$dest"/*.deb | cut -f1))"
+  rm -rf "$DEST"; mkdir -p "$DEST"
+  cp -p "$WORK/installer/"*.deb "$WORK/installer/SHA256SUMS" "$DEST/"
+  (cd "$DEST" && sha256sum -c --quiet SHA256SUMS)
+  log "package: $(ls "$DEST"/*.deb) ($(du -h "$DEST"/*.deb | cut -f1))"
+}
+
+do_overlay() { # test-only patch overlay: the instdir files the module build rewrote (docs/BUILD_MATRIX.md)
+  local name ov n
+  name="HSTOffice-overlay-$LABEL-$SHA-${MODULES//,/+}"
+  ov="$STAGE/$name"
+  rm -rf "$STAGE" "$DEST"; mkdir -p "$ov/files" "$DEST"
+  (cd "$SRC/instdir" && find . -path ./sdk -prune -o -type f -newer "$ROOT/.build-start" -printf '%P\n' | sort) > "$ov/FILES"
+  n=$(wc -l < "$ov/FILES")
+  [ "$n" -gt 0 ] || log "overlay: the module build changed no instdir file"
+  (cd "$SRC/instdir" && tar -cf - -T "$ov/FILES") | tar -xf - -C "$ov/files"
+  (cd "$ov/files" && xargs -r -d '\n' sha256sum -- < "$ov/FILES") > "$ov/SHA256SUMS"
+  cp "$SELF_REPO/scripts/overlay/apply-build-overlay.sh" "$ov/"
+  {
+    echo "HST Office patch overlay - TEST ONLY. Never ship it or install it on user machines."
+    echo "ref: $LABEL @ $SHA; modules: $MODULES; built $(date '+%F %T %z') in local slot $SLOT"
+    echo "Apply onto an extracted reference .deb of the same base:"
+    echo "  dpkg-deb -x HSTOffice_*.deb ref/ && ./apply-build-overlay.sh ref/"
+    echo "$n files: list in FILES, checksums in SHA256SUMS."
+  } > "$ov/README.txt"
+  tar -C "$STAGE" -czf "$DEST/$name.tar.gz" "$name"
+  (cd "$DEST" && sha256sum "$name.tar.gz" > SHA256SUMS)
+  rm -rf "$STAGE"
+  log "overlay: $DEST/$name.tar.gz ($n files)"
 }
 
 # ---------------------------------------------------------------- main
 resolve_source
 RUN_LOGS="$LOGROOT/$RUN_ID-$LABEL"; mkdir -p "$RUN_LOGS"
+DEST="$OUT/$LABEL-$SHA"; [ -z "$MODULES" ] || DEST="$DEST-modules-${MODULES//,/+}"
+[ -z "$OUT_OPT" ] || DEST="$OUT_OPT"
 exec > >(tee -a "$RUN_LOGS/wrapper.log") 2>&1
-log "building $LABEL @ $SHA, -j$JOBS, logs in $RUN_LOGS"
-[ -L "$WORK/logs" ] || { rm -rf "$WORK/logs"; ln -s "$LOGROOT/ci" "$WORK/logs"; }
+log "slot $SLOT: building $LABEL @ $SHA, up to -j$JOBS${MODULES:+, modules $MODULES}, logs in $RUN_LOGS"
+[ -L "$WORK/logs" ] || { rm -rf "$WORK/logs"; ln -s "$C_LOGROOT/ci" "$WORK/logs"; }
 total_start=$(date +%s)
-timed chroot ensure_chroot
+timed toolchain ensure_toolchain
 mount_chroot
-timed deps ensure_deps
+in_chroot / ccache --max-size="$CCACHE_MAX" >/dev/null
 timed branding /usr/bin/python3 -I "$CHECKOUT/scripts/stage-branding.py" --out "$ROOT/branding-stage"
 rsync -rlpc --delete "$ROOT/branding-stage/" "$WORK/branding/"; rm -rf "$ROOT/branding-stage"
 timed extract ensure_pristine
 timed patch sync_patches
 invalidate_translations
 configure_if_needed
+if [ -n "$MODULES" ] && [ ! -x "$SRC/instdir/program/soffice" ]; then
+  die "slot $SLOT has no complete build yet; --modules needs one full build in the slot first"
+fi
+admit
+touch "$ROOT/.build-start"
 timed build do_build
-[ "$PACKAGE" -eq 0 ] || timed package do_package
+if [ -n "$MODULES" ]; then timed overlay do_overlay
+elif [ "$PACKAGE" -eq 1 ]; then timed package do_package; fi
 in_chroot / ccache -s | sed -n '/[Hh]its\|[Mm]isses\|[Cc]ache size/p' || true
 log "total $(( $(date +%s) - total_start ))s; timings in $RUN_LOGS/timings.tsv"
+log "output: $DEST"
