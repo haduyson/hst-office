@@ -24,7 +24,8 @@ got neither the ribbon nor the toolbars either.
   refused).
 - StateMethod shows or hides the menubars of xFrame's module (ShowMenubarForModuleOf); before, setting up a tab in
   Tabbed mode could hide the menubar of another module's tabs. A frame still being loaded (no module yet) changes
-  nothing.
+  nothing. When it closes the ribbon of a frame it also shows that frame's own menubar (a tab parked while its
+  module went through ribbon modes came back to Standard Toolbar without a menubar).
 - .uno:ToolbarMode no longer returns early when the mode is unchanged, so choosing it again ("Apply to <module>")
   repairs a module whose toolbars were lost.
 License: modified upstream files keep their license (MPL-2.0).
@@ -181,12 +182,17 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
              // HST Office: the frame set up here need not be SfxViewFrame::Current() (document
              // tabs show a parked window before it becomes current), so apply the mode to it too.
              if (const Reference<frame::XLayoutManager> xLayoutManager = lcl_getLayoutManager(xFrame);
-@@ -418,7 +478,11 @@
+@@ -418,7 +478,16 @@
          vcl::Window* pParent = pNotebookBar->GetParent();
          pSysWindow->CloseNotebookBar();
          pParent->Resize();
 -        SfxNotebookBar::ShowMenubar(true);
 +        SfxNotebookBar::ShowMenubarForModuleOf(xFrame, true);
++        // HST Office: and the menubar of this frame itself, as the branch above does for the frame it
++        // sets up (a parked tab of the module could keep the menubar its ribbon mode hid).
++        if (const Reference<frame::XLayoutManager> xLayoutManager = lcl_getLayoutManager(xFrame);
++            xLayoutManager.is() && xLayoutManager->getElement(MENUBAR_STR).is())
++            xLayoutManager->showElement(MENUBAR_STR);
 +        // HST Office: the module's mode was changed by configuration only (for example "Apply to
 +        // All" from another module's tab): show the toolbars of its mode.
 +        if (xFrame.is())
@@ -194,7 +200,7 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
      }
  
      return false;
-@@ -432,7 +496,9 @@
+@@ -432,7 +501,9 @@
      }
  }
  
@@ -205,7 +211,7 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
  {
      if (m_bLock)
          return;
-@@ -444,10 +510,19 @@
+@@ -444,10 +515,19 @@
      const uno::Reference< uno::XComponentContext >& xContext = comphelper::getProcessComponentContext();
      const Reference<frame::XModuleManager> xModuleManager = frame::ModuleManager::create( xContext );
  

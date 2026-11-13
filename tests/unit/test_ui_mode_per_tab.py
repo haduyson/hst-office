@@ -65,14 +65,17 @@ class UiModePerTab(unittest.TestCase):
         self.assertIn("SfxNotebookBar::ShowMenubarForModuleOf(xFrame, bHasMenubar);", cxx)
         self.assertIn("SfxNotebookBar::ShowMenubarForModuleOf(xFrame, true);", cxx)
         self.assertIn("void SfxNotebookBar::ShowMenubar(bool bShow) { ShowMenubarForModuleOf({}, bShow); }", cxx)
+        # closing a ribbon shows the frame's own menubar too (a parked tab of the module)
+        self.assertRegex(cxx, r"ShowMenubarForModuleOf\(xFrame, true\);\s*(//[^\n]*\n\s*)+if \(const Reference<frame::"
+                              r"XLayoutManager> xLayoutManager = lcl_getLayoutManager\(xFrame\);[^}]*showElement\(MENUBAR_STR\);")
 
     def test_toolbars_of_the_mode_come_back_when_a_ribbon_closes(self):
         cxx = added(CXX)
         body = cxx[cxx.index("static void lcl_showModeToolbars"):]
         self.assertLess(body.index("createElement(rToolbar)"), body.index("showElement(rToolbar)"))
         self.assertIn('for (const char* pList : { "Toolbars", "UserToolbars" })', cxx)
-        self.assertRegex(cxx, r"ShowMenubarForModuleOf\(xFrame, true\);\s*//[^\n]*\n[^\n]*\n\s*if \(xFrame\.is\(\)\)\s*"
-                              r"lcl_showModeToolbars\(xFrame\);")
+        closing = cxx[cxx.index("SfxNotebookBar::ShowMenubarForModuleOf(xFrame, true);"):]
+        self.assertRegex(closing[:900], r"if \(xFrame\.is\(\)\)\s*lcl_showModeToolbars\(xFrame\);")
         self.assertNotIn("lcl_firstSetup", cxx)  # no per-frame repair at set-up: it showed toolbars of other modes
 
     def test_menubar_of_a_loading_frame_changes_nothing(self):
