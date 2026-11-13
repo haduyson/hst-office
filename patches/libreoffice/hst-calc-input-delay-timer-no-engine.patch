@@ -18,16 +18,30 @@ pyuno). With a Writer document opened first, or a Calc window that takes the foc
 already has its engine and nothing happens.
 
 With no engine there is no text to clear: the rest of the handler (input line reset) still runs.
+UpdateSpellSettings, the other entry that ScModule/ScDocShell call from outside an edit (options
+changes), gets the same guard; every other use of the engine is reached only after the handler
+created it, or already checks it.
 
 --- a/sc/source/ui/app/inputhdl.cxx
 +++ b/sc/source/ui/app/inputhdl.cxx
-@@ -4642,7 +4642,10 @@
+@@ -975,7 +975,9 @@
+ 
+ void ScInputHandler::UpdateSpellSettings( bool bFromStartTab )
+ {
+-    if ( !pActiveViewSh )
++    // HST Office: also called when options change (ScModule, ScDocShell); the lazily created
++    // edit engine may not exist yet, and then has no settings to update
++    if ( !pActiveViewSh || !mpEditEngine )
+         return;
+ 
+     ScViewData& rViewData = pActiveViewSh->GetViewData();
+@@ -4642,7 +4644,10 @@
          bInOwnChange = true; // disable ModifyHdl (reset below)
  
          pActiveViewSh = nullptr;
 -        mpEditEngine->SetTextCurrentDefaults( OUString() );
-+        // HST Office: the edit engine is created lazily, when a Calc view first uses this handler;
-+        // before that there is no text to clear (a first Calc document opened under a dialog)
++        // HST Office: the edit engine is created on the first Calc view's activation; until then
++        // there is no text to clear (a Calc document opened while another window keeps the focus)
 +        if (mpEditEngine)
 +            mpEditEngine->SetTextCurrentDefaults( OUString() );
          if ( pInputWin )
