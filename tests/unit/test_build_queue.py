@@ -284,6 +284,12 @@ class DispatcherTest(QueueTestCase):
         self.assertEqual(runner.free_slot([])["host"], "hst5")
         with self.assertRaises(bq.QueueError):
             bq.drain(self.store, "hst9", wait_done=False, out=out)
+        bq.drain(self.store, "hst5", wait_done=False, out=out)
+        bq.drain(self.store, "hst5", cancel=True, out=out)
+        self.assertEqual(self.store.drains()["hst5"]["state"], "cancelled")
+        self.assertEqual(runner.free_slot([])["host"], "hst5")
+        with self.assertRaises(bq.QueueError):
+            bq.drain(self.store, "hst5", cancel=True, out=out)
 
     def test_windows_task_names_fit_hst4_detach(self):
         job, _ = self.submit(platform="windows")

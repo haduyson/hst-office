@@ -38,6 +38,7 @@ scripts/build-queue.sh status <id>          # trạng thái, slot/máy, đầu r
 scripts/build-queue.sh list [--all]         # job đang chờ/chạy + 10 job xong gần nhất
 scripts/build-queue.sh cancel <id>          # job chờ bị bỏ ngay; job đang chạy được dispatcher dừng
 scripts/build-queue.sh drain hst5           # máy Windows: ngừng nhận job mới, chờ rảnh, chép công cụ mới, nhận job lại
+scripts/build-queue.sh drain hst5 --cancel  # thôi chờ (khi máy còn một build dài), nhận job lại ngay
 ```
 
 **Quy tắc cho agent (bắt buộc):** cần mã nguồn/header LibreOffice để đọc hay kiểm cú pháp thì đọc thẳng

@@ -8,7 +8,7 @@
   build-queue.sh wait <id> [--timeout S]          blocks; prints the output path(s) (exit 0) or the log tail (exit 1)
   build-queue.sh list [--all] [--json]            queued/running jobs and the recent finished ones
   build-queue.sh cancel <id>                      queued: dropped at once; running: stopped by the dispatcher
-  build-queue.sh drain <host> [--no-wait]         Windows host: no new jobs there, wait until it is idle, deploy the
+  build-queue.sh drain <host> [--no-wait|--cancel] Windows host: no new jobs there, wait until it is idle, deploy the
                                                   current tools to it, resume (prints when done)
   build-queue.sh dispatch [--once]                the dispatcher (systemd unit hst-build-queue.service)
 
@@ -329,11 +329,17 @@ def wait(store, job_id, timeout=None, interval=15, out=sys.stdout):
     return 1
 
 
-def drain(store, host, wait_done=True, interval=15, timeout=None, out=sys.stdout):
+def drain(store, host, wait_done=True, interval=15, timeout=None, out=sys.stdout, cancel=False):
     hosts = {s["host"] for s in store.config()["windows_slots"]}
     if host not in hosts:
         raise QueueError(f"unknown Windows host {host!r}; known: {', '.join(sorted(hosts))}")
     t = time.time()
+    if cancel:
+        if store.drains().get(host, {}).get("state") != "draining":
+            raise QueueError(f"{host} is not draining")
+        store.set_drain(host, state="cancelled", finished=t, finished_at=now_iso(t))
+        print(f"{host}: drain cancelled; scheduling resumed (tools update when the host is next idle)", file=out)
+        return 0
     store.set_drain(host, state="draining", requested=t, requested_at=now_iso(t), finished_at=None, tools=None)
     print(f"{host}: draining (no new jobs; tools are deployed when its builds end)", file=out)
     if not wait_done:
@@ -381,6 +387,7 @@ def main(argv=None):
     dr.add_argument("host")
     dr.add_argument("--no-wait", action="store_true")
     dr.add_argument("--timeout", type=int)
+    dr.add_argument("--cancel", action="store_true", help="stop draining without deploying")
     d = sub.add_parser("dispatch")
     d.add_argument("--once", action="store_true")
     args = parser.parse_args(argv)
@@ -424,7 +431,7 @@ def main(argv=None):
             print(f"{job['id']}: {'cancel requested' if job['state'] == 'running' else job['state']}")
             return 0
         if args.cmd == "drain":
-            return drain(store, args.host, not args.no_wait, timeout=args.timeout)
+            return drain(store, args.host, not args.no_wait, timeout=args.timeout, cancel=args.cancel)
         if args.cmd == "dispatch":
             import importlib.util
             path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build-queue-dispatcher.py")
