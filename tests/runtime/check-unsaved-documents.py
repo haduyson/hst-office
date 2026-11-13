@@ -54,7 +54,7 @@ def main():
         frame = off.desktop().getCurrentFrame() or off.desktop().getFrames().getByIndex(0)
         import threading
         threading.Thread(target=lambda: off.dispatch(frame, "org.hst.office.vi:UnsavedDocuments"), daemon=True).start()
-        shown = rr.wait(lambda: [w for w in hst_gui.toplevels(off.display) if w[1] == "Tài liệu chưa lưu"], 20)
+        shown = rr.wait(lambda: [w for w in hst_gui.toplevels(off.display, off.pid) if w[1] == "Tài liệu chưa lưu"], 20)
         record("the dialog Tài liệu chưa lưu opens", shown)
         if shown:
             hst_gui.send_close_request(shown[0][0], off.display)

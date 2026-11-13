@@ -22,12 +22,15 @@ documents closed without saving kept for 7 days.
 - Document tabs: emergency and session saves freeze hst-document-tabs.txt (no rewrite, no removal while
   the windows are hidden, none at the following quit); the file is written through a temporary file, fsync
   and rename, and right after a recovery has rebuilt the tabs.
+- Reading the RecoveryList drops the per-session flags "handled" and "postponed": the early flush can
+  store them while an AutoSave run is still going, and the recovery skipped such an entry as already done
+  ("Chưa khôi phục" after a crash right after the first copy).
 - desktop app.cxx: AutoRecovery starts before impl_checkRecoveryState so the restored entries count.
 - framework strings + vi messages.po: titles of orphaned copies.
 
 License: these upstream files remain under their original license (MPL-2.0).
-Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recovery-kill.py,
-tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
+Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recovery-kill.py
+(first copy, later copy, emergency save), tests/runtime/check-unsaved-documents.py.
 ---
 --- a/desktop/source/app/app.cxx
 +++ b/desktop/source/app/app.cxx
@@ -236,7 +239,18 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
      css::uno::Reference<css::container::XNameAccess> xRecoveryList(
              officecfg::Office::Recovery::RecoveryList::get());
  
-@@ -2192,6 +2197,9 @@ void AutoRecovery::implts_flushConfigItem(AutoRecovery::TDocumentInfo& rInfo, bo
+@@ -1923,6 +1928,10 @@ void AutoRecovery::implts_readConfig()
+         sal_Int32 tmp = 0;
+         xItem->getPropertyValue(CFG_ENTRY_PROP_DOCUMENTSTATE) >>= tmp;
+         aInfo.DocumentState = DocState(tmp);
++        // HST Office: "handled" and "postponed" only mean something inside the session that set them. The
++        // configuration is now flushed while an AutoSave run is still going, so a crash right after a copy can
++        // leave them on disk; implts_openDocs() would then skip the document as already recovered.
++        aInfo.DocumentState &= ~DocState::Handled & ~DocState::Postponed;
+         xItem->getPropertyValue(CFG_ENTRY_PROP_MODULE) >>= aInfo.AppModule;
+         xItem->getPropertyValue(CFG_ENTRY_PROP_TITLE) >>= aInfo.Title;
+         xItem->getPropertyValue(CFG_ENTRY_PROP_VIEWNAMES) >>= aInfo.ViewNames;
+@@ -2192,6 +2201,9 @@ void AutoRecovery::implts_flushConfigItem(AutoRecovery::TDocumentInfo& rInfo, bo
          }
      }
      while(nRetry>0);
@@ -246,7 +260,7 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
  }
  
  void AutoRecovery::implts_startListening()
-@@ -2323,6 +2331,10 @@ void hst_refreshKnownSize(AutoRecovery::TDocumentInfo& rInfo)
+@@ -2323,6 +2335,10 @@ void hst_refreshKnownSize(AutoRecovery::TDocumentInfo& rInfo)
      rInfo.KnownSize = std::max(hst_localFileSize(rInfo.OrgURL), hst_localFileSize(rInfo.OldTempURL));
  }
  
@@ -257,7 +271,7 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
  // HST Office: AutoRecovery interval [ms] of one document. Documents larger than
  // AutoSave/HstLargeDocumentSize [MB] (0 = off) wait AutoSave/HstLargeDocumentTimeIntervall
  // minutes, never less than the user's own interval; all other documents keep nNormalMs.
-@@ -2330,7 +2342,8 @@ sal_Int64 hst_docAutoSaveInterval(const AutoRecovery::TDocumentInfo& rInfo, sal_
+@@ -2330,7 +2346,8 @@ sal_Int64 hst_docAutoSaveInterval(const AutoRecovery::TDocumentInfo& rInfo, sal_
  {
      const sal_Int64 nLargeMB = officecfg::Office::Recovery::AutoSave::HstLargeDocumentSize::get();
      if (nLargeMB <= 0 || rInfo.KnownSize <= nLargeMB * sal_Int64(1024 * 1024))
@@ -267,7 +281,7 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
      const sal_Int64 nLargeMs
          = officecfg::Office::Recovery::AutoSave::HstLargeDocumentTimeIntervall::get()
            * sal_Int64(60000); // min -> ms
-@@ -2685,11 +2698,36 @@ void AutoRecovery::implts_deregisterDocument(const css::uno::Reference< css::fra
+@@ -2685,11 +2702,36 @@ void AutoRecovery::implts_deregisterDocument(const css::uno::Reference< css::fra
      if (bStopListening)
          implts_stopModifyListeningOnDoc(aInfo);
  
@@ -304,7 +318,7 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
      CacheLockGuard aCacheLock(this, cppu::WeakComponentImplHelperBase::rBHelper.rMutex, m_nDocCacheLock, LOCK_FOR_CACHE_USE);
  
      /* SAFE */ {
-@@ -2704,9 +2742,14 @@ void AutoRecovery::implts_markDocumentModifiedAgainstLastBackup(const css::uno::
+@@ -2704,9 +2746,14 @@ void AutoRecovery::implts_markDocumentModifiedAgainstLastBackup(const css::uno::
             But if the document was saved as temp. file we start listening for this event again.
          */
          implts_stopModifyListeningOnDoc(*pIt);
@@ -319,7 +333,7 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
  }
  
  void AutoRecovery::implts_updateModifiedState(const css::uno::Reference< css::frame::XModel >& xDocument)
-@@ -2817,6 +2860,7 @@ void AutoRecovery::implts_markDocumentAsSaved(const css::uno::Reference< css::fr
+@@ -2817,6 +2864,7 @@ void AutoRecovery::implts_markDocumentAsSaved(const css::uno::Reference< css::fr
  
      aCacheLock.unlock();
  
@@ -327,7 +341,7 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
      AutoRecovery::st_impl_removeFile(sRemoveURL1);
      AutoRecovery::st_impl_removeFile(sRemoveURL2);
  }
-@@ -3332,6 +3376,9 @@ void AutoRecovery::implts_saveOneDoc(const OUString&
+@@ -3332,6 +3380,9 @@ void AutoRecovery::implts_saveOneDoc(const OUString&
      // We must know if the user modifies the document again ...
      implts_startModifyListeningOnDoc(rInfo);
  
@@ -337,7 +351,7 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
      AutoRecovery::st_impl_removeFile(sRemoveFile);
  }
  
-@@ -3841,6 +3888,10 @@ void AutoRecovery::implts_prepareEmergencySave()
+@@ -3841,6 +3892,10 @@ void AutoRecovery::implts_prepareEmergencySave()
      // Be sure to know all open documents really .-)
      implts_verifyCacheAgainstDesktopDocumentList();
  
@@ -348,7 +362,7 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
      // hide all docs, so the user can't disturb our emergency save .-)
      implts_changeAllDocVisibility(false);
  }
-@@ -3921,6 +3972,9 @@ void AutoRecovery::implts_doSessionSave(const DispatchParams& aParams)
+@@ -3921,6 +3976,9 @@ void AutoRecovery::implts_doSessionSave(const DispatchParams& aParams)
  {
      SAL_INFO("fwk.autorecovery", "AutoRecovery::implts_doSessionSave()");
  

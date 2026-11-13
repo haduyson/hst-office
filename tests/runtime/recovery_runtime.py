@@ -134,7 +134,7 @@ def gone(off, pid, timeout=60):
 def answer(off, title_re, keys=("Return",), corner=None, timeout=60):
     """Answer the dialog whose title matches: keys (mnemonics of both UI languages, e.g. alt+k then alt+r for
     "Khôi phục mục đã chọn" / "Recover Selected") or a pointer click `corner` = (dx, dy) from its bottom right."""
-    found = wait(lambda: [w for w in hst_gui.toplevels(off.display) if re.search(title_re, w[1])], timeout)
+    found = wait(lambda: [w for w in hst_gui.toplevels(off.display, off.pid) if re.search(title_re, w[1])], timeout)
     if not found:
         return False
     wid = found[0][0]
@@ -172,7 +172,7 @@ def reconnect_after_recovery(off, port_wait=180):
     time.sleep(8)
     hst_gui.screenshot(os.path.join(off.workdir, "after-recover.png"), off.display)
     # a recovery with failures stops at "Kết thúc"
-    if [w for w in hst_gui.toplevels(off.display) if re.search(RECOVERY_TITLE, w[1])]:
+    if [w for w in hst_gui.toplevels(off.display, off.pid) if re.search(RECOVERY_TITLE, w[1])]:
         answer(off, RECOVERY_TITLE, corner=FINISH_AT, timeout=5)
     off.ctx = off._connect(port_wait)
     return True

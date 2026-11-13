@@ -99,11 +99,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--program", required=True)
     ap.add_argument("--work", required=True)
+    ap.add_argument("--only", help="run one scenario: first, after, bigsave or tabs")
     args = ap.parse_args()
     if not re.match(r"(?i)^[cd]:\\hst-test\\", args.work):
         raise SystemExit("--work must be under C:\\hst-test or D:\\hst-test")
     sys.path.insert(0, args.program)
     for name, body, minutes in (("first", first, 3), ("after", after, 1), ("bigsave", bigsave, 3), ("tabs", tabs, 1)):
+        if args.only and name != args.only:
+            continue
         scenario(Office(args.program, os.path.join(args.work, name), minutes), name, body)
     print("windows recovery kill: %d checks, %d failed" % (len(RESULTS), RESULTS.count(False)))
     return 0 if all(RESULTS) else 1

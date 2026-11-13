@@ -70,7 +70,7 @@ def main():
         xcu = os.path.join(rr.user_dir(off), "registrymodifications.xcu")
         damage(xcu, mode)
         off.start(fresh=False)
-        notice = rr.wait(lambda: [w for w in hst_gui.toplevels(off.display) if "Cài đặt HST Office" in w[1]], 60)
+        notice = rr.wait(lambda: [w for w in hst_gui.toplevels(off.display, off.pid) if "Cài đặt HST Office" in w[1]], 60)
         record("%s: the notice is shown" % mode, notice)
         if notice:
             rr.answer(off, "Cài đặt HST Office", timeout=5)

@@ -90,6 +90,12 @@ class Durability(unittest.TestCase):
         self.assertIn("rInfo.OldTempURL.isEmpty() ? std::min(nNormalMs, HST_FIRST_COPY_MS) : nNormalMs", ar)
         self.assertTrue(ordered(ar, "bFirstChange = pIt->OldTempURL.isEmpty();", "implts_updateTimer();"))
 
+    def test_session_flags_dropped_when_reading_the_list(self):
+        # an early flush may store "handled" of a running AutoSave; recovery would skip such an entry
+        ar = after("hst-recovery-durability")["framework/source/services/autorecovery.cxx"]
+        self.assertTrue(ordered(ar, "aInfo.DocumentState = DocState(tmp);",
+                                "aInfo.DocumentState &= ~DocState::Handled & ~DocState::Postponed;"))
+
     def test_unsaved_documents_kept_seven_days_and_500_mb(self):
         p = after("hst-recovery-durability")
         ar = p["framework/source/services/autorecovery.cxx"]

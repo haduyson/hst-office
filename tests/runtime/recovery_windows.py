@@ -8,6 +8,8 @@ import re
 import subprocess
 import time
 
+from recovery_windows_ui import find_window, press_enter, shot
+
 RESULTS = []
 PORT = 22235
 KINDS = {"writer": "private:factory/swriter", "calc": "private:factory/scalc", "impress": "private:factory/simpress"}
@@ -98,14 +100,19 @@ class Office:
     def recover(self):
         """Start again, press Enter on the recovery dialog (its default button), reconnect."""
         self.start()
-        hwnd = wait(lambda: find_window(r"Khôi phục tài liệu|Document Recovery"), 90)
+        hwnd = wait(lambda: find_window(r"Khôi phục tài liệu|Document Recovery", own_pids(self.work)), 90)
         if not hwnd:
             return False
+        time.sleep(3)  # let the dialog finish its layout
+        shot(os.path.join(self.work, "recovery-before.png"))
         press_enter(hwnd)
-        time.sleep(8)
-        hwnd = find_window(r"Khôi phục tài liệu|Document Recovery")
-        if hwnd:  # "Kết thúc" after a partial recovery
+        for _ in range(3):  # 200 from the right hits "Kết thúc" and, if the first click was lost, the start button
+            time.sleep(8)
+            hwnd = find_window(r"Khôi phục tài liệu|Document Recovery", own_pids(self.work))
+            if not hwnd:
+                break
             press_enter(hwnd, 200)
+        shot(os.path.join(self.work, "recovery-after.png"))
         return True
 
     def texts(self):
@@ -119,9 +126,16 @@ class Office:
 
 def kill_profile(work):
     """taskkill /F of the office processes of this profile only (never another office on the machine)."""
+    for pid in own_pids(work):
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+
+
+def own_pids(work):
+    """Process ids of the office running on this profile (never another office on the machine)."""
     script = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'soffice*' -and $_.CommandLine -like '*%s*' }"
-              " | ForEach-Object { taskkill /F /PID $_.ProcessId }" % work.replace("\\", "/").split(":", 1)[-1])
-    subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True)
+              " | ForEach-Object { $_.ProcessId }" % work.replace("\\", "/").split(":", 1)[-1])
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True).stdout
+    return {int(x) for x in out.split() if x.isdigit()}
 
 
 def append(doc, marker):
@@ -144,32 +158,3 @@ def text_of(doc):
         return doc.Sheets.getByIndex(0).getCellByPosition(0, 0).String
     page = doc.DrawPages.getByIndex(0)
     return " ".join(page.getByIndex(i).String for i in range(page.Count))
-
-
-def find_window(pattern):
-    user32, found = ctypes.windll.user32, []
-
-    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-    def visit(hwnd, _):
-        buffer = ctypes.create_unicode_buffer(512)
-        user32.GetWindowTextW(hwnd, buffer, 512)
-        if user32.IsWindowVisible(hwnd) and re.search(pattern, buffer.value):
-            found.append(hwnd)
-        return True
-    user32.EnumWindows(visit, 0)
-    return found[0] if found else None
-
-
-def press_enter(hwnd, from_right=260, from_bottom=26):
-    """Click a button of the recovery dialog by its place from the bottom right (Return would only toggle the
-    focused list row): 260 = "Khôi phục mục đã chọn" / "Recover Selected", 200 = "Kết thúc" / "Finish"."""
-    from ctypes import wintypes
-    user32 = ctypes.windll.user32
-    user32.SetForegroundWindow(hwnd)
-    time.sleep(0.5)
-    rect = wintypes.RECT()
-    user32.GetWindowRect(hwnd, ctypes.byref(rect))
-    scale = user32.GetDpiForWindow(hwnd) / 96.0 if hasattr(user32, "GetDpiForWindow") else 1.0
-    user32.SetCursorPos(int(rect.right - from_right * scale), int(rect.bottom - from_bottom * scale))
-    user32.mouse_event(0x2, 0, 0, 0, 0)
-    user32.mouse_event(0x4, 0, 0, 0, 0)
