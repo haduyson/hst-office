@@ -39,13 +39,12 @@ def check_tree(tree):
 
 
 def page_colour(image):
-    """Background colour of the ribbon page: the commonest colour of the group band's left half (white with the
-    Linux theme, a light grey on Windows)."""
+    """Background colour of the ribbon page (white with the Linux theme, a light grey on Windows): the commonest
+    colour of its left margin, before the first group (a gallery's white box may fill much of the page)."""
     from collections import Counter
-    width, _ = image.size
     pixels = image.load()
     top, bottom = BAND
-    return Counter(pixels[x, y][:3] for x in range(0, width // 2, 3) for y in range(top, bottom, 3)).most_common(1)[0][0]
+    return Counter(pixels[x, y][:3] for x in range(9, 15) for y in range(top, bottom)).most_common(1)[0][0]
 
 
 def plain_column(image, x, colour):
