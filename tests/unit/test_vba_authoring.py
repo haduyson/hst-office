@@ -83,7 +83,7 @@ class Shortcuts(unittest.TestCase):
         keys = self.keys()
         for module in CONTEXT:
             self.assertEqual(keys[(module, "F8_MOD2")], ".uno:MacroDialog")
-        self.assertEqual(len(keys), 4)
+        self.assertEqual(len([k for k, command in keys.items() if command != "org.hst.office.vi:CitationReinsert"]), 4)
 
     def test_manifest_registers_accelerators(self):
         manifest = read(os.path.join(EXT, "META-INF", "manifest.xml"))

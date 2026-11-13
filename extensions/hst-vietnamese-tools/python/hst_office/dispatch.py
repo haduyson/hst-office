@@ -7,7 +7,7 @@ import unohelper
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from . import diag_log, help_pages, ui_language
+from . import citation_command_names, diag_log, help_pages, ui_language
 from .data_files import load_locale
 
 IMPLEMENTATION_NAME = "org.hst.office.vi.DispatchProvider"
@@ -32,7 +32,7 @@ DUPLEX = "ToggleDuplex"  # HST ▸ In hai mặt: a check item showing the docume
 ACTION_COMMANDS = frozenset((
     "Nd30Wizard", "ToggleDuplex", "ConvertEncoding", "FormatDate", "FormatDateLong", "FormatMonthYear", "FormatDateDash",
     "FormatVnd", "FormatPercent", "ImportCsv", "EditVba", "NumberToWords", "RemoveDiacritics", "SplitName",
-    "SortByGivenName", "DeleteBlankRows", "PreviousVersions", "OpenInHstPdf"))
+    "SortByGivenName", "DeleteBlankRows", "PreviousVersions", "OpenInHstPdf")) | citation_command_names.NAMES
 
 
 def _actions():

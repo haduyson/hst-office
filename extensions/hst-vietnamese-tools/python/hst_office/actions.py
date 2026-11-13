@@ -5,7 +5,7 @@ import unohelper
 from . import diag_log
 from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_insertion, nd30_layout,
                nd30_open, nd30_writer, blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
-from . import open_in_hst_pdf
+from . import citation_command_names, open_in_hst_pdf
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -167,6 +167,14 @@ def previous_versions(host):
     run(host.ctx, host.frame)
 
 
+def citation_command(name):
+    """Trích dẫn commands: the citation code is imported only when one of them runs."""
+    def run(host):
+        from . import citation_actions
+        return citation_actions.COMMANDS[name](host)
+    return run
+
+
 COMMANDS = {
     "Nd30Wizard": nd30_wizard,
     "ToggleDuplex": toggle_duplex,
@@ -186,4 +194,5 @@ COMMANDS = {
     "SortByGivenName": sheet_utility(vietnamese_calc.sort_by_given_name),
     "DeleteBlankRows": sheet_utility(blank_rows_calc.delete_blank_rows),
     "PreviousVersions": previous_versions,
+    **{name: citation_command(name) for name in citation_command_names.NAMES},
 }
