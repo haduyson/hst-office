@@ -27,8 +27,10 @@ import argparse
 import json
 import sys
 
-from .queue_core import *  # noqa: F401,F403
-from .queue_core import ACTIVE, PLATFORMS, TERMINAL, QueueError, Store
+from .queue_ops import cancel, drain, invalidate, submit
+from .queue_report import compare, describe, print_tests, wait
+from .queue_rules import order_key, parse_modules, parse_tests
+from .queue_store import ACTIVE, PLATFORMS, TERMINAL, QueueError, Store
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="build-queue.sh", description=__doc__.split("\n")[0])
