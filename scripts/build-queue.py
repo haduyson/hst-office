@@ -210,6 +210,7 @@ INFRA_PATTERNS = [
         r"task vanished|build\.lock is held|is already running",
         r"CERTIFICATE_VERIFY_FAILED|urlopen error|Could not resolve host|remote name could not be resolved",
         r"ssh \S+ rc=255|Connection (timed out|refused|reset)",
+        r"Exclude the build and source directories associated with LibreOffice",   # slot root lacks AV exclusion
     )
 ]
 MAX_INFRA_RETRIES = 2

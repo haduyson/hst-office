@@ -237,7 +237,8 @@ Khi máy có hai slot, lưu ý: `trial-build.sh --build` (script của CI, giữ
 kia; chỉ xảy ra khi một build chạy quá 3 ngày. Đổi công cụ trên một máy luôn bận: `scripts/build-queue.sh drain <máy>`.
 
 `-Jobs` của job mới = luồng của slot chia cho (số build đang chạy trên máy đó + 1): một mình 28, cạnh một build khác
-14. Tarball ghim nằm chung ở `D:\hst-build\dl` (`-ToolsRoot`). Slot mới build đủ lần đầu khi được dùng lần đầu.
+14. Tarball ghim nằm chung ở `D:\hst-build\dl` (`-ToolsRoot`). Slot mới build đủ lần đầu khi được dùng lần đầu; trước đó thư mục gốc của nó phải có ngoại lệ Defender
+(`hst4-setup.ps1 -Step Defender -ExtraRoots D:\hst-build-s2`), nếu không configure của LibreOffice dừng.
 
 Số đo: HST4 build tăng dần qua hàng đợi `rc/1.0.2-batch4` (d071caa): 18 phút (cây 332 s, configure 66 s,
 make + MSI 666 s) và thêm khoảng 1 phút kéo MSI về. HST5 build đủ lần đầu: cây 20 phút (giải nén + vá),

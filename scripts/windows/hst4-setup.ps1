@@ -15,7 +15,10 @@ param(
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$Root = 'D:\hst-build',
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$CygwinRoot = 'D:\cygwin64',
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$VsPath = 'D:\VS2022BT',
-    [int]$MinFreeCGiB = 3
+    [int]$MinFreeCGiB = 3,
+    # Further build slot roots (comma-separated, e.g. D:\hst-build-s2) that also need a Defender exclusion:
+    # LibreOffice's configure refuses to run in a directory the antivirus scans.
+    [ValidatePattern('^$|^[A-Za-z]:\\[^ ,]+(,[A-Za-z]:\\[^ ,]+)*$')][string]$ExtraRoots = ''
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -76,7 +79,7 @@ function Invoke-TmpAcl {
 
 function Invoke-Defender {
     $have = @((Get-MpPreference).ExclusionPath)
-    foreach ($p in $Root, $CygwinRoot) {
+    foreach ($p in @($Root, $CygwinRoot) + @($ExtraRoots -split ',' | Where-Object { $_ })) {
         if ($have -contains $p) { Write-Log "Defender exclusion present: $p" }
         else { Add-MpPreference -ExclusionPath $p; Write-Log "Defender exclusion added: $p" }
     }
