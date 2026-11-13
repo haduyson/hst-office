@@ -1,0 +1,111 @@
+HST Office (Windows): note the fault of a crash that the office's own handler ends silently.
+
+A crash on the main thread while the office is not in its main loop (start-up between OnStartApp
+and Execute, shutdown) or with --norestore takes Desktop::Exception -> Application::Abort ->
+SalAbort, which raises exception 0 inside the top-level filter; the nested call ends the process
+with SetErrorMode(SEM_NOGPFAULTERRORBOX); exit(255). Windows then records nothing: no Application
+Error event, no WER report, no dialog, and the recovery flag stays false. Measured on Windows 11
+with the 1.0.1 release (a real access violation on the main thread under --norestore): exit 0xFF,
+no event 1000/1001/1002. The next start's crash report could only say "not closed, no signature",
+which is what error reports #9 and #10 showed.
+
+The first unhandled exception is now written to the file named by HST_FAULT_NOTE (the HST
+extension sets it at start-up to <profile>/user/hst-office/last-fault.txt): exception code,
+faulting module, offset and thread; "end=exit255" is appended when the handler ends the process
+there. Only Win32 calls and stack buffers. Without the variable nothing changes.
+
+--- a/sal/osl/w32/signal.cxx
++++ b/sal/osl/w32/signal.cxx
+@@ -19,7 +19,9 @@
+ 
+ #include <sal/config.h>
+ 
++#include <stdio.h>
+ #include <stdlib.h>
++#include <string.h>
+ 
+ #include <config_features.h>
+ 
+@@ -65,6 +67,59 @@
+ }
+ 
+ LPTOP_LEVEL_EXCEPTION_FILTER pPreviousHandler = nullptr;
++
++/* HST Office: a crash that the office's own handler ends with exit(255) (a crash before the main
++   loop runs, during shutdown, or with --norestore; a second fault inside the handler) leaves no
++   Windows error report and no event, so the next start could only say "not closed". When the
++   environment names a note file (HST_FAULT_NOTE, set by the HST extension at start-up), the first
++   unhandled exception is written there: exception code, faulting module and offset; the end of
++   the process is appended. Only Win32 calls and stack buffers: the heap may be broken here. */
++void appendFaultNote(const char* pText)
++{
++    wchar_t aPath[MAX_PATH];
++    DWORD nLen = GetEnvironmentVariableW(L"HST_FAULT_NOTE", aPath, MAX_PATH);
++    if (nLen == 0 || nLen >= MAX_PATH)
++        return;
++    HANDLE hFile = CreateFileW(aPath, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
++                               FILE_ATTRIBUTE_NORMAL, nullptr);
++    if (hFile == INVALID_HANDLE_VALUE)
++        return;
++    DWORD nWritten = 0;
++    WriteFile(hFile, pText, static_cast<DWORD>(strlen(pText)), &nWritten, nullptr);
++    CloseHandle(hFile);
++}
++
++void noteFault(const EXCEPTION_RECORD* pRecord)
++{
++    char aModule[MAX_PATH] = "?";
++    ULONG_PTR nOffset = reinterpret_cast<ULONG_PTR>(pRecord->ExceptionAddress);
++    HMODULE hModule = nullptr;
++    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
++                               | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                           static_cast<LPCWSTR>(pRecord->ExceptionAddress), &hModule)
++        && hModule)
++    {
++        nOffset -= reinterpret_cast<ULONG_PTR>(hModule);
++        wchar_t aFile[MAX_PATH];
++        DWORD nLen = GetModuleFileNameW(hModule, aFile, MAX_PATH);
++        if (nLen > 0 && nLen < MAX_PATH)
++        {
++            const wchar_t* pName = aFile;
++            for (const wchar_t* p = aFile; *p; ++p)
++                if (*p == L'\\' || *p == L'/')
++                    pName = p + 1;
++            if (!WideCharToMultiByte(CP_UTF8, 0, pName, -1, aModule, MAX_PATH, nullptr, nullptr))
++                strcpy(aModule, "?");
++        }
++    }
++    char aText[MAX_PATH + 160];
++    _snprintf_s(aText, sizeof(aText), _TRUNCATE,
++                "code=0x%08lX module=%s offset=0x%llX thread=%lu\n",
++                static_cast<unsigned long>(pRecord->ExceptionCode), aModule,
++                static_cast<unsigned long long>(nOffset),
++                static_cast<unsigned long>(GetCurrentThreadId()));
++    appendFaultNote(aText);
++}
+ }
+ 
+ bool onInitSignal()
+@@ -101,6 +156,14 @@
+ 
+     static bool bNested = false;
+ 
++    // HST Office: the first fault only; SalAbort raises a second one (code 0) to end the process
++    static bool bNoted = false;
++    if (!bNoted)
++    {
++        bNoted = true;
++        noteFault(lpEP->ExceptionRecord);
++    }
++
+     oslSignalInfo info;
+ 
+     info.UserSignal = lpEP->ExceptionRecord->ExceptionCode;
+@@ -152,6 +215,7 @@
+             return EXCEPTION_EXECUTE_HANDLER;
+ 
+         case osl_Signal_ActKillApp:
++            appendFaultNote("end=exit255\n"); // HST Office: ended here, without a Windows report
+             SetErrorMode(SEM_NOGPFAULTERRORBOX);
+             exit(255);
+             break;

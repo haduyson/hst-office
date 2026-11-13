@@ -11,6 +11,9 @@ platform recorded, read at that next start (crash_signature.py parses it):
   * macOS: the system crash report (~/Library/Logs/DiagnosticReports/soffice*.ips) newer than the marker.
   * Windows: the "Application Error" event (1000) for soffice.bin in the Application log newer than the marker
     (faulting module, exception code, offset). faulthandler stays off there: it would log every C++ exception.
+    A crash the office's own handler ends with exit(255) (before the main loop, at shutdown, a second fault) leaves
+    no event: the handler writes the first fault to last-fault.txt, named by HST_FAULT_NOTE, which start() sets
+    (patch hst-windows-silent-crash-note).
     Without one, an "Application Hang" event (1002) or a WER AppHangB1 report (1001) for soffice.bin means the office
     had stopped answering and was closed by the user or Windows ("not responding"): the session ended as a hang.
 While the session runs, session_heartbeat stores in the marker the last time the office answered and the apps of its
@@ -28,6 +31,8 @@ from . import crash_signature, diag_log, session_facts
 
 MARKER = "session.json"
 STDERR_NAME = "last-session.err"
+FAULT_NOTE = "last-fault.txt"
+FAULT_NOTE_ENV = "HST_FAULT_NOTE"
 STDERR_KEEP = 1024 * 1024  # a session's stderr beyond this is cut at the next start (only its end matters)
 STATE = {"previous": None, "stderr": None, "closed": False}
 
@@ -67,7 +72,7 @@ def _beat_fields(marker):
     return {name: marker[name] for name in ("beat", "apps", "active", "modified", "loading") if name in marker}
 
 
-def previous_session(system=None, marker=None, stderr_text=None, now=None):
+def previous_session(system=None, marker=None, stderr_text=None, now=None, note_text=None):
     """{"ended": "crash"|"hang"|"not closed", "started", "signature", "hang", "version", and the last heartbeat's
     "beat", "apps", "active", "modified", "loading" when recorded} of an unclosed previous session, else None."""
     system = system or platform.system()
@@ -81,7 +86,8 @@ def previous_session(system=None, marker=None, stderr_text=None, now=None):
     elif system == "Darwin":
         signature = crash_signature.from_mac_reports(os.path.expanduser("~/Library/Logs/DiagnosticReports"), started)
     elif system == "Windows":
-        signature = crash_signature.from_windows_events(started)
+        signature = crash_signature.from_windows_events(started) or crash_signature.from_fault_note(
+            _read_fault_note(started) if note_text is None else note_text)
     else:
         signature = ""
     hang = crash_signature.windows_hang(started) if system == "Windows" and not signature else None
@@ -98,6 +104,29 @@ def _read_stderr():
             return handle.read().decode("utf-8", "replace")
     except OSError:
         return ""
+
+
+def _read_fault_note(started):
+    """The crash handler's note of the previous session (only one written after that session started)."""
+    path = _path(FAULT_NOTE)
+    try:
+        if os.path.getmtime(path) < started - 60:
+            return ""
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            return handle.read(4096)
+    except OSError:
+        return ""
+
+
+def _arm_fault_note():
+    """Windows: tell the office's crash handler where to note a fault (a fresh file per session)."""
+    path = _path(FAULT_NOTE)
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    import ctypes
+    ctypes.windll.kernel32.SetEnvironmentVariableW(FAULT_NOTE_ENV, path)
 
 
 def keep_stderr(fd=2, cmdline_path="/proc/self/cmdline"):
@@ -143,6 +172,8 @@ def start(ctx, environment):
             locale, platform.python_version()))
         if sys.platform != "win32":
             _capture_stderr()
+        else:
+            _arm_fault_note()
     except Exception:  # noqa: BLE001
         diag_log.exception("diag_crash", print_too=False)
     return STATE["previous"]
