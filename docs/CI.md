@@ -141,6 +141,54 @@ Cygwin, make native, NASM, pkgconf). Các bước build nằm trong
 xác minh được trên runner Windows; [preflight-local.sh](../scripts/windows/preflight-local.sh)
 chạy trong `ci-quality.sh` (shellcheck, actionlint, CRLF, mô phỏng giải nén/vá/tùy chọn trên Linux).
 
+### Build Windows cục bộ trên HST4 (bản thử, không phải bản phát hành)
+
+Máy thử HST4 (28 luồng, 32 GB RAM) build MSI để phát triển và thử nghiệm. Bản phát hành chính thức
+vẫn lấy từ CI. Máy này đi theo đúng các bước của workflow: dùng `trial-build.sh` của chính commit
+được build, cùng gói Cygwin, ghim flex, make native, pkgconf, NASM, Python 3.12 + Pillow 10.4.0 và
+cùng cách đổi tên MSI/`SHA256SUMS`. Toàn bộ nằm trên ổ D:, trong đường dẫn không có dấu cách vì
+ổ D: tắt tên 8.3. Bộ công cụ được cài một lần bằng
+[hst4-setup.ps1](../scripts/windows/hst4-setup.ps1) gồm: VS 2022 Build Tools tại `D:\VS2022BT`
+với đúng các thành phần mà `configure.log` của CI dùng (MSVC v143, ATL kể cả Spectre, clang-cl,
+merge module MSVC, CMake/Ninja, Windows SDK 10.0.26100, .NET Framework 4.8.1 SDK), Cygwin tại
+`D:\cygwin64` (qua `build-windows.ps1 -CygwinRoot`), cùng ngoại lệ Defender cho `D:\hst-build` và
+`D:\cygwin64`. Windows SDK và trình cài VS luôn nằm trên C:, và C: phải còn trống ít nhất 3 GB.
+
+[hst4-build.ps1](../scripts/windows/hst4-build.ps1) build một nhánh hoặc commit vào `D:\hst-build`
+(thư mục `repo`, `lo`, `dl`, `branding`, `logs`, `metrics`, `out`). MSI cùng `SHA256SUMS` và
+`build-info.json` (thời gian từng bước, sha, kích thước) được ghi vào
+`D:\hst-build\out\<nhánh>-<sha7>\`. Mặc định script dùng mọi luồng, ưu tiên Normal; có thể đổi
+bằng `-Jobs N` và `-Priority BelowNormal`. Lần sau build tăng dần nhờ
+[hst4-tree.sh](../scripts/windows/hst4-tree.sh). Bản giải nén gốc được giữ trong `pristine\<khóa>\`,
+với khóa tính từ sha256 của tarball và `trial-build.sh`. `stage\` giữ cây đã vá của lần chạy
+trước. Mỗi lần chạy, script đưa những tệp và thư mục mà lần vá trước đã đổi, tạo hay xóa về lại bản
+gốc, rồi vá lại bằng `trial-build.sh --patch` của commit đang build. Những gì vừa đổi được nhận ra
+bằng ctime và danh sách tệp, và chỉ những tệp có nội dung khác mới được chép sang `lo\`, nên make
+chỉ build lại phần mà commit thay đổi. Nếu đổi tarball, `trial-build.sh` hoặc dùng `-Clean`, cây
+được dựng lại đầy đủ. Khi đổi tarball, tệp upstream cũ có thể còn sót trong `lo\`; lúc đó nên dùng
+`-Clean`. Thêm `-VerifyTree` để so `stage\` và `lo\` với một cây vừa giải nén và vá mới (mất thêm
+khoảng 13 phút). `lo\` chỉ được phép khác ở `configure`, `aclocal.m4` và `openoffice.lst`, là
+những tệp do bước configure ghi lại. Build dài phải chạy tách khỏi phiên SSH bằng
+[hst4-detach.ps1](../scripts/windows/hst4-detach.ps1). Script này tạo task `hst-build-<tên>`
+chạy dưới tài khoản `kiemtra` (S4U, ưu tiên Normal) và tự xóa task khi xong.
+
+```powershell
+# một lần: chép script ra ngoài checkout (checkout bị đổi sang commit cần build)
+Copy-Item scripts\build-windows.ps1 D:\hst-build\tools\scripts\; Copy-Item scripts\windows\hst4-* D:\hst-build\tools\scripts\windows\
+powershell -File D:\hst-build\tools\scripts\windows\hst4-detach.ps1 -Name build -Script D:\hst-build\tools\scripts\windows\hst4-build.ps1 -ScriptArgs '-Ref rc/1.0.2-batch1'
+powershell -File D:\hst-build\tools\scripts\windows\hst4-build.ps1 -Status   # bước hiện tại, số bước [build], đuôi build.log, dung lượng trống
+```
+
+Dùng `-ExpectSha <sha>` để build dừng ngay khi nhánh không còn ở đúng commit đã được báo. Số đo
+lần đầu (13/11/2026, `rc/1.0.2-batch2` cac9177, 28 luồng): toàn bộ quy trình mất 86 phút, riêng
+make 71 phút. Trước đó cây đã được build sẵn khoảng 11 phút, xong phần lớn các thư viện ngoài. Để
+so sánh, bước build trên runner CI mất 157 phút. Phần OpenSSL do nmake build chạy một luồng nên
+kéo dài khoảng 30 phút. MSI cuối cùng nặng khoảng 224 MiB. Một lần build tăng dần mất khoảng 17
+phút. Riêng bước cây mất 5,5 phút (trước khi có bộ đệm `pristine\` là 14 phút): đưa tệp về bản gốc
+5 giây, vá lại 5 phút, quét và chép 8 giây. Sau đó configure 1 phút, make và đóng gói MSI 10 phút.
+Lần đầu dùng một khóa tarball mới phải giải nén thêm khoảng 5 phút. Ổ D: cần khoảng 45 GB cho cây
+build, `pristine\` và `stage\`.
+
 [build-macos.sh](../scripts/build-macos.sh) (chỉ kiểm kê, không dùng trong CI; CI dùng `scripts/macos/`, xem mục [macOS](#macos)) nhận `--arch arm64|x86_64`, in lệnh từ
 [arm64](../build-config/macos-arm64.conf) hoặc [x86_64](../build-config/macos-x86_64.conf).
 Script kiểm tra host đúng kiến trúc, Xcode từ 14.3, SDK từ 13.3 và công cụ đóng
