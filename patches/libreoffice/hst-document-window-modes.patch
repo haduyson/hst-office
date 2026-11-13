@@ -1,0 +1,1342 @@
+HST Office: every application chooses between tabs and separate windows (HST Writer, Sheets, Slides, Draw, PDF).
+Owner request (13/11/2026): Tools > Options > HST Office > General has, under "Document Tabs", one row per
+application with "Group files in one window (tabs)" (default, the behaviour so far) or "Each file in its own
+window". A document follows the setting of its own application: with HST Sheets set to separate windows and
+HST Writer to tabs, every spreadsheet opens in a window of its own while text documents group as tabs.
+Exception: the HST Office window (the window that shows the Start Center, any document) always takes a
+document opened from it as a tab: its Start Center and recent list, its "+" and the File menu of its tabs.
+A document opened from outside (launchers, file manager, command line: Referer private:OpenEvent) or from a
+window of an application follows the per-application setting.
+Settings: Office.Common/Misc/DocumentTabsWriter, ...Calc, ...Impress, ...Draw, ...Pdf (booleans, true = tabs;
+per user, lockable by administrators, the page shows the lock). They apply only while DocumentTabs is on.
+Design (framework/source/services/documenttabgroup.cxx):
+- chooseGroup: a window takes a new tab only when takesNewTab(): an HST Office window always; a module window
+  when it accepts the module and neither its application nor the document's is set to separate windows.
+  The window of the module used last is reused only for applications set to tabs; otherwise a new window.
+- A window of an application set to separate windows shows no strip while it has one tab (so no "+", no
+  detach; View > Move to New Window is disabled). Drop-merging a tab into such a window is refused.
+- Option changes are listened to (one ConfigurationListener property per application): strips follow at
+  once, new documents follow the new mode. "Apply to the open windows" on the Options page (one-time box,
+  framework::DocumentTabs::applyWindowModes, run once the dialog is closed): windows of applications set
+  to separate windows are split into one window per document (cascaded, through detach); windows of
+  applications set to tabs are merged into the window the user works in or the one used last, the other
+  documents becoming hidden tabs. Documents are only shown/hidden and re-grouped: nothing is reloaded,
+  closed or saved, unsaved changes stay. HST Office windows, full-screen windows and a Start Center alone
+  in a module window are left alone.
+- Crash recovery: a saved window of an application now set to separate windows is restored as one window
+  per document (the first one gets the saved geometry).
+- View > "Tabs or Separate Windows..." (.uno:DocumentWindowMode, Writer/Calc/Impress/Draw menus, next to
+  Move to New Window) opens the Options page (OptionsPageID OFA_TP_MISC); the feature search (Alt+Q) finds
+  it through keywords of the bundled extension.
+Taskbar identity is unchanged: module windows keep their module id, HST Office windows the Start Center id.
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-window-modes.py (Xvfb).
+---
+--- a/officecfg/registry/schema/org/openoffice/Office/Common.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Common.xcs
+@@ -4923,6 +4923,46 @@
+         </info>
+         <value>true</value>
+       </prop>
++      <!-- HST Office: window mode of each application (documenttabgroup.cxx). True: the
++           documents of the application group as tabs of one window of the application.
++           False: every document opens in its own window without a tab strip. Documents
++           opened from an HST Office window (its Start Center, recent list, "+" or File menu)
++           are always tabs of that window. Only used while DocumentTabs is true. -->
++      <prop oor:name="DocumentTabsWriter" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Text documents (HST Writer) open as tabs of one window (true) or each in its own window (false).</desc>
++          <label>HST Writer: documents as tabs</label>
++        </info>
++        <value>true</value>
++      </prop>
++      <prop oor:name="DocumentTabsCalc" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Spreadsheets (HST Sheets) open as tabs of one window (true) or each in its own window (false).</desc>
++          <label>HST Sheets: documents as tabs</label>
++        </info>
++        <value>true</value>
++      </prop>
++      <prop oor:name="DocumentTabsImpress" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Presentations (HST Slides) open as tabs of one window (true) or each in its own window (false).</desc>
++          <label>HST Slides: documents as tabs</label>
++        </info>
++        <value>true</value>
++      </prop>
++      <prop oor:name="DocumentTabsDraw" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Drawings (HST Draw) open as tabs of one window (true) or each in its own window (false).</desc>
++          <label>HST Draw: documents as tabs</label>
++        </info>
++        <value>true</value>
++      </prop>
++      <prop oor:name="DocumentTabsPdf" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>PDF files shown by HST PDF open as tabs of one window (true) or each in its own window (false).</desc>
++          <label>HST PDF: documents as tabs</label>
++        </info>
++        <value>true</value>
++      </prop>
+       <prop oor:name="MaxOpenDocuments" oor:type="xs:int">
+         <info>
+           <desc>Determines the maximum count of documents, which are allowed to
+--- a/framework/inc/documenttabgroup.hxx
++++ b/framework/inc/documenttabgroup.hxx
+@@ -72,6 +72,12 @@
+         (an HST Office window accepts all), else it gets a new window of its module;
+       - the very first window of the process is an HST Office window (Start Center,
+         autorecovery, documents opened by macros at startup).
++    Every application has a window mode (Office.Common/Misc/DocumentTabsWriter, ...Calc,
++    ...Impress, ...Draw, ...Pdf): tabs (the rules above) or separate windows. A document of an
++    application set to separate windows never joins a window of its module: it gets a new
++    window of its own without a tab strip. The HST Office window is the exception: a document
++    opened from it (Start Center, recent list, "+", File menu of one of its tabs) is always a
++    tab there, whatever the mode of its application.
+     A tab can be detached into a new window of the same kind, moved within its strip, and
+     dropped on the strip of another window that accepts it.
+ 
+@@ -173,6 +179,16 @@
+     void optionChanged(bool bEnabled);
+     void shutdown();
+ 
++    /// A window mode option changed: show or hide the strips of single-tab module windows.
++    void windowModeChanged();
++    /** "Apply to the open windows" (Options): once the current event is done, split the windows
++        of applications set to separate windows into one window per document, and merge the
++        windows of applications set to tabs into one window per application. HST Office windows
++        stay as they are. Documents only move between windows: nothing is reloaded or closed. */
++    void applyWindowModes();
++    /// Window mode of the application of a module key: true = tabs (also for other kinds).
++    static bool moduleUsesTabs(std::u16string_view rKind);
++
+ private:
+     struct Member
+     {
+@@ -204,6 +220,12 @@
+     Group* groupById(sal_uInt32 nId);
+     static Member* activeMember(Group& rGroup);
+     static bool accepts(const Group& rGroup, const OUString& rModule);
++    /// rGroup takes a new tab of rModule: accepts() and the window mode of rModule allow tabs.
++    static bool takesNewTab(const Group& rGroup, const OUString& rModule);
++    /// rGroup is a window of an application set to separate windows.
++    static bool isSeparateWindow(const Group& rGroup);
++    void splitSeparateWindows();
++    void mergeTabWindows();
+ 
+     Group& newGroup(const OUString& rKind);
+     Group* contextGroup();
+@@ -230,6 +252,7 @@
+     DECL_LINK(CloseWindowHdl, void*, void);
+     DECL_LINK(SaveLayoutHdl, Timer*, void);
+     DECL_LINK(FinishRestoreHdl, Timer*, void);
++    DECL_LINK(ApplyWindowModesHdl, void*, void);
+ 
+     /// One window of the saved layout (autorecovery).
+     struct LayoutWindow
+@@ -265,6 +288,7 @@
+     rtl::Reference<DocumentTabGroupListener> m_xListener;
+     sal_Int32 m_nInternal = 0; ///< >0 while we show/hide windows ourselves
+     bool m_bClosingAll = false;
++    bool m_bApplyPending = false; ///< applyWindowModes() posted, not run yet
+     bool m_bEnabled = true; ///< last known option value
+     sal_uInt64 m_nUseCounter = 0;
+     css::uno::WeakReference<css::frame::XFrame> m_xLaunchStartCenter;
+--- a/include/framework/documenttabs.hxx
++++ b/include/framework/documenttabs.hxx
+@@ -58,6 +58,14 @@
+     documents (see DocumentTabGroup::beginRestoreLayout). */
+ FWK_DLLPUBLIC void beginRestoreLayout();
+ FWK_DLLPUBLIC void endRestoreLayout();
++
++/** Options "Apply to the open windows", after the window modes of the applications were saved
++    (Office.Common/Misc/DocumentTabsWriter, ...): once the current event is done, the windows of
++    applications set to separate windows are split into one window per document and the windows
++    of applications set to tabs are merged into one window per application. HST Office windows
++    keep their tabs. Documents only move between windows, nothing is reloaded or closed.
++    No-op when tabs are disabled. */
++FWK_DLLPUBLIC void applyWindowModes();
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/framework/source/services/documenttabgroup.cxx
++++ b/framework/source/services/documenttabgroup.cxx
+@@ -45,8 +45,10 @@
+ #include <comphelper/configurationlistener.hxx>
+ #include <comphelper/lok.hxx>
+ #include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
+ #include <cppuhelper/implbase.hxx>
+ #include <officecfg/Office/Common.hxx>
++#include <sfx2/pageids.hxx>
+ #include <toolkit/helper/vclunohelper.hxx>
+ #include <tools/debug.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+@@ -69,6 +71,25 @@
+ 
+ namespace framework
+ {
++/// One window mode option (Office.Common/Misc/DocumentTabsWriter, ...): the strips follow it.
++class DocumentWindowModeProperty final : public comphelper::ConfigurationListenerPropertyBase
++{
++public:
++    explicit DocumentWindowModeProperty(const OUString& rName) { maName = rName; }
++    void setReady() { m_bReady = true; }
++
++    virtual void setProperty(const uno::Any&) override
++    {
++        if (!m_bReady) // addListener() reports the current value at once: ignored
++            return;
++        SolarMutexGuard aGuard;
++        DocumentTabGroup::get().windowModeChanged();
++    }
++
++private:
++    bool m_bReady = false;
++};
++
+ /// UNO side of the group: document events, frame closing, termination, option changes.
+ class DocumentTabGroupListener final
+     : public cppu::WeakImplHelper<document::XDocumentEventListener, util::XCloseListener,
+@@ -83,12 +104,23 @@
+             u"/org.openoffice.Office.Common/Misc"_ustr);
+         mxListener->addListener(this); // reports the current value at once: ignored
+         m_bReady = true;
++        for (const OUString& rName : { u"DocumentTabsWriter"_ustr, u"DocumentTabsCalc"_ustr,
++                                       u"DocumentTabsImpress"_ustr, u"DocumentTabsDraw"_ustr,
++                                       u"DocumentTabsPdf"_ustr })
++        {
++            auto pMode = std::make_unique<DocumentWindowModeProperty>(rName);
++            mxListener->addListener(pMode.get());
++            pMode->setReady();
++            m_aWindowModes.push_back(std::move(pMode));
++        }
+     }
+ 
+     void stop()
+     {
+         if (mxListener.is())
+         {
++            for (const std::unique_ptr<DocumentWindowModeProperty>& pMode : m_aWindowModes)
++                mxListener->removeListener(pMode.get());
+             mxListener->removeListener(this);
+             mxListener->dispose();
+             mxListener.clear();
+@@ -141,6 +173,7 @@
+ 
+ private:
+     bool m_bReady = false;
++    std::vector<std::unique_ptr<DocumentWindowModeProperty>> m_aWindowModes;
+ };
+ 
+ namespace
+@@ -251,7 +284,8 @@
+ }
+ 
+ void lcl_dispatch(const uno::Reference<frame::XFrame>& xFrame, const OUString& rURL,
+-                  const OUString& rTarget)
++                  const OUString& rTarget,
++                  const uno::Sequence<beans::PropertyValue>& rArgs = {})
+ {
+     uno::Reference<frame::XDispatchProvider> xProvider(xFrame, uno::UNO_QUERY);
+     if (!xProvider.is())
+@@ -263,7 +297,7 @@
+     xParser->parseStrict(aURL);
+     uno::Reference<frame::XDispatch> xDispatch = xProvider->queryDispatch(aURL, rTarget, 0);
+     if (xDispatch.is())
+-        xDispatch->dispatch(aURL, {});
++        xDispatch->dispatch(aURL, rArgs);
+ }
+ 
+ constexpr OUString OFFICE_KIND = u"office"_ustr;
+@@ -544,6 +578,44 @@
+            || rModule == rGroup.aKind;
+ }
+ 
++bool DocumentTabGroup::moduleUsesTabs(std::u16string_view rKind)
++{
++    try
++    {
++        if (rKind == u"writer")
++            return officecfg::Office::Common::Misc::DocumentTabsWriter::get();
++        if (rKind == u"calc")
++            return officecfg::Office::Common::Misc::DocumentTabsCalc::get();
++        if (rKind == u"impress")
++            return officecfg::Office::Common::Misc::DocumentTabsImpress::get();
++        if (rKind == u"draw")
++            return officecfg::Office::Common::Misc::DocumentTabsDraw::get();
++        if (rKind == u"pdf")
++            return officecfg::Office::Common::Misc::DocumentTabsPdf::get();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: window mode option");
++    }
++    // HST Office windows, the Start Center and other modules (formulas, databases): tabs
++    return true;
++}
++
++bool DocumentTabGroup::isSeparateWindow(const Group& rGroup)
++{
++    return rGroup.aKind != OFFICE_KIND && !moduleUsesTabs(rGroup.aKind);
++}
++
++bool DocumentTabGroup::takesNewTab(const Group& rGroup, const OUString& rModule)
++{
++    // An HST Office window takes every document (whatever the mode of its application); a window
++    // of an application set to separate windows takes none, nor does any window take a document
++    // of such an application.
++    if (rGroup.aKind == OFFICE_KIND)
++        return true;
++    return accepts(rGroup, rModule) && !isSeparateWindow(rGroup) && moduleUsesTabs(rModule);
++}
++
+ bool DocumentTabGroup::mayRecycle(const uno::Reference<frame::XFrame>& xFrame)
+ {
+     if (xFrame.is() && xFrame == lcl_get(m_xLaunchStartCenter))
+@@ -656,15 +728,16 @@
+         // The first window of the process is an HST Office window (autorecovery, macros).
+         if (m_aGroups.empty())
+             return newGroup(OFFICE_KIND);
+-        // The window the user works in, when it takes the module (HST Office takes all).
++        // The window the user works in, when it takes the module (HST Office takes all, also
++        // documents of applications set to separate windows).
+         Group* pContext = contextGroup();
+-        if (pContext && accepts(*pContext, rModule))
++        if (pContext && takesNewTab(*pContext, rModule))
+             return *pContext;
+     }
+     // Opened from outside (HST Writer/Sheets/Slides/PDF launcher, file manager), or a document of
+     // another module: a tab of the window of its module used last, else a window of its own. Never
+-    // the HST Office window.
+-    if (!rModule.isEmpty())
++    // the HST Office window. An application set to separate windows: always a window of its own.
++    if (!rModule.isEmpty() && moduleUsesTabs(rModule))
+         if (Group* pModule = recentGroupOfKind(rModule))
+             return *pModule;
+     return newGroup(rModule);
+@@ -1319,6 +1392,158 @@
+         dissolve();
+ }
+ 
++void DocumentTabGroup::windowModeChanged()
++{
++    // Documents opened from now on follow the new mode; the strip of a window with one tab
++    // appears or goes with it.
++    if (isEnabled())
++        updateAll();
++}
++
++void DocumentTabGroup::applyWindowModes()
++{
++    if (!isEnabled() || m_bApplyPending)
++        return;
++    // Not from within the Options dialog: windows move once it is closed.
++    m_bApplyPending = true;
++    Application::PostUserEvent(LINK(this, DocumentTabGroup, ApplyWindowModesHdl));
++}
++
++IMPL_LINK_NOARG(DocumentTabGroup, ApplyWindowModesHdl, void*, void)
++{
++    m_bApplyPending = false;
++    if (!isEnabled() || m_bClosingAll)
++        return;
++    try
++    {
++        const uno::Reference<frame::XFrame> xActive
++            = frame::Desktop::create(comphelper::getProcessComponentContext())->getActiveFrame();
++        splitSeparateWindows();
++        mergeTabWindows();
++        // The document the user worked in stays in front (it may have become a hidden tab).
++        if (Member* pMember = find(xActive); pMember && pMember->pWindow && !pMember->pWindow->isDisposed())
++        {
++            if (pMember->bParked)
++                activate(xActive);
++            else
++            {
++                pMember->pWindow->ToTop(ToTopFlags::RestoreWhenMin);
++                focus(xActive);
++            }
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: apply window modes");
++    }
++}
++
++void DocumentTabGroup::splitSeparateWindows()
++{
++    // Every tab but the shown one of a window of an application set to separate windows moves into
++    // a window of its own, cascaded from that window (a window in full screen keeps its tabs).
++    cleanUp();
++    std::vector<std::pair<uno::Reference<frame::XFrame>, std::optional<Point>>> aMoves;
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++    {
++        if (pGroup->aMembers.size() < 2 || !isSeparateWindow(*pGroup) || groupIsFullScreen(*pGroup))
++            continue;
++        Member* pShown = activeMember(*pGroup);
++        const std::vector<sal_Int32> aState = lcl_windowState(
++            pShown ? pShown->pWindow : pGroup->aMembers.front().pWindow, vcl::WindowDataMask::PosSize);
++        sal_Int32 nStep = 0;
++        for (const Member& rMember : pGroup->aMembers)
++        {
++            if (&rMember == pShown)
++                continue;
++            ++nStep;
++            std::optional<Point> aTopLeft;
++            if (aState.size() >= 2)
++                aTopLeft = Point(aState[0] + 30 * nStep, aState[1] + 30 * nStep);
++            aMoves.emplace_back(lcl_get(rMember.xFrame), aTopLeft);
++        }
++    }
++    for (const auto& [xFrame, aTopLeft] : aMoves)
++        if (xFrame.is())
++            detach(xFrame, aTopLeft); // the last tab of a window stays (canDetach)
++}
++
++void DocumentTabGroup::mergeTabWindows()
++{
++    // The windows of an application set to tabs become one window: the one the user works in when
++    // it is such a window, else the one used last. The other windows' documents become hidden tabs
++    // there. HST Office windows, windows in full screen and a Start Center standing alone in a
++    // window of the module stay as they are.
++    cleanUp();
++    uno::Reference<frame::XFrame> xActive;
++    try
++    {
++        xActive = frame::Desktop::create(comphelper::getProcessComponentContext())->getActiveFrame();
++    }
++    catch (const uno::Exception&)
++    {
++    }
++    const auto lcl_mergeable = [](const Group& rGroup) {
++        if (rGroup.aKind == OFFICE_KIND || groupIsFullScreen(rGroup) || !moduleUsesTabs(rGroup.aKind))
++            return false;
++        for (const Member& rMember : rGroup.aMembers)
++            if (lcl_moduleKey(lcl_get(rMember.xFrame)) == START_MODULE)
++                return false;
++        return true;
++    };
++    std::vector<OUString> aKinds;
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        if (lcl_mergeable(*pGroup) && std::find(aKinds.begin(), aKinds.end(), pGroup->aKind) == aKinds.end())
++            aKinds.push_back(pGroup->aKind);
++    for (const OUString& rKind : aKinds)
++    {
++        Group* pTarget = nullptr;
++        if (Group* pContext = nullptr; find(xActive, &pContext) && pContext->aKind == rKind
++                                       && lcl_mergeable(*pContext))
++            pTarget = pContext;
++        std::vector<sal_uInt32> aSources;
++        for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++            if (pGroup->aKind == rKind && lcl_mergeable(*pGroup) && pGroup.get() != pTarget)
++                aSources.push_back(pGroup->nId);
++        if (!pTarget)
++        {
++            // the window used last
++            for (sal_uInt32 nId : aSources)
++                if (Group* pGroup = groupById(nId); !pTarget || pGroup->nUsed > pTarget->nUsed)
++                    pTarget = pGroup;
++            std::erase(aSources, pTarget ? pTarget->nId : 0);
++        }
++        if (!pTarget || aSources.empty())
++            continue;
++        const sal_uInt32 nTarget = pTarget->nId;
++        for (sal_uInt32 nId : aSources)
++        {
++            Group* pSource = groupById(nId);
++            if (!pSource)
++                continue;
++            std::vector<Member> aMembers;
++            aMembers.swap(pSource->aMembers);
++            pSource->xActive.clear();
++            for (const Member& rMember : aMembers)
++            {
++                Group* pGroup = groupById(nTarget);
++                if (!pGroup)
++                    break;
++                if (rMember.pWindow && !rMember.pWindow->isDisposed())
++                    hst_vcl_set_tab_group(rMember.pWindow, nTarget);
++                pGroup->aMembers.push_back(rMember);
++                // hidden, not closed: the document and its unsaved changes stay as they are; parked
++                // once it is a member of the target, so XFrameImpl::windowHidden finds it parked
++                if (Member* pMoved = find(lcl_get(rMember.xFrame)); pMoved && !pMoved->bParked)
++                    park(*pMoved);
++            }
++        }
++        cleanUp(); // the emptied windows
++        if (Group* pGroup = groupById(nTarget))
++            update(*pGroup);
++    }
++}
++
+ void DocumentTabGroup::dissolve()
+ {
+     // Option switched off: every tab becomes a window again (cascaded from the shown one).
+@@ -1368,6 +1593,10 @@
+         return false;
+     if (static_cast<WorkWindow*>(rMember.pWindow.get())->IsFullScreenMode())
+         return false;
++    // A window of an application set to separate windows has no strip (only windows it had as
++    // tabs before the option changed show theirs until they are split or closed).
++    if (rGroup.aMembers.size() == 1 && isSeparateWindow(rGroup))
++        return false;
+     // A lone Start Center needs no strip; a lone document shows its tab and "+".
+     return rGroup.aMembers.size() > 1 || lcl_model(lcl_get(rMember.xFrame)).is();
+ }
+@@ -1573,7 +1802,7 @@
+                                           pTarget->pBar->GetOutputSizePixel());
+             if (!aStrip.Contains(rScreenPos))
+                 continue;
+-            if (!accepts(*pGroup, aModule) || groupIsFullScreen(*pGroup))
++            if (!takesNewTab(*pGroup, aModule) || groupIsFullScreen(*pGroup))
+                 return false;
+             // Leave the source window (its neighbour is shown), become the shown tab here.
+             const sal_uInt32 nSource = pSource->nId;
+@@ -1829,16 +2058,23 @@
+             }
+             rWindow.aUsed[i] = true;
+             rOrder = i;
+-            pFound = groupById(rWindow.nGroup);
++            // An application now set to separate windows: one window per document (the first
++            // one gets the saved geometry).
++            const bool bSeparate = rWindow.aKind != OFFICE_KIND && !moduleUsesTabs(rWindow.aKind);
++            pFound = bSeparate ? nullptr : groupById(rWindow.nGroup);
+             if (!pFound)
+             {
+                 // the first document of a window: the window with its kind and geometry
++                const bool bFirst = rWindow.nGroup == 0;
+                 pFound = &newGroup(rWindow.aKind);
+-                rWindow.nGroup = pFound->nId;
+-                VclPtr<vcl::Window> pWindow = VCLUnoHelper::GetWindow(xFrame->getContainerWindow());
+-                if (pWindow && !pWindow->IsVisible() && pWindow->IsSystemWindow()
+-                    && !rWindow.aState.isEmpty())
+-                    static_cast<SystemWindow*>(pWindow.get())->SetWindowState(rWindow.aState);
++                if (!bSeparate || bFirst)
++                {
++                    rWindow.nGroup = pFound->nId;
++                    VclPtr<vcl::Window> pWindow = VCLUnoHelper::GetWindow(xFrame->getContainerWindow());
++                    if (pWindow && !pWindow->IsVisible() && pWindow->IsSystemWindow()
++                        && !rWindow.aState.isEmpty())
++                        static_cast<SystemWindow*>(pWindow.get())->SetWindowState(rWindow.aState);
++                }
+             }
+         }
+     }
+@@ -1942,6 +2178,14 @@
+     {
+         SolarMutexGuard aGuard;
+         const uno::Reference<frame::XFrame> xFrame(m_xFrame);
++        if (xFrame.is() && rURL.Complete == ".uno:DocumentWindowMode")
++        {
++            // Tools > Options > HST Office > General, where tabs and window modes are set
++            lcl_dispatch(xFrame, u".uno:OptionsTreeDialog"_ustr, u"_self"_ustr,
++                         { comphelper::makePropertyValue(u"OptionsPageID"_ustr,
++                                                         sal_uInt16(OFA_TP_MISC)) });
++            return;
++        }
+         if (!DocumentTabGroup::isEnabled() || !xFrame.is())
+             return;
+         if (rURL.Complete == ".uno:DetachDocumentTab")
+@@ -1980,7 +2224,7 @@
+ bool DocumentTabGroup::isTabCommand(std::u16string_view rCommand)
+ {
+     return rCommand == u".uno:NextDocumentTab" || rCommand == u".uno:PrevDocumentTab"
+-           || rCommand == u".uno:DetachDocumentTab";
++           || rCommand == u".uno:DetachDocumentTab" || rCommand == u".uno:DocumentWindowMode";
+ }
+ 
+ uno::Reference<frame::XDispatch>
+@@ -2022,6 +2266,13 @@
+         DocumentTabGroup::get().beginRestoreLayout();
+ }
+ 
++void DocumentTabs::applyWindowModes()
++{
++    SolarMutexGuard aGuard;
++    if (DocumentTabGroup::isEnabled())
++        DocumentTabGroup::get().applyWindowModes();
++}
++
+ void DocumentTabs::endRestoreLayout()
+ {
+     SolarMutexGuard aGuard;
+--- a/cui/source/options/optgdlg.hxx
++++ b/cui/source/options/optgdlg.hxx
+@@ -26,6 +26,7 @@
+ #include <vcl/weld/Entry.hxx>
+ #include <vcl/weld/Label.hxx>
+ #include <vcl/weld/MetricSpinButton.hxx>
++#include <vcl/weld/RadioButton.hxx>
+ #include <vcl/weld/SpinButton.hxx>
+ 
+ class CanvasSettings;
+@@ -44,6 +45,17 @@
+     // HST Office: document tabs
+     std::unique_ptr<weld::CheckButton> m_xDocumentTabsCB;
+     std::unique_ptr<weld::Widget> m_xDocumentTabsImg;
++    // HST Office: window mode of each application (HST Writer, Sheets, Slides, Draw, PDF)
++    struct WindowModeRow
++    {
++        std::unique_ptr<weld::RadioButton> xTabs;
++        std::unique_ptr<weld::RadioButton> xWindows;
++        std::unique_ptr<weld::Widget> xLock;
++        bool bReadOnly = false;
++    };
++    std::vector<WindowModeRow> m_aWindowModes;
++    std::unique_ptr<weld::Widget> m_xWindowModesGrid;
++    std::unique_ptr<weld::CheckButton> m_xApplyOpenWindowsCB;
+     // HST Office: open PDF files in HST PDF
+     std::unique_ptr<weld::CheckButton> m_xPdfViewerCB;
+     std::unique_ptr<weld::Widget> m_xPdfViewerImg;
+@@ -74,6 +86,8 @@
+ #endif
+ 
+     DECL_LINK(TwoFigureHdl, weld::SpinButton&, void);
++    DECL_LINK(DocumentTabsToggleHdl, weld::Toggleable&, void);
++    void UpdateWindowModesSensitivity();
+ #if defined(_WIN32)
+     DECL_DLLPRIVATE_STATIC_LINK(OfaMiscTabPage, FileAssocClick, weld::Button&, void);
+ #endif
+--- a/cui/source/options/optgdlg.cxx
++++ b/cui/source/options/optgdlg.cxx
+@@ -54,6 +54,7 @@
+ #include <sal/log.hxx>
+ #include <officecfg/Office/Canvas.hxx>
+ #include <officecfg/Office/Common.hxx>
++#include <framework/documenttabs.hxx>
+ #include <officecfg/Office/HSTPdfViewer.hxx>
+ #include <officecfg/Office/Linguistic.hxx>
+ #include <officecfg/Setup.hxx>
+@@ -160,6 +161,34 @@
+ }
+ }
+ 
++namespace
++{
++/// The window mode options of the applications, in the order of the rows of the Options page.
++struct WindowModeOption
++{
++    const char16_t* pId; ///< "<id>tabs", "<id>windows", "lock<id>windows" in optgeneralpage.ui
++    bool (*get)();
++    bool (*isReadOnly)();
++    void (*set)(bool, const std::shared_ptr<comphelper::ConfigurationChanges>&);
++};
++
++template <class Prop> constexpr WindowModeOption lcl_windowModeOption(const char16_t* pId)
++{
++    return { pId, [] { return Prop::get(); }, [] { return Prop::isReadOnly(); },
++             [](bool bTabs, const std::shared_ptr<comphelper::ConfigurationChanges>& xBatch)
++             { Prop::set(bTabs, xBatch); } };
++}
++
++using Misc = officecfg::Office::Common::Misc;
++constexpr WindowModeOption aWindowModeOptions[] = {
++    lcl_windowModeOption<Misc::DocumentTabsWriter>(u"writer"),
++    lcl_windowModeOption<Misc::DocumentTabsCalc>(u"calc"),
++    lcl_windowModeOption<Misc::DocumentTabsImpress>(u"impress"),
++    lcl_windowModeOption<Misc::DocumentTabsDraw>(u"draw"),
++    lcl_windowModeOption<Misc::DocumentTabsPdf>(u"pdf"),
++};
++}
++
+ OfaMiscTabPage::OfaMiscTabPage(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet& rSet)
+     : SfxTabPage(pPage, pController, u"cui/ui/optgeneralpage.ui"_ustr, u"OptGeneralPage"_ustr, &rSet)
+     , m_xExtHelpCB(m_xBuilder->weld_check_button(u"exthelp"_ustr))
+@@ -170,6 +199,8 @@
+     , m_xShowTipOfTheDayImg(m_xBuilder->weld_widget(u"lockcbShowTipOfTheDay"_ustr))
+     , m_xDocumentTabsCB(m_xBuilder->weld_check_button(u"documenttabs"_ustr))
+     , m_xDocumentTabsImg(m_xBuilder->weld_widget(u"lockdocumenttabs"_ustr))
++    , m_xWindowModesGrid(m_xBuilder->weld_widget(u"windowmodes"_ustr))
++    , m_xApplyOpenWindowsCB(m_xBuilder->weld_check_button(u"applyopenwindows"_ustr))
+     , m_xPdfViewerCB(m_xBuilder->weld_check_button(u"pdfviewer"_ustr))
+     , m_xPdfViewerImg(m_xBuilder->weld_widget(u"lockpdfviewer"_ustr))
+     , m_xFileDlgROImage(m_xBuilder->weld_widget(u"lockimage"_ustr))
+@@ -212,6 +243,15 @@
+     m_xFileAssocBtn->connect_clicked(LINK(this, OfaMiscTabPage, FileAssocClick));
+ #endif
+ 
++    for (const WindowModeOption& rOption : aWindowModeOptions)
++    {
++        const OUString aId(rOption.pId);
++        m_aWindowModes.push_back({ m_xBuilder->weld_radio_button(aId + "tabs"),
++                                   m_xBuilder->weld_radio_button(aId + "windows"),
++                                   m_xBuilder->weld_widget("lock" + aId + "windows") });
++    }
++    m_xDocumentTabsCB->connect_toggled(LINK(this, OfaMiscTabPage, DocumentTabsToggleHdl));
++
+     m_aStrDateInfo = m_xToYearFT->get_label();
+     m_xYearValueField->connect_value_changed( LINK( this, OfaMiscTabPage, TwoFigureHdl ) );
+ 
+@@ -239,9 +279,19 @@
+             sAllStrings.append(pString->get_label() + " ");
+     }
+ 
++    // HST Office: document tabs and window modes, found by the search of the Options dialog
++    for (const auto& label : { u"labeldocumenttabs"_ustr, u"windowmodesinfo"_ustr })
++    {
++        if (const auto pString = m_xBuilder->weld_label(label))
++            sAllStrings.append(pString->get_label() + " ");
++    }
++    for (const WindowModeRow& rRow : m_aWindowModes)
++        sAllStrings.append(rRow.xTabs->get_label() + " " + rRow.xWindows->get_label() + " ");
++
+     OUString checkButton[]
+         = { u"exthelp"_ustr,   u"popupnohelp"_ustr, u"cbShowTipOfTheDay"_ustr, u"filedlg"_ustr,
+-            u"docstatus"_ustr, u"crashreport"_ustr, u"quicklaunch"_ustr,       u"cbPerformFileExtCheck"_ustr };
++            u"docstatus"_ustr, u"crashreport"_ustr, u"quicklaunch"_ustr,       u"cbPerformFileExtCheck"_ustr,
++            u"documenttabs"_ustr, u"applyopenwindows"_ustr };
+ 
+     for (const auto& check : checkButton)
+     {
+@@ -278,6 +328,16 @@
+         bModified = true;
+     }
+ 
++    for (size_t i = 0; i < m_aWindowModes.size(); ++i)
++    {
++        const WindowModeRow& rRow = m_aWindowModes[i];
++        if (!rRow.bReadOnly && rRow.xTabs->get_state_changed_from_saved())
++        {
++            aWindowModeOptions[i].set(rRow.xTabs->get_active(), batch);
++            bModified = true;
++        }
++    }
++
+     if ( m_xPdfViewerCB->get_state_changed_from_saved() )
+     {
+         officecfg::Office::HSTPdfViewer::Viewer::OpenPdfInViewer::set(m_xPdfViewerCB->get_active(), batch);
+@@ -335,9 +395,32 @@
+ 
+     batch->commit();
+ 
++    // HST Office: move the documents of the open windows to the window modes just saved (once the
++    // dialog is closed); a one-time action, the box is cleared again by Reset()
++    if (m_xApplyOpenWindowsCB->get_sensitive() && m_xApplyOpenWindowsCB->get_active())
++        framework::DocumentTabs::applyWindowModes();
++
+     return bModified;
+ }
+ 
++IMPL_LINK_NOARG(OfaMiscTabPage, DocumentTabsToggleHdl, weld::Toggleable&, void)
++{
++    UpdateWindowModesSensitivity();
++}
++
++void OfaMiscTabPage::UpdateWindowModesSensitivity()
++{
++    // The window modes only matter while documents open as tabs.
++    const bool bTabs = m_xDocumentTabsCB->get_active();
++    m_xWindowModesGrid->set_sensitive(bTabs);
++    for (const WindowModeRow& rRow : m_aWindowModes)
++    {
++        rRow.xTabs->set_sensitive(bTabs && !rRow.bReadOnly);
++        rRow.xWindows->set_sensitive(bTabs && !rRow.bReadOnly);
++    }
++    m_xApplyOpenWindowsCB->set_sensitive(bTabs);
++}
++
+ void OfaMiscTabPage::Reset( const SfxItemSet* rSet )
+ {
+     bool bEnable = !officecfg::Office::Common::Help::ExtendedTip::isReadOnly();
+@@ -365,6 +448,22 @@
+     m_xDocumentTabsImg->set_visible(!bEnable);
+     m_xDocumentTabsCB->save_state();
+ 
++    for (size_t i = 0; i < m_aWindowModes.size(); ++i)
++    {
++        WindowModeRow& rRow = m_aWindowModes[i];
++        rRow.bReadOnly = aWindowModeOptions[i].isReadOnly();
++        if (aWindowModeOptions[i].get())
++            rRow.xTabs->set_active(true);
++        else
++            rRow.xWindows->set_active(true);
++        rRow.xLock->set_visible(rRow.bReadOnly);
++        rRow.xTabs->save_state();
++        rRow.xWindows->save_state();
++    }
++    m_xApplyOpenWindowsCB->set_active(false);
++    m_xApplyOpenWindowsCB->save_state();
++    UpdateWindowModesSensitivity();
++
+     bEnable = !officecfg::Office::HSTPdfViewer::Viewer::OpenPdfInViewer::isReadOnly();
+     m_xPdfViewerCB->set_active( officecfg::Office::HSTPdfViewer::Viewer::OpenPdfInViewer::get() );
+     m_xPdfViewerCB->set_sensitive(bEnable);
+--- a/cui/uiconfig/ui/optgeneralpage.ui
++++ b/cui/uiconfig/ui/optgeneralpage.ui
+@@ -581,7 +581,7 @@
+         <property name="label-xalign">0</property>
+         <property name="shadow-type">none</property>
+         <child>
+-          <!-- n-columns=2 n-rows=1 -->
++          <!-- n-columns=2 n-rows=2 -->
+           <object class="GtkGrid" id="griddocumenttabs">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+@@ -615,6 +615,398 @@
+                 <property name="top-attach">0</property>
+               </packing>
+             </child>
++            <child>
++              <!-- HST Office: window mode of each application (Office.Common/Misc/DocumentTabsWriter, ...) -->
++              <!-- n-columns=4 n-rows=7 -->
++              <object class="GtkGrid" id="windowmodes">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="margin-start">18</property>
++                <property name="margin-top">3</property>
++                <property name="row-spacing">3</property>
++                <property name="column-spacing">12</property>
++                <child>
++                  <object class="GtkLabel" id="windowmodesinfo">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="optgeneralpage|windowmodesinfo">How each application opens files. Files opened from the %PRODUCTNAME window (Start Center, recent documents) always open as tabs there.</property>
++                    <property name="wrap">True</property>
++                    <property name="max-width-chars">70</property>
++                    <property name="xalign">0</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="windowmodesinfo-atkobject">
++                        <property name="AtkObject::accessible-role">static</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                    <property name="width">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkImage" id="lockwriterwindows">
++                    <property name="can-focus">False</property>
++                    <property name="no-show-all">True</property>
++                    <property name="halign">center</property>
++                    <property name="valign">center</property>
++                    <property name="icon-name">res/lock.png</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="labelwriterwindows">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label">HST Writer</property>
++                    <property name="xalign">0</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="labelwriterwindows-atkobject">
++                        <property name="AtkObject::accessible-role">static</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkRadioButton" id="writertabs">
++                    <property name="label" translatable="yes" context="optgeneralpage|writertabs">Group files in one window (tabs)</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="active">True</property>
++                    <property name="draw-indicator">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="writertabs-atkobject">
++                        <property name="AtkObject::accessible-description">HST Writer</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">2</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkRadioButton" id="writerwindows">
++                    <property name="label" translatable="yes" context="optgeneralpage|writerwindows">Each file in its own window</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="draw-indicator">True</property>
++                    <property name="group">writertabs</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="writerwindows-atkobject">
++                        <property name="AtkObject::accessible-description">HST Writer</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">3</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkImage" id="lockcalcwindows">
++                    <property name="can-focus">False</property>
++                    <property name="no-show-all">True</property>
++                    <property name="halign">center</property>
++                    <property name="valign">center</property>
++                    <property name="icon-name">res/lock.png</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="labelcalcwindows">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label">HST Sheets</property>
++                    <property name="xalign">0</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="labelcalcwindows-atkobject">
++                        <property name="AtkObject::accessible-role">static</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkRadioButton" id="calctabs">
++                    <property name="label" translatable="yes" context="optgeneralpage|calctabs">Group files in one window (tabs)</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="active">True</property>
++                    <property name="draw-indicator">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="calctabs-atkobject">
++                        <property name="AtkObject::accessible-description">HST Sheets</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">2</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkRadioButton" id="calcwindows">
++                    <property name="label" translatable="yes" context="optgeneralpage|calcwindows">Each file in its own window</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="draw-indicator">True</property>
++                    <property name="group">calctabs</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="calcwindows-atkobject">
++                        <property name="AtkObject::accessible-description">HST Sheets</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">3</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkImage" id="lockimpresswindows">
++                    <property name="can-focus">False</property>
++                    <property name="no-show-all">True</property>
++                    <property name="halign">center</property>
++                    <property name="valign">center</property>
++                    <property name="icon-name">res/lock.png</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="labelimpresswindows">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label">HST Slides</property>
++                    <property name="xalign">0</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="labelimpresswindows-atkobject">
++                        <property name="AtkObject::accessible-role">static</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkRadioButton" id="impresstabs">
++                    <property name="label" translatable="yes" context="optgeneralpage|impresstabs">Group files in one window (tabs)</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="active">True</property>
++                    <property name="draw-indicator">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="impresstabs-atkobject">
++                        <property name="AtkObject::accessible-description">HST Slides</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">2</property>
++                    <property name="top-attach">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkRadioButton" id="impresswindows">
++                    <property name="label" translatable="yes" context="optgeneralpage|impresswindows">Each file in its own window</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="draw-indicator">True</property>
++                    <property name="group">impresstabs</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="impresswindows-atkobject">
++                        <property name="AtkObject::accessible-description">HST Slides</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">3</property>
++                    <property name="top-attach">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkImage" id="lockdrawwindows">
++                    <property name="can-focus">False</property>
++                    <property name="no-show-all">True</property>
++                    <property name="halign">center</property>
++                    <property name="valign">center</property>
++                    <property name="icon-name">res/lock.png</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="labeldrawwindows">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label">HST Draw</property>
++                    <property name="xalign">0</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="labeldrawwindows-atkobject">
++                        <property name="AtkObject::accessible-role">static</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkRadioButton" id="drawtabs">
++                    <property name="label" translatable="yes" context="optgeneralpage|drawtabs">Group files in one window (tabs)</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="active">True</property>
++                    <property name="draw-indicator">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="drawtabs-atkobject">
++                        <property name="AtkObject::accessible-description">HST Draw</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">2</property>
++                    <property name="top-attach">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkRadioButton" id="drawwindows">
++                    <property name="label" translatable="yes" context="optgeneralpage|drawwindows">Each file in its own window</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="draw-indicator">True</property>
++                    <property name="group">drawtabs</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="drawwindows-atkobject">
++                        <property name="AtkObject::accessible-description">HST Draw</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">3</property>
++                    <property name="top-attach">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkImage" id="lockpdfwindows">
++                    <property name="can-focus">False</property>
++                    <property name="no-show-all">True</property>
++                    <property name="halign">center</property>
++                    <property name="valign">center</property>
++                    <property name="icon-name">res/lock.png</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">5</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="labelpdfwindows">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label">HST PDF</property>
++                    <property name="xalign">0</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="labelpdfwindows-atkobject">
++                        <property name="AtkObject::accessible-role">static</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">5</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkRadioButton" id="pdftabs">
++                    <property name="label" translatable="yes" context="optgeneralpage|pdftabs">Group files in one window (tabs)</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="active">True</property>
++                    <property name="draw-indicator">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="pdftabs-atkobject">
++                        <property name="AtkObject::accessible-description">HST PDF</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">2</property>
++                    <property name="top-attach">5</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkRadioButton" id="pdfwindows">
++                    <property name="label" translatable="yes" context="optgeneralpage|pdfwindows">Each file in its own window</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="draw-indicator">True</property>
++                    <property name="group">pdftabs</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="pdfwindows-atkobject">
++                        <property name="AtkObject::accessible-description">HST PDF</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">3</property>
++                    <property name="top-attach">5</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkCheckButton" id="applyopenwindows">
++                    <property name="label" translatable="yes" context="optgeneralpage|applyopenwindows">_Apply to the open windows</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">6</property>
++                    <property name="width">3</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">1</property>
++                <property name="width">2</property>
++              </packing>
++            </child>
+           </object>
+         </child>
+         <child type="label">
+--- a/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
+@@ -4263,6 +4263,17 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:DocumentWindowMode" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Tabs or Separate Windows...</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Choose for each application whether files open as tabs of one window or each in its own window</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:CloseWin" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Close Window</value>
+--- a/sc/uiconfig/scalc/menubar/menubar.xml
++++ b/sc/uiconfig/scalc/menubar/menubar.xml
+@@ -206,6 +206,7 @@
+       </menu:menu>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:DetachDocumentTab"/>
++      <menu:menuitem menu:id=".uno:DocumentWindowMode"/>
+     </menu:menupopup>
+   </menu:menu>
+   <menu:menu menu:id=".uno:InsertMenu" menu:style="text">
+--- a/sd/uiconfig/sdraw/menubar/menubar.xml
++++ b/sd/uiconfig/sdraw/menubar/menubar.xml
+@@ -181,6 +181,7 @@
+       </menu:menu>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:DetachDocumentTab"/>
++      <menu:menuitem menu:id=".uno:DocumentWindowMode"/>
+     </menu:menupopup>
+   </menu:menu>
+   <menu:menu menu:id=".uno:InsertMenu" menu:style="text">
+--- a/sd/uiconfig/simpress/menubar/menubar.xml
++++ b/sd/uiconfig/simpress/menubar/menubar.xml
+@@ -191,6 +191,7 @@
+       </menu:menu>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:DetachDocumentTab"/>
++      <menu:menuitem menu:id=".uno:DocumentWindowMode"/>
+     </menu:menupopup>
+   </menu:menu>
+   <menu:menu menu:id=".uno:InsertMenu" menu:style="text">
+--- a/sw/uiconfig/swriter/menubar/menubar.xml
++++ b/sw/uiconfig/swriter/menubar/menubar.xml
+@@ -254,6 +254,7 @@
+       </menu:menu>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:DetachDocumentTab"/>
++      <menu:menuitem menu:id=".uno:DocumentWindowMode"/>
+     </menu:menupopup>
+   </menu:menu>
+   <menu:menu menu:id=".uno:InsertMenu" menu:style="text">
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -23768,3 +23768,75 @@
+ msgctxt "optgeneralpage|labeldocumenttabs"
+ msgid "Document Tabs"
+ msgstr "Thẻ tài liệu"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|windowmodesinfo"
++msgid "How each application opens files. Files opened from the %PRODUCTNAME window (Start Center, recent documents) always open as tabs there."
++msgstr "Cách mỗi ứng dụng mở tệp. Tệp mở từ cửa sổ %PRODUCTNAME (Trang bắt đầu, tài liệu gần đây) luôn mở dạng thẻ trong cửa sổ đó."
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|writertabs"
++msgid "Group files in one window (tabs)"
++msgstr "Gom các tệp vào cùng một cửa sổ (dạng thẻ)"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|writerwindows"
++msgid "Each file in its own window"
++msgstr "Mỗi tệp một cửa sổ riêng"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|calctabs"
++msgid "Group files in one window (tabs)"
++msgstr "Gom các tệp vào cùng một cửa sổ (dạng thẻ)"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|calcwindows"
++msgid "Each file in its own window"
++msgstr "Mỗi tệp một cửa sổ riêng"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|impresstabs"
++msgid "Group files in one window (tabs)"
++msgstr "Gom các tệp vào cùng một cửa sổ (dạng thẻ)"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|impresswindows"
++msgid "Each file in its own window"
++msgstr "Mỗi tệp một cửa sổ riêng"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|drawtabs"
++msgid "Group files in one window (tabs)"
++msgstr "Gom các tệp vào cùng một cửa sổ (dạng thẻ)"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|drawwindows"
++msgid "Each file in its own window"
++msgstr "Mỗi tệp một cửa sổ riêng"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|pdftabs"
++msgid "Group files in one window (tabs)"
++msgstr "Gom các tệp vào cùng một cửa sổ (dạng thẻ)"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|pdfwindows"
++msgid "Each file in its own window"
++msgstr "Mỗi tệp một cửa sổ riêng"
++
++#. hstWM
++#: cui/uiconfig/ui/optgeneralpage.ui
++msgctxt "optgeneralpage|applyopenwindows"
++msgid "_Apply to the open windows"
++msgstr "Á_p dụng cho các cửa sổ đang mở"
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -16908,6 +16908,26 @@
+ msgid "Move to New Window"
+ msgstr "Tách ra cửa sổ mới"
+ 
++#. hstWM
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:DocumentWindowMode\n"
++"Label\n"
++"value.text"
++msgid "Tabs or Separate Windows..."
++msgstr "Thẻ hay cửa sổ riêng..."
++
++#. hstWM
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:DocumentWindowMode\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Choose for each application whether files open as tabs of one window or each in its own window"
++msgstr "Chọn cho từng ứng dụng: gom các tệp vào cùng một cửa sổ (dạng thẻ) hay mỗi tệp một cửa sổ riêng"
++
+ #. hstBS
+ #: GenericCommands.xcu
+ msgctxt ""
