@@ -44,6 +44,10 @@
 # recently admitted slot to freeze when MemAvailable < 6 GiB or swap use grew by > 1 GiB; a slot thaws at
 # HST_LOCAL_RESUME_MEM_GIB (8) GiB, and a repeated or swap pause restarts its make with half the jobs (min 2;
 # abort after HST_LOCAL_MEM_WAIT_MIN, default 30, minutes); only one heavy (>= 1 GiB) link per slot at a time.
+# The whole script is one { } group: bash parses it completely before running it, so updating this file (the
+# queue dispatcher's checkout) never changes a build that is already running.
+# shellcheck disable=SC2317 # shellcheck's reachability analysis gives up inside the group (false "unreachable")
+{
 set -Eeuo pipefail
 trap 'echo "FAILED line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -597,3 +601,5 @@ elif [ "$PACKAGE" -eq 1 ]; then timed package do_package; fi
 in_chroot / ccache -s | sed -n '/[Hh]its\|[Mm]isses\|[Cc]ache size/p' || true
 log "total $(( $(date +%s) - total_start ))s; timings in $RUN_LOGS/timings.tsv"
 log "output: $DEST"
+exit "$?"
+}
