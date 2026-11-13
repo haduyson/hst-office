@@ -1,34 +1,44 @@
 HST Office: HST Writer, HST Sheets, HST Slides and HST PDF open in windows of their own; a document tab
-can be moved into a new window.
-Owner decisions (12/11/2026): "HST Office" (the Start Center) keeps one window with every document as a
-tab. The HST Writer/Sheets/Slides/PDF launchers and documents opened from a file manager get a window of
-their module and never join the HST Office window or another module's window. Inside a module window,
-File > New / File > Open / "+" of the same module add a tab; a document of another module opens a
-window of that module. Dragging a tab out of the strip (or "Move to New Window" in its context menu,
-.uno:DetachDocumentTab) moves it into a new window.
+can be moved into a new window; autorecovery restores the windows and tabs.
+Owner decisions (12/11 and 13/11/2026): "HST Office" (the Start Center) keeps one window with every
+document as a tab. The HST Writer/Sheets/Slides/PDF launchers and documents opened from a file manager
+open as a tab of the window of their module used last, or in a new window of the module; never in the
+HST Office window or another module's window. Inside a module window, File > New / File > Open / "+"
+of the same module add a tab; a document of another module goes to that module's window (or a new
+one). With only the HST Office Start Center open, a launcher keeps the Start Center and opens its own
+window. Dragging a tab out of the strip, "Move to New Window" in its context menu or in View, or
+Ctrl+Alt+Shift+N (.uno:DetachDocumentTab) moves it into a new window.
 Design (framework/inc/documenttabgroup.hxx): DocumentTabGroup manages several tab groups, each of kind
 "office" or a module key (writer, calc, impress, draw, pdf, other module ids).
 - Routing of a frame about to be shown: Start Center -> an HST Office window; opened from outside (LoadEnv
   Referer private:OpenEvent, set by DispatchWatcher for every command line/IPC request: launchers with
-  --writer/--calc/--impress, Windows shortcuts and open verbs, Linux .desktop %U, macOS Finder) -> a new
-  window of its module; otherwise the window the user works in (Desktop active frame, else the group used
-  last) when it accepts the module (HST Office accepts all), else a new window of the module. The first
-  window of the process is an HST Office window (autorecovery, macros). LoadEnv passes the module of a
-  frame without component (SvtModuleOptions::ClassifyFactoryByURL, PDF type -> HST PDF).
-- A lone Start Center replaced by a document from a launcher becomes that module's window (macOS shows
-  the Start Center first, tdf#41775); a lone tab of a module window that gets another module's document
-  becomes that module's window.
+  --writer/--calc/--impress, Windows shortcuts and open verbs, Linux .desktop %U, macOS Finder; also read
+  from the model when SfxFrame::Appear shows the frame first) -> the module's window used last, else a
+  new one; otherwise the window the user works in (Desktop active frame, else the group used last) when
+  it accepts the module (HST Office accepts all), else the module's window, else a new one. The first
+  window of the process is an HST Office window. LoadEnv passes the module of a frame without component
+  (SvtModuleOptions::ClassifyFactoryByURL, PDF type -> HST PDF). A frame shown for the load progress
+  before its document exists is routed when LoadEnv prepares it.
+- LoadEnv recycling: a document from outside never replaces the Start Center or a document of an HST
+  Office window, except the Start Center macOS shows before a launcher's first document (tdf#41775,
+  desktop app.cxx marks it); that window becomes the module's window.
 - "+" offers the module's new document and Open in a module window (Open only for HST PDF/Draw), every
   application in the HST Office window. Next/PrevDocumentTab and the title-bar close act on the window of
   the frame. A second "soffice" without arguments (HST Office launcher) brings an HST Office window to the
-  front or opens a new Start Center (desktop app.cxx, Appear event).
+  front or opens a new Start Center (desktop app.cxx, Appear event); .uno:ShowStartModule (macOS Dock
+  click) opens a Start Center window when only module windows exist (startmoduledispatcher.cxx).
 - Detach: a window with 2+ tabs, not in full screen; the new window has the kind of the old one, the
   restored size of the old one and its top-left at the drop point (menu/command: cascaded). Drag within
   the strip reorders; a drop on the strip of another window that accepts the module moves the tab there
-  (not on Wayland, where window positions are unknown). Inactive tabs are shown on release.
+  (not on Wayland, where window positions are unknown). Inactive tabs are shown on release. The drop
+  uses the system pointer position (motion outside the window is not delivered everywhere).
+- Autorecovery: the layout (window kind, tab order, shown tab, window state; documents by URL, new
+  documents by title) is written to hst-document-tabs.txt in the backup folder after every change and
+  removed on a normal quit; AutoRecovery rebuilds it for the recovered documents (old data: as before).
 - Taskbar identity (TitleBarUpdate::updateApplicationID): tabs of an HST Office window use the Start
   Center id (HST Office), module windows their module id.
 - vcl: hst_vcl_set_tab_group(window, group id); macOS joins native full screen tabs of the same group only.
+- Menus: View > "Move to New Window" in Writer, Calc, Impress and Draw; Ctrl+Alt+Shift+N (Global).
 - Vietnamese strings for the new texts.
 License: modified upstream files keep their license (MPL-2.0).
 Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_window_groups.py.
@@ -43,7 +53,31 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  #include <sal/log.hxx>
  #include <toolkit/helper/vclunohelper.hxx>
  #include <comphelper/lok.hxx>
-@@ -2404,6 +2405,17 @@
+@@ -2258,7 +2259,11 @@
+     {
+         SvtModuleOptions aOpt;
+         if (aOpt.IsModuleInstalled(SvtModuleOptions::EModule::STARTMODULE))
++        {
+             ShowBackingComponent(nullptr);
++            // HST Office: the document replaces this Start Center (it is no HST Office window)
++            framework::DocumentTabs::markLaunchStartCenter();
++        }
+     }
+ #endif
+ }
+@@ -2321,7 +2326,11 @@
+     // document windows are closed. This causes the old "File only"
+     // menubar to be displayed instead of the Start Center's menubar.
+     if (aOpt.IsModuleInstalled(SvtModuleOptions::EModule::STARTMODULE))
++    {
+         ShowBackingComponent(nullptr);
++        // HST Office: the launcher's document replaces this Start Center (no HST Office window)
++        framework::DocumentTabs::markLaunchStartCenter();
++    }
+ #endif
+ 
+     ProcessDocumentsRequest aRequest(rArgs.getCwdUrl());
+@@ -2404,6 +2413,17 @@
                      xList->getByIndex(0) >>= xTask;
              }
  
@@ -63,8 +97,11 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
                  Reference< css::awt::XTopWindow > xTop( xTask->getContainerWindow(), UNO_QUERY );
 --- a/framework/inc/documenttabgroup.hxx
 +++ b/framework/inc/documenttabgroup.hxx
-@@ -19,6 +19,8 @@
+@@ -17,8 +17,11 @@
+ #include <tools/color.hxx>
+ #include <tools/gen.hxx>
  #include <tools/link.hxx>
++#include <vcl/timer.hxx>
  #include <vcl/vclptr.hxx>
  
 +#include <memory>
@@ -72,7 +109,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  #include <vector>
  
  class VclSimpleEvent;
-@@ -42,14 +44,35 @@
+@@ -42,14 +45,35 @@
      Color aModuleColor;
  };
  
@@ -113,7 +150,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  
      Membership is decided when a task frame's window is shown: by prepareShow() from the
      code paths that know they are about to show a frame (LoadEnv, SfxFrame::Appear,
-@@ -68,8 +91,17 @@
+@@ -68,8 +92,21 @@
      /// Option Office.Common/Misc/DocumentTabs, and never under headless or LibreOfficeKit.
      static bool isEnabled();
  
@@ -123,8 +160,12 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    void prepareShow(const css::uno::Reference<css::frame::XFrame>& xFrame,
 +                     const ShowOrigin& rOrigin = ShowOrigin());
      bool isParked(const css::uno::Reference<css::frame::XFrame>& xFrame) const;
-+    /// Number of tabs of xFrame's window (0 = no member).
-+    sal_Int32 tabCount(const css::uno::Reference<css::frame::XFrame>& xFrame) const;
++    /** A document opened from outside may replace the component of xFrame (LoadEnv recycling):
++        never the Start Center or a document of an HST Office window, except the Start Center that
++        only stands in until the first document of a launcher opens (markLaunchStartCenter). */
++    bool mayRecycle(const css::uno::Reference<css::frame::XFrame>& xFrame);
++    /// The Start Center shown now is replaced by the document the launcher asked for (macOS).
++    void markLaunchStartCenter();
 +    /// xFrame is a tab of an HST Office (mixed) window: its taskbar identity is HST Office's.
 +    bool isOfficeWindow(const css::uno::Reference<css::frame::XFrame>& xFrame) const;
 +    /// Kind of xFrame's window: "office", a module key, or "" when xFrame is no member.
@@ -132,7 +173,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  
      /// LayoutManager: height to reserve for the strip of xFrame (0 = no strip).
      sal_Int32 tabBarHeight(const css::uno::Reference<css::frame::XFrame>& xFrame,
-@@ -78,22 +110,46 @@
+@@ -78,22 +115,55 @@
      void placeTabBar(const css::uno::Reference<css::frame::XFrame>& xFrame,
                       const tools::Rectangle& rRect);
  
@@ -179,17 +220,27 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +        window to front. Returns false when there is none (the caller opens a Start Center,
 +        which becomes a new HST Office window). */
 +    bool showOfficeWindow();
++    /// An HST Office window exists (or a window that shows nothing but the Start Center).
++    bool hasOfficeWindow();
 +    /// A new Start Center may open as a new HST Office window (not while quitting or starting).
 +    bool canOpenOfficeWindow() const;
++
++    /** Autorecovery: the windows and tabs saved before the crash (hst-document-tabs.txt in the
++        backup folder, written after every change) are rebuilt for the recovered documents:
++        window kind, tab order, shown tab and window geometry. Without that file the documents
++        are routed as usual. endRestoreLayout() finishes once the recovered windows are shown. */
++    void beginRestoreLayout();
++    void endRestoreLayout();
 +
      /// Desktop::terminate: frames are about to be closed one by one, don't re-show neighbours.
      void setClosingAll(bool bClosingAll);
  
-@@ -110,25 +166,45 @@
+@@ -110,25 +180,47 @@
          VclPtr<vcl::Window> pWindow; ///< the frame's container (top-level WorkWindow)
          VclPtr<DocumentTabBar> pBar;
          bool bParked = false;
 +        OUString aModule; ///< module key last seen ("start" for the Start Center)
++        sal_Int32 nRestoreOrder = -1; ///< place in its window before the crash (autorecovery)
 +    };
 +
 +    struct Group
@@ -197,6 +248,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +        sal_uInt32 nId = 0; ///< also the vcl tab group id (macOS native full screen tabs)
 +        OUString aKind; ///< "office" or a module key
 +        std::vector<Member> aMembers;
++        sal_uInt64 nUsed = 0; ///< when the window was used last (the newest window of a kind wins)
 +        css::uno::WeakReference<css::frame::XFrame> xActive;
      };
  
@@ -238,10 +290,31 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  
      static void copyGeometry(vcl::Window* pFrom, vcl::Window* pTo);
  
-@@ -137,12 +213,18 @@
+@@ -136,18 +228,49 @@
+     DECL_LINK(ParkPreviousHdl, void*, void);
      DECL_LINK(DispatchHdl, void*, void);
      DECL_LINK(CloseWindowHdl, void*, void);
++    DECL_LINK(SaveLayoutHdl, Timer*, void);
++    DECL_LINK(FinishRestoreHdl, Timer*, void);
  
++    /// One window of the saved layout (autorecovery).
++    struct LayoutWindow
++    {
++        OUString aKind;
++        OUString aState; ///< vcl window state of the shown tab
++        sal_Int32 nActive = 0;
++        std::vector<std::pair<OUString, OUString>> aTabs; ///< (document URL, title)
++        std::vector<bool> aUsed;
++        sal_uInt32 nGroup = 0; ///< the group rebuilt for it
++    };
++
++    void touch(Group& rGroup);
++    Group* recentGroupOfKind(std::u16string_view rKind);
++    Group* restoreGroupFor(const css::uno::Reference<css::frame::XFrame>& xFrame, sal_Int32& rOrder);
++    void scheduleLayoutSave();
++    void saveLayout();
++    void finishRestore();
++
 +    struct PendingDispatch
 +    {
 +        css::uno::WeakReference<css::frame::XFrame> xFrame;
@@ -261,6 +334,16 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      css::uno::WeakReference<css::frame::XFrame> m_xCloseWindowFrom;
      rtl::Reference<DocumentTabGroupListener> m_xListener;
      sal_Int32 m_nInternal = 0; ///< >0 while we show/hide windows ourselves
+     bool m_bClosingAll = false;
+     bool m_bEnabled = true; ///< last known option value
++    sal_uInt64 m_nUseCounter = 0;
++    css::uno::WeakReference<css::frame::XFrame> m_xLaunchStartCenter;
++    std::vector<LayoutWindow> m_aRestore;
++    Timer m_aSaveLayoutTimer{ "framework DocumentTabGroup save layout" };
++    Timer m_aFinishRestoreTimer{ "framework DocumentTabGroup finish restore" };
+ };
+ }
+ 
 --- a/framework/inc/helper/titlebarupdate.hxx
 +++ b/framework/inc/helper/titlebarupdate.hxx
 @@ -85,6 +85,13 @@
@@ -346,6 +429,31 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  
          if ( ! xDispatcher.is())
          {
+--- a/framework/source/dispatch/startmoduledispatcher.cxx
++++ b/framework/source/dispatch/startmoduledispatcher.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include <dispatch/startmoduledispatcher.hxx>
+ 
++#include <framework/documenttabs.hxx>
+ #include <framework/framelistanalyzer.hxx>
+ #include <targets.h>
+ #include "isstartmoduledispatch.hxx"
+@@ -64,6 +65,14 @@
+         {
+             implts_establishBackingMode ();
+             nResult = css::frame::DispatchResultState::SUCCESS;
++        }
++        // HST Office: with only windows of HST Writer, HST Sheets, ... open, the Start Center
++        // (macOS: a click on HST Office in the Dock) opens as a new HST Office window.
++        else if (framework::DocumentTabs::isEnabled() && !framework::DocumentTabs::hasOfficeWindow()
++                 && framework::DocumentTabs::canOpenOfficeWindow())
++        {
++            implts_establishBackingMode ();
++            nResult = css::frame::DispatchResultState::SUCCESS;
+         }
+     }
+ 
 --- a/framework/source/helper/titlebarupdate.cxx
 +++ b/framework/source/helper/titlebarupdate.cxx
 @@ -18,6 +18,7 @@
@@ -466,8 +574,8 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    DocumentTabGroup::get().prepareShow(xFrame, aOrigin);
 +}
 +
-+/** HST Office: a document opened from outside (launcher, file manager) gets a window of its own,
-+    so it never replaces the Start Center or an untouched new document that is one of several tabs. */
++/** HST Office: a document opened from outside (launcher, file manager) never replaces the Start
++    Center or a document of the HST Office window (see DocumentTabGroup::mayRecycle). */
 +bool lcl_mayRecycleForDocumentTabs(const css::uno::Reference<css::frame::XFrame>& xFrame,
 +                                   const comphelper::SequenceAsHashMap& rDescriptor)
 +{
@@ -475,7 +583,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +        != "private:OpenEvent")
 +        return true;
 +    SolarMutexGuard aGuard;
-+    return !DocumentTabGroup::isEnabled() || DocumentTabGroup::get().tabCount(xFrame) <= 1;
++    return !DocumentTabGroup::isEnabled() || DocumentTabGroup::get().mayRecycle(xFrame);
 +}
 +
  class LoadEnvListener : public ::cppu::WeakImplHelper< css::frame::XLoadEventListener      ,
@@ -518,6 +626,41 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
              impl_makeFrameWindowVisible(xWindow, !m_bFocusedAndToFront && shouldFocusAndToFront());
          }
  
+--- a/framework/source/services/autorecovery.cxx
++++ b/framework/source/services/autorecovery.cxx
+@@ -3847,6 +3847,8 @@
+ 
+ void AutoRecovery::implts_doRecovery(const DispatchParams& aParams)
+ {
++    // HST Office: the recovered documents get the windows and tabs they had before the crash.
++    framework::DocumentTabs::beginRestoreLayout();
+     AutoRecovery::ETimerType eSuggestedTimer = AutoRecovery::E_DONT_START_TIMER;
+     do
+     {
+@@ -3866,6 +3868,7 @@
+             comphelper::ConfigurationChanges::create());
+     officecfg::Office::Recovery::RecoveryInfo::Crashed::set(false, batch);
+     batch->commit();
++    framework::DocumentTabs::endRestoreLayout();
+ }
+ 
+ void AutoRecovery::implts_doSessionSave(const DispatchParams& aParams)
+@@ -4123,6 +4126,7 @@
+ {
+     SAL_INFO("fwk.autorecovery", "AutoRecovery::implts_doSessionRestore() ...");
+ 
++    framework::DocumentTabs::beginRestoreLayout();
+     AutoRecovery::ETimerType eSuggestedTimer = AutoRecovery::E_DONT_START_TIMER;
+     do
+     {
+@@ -4139,6 +4143,7 @@
+ 
+     // make all opened documents visible
+     implts_changeAllDocVisibility(true);
++    framework::DocumentTabs::endRestoreLayout();
+ 
+     // Reset the configuration hint for "session save"!
+     SAL_INFO("fwk.autorecovery", "... reset config key 'SessionData'");
 --- a/framework/source/services/documenttabgroup.cxx
 +++ b/framework/source/services/documenttabgroup.cxx
 @@ -11,6 +11,7 @@
@@ -547,16 +690,20 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  #include <comphelper/configurationlistener.hxx>
  #include <comphelper/lok.hxx>
  #include <comphelper/processfactory.hxx>
-@@ -48,10 +53,14 @@
+@@ -48,10 +53,17 @@
  #include <vcl/svapp.hxx>
  #include <vcl/syswin.hxx>
  #include <vcl/vclevent.hxx>
 +#include <vcl/windowstate.hxx>
  #include <vcl/wrkwin.hxx>
-+#include <o3tl/string_view.hxx>
- 
+-
 -// Implemented in vcl (syswin.cxx): marks the window's frame as a document tab (macOS only).
 -void hst_vcl_set_tab_group_member(vcl::Window* pWindow, bool bMember);
++#include <o3tl/string_view.hxx>
++#include <osl/file.hxx>
++#include <tools/stream.hxx>
++#include <unotools/pathoptions.hxx>
++
 +// Implemented in vcl (syswin.cxx): marks the window's frame as a document tab of the tab window
 +// nGroup (0 = none); macOS and Windows switch tabs without animation, macOS joins native full
 +// screen tabs of the same window only.
@@ -564,7 +711,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  
  using namespace css;
  
-@@ -240,6 +249,133 @@
+@@ -240,6 +252,133 @@
      if (xDispatch.is())
          xDispatch->dispatch(aURL, {});
  }
@@ -698,7 +845,17 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  DocumentTabGroup& DocumentTabGroup::get()
-@@ -324,29 +460,76 @@
+@@ -269,6 +408,9 @@
+         TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: listeners not registered");
+     }
+     Application::AddEventListener(LINK(this, DocumentTabGroup, WindowEventHdl));
++    m_aSaveLayoutTimer.SetTimeout(1500);
++    m_aSaveLayoutTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, SaveLayoutHdl));
++    m_aFinishRestoreTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, FinishRestoreHdl));
+ }
+ 
+ bool DocumentTabGroup::isEnabled()
+@@ -324,29 +466,122 @@
      return {};
  }
  
@@ -725,17 +882,20 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  const DocumentTabGroup::Member*
 -DocumentTabGroup::find(const uno::Reference<frame::XFrame>& xFrame) const
 +DocumentTabGroup::find(const uno::Reference<frame::XFrame>& xFrame, const Group** ppGroup) const
-+{
+ {
+-    return const_cast<DocumentTabGroup*>(this)->find(xFrame);
 +    Group* pGroup = nullptr;
 +    const Member* pMember = const_cast<DocumentTabGroup*>(this)->find(xFrame, &pGroup);
 +    if (ppGroup)
 +        *ppGroup = pGroup;
 +    return pMember;
-+}
-+
+ }
+ 
+-DocumentTabGroup::Member* DocumentTabGroup::findByWindow(const vcl::Window* pWindow)
 +DocumentTabGroup::Member* DocumentTabGroup::findByWindow(const vcl::Window* pWindow, Group** ppGroup)
  {
--    return const_cast<DocumentTabGroup*>(this)->find(xFrame);
+-    for (Member& rMember : m_aMembers)
+-        if (rMember.pWindow.get() == pWindow)
 +    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
 +        for (Member& rMember : pGroup->aMembers)
 +            if (rMember.pWindow.get() == pWindow)
@@ -745,13 +905,10 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +                return &rMember;
 +            }
 +    return nullptr;
- }
- 
--DocumentTabGroup::Member* DocumentTabGroup::findByWindow(const vcl::Window* pWindow)
++}
++
 +DocumentTabGroup::Group* DocumentTabGroup::groupById(sal_uInt32 nId)
- {
--    for (Member& rMember : m_aMembers)
--        if (rMember.pWindow.get() == pWindow)
++{
 +    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
 +        if (pGroup->nId == nId)
 +            return pGroup.get();
@@ -777,15 +934,61 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +           || rModule == rGroup.aKind;
 +}
 +
-+sal_Int32 DocumentTabGroup::tabCount(const uno::Reference<frame::XFrame>& xFrame) const
++bool DocumentTabGroup::mayRecycle(const uno::Reference<frame::XFrame>& xFrame)
 +{
-+    const Group* pGroup = nullptr;
-+    return find(xFrame, &pGroup) ? static_cast<sal_Int32>(pGroup->aMembers.size()) : 0;
++    if (xFrame.is() && xFrame == lcl_get(m_xLaunchStartCenter))
++    {
++        m_xLaunchStartCenter.clear();
++        return true;
++    }
++    // The HST Office window keeps its Start Center and its documents; a window of the module
++    // may get the document instead of its Start Center or its untouched new document.
++    Group* pGroup = nullptr;
++    if (!find(xFrame, &pGroup))
++        return lcl_moduleKey(xFrame) != START_MODULE;
++    return pGroup->aKind != OFFICE_KIND;
++}
++
++void DocumentTabGroup::markLaunchStartCenter()
++{
++    try
++    {
++        uno::Reference<frame::XFramesSupplier> xDesktop
++            = frame::Desktop::create(comphelper::getProcessComponentContext());
++        uno::Reference<container::XIndexAccess> xFrames(xDesktop->getFrames(), uno::UNO_QUERY_THROW);
++        for (sal_Int32 i = 0; i < xFrames->getCount(); ++i)
++        {
++            uno::Reference<frame::XFrame> xFrame(xFrames->getByIndex(i), uno::UNO_QUERY);
++            if (lcl_moduleKey(xFrame) == START_MODULE)
++            {
++                m_xLaunchStartCenter = xFrame;
++                return;
++            }
++        }
++    }
++    catch (const uno::Exception&)
++    {
++    }
++}
++
++void DocumentTabGroup::touch(Group& rGroup)
++{
++    m_nRecentGroup = rGroup.nId;
++    rGroup.nUsed = ++m_nUseCounter;
++}
++
++DocumentTabGroup::Group* DocumentTabGroup::recentGroupOfKind(std::u16string_view rKind)
++{
++    Group* pBest = nullptr;
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        if (pGroup->aKind == rKind && !pGroup->aMembers.empty() && (!pBest || pGroup->nUsed > pBest->nUsed))
++            pBest = pGroup.get();
++    return pBest;
 +}
  
  bool DocumentTabGroup::isParked(const uno::Reference<frame::XFrame>& xFrame) const
  {
-@@ -354,39 +537,122 @@
+@@ -354,39 +589,125 @@
      return pMember && pMember->bParked;
  }
  
@@ -807,7 +1010,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    pGroup->nId = m_nNextGroupId++;
 +    pGroup->aKind = rKind.isEmpty() || rKind == START_MODULE ? OFFICE_KIND : rKind;
 +    m_aGroups.push_back(std::move(pGroup));
-+    m_nRecentGroup = m_aGroups.back()->nId;
++    touch(*m_aGroups.back());
 +    return *m_aGroups.back();
 +}
 +
@@ -837,23 +1040,26 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    if (rModule == START_MODULE)
 +    {
 +        // The Start Center belongs to HST Office: the window used last, else a new one.
-+        Group* pRecent = groupById(m_nRecentGroup);
-+        if (pRecent && pRecent->aKind == OFFICE_KIND)
-+            return *pRecent;
-+        for (auto it = m_aGroups.rbegin(); it != m_aGroups.rend(); ++it)
-+            if ((*it)->aKind == OFFICE_KIND)
-+                return **it;
++        if (Group* pOffice = recentGroupOfKind(OFFICE_KIND))
++            return *pOffice;
 +        return newGroup(OFFICE_KIND);
 +    }
-+    // Opened from outside (HST Writer/Sheets/Slides/PDF launcher, file manager): its own window.
-+    if (bExternal)
-+        return newGroup(rModule);
-+    // The first window of the process is an HST Office window (autorecovery, macros).
-+    if (m_aGroups.empty())
-+        return newGroup(OFFICE_KIND);
-+    Group* pContext = contextGroup();
-+    if (pContext && accepts(*pContext, rModule))
-+        return *pContext;
++    if (!bExternal)
++    {
++        // The first window of the process is an HST Office window (autorecovery, macros).
++        if (m_aGroups.empty())
++            return newGroup(OFFICE_KIND);
++        // The window the user works in, when it takes the module (HST Office takes all).
++        Group* pContext = contextGroup();
++        if (pContext && accepts(*pContext, rModule))
++            return *pContext;
++    }
++    // Opened from outside (HST Writer/Sheets/Slides/PDF launcher, file manager), or a document of
++    // another module: a tab of the window of its module used last, else a window of its own. Never
++    // the HST Office window.
++    if (!rModule.isEmpty())
++        if (Group* pModule = recentGroupOfKind(rModule))
++            return *pModule;
 +    return newGroup(rModule);
 +}
 +
@@ -895,7 +1101,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 -        m_xActive = xFrame;
 +    if (!activeMember(rGroup) && it->pWindow && !it->pWindow->isDisposed() && it->pWindow->IsVisible())
 +        rGroup.xActive = xFrame;
-+    m_nRecentGroup = rGroup.nId;
++    touch(rGroup);
      uno::Reference<util::XCloseBroadcaster> xClose(xFrame, uno::UNO_QUERY);
      if (xClose.is() && m_xListener.is())
          xClose->addCloseListener(m_xListener);
@@ -925,7 +1131,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  void DocumentTabGroup::copyGeometry(vcl::Window* pFrom, vcl::Window* pTo)
-@@ -407,9 +673,8 @@
+@@ -407,9 +728,8 @@
      if (!rMember.pWindow || rMember.pWindow->isDisposed())
          return;
      rMember.bParked = true; // before hiding: XFrameImpl::windowHidden asks isParked()
@@ -936,7 +1142,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  void DocumentTabGroup::focus(const uno::Reference<frame::XFrame>& xFrame)
-@@ -427,16 +692,70 @@
+@@ -427,16 +747,77 @@
      }
  }
  
@@ -984,10 +1190,17 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +                // full screen: the tab stays, prepared like any other tab of its window
 +            }
 +        }
-+        else
-+            pGroup = &chooseGroup(aModule, rOrigin.bExternal || lcl_openedFromOutside(xFrame));
++        sal_Int32 nRestoreOrder = -1;
++        if (!pGroup)
++        {
++            pGroup = restoreGroupFor(xFrame, nRestoreOrder);
++            if (!pGroup)
++                pGroup = &chooseGroup(aModule, rOrigin.bExternal || lcl_openedFromOutside(xFrame));
++        }
 +
 +        Member& rMember = join(*pGroup, xFrame);
++        if (nRestoreOrder >= 0)
++            rMember.nRestoreOrder = nRestoreOrder;
 +        if (rMember.aModule.isEmpty())
 +            rMember.aModule = aModule;
 +        Member* pPrevious = activeMember(*pGroup); // after join(): it may move members
@@ -1011,26 +1224,35 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          if (pPrevious->pWindow && pPrevious->pWindow->IsVisible())
          {
              copyGeometry(pPrevious->pWindow, rMember.pWindow);
-@@ -454,12 +773,24 @@
+@@ -454,12 +835,33 @@
      try
      {
          const VclEventId nId = rEvent.GetId();
 -        if (nId != VclEventId::WindowShow && nId != VclEventId::WindowHide)
 +        if (nId != VclEventId::WindowShow && nId != VclEventId::WindowHide
-+            && nId != VclEventId::WindowActivate)
++            && nId != VclEventId::WindowActivate && nId != VclEventId::WindowMove
++            && nId != VclEventId::WindowResize)
              return;
          vcl::Window* pWindow = static_cast<VclWindowEvent&>(rEvent).GetWindow();
 -        if (m_nInternal || !pWindow || pWindow->GetType() != WindowType::WORKWINDOW)
 +        if (!pWindow || pWindow->GetType() != WindowType::WORKWINDOW)
++            return;
++
++        if (nId == VclEventId::WindowMove || nId == VclEventId::WindowResize)
++        {
++            // the geometry of a window is part of the layout saved for autorecovery
++            if (findByWindow(pWindow))
++                scheduleLayoutSave();
              return;
 -    
++        }
 +
 +        if (nId == VclEventId::WindowActivate)
 +        {
 +            // The window the user works in: new documents without a known origin go there.
 +            Group* pGroup = nullptr;
 +            if (findByWindow(pWindow, &pGroup))
-+                m_nRecentGroup = pGroup->nId;
++                touch(*pGroup);
 +            return;
 +        }
 +        if (m_nInternal)
@@ -1039,7 +1261,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          if (nId == VclEventId::WindowHide)
          {
              // Hidden by someone else (macro, frame being closed, autorecovery): leave the group,
-@@ -469,17 +800,21 @@
+@@ -469,17 +871,21 @@
                      removeMember(lcl_get(pMember->xFrame), true);
              return;
          }
@@ -1065,7 +1287,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          try
          {
              uno::Reference<frame::XFramesSupplier> xDesktop
-@@ -489,17 +824,22 @@
+@@ -489,17 +895,27 @@
              for (sal_Int32 i = 0; i < xFrames->getCount(); ++i)
              {
                  uno::Reference<frame::XFrame> xOther(xFrames->getByIndex(i), uno::UNO_QUERY);
@@ -1084,14 +1306,19 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          }
 -        Member* pPrevious = activeMember();
 +        Group* pGroup = nullptr;
++        sal_Int32 nRestoreOrder = -1;
 +        if (!find(xFrame, &pGroup))
-+            pGroup = &chooseGroup(lcl_moduleKey(xFrame), lcl_openedFromOutside(xFrame));
-+        m_nRecentGroup = pGroup->nId;
++        {
++            pGroup = restoreGroupFor(xFrame, nRestoreOrder);
++            if (!pGroup)
++                pGroup = &chooseGroup(lcl_moduleKey(xFrame), lcl_openedFromOutside(xFrame));
++        }
++        touch(*pGroup);
 +        Member* pPrevious = activeMember(*pGroup);
          if (pPrevious && lcl_get(pPrevious->xFrame) == xFrame && !pPrevious->bParked)
              return;
          uno::Reference<frame::XFrame> xPrevious;
-@@ -509,15 +849,15 @@
+@@ -509,15 +925,17 @@
              xPrevious = lcl_get(pPrevious->xFrame);
              pPreviousWindow = pPrevious->pWindow;
          }
@@ -1099,6 +1326,8 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 -        Member& rMember = join(xFrame);
 +
 +        Member& rMember = join(*pGroup, xFrame);
++        if (nRestoreOrder >= 0)
++            rMember.nRestoreOrder = nRestoreOrder;
          rMember.bParked = false;
 -        m_xActive = xFrame;
 +        pGroup->xActive = xFrame;
@@ -1112,7 +1341,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
              {
                  if (&rOther != &rMember && !rOther.bParked && rOther.pWindow
                      && !rOther.pWindow->isDisposed() && rOther.pWindow->IsVisible())
-@@ -534,10 +874,10 @@
+@@ -534,10 +952,10 @@
              if (!bPrepared)
                  copyGeometry(pPreviousWindow, pWindow);
              // Park the previous tab once the new window is up (never leave zero windows).
@@ -1125,7 +1354,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      catch (const uno::Exception&)
      {
-@@ -549,14 +889,19 @@
+@@ -549,14 +967,19 @@
  {
      try
      {
@@ -1153,7 +1382,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          }
      }
      catch (const uno::Exception&)
-@@ -569,10 +914,12 @@
+@@ -569,10 +992,12 @@
  {
      try
      {
@@ -1163,12 +1392,12 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          if (!pTarget || !pTarget->pWindow || pTarget->pWindow->isDisposed())
              return;
 -        Member* pPrevious = activeMember();
-+        m_nRecentGroup = pGroup->nId;
++        touch(*pGroup);
 +        Member* pPrevious = activeMember(*pGroup);
          if (pPrevious == pTarget && pTarget->pWindow->IsVisible())
          {
              focus(xFrame);
-@@ -584,15 +931,21 @@
+@@ -584,15 +1009,21 @@
              copyGeometry(pPrevious->pWindow, pTarget->pWindow);
          pTarget->bParked = false;
          VclPtr<vcl::Window> pTargetWindow = pTarget->pWindow;
@@ -1195,7 +1424,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      catch (const uno::Exception&)
      {
-@@ -600,16 +953,20 @@
+@@ -600,16 +1031,20 @@
      }
  }
  
@@ -1208,12 +1437,12 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 -    if (!pActive || m_aMembers.size() < 2)
 +    Group* pGroup = nullptr;
 +    if (!find(xFrame, &pGroup))
-+        return;
-+    Member* pActive = activeMember(*pGroup);
-+    if (!pActive || pGroup->aMembers.size() < 2)
          return;
 -    const sal_Int32 nCount = m_aMembers.size();
 -    const sal_Int32 nIndex = pActive - m_aMembers.data();
++    Member* pActive = activeMember(*pGroup);
++    if (!pActive || pGroup->aMembers.size() < 2)
++        return;
 +    const sal_Int32 nCount = pGroup->aMembers.size();
 +    const sal_Int32 nIndex = pActive - pGroup->aMembers.data();
      const sal_Int32 nNew = ((nIndex + nDelta) % nCount + nCount) % nCount;
@@ -1222,7 +1451,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  void DocumentTabGroup::closeTab(const uno::Reference<frame::XFrame>& xFrame)
-@@ -635,7 +992,8 @@
+@@ -635,7 +1070,8 @@
  bool DocumentTabGroup::requestCloseWindow(const uno::Reference<frame::XFrame>& xFrame)
  {
      cleanUp();
@@ -1232,7 +1461,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          return false;
      if (!lcl_get(m_xCloseWindowFrom).is())
      {
-@@ -649,11 +1007,13 @@
+@@ -649,11 +1085,13 @@
  {
      uno::Reference<frame::XFrame> xClicked = lcl_get(m_xCloseWindowFrom);
      m_xCloseWindowFrom.clear();
@@ -1249,7 +1478,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          if (uno::Reference<frame::XFrame> xFrame = lcl_get(rMember.xFrame); xFrame.is() && xFrame != xClicked)
              aOthers.push_back(xFrame);
      for (const uno::Reference<frame::XFrame>& xFrame : aOthers)
-@@ -696,9 +1056,9 @@
+@@ -696,9 +1134,9 @@
      }
  }
  
@@ -1261,7 +1490,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      Application::PostUserEvent(LINK(this, DocumentTabGroup, DispatchHdl));
  }
  
-@@ -706,13 +1066,21 @@
+@@ -706,13 +1144,21 @@
  {
      try
      {
@@ -1281,7 +1510,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +            Group* pGroup = nullptr;
 +            if (!find(xFrame, &pGroup))
 +                continue;
-+            m_nRecentGroup = pGroup->nId;
++            touch(*pGroup);
 +            if (uno::Reference<frame::XFrame> xActive = lcl_get(pGroup->xActive); xActive.is())
 +                xFrame = xActive;
 +            lcl_dispatch(xFrame, rPending.aURL,
@@ -1290,7 +1519,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      catch (const uno::Exception&)
      {
-@@ -720,44 +1088,77 @@
+@@ -720,44 +1166,77 @@
      }
  }
  
@@ -1385,7 +1614,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      catch (const uno::Exception&)
      {
-@@ -775,28 +1176,36 @@
+@@ -775,28 +1254,37 @@
      m_bClosingAll = bClosingAll;
      if (bClosingAll)
          return;
@@ -1432,6 +1661,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 -    for (const Member& rMember : m_aMembers)
 -        if (rMember.pBar && !rMember.pBar->isDisposed())
 -            rMember.pBar->Invalidate();
++    scheduleLayoutSave();
 +    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
 +        for (const Member& rMember : pGroup->aMembers)
 +            if (rMember.pBar && !rMember.pBar->isDisposed())
@@ -1439,7 +1669,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  void DocumentTabGroup::optionChanged(bool bEnabled)
-@@ -812,57 +1221,63 @@
+@@ -812,57 +1300,63 @@
  {
      // Option switched off: every tab becomes a window again (cascaded from the shown one).
      cleanUp();
@@ -1532,7 +1762,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      {
          if (pMember->pBar)
              pMember->pBar->Hide();
-@@ -884,23 +1299,27 @@
+@@ -884,23 +1378,27 @@
      pMember->pBar->Invalidate();
  }
  
@@ -1570,13 +1800,14 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
              aTabs.push_back(aInfo);
          }
          return aTabs;
-@@ -912,11 +1331,11 @@
+@@ -912,11 +1410,12 @@
      return {};
  }
  
 -void DocumentTabGroup::update()
 +void DocumentTabGroup::update(Group& rGroup)
  {
++    scheduleLayoutSave();
      // Strip visibility can change with the member count: relayout every member.
      std::vector<uno::Reference<frame::XFrame>> aFrames;
 -    for (const Member& rMember : m_aMembers)
@@ -1584,7 +1815,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          aFrames.push_back(lcl_get(rMember.xFrame));
      for (const uno::Reference<frame::XFrame>& xFrame : aFrames)
      {
-@@ -927,12 +1346,219 @@
+@@ -927,12 +1426,458 @@
      documentEvent();
  }
  
@@ -1727,7 +1958,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +            copyGeometry(pPreviousWindow, aMoved.pWindow);
 +            const sal_uInt32 nTarget = rTarget.nId;
 +            rTarget.xActive = xFrame;
-+            m_nRecentGroup = nTarget;
++            touch(rTarget);
 +            {
 +                InternalShow aInternal(m_nInternal);
 +                aMoved.pWindow->Show(true, ShowFlags::ForegroundTask);
@@ -1762,14 +1993,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +{
 +    cleanUp();
 +    // the HST Office window used last
-+    Group* pOffice = groupById(m_nRecentGroup);
-+    if (!pOffice || pOffice->aKind != OFFICE_KIND)
-+    {
-+        pOffice = nullptr;
-+        for (auto it = m_aGroups.rbegin(); it != m_aGroups.rend() && !pOffice; ++it)
-+            if ((*it)->aKind == OFFICE_KIND)
-+                pOffice = it->get();
-+    }
++    Group* pOffice = recentGroupOfKind(OFFICE_KIND);
 +    if (!pOffice)
 +    {
 +        // A window that only shows the Start Center is as good as an HST Office window.
@@ -1794,12 +2018,258 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    return true;
 +}
 +
++bool DocumentTabGroup::hasOfficeWindow()
++{
++    cleanUp();
++    if (recentGroupOfKind(OFFICE_KIND))
++        return true;
++    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        if (pGroup->aMembers.size() == 1
++            && lcl_moduleKey(lcl_get(pGroup->aMembers[0].xFrame)) == START_MODULE)
++            return true;
++    return false;
++}
++
++namespace
++{
++/// The saved window/tab layout, next to the autorecovery data.
++OUString lcl_layoutURL() { return SvtPathOptions().GetBackupPath() + "/hst-document-tabs.txt"; }
++
++/// The same as a system path (SvFileStream on Windows opens system paths only).
++OUString lcl_layoutPath()
++{
++    OUString aPath;
++    if (osl::FileBase::getSystemPathFromFileURL(lcl_layoutURL(), aPath) != osl::FileBase::E_None)
++        return {};
++    return aPath;
++}
++
++/// One field of a line of the layout file (tabs and line breaks are separators).
++OString lcl_field(const OUString& rText)
++{
++    return OUStringToOString(rText.replace('\t', ' ').replace('\n', ' ').replace('\r', ' '),
++                             RTL_TEXTENCODING_UTF8);
++}
++
++OUString lcl_documentURL(const uno::Reference<frame::XFrame>& xFrame)
++{
++    try
++    {
++        uno::Reference<frame::XModel> xModel = lcl_model(xFrame);
++        return xModel.is() ? xModel->getURL() : OUString();
++    }
++    catch (const uno::Exception&)
++    {
++        return {};
++    }
++}
++}
++
++void DocumentTabGroup::scheduleLayoutSave()
++{
++    if (m_bEnabled && m_aRestore.empty())
++        m_aSaveLayoutTimer.Start();
++}
++
++IMPL_LINK_NOARG(DocumentTabGroup, SaveLayoutHdl, Timer*, void) { saveLayout(); }
++
++void DocumentTabGroup::saveLayout()
++{
++    // Format, one line each (UTF-8, fields separated by tabs):
++    //   HST-DOCUMENT-TABS 1
++    //   window <kind> <index of the shown tab> <vcl window state>
++    //   tab <document URL, empty for a new document> <title>
++    // Only tabs with a document (the ones autorecovery can bring back) are written.
++    try
++    {
++        cleanUp();
++        OStringBuffer aText("HST-DOCUMENT-TABS 1\n");
++        bool bAny = false;
++        for (const std::unique_ptr<Group>& pGroup : m_aGroups)
++        {
++            OStringBuffer aTabs;
++            sal_Int32 nTabs = 0;
++            sal_Int32 nActive = 0;
++            Member* pActive = activeMember(*pGroup);
++            for (const Member& rMember : pGroup->aMembers)
++            {
++                const uno::Reference<frame::XFrame> xFrame = lcl_get(rMember.xFrame);
++                if (!lcl_model(xFrame).is())
++                    continue;
++                if (pActive == &rMember)
++                    nActive = nTabs;
++                aTabs.append("tab\t" + lcl_field(lcl_documentURL(xFrame)) + "\t"
++                             + lcl_field(lcl_title(xFrame)) + "\n");
++                ++nTabs;
++            }
++            if (!nTabs)
++                continue;
++            OUString aState;
++            if (pActive && pActive->pWindow && !pActive->pWindow->isDisposed()
++                && pActive->pWindow->IsSystemWindow())
++                aState = static_cast<SystemWindow*>(pActive->pWindow.get())->GetWindowState();
++            aText.append("window\t" + lcl_field(pGroup->aKind) + "\t" + OString::number(nActive)
++                         + "\t" + lcl_field(aState) + "\n" + aTabs);
++            bAny = true;
++        }
++        const OUString aURL = lcl_layoutURL();
++        if (!bAny)
++        {
++            osl::File::remove(aURL);
++            return;
++        }
++        const OUString aPath = lcl_layoutPath();
++        if (aPath.isEmpty())
++            return;
++        SvFileStream aStream(aPath, StreamMode::WRITE | StreamMode::TRUNC);
++        aStream.WriteBytes(aText.getStr(), aText.getLength());
++        aStream.Close();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: save layout");
++    }
++}
++
++void DocumentTabGroup::beginRestoreLayout()
++{
++    m_aRestore.clear();
++    const OUString aPath = lcl_layoutPath();
++    if (aPath.isEmpty())
++        return;
++    SvFileStream aStream(aPath, StreamMode::READ);
++    if (!aStream.IsOpen())
++        return; // no saved layout (an older crash): documents are routed as usual
++    OStringBuffer aLine;
++    if (!aStream.ReadLine(aLine) || std::string_view(aLine) != "HST-DOCUMENT-TABS 1")
++        return;
++    while (aStream.ReadLine(aLine))
++    {
++        const OUString aText = OStringToOUString(aLine, RTL_TEXTENCODING_UTF8);
++        sal_Int32 nIndex = 0;
++        const std::u16string_view aType = o3tl::getToken(aText, 0, '\t', nIndex);
++        if (aType == u"window")
++        {
++            LayoutWindow aWindow;
++            aWindow.aKind = OUString(o3tl::getToken(aText, 0, '\t', nIndex));
++            aWindow.nActive = o3tl::toInt32(o3tl::getToken(aText, 0, '\t', nIndex));
++            if (nIndex >= 0)
++                aWindow.aState = OUString(o3tl::getToken(aText, 0, '\t', nIndex));
++            if (!aWindow.aKind.isEmpty())
++                m_aRestore.push_back(aWindow);
++        }
++        else if (aType == u"tab" && !m_aRestore.empty())
++        {
++            OUString aURL(o3tl::getToken(aText, 0, '\t', nIndex));
++            OUString aTitle = nIndex >= 0 ? OUString(o3tl::getToken(aText, 0, '\t', nIndex)) : OUString();
++            m_aRestore.back().aTabs.emplace_back(aURL, aTitle);
++            m_aRestore.back().aUsed.push_back(false);
++        }
++    }
++    // Recovery that never shows its documents (cancelled) must not keep the layout forever.
++    m_aFinishRestoreTimer.SetTimeout(120000);
++    m_aFinishRestoreTimer.Start();
++}
++
++DocumentTabGroup::Group*
++DocumentTabGroup::restoreGroupFor(const uno::Reference<frame::XFrame>& xFrame, sal_Int32& rOrder)
++{
++    if (m_aRestore.empty() || !lcl_model(xFrame).is())
++        return nullptr;
++    const OUString aURL = lcl_documentURL(xFrame);
++    const OUString aTitle = lcl_title(xFrame);
++    bool bAllUsed = true;
++    Group* pFound = nullptr;
++    for (LayoutWindow& rWindow : m_aRestore)
++    {
++        for (size_t i = 0; i < rWindow.aTabs.size(); ++i)
++        {
++            if (rWindow.aUsed[i])
++                continue;
++            const auto& [aTabURL, aTabTitle] = rWindow.aTabs[i];
++            if (pFound || !(aTabURL.isEmpty() ? aTabTitle == aTitle : aTabURL == aURL))
++            {
++                bAllUsed = false;
++                continue;
++            }
++            rWindow.aUsed[i] = true;
++            rOrder = i;
++            pFound = groupById(rWindow.nGroup);
++            if (!pFound)
++            {
++                // the first document of a window: the window with its kind and geometry
++                pFound = &newGroup(rWindow.aKind);
++                rWindow.nGroup = pFound->nId;
++                VclPtr<vcl::Window> pWindow = VCLUnoHelper::GetWindow(xFrame->getContainerWindow());
++                if (pWindow && !pWindow->IsVisible() && pWindow->IsSystemWindow()
++                    && !rWindow.aState.isEmpty())
++                    static_cast<SystemWindow*>(pWindow.get())->SetWindowState(rWindow.aState);
++            }
++        }
++    }
++    if (pFound && bAllUsed)
++    {
++        // every saved tab is back: order the tabs and show the saved ones once the events settle
++        m_aFinishRestoreTimer.SetTimeout(500);
++        m_aFinishRestoreTimer.Start();
++    }
++    return pFound;
++}
++
++void DocumentTabGroup::endRestoreLayout()
++{
++    if (m_aRestore.empty())
++        return;
++    // The recovered documents are shown by now (or right after): finish shortly.
++    m_aFinishRestoreTimer.SetTimeout(10000);
++    m_aFinishRestoreTimer.Start();
++}
++
++IMPL_LINK_NOARG(DocumentTabGroup, FinishRestoreHdl, Timer*, void) { finishRestore(); }
++
++void DocumentTabGroup::finishRestore()
++{
++    std::vector<LayoutWindow> aRestore;
++    aRestore.swap(m_aRestore);
++    for (const LayoutWindow& rWindow : aRestore)
++    {
++        Group* pGroup = groupById(rWindow.nGroup);
++        if (!pGroup)
++            continue;
++        // the saved tab order; tabs that joined otherwise stay behind them
++        std::stable_sort(pGroup->aMembers.begin(), pGroup->aMembers.end(),
++                         [](const Member& rA, const Member& rB) {
++                             const sal_Int32 nA = rA.nRestoreOrder < 0 ? SAL_MAX_INT32 : rA.nRestoreOrder;
++                             const sal_Int32 nB = rB.nRestoreOrder < 0 ? SAL_MAX_INT32 : rB.nRestoreOrder;
++                             return nA < nB;
++                         });
++        uno::Reference<frame::XFrame> xShown;
++        for (Member& rMember : pGroup->aMembers)
++        {
++            if (rMember.nRestoreOrder == rWindow.nActive)
++                xShown = lcl_get(rMember.xFrame);
++            rMember.nRestoreOrder = -1;
++        }
++        const sal_uInt32 nGroup = pGroup->nId;
++        if (xShown.is())
++            activate(xShown);
++        if ((pGroup = groupById(nGroup)))
++            update(*pGroup);
++    }
++    scheduleLayoutSave();
++}
++
  void DocumentTabGroup::shutdown()
  {
 -    for (Member& rMember : m_aMembers)
 -        rMember.pBar.disposeAndClear();
 -    m_aMembers.clear();
 -    m_xActive.clear();
++    // A normal quit: no crash to recover from, no layout to keep.
++    m_aSaveLayoutTimer.Stop();
++    m_aFinishRestoreTimer.Stop();
++    m_aRestore.clear();
++    osl::File::remove(lcl_layoutURL());
 +    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
 +        for (Member& rMember : pGroup->aMembers)
 +            rMember.pBar.disposeAndClear();
@@ -1808,7 +2278,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      m_bEnabled = false;
      Application::RemoveEventListener(LINK(this, DocumentTabGroup, WindowEventHdl));
      if (m_xListener.is())
-@@ -955,17 +1581,27 @@
+@@ -955,17 +1900,27 @@
  
  namespace
  {
@@ -1839,7 +2309,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      virtual void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>& xListener,
                                              const util::URL& rURL) override
-@@ -975,6 +1611,12 @@
+@@ -975,6 +1930,12 @@
          frame::FeatureStateEvent aEvent;
          aEvent.FeatureURL = rURL;
          aEvent.IsEnabled = true;
@@ -1852,7 +2322,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          aEvent.Source = getXWeak();
          xListener->statusChanged(aEvent);
      }
-@@ -982,17 +1624,22 @@
+@@ -982,17 +1943,22 @@
                                                 const util::URL&) override
      {
      }
@@ -1878,7 +2348,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  void DocumentTabs::prepareShow(const uno::Reference<frame::XFrame>& xFrame)
-@@ -1001,6 +1648,24 @@
+@@ -1001,6 +1967,51 @@
      if (DocumentTabGroup::isEnabled())
          DocumentTabGroup::get().prepareShow(xFrame);
  }
@@ -1893,6 +2363,33 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +{
 +    SolarMutexGuard aGuard;
 +    return DocumentTabGroup::isEnabled() && DocumentTabGroup::get().showOfficeWindow();
++}
++
++void DocumentTabs::markLaunchStartCenter()
++{
++    SolarMutexGuard aGuard;
++    if (DocumentTabGroup::isEnabled())
++        DocumentTabGroup::get().markLaunchStartCenter();
++}
++
++void DocumentTabs::beginRestoreLayout()
++{
++    SolarMutexGuard aGuard;
++    if (DocumentTabGroup::isEnabled())
++        DocumentTabGroup::get().beginRestoreLayout();
++}
++
++void DocumentTabs::endRestoreLayout()
++{
++    SolarMutexGuard aGuard;
++    if (DocumentTabGroup::isEnabled())
++        DocumentTabGroup::get().endRestoreLayout();
++}
++
++bool DocumentTabs::hasOfficeWindow()
++{
++    SolarMutexGuard aGuard;
++    return DocumentTabGroup::isEnabled() && DocumentTabGroup::get().hasOfficeWindow();
 +}
 +
 +bool DocumentTabs::canOpenOfficeWindow()
@@ -2128,7 +2625,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  */
  namespace framework::DocumentTabs
  {
-@@ -32,6 +33,19 @@
+@@ -32,6 +33,31 @@
      and the previously shown member is parked once the new one is visible.
      No-op when tabs are disabled. */
  FWK_DLLPUBLIC void prepareShow(const css::uno::Reference<css::frame::XFrame>& xFrame);
@@ -2145,9 +2642,38 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +/// After showOfficeWindow() failed: a new Start Center may open (false while the office quits
 +/// or before its first window exists; then the active window comes to front as upstream).
 +FWK_DLLPUBLIC bool canOpenOfficeWindow();
++
++/// An HST Office window exists (or a window that shows nothing but the Start Center).
++FWK_DLLPUBLIC bool hasOfficeWindow();
++
++/** macOS: the Start Center shown at a launcher's first start (before its document) may be
++    replaced by that document; any other Start Center stays (an HST Office window). */
++FWK_DLLPUBLIC void markLaunchStartCenter();
++
++/** Autorecovery: rebuild the windows and tabs saved before the crash for the recovered
++    documents (see DocumentTabGroup::beginRestoreLayout). */
++FWK_DLLPUBLIC void beginRestoreLayout();
++FWK_DLLPUBLIC void endRestoreLayout();
  }
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
+@@ -40,6 +40,14 @@
+           <value xml:lang="en-US">.uno:PrevDocumentTab</value>
+         </prop>
+       </node>
++      <!-- HST Office: move the shown document tab into a new window (free in Writer, Calc,
++           Impress and Draw) -->
++      <node oor:name="N_SHIFT_MOD1_MOD2" oor:op="replace">
++        <prop oor:name="Command">
++          <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++          <value xml:lang="en-US">.uno:DetachDocumentTab</value>
++        </prop>
++      </node>
+       <node oor:name="A_MOD1" oor:op="replace">
+         <prop oor:name="Command">
+           <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
 --- a/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
 +++ b/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
 @@ -4255,6 +4255,14 @@
@@ -2156,7 +2682,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
        </node>
 +      <node oor:name=".uno:DetachDocumentTab" oor:op="replace">
 +        <prop oor:name="Label" oor:type="xs:string">
-+          <value xml:lang="en-US">Move Document Tab to New Window</value>
++          <value xml:lang="en-US">Move to New Window</value>
 +        </prop>
 +        <prop oor:name="Properties" oor:type="xs:int">
 +          <value>1</value>
@@ -2165,6 +2691,50 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
        <node oor:name=".uno:CloseWin" oor:op="replace">
          <prop oor:name="Label" oor:type="xs:string">
            <value xml:lang="en-US">Close Window</value>
+--- a/sc/uiconfig/scalc/menubar/menubar.xml
++++ b/sc/uiconfig/scalc/menubar/menubar.xml
+@@ -203,6 +203,8 @@
+           <menu:menuitem menu:id=".uno:Zoom"/>
+         </menu:menupopup>
+       </menu:menu>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:DetachDocumentTab"/>
+     </menu:menupopup>
+   </menu:menu>
+   <menu:menu menu:id=".uno:InsertMenu" menu:style="text">
+--- a/sd/uiconfig/sdraw/menubar/menubar.xml
++++ b/sd/uiconfig/sdraw/menubar/menubar.xml
+@@ -178,6 +178,8 @@
+           <menu:menuitem menu:id=".uno:Zoom"/>
+         </menu:menupopup>
+       </menu:menu>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:DetachDocumentTab"/>
+     </menu:menupopup>
+   </menu:menu>
+   <menu:menu menu:id=".uno:InsertMenu" menu:style="text">
+--- a/sd/uiconfig/simpress/menubar/menubar.xml
++++ b/sd/uiconfig/simpress/menubar/menubar.xml
+@@ -188,6 +188,8 @@
+           <menu:menuitem menu:id=".uno:Zoom"/>
+         </menu:menupopup>
+       </menu:menu>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:DetachDocumentTab"/>
+     </menu:menupopup>
+   </menu:menu>
+   <menu:menu menu:id=".uno:InsertMenu" menu:style="text">
+--- a/sw/uiconfig/swriter/menubar/menubar.xml
++++ b/sw/uiconfig/swriter/menubar/menubar.xml
+@@ -251,6 +251,8 @@
+           <menu:menuitem menu:id=".uno:Zoom"/>
+         </menu:menupopup>
+       </menu:menu>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:DetachDocumentTab"/>
+     </menu:menupopup>
+   </menu:menu>
+   <menu:menu menu:id=".uno:InsertMenu" menu:style="text">
 --- a/translations/source/vi/framework/messages.po
 +++ b/translations/source/vi/framework/messages.po
 @@ -502,3 +502,9 @@
@@ -2190,8 +2760,8 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +"..GenericCommands.UserInterface.Commands..uno:DetachDocumentTab\n"
 +"Label\n"
 +"value.text"
-+msgid "Move Document Tab to New Window"
-+msgstr "Tách thẻ tài liệu ra cửa sổ mới"
++msgid "Move to New Window"
++msgstr "Tách ra cửa sổ mới"
 +
  #. hstBS
  #: GenericCommands.xcu

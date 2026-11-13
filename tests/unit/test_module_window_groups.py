@@ -21,7 +21,10 @@ FILES = {
     "translations/source/vi/framework/messages.po",
     "translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po",
     "vcl/inc/osx/salframe.h", "vcl/inc/salframe.hxx", "vcl/osx/salframe.cxx", "vcl/source/window/syswin.cxx",
-}
+    "framework/source/services/autorecovery.cxx", "framework/source/dispatch/startmoduledispatcher.cxx",
+    "officecfg/registry/data/org/openoffice/Office/Accelerators.xcu",
+} | {f"{m}/menubar/menubar.xml" for m in ("sw/uiconfig/swriter", "sc/uiconfig/scalc", "sd/uiconfig/simpress",
+                                         "sd/uiconfig/sdraw")}
 
 
 def added():
@@ -69,10 +72,13 @@ class ModuleWindowGroups(unittest.TestCase):
     def test_routing_rules(self):
         group = text("framework/source/services/documenttabgroup.cxx")
         choose = group[group.index("DocumentTabGroup::chooseGroup"):group.index("void DocumentTabGroup::setKind")]
-        # Start Center -> HST Office window; external -> new window; first window -> HST Office; else context
-        order = [choose.index(s) for s in ("rModule == START_MODULE", "if (bExternal)", "m_aGroups.empty()",
-                                           "contextGroup()", "accepts(*pContext, rModule)")]
+        # Start Center -> HST Office; not external: first window -> HST Office, then the user's window;
+        # then (external or another module) the module's window used last, else a new one
+        order = [choose.index(s) for s in ("rModule == START_MODULE", "if (!bExternal)", "m_aGroups.empty()",
+                                           "contextGroup()", "accepts(*pContext, rModule)",
+                                           "recentGroupOfKind(rModule)", "return newGroup(rModule)")]
         self.assertEqual(order, sorted(order))
+        self.assertNotIn("recentGroupOfKind(OFFICE_KIND)", choose[choose.index("if (!bExternal)"):])
         accepts = group[group.index("bool DocumentTabGroup::accepts"):]
         self.assertIn("rGroup.aKind == OFFICE_KIND", accepts[:400])
 
@@ -106,7 +112,6 @@ class ModuleWindowGroups(unittest.TestCase):
         self.assertIn("STR_DOCTAB_DETACH", text("framework/inc/strings.hrc"))
         self.assertIn(".uno:DetachDocumentTab", text("officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu"))
         ui = text("translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po")
-        self.assertIn('msgstr "Tách thẻ tài liệu ra cửa sổ mới"', ui)
         # cfgex reads the first contiguous GenericCommands run only: the entry follows PrevDocumentTab
         patch = PATCH.read_text(encoding="utf-8")
         self.assertTrue(re.search(r'\n msgstr "Thẻ tài liệu trước"\n \n\+#\. hstMW', patch))
@@ -120,6 +125,37 @@ class ModuleWindowGroups(unittest.TestCase):
         mac = text("vcl/osx/salframe.cxx")
         self.assertIn("pOther->mnTabGroupId != mnTabGroupId", mac)
         self.assertIn("SetTabGroupId", text("vcl/inc/salframe.hxx"))
+
+
+class ModuleWindowOwnerDecisions(unittest.TestCase):
+    def test_launcher_keeps_the_office_start_center(self):
+        group = text("framework/source/services/documenttabgroup.cxx")
+        recycle = group[group.index("bool DocumentTabGroup::mayRecycle"):group.index("void DocumentTabGroup::markLaunchStartCenter")]
+        self.assertIn("return lcl_moduleKey(xFrame) != START_MODULE;", recycle)
+        self.assertIn("return pGroup->aKind != OFFICE_KIND;", recycle)
+        self.assertEqual(text("desktop/source/app/app.cxx").count("DocumentTabs::markLaunchStartCenter()"), 2)
+
+    def test_dock_click_opens_an_office_window(self):
+        start = text("framework/source/dispatch/startmoduledispatcher.cxx")
+        self.assertIn("!framework::DocumentTabs::hasOfficeWindow()", start)
+
+    def test_autorecovery_restores_the_layout(self):
+        recovery = text("framework/source/services/autorecovery.cxx")
+        self.assertEqual(recovery.count("DocumentTabs::beginRestoreLayout()"), 2)
+        self.assertEqual(recovery.count("DocumentTabs::endRestoreLayout()"), 2)
+        group = text("framework/source/services/documenttabgroup.cxx")
+        self.assertIn('"HST-DOCUMENT-TABS 1"', group)
+        self.assertIn("osl::File::remove(lcl_layoutURL())", group)  # a normal quit leaves no layout behind
+
+    def test_detach_shortcut_and_view_menu(self):
+        accel = "\n".join(added()["officecfg/registry/data/org/openoffice/Office/Accelerators.xcu"])
+        self.assertIn('<node oor:name="N_SHIFT_MOD1_MOD2" oor:op="replace">', accel)
+        self.assertIn(".uno:DetachDocumentTab", accel)
+        for path in FILES:
+            if path.endswith("menubar.xml"):
+                self.assertIn('<menu:menuitem menu:id=".uno:DetachDocumentTab"/>', text(path), path)
+        ui = text("translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po")
+        self.assertIn('msgstr "Tách ra cửa sổ mới"', ui)
 
 
 if __name__ == "__main__":

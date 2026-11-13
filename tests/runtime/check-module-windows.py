@@ -6,10 +6,11 @@ Usage: python3 tests/runtime/check-module-windows.py [--instdir upstream/libreof
 
 A second soffice on the same profile stands for the launchers and the file manager (it hands its request to the
 running office over the pipe, exactly like HST Writer, HST Sheets, a .desktop file or a double-click). Asserts:
-  1. HST Office (Start Center): new documents of every module are tabs of its one window.
-  2. "--writer" and "--calc" (HST Writer/HST Sheets launchers) each open a window of their own.
-  3. In the HST Writer window a new text document is a tab; a new spreadsheet opens another window.
-  4. A file opened from outside opens a window of its own.
+  1. With only the HST Office Start Center open, "--writer" keeps the Start Center and opens its own window.
+  2. HST Office: new documents of every module are tabs of its one window.
+  3. "--calc" opens a window of its own (the HST Office window is never used); "--writer" again is a tab of
+     the HST Writer window; a spreadsheet created in the HST Writer window is a tab of the HST Sheets window.
+  4. A file opened from outside is a tab of the window of its module.
   5. .uno:NextDocumentTab cycles within its window only; .uno:DetachDocumentTab moves the tab into a new window.
   6. A second "soffice" without arguments (HST Office launcher) shows the HST Office window, no new window.
   7. WM_CLASS: tabs of the HST Office window carry HST Office's class, module windows their module's.
@@ -98,37 +99,40 @@ def run(args):
     try:
         c.wait(lambda: len(c.windows()) == 1, 60)
         start = c.frames()[0]
-        # 1. HST Office: the Start Center turns into a document, "+" (from that window) adds tabs of any module.
+        # 1. Only the HST Office Start Center open: HST Writer keeps it and opens its own window.
+        c.second_office("--writer")
+        c.check("HST Writer launcher next to the Start Center: Start Center kept, own window",
+                c.wait(lambda: len(c.frames()) == 2 and len(c.windows()) == 2
+                       and module_of(office, start) == "StartModule"), repr(c.windows()))
+        module_writer = next(f for f in c.frames() if f != start)
+        # 2. HST Office: the Start Center turns into a document, "+" (from that window) adds tabs of any module.
         c.dispatch(start, "private:factory/swriter", "_default")
-        c.wait(lambda: module_of(office, c.frames()[0]) == "TextDocument")
-        office_writer = c.frames()[0]
+        c.wait(lambda: module_of(office, start) == "TextDocument")
+        office_writer = start
         c.dispatch(office_writer, "private:factory/scalc", "_blank")
         c.check("HST Office window: Writer and Sheets are tabs of one window",
-                c.wait(lambda: len(c.frames()) == 2 and len(c.windows()) == 1), repr(c.windows()))
+                c.wait(lambda: len(c.frames()) == 4 and len(c.windows()) == 2), repr(c.windows()))
+        office_calc = next(f for f in c.frames() if module_of(office, f) == "SpreadsheetDocument")
         c.shot("01-office-window-two-tabs.png")
 
-        # 2. Launchers: own windows.
-        c.second_office("--writer")
-        c.check("HST Writer launcher: a window of its own", c.wait(lambda: len(c.frames()) == 3 and len(c.windows()) == 2),
-                repr(c.windows()))
-        module_writer = next(f for f in c.frames() if f not in (start, office_writer) and module_of(office, f) == "TextDocument")
+        # 3. HST Sheets launcher: no Sheets window yet (the HST Office one does not count): a window of its own.
         c.second_office("--calc")
-        c.check("HST Sheets launcher: another window", c.wait(lambda: len(c.frames()) == 4 and len(c.windows()) == 3),
+        c.check("HST Sheets launcher: a window of its own", c.wait(lambda: len(c.frames()) == 5 and len(c.windows()) == 3),
                 repr(c.windows()))
-        c.shot("02-launcher-windows.png")
-
-        # 3. Inside the HST Writer window.
-        c.dispatch(module_writer, "private:factory/swriter", "_blank")
-        c.check("HST Writer window: a new text document is a tab",
-                c.wait(lambda: len(c.frames()) == 5) and c.wait(lambda: len(c.windows()) == 3), repr(c.windows()))
+        for doc in office.desktop().getComponents():
+            doc.setModified(True)  # no untouched new document may be replaced (upstream recycling)
+        # 4. HST Writer again: a tab of the HST Writer window.
+        c.second_office("--writer")
+        c.check("HST Writer launcher again: a tab of the HST Writer window",
+                c.wait(lambda: len(c.frames()) == 6) and c.wait(lambda: len(c.windows()) == 3), repr(c.windows()))
         writer_tabs = [f for f in c.frames() if module_of(office, f) == "TextDocument" and f != office_writer]
+        # 5. Inside the HST Writer window: a spreadsheet goes to the HST Sheets window.
         c.dispatch(writer_tabs[-1], "private:factory/scalc", "_blank")
-        c.check("HST Writer window: a new spreadsheet opens a window of HST Sheets",
-                c.wait(lambda: len(c.frames()) == 6 and len(c.windows()) == 4), repr(c.windows()))
-        c.shot("03-writer-window-rules.png")
+        c.check("HST Writer window: a new spreadsheet is a tab of the HST Sheets window",
+                c.wait(lambda: len(c.frames()) == 7) and c.wait(lambda: len(c.windows()) == 3), repr(c.windows()))
+        c.shot("02-module-windows.png")
 
-        # 4. A file from outside (file manager double-click). Every document is modified first: an untouched new
-        #    document of the same module in the active window would otherwise be replaced (upstream recycling).
+        # 6. A file from outside (file manager double-click): a tab of the HST Sheets window.
         for doc in office.desktop().getComponents():
             doc.setModified(True)
         fixture = os.path.join(office.workdir, "tep-ngoai.csv")
@@ -136,30 +140,29 @@ def run(args):
             handle.write("Họ tên,Điểm\nAn,9\n")
         subprocess.run(["chown", hst_gui.BUILD_USER, fixture], check=False)
         c.second_office("--calc", "--infilter=Text - txt - csv (StarCalc):44,34,76", fixture)
-        c.check("file from outside: a window of its own", c.wait(lambda: len(c.frames()) == 7 and len(c.windows()) == 5),
-                repr(c.windows()))
+        c.check("file from outside: a tab of the HST Sheets window, not of HST Office",
+                c.wait(lambda: len(c.frames()) == 8) and c.wait(lambda: len(c.windows()) == 3), repr(c.windows()))
 
-        # 5. Tab commands act on their window.
+        # 7. Tab commands act on their window.
         shown = [f for f in writer_tabs if f.getContainerWindow().isVisible()]
         office.dispatch(shown[0], ".uno:NextDocumentTab")
         c.check("NextDocumentTab: the other tab of the HST Writer window is shown, windows unchanged",
                 c.wait(lambda: [f for f in writer_tabs if f.getContainerWindow().isVisible()] not in ([], shown)
-                       and len(c.windows()) == 5), repr(c.windows()))
-        office_tabs = [f for f in (office_writer,) + tuple(f for f in c.frames() if f not in writer_tabs
-                       and module_of(office, f) == "SpreadsheetDocument")][:2]
+                       and len(c.windows()) == 3), repr(c.windows()))
+        office_tabs = (office_writer, office_calc)
         shown_office = next(f for f in office_tabs if f.getContainerWindow().isVisible())
         office.dispatch(shown_office, ".uno:DetachDocumentTab")
         c.check("DetachDocumentTab: the tab moves into a new window",
-                c.wait(lambda: len(c.windows()) == 6 and all(f.getContainerWindow().isVisible() for f in office_tabs)),
+                c.wait(lambda: len(c.windows()) == 4 and all(f.getContainerWindow().isVisible() for f in office_tabs)),
                 repr(c.windows()))
-        c.shot("04-detached.png")
+        c.shot("03-detached.png")
 
-        # 6. HST Office launcher again: no new window.
+        # 8. HST Office launcher again: no new window.
         c.second_office()
         time.sleep(4)
-        c.check("HST Office launcher again: no new window", len(c.windows()) == 6, repr(c.windows()))
+        c.check("HST Office launcher again: no new window", len(c.windows()) == 4, repr(c.windows()))
 
-        # 7. Taskbar identity.
+        # 9. Taskbar identity.
         classes = {n: c.wm_class(w) for w, n in c.windows()}
         module_window = next((w for w, n in c.windows() if any(f.Title in n for f in writer_tabs)), None)
         c.check("WM_CLASS: the HST Writer window is a Writer window",
