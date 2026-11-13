@@ -109,8 +109,8 @@ def run_phase(uno, program, out, ui, loc, env):
             shown = cell.getString()
             if want == "error":
                 ok = shown.startswith("#") and "Err" not in shown and "Lỗi" not in shown
-            else:
-                ok = shown == want
+            else:  # a typed TRUE/FALSE must become a boolean value, not text that looks the same
+                ok = shown == want and (typed not in ("TRUE", "FALSE") or cell.getType().value == "VALUE")
             rows.append({"typed": text, "shown": shown, "formula": cell.getPropertyValue("FormulaLocal")})
             check(f"{text} shows {want}", ok, shown)
         result["cells"] = rows
