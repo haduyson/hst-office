@@ -28,7 +28,7 @@ SCHEMA = {
     "bibAnd": "loc",                            # "" for none, "&", "và"/"and"
     "bibAndComma": "enum:always|never|3+",
     "bibEtAl": "etal",                          # null: list every author
-    "etAlTerm": "loc",                          # và cộng sự / & cộng sự / và ctv. / et al.
+    "etAlTerm": "loc",                          # và cộng sự / & cộng sự / và cộng tác viên / et al.
     "etAlComma": "bool",
     # citations in the text
     "citeEtAl": "etal",

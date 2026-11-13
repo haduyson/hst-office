@@ -21,10 +21,10 @@ CTU = ("NXB Đại học Cần Thơ, QĐ 06/QĐ.NXB Quy định trình bày trí
 # Like every international style, the words follow the document's language (owner decision 13/11/2026 16:28: no
 # per-item English words for this preset); "trang" is the publisher's page label in a Vietnamese document.
 CTU_PRESET = {
-    "id": "dao-ten-viet", "name": "NXB Đại học Cần Thơ (QĐ 06/QĐ.NXB, 2023): Hoàng, N. T.; (Hoàng, 2016); “và ctv.”",
+    "id": "dao-ten-viet", "name": "NXB Đại học Cần Thơ (QĐ 06/QĐ.NXB, 2023): Hoàng, N. T.; (Hoàng, 2016); “và cộng tác viên”",
     "source": CTU,
     "options": {"viName": "given-comma-initials", "citeViName": "given", "viSort": "given",
-                "etAlTerm": {"vi": "và ctv.", "other": "et al."}, "citeSortBy": "year"},
+                "etAlTerm": {"vi": "và cộng tác viên", "other": "et al."}, "citeSortBy": "year"},
     "terms": {"vi": {"editor": "Chủ biên"}},
     "layouts": {
         "chapter": [APA_AUTHOR, APA_DATE, v("title", suffix=". "), APA_IN,

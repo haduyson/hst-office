@@ -2,10 +2,10 @@
 """Private HTTPS helper of the reference lookup: one GET, run in its own process so DNS, TLS and the transfer
 share one wall-clock deadline that the parent enforces by killing it (citation_lookup.http_transport).
 
-Input (stdin, JSON): {"url", "accept", "version", "proxy", "contact"}. Output (stdout, JSON): {"status", "body"}
+Input (stdin, JSON): {"url", "accept", "version", "proxy"}. Output (stdout, JSON): {"status", "body"}
 (body: text, at most 2 MB); exit 1 when no HTTP answer arrived. Only HTTPS to the lookup hosts is allowed, also
 after a redirect (doi.org forwards to Crossref or DataCite). No cookies; headers: Accept and the User-Agent
-"HSTOffice/<release>" (plus "mailto:<contact>" when the administrator configured a project address).
+"HSTOffice/<release>" only (never a contact address; an administrator-set one travels as a query parameter).
 """
 import json
 from pathlib import Path
@@ -39,14 +39,12 @@ class _AllowedRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def get(url, accept, version, proxy=None, contact=""):
+def get(url, accept, version, proxy=None):
     """(status, body bytes) of one GET; raises on a failed connection or a refused URL."""
     if not allowed(url):
         raise ValueError("lookup URL refused")
     version_key(version)  # also prevents User-Agent header injection
     agent = "HSTOffice/" + version
-    if contact and "@" in contact and all(c not in contact for c in "\r\n;()"):
-        agent += " (mailto:%s)" % contact
     handlers = [_AllowedRedirect(), urllib.request.HTTPSHandler(context=tls_context())]
     if proxy is not None:
         handlers.append(urllib.request.ProxyHandler(proxy))
@@ -61,8 +59,7 @@ def get(url, accept, version, proxy=None, contact=""):
 def main():
     try:
         args = json.loads(sys.stdin.buffer.read(65536))
-        status, body = get(args["url"], args.get("accept", "application/json"), args["version"], args.get("proxy"),
-                           args.get("contact", ""))
+        status, body = get(args["url"], args.get("accept", "application/json"), args["version"], args.get("proxy"))
         sys.stdout.buffer.write(json.dumps({"status": status, "body": body.decode("utf-8", "replace")}).encode())
         return 0
     except Exception:  # noqa: BLE001 - never expose URLs, proxy credentials or TLS exception details

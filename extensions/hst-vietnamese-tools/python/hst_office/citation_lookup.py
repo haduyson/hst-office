@@ -3,8 +3,8 @@
 Crossref. Runs only when the user clicks "Tra cứu"; nothing here is called in the background.
 
 What is sent: only the identifier (or the pasted line for "Tìm theo dòng đã dán"), the User-Agent
-"HSTOffice/<release>" and the project contact address (``DEFAULT_CONTACT`` unless the administrator set another;
-Crossref ``mailto``, NCBI ``email`` with tool "HSTOffice"). No cookie, no document content. Order: DOI via doi.org (Crossref as fallback) > PMID via NCBI
+"HSTOffice/<release>" and, for NCBI, ``tool=HSTOffice``. No contact address by default (owner decision 13/11/2026);
+an administrator may configure one (Crossref ``mailto``, NCBI ``email``). No cookie, no document content. Order: DOI via doi.org (Crossref as fallback) > PMID via NCBI
 E-utilities > arXiv > ISBN via Open Library. Results go through the "sửa tên Việt" suggestions.
 
 Network access is injected: ``transport(request) -> (status, body bytes)``; production uses ``http_transport``
@@ -20,18 +20,19 @@ from .citation_lookup_ids import LookupFailure, parse_identifier
 
 HOSTS = ("doi.org", "api.crossref.org", "data.crossref.org", "api.datacite.org", "data.datacite.org",
          "eutils.ncbi.nlm.nih.gov", "export.arxiv.org", "openlibrary.org")
-MIN_INTERVAL = {"export.arxiv.org": 3.0, "eutils.ncbi.nlm.nih.gov": 0.34, "openlibrary.org": 1.0}
+MIN_INTERVAL = {"export.arxiv.org": 3.0, "eutils.ncbi.nlm.nih.gov": 0.34, "openlibrary.org": 1.0,
+                "api.crossref.org": 1.0, "doi.org": 1.0}
+BUSY_PAUSE = {429: 60.0, 503: 30.0}  # seconds a host is left alone after "too many requests" / "unavailable"
 DEADLINE = 20
 CSL_JSON = "application/vnd.citationstyles.csl+json"
 
 
-DEFAULT_CONTACT = "lienhe@hasontech.vn"  # HASON TECH's address, asked for by Crossref and NCBI; never the user's
+DEFAULT_CONTACT = ""  # no contact address unless an administrator configures one; never the user's
 
 
 class LookupConfig:
     """Settings read by the UNO layer: ``enabled`` (administrators can switch lookups off), ``contact`` (project
-    address for Crossref/NCBI; ``None`` -> ``DEFAULT_CONTACT``, an administrator value overrides it, "" sends
-    none), ``version`` (release id for the User-Agent) and ``proxy`` (same proxy settings as the update check)."""
+    address for Crossref/NCBI; empty by default, only an administrator sets one), ``version`` (release id for the User-Agent) and ``proxy`` (same proxy settings as the update check)."""
 
     def __init__(self, enabled=True, contact=None, version="0", proxy=None):
         contact = DEFAULT_CONTACT if contact is None else contact
@@ -42,13 +43,20 @@ class RateGate:
     """Polite spacing per host (arXiv asks for one request every 3 seconds, NCBI three per second)."""
 
     def __init__(self, clock=time.monotonic):
-        self.clock, self.last = clock, {}
+        self.clock, self.last, self.paused = clock, {}, {}
 
     def check(self, host):
         now, wait = self.clock(), MIN_INTERVAL.get(host, 0)
+        resume = self.paused.get(host, 0)
+        if now < resume:  # the service said it is busy: no request at all until the pause ends
+            raise LookupFailure("rate", "Dịch vụ tra cứu đang bận; vui lòng thử lại sau %.0f giây." % max(1, resume - now))
         if host in self.last and now - self.last[host] < wait:
             raise LookupFailure("rate", "Vui lòng đợi %.0f giây rồi tra cứu lại." % max(1, wait - (now - self.last[host])))
         self.last[host] = now
+
+    def pause(self, host, seconds):
+        """Leave ``host`` alone for ``seconds`` (after HTTP 429 or 503): one request, never a retry storm."""
+        self.paused[host] = self.clock() + seconds
 
 
 _GATE = RateGate()
@@ -90,12 +98,17 @@ def _fetch(service, url, accept, config, transport, gate):
         raise LookupFailure("disabled", "Tra cứu trực tuyến đã bị quản trị viên tắt.")
     gate.check(urllib.parse.urlsplit(url).hostname)
     try:
-        status, body = transport({"url": url, "accept": accept, "version": config.version, "proxy": config.proxy,
-                                  "contact": config.contact})
+        status, body = transport({"url": url, "accept": accept, "version": config.version,
+                                  "proxy": config.proxy})
     except (OSError, ValueError) as exc:  # deadline, no answer, refused redirect: try the next service
         raise LookupFailure("network", "Không kết nối được tới dịch vụ tra cứu. Bạn vẫn có thể nhập tay.") from exc
-    if status == 429:
-        raise LookupFailure("rate", "Dịch vụ tra cứu đang bận; vui lòng thử lại sau ít phút.")
+    if status in BUSY_PAUSE:  # no retry and no fallback to another service in the same pool: tell the user
+        host = urllib.parse.urlsplit(url).hostname
+        gate.pause(host, BUSY_PAUSE[status])
+        if host == "doi.org":  # doi.org forwards to Crossref; leave the whole pool alone
+            gate.pause("api.crossref.org", BUSY_PAUSE[status])
+        raise LookupFailure("rate", "Dịch vụ tra cứu đang bận (mã %d); vui lòng thử lại sau %d giây hoặc nhập tay."
+                            % (status, BUSY_PAUSE[status]))
     return status, body
 
 

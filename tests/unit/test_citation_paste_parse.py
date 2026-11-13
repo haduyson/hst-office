@@ -102,6 +102,9 @@ class Typed(unittest.TestCase):
         second, _ = paste.parse_reference("Trần Văn Bình (2010), Kinh tế học, xuất bản lần thứ 2, Nxb Giáo dục, Hà Nội.")
         third, _ = paste.parse_reference("Trần Văn Bình (2010), Kinh tế học, tái bản lần thứ 2, Nxb Giáo dục, Hà Nội.")
         self.assertEqual((second["edition"], third["edition"]), ("2", "3"))
+        written, _ = paste.parse_reference("Khai, N. T. M., và cộng tác viên (2021). Ảnh hưởng của biến đổi khí hậu. "
+                                           "Tạp chí Khoa học, 19(4), 512–520.")
+        self.assertEqual(written["author"], [{"family": "Khai", "given": "N. T. M."}])
 
     def test_names_before_title_and_repeated_author(self):
         item, _ = paste.parse_reference("WATSON, J. D. và CRICK, F. H. C. Molecular structure of nucleic acids. "
