@@ -41,7 +41,6 @@ def capture_windows(title, path):
     Returns the window rectangle (left, top, right, bottom) or None."""
     import ctypes
     user32 = ctypes.windll.user32
-    user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))  # device pixels, as the office uses them
     hwnd = user32.FindWindowW(None, title)
     if not hwnd:
         return None
@@ -84,6 +83,8 @@ def main():
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     if args.windows:
+        import ctypes
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))  # device pixels, like the office
         import hst_gui_windows
         hst_gui_windows.install()
         os.environ["HST_WINDOWS_UI"] = "1"
