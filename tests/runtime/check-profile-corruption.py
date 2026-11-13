@@ -67,6 +67,8 @@ def main():
         shutil.rmtree(work, ignore_errors=True)
         shutil.copytree(base.workdir, work, symlinks=True)
         off = rr.office(args.instdir, work, PORT, args.display)
+        # the start-up questions run on the first visible window (Jobs.xcu onFirstVisibleTask): Start Center
+        off.extra_args = [a for a in off.extra_args if a != "--nodefault"]
         xcu = os.path.join(rr.user_dir(off), "registrymodifications.xcu")
         damage(xcu, mode)
         off.start(fresh=False)

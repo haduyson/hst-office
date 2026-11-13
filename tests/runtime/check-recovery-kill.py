@@ -5,7 +5,7 @@
 Usage: python3 tests/runtime/check-recovery-kill.py --instdir <instdir> [--out tests/output/recovery-kill]
            [--display :97] [--scenario first|after|emergency|all] [--runs 5]
 
-  first      a new document is killed 40 s after its first change: its first recovery copy (30 s) is offered and
+  first      a new document is killed right after its first recovery copy (about 30 s): the copy is offered and
              holds the text;
   after      kill -9 right after a later recovery copy replaced the previous one (the window in which the old
              configuration still named the deleted copy): the entry on disk names an existing copy and the recovery
@@ -44,7 +44,8 @@ def scenario_first(off):
     began = time.time()
     copy = rr.wait(lambda: rr.copies(off), 60, 0.2)
     print("first: first recovery copy after %.1f s" % (time.time() - began), flush=True)
-    record("first: a recovery copy within 60 s of the first change (due at 30 s, then 10 s without input)", copy, rr.backups(off))
+    record("first: a recovery copy within 60 s of the first change (due after 20 s, written after 10 s without input)",
+           copy, rr.backups(off))
     pid = rr.kill(off)
     rr.gone(off, pid)
     record("first: the recovery dialog offers the document", rr.restart_and_recover(off))
