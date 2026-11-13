@@ -62,9 +62,10 @@ class RibbonUxWriterPatch(unittest.TestCase):
     def test_files(self):
         for path in (gen.UI, gen.PO, gen.SUPPR):
             self.assertIn(f"+++ b/{path}\n", self.patch)
-        for path in ("Controller.xcu", "sw/UIConfig_swriter.mk", "popupmenu/hstpaste.xml",
-                     "popupmenu/hstcitationinsert.xml"):
+        for path in ("Controller.xcu", "sw/UIConfig_swriter.mk", "popupmenu/hstcitationinsert.xml",
+                     "svx/source/mnuctrls/clipboardctl.cxx", "sw/source/uibase/docvw/edtwin.cxx"):
             self.assertIn(path, self.commands)
+        self.assertNotIn("hstpaste", self.commands)
 
     def test_terms(self):
         for english, vietnamese in all_texts():
@@ -133,6 +134,24 @@ class RibbonUxWriterPatch(unittest.TestCase):
             self.assertIn(value, margins)
         self.assertIn('id="hstnd30"', section(self.commands, "sw/uiconfig/swriter/ui/pagemargincontrol.ui"))
         self.assertIn('msgid "Administrative Document"\n+msgstr "Văn bản hành chính"', section(self.patch, gen.PO))
+
+    def test_header_footer_toggles(self):
+        ui = added(section(self.patch, gen.UI))
+        for command in (".uno:HstDifferentFirstPage", ".uno:HstDifferentOddEven"):
+            self.assertIn(f'"action-name">{command}<', ui)
+        self.assertIn("aDesc.ChgFirstShare(!aDesc.IsFirstShared());",
+                      section(self.commands, "sw/source/uibase/shells/basesh.cxx"))
+        ui_po = added(section(self.commands, "translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po"))
+        self.assertIn('msgstr "Trang đầu khác"', ui_po)
+        self.assertIn('msgstr "Trang chẵn lẻ khác"', ui_po)
+
+    def test_paste_dropdown_and_double_click(self):
+        clip = added(section(self.commands, "svx/source/mnuctrls/clipboardctl.cxx"))
+        self.assertIn(".uno:PasteUnformatted", clip)
+        self.assertIn(".uno:PasteSpecial", clip)
+        self.assertIn("hst::ribbon::OpenContextualTab(*this);",
+                      section(self.commands, "sw/source/uibase/docvw/edtwin.cxx"))
+        self.assertEqual(strings.LABELS["btnInsertInsertBookmark"][1], "Đánh dấu trang")
 
     def test_tab_labels_use_va(self):
         po = section(self.patch, gen.PO)

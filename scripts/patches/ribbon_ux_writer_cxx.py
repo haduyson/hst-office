@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 
 import ribbon_ux_lib as lib
+import ribbon_ux_writer_cxx_more as cxx_more
 
 TARBALL = "libreoffice-26.8.1.1.tar.xz"
 PREFIX = "libreoffice-26.8.1.1/"
@@ -109,6 +110,14 @@ EDITS = [
          POSITION.format(9) + "\n          </packing>\n        </child>\n" + ND30_BUTTON),
         ('  <object class="GtkImage" id="lastImg">\n', ND30_IMAGE + '  <object class="GtkImage" id="lastImg">\n')]),
 ]
+
+
+for _path, _edits in cxx_more.EDITS:  # one diff per file: edits of a file the list already has join its entry
+    _known = dict(EDITS)
+    if _path in _known:
+        _known[_path].extend(_edits)
+    else:
+        EDITS.append((_path, list(_edits)))
 
 
 def sources(tree, tarballs):

@@ -1,32 +1,23 @@
-HST Office: the split buttons of the Writer ribbon (generated with hst-ribbon-ux-writer.patch).
+HST Office: commands and controls of the Writer ribbon (generated with hst-ribbon-ux-writer.patch).
 
-"Dán ▾" lists Chỉ dán văn bản and Dán đặc biệt; "Chèn trích dẫn ▾" lists Thêm nguồn mới, Nhập từ tệp and Chèn
-lại trích dẫn. Writer-only GenericPopupToolbarController nodes in Controller.xcu and two popup menu files, as the
-Sheets "Định dạng ngày tháng" button. A click on either button still runs its own command.
+- "Chèn trích dẫn ▾" (Tham khảo ▸ Trích dẫn): a Writer-only GenericPopupToolbarController node in Controller.xcu and
+  popup menu hstcitationinsert (Thêm nguồn mới, Nhập từ tệp, Chèn lại trích dẫn), as Sheets' "Định dạng ngày tháng".
+- Dán ▾ in every application (svx SvxClipBoardControl): the clipboard formats, then Chỉ dán văn bản, Dán đặc biệt.
+- "Viền trang": .uno:BorderDialog takes an optional Page argument naming the first tab of Borders and Shading.
+- Lề ▾: "Văn bản hành chính" margins (Decree 30/2020/ND-CP: left 3 cm, right 1.5 cm, top and bottom 2 cm).
+- .uno:HstDifferentFirstPage, .uno:HstDifferentOddEven: the header and footer tab's "Trang đầu khác" and "Trang
+  chẵn lẻ khác", toggles of the current page style (one undo step each).
+- A double-click on a picture, shape, frame or OLE object opens its contextual tab (needs hst-ribbon-ux-engine.patch,
+  hst::ribbon::OpenContextualTab).
 
 License: these upstream files remain under their original license (MPL-2.0).
 ---
 --- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
 +++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
-@@ -2150,6 +2150,37 @@
+@@ -2150,6 +2150,22 @@
            <value>private:resource/popupmenu/hstformatdate</value>
          </prop>
        </node>
-+      <!-- HST Office: "Dán" of the Writer ribbon: the arrow offers plain text and Paste Special instead of the clipboard formats. -->
-+      <node oor:name="HstWriterPasteSplitButton" oor:op="replace">
-+        <prop oor:name="Command">
-+          <value>.uno:Paste</value>
-+        </prop>
-+        <prop oor:name="Module">
-+          <value>com.sun.star.text.TextDocument</value>
-+        </prop>
-+        <prop oor:name="Controller">
-+          <value>com.sun.star.comp.framework.GenericPopupToolbarController</value>
-+        </prop>
-+        <prop oor:name="Value">
-+          <value>private:resource/popupmenu/hstpaste</value>
-+        </prop>
-+      </node>
 +      <!-- HST Office: "Chèn trích dẫn" of the Writer ribbon (Tham khảo ▸ Trích dẫn): the arrow adds or imports a source in the
 +           source manager, or inserts the last citation again. -->
 +      <node oor:name="HstWriterCitationInsertSplitButton" oor:op="replace">
@@ -48,29 +39,14 @@ License: these upstream files remain under their original license (MPL-2.0).
        <node oor:name="c5" oor:op="replace">
 --- a/sw/UIConfig_swriter.mk
 +++ b/sw/UIConfig_swriter.mk
-@@ -23,6 +23,8 @@
+@@ -23,6 +23,7 @@
  	sw/uiconfig/swriter/popupmenu/formrichtext \
  	sw/uiconfig/swriter/popupmenu/frame \
  	sw/uiconfig/swriter/popupmenu/graphic \
 +	sw/uiconfig/swriter/popupmenu/hstcitationinsert \
-+	sw/uiconfig/swriter/popupmenu/hstpaste \
  	sw/uiconfig/swriter/popupmenu/insertfield \
  	sw/uiconfig/swriter/popupmenu/media \
  	sw/uiconfig/swriter/popupmenu/notebookbar \
---- a/sw/uiconfig/swriter/popupmenu/hstpaste.xml
-+++ b/sw/uiconfig/swriter/popupmenu/hstpaste.xml
-@@ -0,0 +1,11 @@
-+<?xml version="1.0" encoding="UTF-8"?>
-+<!--
-+ * This Source Code Form is subject to the terms of the Mozilla Public
-+ * License, v. 2.0. If a copy of the MPL was not distributed with this
-+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
-+-->
-+<!-- HST Office: "Dán" of the Writer ribbon: the arrow offers plain text and Paste Special instead of the clipboard formats. -->
-+<menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
-+  <menu:menuitem menu:id=".uno:PasteUnformatted" menu:label="Chỉ dán văn bản"/>
-+  <menu:menuitem menu:id=".uno:PasteSpecial" menu:label="Dán đặc biệt"/>
-+</menu:menupopup>
 --- a/sw/uiconfig/swriter/popupmenu/hstcitationinsert.xml
 +++ b/sw/uiconfig/swriter/popupmenu/hstcitationinsert.xml
 @@ -0,0 +1,12 @@
@@ -97,9 +73,92 @@ License: these upstream files remain under their original license (MPL-2.0).
  [
      AutoUpdate = FALSE,
      FastCall = TRUE,
+@@ -5492,6 +5492,40 @@
+ [
+     AutoUpdate = FALSE,
+     FastCall = TRUE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
++SfxBoolItem HstDifferentFirstPage FN_HST_DIFFERENT_FIRST_PAGE
++()
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
++SfxBoolItem HstDifferentOddEven FN_HST_DIFFERENT_ODD_EVEN
++()
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
+     ReadOnlyDoc = FALSE,
+     Toggle = FALSE,
+     Container = FALSE,
 --- a/sw/source/uibase/shells/basesh.cxx
 +++ b/sw/source/uibase/shells/basesh.cxx
-@@ -3035,11 +3035,15 @@
+@@ -1098,6 +1098,26 @@
+             }
+             break;
+ 
++        case FN_HST_DIFFERENT_FIRST_PAGE:
++        case FN_HST_DIFFERENT_ODD_EVEN:
++        {
++            // HST: "Trang đầu khác" / "Trang chẵn lẻ khác" of the header and footer tab: the current page
++            // style gets its own first page, or its own left and right header and footer (one undo step)
++            const size_t nDesc = rSh.GetCurPageDesc();
++            SwPageDesc aDesc(rSh.GetPageDesc(nDesc));
++            if (nSlot == FN_HST_DIFFERENT_FIRST_PAGE)
++                aDesc.ChgFirstShare(!aDesc.IsFirstShared());
++            else
++            {
++                const bool bShare = !aDesc.IsHeaderShared();
++                aDesc.ChgHeaderShare(bShare);
++                aDesc.ChgFooterShare(bShare);
++            }
++            rSh.ChgPageDesc(nDesc, aDesc);
++            rReq.Done();
++        }
++        break;
++
+         case FN_UPDATE_ALL:
+             {
+                 comphelper::EmbeddedObjectContainer& rEmbeddedObjectContainer
+@@ -1856,6 +1876,14 @@
+                       !(rSh.GetSelectionType() & SelectionType::Graphic)) )
+                     rSet.DisableItem( nWhich );
+                 break;
++            case FN_HST_DIFFERENT_FIRST_PAGE:
++            case FN_HST_DIFFERENT_ODD_EVEN:
++            {
++                const SwPageDesc& rDesc = rSh.GetPageDesc(rSh.GetCurPageDesc());
++                rSet.Put(SfxBoolItem(nWhich, nWhich == FN_HST_DIFFERENT_FIRST_PAGE ? !rDesc.IsFirstShared()
++                                                                                   : !rDesc.IsHeaderShared()));
++            }
++            break;
+             case SID_GALLERY_ENABLE_ADDCOPY:
+                 // #108230# allow copy from gallery in Writer AND Writer/Web!
+                 rSet.Put( SfxBoolItem( SID_GALLERY_ENABLE_ADDCOPY, true ) );
+@@ -3035,11 +3063,15 @@
                  XATTR_FILL_FIRST, XATTR_FILL_LAST,
                  SID_ATTR_BORDER_INNER, SID_ATTR_BORDER_INNER,
                  FN_FORMAT_BORDER_DLG, FN_FORMAT_BORDER_DLG,
@@ -284,3 +343,152 @@ License: these upstream files remain under their original license (MPL-2.0).
            </packing>
          </child>
        </object>
+--- a/sw/inc/cmdid.h
++++ b/sw/inc/cmdid.h
+@@ -965,6 +965,9 @@
+ #define FN_HST_COPY_FORMAT          (FN_FORMAT + 14)
+ #define FN_HST_PASTE_FORMAT         (FN_FORMAT + 15)
+ #define FN_HST_RESET_PARAGRAPH      (FN_FORMAT + 16)
++// HST: the header and footer tab's Trang đầu khác and Trang chẵn lẻ khác
++#define FN_HST_DIFFERENT_FIRST_PAGE (FN_FORMAT + 17)
++#define FN_HST_DIFFERENT_ODD_EVEN   (FN_FORMAT + 18)
+ 
+ #endif // INCLUDED_SW_INC_CMDID_H
+ 
+--- a/sw/sdi/_basesh.sdi
++++ b/sw/sdi/_basesh.sdi
+@@ -164,6 +164,20 @@
+         ExecMethod = Execute ;
+         StateMethod = GetState ;
+     ]
++    FN_HST_DIFFERENT_FIRST_PAGE
++    [
++        ExecMethod = Execute ;
++        StateMethod = GetState ;
++        DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
++    ]
++
++    FN_HST_DIFFERENT_ODD_EVEN
++    [
++        ExecMethod = Execute ;
++        StateMethod = GetState ;
++        DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
++    ]
++
+     FN_UPDATE_ALL // status(final|play)
+     [
+         ExecMethod = Execute ;
+--- a/officecfg/registry/data/org/openoffice/Office/UI/WriterCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/WriterCommands.xcu
+@@ -1692,6 +1692,22 @@
+       <node oor:name=".uno:HstResetParagraph" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Remove Paragraph Formatting</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstDifferentFirstPage" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Different First Page</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstDifferentOddEven" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Different Odd and Even Pages</value>
+         </prop>
+         <prop oor:name="Properties" oor:type="xs:int">
+           <value>1</value>
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -35191,6 +35191,26 @@
+ msgid "Remove Paragraph Formatting"
+ msgstr "Loại bỏ định dạng đoạn văn"
+ 
++#. hstHF
++#: WriterCommands.xcu
++msgctxt ""
++"WriterCommands.xcu\n"
++"..WriterCommands.UserInterface.Commands..uno:HstDifferentFirstPage\n"
++"Label\n"
++"value.text"
++msgid "Different First Page"
++msgstr "Trang đầu khác"
++
++#. hstHF
++#: WriterCommands.xcu
++msgctxt ""
++"WriterCommands.xcu\n"
++"..WriterCommands.UserInterface.Commands..uno:HstDifferentOddEven\n"
++"Label\n"
++"value.text"
++msgid "Different Odd and Even Pages"
++msgstr "Trang chẵn lẻ khác"
++
+ #. ZPvDo
+ #: WriterCommands.xcu
+ msgctxt ""
+--- a/svx/source/mnuctrls/clipboardctl.cxx
++++ b/svx/source/mnuctrls/clipboardctl.cxx
+@@ -23,6 +23,7 @@
+ #include <sfx2/tbxctrl.hxx>
+ #include <svl/intitem.hxx>
+ #include <svl/voiditem.hxx>
++#include <vcl/commandinfoprovider.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/toolbox.hxx>
+ #include <vcl/weld/Builder.hxx>
+@@ -75,6 +76,16 @@
+             xPopup->append(OUString::number(static_cast<sal_uInt32>(nFmtID)), aFmtStr);
+         }
+ 
++        // HST: after the clipboard formats, plain text and Paste Special, as Office's Paste Options
++        const OUString aUnformatted(u".uno:PasteUnformatted"_ustr), aSpecial(u".uno:PasteSpecial"_ustr);
++        const auto lcl_Label = [this](const OUString& rCommand) {
++            return vcl::CommandInfoProvider::GetLabelForCommand(
++                vcl::CommandInfoProvider::GetCommandProperties(rCommand, m_sModuleName)).replaceAll("~", "");
++        };
++        xPopup->append_separator(u"hstseparator"_ustr);
++        xPopup->append(aUnformatted, lcl_Label(aUnformatted));
++        xPopup->append(aSpecial, lcl_Label(aSpecial));
++
+         ToolBox& rBox = GetToolBox();
+         ToolBoxItemId nId = GetId();
+         rBox.SetItemDown( nId, true );
+@@ -84,6 +95,13 @@
+         OUString sResult = xPopup->popup_at_rect(pParent, aRect);
+ 
+         rBox.SetItemDown( nId, false );
++
++        if (sResult == aUnformatted || sResult == aSpecial)
++        {
++            Dispatch(sResult, Sequence<PropertyValue>());
++            GetToolBox().EndSelection();
++            return;
++        }
+ 
+         SfxUInt32Item aItem(SID_CLIPBOARD_FORMAT_ITEMS, sResult.toUInt32());
+ 
+--- a/sw/source/uibase/docvw/edtwin.cxx
++++ b/sw/source/uibase/docvw/edtwin.cxx
+@@ -38,6 +38,7 @@
+ #include <comphelper/OAccessible.hxx>
+ 
+ #include <i18npool/breakiterator.hxx>
++#include <vcl/HstRibbonContext.hxx>
+ #include <vcl/dialoghelper.hxx>
+ #include <vcl/inputctx.hxx>
+ #include <vcl/help.hxx>
+@@ -3540,6 +3541,8 @@
+                                                              | FlyProtectFlags::Parent)
+                                 || rSh.GetSelectionType() == SelectionType::Ole))
+                         {
++                            // HST: the double-click opens the object's contextual tab
++                            hst::ribbon::OpenContextualTab(*this);
+                         /* This is no good: on the one hand GetSelectionType is used as flag field
+                          * (take a look into the GetSelectionType method) and on the other hand the
+                          * return value is used in a switch without proper masking (very nice), this must lead to trouble

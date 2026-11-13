@@ -9,7 +9,7 @@ LABELS = {
     "btnHomeHstSearchDialog": ("Replace", "Thay thế"),
     "btnInsertTitlePageDialog": ("Cover Page", "Trang bìa"),
     "btnInsertHyperlinkDialog": ("Link", "Liên kết"),
-    "btnInsertInsertBookmark": ("Bookmark", "Thẻ đánh dấu"),
+    "btnInsertInsertBookmark": ("Bookmark", "Đánh dấu trang"),
     "btnInsertInsertReferenceField": ("Cross-reference", "Tham chiếu chéo"),
     "btnInsertInsertObjectStarMath": ("Equation", "Công thức toán"),
     "btnInsertInsertAVMedia": ("Audio and Video", "Âm thanh và video"),

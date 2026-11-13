@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""The split buttons of the Writer ribbon UX rework (generate-ribbon-ux-writer.py), as the Sheets "Định dạng ngày
+"""The split button of the Writer ribbon UX rework (generate-ribbon-ux-writer.py), as the Sheets "Định dạng ngày
 tháng" button of hst-ribbon-extensions-tab.patch: a Writer-only Controller.xcu node gives the command a
 GenericPopupToolbarController whose arrow opens a popup menu file of sw/uiconfig/swriter/popupmenu. A click on the
 button still runs its own command. Labels of the popup entries are Vietnamese in every UI language, as in the
@@ -14,9 +14,6 @@ MAKEFILE_ANCHOR = "\tsw/uiconfig/swriter/popupmenu/insertfield \\\n"
 
 # node name, command, popup file, comment, entries (command, label)
 SPLIT_BUTTONS = [
-    ("HstWriterPasteSplitButton", ".uno:Paste", "hstpaste",
-     '"Dán" of the Writer ribbon: the arrow offers plain text and Paste Special instead of the clipboard formats.',
-     [(".uno:PasteUnformatted", "Chỉ dán văn bản"), (".uno:PasteSpecial", "Dán đặc biệt")]),
     ("HstWriterCitationInsertSplitButton", "org.hst.office.vi:CitationInsert", "hstcitationinsert",
      '"Chèn trích dẫn" of the Writer ribbon (Tham khảo ▸ Trích dẫn): the arrow adds or imports a source in the\n'
      '           source manager, or inserts the last citation again.',

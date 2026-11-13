@@ -158,6 +158,10 @@ GROUPS = {
         [("box", "bxObjectInsertCaptionDialog")], [("box", "bxObjectChainFrames"), ("box", "bxObjectUnhainFrames")],
         [("btn", "Object-FrameDialog", "S")]]},
     # Đầu trang và chân trang
+    "gdHeaderFooterHstOptions": {"columns": [
+        [("box", "bxHstCtxHFPageDialog", "L")],
+        [("new", "btnHstCtxHFDifferentFirst", ".uno:HstDifferentFirstPage", "S", {"klass": "GtkToggleToolButton"}),
+         ("new", "btnHstCtxHFDifferentOddEven", ".uno:HstDifferentOddEven", "S", {"klass": "GtkToggleToolButton"})]]},
     "gdHeaderFooterHstClose": {"new": ("Close", "Đóng"), "columns": [
         [("new", "btnHstCtxHFClose", ".uno:GoToStartOfPage", "L", {"icon": "cmd/lc_closepreview.png"})]]},
 }
