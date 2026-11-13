@@ -28,7 +28,7 @@ import sys
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from sheets_formula_cases import DATA, FORMULAS  # noqa: E402
+from sheets_formula_cases import DATA, DATES_VI, FORMULA_TEXT, FORMULAS  # noqa: E402
 from sheets_formula_profile import connect, prop, start  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -106,6 +106,15 @@ def run_phase(uno, program, out, ui, loc, env):
             rows.append({"typed": text, "shown": shown, "formula": cell.getPropertyValue("FormulaLocal")})
             check(f"{text} shows {want}", ok, shown)
         result["cells"] = rows
+        extra = [(t, None) for t in FORMULA_TEXT] + (DATES_VI if loc.startswith("vi") else [])
+        for row, (typed, expected) in enumerate(extra, start=1):
+            text = typed.replace("{s}", sep_arg)
+            cell = enter(f"Y{row}", text)
+            doc.calculateAll()
+            if expected is None:
+                check(f"input line keeps {text}", cell.getPropertyValue("FormulaLocal") == text, cell.getPropertyValue("FormulaLocal"))
+            else:
+                check(f"{text} shows {expected}", cell.getString() == expected, cell.getString())
 
         ods = os.path.join(phase_dir, "formulas.ods")
         xlsx = os.path.join(phase_dir, "formulas.xlsx")

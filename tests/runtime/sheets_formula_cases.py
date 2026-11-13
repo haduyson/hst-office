@@ -25,3 +25,7 @@ FORMULAS = [
     # Type errors stay #VALUE!.
     ("=CHAR(0)", "#VALUE!"), ("=REPT(\"a\"{s}-1)", "#VALUE!"), ("=COMPLEX(1{s}1{s}\"k\")", "#VALUE!"),
 ]
+# Vietnamese-locale dates: the default date format is DD/MM/YYYY like the regional short date (typed, DATE()).
+DATES_VI = [("13/11/2026", "13/11/2026"), ("=DATE(2026{s}1{s}5)", "05/01/2026"), ("=DATE(2026{s}11{s}13)+1", "14/11/2026")]
+# Input-line text of typed boolean constants: as typed, not TRUE()/FALSE().
+FORMULA_TEXT = ["=TRUE", "=FALSE", "=AND(TRUE{s}FALSE)", "=IF(A1>5{s}TRUE{s}FALSE)"]
