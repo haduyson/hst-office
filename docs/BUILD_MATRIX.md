@@ -110,7 +110,7 @@ python3 scripts/linux/build-slots.py status                       # slot đang c
   slot thì chia đều 28 (tối thiểu 4); khi slot khác vào/ra, `make` được khởi động lại với `-j` mới (giảm ngay, tăng khi
   thêm ≥ 6). Ngân sách = `clamp(4 + 0,4 × jobs, 6, 12)` GB là `MemoryMax` của scope systemd (`MemoryHigh` 90 %,
   `MemorySwapMax=0`, `CPUQuota` = jobs × 100 %), `nice 19`, `ionice -c3`. Hàng đợi cho job `--modules` trần 6 job
-  (ngân sách 6,4 GB) để ba job nhỏ chạy cạnh nhau.
+  (ngân sách 6,4 GB) để ba job nhỏ chạy cạnh nhau. Xong `make`, slot trả ngân sách ngay (đóng gói `.deb`/overlay nhẹ).
 - Bảo vệ: chung cho cả máy, `MemAvailable` < 6 GB hoặc swap tăng > 1 GB (so với lần nhận/thả gần nhất) thì chỉ slot
   vào **sau cùng** bị đóng băng (`cgroup.freeze`), áp lực còn thì slot kế tiếp; trong mỗi slot giữ cơ chế cũ: rã đông ở
   8 GB, lần dừng thứ hai hoặc do swap thì chạy lại `make` với nửa số job (tối thiểu 2), quá 30 phút thì dừng; scope bị

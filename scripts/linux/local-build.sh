@@ -590,6 +590,8 @@ fi
 admit
 touch "$ROOT/.build-start"
 timed build do_build
+# Packaging/overlay are light: free the memory reservation and jobs for other slots now.
+"${SLOTS_PY[@]}" release --slot "$SLOT" || true; ADMITTED=0
 if [ -n "$MODULES" ]; then timed overlay do_overlay
 elif [ "$PACKAGE" -eq 1 ]; then timed package do_package; fi
 in_chroot / ccache -s | sed -n '/[Hh]its\|[Mm]isses\|[Cc]ache size/p' || true

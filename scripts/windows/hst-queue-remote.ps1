@@ -97,7 +97,13 @@ switch ($Action) {
         $ok = $ended -and (Select-String -LiteralPath $log -Pattern "end $Task rc=0" -Quiet) -and
             $info -and $info.state -eq 'done' -and $info.out -eq $out -and (Test-Path -LiteralPath $out)
         $err = if ($ok) { '' } elseif ($info -and $info.PSObject.Properties['error']) { "$($info.error)" } elseif (-not $ended) { 'task vanished' } else { 'build failed' }
-        Out-Json @{ state = $(if ($ok) { 'done' } else { 'failed' }); out = $out; error = $err; log = (Get-LogTail) + "`n" }
+        $tail = Get-LogTail
+        $buildLog = Join-Path $Root 'logs\build.log'
+        if (-not $ok -and (Test-Path -LiteralPath $buildLog)) {
+            # make's own error is in the slot's build.log, not in the task log.
+            $tail += "`n== tail of $buildLog`n" + ((Get-Content -LiteralPath $buildLog -Tail 40) -join "`n")
+        }
+        Out-Json @{ state = $(if ($ok) { 'done' } else { 'failed' }); out = $out; error = $err; log = $tail + "`n" }
     }
     'Cancel' {
         Need-Job
