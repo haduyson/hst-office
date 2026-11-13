@@ -30,6 +30,9 @@ def press_enter(hwnd, from_right=260, from_bottom=26):
     user32 = ctypes.windll.user32
     user32.GetAncestor.restype = wintypes.HWND
     user32.WindowFromPoint.restype = wintypes.HWND
+    # Our own dialog on top of everything (another office of another test may fill the console); only its own
+    # z-order changes, no other window is touched.
+    user32.SetWindowPos(wintypes.HWND(hwnd), wintypes.HWND(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)  # TOPMOST
     user32.SetForegroundWindow(hwnd)
     time.sleep(0.5)
     rect = wintypes.RECT()
