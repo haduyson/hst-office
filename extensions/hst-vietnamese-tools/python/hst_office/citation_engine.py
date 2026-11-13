@@ -132,7 +132,7 @@ def process(style, items, clusters, uncited_ids=(), document_language=None):
         entry.update(_public(found if cluster["items"] else [("?", "")]))
         citations.append(entry)
     numbered = style.cls == "numeric"
-    label_format = style.options.get("bibLabel", "") if numbered else ""
+    label_format = style.options.get("bibLabel", "")  # author-date lists may be numbered too (ĐH Kinh tế Quốc dân)
     groups = []
     for code, group in arranged:
         heading = None

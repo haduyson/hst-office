@@ -12,7 +12,9 @@ title), delimiter (groups and name lists), if / else (conditions below), form, s
 nameForm, viName, andComma (always/never/3+), etAl (option holding the et-al rule, e.g. "noteEtAl"), noDate, fallbackTerm, plural.
 Conditions (a string or a list that must all hold): "VAR", "!VAR", "type=a,b", "type!=a,b", "lang=vi",
 "lang!=vi", "opt.NAME", "!opt.NAME", "opt.NAME=value", "pos=first|subsequent|ibid", "loc", "!loc",
-"day=VAR" (the date VAR has a day: "ban hành ngày 07 tháng 5 năm 2009" only when the day is known).
+"day=VAR" (the date VAR has a day: "ban hành ngày 07 tháng 5 năm 2009" only when the day is known),
+"shared-author" (another cited work has the same author; note styles) and "suppress-author".
+Presets may add their own "terms", "layouts" and "notes" (merged over the style's) and a "source".
 """
 import re
 
@@ -26,6 +28,7 @@ ELEMENT_KEYS = {"v", "group", "text", "term", "macro", "if", "else", "prefix", "
                 "quotes", "wrap", "case", "delimiter", "form", "substitute", "label", "labelPos", "nameForm",
                 "noDate", "fallbackTerm", "plural", "viName", "etAl", "andComma"}
 SPECIAL_VARS = {"locator", "citation-number", "year-suffix", "title-or-short"}
+FLAGS = {"shared-author", "suppress-author"}  # conditions set by the engine (note styles)
 VARIABLES = set(model.TEXT_VARS) | set(model.NAME_VARS) | set(model.DATE_VARS) | SPECIAL_VARS
 CASES = {"upper", "lower", "capfirst", "title"}
 WRAPS = {"()", "[]", "<>"}
@@ -41,7 +44,7 @@ def check_condition(cond, where, errors):
     for part in cond if isinstance(cond, list) else [cond]:
         if not isinstance(part, str) or not _COND.match(part):
             errors.append("%s.if: điều kiện không hiểu: %r" % (where, part))
-        elif re.match(r"^!?[A-Za-z_-]+$", part) and part.lstrip("!") not in VARIABLES | {"loc"}:
+        elif re.match(r"^!?[A-Za-z_-]+$", part) and part.lstrip("!") not in VARIABLES | FLAGS | {"loc"}:
             errors.append("%s.if: biến không có: %s" % (where, part))
 
 
@@ -99,6 +102,33 @@ def check_element(element, where, style, errors):
         check_elements(element["substitute"], where + ".substitute", style, errors)
 
 
+PRESET_KEYS = {"id", "name", "options", "source", "terms", "layouts", "notes"}
+
+
+def _check_terms(table, where, errors):
+    if not isinstance(table, dict):
+        errors.append("%s: phải là {\"vi\": {…}, \"en\": {…}}" % where)
+        return
+    for lang, words in table.items():
+        unknown = [name for name in (words if isinstance(words, dict) else {}) if not terms.known(name)]
+        if lang not in ("vi", "en") or not isinstance(words, dict) or unknown:
+            errors.append("%s.%s: ngôn ngữ hoặc thuật ngữ không hiểu %s" % (where, lang, unknown))
+
+
+def _check_preset_extras(preset, where, data, errors):
+    """A preset may also carry its own terms, layouts and note layouts (merged over the style's)."""
+    errors += ["%s: khóa không hiểu: %s" % (where, key) for key in sorted(set(preset) - PRESET_KEYS)]
+    if "terms" in preset:
+        _check_terms(preset["terms"], where + ".terms", errors)
+    for kind, elements in (preset.get("layouts") or {}).items():
+        check_elements(elements, "%s.layouts.%s" % (where, kind), data, errors)
+    notes = preset.get("notes") or {}
+    for kind, elements in (notes.get("layouts") or {}).items():
+        check_elements(elements, "%s.notes.layouts.%s" % (where, kind), data, errors)
+    if "short" in notes:
+        check_elements(notes["short"], where + ".notes.short", data, errors)
+
+
 def check_style(data, origin):
     """Raise StyleError listing every problem of a parsed style file."""
     errors = []
@@ -124,6 +154,9 @@ def check_style(data, origin):
             errors.append("presets[%d]: cần id, name, options" % index)
             continue
         errors += ["presets[%d]: %s" % (index, e) for e in (check_value(k, v) for k, v in preset["options"].items()) if e]
+        _check_preset_extras(preset, "presets[%d]" % index, data, errors)
+    if "terms" in data:
+        _check_terms(data["terms"], "terms", errors)
     for name, elements in (data.get("macros") or {}).items():
         check_elements(elements, "macros." + name, data, errors)
     layouts = data.get("layouts")

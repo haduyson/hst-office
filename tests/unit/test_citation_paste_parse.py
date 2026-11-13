@@ -42,22 +42,22 @@ class FromStyles(unittest.TestCase):
         self.assertGreaterEqual(good, minimum, "\n".join(failures))
 
     def test_vietnamese_styles(self):
-        self.check("vn-so", 21)
-        self.check("vn-tac-gia-nam", 21)
+        self.check("vn-so", 24)
+        self.check("vn-tac-gia-nam", 24)
 
     def test_apa_harvard_vancouver(self):
-        self.check("apa-7", 21)
-        self.check("harvard", 21)
-        self.check("vancouver", 21)
-        self.check("ama-11", 21)
+        self.check("apa-7", 24)
+        self.check("harvard", 24)
+        self.check("vancouver", 24)
+        self.check("ama-11", 24)
 
     def test_ieee_chicago_mla_iso(self):
-        self.check("ieee", 21)
-        self.check("chicago-tac-gia-nam", 20)
-        self.check("chicago-chu-thich", 20)
-        self.check("mla-9", 19)
-        self.check("iso-690-so", 21)
-        self.check("iso-690-tac-gia-nam", 21)
+        self.check("ieee", 24)
+        self.check("chicago-tac-gia-nam", 23)
+        self.check("chicago-chu-thich", 23)
+        self.check("mla-9", 22)
+        self.check("iso-690-so", 24)
+        self.check("iso-690-tac-gia-nam", 24)
 
 
 class Typed(unittest.TestCase):
@@ -97,6 +97,11 @@ class Typed(unittest.TestCase):
         self.assertEqual(apa["author"][0], {"family": "Smith", "given": "J. A."})
         self.assertEqual((vancouver["volume"], vancouver["page"], year(vancouver)), ("382", "1268-9", 2020))
         self.assertEqual(vancouver["author"][1], {"family": "Lane", "given": "H. C."})
+
+    def test_vietnamese_edition_words(self):
+        second, _ = paste.parse_reference("Trần Văn Bình (2010), Kinh tế học, xuất bản lần thứ 2, Nxb Giáo dục, Hà Nội.")
+        third, _ = paste.parse_reference("Trần Văn Bình (2010), Kinh tế học, tái bản lần thứ 2, Nxb Giáo dục, Hà Nội.")
+        self.assertEqual((second["edition"], third["edition"]), ("2", "3"))
 
     def test_names_before_title_and_repeated_author(self):
         item, _ = paste.parse_reference("WATSON, J. D. và CRICK, F. H. C. Molecular structure of nucleic acids. "

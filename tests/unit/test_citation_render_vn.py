@@ -91,7 +91,7 @@ class Helpers(unittest.TestCase):
         self.assertEqual(fields.page_range("123--129", "minimal", "-"), "123-9")
         self.assertEqual(fields.page_range("1234-1240", "minimal", "-"), "1234-40")
         self.assertEqual(fields.page_range("e101-e105, S3"), "e101–e105, S3")
-        self.assertEqual(fields.edition("2", "vi"), "tái bản lần thứ 2")
+        self.assertEqual(fields.edition("2", "vi"), "xuất bản lần thứ 2")  # edition 2 is the second printing
         self.assertEqual(fields.edition("22nd", "en"), "22nd ed.")
         self.assertEqual(fields.edition("Revised", "en"), "Revised")
         self.assertEqual(fields.doi("https://doi.org/10.1/x", "doi:"), "doi:10.1/x")

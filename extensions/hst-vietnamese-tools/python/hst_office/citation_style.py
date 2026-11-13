@@ -87,15 +87,34 @@ def _user_entry(user_dir, style_id):
     return None
 
 
+def with_preset(data, preset):
+    """Style data with a preset's own words (``terms``), layouts and note layouts on top: a school's rules that
+    options cannot express (NXB ĐH Cần Thơ thesis entries, the Vietnamese "sđd/tlđd" short note)."""
+    if not any(preset.get(key) for key in ("terms", "layouts", "notes")):
+        return data
+    result = dict(data)
+    own_terms = preset.get("terms") or {}
+    if own_terms:
+        base = data.get("terms") or {}
+        result["terms"] = {lang: dict(base.get(lang, {}), **own_terms.get(lang, {})) for lang in set(base) | set(own_terms)}
+    if preset.get("layouts"):
+        result["layouts"] = dict(data["layouts"], **preset["layouts"])
+    if preset.get("notes"):
+        notes = dict(data["notes"], **preset["notes"])
+        notes["layouts"] = dict(data["notes"]["layouts"], **preset["notes"].get("layouts", {}))
+        result["notes"] = notes
+    return result
+
+
 def load_style(style_id, options=None, preset=None, user_dir=None):
     """The style ready for the engine; ``options`` (document settings) win over the preset, which wins over the
     style's defaults. Unknown or bad document options are skipped and listed in ``style.warnings``."""
     path = _builtin_path(style_id)
     if path:
         data = _read_json(path)
-        chosen = next((p["options"] for p in data.get("presets", []) if p["id"] == preset), {}) if preset else {}
-        merged, warnings = style_options.merge(data["options"], chosen, options)
-        return Style(data, merged, warnings)
+        chosen = next((p for p in data.get("presets", []) if p["id"] == preset), {}) if preset else {}
+        merged, warnings = style_options.merge(data["options"], chosen.get("options", {}), options)
+        return Style(with_preset(data, chosen), merged, warnings)
     path = _user_entry(user_dir, style_id)
     if path and path.endswith(".csl"):
         from . import citation_csl_style

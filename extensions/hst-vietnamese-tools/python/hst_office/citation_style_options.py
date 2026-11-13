@@ -39,12 +39,15 @@ SCHEMA = {
     "multiCite": "enum:combined|separate",      # [5, 21, 49] or [19], [25], [41]
     "compress": "bool",                         # [7–11]
     "citeSort": "bool",
+    "citeSortBy": "enum:author|year",           # order inside one cluster when citeSort is on (NXB ĐH Cần Thơ: year)
+    "citeOriginalYear": "bool",                 # (Smith, 1776/1997) for a translated or reissued work (APA 7)
     "collapseYears": "bool",                    # (Smith, 2019, 2020)
     "citeYear": "bool",                         # MLA prints author and page only
     "citeYearSep": "str",
     "citeItemSep": "str",
     "locatorLabel": "bool",                     # [15, tr. 314–315] or [15, 314–315] (ĐH Hồng Đức)
     "locatorSep": "str",
+    "urlBrackets": "enum:<>|[]",                # URL in angle brackets, or in square brackets (ĐH Kinh tế Quốc dân)
     "yearSuffix": "bool",                       # 2010a, 2010b
     "disambiguateInitials": "bool",             # (J. Smith, 2001; A. Smith, 2001): APA 7 §8.20
     # entries
@@ -73,7 +76,7 @@ DEFAULTS = {
     "nameDelimiter": ", ", "bibAnd": "", "bibAndComma": "never", "bibEtAl": None,
     "etAlTerm": {"vi": "và cộng sự", "other": "et al."}, "etAlComma": False, "citeEtAl": {"min": 3, "use": 1},
     "citeAnd": "&", "citeAndComma": "never", "citeViName": "full", "brackets": "[]", "multiCite": "combined",
-    "compress": True, "citeSort": True, "collapseYears": False, "citeYear": True, "citeYearSep": ", ",
+    "compress": True, "citeSort": True, "citeSortBy": "author", "citeOriginalYear": False, "urlBrackets": "<>", "collapseYears": False, "citeYear": True, "citeYearSep": ", ",
     "citeItemSep": "; ", "locatorLabel": True, "locatorSep": ", ", "yearSuffix": False, "disambiguateInitials": False, "quotes": "curly",
     "punctInQuote": False, "pageRange": "expanded", "pageDash": "–", "doiPrefix": "https://doi.org/",
     "publisherPrefix": "", "titleCase": "as-is", "bibLabel": "", "hangingIndent": True, "subsequentAuthor": "",

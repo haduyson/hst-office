@@ -62,6 +62,26 @@ class Loading(unittest.TestCase):
         with self.assertRaises(styles.StyleError):
             styles.load_style("../etc/passwd")
 
+    def test_preset_terms_layouts_and_notes(self):
+        plain, ctu = styles.load_style("apa-7"), styles.load_style("apa-7", preset="dao-ten-viet")
+        self.assertEqual(ctu.terms["vi"]["editor"], "Chủ biên")
+        self.assertEqual(ctu.terms["en"]["editor"], ["Ed.", "Eds."])  # the style's own terms stay
+        self.assertNotEqual(ctu.layout("thesis"), plain.layout("thesis"))
+        self.assertEqual(ctu.layout("book"), plain.layout("book"))
+        self.assertNotIn("Chủ biên", json.dumps(plain.terms, ensure_ascii=False))
+        notes = styles.load_style("chicago-chu-thich", preset="chu-thich-viet-nam")
+        self.assertNotEqual(notes.short_note(), styles.load_style("chicago-chu-thich").short_note())
+
+    def test_bad_preset_extras_are_reported(self):
+        data = copy.deepcopy(bundled("apa-7"))
+        data["presets"][0]["colour"] = "red"
+        data["presets"][0]["terms"] = {"vi": {"no-such-term": "x"}}
+        data["presets"][0]["layouts"] = {"book": [{"v": "nonsense"}]}
+        with self.assertRaises(check.StyleError) as caught:
+            check.check_style(data, "broken.json")
+        for part in ("khóa không hiểu: colour", "no-such-term", "biến không có: nonsense"):
+            self.assertIn(part, str(caught.exception))
+
     def test_layout_alias_and_listing(self):
         style = styles.load_style("apa-7")
         self.assertIs(style.layout("paper-conference"), style.data["layouts"]["chapter"])

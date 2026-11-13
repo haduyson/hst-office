@@ -36,7 +36,7 @@ VI = {
     ("truy cập ngày", "truy cập ngày"), ("retrieved", "long"): ("truy cập", "truy cập"), ("from", "long"): ("từ", "từ"),
     ("in", "long"): ("trong", "trong"), ("no date", "long"): ("không năm", "không năm"),
     ("no date", "short"): ("k.n.", "k.n."), ("available at", "long"): ("truy cập tại", "truy cập tại"),
-    ("ibid", "long"): ("Tlđd", "Tlđd"), ("online", "long"): ("trực tuyến", "trực tuyến"),
+    ("ibid", "long"): ("Như trên", "Như trên"), ("online", "long"): ("trực tuyến", "trực tuyến"),
     ("page", "long"): ("trang", "trang"), ("page", "short"): ("tr.", "tr."), ("issue", "short"): ("số", "số"),
     ("volume", "short"): ("tập", "tập"), ("volume", "long"): ("tập", "tập"), ("chapter", "short"): ("chương", "chương"),
     ("edition", "short"): ("tái bản", "tái bản"), ("edition", "long"): ("lần tái bản", "lần tái bản"),
