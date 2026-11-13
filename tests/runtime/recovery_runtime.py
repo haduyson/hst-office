@@ -43,7 +43,10 @@ def wait(predicate, timeout=30.0, step=0.5):
 
 def office(instdir, workdir, port, display, interval_minutes=3):
     """An Office with AutoRecovery (no --norestore); the interval is the HST default unless a check shortens it."""
-    config = [("/org.openoffice.Office.Recovery/AutoSave", "TimeIntervall", str(interval_minutes))]
+    # The restart after an emergency save keeps only the -env: arguments (oosplash), so --accept is gone; the
+    # same connection from the configuration (same string: one acceptor) lets the check reconnect.
+    config = [("/org.openoffice.Office.Recovery/AutoSave", "TimeIntervall", str(interval_minutes)),
+              ("/org.openoffice.Setup/Office", "ooSetupConnectionURL", "socket,host=127.0.0.1,port=%d;urp;" % port)]
     return hst_gui.Office(instdir, workdir, port, display=display, restore=True, config=config)
 
 
