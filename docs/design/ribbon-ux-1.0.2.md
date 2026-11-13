@@ -59,3 +59,11 @@ một nhóm "Nhà phát triển" gom macro, điều khiển biểu mẫu và XML
 - Tệp tin: làm mờ phần còn lại của cửa sổ khi bảng Tệp tin mở.
 - Áp dụng sau khi gộp nhánh: nội dung thẻ "Gửi thư" (nhánh trộn thư), "Tách ra cửa sổ mới" (nhánh cửa sổ
   theo ứng dụng), khung chọn vị trí chữ ký ngay sau "Ký số" của HST PDF (nhánh khung chữ ký).
+
+## Trước khi đẩy nhánh
+
+Kiểm thử đơn vị không chạy bước kiểm tra trợ năng của bản dựng (gla11y), nên một thay đổi `.ui` qua hết kiểm thử vẫn có
+thể làm hỏng bản dựng (mục trình đơn không nhãn, `labelled-by` thiếu `label-for`, dòng miễn trừ cũ khi lớp của nút
+đổi). Trước khi đẩy, áp toàn bộ series lên cây mới rồi chạy
+[`scripts/patches/gla11y-fresh-tree.sh`](../../scripts/patches/gla11y-fresh-tree.sh) `<cây> <tarball>`: mọi mô-đun
+giao diện mà series sửa phải báo 0 lỗi nghiêm trọng.
