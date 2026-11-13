@@ -3,18 +3,14 @@
 
 Usage: python3 tests/runtime/check-docx-word-interop.py [--instdir upstream/libreoffice/instdir] [--out tests/output/docx-word-interop]
 
-- A new document's .docx names Times New Roman as its East Asian font: with another East Asian font
-  Word stores each Vietnamese letter of U+1E00-U+1EFF in a run of its own, and the file then opens
-  several times slower (hst-writer-cjk-default-font.patch).
-- Endnote placement is written only in settings.xml and never as a footnote placement, also after
-  the .docx is reopened and saved again; with the placement in <w:sectPr>, Word saves a .doc that
-  it cannot open (hst-docx-endnote-position-export.patch). Endnotes really collected at the end of
-  a section still say so.
-- Runs that Word split (one per precomposed Vietnamese letter) import with the same text, formatting,
-  bookmark and comment positions while their text is inserted together
-  (hst-writerfilter-merge-split-runs.patch).
-- XTextDocument.findAll() without a match returns an empty result instead of aborting the office
-  (hst-sw-findall-no-match-crash.patch).
+- New documents name Times New Roman as East Asian font; documents without Han, Kana or Hangul text
+  export it equal to the Latin font, documents with Chinese text keep their CJK font. Otherwise Word
+  stores each letter of U+1E00-U+1EFF in its own run (hst-writer-cjk-default-font.patch,
+  hst-docx-east-asian-font-without-cjk-text.patch).
+- Endnote placement only in settings.xml, never for footnotes, also after a reopen; in <w:sectPr>
+  it makes Word save a .doc it cannot open (hst-docx-endnote-position-export.patch).
+- Runs split by Word import with the same text, bold run and bookmark (hst-writerfilter-merge-split-runs.patch).
+- findAll() without a match returns nothing instead of aborting (hst-sw-findall-no-match-crash.patch).
 
 Exit 1 when any check fails; evidence.json and the saved files stay in --out.
 """
@@ -27,6 +23,9 @@ import subprocess
 import sys
 import time
 import zipfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from docx_word_interop_samples import check_east_asian_export, check_split_runs  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DOCX = "MS Word 2007 XML"
@@ -50,33 +49,6 @@ def connect(pipe, timeout=120):
 def part(path, name):
     with zipfile.ZipFile(path) as package:
         return package.read(name).decode("utf-8")
-
-
-SPLIT_RUNS_XML = (
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
-    '<w:p><w:r><w:t>Nguy</w:t></w:r><w:r><w:t>ễ</w:t></w:r><w:r><w:t xml:space="preserve">n </w:t></w:r>'
-    '<w:r><w:rPr><w:b/></w:rPr><w:t>Vă</w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>n</w:t></w:r>'
-    '<w:r><w:t xml:space="preserve"> </w:t></w:r><w:bookmarkStart w:id="0" w:name="dau"/><w:r><w:t>A</w:t></w:r>'
-    '<w:bookmarkEnd w:id="0"/><w:r><w:t>n, k</w:t></w:r><w:r><w:t>ế</w:t></w:r><w:r><w:t>t qu</w:t></w:r>'
-    '<w:r><w:t>ả</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>cu</w:t></w:r><w:r><w:t>ố</w:t></w:r><w:r><w:t>i.</w:t></w:r></w:p>'
-    '<w:p><w:r><w:t>Dòng hai</w:t></w:r><w:r><w:t>.</w:t></w:r></w:p>'
-    '<w:sectPr/></w:body></w:document>')
-
-
-def split_runs_docx(path):
-    """A .docx whose runs are split the way Word splits Vietnamese text."""
-    with zipfile.ZipFile(path, "w") as package:
-        package.writestr("[Content_Types].xml",
-                         '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-                         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-                         '<Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" '
-                         'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
-        package.writestr("_rels/.rels",
-                         '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-                         '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
-                         'Target="word/document.xml"/></Relationships>')
-        package.writestr("word/document.xml", SPLIT_RUNS_XML)
 
 
 def run_checks(ctx, out, expect):
@@ -148,18 +120,9 @@ def run_checks(ctx, out, expect):
     expect("section collecting endnotes: not as a footnote placement",
            bool(re.search(r'<w:footnotePr><w:pos ', settings)), False)
 
-    # 3. Split runs: same text, the bold word and the bookmark where they were.
-    path = os.path.join(out, "split-runs.docx")
-    split_runs_docx(path)
-    doc = desktop.loadComponentFromURL(uno.systemPathToFileUrl(path), "_blank", 0, hidden)
-    paragraphs = doc.getText().createEnumeration()
-    first = paragraphs.nextElement()
-    expect("split runs: paragraph text", first.getString(), "Nguy\u1ec5n V\u0103n An, k\u1ebft qu\u1ea3\tcu\u1ed1i.")
-    expect("split runs: second paragraph", paragraphs.nextElement().getString(), "D\u00f2ng hai.")
-    portions = [(p.getString(), p.CharWeight > 100) for p in first.createEnumeration() if p.TextPortionType == "Text"]
-    expect("split runs: only V\u0103n is bold", [text for text, bold in portions if bold], ["V\u0103n"])
-    expect("split runs: bookmark covers A", doc.getBookmarks().getByName("dau").getAnchor().getString(), "A")
-    doc.close(True)
+    # 3. Split runs import; East Asian font of documents without and with CJK text.
+    check_split_runs(desktop, out, expect, prop)
+    check_east_asian_export(desktop, out, expect, prop)
 
     # 4. findAll() with and without a match, on a document loaded hidden.
     doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, hidden)

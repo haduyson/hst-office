@@ -1,0 +1,125 @@
+HST Office: documents saved before the East Asian default font changed, or made from the earlier
+HST templates, still name a CJK font (Noto Serif CJK SC, NSimSun, DejaVu Sans ...) as their East
+Asian font. Word then stores every precomposed Vietnamese letter (U+1E00-U+1EFF) in a run of its
+own when it saves the .docx, and the file opens several times slower afterwards
+(hst-writer-cjk-default-font.patch has the measurements).
+
+When the document has no Han, Kana or Hangul character in any text node (body, headers and
+footers, footnotes and endnotes, frames), the DOCX export now writes the East Asian font
+(w:rFonts/@w:eastAsia in document defaults, styles and runs) equal to the Latin font of the same
+style or run, and does not write the stored East Asian font. Documents with East Asian text keep
+their East Asian fonts unchanged. The document model is not changed; only the exported file.
+The .doc export has its own attribute output and is unchanged.
+
+Test: tests/runtime/check-docx-word-interop.py (Vietnamese document with a CJK East Asian font,
+and the same document with Chinese text).
+---
+--- a/sw/source/filter/ww8/docxattributeoutput.cxx
++++ b/sw/source/filter/ww8/docxattributeoutput.cxx
+@@ -8445,6 +8445,11 @@
+     AddToAttrList( m_pFontsAttrList,
+         FSNS( XML_w, XML_ascii ), sFontName,
+         FSNS( XML_w, XML_hAnsi ), sFontName );
++
++    // HST Office: without Han, Kana or Hangul text the East Asian font is the Latin one (see
++    // DocxExport::HasEastAsianText()); CharFontCJK() writes nothing then.
++    if (!GetExport().HasEastAsianText() && !m_pFontsAttrList->hasAttribute(FSNS(XML_w, XML_eastAsia)))
++        AddToAttrList(m_pFontsAttrList, FSNS(XML_w, XML_eastAsia), sFontName);
+ }
+ 
+ void DocxAttributeOutput::CharFontSize( const SvxFontHeightItem& rFontSize)
+@@ -8611,6 +8616,10 @@
+ 
+ void DocxAttributeOutput::CharFontCJK( const SvxFontItem& rFont )
+ {
++    // HST Office: no East Asian text, CharFont() writes the Latin font as the East Asian one.
++    if (!GetExport().HasEastAsianText())
++        return;
++
+     if (m_pFontsAttrList && m_pFontsAttrList->hasAttribute(FSNS(XML_w, XML_eastAsia)))
+     {
+         // tdf#38778: do to fields output into DOC the font could be added before and after field declaration
+--- a/sw/source/filter/ww8/docxexport.cxx
++++ b/sw/source/filter/ww8/docxexport.cxx
+@@ -2430,6 +2430,48 @@
+ 
+ //Keep this function in-sync with the one in writerfilter/.../SettingsTable.cxx
+ //Since this is not import code, "-1" needs to be handled as the mode that LO will save as.
++namespace
++{
++bool lcl_IsEastAsianCodePoint(sal_uInt32 c)
++{
++    return (c >= 0x1100 && c <= 0x11FF) // Hangul Jamo
++           || (c >= 0x2E80 && c <= 0x2FDF) // CJK and Kangxi radicals
++           || (c >= 0x3040 && c <= 0x31FF) // Kana, Bopomofo, Hangul compatibility Jamo, strokes
++           || (c >= 0x3400 && c <= 0x4DBF) // CJK extension A
++           || (c >= 0x4E00 && c <= 0x9FFF) // CJK unified ideographs
++           || (c >= 0xA960 && c <= 0xA97F) // Hangul Jamo extended A
++           || (c >= 0xAC00 && c <= 0xD7FF) // Hangul syllables, Jamo extended B
++           || (c >= 0xF900 && c <= 0xFAFF) // CJK compatibility ideographs
++           || (c >= 0xFF65 && c <= 0xFFDC) // half-width Kana and Hangul
++           || (c >= 0x20000 && c <= 0x3134F); // CJK extensions B-G
++}
++}
++
++bool DocxExport::HasEastAsianText()
++{
++    if (!m_oHasEastAsianText)
++    {
++        m_oHasEastAsianText = false;
++        const SwNodes& rNodes = m_rDoc.GetNodes();
++        for (SwNodeOffset n(0); n < rNodes.Count() && !*m_oHasEastAsianText; ++n)
++        {
++            const SwTextNode* pTextNode = rNodes[n]->GetTextNode();
++            if (!pTextNode)
++                continue;
++            const OUString& rText = pTextNode->GetText();
++            for (sal_Int32 i = 0; i < rText.getLength();)
++            {
++                if (lcl_IsEastAsianCodePoint(rText.iterateCodePoints(&i)))
++                {
++                    m_oHasEastAsianText = true;
++                    break;
++                }
++            }
++        }
++    }
++    return *m_oHasEastAsianText;
++}
++
+ sal_Int32 DocxExport::getWordCompatibilityMode()
+ {
+     if (m_nWordCompatibilityMode > 0)
+--- a/sw/source/filter/ww8/docxexport.hxx
++++ b/sw/source/filter/ww8/docxexport.hxx
+@@ -28,6 +28,7 @@
+ 
+ #include <map>
+ #include <memory>
++#include <optional>
+ #include <ndole.hxx>
+ #include <unotools/securityoptions.hxx>
+ 
+@@ -128,6 +129,9 @@
+     DocxSettingsData m_aSettings;
+     sal_Int32 m_nWordCompatibilityMode;
+ 
++    /// Whether the document has Han, Kana or Hangul text; computed on first use.
++    std::optional<bool> m_oHasEastAsianText;
++
+     /// Pointer to the Frame of a floating table it is nested in
+     const ww8::Frame *m_pFloatingTableFrame = nullptr;
+ 
+@@ -344,6 +348,12 @@
+ 
+     sal_Int32 getWordCompatibilityMode();
+ 
++    /// HST Office: true when any text node (body, headers and footers, footnotes, frames) has a
++    /// Han, Kana or Hangul character. Without such text the East Asian font is written equal to
++    /// the Latin one: with another East Asian font Word stores every precomposed Vietnamese letter
++    /// (U+1E00-U+1EFF) in a run of its own when it saves the document.
++    bool HasEastAsianText();
++
+     /// return true if Page Layout is set as Mirrored
+     bool isMirroredMargin();
+ 
