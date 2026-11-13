@@ -5,7 +5,8 @@ Owner decision (14/11/2026), from the after-v2 screenshots:
   wide at every width. It now shows 6, 4 or 3 themes in a row at the ribbon's large, medium and small states,
   so the ladder narrows it before folding the group (svx ThemeColorsPaneWrapper answers the new window
   property "hst-gallery-state", which vcl HstRibbonLadder.cxx sends to the item windows of a group's toolboxes;
-  windows that do not know it ignore it; the .ui's fixed 6 columns go, the columns follow the width).
+  windows that do not know it ignore it; the .ui's fixed 6 columns go and its scrolled window fills the item,
+  so the themes spread over the width the state gives).
 - On Windows the Thiết kế, Chuyển tiếp and Hoạt hình tabs were taller than the others and their group captions
   went down: the Windows icon view asked for the height of every row. The theme gallery is at most 96 px high
   and the transition and animation galleries 76 px (one row; on Linux they are 88 and 62 px, unchanged).
@@ -183,7 +184,7 @@ Hoạt hình keep the ribbon height of the other tabs.
  }
 --- a/svx/uiconfig/ui/themeselectorpanel.ui
 +++ b/svx/uiconfig/ui/themeselectorpanel.ui
-@@ -18,7 +18,7 @@
+@@ -18,11 +18,12 @@
      <property name="hexpand">True</property>
      <property name="spacing">6</property>
      <child>
@@ -192,7 +193,12 @@ Hoạt hình keep the ribbon height of the other tabs.
          <property name="width-request">680</property>
          <property name="height-request">88</property>
          <property name="visible">True</property>
-@@ -36,7 +36,6 @@
+         <property name="can-focus">True</property>
++        <property name="hexpand">True</property>
+         <property name="valign">center</property>
+         <property name="hscrollbar-policy">never</property>
+         <property name="vscrollbar-policy">always</property>
+@@ -36,14 +37,13 @@
              <property name="model">liststore1</property>
              <property name="pixbuf-column">0</property>
              <property name="text-column">1</property>
@@ -200,6 +206,15 @@ Hoạt hình keep the ribbon height of the other tabs.
              <property name="item-width">100</property>
            </object>
          </child>
+       </object>
+       <packing>
+-        <property name="expand">False</property>
+-        <property name="fill">False</property>
++        <property name="expand">True</property>
++        <property name="fill">True</property>
+         <property name="position">0</property>
+       </packing>
+     </child>
 --- a/vcl/source/control/HstRibbonLadder.cxx
 +++ b/vcl/source/control/HstRibbonLadder.cxx
 @@ -18,6 +18,7 @@
