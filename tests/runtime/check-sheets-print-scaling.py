@@ -154,7 +154,9 @@ def main():
         check(wide["None"] > 1 and wide["FitSheet"] == 1 and wide["FitColumns"] == 1 and 1 < wide["FitRows"] <= wide["None"],
               "wide sheet: fitting the columns or the sheet makes one page, fitting the rows leaves several")
         tall = page_counts(office, args.out, "tall", 5, 400)
-        check(tall["None"] > 1 and tall["FitSheet"] == 1 and tall["FitRows"] == 1 and tall["FitColumns"] == tall["None"],
+        # fitting to the page width may drop an almost blank last page (tdf#103516)
+        check(tall["None"] > 1 and tall["FitSheet"] == 1 and tall["FitRows"] == 1
+              and 1 < tall["FitColumns"] <= tall["None"],
               "tall sheet: only fitting the rows or the sheet makes one page")
         both = page_counts(office, args.out, "wide-and-tall", 40, 400)
         check(1 < both["FitColumns"] < both["None"], "wide and tall sheet: all columns on one page width, rows go on")
