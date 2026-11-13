@@ -52,6 +52,8 @@ class SheetsExcelFormulaConventions(unittest.TestCase):
     def test_vietnamese_short_date_has_four_digit_year(self):
         xml = new_side(PATCH, "i18npool/source/localedata/data/vi_VN.xml")
         self.assertRegex(xml, r'formatindex="18">\s*<FormatCode>DD/MM/YYYY</FormatCode>')
+        self.assertIn('default="true" type="medium" usage="DATE" formatindex="21">', xml)
+        self.assertIn('default="false" type="medium" usage="DATE" formatindex="20">', xml)
 
     def test_true_false_parse_in_every_locale(self):
         cxx = new_side(PATCH, "sc/source/core/tool/compiler.cxx")

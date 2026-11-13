@@ -4,9 +4,10 @@ language and locale (owner request 2026-11-13: users coming from it must not stu
 - i18npool vi_VN.xml: the locale's boolean words are "true"/"false" (upstream "đúng"/"sai"), so
   booleans show TRUE/FALSE in a Vietnamese-locale document, typing TRUE/FALSE in a cell gives a
   boolean, and =TRUE in a formula works. Files are unaffected: ODF and .xlsx store booleans as
-  values, never as these words. The system short date (the format of typed dates, TODAY(), date
-  results and imported CSV dates) is DD/MM/YYYY (13/11/2026, 05/01/2026) like the Vietnamese regional
-  short date, instead of D/M/YY (13/11/26); files keep the format codes they store.
+  values, never as these words. The default date format (typed dates, TODAY(), date results,
+  autofill, imported CSV dates) is DD/MM/YYYY (13/11/2026, 05/01/2026) like the Vietnamese regional
+  short date: the medium default moves from DD/MM/YY (index 20, kept) to DD/MM/YYYY (index 21), and
+  the system short date (index 18) is DD/MM/YYYY instead of D/M/YY. Files keep the codes they store.
 - sc compiler.cxx: TRUE and FALSE written without parentheses are the boolean constants whatever
   the document locale (before, a vi-VN document turned =FALSE, VLOOKUP(...;FALSE) and
   AND(TRUE;...) into #NAME?), and a boolean constant gives a boolean result like TRUE().
@@ -48,7 +49,7 @@ tests/runtime/check-sheets-excel-formula-conventions.py.
            <!-- UIHints: Tools - Options  Spreadsheet  Formula -->
 --- a/i18npool/source/localedata/data/vi_VN.xml
 +++ b/i18npool/source/localedata/data/vi_VN.xml
-@@ -114,7 +114,7 @@
+@@ -114,15 +114,15 @@
        <FormatCode>#.##0 [CURRENCY];[RED]-#.##0 [CURRENCY]</FormatCode>
      </FormatElement>
      <FormatElement msgid="DateFormatskey1" default="true" type="short" usage="DATE" formatindex="18">
@@ -57,6 +58,16 @@ tests/runtime/check-sheets-excel-formula-conventions.py.
      </FormatElement>
      <FormatElement msgid="DateFormatskey9" default="true" type="long" usage="DATE" formatindex="19">
        <FormatCode>NNNNDD MMMM YYYY</FormatCode>
+     </FormatElement>
+-    <FormatElement msgid="DateFormatskey8" default="true" type="medium" usage="DATE" formatindex="20">
++    <FormatElement msgid="DateFormatskey8" default="false" type="medium" usage="DATE" formatindex="20">
+       <FormatCode>DD/MM/YY</FormatCode>
+     </FormatElement>
+-    <FormatElement msgid="DateFormatskey7" default="false" type="medium" usage="DATE" formatindex="21">
++    <FormatElement msgid="DateFormatskey7" default="true" type="medium" usage="DATE" formatindex="21">
+       <FormatCode>DD/MM/YYYY</FormatCode>
+     </FormatElement>
+     <FormatElement msgid="DateFormatskey10" default="false" type="long" usage="DATE" formatindex="22">
 @@ -364,8 +364,8 @@
    </LC_TRANSLITERATION>
    <LC_MISC>
