@@ -22,7 +22,13 @@ FORMULAS = [
     ("=SQRT(-1)", "#NUM!"), ("=LOG(0)", "#NUM!"), ("=LN(-1)", "#NUM!"), ("=ASIN(2)", "#NUM!"),
     ("=POWER(-1{s}0{d}5)", "#NUM!"), ("=FACT(-1)", "#NUM!"), ("=NORM.DIST(1{s}0{s}0{s}TRUE)", "#NUM!"),
     ("=CEILING(2{d}5{s}-2)", "#NUM!"), ("=FLOOR(2{d}5{s}0)", "#DIV/0!"), ("=BESSELJ(1{s}-1)", "#NUM!"),
+    ("=PROB({1;2}{s}{0{d}5;0{d}6}{s}1)", "#NUM!"), ("=NETWORKDAYS.INTL(DATE(2026{s}1{s}1){s}DATE(2026{s}1{s}31){s}8)", "#NUM!"),
+    ("=WORKDAY.INTL(DATE(2026{s}1{s}1){s}5{s}99)", "#NUM!"), ("=WRAPROWS({1;2;3}{s}0)", "#NUM!"),
+    ("=CONVERT(1{s}\"m\"{s}\"xyz\")", "#N/A"), ("=CONVERT(1{s}\"m\"{s}\"kg\")", "#N/A"),
+    ("=NETWORKDAYS.INTL(DATE(2026{s}1{s}1){s}DATE(2026{s}1{s}31){s}\"0000011\")", "22"),
     # Type errors stay #VALUE!.
+    ("=NETWORKDAYS.INTL(DATE(2026{s}1{s}1){s}DATE(2026{s}1{s}31){s}\"00000x0\")", "#VALUE!"),
+    ("=OPT_PROB_INMONEY(100{s}0{d}2{s}0{d}05{s}1{s}90{s}110{s}100{s}\"x\")", "#VALUE!"),
     ("=CHAR(0)", "#VALUE!"), ("=REPT(\"a\"{s}-1)", "#VALUE!"), ("=COMPLEX(1{s}1{s}\"k\")", "#VALUE!"),
 ]
 # Vietnamese-locale dates: the default date format is DD/MM/YYYY like the regional short date (typed, DATE()).

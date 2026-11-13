@@ -1,0 +1,274 @@
+HST Office: the remaining error values of HST Sheets follow the leading spreadsheet application
+(measured with its 2021 version on 2026-11-13), and formula results never depend on a GPU driver.
+
+- sc calcconfig.cxx, tpcalc.cxx: formulas are never computed by the OpenCL kernels. They report
+  errors with their own codes (#VALUE! where the interpreter gives #NUM! since
+  hst-sheets-num-errors.patch, and other differences), so a result would depend on the graphics
+  driver. The "Allow use of OpenCL" box of the Sheets options is disabled; the explicit test override
+  SC_FORCE_CALCULATION=opencl still runs the kernels.
+- sc interpr3.cxx: PROB checks only that the probabilities add up to 1 (#NUM! otherwise), as the
+  leading application does; single probabilities outside [0;1] are not an error there.
+- sc interpr2.cxx: NETWORKDAYS.INTL / WORKDAY.INTL with an invalid weekend number give #NUM!; an
+  invalid weekend string stays #VALUE!.
+- sc interpr1.cxx: WRAPROWS / WRAPCOLS with a wrap count below 1 give #NUM! (a negative count no longer
+  wraps around to a huge size).
+- scaddins analysishelper, sc addincol.cxx: CONVERT with an unknown unit or units of different kinds
+  gives #N/A (the add-in throws a RuntimeException "#N/A", which the add-in call maps to #N/A).
+- scaddins pricing.cxx: an unknown option word (put/call, in/out, ...) or a non-numeric strike of the
+  OPT_* functions is #VALUE! (wrong kind of value), numbers outside the model stay #NUM!. These
+  functions have no counterpart in the leading application.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_sheets_error_parity.py, tests/runtime/check-sheets-excel-formula-conventions.py.
+---
+--- a/sc/source/core/tool/addincol.cxx
++++ b/sc/source/core/tool/addincol.cxx
+@@ -1508,6 +1508,18 @@
+         ExecuteCallWithArgs( aArgs );
+ }
+ 
++namespace {
++
++/// HST: the Analysis add-in reports #N/A (CONVERT with an unknown unit) as a RuntimeException
++/// with the message "#N/A"; the add-in interface has no other way to return an error value.
++bool lcl_IsNotAvailable( const uno::Any& rException )
++{
++    uno::RuntimeException aRuntime;
++    return ( rException >>= aRuntime ) && aRuntime.Message == "#N/A";
++}
++
++}
++
+ void ScUnoAddInCall::ExecuteCallWithArgs(uno::Sequence<uno::Any>& rCallArgs)
+ {
+     //  rCallArgs may not match argument descriptions (because of caller)
+@@ -1548,9 +1560,15 @@
+         else if ( rWrapped.TargetException.getValueType().equals(
+                 cppu::UnoType<sheet::NoConvergenceException>::get()) )
+             nErrCode = FormulaError::NoConvergence;
++        else if ( lcl_IsNotAvailable( rWrapped.TargetException ) )
++            nErrCode = FormulaError::NotAvailable;
+         else
+             nErrCode = FormulaError::NoValue;
+     }
++    catch(const uno::RuntimeException& rRuntime)
++    {
++        nErrCode = rRuntime.Message == "#N/A" ? FormulaError::NotAvailable : FormulaError::NoValue;
++    }
+     catch(uno::Exception&)
+     {
+         nErrCode = FormulaError::NoValue;
+--- a/sc/source/core/tool/calcconfig.cxx
++++ b/sc/source/core/tool/calcconfig.cxx
+@@ -22,12 +22,6 @@
+ 
+ using comphelper::ConfigurationListener;
+ 
+-static rtl::Reference<ConfigurationListener> const & getMiscListener()
+-{
+-    static rtl::Reference<ConfigurationListener> xListener(new ConfigurationListener(u"/org.openoffice.Office.Common/Misc"_ustr));
+-    return xListener;
+-}
+-
+ static rtl::Reference<ConfigurationListener> const & getFormulaCalculationListener()
+ {
+     static rtl::Reference<ConfigurationListener> xListener(new ConfigurationListener(u"/org.openoffice.Office.Calc/Formula/Calculation"_ustr));
+@@ -73,8 +67,10 @@
+     static ForceCalculationType force = getForceCalculationType();
+     if( force != ForceCalculationNone )
+         return force == ForceCalculationOpenCL;
+-    static comphelper::ConfigurationListenerProperty<bool> gOpenCLEnabled(getMiscListener(), u"UseOpenCL"_ustr);
+-    return gOpenCLEnabled.get();
++    // HST: formulas are never computed by OpenCL kernels: they report errors with their own codes
++    // (e.g. #VALUE! where the interpreter gives #NUM!), so a result would depend on the graphics
++    // driver. Only the explicit test override above (SC_FORCE_CALCULATION=opencl) still uses them.
++    return false;
+ }
+ 
+ bool ScCalcConfig::isThreadingEnabled()
+--- a/sc/source/core/tool/interpr1.cxx
++++ b/sc/source/core/tool/interpr1.cxx
+@@ -10211,12 +10211,18 @@
+         bDouble = GetDoubleOrString(fNumber, aString);
+ 
+     // 2nd argument - wrap_count
+-    SCSIZE nWrap = GetInt32WithDefault(0);
+-    if (nWrap <= 0)
++    // HST: a wrap count below 1 is #NUM! like the leading spreadsheet application (and a negative
++    // count no longer wraps around to a huge unsigned size).
++    const sal_Int32 nWrapCount = GetInt32WithDefault(0);
++    if (nGlobalError != FormulaError::NONE || nWrapCount < 1)
+     {
+-        PushIllegalParameter();
++        if (nGlobalError != FormulaError::NONE)
++            PushIllegalParameter();
++        else
++            PushNumError();
+         return;
+     }
++    SCSIZE nWrap = static_cast<SCSIZE>(nWrapCount);
+ 
+     // 1st argument: take range
+     ScMatrixRef pMatSource = nullptr;
+--- a/sc/source/core/tool/interpr2.cxx
++++ b/sc/source/core/tool/interpr2.cxx
+@@ -420,10 +420,13 @@
+                         bool bDouble = GetDoubleOrString( fDouble, aSharedString);
+                         if ( bDouble )
+                         {
+-                            if ( fDouble >= 1.0 && fDouble <= 17 )
+-                                aWeekendDays = OUString::number( fDouble );
++                            // HST: an invalid weekend number is #NUM! (an invalid weekend string
++                            // stays #VALUE!), like the leading spreadsheet application.
++                            const double fCode = ::rtl::math::approxFloor( fDouble );
++                            if ( ( fCode >= 1.0 && fCode <= 7.0 ) || ( fCode >= 11.0 && fCode <= 17.0 ) )
++                                aWeekendDays = OUString::number( static_cast<sal_Int32>( fCode ) );
+                             else
+-                                return FormulaError::NoValue;
++                                return FormulaError::IllegalFPOperation;
+                         }
+                         else
+                         {
+--- a/sc/source/core/tool/interpr3.cxx
++++ b/sc/source/core/tool/interpr3.cxx
+@@ -4953,21 +4953,21 @@
+                     {
+                         fP = pMatP->GetDouble(i,j);
+                         fW = pMatW->GetDouble(i,j);
+-                        if (fP < 0.0 || fP > 1.0)
+-                            bStop = true;
+-                        else
+-                        {
+-                            fSum += fP;
+-                            if (fW >= fLo && fW <= fUp)
+-                                fRes += fP;
+-                        }
++                        // HST: like the leading spreadsheet application (measured with its 2021
++                        // version), single probabilities are not range-checked; only a total that
++                        // is not 1 is an error, #NUM! below.
++                        fSum += fP;
++                        if (fW >= fLo && fW <= fUp)
++                            fRes += fP;
+                     }
+                     else
+                         SetError( FormulaError::IllegalArgument);
+                 }
+             }
+-            if (bStop || std::abs((fSum -1.0).get()) > 1.0E-7)
++            if (bStop)
+                 PushNoValue();
++            else if (std::abs((fSum -1.0).get()) > 1.0E-7)
++                PushNumError();
+             else
+                 PushDouble(fRes.get());
+         }
+--- a/sc/source/ui/optdlg/tpcalc.cxx
++++ b/sc/source/ui/optdlg/tpcalc.cxx
+@@ -105,8 +105,8 @@
+ {
+ #if HAVE_FEATURE_OPENCL
+     m_xAllowOpenCL->set_active(maConfig.mbUseOpenCL);
+-    m_xAllowOpenCL->set_sensitive(!officecfg::Office::Common::Misc::UseOpenCL::isReadOnly()
+-                                  && openclwrapper::GPUEnv::isOpenCLEnabled());
++    // HST: Sheets never computes formulas with OpenCL (ScCalcConfig::isOpenCLEnabled).
++    m_xAllowOpenCL->set_sensitive(false);
+ #endif
+     m_xAllowOpenCL->set_visible(HAVE_FEATURE_OPENCL);
+ }
+--- a/scaddins/source/analysis/analysishelper.cxx
++++ b/scaddins/source/analysis/analysishelper.cxx
+@@ -169,6 +169,11 @@
+     throw uno::RuntimeException();
+ }
+ 
++void ThrowNotAvailable()
++{
++    throw uno::RuntimeException(u"#N/A"_ustr);
++}
++
+ sal_uInt16 DaysInMonth( sal_uInt16 nMonth, sal_uInt16 nYear )
+ {
+     if( (nMonth == 2) && IsLeapYear( nYear ) )
+@@ -2260,11 +2265,12 @@
+             break;
+     }
+ 
++    // HST: an unknown unit or units of different kinds give #N/A, like the leading spreadsheet application.
+     if( !pFrom || !pTo )
+-        ThrowNoValue();
++        ThrowNotAvailable();
+ 
+     if (pFrom->Class() != pTo->Class())
+-        ThrowNoValue();
++        ThrowNotAvailable();
+ 
+     return pFrom->Convert( fVal, *pTo, nLevelFrom, nLevelTo );
+ }
+--- a/scaddins/source/analysis/analysishelper.hxx
++++ b/scaddins/source/analysis/analysishelper.hxx
+@@ -810,6 +810,8 @@
+ 
+     @throws css::uno::RuntimeException always */
+ [[noreturn]] void ThrowNoValue();
++/// HST: #N/A in the sheet (ScUnoAddInCall maps a RuntimeException with this message to it).
++[[noreturn]] void ThrowNotAvailable();
+ 
+ /// Helper class for Any->double conversion, using the current locale
+ class ScaAnyConverter
+--- a/scaddins/source/pricing/pricing.cxx
++++ b/scaddins/source/pricing/pricing.cxx
+@@ -417,12 +417,15 @@
+     bs::types::BarrierActive bcont;
+     bs::types::Greeks greek;
+     // read and check input values
+-    if( spot<=0.0 || vol<=0.0 || T<0.0 || strike<0.0 ||
+-                !getinput_putcall(pc,put_call) ||
++    if( spot<=0.0 || vol<=0.0 || T<0.0 || strike<0.0 )
++        throw lang::IllegalArgumentException();
++    // HST: an unknown option word ("put"/"call", "in"/"out", ...) is a value of the wrong kind:
++    // #VALUE!; numbers outside the model's domain stay IllegalArgumentException (#NUM!).
++    if( !getinput_putcall(pc,put_call) ||
+                 !getinput_inout(kio,in_out) ||
+                 !getinput_barrier(bcont,barriercont) ||
+                 !getinput_greek(greek,greekstr) ){
+-        throw lang::IllegalArgumentException();
++        throw uno::RuntimeException();
+     }
+ 
+     double fRet=bs::barrier(spot,vol,r,rf,T,strike, barrier_low,barrier_up,
+@@ -445,12 +448,15 @@
+     bs::types::BarrierActive bcont;
+     bs::types::Greeks greek;
+     // read and check input values
+-    if( spot<=0.0 || vol<=0.0 || T<0.0 ||
+-                !getinput_fordom(fd,for_dom) ||
++    if( spot<=0.0 || vol<=0.0 || T<0.0 )
++        throw lang::IllegalArgumentException();
++    // HST: an unknown option word ("put"/"call", "in"/"out", ...) is a value of the wrong kind:
++    // #VALUE!; numbers outside the model's domain stay IllegalArgumentException (#NUM!).
++    if( !getinput_fordom(fd,for_dom) ||
+                 !getinput_inout(kio,in_out) ||
+                 !getinput_barrier(bcont,barriercont) ||
+                 !getinput_greek(greek,greekstr) ){
+-        throw lang::IllegalArgumentException();
++        throw uno::RuntimeException();
+     }
+ 
+     double fRet=bs::touch(spot,vol,r,rf,T,barrier_low,barrier_up,
+@@ -488,11 +494,12 @@
+     double  K = 0;
+ 
+     // read and check input values
+-    if( spot<=0.0 || vol<=0.0 || T<0.0 ||
+-            !getinput_putcall(pc,put_call) ||
+-            !getinput_strike(K,strikeval) ) {
++    if( spot<=0.0 || vol<=0.0 || T<0.0 )
+         throw lang::IllegalArgumentException();
+-    }
++    // HST: an unknown option word ("put"/"call", "in"/"out", ...) is a value of the wrong kind:
++    // #VALUE!; numbers outside the model's domain stay IllegalArgumentException (#NUM!).
++    if( !getinput_putcall(pc,put_call) || !getinput_strike(K,strikeval) )
++        throw uno::RuntimeException();
+ 
+     double fRet=bs::prob_in_money(spot,vol,mu,T,K,barrier_low,barrier_up,pc);
+ 
