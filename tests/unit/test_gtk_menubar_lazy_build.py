@@ -40,11 +40,14 @@ class GtkMenubarLazyBuildTest(unittest.TestCase):
         self.assertGreater(series.index("hst-gtk-menubar-lazy-build.patch"), series.index("hst-gtk-menubar-fix.patch"))
 
     def test_set_frame_defers_the_build_outside_unity_mode(self):
-        body = function(after(CXX), "void GtkSalMenu::SetFrame(")
+        text = after(CXX)
+        start = text.index("    if (bUnityMode)\n    {\n        // Generate the main menu structure")
+        body = text[start:text.index("void GtkSalMenu::BuildPendingMenuBar()", start)]
         unity, rest = body.split("return;", 1)
         self.assertIn("UpdateFull();", unity)  # the global menu is the model itself: built at once
-        self.assertNotIn("UpdateFull", rest)
-        self.assertNotIn("CreateMenuBarWidget", rest)
+        code = "\n".join(line for line in rest.splitlines() if not line.strip().startswith("//"))
+        self.assertNotIn("UpdateFull", code)
+        self.assertNotIn("CreateMenuBarWidget", code)
         self.assertIn("mbMenuBarBuildPending = true;", rest)
         self.assertIn("maBuildMenuBarIdle.Start();", rest)
 
@@ -57,9 +60,10 @@ class GtkMenubarLazyBuildTest(unittest.TestCase):
 
     def test_hiding_detaching_and_unity_cancel_a_pending_build(self):
         text = after(CXX)
-        self.assertIn("maBuildMenuBarIdle.Stop();\n        DestroyMenuBarWidget();", function(text, "void GtkSalMenu::ShowMenuBar("))
-        self.assertIn("maBuildMenuBarIdle.Stop();", function(text, "void GtkSalMenu::DetachFromFrame()"))
-        self.assertIn("mbMenuBarBuildPending = false;", function(text, "void GtkSalMenu::EnableUnity("))
+        hide = text[text.index("if (mbMenuBarBuildPending)\n            maBuildMenuBarIdle.Start();"):]
+        self.assertIn("    else\n    {\n        maBuildMenuBarIdle.Stop();\n        DestroyMenuBarWidget();", hide)
+        self.assertIn("maBuildMenuBarIdle.Stop();\n    DestroyMenuBarWidget();\n    mpFrame = nullptr;", text)  # DetachFromFrame
+        self.assertIn("if (bEnable)\n    {\n        maBuildMenuBarIdle.Stop();\n        mbMenuBarBuildPending = false;", text)
 
     def test_f10_and_menu_customisation_still_build_at_once(self):
         text = after(CXX)
