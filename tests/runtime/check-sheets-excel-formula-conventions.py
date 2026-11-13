@@ -10,11 +10,13 @@ number formats are inferred as for a user) with the separators of that locale, a
 - function names in the UI are English and identical in every UI language; CEILING/FLOOR are the
   .xlsx functions (CEILING.XCL is gone), CEILING.ODF/FLOOR.ODF the OpenDocument ones;
 - TRUE/FALSE are accepted in cells and formulas and shown as TRUE/FALSE whatever the locale;
-- error cells show #VALUE!, #DIV/0!, ... and never "Err:"/"Lỗi:" codes;
+- error cells show #VALUE!, #DIV/0!, ... and never "Err:"/"Lỗi:" codes; a number outside a function's
+  domain is #NUM!, text or a wrong type #VALUE! (sheets_formula_cases.py);
 - Excel A1 references (Sheet1!A1, 'Trang tính1'!A1) are the default syntax;
 - the HST functions (DOCSO, DOCTIEN, BODAU, TACHHO, TACHTEN) still work;
 - .ods keeps OpenFormula ([.A1], COM.MICROSOFT.CEILING) and .xlsx gets CEILING, not CEILING.MATH.
-Writes evidence.json; exit 1 when any expectation fails (hst-sheets-excel-formula-conventions.patch).
+Writes evidence.json; exit 1 when any expectation fails (hst-sheets-excel-formula-conventions.patch,
+hst-sheets-num-errors.patch).
 """
 import argparse
 import json
@@ -26,23 +28,10 @@ import sys
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sheets_formula_cases import DATA, FORMULAS  # noqa: E402
 from sheets_formula_profile import connect, prop, start  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DATA = {"A1": "10", "A2": "20", "A3": "30", "B1": "Hà Nội", "B2": "Đà Nẵng", "B3": "Hà Nội", "F1": "1", "F2": "2", "F3": "3",
-        "G1": "x", "G2": "y", "G3": "z"}
-# (typed with {s} = argument separator and {d} = decimal separator, expected display or a predicate)
-FORMULAS = [
-    ("TRUE", "TRUE"), ("FALSE", "FALSE"), ("=TRUE", "TRUE"), ("=FALSE", "FALSE"), ("=1=1", "TRUE"),
-    ("=AND(TRUE{s}FALSE)", "FALSE"), ("=VLOOKUP(2{s}F1:G3{s}2{s}FALSE)", "y"), ("=N(TRUE)", "1"),
-    ("=IF(A1>5{s}\"Đạt\"{s}\"Không\")", "Đạt"), ("=SUMIF(B1:B3{s}\"Hà Nội\"{s}A1:A3)", "40"),
-    ("=XLOOKUP(3{s}F1:F3{s}G1:G3)", "z"), ("=ROUND(2{d}345{s}2)", "2{d}35"),
-    ("=CEILING(-2{d}5{s}2)", "-2"), ("=FLOOR(-2{d}5{s}2)", "-4"), ("=FLOOR(-2{d}5{s}-2)", "-2"), ("=CEILING(2{d}1{s}1)", "3"),
-    ("=1/0", "#DIV/0!"), ("=NA()", "#N/A"), ("=SQRT(-1)", "#VALUE!"), ("=VALUE(\"abc\")", "#VALUE!"),
-    ("=NOSUCHFUNCTION(1)", "#NAME?"), ("=1+*2", "error"), ("=A1:A2 B3:B4", "#NULL!"),
-    ("='{sheet}'!A1", "10"), ("=SUM('{sheet}'!A1:A3)", "60"), ("=INDIRECT(\"'{sheet}'!A2\")", "20"),
-    ("=DOCSO(1234)", "Một nghìn hai trăm ba mươi bốn"), ("=BODAU(\"Hà Nội\")", "Ha Noi"), ("=TACHTEN(\"Nguyễn Văn An\")", "An"),
-]
 NATIVE, OOXML, FUNCTIONS = 3, 5, 16
 
 
