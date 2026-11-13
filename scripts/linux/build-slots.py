@@ -393,16 +393,18 @@ def main(argv=None):
         parser.error("--want must be positive")
 
     if args.cmd == "acquire":
-        last = ""
+        last, last_time = "", 0.0
         while True:
             granted, reason = ctl.try_acquire(args.slot, args.pid, want, args.kind)
             if granted:
                 print(f"{granted[0]} {granted[1]}")
                 return 0
-            if reason != last:
+            # One line per kind of reason (memory/disk/jobs), repeated every 5 min while it lasts.
+            kind = reason.split(":", 1)[0]
+            if kind != last or time.time() - last_time >= 300:
                 print(f"[{time.strftime('%F %T')}] admission: slot {args.slot} waiting: {explain(ctl.root, reason)}",
                       file=sys.stderr)
-                last = reason
+                last, last_time = kind, time.time()
             time.sleep(args.interval)
     if args.cmd == "poll":
         action, value = ctl.poll(args.slot, args.jobs)
