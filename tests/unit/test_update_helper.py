@@ -57,10 +57,15 @@ class HelperContract(unittest.TestCase):
                      "[Parameter(Mandatory=$true)][string]$Sha256", "Get-FileHash -Algorithm SHA256 -LiteralPath $Installer",
                      "$hash.Hash -ine $Sha256", "SHA256 mismatch", "SHA256 verification failed: installer missing",
                      "Get-Process -Id $ProcessId", "Start-Sleep -Seconds 1", "$seconds -ge 1800", "finally {",
-                     "Start-Process msiexec.exe -Verb RunAs -Wait -PassThru", "Start-Process $Soffice",
-                     "3010", "UAC was declined", "DRYRUN install:", "DRYRUN relaunch:", "Remove-Item -LiteralPath $Installer"):
+                     "Start-Process msiexec.exe -Wait -PassThru", "Start-Process explorer.exe -ArgumentList \"`\"$Soffice`\"\"",
+                     "3010", "DRYRUN install:", "DRYRUN relaunch:", "Remove-Item -LiteralPath $Installer",
+                     "'update-cancel'", "'msi-install.log'"):
             self.assertIn(part, text)
-        self.assertIn("-ArgumentList '/i', \"`\"$Installer`\"\", '/passive', '/norestart'", text)
+        self.assertIn("-ArgumentList '/i', \"`\"$Installer`\"\", '/passive', '/norestart', '/l*v', \"`\"$msiLog`\"\"", text)
+        # Elevation is requested by the office before it closes (update_launch.run_elevated); one asked for by this
+        # hidden helper after the office has gone is only a blinking taskbar button.
+        self.assertNotIn("RunAs", text)
+        self.assertNotIn("Start-Process $Soffice", text)
         self.assertNotIn("$(unsafe)", text)
         self.assertLess(text.index("Write-Step 'Process exited'"), text.index("Get-FileHash"))
         self.assertLess(text.index("Get-FileHash"), text.index("if ($DryRun)"))
@@ -114,7 +119,8 @@ class HelperContract(unittest.TestCase):
                 operation()
 
     def test_python_38_syntax_and_module_sizes(self):
-        for module in (cmd, launch, cmd.scripts):
+        from hst_office import update_helper_scripts_windows as windows
+        for module in (cmd, launch, cmd.scripts, windows):
             source = Path(module.__file__).read_text(encoding="utf-8")
             ast.parse(source, feature_version=(3, 8))
             self.assertLessEqual(len(source.splitlines()), 199)

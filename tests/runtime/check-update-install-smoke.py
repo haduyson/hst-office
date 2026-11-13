@@ -60,10 +60,14 @@ def main():
         script = launch.write_helper(helper, cache)
         argv = cmd.argv(helper, script)
         print("helper argv:", argv, flush=True)
-        done = subprocess.run(argv, timeout=120, stdin=subprocess.DEVNULL)
+        # Started exactly as the office starts it (update_launch.spawn): on Windows a helper spawned without a console
+        # (DETACHED_PROCESS) exited 0 at once and never ran, which a plain subprocess.run did not show.
+        proc = launch.spawn(argv, SYSTEM)
+        returncode = proc.wait(timeout=120)
         text = open(log, encoding="utf-8-sig", errors="replace").read() if os.path.isfile(log) else ""
         print(text, flush=True)
-        check("helper dry run exits 0", done.returncode == 0, "exit %d" % done.returncode)
+        check("helper dry run exits 0", returncode == 0, "exit %d" % returncode)
+        check("helper started like the office starts it ran its script", "Process exited" in text)
         expected = {"Windows": "msiexec.exe /i", "Darwin": "--swap", "Linux": "install"}[SYSTEM]
         check("helper logged the installer command", "DRYRUN install:" in text and expected in text)
         check("helper logged the relaunch", "DRYRUN relaunch" in text)

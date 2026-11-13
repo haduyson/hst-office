@@ -137,7 +137,11 @@ def launch_and_quit(ctx, result, info):
     if not update_config.settings(ctx)["AllowInstall"]:  # the policy may have changed since the click
         return
     # Cancel in a save prompt (or an error): nothing is updated, the file stays for later.
-    launch.spawn_and_quit(ctx, cmd.argv(helper, launch.write_helper(helper, cache)), system)
+    argv = cmd.argv(helper, launch.write_helper(helper, cache))
+    if system == "Windows" and not dry:  # elevated now, while the office is still the window the user looks at
+        launch.elevate_and_quit(ctx, argv, cache)
+    else:
+        launch.spawn_and_quit(ctx, argv, system)
 
 
 def start(ctx, peer):
@@ -159,6 +163,9 @@ def start(ctx, peer):
                 [(TEXT["install"], "install"), (TEXT["later"], "later")]) == "install":
             try:
                 launch_and_quit(ctx, outcome["result"], info)
+            except launch.ElevationDeclined:  # No at the administrator question: the office stays open
+                diag_log.info("update_install", "administrator rights declined")
+                fail(ctx, peer, "err_elevation")
             except Exception:  # noqa: BLE001 - helper could not be written or started
                 diag_log.exception("update_install")
                 fail(ctx, peer, "err_launch")

@@ -42,7 +42,10 @@ class LaunchContract(unittest.TestCase):
                 else:
                     self.assertNotIn("env", options)
                 if system == "Windows":
-                    self.assertEqual(options["creationflags"], 0x08000208)
+                    # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP; never DETACHED_PROCESS (0x8): powershell.exe
+                    # without a console exits 0 at once and never runs the helper script.
+                    self.assertEqual(options["creationflags"], 0x08000200)
+                    self.assertFalse(options["creationflags"] & 0x8)
                     self.assertNotIn("start_new_session", options)
                 else:
                     self.assertIs(options["start_new_session"], True)
