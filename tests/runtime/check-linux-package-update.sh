@@ -52,13 +52,13 @@ inside_appimage() {
   install -m 755 /pkg/old.$EXT_NAME /home/tester/Apps/HST.AppImage
   cp /pkg/new.$EXT_NAME /home/tester/Apps/.hst-office-update/HSTOffice_9.9.9_Linux_x86-64.AppImage
   chown -R tester /home/tester/Apps
-  su tester -c "cd /tmp && /home/tester/Apps/HST.AppImage --appimage-extract >/dev/null 2>&1"
+  su tester -s /bin/bash -c "cd /tmp && /home/tester/Apps/HST.AppImage --appimage-extract >/dev/null 2>&1"
   ROOTFS=/tmp/squashfs-root
-  kind="$(su tester -c "APPIMAGE=/home/tester/Apps/HST.AppImage APPDIR=$ROOTFS PYTHONPATH=/ext $ROOTFS/opt/hst-office1.0/program/python -c 'from hst_office import update_linux_install as li; import os; print(li.detect(\"$ROOTFS/opt/hst-office1.0/program\", os.environ))'")"
+  kind="$(su tester -s /bin/bash -c "APPIMAGE=/home/tester/Apps/HST.AppImage APPDIR=$ROOTFS PYTHONPATH=/ext $ROOTFS/opt/hst-office1.0/program/python -c 'from hst_office import update_linux_install as li; import os; print(li.detect(\"$ROOTFS/opt/hst-office1.0/program\", os.environ))'")"
   [ "$kind" = appimage ] && pass "install kind detected: appimage" || fail "install kind: $kind"
   (Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &); sleep 2
-  su tester -c "mkdir -p /tmp/upd; $(declare -f helper); helper $ROOTFS/opt/hst-office1.0/program/python appimage /home/tester/Apps/.hst-office-update/HSTOffice_9.9.9_Linux_x86-64.AppImage /home/tester/Apps/HST.AppImage > /tmp/argv"
-  su tester -c 'mapfile -t argv < /tmp/argv; APPIMAGE=/stale APPDIR=/stale DISPLAY=:99 HST_APPIMAGE_NO_INTEGRATION=1 "${argv[@]}"'; rc=$?
+  su tester -s /bin/bash -c "mkdir -p /tmp/upd; $(declare -f helper); helper $ROOTFS/opt/hst-office1.0/program/python appimage /home/tester/Apps/.hst-office-update/HSTOffice_9.9.9_Linux_x86-64.AppImage /home/tester/Apps/HST.AppImage > /tmp/argv"
+  su tester -s /bin/bash -c 'mapfile -t argv < /tmp/argv; APPIMAGE=/stale APPDIR=/stale DISPLAY=:99 HST_APPIMAGE_NO_INTEGRATION=1 "${argv[@]}"'; rc=$?
   sed 's/^/LOG /' /tmp/upd/update.log | tail -8
   [ "$rc" = 0 ] && pass "helper exit 0" || fail "helper exit $rc"
   [ "$(sha256sum < /home/tester/Apps/HST.AppImage)" = "$(sha256sum < /pkg/new.$EXT_NAME)" ] && pass "AppImage replaced in place (same path, new content)" || fail "AppImage not replaced"
