@@ -66,7 +66,7 @@ switch ($Action) {
     }
     'Probe' {
         $queueTask = @(Get-ScheduledTask -TaskName 'hst-build-q-*' -ErrorAction SilentlyContinue | Where-Object {
-                $_.State -eq 'Running' -and ($_.Actions.Arguments -join ' ') -match [regex]::Escape($Root) })
+                $_.State -eq 'Running' -and ($_.Actions.Arguments -join ' ') -match [regex]::Escape("$Root\tasks\") })   # not a prefix of another root
         $os = Get-CimInstance Win32_OperatingSystem
         $drive = Get-PSDrive $Root.Substring(0, 1)
         Out-Json @{ busy = ((Test-LockHeld) -or $queueTask.Count -gt 0); root = $Root
