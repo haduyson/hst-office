@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Print scaling of HST Sheets (hst-sheets-print-scaling.patch and its ribbon patch), read from the patches.
+"""Print scaling of HST Sheets (hst-sheets-print-scaling.patch; the ribbon places it in hst-ribbon-ux-calc.patch), read
+from the patches.
 
 The print dialog list, the commands with their menu, toolbar and ribbon places, the mapping onto the page style
 scale items that .xlsx/.ods store, the Vietnamese strings, the Alt+Q words and the help page.
@@ -13,7 +14,7 @@ from _paths import ROOT
 
 PATCHES = os.path.join(ROOT, "patches", "libreoffice")
 MAIN = os.path.join(PATCHES, "hst-sheets-print-scaling.patch")
-RIBBON = os.path.join(PATCHES, "hst-sheets-print-scaling-ribbon.patch")
+RIBBON = os.path.join(PATCHES, "hst-ribbon-ux-calc.patch")  # the ribbon rework places .uno:PrintScaleMenu
 EXTENSION = os.path.join(ROOT, "extensions", "hst-vietnamese-tools")
 COMMANDS = ("PrintScaleMenu", "PrintScaleNone", "PrintScaleFitSheet", "PrintScaleFitColumns", "PrintScaleFitRows",
             "PrintScaleOptions")
@@ -48,11 +49,13 @@ class PrintScalingPatchTest(unittest.TestCase):
         cls.main = added(MAIN)
         cls.ribbon = added(RIBBON)
 
-    def test_both_patches_are_in_the_series_in_order(self):
+    def test_patches_are_in_the_series(self):
         with open(os.path.join(PATCHES, "series"), encoding="utf-8") as handle:
             series = [line.strip() for line in handle if line.strip() and not line.startswith("#")]
-        self.assertLess(series.index("hst-sheets-print-scaling.patch"),
-                        series.index("hst-sheets-print-scaling-ribbon.patch"))
+        self.assertIn("hst-sheets-print-scaling.patch", series)
+        self.assertIn("hst-ribbon-ux-calc.patch", series)
+        # one ribbon owner: a second notebookbar.ui patch would place the drop-down twice
+        self.assertNotIn("hst-sheets-print-scaling-ribbon.patch", series)
 
     def test_slots_are_declared_once_and_reach_both_shells(self):
         ids = re.findall(r"#define (SID_PRINTSCALE_\w+)\s+\(SID_NEW_SLOTS\+(\d+)\)", self.main["sc/inc/sc.hrc"])
