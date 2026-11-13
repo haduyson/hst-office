@@ -161,7 +161,8 @@ class CalcRibbonUxCommands(unittest.TestCase):
         self.assertIn("SfxStringItem ChartType FN_PARAM_6)", section(self.patch, "svx/sdi/svx.sdi"))
         self.assertIn("lcl_HstSetChartType(xChartDoc, aHstChartType);", self.patch)
         po = section(self.patch, "translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po")
-        for vi in ("Co vừa một trang ngang", "Bỏ cố định ngăn", "Trung bình", "Biểu đồ cột", "Biểu đồ tròn"):
+        self.assertIn('+  <menu:menuitem menu:id=".uno:AutoSum?Function:string=sum"/>', self.patch)
+        for vi in ("Tổng", "Co vừa một trang ngang", "Bỏ cố định ngăn", "Trung bình", "Biểu đồ cột", "Biểu đồ tròn"):
             self.assertIn(f'+msgstr "{vi}"', po)
 
 

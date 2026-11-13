@@ -84,7 +84,7 @@ MENUS = {
         None,
         ("choose", ".uno:Delete", "Choose What to Clear", "Chọn nội dung cần xóa"),
     ]),
-    "HstEditingSortFilter": ("btnHomeHstEditingSortFilter", "Sort and Filter", "Sắp xếp và lọc",
+    "HstEditingSortFilter": ("btnHomeHstEditingSortFilter", "Sort and\nFilter", "Sắp xếp\nvà lọc",
                              "cmd/lc_datasort.png", True, [
         ("ascending", ".uno:SortAscending", "Sort Ascending", "Sắp xếp tăng dần"),
         ("descending", ".uno:SortDescending", "Sort Descending", "Sắp xếp giảm dần"),
@@ -94,7 +94,7 @@ MENUS = {
         ("clear", ".uno:DataFilterRemoveFilter", "Clear Filter", "Xóa lọc"),
         ("customfilter", ".uno:DataFilterStandardFilter", "Custom Filter", "Lọc tùy chỉnh"),
     ]),
-    "HstEditingFindSelect": ("btnHomeHstEditingFindSelect", "Find and Select", "Tìm và chọn",
+    "HstEditingFindSelect": ("btnHomeHstEditingFindSelect", "Find and\nSelect", "Tìm và\nchọn",
                              "cmd/lc_searchdialog.png", True, [
         ("replace", ".uno:SearchDialog", "Find and Replace", "Tìm và thay thế"),
         ("navigator", ".uno:Navigator", "Navigator", "Ngăn dẫn hướng"),
@@ -153,7 +153,7 @@ MENUS = {
         None,
         ("preview", ".uno:PagebreakMode", "Page Break Preview", "Xem ngắt trang"),
     ]),
-    "HstDataSources": ("btnDataHstOtherSources", "Other Sources", "Nguồn khác", "cmd/lc_insertexternaldatasource.png",
+    "HstDataSources": ("btnDataHstOtherSources", "Other\nSources", "Nguồn\nkhác", "cmd/lc_insertexternaldatasource.png",
                        True, [
         ("external", ".uno:InsertExternalDataSource", "External Links", "Liên kết ngoài"),
         ("browser", ".uno:ViewDataSourceBrowser", "Data Sources", "Nguồn dữ liệu"),

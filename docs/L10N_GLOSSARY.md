@@ -79,8 +79,8 @@ của bản rà soát ribbon, chỉ nhãn lệnh trong `UI.po` và chuỗi giao 
 | Che mờ | Che thông tin | | Chèn đối tượng OLE | Đối tượng khác |
 | Ô trang (Draw) | Ngăn trang | | Basic | Quản lý macro |
 
-Chưa đổi, chờ quyết định: "Liên kết lưu" (Bookmark): bản rà soát đề xuất "Thẻ đánh dấu", bảng `corrections` ghi "Dấu trang"
-(mục 1 dưới đây). Tên quen bằng tiếng Anh ("pivot", "freeze", "vlookup", "word count", "margin") là từ khóa ẩn của Tìm
+Bookmark: "Đánh dấu trang" ở mọi nơi (quyết định của chủ dự án 13/11/2026 15:12; thay "Liên kết lưu", "Dấu trang", "Thẻ
+đánh dấu"; "Chèn đánh dấu trang", "Đi tới đánh dấu trang"). Dấu trang của cơ sở dữ liệu (vị trí dòng) giữ nguyên. Tên quen bằng tiếng Anh ("pivot", "freeze", "vlookup", "word count", "margin") là từ khóa ẩn của Tìm
 tính năng ([`FeatureSearch.xcu`](../extensions/hst-vietnamese-tools/FeatureSearch.xcu)), không hiện trên nhãn. Nhãn và trang
 hướng dẫn không ghi tên sản phẩm của hãng khác.
 
@@ -183,7 +183,7 @@ Thẻ dùng chung (`include/vcl/tabs.hrc`) đổi một chỗ là đổi ở m�
 
 ## Cần người duyệt (chưa sửa, cần quyết định)
 
-1. **Bookmark**: lõi dùng "Liên kết lưu" khắp nơi, bảng thuật ngữ ghi "Dấu trang". Đổi toàn bộ (~30 chuỗi) hay giữ?
+1. ~~**Bookmark**~~: đã chốt "Đánh dấu trang" (13/11/2026).
 2. **Clipboard**: "Bảng nháp" và "Bảng tạm" lẫn lộn (lõi và lớp AI, ~25 chuỗi). Đề xuất "Bảng tạm".
 3. ~~**Certificate**~~: đã chốt "chứng thư số" (xem bảng thuật ngữ cốt lõi).
 4. **Layout** (thẻ ribbon): Writer/Impress "Bố trí", Calc "Bố cục". Chọn một.

@@ -1,0 +1,247 @@
+HST Office: the ribbon banner yields before a group collapses; a collapsed group shows its icon.
+
+Owner report (13/11, HST Sheets at 1485 px): Styles and Cells showed as bare "Kiểu ▾" / "Ô ▾" text buttons
+while the banner kept its 260 px slot.
+- NotebookbarTabControl: besides the full width of every (non-contextual) tab page, the tab control keeps
+  the width each page needs with its groups at their smallest state that is not the "Caption ▾" button
+  (hst::ribbon::PageKeepWidth). When the widest of them does not fit beside the narrowest wide banner, the
+  compact banner takes its place, and when it does not fit beside that either, the banner hides. So the
+  order is: groups at full size, the wide banner narrows (360 -> 260 px), groups shrink by their ladders,
+  the banner turns compact, then hides, and only then does a group collapse into its button.
+- PriorityMergedHBox: a collapsed group's button shows the large icon of the group's first command
+  (toolbox item or drop-down button; the caption's dialog launcher does not count) above "Caption ▾",
+  as Office does, instead of bare text.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: build only (both files syntax-checked against the configured tree). Runtime: HST Sheets Home at 1366,
+1440, 1485, 1536, 1600 and 1920 px shows no "Caption ▾" button while the banner is visible, and a collapsed
+group shows an icon above its caption.
+---
+--- a/include/vcl/HstRibbonWidth.hxx
++++ b/include/vcl/HstRibbonWidth.hxx
+@@ -23,6 +23,10 @@
+ /// merged group box at its largest state, or -1 when the page has no such box or its groups are not
+ /// measured yet. The banner beside the page narrows by it.
+ VCL_DLLPUBLIC tools::Long PageFullWidth(const vcl::Window& rPage);
++/// HST Office: the width the content of such a page needs with every group at its smallest state that is not
++/// its "Caption ▾" button, or -1 as above. The banner yields (narrows, then compact, then hidden) before the
++/// page would have to collapse a group into its button.
++VCL_DLLPUBLIC tools::Long PageKeepWidth(const vcl::Window& rPage);
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -56,6 +56,8 @@
+     // their buttons, which sit right after the group and open it at full size in a popup
+     std::map<vcl::Window*, VclPtr<PushButton>> m_aHstGroupButtons;
+     PushButton& HstGroupButton(vcl::Window& rGroup);
++    /// HST Office: the icon a collapsed group's button shows above its caption
++    static Image HstGroupImage(const vcl::Window& rGroup);
+     bool HstIsGroupButton(const vcl::Window* pWindow) const;
+     bool HstIsCollapsed(const vcl::Window* pGroup) const;
+     // in the chevron popup's share: hidden, and neither a group button nor a group shown as its button
+@@ -91,6 +93,10 @@
+     /// groups are measured; the block beside the box gives way as soon as this does not fit
+     tools::Long HstFullWidth() const;
+ 
++    /// HST Office: width of the box with every group at its smallest state that is not its group button,
++    /// or -1 before the groups are measured (hst::ribbon::PageKeepWidth)
++    tools::Long HstKeepWidth() const;
++
+     /// HST Office: whether the block beside the box (Tools, shown as its captioned button) should drop
+     /// its caption: only when the box, nRoom wide, would collapse the group its tab names
+     /// (HstRibbonBlocks.hxx) and nGain more pixels keep it
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -40,6 +40,8 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <vcl/event.hxx>
++#include <vcl/image.hxx>
++#include <vcl/toolbox.hxx>
+ 
+ #include <utility>
+ #include <vector>
+@@ -269,6 +271,55 @@
+     return true;
+ }
+ 
++namespace
++{
++/// HST Office: a large (lc_) theme image from the stock name of a small or large one, or an empty image
++Image hstLargeImage(const OUString& rStock)
++{
++    if (rStock.isEmpty())
++        return Image();
++    const Image aLarge(StockImage::Yes, rStock.replaceFirst("/sc_", "/lc_"));
++    return aLarge.GetSizePixel().Width() > 0 ? aLarge : Image(StockImage::Yes, rStock);
++}
++
++/// HST Office: the icon of a group's first command (toolbox item or drop-down button), at large size; the
++/// dialog launcher in the caption row does not count
++Image hstFirstImage(const vcl::Window& rWindow)
++{
++    if (rWindow.get_id().startsWith("bxHstCaption") || rWindow.get_id().startsWith("bxHstLaunch"))
++        return Image();
++    if (const ToolBox* pBox = dynamic_cast<const ToolBox*>(&rWindow))
++    {
++        for (ToolBox::ImplToolItems::size_type n = 0; n < pBox->GetItemCount(); ++n)
++        {
++            const ToolBoxItemId nId = pBox->GetItemId(n);
++            if (!pBox->IsItemVisible(nId))
++                continue;
++            OUString aCommand = pBox->GetItemCommand(nId);
++            if (aCommand.startsWith(".uno:"))
++            {
++                aCommand = aCommand.copy(5).getToken(0, '?').toAsciiLowerCase();
++                if (const Image aImage(StockImage::Yes, "cmd/lc_" + aCommand + ".png"); aImage.GetSizePixel().Width() > 0)
++                    return aImage;
++            }
++            if (Image aImage = hstLargeImage(pBox->GetItemImage(nId).GetStock()); aImage.GetSizePixel().Width() > 0)
++                return aImage;
++        }
++        return Image();
++    }
++    if (const Button* pButton = dynamic_cast<const Button*>(&rWindow))
++        return hstLargeImage(pButton->GetModeImage().GetStock());
++    for (const vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        if (pChild->IsVisible())
++            if (Image aImage = hstFirstImage(*pChild); aImage.GetSizePixel().Width() > 0)
++                return aImage;
++    return Image();
++}
++}
++
++Image PriorityMergedHBox::HstGroupImage(const vcl::Window& rGroup) { return hstFirstImage(rGroup); }
++
+ PushButton& PriorityMergedHBox::HstGroupButton(vcl::Window& rGroup)
+ {
+     VclPtr<PushButton>& rButton = m_aHstGroupButtons[&rGroup];
+@@ -278,6 +329,12 @@
+         rButton = VclPtr<PushButton>::Create(this, WB_FLATBUTTON | WB_CENTER | WB_VCENTER);
+         const OUString aCaption = hst::ribbon::GroupCaption(rGroup);
+         rButton->SetText(aCaption + u" \u25BE"); // ▾, as the gallery buttons
++        // a large icon above the caption, as Office shows a collapsed group, never bare text
++        if (const Image aImage = HstGroupImage(rGroup); aImage.GetSizePixel().Width() > 0)
++        {
++            rButton->SetModeImage(aImage);
++            rButton->SetImageAlign(ImageAlign::Top);
++        }
+         rButton->SetAccessibleName(aCaption);
+         rButton->SetQuickHelpText(aCaption);
+         rButton->set_valign(VclAlign::Fill);
+@@ -602,7 +659,10 @@
+     return !kept(nRoom) && kept(nRoom + nGain);
+ }
+ 
+-tools::Long hst::ribbon::PageFullWidth(const vcl::Window& rPage)
++namespace
++{
++/// HST Office: the page's content width with its merged group box nBox wide instead of its requisition
++template <class Width> tools::Long hstPageWidth(const vcl::Window& rPage, Width aBoxWidth)
+ {
+     // the page's merged group box, breadth first (not a merged box nested in it)
+     std::vector<const vcl::Window*> aLevel{ &rPage };
+@@ -622,12 +682,39 @@
+         aLevel = std::move(aNext);
+     }
+     const vcl::Window* pContent = rPage.GetWindow(GetWindowType::FirstChild);
+-    const tools::Long nFull = pMerged ? pMerged->HstFullWidth() : -1;
+-    if (nFull < 0 || !pContent)
++    const tools::Long nBox = pMerged ? aBoxWidth(*pMerged) : -1;
++    if (nBox < 0 || !pContent)
+         return -1;
+-    // the page's content asks for the box at its smallest (calculateRequisition): count its full width
++    // the page's content asks for the box at its smallest (calculateRequisition): count the given width
+     return VclContainer::getLayoutRequisition(*pContent).Width()
+-           - VclContainer::getLayoutRequisition(*pMerged).Width() + nFull;
++           - VclContainer::getLayoutRequisition(*pMerged).Width() + nBox;
++}
++}
++
++tools::Long hst::ribbon::PageFullWidth(const vcl::Window& rPage)
++{
++    return hstPageWidth(rPage, [](const PriorityMergedHBox& rBox) { return rBox.HstFullWidth(); });
++}
++
++tools::Long hst::ribbon::PageKeepWidth(const vcl::Window& rPage)
++{
++    return hstPageWidth(rPage, [](const PriorityMergedHBox& rBox) { return rBox.HstKeepWidth(); });
++}
++
++tools::Long PriorityMergedHBox::HstKeepWidth() const
++{
++    if (HstMinWidth() < 0)
++        return -1;
++    tools::Long nKeep = 0;
++    sal_uInt16 nGroups = 0;
++    for (vcl::Window* pChild : HstGroups())
++    {
++        const auto& rWidths = m_aHstWidths.find(pChild)->second.second;
++        const auto nStates = std::min(rWidths.size(), static_cast<size_t>(hst::ribbon::GroupStateCount));
++        nKeep += *std::min_element(rWidths.begin(), rWidths.begin() + nStates);
++        ++nGroups;
++    }
++    return nKeep + get_spacing() * (nGroups - 1);
+ }
+ 
+ tools::Long PriorityMergedHBox::HstFullWidth() const
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -53,6 +53,10 @@
+     // HST Office: the full width of every tab page measured so far: the wide banner narrows for the
+     // widest of them, so it keeps one width while the user switches tabs
+     std::map<sal_uInt16, tools::Long> m_aHstPageFullWidths;
++    // HST Office: the same pages at their smallest without a "Caption ▾" group button: the banner yields
++    // (narrow, compact, hidden) before any of them would have to collapse a group
++    std::map<sal_uInt16, tools::Long> m_aHstPageKeepWidths;
++    tools::Long HstWidestKeepWidth(const TabPage& rCurrent);
+ 
+     // time-based debounce: track when the last tab switch via scroll happened
+     std::chrono::steady_clock::time_point m_lastTabSwitch{};
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -541,7 +541,20 @@
+         const tools::Long nWindowWidth = (pTop ? pTop->GetSizePixel().Width() : GetSizePixel().Width())
+                                          + std::lround(16 * fDpi);
+         tools::Long nPageWidth = aPage.w;
+-        const hst::banner::Mode eMode = hst::banner::modeFor(nWindowWidth, aPage.h, fDpi);
++        hst::banner::Mode eMode = hst::banner::modeFor(nWindowWidth, aPage.h, fDpi);
++        // HST Office: the banner yields before a group collapses into its "Caption ▾" button: the wide
++        // banner (down to its narrowest) while the widest page fits beside it at its smallest without group
++        // buttons, else the compact one, else none
++        if (const tools::Long nKeep = HstWidestKeepWidth(*pPage); nKeep >= 0 && eMode != hst::banner::Mode::Hidden)
++        {
++            const tools::Long nRoom = aPage.w - nKeep - std::lround(12 * fDpi); // the 8 px gap, the 4 px margin
++            const bool bCompact = !m_pHstBanner->CompactUnavailable()
++                && nRoom >= hst::banner::slotFor(aPage, fDpi, hst::banner::COMPACT_ART_WIDTH).w;
++            if (eMode == hst::banner::Mode::Wide && nRoom < hst::banner::scaled(hst::banner::MIN_WIDE_ART_WIDTH, fDpi))
++                eMode = bCompact ? hst::banner::Mode::Compact : hst::banner::Mode::Hidden;
++            else if (eMode == hst::banner::Mode::Compact && !bCompact)
++                eMode = hst::banner::Mode::Hidden;
++        }
+         if (eMode != hst::banner::Mode::Hidden)
+             m_pHstBanner->SetCompact(eMode == hst::banner::Mode::Compact);
+         if (eMode == hst::banner::Mode::Wide
+@@ -579,6 +592,19 @@
+     m_bHstLayout = false;
+ }
+ 
++tools::Long NotebookbarTabControl::HstWidestKeepWidth(const TabPage& rCurrent)
++{
++    // a page measures once it has been shown; the contextual tabs do not count
++    if (const tools::Long nCurrent = hst::ribbon::PageKeepWidth(rCurrent); nCurrent >= 0)
++        m_aHstPageKeepWidths[GetCurPageId()] = nCurrent;
++    tools::Long nWidest = -1;
++    for (const auto& [nPageId, nKeep] : m_aHstPageKeepWidths)
++        if (const TabPage* pMeasured = GetTabPage(nPageId);
++            pMeasured && pMeasured->HasContext(vcl::EnumContext::Context::Any))
++            nWidest = std::max(nWidest, nKeep);
++    return nWidest;
++}
++
+ IMPL_LINK(NotebookbarTabControl, HstChildEventHdl, VclWindowEvent&, rEvent, void)
+ {
+     // The tab control re-allocates the current page at full width on resizes and tab switches.
