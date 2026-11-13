@@ -1,0 +1,376 @@
+HST Office on Windows (and macOS): numbers follow the user's regional settings, like the leading
+spreadsheet application (owner decision 2026-11-13).
+
+- i18npool localedata.cxx: while the locale setting in Tools - Options - Languages and Locales is
+  "Default" (ooSetupSystemLocale empty), the locale data of the OS user locale carries the decimal,
+  thousands and list separator of the OS: Windows GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT,
+  LOCALE_SDECIMAL/LOCALE_STHOUSAND/LOCALE_SLIST), so values customized in Control Panel - Region -
+  Additional settings count too; macOS the CFLocale decimal and grouping separator (list ';' when
+  the decimal is ',', else ','). The built-in number format codes (fixed, percent, scientific,
+  currency) of that locale are rewritten to those separators, so typed numbers, displayed numbers
+  and number formats agree. All of LibreOffice reads separators through this service
+  (LocaleDataWrapper, the number formatter, the character classification parser), so this is the
+  one place to change. An explicitly chosen locale, any other locale and Linux keep the LibreOffice
+  locale data. en-US keeps its decimal and thousands separator: it is the invariant locale the
+  .xlsx/.xls filters convert number format codes from and to; its list separator follows the OS.
+  Unusable OS values (not one character, decimal equal to thousands) leave the data unchanged.
+  Read once per process: a change in the regional settings applies on the next start.
+- sc formulaopt.cxx: under the same condition the default formula separators are the leading
+  application's: the argument separator is the OS list separator, ';' when it equals the decimal
+  separator; array columns '\' when the decimal is ',', else ','; array rows ';' (Office 2021
+  International(xlListSeparator/xlColumnSeparator/xlRowSeparator), measured 2026-11-13 on Windows 11
+  for vi-VN, de-DE, fr-FR, es-ES and en-US, default and customized). Separators the user stored in
+  Tools - Options - Sheets - Formula still win.
+- i18npool Library_i18npool.mk: macOS links CoreFoundation.
+
+ODF and .xlsx stay locale-independent: cell values, OpenFormula/OOXML formulas and .xlsx number
+format codes are written with '.' and ',' whatever the separators, ODF number styles are structural.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_windows_regional_separators.py,
+tests/runtime/check-windows-regional-separators.py (Windows, installed build).
+---
+--- a/i18npool/Library_i18npool.mk
++++ b/i18npool/Library_i18npool.mk
+@@ -49,6 +49,12 @@
+        officecfg/registry \
+ ))
+ 
++ifeq ($(OS),MACOSX)
++$(eval $(call gb_Library_use_system_darwin_frameworks,i18npool,\
++	CoreFoundation \
++))
++endif
++
+ $(eval $(call gb_Library_add_exception_objects,i18npool,\
+ 	i18npool/source/breakiterator/breakiterator_cjk \
+ 	i18npool/source/breakiterator/breakiteratorImpl \
+--- a/i18npool/source/localedata/localedata.cxx
++++ b/i18npool/source/localedata/localedata.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include <memory>
+ #include <mutex>
++#include <optional>
+ #include <string_view>
+ #include <com/sun/star/beans/PropertyValue.hpp>
+ #include <com/sun/star/container/XIndexAccess.hpp>
+@@ -34,6 +35,21 @@
+ #include <osl/diagnose.h>
+ #include <sal/macros.h>
+ #include <o3tl/string_view.hxx>
++#include <o3tl/char16_t2wchar_t.hxx>
++#include <rtl/ustrbuf.hxx>
++
++#if defined _WIN32 || defined MACOSX
++#include <com/sun/star/uno/Exception.hpp>
++#include <officecfg/Setup.hxx>
++#endif
++#if defined _WIN32
++#include <prewin.h>
++#include <postwin.h>
++#elif defined MACOSX
++#include <premac.h>
++#include <CoreFoundation/CoreFoundation.h>
++#include <postmac.h>
++#endif
+ 
+ namespace com::sun::star::uno { class XComponentContext; }
+ 
+@@ -409,6 +425,154 @@
+ }
+ 
+ 
++namespace
++{
++
++/* On Windows and macOS the number separators follow the user's regional settings of the OS, like
++ * the leading spreadsheet application does: decimal, thousands and list separator of the OS user
++ * locale, including values the user customized. That applies only while the locale setting in
++ * Tools - Options - Languages is the system default (ooSetupSystemLocale empty), and only to the
++ * locale data of the OS user locale; an explicitly chosen locale keeps the LibreOffice data.
++ * sc ScFormulaOptions::GetDefaultFormulaSeparators uses the same condition.
++ *
++ * en-US keeps its decimal and thousands separators: en-US is the invariant locale that the .xlsx
++ * and .xls filters convert number format codes from and to, so it must not change. Its list
++ * separator (used only for the formula argument separator) follows the OS. */
++struct SystemSeparators
++{
++    OUString aDecimal;
++    OUString aThousand;
++    OUString aList;
++};
++
++#if defined _WIN32
++OUString readLocaleInfo(LCTYPE nType)
++{
++    wchar_t aBuf[16];
++    const int nLen = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, nType, aBuf, SAL_N_ELEMENTS(aBuf));
++    return nLen > 1 ? OUString(o3tl::toU(aBuf), nLen - 1) : OUString();
++}
++
++SystemSeparators readSystemSeparators()
++{
++    return { readLocaleInfo(LOCALE_SDECIMAL), readLocaleInfo(LOCALE_STHOUSAND),
++             readLocaleInfo(LOCALE_SLIST) };
++}
++#elif defined MACOSX
++OUString readLocaleValue(CFLocaleRef xLocale, CFLocaleKey aKey)
++{
++    CFStringRef xStr = static_cast<CFStringRef>(CFLocaleGetValue(xLocale, aKey));
++    if (!xStr)
++        return OUString();
++    const CFIndex nLen = CFStringGetLength(xStr);
++    if (nLen <= 0 || nLen > 8)
++        return OUString();
++    UniChar aBuf[8];
++    CFStringGetCharacters(xStr, CFRangeMake(0, nLen), aBuf);
++    return OUString(reinterpret_cast<const sal_Unicode*>(aBuf), nLen);
++}
++
++SystemSeparators readSystemSeparators()
++{
++    SystemSeparators aSeps;
++    CFLocaleRef xLocale = CFLocaleCopyCurrent();
++    if (!xLocale)
++        return aSeps;
++    aSeps.aDecimal = readLocaleValue(xLocale, kCFLocaleDecimalSeparator);
++    aSeps.aThousand = readLocaleValue(xLocale, kCFLocaleGroupingSeparator);
++    CFRelease(xLocale);
++    // macOS has no list separator; the leading application uses ';' when the decimal is ','.
++    aSeps.aList = aSeps.aDecimal == "," ? u";"_ustr : u","_ustr;
++    return aSeps;
++}
++#endif
++
++// The OS separators that replace the locale data of rLocale, or nothing.
++std::optional<SystemSeparators> getSystemSeparators(const Locale& rLocale)
++{
++#if defined _WIN32 || defined MACOSX
++    try
++    {
++        if (!officecfg::Setup::L10N::ooSetupSystemLocale::get().isEmpty())
++            return {};
++    }
++    catch (const uno::Exception&)
++    {
++        return {}; // no configuration (e.g. unit tests): plain locale data
++    }
++    const LanguageType nLang = LanguageTag(rLocale).getLanguageType();
++    if (nLang != MsLangId::getSystemLanguage())
++        return {};
++    static const SystemSeparators aSystem = readSystemSeparators();
++    SystemSeparators aSeps(aSystem);
++    if (nLang == LANGUAGE_ENGLISH_US)
++        aSeps.aDecimal.clear();
++    return aSeps;
++#else
++    (void)rLocale;
++    return {};
++#endif
++}
++
++bool isDigitPlaceholder(sal_Unicode c) { return c == '0' || c == '#' || c == '?'; }
++
++/* Rewrites a number format code of the locale data from the locale's decimal and thousands
++ * separators to the effective ones. Only separators next to digit placeholders are rewritten;
++ * quoted text, escaped characters and [...] modifiers stay as they are. */
++OUString convertNumberFormatCode(const OUString& rCode, sal_Unicode cOldDec, sal_Unicode cNewDec,
++                                 sal_Unicode cOldTh, sal_Unicode cNewTh)
++{
++    const sal_Int32 nLen = rCode.getLength();
++    OUStringBuffer aBuf(nLen);
++    sal_Unicode cEnd = 0; // '"' or ']' while inside quoted text or a modifier
++    for (sal_Int32 i = 0; i < nLen; ++i)
++    {
++        sal_Unicode c = rCode[i];
++        const bool bPrevDigit = i > 0 && isDigitPlaceholder(rCode[i - 1]);
++        const bool bNextDigit = i + 1 < nLen && isDigitPlaceholder(rCode[i + 1]);
++        if (cEnd)
++        {
++            if (c == cEnd)
++                cEnd = 0;
++        }
++        else if (c == '"')
++            cEnd = '"';
++        else if (c == '[')
++            cEnd = ']';
++        else if ((c == '\\' || c == '_' || c == '*') && i + 1 < nLen)
++        {
++            aBuf.append(c);
++            c = rCode[++i];
++        }
++        else if (c == cOldDec && (bPrevDigit || bNextDigit))
++            c = cNewDec;
++        else if (c == cOldTh && bPrevDigit && bNextDigit)
++            c = cNewTh;
++        aBuf.append(c);
++    }
++    return aBuf.makeStringAndClear();
++}
++
++/* Applies the OS separators to the separator items of the locale data. Returns false when the
++ * OS values are unusable (not a single character each, or decimal equal to thousands), then the
++ * locale data stays as it is. */
++template <typename Item> bool applySystemSeparators(Item& rItem, const SystemSeparators& rSeps)
++{
++    OUString aDecimal = rSeps.aDecimal.getLength() == 1 ? rSeps.aDecimal : rItem.decimalSeparator;
++    OUString aThousand = rSeps.aDecimal.getLength() == 1 && rSeps.aThousand.getLength() == 1
++                             ? rSeps.aThousand
++                             : rItem.thousandSeparator;
++    if (aDecimal.isEmpty() || aDecimal == aThousand)
++        return false;
++    rItem.decimalSeparator = aDecimal;
++    rItem.thousandSeparator = aThousand;
++    if (rSeps.aList.getLength() == 1)
++        rItem.listSeparator = rSeps.aList;
++    return true;
++}
++
++}
++
+ LocaleDataImpl::LocaleDataImpl()
+ {
+ }
+@@ -446,6 +610,8 @@
+                 dataItem[16],
+                 dataItem[17]
+                 };
++        if (std::optional<SystemSeparators> oSeps = getSystemSeparators(rLocale))
++            applySystemSeparators(item, *oSeps);
+         return item;
+     }
+     else {
+@@ -487,6 +653,13 @@
+                 dataItem[17],
+                 dataItemCount >= 19 ? dataItem[18] : OUString()
+                 };
++        if (std::optional<SystemSeparators> oSeps = getSystemSeparators(rLocale))
++        {
++            if (applySystemSeparators(item, *oSeps)
++                && (item.decimalSeparatorAlternative == item.decimalSeparator
++                    || item.decimalSeparatorAlternative == item.thousandSeparator))
++                item.decimalSeparatorAlternative.clear();
++        }
+         return item;
+     }
+     else {
+@@ -870,6 +1043,27 @@
+     formatCount  = section[0].getFunc( *this, rLocale, "getAllFormats0");
+     formatCount += section[1].getFunc( *this, rLocale, "getAllFormats1");
+ 
++    // Number format codes are written with the separators of the locale data; when the OS
++    // separators replace those, the codes follow (getLocaleItem2 gives the effective ones).
++    sal_Unicode cOldDec = 0, cNewDec = 0, cOldTh = 0, cNewTh = 0;
++    if (getSystemSeparators(rLocale))
++    {
++        MyFuncOUString_Type func = reinterpret_cast<MyFuncOUString_Type>(getFunctionSymbol( rLocale, "getLocaleItem" ));
++        sal_Int16 dataItemCount = 0;
++        OUString const *dataItem = func ? func(dataItemCount) : nullptr;
++        const LocaleDataItem2 aItem = getLocaleItem2( rLocale );
++        // dataItem[2] and [3] are the thousands and decimal separator of the locale data
++        if (dataItem && dataItemCount >= 4 && dataItem[2].getLength() == 1
++            && dataItem[3].getLength() == 1
++            && (aItem.thousandSeparator != dataItem[2] || aItem.decimalSeparator != dataItem[3]))
++        {
++            cOldTh = dataItem[2][0];
++            cOldDec = dataItem[3][0];
++            cNewTh = aItem.thousandSeparator[0];
++            cNewDec = aItem.decimalSeparator[0];
++        }
++    }
++
+     Sequence< FormatElement > seq(formatCount);
+     auto seqRange = asNonConstRange(seq);
+     sal_Int32 f = 0;
+@@ -880,8 +1074,13 @@
+         {
+             for (int i = 0, nOff = 0; i < s.formatCount; ++i, nOff += 7, ++f)
+             {
++                OUString aCode = formatArray[nOff].replaceAll(s.from, s.to);
++                const OUString& rUsage = formatArray[nOff + 4];
++                if (cOldDec && (rUsage == "FIXED_NUMBER" || rUsage == "PERCENT_NUMBER"
++                                || rUsage == "SCIENTIFIC_NUMBER" || rUsage == "CURRENCY"))
++                    aCode = convertNumberFormatCode(aCode, cOldDec, cNewDec, cOldTh, cNewTh);
+                 seqRange[f] = FormatElement(
+-                        formatArray[nOff].replaceAll(s.from, s.to),
++                        aCode,
+                         formatArray[nOff + 1],
+                         formatArray[nOff + 2],
+                         formatArray[nOff + 3],
+--- a/sc/source/core/tool/formulaopt.cxx
++++ b/sc/source/core/tool/formulaopt.cxx
+@@ -17,6 +17,12 @@
+ #include <formulagroup.hxx>
+ #include <sc.hrc>
+ #include <utility>
++#if defined _WIN32 || defined MACOSX
++#include <com/sun/star/uno/Exception.hpp>
++#include <i18nlangtag/languagetag.hxx>
++#include <i18nlangtag/mslangid.hxx>
++#include <officecfg/Setup.hxx>
++#endif
+ 
+ using namespace utl;
+ using namespace com::sun::star::uno;
+@@ -48,6 +54,31 @@
+     GetDefaultFormulaSeparators(aFormulaSepArg, aFormulaSepArrayCol, aFormulaSepArrayRow);
+ }
+ 
++namespace
++{
++/* Whether the locale data of rLocale carries the separators of the OS regional settings: the
++ * locale setting is the system default and rLocale is the OS user locale (same condition as
++ * i18npool LocaleDataImpl, Windows and macOS only). */
++bool lcl_UsesSystemSeparators(const lang::Locale& rLocale)
++{
++#if defined _WIN32 || defined MACOSX
++    try
++    {
++        if (!officecfg::Setup::L10N::ooSetupSystemLocale::get().isEmpty())
++            return false;
++    }
++    catch (const Exception&)
++    {
++        return false;
++    }
++    return LanguageTag(rLocale).getLanguageType() == MsLangId::getSystemLanguage();
++#else
++    (void)rLocale;
++    return false;
++#endif
++}
++}
++
+ void ScFormulaOptions::GetDefaultFormulaSeparators(
+     OUString& rSepArg, OUString& rSepArrayCol, OUString& rSepArrayRow)
+ {
+@@ -57,8 +88,9 @@
+     rSepArrayRow = "|";
+ 
+     const lang::Locale& rLocale = ScGlobal::GetLocale();
++    const bool bSystemSeparators = lcl_UsesSystemSeparators(rLocale);
+     const OUString& rLang = rLocale.Language;
+-    if (rLang == "ru")
++    if (rLang == "ru" && !bSystemSeparators)
+         // Don't do automatic guess for these languages, and fall back to
+         // the old separator set.
+         return;
+@@ -75,6 +107,17 @@
+     sal_Unicode cListSep = rListSep[0];
+     sal_Unicode cDecSepAlt = rLocaleData.getNumDecimalSepAlt().toChar();    // usually 0 (empty)
+ 
++    if (bSystemSeparators)
++    {
++        // Like the leading spreadsheet application: the argument separator is the list separator
++        // of the regional settings, ';' when that equals the decimal separator; array columns are
++        // separated by '\' when the decimal separator is ',', else by ','; array rows by ';'.
++        rSepArg = OUString(cListSep == cDecSep ? u';' : cListSep);
++        rSepArrayCol = cDecSep == ',' ? u"\\"_ustr : u","_ustr;
++        rSepArrayRow = ";";
++        return;
++    }
++
+     // Excel by default uses system's list separator as the parameter
+     // separator, which in English locales is a comma.  However, OOo's list
+     // separator value is set to ';' for all English locales.  Because of this
