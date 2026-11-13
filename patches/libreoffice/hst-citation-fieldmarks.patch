@@ -1,0 +1,286 @@
+HST Writer citations: text fields that keep their code through Undo, Redo, Backspace and .odt.
+
+HST's citations and bibliography are text fieldmarks of type UNHANDLED whose code
+("ADDIN HST_CITATION {...}") is a fieldmark parameter, the same shape as fields of other
+programs read from .docx. Checked on the 1.0.2 Linux build, four things broke them:
+
+- Undo/Redo dropped the code. SwHistoryTextFieldmark recorded the position, name and type of a
+  text fieldmark but not its parameters, so deleting a citation and pressing Undo (or Undo then
+  Redo of an insertion) brought back a field with no code. The history now keeps the parameter
+  map: taken when the history is recorded and again just before the field is removed by
+  ResetInDoc(), because an inserted field gets its code after makeFieldBookmark() has already
+  appended the insert Undo. Date fields keep their date format the same way.
+- .uno:TextFormFields and .uno:UpdateTextFormField changed the code outside Undo: Undo restored
+  the old result next to the new code. Each code change now appends a
+  SwUndoTextFieldmarkParameters action inside the command's existing Undo group, so one Undo
+  restores both. The action finds the field by its start, which Undo's order guarantees.
+- Backspace just after (or Delete just before) an UNHANDLED field removed the field and left
+  its result as plain text that still looks like a citation. Such a field is now selected first,
+  as in Word; the next key press deletes it whole (one Undo step that restores it with its code).
+  Other fieldmark types keep the old behaviour.
+- .odt reload threw away fieldmarks in footnotes, endnotes and text frames. PopFieldmark()
+  compared the import text with the field anchor's getText(), and there those are two UNO
+  objects for the same text (SwXFootnote::attach() does not register itself on the footnote, so
+  the anchor creates a second one). The check now falls back to createTextCursorByRange(),
+  which verifies by node position that the range is in that text.
+
+.docx export and import already kept the code, the result and fields in footnotes, frames,
+headers and tables; no change there.
+
+Checked by tests/runtime/check-citations-fieldmarks.py.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/sw/source/core/inc/UndoBookmark.hxx
++++ b/sw/source/core/inc/UndoBookmark.hxx
+@@ -134,6 +134,26 @@ public:
+     virtual void RedoImpl(::sw::UndoRedoContext&) override;
+ };
+ 
++/// HST: Undo / Redo of a change to a text form field's parameters (its field code), which the
++/// field update commands make outside the content operations that Undo records.
++class SwUndoTextFieldmarkParameters final : public SwUndo
++{
++private:
++    const SwNodeOffset m_nStartNode;
++    const sal_Int32 m_nStartContent;
++    const ::sw::mark::Fieldmark::parameter_map_t m_aOldParameters;
++    const ::sw::mark::Fieldmark::parameter_map_t m_aNewParameters;
++
++    void SetParameters(SwDoc& rDoc, const ::sw::mark::Fieldmark::parameter_map_t& rParameters) const;
++
++public:
++    SwUndoTextFieldmarkParameters(const ::sw::mark::Fieldmark& rFieldmark,
++                                  ::sw::mark::Fieldmark::parameter_map_t aOldParameters);
++
++    virtual void UndoImpl(::sw::UndoRedoContext&) override;
++    virtual void RedoImpl(::sw::UndoRedoContext&) override;
++};
++
+ /// Handling undo / redo of text form field deletion
+ class SwUndoDelTextFieldmark final : public SwUndo
+ {
+--- a/sw/source/core/inc/rolbck.hxx
++++ b/sw/source/core/inc/rolbck.hxx
+@@ -303,6 +303,9 @@ class SwHistoryTextFieldmark final : pub
+         const sal_Int32 m_nEndContent;
+         /*const*/ SwNodeOffset m_nSepNode;
+         /*const*/ sal_Int32 m_nSepContent;
++        /// HST: the field's parameters (the code of an unhandled field, the format of a date
++        /// field), so Undo/Redo brings the field back whole instead of as an empty shell.
++        ::sw::mark::Fieldmark::parameter_map_t m_aParameters;
+ };
+ 
+ class SwHistorySetAttrSet final : public SwHistoryHint
+--- a/sw/source/core/undo/rolbck.cxx
++++ b/sw/source/core/undo/rolbck.cxx
+@@ -785,6 +785,7 @@ SwHistoryTextFieldmark::SwHistoryTextFie
+     , m_nStartContent(rFieldMark.GetMarkStart().GetContentIndex())
+     , m_nEndNode(rFieldMark.GetMarkEnd().GetNodeIndex())
+     , m_nEndContent(rFieldMark.GetMarkEnd().GetContentIndex())
++    , m_aParameters(*rFieldMark.GetParameters())
+ {
+     SwPosition const sepPos(sw::mark::FindFieldSep(rFieldMark));
+     m_nSepNode = sepPos.GetNodeIndex();
+@@ -814,7 +815,10 @@ void SwHistoryTextFieldmark::SetInDoc(Sw
+             m_nStartNode == m_nSepNode ? (m_nSepContent - 1) : m_nSepContent);
+ 
+     IDocumentMarkAccess & rMarksAccess(*rDoc.getIDocumentMarkAccess());
+-    rMarksAccess.makeFieldBookmark(pam, m_sName, m_sType, &sepPos);
++    ::sw::mark::Fieldmark *const pFieldmark
++        = rMarksAccess.makeFieldBookmark(pam, m_sName, m_sType, &sepPos);
++    if (pFieldmark)
++        *pFieldmark->GetParameters() = m_aParameters;
+ }
+ 
+ void SwHistoryTextFieldmark::ResetInDoc(SwDoc& rDoc)
+@@ -830,6 +834,10 @@ void SwHistoryTextFieldmark::ResetInDoc(
+     SwPosition const pos(*rNds[m_nStartNode]->GetContentNode(), m_nStartContent);
+ 
+     IDocumentMarkAccess & rMarksAccess(*rDoc.getIDocumentMarkAccess());
++    // The parameters may have been set after this history was recorded (an inserted field gets
++    // its code after makeFieldBookmark() appended the insert Undo): keep the current ones.
++    if (::sw::mark::Fieldmark const*const pFieldmark = rMarksAccess.getFieldmarkAt(pos))
++        m_aParameters = *pFieldmark->GetParameters();
+     rMarksAccess.deleteFieldmarkAt(pos);
+ }
+ 
+--- a/sw/source/core/undo/unbkmk.cxx
++++ b/sw/source/core/undo/unbkmk.cxx
+@@ -27,6 +27,8 @@
+ #include <doc.hxx>
+ #include <swundo.hxx>
+ #include <pam.hxx>
++#include <ndarr.hxx>
++#include <node.hxx>
+ 
+ #include <UndoCore.hxx>
+ #include <IMark.hxx>
+@@ -202,6 +204,40 @@ void SwUndoInsTextFieldmark::RedoImpl(::
+     m_pHistoryTextFieldmark->SetInDoc(rContext.GetDoc(), false);
+ }
+ 
++SwUndoTextFieldmarkParameters::SwUndoTextFieldmarkParameters(
++    const ::sw::mark::Fieldmark& rFieldmark, ::sw::mark::Fieldmark::parameter_map_t aOldParameters)
++    : SwUndo(SwUndoId::UPDATE_FORM_FIELD, rFieldmark.GetMarkPos().GetDoc())
++    , m_nStartNode(rFieldmark.GetMarkStart().GetNodeIndex())
++    , m_nStartContent(rFieldmark.GetMarkStart().GetContentIndex())
++    , m_aOldParameters(std::move(aOldParameters))
++    , m_aNewParameters(*rFieldmark.GetParameters())
++{
++}
++
++void SwUndoTextFieldmarkParameters::SetParameters(
++    SwDoc& rDoc, const ::sw::mark::Fieldmark::parameter_map_t& rParameters) const
++{
++    // Undo restores the document exactly as it was when this action was recorded, so the
++    // field still starts at the recorded position.
++    SwContentNode *const pNode = rDoc.GetNodes()[m_nStartNode]->GetContentNode();
++    if (!pNode)
++        return;
++    SwPosition const aPos(*pNode, m_nStartContent);
++    ::sw::mark::Fieldmark *const pFieldmark = rDoc.getIDocumentMarkAccess()->getFieldmarkAt(aPos);
++    if (pFieldmark && pFieldmark->GetMarkStart() == aPos)
++        *pFieldmark->GetParameters() = rParameters;
++}
++
++void SwUndoTextFieldmarkParameters::UndoImpl(::sw::UndoRedoContext & rContext)
++{
++    SetParameters(rContext.GetDoc(), m_aOldParameters);
++}
++
++void SwUndoTextFieldmarkParameters::RedoImpl(::sw::UndoRedoContext & rContext)
++{
++    SetParameters(rContext.GetDoc(), m_aNewParameters);
++}
++
+ SwUndoDelTextFieldmark::SwUndoDelTextFieldmark(const ::sw::mark::Fieldmark& rFieldmark)
+     : SwUndo(SwUndoId::DELETE, rFieldmark.GetMarkPos().GetDoc())
+     , m_pHistoryTextFieldmark(new SwHistoryTextFieldmark(rFieldmark))
+--- a/sw/source/uibase/shells/textfld.cxx
++++ b/sw/source/uibase/shells/textfld.cxx
+@@ -78,6 +78,7 @@
+ #include <svx/pageitem.hxx>
+ #include <comphelper/sequenceashashmap.hxx>
+ #include <IMark.hxx>
++#include <UndoBookmark.hxx>
+ #include <officecfg/Office/Common.hxx>
+ #include <officecfg/Office/Compatibility.hxx>
+ #include <ndtxt.hxx>
+@@ -1073,7 +1074,13 @@ FIELD_INSERT:
+             }
+ 
+             comphelper::SequenceAsHashMap aMap(aFields[nFieldIndex++]);
++            auto aOldParameters = *pFieldmark->GetParameters();
+             itParam->second = aMap[u"FieldCommand"_ustr];
++            // HST: make the code change part of this Undo step, not only the result change
++            if (rSh.GetDoc()->GetIDocumentUndoRedo().DoesUndo())
++                rSh.GetDoc()->GetIDocumentUndoRedo().AppendUndo(
++                    std::make_unique<SwUndoTextFieldmarkParameters>(*pFieldmark,
++                                                                    std::move(aOldParameters)));
+             SwPaM aPaM(pFieldmark->GetMarkPos(), pFieldmark->GetOtherMarkPos());
+             aPaM.Normalize();
+             // Skip field start & separator.
+@@ -1577,7 +1584,13 @@ FIELD_INSERT:
+         rSh.GetDoc()->GetIDocumentUndoRedo().StartUndo(SwUndoId::UPDATE_FORM_FIELD, nullptr);
+         rSh.StartAction();
+         comphelper::SequenceAsHashMap aMap(aField);
++        auto aOldParameters = *pFieldmark->GetParameters();
+         itParam->second = aMap[u"FieldCommand"_ustr];
++        // HST: make the code change part of this Undo step, not only the result change
++        if (rSh.GetDoc()->GetIDocumentUndoRedo().DoesUndo())
++            rSh.GetDoc()->GetIDocumentUndoRedo().AppendUndo(
++                std::make_unique<SwUndoTextFieldmarkParameters>(*pFieldmark,
++                                                                std::move(aOldParameters)));
+         SwPaM aPaM(pFieldmark->GetMarkPos(), pFieldmark->GetOtherMarkPos());
+         aPaM.Normalize();
+         // Skip field start & separator.
+--- a/sw/source/uibase/wrtsh/delete.cxx
++++ b/sw/source/uibase/wrtsh/delete.cxx
+@@ -38,6 +38,21 @@
+ #include <IDocumentRedlineAccess.hxx>
+ #include <IDocumentLayoutAccess.hxx>
+ #include <txtfrm.hxx>
++#include <xmloff/odffields.hxx>
++
++namespace
++{
++/// HST: select a whole fieldmark, its start and end characters included; the point stays on the
++/// side the cursor was on, so a further Shift+arrow extends the selection naturally.
++void lcl_SelectWholeFieldmark(SwWrtShell& rSh, const sw::mark::Fieldmark& rFieldmark,
++                              bool bPointAtStart)
++{
++    SwPaM aPam(rFieldmark.GetMarkStart(), rFieldmark.GetMarkEnd()); // mark = start, point = end
++    if (bPointAtStart)
++        aPam.Exchange();
++    rSh.SetSelection(aPam);
++}
++}
+ 
+ inline void SwWrtShell::OpenMark()
+ {
+@@ -251,6 +266,14 @@ bool SwWrtShell::DelLeft()
+         sw::mark::Fieldmark* pFm = getIDocumentMarkAccess()->getFieldmarkAt(aPrevChar);
+         if (pFm && pFm->GetMarkEnd() == *pCurPos)
+         {
++            if (pFm->GetFieldname() == ODF_UNHANDLED)
++            {
++                // HST: an unhandled field (a citation, a field of another program) is selected
++                // first, as in Word; the next press deletes it whole. Removing only its code
++                // would leave its result as plain text that looks like a field but is not.
++                lcl_SelectWholeFieldmark(*this, *pFm, false);
++                return true;
++            }
+             mxDoc->GetIDocumentUndoRedo().StartUndo(SwUndoId::EMPTY, nullptr);
+             IDocumentMarkAccess::DeleteFieldmarkCommand(*pFm);
+             getIDocumentMarkAccess()->deleteMark(pFm);
+@@ -407,6 +430,13 @@ bool SwWrtShell::DelRight(bool const isR
+             sw::mark::Fieldmark *const pFm = getIDocumentMarkAccess()->getFieldmarkAt(*GetCursor()->GetPoint());
+             if (pFm && pFm->GetMarkStart() == *GetCursor()->GetPoint())
+             {
++                if (pFm->GetFieldname() == ODF_UNHANDLED)
++                {
++                    // HST: select an unhandled field first, as for Backspace above
++                    lcl_SelectWholeFieldmark(*this, *pFm, true);
++                    bRet = true;
++                    break;
++                }
+                 mxDoc->GetIDocumentUndoRedo().StartUndo(SwUndoId::EMPTY, nullptr);
+                 IDocumentMarkAccess::DeleteFieldmarkCommand(*pFm);
+                 getIDocumentMarkAccess()->deleteMark(pFm);
+--- a/xmloff/source/text/XMLTextMarkImportContext.cxx
++++ b/xmloff/source/text/XMLTextMarkImportContext.cxx
+@@ -231,6 +231,24 @@ static auto InsertFieldmark(SvXMLImport
+     rHelper.GetCursor()->goLeft(1, false); // back to previous paragraph
+ }
+ 
++/// HST: is the range in the text being imported? Comparing the XText objects is not enough: in a
++/// footnote, endnote or text frame the range's getText() can be a second UNO object for the same
++/// text, and a field there was thrown away on reload. Creating a cursor checks the position.
++static bool lcl_IsInHelperText(XMLTextImportHelper & rHelper,
++        uno::Reference<text::XTextRange> const& xRange)
++{
++    if (rHelper.GetText() == xRange->getText())
++        return true;
++    try
++    {
++        return rHelper.GetText()->createTextCursorByRange(xRange).is();
++    }
++    catch (uno::RuntimeException const&)
++    {
++        return false;
++    }
++}
++
+ static auto PopFieldmark(XMLTextImportHelper & rHelper) -> void
+ {
+     // can't verify name because it's not written as an attribute...
+@@ -239,7 +257,7 @@ static auto PopFieldmark(XMLTextImportHe
+     if (!xField.is())
+         return;
+ 
+-    if (rHelper.GetText() == xField->getAnchor()->getText())
++    if (lcl_IsInHelperText(rHelper, xField->getAnchor()))
+     {
+         try
+         {   // skip CH_TXT_ATR_FIELDEND
