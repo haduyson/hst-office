@@ -31,7 +31,7 @@ def dialogs(office, doc, args):
         # Tab order: source, target, kind (Down = money), preset, unit, sub, thousand, odd, four, language, output
         gui.keys(office.display, wid, "Tab", "Tab", "Down", *(["Tab"] * 8), "Down")
         gui.dialog_shot(office, wid, args.shots, "doc-so-thanh-chu-cong-thuc")
-        gui.keys(office.display, wid, "Return")
+        gui.keys(office.display, wid, "Return", "Return")  # Q1 holds the words: the first Return asks to "Ghi đè"
         thread.join(30)
         record("dialog writes a DOCTIEN formula", "DOCTIEN" in cell("Q1").getFormula().upper()
                and cell("Q1").getString() == "Mười triệu đồng chẵn", (cell("Q1").getFormula(), cell("Q1").getString()))
