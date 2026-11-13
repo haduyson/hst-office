@@ -36,9 +36,8 @@ def check(name, ok, detail=""):
 
 
 def capture_windows(title, path):
-    """BMP of the top-level window titled `title` through PrintWindow (works in a disconnected session), and of the
-    whole desktop next to it (`desktop.bmp`, only in a connected session: shows the dialog against the taskbar).
-    Returns the window rectangle (left, top, right, bottom) or None."""
+    """BMP of the top-level window titled `title` through PrintWindow (works in a disconnected session; only this
+    window, never the rest of the desktop). Returns the window rectangle (left, top, right, bottom) or None."""
     import ctypes
     user32 = ctypes.windll.user32
     hwnd = user32.FindWindowW(None, title)
@@ -46,23 +45,19 @@ def capture_windows(title, path):
         return None
     rect = (ctypes.c_long * 4)()
     user32.GetWindowRect(hwnd, rect)
-    _bitmap(hwnd, rect[2] - rect[0], rect[3] - rect[1], path, window=True)
-    _bitmap(None, user32.GetSystemMetrics(0), user32.GetSystemMetrics(1), os.path.join(os.path.dirname(path), "desktop.bmp"))
+    _bitmap(hwnd, rect[2] - rect[0], rect[3] - rect[1], path)
     user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE: Cancel
     return tuple(rect)
 
 
-def _bitmap(hwnd, width, height, path, window=False):
+def _bitmap(hwnd, width, height, path):
     import ctypes
     import struct
     user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
     screen = user32.GetDC(hwnd)
     memory, bitmap = gdi32.CreateCompatibleDC(screen), gdi32.CreateCompatibleBitmap(screen, width, height)
     gdi32.SelectObject(memory, bitmap)
-    if window:
-        user32.PrintWindow(hwnd, memory, 2)  # PW_RENDERFULLCONTENT
-    elif not gdi32.BitBlt(memory, 0, 0, width, height, screen, 0, 0, 0x00CC0020):  # SRCCOPY
-        return
+    user32.PrintWindow(hwnd, memory, 2)  # PW_RENDERFULLCONTENT
     header = struct.pack("<IiiHHIIiiII", 40, width, -height, 1, 32, 0, 0, 0, 0, 0, 0)
     pixels = ctypes.create_string_buffer(width * height * 4)
     gdi32.GetDIBits(memory, bitmap, 0, height, pixels, header, 0)
