@@ -131,10 +131,10 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
             commands[url.Path](host(self.ctx, frame, load_locale("vi")))
             if url.Path == DUPLEX:
                 self._send_duplex_state()
-        except Exception as exc:  # noqa: BLE001 - never fail silently inside the office UI thread
-            log_error(url.Path)
+        except Exception:  # noqa: BLE001 - never fail silently inside the office UI thread
+            log_error(url.Path)  # the traceback goes to the local log; the user gets words, not an exception name
             try:
-                _actions()[1](self.ctx, frame, load_locale("vi")).say("%s: %s" % (type(exc).__name__, exc), error=True)
+                _actions()[1](self.ctx, frame, load_locale("vi")).say(load_locale("vi")["common"]["unexpected"], error=True)
             except Exception:  # noqa: BLE001
                 pass
 

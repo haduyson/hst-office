@@ -3,8 +3,8 @@
 import unohelper
 
 from . import diag_log
-from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_layout, nd30_open, nd30_writer,
-               blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
+from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_insertion, nd30_layout,
+               nd30_open, nd30_writer, blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
 from . import open_in_hst_pdf
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
@@ -39,10 +39,10 @@ class Host:
 def nd30_wizard(host):
     if not host.is_writer():
         return
-    cursor = host.controller.getViewCursor()
-    reasons = nd30_writer.check_insertion_point(host.doc, cursor)
+    reasons = nd30_insertion.insertion_point(host.doc, host.controller)["reasons"]  # never the view cursor's text methods
     if reasons:
         return host.refuse(reasons)
+    cursor = host.controller.getViewCursor()
     choice = Nd30Wizard(host.ctx, host.s).run(host.peer)
     if choice is None:
         return  # Cancel: nothing was written
@@ -55,7 +55,7 @@ def nd30_wizard(host):
         return host.refuse(result["blockers"])
     if nd30_duplex.applies_to(layout, choice):  # after the page layout: it decides left/right pages
         nd30_duplex.apply(host.doc, cursor, bool(choice.get("duplex")), layout.get("profile", "nd30"))
-    note = host.s["nd30"]["inserted"]
+    note = host.s["nd30"]["inserted"] + ("\n" + host.s["nd30"]["afterTable"] if result["afterTable"] else "")
     if result["page"] and result["page"]["headerSkipped"]:
         note += "\n" + host.s["nd30"]["headerSkipped"]
     if fonts.is_font_missing(host.ctx, "Times New Roman"):
@@ -78,7 +78,7 @@ def convert_encoding(host):
         return convert_calc_action.run(host)
     if not host.is_writer():
         return
-    rng, reasons = encoding_writer.check_selection(host.doc, host.controller.getSelection())
+    rng, reasons = encoding_writer.check_selection(host.doc, host.controller)
     if reasons:
         return host.refuse(reasons)
     items, skipped, protected = encoding_writer.collect(rng)

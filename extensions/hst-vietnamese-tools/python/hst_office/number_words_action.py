@@ -8,6 +8,7 @@ from . import number_words_calc as calc
 from . import number_words_defaults as defaults
 from . import number_words_file_default as file_default
 from . import number_words_prefs as prefs
+from . import writer_selection
 from . import utilities_texts as T
 from .number_words_choice import error_text, words
 from .number_words_dialog import NumberWordsDialog
@@ -110,11 +111,10 @@ def _calc(host):
 
 
 def _writer(host):
-    selection = host.controller.getSelection()
-    if selection is None or not hasattr(selection, "getCount") or selection.getCount() != 1:
+    rng, why = writer_selection.single_text_range(host.controller)  # not cells, a picture, a shape or a comment
+    if why:
         return host.say(T.MESSAGES["writer-selection"], error=True)
-    rng = selection.getByIndex(0)
-    selected = rng.getString() if hasattr(rng, "getString") else ""
+    selected = rng.getString()
     if not selected.strip():
         return host.say(T.MESSAGES["writer-selection"], error=True)
     try:
