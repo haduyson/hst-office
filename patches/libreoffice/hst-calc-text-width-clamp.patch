@@ -1,0 +1,25 @@
+HST Office: ScTable::InvalidateTextWidth stops at the last allocated column.
+
+Columns are allocated lazily (INITIALCOLCOUNT = 1). For a range, InvalidateTextWidth looped up to the end
+address it was given, and ScDocument::InvalidateTextWidth(SCTAB) passes MaxCol(); aCol[nCol] has no bounds
+check, so the loop read garbage ScColumn references past the allocated ones and crashed. This happens through
+ScDocument::ModifyStyleSheet whenever a page style's zoom or page count changes in the set of changes given
+to it. Upstream callers apply the items first, so they never reach it; hst-sheets-print-scaling.patch avoided
+it the same way. The end column is now clamped with ClampToAllocatedColumns, as the single-cell branch above
+already checks aCol.size(). Columns that are not allocated hold no cells, so nothing is skipped.
+
+License: this upstream file remains under its original license (MPL-2.0).
+Test: tests/unit/test_text_width_clamp_patch.py; runtime tests/runtime/check-sheets-print-scaling.py.
+---
+--- a/sc/source/core/data/table5.cxx
++++ b/sc/source/core/data/table5.cxx
+@@ -980,7 +980,8 @@
+ 
+     const SCCOL nCol1 = pAdrFrom ? pAdrFrom->Col() : 0;
+     const SCROW nRow1 = pAdrFrom ? pAdrFrom->Row() : 0;
+-    const SCCOL nCol2 = pAdrTo ? pAdrTo->Col() : aCol.size() - 1;
++    // columns are allocated lazily: a range up to MaxCol() must stop at the last allocated one
++    const SCCOL nCol2 = pAdrTo ? ClampToAllocatedColumns(pAdrTo->Col()) : aCol.size() - 1;
+     const SCROW nRow2 = pAdrTo ? pAdrTo->Row() : rDocument.MaxRow();
+ 
+     for (SCCOL nCol = nCol1; nCol <= nCol2; ++nCol)

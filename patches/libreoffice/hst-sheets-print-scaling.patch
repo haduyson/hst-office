@@ -1,0 +1,1371 @@
+HST Office: print scaling in HST Sheets where people print (print dialog, Format menu, print preview).
+
+"Fit all columns on one page" and the related choices were only in Format ▸ Page Style ▸ Page ▸ Scale. Now:
+- Print dialog (File ▸ Print, General tab, under the copies): a "Scaling" list (vcl printdialog.ui "scalingbox"
+  and its label "scalingboxlabel", hidden unless the application offers the list; vcl shows the label with the
+  list). Calc offers it (ScPrintUIOptions, property "PrintScaling") with No Scaling (print sheets at their actual
+  size), Fit Sheet on One Page, Fit All Columns on One Page, Fit All Rows on One Page, and "Custom Scaling: …" when
+  the current sheet has another scaling (75 %, N pages, W × H pages). Opening the dialog changes nothing; once an
+  entry is picked, the printed sheets get it before the pages are counted, so the dialog preview, the page count
+  and the printout follow at once. The custom entry gives every printed sheet back what it had when the dialog
+  opened. Not offered for a read-only or shared document.
+- Commands .uno:PrintScaleNone, .uno:PrintScaleFitSheet, .uno:PrintScaleFitColumns, .uno:PrintScaleFitRows (radio
+  state of the current sheet), .uno:PrintScaleOptions (the page style dialog on its Page tab, where the HST scale
+  controls are) and the drop-down .uno:PrintScaleMenu (popupmenu/printscale.xml; ResourceMenuController and
+  GenericPopupToolbarController). They work on the selected sheets in the normal view and on the shown sheet in the
+  print preview; the menu is in Format (after Print Ranges) and on the print preview toolbar (before the scaling
+  factor slider). The ribbon buttons are in hst-sheets-print-scaling-ribbon.patch.
+- sc::printscale (sc/source/ui/docshell/printscale.cxx) maps the choices onto the page style items Calc already has:
+  none = ATTR_PAGE_SCALE 100; sheet = ATTR_PAGE_SCALETO 1×1; columns = 1×0; rows = 0×1 (the other two items 0, as
+  the page dialog writes them). 1×1 and 1×0 are what .xlsx stores as fitToPage with fitToWidth/fitToHeight, and
+  what .ods stores as scale-to-X/Y, so the choice survives both formats; PDF export uses the page style as printing.
+  Scaling belongs to a sheet, as in other spreadsheet programs: a sheet whose page style is shared with a sheet
+  that does not get the same scaling first gets its own copy of the style ("PageStyle_<sheet name>", the name the
+  spreadsheet import gives), so other sheets keep their printout. One undo step ("Change Scale") covers the style
+  copy, its assignment and the change.
+- Strings: sc strings.hrc (dialog entries, custom labels), vcl printdialog.ui, CalcCommands.xcu labels and tips;
+  Vietnamese in sc/vcl messages.po and UI.po ("Thu phóng", "Vừa tất cả các cột trên một trang", …; dialog-opening
+  labels without an ellipsis in Vietnamese).
+
+License: these upstream files remain under their original license (MPL-2.0); the new files are MPL-2.0.
+Test: tests/unit/test_sheets_print_scaling_patch.py; runtime: tests/runtime/check-sheets-print-scaling.py (page
+counts of a wide sheet printed to PDF with each choice, undo, .xlsx and .ods round trip, print dialog list).
+---
+--- a/sc/inc/sc.hrc
++++ b/sc/inc/sc.hrc
+@@ -643,6 +643,13 @@
+ #define SID_INSERT_CALCTABLE        (SID_NEW_SLOTS+120)
+ #define SID_REMOVE_CALCTABLE        (SID_NEW_SLOTS+121)
+ #define SID_TABLE_STYLES            (SID_NEW_SLOTS+122)
++// HST Office: print scaling choices (print dialog, Page Layout tab, Format menu, print preview)
++#define SID_PRINTSCALE_NONE         (SID_NEW_SLOTS+123)
++#define SID_PRINTSCALE_FIT_SHEET    (SID_NEW_SLOTS+124)
++#define SID_PRINTSCALE_FIT_COLUMNS  (SID_NEW_SLOTS+125)
++#define SID_PRINTSCALE_FIT_ROWS     (SID_NEW_SLOTS+126)
++#define SID_PRINTSCALE_OPTIONS      (SID_NEW_SLOTS+127)
++#define SID_PRINTSCALE_MENU         (SID_NEW_SLOTS+128)
+ 
+ // idl parameter
+ 
+--- a/sc/inc/strings.hrc
++++ b/sc/inc/strings.hrc
+@@ -123,6 +123,15 @@
+ #define SCSTR_PRINTOPT_PRINTALLPAGES                NC_("SCSTR_PRINTOPT_PRINTALLPAGES", "All ~Pages")
+ #define SCSTR_PRINTOPT_PRINTPAGES                   NC_("SCSTR_PRINTOPT_PRINTPAGES", "Pa~ges:")
+ #define SCSTR_PRINTOPT_PRODNAME                     NC_("SCSTR_PRINTOPT_PRODNAME", "%PRODUCTNAME %s")
++// HST Office: print scaling (print dialog, Page Layout tab, Format menu, print preview)
++#define STR_PRINTSCALE_NONE                         NC_("STR_PRINTSCALE_NONE", "No Scaling (print sheets at their actual size)")
++#define STR_PRINTSCALE_FIT_SHEET                    NC_("STR_PRINTSCALE_FIT_SHEET", "Fit Sheet on One Page")
++#define STR_PRINTSCALE_FIT_COLUMNS                  NC_("STR_PRINTSCALE_FIT_COLUMNS", "Fit All Columns on One Page")
++#define STR_PRINTSCALE_FIT_ROWS                     NC_("STR_PRINTSCALE_FIT_ROWS", "Fit All Rows on One Page")
++#define STR_PRINTSCALE_CUSTOM_PERCENT               NC_("STR_PRINTSCALE_CUSTOM_PERCENT", "Custom Scaling: %1%")
++#define STR_PRINTSCALE_CUSTOM_PAGES                 NC_("STR_PRINTSCALE_CUSTOM_PAGES", "Custom Scaling: fit on %1 pages")
++#define STR_PRINTSCALE_CUSTOM_SIZE                  NC_("STR_PRINTSCALE_CUSTOM_SIZE", "Custom Scaling: %1 pages wide by %2 pages tall")
++#define STR_PRINTSCALE_AUTOMATIC                    NC_("STR_PRINTSCALE_AUTOMATIC", "automatic")
+ #define SCSTR_DDEDOC_NOT_LOADED                     NC_("SCSTR_DDEDOC_NOT_LOADED", "The following DDE source could not be updated possibly because the source document was not open. Please launch the source document and try again." )
+ #define SCSTR_EXTDOC_NOT_LOADED                     NC_("SCSTR_EXTDOC_NOT_LOADED", "The following external file could not be loaded. Data linked from this file did not get updated." )
+ #define SCSTR_UPDATE_EXTDOCS                        NC_("SCSTR_UPDATE_EXTDOCS", "Updating external links.")
+--- a/sc/sdi/scalc.sdi
++++ b/sc/sdi/scalc.sdi
+@@ -6382,6 +6382,109 @@
+     GroupId = SfxGroupId::Format;
+ ]
+ 
++// HST Office: print scaling of the selected sheets (page style scale items); PrintScaleMenu holds the list
++
++SfxBoolItem PrintScaleNone SID_PRINTSCALE_NONE
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
++
++SfxBoolItem PrintScaleFitSheet SID_PRINTSCALE_FIT_SHEET
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
++
++SfxBoolItem PrintScaleFitColumns SID_PRINTSCALE_FIT_COLUMNS
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
++
++SfxBoolItem PrintScaleFitRows SID_PRINTSCALE_FIT_ROWS
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
++
++SfxVoidItem PrintScaleOptions SID_PRINTSCALE_OPTIONS
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
++
++SfxVoidItem PrintScaleMenu SID_PRINTSCALE_MENU
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
+ 
+ SfxVoidItem SelectTables SID_SELECT_TABLES
+ (SfxIntegerListItem Tables SID_SELECT_TABLES)
+--- a/sc/sdi/docsh.sdi
++++ b/sc/sdi/docsh.sdi
+@@ -32,6 +32,12 @@
+     SID_OUTLINE_DELETEALL   [ ExecMethod = Execute; StateMethod = GetState; ]
+     SID_FORMATPAGE          [ ExecMethod = Execute; StateMethod = GetState; ]
+     SID_HFEDIT              [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_NONE         [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_FIT_SHEET    [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_FIT_COLUMNS  [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_FIT_ROWS     [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_OPTIONS      [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_MENU         [ StateMethod = GetState; ]
+     SID_DETECTIVE_DEL_ALL   [ ExecMethod = Execute; StateMethod = GetState; ]
+     FID_TABLE_VISIBLE   [ ExecMethod = ExecuteTable; StateMethod = GetStateTable; ]
+     FID_TAB_MOVE        [ ExecMethod = ExecuteTable; StateMethod = GetStateTable; ]
+--- a/sc/sdi/prevwsh.sdi
++++ b/sc/sdi/prevwsh.sdi
+@@ -29,6 +29,12 @@
+     SID_PREVIEW_LAST        [ ExecMethod = Execute; StateMethod = GetState; ]
+     SID_PREVIEW_MARGIN      [ ExecMethod = Execute; StateMethod = GetState; ]
+     SID_PREVIEW_SCALINGFACTOR   [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_NONE         [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_FIT_SHEET    [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_FIT_COLUMNS  [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_FIT_ROWS     [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_OPTIONS      [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_PRINTSCALE_MENU         [ StateMethod = GetState; ]
+     SID_ATTR_ZOOMSLIDER     [ ExecMethod = Execute; StateMethod = GetState; ]
+ 
+     SfxVoidItem GoUpBlock SID_CURSORPAGEUP
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -470,6 +470,7 @@
+     sc/source/ui/docshell/olinefun \
+     sc/source/ui/docshell/pagedata \
+     sc/source/ui/docshell/pntlock \
++    sc/source/ui/docshell/printscale \
+     sc/source/ui/docshell/servobj \
+     sc/source/ui/docshell/SheetViewOperationsTester \
+     sc/source/ui/docshell/sizedev \
+--- /dev/null
++++ b/sc/source/ui/inc/printscale.hxx
+@@ -0,0 +1,85 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <types.hxx>
++
++#include <optional>
++#include <utility>
++#include <vector>
++
++class ScDocShell;
++class ScDocument;
++class SfxItemSet;
++
++namespace sc
++{
++/** The print scaling of a sheet as its page style stores it: zoom percent (ATTR_PAGE_SCALE), number of pages
++    (ATTR_PAGE_SCALETOPAGES) and pages wide by tall (ATTR_PAGE_SCALETO). The value of an unused mode is 0. */
++struct PrintScaleSettings
++{
++    sal_uInt16 nPercent = 100;
++    sal_uInt16 nPages = 0;
++    sal_uInt16 nWidth = 0;
++    sal_uInt16 nHeight = 0;
++
++    bool operator==(const PrintScaleSettings&) const = default;
++};
++
++/** The scaling choices of the print dialog, the ribbon, the menu and the print preview, in list order. */
++enum class PrintScaleMode : sal_Int32
++{
++    None = 0, ///< actual size (100 %)
++    FitSheet, ///< the whole sheet on one page (1 page wide, 1 page tall)
++    FitColumns, ///< every column on one page width, as many pages tall as needed
++    FitRows, ///< every row on one page height, as many pages wide as needed
++    Custom ///< anything else (another zoom, another number of pages)
++};
++
++namespace printscale
++{
++/** The settings of the page style of the sheet. */
++PrintScaleSettings GetSettings(const ScDocument& rDoc, SCTAB nTab);
++
++/** The settings stored in a page style item set. */
++PrintScaleSettings GetSettings(const SfxItemSet& rStyleSet);
++
++/** Which choice the settings are, in the order ScPrintFunc reads them (pages, then pages wide by tall, then zoom). */
++PrintScaleMode GetMode(const PrintScaleSettings& rSettings);
++
++/** The settings of one of the four fixed choices (eMode must not be Custom). */
++PrintScaleSettings GetSettings(PrintScaleMode eMode);
++
++/** A label for custom settings, e.g. "Custom scaling: 75%". */
++OUString GetCustomLabel(const PrintScaleSettings& rSettings);
++
++/** Gives every listed sheet its settings, as one undo step ("Change Scale").
++
++    Scaling belongs to a sheet: when a sheet shares its page style with a sheet that does not get the same
++    settings, the sheet first gets its own copy of the style ("PageStyle_<sheet name>", the name the spreadsheet
++    import uses), so the other sheets keep their printout. Sheets that already have the settings are left alone.
++    Does nothing on a read-only document. Returns whether anything changed. */
++bool Apply(ScDocShell& rDocShell, const std::vector<std::pair<SCTAB, PrintScaleSettings>>& rTargets);
++
++/** Apply() with the settings of one of the four fixed choices for every listed sheet. */
++bool Apply(ScDocShell& rDocShell, const std::vector<SCTAB>& rTabs, PrintScaleMode eMode);
++
++/** The fixed choice of a scaling command (.uno:PrintScaleNone, …FitSheet, …FitColumns, …FitRows), if it is one. */
++std::optional<PrintScaleMode> ModeForSlot(sal_uInt16 nSlot);
++
++/** Runs a scaling command on the sheets; false when nSlot is not one of the four. */
++bool ExecuteSlot(ScDocShell& rDocShell, const std::vector<SCTAB>& rTabs, sal_uInt16 nSlot);
++
++/** The state of a scaling command (including the menu and the options command) for the sheet: checked when the
++    sheet has that choice, disabled while the document cannot be changed. */
++void GetSlotState(const ScDocShell& rDocShell, SCTAB nTab, SfxItemSet& rSet, sal_uInt16 nWhich);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/docshell/printscale.cxx
+@@ -0,0 +1,297 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <printscale.hxx>
++
++#include <attrib.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <globstr.hrc>
++#include <sc.hrc>
++#include <scitems.hxx>
++#include <scresid.hxx>
++#include <stlpool.hxx>
++#include <strings.hrc>
++#include <tabvwsh.hxx>
++#include <undostyl.hxx>
++
++#include <sfx2/bindings.hxx>
++#include <svl/eitem.hxx>
++#include <svl/intitem.hxx>
++#include <svl/itemset.hxx>
++#include <svl/style.hxx>
++#include <svl/undo.hxx>
++
++#include <map>
++#include <memory>
++
++namespace sc::printscale
++{
++namespace
++{
++// invalidated one by one: SfxBindings::Invalidate(const sal_uInt16*) needs a numerically sorted array
++constexpr sal_uInt16 aScaleSlots[] = { SID_PRINTSCALE_NONE, SID_PRINTSCALE_FIT_SHEET, SID_PRINTSCALE_FIT_COLUMNS,
++                                       SID_PRINTSCALE_FIT_ROWS, SID_PRINTSCALE_OPTIONS, SID_PRINTSCALE_MENU,
++                                       SID_PREVIEW_SCALINGFACTOR, FID_RESET_PRINTZOOM, SID_STATUS_PAGESTYLE };
++
++SfxStyleSheetBase* FindPageStyle(ScDocument& rDoc, const OUString& rName)
++{
++    return rDoc.GetStyleSheetPool()->Find(rName, SfxStyleFamily::Page);
++}
++
++/// Writes the settings into the page style (and records the change for undo).
++void ModifyStyle(ScDocShell& rDocShell, const OUString& rName, const PrintScaleSettings& rSettings,
++                 SfxUndoManager* pUndoMgr)
++{
++    ScDocument& rDoc = rDocShell.GetDocument();
++    SfxStyleSheetBase* pStyle = FindPageStyle(rDoc, rName);
++    if (!pStyle)
++        return;
++
++    ScStyleSaveData aOldData;
++    if (pUndoMgr)
++        aOldData.InitFromStyle(pStyle);
++
++    SfxItemSet& rStyleSet = pStyle->GetItemSet();
++    SfxItemSet aChanges(SfxItemSet::makeFixedSfxItemSet<ATTR_PAGE_SCALE, ATTR_PAGE_SCALETOPAGES, ATTR_PAGE_SCALETO,
++                                                        ATTR_PAGE_SCALETO>(*rStyleSet.GetPool()));
++    aChanges.Put(SfxUInt16Item(ATTR_PAGE_SCALE, rSettings.nPercent));
++    aChanges.Put(SfxUInt16Item(ATTR_PAGE_SCALETOPAGES, rSettings.nPages));
++    aChanges.Put(ScPageScaleToItem(rSettings.nWidth, rSettings.nHeight));
++    // Written straight into the style, as ScDocShell::SetPrintZoom does: ScDocument::ModifyStyleSheet with a set of
++    // changes would run InvalidateTextWidth over all MaxCol() columns of a sheet that has fewer allocated (crash).
++    rStyleSet.Put(aChanges);
++
++    if (pUndoMgr)
++    {
++        ScStyleSaveData aNewData;
++        aNewData.InitFromStyle(pStyle);
++        pUndoMgr->AddUndoAction(
++            std::make_unique<ScUndoModifyStyle>(rDocShell, SfxStyleFamily::Page, aOldData, aNewData));
++    }
++    rDocShell.PageStyleModified(rName, true);
++}
++
++/// Gives the sheet its own copy of its page style and returns the name of the copy.
++OUString SplitStyle(ScDocShell& rDocShell, SCTAB nTab, SfxUndoManager* pUndoMgr)
++{
++    ScDocument& rDoc = rDocShell.GetDocument();
++    const OUString aOldName = rDoc.GetPageStyle(nTab);
++    SfxStyleSheetBase* pSource = FindPageStyle(rDoc, aOldName);
++    if (!pSource)
++        return aOldName;
++
++    OUString aTabName;
++    rDoc.GetName(nTab, aTabName);
++    const OUString aBase = "PageStyle_" + aTabName;
++    OUString aNewName = aBase;
++    for (sal_Int32 n = 2; FindPageStyle(rDoc, aNewName); ++n)
++        aNewName = aBase + "_" + OUString::number(n);
++
++    SfxStyleSheetBase& rCopy
++        = rDoc.GetStyleSheetPool()->Make(aNewName, SfxStyleFamily::Page, SfxStyleSearchBits::UserDefined);
++    if (!pSource->GetParent().isEmpty())
++        rCopy.SetParent(pSource->GetParent());
++    rCopy.GetItemSet().Put(pSource->GetItemSet());
++    if (pUndoMgr)
++    {
++        ScStyleSaveData aNoStyle, aNewData; // an empty old name: undo deletes the style, redo creates it
++        aNewData.InitFromStyle(&rCopy);
++        pUndoMgr->AddUndoAction(
++            std::make_unique<ScUndoModifyStyle>(rDocShell, SfxStyleFamily::Page, aNoStyle, aNewData));
++    }
++
++    rDoc.SetPageStyle(nTab, aNewName);
++    if (pUndoMgr)
++    {
++        auto pApply = std::make_unique<ScUndoApplyPageStyle>(rDocShell, aNewName);
++        pApply->AddSheetAction(nTab, aOldName);
++        pUndoMgr->AddUndoAction(std::move(pApply));
++    }
++    return aNewName;
++}
++}
++
++PrintScaleSettings GetSettings(const SfxItemSet& rStyleSet)
++{
++    PrintScaleSettings aSettings;
++    aSettings.nPercent = rStyleSet.Get(ATTR_PAGE_SCALE).GetValue();
++    aSettings.nPages = rStyleSet.Get(ATTR_PAGE_SCALETOPAGES).GetValue();
++    const ScPageScaleToItem& rScaleTo = rStyleSet.Get(ATTR_PAGE_SCALETO);
++    aSettings.nWidth = rScaleTo.GetWidth();
++    aSettings.nHeight = rScaleTo.GetHeight();
++    return aSettings;
++}
++
++PrintScaleSettings GetSettings(const ScDocument& rDoc, SCTAB nTab)
++{
++    SfxStyleSheetBase* pStyle
++        = rDoc.GetStyleSheetPool()->Find(rDoc.GetPageStyle(nTab), SfxStyleFamily::Page);
++    return pStyle ? GetSettings(pStyle->GetItemSet()) : PrintScaleSettings();
++}
++
++PrintScaleMode GetMode(const PrintScaleSettings& rSettings)
++{
++    if (rSettings.nPages)
++        return rSettings.nPages == 1 ? PrintScaleMode::FitSheet : PrintScaleMode::Custom;
++    if (rSettings.nWidth || rSettings.nHeight)
++    {
++        if (rSettings.nWidth == 1 && rSettings.nHeight == 1)
++            return PrintScaleMode::FitSheet;
++        if (rSettings.nWidth == 1 && rSettings.nHeight == 0)
++            return PrintScaleMode::FitColumns;
++        if (rSettings.nWidth == 0 && rSettings.nHeight == 1)
++            return PrintScaleMode::FitRows;
++        return PrintScaleMode::Custom;
++    }
++    // ScPrintFunc prints a zoom of 0 at 100 %
++    return (rSettings.nPercent == 100 || rSettings.nPercent == 0) ? PrintScaleMode::None
++                                                                    : PrintScaleMode::Custom;
++}
++
++PrintScaleSettings GetSettings(PrintScaleMode eMode)
++{
++    switch (eMode)
++    {
++        case PrintScaleMode::FitSheet:
++            return { 0, 0, 1, 1 };
++        case PrintScaleMode::FitColumns:
++            return { 0, 0, 1, 0 };
++        case PrintScaleMode::FitRows:
++            return { 0, 0, 0, 1 };
++        case PrintScaleMode::None:
++        case PrintScaleMode::Custom:
++            break;
++    }
++    return { 100, 0, 0, 0 };
++}
++
++OUString GetCustomLabel(const PrintScaleSettings& rSettings)
++{
++    if (rSettings.nPages)
++        return ScResId(STR_PRINTSCALE_CUSTOM_PAGES).replaceFirst("%1", OUString::number(rSettings.nPages));
++    if (rSettings.nWidth || rSettings.nHeight)
++    {
++        const OUString aAutomatic = ScResId(STR_PRINTSCALE_AUTOMATIC);
++        return ScResId(STR_PRINTSCALE_CUSTOM_SIZE)
++            .replaceFirst("%1", rSettings.nWidth ? OUString::number(rSettings.nWidth) : aAutomatic)
++            .replaceFirst("%2", rSettings.nHeight ? OUString::number(rSettings.nHeight) : aAutomatic);
++    }
++    return ScResId(STR_PRINTSCALE_CUSTOM_PERCENT).replaceFirst("%1", OUString::number(rSettings.nPercent));
++}
++
++bool Apply(ScDocShell& rDocShell, const std::vector<std::pair<SCTAB, PrintScaleSettings>>& rTargets)
++{
++    if (rDocShell.IsReadOnly())
++        return false;
++
++    ScDocument& rDoc = rDocShell.GetDocument();
++    const SCTAB nTabCount = rDoc.GetTableCount();
++    std::map<SCTAB, PrintScaleSettings> aChanges;
++    for (const auto& [nTab, rSettings] : rTargets)
++        if (nTab >= 0 && nTab < nTabCount && GetSettings(rDoc, nTab) != rSettings)
++            aChanges[nTab] = rSettings;
++    if (aChanges.empty())
++        return false;
++
++    SfxUndoManager* pUndoMgr = rDoc.IsUndoEnabled() ? rDocShell.GetUndoManager() : nullptr;
++    if (pUndoMgr)
++    {
++        const OUString aComment = ScResId(STR_UNDO_PRINTSCALE);
++        ViewShellId nViewShellId(-1);
++        if (ScTabViewShell* pViewSh = ScTabViewShell::GetActiveViewShell())
++            nViewShellId = pViewSh->GetViewShellId();
++        pUndoMgr->EnterListAction(aComment, aComment, 0, nViewShellId);
++    }
++
++    std::map<OUString, std::vector<SCTAB>> aTabsByStyle;
++    for (const auto& rChange : aChanges)
++        aTabsByStyle[rDoc.GetPageStyle(rChange.first)].push_back(rChange.first);
++
++    for (const auto& [rStyleName, rTabs] : aTabsByStyle)
++    {
++        // The style itself changes only when every sheet that uses it gets the same settings.
++        const PrintScaleSettings& rFirst = aChanges[rTabs.front()];
++        bool bWholeStyle = true;
++        for (SCTAB nTab = 0; nTab < nTabCount && bWholeStyle; ++nTab)
++        {
++            if (rDoc.GetPageStyle(nTab) != rStyleName)
++                continue;
++            auto it = aChanges.find(nTab);
++            bWholeStyle = it != aChanges.end() && it->second == rFirst;
++        }
++
++        if (bWholeStyle)
++            ModifyStyle(rDocShell, rStyleName, rFirst, pUndoMgr);
++        else
++            for (SCTAB nTab : rTabs)
++                ModifyStyle(rDocShell, SplitStyle(rDocShell, nTab, pUndoMgr), aChanges[nTab], pUndoMgr);
++    }
++
++    if (pUndoMgr)
++        pUndoMgr->LeaveListAction();
++
++    rDocShell.PostPaint(0, 0, 0, rDoc.MaxCol(), rDoc.MaxRow(), MAXTAB,
++                        PaintPartFlags::Grid | PaintPartFlags::Left);
++    if (SfxBindings* pBindings = rDocShell.GetViewBindings())
++    {
++        for (sal_uInt16 nSlot : aScaleSlots)
++            pBindings->Invalidate(nSlot);
++    }
++    return true;
++}
++
++bool Apply(ScDocShell& rDocShell, const std::vector<SCTAB>& rTabs, PrintScaleMode eMode)
++{
++    const PrintScaleSettings aSettings = GetSettings(eMode);
++    std::vector<std::pair<SCTAB, PrintScaleSettings>> aTargets;
++    aTargets.reserve(rTabs.size());
++    for (SCTAB nTab : rTabs)
++        aTargets.emplace_back(nTab, aSettings);
++    return Apply(rDocShell, aTargets);
++}
++
++std::optional<PrintScaleMode> ModeForSlot(sal_uInt16 nSlot)
++{
++    switch (nSlot)
++    {
++        case SID_PRINTSCALE_NONE:
++            return PrintScaleMode::None;
++        case SID_PRINTSCALE_FIT_SHEET:
++            return PrintScaleMode::FitSheet;
++        case SID_PRINTSCALE_FIT_COLUMNS:
++            return PrintScaleMode::FitColumns;
++        case SID_PRINTSCALE_FIT_ROWS:
++            return PrintScaleMode::FitRows;
++        default:
++            return std::nullopt;
++    }
++}
++
++bool ExecuteSlot(ScDocShell& rDocShell, const std::vector<SCTAB>& rTabs, sal_uInt16 nSlot)
++{
++    const std::optional<PrintScaleMode> eMode = ModeForSlot(nSlot);
++    if (!eMode)
++        return false;
++    Apply(rDocShell, rTabs, *eMode);
++    return true;
++}
++
++void GetSlotState(const ScDocShell& rDocShell, SCTAB nTab, SfxItemSet& rSet, sal_uInt16 nWhich)
++{
++    // as the page style dialog: page styles cannot change in a read-only or shared document
++    if (rDocShell.IsReadOnly() || rDocShell.IsDocShared())
++    {
++        rSet.DisableItem(nWhich);
++        return;
++    }
++    if (const std::optional<PrintScaleMode> eMode = ModeForSlot(nWhich))
++        rSet.Put(SfxBoolItem(nWhich, GetMode(GetSettings(rDocShell.GetDocument(), nTab)) == *eMode));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/docshell/docsh4.cxx
++++ b/sc/source/ui/docshell/docsh4.cxx
+@@ -2164,6 +2164,7 @@
+     {
+         case SID_STATUS_PAGESTYLE:  // click on StatusBar control
+         case SID_FORMATPAGE:
++        case SID_PRINTSCALE_OPTIONS: // HST Office: the page style dialog on the Page tab, which has the scaling
+             {
+                 if ( pReqArgs == nullptr )
+                 {
+@@ -2187,6 +2188,8 @@
+                         ScAbstractDialogFactory* pFact = ScAbstractDialogFactory::Create();
+ 
+                         VclPtr<SfxAbstractTabDialog> pDlg(pFact->CreateScStyleDlg(GetActiveDialogParent(), *pStyleSheet, true));
++                        if ( rReq.GetSlot() == SID_PRINTSCALE_OPTIONS )
++                            pDlg->SetCurPageId(u"page"_ustr);
+ 
+                         auto xRequest = std::make_shared<SfxRequest>(rReq);
+                         rReq.Ignore(); // the 'old' request is not relevant any more
+--- a/sc/source/ui/view/tabvwsh3.cxx
++++ b/sc/source/ui/view/tabvwsh3.cxx
+@@ -36,6 +36,7 @@
+ #include <scmod.hxx>
+ #include <appoptio.hxx>
+ #include <tabvwsh.hxx>
++#include <printscale.hxx>
+ #include <document.hxx>
+ #include <sc.hrc>
+ #include <helpids.h>
+@@ -484,8 +485,22 @@
+         case SID_FORMATPAGE:
+         case SID_STATUS_PAGESTYLE:
+         case SID_HFEDIT:
++        case SID_PRINTSCALE_OPTIONS:
+             GetViewData().GetDocShell()->
+                 ExecutePageStyle( *this, rReq, GetViewData().CurrentTabForData() );
++            break;
++
++        case SID_PRINTSCALE_NONE:
++        case SID_PRINTSCALE_FIT_SHEET:
++        case SID_PRINTSCALE_FIT_COLUMNS:
++        case SID_PRINTSCALE_FIT_ROWS:
++            {
++                // HST Office: the print scaling of every selected sheet, as Format ▸ Page Style ▸ Page would set it
++                const ScMarkData& rMark = GetViewData().GetMarkData();
++                sc::printscale::ExecuteSlot( *GetViewData().GetDocShell(),
++                                             std::vector<SCTAB>( rMark.begin(), rMark.end() ), nSlot );
++                rReq.Done();
++            }
+             break;
+ 
+         case SID_JUMPTOMARK:
+--- a/sc/source/ui/view/tabvwsha.cxx
++++ b/sc/source/ui/view/tabvwsha.cxx
+@@ -79,6 +79,7 @@
+ #include <viewdata.hxx>
+ #include <printfun.hxx>
+ #include <undostyl.hxx>
++#include <printscale.hxx>
+ #include <futext.hxx>
+ 
+ #include <memory>
+@@ -533,6 +534,16 @@
+                 // in protected tables
+                 if ( pDocShell && ( pDocShell->IsReadOnly() || pDocShell->IsDocShared() ) )
+                     rSet.DisableItem( nWhich );
++                break;
++
++            case SID_PRINTSCALE_NONE:
++            case SID_PRINTSCALE_FIT_SHEET:
++            case SID_PRINTSCALE_FIT_COLUMNS:
++            case SID_PRINTSCALE_FIT_ROWS:
++            case SID_PRINTSCALE_OPTIONS:
++            case SID_PRINTSCALE_MENU:
++                if ( pDocShell )
++                    sc::printscale::GetSlotState( *pDocShell, nTab, rSet, nWhich );
+                 break;
+ 
+             case SID_PRINTPREVIEW:
+--- a/sc/source/ui/view/prevwsh.cxx
++++ b/sc/source/ui/view/prevwsh.cxx
+@@ -48,6 +48,7 @@
+ #include <prevwsh.hxx>
+ #include <preview.hxx>
+ #include <printfun.hxx>
++#include <printscale.hxx>
+ #include <scmod.hxx>
+ #include <inputhdl.hxx>
+ #include <docsh.hxx>
+@@ -562,7 +563,16 @@
+         case SID_FORMATPAGE:
+         case SID_STATUS_PAGESTYLE:
+         case SID_HFEDIT:
++        case SID_PRINTSCALE_OPTIONS:
+             pDocShell->ExecutePageStyle( *this, rReq, pPreview->GetTab() );
++            break;
++        case SID_PRINTSCALE_NONE:
++        case SID_PRINTSCALE_FIT_SHEET:
++        case SID_PRINTSCALE_FIT_COLUMNS:
++        case SID_PRINTSCALE_FIT_ROWS:
++            // HST Office: the print scaling of the sheet shown; the preview follows the repaint of the change
++            sc::printscale::ExecuteSlot( *pDocShell, { pPreview->GetTab() }, nSlot );
++            rReq.Done();
+             break;
+         case SID_REPAINT:
+             pPreview->Invalidate();
+@@ -855,6 +865,14 @@
+             case SID_PREVIEW_MARGIN:
+                 if( pDocShell->IsReadOnly() )
+                     rSet.DisableItem( nWhich );
++                break;
++            case SID_PRINTSCALE_NONE:
++            case SID_PRINTSCALE_FIT_SHEET:
++            case SID_PRINTSCALE_FIT_COLUMNS:
++            case SID_PRINTSCALE_FIT_ROWS:
++            case SID_PRINTSCALE_OPTIONS:
++            case SID_PRINTSCALE_MENU:
++                sc::printscale::GetSlotState( *pDocShell, nTab, rSet, nWhich );
+                 break;
+         }
+ 
+--- a/sc/source/ui/unoobj/docuno.cxx
++++ b/sc/source/ui/unoobj/docuno.cxx
+@@ -121,6 +121,7 @@
+ #include <pfuncache.hxx>
+ #include <postit.hxx>
+ #include <printfun.hxx>
++#include <printscale.hxx>
+ #include <rangeutl.hxx>
+ #include <scmod.hxx>
+ #include <scresid.hxx>
+@@ -129,6 +130,7 @@
+ #include <sheetevents.hxx>
+ #include <styleuno.hxx>
+ #include <tabvwsh.hxx>
++#include <viewuno.hxx>
+ #include <targuno.hxx>
+ #include <unonames.hxx>
+ #include <ViewSettingsSequenceDefines.hxx>
+@@ -259,6 +261,23 @@
+ public:
+     ScPrintUIOptions();
+     void SetDefaults();
++
++    /** HST Office: offers the print scaling list ("scalingbox", property "PrintScaling") on the General tab of
++        the print dialog, with the choice of the current sheet selected, and remembers the scaling of every
++        sheet for the custom entry. Not offered when the document cannot be changed. */
++    void SetScaling(const ScDocShell& rDocShell, SCTAB nCurTab);
++
++    /** HST Office: once the user has changed the scaling choice of the dialog, gives the printed sheets that
++        scaling (an undoable change of their page styles, see sc::printscale::Apply), so that the preview and
++        the printout follow it. Returns whether the document changed. */
++    bool ApplyScaling(ScDocShell& rDocShell, const uno::Sequence<beans::PropertyValue>& rOptions,
++                      const ScMarkData& rMark);
++
++private:
++    std::optional<size_t> mnScalingIndex;            // of the list in m_aUIProperties
++    std::vector<sc::PrintScaleSettings> maScaleSnapshot; // per sheet, when the dialog opened
++    sal_Int32 mnInitialScaling = -1;                 // -1: no list offered
++    bool mbScalingChosen = false;
+ };
+ 
+ ScPrintUIOptions::ScPrintUIOptions()
+@@ -381,6 +400,115 @@
+             rPropValue.Value <<= aUIProp;
+         }
+     }
++}
++
++void ScPrintUIOptions::SetScaling(const ScDocShell& rDocShell, SCTAB nCurTab)
++{
++    mnInitialScaling = -1;
++    mbScalingChosen = false;
++    maScaleSnapshot.clear();
++
++    if (rDocShell.IsReadOnly() || rDocShell.IsDocShared())
++    {
++        if (mnScalingIndex)
++        {
++            m_aUIProperties.erase(m_aUIProperties.begin() + *mnScalingIndex);
++            mnScalingIndex.reset();
++        }
++        return;
++    }
++
++    const ScDocument& rDoc = rDocShell.GetDocument();
++    for (SCTAB nTab = 0; nTab < rDoc.GetTableCount(); ++nTab)
++        maScaleSnapshot.push_back(sc::printscale::GetSettings(rDoc, nTab));
++    const sc::PrintScaleSettings aCurrent = (nCurTab >= 0 && o3tl::make_unsigned(nCurTab) < maScaleSnapshot.size())
++                                                ? maScaleSnapshot[nCurTab]
++                                                : sc::PrintScaleSettings();
++    const sc::PrintScaleMode eCurrent = sc::printscale::GetMode(aCurrent);
++
++    // the entries in the order of sc::PrintScaleMode; the custom entry only when the sheet has custom scaling
++    std::vector<OUString> aChoices{ ScResId(STR_PRINTSCALE_NONE), ScResId(STR_PRINTSCALE_FIT_SHEET),
++                                    ScResId(STR_PRINTSCALE_FIT_COLUMNS), ScResId(STR_PRINTSCALE_FIT_ROWS) };
++    if (eCurrent == sc::PrintScaleMode::Custom)
++        aChoices.push_back(sc::printscale::GetCustomLabel(aCurrent));
++    mnInitialScaling = static_cast<sal_Int32>(eCurrent);
++
++    beans::PropertyValue aControl;
++    aControl.Value = setChoiceListControlOpt(u"scalingbox"_ustr, OUString(), uno::Sequence<OUString>(),
++                                             u"PrintScaling"_ustr, comphelper::containerToSequence(aChoices),
++                                             mnInitialScaling);
++    if (mnScalingIndex)
++        m_aUIProperties[*mnScalingIndex] = std::move(aControl);
++    else
++    {
++        m_aUIProperties.push_back(std::move(aControl));
++        mnScalingIndex = m_aUIProperties.size() - 1;
++    }
++}
++
++bool ScPrintUIOptions::ApplyScaling(ScDocShell& rDocShell, const uno::Sequence<beans::PropertyValue>& rOptions,
++                                    const ScMarkData& rMark)
++{
++    if (mnInitialScaling < 0)
++        return false;
++
++    sal_Int32 nChoice = -1;
++    for (const auto& rOption : rOptions)
++        if (rOption.Name == "PrintScaling")
++            rOption.Value >>= nChoice;
++    if (nChoice < 0 || nChoice > static_cast<sal_Int32>(sc::PrintScaleMode::Custom))
++        return false;
++
++    // Opening the dialog changes nothing; the sheets follow the list once the user has picked an entry.
++    if (nChoice != mnInitialScaling)
++        mbScalingChosen = true;
++    if (!mbScalingChosen)
++        return false;
++
++    const auto eChoice = static_cast<sc::PrintScaleMode>(nChoice);
++    std::vector<std::pair<SCTAB, sc::PrintScaleSettings>> aTargets;
++    for (SCTAB nTab : rMark)
++    {
++        if (eChoice != sc::PrintScaleMode::Custom)
++            aTargets.emplace_back(nTab, sc::printscale::GetSettings(eChoice));
++        else if (o3tl::make_unsigned(nTab) < maScaleSnapshot.size())
++            aTargets.emplace_back(nTab, maScaleSnapshot[nTab]); // what the sheet had when the dialog opened
++    }
++    return sc::printscale::Apply(rDocShell, aTargets);
++}
++
++/// The sheet the print dialog was opened on: the current sheet of the view passed as "View".
++static SCTAB lcl_GetPrintDialogTab(const uno::Sequence<beans::PropertyValue>& rOptions)
++{
++    for (const auto& rOption : rOptions)
++    {
++        if (rOption.Name != "View")
++            continue;
++        uno::Reference<frame::XController> xView;
++        rOption.Value >>= xView;
++        if (ScTabViewObj* pViewObj = dynamic_cast<ScTabViewObj*>(xView.get()))
++            if (ScTabViewShell* pViewSh = pViewObj->GetViewShell())
++                return pViewSh->GetViewData().CurrentTabForData();
++    }
++    return ScDocShell::GetCurTab();
++}
++
++/// Appends the print dialog options of Calc to rSequence (and refreshes them when the dialog asks for them).
++static void lcl_AppendPrintUIOptions(std::unique_ptr<ScPrintUIOptions>& rpPrinterOptions, const ScDocShell& rDocShell,
++                                     const uno::Sequence<beans::PropertyValue>& rOptions,
++                                     uno::Sequence<beans::PropertyValue>& rSequence)
++{
++    if( ! rpPrinterOptions )
++        rpPrinterOptions.reset(new ScPrintUIOptions);
++    else
++        rpPrinterOptions->SetDefaults();
++
++    // the print dialog asks for its options with an "ExtraPrintUIOptions" entry (SfxPrinterController)
++    if (std::any_of(rOptions.begin(), rOptions.end(),
++                    [](const beans::PropertyValue& rOption) { return rOption.Name == "ExtraPrintUIOptions"; }))
++        rpPrinterOptions->SetScaling(rDocShell, lcl_GetPrintDialogTab(rOptions));
++
++    rpPrinterOptions->appendPrintUIOptions( rSequence );
+ }
+ 
+ void ScModelObj::CreateAndSet(ScDocShell* pDocSh)
+@@ -1925,6 +2053,13 @@
+     if ( !FillRenderMarkData( aSelection, rOptions, aMark, aStatus, aPagesStr, bRenderToGraphic ) )
+         return 0;
+ 
++    // HST Office: a scaling picked in the print dialog goes to the printed sheets before the pages are counted
++    if ( pPrinterOptions && pPrinterOptions->ApplyScaling( *pDocShell, rOptions, aMark ) )
++    {
++        pPrintFuncCache.reset();
++        m_pPrintState.reset();
++    }
++
+     Size aPrintPageSize;
+     bool bPrintPageLandscape = false;
+     bool bUsePrintDialogSetting = false;
+@@ -2089,11 +2224,7 @@
+             { SC_UNONAME_PAGESIZE, uno::Any(aPageSize) }
+         }));
+ 
+-        if( ! pPrinterOptions )
+-            pPrinterOptions.reset(new ScPrintUIOptions);
+-        else
+-            pPrinterOptions->SetDefaults();
+-        pPrinterOptions->appendPrintUIOptions( aSequence );
++        lcl_AppendPrintUIOptions( pPrinterOptions, *pDocShell, rOptions, aSequence );
+         return aSequence;
+ 
+     }
+@@ -2144,11 +2275,7 @@
+             comphelper::makePropertyValue(SC_UNONAME_CALCPAGEPOS, aCalcPagePos)
+         };
+ 
+-        if( ! pPrinterOptions )
+-            pPrinterOptions.reset(new ScPrintUIOptions);
+-        else
+-            pPrinterOptions->SetDefaults();
+-        pPrinterOptions->appendPrintUIOptions( aSequence );
++        lcl_AppendPrintUIOptions( pPrinterOptions, *pDocShell, rOptions, aSequence );
+         return aSequence;
+     }
+     else if ( aMark.IsMarked() )
+@@ -2272,11 +2399,7 @@
+         pArray[4].Value <<= aCalcPagePos;
+     }
+ 
+-    if( ! pPrinterOptions )
+-        pPrinterOptions.reset(new ScPrintUIOptions);
+-    else
+-        pPrinterOptions->SetDefaults();
+-    pPrinterOptions->appendPrintUIOptions( aSequence );
++    lcl_AppendPrintUIOptions( pPrinterOptions, *pDocShell, rOptions, aSequence );
+     return aSequence;
+ }
+ 
+--- a/vcl/source/window/printdlg.cxx
++++ b/vcl/source/window/printdlg.cxx
+@@ -1783,10 +1783,16 @@
+         else if ( aCtrlType == "List" )
+         {
+             std::unique_ptr<weld::ComboBox> xList = m_xBuilder->weld_combo_box(aID);
++            // HST Office: the scaling list of Sheets has a label of its own, hidden until the list is offered
++            std::unique_ptr<weld::Label> xListLabel;
++            if (xList && aID == "scalingbox")
++                xListLabel = m_xBuilder->weld_label(aID + "label");
+             if (!xList && mxCustomOptionsUIBuilder)
+                 xList = mxCustomOptionsUIBuilder->weld_combo_box(aID);
+             if (!xList)
+                 continue;
++            if (xListLabel)
++                xListLabel->show();
+ 
+             // iterate options
+             for (const auto& rChoice : aChoices)
+--- a/vcl/uiconfig/ui/printdialog.ui
++++ b/vcl/uiconfig/ui/printdialog.ui
+@@ -518,7 +518,7 @@
+                                     <property name="margin-top">6</property>
+                                     <property name="row-spacing">6</property>
+                                     <child>
+-                                      <!-- n-columns=2 n-rows=3 -->
++                                      <!-- n-columns=2 n-rows=4 -->
+                                       <object class="GtkGrid" id="rangegrid">
+                                         <property name="visible">True</property>
+                                         <property name="can-focus">False</property>
+@@ -644,6 +644,36 @@
+                                           <packing>
+                                             <property name="left-attach">1</property>
+                                             <property name="top-attach">2</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <!-- HST Office: print scaling of HST Sheets; shown when the application offers it -->
++                                          <object class="GtkLabel" id="scalingboxlabel">
++                                            <property name="can-focus">False</property>
++                                            <property name="halign">start</property>
++                                            <property name="label" translatable="yes" context="printdialog|scalingboxlabel">Scal_ing:</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="mnemonic-widget">scalingbox</property>
++                                            <property name="xalign">1</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">3</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkComboBoxText" id="scalingbox">
++                                            <property name="can-focus">False</property>
++                                            <property name="hexpand">True</property>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="scalingbox-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|scalingbox">Choose how the printed sheets are scaled: actual size, the whole sheet on one page, all columns on one page or all rows on one page.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">3</property>
+                                           </packing>
+                                         </child>
+                                       </object>
+--- a/sc/UIConfig_scalc.mk
++++ b/sc/UIConfig_scalc.mk
+@@ -38,6 +38,7 @@
+ 	sc/uiconfig/scalc/popupmenu/pivot \
+ 	sc/uiconfig/scalc/popupmenu/preview \
+ 	sc/uiconfig/scalc/popupmenu/printranges \
++	sc/uiconfig/scalc/popupmenu/printscale \
+ 	sc/uiconfig/scalc/popupmenu/rowheader \
+ 	sc/uiconfig/scalc/popupmenu/row_operations \
+ 	sc/uiconfig/scalc/popupmenu/sheettab \
+--- /dev/null
++++ b/sc/uiconfig/scalc/popupmenu/printscale.xml
+@@ -0,0 +1,15 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++-->
++<!-- HST Office: the print scaling choices of HST Sheets (.uno:PrintScaleMenu: ribbon, print preview toolbar). -->
++<menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
++  <menu:menuitem menu:id=".uno:PrintScaleNone" menu:style="radio"/>
++  <menu:menuitem menu:id=".uno:PrintScaleFitSheet" menu:style="radio"/>
++  <menu:menuitem menu:id=".uno:PrintScaleFitColumns" menu:style="radio"/>
++  <menu:menuitem menu:id=".uno:PrintScaleFitRows" menu:style="radio"/>
++  <menu:menuseparator/>
++  <menu:menuitem menu:id=".uno:PrintScaleOptions"/>
++</menu:menupopup>
+--- a/sc/uiconfig/scalc/menubar/menubar.xml
++++ b/sc/uiconfig/scalc/menubar/menubar.xml
+@@ -417,6 +417,16 @@
+       <menu:menuitem menu:id=".uno:ParagraphDialog"/>
+       <menu:menuitem menu:id=".uno:PageFormatDialog"/>
+       <menu:menuitem menu:id=".uno:PrintRangesMenu"/>
++      <menu:menu menu:id=".uno:PrintScaleMenu">
++        <menu:menupopup>
++          <menu:menuitem menu:id=".uno:PrintScaleNone" menu:style="radio"/>
++          <menu:menuitem menu:id=".uno:PrintScaleFitSheet" menu:style="radio"/>
++          <menu:menuitem menu:id=".uno:PrintScaleFitColumns" menu:style="radio"/>
++          <menu:menuitem menu:id=".uno:PrintScaleFitRows" menu:style="radio"/>
++          <menu:menuseparator/>
++          <menu:menuitem menu:id=".uno:PrintScaleOptions"/>
++        </menu:menupopup>
++      </menu:menu>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:ConditionalFormatMenu"/>
+       <menu:menuitem menu:id=".uno:AutoFormat"/>
+--- a/sc/uiconfig/scalc/toolbar/previewbar.xml
++++ b/sc/uiconfig/scalc/toolbar/previewbar.xml
+@@ -33,6 +33,7 @@
+  <toolbar:toolbarseparator/>
+  <toolbar:toolbaritem xlink:href=".uno:Margins"/>
+  <toolbar:toolbarseparator/>
++ <toolbar:toolbaritem xlink:href=".uno:PrintScaleMenu" toolbar:style="text"/>
+  <toolbar:toolbaritem xlink:href=".uno:ScalingFactor"/>
+  <toolbar:toolbarseparator/>
+  <toolbar:toolbaritem xlink:href=".uno:ClosePreview" toolbar:style="image text" />
+--- a/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
+@@ -359,6 +359,55 @@
+           <value xml:lang="en-US">Scaling Factor</value>
+         </prop>
+       </node>
++      <!-- HST Office: print scaling of the selected sheets (print dialog, Page Layout tab, Format menu, print preview) -->
++      <node oor:name=".uno:PrintScaleMenu" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Scaling</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Print scaling of the selected sheets</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:PrintScaleNone" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">No Scaling (Actual Size)</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Print the sheets at their actual size</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:PrintScaleFitSheet" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Fit Sheet on One Page</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Shrink the printout so that the whole sheet fits on one page</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:PrintScaleFitColumns" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Fit All Columns on One Page</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Shrink the printout so that it is one page wide</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:PrintScaleFitRows" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Fit All Rows on One Page</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Shrink the printout so that it is one page high</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:PrintScaleOptions" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Custom Scaling Options...</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Set the scaling on the Page tab of the page style</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:ClosePreview" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Close Preview</value>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
+@@ -319,6 +319,21 @@
+           <value>freezepanes</value>
+         </prop>
+       </node>
++      <!-- HST Office: the print scaling choices of Sheets (popupmenu/printscale.xml) -->
++      <node oor:name="HstPrintScaleMenu" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:PrintScaleMenu</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.sheet.SpreadsheetDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.framework.ResourceMenuController</value>
++        </prop>
++        <prop oor:name="Value">
++          <value>printscale</value>
++        </prop>
++      </node>
+       <node oor:name="c27" oor:op="replace">
+         <prop oor:name="Command">
+           <value>.uno:InsertFieldCtrl</value>
+@@ -2087,6 +2102,18 @@
+           <value>com.sun.star.comp.framework.GenericPopupToolbarController</value>
+         </prop>
+       </node>
++      <!-- HST Office: "Scaling" drop-down of the Sheets print preview toolbar and ribbon -->
++      <node oor:name="HstPrintScaleControl" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:PrintScaleMenu</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.sheet.SpreadsheetDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.framework.GenericPopupToolbarController</value>
++        </prop>
++      </node>
+       <node oor:name="ColumnOperationsControl" oor:op="replace">
+         <prop oor:name="Command">
+           <value>.uno:ColumnOperations</value>
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -19136,6 +19136,54 @@
+ msgid "%PRODUCTNAME %s"
+ msgstr "%PRODUCTNAME Calc"
+ 
++#. hstPSC
++#: sc/inc/strings.hrc
++msgctxt "STR_PRINTSCALE_NONE"
++msgid "No Scaling (print sheets at their actual size)"
++msgstr "Không thu phóng (in kích thước thật)"
++
++#. hstPSC
++#: sc/inc/strings.hrc
++msgctxt "STR_PRINTSCALE_FIT_SHEET"
++msgid "Fit Sheet on One Page"
++msgstr "Vừa trang tính trên một trang"
++
++#. hstPSC
++#: sc/inc/strings.hrc
++msgctxt "STR_PRINTSCALE_FIT_COLUMNS"
++msgid "Fit All Columns on One Page"
++msgstr "Vừa tất cả các cột trên một trang"
++
++#. hstPSC
++#: sc/inc/strings.hrc
++msgctxt "STR_PRINTSCALE_FIT_ROWS"
++msgid "Fit All Rows on One Page"
++msgstr "Vừa tất cả các hàng trên một trang"
++
++#. hstPSC
++#: sc/inc/strings.hrc
++msgctxt "STR_PRINTSCALE_CUSTOM_PERCENT"
++msgid "Custom Scaling: %1%"
++msgstr "Thu phóng tùy chỉnh: %1%"
++
++#. hstPSC
++#: sc/inc/strings.hrc
++msgctxt "STR_PRINTSCALE_CUSTOM_PAGES"
++msgid "Custom Scaling: fit on %1 pages"
++msgstr "Thu phóng tùy chỉnh: vừa %1 trang"
++
++#. hstPSC
++#: sc/inc/strings.hrc
++msgctxt "STR_PRINTSCALE_CUSTOM_SIZE"
++msgid "Custom Scaling: %1 pages wide by %2 pages tall"
++msgstr "Thu phóng tùy chỉnh: rộng %1 trang, cao %2 trang"
++
++#. hstPSC
++#: sc/inc/strings.hrc
++msgctxt "STR_PRINTSCALE_AUTOMATIC"
++msgid "automatic"
++msgstr "tự động"
++
+ #. 4BEKq
+ #: sc/inc/strings.hrc:126
+ msgctxt "SCSTR_DDEDOC_NOT_LOADED"
+--- a/translations/source/vi/vcl/messages.po
++++ b/translations/source/vi/vcl/messages.po
+@@ -3039,6 +3039,18 @@
+ msgid "Enter the number of copies that you want to print."
+ msgstr ""
+ 
++#. hstPSC
++#: vcl/uiconfig/ui/printdialog.ui
++msgctxt "printdialog|scalingboxlabel"
++msgid "Scal_ing:"
++msgstr "T_hu phóng:"
++
++#. hstPSC
++#: vcl/uiconfig/ui/printdialog.ui
++msgctxt "printdialog|extended_tip|scalingbox"
++msgid "Choose how the printed sheets are scaled: actual size, the whole sheet on one page, all columns on one page or all rows on one page."
++msgstr "Chọn cách thu phóng các trang tính khi in: kích thước thật, cả trang tính trên một trang, tất cả các cột trên một trang hoặc tất cả các hàng trên một trang."
++
+ #. UKYwM
+ #: vcl/uiconfig/ui/printdialog.ui:673
+ msgctxt "printdialog|includeevenodd"
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -969,6 +969,126 @@
+ msgid "Scaling Factor"
+ msgstr "Hệ số tỷ lệ"
+ 
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleMenu\n"
++"Label\n"
++"value.text"
++msgid "Scaling"
++msgstr "Thu phóng"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleMenu\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Print scaling of the selected sheets"
++msgstr "Thu phóng khi in các trang tính đang chọn"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleNone\n"
++"Label\n"
++"value.text"
++msgid "No Scaling (Actual Size)"
++msgstr "Không thu phóng (in kích thước thật)"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleNone\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Print the sheets at their actual size"
++msgstr "In các trang tính theo kích thước thật"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleFitSheet\n"
++"Label\n"
++"value.text"
++msgid "Fit Sheet on One Page"
++msgstr "Vừa trang tính trên một trang"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleFitSheet\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Shrink the printout so that the whole sheet fits on one page"
++msgstr "Thu nhỏ bản in để cả trang tính vừa một trang"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleFitColumns\n"
++"Label\n"
++"value.text"
++msgid "Fit All Columns on One Page"
++msgstr "Vừa tất cả các cột trên một trang"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleFitColumns\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Shrink the printout so that it is one page wide"
++msgstr "Thu nhỏ bản in để tất cả các cột vừa chiều ngang một trang"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleFitRows\n"
++"Label\n"
++"value.text"
++msgid "Fit All Rows on One Page"
++msgstr "Vừa tất cả các hàng trên một trang"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleFitRows\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Shrink the printout so that it is one page high"
++msgstr "Thu nhỏ bản in để tất cả các hàng vừa chiều dọc một trang"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleOptions\n"
++"Label\n"
++"value.text"
++msgid "Custom Scaling Options..."
++msgstr "Tùy chọn thu phóng"
++
++#. hstPSC
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:PrintScaleOptions\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Set the scaling on the Page tab of the page style"
++msgstr "Đặt thu phóng ở thẻ Trang của kiểu trang"
++
+ #. pimpB
+ #: CalcCommands.xcu
+ msgctxt ""
