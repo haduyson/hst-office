@@ -46,6 +46,7 @@ SCHEMA = {
     "locatorLabel": "bool",                     # [15, tr. 314–315] or [15, 314–315] (ĐH Hồng Đức)
     "locatorSep": "str",
     "yearSuffix": "bool",                       # 2010a, 2010b
+    "disambiguateInitials": "bool",             # (J. Smith, 2001; A. Smith, 2001): APA 7 §8.20
     # entries
     "quotes": "enum:curly|straight|single|none",
     "punctInQuote": "bool",
@@ -73,7 +74,7 @@ DEFAULTS = {
     "etAlTerm": {"vi": "và cộng sự", "other": "et al."}, "etAlComma": False, "citeEtAl": {"min": 3, "use": 1},
     "citeAnd": "&", "citeAndComma": "never", "citeViName": "full", "brackets": "[]", "multiCite": "combined",
     "compress": True, "citeSort": True, "collapseYears": False, "citeYear": True, "citeYearSep": ", ",
-    "citeItemSep": "; ", "locatorLabel": True, "locatorSep": ", ", "yearSuffix": False, "quotes": "curly",
+    "citeItemSep": "; ", "locatorLabel": True, "locatorSep": ", ", "yearSuffix": False, "disambiguateInitials": False, "quotes": "curly",
     "punctInQuote": False, "pageRange": "expanded", "pageDash": "–", "doiPrefix": "https://doi.org/",
     "publisherPrefix": "", "titleCase": "as-is", "bibLabel": "", "hangingIndent": True, "subsequentAuthor": "",
     "ibid": True, "shortNoteVi": "short-title", "noteEtAl": {"min": 3, "use": 1},

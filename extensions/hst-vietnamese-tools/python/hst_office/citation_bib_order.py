@@ -77,16 +77,33 @@ def _suffix(index):
     return letters[index] if index < 26 else letters[index // 26 - 1] + letters[index % 26]
 
 
-def year_suffixes(arranged, style):
+def initials_needed(arranged, style):
+    """Family names shared by first authors with different given names (they get initials in the text)."""
+    if not style.options.get("disambiguateInitials"):
+        return set()
+    givens = {}
+    for _, group in arranged:
+        for item in group:
+            people = creators(item)
+            if people and people[0].get("family") and not names.is_vietnamese(people[0]):
+                first = people[0]
+                family = render_names.short_person(first, style.options)
+                givens.setdefault(family, set()).add(names.initials(first.get("given", "")))
+    return {family for family, found in givens.items() if len(found) > 1}
+
+
+def year_suffixes(arranged, style, initials_for=None):
     """{id: "a"} for works whose in-text author and year would otherwise be identical."""
     opts = style.options
     if not opts["yearSuffix"]:
         return {}
+    initials_for = initials_needed(arranged, style) if initials_for is None else initials_for
     buckets = {}
     for _, group in arranged:
         for item in group:
             people = creators(item)
-            who = render_names.cite_names(people, opts, language.group_of(item)) if people else item.get("title", "")
+            who = render_names.cite_names(people, opts, language.group_of(item), initials_for=initials_for) \
+                if people else item.get("title", "")
             buckets.setdefault((who, year_text(item.get("issued"))), []).append(item["id"])
     result = {}
     for ids in buckets.values():

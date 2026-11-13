@@ -72,7 +72,12 @@ def is_vietnamese(name):
         return False
     if "hst-vi" in name:
         return bool(name["hst-vi"])
-    return looks_vietnamese((name.get("family", "") + " " + name.get("given", "")).split())
+    return _guess_vietnamese(name.get("family", ""), name.get("given", ""))
+
+
+@functools.lru_cache(maxsize=8192)
+def _guess_vietnamese(family, given):
+    return looks_vietnamese((family + " " + given).split())
 
 
 def is_organization(text):

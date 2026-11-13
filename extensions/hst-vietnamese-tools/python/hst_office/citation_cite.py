@@ -78,10 +78,10 @@ def numeric_cluster(cites, number_of, style):
     return [(opening + delimiter.join(pieces) + closing, "")]
 
 
-def _who(item, opts, lang):
+def _who(item, opts, lang, initials_for=()):
     people = bib_order.creators(item)
     if people:
-        return [(render_names.cite_names(people, opts, lang), "")]
+        return [(render_names.cite_names(people, opts, lang, initials_for=initials_for), "")]
     title = item.get("title-short") or item.get("title", "").split(": ")[0] or "?"
     if item.get("type") in _ITALIC_TITLES:
         return [(title, "i")]
@@ -93,7 +93,7 @@ def _year(item, opts, suffix):
     return text or term("no-date", opts["language"]) + ("-" + suffix if suffix else "")
 
 
-def author_date_cluster(cites, items, suffixes, style, narrative=False, ambiguous_authors=()):
+def author_date_cluster(cites, items, suffixes, style, narrative=False, ambiguous_authors=(), initials_for=()):
     """Runs of an author–date (or MLA author–page) cluster."""
     opts = style.options
     prepared = []
@@ -103,7 +103,7 @@ def author_date_cluster(cites, items, suffixes, style, narrative=False, ambiguou
             prepared.append((cite, None, [("?", "")], ""))
             continue
         lang = opts["language"] if opts["termLanguage"] == "document" else language.group_of(item)
-        who = _who(item, opts, lang)
+        who = _who(item, opts, lang, initials_for)
         prepared.append((cite, item, who, _year(item, opts, suffixes.get(item["id"], ""))))
     if opts["citeSort"] and not narrative:
         prepared.sort(key=lambda p: bib_order.alpha_key(p[1], opts) if p[1] else ((), 0, ()))

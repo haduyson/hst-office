@@ -5,6 +5,7 @@ import unittest
 import _paths  # noqa: F401
 
 from hst_office import citation_cite as cite
+from hst_office import citation_engine as engine
 from hst_office import citation_runs as runs
 from hst_office import citation_style as styles
 
@@ -89,9 +90,24 @@ class AuthorDate(unittest.TestCase):
     def test_chicago_mla_harvard(self):
         self.assertEqual(author_date("chicago-tac-gia-nam", [{"id": "s19", "locator": "15"}]), "(Smith 2019, 15)")
         self.assertEqual(author_date("mla-9", [{"id": "s19", "locator": "15"}]), "(Smith 15)")
-        self.assertEqual(author_date("mla-9", ids("many")), "(Romer et al.)")
+        self.assertEqual(author_date("mla-9", ids("many")), "(Romer và cộng sự)")  # Vietnamese document
+        self.assertEqual(author_date("mla-9", ids("many"), language="en"), "(Romer et al.)")
         self.assertEqual(author_date("harvard", ids("many"), language="en"), "(Romer, Doe and Roe, 2006)")
         self.assertEqual(author_date("apa-7", ids("missing")), "(?)")
+
+    def test_apa_initials_for_shared_family_names(self):
+        """APA 7 §8.20: different first authors with one family name get initials; same author, same year: a/b."""
+        items = {"j1": {"id": "j1", "title": "A", "issued": {"date-parts": [[2001]]},
+                        "author": [{"family": "Smith", "given": "John"}]},
+                 "j2": {"id": "j2", "title": "B", "issued": {"date-parts": [[2001]]},
+                        "author": [{"family": "Smith", "given": "John"}]},
+                 "a1": {"id": "a1", "title": "C", "issued": {"date-parts": [[2001]]},
+                        "author": [{"family": "Smith", "given": "Ann"}, {"family": "Doe"}]}}
+        clusters = [{"citationID": "x", "items": [{"id": i} for i in ("j1", "j2", "a1")]}]
+        result = engine.process(styles.load_style("apa-7"), items, clusters, document_language="en")
+        self.assertEqual(result["citations"][0]["text"], "(A. Smith & Doe, 2001; J. Smith, 2001a, 2001b)")
+        mla = engine.process(styles.load_style("mla-9"), items, clusters, document_language="en")
+        self.assertNotIn("J. Smith", mla["citations"][0]["text"])  # option off in MLA
 
 
 if __name__ == "__main__":

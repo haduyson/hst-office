@@ -15,7 +15,6 @@ _FLAG_NAMES = (("i", "italic"), ("b", "bold"), ("s", "superscript"))
 _END = ".?!"
 _CLOSE_QUOTES = "”’\""
 
-
 _FLAG_CACHE = {}
 
 
@@ -45,9 +44,6 @@ class Out:
                 return stripped[-1]
         return ""
 
-    def text(self):
-        return "".join(text for text, _ in self.runs)
-
     def _trim_tail(self):
         """Drop a trailing separator (", ", "; ", ": ") before new punctuation takes its place."""
         while self.runs:
@@ -70,7 +66,9 @@ class Out:
     def add(self, text, flags=""):
         if not text:
             return
-        visible = self.visible_last()
+        last = self.runs[-1][0] if self.runs else ""  # runs are never empty strings
+        tail = last.rstrip(" ")
+        visible = tail[-1] if tail else self.visible_last()
         first = text.lstrip(" ")[:1]
         if visible and first and first in ".,;:" and visible in ",;:":
             self._trim_tail()  # "Nxb Giáo dục, " + "." -> "Nxb Giáo dục."
@@ -78,15 +76,22 @@ class Out:
             text = text.lstrip(" ")
         if visible and first == "." and visible in _END:
             text = text.lstrip(" ")[1:]  # "J. A." + ". " -> "J. A. "; "Title?" + "." -> "Title?"
-        prev = self.last_char()
+        prev = self.last_char() if not self.runs or self.runs[-1][0] is not last else last[-1:]
         if prev == " " and text.startswith(" "):
             text = text.lstrip(" ")
         if text:
             self.runs.append((text, _norm_flags(flags)))
 
-    def extend(self, runs, extra_flags=""):
-        for text, flags in runs:
-            self.add(text, _norm_flags(flags + extra_flags))
+    def extend(self, runs, extra_flags="", collapsed=False):
+        """``collapsed``: runs of another Out; once one is kept unchanged and shows more than ", ; :", the rest were
+        tidied against the same predecessors and are appended as they are (saves re-adding per nesting level)."""
+        for index, (text, flags) in enumerate(runs):
+            flags = flags + extra_flags if extra_flags else flags
+            before = len(self.runs)
+            self.add(text, flags)
+            if collapsed and len(self.runs) == before + 1 and self.runs[-1][0] is text and text.strip(" ,;:"):
+                self.runs.extend((t, _norm_flags(f + extra_flags if extra_flags else f)) for t, f in runs[index + 1:])
+                return
 
     def mark(self):
         return len(self.runs)

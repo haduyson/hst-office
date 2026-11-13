@@ -16,15 +16,26 @@ def year(item):
 
 
 class FromStyles(unittest.TestCase):
-    """Every sample, printed by a style and pasted back, keeps its title, year and number of authors."""
+    """Every sample, printed by a style and pasted back, keeps its title (title case aside), its year (when the style
+    prints one) and its authors: the same number with the same first family name, or the listed ones before
+    "et al."/"và cộng sự"."""
+
+    def same_authors(self, parsed, item, line):
+        def family(name):
+            return (name.get("family") or name.get("literal") or "").lower()
+        want, got = item.get("author", []), parsed.get("author", [])
+        truncated = any(word in line for word in ("et al", "cộng sự"))
+        count = len(want) == len(got) or (truncated and 0 < len(got) < len(want))
+        return count and (not want or bool(got) and family(got[0]) == family(want[0]))
 
     def check(self, style_id, minimum):
         style, good, failures = styles.load_style(style_id), 0, []
         for item in golden.samples():
             line = runs.plain(engine.entry_runs(style, item))
             parsed, info = paste.parse_reference(line)
-            if (parsed.get("title") == item["title"] and year(parsed) == year(item)
-                    and len(parsed.get("author", [])) == len(item.get("author", []))):
+            printed_year = year(item) is not None and str(year(item)) in line
+            if (parsed.get("title", "").lower() == item["title"].lower() and self.same_authors(parsed, item, line)
+                    and (year(parsed) == year(item) or not printed_year and year(parsed) is None)):
                 good += 1
             else:
                 failures.append(line)
@@ -37,7 +48,16 @@ class FromStyles(unittest.TestCase):
     def test_apa_harvard_vancouver(self):
         self.check("apa-7", 21)
         self.check("harvard", 21)
-        self.check("vancouver", 19)
+        self.check("vancouver", 21)
+        self.check("ama-11", 21)
+
+    def test_ieee_chicago_mla_iso(self):
+        self.check("ieee", 21)
+        self.check("chicago-tac-gia-nam", 20)
+        self.check("chicago-chu-thich", 20)
+        self.check("mla-9", 19)
+        self.check("iso-690-so", 21)
+        self.check("iso-690-tac-gia-nam", 21)
 
 
 class Typed(unittest.TestCase):
@@ -77,6 +97,17 @@ class Typed(unittest.TestCase):
         self.assertEqual(apa["author"][0], {"family": "Smith", "given": "J. A."})
         self.assertEqual((vancouver["volume"], vancouver["page"], year(vancouver)), ("382", "1268-9", 2020))
         self.assertEqual(vancouver["author"][1], {"family": "Lane", "given": "H. C."})
+
+    def test_names_before_title_and_repeated_author(self):
+        item, _ = paste.parse_reference("WATSON, J. D. và CRICK, F. H. C. Molecular structure of nucleic acids. "
+                                        "Nature. 1953, tập 171, tr. 737–738.")
+        self.assertEqual([n["family"] for n in item["author"]], ["Watson", "Crick"])
+        self.assertEqual(item["title"], "Molecular structure of nucleic acids")
+        item, _ = paste.parse_reference("Bộ Giáo dục và Đào tạo. Thông tư số 18/2021/TT-BGDĐT. 2021.")
+        self.assertEqual(item["author"], [{"literal": "Bộ Giáo dục và Đào tạo"}])
+        many = paste.parse_many("Trần Văn Bình. Kinh tế học vi mô. Giáo dục, 2010.\n"
+                                "---. Kinh tế học vĩ mô. Giáo dục, 2010.")
+        self.assertEqual(many[1][0]["author"], many[0][0]["author"])
 
 
 if __name__ == "__main__":

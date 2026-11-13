@@ -12,18 +12,18 @@ from . import citation_dates as dates
 from . import citation_dedupe as dedupe
 from . import citation_language as language
 from . import citation_model as model
-from .citation_paste_authors import LEADING_INITIALS, split_authors
+from .citation_paste_authors import leading_names, split_authors
 from .citation_paste_fields import fill_fields, take
 
 _NUMBERING = re.compile(r"^\s*(?:\[\d+\]|\d+[.)])\s+")
 _DOI = re.compile(r"(?:https?://(?:dx\.)?doi\.org/|doi:\s*)?(10\.\d{4,9}/[^\s]+)", re.I)
 _URL = re.compile(r"<?(https?://[^\s>]+)>?")
-_ACCESSED = re.compile(r"[,.]?\s*\[?(?:truy cập(?: lần cuối)?(?: ngày)?|accessed:?|retrieved|cited|viewed|xem ngày)\s*"
-                       r"([^\]\[]*?\d{4}(?:\s+[A-Za-z]{3,9}\.?\s+\d{1,2})?)\]?(?:,\s*(?:từ|from))?", re.I)
+_ACCESSED = re.compile(r"[,.]?\s*[\[(]?(?:truy cập(?: lần cuối)?(?: ngày)?:?|accessed:?|retrieved|cited|viewed|xem ngày|trích dẫn ngày)\s*"
+                       r"([^\]\[]*?\d{4}(?:\s+[A-Za-z]{3,9}\.?\s+\d{1,2})?)[\])]?(?:,\s*(?:từ|from))?", re.I)
 _YEAR_PAREN = re.compile(r"\((1[5-9]\d\d|20\d\d)[a-z]?(?:,[^)]*)?\)|\((n\.d\.|không năm|no date)\)")
 _YEAR = re.compile(r"\b(1[5-9]\d\d|20\d\d)\b")
-_YEAR_DOT = re.compile(r"\.\s+(1[5-9]\d\d|20\d\d|n\.\s?d)[a-z]?[.,]\s")  # Chicago "Author. 2015. Title."
-_VANCOUVER_NAMES = re.compile(r"^(?:[^,.]+?\s[A-Z]{1,3}(?:,\s|\.\s|,\s*et al\.\s))+")
+_YEAR_DOT = re.compile(r"[.,]\s+(1[5-9]\d\d|20\d\d|n\.\s?d|không năm|no date)[a-z]?[.,]\s+(?=\S)")  # "Author. 2015. Title." (Chicago)
+_VANCOUVER_NAMES = re.compile(r"^(?:[^,.]+?\s[A-ZА-Я]{1,3}(?:,\s*(?:et al|và cộng sự)\.\s|,\s|\.\s))+")
 _QUOTED = re.compile(r"[“\"‘]([^”\"’]{3,}?)[,.]?[”\"’]")
 _VANCOUVER = re.compile(r"\.\s*(1[5-9]\d\d|20\d\d)[^;.]*;\s*(\d+)(?:\s*\(([^)]+)\))?:\s*([A-Za-z]?\d+(?:\s*[-–]\s*\d+)?)")
 
@@ -43,7 +43,8 @@ def parse_reference(text):
         item["URL"] = match.group(1).rstrip(".,;")
     rest = re.sub(r"\s*\[(?:Online|Internet|Trực tuyến)\]|Available(?: from| at)?:|Truy cập tại:", "", rest, flags=re.I)
     vancouver = _VANCOUVER.search(rest)
-    year = _YEAR_PAREN.search(rest) or _YEAR_DOT.search(rest)
+    year = next((m for m in (_YEAR_PAREN.search(rest), _YEAR_DOT.search(rest)) if m and _all_names(rest[:m.start()])),
+                None)  # "(2010)" or ". 2010." only right after the names
     names_part = None if year else _VANCOUVER_NAMES.match(rest)
     if year:
         authors, rest = rest[:year.start()], rest[year.end():]
@@ -78,21 +79,30 @@ def parse_reference(text):
     return item, info
 
 
+def _all_names(text):
+    text = text.rstrip(" ,.")
+    return bool(text) and leading_names(text + ",") >= len(text)
+
+
 def _authors_prefix(text):
     """Author part of a line without a year in parentheses: IEEE "J. K. Author, A. B. Other, Title…" or
     Chicago/MLA/ISO "Author. Title." (a period after a single initial does not end the names)."""
-    if LEADING_INITIALS.match(text):
-        pieces, taken = text.split(", "), []
-        for piece in pieces:
-            if LEADING_INITIALS.match(piece) or piece.endswith("et al.") and not taken:
-                taken.append(piece)
-            else:
-                break
-        return ", ".join(taken) + (", " if taken and len(taken) < len(pieces) else "")
-    match = re.search(r"(?<![\s.][A-ZĐ])\.\s", text)
-    return text[:match.end()] if match else ""
+    quote = re.search("[“\"]", text)
+    limit = quote.start() if quote else len(text)
+    ends = [m for m in re.finditer(r"\.\s", text[:limit]) if _all_names(text[:m.start()])]
+    by_period = ends[-1].end() if ends else 0  # "Author. Title." (Chicago, MLA, ISO, Vancouver)
+    return text[:max(by_period, leading_names(text))]  # or "Author, Title, …" (IEEE without quotes)
 
 
 def parse_many(text):
     """[(item, info)] for pasted text with one reference per line (numbering like "[1]" or "1." is dropped)."""
-    return [parse_reference(line) for line in (text or "").split("\n") if len(line.strip()) > 10]
+    result, previous = [], []
+    for line in (text or "").split("\n"):
+        if len(line.strip()) <= 10:
+            continue
+        item, info = parse_reference(line)
+        if re.match(r"^\s*(?:\[\d+\]\s*|\d+\.\s*)?(?:---|———|——)\.", line) and previous:
+            item["author"] = previous  # MLA: "---." repeats the previous entry's authors
+        previous = item.get("author") or previous
+        result.append((item, info))
+    return result
