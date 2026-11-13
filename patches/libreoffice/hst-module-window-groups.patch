@@ -2406,7 +2406,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/framework/source/uielement/documenttabbar.cxx
 +++ b/framework/source/uielement/documenttabbar.cxx
-@@ -15,12 +15,15 @@
+@@ -15,12 +15,17 @@
  #include <strings.hrc>
  
  #include <algorithm>
@@ -2419,10 +2419,12 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  #include <vcl/menu.hxx>
  #include <vcl/settings.hxx>
 +#include <vcl/syswin.hxx>
++#include <vcl/windowstate.hxx>
++#include <o3tl/string_view.hxx>
  #include <vcl/svapp.hxx>
  
  namespace framework
-@@ -39,6 +42,9 @@
+@@ -39,6 +44,9 @@
  constexpr sal_uInt16 MENU_CALC = 2;
  constexpr sal_uInt16 MENU_IMPRESS = 3;
  constexpr sal_uInt16 MENU_OPEN = 4;
@@ -2432,7 +2434,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  
  /// Scale a 100% pixel size by the window's DPI factor.
  tools::Long Px(const vcl::Window& rWindow, double fPixels)
-@@ -78,7 +84,7 @@
+@@ -78,7 +86,7 @@
      const tools::Long nPad = Px(*this, TAB_PAD);
      const tools::Long nMin = Px(*this, TAB_MIN_WIDTH);
  
@@ -2441,7 +2443,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      m_aTabs.clear();
  
      // Natural widths, then shrink evenly when they don't fit next to the "+" button.
-@@ -305,36 +311,169 @@
+@@ -305,36 +313,175 @@
          if (rMEvt.IsMiddle() || (rMEvt.IsLeft() && bClose))
              DocumentTabGroup::get().closeTab(xTarget);
          else if (rMEvt.IsLeft())
@@ -2534,13 +2536,19 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    const Point aScreen(OutputToAbsoluteScreenPixel(rPos));
 +    if (rGroup.mergeAt(xFrame, aScreen))
 +        return;
-+    // where the tab was grabbed, relative to the top-left corner of the window
-+    // (the strip sits in a child of the top-level window: measure from the top-level window)
-+    const vcl::Window* pTop = GetSystemWindow();
-+    const Point aGrab = Point(OutputToAbsoluteScreenPixel(m_aDragStart))
-+                        - (pTop ? Point(pTop->OutputToAbsoluteScreenPixel(Point()))
-+                                : Point(OutputToAbsoluteScreenPixel(Point())));
-+    rGroup.detach(xFrame, Point(aScreen.X() - aGrab.X(), aScreen.Y() - aGrab.Y()));
++    // The new window moves from where this window is by as much as the pointer moved, so the
++    // grabbed tab lands under the pointer. Both ends are in the coordinates of the window state.
++    const Point aGrab(OutputToAbsoluteScreenPixel(m_aDragStart));
++    std::optional<Point> aTopLeft;
++    if (const SystemWindow* pTop = GetSystemWindow())
++    {
++        const OUString aState = pTop->GetWindowState(vcl::WindowDataMask::Pos);
++        sal_Int32 nIndex = 0;
++        const sal_Int32 nX = o3tl::toInt32(o3tl::getToken(aState, 0, ',', nIndex));
++        const sal_Int32 nY = nIndex >= 0 ? o3tl::toInt32(o3tl::getToken(aState, 0, ',', nIndex)) : 0;
++        aTopLeft = Point(nX + aScreen.X() - aGrab.X(), nY + aScreen.Y() - aGrab.Y());
++    }
++    rGroup.detach(xFrame, aTopLeft);
 +}
 +
 +void DocumentTabBar::Command(const CommandEvent& rCEvt)
