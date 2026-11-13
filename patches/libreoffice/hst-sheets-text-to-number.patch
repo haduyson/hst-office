@@ -1,0 +1,1839 @@
+HST Office: Sheets flags numbers stored as text and converts them ("Chuyển thành số", owner request 2026-11-13).
+
+Like the leading suite's error checking, a text cell whose text is a number gets a green triangle in its
+top-left corner, and the cell cursor on one shows a warning button whose menu has "Số được lưu dưới dạng
+văn bản" (title), "Chuyển thành số", "Trợ giúp về lỗi này", "Bỏ qua lỗi" and "Tùy chọn kiểm tra lỗi".
+
+- sc/inc/hsttextnumberparse.hxx: the rules, pure C++ (tested alone). Separators come from the locale of
+  the cell's number format, never guessed: vi-VN "1.234" is 1234, en-US "1.234" is 1.234, and a number
+  in the other convention is not one. Sign, parentheses, trailing minus, "%", đ/₫/VND/VNĐ/đồng or the
+  locale's currency, spaces (also no-break) as thousands groups and full-width digits are read. Codes
+  stay text: leading zeros (phone, CCCD, tax code), more than 15 significant digits, "+" with 8 or more
+  digits, exponents, dates.
+- sc/source/core/tool/hsttextnumber.cxx: cell check (string and edit cells, not formatted as Text) and
+  the format a General cell gets: percent, HST's VND format, the locale's currency, or thousands, with
+  the text's decimals; other number formats are kept. hstignoredtextnumbers.cxx: "Bỏ qua lỗi" ranges
+  of the document (ScDocument member), kept up to date by the ScUpdateRefHint the UNO ranges use.
+- sc/source/ui/view/hsttextnumbermarks.cxx (ScOutputData): the triangle, drawn from the cell info of
+  the painted area only, so a 100 000-row sheet costs the visible rows; not printed, not in LOK.
+- hsttextnumberbutton.cxx/.ui (InterimItemWindow + MenuButton, as Writer's page break button),
+  hsttextnumbergridwin.cxx (ScGridWindow): the button left of the cell cursor (right of it at the window
+  edge), in the active pane, hidden while editing and in read-only documents; moved on cursor changes
+  and after each paint (posted). Help opens help/bang-tinh-so-dang-van-ban.html of the offline guide
+  next to Help/HelpRootURL; options open Tools ▸ Options ▸ Calc ▸ View.
+- .uno:HstConvertTextToNumber (SID_HST_CONVERT_TEXT_TO_NUMBER, cell shell, hsttextnumberconvert.cxx):
+  the selection, or the cell cursor, in one undo step (list action of SetValueCells runs and
+  ApplyAttributes per format); disabled without such cells (looks at up to 5 000 cells). In the cell
+  context menu (hidden when disabled), Data ▸ Calculate and Alt+Q (FeatureSearch.xcu of the HST
+  extension). The ribbon button (btnHstConvertTextToNumber, Data tab ▸ Data Tools) is placed by the
+  ribbon rework (hst-ribbon-ux-rework), not here.
+- officecfg Calc.xcs Content/Display/HstNumberStoredAsText (default on), tpviewpage.ui/tpview.cxx
+  checkbox; tabvwsh4.cxx repaints open sheets when it changes.
+- vi messages.po (sc, officecfg UI.po): Vietnamese labels.
+- solenv scalc.suppr: the warning button gets its accessible name in code (as Writer's page break button),
+  so the a11y check suppresses it.
+
+License: these upstream files remain under their original license (MPL-2.0); the new files are MPL-2.0.
+Test: tests/unit/test_sheets_text_number_parse.py, tests/unit/test_sheets_text_to_number_patch.py.
+---
+--- /dev/null
++++ b/sc/inc/hsttextnumberparse.hxx
+@@ -0,0 +1,199 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: when is a text cell a "number stored as text"? Pure C++, tested by test_sheets_text_number_parse.py.
++// The separators are the locale's (vi-VN: "." groups, "," decimals; en-US the other way round), never
++// guessed: "1.234" is 1234 in vi-VN and 1.234 in en-US, and "1,234,567.89" is no number in vi-VN.
++// Spaces (also no-break, narrow and thin) may group thousands too. Accepted around the digits: one sign
++// ("-1", "+1", "1-" or "(1)"), a trailing "%", and a currency (đ, ₫, VND, VNĐ, đồng or the locale's
++// symbol) before or after. Full-width digits and signs count as ASCII ones. Not numbers, so that codes
++// keep their form: leading zeros ("0905123456", "007"), more than 15 significant digits, a "+" before
++// 8 or more digits (a phone number), exponents, dates and anything else.
++#pragma once
++
++#include <algorithm>
++#include <optional>
++#include <string>
++#include <string_view>
++
++namespace hst::textnumber
++{
++enum class Kind
++{
++    Plain,
++    Percent,
++    Currency
++};
++
++struct Separators
++{
++    char16_t cDecimal = u'.';
++    char16_t cGroup = u',';
++    std::u16string_view aCurrency; // the locale's currency symbol (e.g. u"$"), may be empty
++};
++
++struct Parsed
++{
++    std::string aNumber; // ASCII "[-]digits[.digits][E-2]", read with a '.' decimal separator
++    Kind eKind = Kind::Plain;
++    bool bVnd = false; // the currency was đ, ₫, VND, VNĐ or đồng
++    bool bGrouped = false; // thousands were grouped
++    int nDecimals = 0; // digits after the decimal separator
++};
++
++namespace detail
++{
++constexpr char16_t normalise(char16_t c)
++{
++    if (c >= 0xFF01 && c <= 0xFF5E) // full-width ASCII
++        return static_cast<char16_t>(c - 0xFF01 + u'!');
++    if (c == 0x2212) // minus sign
++        return u'-';
++    const bool bSpace = c == u'\t' || c == 0x00A0 || c == 0x2007 || c == 0x2009 || c == 0x202F || c == 0x3000;
++    return bSpace ? u' ' : c;
++}
++
++constexpr char16_t lower(char16_t c)
++{
++    return c >= u'A' && c <= u'Z' ? static_cast<char16_t>(c + 32) : c == u'Đ' ? u'đ' : c;
++}
++
++inline void trim(std::u16string_view& r)
++{
++    while (!r.empty() && r.front() == u' ')
++        r.remove_prefix(1);
++    while (!r.empty() && r.back() == u' ')
++        r.remove_suffix(1);
++}
++
++inline bool equalsNoCase(std::u16string_view a, std::u16string_view b)
++{
++    if (a.size() != b.size())
++        return false;
++    for (size_t i = 0; i < a.size(); ++i)
++        if (lower(a[i]) != lower(b[i]))
++            return false;
++    return true;
++}
++
++/// Length of the currency at the front (bFront) or back of r, 0 if none; rVnd tells which one.
++inline size_t currency(std::u16string_view r, bool bFront, const Separators& rSep, bool& rVnd)
++{
++    static constexpr std::u16string_view aVnd[] = { u"đồng", u"VNĐ", u"VND", u"₫", u"đ" };
++    auto match = [&](std::u16string_view aToken) {
++        return !aToken.empty() && aToken.size() <= r.size()
++               && equalsNoCase(bFront ? r.substr(0, aToken.size()) : r.substr(r.size() - aToken.size()),
++                               aToken);
++    };
++    rVnd = true;
++    for (std::u16string_view aToken : aVnd)
++        if (match(aToken))
++            return aToken.size();
++    rVnd = false;
++    return match(rSep.aCurrency) ? rSep.aCurrency.size() : 0;
++}
++
++/// The digits of an integer part written with group separator c, or nullopt if grouped wrongly.
++inline std::optional<std::string> ungroup(std::u16string_view r, char16_t c, bool& rGrouped)
++{
++    std::string aDigits;
++    size_t nGroup = 0, nGroups = 0;
++    for (char16_t ch : r)
++    {
++        const bool bDigit = ch >= u'0' && ch <= u'9';
++        if (!bDigit && (ch != c || nGroup == 0 || (nGroups == 0 ? nGroup > 3 : nGroup != 3)))
++            return std::nullopt;
++        if (bDigit)
++            aDigits += static_cast<char>(ch);
++        nGroup = bDigit ? nGroup + 1 : 0;
++        nGroups += bDigit ? 0 : 1;
++    }
++    if (nGroups > 0 && nGroup != 3)
++        return std::nullopt;
++    rGrouped = nGroups > 0;
++    return aDigits;
++}
++}
++
++/// The number in rText, or nullopt if rText is no number stored as text under these separators.
++inline std::optional<Parsed> parse(std::u16string_view rText, const Separators& rSep)
++{
++    using namespace detail;
++    if (rText.empty() || rText.size() > 64)
++        return std::nullopt;
++    std::u16string aBuffer;
++    for (char16_t c : rText)
++        aBuffer += normalise(c);
++    std::u16string_view r(aBuffer);
++    trim(r);
++
++    Parsed aResult;
++    bool bParen = false, bMinus = false, bPlus = false, bCurrency = false;
++    if (r.size() > 2 && r.front() == u'(' && r.back() == u')')
++    {
++        bParen = true;
++        r = r.substr(1, r.size() - 2);
++        trim(r);
++    }
++    for (bool bFront : { true, false })
++    {
++        for (int i = 0; i < 3 && !r.empty(); ++i)
++        {
++            const char16_t c = bFront ? r.front() : r.back();
++            size_t nCut = 1;
++            if ((c == u'-' || (bFront && c == u'+')) && !bMinus && !bPlus)
++                (c == u'+' ? bPlus : bMinus) = true;
++            else if (!bFront && c == u'%' && aResult.eKind == Kind::Plain)
++                aResult.eKind = Kind::Percent;
++            else if (bCurrency || (nCut = currency(r, bFront, rSep, aResult.bVnd)) == 0)
++                break;
++            else
++                bCurrency = true;
++            r = bFront ? r.substr(nCut) : r.substr(0, r.size() - nCut);
++            trim(r);
++        }
++    }
++    if ((bCurrency && aResult.eKind == Kind::Percent) || (bParen && (bMinus || bPlus)))
++        return std::nullopt;
++    if (bCurrency)
++        aResult.eKind = Kind::Currency;
++
++    const char16_t cGroup = normalise(rSep.cGroup), cDecimal = normalise(rSep.cDecimal);
++    const size_t nDecimal = r.find(cDecimal);
++    std::u16string_view aInt = r.substr(0, nDecimal);
++    std::u16string_view aFrac = nDecimal == std::u16string_view::npos ? std::u16string_view() : r.substr(nDecimal + 1);
++    if (aFrac.find_first_not_of(u"0123456789") != std::u16string_view::npos)
++        return std::nullopt;
++    const char16_t cUsed = aInt.find(u' ') != std::u16string_view::npos ? u' ' : cGroup;
++    std::optional<std::string> aDigits = ungroup(aInt, cUsed == cDecimal ? 0 : cUsed, aResult.bGrouped);
++    if (!aDigits || (aDigits->empty() && aFrac.empty()) || (aDigits->size() > 1 && aDigits->front() == '0')
++        || (bPlus && aDigits->size() >= 8))
++        return std::nullopt;
++
++    std::string aFracDigits(aFrac.begin(), aFrac.end());
++    const size_t nLead = aDigits->find_first_not_of('0');
++    size_t nSignificant = nLead == std::string::npos ? 0 : aDigits->size() - nLead;
++    const size_t nLastFrac = aFracDigits.find_last_not_of('0');
++    const size_t nFracUsed = nLastFrac == std::string::npos ? 0 : nLastFrac + 1;
++    nSignificant += nSignificant ? nFracUsed : nFracUsed - std::min(nFracUsed, aFracDigits.find_first_not_of('0'));
++    if (nSignificant > 15)
++        return std::nullopt;
++
++    const bool bNegative = (bParen || bMinus) && nSignificant > 0;
++    aResult.aNumber = (bNegative ? "-" : "") + (aDigits->empty() ? std::string("0") : *aDigits);
++    if (!aFracDigits.empty())
++        aResult.aNumber += "." + aFracDigits;
++    if (aResult.eKind == Kind::Percent)
++        aResult.aNumber += "E-2";
++    aResult.nDecimals = static_cast<int>(aFracDigits.size());
++    return aResult;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/inc/hsttextnumber.hxx
+@@ -0,0 +1,70 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: numbers stored as text ("Số được lưu dưới dạng văn bản"). A text cell whose text is a number
++// in the locale of the cell's number format (rules in hsttextnumberparse.hxx) gets a green triangle in its
++// top-left corner and a warning button when it is the cell cursor; "Chuyển thành số" turns such cells into
++// numbers. Cells formatted as Text, and cells where "Bỏ qua lỗi" was chosen, are left alone.
++#pragma once
++
++#include "scdllapi.h"
++#include "rangelst.hxx"
++#include <svl/lstner.hxx>
++#include <optional>
++
++class ScDocument;
++struct ScRefCellValue;
++
++namespace sc::hst
++{
++/// A number stored as text: its value and the format the cell gets (0: keep the cell's format).
++struct TextNumber
++{
++    double fValue = 0.0;
++    sal_uInt32 nFormat = 0;
++};
++
++/// Tools ▸ Options ▸ Sheets ▸ View ▸ "Number stored as text": the triangles and the button are shown.
++SC_DLLPUBLIC bool TextNumberIndicatorEnabled();
++
++/// Whether rCell, with number format nFormat, holds a number stored as text (cheap: used while painting).
++SC_DLLPUBLIC bool IsTextNumber(const ScDocument& rDoc, const ScRefCellValue& rCell, sal_uInt32 nFormat);
++
++/** The value of such a cell and the format it should get. Only a cell in the General format gets one:
++    percent ("15%"), currency ("1.000 đ": the VND format of HST), or thousands ("1.234.567") with as many
++    decimals as the text had; a cell with another number format keeps it. */
++SC_DLLPUBLIC std::optional<TextNumber> GetTextNumber(ScDocument& rDoc, const ScRefCellValue& rCell,
++                                                     sal_uInt32 nFormat);
++}
++
++/** Cells where "Bỏ qua lỗi" was chosen. Follows inserted and deleted rows, columns and sheets; saved in
++    .xlsx as <ignoredErrors numberStoredAsText="1"> and in .ods in the document settings. */
++class SC_DLLPUBLIC ScHstIgnoredTextNumbers final : public SfxListener
++{
++    ScDocument& mrDoc;
++    ScRangeList maRanges;
++    OUString maPending; // settings read before the sheets exist, resolved on first use
++
++    void Resolve();
++
++public:
++    explicit ScHstIgnoredTextNumbers(ScDocument& rDoc);
++    virtual ~ScHstIgnoredTextNumbers() override;
++    virtual void Notify(SfxBroadcaster& rBC, const SfxHint& rHint) override;
++
++    bool Contains(const ScAddress& rPos);
++    void Add(const ScRangeList& rRanges);
++    ScRangeList GetRanges(SCTAB nTab);
++
++    /// ODF settings value: "sheet!A1:B2 sheet!C3:C3", sheets by index (settings are read before the sheets)
++    OUString ToSettings();
++    void SetSettings(const OUString& rValue);
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/core/tool/hsttextnumber.cxx
+@@ -0,0 +1,150 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hsttextnumber.hxx>
++#include <hsttextnumberparse.hxx>
++
++#include <cellvalue.hxx>
++#include <document.hxx>
++#include <hints.hxx>
++
++#include <comphelper/string.hxx>
++#include <i18nlangtag/languagetag.hxx>
++#include <i18nlangtag/mslangid.hxx>
++#include <officecfg/Office/Calc.hxx>
++#include <rtl/math.hxx>
++#include <svl/numformat.hxx>
++#include <svl/zformat.hxx>
++#include <svl/zforlist.hxx>
++#include <unotools/localedatawrapper.hxx>
++
++namespace
++{
++struct LocaleSeparators
++{
++    LanguageType eLang = LANGUAGE_DONTKNOW;
++    char16_t cDecimal = u'.';
++    char16_t cGroup = u',';
++    OUString aCurrency;
++};
++
++/// The separators of eLang; the last language is kept, so painting a sheet asks the locale data once.
++const LocaleSeparators& lcl_Separators(LanguageType eLang)
++{
++    thread_local LocaleSeparators aLast;
++    if (aLast.eLang != eLang)
++    {
++        const LocaleDataWrapper* pData = LocaleDataWrapper::get(LanguageTag(eLang));
++        const OUString& rDecimal = pData->getNumDecimalSep();
++        const OUString& rGroup = pData->getNumThousandSep();
++        aLast.cDecimal = rDecimal.isEmpty() ? u'.' : rDecimal[0];
++        aLast.cGroup = rGroup.isEmpty() ? u',' : rGroup[0];
++        aLast.aCurrency = pData->getCurrSymbol();
++        aLast.eLang = eLang;
++    }
++    return aLast;
++}
++
++std::optional<hst::textnumber::Parsed> lcl_Parse(const ScDocument& rDoc, const ScRefCellValue& rCell,
++                                                 sal_uInt32 nFormat, LanguageType& rLang)
++{
++    const CellType eType = rCell.getType();
++    if (eType != CELLTYPE_STRING && eType != CELLTYPE_EDIT)
++        return std::nullopt;
++    const SvNumberFormatter* pFormatter = rDoc.GetFormatTable();
++    const SvNumberformat* pEntry = pFormatter->GetEntry(nFormat);
++    if (!pEntry || pEntry->GetMaskedType() == SvNumFormatType::TEXT)
++        return std::nullopt;
++    const OUString aText = rCell.getString(rDoc);
++    if (aText.isEmpty() || aText.getLength() > 64)
++        return std::nullopt;
++    rLang = MsLangId::getRealLanguage(pEntry->GetLanguage());
++    const LocaleSeparators& rSep = lcl_Separators(rLang);
++    return hst::textnumber::parse(aText, { rSep.cDecimal, rSep.cGroup, rSep.aCurrency });
++}
++
++/// The key of a format code written in eCodeLang, registered for eLang; 0 if the code is not valid.
++sal_uInt32 lcl_Key(SvNumberFormatter& rFormatter, OUString aCode, LanguageType eCodeLang, LanguageType eLang)
++{
++    sal_Int32 nCheckPos = 0;
++    SvNumFormatType nType = SvNumFormatType::ALL;
++    sal_uInt32 nKey = 0;
++    rFormatter.PutandConvertEntry(aCode, nCheckPos, nType, nKey, eCodeLang, eLang, false);
++    return nCheckPos == 0 ? nKey : 0;
++}
++
++sal_uInt32 lcl_Format(SvNumberFormatter& rFormatter, const hst::textnumber::Parsed& rParsed, LanguageType eLang)
++{
++    const sal_uInt16 nDecimals = static_cast<sal_uInt16>(rParsed.nDecimals);
++    switch (rParsed.eKind)
++    {
++        case hst::textnumber::Kind::Percent:
++        {
++            const sal_uInt32 nBase = rFormatter.GetStandardFormat(SvNumFormatType::PERCENT, eLang);
++            return lcl_Key(rFormatter, rFormatter.GenerateFormat(nBase, eLang, false, false, nDecimals), eLang,
++                           eLang);
++        }
++        case hst::textnumber::Kind::Currency:
++        {
++            if (!rParsed.bVnd)
++            {
++                const sal_uInt32 nBase = rFormatter.GetStandardFormat(SvNumFormatType::CURRENCY, eLang);
++                return lcl_Key(rFormatter, rFormatter.GenerateFormat(nBase, eLang, true, false, nDecimals),
++                               eLang, eLang);
++            }
++            // the "Tiền VND" format of HST (data/hst/number-formats.json), in en-US notation
++            OUStringBuffer aCode(u"#,##0");
++            if (nDecimals > 0)
++                comphelper::string::padToLength(aCode.append('.'), 6 + nDecimals, '0');
++            return lcl_Key(rFormatter, aCode.append(u" [$₫-42A]").makeStringAndClear(), LANGUAGE_ENGLISH_US,
++                           eLang);
++        }
++        case hst::textnumber::Kind::Plain:
++            break;
++    }
++    if (!rParsed.bGrouped)
++        return 0;
++    return lcl_Key(rFormatter,
++                   rFormatter.GenerateFormat(rFormatter.GetStandardIndex(eLang), eLang, true, false, nDecimals),
++                   eLang, eLang);
++}
++}
++
++namespace sc::hst
++{
++bool TextNumberIndicatorEnabled()
++{
++    return officecfg::Office::Calc::Content::Display::HstNumberStoredAsText::get();
++}
++
++bool IsTextNumber(const ScDocument& rDoc, const ScRefCellValue& rCell, sal_uInt32 nFormat)
++{
++    LanguageType eLang;
++    return lcl_Parse(rDoc, rCell, nFormat, eLang).has_value();
++}
++
++std::optional<TextNumber> GetTextNumber(ScDocument& rDoc, const ScRefCellValue& rCell, sal_uInt32 nFormat)
++{
++    LanguageType eLang;
++    const std::optional<::hst::textnumber::Parsed> aParsed = lcl_Parse(rDoc, rCell, nFormat, eLang);
++    if (!aParsed)
++        return std::nullopt;
++    rtl_math_ConversionStatus eStatus = rtl_math_ConversionStatus_Ok;
++    sal_Int32 nEnd = 0;
++    TextNumber aResult;
++    aResult.fValue = rtl::math::stringToDouble(aParsed->aNumber, '.', '\0', &eStatus, &nEnd);
++    if (eStatus != rtl_math_ConversionStatus_Ok || nEnd != static_cast<sal_Int32>(aParsed->aNumber.size()))
++        return std::nullopt;
++    if (nFormat % SV_COUNTRY_LANGUAGE_OFFSET == 0) // General: show the number as it was written
++        aResult.nFormat = lcl_Format(*rDoc.GetFormatTable(), *aParsed, eLang);
++    return aResult;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/core/tool/hstignoredtextnumbers.cxx
+@@ -0,0 +1,120 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the cells where "Bỏ qua lỗi" was chosen for a number stored as text.
++
++#include <hsttextnumber.hxx>
++
++#include <document.hxx>
++#include <hints.hxx>
++
++#include <o3tl/string_view.hxx>
++#include <rtl/ustrbuf.hxx>
++
++ScHstIgnoredTextNumbers::ScHstIgnoredTextNumbers(ScDocument& rDoc)
++    : mrDoc(rDoc)
++{
++    // the same hint keeps the ranges of UNO cell range objects up to date
++    mrDoc.AddUnoObject(*this);
++}
++
++ScHstIgnoredTextNumbers::~ScHstIgnoredTextNumbers() = default; // SfxListener stops listening
++
++void ScHstIgnoredTextNumbers::Notify(SfxBroadcaster&, const SfxHint& rHint)
++{
++    if (rHint.GetId() != SfxHintId::ScUpdateRef || maRanges.empty())
++        return;
++    const ScUpdateRefHint& rRef = static_cast<const ScUpdateRefHint&>(rHint);
++    maRanges.UpdateReference(rRef.GetMode(), mrDoc, rRef.GetRange(), rRef.GetDx(), rRef.GetDy(),
++                             rRef.GetDz());
++}
++
++void ScHstIgnoredTextNumbers::Resolve()
++{
++    if (maPending.isEmpty())
++        return;
++    const OUString aValue = std::exchange(maPending, OUString());
++    sal_Int32 nIndex = 0;
++    do
++    {
++        const std::u16string_view aItem = o3tl::getToken(aValue, 0, ' ', nIndex);
++        const size_t nBang = aItem.find('!');
++        const size_t nColon = aItem.find(':');
++        if (nBang == std::u16string_view::npos || nColon == std::u16string_view::npos || nColon < nBang)
++            continue;
++        const sal_Int32 nTab = o3tl::toInt32(aItem.substr(0, nBang));
++        ScAddress aStart, aEnd;
++        const bool bValid
++            = (aStart.Parse(OUString(aItem.substr(nBang + 1, nColon - nBang - 1)), mrDoc) & ScRefFlags::VALID)
++              && (aEnd.Parse(OUString(aItem.substr(nColon + 1)), mrDoc) & ScRefFlags::VALID);
++        if (!bValid || nTab < 0 || nTab > MAXTAB)
++            continue;
++        aStart.SetTab(static_cast<SCTAB>(nTab));
++        aEnd.SetTab(static_cast<SCTAB>(nTab));
++        maRanges.Join(ScRange(aStart, aEnd));
++    } while (nIndex >= 0);
++}
++
++bool ScHstIgnoredTextNumbers::Contains(const ScAddress& rPos)
++{
++    Resolve();
++    return maRanges.Contains(ScRange(rPos));
++}
++
++void ScHstIgnoredTextNumbers::Add(const ScRangeList& rRanges)
++{
++    Resolve();
++    for (size_t i = 0; i < rRanges.size(); ++i)
++        maRanges.Join(rRanges[i]);
++}
++
++ScRangeList ScHstIgnoredTextNumbers::GetRanges(SCTAB nTab)
++{
++    Resolve();
++    ScRangeList aResult;
++    for (size_t i = 0; i < maRanges.size(); ++i)
++        if (maRanges[i].aStart.Tab() <= nTab && nTab <= maRanges[i].aEnd.Tab())
++        {
++            ScRange aRange(maRanges[i]);
++            aRange.aStart.SetTab(nTab);
++            aRange.aEnd.SetTab(nTab);
++            aResult.push_back(aRange);
++        }
++    return aResult;
++}
++
++OUString ScHstIgnoredTextNumbers::ToSettings()
++{
++    Resolve();
++    OUStringBuffer aValue;
++    for (size_t i = 0; i < maRanges.size(); ++i)
++        for (SCTAB nTab = maRanges[i].aStart.Tab(); nTab <= maRanges[i].aEnd.Tab(); ++nTab)
++        {
++            if (!aValue.isEmpty())
++                aValue.append(' ');
++            aValue.append(OUString::number(nTab) + "!" + maRanges[i].aStart.Format(ScRefFlags::VALID) + ":"
++                          + maRanges[i].aEnd.Format(ScRefFlags::VALID));
++        }
++    return aValue.makeStringAndClear();
++}
++
++void ScHstIgnoredTextNumbers::SetSettings(const OUString& rValue)
++{
++    maRanges.RemoveAll();
++    maPending = rValue;
++}
++
++ScHstIgnoredTextNumbers& ScDocument::GetHstIgnoredTextNumbers()
++{
++    if (!mpHstIgnoredTextNumbers)
++        mpHstIgnoredTextNumbers.reset(new ScHstIgnoredTextNumbers(*this));
++    return *mpHstIgnoredTextNumbers;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/inc/document.hxx
++++ b/sc/inc/document.hxx
+@@ -162,6 +162,7 @@
+ class ScDocProtection;
+ class ScDocumentPool;
+ class ScExtDocOptions;
++class ScHstIgnoredTextNumbers;
+ class ScExternalRefManager;
+ class ScFormulaCell;
+ class ScMacroManager;
+@@ -479,6 +480,7 @@
+     std::unique_ptr<ScViewOptions>   pViewOptions;      // view options
+     std::unique_ptr<ScDocOptions>    pDocOptions;       // document options
+     std::unique_ptr<ScExtDocOptions> pExtDocOptions;    // for import etc.
++    std::unique_ptr<ScHstIgnoredTextNumbers> mpHstIgnoredTextNumbers; // HST: "Bỏ qua lỗi" of numbers stored as text
+     std::unique_ptr<ScClipOptions> mpClipOptions;       // clipboard options
+     std::unique_ptr<ScConsolidateParam> pConsolidateDlgData;
+     std::unique_ptr<ScConditionMode> pConditionalFormatDialogMode;
+@@ -754,6 +756,9 @@
+     void                                SetPrintOptions();
+ 
+     ScExtDocOptions*            GetExtDocOptions()  { return pExtDocOptions.get(); }
++    /// HST: cells whose number stored as text is ignored (created on first use)
++    SC_DLLPUBLIC ScHstIgnoredTextNumbers& GetHstIgnoredTextNumbers();
++    ScHstIgnoredTextNumbers*    GetHstIgnoredTextNumbersIfAny() const { return mpHstIgnoredTextNumbers.get(); }
+     SC_DLLPUBLIC void           SetExtDocOptions( std::unique_ptr<ScExtDocOptions> pNewOptions );
+ 
+     ScClipOptions*              GetClipOptions()    { return mpClipOptions.get(); }
+--- a/sc/source/core/data/documen2.cxx
++++ b/sc/source/core/data/documen2.cxx
+@@ -100,6 +100,7 @@
+ #include <docpool.hxx>
+ #include <config_features.h>
+ #include <tablestyle.hxx>
++#include <hsttextnumber.hxx>
+ 
+ using namespace com::sun::star;
+ 
+--- a/sc/source/ui/inc/output.hxx
++++ b/sc/source/ui/inc/output.hxx
+@@ -423,6 +423,8 @@
+     void    DrawClipMarks();
+ 
+     void    DrawNoteMarks(vcl::RenderContext& rRenderContext);
++    /// HST: green triangle on numbers stored as text (hsttextnumbermarks.cxx)
++    void    DrawHstTextNumberMarks(vcl::RenderContext& rRenderContext);
+     void    DrawFormulaMarks(vcl::RenderContext& rRenderContext);
+     void    AddPDFNotes();
+     void    DrawSparklines(vcl::RenderContext& rRenderContext);
+--- /dev/null
++++ b/sc/source/ui/view/hsttextnumbermarks.cxx
+@@ -0,0 +1,79 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the green triangle in the top-left corner (top-right in right-to-left sheets) of a cell
++// holding a number stored as text. Only the painted cells are looked at, from the cell info the grid
++// already filled, so a sheet of 100 000 rows costs no more than the rows on screen.
++
++#include <output.hxx>
++
++#include <document.hxx>
++#include <fillinfo.hxx>
++#include <hsttextnumber.hxx>
++#include <patattr.hxx>
++#include <sc.hrc>
++#include <scmod.hxx>
++
++#include <svtools/colorcfg.hxx>
++#include <tools/poly.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++
++void ScOutputData::DrawHstTextNumberMarks(vcl::RenderContext& rRenderContext)
++{
++    SvNumberFormatter* pFormatter = mpDoc->GetFormatTable();
++    ScHstIgnoredTextNumbers* pIgnored = mpDoc->GetHstIgnoredTextNumbersIfAny();
++    const tools::Long nLayoutSign = mbLayoutRTL ? -1 : 1;
++    const tools::Long nInitPosX = mbLayoutRTL ? mnScrX + mnMirrorW - 1 : mnScrX;
++    const tools::Long nSize
++        = static_cast<tools::Long>(rRenderContext.GetDPIScaleFactor() * mfZoomX * 3 + 3);
++    bool bColorSet = false;
++
++    tools::Long nPosY = mnScrY;
++    for (SCSIZE nArrY = 1; nArrY + 1 < mnArrCount; nArrY++)
++    {
++        RowInfo* pThisRowInfo = &mpRowInfo[nArrY];
++        const SCROW nRow = pThisRowInfo->nRowNo;
++        tools::Long nPosX = nInitPosX;
++        for (SCCOL nX = mnX1; pThisRowInfo->bChanged && nX <= mnX2; nX++)
++        {
++            const tools::Long nWidth = mpRowInfo[0].basicCellInfo(nX).nWidth;
++            const ScCellInfo& rInfo = pThisRowInfo->cellInfo(nX);
++            const ScPatternAttr* pPattern = rInfo.getPatternAttr();
++            const bool bCandidate = nWidth > 2 * nSize && pThisRowInfo->nHeight > 2 * nSize && pPattern
++                                    && !rInfo.bHOverlapped && !rInfo.bVOverlapped
++                                    && (rInfo.maCell.getType() == CELLTYPE_STRING
++                                        || rInfo.maCell.getType() == CELLTYPE_EDIT);
++            if (bCandidate
++                && sc::hst::IsTextNumber(*mpDoc, rInfo.maCell,
++                                         pPattern->GetNumberFormat(pFormatter, rInfo.pConditionSet))
++                && !(pIgnored && pIgnored->Contains(ScAddress(nX, nRow, mnTab))))
++            {
++                if (!bColorSet)
++                {
++                    const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
++                    const Color aGreen = mbUseStyleColor && rStyle.GetHighContrastMode()
++                                             ? ScModule::get()->GetColorConfig().GetColorValue(svtools::FONTCOLOR).nColor
++                                             : Color(0x00, 0x80, 0x00);
++                    rRenderContext.SetLineColor(aGreen);
++                    rRenderContext.SetFillColor(aGreen);
++                    bColorSet = true;
++                }
++                const tools::Long nX0 = mbLayoutRTL ? nPosX - 1 : nPosX;
++                Point aPoints[3] = { Point(nX0, nPosY), Point(nX0 + nSize * nLayoutSign, nPosY),
++                                     Point(nX0, nPosY + nSize) };
++                rRenderContext.DrawPolygon(tools::Polygon(3, aPoints));
++            }
++            nPosX += nWidth * nLayoutSign;
++        }
++        nPosY += pThisRowInfo->nHeight;
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/view/gridwin4.cxx
++++ b/sc/source/ui/view/gridwin4.cxx
+@@ -55,6 +55,7 @@
+ #include <gridwin.hxx>
+ #include <viewdata.hxx>
+ #include <output.hxx>
++#include <hsttextnumber.hxx>
+ #include <document.hxx>
+ #include <attrib.hxx>
+ #include <patattr.hxx>
+@@ -984,6 +985,12 @@
+     if (rOpts.GetOption(sc::ViewOption::NOTES))
+         aOutputData.DrawNoteMarks(*pContentDev);
+ 
++    // HST: green triangles of numbers stored as text, and the warning button of the cell cursor
++    if (!bIsTiledRendering && sc::hst::TextNumberIndicatorEnabled())
++        aOutputData.DrawHstTextNumberMarks(*pContentDev);
++    if (!bIsTiledRendering && eWhich == mrViewData.GetActivePart())
++        PostHstTextNumberButtonUpdate();
++
+     pContentDev->SetMapMode(MapMode(MapUnit::MapPixel));
+ 
+     aOutputData.DrawClipMarks();
+--- a/sc/source/ui/inc/gridwin.hxx
++++ b/sc/source/ui/inc/gridwin.hxx
+@@ -94,6 +94,8 @@
+ 
+ class ScFilterListBox;
+ struct ScDPLabelData;
++class ScHstTextNumberButton;
++struct ImplSVEvent;
+ 
+ class SAL_DLLPUBLIC_RTTI ScGridWindow : public vcl::DocWindow, public DropTargetHelper, public DragSourceHelper
+ {
+@@ -120,6 +122,11 @@
+     std::unique_ptr<sdr::overlay::OverlayObjectList> mpOOSparklineGroup;
+     std::unique_ptr<sdr::overlay::OverlayObjectList> mpOODatabase;
+ 
++    /// HST: warning button of a number stored as text at the cell cursor (hsttextnumberbutton.cxx)
++    VclPtr<ScHstTextNumberButton> mxHstTextNumberButton;
++    ImplSVEvent* mpHstTextNumberEvent = nullptr;
++    DECL_LINK(HstTextNumberUpdateHdl, void*, void);
++
+     std::optional<tools::Rectangle> mpAutoFillRect;
+     std::optional<tools::Rectangle> mpDBExpandRect;
+     ScRange maDBRange;
+@@ -484,6 +491,10 @@
+     bool            UpdateVisibleRange();
+ 
+     void CursorChanged();
++    /// HST: show, move or hide the warning button of a number stored as text at the cell cursor
++    void UpdateHstTextNumberButton();
++    /// HST: the same once the current paint is done
++    void PostHstTextNumberButtonUpdate();
+     void DrawLayerCreated();
+     void SetAutoSpellContext( const std::shared_ptr<sc::SpellCheckContext> &ctx );
+     void ResetAutoSpell();
+--- a/sc/source/ui/view/gridwin.cxx
++++ b/sc/source/ui/view/gridwin.cxx
+@@ -141,6 +141,7 @@
+ #include <svx/sdrpagewindow.hxx>
+ #include <svx/sdr/overlay/overlaymanager.hxx>
+ #include <vcl/svapp.hxx>
++#include <hsttextnumberbutton.hxx>
+ #include <vcl/uitest/logger.hxx>
+ #include <vcl/uitest/eventdescription.hxx>
+ #include <svx/sdr/overlay/overlayselection.hxx>
+@@ -459,6 +460,9 @@
+ 
+     ImpDestroyOverlayObjects();
+ 
++    if (mpHstTextNumberEvent)
++        Application::RemoveUserEvent(std::exchange(mpHstTextNumberEvent, nullptr));
++    mxHstTextNumberButton.disposeAndClear();
+     mpFilterBox.reset();
+     mpNoteOverlay.reset();
+     mpAutoFilterPopup.reset();
+@@ -6374,6 +6378,7 @@
+     UpdateAutoFillOverlay();
+     UpdateSparklineGroupOverlay();
+     UpdateDatabaseOverlay();
++    UpdateHstTextNumberButton();
+ }
+ 
+ void ScGridWindow::ImpCreateOverlayObjects()
+@@ -6388,6 +6393,7 @@
+     UpdateShrinkOverlay();
+     UpdateSparklineGroupOverlay();
+     UpdateDatabaseOverlay();
++    UpdateHstTextNumberButton();
+ }
+ 
+ void ScGridWindow::ImpDestroyOverlayObjects()
+--- /dev/null
++++ b/sc/source/ui/inc/hsttextnumberbutton.hxx
+@@ -0,0 +1,47 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <vcl/InterimItemWindow.hxx>
++#include <vcl/virdev.hxx>
++
++class ScViewData;
++namespace weld
++{
++class MenuButton;
++class Toggleable;
++}
++
++/** HST Office: the warning button next to the cell cursor when it holds a number stored as text. Its menu:
++    "Số được lưu dưới dạng văn bản" (title), "Chuyển thành số", "Trợ giúp về lỗi này", "Bỏ qua lỗi" and
++    "Tùy chọn kiểm tra lỗi". The commands act on the selection, as the cell context menu does. */
++class ScHstTextNumberButton final : public InterimItemWindow
++{
++    std::unique_ptr<weld::MenuButton> m_xMenuButton;
++    ScopedVclPtr<VirtualDevice> m_xVirDev;
++    ScViewData& m_rViewData;
++
++    DECL_LINK(SelectHdl, const OUString&, void);
++    DECL_LINK(ToggleHdl, weld::Toggleable&, void);
++    void PaintButton();
++    void Ignore();
++    void OpenHelp();
++
++public:
++    ScHstTextNumberButton(vcl::Window* pParent, ScViewData& rViewData);
++    virtual ~ScHstTextNumberButton() override;
++    virtual void dispose() override;
++
++    /// Size of the button at the window's scale.
++    static Size GetButtonSize(const vcl::Window& rParent);
++    void Place(const Point& rPos, const Size& rSize);
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/view/hsttextnumberbutton.cxx
+@@ -0,0 +1,169 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hsttextnumberbutton.hxx>
++
++#include <docsh.hxx>
++#include <document.hxx>
++#include <hsttextnumber.hxx>
++#include <markdata.hxx>
++#include <sc.hrc>
++#include <scresid.hxx>
++#include <strings.hrc>
++#include <viewdata.hxx>
++
++#include <com/sun/star/system/SystemShellExecute.hpp>
++#include <com/sun/star/system/SystemShellExecuteFlags.hpp>
++#include <comphelper/getexpandeduri.hxx>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <officecfg/Office/Common.hxx>
++#include <sfx2/dispatch.hxx>
++#include <sfx2/sfxsids.hrc>
++#include <svl/intitem.hxx>
++#include <svx/dialogs.hrc>
++#include <tools/mapunit.hxx>
++#include <tools/poly.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/MenuButton.hxx>
++#include <vcl/weld/Toggleable.hxx>
++
++ScHstTextNumberButton::ScHstTextNumberButton(vcl::Window* pParent, ScViewData& rViewData)
++    : InterimItemWindow(pParent, u"modules/scalc/ui/hsttextnumberbutton.ui"_ustr, u"HstTextNumberButton"_ustr)
++    , m_xMenuButton(m_xBuilder->weld_menu_button(u"menubutton"_ustr))
++    , m_rViewData(rViewData)
++{
++    InitControlBase(m_xMenuButton.get());
++    m_xMenuButton->set_item_sensitive(u"title"_ustr, false);
++    m_xMenuButton->set_accessible_name(ScResId(STR_HST_TEXT_NUMBER));
++    m_xMenuButton->set_tooltip_text(ScResId(STR_HST_TEXT_NUMBER));
++    m_xMenuButton->connect_selected(LINK(this, ScHstTextNumberButton, SelectHdl));
++    m_xMenuButton->connect_toggled(LINK(this, ScHstTextNumberButton, ToggleHdl));
++    m_xVirDev = m_xMenuButton->create_virtual_device();
++    m_xVirDev->SetMapMode(MapMode(MapUnit::MapPixel));
++}
++
++ScHstTextNumberButton::~ScHstTextNumberButton() { disposeOnce(); }
++
++void ScHstTextNumberButton::dispose()
++{
++    m_xVirDev.disposeAndClear();
++    m_xMenuButton.reset();
++    InterimItemWindow::dispose();
++}
++
++Size ScHstTextNumberButton::GetButtonSize(const vcl::Window& rParent)
++{
++    const double fScale = rParent.GetDPIScaleFactor();
++    return Size(static_cast<tools::Long>(30 * fScale), static_cast<tools::Long>(20 * fScale));
++}
++
++void ScHstTextNumberButton::Place(const Point& rPos, const Size& rSize)
++{
++    if (IsVisible() && GetPosPixel() == rPos && GetSizePixel() == rSize)
++        return; // unchanged: no repaint, so that painting the grid cannot loop
++    SetPosSizePixel(rPos, rSize);
++    PaintButton();
++    Show();
++}
++
++/// A yellow diamond with "!" (the warning sign of a cell error) and the arrow of a menu button.
++void ScHstTextNumberButton::PaintButton()
++{
++    const Size aSize(GetSizePixel());
++    const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
++    const bool bContrast = rStyle.GetHighContrastMode();
++    m_xVirDev->SetOutputSizePixel(aSize);
++    m_xVirDev->SetBackground(Wallpaper(rStyle.GetFaceColor()));
++    m_xVirDev->Erase();
++
++    const tools::Long nH = aSize.Height(), nC = nH / 2, nR = nH / 2 - 2;
++    const Point aDiamond[4] = { Point(nC, nC - nR), Point(nC + nR, nC), Point(nC, nC + nR), Point(nC - nR, nC) };
++    m_xVirDev->SetLineColor(bContrast ? rStyle.GetButtonTextColor() : Color(0x9C, 0x6B, 0x00));
++    m_xVirDev->SetFillColor(bContrast ? rStyle.GetFaceColor() : Color(0xFF, 0xC8, 0x3D));
++    m_xVirDev->DrawPolygon(tools::Polygon(4, aDiamond));
++
++    const tools::Long nW = std::max<tools::Long>(2, nR / 4);
++    m_xVirDev->SetLineColor();
++    m_xVirDev->SetFillColor(bContrast ? rStyle.GetButtonTextColor() : COL_BLACK);
++    m_xVirDev->DrawRect(tools::Rectangle(Point(nC - nW / 2, nC - nR / 2), Size(nW, nR * 2 / 3)));
++    m_xVirDev->DrawRect(tools::Rectangle(Point(nC - nW / 2, nC + nR / 3), Size(nW, nW)));
++
++    const tools::Long nA = std::max<tools::Long>(2, nH / 6), nAX = nH + (aSize.Width() - nH) / 2;
++    const Point aArrow[3] = { Point(nAX - nA, nC - nA / 2), Point(nAX + nA, nC - nA / 2), Point(nAX, nC + nA / 2) };
++    m_xVirDev->SetFillColor(rStyle.GetButtonTextColor());
++    m_xVirDev->DrawPolygon(tools::Polygon(3, aArrow));
++
++    m_xMenuButton->set_custom_button(m_xVirDev.get());
++}
++
++/// "Bỏ qua lỗi": the selection (or the cell cursor) is no longer checked, also after saving.
++void ScHstTextNumberButton::Ignore()
++{
++    ScDocShell* pDocSh = m_rViewData.GetDocShell();
++    ScMarkData aMark(m_rViewData.GetMarkData());
++    ScRangeList aRanges;
++    if (aMark.IsMarked() || aMark.IsMultiMarked())
++    {
++        aMark.MarkToMulti();
++        aMark.FillRangeListWithMarks(&aRanges, false);
++    }
++    else
++        aRanges.push_back(ScRange(m_rViewData.GetCurX(), m_rViewData.GetCurY(), m_rViewData.CurrentTabForData()));
++    pDocSh->GetDocument().GetHstIgnoredTextNumbers().Add(aRanges);
++    pDocSh->SetDocumentModified();
++    pDocSh->PostPaint(aRanges, PaintPartFlags::Grid);
++}
++
++/// "Trợ giúp về lỗi này": the page of the offline guide about numbers stored as text.
++void ScHstTextNumberButton::OpenHelp()
++{
++    try
++    {
++        const css::uno::Reference<css::uno::XComponentContext> xContext = comphelper::getProcessComponentContext();
++        OUString aUrl = comphelper::getExpandedUri(xContext, officecfg::Office::Common::Help::HelpRootURL::get());
++        if (aUrl.endsWith("/index.html"))
++            aUrl = OUString::Concat(aUrl.subView(0, aUrl.getLength() - 10)) + "bang-tinh-so-dang-van-ban.html";
++        if (aUrl.isEmpty())
++            return;
++        css::system::SystemShellExecute::create(xContext)->execute(
++            aUrl, OUString(), css::system::SystemShellExecuteFlags::URIS_ONLY);
++    }
++    catch (const css::uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sc.ui", "HST: the help page of numbers stored as text did not open");
++    }
++}
++
++/// Typing goes on in the grid once the menu is closed.
++IMPL_LINK_NOARG(ScHstTextNumberButton, ToggleHdl, weld::Toggleable&, void)
++{
++    if (!m_xMenuButton->get_active() && GetParent())
++        GetParent()->GrabFocus();
++}
++
++IMPL_LINK(ScHstTextNumberButton, SelectHdl, const OUString&, rIdent, void)
++{
++    SfxDispatcher& rDispatcher = m_rViewData.GetDispatcher();
++    if (rIdent == "convert")
++        rDispatcher.Execute(SID_HST_CONVERT_TEXT_TO_NUMBER, SfxCallMode::ASYNCHRON | SfxCallMode::RECORD);
++    else if (rIdent == "ignore")
++        Ignore();
++    else if (rIdent == "help")
++        OpenHelp();
++    else if (rIdent == "options")
++    {
++        const SfxUInt16Item aPage(SID_OPTIONS_PAGEID, SID_SC_TP_CONTENT);
++        rDispatcher.ExecuteList(SID_OPTIONS_TREEDIALOG, SfxCallMode::ASYNCHRON, { &aPage });
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/view/hsttextnumbergridwin.cxx
+@@ -0,0 +1,82 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the grid window shows the warning button of a number stored as text left of the cell cursor
++// (right of it when there is no room), in the active pane, while no cell is being edited.
++
++#include <gridwin.hxx>
++#include <hsttextnumberbutton.hxx>
++
++#include <cellvalue.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <hsttextnumber.hxx>
++#include <viewdata.hxx>
++
++#include <comphelper/lok.hxx>
++#include <vcl/svapp.hxx>
++
++void ScGridWindow::PostHstTextNumberButtonUpdate()
++{
++    if (!mpHstTextNumberEvent)
++        mpHstTextNumberEvent = Application::PostUserEvent(LINK(this, ScGridWindow, HstTextNumberUpdateHdl));
++}
++
++IMPL_LINK_NOARG(ScGridWindow, HstTextNumberUpdateHdl, void*, void)
++{
++    mpHstTextNumberEvent = nullptr;
++    UpdateHstTextNumberButton();
++}
++
++void ScGridWindow::UpdateHstTextNumberButton()
++{
++    ScDocument& rDoc = mrViewData.GetDocument();
++    const SCCOL nX = mrViewData.GetCurX();
++    const SCROW nY = mrViewData.GetCurY();
++    const SCTAB nTab = mrViewData.CurrentTabForData();
++    const ScAddress aPos(nX, nY, nTab);
++    ScDocShell* pDocSh = mrViewData.GetDocShell();
++    bool bShow = !comphelper::LibreOfficeKit::isActive() && IsVisible() && mrViewData.IsActive()
++                 && eWhich == mrViewData.GetActivePart() && !mrViewData.HasEditView(eWhich) && pDocSh
++                 && !pDocSh->IsReadOnly() && sc::hst::TextNumberIndicatorEnabled();
++    if (bShow)
++    {
++        ScHstIgnoredTextNumbers* pIgnored = rDoc.GetHstIgnoredTextNumbersIfAny();
++        bShow = sc::hst::IsTextNumber(rDoc, ScRefCellValue(rDoc, aPos), rDoc.GetNumberFormat(nX, nY, nTab))
++                && !(pIgnored && pIgnored->Contains(aPos));
++    }
++    tools::Rectangle aCellRect;
++    if (bShow)
++    {
++        Point aScrPos = mrViewData.GetScrPos(nX, nY, eWhich, true);
++        tools::Long nSizeX = 0, nSizeY = 0;
++        mrViewData.GetMergeSizePixel(nX, nY, nSizeX, nSizeY);
++        if (rDoc.IsLayoutRTL(nTab))
++            aScrPos.AdjustX(-(nSizeX - 2));
++        aCellRect = tools::Rectangle(aScrPos, Size(nSizeX, nSizeY));
++        const Size aOut(GetOutputSizePixel());
++        bShow = aCellRect.Right() > 0 && aCellRect.Bottom() > 0 && aCellRect.Left() < aOut.Width()
++                && aCellRect.Top() < aOut.Height();
++    }
++    if (!bShow)
++    {
++        if (mxHstTextNumberButton && mxHstTextNumberButton->IsVisible())
++            mxHstTextNumberButton->Hide();
++        return;
++    }
++    if (!mxHstTextNumberButton)
++        mxHstTextNumberButton = VclPtr<ScHstTextNumberButton>::Create(this, mrViewData);
++    const Size aSize(ScHstTextNumberButton::GetButtonSize(*this));
++    tools::Long nLeft = aCellRect.Left() - aSize.Width() - 1;
++    if (nLeft < 0)
++        nLeft = aCellRect.Right() + 2;
++    mxHstTextNumberButton->Place(Point(nLeft, std::max<tools::Long>(0, aCellRect.Top())), aSize);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/uiconfig/scalc/ui/hsttextnumberbutton.ui
+@@ -0,0 +1,83 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- HST Office: the warning button of a number stored as text (sc/source/ui/view/hsttextnumberbutton.cxx) -->
++<interface domain="sc">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkMenu" id="menu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="title">
++        <property name="visible">True</property>
++        <property name="sensitive">False</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hsttextnumberbutton|title">Number Stored as Text</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="convert">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hsttextnumberbutton|convert">_Convert to Number</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="help">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hsttextnumberbutton|help">_Help on This Error</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="ignore">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hsttextnumberbutton|ignore">_Ignore Error</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="separator">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="options">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hsttextnumberbutton|options">Error Checking _Options...</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkBox" id="HstTextNumberButton">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="vexpand">True</property>
++    <property name="orientation">vertical</property>
++    <child>
++      <object class="GtkMenuButton" id="menubutton">
++        <property name="visible">True</property>
++        <property name="can-focus">True</property>
++        <property name="focus-on-click">False</property>
++        <property name="receives-default">True</property>
++        <property name="hexpand">True</property>
++        <property name="vexpand">True</property>
++        <property name="relief">none</property>
++        <property name="always-show-image">True</property>
++        <property name="popup">menu</property>
++        <style>
++          <class name="small-button"/>
++        </style>
++      </object>
++      <packing>
++        <property name="expand">True</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- /dev/null
++++ b/sc/source/ui/inc/hsttextnumberconvert.hxx
+@@ -0,0 +1,27 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <cstddef>
++
++class ScViewData;
++
++namespace sc::hst
++{
++/// Whether the selection (or the cell cursor) holds a number stored as text; gives up after many cells.
++bool HasTextNumbers(ScViewData& rViewData);
++
++/** "Chuyển thành số" (.uno:HstConvertTextToNumber): every number stored as text in the selection, or in
++    the cell cursor without one, becomes a number, in one undo step. Cells in the General format get the
++    format the text was written in (percent, VND, thousands). Returns the number of cells converted. */
++size_t ConvertTextNumbers(ScViewData& rViewData);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/view/hsttextnumberconvert.cxx
+@@ -0,0 +1,167 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hsttextnumberconvert.hxx>
++
++#include <dbfunc.hxx>
++#include <docfunc.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <dociter.hxx>
++#include <editable.hxx>
++#include <hsttextnumber.hxx>
++#include <markdata.hxx>
++#include <patattr.hxx>
++#include <scitems.hxx>
++#include <scresid.hxx>
++#include <strings.hrc>
++#include <tabvwsh.hxx>
++#include <viewdata.hxx>
++
++#include <svl/intitem.hxx>
++#include <svl/undo.hxx>
++
++#include <map>
++#include <vector>
++
++namespace
++{
++/// The selection, or the cell cursor when nothing is selected.
++ScRangeList lcl_Ranges(ScViewData& rViewData)
++{
++    ScMarkData aMark(rViewData.GetMarkData());
++    ScRangeList aRanges;
++    if (aMark.IsMarked() || aMark.IsMultiMarked())
++    {
++        aMark.MarkToMulti();
++        aMark.FillRangeListWithMarks(&aRanges, false);
++    }
++    else
++        aRanges.push_back(ScRange(rViewData.GetCurX(), rViewData.GetCurY(), rViewData.CurrentTabForData()));
++    return aRanges;
++}
++
++bool lcl_IsText(const ScRefCellValue& rCell)
++{
++    return rCell.getType() == CELLTYPE_STRING || rCell.getType() == CELLTYPE_EDIT;
++}
++
++/// Adds rPos to rRanges, growing the last range when rPos is the cell below it.
++void lcl_Append(std::vector<ScRange>& rRanges, const ScAddress& rPos)
++{
++    if (!rRanges.empty())
++    {
++        ScAddress& rEnd = rRanges.back().aEnd;
++        if (rEnd.Tab() == rPos.Tab() && rEnd.Col() == rPos.Col() && rEnd.Row() + 1 == rPos.Row()
++            && rRanges.back().aStart.Col() == rPos.Col())
++        {
++            rEnd.SetRow(rPos.Row());
++            return;
++        }
++    }
++    rRanges.emplace_back(rPos);
++}
++}
++
++namespace sc::hst
++{
++bool HasTextNumbers(ScViewData& rViewData)
++{
++    ScDocument& rDoc = rViewData.GetDocument();
++    const ScRangeList aRanges = lcl_Ranges(rViewData);
++    size_t nVisited = 0;
++    for (size_t i = 0; i < aRanges.size(); ++i)
++    {
++        ScCellIterator aIter(rDoc, aRanges[i]);
++        for (bool bHas = aIter.first(); bHas; bHas = aIter.next())
++        {
++            if (++nVisited > 5000)
++                return true; // a large selection: let the command look, it does nothing if there is none
++            const ScAddress& rPos = aIter.GetPos();
++            if (lcl_IsText(aIter.getRefCellValue())
++                && IsTextNumber(rDoc, aIter.getRefCellValue(), rDoc.GetNumberFormat(rPos.Col(), rPos.Row(), rPos.Tab())))
++                return true;
++        }
++    }
++    return false;
++}
++
++size_t ConvertTextNumbers(ScViewData& rViewData)
++{
++    ScDocShell* pDocSh = rViewData.GetDocShell();
++    ScDocument& rDoc = rViewData.GetDocument();
++    const ScRangeList aRanges = lcl_Ranges(rViewData);
++    const ScMarkData aMark(rDoc.GetSheetLimits(), aRanges);
++    ScEditableTester aTester = ScEditableTester::CreateAndTestSelection(rDoc, aMark);
++    if (!aTester.IsEditable())
++    {
++        rViewData.GetView()->ErrorMessage(aTester.GetMessageId());
++        return 0;
++    }
++
++    // runs of cells below each other become one SetValueCells; cells needing a format are grouped by it
++    std::vector<ScRange> aRuns;
++    std::vector<double> aValues;
++    std::map<sal_uInt32, std::vector<ScRange>> aFormats;
++    for (size_t i = 0; i < aRanges.size(); ++i)
++    {
++        ScCellIterator aIter(rDoc, aRanges[i]);
++        for (bool bHas = aIter.first(); bHas; bHas = aIter.next())
++        {
++            const ScAddress aPos = aIter.GetPos();
++            if (!lcl_IsText(aIter.getRefCellValue()))
++                continue;
++            const std::optional<TextNumber> aNumber = GetTextNumber(
++                rDoc, aIter.getRefCellValue(), rDoc.GetNumberFormat(aPos.Col(), aPos.Row(), aPos.Tab()));
++            if (!aNumber)
++                continue;
++            lcl_Append(aRuns, aPos);
++            aValues.push_back(aNumber->fValue);
++            if (aNumber->nFormat != 0)
++                lcl_Append(aFormats[aNumber->nFormat], aPos);
++        }
++    }
++    if (aValues.empty())
++        return 0;
++
++    SfxUndoManager* pUndoMgr = rDoc.IsUndoEnabled() ? pDocSh->GetUndoManager() : nullptr;
++    if (pUndoMgr)
++    {
++        const OUString aComment = ScResId(STR_HST_UNDO_TEXT_TO_NUMBER);
++        pUndoMgr->EnterListAction(aComment, aComment, 0, rViewData.GetViewShell()->GetViewShellId());
++    }
++    ScDocFunc& rFunc = pDocSh->GetDocFunc();
++    auto itValue = aValues.begin();
++    for (const ScRange& rRun : aRuns)
++    {
++        const auto itEnd = itValue + (rRun.aEnd.Row() - rRun.aStart.Row() + 1);
++        rFunc.SetValueCells(rRun.aStart, std::vector<double>(itValue, itEnd), true);
++        itValue = itEnd;
++    }
++    for (const auto& [nFormat, rCells] : aFormats)
++    {
++        ScMarkData aFormatMark(rDoc.GetSheetLimits());
++        for (const ScRange& rRange : rCells)
++        {
++            aFormatMark.SelectTable(rRange.aStart.Tab(), true); // ApplyAttributes works on the selected sheets
++            aFormatMark.SetMultiMarkArea(rRange);
++        }
++        ScPatternAttr aPattern(rDoc.getCellAttributeHelper());
++        aPattern.ItemSetPut(SfxUInt32Item(ATTR_VALUE_FORMAT, nFormat));
++        rFunc.ApplyAttributes(aFormatMark, aPattern, true);
++    }
++    if (pUndoMgr)
++        pUndoMgr->LeaveListAction();
++
++    rViewData.GetView()->CellContentChanged(); // cell slots and the input line show the numbers
++    return aValues.size();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/inc/sc.hrc
++++ b/sc/inc/sc.hrc
+@@ -248,6 +248,7 @@
+ #define SID_OPEN_CALC                   (SC_FUNCTION_START + 4)
+ #define SID_CONVERT_FORMULA_TO_VALUE    (SC_FUNCTION_START + 5)
+ #define FID_MOVE_KEEP_INSERT_MODE       (SC_FUNCTION_START + 6)
++#define SID_HST_CONVERT_TEXT_TO_NUMBER  (SC_FUNCTION_START + 7)
+ #ifndef FILE_MENU_END // duplicated in sfx2/sfxsids.hrc
+ #define FILE_MENU_END                   (SC_FUNCTION_START + 20)
+ #endif
+--- a/sc/inc/strings.hrc
++++ b/sc/inc/strings.hrc
+@@ -471,4 +471,8 @@
+ #define STR_REF_ERROR_MSG                           NC_("STR_REF_ERROR_MSG", "The deletion created reference errors in your spreadsheet. Use Undo to restore the deleted cells.")
+ #define STR_REF_ERROR_GOTO                          NC_("STR_REF_ERROR_GOTO", "Go to First Error")
+ 
++/* HST: numbers stored as text */
++#define STR_HST_TEXT_NUMBER                         NC_("STR_HST_TEXT_NUMBER", "Number Stored as Text")
++#define STR_HST_UNDO_TEXT_TO_NUMBER                 NC_("STR_HST_UNDO_TEXT_TO_NUMBER", "Convert to Number")
++
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/sdi/scalc.sdi
++++ b/sc/sdi/scalc.sdi
+@@ -6838,6 +6838,23 @@
+     GroupId = SfxGroupId::Options;
+ ]
+ 
++SfxVoidItem HstConvertTextToNumber SID_HST_CONVERT_TEXT_TO_NUMBER
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Data;
++]
++
+ SfxVoidItem ShowDetail SID_OUTLINE_SHOW
+ ()
+ [
+--- a/sc/sdi/cellsh.sdi
++++ b/sc/sdi/cellsh.sdi
+@@ -268,6 +268,7 @@
+         SID_CHINESE_CONVERSION          [ ExecMethod = ExecuteEdit; StateMethod = GetState; ]
+ 
+     SID_CONVERT_FORMULA_TO_VALUE [ ExecMethod = ExecuteEdit; StateMethod = GetBlockState; ]
++    SID_HST_CONVERT_TEXT_TO_NUMBER [ ExecMethod = ExecuteEdit; StateMethod = GetBlockState; ]
+ 
+     SID_TRANSLITERATE_SENTENCE_CASE [ ExecMethod = ExecuteTrans; StateMethod = GetBlockState; ]
+     SID_TRANSLITERATE_TITLE_CASE    [ ExecMethod = ExecuteTrans; StateMethod = GetBlockState; ]
+--- a/sc/source/ui/view/cellsh.cxx
++++ b/sc/source/ui/view/cellsh.cxx
+@@ -55,6 +55,7 @@
+ #include <clipparam.hxx>
+ #include <markdata.hxx>
+ #include <gridwin.hxx>
++#include <hsttextnumberconvert.hxx>
+ 
+ #define ShellClass_ScCellShell
+ #define ShellClass_CellMovement
+@@ -339,6 +340,9 @@
+                 bDisable = !rDoc.HasFormulaCell(aMarkRange);
+             }
+             break;
++            case SID_HST_CONVERT_TEXT_TO_NUMBER:
++                bDisable = !sc::hst::HasTextNumbers(GetViewData());
++                break;
+         }
+         if (!bDisable && bNeedEdit && !bEditable)
+             bDisable = true;
+--- a/sc/source/ui/view/cellsh1.cxx
++++ b/sc/source/ui/view/cellsh1.cxx
+@@ -102,6 +102,7 @@
+ #include <tokenarray.hxx>
+ #include <formulacell.hxx>
+ #include <gridwin.hxx>
++#include <hsttextnumberconvert.hxx>
+ #include <searchresults.hxx>
+ #include <Sparkline.hxx>
+ #include <strings.hrc>
+@@ -2091,6 +2092,10 @@
+             pTabViewShell->ConvertFormulaToValue();
+         }
+         break;
++        case SID_HST_CONVERT_TEXT_TO_NUMBER:
++            sc::hst::ConvertTextNumbers(GetViewData());
++            rReq.Done();
++            break;
+         case SID_THESAURUS:
+             pTabViewShell->DoThesaurus();
+             break;
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -255,6 +255,8 @@
+     sc/source/core/tool/formularesult \
+     sc/source/core/tool/grouparealistener \
+     sc/source/core/tool/hints \
++    sc/source/core/tool/hstignoredtextnumbers \
++    sc/source/core/tool/hsttextnumber \
+     sc/source/core/tool/inputopt \
+     sc/source/core/tool/interpr1 \
+     sc/source/core/tool/interpr2 \
+@@ -715,6 +717,10 @@
+     sc/source/ui/view/gridwin4 \
+     sc/source/ui/view/gridwin5 \
+     sc/source/ui/view/hdrcont \
++    sc/source/ui/view/hsttextnumberbutton \
++    sc/source/ui/view/hsttextnumberconvert \
++    sc/source/ui/view/hsttextnumbergridwin \
++    sc/source/ui/view/hsttextnumbermarks \
+     sc/source/ui/view/hintwin \
+     sc/source/ui/view/imapwrap \
+     sc/source/ui/view/invmerge \
+--- a/sc/UIConfig_scalc.mk
++++ b/sc/UIConfig_scalc.mk
+@@ -156,6 +156,7 @@
+ 	sc/uiconfig/scalc/ui/headerdialog \
+ 	sc/uiconfig/scalc/ui/headerfootercontent \
+ 	sc/uiconfig/scalc/ui/headerfooterdialog \
++	sc/uiconfig/scalc/ui/hsttextnumberbutton \
+ 	sc/uiconfig/scalc/ui/imoptdialog \
+ 	sc/uiconfig/scalc/ui/inputbar \
+ 	sc/uiconfig/scalc/ui/inputstringdialog \
+--- a/officecfg/registry/schema/org/openoffice/Office/Calc.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Calc.xcs
+@@ -160,6 +160,14 @@
+           </info>
+           <value>false</value>
+         </prop>
++        <prop oor:name="HstNumberStoredAsText" oor:type="xs:boolean" oor:nillable="false">
++          <!-- UIHints: Tools - Options - Spreadsheets - View - [Section] Display -->
++          <info>
++            <desc>HST Office: marks text cells that hold a number with a green triangle and shows a button with "Convert to Number" when the cell cursor is on one.</desc>
++            <label>Number stored as text indicator</label>
++          </info>
++          <value>true</value>
++        </prop>
+         <prop oor:name="Anchor" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options -Spreadsheets - Contents - [Section] Display -->
+           <info>
+--- a/sc/uiconfig/scalc/ui/tpviewpage.ui
++++ b/sc/uiconfig/scalc/ui/tpviewpage.ui
+@@ -20,7 +20,7 @@
+             <property name="label-xalign">0</property>
+             <property name="shadow-type">none</property>
+             <child>
+-              <!-- n-columns=2 n-rows=10 -->
++              <!-- n-columns=2 n-rows=11 -->
+               <object class="GtkGrid" id="grid6">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+@@ -333,6 +333,38 @@
+                   </packing>
+                 </child>
+                 <child>
++                  <object class="GtkCheckButton" id="hsttextnumber">
++                    <property name="label" translatable="yes" context="tpviewpage|hsttextnumber">Number stored as te_xt indicator</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="hsttextnumber-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="extended_tip|hsttextnumber">Marks text cells holding a number with a green triangle and shows a button to convert them to numbers.</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">10</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkImage" id="lockhsttextnumber">
++                    <property name="can-focus">False</property>
++                    <property name="no-show-all">True</property>
++                    <property name="halign">center</property>
++                    <property name="valign">center</property>
++                    <property name="icon-name">res/lock.png</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">10</property>
++                  </packing>
++                </child>
++                <child>
+                   <object class="GtkImage" id="imNoteAuthor">
+                     <property name="can-focus">False</property>
+                     <property name="no-show-all">True</property>
+--- a/sc/source/ui/inc/tpview.hxx
++++ b/sc/source/ui/inc/tpview.hxx
+@@ -55,6 +55,8 @@
+     std::unique_ptr<weld::Widget> m_xColRowHighImg;
+     std::unique_ptr<weld::CheckButton> m_xEditCellBgHighCB;
+     std::unique_ptr<weld::Widget> m_xEditCellBgHighImg;
++    std::unique_ptr<weld::CheckButton> m_xHstTextNumberCB; // HST: numbers stored as text
++    std::unique_ptr<weld::Widget> m_xHstTextNumberImg;
+     std::unique_ptr<weld::CheckButton> m_xAnchorCB;
+     std::unique_ptr<weld::Widget> m_xAnchorImg;
+     std::unique_ptr<weld::CheckButton> m_xRangeFindCB;
+--- a/sc/source/ui/optdlg/tpview.cxx
++++ b/sc/source/ui/optdlg/tpview.cxx
+@@ -60,6 +60,8 @@
+     , m_xColRowHighImg(m_xBuilder->weld_widget(u"lockcolrowhigh"_ustr))
+     , m_xEditCellBgHighCB(m_xBuilder->weld_check_button(u"editcellbg"_ustr))
+     , m_xEditCellBgHighImg(m_xBuilder->weld_widget(u"lockeditcellbghigh"_ustr))
++    , m_xHstTextNumberCB(m_xBuilder->weld_check_button(u"hsttextnumber"_ustr))
++    , m_xHstTextNumberImg(m_xBuilder->weld_widget(u"lockhsttextnumber"_ustr))
+     , m_xAnchorCB(m_xBuilder->weld_check_button(u"anchor"_ustr))
+     , m_xAnchorImg(m_xBuilder->weld_widget(u"lockanchor"_ustr))
+     , m_xRangeFindCB(m_xBuilder->weld_check_button(u"rangefind"_ustr))
+@@ -143,7 +145,7 @@
+     OUString checkButton[]
+         = { u"formula"_ustr,   u"nil"_ustr,          u"annot"_ustr,   u"formulamark"_ustr, u"value"_ustr,  u"anchor"_ustr,
+             u"rangefind"_ustr, u"rowcolheader"_ustr, u"hscroll"_ustr, u"vscroll"_ustr,     u"tblreg"_ustr, u"outline"_ustr,
+-            u"cbSummary"_ustr, u"synczoom"_ustr,     u"break"_ustr,   u"guideline"_ustr };
++            u"cbSummary"_ustr, u"synczoom"_ustr,     u"break"_ustr,   u"guideline"_ustr, u"hsttextnumber"_ustr };
+ 
+     for (const auto& check : checkButton)
+     {
+@@ -205,6 +207,14 @@
+         pChange->commit();
+         bRet = true;
+     }
++    if (m_xHstTextNumberCB->get_state_changed_from_saved())
++    {
++        // the open sheets repaint through their listener on Content/Display (ScViewOptiChangesListener)
++        auto pChange(comphelper::ConfigurationChanges::create());
++        officecfg::Office::Calc::Content::Display::HstNumberStoredAsText::set(m_xHstTextNumberCB->get_active(), pChange);
++        pChange->commit();
++        bRet = true;
++    }
+ 
+     return bRet;
+ }
+@@ -223,6 +233,7 @@
+     m_xValueCB   ->set_active(m_xLocalOptions->GetOption(sc::ViewOption::SYNTAX));
+     m_xColRowHighCB->set_active(officecfg::Office::Calc::Content::Display::ColumnRowHighlighting::get());
+     m_xEditCellBgHighCB->set_active(officecfg::Office::Calc::Content::Display::EditCellBackgroundHighlighting::get());
++    m_xHstTextNumberCB->set_active(officecfg::Office::Calc::Content::Display::HstNumberStoredAsText::get());
+     m_xAnchorCB  ->set_active(m_xLocalOptions->GetOption(sc::ViewOption::ANCHOR));
+ 
+     m_xObjGrfLB  ->set_active( static_cast<sal_uInt16>(m_xLocalOptions->GetObjMode(sc::ViewObjectType::OLE)) );
+@@ -295,6 +306,10 @@
+     m_xEditCellBgHighCB->set_sensitive(!bReadOnly);
+     m_xEditCellBgHighImg->set_visible(bReadOnly);
+ 
++    bReadOnly = officecfg::Office::Calc::Content::Display::HstNumberStoredAsText::isReadOnly();
++    m_xHstTextNumberCB->set_sensitive(!bReadOnly);
++    m_xHstTextNumberImg->set_visible(bReadOnly);
++
+     bReadOnly = officecfg::Office::Calc::Content::Display::Anchor::isReadOnly();
+     m_xAnchorCB->set_sensitive(!bReadOnly);
+     m_xAnchorImg->set_visible(bReadOnly);
+@@ -359,6 +374,7 @@
+     m_xValueCB->save_state();
+     m_xColRowHighCB->save_state();
+     m_xEditCellBgHighCB->save_state();
++    m_xHstTextNumberCB->save_state();
+     m_xAnchorCB->save_state();
+     m_xObjGrfLB->save_value();
+     m_xDiagramLB->save_value();
+--- a/sc/source/ui/view/tabvwsh4.cxx
++++ b/sc/source/ui/view/tabvwsh4.cxx
+@@ -1778,6 +1778,13 @@
+             {
+                 mrViewShell.HighlightOverlay();
+             }
++            else if (sChangedEntry == u"HstNumberStoredAsText"_ustr)
++            {
++                // HST: show or hide the triangles and the button of numbers stored as text
++                if (ScDocShell* pDocSh = mrViewShell.GetViewData().GetDocShell())
++                    pDocSh->PostPaintGridAll();
++                mrViewShell.GetActiveWin()->UpdateHstTextNumberButton();
++            }
+             else if (sChangedEntry == u"ColorSchemes/org.openoffice.Office.UI:ColorScheme['COLOR_SCHEME_LIBREOFFICE_AUTOMATIC']/CalcCellFocus/Color"_ustr)
+             {
+                 mrViewShell.GetActiveWin()->UpdateCursorOverlay();
+--- a/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
+@@ -2627,6 +2627,14 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstConvertTextToNumber" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Convert to Number</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Convert numbers stored as text in the selection to numbers</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:CopyDelete" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">~Cut but Keep Format</value>
+--- a/sc/uiconfig/scalc/popupmenu/cell.xml
++++ b/sc/uiconfig/scalc/popupmenu/cell.xml
+@@ -29,6 +29,7 @@
+   <menu:menuitem menu:id=".uno:CurrentValidation"/>
+   <menu:menuitem menu:id=".uno:ClearAutoFilter"/>
+   <menu:menuitem menu:id=".uno:DefineCurrentName"/>
++  <menu:menuitem menu:id=".uno:HstConvertTextToNumber"/>
+   <menu:menuseparator/>
+   <menu:menuitem menu:id=".uno:InsertCell"/>
+   <menu:menuitem menu:id=".uno:DeleteCell"/>
+--- a/sc/uiconfig/scalc/menubar/menubar.xml
++++ b/sc/uiconfig/scalc/menubar/menubar.xml
+@@ -634,6 +634,7 @@
+           <menu:menuitem menu:id=".uno:CalculateHard" menu:style="text"/>
+           <menu:menuseparator/>
+           <menu:menuitem menu:id=".uno:ConvertFormulaToValue" menu:style="text"/>
++          <menu:menuitem menu:id=".uno:HstConvertTextToNumber" menu:style="text"/>
+           <menu:menuitem menu:id=".uno:AutomaticCalculation" menu:style="text"/>
+         </menu:menupopup>
+       </menu:menu>
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -21035,6 +21035,18 @@
+ msgid "Go to First Error"
+ msgstr ""
+ 
++#. hstTextNumber
++#: sc/inc/strings.hrc
++msgctxt "STR_HST_TEXT_NUMBER"
++msgid "Number Stored as Text"
++msgstr "Số được lưu dưới dạng văn bản"
++
++#. hstTextNumberUndo
++#: sc/inc/strings.hrc
++msgctxt "STR_HST_UNDO_TEXT_TO_NUMBER"
++msgid "Convert to Number"
++msgstr "Chuyển thành số"
++
+ #. Et4zM
+ #: sc/inc/subtotals.hrc:28
+ msgctxt "subtotalgrppage|liststore1"
+@@ -37188,6 +37200,18 @@
+ msgid "Specifies whether the author of the comment is displayed above the comment."
+ msgstr ""
+ 
++#. hstTextNumberOption
++#: sc/uiconfig/scalc/ui/tpviewpage.ui
++msgctxt "tpviewpage|hsttextnumber"
++msgid "Number stored as te_xt indicator"
++msgstr "Đánh dấu _số được lưu dưới dạng văn bản"
++
++#. hstTextNumberOptionTip
++#: sc/uiconfig/scalc/ui/tpviewpage.ui
++msgctxt "extended_tip|hsttextnumber"
++msgid "Marks text cells holding a number with a green triangle and shows a button to convert them to numbers."
++msgstr "Đánh dấu ô văn bản chứa số bằng tam giác màu xanh lá và hiện nút để chuyển chúng thành số."
++
+ #. qtccR
+ #: sc/uiconfig/scalc/ui/tpviewpage.ui:354
+ msgctxt "tpviewpage|label4"
+@@ -37975,3 +37999,33 @@
+ msgctxt "ztestdialog|extended_tip|ZTestDialog"
+ msgid "Calculates the z-Test of two data samples."
+ msgstr ""
++
++#. hstTextNumberTitle
++#: sc/uiconfig/scalc/ui/hsttextnumberbutton.ui
++msgctxt "hsttextnumberbutton|title"
++msgid "Number Stored as Text"
++msgstr "Số được lưu dưới dạng văn bản"
++
++#. hstTextNumberConvert
++#: sc/uiconfig/scalc/ui/hsttextnumberbutton.ui
++msgctxt "hsttextnumberbutton|convert"
++msgid "_Convert to Number"
++msgstr "_Chuyển thành số"
++
++#. hstTextNumberHelp
++#: sc/uiconfig/scalc/ui/hsttextnumberbutton.ui
++msgctxt "hsttextnumberbutton|help"
++msgid "_Help on This Error"
++msgstr "_Trợ giúp về lỗi này"
++
++#. hstTextNumberIgnore
++#: sc/uiconfig/scalc/ui/hsttextnumberbutton.ui
++msgctxt "hsttextnumberbutton|ignore"
++msgid "_Ignore Error"
++msgstr "_Bỏ qua lỗi"
++
++#. hstTextNumberOptions
++#: sc/uiconfig/scalc/ui/hsttextnumberbutton.ui
++msgctxt "hsttextnumberbutton|options"
++msgid "Error Checking _Options..."
++msgstr "Tùy chọn _kiểm tra lỗi"
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -4658,6 +4658,26 @@
+ msgid "Formula to Value"
+ msgstr ""
+ 
++#. hstTextNumberCmd
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstConvertTextToNumber\n"
++"Label\n"
++"value.text"
++msgid "Convert to Number"
++msgstr "Chuyển thành số"
++
++#. hstTextNumberCmdTip
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstConvertTextToNumber\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Convert numbers stored as text in the selection to numbers"
++msgstr "Chuyển các số được lưu dưới dạng văn bản trong vùng chọn thành số"
++
+ #. zZstf
+ #: CalcCommands.xcu
+ msgctxt ""
+--- a/solenv/sanitizers/ui/modules/scalc.suppr
++++ b/solenv/sanitizers/ui/modules/scalc.suppr
+@@ -818,3 +818,4 @@
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotChart'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxImageA11yAltText'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxDrawA11yAltText'] button-no-label
++sc/uiconfig/scalc/ui/hsttextnumberbutton.ui://GtkMenuButton[@id='menubutton'] button-no-label
