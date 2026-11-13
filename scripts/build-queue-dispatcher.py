@@ -139,7 +139,8 @@ class WindowsRunner:
         done = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
         for line in reversed(done.stdout.splitlines()):
             if line.startswith("{"):
-                return json.loads(line)
+                # Windows PowerShell 5.1's ConvertTo-Json leaves some control characters (from build logs) raw.
+                return json.loads(line, strict=False)
         raise RuntimeError(f"{host} {action} rc={done.returncode}: {(done.stdout + done.stderr)[-1500:]}")
 
     def host_busy(self, host):
