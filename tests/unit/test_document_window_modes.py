@@ -98,6 +98,7 @@ class WindowModeOptionsTest(unittest.TestCase):
         self.assertLess(merge.index("pGroup->aMembers.push_back(rMember);"), merge.index("park(*pMoved);"))
         self.assertNotIn("close", merge.replace("closed", ""))  # documents are never closed
         self.assertIn("rGroup.aKind == OFFICE_KIND", merge)
+        self.assertIn('if (rArg.Name == "ApplyToOpenWindows")', source)  # scriptable without the dialog
         header = added("include/framework/documenttabs.hxx")
         self.assertIn("FWK_DLLPUBLIC void applyWindowModes();", header)
 

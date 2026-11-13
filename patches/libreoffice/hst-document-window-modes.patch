@@ -23,6 +23,7 @@ Design (framework/source/services/documenttabgroup.cxx):
   documents becoming hidden tabs. Documents are only shown/hidden and re-grouped: nothing is reloaded,
   closed or saved, unsaved changes stay. HST Office windows, full-screen windows and a Start Center alone
   in a module window are left alone.
+  The same runs for .uno:DocumentWindowMode with the argument ApplyToOpenWindows=true (macros, checks).
 - Crash recovery: a saved window of an application now set to separate windows is restored as one window
   per document (the first one gets the saved geometry).
 - View > "Tabs or Separate Windows..." (.uno:DocumentWindowMode, Writer/Calc/Impress/Draw menus, next to
@@ -524,12 +525,29 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
              }
          }
      }
-@@ -1942,6 +2178,14 @@
+@@ -1938,10 +2174,30 @@
+     }
+ 
+     virtual void SAL_CALL dispatch(const util::URL& rURL,
+-                                   const uno::Sequence<beans::PropertyValue>&) override
++                                   const uno::Sequence<beans::PropertyValue>& rArgs) override
      {
          SolarMutexGuard aGuard;
          const uno::Reference<frame::XFrame> xFrame(m_xFrame);
 +        if (xFrame.is() && rURL.Complete == ".uno:DocumentWindowMode")
 +        {
++            // ApplyToOpenWindows=true (macros, checks): what "Apply to the open windows" of the
++            // Options page does, without the dialog
++            bool bApply = false;
++            for (const beans::PropertyValue& rArg : rArgs)
++                if (rArg.Name == "ApplyToOpenWindows")
++                    rArg.Value >>= bApply;
++            if (bApply)
++            {
++                if (DocumentTabGroup::isEnabled())
++                    DocumentTabGroup::get().applyWindowModes();
++                return;
++            }
 +            // Tools > Options > HST Office > General, where tabs and window modes are set
 +            lcl_dispatch(xFrame, u".uno:OptionsTreeDialog"_ustr, u"_self"_ustr,
 +                         { comphelper::makePropertyValue(u"OptionsPageID"_ustr,
@@ -539,7 +557,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
          if (!DocumentTabGroup::isEnabled() || !xFrame.is())
              return;
          if (rURL.Complete == ".uno:DetachDocumentTab")
-@@ -1980,7 +2224,7 @@
+@@ -1980,7 +2236,7 @@
  bool DocumentTabGroup::isTabCommand(std::u16string_view rCommand)
  {
      return rCommand == u".uno:NextDocumentTab" || rCommand == u".uno:PrevDocumentTab"
@@ -548,7 +566,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  }
  
  uno::Reference<frame::XDispatch>
-@@ -2022,6 +2266,13 @@
+@@ -2022,6 +2278,13 @@
          DocumentTabGroup::get().beginRestoreLayout();
  }
  
