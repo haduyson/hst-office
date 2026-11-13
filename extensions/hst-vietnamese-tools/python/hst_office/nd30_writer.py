@@ -3,28 +3,16 @@
 Page layout (optional) is applied first and is not part of Undo, see nd30_page.
 
 Grids become tables without cell padding; the horizontal rules are empty 1pt paragraphs whose indents centre a bottom
-border of the computed width, exactly as the .ott renderer (scripts/templates/writer.py) writes them. Callers must run
-`check_insertion_point` first: nothing is written when it reports blockers.
+border of the computed width, exactly as the .ott renderer (scripts/templates/writer.py) writes them. Where it goes and
+when it is refused: nd30_insertion (callers check it before opening the wizard; nothing is written with blockers).
 """
-from . import nd30_page
+from . import nd30_insertion, nd30_page
 from .nd30_layout import portable_blocks
 from .nd30_text import PARAGRAPH_BREAK, border, format_paragraph, format_run, pt_to_mm100
 from .undo import undo_step
 
 RULE_RUN = {"text": "", "size": 1, "bold": False, "italic": False}
 VALIGN = {"top": 1, "center": 2, "bottom": 3}  # com.sun.star.text.VertOrientation
-
-
-def check_insertion_point(doc, view_cursor):
-    """Reasons insertion is refused before any mutation: read-only, selection, not main body text."""
-    reasons = []
-    if doc.isReadonly():
-        reasons.append("read-only")
-    if view_cursor.getString():
-        reasons.append("selection")  # replacing a selection silently is not allowed
-    if view_cursor.getText() != doc.getText():
-        reasons.append("not-body-text")  # table cell, frame, header/footer, footnote
-    return reasons
 
 
 def _write_paragraphs(text, cur, paragraphs, cell_mm):
@@ -118,13 +106,18 @@ def _start_cursor(doc, text):
     return cur
 
 
-def _position(doc, text, view_cursor, flow):
-    """The cursor to write at: at the cursor's paragraph; at the end of the document for a copy block; or at its start."""
+def _position(doc, text, view_cursor, point, flow):
+    """The cursor to write at: at the cursor's paragraph (after the table holding it); at the end of the document for a
+    copy block; or at its start."""
     if flow == "prepend":
         return _start_cursor(doc, text)
     if flow == "append":
-        view_cursor.gotoEnd(False)
-    cur = text.createTextCursorByRange(view_cursor.getStart())
+        view_cursor.gotoEnd(False)  # a text cursor here: insertion_point refused every other selection
+        cur = text.createTextCursorByRange(view_cursor.getStart())
+    elif point["table"] is not None:
+        return nd30_insertion.after_table(doc, text, point["table"])
+    else:
+        cur = text.createTextCursorByRange(point["range"].getStart())
     probe = text.createTextCursorByRange(cur)
     probe.gotoStartOfParagraph(False)
     probe.gotoEndOfParagraph(True)
@@ -172,13 +165,14 @@ def _shrink_end(doc, text, cur, blocks):
 def insert_layout(doc, view_cursor, layout, margins_mm=None, apply_page=False, page_numbers=True,
                   undo_title="Insert ND30 document"):
     """Insert `layout` after the cursor's paragraph (or into its empty paragraph) as one undo step; a copy block goes
-    where its form says. Returns {'blockers': [...]} without writing if the insertion point is not acceptable."""
-    blockers = check_insertion_point(doc, view_cursor)
-    if blockers:
-        return {"blockers": blockers}
+    where its form says. Returns {'blockers': [...]} without writing if the insertion point is not acceptable, else
+    'afterTable' tells that the document went after the table holding the cursor."""
+    point = nd30_insertion.insertion_point(doc, doc.getCurrentController())
+    if point["reasons"]:
+        return {"blockers": point["reasons"]}
     text = doc.getText()
-    result = {"blockers": [], "page": None}
     flow = layout.get("flow")
+    result = {"blockers": [], "page": None, "afterTable": point["table"] is not None and not flow}
     section_style = None
     blocks, footer = portable_blocks(layout)
     if layout.get("page"):
@@ -190,7 +184,7 @@ def insert_layout(doc, view_cursor, layout, margins_mm=None, apply_page=False, p
     if footer and not (result["page"] or {}).get("firstFooter"):
         blocks = blocks + [b for b in layout["blocks"] if b.get("role") == "Contact"]  # no footer of ours: under the signature
     with undo_step(doc, undo_title):
-        cur = _position(doc, text, view_cursor, flow)
+        cur = _position(doc, text, view_cursor, point, flow)
         _write_blocks(doc, text, cur, layout, blocks, section_style)
         _shrink_end(doc, text, cur, blocks)
     return result

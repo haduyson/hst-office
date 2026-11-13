@@ -123,6 +123,9 @@ class TestHookTests(unittest.TestCase):
         log.assert_called_once_with("ToggleDuplex")
         host.return_value.say.assert_called_once()
         self.assertTrue(host.return_value.say.call_args[1]["error"])
+        # words for the user, not "RuntimeError: diagnostics test hook" (the traceback is in the log)
+        self.assertEqual(host.return_value.say.call_args[0][0], load_locale("vi")["common"]["unexpected"])
+        self.assertNotIn("Error", host.return_value.say.call_args[0][0])
 
 
 if __name__ == "__main__":

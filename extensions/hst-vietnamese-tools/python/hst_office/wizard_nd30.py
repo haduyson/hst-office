@@ -7,12 +7,13 @@ change of a field or of the document type (nd30_preview).
 """
 import datetime
 
-from . import nd30, nd30_layout, nd30_preview
+from . import nd30, nd30_layout, nd30_prefs, nd30_preview, nd30_rule_length, wizard_scroll_band as scroll_band
 from .dialogs import Dialog, palette
+from .wizard_nd30_rule import NAMES as RULE_NAMES, AgencyRuleRow
 from .wizard_type_picker import TypePicker
 
 TOP = 14  # height of the description line above the form
-WIDTH, HEIGHT = 570, 300 + TOP  # about 700 px high with common Linux fonts: fits a 1366x768 screen
+WIDTH, HEIGHT = 570, 316 + TOP  # about 730 px high with common Linux fonts; smaller screens: _compact
 LABEL_X, LABEL_W = 8, 84
 FIELD_X, FIELD_W = 96, 200
 PREVIEW_X = FIELD_X + FIELD_W + 10
@@ -23,9 +24,9 @@ MONO = "Liberation Mono;Consolas;Menlo;DejaVu Sans Mono;Courier New"  # all carr
 
 class Nd30Wizard:
     def __init__(self, ctx, strings):
-        self.s, self.s_nd = strings, strings["nd30"]
+        self.ctx, self.s, self.s_nd = ctx, strings, strings["nd30"]
         self.data = nd30.rules()
-        self.compact = False
+        self.compact, self.band = False, None
         self.colours = palette(ctx)  # muted/error text readable on light and dark dialogs
         self.d = Dialog(ctx, self.s_nd["title"], WIDTH, HEIGHT)
         self.picker = TypePicker(self.d, self.data["documentTypes"], self.s_nd["groups"], self.refresh,
@@ -68,32 +69,34 @@ class Nd30Wizard:
         d.label("l_secretaryName", s["secretaryName"], FIELD_X + 96, 200 + TOP, 22)
         d.edit("secretaryName", FIELD_X + 120, 198 + TOP, FIELD_W - 120, help_text=s["secretaryNameHelp"])
         self._row("recipients", 214, 20, True, label_h=20)
-        self._row("contact", 236)  # 16 units above the check boxes: room for the macOS edit frame (dialog_edit_heights)
-        check = d.check("applyPage", s["applyPage"], LABEL_X, 252 + TOP, FIELD_X + FIELD_W - LABEL_X, h=12)
+        self._row("contact", 236)  # 16 units to the next row: room for the macOS edit frame (dialog_edit_heights)
+        # the user's last choice (ND30 II.2b: 1/3 to 1/2 of the agency line), remembered per user (nd30_prefs)
+        self.rule = AgencyRuleRow(d, s, nd30_prefs.load_agency_rule(self.ctx), LABEL_X, LABEL_W, FIELD_X, FIELD_W, 252 + TOP)
+        check = d.check("applyPage", s["applyPage"], LABEL_X, 268 + TOP, FIELD_X + FIELD_W - LABEL_X, h=12)
         check.MultiLine = True  # wraps instead of being cut off when a translation is longer
-        d.check("pageNumbers", s["pageNumbers"], LABEL_X + 10, 266 + TOP, 208)
+        d.check("pageNumbers", s["pageNumbers"], LABEL_X + 10, 282 + TOP, 208)
         # two-sided: Party documents mirror their margins (05-HD/VPTW IV.4.2); ND30 types keep them (nd30_duplex)
-        d.check("duplex", s["duplex"], LABEL_X + 222, 266 + TOP, FIELD_X + FIELD_W - LABEL_X - 222, state=False).HelpText = s["duplexHelp"]
-        d.label("legal", s["legal"], LABEL_X, 280 + TOP, FIELD_X + FIELD_W - LABEL_X, 16, wrap=True)
+        d.check("duplex", s["duplex"], LABEL_X + 222, 282 + TOP, FIELD_X + FIELD_W - LABEL_X - 222, state=False).HelpText = s["duplexHelp"]
+        d.label("legal", s["legal"], LABEL_X, 296 + TOP, FIELD_X + FIELD_W - LABEL_X, 16, wrap=True)
         heading = d.label("l_preview", s["previewHeading"], PREVIEW_X, 8 + TOP, PREVIEW_W, 10)
         heading.FontWeight = 150
-        preview = d.edit("preview", PREVIEW_X, 20 + TOP, PREVIEW_W, 228, multiline=True, readonly=True, help_text=self.s["common"]["preview"])
+        preview = d.edit("preview", PREVIEW_X, 20 + TOP, PREVIEW_W, 244, multiline=True, readonly=True, help_text=self.s["common"]["preview"])
         font = preview.FontDescriptor
         font.Name, font.Height = MONO, 8
         preview.FontDescriptor = font
-        status = d.label("status", "", PREVIEW_X, 250 + TOP, PREVIEW_W, 24, wrap=True)  # room for several errors
+        status = d.label("status", "", PREVIEW_X, 266 + TOP, PREVIEW_W, 24, wrap=True)  # room for several errors
         status.TextColor = self.colours["error"]
         d.button("btnOk", s["insert"], WIDTH - 8 - 64 - 4 - 64, HEIGHT - 22, 64, callback=self._accept, default=True)
         d.button("btnCancel", self.s["common"]["cancel"], WIDTH - 8 - 64, HEIGHT - 22, 64, kind=2)
-        d.on_change(nd30.FIELD_KEYS, self.refresh)
+        d.on_change(nd30.FIELD_KEYS + RULE_NAMES, self.refresh)
         d.on_oversize = self._compact
         d.on_ready, d.on_closed = self.picker.attach, self.picker.detach
 
     def _compact(self):
         """Screen too small for the side-by-side layout (about 1200 px wide at 100% on Windows): drop the preview column.
 
-        The dialog stays about 330 units high: the error line takes the place of the legal note (see refresh) and the
-        buttons sit directly under it."""
+        The error line takes the place of the legal note (see refresh), the buttons sit directly under it; a dialog
+        still taller than the work area scrolls its form (wizard_scroll_band)."""
         m, width = self.d.model, FIELD_X + FIELD_W + 8
         self.compact = True
         m.getByName("description").Width = width - 2 * LABEL_X
@@ -107,10 +110,20 @@ class Nd30Wizard:
         for name, x in (("btnOk", width - 8 - 64 - 4 - 64), ("btnCancel", width - 8 - 64)):
             button = m.getByName(name)
             button.PositionX, button.PositionY = x, row
+        # still taller than the work area (1366x768 at 125 %): the form scrolls, check boxes and buttons stay in view
+        below = ("applyPage", "pageNumbers", "duplex", "legal", "status", "btnOk", "btnCancel")
+        form = [n for n in m.ElementNames if n not in below + ("description", "l_preview", "preview")]
+        bar_x = FIELD_X + FIELD_W + 2
+        self.band = scroll_band.fit(self.d, form, TOP + 4, m.getByName("applyPage").PositionY - 2, below,
+                                    scroll_band.max_height(self.d), bar_x)
+        if self.band:
+            m.Width = bar_x + scroll_band.BAR_WIDTH + 4
 
     def read(self):
         """(type_id, fields) from the form; date is normalised later by nd30.format_issue_date."""
         fields = {k: self.d.get(k) for k in nd30.FIELD_KEYS}
+        if self.rule.value():
+            fields[nd30_rule_length.FIELD] = self.rule.value()
         return self.picker.current, fields
 
     def set_fields(self, type_id=None, fields=None):
@@ -132,12 +145,13 @@ class Nd30Wizard:
         type_id, fields = self.read()
         codes, s = self.s_nd["codes"], self.s_nd
         return ["%s: %s" % (s.get(e["field"], e["field"]).split("\n")[0], codes.get(e["code"], e["code"]))
-                for e in nd30.validate_fields(type_id, fields, self.data)["errors"]]
+                for e in nd30.validate_fields(type_id, fields, self.data)["errors"]] + ([self.rule.error()] if self.rule.error() else [])
 
     def refresh(self):
         """Redraw the preview; on invalid input keep the last good preview and show what to fix. True if valid."""
         errs = self._error_text()
-        self.d.model.getByName("status").Label = (self.s_nd["errors"] % "; ".join(errs)) if errs else ""
+        status = self.d.model.getByName("status")
+        status.Label, status.TextColor = (self.s_nd["errors"] % "; ".join(errs)) if errs else "", self.colours["error"]
         self.d.model.getByName("btnOk").Enabled = not errs
         if self.compact:  # the error line and the legal note share one row
             self.d.model.getByName("legal").EnableVisible = not errs
@@ -145,6 +159,7 @@ class Nd30Wizard:
             return False
         type_id, fields = self.read()
         kind = nd30.get_type(type_id, self.data)
+        self.rule.sync(kind["profile"] != "dang" and kind.get("module") != "sheets")  # Party forms: a star, no rule
         self.d.model.getByName("description").Label = self.s_nd["descriptions"][kind["profile"]]
         register = kind.get("module") == "sheets"
         self.d.model.getByName("btnOk").Label = self.s_nd["openSheet" if register else "insert"]
@@ -153,6 +168,9 @@ class Nd30Wizard:
             return True
         layout = nd30_layout.build_layout(type_id, fields, data=self.data)
         self.d.set_text("preview", nd30_preview.layout_to_preview(layout, PREVIEW_CHARS).replace("\n", "\r\n"))
+        if nd30_rule_length.out_of_range(layout):  # a gentle note: the user may want it so
+            status.Label, status.TextColor = self.s_nd["agencyRuleWarning"], self.colours["muted"]
+            self.d.model.getByName("legal").EnableVisible = not self.compact  # compact: the note takes its row
         return True
 
     def outcome(self):
@@ -163,6 +181,7 @@ class Nd30Wizard:
     def _accept(self):
         if self.refresh():
             self.accepted = self.outcome()  # read before the dialog (and its models) is disposed
+            nd30_prefs.save_agency_rule(self.ctx, self.rule.value())
             self.d.end(1)
 
     def run(self, parent_peer=None):

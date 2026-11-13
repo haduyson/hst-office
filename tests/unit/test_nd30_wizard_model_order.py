@@ -70,6 +70,14 @@ class FakeDialog:
     def plain_list(self, name, x, y, w, h, help_text=""):
         return self._add("list", name, x, y, w, h)
 
+    def listbox(self, name, x, y, w, items, selected=0, h=12, help_text="", dropdown=True):
+        """A drop-down (one row high; its open list is a popup window, not a control of the dialog)."""
+        return self._add("dropdown" if dropdown else "list", name, x, y, w, h, StringItemList=tuple(items),
+                         SelectedItems=(selected,))
+
+    def select(self, name, index):
+        self.controls[name].SelectedItems = (index,)
+
     def check(self, name, text, x, y, w, state=True, h=10):
         control = self._add("check", name, x, y, w, h)
         control.State, control.Label = 1 if state else 0, text
@@ -83,6 +91,8 @@ class FakeDialog:
 
     def get(self, name):
         control = self.controls[name]
+        if control.kind == "dropdown":
+            return control.SelectedItems[0]
         return bool(control.State) if control.kind == "check" else control.Text
 
     def set_text(self, name, text):
