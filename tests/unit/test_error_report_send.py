@@ -22,7 +22,8 @@ class _StubModule(types.ModuleType):
         return value
 
 
-for _name in ("uno", "unohelper", "com", "com.sun", "com.sun.star", "com.sun.star.lang", "com.sun.star.task"):
+for _name in ("uno", "unohelper", "com", "com.sun", "com.sun.star", "com.sun.star.lang", "com.sun.star.task",
+              "com.sun.star.awt"):
     sys.modules.setdefault(_name, _StubModule(_name))
 
 from hst_office import error_report_crash as crash  # noqa: E402
@@ -146,7 +147,7 @@ class CrashPromptTests(unittest.TestCase):
         text, app = crash.crash_facts(self.state(True, False, ["com.sun.star.sheet.SpreadsheetDocument"] * 2))
         self.assertEqual(app, "calc")
         self.assertIn("Emergency save ran: yes", text)
-        self.assertIn("Documents open at exit: 2 (calc)", text)
+        self.assertIn("Documents in the recovery list (modified) at exit: 2 (calc)", text)
         _, app = crash.crash_facts(self.state(True, False, ["com.sun.star.sheet.SpreadsheetDocument",
                                                             "com.sun.star.text.TextDocument"]))
         self.assertEqual(app, "unknown")

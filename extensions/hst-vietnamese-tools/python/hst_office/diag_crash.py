@@ -11,6 +11,10 @@ platform recorded, read at that next start (crash_signature.py parses it):
   * macOS: the system crash report (~/Library/Logs/DiagnosticReports/soffice*.ips) newer than the marker.
   * Windows: the "Application Error" event (1000) for soffice.bin in the Application log newer than the marker
     (faulting module, exception code, offset). faulthandler stays off there: it would log every C++ exception.
+    Without one, an "Application Hang" event (1002) or a WER AppHangB1 report (1001) for soffice.bin means the office
+    had stopped answering and was closed by the user or Windows ("not responding"): the session ended as a hang.
+While the session runs, session_heartbeat stores in the marker the last time the office answered and the apps of its
+open documents (no names); the next start reports them, and the hang's length from that time to the hang event.
 No document content or names; the signature passes the privacy filter like every log entry.
 """
 import json
@@ -20,12 +24,12 @@ import stat
 import sys
 import time
 
-from . import crash_signature, diag_log
+from . import crash_signature, diag_log, session_facts
 
 MARKER = "session.json"
 STDERR_NAME = "last-session.err"
 STDERR_KEEP = 1024 * 1024  # a session's stderr beyond this is cut at the next start (only its end matters)
-STATE = {"previous": None, "stderr": None}
+STATE = {"previous": None, "stderr": None, "closed": False}
 
 
 def _path(name):
@@ -40,8 +44,32 @@ def read_marker(path):
         return None
 
 
+def update_marker(fields):
+    """Merge `fields` into this session's marker (temporary file, then rename: a kill never leaves half a marker).
+    False once the session closed or when the marker cannot be written."""
+    if STATE["closed"]:
+        return False
+    path = _path(MARKER)
+    marker = read_marker(path)
+    if marker is None:
+        return False  # never started (diag_crash.start failed) or already removed
+    marker.update(fields)
+    try:
+        with open(path + ".tmp", "w", encoding="utf-8") as handle:
+            json.dump(marker, handle)
+        os.replace(path + ".tmp", path)
+        return True
+    except OSError:
+        return False
+
+
+def _beat_fields(marker):
+    return {name: marker[name] for name in ("beat", "apps", "active", "modified", "loading") if name in marker}
+
+
 def previous_session(system=None, marker=None, stderr_text=None, now=None):
-    """{"ended": "crash"|"not closed", "started", "signature"} of an unclosed previous session, else None."""
+    """{"ended": "crash"|"hang"|"not closed", "started", "signature", "hang", "version", and the last heartbeat's
+    "beat", "apps", "active", "modified", "loading" when recorded} of an unclosed previous session, else None."""
     system = system or platform.system()
     marker = read_marker(_path(MARKER)) if marker is None else marker
     if not marker:
@@ -56,8 +84,10 @@ def previous_session(system=None, marker=None, stderr_text=None, now=None):
         signature = crash_signature.from_windows_events(started)
     else:
         signature = ""
-    return {"ended": "crash" if signature else "not closed", "started": started, "signature": signature,
-            "version": marker.get("version", "")}
+    hang = crash_signature.windows_hang(started) if system == "Windows" and not signature else None
+    ended = "crash" if signature else "hang" if hang else "not closed"
+    return dict(_beat_fields(marker), ended=ended, started=started, signature=signature, hang=hang,
+                version=marker.get("version", ""))
 
 
 def _read_stderr():
@@ -120,6 +150,7 @@ def start(ctx, environment):
 
 def stop():
     """OnCloseApp: the session closed normally."""
+    STATE["closed"] = True
     diag_log.info("session", "exit")
     try:
         os.remove(_path(MARKER))
@@ -134,6 +165,9 @@ def facts(previous):
     lines = ["Session marker: previous session %s (version %s)" % (previous["ended"], previous.get("version") or "?")]
     if previous.get("signature"):
         lines += ["Crash signature:", previous["signature"]]
+    elif previous.get("hang"):
+        lines.append("Crash signature: none; the system recorded a hang (not responding, then closed)")
+        lines.append("Hang: %s" % previous["hang"]["text"])
     else:
         lines.append("Crash signature: none recorded by the office or the system")
-    return lines
+    return lines + session_facts.beat_facts(previous)
