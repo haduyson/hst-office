@@ -1,0 +1,303 @@
+HST Office: every document tab shows the UI mode and the toolbars of its own module.
+
+User report (13/11/2026): Sheets and Writer tabs in one window, the user interface set to "Standard Toolbar"; after a
+tab switch the window showed only the menubar and the tab strip, without toolbars or ribbon.
+Cause (reproduced on Windows with 1.0.1): .uno:ToolbarMode applies a mode to the frames of SfxViewFrame::Current()'s
+module only. "Apply to All" sets the other modules by configuration only. When a tab of such a module is shown,
+SfxNotebookBar::StateMethod closes its ribbon, but nothing shows the toolbars of the new mode. The object bars that
+SfxWorkWindow requests stay hidden, because an earlier switch to a ribbon mode stored them as invisible
+(WindowState Visible=false). Choosing the same mode again for that module did nothing either, because .uno:ToolbarMode
+returned early when the mode did not change. The ribbon checks also read the mode of SfxViewFrame::Current()'s module,
+which with document tabs can be another tab's module. A document of that module opened from the window (a new tab)
+got neither the ribbon nor the toolbars either.
+- SfxNotebookBar::IsActiveFor(xFrame): the mode of xFrame's module. StateMethod and SfxWorkWindow (which destroys the
+  toolbars under a ribbon) use the frame they work on; IsActive() keeps the Current() behaviour for its other callers.
+- StateMethod: when it closes the ribbon of a frame whose module is now in a toolbar mode, it creates and shows that
+  mode's "Toolbars" and "UserToolbars", like .uno:ToolbarMode does for its own module. When a new window or tab of a
+  module in a toolbar mode is set up and every toolbar of the mode is stored as invisible (left so by an earlier
+  switch to a ribbon mode; also existing 1.0.1 profiles), it shows them too. A user who hid only some of them keeps
+  that choice.
+- StateMethod shows or hides the menubars of xFrame's module (ShowMenubarForModuleOf); before, setting up a tab in
+  Tabbed mode could hide the menubar of another module's tabs.
+- .uno:ToolbarMode no longer returns early when the mode is unchanged, so choosing it again ("Apply to <module>")
+  repairs a module whose toolbars were lost.
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/unit/test_ui_mode_per_tab.py; GUI: tests/runtime/check-windows-ui-mode-tabs.py (Windows),
+tests/runtime/check-ui-mode-tabs.py (Linux).
+---
+--- a/include/sfx2/notebookbar/SfxNotebookBar.hxx
++++ b/include/sfx2/notebookbar/SfxNotebookBar.hxx
+@@ -42,6 +42,10 @@
+     static void CloseMethod(SystemWindow* pSysWindow);
+ 
+     static bool IsActive(bool bConsiderSingleToolbar = false);
++    /// HST Office: like IsActive(), for the module of xFrame instead of SfxViewFrame::Current()'s
++    /// (with document tabs, frames of different modules with different UI modes share a window).
++    static bool IsActiveFor(const css::uno::Reference<css::frame::XFrame>& xFrame,
++                            bool bConsiderSingleToolbar = false);
+ 
+     /// Function to be called from the sdi's ExecMethod.
+     static void ExecMethod(SfxBindings& rBindings, const OUString& rUIName);
+@@ -62,6 +66,9 @@
+ 
+     /** Show menu bar in all frames of current application */
+     static void ShowMenubar(bool bShow);
++    /// HST Office: like ShowMenubar(bool), for the frames of xFrame's module.
++    static void ShowMenubarForModuleOf(const css::uno::Reference<css::frame::XFrame>& xFrame,
++                                       bool bShow);
+     /** Show menu bar only in current frame */
+     static void ShowMenubar(SfxViewFrame const* pViewFrame, bool bShow);
+     static void ToggleMenubar();
+--- a/sfx2/source/notebookbar/SfxNotebookBar.cxx
++++ b/sfx2/source/notebookbar/SfxNotebookBar.cxx
+@@ -25,9 +25,14 @@
+ #include <officecfg/Office/UI/ToolbarMode.hxx>
+ #include <com/sun/star/frame/XModuleManager.hpp>
+ #include <com/sun/star/frame/ModuleManager.hpp>
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <cppuhelper/weakref.hxx>
++#include <com/sun/star/container/XNameAccess.hpp>
++#include <com/sun/star/ui/theWindowStateConfiguration.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <unotools/confignode.hxx>
+ #include <comphelper/types.hxx>
++#include <comphelper/diagnose_ex.hxx>
+ #include <framework/addonsoptions.hxx>
+ #include <vcl/notebookbar/NotebookBarAddonsItem.hxx>
+ #include <vector>
+@@ -158,6 +163,104 @@
+     return OUString();
+ }
+ 
++/// HST Office: the toolbar lists ("Toolbars", "UserToolbars") of the active mode of xFrame's module.
++static std::vector<OUString> lcl_getModeToolbars(const Reference<css::frame::XFrame>& xFrame)
++{
++    std::vector<OUString> aResult;
++    const Reference<css::uno::XComponentContext>& xContext = comphelper::getProcessComponentContext();
++    const OUString aApp = lcl_getAppName(vcl::EnumContext::GetApplicationEnum(
++        frame::ModuleManager::create(xContext)->identify(xFrame)));
++    if (aApp.isEmpty())
++        return aResult;
++    const utl::OConfigurationTreeRoot aAppNode(
++        xContext, "org.openoffice.Office.UI.ToolbarMode/Applications/" + aApp, false);
++    if (!aAppNode.isValid())
++        return aResult;
++    const OUString aActive = comphelper::getString(aAppNode.getNodeValue(u"Active"_ustr));
++    const utl::OConfigurationNode aModesNode = aAppNode.openNode(u"Modes"_ustr);
++    for (const OUString& rName : aModesNode.getNodeNames())
++    {
++        const utl::OConfigurationNode aModeNode(aModesNode.openNode(rName));
++        if (!aModeNode.isValid()
++            || comphelper::getString(aModeNode.getNodeValue(u"CommandArg"_ustr)) != aActive)
++            continue;
++        for (const char* pList : { "Toolbars", "UserToolbars" })
++            for (const OUString& rToolbar :
++                 aModeNode.getNodeValue(OUString::createFromAscii(pList)).get<Sequence<OUString>>())
++                aResult.push_back(rToolbar);
++        break;
++    }
++    return aResult;
++}
++
++/// HST Office: true when every toolbar of rToolbars is stored as invisible for xFrame's module.
++static bool lcl_allStoredInvisible(const Reference<css::frame::XFrame>& xFrame,
++                                   const std::vector<OUString>& rToolbars)
++{
++    const Reference<css::uno::XComponentContext>& xContext = comphelper::getProcessComponentContext();
++    Reference<container::XNameAccess> xModuleStates;
++    ui::theWindowStateConfiguration::get(xContext)->getByName(
++        frame::ModuleManager::create(xContext)->identify(xFrame)) >>= xModuleStates;
++    if (!xModuleStates.is() || rToolbars.empty())
++        return false;
++    for (const OUString& rToolbar : rToolbars)
++    {
++        Sequence<beans::PropertyValue> aProps;
++        if (xModuleStates->hasByName(rToolbar))
++            xModuleStates->getByName(rToolbar) >>= aProps;
++        bool bVisible = true;
++        for (const beans::PropertyValue& rProp : aProps)
++            if (rProp.Name == "Visible")
++                rProp.Value >>= bVisible;
++        if (bVisible)
++            return false;
++    }
++    return true;
++}
++
++/** HST Office: create and show the toolbars of the active mode of xFrame's module, as
++    .uno:ToolbarMode does for the module it runs in. A switch to a ribbon mode stores the toolbars
++    as invisible; when the module comes back to a toolbar mode by configuration only ("Apply to All"
++    from another module), nothing else would show them again.
++    bOnlyIfAllStoredInvisible: only when every toolbar of the mode is stored as invisible (a frame
++    set up for the first time: toolbars the user hid on purpose stay hidden). */
++static void lcl_showModeToolbars(const Reference<css::frame::XFrame>& xFrame,
++                                 bool bOnlyIfAllStoredInvisible)
++{
++    const Reference<frame::XLayoutManager> xLayoutManager = lcl_getLayoutManager(xFrame);
++    if (!xLayoutManager.is())
++        return;
++    try
++    {
++        const std::vector<OUString> aToolbars = lcl_getModeToolbars(xFrame);
++        if (bOnlyIfAllStoredInvisible && !lcl_allStoredInvisible(xFrame, aToolbars))
++            return;
++        for (const OUString& rToolbar : aToolbars)
++        {
++            xLayoutManager->createElement(rToolbar);
++            xLayoutManager->showElement(rToolbar);
++        }
++    }
++    catch (const css::uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.appl", "SfxNotebookBar: show the toolbars of the mode");
++    }
++}
++
++/// HST Office: true the first time it is asked for xFrame.
++static bool lcl_firstSetup(const Reference<css::frame::XFrame>& xFrame)
++{
++    static std::vector<css::uno::WeakReference<css::frame::XFrame>> aSeen;
++    std::erase_if(aSeen, [](const css::uno::WeakReference<css::frame::XFrame>& rWeak) {
++        return !Reference<css::frame::XFrame>(rWeak).is();
++    });
++    for (const auto& rWeak : aSeen)
++        if (Reference<css::frame::XFrame>(rWeak) == xFrame)
++            return false;
++    aSeen.emplace_back(xFrame);
++    return true;
++}
++
+ static utl::OConfigurationTreeRoot lcl_getCurrentImplConfigRoot()
+ {
+     return utl::OConfigurationTreeRoot(::comphelper::getProcessComponentContext(),
+@@ -232,15 +335,19 @@
+ {
+     if (m_bHide)
+         return false;
++    SfxViewFrame* pViewFrm = SfxViewFrame::Current();
++    if (!pViewFrm)
++        return false;
++    return IsActiveFor(pViewFrm->GetFrame().GetFrameInterface(), bConsiderSingleToolbar);
++}
+ 
+-    vcl::EnumContext::Application eApp = vcl::EnumContext::Application::Any;
++bool SfxNotebookBar::IsActiveFor(const Reference<frame::XFrame>& xFrame, bool bConsiderSingleToolbar)
++{
++    if (m_bHide || !xFrame.is())
++        return false;
+ 
+-    if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
++    vcl::EnumContext::Application eApp = vcl::EnumContext::Application::Any;
+     {
+-        const Reference<frame::XFrame>& xFrame = pViewFrm->GetFrame().GetFrameInterface();
+-        if (!xFrame.is())
+-            return false;
+-
+         const Reference<frame::XModuleManager> xModuleManager  = frame::ModuleManager::create( ::comphelper::getProcessComponentContext() );
+         try
+         {
+@@ -252,8 +359,6 @@
+             return false;
+         }
+     }
+-    else
+-        return false;
+ 
+     OUString appName(lcl_getAppName( eApp ));
+ 
+@@ -337,7 +442,9 @@
+             return false;
+     }
+ 
+-    if (IsActive())
++    // HST Office: the mode of xFrame's module, not of SfxViewFrame::Current() (another tab's module
++    // while document tabs switch).
++    if (xFrame.is() ? IsActiveFor(xFrame) : IsActive())
+     {
+         const css::uno::Reference<css::uno::XComponentContext>& xContext = comphelper::getProcessComponentContext();
+         const Reference<frame::XModuleManager> xModuleManager  = frame::ModuleManager::create( xContext );
+@@ -391,7 +498,8 @@
+             utl::OConfigurationTreeRoot aRoot(lcl_getCurrentImplConfigRoot());
+             const utl::OConfigurationNode aModeNode(lcl_getCurrentImplConfigNode(xFrame, aRoot));
+             const bool bHasMenubar = comphelper::getBOOL( aModeNode.getNodeValue( u"HasMenubar"_ustr ) );
+-            SfxNotebookBar::ShowMenubar( bHasMenubar );
++            // HST Office: the frames of xFrame's module, not of SfxViewFrame::Current()'s
++            SfxNotebookBar::ShowMenubarForModuleOf(xFrame, bHasMenubar);
+             // HST Office: the frame set up here need not be SfxViewFrame::Current() (document
+             // tabs show a parked window before it becomes current), so apply the mode to it too.
+             if (const Reference<frame::XLayoutManager> xLayoutManager = lcl_getLayoutManager(xFrame);
+@@ -418,7 +526,17 @@
+         vcl::Window* pParent = pNotebookBar->GetParent();
+         pSysWindow->CloseNotebookBar();
+         pParent->Resize();
+-        SfxNotebookBar::ShowMenubar(true);
++        SfxNotebookBar::ShowMenubarForModuleOf(xFrame, true);
++        // HST Office: the module's mode was changed by configuration only (for example "Apply to
++        // All" from another module's tab): show the toolbars of its mode.
++        if (xFrame.is())
++            lcl_showModeToolbars(xFrame, false);
++    }
++    else if (xFrame.is() && !comphelper::LibreOfficeKit::isActive() && lcl_firstSetup(xFrame))
++    {
++        // HST Office: a new window or tab of a module in a toolbar mode whose toolbars an earlier
++        // switch to a ribbon mode stored as invisible (profiles of 1.0.1 included).
++        lcl_showModeToolbars(xFrame, true);
+     }
+ 
+     return false;
+@@ -432,7 +550,9 @@
+     }
+ }
+ 
+-void SfxNotebookBar::ShowMenubar(bool bShow)
++void SfxNotebookBar::ShowMenubar(bool bShow) { ShowMenubarForModuleOf({}, bShow); }
++
++void SfxNotebookBar::ShowMenubarForModuleOf(const Reference<frame::XFrame>& xModuleFrame, bool bShow)
+ {
+     if (m_bLock)
+         return;
+@@ -444,11 +564,11 @@
+     const uno::Reference< uno::XComponentContext >& xContext = comphelper::getProcessComponentContext();
+     const Reference<frame::XModuleManager> xModuleManager = frame::ModuleManager::create( xContext );
+ 
+-    if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
+-    {
+-        xFrame = pViewFrm->GetFrame().GetFrameInterface();
+-        eCurrentApp = vcl::EnumContext::GetApplicationEnum( xModuleManager->identify( xFrame ) );
+-    }
++    if (xModuleFrame.is())
++        eCurrentApp = vcl::EnumContext::GetApplicationEnum( xModuleManager->identify( xModuleFrame ) );
++    else if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
++        eCurrentApp = vcl::EnumContext::GetApplicationEnum(
++            xModuleManager->identify(pViewFrm->GetFrame().GetFrameInterface()));
+ 
+     SfxViewFrame* pViewFrame = SfxViewFrame::GetFirst();
+     while( pViewFrame )
+--- a/sfx2/source/appl/appserv.cxx
++++ b/sfx2/source/appl/appserv.cxx
+@@ -1031,11 +1031,9 @@
+ 
+                 aCurrentMode = comphelper::getString( aAppNode.getNodeValue( u"Active"_ustr ) );
+ 
+-                if ( !comphelper::LibreOfficeKit::isActive() && aCurrentMode == aNewName )
+-                {
+-                    bDone = true;
+-                    break;
+-                }
++                // HST Office: choosing the module's current mode again applies it again (shows
++                // its toolbars); the mode may have been set by configuration only, see
++                // SfxNotebookBar::StateMethod.
+ 
+                 // Save new toolbar mode for a current module
+                 aAppNode.setNodeValue( u"Active"_ustr, Any( aNewName ) );
+--- a/sfx2/source/appl/workwin.cxx
++++ b/sfx2/source/appl/workwin.cxx
+@@ -1201,7 +1201,7 @@
+     // Iterate over all Toolboxes
+     xLayoutManager->lock();
+     const bool bForceDestroyToolbars =
+-        comphelper::LibreOfficeKit::isActive() ? false : sfx2::SfxNotebookBar::IsActive(true);
++        comphelper::LibreOfficeKit::isActive() ? false : sfx2::SfxNotebookBar::IsActiveFor(GetFrameInterface(), true);
+     for ( auto const & n: aObjBarList )
+     {
+         ToolbarId eId = n.eId;
