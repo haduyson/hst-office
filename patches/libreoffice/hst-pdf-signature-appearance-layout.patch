@@ -68,7 +68,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <vcl/pdfwriter.hxx>
  #include <vcl/virdev.hxx>
  
-@@ -58,6 +62,50 @@
+@@ -58,6 +62,53 @@
      return aDate;
  }
  
@@ -78,7 +78,10 @@ License: these upstream files remain under their original license (MPL-2.0).
 +{
 +    const util::DateTime aNow = rNow.GetUNODateTime();
 +    const tools::Time aOffset = tools::Time::GetUTCOffset();
-+    const auto twoDigits = [](sal_Int32 n) { return (n < 10 ? u"0"_ustr : OUString()) + OUString::number(n); };
++    // an OUString, not the concatenation of the lambda's temporaries it would deduce
++    const auto twoDigits = [](sal_Int32 n) -> OUString {
++        return (n < 10 ? u"0"_ustr : OUString()) + OUString::number(n);
++    };
 +    return formatDate(aNow, true) + ":" + twoDigits(aNow.Seconds) + " "
 +           + (aOffset.GetTime() < 0 ? u"-" : u"+") + twoDigits(aOffset.GetHour()) + ":"
 +           + twoDigits(aOffset.GetMin());
@@ -119,7 +122,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  OUString commonName(const OUString& rDistinguishedName)
  {
      OUString aName = comphelper::xmlsec::GetContentPart(rDistinguishedName,
-@@ -116,36 +164,53 @@
+@@ -116,36 +167,53 @@
              static_cast<tools::Long>(rPlacement.aRect.getMaxX() * 20),
              static_cast<tools::Long>(rPlacement.aRect.getMaxY() * 20));
  
@@ -191,7 +194,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          aMetaFile.Stop();
          aMetaFile.WindStart();
          aMetaFile.SetPrefMapMode(aTwips);
-@@ -169,6 +234,7 @@
+@@ -169,6 +237,7 @@
      if (!xCertificate.is())
          return aDescription;
      aDescription.aSubject = commonName(xCertificate->getSubjectName());
