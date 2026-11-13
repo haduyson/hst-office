@@ -19,7 +19,10 @@ language and locale (owner request 2026-11-13: users coming from it must not stu
   gave CEILING/FLOOR the OpenDocument rounding, saved to .xlsx as CEILING.MATH/FLOOR.MATH); the
   OpenDocument variants are shown as CEILING.ODF/FLOOR.ODF. Only the UI names change (native and
   English-function-name lists): ODF, .xlsx and the macro API keep their names. Their help text no
-  longer calls them a compatibility function of an old product version.
+  longer calls them a compatibility function of an old product version. Likewise FORMULATEXT, SKEW.P,
+  FORECAST.ETS, FORECAST.ETS.CONFINT and FORECAST.ETS.STAT are the UI names of the functions upstream
+  shows as FORMULA, SKEWP, FORECAST.ETS.ADD, FORECAST.ETS.PI.ADD and FORECAST.ETS.STAT.ADD (their
+  .xlsx names; ODF keeps FORMULA, SKEWP, ...).
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: tests/unit/test_sheets_excel_formula_conventions.py,
@@ -50,8 +53,12 @@ tests/runtime/check-sheets-excel-formula-conventions.py.
        <quarter3Word>quý 3</quarter3Word>
 --- a/formula/inc/core_resource.hrc
 +++ b/formula/inc/core_resource.hrc
-@@ -2062,12 +2062,12 @@
-     { "FORMULA" , ocFormula },
+@@ -2059,15 +2059,15 @@
+     { "GAMMALN.PRECISE" , ocGammaLn_MS },
+     { "ERRORTYPE" , ocErrorType },
+     { "ERROR.TYPE" , ocErrorType_ODF },
+-    { "FORMULA" , ocFormula },
++    { "FORMULATEXT" , ocFormula },
      { "ATAN2" , ocArcTan2 },
      { "CEILING.MATH" , ocCeil_Math },
 -    { "CEILING" , ocCeil },
@@ -67,7 +74,37 @@ tests/runtime/check-sheets-excel-formula-conventions.py.
      { "FLOOR.MATH" , ocFloor_Math },
      { "FLOOR.PRECISE" , ocFloor_Precise },
      { "ROUND" , ocRound },
-@@ -2516,12 +2516,12 @@
+@@ -2262,7 +2262,7 @@
+     { "STANDARDIZE" , ocStandard },
+     { "AVEDEV" , ocAveDev },
+     { "SKEW" , ocSkew },
+-    { "SKEWP" , ocSkewp },
++    { "SKEW.P" , ocSkewp },
+     { "DEVSQ" , ocDevSq },
+     { "MEDIAN" , ocMedian },
+     { "MODE" , ocModalValue },
+@@ -2311,12 +2311,12 @@
+     { "LINEST" , ocLinest },
+     { "LOGEST" , ocLogest },
+     { "FORECAST" , ocForecast },
+-    { "FORECAST.ETS.ADD" , ocForecast_ETS_ADD },
++    { "FORECAST.ETS" , ocForecast_ETS_ADD },
+     { "FORECAST.ETS.SEASONALITY" , ocForecast_ETS_SEA },
+     { "FORECAST.ETS.MULT" , ocForecast_ETS_MUL },
+-    { "FORECAST.ETS.PI.ADD" , ocForecast_ETS_PIA },
++    { "FORECAST.ETS.CONFINT" , ocForecast_ETS_PIA },
+     { "FORECAST.ETS.PI.MULT" , ocForecast_ETS_PIM },
+-    { "FORECAST.ETS.STAT.ADD" , ocForecast_ETS_STA },
++    { "FORECAST.ETS.STAT" , ocForecast_ETS_STA },
+     { "FORECAST.ETS.STAT.MULT" , ocForecast_ETS_STM },
+     { "FORECAST.LINEAR" , ocForecast_LIN },
+     { "CHIINV" , ocChiInv },
+@@ -2512,16 +2512,16 @@
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "GAMMALN.PRECISE") , ocGammaLn_MS },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "ERRORTYPE") , ocErrorType },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "ERROR.TYPE") , ocErrorType_ODF },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORMULA") , ocFormula },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORMULATEXT") , ocFormula },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "ARABIC") , ocArabic },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "ATAN2") , ocArcTan2 },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "CEILING.MATH") , ocCeil_Math },
@@ -84,6 +121,31 @@ tests/runtime/check-sheets-excel-formula-conventions.py.
      { NC_("RID_STRLIST_FUNCTION_NAMES", "FLOOR.MATH") , ocFloor_Math },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "FLOOR.PRECISE") , ocFloor_Precise },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "ROUND") , ocRound },
+@@ -2714,7 +2714,7 @@
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "STANDARDIZE") , ocStandard },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "AVEDEV") , ocAveDev },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "SKEW") , ocSkew },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "SKEWP") , ocSkewp },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "SKEW.P") , ocSkewp },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "DEVSQ") , ocDevSq },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "MEDIAN") , ocMedian },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "MODE") , ocModalValue },
+@@ -2763,12 +2763,12 @@
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "LINEST") , ocLinest },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "LOGEST") , ocLogest },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST") , ocForecast },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.ADD") , ocForecast_ETS_ADD },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS") , ocForecast_ETS_ADD },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.SEASONALITY") , ocForecast_ETS_SEA },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.MULT") , ocForecast_ETS_MUL },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.PI.ADD") , ocForecast_ETS_PIA },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.CONFINT") , ocForecast_ETS_PIA },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.PI.MULT") , ocForecast_ETS_PIM },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.STAT.ADD") , ocForecast_ETS_STA },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.STAT") , ocForecast_ETS_STA },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.STAT.MULT") , ocForecast_ETS_STM },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.LINEAR") , ocForecast_LIN },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "CHIINV") , ocChiInv },
 --- a/sc/inc/scfuncs.hrc
 +++ b/sc/inc/scfuncs.hrc
 @@ -1431,7 +1431,7 @@

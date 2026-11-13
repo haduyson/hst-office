@@ -37,7 +37,7 @@ FORMULAS = [
     ("=AND(TRUE{s}FALSE)", "FALSE"), ("=VLOOKUP(2{s}F1:G3{s}2{s}FALSE)", "y"), ("=N(TRUE)", "1"),
     ("=IF(A1>5{s}\"Đạt\"{s}\"Không\")", "Đạt"), ("=SUMIF(B1:B3{s}\"Hà Nội\"{s}A1:A3)", "40"),
     ("=XLOOKUP(3{s}F1:F3{s}G1:G3)", "z"), ("=ROUND(2{d}345{s}2)", "2{d}35"),
-    ("=CEILING(-2{d}5{s}2)", "-2"), ("=FLOOR(-2{d}5{s}2)", "-4"), ("=CEILING(2{d}1{s}1)", "3"),
+    ("=CEILING(-2{d}5{s}2)", "-2"), ("=FLOOR(-2{d}5{s}2)", "-4"), ("=FLOOR(-2{d}5{s}-2)", "-2"), ("=CEILING(2{d}1{s}1)", "3"),
     ("=1/0", "#DIV/0!"), ("=NA()", "#N/A"), ("=SQRT(-1)", "#VALUE!"), ("=VALUE(\"abc\")", "#VALUE!"),
     ("=NOSUCHFUNCTION(1)", "#NAME?"), ("=1+*2", "error"), ("=A1:A2 B3:B4", "#NULL!"),
     ("='{sheet}'!A1", "10"), ("=SUM('{sheet}'!A1:A3)", "60"), ("=INDIRECT(\"'{sheet}'!A2\")", "20"),
@@ -71,6 +71,9 @@ def run_phase(uno, program, out, ui, loc, env):
         check("CEILING/FLOOR in the UI are the .xlsx functions",
               ooxml.get(native.get("CEILING")) == "CEILING" and ooxml.get(native.get("FLOOR")) == "FLOOR",
               {n: ooxml.get(native.get(n)) for n in ("CEILING", "FLOOR", "CEILING.ODF", "FLOOR.ODF")})
+        renamed = {n: ooxml.get(native.get(n), "").replace("_xlfn.", "") for n in
+                   ("FORMULATEXT", "SKEW.P", "FORECAST.ETS", "FORECAST.ETS.CONFINT", "FORECAST.ETS.STAT")}
+        check("FORMULATEXT, SKEW.P, FORECAST.ETS* keep their .xlsx names", all(k == v for k, v in renamed.items()), renamed)
         check("no CEILING.XCL/FLOOR.XCL names", not {"CEILING.XCL", "FLOOR.XCL"} & set(native), sorted({"CEILING.XCL", "FLOOR.XCL"} & set(native)))
         non_ascii = sorted(n for n in native if not n.isascii())
         check("function names are English (ASCII)", not non_ascii, non_ascii)
