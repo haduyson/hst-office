@@ -75,18 +75,27 @@ def prune_empty_toolboxes(root, emptied):
             L.remove(root, box)
 
 
+MENU_ITEMS = ("GtkMenuItem", "GtkCheckMenuItem", "GtkRadioMenuItem")
+
+
 def minimal_suppr(old, ui_path, root):
-    """The .suppr with the button-no-label lines of removed buttons dropped and those of new unlabelled buttons
-    added after the file's last line (ribbon_ux_lib.suppr rewrites them all; this keeps the diff small)."""
-    ids = {o.get("id") for o in root.iter("object")}
+    """The .suppr with this file's button-no-label lines for the current unlabelled toolbox and menu items: lines
+    of items that are gone or changed class are dropped, new ones go after the file's last line (keeps the diff
+    small; gla11y also checks menu items, whose command names them)."""
+    wanted = set(L.unlabelled_buttons(root)) | {
+        (o.get("class"), o.get("id")) for o in root.iter("object")
+        if o.get("class") in MENU_ITEMS and o.get("id") and not any(p.get("name") == "label" for p in o.findall("property"))}
+
+    def key(line):
+        klass = line.split("://", 1)[1].split("[", 1)[0]
+        return klass, line.split("@id='")[1].split("'")[0]
     lines = old.splitlines(keepends=True)
     mine = [i for i, line in enumerate(lines) if line.startswith(ui_path + ":")]
-    kept = [line for line in lines if not (line.startswith(ui_path + ":") and line.rstrip().endswith("button-no-label")
-                                           and line.split("@id='")[1].split("'")[0] not in ids)]
-    listed = {line.split("@id='")[1].split("'")[0] for line in kept
-              if line.startswith(ui_path + ":") and "@id='" in line}
-    new = [f"{ui_path}://{klass}[@id='{oid}'] button-no-label\n" for klass, oid in L.unlabelled_buttons(root)
-           if oid not in listed]
+    is_label_line = lambda line: line.startswith(ui_path + ":") and line.rstrip().endswith("button-no-label")  # noqa: E731
+    kept = [line for line in lines if not (is_label_line(line) and key(line) not in wanted)]
+    listed = {key(line) for line in kept if is_label_line(line)}
+    new = [f"{ui_path}://{klass}[@id='{oid}'] button-no-label\n" for klass, oid in sorted(wanted - listed,
+           key=lambda item: [o.get("id") for o in root.iter("object")].index(item[1]))]
     if not mine:
         return "".join(kept + new)
     last = lines[mine[-1]]
