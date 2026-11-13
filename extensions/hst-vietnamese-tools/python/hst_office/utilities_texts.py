@@ -52,6 +52,9 @@ DIALOG = {
     "occupied": "%d ô ở cột ghi kết quả đã có dữ liệu. Bấm “Ghi đè” để thay thế, hoặc đổi ô ghi.",
     "overwrite": "Ghi đè",
 }
+# Tùy chọn ▸ HST Office ▸ Đọc số và tiền: the short entries of its lists (number_words_defaults.CHOICES order)
+OPTIONS_PAGE = {"thousand": ("nghìn", "ngàn"), "odd": ("lẻ", "linh"), "four": ("bốn", "tư"),
+                "language": DIALOG["languages"]}
 # unit, sub-unit of each preset; "đồng" reads whole đồng (to read "xu", choose "Tùy chỉnh" and type it)
 PRESETS = (("đồng", ""), ("dollar", "cent"))
 # Saving an Excel file with cells that use the HST functions (save_format_check.py)

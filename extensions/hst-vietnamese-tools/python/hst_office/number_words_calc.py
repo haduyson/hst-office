@@ -81,15 +81,16 @@ def first_value(doc, sheet, text):
     return find_range(doc, sheet, text).getCellByPosition(0, 0).getDataArray()[0][0]
 
 
-def write(job, plan, choice):
+def write(job, plan, choice, file_layer=None):
     """Write the planned rows: the words, or a DOCSO/DOCTIEN formula on each row's own source cell. Cell by cell:
-    a block written with setDataArray/setFormulaArray is undone only in part inside an undo context (measured on
-    HST Sheets 1.0.1), and the whole column must go back with one undo. Call inside one undo step."""
+    Calc does not undo setDataArray/setFormulaArray into cells that were empty (measured on HST Sheets 1.0.1,
+    tests/runtime/check-vietnamese-calc-undo.py), and the whole column must go back with one undo. A formula leaves out what `file_layer`
+    (the file's default) reads the same way. Call inside one undo step."""
     a = job.source.getRangeAddress()
     column = column_name(job.source.getSpreadsheet(), a.StartColumn) if choice["formula"] else ""
     for offset, text in plan.writes:
         cell = job.target.getCellByPosition(0, offset)
         if choice["formula"]:
-            cell.setFormula(formula(choice, reference(column, a.StartRow + offset, job.source_sheet_name)))
+            cell.setFormula(formula(choice, reference(column, a.StartRow + offset, job.source_sheet_name), file_layer))
         else:
             cell.setString(text)

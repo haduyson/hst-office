@@ -1,65 +1,79 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""The file's own default money unit of "Đọc số thành chữ" (Sheets): two user-defined document properties,
-HST.DocTien.DonVi and HST.DocTien.DonViLe (File ▸ Properties ▸ Custom Properties). They are saved in .ods
-(meta:user-defined) and .xlsx (docProps/custom.xml) alike, so the file carries its default to every HST Office.
-
-The property only pre-fills the dialog: a formula written by the dialog spells out its unit whenever it is not
-the program default, so DOCTIEN() never depends on the property and the cell reads the same everywhere. It is the
-"file" layer of number_words_defaults.resolve() (unit_layer turns the pair into one)."""
+"""The file's own default of number and money reading (Sheets): user-defined document properties (Tệp tin ▸ Thuộc
+tính ▸ Thuộc tính tùy chọn), saved in .ods (meta:user-defined) and .xlsx (docProps/custom.xml) alike.
+  * money (DOCTIEN): HST.DocTien.DonVi, HST.DocTien.DonViLe, HST.DocTien.CachDoc (option text, e.g. "ngàn linh");
+  * numbers (DOCSO): HST.DocSo.CachDoc.
+It is the "file" layer of number_words_defaults: the dialog opens with it, and DOCSO()/DOCTIEN() use it for an
+argument left out. Set from the dialog ("Dùng làm mặc định cho tệp này"), one group (money or numbers) at a time."""
 from . import diag_log
-from .number_words_defaults import clean_unit
+from .number_words_defaults import valid_entries
 
-UNIT, SUB_UNIT = "HST.DocTien.DonVi", "HST.DocTien.DonViLe"
-REMOVEABLE = 128  # com.sun.star.beans.PropertyAttribute.REMOVEABLE: the user can delete it in File ▸ Properties
+PROPERTIES = {"unit": "HST.DocTien.DonVi", "sub_unit": "HST.DocTien.DonViLe", "money_options": "HST.DocTien.CachDoc",
+              "number_options": "HST.DocSo.CachDoc"}
+GROUPS = {True: ("unit", "sub_unit", "money_options"), False: ("number_options",)}
+REMOVEABLE = 128  # com.sun.star.beans.PropertyAttribute.REMOVEABLE: the user can delete it in the file's properties
+
+
+def group(money, values):
+    """The entries of one group (money or numbers) taken from complete dialog values."""
+    return {key: values[key] for key in GROUPS[money]}
+
+
+def has_group(layer, money):
+    return any(key in layer for key in GROUPS[money])
+
+
+def matches(layer, money, values):
+    """True when the file has a default for this group and `values` equal it."""
+    return has_group(layer, money) and all(layer.get(key, values[key]) == values[key] for key in GROUPS[money])
+
+
+def with_group(layer, money, entries):
+    """The layer once `entries` (or None: remove) become the file's default for this group. Pure."""
+    kept = {key: value for key, value in layer.items() if key not in GROUPS[money]}
+    return valid_entries(dict(kept, **(entries or {})))
 
 
 def _properties(doc):
     return doc.getDocumentProperties().getUserDefinedProperties()
 
 
-def _get(props, name):
-    return props.getPropertyValue(name) if props.getPropertySetInfo().hasPropertyByName(name) else None
-
-
-def parse(unit, sub_unit):
-    """(unit, sub-unit) from the stored values, or None when the file has no usable default."""
-    unit = clean_unit(unit, "")
-    return (unit, clean_unit(sub_unit, "")) if unit else None
-
-
 def read(doc):
-    """The file's (unit, sub-unit), or None (no default, or the document has no properties)."""
+    """The file layer: the valid entries among the properties ({} without a document or a default)."""
+    if doc is None:
+        return {}
     try:
         props = _properties(doc)
-        return parse(_get(props, UNIT), _get(props, SUB_UNIT))
+        info = props.getPropertySetInfo()
+        raw = {key: props.getPropertyValue(name) for key, name in PROPERTIES.items() if info.hasPropertyByName(name)}
+        return valid_entries(raw)
     except Exception:  # noqa: BLE001 - a document without user-defined properties has no default
         diag_log.exception("number_words")
-        return None
+        return {}
 
 
-def _set(props, name, value):
-    if props.getPropertySetInfo().hasPropertyByName(name):
-        props.setPropertyValue(name, value)
-    else:
-        props.addProperty(name, REMOVEABLE, value)
-
-
-def store(doc, default):
-    """Make `default` (unit, sub-unit) the file's default, or remove it when `default` is None. Writes only what
-    changes, so confirming the same default does not mark the document modified. Returns False if it failed."""
+def store(doc, money, entries):
+    """Make `entries` the file's default for one group, or remove that group (None). Writes only what changes, so
+    confirming the same default leaves the document unmodified. Returns True when something changed, False when
+    nothing did, None when it failed (read-only document, a property of the same name with another type)."""
     try:
-        if default == read(doc):
-            return True
+        before = read(doc)
+        after = with_group(before, money, entries)
+        if after == before:
+            return False
         props = _properties(doc)
-        if default is None:
-            for name in (UNIT, SUB_UNIT):
-                if props.getPropertySetInfo().hasPropertyByName(name):
+        info = props.getPropertySetInfo()
+        for key in GROUPS[money]:
+            name = PROPERTIES[key]
+            if key not in after:
+                if info.hasPropertyByName(name):
                     props.removeProperty(name)
-        else:
-            _set(props, UNIT, default[0])
-            _set(props, SUB_UNIT, default[1])
+            elif info.hasPropertyByName(name):
+                props.setPropertyValue(name, after[key])
+            else:
+                props.addProperty(name, REMOVEABLE, after[key])
         doc.setModified(True)
         return True
-    except Exception:  # noqa: BLE001 - read-only document or a property of another type with the same name
+    except Exception:  # noqa: BLE001 - see the docstring
         diag_log.exception("number_words")
-        return False
+        return None

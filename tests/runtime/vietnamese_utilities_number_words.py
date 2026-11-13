@@ -10,6 +10,7 @@ from vietnamese_utilities_gui import record
 
 TITLE = r"^Đọc số thành chữ$"
 SAY = r"^Công cụ tiếng Việt HST$"
+FILE_MONEY = {"unit": "đồng", "sub_unit": "xu", "money_options": ""}
 
 
 def _open(office, frame):
@@ -85,12 +86,12 @@ def number_words(office, doc, args):
         gui.dialog_shot(office, wid, args.shots, "doc-so-thanh-chu-mac-dinh-tep")
         gui.keys(office.display, wid, "Return")
         thread.join(30)
-    record("file default: the formula spells out the units", _formula(cell("T1")) == '=DOCTIEN(S1;"đồng";"xu")'
+    record("file default: the formula leaves out what the file's default reads", _formula(cell("T1")) == "=DOCTIEN(S1)"
            and cell("T1").getString() == "Một nghìn đồng chẵn", (_formula(cell("T1")), cell("T1").getString()))
-    record("file default: stored as document properties", fd.read(doc) == ("đồng", "xu"), fd.read(doc))
+    record("file default: stored as document properties", fd.read(doc) == FILE_MONEY, fd.read(doc))
     _hint(office, args, frame, controller, cell)
     _round_trip(office, doc, args, fd)
-    prefs.save(office.ctx, prefs.DEFAULTS, True)  # the Writer step expects the program default
+    prefs.save(office.ctx, prefs.DEFAULTS)  # the Writer step expects the program default
 
 
 def _hint(office, args, frame, controller, cell):
@@ -121,14 +122,17 @@ def _round_trip(office, doc, args, fd):
     desktop = office.service("com.sun.star.frame.Desktop")
     blank = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0,
                                          (PropertyValue(Name="Hidden", Value=True),))
-    fd.store(blank, ("USD", ""))
-    for source, expected in ((doc, ("đồng", "xu")), (blank, ("USD", ""))):
+    usd = {"unit": "USD", "sub_unit": "", "money_options": "en", "number_options": ""}
+    fd.store(blank, True, fd.group(True, usd))
+    fd.store(blank, False, fd.group(False, usd))
+    for source, expected in ((doc, FILE_MONEY), (blank, usd)):
         for name, filter_name in (("xlsx", "Calc Office Open XML"), ("ods", "calc8")):
-            url = uno.systemPathToFileUrl(os.path.join(out, "mac-dinh-%s.%s" % (expected[0], name)))
+            url = uno.systemPathToFileUrl(os.path.join(out, "mac-dinh-%s.%s" % (expected["unit"], name)))
             source.storeToURL(url, (PropertyValue(Name="FilterName", Value=filter_name),))
             loaded = desktop.loadComponentFromURL(url, "_blank", 0, (PropertyValue(Name="Hidden", Value=True),))
             try:
-                record("file default %r survives .%s" % (expected, name), fd.read(loaded) == expected, fd.read(loaded))
+                record("file default %s survives .%s" % (expected["unit"], name), fd.read(loaded) == expected,
+                       fd.read(loaded))
             finally:
                 loaded.close(True)
     blank.close(True)

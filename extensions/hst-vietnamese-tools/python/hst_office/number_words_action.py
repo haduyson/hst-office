@@ -41,12 +41,22 @@ def _preview_value(host, sheet, text):
         return None
 
 
-def _keep_file_default(doc, choice, stored):
-    """The ticked box makes the unit pair the file's default; clearing it removes the file's default."""
-    if choice["file_default"]:
-        wanted = file_default.parse(choice["unit"], choice["sub_unit"])
-        return file_default.store(doc, wanted) if wanted else True
-    return file_default.store(doc, None) if stored else True
+def _file_entries(choice):
+    """What "Dùng làm mặc định cho tệp này" asks for the kind just read: its entries, or None (remove)."""
+    if not choice["file_default"]:
+        return None
+    values = {"unit": choice["unit"], "sub_unit": choice["sub_unit"],
+              defaults.options_key(choice["money"]): choice["options"].text()}
+    return file_default.group(choice["money"], values)
+
+
+def _keep_file_default(doc, choice):
+    """Store the file's default for the kind just read; when it changed, recalculate so DOCSO()/DOCTIEN() written
+    without that argument follow it at once. Returns False if it could not be stored."""
+    changed = file_default.store(doc, choice["money"], _file_entries(choice))
+    if changed:
+        doc.calculateAll()
+    return changed is not None
 
 
 def _calc(host):
@@ -61,8 +71,8 @@ def _calc(host):
     except ValueError as exc:
         return host.say(str(exc), error=True)
     stored = file_default.read(host.doc)
-    values = defaults.resolve(defaults.unit_layer(stored), prefs.load(host.ctx))
-    dialog = NumberWordsDialog(host.ctx, True, source, target, initial=values, file_default=stored)
+    values = defaults.resolve(stored, prefs.load(host.ctx))
+    dialog = NumberWordsDialog(host.ctx, True, source, target, initial=values, file_layer=stored)
     dialog.read_cell = lambda text: _preview_value(host, sheet, text)
     dialog.occupied = lambda choice: _occupied(host, sheet, choice)
     choice = dialog.run(host.peer)
@@ -74,6 +84,8 @@ def _calc(host):
     except ValueError as exc:
         return host.say(str(exc), error=True)
     single = job.source.getRows().getCount() == 1
+    # formulas leave out only what the file's default (as it will be once stored) reads the same way
+    layer = file_default.with_group(stored, choice["money"], _file_entries(choice))
     if not result.writes:
         if not single:
             return host.say(T.MESSAGES["range-none"] % (choice["source"], result.skipped), error=True)
@@ -83,13 +95,13 @@ def _calc(host):
     host.doc.lockControllers()  # no repaint per block
     try:
         with undo_step(host.doc, T.UNDO["words"]):
-            calc.write(job, result, choice)
+            calc.write(job, result, choice, layer)
     except Exception:  # noqa: BLE001 - protected target sheet or read-only document: nothing is left half written
         return host.say(T.MESSAGES["write-failed"], error=True)
     finally:
         host.doc.unlockControllers()
-    prefs.save(host.ctx, prefs.from_choice(choice), True)
-    saved = _keep_file_default(host.doc, choice, stored)
+    prefs.save(host.ctx, prefs.from_choice(choice, True))
+    saved = _keep_file_default(host.doc, choice)
     if not single:
         done = len(result.writes)
         host.say(T.MESSAGES["range-skipped"] % (done, result.skipped) if result.skipped else T.MESSAGES["range-done"] % done)
@@ -125,4 +137,4 @@ def _writer(host):
             rng.setString(lead + text + trail)
     except Exception:  # noqa: BLE001 - protected section, read-only document
         return host.say(T.MESSAGES["writer-protected"], error=True)
-    prefs.save(host.ctx, prefs.from_choice(choice), False)
+    prefs.save(host.ctx, prefs.from_choice(choice, False))

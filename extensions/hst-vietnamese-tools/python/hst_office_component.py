@@ -36,6 +36,8 @@ SERVICES = (
     ("version_job", "PreviousVersionsJob", "org.hst.office.vi.PreviousVersionsJob", JOB),
     ("version_options", "PreviousVersionsOptionsHandler", "org.hst.office.vi.OptionsPreviousVersions",
      ("org.hst.office.vi.OptionsPreviousVersions",)),
+    ("number_words_options", "NumberWordsOptionsHandler", "org.hst.office.vi.OptionsNumberWords",
+     ("org.hst.office.vi.OptionsNumberWords",)),
     # asked by the core before an Excel file is written (hst-save-format-check.patch)
     ("save_format_check", "SaveFormatCheck", "org.hst.office.vi.SaveFormatCheck", ("org.hst.office.vi.SaveFormatCheck",)),
     ("banner_uno", "BannerService", "org.hst.office.BannerFeed", ("org.hst.office.BannerFeed",) + JOB),
