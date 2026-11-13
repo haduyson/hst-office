@@ -3,6 +3,7 @@
 a UNO pipe (check-citations-fieldmarks.py, check-citations-commands.py)."""
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -68,11 +69,12 @@ def run_office(instdir, out, run_checks, display=None):
     headless = [] if display else ["--headless"]
     if os.path.exists(os.path.join(program, "uno.py")):  # the build's own Python-UNO bridge
         sys.path.insert(0, program)
-        os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, "fundamentalrc")
+        rc = "fundamental.ini" if os.name == "nt" else "fundamentalrc"
+        os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, rc)
     shutil.rmtree(out, ignore_errors=True)
     profile = os.path.join(out, "profile")
     os.makedirs(profile)
-    user = "-env:UserInstallation=file://" + profile
+    user = "-env:UserInstallation=" + pathlib.Path(profile).as_uri()  # file:///D:/... on Windows
     for _ in range(3):  # exit code 81 = restart requested while the fresh profile is created
         warm = subprocess.run([os.path.join(program, "soffice.bin")] + headless + ["--norestore",
                                "--terminate_after_init", user], env=child_env, timeout=180, check=False)

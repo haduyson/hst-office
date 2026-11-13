@@ -54,7 +54,8 @@ def scan(doc, foreign=False):
         kind = codes.kind_of(code)
         if kind in ("citation", "bibliography") or (foreign and kind == "foreign"):
             fields.append({"index": len(fields), "kind": kind, "code": code, "mark": mark,
-                           "result": mark.getAnchor().getString()})
+                           # paragraph breaks read back as CRLF on Windows; plans compare against "\n"
+                           "result": mark.getAnchor().getString().replace("\r\n", "\n")})
     for rank, field in enumerate(reading_order(doc, fields)):
         field["rank"] = rank
     return fields

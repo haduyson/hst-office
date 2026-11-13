@@ -79,7 +79,7 @@ class Field:
 
     @property
     def result(self):
-        return self.mark.getAnchor().getString()
+        return self.mark.getAnchor().getString().replace("\r\n", "\n")  # CRLF between paragraphs on Windows
 
     def __repr__(self):
         return f"Field({self.index}, {self.code[:40]!r})"
