@@ -141,7 +141,7 @@ def main():
     parser.add_argument("--install", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--port", type=int, default=2167)
-    parser.add_argument("--modules", default="calc,writer,impress,draw,pdf")
+    parser.add_argument("--modules", default="writer,impress,draw,pdf,calc")
     parser.add_argument("--switches", type=int, default=6)
     args = parser.parse_args()
     out = os.path.abspath(args.out)
@@ -163,10 +163,17 @@ def main():
             if not seen:
                 break
         for module in args.modules.split(","):
-            try:
-                check_module(office, check, screen, desktop, module, out, args.switches)
-            except Exception as error:  # noqa: BLE001 - report and go on with the next module
-                check("%s: tab switch check ran" % module, False, repr(error))
+            for attempt in (1, 2):
+                try:
+                    check_module(office, check, screen, desktop, module, out, args.switches)
+                    break
+                except Exception as error:  # noqa: BLE001 - the office went away: once more, else report
+                    check.note("%s: attempt %d" % (module, attempt), repr(error))
+                    office.stop()
+                    office.start()
+                    wg.dismiss_startup(office, os.path.join(out, "startup-retry.png"), timeout=15, settle=3)
+                    if attempt == 2:
+                        check("%s: tab switch check ran" % module, False, repr(error))
     finally:
         close_all(office)
         office.stop()

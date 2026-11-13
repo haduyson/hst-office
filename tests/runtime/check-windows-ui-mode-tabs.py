@@ -77,7 +77,7 @@ def main():
         scenario.run_after_open(adapter, record, os.path.join(out, "docs"))
     except Exception:  # noqa: BLE001
         import traceback
-        check("scenario ran", False, traceback.format_exc())
+        check("scenario ran", False, traceback.format_exc()[-1400:])
     finally:
         office.stop()
     return check.exit_code()
