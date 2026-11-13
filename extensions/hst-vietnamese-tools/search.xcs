@@ -3,8 +3,9 @@
                       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                       oor:name="FeatureSearch" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
   <info>
-    <desc>Extra search words for "Tìm tính năng…" (Search Commands, Shift+Esc), read by the HST core patch
-      hst-feature-search.patch. Matching ignores case and diacritics.</desc>
+    <desc>Extra search words, empty-box suggestions and the recently used commands of "Tìm tính năng…" (Search
+      Commands, Alt+Q, Shift+Esc), read by the HST core patches hst-feature-search.patch and
+      hst-feature-search-ux.patch. Matching ignores case and diacritics. No data leaves the machine.</desc>
   </info>
   <templates>
     <group oor:name="Entry">
@@ -15,8 +16,30 @@
         <info><desc>Space-separated words and phrases that also find the command.</desc></info>
       </prop>
     </group>
+    <group oor:name="Suggestion">
+      <prop oor:name="Module" oor:type="xs:string">
+        <info><desc>Module identifier, e.g. com.sun.star.text.TextDocument.</desc></info>
+      </prop>
+      <prop oor:name="Commands" oor:type="oor:string-list">
+        <info><desc>Command URLs suggested while the search box is empty, in this order.</desc></info>
+      </prop>
+    </group>
   </templates>
   <component>
     <set oor:name="Keywords" oor:node-type="Entry"/>
+    <set oor:name="Suggestions" oor:node-type="Suggestion"/>
+    <prop oor:name="BubbleShown" oor:type="xs:boolean" oor:nillable="false">
+      <info>
+        <desc>True once the first-start hint under the search box ("Không thấy lệnh? Gõ tên lệnh ở đây, không
+          cần dấu.") has been shown (hst-ribbon-ux-engine.patch); it shows once per profile.</desc>
+      </info>
+      <value>false</value>
+    </prop>
+    <prop oor:name="Recent" oor:type="oor:string-list">
+      <info>
+        <desc>Commands run from the search, most recent first, as "module-identifier command-URL" (at most 30
+          entries); the empty search box lists the five latest of the current module.</desc>
+      </info>
+    </prop>
   </component>
 </oor:component-schema>

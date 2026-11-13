@@ -16,7 +16,7 @@ _spec.loader.exec_module(nd30)
 
 ROWS = []
 COMMAND = ".uno:HSTBackstage"
-ALL_ITEMS = ["Trang chủ", "Mới", "Mở", "Thông tin", "Lưu", "Lưu thành", "In", "Xuất PDF", "Ký số", "Đóng",
+ALL_ITEMS = ["Trang chủ", "Mới", "Mở", "Thông tin", "Lưu", "Lưu thành", "In", "Xuất", "Ký số", "Đóng",
              "Giới thiệu HST Office", "Tùy chọn"]
 
 

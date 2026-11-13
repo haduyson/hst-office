@@ -1,0 +1,1077 @@
+HST PDF: toolbar for every window width, fit width, previous/next page, rotate, save a copy, ≡ menu.
+
+Audit 13/11 (HST PDF): at 1100 px the "Sign" button was cut at the right edge, and the viewer had
+no buttons for fit width, previous/next page, rotate or save a copy, and no way to help.
+
+- Narrow window (PdfViewerWindow::Resize -> fitToolbar): the toolbar takes the widest of six
+  levels that fits. The search box shrinks first (24, 16, 10 characters), then Open, Print,
+  Save a Copy, Fit Page and Fit Width show only their icon (their label stays the accessible
+  name), then "Page" is hidden, then the search box goes to 6 characters. "Edit in HST Draw" and
+  "Sign" never change. HSTPdfInfo reports ToolbarLevel.
+- New buttons (Vietnamese tooltips with the shortcut, like the others): Save a Copy (Ctrl+Shift+S;
+  the open file's bytes unchanged, to a new file chosen in the save dialog; the open file itself is
+  refused), Fit Width (Ctrl+2; the zoom box item reads "Vừa bề rộng" too), Rotate (Ctrl+R; the view
+  turns 90° clockwise), Previous page (Ctrl+Page Up), Next page (Ctrl+Page Down), and a ≡ menu
+  button at the right end with the commands of the office ribbon's ≡ menu: HST Office Help
+  (.uno:HelpIndex), Report a Problem to HASON TECH (org.hst.office.vi:ReportError), About HST
+  Office (.uno:About). Fit Page gets an icon so it can drop its label.
+- Rotation is a view setting (PdfPageView::setRotation, pages and thumbnails, back to upright for
+  each opened document): the page is rendered at the swapped size and turned (Bitmap::Rotate), and
+  toPagePoint/toPixel map between the turned view and the upright page, so text selection, search
+  highlights and the signature box keep their page points and signing is unchanged.
+- Commands for the runtime checks: .uno:HSTPdfRotate (Rotation in degrees, else +90),
+  .uno:HSTPdfPreviousPage, .uno:HSTPdfNextPage, .uno:HSTPdfSaveCopy (TargetURL); HSTPdfInfo
+  reports Rotation and the new controls in ToolbarLayout.
+
+License: the modified files keep their license (MPL-2.0).
+---
+--- a/xmlsecurity/inc/strings.hrc
++++ b/xmlsecurity/inc/strings.hrc
+@@ -129,5 +129,9 @@
+ #define STR_HSTPDF_PRINT_ALL                        NC_("STR_HSTPDF_PRINT_ALL", "~All pages")
+ #define STR_HSTPDF_PRINT_RANGE                      NC_("STR_HSTPDF_PRINT_RANGE", "Pa~ges:")
+ #define STR_HSTPDF_PRINT_CURRENT                    NC_("STR_HSTPDF_PRINT_CURRENT", "~Current page")
++#define STR_HSTPDF_SAVE_COPY_TITLE                  NC_("STR_HSTPDF_SAVE_COPY_TITLE", "Save a Copy")
++#define STR_HSTPDF_COPY_SAME_FILE                   NC_("STR_HSTPDF_COPY_SAME_FILE", "The copy needs a new file name: the file chosen is the one open now.")
++#define STR_HSTPDF_COPY_FAILED                      NC_("STR_HSTPDF_COPY_FAILED", "The copy could not be saved. Check the folder and that you may write to it, then try again.")
++#define STR_HSTPDF_COPY_SAVED                       NC_("STR_HSTPDF_COPY_SAVED", "Copy saved as %1")
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/xmlsecurity/source/hstpdf/pdfpageview.hxx
++++ b/xmlsecurity/source/hstpdf/pdfpageview.hxx
+@@ -74,6 +74,11 @@
+     /// Thumbnail strip: the page drawn as selected.
+     void setSelectedPage(int nPage);
+ 
++    /// View rotation in quarter turns clockwise (0-3): the pages turn on screen only. Page points
++    /// (selection, matches, signature box, signing) stay in the unrotated page.
++    int getRotation() const { return m_nRotation; }
++    void setRotation(int nQuarterTurns);
++
+     void setMatches(const std::vector<TextMatch>* pMatches, int nCurrent);
+     OUString getSelectedText() const { return m_aSelectedText; }
+     void clearSelection();
+@@ -95,6 +100,12 @@
+ 
+ private:
+     double pixelsPerPoint() const;
++    /// Page size in points as shown, the view rotation applied.
++    basegfx::B2DSize viewPageSize(int nPage) const;
++    void updateMaxViewWidth();
++    /// Unrotated page point to the point as shown (points from the shown page's top left), and back.
++    basegfx::B2DPoint toViewPoint(int nPage, const basegfx::B2DPoint& rPagePoint) const;
++    basegfx::B2DPoint fromViewPoint(int nPage, const basegfx::B2DPoint& rViewPoint) const;
+     void layout();
+     void updateScrollbars();
+     void scrollTo(tools::Long nY, tools::Long nX);
+@@ -118,6 +129,9 @@
+     PdfViewerDocument* m_pDocument = nullptr;
+ 
+     double m_fZoom = 1.0;
++    int m_nRotation = 0;
++    /// Widest page as shown (points): the widest page, or the tallest when turned a quarter.
++    double m_fMaxViewWidth = 0.0;
+     Fit m_eFit = Fit::Auto;
+     /// Top of each page in content pixels, plus the content height at the end.
+     std::vector<tools::Long> m_aPageTops;
+--- a/xmlsecurity/source/hstpdf/pdfpageview.cxx
++++ b/xmlsecurity/source/hstpdf/pdfpageview.cxx
+@@ -127,6 +127,8 @@
+     m_nCurrentMatch = -1;
+     m_nScrollX = m_nScrollY = m_nScrollTarget = 0;
+     m_nCurrentPage = m_nSelectedPage = 0;
++    m_nRotation = 0; // each document opens upright
++    updateMaxViewWidth();
+     m_oPlacement.reset();
+     m_bPainted = false; // the next paint is the first page of this document
+     clearSelection();
+@@ -137,12 +139,73 @@
+ double PdfPageView::pixelsPerPoint() const
+ {
+     if (m_eMode == Mode::Thumbnails)
+-        return m_pDocument && m_pDocument->getMaxPageWidth() > 0
+-                   ? THUMB_WIDTH / m_pDocument->getMaxPageWidth()
+-                   : 1.0;
++        return m_pDocument && m_fMaxViewWidth > 0 ? THUMB_WIDTH / m_fMaxViewWidth : 1.0;
+     return m_fZoom * 96.0 / 72.0;
+ }
+ 
++basegfx::B2DSize PdfPageView::viewPageSize(int nPage) const
++{
++    const basegfx::B2DSize aSize = m_pDocument->getPageSize(nPage);
++    return m_nRotation % 2 ? basegfx::B2DSize(aSize.getHeight(), aSize.getWidth()) : aSize;
++}
++
++void PdfPageView::updateMaxViewWidth()
++{
++    m_fMaxViewWidth = 0.0;
++    if (!m_pDocument)
++        return;
++    if (m_nRotation % 2 == 0)
++    {
++        m_fMaxViewWidth = m_pDocument->getMaxPageWidth();
++        return;
++    }
++    for (int i = 0; i < m_pDocument->getPageCount(); ++i)
++        m_fMaxViewWidth = std::max(m_fMaxViewWidth, m_pDocument->getPageSize(i).getHeight());
++}
++
++basegfx::B2DPoint PdfPageView::toViewPoint(int nPage, const basegfx::B2DPoint& rPagePoint) const
++{
++    const basegfx::B2DSize aSize = m_pDocument->getPageSize(nPage);
++    const double fX = rPagePoint.getX(), fY = rPagePoint.getY();
++    switch (m_nRotation)
++    {
++        case 1: return basegfx::B2DPoint(aSize.getHeight() - fY, fX);
++        case 2: return basegfx::B2DPoint(aSize.getWidth() - fX, aSize.getHeight() - fY);
++        case 3: return basegfx::B2DPoint(fY, aSize.getWidth() - fX);
++        default: return rPagePoint;
++    }
++}
++
++basegfx::B2DPoint PdfPageView::fromViewPoint(int nPage, const basegfx::B2DPoint& rViewPoint) const
++{
++    const basegfx::B2DSize aSize = m_pDocument->getPageSize(nPage);
++    const double fX = rViewPoint.getX(), fY = rViewPoint.getY();
++    switch (m_nRotation)
++    {
++        case 1: return basegfx::B2DPoint(fY, aSize.getHeight() - fX);
++        case 2: return basegfx::B2DPoint(aSize.getWidth() - fX, aSize.getHeight() - fY);
++        case 3: return basegfx::B2DPoint(aSize.getWidth() - fY, fX);
++        default: return rViewPoint;
++    }
++}
++
++void PdfPageView::setRotation(int nQuarterTurns)
++{
++    nQuarterTurns = ((nQuarterTurns % 4) + 4) % 4;
++    if (!m_pDocument || nQuarterTurns == m_nRotation)
++        return;
++    m_nRotation = nQuarterTurns;
++    updateMaxViewWidth();
++    m_aZoomRender.Stop();
++    m_aCache.clear();
++    const int nPage = m_eMode == Mode::Thumbnails ? m_nSelectedPage : m_nCurrentPage;
++    layout();
++    if (!m_aPageTops.empty())
++        scrollTo(m_aPageTops[nPage] - (m_eMode == Mode::Thumbnails ? THUMB_GAP : PAGE_MARGIN / 2), 0);
++    Invalidate();
++    m_aZoomChangedHdl.Call(*this);
++}
++
+ void PdfPageView::layout()
+ {
+     m_aPageTops.clear();
+@@ -155,8 +218,8 @@
+     if (m_eMode == Mode::Pages && m_eFit != Fit::None && aView.Width() > 0)
+     {
+         const double fWidthZoom = (aView.Width() - 2.0 * PAGE_MARGIN)
+-                                  / (m_pDocument->getMaxPageWidth() * 96.0 / 72.0);
+-        const basegfx::B2DSize aPage = m_pDocument->getPageSize(m_nCurrentPage);
++                                  / (m_fMaxViewWidth * 96.0 / 72.0);
++        const basegfx::B2DSize aPage = viewPageSize(m_nCurrentPage);
+         const double fPageZoom
+             = std::min(fWidthZoom, (aView.Height() - 2.0 * PAGE_MARGIN) / (aPage.getHeight() * 96.0 / 72.0));
+         double fZoom = m_eFit == Fit::Page ? fPageZoom : fWidthZoom;
+@@ -170,10 +233,10 @@
+     for (int i = 0; i < m_pDocument->getPageCount(); ++i)
+     {
+         m_aPageTops.push_back(nY);
+-        nY += std::lround(m_pDocument->getPageSize(i).getHeight() * fPpp) + nGap;
++        nY += std::lround(viewPageSize(i).getHeight() * fPpp) + nGap;
+     }
+     m_aPageTops.push_back(nY); // content height
+-    m_nContentWidth = std::lround(m_pDocument->getMaxPageWidth() * fPpp) + 2 * PAGE_MARGIN;
++    m_nContentWidth = std::lround(m_fMaxViewWidth * fPpp) + 2 * PAGE_MARGIN;
+     updateScrollbars();
+ }
+ 
+@@ -241,7 +304,7 @@
+     if (pAnchor && m_nContentWidth > GetOutputSizePixel().Width())
+     {
+         // pages wider than the view: pageRect() puts the page at (content - page) / 2 - scroll x
+-        const tools::Long nPageWidth = std::lround(m_pDocument->getPageSize(nPage).getWidth() * fPpp);
++        const tools::Long nPageWidth = std::lround(viewPageSize(nPage).getWidth() * fPpp);
+         nScrollX = (m_nContentWidth - nPageWidth) / 2 + std::lround(fInPageX * fPpp) - pAnchor->X();
+     }
+     scrollTo(m_aPageTops[nPage] + std::lround(fInPageY * fPpp) - nAnchorY, nScrollX);
+@@ -362,7 +425,7 @@
+ tools::Rectangle PdfPageView::pageRect(int nPage) const
+ {
+     const double fPpp = pixelsPerPoint();
+-    const basegfx::B2DSize aSize = m_pDocument->getPageSize(nPage);
++    const basegfx::B2DSize aSize = viewPageSize(nPage);
+     const tools::Long nWidth = std::lround(aSize.getWidth() * fPpp);
+     const tools::Long nHeight = std::lround(aSize.getHeight() * fPpp);
+     const tools::Long nViewWidth = GetOutputSizePixel().Width();
+@@ -400,17 +463,21 @@
+ {
+     const tools::Rectangle aRect = pageRect(nPage);
+     const double fPpp = pixelsPerPoint();
+-    return basegfx::B2DPoint((rPixel.X() - aRect.Left()) / fPpp, (rPixel.Y() - aRect.Top()) / fPpp);
++    return fromViewPoint(nPage, basegfx::B2DPoint((rPixel.X() - aRect.Left()) / fPpp,
++                                                  (rPixel.Y() - aRect.Top()) / fPpp));
+ }
+ 
+ tools::Rectangle PdfPageView::toPixel(int nPage, const PointRect& rRect) const
+ {
+     const tools::Rectangle aPage = pageRect(nPage);
+     const double fPpp = pixelsPerPoint();
+-    return tools::Rectangle(aPage.Left() + std::lround(rRect.getMinX() * fPpp),
+-                            aPage.Top() + std::lround(rRect.getMinY() * fPpp),
+-                            aPage.Left() + std::lround(rRect.getMaxX() * fPpp),
+-                            aPage.Top() + std::lround(rRect.getMaxY() * fPpp));
++    // a quarter turn keeps a rectangle a rectangle: its two corners, shown, span it
++    const basegfx::B2DRange aShown(toViewPoint(nPage, rRect.getMinimum()),
++                                   toViewPoint(nPage, rRect.getMaximum()));
++    return tools::Rectangle(aPage.Left() + std::lround(aShown.getMinX() * fPpp),
++                            aPage.Top() + std::lround(aShown.getMinY() * fPpp),
++                            aPage.Left() + std::lround(aShown.getMaxX() * fPpp),
++                            aPage.Top() + std::lround(aShown.getMaxY() * fPpp));
+ }
+ 
+ Bitmap PdfPageView::pageBitmap(int nPage, const Size& rPixelSize, bool bRenderMissing)
+@@ -425,7 +492,13 @@
+     }
+     if (!bRenderMissing)
+         return Bitmap();
+-    Bitmap aBitmap = m_pDocument->renderPage(nPage, rPixelSize.Width(), rPixelSize.Height());
++    // PDFium draws the page upright; a quarter turn draws it at the swapped size, then turns it
++    // (Bitmap::Rotate turns counter-clockwise, so a clockwise turn r is (4 - r) quarter turns)
++    const bool bSwap = m_nRotation % 2;
++    Bitmap aBitmap = m_pDocument->renderPage(nPage, bSwap ? rPixelSize.Height() : rPixelSize.Width(),
++                                             bSwap ? rPixelSize.Width() : rPixelSize.Height());
++    if (m_nRotation && !aBitmap.IsEmpty())
++        aBitmap.Rotate(Degree10((4 - m_nRotation) * 900), COL_WHITE);
+     m_aCache.push_front({ nPage, rPixelSize, aBitmap });
+     if (m_aCache.size() > (m_eMode == Mode::Thumbnails ? THUMB_CACHE : PAGE_CACHE))
+         m_aCache.pop_back();
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
+@@ -25,6 +25,7 @@
+ #include <vcl/weld/ComboBox.hxx>
+ #include <vcl/weld/Entry.hxx>
+ #include <vcl/weld/Label.hxx>
++#include <vcl/weld/MenuButton.hxx>
+ #include <vcl/weld/ToggleButton.hxx>
+ 
+ #include <chrono>
+@@ -41,6 +42,7 @@
+     virtual void dispose() override;
+     virtual bool PreNotify(NotifyEvent& rNEvt) override;
+     virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
++    virtual void Resize() override;
+ 
+     void setFrame(const css::uno::Reference<css::frame::XFrame>& xFrame) { m_xFrame = xFrame; }
+ 
+@@ -70,6 +72,14 @@
+     void copySelection();
+     void print();
+     void editInDraw();
++    /// Writes the open PDF, unchanged, to another file (rTargetURL, else chosen in a file dialog).
++    bool saveCopy(const OUString& rTargetURL);
++    void goToRelativePage(int nDelta);
++    void rotate();
++    /// Narrow window: the search box shrinks first, then the Open/Print/Save a Copy/Fit buttons
++    /// lose their labels and "Page" is hidden; Edit in HST Draw and Sign keep their width.
++    void fitToolbar();
++    void setToolbarLevel(int nLevel);
+     void dispatch(const OUString& rCommand);
+     void showSignPanel(bool bShow);
+     void updateSignPanel();
+@@ -80,6 +90,7 @@
+ 
+     DECL_LINK(ButtonHdl, weld::Button&, void);
+     DECL_LINK(SignToggleHdl, weld::Toggleable&, void);
++    DECL_LINK(MenuSelectHdl, const OUString&, void);
+     DECL_LINK(VisibleToggleHdl, weld::Toggleable&, void);
+     DECL_LINK(PageActivateHdl, weld::Entry&, bool);
+     DECL_LINK(SearchActivateHdl, weld::Entry&, bool);
+@@ -130,6 +141,15 @@
+     std::unique_ptr<weld::Button> m_xFindNext;
+     std::unique_ptr<weld::Button> m_xEdit;
+     std::unique_ptr<weld::ToggleButton> m_xSign;
++    std::unique_ptr<weld::Button> m_xSaveCopy;
++    std::unique_ptr<weld::Button> m_xFitWidth;
++    std::unique_ptr<weld::Button> m_xRotate;
++    std::unique_ptr<weld::Button> m_xPrevPage;
++    std::unique_ptr<weld::Button> m_xNextPage;
++    std::unique_ptr<weld::MenuButton> m_xMenu;
++    /// Buttons that show only their icon in a narrow window, with their labels.
++    std::vector<std::pair<weld::Button*, OUString>> m_aCompactButtons;
++    int m_nToolbarLevel = 0;
+ 
+     std::unique_ptr<PdfPageView> m_xThumbs;
+     std::unique_ptr<weld::CustomWeld> m_xThumbsWeld;
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -67,6 +67,16 @@
+ 
+ constexpr std::u16string_view CMD_PREFIX = u".uno:HSTPdf";
+ 
++/// Width of the search box (characters) at each toolbar level of fitToolbar(); from level
++/// TOOLBAR_LEVEL_ICONS the label buttons show only their icon, from TOOLBAR_LEVEL_NO_PAGE_LABEL
++/// "Page" is hidden.
++constexpr int SEARCH_WIDTH_CHARS[] = { 24, 16, 10, 10, 10, 6 };
++constexpr int TOOLBAR_LEVEL_ICONS = 3;
++constexpr int TOOLBAR_LEVEL_NO_PAGE_LABEL = 4;
++constexpr int TOOLBAR_LEVELS = std::size(SEARCH_WIDTH_CHARS);
++/// margin-start + margin-end of the toolbar in hstpdfviewer.ui
++constexpr tools::Long TOOLBAR_MARGINS = 20;
++
+ sal_Int64 millisSince(std::chrono::steady_clock::time_point tStart)
+ {
+     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()
+@@ -217,6 +227,12 @@
+     , m_xFindNext(m_xBuilder->weld_button(u"findnext"_ustr))
+     , m_xEdit(m_xBuilder->weld_button(u"edit"_ustr))
+     , m_xSign(m_xBuilder->weld_toggle_button(u"sign"_ustr))
++    , m_xSaveCopy(m_xBuilder->weld_button(u"savecopy"_ustr))
++    , m_xFitWidth(m_xBuilder->weld_button(u"fitwidth"_ustr))
++    , m_xRotate(m_xBuilder->weld_button(u"rotate"_ustr))
++    , m_xPrevPage(m_xBuilder->weld_button(u"prevpage"_ustr))
++    , m_xNextPage(m_xBuilder->weld_button(u"nextpage"_ustr))
++    , m_xMenu(m_xBuilder->weld_menu_button(u"menu"_ustr))
+     , m_xThumbs(new PdfPageView(PdfPageView::Mode::Thumbnails,
+                                 m_xBuilder->weld_scrollbar(u"thumbsscroll"_ustr), nullptr))
+     , m_xThumbsWeld(new weld::CustomWeld(*m_xBuilder, u"thumbs"_ustr, *m_xThumbs))
+@@ -242,8 +258,29 @@
+     m_xZoom->set_entry_width_chars(6);
+     for (weld::Button* pButton : { m_xOpen.get(), m_xPrint.get(), m_xZoomOut.get(), m_xZoomIn.get(),
+                                    m_xFitPage.get(), m_xFindPrev.get(), m_xFindNext.get(),
+-                                   m_xEdit.get(), m_xChooseCert.get(), m_xSignSave.get() })
++                                   m_xEdit.get(), m_xChooseCert.get(), m_xSignSave.get(),
++                                   m_xSaveCopy.get(), m_xFitWidth.get(), m_xRotate.get(),
++                                   m_xPrevPage.get(), m_xNextPage.get() })
+         pButton->connect_clicked(LINK(this, PdfViewerWindow, ButtonHdl));
++    m_xMenu->connect_selected(LINK(this, PdfViewerWindow, MenuSelectHdl));
++    // the buttons that drop their label in a narrow window keep it as their accessible name
++    for (weld::Button* pButton : { m_xOpen.get(), m_xPrint.get(), m_xSaveCopy.get(),
++                                   m_xFitPage.get(), m_xFitWidth.get() })
++    {
++        const OUString aLabel = pButton->get_label();
++        pButton->set_accessible_name(aLabel.replaceAll("_", "").replaceAll("~", "").replaceAll(u"…", ""));
++        m_aCompactButtons.emplace_back(pButton, aLabel);
++    }
++    // icon-only buttons: their tooltip, without the shortcut, is their accessible name
++    for (weld::Widget* pWidget : { static_cast<weld::Widget*>(m_xRotate.get()),
++                                   static_cast<weld::Widget*>(m_xPrevPage.get()),
++                                   static_cast<weld::Widget*>(m_xNextPage.get()),
++                                   static_cast<weld::Widget*>(m_xMenu.get()) })
++    {
++        const OUString aTip = pWidget->get_tooltip_text();
++        const sal_Int32 nShortcut = aTip.lastIndexOf(" (");
++        pWidget->set_accessible_name(nShortcut > 0 ? aTip.copy(0, nShortcut) : aTip);
++    }
+     m_xSign->connect_toggled(LINK(this, PdfViewerWindow, SignToggleHdl));
+     m_xVisible->connect_toggled(LINK(this, PdfViewerWindow, VisibleToggleHdl));
+     m_xPage->connect_activate(LINK(this, PdfViewerWindow, PageActivateHdl));
+@@ -269,6 +306,38 @@
+     applyBackground();
+ }
+ 
++void PdfViewerWindow::Resize()
++{
++    fitToolbar();
++    InterimItemWindow::Resize();
++}
++
++void PdfViewerWindow::setToolbarLevel(int nLevel)
++{
++    if (nLevel == m_nToolbarLevel)
++        return;
++    m_nToolbarLevel = nLevel;
++    m_xSearch->set_width_chars(SEARCH_WIDTH_CHARS[nLevel]);
++    const bool bIcons = nLevel >= TOOLBAR_LEVEL_ICONS;
++    for (const auto& [pButton, rLabel] : m_aCompactButtons)
++        pButton->set_label(bIcons ? OUString() : rLabel);
++    m_xPageLabel->set_visible(nLevel < TOOLBAR_LEVEL_NO_PAGE_LABEL);
++}
++
++void PdfViewerWindow::fitToolbar()
++{
++    const tools::Long nAvailable = GetSizePixel().Width();
++    if (nAvailable <= 0 || !m_xToolbar || !m_xMenu) // not built yet, or disposed
++        return;
++    // the widest toolbar that fits; the last level when none does (the window has a minimum)
++    for (int nLevel = 0; nLevel < TOOLBAR_LEVELS; ++nLevel)
++    {
++        setToolbarLevel(nLevel);
++        if (m_xToolbar->get_preferred_size().Width() + TOOLBAR_MARGINS <= nAvailable)
++            return;
++    }
++}
++
+ void PdfViewerWindow::applyBackground()
+ {
+     SetBackground(Wallpaper(GetSettings().GetStyleSettings().GetWorkspaceColor()));
+@@ -313,6 +382,13 @@
+     m_xPages.reset();
+     m_xThumbsWeld.reset();
+     m_xThumbs.reset();
++    m_aCompactButtons.clear();
++    m_xMenu.reset();
++    m_xNextPage.reset();
++    m_xPrevPage.reset();
++    m_xRotate.reset();
++    m_xFitWidth.reset();
++    m_xSaveCopy.reset();
+     m_xSign.reset();
+     m_xEdit.reset();
+     m_xFindNext.reset();
+@@ -567,6 +643,99 @@
+                                new CloseRequest{ xOldFrame });
+ }
+ 
++bool PdfViewerWindow::saveCopy(const OUString& rTargetURL)
++{
++    if (!m_xDocument)
++        return false;
++    OUString aTarget = rTargetURL;
++    if (aTarget.isEmpty())
++    {
++        // the dialog proposes the same name in the folder of the original
++        sfx2::FileDialogHelper aDialog(ui::dialogs::TemplateDescription::FILESAVE_AUTOEXTENSION,
++                                       FileDialogFlags::NONE, GetFrameWeld());
++        aDialog.SetTitle(XsResId(STR_HSTPDF_SAVE_COPY_TITLE));
++        aDialog.AddFilter(u"PDF"_ustr, u"*.pdf"_ustr);
++        INetURLObject aURL(m_aURL);
++        const OUString aName = aURL.getBase(INetURLObject::LAST_SEGMENT, true,
++                                            INetURLObject::DecodeMechanism::WithCharset)
++                               + ".pdf";
++        if (aURL.GetProtocol() == INetProtocol::File)
++        {
++            aURL.removeSegment();
++            aDialog.SetDisplayDirectory(aURL.GetMainURL(INetURLObject::DecodeMechanism::NONE));
++        }
++        aDialog.SetFileName(aName);
++        if (aDialog.Execute() != ERRCODE_NONE)
++            return false;
++        aTarget = aDialog.GetPath();
++    }
++    if (aTarget.isEmpty())
++        return false;
++    if (INetURLObject(aTarget) == INetURLObject(m_aURL))
++    {
++        std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
++            GetFrameWeld(), VclMessageType::Warning, VclButtonsType::Ok,
++            XsResId(STR_HSTPDF_COPY_SAME_FILE)));
++        xBox->run();
++        return false;
++    }
++    // the bytes of the open file as they are: an encrypted or signed PDF stays so in the copy
++    const std::vector<sal_uInt8>& rData = m_xDocument->getData();
++    bool bSaved = false;
++    {
++        weld::WaitObject aWait(GetFrameWeld());
++        std::unique_ptr<SvStream> pStream
++            = utl::UcbStreamHelper::CreateStream(aTarget, StreamMode::WRITE | StreamMode::TRUNC);
++        if (pStream)
++        {
++            bSaved = pStream->WriteBytes(rData.data(), rData.size()) == rData.size();
++            pStream->Flush();
++            bSaved = bSaved && pStream->good();
++        }
++    }
++    if (!bSaved)
++    {
++        const OUString aMessage = XsResId(STR_HSTPDF_COPY_FAILED);
++        setInfo(aMessage);
++        std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
++            GetFrameWeld(), VclMessageType::Error, VclButtonsType::Ok, aMessage));
++        xBox->run();
++        return false;
++    }
++    m_xStatusFind->set_label(XsResId(STR_HSTPDF_COPY_SAVED).replaceFirst(
++        "%1", INetURLObject(aTarget).GetLastName(INetURLObject::DecodeMechanism::WithCharset)));
++    return true;
++}
++
++void PdfViewerWindow::goToRelativePage(int nDelta)
++{
++    if (!m_xDocument)
++        return;
++    m_xPages->goToPage(m_xPages->getCurrentPage() + nDelta);
++    updatePageWidgets();
++}
++
++void PdfViewerWindow::rotate()
++{
++    if (!m_xDocument)
++        return;
++    const int nRotation = (m_xPages->getRotation() + 1) % 4;
++    m_xPages->setRotation(nRotation);
++    m_xThumbs->setRotation(nRotation);
++    updatePageWidgets();
++}
++
++IMPL_LINK(PdfViewerWindow, MenuSelectHdl, const OUString&, rIdent, void)
++{
++    // the commands of the office ribbon's ≡ menu
++    if (rIdent == "help")
++        dispatch(u".uno:HelpIndex"_ustr);
++    else if (rIdent == "reporterror")
++        dispatch(u"org.hst.office.vi:ReportError"_ustr);
++    else if (rIdent == "about")
++        dispatch(u".uno:About"_ustr);
++}
++
+ IMPL_STATIC_LINK(PdfViewerWindow, CloseFrameHdl, void*, pRequest, void)
+ {
+     std::unique_ptr<CloseRequest> xRequest(static_cast<CloseRequest*>(pRequest));
+@@ -801,6 +970,16 @@
+         m_xPages->setZoom(m_xPages->getZoom() * 1.25);
+     else if (&rButton == m_xFitPage.get())
+         m_xPages->setFit(PdfPageView::Fit::Page);
++    else if (&rButton == m_xFitWidth.get())
++        m_xPages->setFit(PdfPageView::Fit::Width);
++    else if (&rButton == m_xRotate.get())
++        rotate();
++    else if (&rButton == m_xPrevPage.get())
++        goToRelativePage(-1);
++    else if (&rButton == m_xNextPage.get())
++        goToRelativePage(1);
++    else if (&rButton == m_xSaveCopy.get())
++        saveCopy(OUString());
+     else if (&rButton == m_xFindPrev.get())
+         find(m_xSearch->get_text(), true);
+     else if (&rButton == m_xFindNext.get())
+@@ -944,6 +1123,25 @@
+             case KEY_0:
+                 m_xPages->setZoom(1.0);
+                 return true;
++            case KEY_2:
++                m_xPages->setFit(PdfPageView::Fit::Width);
++                return true;
++            case KEY_R:
++                if (rKey.IsShift())
++                    break;
++                rotate();
++                return true;
++            case KEY_S:
++                if (!rKey.IsShift())
++                    break;
++                saveCopy(OUString());
++                return true;
++            case KEY_PAGEUP:
++                goToRelativePage(-1);
++                return true;
++            case KEY_PAGEDOWN:
++                goToRelativePage(1);
++                return true;
+             case KEY_C:
+                 if (!bInEntry)
+                 {
+@@ -998,6 +1196,8 @@
+                            uno::Any(sal_Int32(m_xDocument ? m_xDocument->getPageCount() : 0)));
+         aInfo.emplace_back(u"CurrentPage"_ustr, uno::Any(sal_Int32(m_xPages->getCurrentPage() + 1)));
+         aInfo.emplace_back(u"Zoom"_ustr, uno::Any(sal_Int32(std::lround(m_xPages->getZoom() * 100))));
++        aInfo.emplace_back(u"Rotation"_ustr, uno::Any(sal_Int32(m_xPages->getRotation() * 90)));
++        aInfo.emplace_back(u"ToolbarLevel"_ustr, uno::Any(sal_Int32(m_nToolbarLevel)));
+         aInfo.emplace_back(u"OpenMillis"_ustr, uno::Any(sal_Int64(m_nOpenMillis)));
+         aInfo.emplace_back(u"SignatureCount"_ustr,
+                            uno::Any(sal_Int32(m_xDocument ? m_xDocument->getSignatureCount() : 0)));
+@@ -1031,7 +1231,10 @@
+                     { "pagelabel", m_xPageLabel.get() }, { "page", m_xPage.get() },
+                     { "pagecount", m_xPageCount.get() }, { "search", m_xSearch.get() },
+                     { "findprev", m_xFindPrev.get() }, { "findnext", m_xFindNext.get() },
+-                    { "edit", m_xEdit.get() },         { "sign", m_xSign.get() } };
++                    { "edit", m_xEdit.get() },         { "sign", m_xSign.get() },
++                    { "savecopy", m_xSaveCopy.get() }, { "fitwidth", m_xFitWidth.get() },
++                    { "rotate", m_xRotate.get() },     { "prevpage", m_xPrevPage.get() },
++                    { "nextpage", m_xNextPage.get() }, { "menu", m_xMenu.get() } };
+             std::vector<OUString> aLayout;
+             for (const auto& [pId, pWidget] : aControls)
+             {
+@@ -1151,6 +1354,31 @@
+         print();
+         return true;
+     }
++    if (rCommand == u".uno:HSTPdfRotate")
++    {
++        // Rotation (degrees, a multiple of 90) sets the view; without it the view turns 90°
++        if (rArgs.find(u"Rotation"_ustr) != rArgs.end())
++        {
++            const sal_Int32 nTurns
++                = rArgs.getUnpackedValueOrDefault(u"Rotation"_ustr, sal_Int32(0)) / 90;
++            m_xPages->setRotation(nTurns);
++            m_xThumbs->setRotation(nTurns);
++            updatePageWidgets();
++        }
++        else
++            rotate();
++        return true;
++    }
++    if (rCommand == u".uno:HSTPdfPreviousPage" || rCommand == u".uno:HSTPdfNextPage")
++    {
++        goToRelativePage(rCommand == u".uno:HSTPdfNextPage" ? 1 : -1);
++        return true;
++    }
++    if (rCommand == u".uno:HSTPdfSaveCopy")
++    {
++        rResult <<= saveCopy(rArgs.getUnpackedValueOrDefault(u"TargetURL"_ustr, OUString()));
++        return true;
++    }
+     if (rCommand == u".uno:HSTPdfEditInDraw")
+     {
+         editInDraw();
+--- a/xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++++ b/xmlsecurity/uiconfig/ui/hstpdfviewer.ui
+@@ -37,6 +37,70 @@
+     <property name="can-focus">False</property>
+     <property name="icon-name">cmd/sc_editdoc.png</property>
+   </object>
++  <object class="GtkImage" id="savecopyimg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_saveas.png</property>
++  </object>
++  <object class="GtkImage" id="fitpageimg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_zoompage.png</property>
++  </object>
++  <object class="GtkImage" id="fitwidthimg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_zoompagewidth.png</property>
++  </object>
++  <object class="GtkImage" id="rotateimg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_rotateright.png</property>
++  </object>
++  <object class="GtkImage" id="prevpageimg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_prevrecord.png</property>
++  </object>
++  <object class="GtkImage" id="nextpageimg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_nextrecord.png</property>
++  </object>
++  <object class="GtkImage" id="menuimg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">sfx2/res/menu.png</property>
++  </object>
++  <!-- HST Office: the ≡ menu at the right end of the toolbar, as the ≡ menu of the office ribbon -->
++  <object class="GtkMenu" id="hstmenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="help">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hstpdfviewer|help">HST Office Help</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="reporterror">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hstpdfviewer|reporterror">Report a Problem to HASON TECH</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="about">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hstpdfviewer|about">About HST Office</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++  </object>
+   <object class="GtkBox" id="HstPdfViewer">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -89,6 +153,24 @@
+           </packing>
+         </child>
+         <child>
++          <object class="GtkButton" id="savecopy">
++            <property name="label" translatable="yes" context="hstpdfviewer|savecopy">Save a Copy…</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="focus-on-click">False</property>
++            <property name="use-underline">True</property>
++            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|savecopy|tooltip_text">Save a copy of this PDF (Ctrl+Shift+S)</property>
++            <property name="image">savecopyimg</property>
++            <property name="always-show-image">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++        <child>
+           <object class="GtkSeparator" id="sep1">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+@@ -99,7 +181,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">2</property>
++            <property name="position">3</property>
+           </packing>
+         </child>
+         <child>
+@@ -115,7 +197,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">3</property>
++            <property name="position">4</property>
+           </packing>
+         </child>
+         <child>
+@@ -129,7 +211,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">4</property>
++            <property name="position">5</property>
+           </packing>
+         </child>
+         <child>
+@@ -145,7 +227,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">5</property>
++            <property name="position">6</property>
+           </packing>
+         </child>
+         <child>
+@@ -157,11 +239,47 @@
+             <property name="focus-on-click">False</property>
+             <property name="use-underline">True</property>
+             <property name="tooltip-text" translatable="yes" context="hstpdfviewer|fitpage|tooltip_text">Show the whole page</property>
++            <property name="image">fitpageimg</property>
++            <property name="always-show-image">True</property>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">6</property>
++            <property name="position">7</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="fitwidth">
++            <property name="label" translatable="yes" context="hstpdfviewer|fitwidth">Fit Width</property>
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="focus-on-click">False</property>
++            <property name="use-underline">True</property>
++            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|fitwidth|tooltip_text">Fit the page width to the window (Ctrl+2)</property>
++            <property name="image">fitwidthimg</property>
++            <property name="always-show-image">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">8</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="rotate">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="focus-on-click">False</property>
++            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|rotate|tooltip_text">Rotate the pages 90° clockwise (Ctrl+R)</property>
++            <property name="image">rotateimg</property>
++            <property name="always-show-image">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">9</property>
+           </packing>
+         </child>
+         <child>
+@@ -175,7 +293,23 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">7</property>
++            <property name="position">10</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="prevpage">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="focus-on-click">False</property>
++            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|prevpage|tooltip_text">Previous page (Ctrl+Page Up)</property>
++            <property name="image">prevpageimg</property>
++            <property name="always-show-image">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">11</property>
+           </packing>
+         </child>
+         <child>
+@@ -188,7 +322,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">8</property>
++            <property name="position">12</property>
+           </packing>
+         </child>
+         <child>
+@@ -203,7 +337,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">9</property>
++            <property name="position">13</property>
+           </packing>
+         </child>
+         <child>
+@@ -216,7 +350,23 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">10</property>
++            <property name="position">14</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="nextpage">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="focus-on-click">False</property>
++            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|nextpage|tooltip_text">Next page (Ctrl+Page Down)</property>
++            <property name="image">nextpageimg</property>
++            <property name="always-show-image">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">15</property>
+           </packing>
+         </child>
+         <child>
+@@ -227,7 +377,7 @@
+           <packing>
+             <property name="expand">True</property>
+             <property name="fill">True</property>
+-            <property name="position">11</property>
++            <property name="position">16</property>
+           </packing>
+         </child>
+         <child>
+@@ -242,7 +392,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">12</property>
++            <property name="position">17</property>
+           </packing>
+         </child>
+         <child>
+@@ -258,7 +408,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">13</property>
++            <property name="position">18</property>
+           </packing>
+         </child>
+         <child>
+@@ -274,7 +424,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">14</property>
++            <property name="position">19</property>
+           </packing>
+         </child>
+         <child>
+@@ -288,7 +438,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">15</property>
++            <property name="position">20</property>
+           </packing>
+         </child>
+         <child>
+@@ -306,7 +456,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">16</property>
++            <property name="position">21</property>
+           </packing>
+         </child>
+         <child>
+@@ -321,7 +471,38 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">17</property>
++            <property name="position">22</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkSeparator" id="sep4">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="orientation">vertical</property>
++            <property name="margin-start">2</property>
++            <property name="margin-end">2</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">23</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkMenuButton" id="menu">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="focus-on-click">False</property>
++            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|menu|tooltip_text">Help, report a problem, about HST Office</property>
++            <property name="image">menuimg</property>
++            <property name="always-show-image">True</property>
++            <property name="popup">hstmenu</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">24</property>
+           </packing>
+         </child>
+       </object>
+--- a/translations/source/vi/xmlsecurity/messages.po
++++ b/translations/source/vi/xmlsecurity/messages.po
+@@ -357,6 +357,30 @@
+ msgstr "Trang ~hiện tại"
+ 
+ #. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SAVE_COPY_TITLE"
++msgid "Save a Copy"
++msgstr "Lưu bản sao"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_COPY_SAME_FILE"
++msgid "The copy needs a new file name: the file chosen is the one open now."
++msgstr "Bản sao cần một tên tệp mới: tệp đã chọn chính là tệp đang mở."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_COPY_FAILED"
++msgid "The copy could not be saved. Check the folder and that you may write to it, then try again."
++msgstr "Không lưu được bản sao. Hãy kiểm tra thư mục và quyền ghi vào thư mục đó rồi thử lại."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_COPY_SAVED"
++msgid "Copy saved as %1"
++msgstr "Đã lưu bản sao: %1"
++
++#. hstPDF
+ #: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
+ msgctxt "hstpdfviewer|open"
+ msgid "Open…"
+@@ -396,7 +420,7 @@
+ #: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
+ msgctxt "hstpdfviewer|zoomwidth"
+ msgid "Fit Width"
+-msgstr "Vừa chiều rộng"
++msgstr "Vừa bề rộng"
+ 
+ #. hstPDF
+ #: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
+@@ -542,6 +566,72 @@
+ msgid "Chosen certificate"
+ msgstr "Chứng thư số đã chọn"
+ 
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|savecopy"
++msgid "Save a Copy…"
++msgstr "Lưu bản sao"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|savecopy|tooltip_text"
++msgid "Save a copy of this PDF (Ctrl+Shift+S)"
++msgstr "Lưu một bản sao của tệp PDF này (Ctrl+Shift+S)"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|fitwidth"
++msgid "Fit Width"
++msgstr "Vừa bề rộng"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|fitwidth|tooltip_text"
++msgid "Fit the page width to the window (Ctrl+2)"
++msgstr "Cho trang vừa bề rộng cửa sổ (Ctrl+2)"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|rotate|tooltip_text"
++msgid "Rotate the pages 90° clockwise (Ctrl+R)"
++msgstr "Xoay trang 90° theo chiều kim đồng hồ (Ctrl+R)"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|prevpage|tooltip_text"
++msgid "Previous page (Ctrl+Page Up)"
++msgstr "Trang trước (Ctrl+Page Up)"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|nextpage|tooltip_text"
++msgid "Next page (Ctrl+Page Down)"
++msgstr "Trang sau (Ctrl+Page Down)"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|menu|tooltip_text"
++msgid "Help, report a problem, about HST Office"
++msgstr "Trợ giúp, báo lỗi, giới thiệu HST Office"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|help"
++msgid "HST Office Help"
++msgstr "Trợ giúp HST Office"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|reporterror"
++msgid "Report a Problem to HASON TECH"
++msgstr "Báo lỗi cho HASON TECH"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|about"
++msgid "About HST Office"
++msgstr "Về HST Office"
++
+ #. EyJrF
+ #: xmlsecurity/inc/strings.hrc:24
+ msgctxt "STR_CERTIFICATE_NOT_VALIDATED"

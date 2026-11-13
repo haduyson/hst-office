@@ -72,6 +72,19 @@ class Locales(unittest.TestCase):
         self.assertEqual(vi["welcome"]["title"], "HST Office chào đón bạn")
         self.assertEqual(vi["menu"]["solutions"], "Giải pháp HASON TECH")
 
+    def test_alt_q_tip_and_switching_guide_button(self):
+        base = os.path.join(_paths.ROOT, "extensions", "hst-vietnamese-tools")
+        with open(os.path.join(base, "locales", "vi.json"), encoding="utf-8") as handle:
+            vi = json.load(handle)["welcome"]
+        self.assertEqual(vi["searchTip"], "Không thấy lệnh? Nhấn Alt+Q rồi gõ tên lệnh, không cần dấu.")
+        self.assertEqual(vi["guideButton"], "Xem hướng dẫn chuyển đổi nhanh")
+        self.assertNotRegex(" ".join(vi["features"]), r"\b(Word|Excel|PowerPoint|Microsoft)\b")
+        with open(os.path.join(base, "python", "hst_office", "welcome_dialog.py"), encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn('GUIDE = "WhereIsCommand"', source)
+        self.assertIn('help_pages.open_page(self.ctx, GUIDE)', source)
+        self.assertTrue(os.path.isfile(os.path.join(base, "help", "lenh-quen-thuoc.html")))
+
 
 if __name__ == "__main__":
     unittest.main()

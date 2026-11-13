@@ -1,0 +1,286 @@
+HST Office: the split buttons of the Writer ribbon (generated with hst-ribbon-ux-writer.patch).
+
+"Dán ▾" lists Chỉ dán văn bản and Dán đặc biệt; "Chèn trích dẫn ▾" lists Thêm nguồn mới, Nhập từ tệp and Chèn
+lại trích dẫn. Writer-only GenericPopupToolbarController nodes in Controller.xcu and two popup menu files, as the
+Sheets "Định dạng ngày tháng" button. A click on either button still runs its own command.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
+@@ -2150,6 +2150,37 @@
+           <value>private:resource/popupmenu/hstformatdate</value>
+         </prop>
+       </node>
++      <!-- HST Office: "Dán" of the Writer ribbon: the arrow offers plain text and Paste Special instead of the clipboard formats. -->
++      <node oor:name="HstWriterPasteSplitButton" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:Paste</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.text.TextDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.framework.GenericPopupToolbarController</value>
++        </prop>
++        <prop oor:name="Value">
++          <value>private:resource/popupmenu/hstpaste</value>
++        </prop>
++      </node>
++      <!-- HST Office: "Chèn trích dẫn" of the Writer ribbon (Tham khảo ▸ Trích dẫn): the arrow adds or imports a source in the
++           source manager, or inserts the last citation again. -->
++      <node oor:name="HstWriterCitationInsertSplitButton" oor:op="replace">
++        <prop oor:name="Command">
++          <value>org.hst.office.vi:CitationInsert</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.text.TextDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.framework.GenericPopupToolbarController</value>
++        </prop>
++        <prop oor:name="Value">
++          <value>private:resource/popupmenu/hstcitationinsert</value>
++        </prop>
++      </node>
+     </node>
+     <node oor:name="StatusBar">
+       <node oor:name="c5" oor:op="replace">
+--- a/sw/UIConfig_swriter.mk
++++ b/sw/UIConfig_swriter.mk
+@@ -23,6 +23,8 @@
+ 	sw/uiconfig/swriter/popupmenu/formrichtext \
+ 	sw/uiconfig/swriter/popupmenu/frame \
+ 	sw/uiconfig/swriter/popupmenu/graphic \
++	sw/uiconfig/swriter/popupmenu/hstcitationinsert \
++	sw/uiconfig/swriter/popupmenu/hstpaste \
+ 	sw/uiconfig/swriter/popupmenu/insertfield \
+ 	sw/uiconfig/swriter/popupmenu/media \
+ 	sw/uiconfig/swriter/popupmenu/notebookbar \
+--- a/sw/uiconfig/swriter/popupmenu/hstpaste.xml
++++ b/sw/uiconfig/swriter/popupmenu/hstpaste.xml
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++-->
++<!-- HST Office: "Dán" of the Writer ribbon: the arrow offers plain text and Paste Special instead of the clipboard formats. -->
++<menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
++  <menu:menuitem menu:id=".uno:PasteUnformatted" menu:label="Chỉ dán văn bản"/>
++  <menu:menuitem menu:id=".uno:PasteSpecial" menu:label="Dán đặc biệt"/>
++</menu:menupopup>
+--- a/sw/uiconfig/swriter/popupmenu/hstcitationinsert.xml
++++ b/sw/uiconfig/swriter/popupmenu/hstcitationinsert.xml
+@@ -0,0 +1,12 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++-->
++<!-- HST Office: "Chèn trích dẫn" of the Writer ribbon (Tham khảo ▸ Trích dẫn): the arrow adds or imports a source in the source manager, or inserts the last citation again. -->
++<menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
++  <menu:menuitem menu:id="org.hst.office.vi:CitationLibrary" menu:label="Thêm nguồn mới"/>
++  <menu:menuitem menu:id="org.hst.office.vi:CitationLibrary" menu:label="Nhập từ tệp"/>
++  <menu:menuitem menu:id="org.hst.office.vi:CitationReinsert" menu:label="Chèn lại trích dẫn"/>
++</menu:menupopup>
+--- a/sw/sdi/swriter.sdi
++++ b/sw/sdi/swriter.sdi
+@@ -417,7 +417,7 @@
+ ]
+ 
+ SfxVoidItem BorderDialog FN_FORMAT_BORDER_DLG
+-()
++(SfxStringItem Page FN_PARAM_1)
+ [
+     AutoUpdate = FALSE,
+     FastCall = TRUE,
+--- a/sw/source/uibase/shells/basesh.cxx
++++ b/sw/source/uibase/shells/basesh.cxx
+@@ -3035,11 +3035,15 @@
+                 XATTR_FILL_FIRST, XATTR_FILL_LAST,
+                 SID_ATTR_BORDER_INNER, SID_ATTR_BORDER_INNER,
+                 FN_FORMAT_BORDER_DLG, FN_FORMAT_BORDER_DLG,
+-                FN_FORMAT_BACKGROUND_DLG, FN_FORMAT_BACKGROUND_DLG>(rSh.GetAttrPool()));
++                FN_FORMAT_BACKGROUND_DLG, FN_FORMAT_BACKGROUND_DLG,
++                FN_PARAM_1, FN_PARAM_1>(rSh.GetAttrPool()));
+             ScopedVclPtr<SfxAbstractDialog> pDlg;
+             SwAbstractDialogFactory* pFact = SwAbstractDialogFactory::Create();
+             if (nSlot == FN_FORMAT_BACKGROUND_DLG)
+                 aSet.Put(SfxBoolItem(FN_FORMAT_BACKGROUND_DLG, true));
++            // HST: .uno:BorderDialog?Page:string=hstpageborder (ribbon "Viền trang") opens on that tab
++            if (const SfxStringItem* pPage = rReq.GetArg<SfxStringItem>(FN_PARAM_1))
++                aSet.Put(SfxStringItem(FN_PARAM_1, pPage->GetValue()));
+             // Table cell(s) selected?
+             if ( rSh.IsTableMode() )
+             {
+--- a/sw/source/ui/frmdlg/uiborder.cxx
++++ b/sw/source/ui/frmdlg/uiborder.cxx
+@@ -25,6 +25,7 @@
+ #include <sfx2/tabdlg.hxx>
+ #include <svl/eitem.hxx>
+ #include <svl/intitem.hxx>
++#include <svl/stritem.hxx>
+ #include <vcl/tabs.hrc>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Dialog.hxx>
+@@ -268,6 +269,13 @@
+     m_xApplyLB->set_active(pApply && pApply->GetValue() == 2 ? 1 : 0);
+     if (rSet.GetItemIfSet(TypedWhichId<SfxBoolItem>(FN_FORMAT_BACKGROUND_DLG), false))
+         SetCurPageId(u"shading"_ustr);
++    // HST: the "Page" argument of .uno:BorderDialog names the first tab (the ribbon's "Viền trang")
++    if (const SfxStringItem* pPage = rSet.GetItemIfSet(TypedWhichId<SfxStringItem>(FN_PARAM_1), false))
++    {
++        const OUString& rPage = pPage->GetValue();
++        if (rPage == "borders" || rPage == "hstpageborder" || rPage == "shading")
++            SetCurPageId(rPage);
++    }
+ }
+ 
+ SwBorderDlg::~SwBorderDlg() {}
+--- a/sw/source/uibase/sidebar/PageMarginControl.hxx
++++ b/sw/source/uibase/sidebar/PageMarginControl.hxx
+@@ -32,6 +32,10 @@
+ #define SWPAGE_WIDE_VALUE1     1440
+ #define SWPAGE_WIDE_VALUE2     2880
+ #define SWPAGE_WIDE_VALUE3     1800
++// HST: Decree 30/2020/ND-CP margins in twips: left 3 cm, right 1.5 cm, top and bottom 2 cm
++constexpr tools::Long SWPAGE_HST_ND30_LEFT = o3tl::toTwips(30, o3tl::Length::mm);
++constexpr tools::Long SWPAGE_HST_ND30_RIGHT = o3tl::toTwips(15, o3tl::Length::mm);
++constexpr tools::Long SWPAGE_HST_ND30_TOP_BOTTOM = o3tl::toTwips(20, o3tl::Length::mm);
+ 
+ // #i19922# - tdf#126051 see cui/source/tabpages/page.cxx and svx/source/dialog/hdft.cxx
+ constexpr tools::Long MINBODY = o3tl::toTwips(1, o3tl::Length::mm); // 1mm in twips rounded
+@@ -53,6 +57,8 @@
+     std::unique_ptr<weld::Button> m_xWide;
+     std::unique_ptr<weld::Button> m_xMirrored;
+     std::unique_ptr<weld::Button> m_xLast;
++    // HST: administrative documents (Decree 30/2020/ND-CP)
++    std::unique_ptr<weld::Button> m_xHstNd30;
+     std::unique_ptr<weld::Button> m_xMoreButton;
+ 
+     std::unique_ptr<weld::Label> m_xLeft;
+--- a/sw/source/uibase/sidebar/PageMarginControl.cxx
++++ b/sw/source/uibase/sidebar/PageMarginControl.cxx
+@@ -96,6 +96,7 @@
+ PageMarginControl::PageMarginControl(PageMarginPopup* pControl, weld::Widget* pParent)
+     : WeldToolbarPopup(pControl->getFrameInterface(), pParent, u"modules/swriter/ui/pagemargincontrol.ui"_ustr, u"PageMarginControl"_ustr)
+     , m_xMoreButton(m_xBuilder->weld_button(u"moreoptions"_ustr))
++    , m_xHstNd30(m_xBuilder->weld_button(u"hstnd30"_ustr))
+     , m_xLeft(m_xBuilder->weld_label(u"leftLabel"_ustr))
+     , m_xRight(m_xBuilder->weld_label(u"rightLabel"_ustr))
+     , m_xInner(m_xBuilder->weld_label(u"innerLabel"_ustr))
+@@ -182,6 +183,7 @@
+     m_xWide->show();
+     m_xMirrored->show();
+     m_xLast->show();
++    m_xHstNd30->show();
+     m_xMoreButton->show();
+ 
+     m_xNarrow->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
+@@ -189,6 +191,7 @@
+     m_xWide->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
+     m_xMirrored->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
+     m_xLast->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
++    m_xHstNd30->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
+     m_xMoreButton->connect_clicked( LINK(this, PageMarginControl, MoreButtonClickHdl_Impl));
+ 
+     m_bUserCustomValuesAvailable = GetUserCustomValues();
+@@ -332,6 +335,14 @@
+         aWide1ValText;
+     m_xMirrored->set_tooltip_text( aHelpText );
+ 
++    SetMetricValue( *m_xWidthHeightField, SWPAGE_HST_ND30_LEFT, m_eUnit );
++    aHelpText = aLeft + m_xWidthHeightField->get_text();
++    SetMetricValue( *m_xWidthHeightField, SWPAGE_HST_ND30_RIGHT, m_eUnit );
++    aHelpText += aRight + m_xWidthHeightField->get_text();
++    SetMetricValue( *m_xWidthHeightField, SWPAGE_HST_ND30_TOP_BOTTOM, m_eUnit );
++    aHelpText += aTop + m_xWidthHeightField->get_text() + aBottom + m_xWidthHeightField->get_text();
++    m_xHstNd30->set_tooltip_text( aHelpText );
++
+     if ( bUserCustomValuesAvailable )
+     {
+         aHelpText = m_bUserCustomMirrored ? aInner : aLeft;
+@@ -387,6 +398,14 @@
+         m_nPageTopMargin = SWPAGE_WIDE_VALUE1;
+         m_nPageBottomMargin = SWPAGE_WIDE_VALUE1;
+         bMirrored = true;
++    }
++    if( &rControl == m_xHstNd30.get() )
++    {
++        m_nPageLeftMargin = SWPAGE_HST_ND30_LEFT;
++        m_nPageRightMargin = SWPAGE_HST_ND30_RIGHT;
++        m_nPageTopMargin = SWPAGE_HST_ND30_TOP_BOTTOM;
++        m_nPageBottomMargin = SWPAGE_HST_ND30_TOP_BOTTOM;
++        bMirrored = false;
+     }
+     if( &rControl == m_xLast.get() )
+     {
+--- a/sw/uiconfig/swriter/ui/pagemargincontrol.ui
++++ b/sw/uiconfig/swriter/ui/pagemargincontrol.ui
+@@ -26,6 +26,11 @@
+     <property name="upper">9999</property>
+     <property name="step-increment">0.10</property>
+     <property name="page-increment">10</property>
++  </object>
++  <object class="GtkImage" id="hstnd30Img">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">sw/res/sidebar/pageproppanel/format_L_nomal_24x24.png</property>
+   </object>
+   <object class="GtkImage" id="lastImg">
+     <property name="visible">True</property>
+@@ -258,6 +263,24 @@
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+             <property name="position">9</property>
++          </packing>
++        </child>
++        <child>
++          <!-- HST Office: the margins of Vietnamese administrative documents (Decree 30/2020/ND-CP) -->
++          <object class="GtkButton" id="hstnd30">
++            <property name="label" translatable="yes" context="pagemargincontrol|hstnd30">Administrative Document</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">True</property>
++            <property name="image">hstnd30Img</property>
++            <property name="relief">none</property>
++            <property name="use-underline">True</property>
++            <property name="xalign">0</property>
++            <property name="always-show-image">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">10</property>
+           </packing>
+         </child>
+         <child>
+@@ -451,7 +474,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">10</property>
++            <property name="position">11</property>
+           </packing>
+         </child>
+         <child>
+@@ -466,7 +489,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">11</property>
++            <property name="position">12</property>
+           </packing>
+         </child>
+         <child>
+@@ -483,7 +506,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">12</property>
++            <property name="position">13</property>
+           </packing>
+         </child>
+       </object>

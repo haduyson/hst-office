@@ -8,6 +8,12 @@ cell is converted twice (converting twice would corrupt the text).
 from .encoding import Converter
 
 
+def is_single_cell(rects):
+    """Whether the selection is the active cell only (one rect of one cell): the command then offers the sheet's used
+    area, checked by default, as Sheets users select one cell to mean "the whole table"."""
+    return len(rects) == 1 and rects[0][1:3] == rects[0][3:5]
+
+
 def clip(rect, used):
     """Clip a rect to the used area of its sheet: used = {sheet: (last_col, last_row)}. None when nothing is left."""
     sheet, c0, r0, c1, r1 = rect
