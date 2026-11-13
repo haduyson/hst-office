@@ -73,7 +73,7 @@ def main():
         notice = rr.wait(lambda: [w for w in hst_gui.toplevels(off.display) if "Cài đặt HST Office" in w[1]], 60)
         record("%s: the notice is shown" % mode, notice)
         if notice:
-            rr.press_default(off, "Cài đặt HST Office", 5)
+            rr.answer(off, "Cài đặt HST Office", timeout=5)
         time.sleep(2)
         record("%s: the setting comes back from the backup" % mode, read_setting(off) == VALUE, read_setting(off))
         record("%s: the damaged file is kept for diagnosis" % mode, glob.glob(xcu + ".hong-*"))

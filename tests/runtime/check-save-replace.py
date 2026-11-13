@@ -10,7 +10,8 @@ Run with the office's own Python (it needs pyuno), headless, no display:
 Cases: a plain file (macOS: every save takes the new path; Linux: upstream's rename), a symbolic link to a file in
 another folder (both systems). After Save the file holds the new text and is a new inode (replaced, not truncated and
 rewritten), the link is still a link to the same file, permissions and an extended attribute survive (macOS: the
-Finder info that hides the extension), and no .~hst-save-*.tmp is left. A stale .~hst-save-<dead pid>-0.tmp older than
+Finder info that hides the extension; Linux plain files keep upstream's rename and its attributes), and no
+.~hst-save-*.tmp is left. A stale .~hst-save-<dead pid>-0.tmp older than
 10 minutes in the folder is removed by the save. Exit 1 when a check fails.
 """
 import argparse
@@ -78,7 +79,8 @@ def make_docx(desktop, path, text):
 def check_case(desktop, label, open_path, real_path, attr_ok):
     import uno
     folder = os.path.dirname(real_path)
-    stale = os.path.join(folder, ".~hst-save-999999-0.tmp")
+    # the save writes its temporary file next to the path it was opened from (the link's folder)
+    stale = os.path.join(os.path.dirname(open_path), ".~hst-save-999999-0.tmp")
     open(stale, "wb").close()
     os.utime(stale, (time.time() - 3600, time.time() - 3600))
     before = os.stat(real_path)
@@ -96,9 +98,9 @@ def check_case(desktop, label, open_path, real_path, attr_ok):
         record("%s: replaced through a new file, not rewritten in place" % label, after.st_ino != before.st_ino)
     record("%s: permissions kept" % label, (after.st_mode & 0o7777) == (before.st_mode & 0o7777),
            oct(after.st_mode))
-    if attr_ok:
+    if attr_ok and (MAC or open_path != real_path):  # Linux plain files keep upstream's rename (no xattr copy)
         record("%s: extended attribute kept" % label, get_xattr(real_path) not in (None, "", b""))
-    left = [n for n in os.listdir(folder) if n.startswith(".~hst-save-")]
+    left = [n for d in {folder, os.path.dirname(open_path)} for n in os.listdir(d) if n.startswith(".~hst-save-")]
     record("%s: no temporary file left, the stale one removed" % label, not left, left)
 
 

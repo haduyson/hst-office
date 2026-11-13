@@ -86,7 +86,7 @@ class Durability(unittest.TestCase):
 
     def test_first_copy_after_thirty_seconds(self):
         ar = after("hst-recovery-durability")["framework/source/services/autorecovery.cxx"]
-        self.assertIn("HST_FIRST_COPY_MS = 30000", ar)
+        self.assertIn("HST_FIRST_COPY_MS = 20000", ar)  # + 10 s user-idle wait = 30 s
         self.assertIn("rInfo.OldTempURL.isEmpty() ? std::min(nNormalMs, HST_FIRST_COPY_MS) : nNormalMs", ar)
         self.assertTrue(ordered(ar, "bFirstChange = pIt->OldTempURL.isEmpty();", "implts_updateTimer();"))
 

@@ -8,7 +8,7 @@ Every scenario uses its own profile under --work (never the user's %APPDATA% pro
   first    a new document killed 40 s after its first change: its first recovery copy (30 s) is offered, with the text;
   after    taskkill right after a later copy replaced the previous one (interval 1 minute): the configuration and the
            recovery index on disk name an existing copy, the recovery brings the latest text;
-  bigsave  taskkill in the middle of saving a ~20 MB .docx: the file is the old or the new version (valid zip), the next
+  bigsave  taskkill in the middle of saving a ~20 MB .docx (lon.docx next to this script: text and a noise picture): the file is the old or the new version (valid zip), the next
            save in that folder removes the dead process's .~hst-save-*.tmp once it is 10 minutes old (checked by
            name pattern and owner pid);
   tabs     five documents (Writer, Sheets, Slides) in tabs, taskkill: all five are offered and recovered.
@@ -39,7 +39,8 @@ def first(o):
     record("first: a copy within 45 s", wait(o.copies, 45, 1))
     o.kill()
     record("first: recovery dialog", o.recover())
-    record("first: text recovered", any("MOT-CHUA-LUU" in t for t in o.texts()), o.texts())
+    texts = wait(lambda: [t for t in o.texts() if t.strip()], 60) or []
+    record("first: text recovered", any("MOT-CHUA-LUU" in t for t in texts), texts)
 
 
 def after(o):
@@ -55,7 +56,8 @@ def after(o):
     record("after: configuration names an existing copy", named and all(n in present for n in named), named)
     record("after: recovery index present", os.path.exists(os.path.join(o.user, "backup", "hst-recovery-index.txt")))
     record("after: recovery dialog", o.recover())
-    record("after: latest text recovered", any("HAI-BAN-SAU" in t for t in o.texts()), o.texts())
+    texts = wait(lambda: [t for t in o.texts() if t.strip()], 60) or []
+    record("after: latest text recovered", any("HAI-BAN-SAU" in t for t in texts), texts)
 
 
 def bigsave(o):
@@ -64,13 +66,9 @@ def bigsave(o):
     folder = os.path.join(o.work, "docs")
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, "lon.docx")
-    doc = o.new("writer", "LON-CU")
-    doc.Text.String = "\n".join("Đoạn văn bản thử nghiệm số %d " % i * 8 for i in range(120000))
-    url = uno.systemPathToFileUrl(path)
-    from com.sun.star.beans import PropertyValue
-    prop = PropertyValue()
-    prop.Name, prop.Value = "FilterName", "MS Word 2007 XML"
-    doc.storeAsURL(url, (prop,))
+    import shutil
+    shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lon.docx"), path)  # ~19 MB fixture
+    doc = o.desktop().loadComponentFromURL(uno.systemPathToFileUrl(path), "_default", 0, ())
     append(doc, "LON-MOI")
     import threading
     threading.Timer(2.0, kill_profile, (o.work,)).start()
@@ -93,7 +91,7 @@ def tabs(o):
     record("tabs: five copies", wait(lambda: len(o.copies()) >= 5, 90, 1), o.copies())
     o.kill()
     record("tabs: recovery dialog", o.recover())
-    texts = o.texts()
+    texts = wait(lambda: o.texts() if len([t for t in o.texts() if t.strip()]) >= 5 else None, 90) or o.texts()
     record("tabs: all five recovered", all(any("THE-%d" % i in t for t in texts) for i in range(5)), texts)
 
 

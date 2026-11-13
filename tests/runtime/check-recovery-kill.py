@@ -30,20 +30,26 @@ from recovery_runtime import record  # noqa: E402
 PORT = 22231
 
 
-def recovered_texts(off):
-    return [rr.text_of(d) for d in rr.documents(off)]
+def recovered_texts(off, count=1):
+    """Texts of the open documents once `count` of them have loaded (the recovery opens them one by one)."""
+    def texts():
+        found = [t for t in (rr.text_of(d) for d in rr.documents(off)) if t.strip()]
+        return found if len(found) >= count else None
+    return rr.wait(texts, 90, 1) or [rr.text_of(d) for d in rr.documents(off)]
 
 
 def scenario_first(off):
     off.start()
     rr.new_document(off, "writer", "MOT-CHUA-LUU")
-    copy = rr.wait(lambda: rr.copies(off), 45, 1)
-    record("first: a recovery copy within 45 s of the first change", copy, rr.backups(off))
+    began = time.time()
+    copy = rr.wait(lambda: rr.copies(off), 60, 0.2)
+    print("first: first recovery copy after %.1f s" % (time.time() - began), flush=True)
+    record("first: a recovery copy within 60 s of the first change (due at 30 s, then 10 s without input)", copy, rr.backups(off))
     pid = rr.kill(off)
     rr.gone(off, pid)
     record("first: the recovery dialog offers the document", rr.restart_and_recover(off))
-    record("first: the recovered document holds the text", any("MOT-CHUA-LUU" in t for t in recovered_texts(off)),
-           recovered_texts(off))
+    texts = recovered_texts(off)
+    record("first: the recovered document holds the text", any("MOT-CHUA-LUU" in t for t in texts), texts)
     rr.finish(off)
 
 
@@ -64,8 +70,8 @@ def scenario_after(off):
     record("after: the recovery index names an existing copy",
            any(e[4].rsplit("/", 1)[-1] in present for e in rr.index_entries(off) if len(e) > 4), rr.index_entries(off))
     record("after: the recovery dialog offers the document", rr.restart_and_recover(off))
-    record("after: the recovery brings the latest text", any("HAI-BAN-SAU" in t for t in recovered_texts(off)),
-           recovered_texts(off))
+    texts = recovered_texts(off)
+    record("after: the recovery brings the latest text", any("HAI-BAN-SAU" in t for t in texts), texts)
     rr.finish(off)
 
 
@@ -79,12 +85,12 @@ def scenario_emergency(off, run):
     time.sleep(3)  # the tab layout is written 1.5 s after a change
     had_tabs = rr.tabs_file(off)
     pid = rr.kill(off, signal.SIGSEGV)
-    shown = rr.press_default(off, rr.RECOVERY_TITLE, 60)  # "... phải đóng. Các tài liệu đang mở sẽ được lưu lại"
+    shown = rr.answer(off, rr.RECOVERY_TITLE, corner=rr.EMERGENCY_OK, timeout=60)  # "... phải đóng. Các tài liệu đang mở sẽ được lưu lại"
     record("emergency %d: the emergency save dialog appears" % run, shown)
     rr.gone(off, pid, 90)
     record("emergency %d: the tab layout survives the emergency save" % run, had_tabs and rr.tabs_file(off))
     record("emergency %d: the restarted office offers the documents" % run, rr.reconnect_after_recovery(off))
-    texts = recovered_texts(off)
+    texts = recovered_texts(off, 2)
     record("emergency %d: both documents hold the text typed after the last copy" % run,
            sum(1 for t in texts if "KHAN-%d-B" % run in t) >= 2, texts)
     rr.finish(off)

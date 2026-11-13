@@ -2,7 +2,9 @@ HST Office: helpers for file writes that survive a power cut.
 
 - comphelper hstdurablefile.{hxx,cxx}: syncFile (fsync / FlushFileBuffers), syncParentDirectory (fsync of
   the folder after a rename or unlink; no-op on Windows) and writeFileAtomically (temporary file in the same
-  folder, write, fsync, rename over the file, fsync of the folder). Used by configmgr, framework (recovery
+  folder, write, fsync, rename over the file, fsync of the folder). On FAT and exFAT (Linux) the whole file
+  system is flushed instead of the folder: their allocation table is not ordered against directory entries,
+  and a folder fsync alone left "invalid cluster chain" errors after a power cut. Used by configmgr, framework (recovery
   index, tab layout, unsaved documents) and sfx2 (saving over an existing file).
 
 License: these upstream files remain under their original license (MPL-2.0).
@@ -20,7 +22,7 @@ Test: tests/unit/test_recovery_durability_patches.py.
      comphelper/source/misc/componentbase \
 --- /dev/null
 +++ b/comphelper/source/misc/hstdurablefile.cxx
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,107 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -41,6 +43,9 @@ Test: tests/unit/test_recovery_durability_patches.py.
 +#ifdef UNX
 +#include <fcntl.h>
 +#include <unistd.h>
++#endif
++#ifdef LINUX
++#include <sys/vfs.h>
 +#endif
 +
 +namespace comphelper::hst
@@ -72,6 +77,21 @@ Test: tests/unit/test_recovery_durability_patches.py.
 +    const int nFd = open(aSys.getStr(), O_RDONLY | O_CLOEXEC);
 +    if (nFd < 0)
 +        return;
++#ifdef LINUX
++    // FAT and exFAT (USB sticks, cards) have no journal and the kernel does not order their
++    // allocation table against directory entries: an fsync of a file or folder alone can reach the
++    // disk ahead of the cluster chain it refers to, and a power cut then leaves "invalid cluster
++    // chain" errors (seen with registrymodifications.xcu on a FAT profile). There the whole file
++    // system is flushed instead.
++    struct statfs aFs;
++    if (fstatfs(nFd, &aFs) == 0 && (aFs.f_type == 0x4d44 /* MSDOS */ || aFs.f_type == 0x2011BAB0 /* exFAT */))
++    {
++        if (syncfs(nFd) != 0)
++            SAL_INFO("comphelper", "hst: syncfs failed for " << aDirPath);
++        close(nFd);
++        return;
++    }
++#endif
 +    if (fsync(nFd) != 0)
 +        SAL_INFO("comphelper", "hst: directory fsync failed for " << aDirPath);
 +    close(nFd);

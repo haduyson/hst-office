@@ -105,7 +105,7 @@ class Office:
         time.sleep(8)
         hwnd = find_window(r"Khôi phục tài liệu|Document Recovery")
         if hwnd:  # "Kết thúc" after a partial recovery
-            press_enter(hwnd)
+            press_enter(hwnd, 200)
         return True
 
     def texts(self):
@@ -160,9 +160,16 @@ def find_window(pattern):
     return found[0] if found else None
 
 
-def press_enter(hwnd):
+def press_enter(hwnd, from_right=260, from_bottom=26):
+    """Click a button of the recovery dialog by its place from the bottom right (Return would only toggle the
+    focused list row): 260 = "Khôi phục mục đã chọn" / "Recover Selected", 200 = "Kết thúc" / "Finish"."""
+    from ctypes import wintypes
     user32 = ctypes.windll.user32
     user32.SetForegroundWindow(hwnd)
     time.sleep(0.5)
-    user32.keybd_event(0x0D, 0, 0, 0)
-    user32.keybd_event(0x0D, 0, 2, 0)
+    rect = wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    scale = user32.GetDpiForWindow(hwnd) / 96.0 if hasattr(user32, "GetDpiForWindow") else 1.0
+    user32.SetCursorPos(int(rect.right - from_right * scale), int(rect.bottom - from_bottom * scale))
+    user32.mouse_event(0x2, 0, 0, 0, 0)
+    user32.mouse_event(0x4, 0, 0, 0, 0)

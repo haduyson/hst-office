@@ -8,6 +8,9 @@ HST Office: registrymodifications.xcu survives a power cut and repairs itself.
   keeps in user/pack at every normal exit (or left to the defaults when there is none) and read again. A
   marker registrymodifications.xcu.hst-repaired ("restored" / "reset") makes the bundled extension tell the
   user at the next start (hst_office/profile_notice.py).
+- desktop lockfile.cxx Lockfile::isStale: a profile lock a power cut left empty (it is written at start without
+  fsync) names no other instance and is taken over, instead of asking "another instance is accessing your
+  profile" before the recovery dialog (seen on XFS).
 - comphelper BackupFileHelper::tryPopRegistryModifications: restores only registrymodifications from
   user/pack; the other profile parts the Safe Mode restore covers stay as they are.
 
@@ -142,6 +145,29 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-profil
  }
  
  oslFileError TempFile::flush() {
+--- a/desktop/source/deployment/misc/lockfile.cxx
++++ b/desktop/source/deployment/misc/lockfile.cxx
+@@ -155,12 +155,17 @@ namespace desktop {
+         Config aConfig(aLockname);
+         aConfig.SetGroup(LOCKFILE_GROUP ""_ostr);
+         OString aIPCserver  = aConfig.ReadKey( LOCKFILE_IPCKEY ""_ostr );
+-        if (!aIPCserver.equalsIgnoreAsciiCase("true"))
+-            return false;
+-
+         OString aHost = aConfig.ReadKey( LOCKFILE_HOSTKEY ""_ostr );
+         OString aUser = aConfig.ReadKey( LOCKFILE_USERKEY ""_ostr );
+ 
++        // HST Office: the lock is written at start without fsync; a power cut can leave it empty.
++        // An empty lock names no other instance, so it is stale (an instance always writes all keys).
++        if (aIPCserver.isEmpty() && aHost.isEmpty() && aUser.isEmpty())
++            return true;
++
++        if (!aIPCserver.equalsIgnoreAsciiCase("true"))
++            return false;
++
+         // lockfile from same host?
+         OString myHost( impl_getHostname() );
+         if (aHost == myHost) {
 --- a/include/comphelper/backupfilehelper.hxx
 +++ b/include/comphelper/backupfilehelper.hxx
 @@ -141,6 +141,11 @@ namespace comphelper

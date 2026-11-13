@@ -131,18 +131,33 @@ def gone(off, pid, timeout=60):
     return wait(lambda: off.pid != pid, timeout)
 
 
-def press_default(off, title_re, timeout=60):
-    """Return on the dialog whose title matches (its default button); the pointer gives it the keyboard focus."""
+def answer(off, title_re, keys=("Return",), corner=None, timeout=60):
+    """Answer the dialog whose title matches: keys (mnemonics of both UI languages, e.g. alt+k then alt+r for
+    "Khôi phục mục đã chọn" / "Recover Selected") or a pointer click `corner` = (dx, dy) from its bottom right."""
     found = wait(lambda: [w for w in hst_gui.toplevels(off.display) if re.search(title_re, w[1])], timeout)
     if not found:
         return False
     wid = found[0][0]
     env = dict(os.environ, DISPLAY=off.display)
-    subprocess.run(["xdotool", "windowraise", wid], env=env, check=False, timeout=10)
-    subprocess.run(["xdotool", "mousemove", "--window", wid, "40", "40"], env=env, check=False, timeout=10)
+    xdo = lambda *args: subprocess.run(["xdotool", *args], env=env, check=False, timeout=10)  # noqa: E731
+    xdo("windowraise", wid)
+    if corner:
+        info = subprocess.run(["xwininfo", "-display", off.display, "-id", wid], capture_output=True, text=True).stdout
+        width, height = (int(re.search(r"%s: (\d+)" % k, info).group(1)) for k in ("Width", "Height"))
+        xdo("mousemove", "--window", wid, str(width - corner[0]), str(height - corner[1]), "click", "1")
+        return True
+    xdo("mousemove", "--window", wid, "40", "10")  # the pointer gives the dialog the keyboard focus
     time.sleep(0.5)
-    subprocess.run(["xdotool", "key", "Return"], env=env, check=False, timeout=10)
+    for key in keys:
+        xdo("key", key)
+        time.sleep(0.3)
     return True
+
+
+# Pointer targets from the bottom right of the recovery dialogs (Vietnamese and English labels; Return would only
+# toggle the focused list row): "Khôi phục mục đã chọn" / "Recover Selected" (the left of the two buttons),
+# "Kết thúc" / "Finish" (the same place after the run) and OK of the emergency save dialog.
+RECOVER_AT, FINISH_AT, EMERGENCY_OK = (260, 26), (200, 26), (50, 26)
 
 
 def restart_and_recover(off, port_wait=180):
@@ -152,12 +167,13 @@ def restart_and_recover(off, port_wait=180):
 
 
 def reconnect_after_recovery(off, port_wait=180):
-    if not press_default(off, RECOVERY_TITLE, 90):
+    if not answer(off, RECOVERY_TITLE, corner=RECOVER_AT, timeout=90):
         return False
-    time.sleep(5)
-    # a recovery with failures stops at "Kết thúc": the same default button closes it
+    time.sleep(8)
+    hst_gui.screenshot(os.path.join(off.workdir, "after-recover.png"), off.display)
+    # a recovery with failures stops at "Kết thúc"
     if [w for w in hst_gui.toplevels(off.display) if re.search(RECOVERY_TITLE, w[1])]:
-        press_default(off, RECOVERY_TITLE, 5)
+        answer(off, RECOVERY_TITLE, corner=FINISH_AT, timeout=5)
     off.ctx = off._connect(port_wait)
     return True
 
