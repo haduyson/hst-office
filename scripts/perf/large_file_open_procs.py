@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""Office processes for scripts/perf/large-file-open.py: find, measure and stop soffice processes.
+
+Uses psutil when the Python has it; otherwise /proc on Linux and tasklist/taskkill on Windows (an office's bundled
+Python has no psutil)."""
+import csv
+import io
+import os
+import subprocess
+import sys
+
+WINDOWS = sys.platform == "win32"
+
+
+def _tasklist():
+    out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, errors="replace").stdout
+    rows = []
+    for row in csv.reader(io.StringIO(out)):
+        if len(row) >= 5 and row[0].lower().startswith("soffice"):
+            kb = int("".join(ch for ch in row[4] if ch.isdigit()) or 0)
+            rows.append((int(row[1]), kb * 1024))
+    return rows
+
+
+def office_pids():
+    try:
+        import psutil
+        return [p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower().startswith("soffice")]
+    except ImportError:
+        pass
+    if WINDOWS:
+        return [pid for pid, _ in _tasklist()]
+    pids = []
+    for d in os.listdir("/proc"):
+        if d.isdigit():
+            try:
+                with open("/proc/%s/comm" % d) as f:
+                    if f.read().strip().startswith("soffice"):
+                        pids.append(int(d))
+            except OSError:
+                pass
+    return pids
+
+
+def rss_mb(pids):
+    """Resident (Windows: working set) memory of the given office processes, MB."""
+    try:
+        import psutil
+        total = 0
+        for pid in pids:
+            try:
+                total += psutil.Process(pid).memory_info().rss
+            except Exception:  # noqa: BLE001 - the process ended
+                pass
+        return total / 1e6
+    except ImportError:
+        pass
+    if WINDOWS:
+        return sum(rss for pid, rss in _tasklist() if pid in pids) / 1e6
+    total = 0
+    for pid in pids:
+        try:
+            with open("/proc/%d/statm" % pid) as f:
+                total += int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+        except OSError:
+            pass
+    return total / 1e6
+
+
+def kill(proc, own):
+    for pid in own:
+        if WINDOWS:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
+        else:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def limit_cpus(args, cpus):
+    """Command line that starts the office on its first <cpus> logical processors (0: all), like a smaller PC."""
+    if not cpus:
+        return args
+    if WINDOWS:  # a string: start's empty title argument does not survive list quoting
+        return 'cmd /c start "" /B /WAIT /AFFINITY %X %s' % ((1 << cpus) - 1, subprocess.list2cmdline(args))
+    return ["taskset", "-c", "0-%d" % (cpus - 1)] + args
