@@ -29,6 +29,8 @@ văn bản" (title), "Chuyển thành số", "Trợ giúp về lỗi này", "B�
 - officecfg Calc.xcs Content/Display/HstNumberStoredAsText (default on), tpviewpage.ui/tpview.cxx
   checkbox; tabvwsh4.cxx repaints open sheets when it changes.
 - vi messages.po (sc, officecfg UI.po): Vietnamese labels.
+- solenv scalc.suppr: the ribbon button and menu item take their label from the command, and the warning
+  button gets its accessible name in code (as Writer's page break button), so the a11y check suppresses them.
 
 License: these upstream files remain under their original license (MPL-2.0); the new files are MPL-2.0.
 Test: tests/unit/test_sheets_text_number_parse.py, tests/unit/test_sheets_text_to_number_patch.py.
@@ -1900,3 +1902,12 @@ Test: tests/unit/test_sheets_text_number_parse.py, tests/unit/test_sheets_text_t
  #. zZstf
  #: CalcCommands.xcu
  msgctxt ""
+--- a/solenv/sanitizers/ui/modules/scalc.suppr
++++ b/solenv/sanitizers/ui/modules/scalc.suppr
+@@ -818,3 +818,6 @@
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotChart'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxImageA11yAltText'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxDrawA11yAltText'] button-no-label
++sc/uiconfig/scalc/ui/hsttextnumberbutton.ui://GtkMenuButton[@id='menubutton'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuData-HstConvertTextToNumber'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstConvertTextToNumber'] button-no-label

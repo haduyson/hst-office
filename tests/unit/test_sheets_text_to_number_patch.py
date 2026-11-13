@@ -118,6 +118,13 @@ class TextToNumberPatchTest(unittest.TestCase):
         self.assertIn('SC_UNO_HST_IGNORED_TEXT_NUMBERS = u"HstIgnoredTextNumbers"_ustr', added(FILES, "sc/inc/unonames.hxx"))
         self.assertIn("UpdateReference(rRef.GetMode()", added(CORE, "sc/source/core/tool/hstignoredtextnumbers.cxx"))
 
+    def test_new_widgets_pass_the_accessibility_check(self):
+        suppr = added(CORE, "solenv/sanitizers/ui/modules/scalc.suppr")
+        for widget in ("hsttextnumberbutton.ui://GtkMenuButton[@id='menubutton']",
+                       "notebookbar.ui://GtkMenuItem[@id='MenuData-HstConvertTextToNumber']",
+                       "notebookbar.ui://GtkToolButton[@id='btnHstConvertTextToNumber']"):
+            self.assertIn(f"sc/uiconfig/scalc/ui/{widget} button-no-label", suppr)
+
     def test_new_source_files_stay_short(self):
         for name, (lines, _, _) in sections(CORE).items():
             if os.path.basename(name).startswith(("hsttextnumber", "hstignoredtextnumbers")):
