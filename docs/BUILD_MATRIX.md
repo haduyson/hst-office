@@ -52,6 +52,21 @@ Thứ tự phiên bản Debian: epoch `1:` và dấu `~` cho bản thử. Không
 `1.0.0-2 < 1:1.0.0~beta.4.1-1 < 1:1.0.0~beta.5-1 < 1:1.0.0~rc.1-1 < 1:1.0.0-1 < 1:1.0.1-1`.
 Epoch không thể bỏ đi nữa; bản chính thức phải là `1:1.0.0-1` (`scripts/linux/make-single-deb.py`, `deb_version`).
 
+## Phiên bản lõi theo bản phát hành
+
+Người dùng chỉ thấy phiên bản HST Office: About, "Sao chép thông tin phiên bản", `soffice --version`, ReadMe, metadata
+tài liệu, thông tin bộ cài và báo cáo lỗi (từ 1.0.2 báo cáo không còn trường `product.engine`, dòng `Engine:` trong
+thông tin hệ thống hay dòng "lõi" trong thư). Khi cần phiên bản lõi LibreOffice để chẩn đoán, tra theo `product.version`:
+
+| HST Office | Lõi LibreOffice |
+|---|---|
+| `1.0.0-beta.*` đến `1.0.x` | `26.8.1.1` |
+
+Cập nhật bảng này khi đổi lõi ([UPSTREAM_BASELINE](UPSTREAM_BASELINE.md)). Lõi vẫn được dùng bên trong:
+`ooSetupVersion*` trong `main.xcd` (kiểm tra phụ thuộc của extension), biến môi trường `LIBO_VERSION`, API macro
+(ScriptForge, `utl::ConfigManager`), User-Agent HTTP của WebDAV/CMIS/LanguageTool, giao thức Impress Remote và phiên bản
+toolkit trợ năng trên Windows ([`hst-hide-engine-version.patch`](../patches/libreoffice/hst-hide-engine-version.patch)).
+
 ## Mã MSI trên Windows (UpgradeCode)
 
 UpgradeCode của HST Office là **`{A1751BCB-2603-4428-A5DE-419B438ECFBC}`**. **Không bao giờ đổi mã này**: mọi bộ cài

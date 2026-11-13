@@ -1,0 +1,115 @@
+HST Office: no engine version in the remaining texts users can see.
+
+hst-version-everywhere.patch put the HST release in About, `soffice --version`, document
+metadata, PDF/EPS/HTML and Windows file versions. Three places still showed the engine version
+(26.8 / 26.8.1.1):
+
+- The ReadMe (readmes/README_<lang>, "HST Office 26.8 ReadMe"): ${PRODUCTVERSION} is the HST
+  major.minor of include/hst_version.h (scripts/write-hst-version.py), e.g. "HST Office 1.0".
+  The header and the makefile are prerequisites, so a new /VERSION or an incremental build
+  over an older tree rebuilds the ReadMe; a missing header stops the ReadMe rule with a message
+  instead of falling back to the engine version.
+- The UI string hooks: %ABOUTBOXPRODUCTVERSION is the HST release and %PRODUCTEXTENSION /
+  %ABOUTBOXPRODUCTVERSIONSUFFIX are empty in the office (desktop/source/app/app.cxx), and the
+  standalone Extension Manager (unopkg gui) expands %PRODUCTVERSION and the others like the
+  office does.
+- Extension dependency errors named the engine version an extension declares
+  ("Extension requires at least HST Office version 27.2"): the LibreOffice-minimal/maximal
+  messages now say only that a newer / another version of HST Office is needed. The check
+  itself is unchanged.
+
+Kept internal on purpose: utl::ConfigManager::getProductVersion()/getAboutBoxProductVersion()
+and ooSetupVersion* (extension dependency checks, LIBO_VERSION for themes and extensions,
+Windows accessibility toolkit version, Impress Remote protocol, the HTTP User-Agent of WebDAV,
+CMIS and LanguageTool requests).
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/desktop/inc/strings.hrc
++++ b/desktop/inc/strings.hrc
+@@ -113,8 +113,8 @@
+ #define RID_DEPLOYMENT_DEPENDENCIES_UNKNOWN                 NC_("RID_DEPLOYMENT_DEPENDENCIES_UNKNOWN", "Unknown")
+ #define RID_DEPLOYMENT_DEPENDENCIES_OOO_MIN                 NC_("RID_DEPLOYMENT_DEPENDENCIES_OOO_MIN", "Extension requires at least OpenOffice.org reference version %VERSION")
+ #define RID_DEPLOYMENT_DEPENDENCIES_OOO_MAX                 NC_("RID_DEPLOYMENT_DEPENDENCIES_OOO_MAX", "Extension does not support OpenOffice.org reference versions greater than %VERSION")
+-#define RID_DEPLOYMENT_DEPENDENCIES_LO_MIN                  NC_("RID_DEPLOYMENT_DEPENDENCIES_LO_MIN", "Extension requires at least %PRODUCTNAME version %VERSION")
+-#define RID_DEPLOYMENT_DEPENDENCIES_LO_MAX                  NC_("RID_DEPLOYMENT_DEPENDENCIES_LO_MAX", "Extension does not support %PRODUCTNAME versions greater than %VERSION")
++#define RID_DEPLOYMENT_DEPENDENCIES_LO_MIN                  NC_("RID_DEPLOYMENT_DEPENDENCIES_LO_MIN", "Extension requires a newer version of %PRODUCTNAME")
++#define RID_DEPLOYMENT_DEPENDENCIES_LO_MAX                  NC_("RID_DEPLOYMENT_DEPENDENCIES_LO_MAX", "Extension does not support this version of %PRODUCTNAME")
+ 
+ #define RID_STR_WARNING_VERSION_LESS                        NC_("RID_STR_WARNING_VERSION_LESS", "You are about to install version $NEW of the extension '$NAME'.\n" \
+                                                                "The newer version $DEPLOYED is already installed.\n"\
+--- a/desktop/source/app/app.cxx
++++ b/desktop/source/app/app.cxx
+@@ -425,9 +425,11 @@
+         // Recovery) is the HST release (major.minor from /VERSION), not the engine version;
+         // utl::ConfigManager::getProductVersion() stays the engine version (extensions, help).
+         sVersion(OUString::number(HST_VERSION_MAJOR) + "." + OUString::number(HST_VERSION_MINOR)),
+-        sAboutBoxVersion(utl::ConfigManager::getAboutBoxProductVersion()),
+-        sAboutBoxVersionSuffix(utl::ConfigManager::getAboutBoxProductVersionSuffix()),
+-        sExtension(utl::ConfigManager::getProductExtension());
++        // HST Office: the full version shown to users is the HST release too; the engine's
++        // ".micro.patch" extension and about-box suffix never appear in UI texts.
++        sAboutBoxVersion(u"" HST_RELEASE ""_ustr),
++        sAboutBoxVersionSuffix(u""_ustr),
++        sExtension(u""_ustr);
+ 
+     OUString sRet(rStr);
+     if (sRet.indexOf("%PRODUCT") != -1 || sRet.indexOf("%ABOUTBOX") != -1)
+--- a/desktop/source/deployment/gui/dp_gui_service.cxx
++++ b/desktop/source/deployment/gui/dp_gui_service.cxx
+@@ -38,6 +38,7 @@
+ #include "dp_gui_dialog2.hxx"
+ #include "dp_gui_extensioncmdqueue.hxx"
+ #include <dp_misc.h>
++#include <hst_version.h> // HST_VERSION_*, HST_RELEASE (generated from /VERSION)
+ 
+ using namespace ::dp_misc;
+ using namespace ::com::sun::star;
+@@ -88,10 +89,12 @@
+         return rStr;
+ 
+     static const OUString sProductName = utl::ConfigManager::getProductName();
+-    static const OUString sVersion = utl::ConfigManager::getProductVersion();
+-    static const OUString sAboutBoxVersion = utl::ConfigManager::getAboutBoxProductVersion();
+-    static const OUString sAboutBoxVersionSuffix = utl::ConfigManager::getAboutBoxProductVersionSuffix();
+-    static const OUString sExtension = utl::ConfigManager::getProductExtension();
++    // HST Office: texts of the standalone Extension Manager (unopkg gui) name the HST release,
++    // as inside the office (desktop/source/app/app.cxx), never the engine version.
++    static const OUString sVersion = OUString::number(HST_VERSION_MAJOR) + "." + OUString::number(HST_VERSION_MINOR);
++    static const OUString sAboutBoxVersion = u"" HST_RELEASE ""_ustr;
++    static const OUString sAboutBoxVersionSuffix;
++    static const OUString sExtension;
+     static const OUString sOOOVendor = utl::ConfigManager::getVendor();
+ 
+     OUString sRet = rStr.replaceAll( "%PRODUCTNAME", sProductName );
+--- a/readlicense_oo/CustomTarget_readme.mk
++++ b/readlicense_oo/CustomTarget_readme.mk
+@@ -43,18 +43,27 @@
+ 
+ endif
+ 
++# HST Office: the ReadMe names the HST release (major.minor of include/hst_version.h, written
++# from /VERSION by scripts/write-hst-version.py), never the engine version. This makefile is a
++# prerequisite too: an incremental build regenerates ReadMes made with the engine version.
++readlicense_oo_HST_VERSION_H := $(SRCDIR)/include/hst_version.h
++readlicense_oo_HST_VERSION := $(shell $(gb_AWK) '$$2 == "HST_VERSION_MAJOR" { a = $$3 } $$2 == "HST_VERSION_MINOR" { b = $$3 } END { if (a != "" && b != "") print a "." b }' $(readlicense_oo_HST_VERSION_H))
++
+ readlicense_oo_README_SED := \
+ 	-e 's,$${PRODUCTNAME},$(PRODUCTNAME),g' \
+-	-e 's,$${PRODUCTVERSION},$(LIBO_VERSION_MAJOR).$(LIBO_VERSION_MINOR),g' \
++	-e 's,$${PRODUCTVERSION},$(readlicense_oo_HST_VERSION),g' \
+ 	-e 's,$${LCPRODUCTNAME},'"$$(printf %s '$(PRODUCTNAME)' | tr A-Z a-z)",g \
+ 
+ $(readlicense_oo_DIR)/$(call gb_README,%) : \
+ 		$(SRCDIR)/readlicense_oo/docs/readme.xsl \
++		$(readlicense_oo_HST_VERSION_H) \
++		$(SRCDIR)/readlicense_oo/CustomTarget_readme.mk \
+ 		$(readlicense_oo_README_XRM) \
+ 		| $(readlicense_oo_DIR)/.dir \
+ 		  $(call gb_ExternalExecutable_get_dependencies,xsltproc)
+ 	$(call gb_Output_announce,$(subst $(WORKDIR)/,,$@),$(true),XSL,1)
+ 	$(call gb_Trace_StartRange,$(subst $(WORKDIR)/,,$@),XSL)
++	$(if $(readlicense_oo_HST_VERSION),,$(error readlicense_oo: no HST_VERSION_MAJOR/MINOR in $(readlicense_oo_HST_VERSION_H) (run scripts/write-hst-version.py)))
+ 	$(call gb_Helper_abbreviate_dirs, \
+ 		$(call gb_ExternalExecutable_get_command,xsltproc) --nonet --novalid -o $@.out \
+ 			--stringparam com1 $(COM) \

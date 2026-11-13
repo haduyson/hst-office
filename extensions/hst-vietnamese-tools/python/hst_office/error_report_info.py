@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """What an error report says about this installation, read on the main thread when the dialog opens.
 
-Always in the report (the dialog shows it read-only): HST Office version, build and engine, OS family/version/arch,
+Always in the report (the dialog shows it read-only): HST Office version and build, OS family/version/arch,
 office locale and the app (Writer, Sheets, Slides, Start Center...). With "Gửi kèm thông tin chẩn đoán" (ticked by
 default, the user can untick it): systemInfo (the lines of Help ▸ About ▸ Copy version info this extension can read,
 plus VCL backend, UI scale and the Skia setting) and the last lines of HST's local log (diag_log: hst-office.log in
 the user profile, already filtered when written and filtered again here). Nothing here touches documents.
+
+The engine version is never part of a report: users see and send the HST Office version only; the server maps it to
+the engine (docs/BUILD_MATRIX.md, "Phiên bản lõi theo bản phát hành").
 """
 import platform
 import re
@@ -21,6 +24,7 @@ MODULE_APPS = {"com.sun.star.text.TextDocument": "writer", "com.sun.star.text.Gl
                "com.sun.star.presentation.PresentationDocument": "impress",
                "com.sun.star.drawing.DrawingDocument": "draw", "com.sun.star.formula.FormulaProperties": "math",
                "com.sun.star.sdb.OfficeDatabaseDocument": "base", "com.sun.star.frame.StartModule": "start"}
+PDF_VIEWER = "org.hasontech.hstoffice.PdfViewer"  # service of HST PDF's controller (hst-pdf-viewer.patch)
 _VCLPLUG = re.compile(r"libvclplug_(\w+?)lo\.so")
 
 
@@ -38,6 +42,13 @@ def app_of_module(module):
 
 
 def app_of(ctx, frame):
+    """App key of the frame: its module, or "pdf" for HST PDF (a viewer controller without a document module)."""
+    try:
+        controller = frame.getController()
+        if controller is not None and controller.supportsService(PDF_VIEWER):
+            return "pdf"
+    except Exception:  # noqa: BLE001 - a frame without a controller: identify by module
+        pass
     try:
         manager = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.ModuleManager", ctx)
         return app_of_module(manager.identify(frame))
@@ -45,15 +56,10 @@ def app_of(ctx, frame):
         return "unknown"
 
 
-def product(ctx):
+def product(_ctx=None):
+    """{"version", "build"} of this installation (data/release.json of the extension)."""
     info = load_data("release.json")
-    engine = ""
-    try:
-        values = _config(ctx, "/org.openoffice.Setup/Product", ("ooSetupVersionAboutBox", "ooSetupVersionAboutBoxSuffix"))
-        engine = "".join(values.values())
-    except Exception:  # noqa: BLE001
-        diag_log.exception("error_report_info")
-    return {"version": info["release"], "build": str(info.get("build", "")), "engine": engine}
+    return {"version": info["release"], "build": str(info.get("build", ""))}
 
 
 def locale(ctx):
@@ -90,15 +96,15 @@ def ui_scale(frame):
 
 def system_info_text(fields):
     """The About ▸ Copy version info style lines of the non-empty fields, in a fixed order."""
-    order = ("Version", "Engine", "Build ID", "OS", "VCL", "UI scale", "Skia", "Locale", "App", "Python")
+    order = ("Version", "Build ID", "OS", "VCL", "UI scale", "Skia", "Locale", "App", "Python")
     return "\n".join("%s: %s" % (key, fields[key]) for key in order if fields.get(key))
 
 
 def system_info(ctx, frame, payload):
     fields = {"Version": "%s (%s)" % (payload["product"]["version"], payload["os"]["arch"]),
-              "Engine": payload["product"]["engine"], "OS": payload["os"]["version"], "VCL": vcl_backend(),
+              "OS": payload["os"]["version"], "VCL": vcl_backend(),
               "UI scale": ui_scale(frame) if frame is not None else "", "Locale": payload["locale"],
-              "App": payload["app"], "Python": platform.python_version()}
+              "App": payload["appName"], "Python": platform.python_version()}
     try:
         fields["Build ID"] = ctx.getValueByName("/singletons/com.sun.star.util.theMacroExpander").expandMacros(
             "${$BRAND_BASE_DIR/program/" + ("version.ini" if sys.platform == "win32" else "versionrc") + ":buildid}")
@@ -169,10 +175,13 @@ def office_secrets(ctx):
     return personal_strings(extra=extra)
 
 
+# Session lines written before 1.0.2 named the engine ("start 1.0.1 build 680 engine 26.8.1.1; ...").
+_ENGINE_FIELD = re.compile(r" engine [^;\s]*;")
+
+
 def recent_log(secrets):
-    """HST's recent local log lines, filtered; "" when there is no log."""
-    from . import diag_log
-    return scrub(diag_log.recent(LOG_LINES, LOG_BYTES), secrets).strip()
+    """HST's recent local log lines, filtered, without the engine field of older session lines; "" without a log."""
+    return _ENGINE_FIELD.sub(";", scrub(diag_log.recent(LOG_LINES, LOG_BYTES), secrets)).strip()
 
 
 def environment(ctx, frame):

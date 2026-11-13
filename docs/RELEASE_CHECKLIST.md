@@ -4,7 +4,7 @@ Một bản phát hành chỉ được đánh dấu sẵn sàng khi **mọi mụ
 
 ## A. Nguồn & giấy phép
 
-- [ ] Phiên bản: sửa [`VERSION`](../VERSION) (`MAJOR.MINOR.MICRO`) và mã đầy đủ trong [`data/hst/release.json`](../data/hst/release.json), build lại; About và `soffice --version` hiển thị đúng mã bản phát hành (không nêu tên LibreOffice; "Sao chép thông tin phiên bản" có dòng Engine), tên tệp tải `HSTOffice_<release>_*`, phiên bản MSI/deb/dmg ([BUILD_MATRIX](BUILD_MATRIX.md#phiên-bản-hiển-thị-theo-hệ-điều-hành)) và tên gói/`/opt/hst-office<MAJOR>.<MINOR>` khớp. Không đổi phiên bản lõi LibreOffice.
+- [ ] Phiên bản: sửa [`VERSION`](../VERSION) (`MAJOR.MINOR.MICRO`) và mã đầy đủ trong [`data/hst/release.json`](../data/hst/release.json), build lại; About và `soffice --version` hiển thị đúng mã bản phát hành (không nêu tên LibreOffice; "Sao chép thông tin phiên bản", ReadMe và báo cáo lỗi không có phiên bản lõi; `scripts/check-branding.py --release`), tên tệp tải `HSTOffice_<release>_*`, phiên bản MSI/deb/dmg ([BUILD_MATRIX](BUILD_MATRIX.md#phiên-bản-hiển-thị-theo-hệ-điều-hành)) và tên gói/`/opt/hst-office<MAJOR>.<MINOR>` khớp. Không đổi phiên bản lõi LibreOffice.
 
 - [ ] `upstream/libreoffice-lock.json` khớp tarball đã build (SHA-256 + chữ ký GPG "Good signature").
 - [ ] `scripts/apply-patches.sh --check` sạch; mỗi patch có header lý do + giấy phép file gốc (MPL-2.0).

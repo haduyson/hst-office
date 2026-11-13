@@ -23,6 +23,7 @@ from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
 from . import diag_crash, diag_log, session_facts, session_heartbeat
+from .error_report_apps import app_name
 from .error_report_info import app_of_module, environment
 from .error_report_texts import TEXT
 
@@ -69,14 +70,15 @@ def abnormal(state):
 def crash_facts(state):
     """(diagnostics.crash text, app) from the recovery state and the session marker (state["session_marker"]); the app
     is known when all open documents share it."""
-    apps = sorted({app_of_module(module) for module in state["modules"]})
+    keys = sorted({app_of_module(module) for module in state["modules"]})
+    apps = [app_name(key) for key in keys]
     lines = ["Previous session: ended abnormally (detected at the next start)",
              "Emergency save ran: %s" % ("yes" if state["crashed"] else "no"),
              "Documents in the recovery list (modified) at exit: %d%s" % (
                  len(state["modules"]), (" (%s)" % ", ".join(apps)) if apps else ""),
              "Document recovery offered: %s" % ("yes" if state["modules"] and not state["session"] else "no")]
     lines += diag_crash.facts(state.get("session_marker"))
-    return "\n".join(lines), apps[0] if len(apps) == 1 else "unknown"
+    return "\n".join(lines), keys[0] if len(keys) == 1 else "unknown"
 
 
 def ask_enabled(ctx):

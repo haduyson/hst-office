@@ -4,6 +4,7 @@
 Works on the patch series alone (no LibreOffice tree): for each source file it follows the lines that the
 series adds and removes in order, so a later patch that brings back the engine version, the upstream generator
 or "Calc" fails here. tests/runtime/check-hst-version-everywhere.py checks the same on a built program.
+Error reports carry no engine version either (tests/unit/test_error_report_no_engine.py).
 """
 import collections
 import json
@@ -145,12 +146,51 @@ class OperatingSystemFields(unittest.TestCase):
         self.assertNotRegex(release, FORBIDDEN)
 
 
+class RemainingTexts(unittest.TestCase):
+    """ReadMe, UI string hooks and extension dependency errors: no engine version (hst-hide-engine-version.patch)."""
+
+    def test_string_hooks_expand_every_version_variable_to_the_hst_release(self):
+        for path in ("desktop/source/app/app.cxx", "desktop/source/deployment/gui/dp_gui_service.cxx"):
+            added, removed = file_lines(path)
+            body = code(added)
+            self.assertRegex(body, r'sAboutBoxVersion\s*(=\s*|\()u"" HST_RELEASE ""_ustr', path)
+            self.assertNotRegex(body, ENGINE_CALLS, path)
+            self.assertTrue(any("getAboutBoxProductVersion()" in line for line in removed), path)
+            self.assertTrue(any("getProductExtension()" in line for line in removed), path)
+
+    def test_readme_names_the_hst_major_minor(self):
+        added, removed = file_lines("readlicense_oo/CustomTarget_readme.mk")
+        self.assertIn("\t-e 's,$${PRODUCTVERSION},$(readlicense_oo_HST_VERSION),g' \\", added)
+        self.assertIn("readlicense_oo_HST_VERSION_H := $(SRCDIR)/include/hst_version.h", added)
+        self.assertIn("\t\t$(SRCDIR)/readlicense_oo/CustomTarget_readme.mk \\", added)  # rebuilt over old trees
+        self.assertTrue(any("LIBO_VERSION_MAJOR" in line for line in removed))
+        self.assertFalse(any("LIBO_VERSION" in line for line in added))
+
+    def test_extension_dependency_errors_name_no_version_number(self):
+        added, _ = file_lines("desktop/inc/strings.hrc")
+        messages = {}
+        for line in added:
+            match = re.search(r'NC_\("(RID_DEPLOYMENT_DEPENDENCIES_LO_M(?:IN|AX))", "([^"]*)"\)', line)
+            if match:
+                messages[match.group(1)] = match.group(2)
+        self.assertEqual(set(messages), {"RID_DEPLOYMENT_DEPENDENCIES_LO_MIN", "RID_DEPLOYMENT_DEPENDENCIES_LO_MAX"})
+        rows = [json.loads(line) for line in (ROOT / "l10n/vi-overrides.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()]
+        for context, english in messages.items():
+            self.assertNotIn("%VERSION", english)
+            row = [r for r in rows if r["msgctxt"] == context]
+            self.assertEqual(len(row), 1, context)
+            self.assertEqual(row[0]["msgid_new"], english)
+            self.assertNotRegex(row[0]["msgstr"], r"%VERSION|engine|\blõi\b")
+
+
 class SeriesOrder(unittest.TestCase):
     def test_version_patch_follows_the_about_and_title_patches(self):
         names = series()
         last = names.index("hst-version-everywhere.patch")
         for earlier in ("hst-about.patch", "hst-version.patch", "hst-window-title.patch", "hst-copyright.patch"):
             self.assertLess(names.index(earlier), last, earlier)
+        self.assertLess(last, names.index("hst-hide-engine-version.patch"))
 
 
 if __name__ == "__main__":

@@ -142,9 +142,9 @@ def start(ctx, environment):
             json.dump({"started": time.time(), "pid": os.getpid(), "version": product.get("version", "")}, handle)
         if STATE["previous"]:
             diag_log.warning("session", "previous session ended: %s" % STATE["previous"]["ended"])
-        diag_log.info("session", "start %s build %s engine %s; %s %s; %s; python %s" % (
-            product.get("version"), product.get("build"), product.get("engine"), os_.get("version"), os_.get("arch"),
-            locale, platform.python_version()))
+        diag_log.info("session", "start %s build %s; %s %s; %s; python %s" % (
+            product.get("version"), product.get("build"), os_.get("version"), os_.get("arch"), locale,
+            platform.python_version()))
         if sys.platform != "win32":
             _capture_stderr()
         else:

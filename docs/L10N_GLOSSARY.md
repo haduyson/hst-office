@@ -12,6 +12,7 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 | Tiếng Anh | Tiếng Việt | Ghi chú |
 |---|---|---|
 | Spreadsheet | Bảng tính | tài liệu/ứng dụng (HST Sheets) |
+| Calc / Impress (tên ứng dụng) | Sheets / Slides | trong ứng dụng dùng tên ngắn, cả tiếng Anh ([`hst-app-names-en-us.patch`](../patches/libreoffice/hst-app-names-en-us.patch), đổi chuỗi gốc thì thêm `msgid_new` cho dòng tiếng Việt); lối tắt, bộ cài và báo cáo lỗi dùng tên đầy đủ HST Sheets / HST Slides; giữ nguyên tên bộ lọc, định dạng cũ và định danh |
 | Sheet | Trang tính | một thẻ trong bảng tính; không dùng "trang" trơn |
 | Cell / Row / Column | Ô / Hàng / Cột | "dòng" dành cho dòng chữ (Line) |
 | Slide | Trang chiếu | không dùng "ảnh chiếu", "hình chiếu" |

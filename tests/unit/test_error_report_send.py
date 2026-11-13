@@ -147,7 +147,7 @@ class CrashPromptTests(unittest.TestCase):
         text, app = crash.crash_facts(self.state(True, False, ["com.sun.star.sheet.SpreadsheetDocument"] * 2))
         self.assertEqual(app, "calc")
         self.assertIn("Emergency save ran: yes", text)
-        self.assertIn("Documents in the recovery list (modified) at exit: 2 (calc)", text)
+        self.assertIn("Documents in the recovery list (modified) at exit: 2 (HST Sheets)", text)
         _, app = crash.crash_facts(self.state(True, False, ["com.sun.star.sheet.SpreadsheetDocument",
                                                             "com.sun.star.text.TextDocument"]))
         self.assertEqual(app, "unknown")
