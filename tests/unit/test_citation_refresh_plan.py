@@ -86,6 +86,14 @@ class Plan(unittest.TestCase):
         self.assertTrue(result["warnings"])
         self.assertEqual(result["count"], 1)
 
+    def test_vietnamese_styles_keep_vietnamese_terms_in_an_english_document(self):
+        vn = refresh_plan.plan(self.doc, {"style": "vn-so", "opts": {}}, ENGINE, document_language="en")
+        intl = refresh_plan.plan(self.doc, {"style": "ieee", "opts": {}}, ENGINE, document_language="en")
+        self.assertIn("tr. 3", vn["citations"][0][1])
+        self.assertIn("p. 3", intl["citations"][0][1])
+        vi = refresh_plan.plan(self.doc, {"style": "ieee", "opts": {}}, ENGINE, document_language="vi")
+        self.assertIn("tr. 3", vi["citations"][0][1])
+
     def test_note_style_and_empty_bibliography(self):
         doc = fields(("bibliography", codes.encode_bibliography(), 0))
         result = refresh_plan.plan(doc, {"style": "chicago-chu-thich", "opts": {}}, ENGINE, empty_text="(trống)")

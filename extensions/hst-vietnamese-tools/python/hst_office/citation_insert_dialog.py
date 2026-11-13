@@ -7,6 +7,7 @@ and after, or the narrative form "Nguyễn Văn An (2010)"; the preview shows th
 "Nguồn mới…" opens the source form (with online lookup). Returns (cluster, {id: itemData}) or None.
 """
 from . import citation_lists as lists
+from .citation_refresh_plan import term_language
 from . import citation_ui as ui
 from .dialogs import Dialog
 
@@ -108,7 +109,7 @@ def run(ctx, peer, texts, settings, plan, existing=None, language=None):
             return lists.set_label(dialog, "preview", "")
         try:
             text = process(style, {i: known[i] for i in chosen_ids}, [cluster],
-                           document_language=language)["citations"][0]["text"]
+                           document_language=term_language(style, language))["citations"][0]["text"]
         except Exception as exc:  # noqa: BLE001 - a preview never stops the dialog
             text = str(exc)
         lists.set_label(dialog, "preview", text)

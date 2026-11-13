@@ -2,6 +2,7 @@
 """"Kiểu trích dẫn": the document's style, a university preset of it, the options users change most, and a live
 preview with the document's own sources (sample sources when it has none). Only options that differ from the
 style (and preset) are stored, so the document property stays short. Returns new settings or None."""
+from .citation_refresh_plan import term_language
 from .citation_settings import stored_options
 from .dialogs import Dialog
 
@@ -91,7 +92,8 @@ def run(ctx, peer, texts, current, doc_items, document_language=None):
             style = citation_style.load_style(style_id(), options, preset_id(), user_dir=user_dir)
             clusters = [{"citationID": "p%d" % n, "items": [{"id": i["id"]}], "mode": "normal"}
                         for n, i in enumerate(items)]
-            done = citation_engine.process(style, {i["id"]: i for i in items}, clusters, document_language=document_language)
+            done = citation_engine.process(style, {i["id"]: i for i in items}, clusters,
+                                          document_language=term_language(style, document_language))
             lines = [c["text"] for c in done["citations"]] + [""]
             lines += [(e["label"] + " " if e["label"] else "") + e["text"]
                       for g in done["bibliography"]["groups"] for e in g["entries"]]

@@ -14,6 +14,13 @@ import html
 from . import citation_codes as codes
 
 
+def term_language(style, document_language):
+    """Vietnamese thesis styles (vn-*, and "my styles" built on them) always print Vietnamese terms ("tr.",
+    "và cộng sự", "Nxb"); international styles follow the document's language (owner decisions 13/11/2026)."""
+    base = (getattr(style, "data", None) or {}).get("id", "")
+    return "vi" if base.startswith("vn-") else document_language
+
+
 def _plain_html(text):
     return html.escape(text or "", quote=False)
 
@@ -84,7 +91,8 @@ def plan(fields, settings, engine, empty_text="—", document_language=None):
         if rewrite:
             new_codes[field["index"]] = codes.encode_citation(cluster, items)
         clusters.append((field, cluster))
-    result = engine.process(style, newest, [c for _f, c in clusters], document_language=document_language)
+    result = engine.process(style, newest, [c for _f, c in clusters],
+                            document_language=term_language(style, document_language))
     warnings += result.get("warnings", [])
     formatted = {f["index"]: c for (f, _cl), c in zip(clusters, result["citations"])}
     updates, changed = [], 0
