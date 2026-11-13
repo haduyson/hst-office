@@ -28,6 +28,19 @@ def _shell_execute_info():
     return ctypes, ShellExecuteInfo
 
 
+def _windows_api(ctypes):
+    """user32, shell32 and kernel32 with explicit handle types; shell32 keeps the error code of each call."""
+    from ctypes import wintypes
+    user32, kernel32 = ctypes.WinDLL("user32"), ctypes.WinDLL("kernel32")
+    shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+    kernel32.GetProcessId.argtypes = (wintypes.HANDLE,)
+    kernel32.GetProcessId.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    return user32, shell32, kernel32
+
+
 def owner_window(user32, pid=None):
     """The foreground window when it belongs to this process (the office the user just clicked in), else 0."""
     import ctypes
@@ -43,11 +56,16 @@ def run_elevated(program, parameters, api=None):
     """Start `program` with the command line `parameters` elevated. The office's foreground window owns the request,
     so the administrator question appears at once in front of the user. The process ID, or ElevationDeclined (No)."""
     ctypes, ShellExecuteInfo = _shell_execute_info()
-    user32, shell32, kernel32 = api or (ctypes.windll.user32, ctypes.windll.shell32, ctypes.windll.kernel32)
+    if api is None:
+        user32, shell32, kernel32 = _windows_api(ctypes)
+        last_error = ctypes.get_last_error  # saved by ctypes right after ShellExecuteExW (use_last_error)
+    else:
+        user32, shell32, kernel32 = api
+        last_error = kernel32.GetLastError
     info = ShellExecuteInfo(cbSize=ctypes.sizeof(ShellExecuteInfo), fMask=_SEE_MASK, hwnd=owner_window(user32),
                             lpVerb="runas", lpFile=program, lpParameters=parameters, nShow=_SW_HIDE)
     if not shell32.ShellExecuteExW(ctypes.byref(info)):
-        error = kernel32.GetLastError()
+        error = last_error()
         if error == ERROR_CANCELLED:
             raise ElevationDeclined()
         raise OSError(error, "ShellExecuteExW failed")

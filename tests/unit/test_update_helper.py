@@ -66,6 +66,10 @@ class HelperContract(unittest.TestCase):
         # hidden helper after the office has gone is only a blinking taskbar button.
         self.assertNotIn("RunAs", text)
         self.assertNotIn("Start-Process $Soffice", text)
+        # Files the elevated helper creates stay readable by the user: the folder owner is granted before any write.
+        grant = text.index('icacls.exe $folder /grant "*${sid}:(OI)(CI)F"')
+        self.assertLess(grant, text.index("Write-Step \"Waiting for process"))
+        self.assertLess(grant, text.index("function Write-Failure"))
         self.assertNotIn("$(unsafe)", text)
         self.assertLess(text.index("Write-Step 'Process exited'"), text.index("Get-FileHash"))
         self.assertLess(text.index("Get-FileHash"), text.index("if ($DryRun)"))
