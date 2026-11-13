@@ -115,6 +115,11 @@ def change_kind(doc, source_name, field, column, kind):
     return field
 
 
+def show_names(doc, source_name):
+    """Every merge field shows "<Cột>" (a field evaluated against the connected source would show nothing)."""
+    show_values(doc, source_name, None, None)
+
+
 def show_values(doc, source_name, table, row, words=None):
     """Preview: every merge field shows the value of `row` (None = the column names, as without preview)."""
     modified = doc.isModified()
@@ -123,7 +128,7 @@ def show_values(doc, source_name, table, row, words=None):
     try:
         for field, column in merge_fields(doc, source_name):
             base, kind = field_kind(doc, field, column)
-            if row is None or base not in table.headers:
+            if row is None or table is None or base not in table.headers:
                 field.Content = "<%s>" % base
             else:
                 field.Content = fmt.render(kind, table.value(row, base), words)

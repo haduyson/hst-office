@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """ProtocolHandler of the Trộn thư commands on the Gửi thư tab: org.hst.office.mailmerge:<Command>
-(mail_merge_commands.COMMANDS). One handler per frame. Status: "Preview" is a check item, "Record" shows
+(handler.commands()). One handler per frame. Status: "Preview" is a check item, "Record" shows
 "Bản ghi n / N" as its label, the move commands are greyed out at the ends; everything is enabled only in Writer.
 The command code is imported on first use (the office creates handlers while it starts)."""
 import unohelper
@@ -9,9 +9,16 @@ from com.sun.star.lang import XInitialization, XServiceInfo
 
 IMPLEMENTATION_NAME = "org.hst.office.vi.MailMergeDispatchProvider"
 PROTOCOL = "org.hst.office.mailmerge:"
-COMMANDS = frozenset(("Recipients", "EditRecipients", "InsertField", "FieldFormat", "Preview", "First", "Prev",
-                      "Next", "Last", "Record", "Find", "Finish", "Wizard"))
-NEEDS_LIST = COMMANDS - {"Recipients", "EditRecipients", "Wizard"}
+COMMANDS = frozenset((
+    "Recipients", "EditRecipients", "InsertField", "FieldFormat", "Preview", "First", "Prev", "Next", "Last",
+    "Record", "Find", "Finish", "Wizard",
+    # ▾ buttons (their menus: mail_merge_menu.py) and the menu items
+    "Start", "Rules", "StartLetter", "StartEnvelope", "StartLabels", "StartEmail", "StartNormal", "NewList",
+    "AddressBook", "InsertColumn", "AddressBlock", "Greeting", "RuleIf", "RuleSkip", "RuleAsk", "RuleSeq", "Check",
+    "FinishEdit", "FinishPrint", "FinishMail", "FinishPdf", "FinishDocx"))
+NEEDS_LIST = COMMANDS - {"Recipients", "EditRecipients", "Wizard", "Start", "StartLetter", "StartEnvelope",
+                         "StartLabels", "StartEmail", "StartNormal", "NewList", "AddressBook"}
+MENU_ONLY = {"Start", "Rules"}  # whole-button menus: nothing to run on a click
 WIZARD = ".uno:MailMergeWizard"  # "Trình hướng dẫn trộn thư (đầy đủ)": the engine's wizard under the HST label
 RECORD_LABEL = {"vi": "Bản ghi", "en": "Record"}
 
@@ -35,6 +42,15 @@ def status(command, session, language="vi"):
     if command in ("Next", "Last"):
         return enabled and (not loaded or (count > 0 and (position < count - 1 or not session.preview))), None
     return enabled, None
+
+
+def commands():
+    """Every command function by name, from the four command modules (imported on first use)."""
+    from . import mail_merge_commands, mail_merge_design_commands, mail_merge_finish_commands, mail_merge_list_commands
+    table = {}
+    for module in (mail_merge_commands, mail_merge_finish_commands, mail_merge_design_commands, mail_merge_list_commands):
+        table.update(module.COMMANDS)
+    return table
 
 
 class MailMergeHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, XDispatch):
@@ -72,8 +88,11 @@ class MailMergeHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchP
             if url.Path == "Wizard":
                 helper = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.ctx)
                 return helper.executeDispatch(self.frame, WIZARD, "", 0, ())
-            from .mail_merge_commands import COMMANDS as RUN, Context
-            RUN[url.Path](Context(self.ctx, self.frame))
+            if url.Path in MENU_ONLY:
+                return
+            from .mail_merge_context import Context
+            args = {getattr(a, "Name", ""): getattr(a, "Value", None) for a in arguments or ()}
+            commands()[url.Path](Context(self.ctx, self.frame, args))
         except Exception:  # noqa: BLE001 - never raise into the office UI thread
             from .diag_log import exception
             exception("mail merge " + url.Path)

@@ -166,6 +166,12 @@ EN = {
 }
 
 
+from . import mail_merge_texts_design as _design  # noqa: E402  (▾ menus, list editor, rules, check)
+
+VI.update(_design.VI)
+EN.update(_design.EN)
+
+
 def language(ctx):
     """"en" when the office UI is English, else "vi"."""
     try:

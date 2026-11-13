@@ -3,6 +3,7 @@
 the ways a value can be shown for the selected column and a live example from the recipient shown. The insert
 dialog stays open after each insertion, like the reference app's dialog; the format dialog returns one kind."""
 from . import mail_merge_format as fmt
+from . import mail_merge_table as mt
 from .dialogs import Dialog, _Action
 
 
@@ -10,7 +11,7 @@ class InsertFieldDialog:
     def __init__(self, ctx, texts, table, row, words, on_insert=None, column=None, kind=None):
         """`on_insert(column, kind)`: insert mode; without it the dialog is the format dialog of `column`."""
         self.t, self.table, self.row, self.words, self.on_insert = texts, table, row, words, on_insert
-        self.columns = list(table.headers) if on_insert else [column]
+        self.columns = mt.insertable(table.headers) if on_insert else [column]
         self.kinds = []
         self.result = None
         title = texts["ins.title"] if on_insert else texts["fmt.title"]

@@ -59,3 +59,44 @@ def ask_find(ctx, texts, parent_peer, last=""):
     if d.execute(parent_peer) != 1:
         return None
     return found.get("text", "").strip() or None
+
+
+def ask_text(ctx, texts, parent_peer, title, prompt, value=""):
+    """One answer (str, may be empty) or None on Cancel: the question of a "Hỏi" rule, or a list name."""
+    d = Dialog(ctx, title, 240, 66)
+    d.label("text", prompt, 8, 6, 224, 18, wrap=True)
+    d.edit("answer", 8, 26, 224, text=value, help_text=prompt)
+    answer = {}
+
+    def accept():
+        answer["text"] = d.get("answer")
+        d.end(1)
+    d.button("ok", texts["ok"], 116, 46, 56, default=True, callback=accept)
+    d.button("cancel", texts["cancel"], 176, 46, 56, callback=lambda: d.end(0))
+    return answer.get("text", "") if d.execute(parent_peer) == 1 else None
+
+
+def show_lines(ctx, texts, parent_peer, title, heading, lines):
+    """A read-only list of result lines (Kiểm tra lỗi)."""
+    d = Dialog(ctx, title, 320, 200)
+    d.label("heading", heading, 8, 6, 304, 18, wrap=True)
+    d.listbox("lines", 8, 26, 304, list(lines), 0, h=150, dropdown=False, help_text=heading)
+    d.button("close", texts["close"], 256, 182, 56, default=True, callback=lambda: d.end(0))
+    d.execute(parent_peer)
+
+
+def choose_item(ctx, texts, parent_peer, title, label, items):
+    """Index of the chosen item, or None (Chọn từ danh bạ)."""
+    d = Dialog(ctx, title, 260, 150)
+    d.label("text", label, 8, 6, 244, 18, wrap=True)
+    d.listbox("items", 8, 26, 244, list(items), 0, h=100, dropdown=False, help_text=label)
+    chosen = {}
+
+    def accept():
+        chosen["index"] = d.get("items")
+        d.end(1)
+    d.button("ok", texts["ok"], 136, 132, 56, default=True, callback=accept)
+    d.button("cancel", texts["cancel"], 196, 132, 56, callback=lambda: d.end(0))
+    if d.execute(parent_peer) != 1 or chosen.get("index", -1) < 0:
+        return None
+    return chosen["index"]

@@ -4,7 +4,9 @@ diacritics, sort by a column or by given name, select all / none / only the matc
 document (mail_merge_store meta); "Đổi danh sách" and "Làm mới" end the dialog with their own result code."""
 import unohelper
 from com.sun.star.awt import XMouseListener
+from com.sun.star.awt.grid import XGridSelectionListener
 
+from . import mail_merge_addressbook as book
 from . import mail_merge_table as mt
 from .dialogs import Dialog
 
@@ -28,6 +30,19 @@ class _DoubleClick(unohelper.Base, XMouseListener):
 
     def mouseExited(self, event):
         pass
+
+    def disposing(self, event):
+        pass
+
+
+class _Selected(unohelper.Base, XGridSelectionListener):
+    """Calls `callback` when the selected row of a grid changes (also used by the list editor)."""
+
+    def __init__(self, callback):
+        self.callback = callback
+
+    def selectionChanged(self, event):
+        self.callback()
 
     def disposing(self, event):
         pass
@@ -95,7 +110,9 @@ class RecipientsDialog:
     def _count(self):
         total = len(self.table.rows)
         checked = total - len([k for k in self.table.keys if k in self.excluded])
-        self.d.model.getByName("source").Label = self.t["rec.source"] % (self.session.meta["source"], total, checked)
+        source = self.session.meta["source"]
+        shown = book.label(source) if source.startswith(book.PREFIX) else source
+        self.d.model.getByName("source").Label = self.t["rec.source"] % (shown, total, checked)
 
     def _mark(self, position):
         key = self.table.keys[self.visible[position]]

@@ -116,13 +116,18 @@ def pattern_columns(pattern):
     return _PATTERN.findall(pattern or "")
 
 
-def file_name(pattern, table, row):
-    """File name (without extension) from a pattern such as "Giấy mời - {Họ và tên}"; unknown {names} stay as typed,
-    characters no file system accepts become "-"."""
+def fill(pattern, table, row):
+    """`pattern` with each {Cột} replaced by the row's value as shown; unknown {names} stay as typed."""
     def value(match):
         name = match.group(1).strip()
         return table.text(row, name) if name in table.headers else match.group(0)
-    text = _UNSAFE.sub("-", _PATTERN.sub(value, pattern or ""))
+    return _PATTERN.sub(value, pattern or "")
+
+
+def file_name(pattern, table, row):
+    """File name (without extension) from a pattern such as "Giấy mời - {Họ và tên}"; unknown {names} stay as typed,
+    characters no file system accepts become "-"."""
+    text = _UNSAFE.sub("-", fill(pattern, table, row))
     text = " ".join(text.split()).strip(" .")[:MAX_FILE_NAME].strip(" .")
     return text or "Văn bản"
 
@@ -137,17 +142,30 @@ def unique_names(names):
     return result
 
 
-def staging(table, indexes, pattern="", words=None):
-    """(headers, kinds, rows) of the copy the engine merges from: the chosen rows in order, plus for each number
-    column its two word columns and, with a pattern, the file-name column."""
+def staging(table, indexes, pattern="", words=None, extra=()):
+    """(headers, kinds, rows) of the copy the engine merges from: the chosen rows in order, for each number column its
+    two word columns, the computed columns `extra` ((name, function(row, position from 1)), mail_merge_computed) and,
+    last, the file-name column. A computed name that is also a header of the list gets " (HST)"."""
     numbers = [h for h, k in zip(table.headers, table.kinds) if k == fmt.COL_NUMBER]
-    extra = [fmt.word_column(h, kind) for h in numbers for kind in (fmt.WORDS, fmt.MONEY_WORDS)]
-    headers = table.headers + extra + [FILE_COLUMN]
-    kinds = table.kinds + [fmt.COL_TEXT] * (len(extra) + 1)
-    names = unique_names([file_name(pattern, table, table.rows[i]) for i in indexes])
+    words_cols = [fmt.word_column(h, kind) for h in numbers for kind in (fmt.WORDS, fmt.MONEY_WORDS)]
+    names = [computed_name(name, table.headers) for name, _ in extra]
+    headers = table.headers + words_cols + names + [FILE_COLUMN]
+    kinds = table.kinds + [fmt.COL_TEXT] * (len(words_cols) + len(names) + 1)
+    files = unique_names([file_name(pattern, table, table.rows[i]) for i in indexes])
     rows = []
-    for name, index in zip(names, indexes):
+    for position, (name, index) in enumerate(zip(files, indexes), 1):
         row = table.rows[index]
         computed = [fmt.render(kind, table.value(row, h), words) for h in numbers for kind in (fmt.WORDS, fmt.MONEY_WORDS)]
+        computed += [function(row, position) for _, function in extra]
         rows.append(tuple(row) + tuple(computed) + (name,))
     return headers, kinds, rows
+
+
+def computed_name(name, headers):
+    return name + " (HST)" if name in headers else name
+
+
+def insertable(headers):
+    """The columns offered for insertion: everything but the word columns (a format of their number column) and the
+    file-name column."""
+    return [h for h in headers if h != FILE_COLUMN and fmt.split_word_column(h)[1] is None]

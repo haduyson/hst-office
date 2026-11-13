@@ -11,8 +11,9 @@ def _lines(text, indent):
     return "".join(indent + line + "\n" if line else "\n" for line in text.strip("\n").split("\n"))
 
 
-def button(button_id, command, label, icon="", tooltip=""):
-    """One GtkToolButton (HST command, translatable label with context TabbedWriter|<id>)."""
+def button(button_id, command, label, icon="", tooltip="", menu=False):
+    """One GtkToolButton (HST command, translatable label with context TabbedWriter|<id>); `menu`: a
+    GtkMenuToolButton, whose ▾ menu comes from the controllers of the extension's Controller.xcu."""
     props = ['<property name="visible">True</property>', '<property name="can-focus">False</property>',
              '<property name="label" translatable="yes" context="TabbedWriter|%s">%s</property>' % (button_id, escape(label))]
     if tooltip:
@@ -22,9 +23,9 @@ def button(button_id, command, label, icon="", tooltip=""):
     if icon:
         props.append('<property name="icon-name">%s</property>' % icon)
     body = "\n".join("  " + p for p in props)
-    return ('<child>\n  <object class="GtkToolButton" id="%s">\n%s\n  </object>\n  <packing>\n'
+    return ('<child>\n  <object class="%s" id="%s">\n%s\n  </object>\n  <packing>\n'
             '    <property name="expand">False</property>\n    <property name="homogeneous">False</property>\n'
-            '  </packing>\n</child>' % (button_id, body))
+            '  </packing>\n</child>' % ("GtkMenuToolButton" if menu else "GtkToolButton", button_id, body))
 
 
 def toolbox(box_id, buttons, style, big=False):
@@ -38,17 +39,6 @@ def toolbox(box_id, buttons, style, big=False):
     children = "\n".join(_lines(b, "  ").rstrip("\n") for b in buttons)
     return ('<object class="sfxlo-NotebookbarToolBox" id="%s">\n%s\n%s\n</object>'
             % (box_id, "\n".join("  " + h for h in head), children))
-
-
-def hbox(box_id, children):
-    """Toolboxes side by side in one grid cell."""
-    parts = []
-    for position, child in enumerate(children):
-        parts.append('<child>\n%s  <packing>\n    <property name="expand">False</property>\n'
-                     '    <property name="fill">True</property>\n    <property name="position">%d</property>\n'
-                     '  </packing>\n</child>' % (_lines(child, "  "), position))
-    return ('<object class="GtkBox" id="%s">\n  <property name="visible">True</property>\n'
-            '  <property name="can-focus">False</property>\n%s\n</object>' % (box_id, "\n".join(_lines(p, "  ").rstrip("\n") for p in parts)))
 
 
 def cell(content, left, top, height=1, width=1):

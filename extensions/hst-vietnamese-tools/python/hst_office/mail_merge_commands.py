@@ -1,56 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Trộn thư: what each command of the Gửi thư tab does (org.hst.office.mailmerge:<Command>, mail_merge_handler.py).
-Every command works on the document of the frame; errors are told in a message, never raised into the office."""
+"""Trộn thư: the recipient list, field and preview commands of the Gửi thư tab (org.hst.office.mailmerge:<Command>,
+mail_merge_handler.py; finish: mail_merge_finish_commands.py, design: mail_merge_design_commands.py). Every command
+gets a mail_merge_context.Context; errors are told in a message, never raised into the office."""
 from . import mail_merge_fields as fields
-from . import mail_merge_session as sessions
 from . import mail_merge_source as source
-from . import mail_merge_store as store
-from .dialogs import message_box
-from .mail_merge_texts import texts
-
-
-class Context:
-    def __init__(self, ctx, frame):
-        self.ctx, self.frame = ctx, frame
-        self.doc = frame.getController().getModel()
-        self.peer = frame.getContainerWindow()
-        self.t = texts(ctx)
-        self.session = sessions.get(self.doc)
-
-    def say(self, text, ask=False):
-        buttons = (self.t["yes"], self.t["no"]) if ask else None
-        return message_box(self.ctx, self.peer, self.t["title"], text, ask=ask, buttons=buttons)
-
-    def source_error(self, exc):
-        text = self.t.get("err." + exc.code, self.t["err.unreadable"])
-        return self.say(text % (exc.detail or exc.code) if "%s" in text else text)
-
-    def ready(self):
-        """The recipient list loaded and the data source registered on this computer; False after telling why."""
-        if not self.session.has_list:
-            return self.say(self.t["err.no-list"]) and False
-        try:
-            self.session.load(self.ctx)
-        except source.SourceError as exc:
-            return self.source_error(exc) and False
-        registered = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.sdb.DatabaseContext", self.ctx)
-        if not registered.hasByName(store.source_name(self.session.meta)):
-            self.session.stage(self.ctx)
-        fields.adopt(self.doc, store.source_name(self.session.meta), self.session.meta)
-        return True
-
-    def remember(self, column, kind):
-        """The format last chosen for a column (restores formats a DOCX round trip dropped)."""
-        self.session.meta["kinds"][column] = kind
-        self.session.save()
-
-    def words(self):
-        return sessions.words_settings(self.ctx, self.doc)
-
-    def refresh_preview(self):
-        row = self.session.current_row()[0] if self.session.preview else None
-        name = store.source_name(self.session.meta)
-        fields.show_values(self.doc, name, self.session.table, row, self.words())
+from . import mail_merge_table as mt
 
 
 def recipients(c):
@@ -98,29 +52,21 @@ def insert_field(c):
     from .mail_merge_insert_dialog import InsertFieldDialog
     if not c.ready():
         return
-    name, words = store.source_name(c.session.meta), c.words()
-
-    def insert(column, kind):
-        try:
-            fields.insert(c.doc, name, column, kind)
-            c.remember(column, kind)
-        except Exception:  # noqa: BLE001 - protected section or read-only document
-            return c.say(c.t["err.readonly"])
-        if c.session.preview:
-            c.refresh_preview()
-    InsertFieldDialog(c.ctx, c.t, c.session.table, c.session.current_row()[0], words, insert).run(c.peer)
+    effective, row = c.session.preview_row(c.words())
+    InsertFieldDialog(c.ctx, c.t, effective, row, c.words(), c.insert).run(c.peer)
 
 
 def field_format(c):
     from .mail_merge_insert_dialog import InsertFieldDialog
     if not c.ready():
         return
-    name = store.source_name(c.session.meta)
+    name = c.source_name
     field, column = fields.selected_field(c.doc, name)
     if field is None:
         return c.say(c.t["err.no-field"])
     base, kind = fields.field_kind(c.doc, field, column)
-    dialog = InsertFieldDialog(c.ctx, c.t, c.session.table, c.session.current_row()[0], c.words(), column=base, kind=kind)
+    effective, row = c.session.preview_row(c.words())
+    dialog = InsertFieldDialog(c.ctx, c.t, effective, row, c.words(), column=base, kind=kind)
     chosen = dialog.run(c.peer)
     if chosen and chosen != kind:
         fields.change_kind(c.doc, name, field, column, chosen)
@@ -149,7 +95,6 @@ def move(c, where):
 
 
 def find(c):
-    from . import mail_merge_table as mt
     from .mail_merge_small_dialogs import ask_find
     if not c.ready():
         return
@@ -167,32 +112,6 @@ def find(c):
     c.say(c.t["msg.not-found"] % needle)
 
 
-def finish(c):
-    from . import mail_merge_output as out
-    from .mail_merge_finish_dialog import FinishDialog
-    if not c.ready():
-        return
-    if not c.session.checked():
-        return c.say(c.t["err.none-checked"])
-    if not fields.merge_fields(c.doc, store.source_name(c.session.meta)) and not c.say(c.t["msg.no-fields"], ask=True):
-        return
-    request = FinishDialog(c.ctx, c.t, c.session).run(c.peer)
-    if request is None:
-        return
-    if request.action == out.MAIL and not out.mail_server_set(c.ctx):
-        return c.say(c.t["err.mail-not-set"])
-    try:
-        _merged, count = out.run(c.ctx, c.doc, c.session, request, c.words())
-    except Exception as exc:  # noqa: BLE001 - engine errors (disk full, SMTP refused, ...) are shown, not raised
-        from .diag_log import exception
-        exception("mail merge finish")
-        return c.say(c.t["err.failed"] % (getattr(exc, "Message", "") or str(exc)))
-    if request.action in (out.PDF, out.DOCX):
-        c.say(c.t["msg.files"] % (count, request.folder))
-    elif request.action == out.MAIL:
-        c.say(c.t["msg.mails"] % count)
-
-
 COMMANDS = {"Recipients": recipients, "EditRecipients": edit_recipients, "InsertField": insert_field,
-            "FieldFormat": field_format, "Preview": preview, "Find": find, "Finish": finish, "Record": find,
+            "FieldFormat": field_format, "Preview": preview, "Find": find, "Record": find,
             **{name: (lambda where: lambda c: move(c, where))(name) for name in ("First", "Prev", "Next", "Last")}}

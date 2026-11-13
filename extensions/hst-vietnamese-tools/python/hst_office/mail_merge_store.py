@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Trộn thư: what the user never has to see. The document remembers its recipient list in the user-defined
 property HSTMailMerge (JSON: source file, sheet, unchecked recipients, order, file-name pattern, folder, the last
-format chosen per column, id); the merge
+format chosen per column, document type, address block, greeting, rules, id); the merge
 engine reads a typed copy of the checked recipients (staging .ods: text stays text, dates are dates) through the data
 source "HST Trộn thư <id>", registered automatically under <user profile>/user/hst/mail-merge/<id>/.
 
@@ -20,7 +20,8 @@ TABLE = "DanhSach"  # sheet of the staging copy = table name the fields use
 SOURCE_PREFIX = "HST_TronThu_"  # no space: a DOCX round trip keeps the whole name
 VERSION = 1
 DEFAULT_META = {"v": VERSION, "id": "", "source": "", "sheet": None, "excluded": [], "sort": "", "descending": False,
-                "pattern": "", "folder": "", "kinds": {}}
+                "pattern": "", "folder": "", "kinds": {}, "type": "letter", "block": {}, "greeting": {}, "rules": [],
+                "skip": []}
 
 
 def parse_meta(text):
