@@ -1,0 +1,46 @@
+HST Office: a toolbar control ignores a state that arrives after it and its toolbox were disposed.
+
+Cycling the user interface modes with two documents of one module open crashed the office (SIGSEGV
+in ToolBox::ImplFormat <- ToolBox::GetItemRect <- SvxClipBoardControl::StateChangedAtToolBoxControl
+<- SfxToolBoxControl::statusChanged <- SfxDispatchController_Impl::addStatusListener <-
+svt::ToolboxController::bindListener <- framework::ToolBarManager::UpdateControllers, from the
+toolbar's 50 ms update timer). Upstream code, same in 26.8; seen with HST 1.0.1 and every 1.0.2 build.
+
+Traced on Linux (gdb on the release build with its symbol table, mode switches over UNO):
+1. a mode switch creates the standard toolbar with its paste control and starts the toolbar's
+   delayed controller update;
+2. the main thread runs that update: binding the paste control asks for its first state, the clipboard
+   formats (SwBaseShell::StateClpbrd -> TransferableDataHelper::CreateFromSystemClipboard ->
+   gtk_clipboard_wait_for_targets), which runs a nested main loop with the SolarMutex released;
+3. the next mode switch on the UNO request thread takes the SolarMutex and destroys that toolbar
+   (SfxViewFrame::ShowChildWindow -> SfxDispatcher::Update_Impl -> SfxWorkWindow::UpdateObjectBars_Impl2
+   -> LayoutManager::destroyElement -> ToolBarManager::dispose): the controls are disposed, then the
+   ToolBox, whose data is released;
+4. the main thread gets the SolarMutex back and addStatusListener hands the state to the disposed paste
+   control, which lays out the disposed ToolBox: read of its released data.
+A pending event run by that nested main loop can destroy the toolbar the same way without a second thread.
+
+SfxToolBoxControl::statusChanged now returns when the control is disposed or its toolbox is gone or
+disposed (checked under the SolarMutex, which the dispose holds). Every SfxToolBoxControl state goes
+through statusChanged, so no control of this kind touches a disposed toolbox. Stress check:
+tests/runtime/check-ui-mode-cycle-stress.py.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/sfx2/source/toolbox/tbxitem.cxx
++++ b/sfx2/source/toolbox/tbxitem.cxx
+@@ -281,6 +281,14 @@
+     Reference < XController > xController;
+ 
+     SolarMutexGuard aGuard;
++    // HST: the state can arrive after this control and its toolbox were disposed. A dispatch delivers the
++    // first state from addStatusListener (ToolboxController::bindListener), and computing it may run a
++    // nested main loop with the SolarMutex released (the paste control's clipboard formats ask the
++    // system clipboard). Another thread (a UNO client switching the user interface mode) or a pending
++    // event can destroy the toolbar meanwhile: ToolBarManager::dispose disposes its controllers, then
++    // the ToolBox, whose ImplFormat then reads its released data (crash in ToolBox::GetItemRect).
++    if ( m_bDisposed || !pImpl->pBox || pImpl->pBox->isDisposed() )
++        return;
+     if ( getFrameInterface().is() )
+         xController = getFrameInterface()->getController();
+ 
