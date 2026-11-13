@@ -1,0 +1,348 @@
+HST Office: upstream Sheets unit tests expect HST's formula conventions.
+
+The changed expectations follow hst-sheets-excel-formula-conventions.patch (UI names CEILING/FLOOR for
+the .xlsx functions, CEILING.ODF/FLOOR.ODF, FORMULATEXT, SKEW.P, FORECAST.ETS(.CONFINT/.STAT); error
+cells show #VALUE!/#NUM!/... instead of Err:5xx), hst-calc-vietnamese-category.patch (category
+"Vietnamese" after "Add-in") and hst-sheets-num-errors.patch (numbers outside a function's domain are
+#NUM!: DATEDIF with the start after the end, GCD/LCM of a negative number, RRI, no convergence; type
+errors and wrong parameter counts stay #VALUE!). Only expected values change, no test is removed.
+The OpenCL suites (CppunitTest_sc_opencl-*) are not run for HST: Sheets never computes formulas with
+OpenCL (hst-sheets-error-parity.patch).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: CppunitTest_sc_ucalc, CppunitTest_sc_ucalc_formula2, CppunitTest_sc_ucalc_copypaste,
+CppunitTest_sc_uicalc2, CppunitTest_sc_financial_functions_test.
+---
+--- a/sc/qa/unit/data/functions/financial/fods/rri.fods
++++ b/sc/qa/unit/data/functions/financial/fods/rri.fods
+@@ -2303,7 +2303,7 @@
+      <table:table-cell table:formula="of:#ERR502!" office:value-type="string" office:string-value="" calcext:value-type="error">
+       <text:p>Err:502</text:p>
+      </table:table-cell>
+-     <table:table-cell table:style-name="ce20" table:formula="of:=ORG.OPENOFFICE.ERRORTYPE([.A8])=502" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
++     <table:table-cell table:style-name="ce20" table:formula="of:=ORG.OPENOFFICE.ERRORTYPE([.A8])=503" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce25" table:formula="of:=FORMULA([.A8])" office:value-type="string" office:string-value="=RRI(0,10000,11000)" calcext:value-type="string">
+@@ -2346,7 +2346,7 @@
+      <table:table-cell table:formula="of:#ERR502!" office:value-type="string" office:string-value="" calcext:value-type="error">
+       <text:p>Err:502</text:p>
+      </table:table-cell>
+-     <table:table-cell table:style-name="ce70" table:formula="of:=ORG.OPENOFFICE.ERRORTYPE([.A10])=502" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
++     <table:table-cell table:style-name="ce70" table:formula="of:=ORG.OPENOFFICE.ERRORTYPE([.A10])=503" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce25" table:formula="of:=FORMULA([.A10])" office:value-type="string" office:string-value="=RRI(96,,11000)" calcext:value-type="string">
+@@ -2369,7 +2369,7 @@
+      <table:table-cell table:formula="of:#ERR502!" office:value-type="string" office:string-value="" calcext:value-type="error">
+       <text:p>Err:502</text:p>
+      </table:table-cell>
+-     <table:table-cell table:style-name="ce71" table:formula="of:=ORG.OPENOFFICE.ERRORTYPE([.A11])=502" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
++     <table:table-cell table:style-name="ce71" table:formula="of:=ORG.OPENOFFICE.ERRORTYPE([.A11])=503" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce25" table:formula="of:=FORMULA([.A11])" office:value-type="string" office:string-value="=RRI(4,0,10000)" calcext:value-type="string">
+--- a/sc/qa/unit/ucalc.cxx
++++ b/sc/qa/unit/ucalc.cxx
+@@ -2827,7 +2827,7 @@
+     const char* aInformation[] = {
+         "CELL",
+         "CURRENT",
+-        "FORMULA",
++        "FORMULATEXT",
+         "INFO",
+         "ISBLANK",
+         "ISERR",
+@@ -2881,8 +2881,8 @@
+         "BITXOR",
+         "CEILING",
+         "CEILING.MATH",
++        "CEILING.ODF",
+         "CEILING.PRECISE",
+-        "CEILING.XCL",
+         "COLOR",
+         "COMBIN",
+         "COMBINA",
+@@ -2900,8 +2900,8 @@
+         "FACT",
+         "FLOOR",
+         "FLOOR.MATH",
++        "FLOOR.ODF",
+         "FLOOR.PRECISE",
+-        "FLOOR.XCL",
+         "GCD",
+         "INT",
+         "ISO.CEILING",
+@@ -3013,12 +3013,12 @@
+         "FISHER",
+         "FISHERINV",
+         "FORECAST",
+-        "FORECAST.ETS.ADD",
++        "FORECAST.ETS",
++        "FORECAST.ETS.CONFINT",
+         "FORECAST.ETS.MULT",
+-        "FORECAST.ETS.PI.ADD",
+         "FORECAST.ETS.PI.MULT",
+         "FORECAST.ETS.SEASONALITY",
+-        "FORECAST.ETS.STAT.ADD",
++        "FORECAST.ETS.STAT",
+         "FORECAST.ETS.STAT.MULT",
+         "FORECAST.LINEAR",
+         "FTEST",
+@@ -3082,7 +3082,7 @@
+         "RANK.EQ",
+         "RSQ",
+         "SKEW",
+-        "SKEWP",
++        "SKEW.P",
+         "SLOPE",
+         "SMALL",
+         "STANDARDIZE",
+@@ -3228,6 +3228,7 @@
+         { "Spreadsheet",  aSpreadsheet },
+         { "Text",         aText },
+         { "Add-in",       nullptr },
++        { "Vietnamese",   nullptr },
+         { nullptr, nullptr }
+     };
+ 
+--- a/sc/qa/unit/ucalc_copypaste.cxx
++++ b/sc/qa/unit/ucalc_copypaste.cxx
+@@ -9875,9 +9875,9 @@
+     pasteFromClip(m_pDoc, aRange, &aClipDoc);
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula.", u"=SUM($C:D)"_ustr,
+                                  m_pDoc->GetFormula(2, 0, 0)); // reference put in order
+-    CPPUNIT_ASSERT_EQUAL(u"Err:522"_ustr, m_pDoc->GetString(0, 0, 0));
+-    CPPUNIT_ASSERT_EQUAL(u"Err:522"_ustr, m_pDoc->GetString(1, 0, 0));
+-    CPPUNIT_ASSERT_EQUAL(u"Err:522"_ustr, m_pDoc->GetString(2, 0, 0));
++    CPPUNIT_ASSERT_EQUAL(u"#VALUE!"_ustr, m_pDoc->GetString(0, 0, 0));
++    CPPUNIT_ASSERT_EQUAL(u"#VALUE!"_ustr, m_pDoc->GetString(1, 0, 0));
++    CPPUNIT_ASSERT_EQUAL(u"#VALUE!"_ustr, m_pDoc->GetString(2, 0, 0));
+ 
+     m_pDoc->DeleteTab(0);
+ }
+--- a/sc/qa/unit/ucalc_formula2.cxx
++++ b/sc/qa/unit/ucalc_formula2.cxx
+@@ -406,8 +406,8 @@
+                     { "=NUMBERVALUE(A2;\"b\";\"g\")", "#VALUE!" },
+                     { "=NUMBERVALUE(A3;\"d\")", "12.3456" },
+                     { "=NUMBERVALUE(A4;\"d\";\"foo\")", "0.4" },
+-                    { "=NUMBERVALUE(A4;)", "Err:502" },
+-                    { "=NUMBERVALUE(A5;)", "Err:502" },
++                    { "=NUMBERVALUE(A4;)", "#VALUE!" },
++                    { "=NUMBERVALUE(A5;)", "#VALUE!" },
+                     { "=NUMBERVALUE(A6;\"b\";\"a\")", "1.23" } };
+ 
+     nRows = SAL_N_ELEMENTS(aChecks);
+@@ -938,7 +938,7 @@
+         { "2007-01-01", "2007-01-31", "md", "30", "=DATEDIF(A12;B12;C12)" },
+         { "2007-02-01", "2009-03-01", "md", "0", "=DATEDIF(A13;B13;C13)" },
+         { "2008-02-01", "2009-03-01", "md", "0", "=DATEDIF(A14;B14;C14)" },
+-        { "2007-01-02", "2007-01-01", "md", "Err:502",
++        { "2007-01-02", "2007-01-01", "md", "#NUM!",
+           "=DATEDIF(A15;B15;C15)" } // fail date1 > date2
+     };
+ 
+@@ -2757,16 +2757,16 @@
+     // 2x2 matrices test
+     m_pDoc->SetString(aPos, u"=CHITEST(A1:B2;D1:E2)"_ustr);
+     OUString aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("CHITEST should return Err:502 for matrices with empty cells",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("CHITEST should return #VALUE! for matrices with empty cells",
++                                 u"#VALUE!"_ustr, aVal);
+ 
+     m_pDoc->SetValue(0, 0, 0, 1.0); // A1
+     m_pDoc->SetValue(0, 1, 0, 2.0); // A2
+     m_pDoc->SetValue(1, 0, 0, 2.0); // B1
+     m_pDoc->SetValue(1, 1, 0, 1.0); // B2
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("CHITEST should return Err:502 for matrix with empty cells",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("CHITEST should return #VALUE! for matrix with empty cells",
++                                 u"#VALUE!"_ustr, aVal);
+ 
+     m_pDoc->SetValue(3, 0, 0, 2.0); // D1
+     m_pDoc->SetValue(3, 1, 0, 3.0); // D2
+@@ -2809,16 +2809,16 @@
+     // test with strings
+     m_pDoc->SetString(4, 2, 0, u"a"_ustr); // E3
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("CHITEST should return Err:502 for matrices with strings",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("CHITEST should return #VALUE! for matrices with strings",
++                                 u"#VALUE!"_ustr, aVal);
+     m_pDoc->SetString(1, 2, 0, u"a"_ustr); // B3
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("CHITEST should return Err:502 for matrices with strings",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("CHITEST should return #VALUE! for matrices with strings",
++                                 u"#VALUE!"_ustr, aVal);
+     m_pDoc->SetValue(4, 2, 0, 1.0); // E3
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("CHITEST should return Err:502 for matrices with strings",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("CHITEST should return #VALUE! for matrices with strings",
++                                 u"#VALUE!"_ustr, aVal);
+     m_pDoc->SetValue(1, 2, 0, 2.0); // B3
+     CPPUNIT_ASSERT_DOUBLES_EQUAL_MESSAGE("Calculation of CHITEST failed", 0.1117,
+                                          m_pDoc->GetValue(aPos), 10e-4);
+@@ -2849,7 +2849,7 @@
+     // no convergence error
+     m_pDoc->SetValue(4, 0, 0, 1.0E308); // E1
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL(u"Err:523"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL(u"#NUM!"_ustr, aVal);
+     m_pDoc->SetValue(4, 0, 0, 3.0); // E1
+ 
+     // zero in all cells
+@@ -3093,7 +3093,7 @@
+                                  u"#VALUE!"_ustr, aVal);
+     m_pDoc->SetString(aPos, u"=SUMX2PY2({1;2;3})"_ustr);
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("SUMX2PY2 needs two parameters", u"Err:511"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("SUMX2PY2 needs two parameters", u"#VALUE!"_ustr, aVal);
+ 
+     m_pDoc->DeleteTab(0);
+ }
+@@ -3168,7 +3168,7 @@
+                                  u"#VALUE!"_ustr, aVal);
+     m_pDoc->SetString(aPos, u"=SUMX2MY2({1;2;3})"_ustr);
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("SUMX2MY2 needs two parameters", u"Err:511"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("SUMX2MY2 needs two parameters", u"#VALUE!"_ustr, aVal);
+ 
+     m_pDoc->DeleteTab(0);
+ }
+@@ -3189,8 +3189,8 @@
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of GCD for failed", 10.0, m_pDoc->GetValue(aPos));
+     m_pDoc->SetValue(0, 0, 0, -2.0); // A1
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return Err:502 for values less than 0",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return #NUM! for values less than 0",
++                                 u"#NUM!"_ustr, aVal);
+     m_pDoc->SetString(0, 0, 0, u"a"_ustr); // A1
+     aVal = m_pDoc->GetString(aPos);
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return #VALUE! for a single string", u"#VALUE!"_ustr,
+@@ -3200,8 +3200,8 @@
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of GCD for failed", 0.0, m_pDoc->GetValue(aPos));
+     m_pDoc->SetValue(0, 1, 0, -12.0); // B1
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return Err:502 for a matrix with values less than 0",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return #NUM! for a matrix with values less than 0",
++                                 u"#NUM!"_ustr, aVal);
+     m_pDoc->SetValue(0, 0, 0, 15.0); // A1
+     m_pDoc->SetValue(0, 1, 0, 0.0); // B1
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of GCD for failed", 15.0, m_pDoc->GetValue(aPos));
+@@ -3238,12 +3238,12 @@
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of GCD for failed", 150.0, m_pDoc->GetValue(aPos));
+     m_pDoc->SetString(aPos, u"=GCD({-3;6;9})"_ustr);
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return Err:502 for an array with values less than 0",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return #NUM! for an array with values less than 0",
++                                 u"#NUM!"_ustr, aVal);
+     m_pDoc->SetString(aPos, u"=GCD({\"a\";6;9})"_ustr);
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return Err:502 for an array with strings",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return #VALUE! for an array with strings",
++                                 u"#VALUE!"_ustr, aVal);
+ 
+     //many inline array
+     m_pDoc->SetString(aPos, u"=GCD({6;6;6};{3;6;9})"_ustr);
+@@ -3252,12 +3252,12 @@
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of GCD for failed", 150.0, m_pDoc->GetValue(aPos));
+     m_pDoc->SetString(aPos, u"=GCD({3;6;9};{3;-6;9})"_ustr);
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return Err:502 for an array with values less than 0",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return #NUM! for an array with values less than 0",
++                                 u"#NUM!"_ustr, aVal);
+     m_pDoc->SetString(aPos, u"=GCD({3;6;9};{\"a\";6;9})"_ustr);
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return Err:502 for an array with strings",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("GCD should return #VALUE! for an array with strings",
++                                 u"#VALUE!"_ustr, aVal);
+ 
+     // inline list of values
+     m_pDoc->SetString(aPos, u"=GCD(12;24;36;48;60)"_ustr);
+@@ -3289,8 +3289,8 @@
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of LCM for failed", 10.0, m_pDoc->GetValue(aPos));
+     m_pDoc->SetValue(0, 0, 0, -2.0); // A1
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return Err:502 for values less than 0",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return #NUM! for values less than 0",
++                                 u"#NUM!"_ustr, aVal);
+     m_pDoc->SetString(0, 0, 0, u"a"_ustr); // A1
+     aVal = m_pDoc->GetString(aPos);
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return #VALUE! for a single string", u"#VALUE!"_ustr,
+@@ -3300,8 +3300,8 @@
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of GCD for failed", 1.0, m_pDoc->GetValue(aPos));
+     m_pDoc->SetValue(0, 1, 0, -12.0); // B1
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return Err:502 for a matrix with values less than 0",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return #NUM! for a matrix with values less than 0",
++                                 u"#NUM!"_ustr, aVal);
+     m_pDoc->SetValue(0, 0, 0, 15.0); // A1
+     m_pDoc->SetValue(0, 1, 0, 0.0); // A2
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of LCM for failed", 0.0, m_pDoc->GetValue(aPos));
+@@ -3339,12 +3339,12 @@
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of LCM for failed", 0.0, m_pDoc->GetValue(aPos));
+     m_pDoc->SetString(aPos, u"=LCM({-3;6;9})"_ustr);
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return Err:502 for an array with values less than 0",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return #NUM! for an array with values less than 0",
++                                 u"#NUM!"_ustr, aVal);
+     m_pDoc->SetString(aPos, u"=LCM({\"a\";6;9})"_ustr);
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return Err:502 for an array with strings",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return #VALUE! for an array with strings",
++                                 u"#VALUE!"_ustr, aVal);
+ 
+     //many inline array
+     m_pDoc->SetString(aPos, u"=LCM({6;6;6};{3;6;9})"_ustr);
+@@ -3353,12 +3353,12 @@
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of LCM for failed", 0.0, m_pDoc->GetValue(aPos));
+     m_pDoc->SetString(aPos, u"=LCM({3;6;9};{3;-6;9})"_ustr);
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return Err:502 for an array with values less than 0",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return #NUM! for an array with values less than 0",
++                                 u"#NUM!"_ustr, aVal);
+     m_pDoc->SetString(aPos, u"=LCM({3;6;9};{\"a\";6;9})"_ustr);
+     aVal = m_pDoc->GetString(aPos);
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return Err:502 for an array with strings",
+-                                 u"Err:502"_ustr, aVal);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("LCM should return #VALUE! for an array with strings",
++                                 u"#VALUE!"_ustr, aVal);
+ 
+     m_pDoc->SetString(aPos, u"=LCM(12;24;36;48;60)"_ustr);
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Calculation of LCM for failed", 720.0, m_pDoc->GetValue(aPos));
+--- a/sc/qa/unit/uicalc/uicalc2.cxx
++++ b/sc/qa/unit/uicalc/uicalc2.cxx
+@@ -326,7 +326,7 @@
+     // The actual result is completely unrelated to this test and behaviour of
+     // OFFSET() was changed as of tdf#85551 and here result of that test
+     // document is now Err:502 instead of 0.
+-    static constexpr OUString aExpectedResult(u"Err:502"_ustr);
++    static constexpr OUString aExpectedResult(u"#VALUE!"_ustr);
+     checkCurrentCursorPosition(*pDocSh, u"D10");
+     CPPUNIT_ASSERT_EQUAL(aExpectedResult, pDoc->GetString(ScAddress(3, 9, 0)));
+ 
+@@ -411,7 +411,7 @@
+     aFormula = pDoc->GetFormula(7, 219, 0);
+     CPPUNIT_ASSERT_EQUAL(u"=SUMIFS($H$2:$DB$198,B$2:B$198,G220)"_ustr, aFormula);
+     CPPUNIT_ASSERT_EQUAL(0.0, pDoc->GetValue(ScAddress(7, 219, 0)));
+-    CPPUNIT_ASSERT_EQUAL(u"Err:502"_ustr, pDoc->GetString(ScAddress(7, 219, 0)));
++    CPPUNIT_ASSERT_EQUAL(u"#VALUE!"_ustr, pDoc->GetString(ScAddress(7, 219, 0)));
+ }
+ 
+ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testTdf131073)
