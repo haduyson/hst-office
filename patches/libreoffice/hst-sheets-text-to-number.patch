@@ -24,13 +24,14 @@ văn bản" (title), "Chuyển thành số", "Trợ giúp về lỗi này", "B�
 - .uno:HstConvertTextToNumber (SID_HST_CONVERT_TEXT_TO_NUMBER, cell shell, hsttextnumberconvert.cxx):
   the selection, or the cell cursor, in one undo step (list action of SetValueCells runs and
   ApplyAttributes per format); disabled without such cells (looks at up to 5 000 cells). In the cell
-  context menu (hidden when disabled), Data ▸ Calculate, the ribbon Data tab (Data Tools group, and the
-  tab's menu) and Alt+Q (FeatureSearch.xcu of the HST extension).
+  context menu (hidden when disabled), Data ▸ Calculate and Alt+Q (FeatureSearch.xcu of the HST
+  extension). The ribbon button (btnHstConvertTextToNumber, Data tab ▸ Data Tools) is placed by the
+  ribbon rework (hst-ribbon-ux-rework), not here.
 - officecfg Calc.xcs Content/Display/HstNumberStoredAsText (default on), tpviewpage.ui/tpview.cxx
   checkbox; tabvwsh4.cxx repaints open sheets when it changes.
 - vi messages.po (sc, officecfg UI.po): Vietnamese labels.
-- solenv scalc.suppr: the ribbon button and menu item take their label from the command, and the warning
-  button gets its accessible name in code (as Writer's page break button), so the a11y check suppresses them.
+- solenv scalc.suppr: the warning button gets its accessible name in code (as Writer's page break button),
+  so the a11y check suppresses it.
 
 License: these upstream files remain under their original license (MPL-2.0); the new files are MPL-2.0.
 Test: tests/unit/test_sheets_text_number_parse.py, tests/unit/test_sheets_text_to_number_patch.py.
@@ -1726,82 +1727,6 @@ Test: tests/unit/test_sheets_text_number_parse.py, tests/unit/test_sheets_text_t
            <menu:menuitem menu:id=".uno:AutomaticCalculation" menu:style="text"/>
          </menu:menupopup>
        </menu:menu>
---- a/sc/uiconfig/scalc/ui/notebookbar.ui
-+++ b/sc/uiconfig/scalc/ui/notebookbar.ui
-@@ -442,6 +442,13 @@
-       </object>
-     </child>
-     <child>
-+      <object class="GtkMenuItem" id="MenuData-HstConvertTextToNumber">
-+        <property name="visible">True</property>
-+        <property name="can-focus">False</property>
-+        <property name="action-name">.uno:HstConvertTextToNumber</property>
-+      </object>
-+    </child>
-+    <child>
-       <object class="GtkMenuItem" id="MenuData-DataConsolidate">
-         <property name="visible">True</property>
-         <property name="can-focus">False</property>
-@@ -8097,7 +8104,7 @@
-                       </packing>
-                     </child>
-                     <child>
--                      <!-- n-columns=3 n-rows=3 -->
-+                      <!-- n-columns=4 n-rows=3 -->
-                       <object class="GtkGrid" id="gdDataExamination">
-                         <property name="visible">True</property>
-                         <property name="can-focus">False</property>
-@@ -8114,7 +8121,7 @@
-                             <property name="orientation">vertical</property>
-                           </object>
-                           <packing>
--                            <property name="left-attach">2</property>
-+                            <property name="left-attach">3</property>
-                             <property name="top-attach">0</property>
-                             <property name="height">3</property>
-                           </packing>
-@@ -8137,7 +8144,7 @@
-                           <packing>
-                             <property name="left-attach">0</property>
-                             <property name="top-attach">2</property>
--                            <property name="width">2</property>
-+                            <property name="width">3</property>
-                           </packing>
-                         </child>
-                         <child>
-@@ -8215,6 +8222,32 @@
-                             <property name="top-attach">0</property>
-                           </packing>
-                         </child>
-+                        <child>
-+                          <object class="sfxlo-NotebookbarToolBox" id="bxHstConvertTextToNumber">
-+                            <property name="visible">True</property>
-+                            <property name="can-focus">True</property>
-+                            <property name="valign">center</property>
-+                            <property name="vexpand">True</property>
-+                            <property name="toolbar-style">both-horiz</property>
-+                            <property name="show-arrow">False</property>
-+                            <child>
-+                              <object class="GtkToolButton" id="btnHstConvertTextToNumber">
-+                                <property name="visible">True</property>
-+                                <property name="can-focus">False</property>
-+                                <property name="action-name">.uno:HstConvertTextToNumber</property>
-+                                <property name="icon-name">cmd/sc_numberformatstandard.png</property>
-+                              </object>
-+                              <packing>
-+                                <property name="expand">False</property>
-+                                <property name="homogeneous">True</property>
-+                              </packing>
-+                            </child>
-+                          </object>
-+                          <packing>
-+                            <property name="left-attach">2</property>
-+                            <property name="top-attach">0</property>
-+                          </packing>
-+                        </child>
-                         <child>
-                           <object class="sfxlo-NotebookbarToolBox" id="bxDataHandleDuplicateRecords">
-                             <property name="visible">True</property>
 --- a/translations/source/vi/sc/messages.po
 +++ b/translations/source/vi/sc/messages.po
 @@ -21035,6 +21035,18 @@
@@ -1907,10 +1832,8 @@ Test: tests/unit/test_sheets_text_number_parse.py, tests/unit/test_sheets_text_t
  msgctxt ""
 --- a/solenv/sanitizers/ui/modules/scalc.suppr
 +++ b/solenv/sanitizers/ui/modules/scalc.suppr
-@@ -818,3 +818,6 @@
+@@ -818,3 +818,4 @@
  sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxPivotChart'] button-no-label
  sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxImageA11yAltText'] button-no-label
  sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxDrawA11yAltText'] button-no-label
 +sc/uiconfig/scalc/ui/hsttextnumberbutton.ui://GtkMenuButton[@id='menubutton'] button-no-label
-+sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuData-HstConvertTextToNumber'] button-no-label
-+sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstConvertTextToNumber'] button-no-label

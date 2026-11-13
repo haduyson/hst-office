@@ -44,10 +44,8 @@ class TextToNumberPatchTest(unittest.TestCase):
     def test_command_is_offered_everywhere(self):
         self.assertIn(f'<menu:menuitem menu:id="{COMMAND}"/>', added(CORE, "sc/uiconfig/scalc/popupmenu/cell.xml"))
         self.assertIn(f'menu:id="{COMMAND}" menu:style="text"', added(CORE, "sc/uiconfig/scalc/menubar/menubar.xml"))
-        ribbon = added(CORE, "sc/uiconfig/scalc/ui/notebookbar.ui")
-        self.assertIn('id="btnHstConvertTextToNumber"', ribbon)
-        self.assertIn('id="MenuData-HstConvertTextToNumber"', ribbon)
-        self.assertEqual(ribbon.count(f"<property name=\"action-name\">{COMMAND}</property>"), 2)
+        # the ribbon button (Data tab, Data Tools group) is placed by the ribbon rework, not by this patch
+        self.assertNotIn("sc/uiconfig/scalc/ui/notebookbar.ui", sections(CORE))
         with open(os.path.join(EXT, "FeatureSearch.xcu"), encoding="utf-8") as handle:
             search = handle.read()
         self.assertIn(f"<value>{COMMAND}</value>", search)
@@ -121,10 +119,9 @@ class TextToNumberPatchTest(unittest.TestCase):
 
     def test_new_widgets_pass_the_accessibility_check(self):
         suppr = added(CORE, "solenv/sanitizers/ui/modules/scalc.suppr")
-        for widget in ("hsttextnumberbutton.ui://GtkMenuButton[@id='menubutton']",
-                       "notebookbar.ui://GtkMenuItem[@id='MenuData-HstConvertTextToNumber']",
-                       "notebookbar.ui://GtkToolButton[@id='btnHstConvertTextToNumber']"):
-            self.assertIn(f"sc/uiconfig/scalc/ui/{widget} button-no-label", suppr)
+        self.assertIn("sc/uiconfig/scalc/ui/hsttextnumberbutton.ui://GtkMenuButton[@id='menubutton'] button-no-label",
+                      suppr)
+        self.assertNotIn("HstConvertTextToNumber", suppr)
 
     def test_new_source_files_stay_short(self):
         for name, (lines, _, _) in sections(CORE).items():
