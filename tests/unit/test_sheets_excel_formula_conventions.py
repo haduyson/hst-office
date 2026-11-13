@@ -49,6 +49,10 @@ class SheetsExcelFormulaConventions(unittest.TestCase):
         self.assertIn("<trueWord>true</trueWord>", xml)
         self.assertIn("<falseWord>false</falseWord>", xml)
 
+    def test_vietnamese_short_date_has_four_digit_year(self):
+        xml = new_side(PATCH, "i18npool/source/localedata/data/vi_VN.xml")
+        self.assertRegex(xml, r'formatindex="18">\s*<FormatCode>DD/MM/YYYY</FormatCode>')
+
     def test_true_false_parse_in_every_locale(self):
         cxx = new_side(PATCH, "sc/source/core/tool/compiler.cxx")
         self.assertIn('rSym.equalsIgnoreAsciiCase("TRUE")', cxx)
