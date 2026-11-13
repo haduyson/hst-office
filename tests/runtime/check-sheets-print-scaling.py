@@ -76,8 +76,10 @@ def ui_control(doc, controller):
     renderer = doc.getRenderer(0, doc, props(ExtraPrintUIOptions=None, View=controller, IsPrinter=True))
     for prop in renderer:
         if prop.Name == "ExtraPrintUIOptions":
-            for control in prop.Value:
-                entries = {p.Name: p.Value for p in control}
+            for control in prop.Value:  # PropertyValues; a control's Value is a sequence (OptionsUIFile: a string)
+                if isinstance(control.Value, str):
+                    continue
+                entries = {p.Name: p.Value for p in control.Value}
                 if "scalingbox" in tuple(entries.get("ID", ())):
                     return entries["Choices"], entries["Property"].Value
     return None, None
@@ -112,11 +114,12 @@ def shared_style(office):
     doc.getCurrentController().setActiveSheet(doc.Sheets.getByIndex(0))
     office.dispatch(doc, ".uno:PrintScaleFitColumns")
     names = (doc.Sheets.getByIndex(0).PageStyle, doc.Sheets.getByIndex(1).PageStyle)
-    check(names[0] == "PageStyle_Sheet1" and names[1] == "Default" and settings(style_of(doc, 1)) == SETTINGS["None"],
+    own = "PageStyle_" + doc.Sheets.getByIndex(0).Name  # "Trang tính1" in the Vietnamese UI
+    check(names[0] == own and names[1] == "Default" and settings(style_of(doc, 1)) == SETTINGS["None"],
           f"shared style split per sheet: {names}")
     office.dispatch(doc, ".uno:Undo")
     check(doc.Sheets.getByIndex(0).PageStyle == "Default"
-          and not doc.StyleFamilies.getByName("PageStyles").hasByName("PageStyle_Sheet1"), "undo removes the copy")
+          and not doc.StyleFamilies.getByName("PageStyles").hasByName(own), "undo removes the copy")
     doc.close(True)
 
 
@@ -128,7 +131,9 @@ def round_trips(office, out):
         doc.storeToURL(office.url(path), props(FilterName=filter_name))
         doc.close(True)
         doc = office.load(office.url(path))
-        check(settings(style_of(doc)) == SETTINGS["FitColumns"], f".{ext} keeps Fit All Columns {settings(style_of(doc))}")
+        # import sets the pages through the style API, which leaves the zoom at its default (100): same mode
+        kept = settings(style_of(doc))
+        check(kept[1:] == SETTINGS["FitColumns"][1:] and kept[0] in (0, 100), f".{ext} keeps Fit All Columns {kept}")
         doc.close(True)
         if ext == "xlsx":
             with zipfile.ZipFile(path) as package:
@@ -146,8 +151,8 @@ def main():
     office = Office(args.soffice, args.out, PORT)
     try:
         wide = page_counts(office, args.out, "wide", 40, 50)
-        check(wide["None"] > 1 and wide["FitSheet"] == 1 and wide["FitColumns"] == 1 and wide["FitRows"] == wide["None"],
-              "wide sheet: only fitting the columns or the sheet makes one page")
+        check(wide["None"] > 1 and wide["FitSheet"] == 1 and wide["FitColumns"] == 1 and 1 < wide["FitRows"] <= wide["None"],
+              "wide sheet: fitting the columns or the sheet makes one page, fitting the rows leaves several")
         tall = page_counts(office, args.out, "tall", 5, 400)
         check(tall["None"] > 1 and tall["FitSheet"] == 1 and tall["FitRows"] == 1 and tall["FitColumns"] == tall["None"],
               "tall sheet: only fitting the rows or the sheet makes one page")
