@@ -48,9 +48,13 @@ scripts/build-queue.sh cancel <id>          # job chờ bị bỏ ngay; job đan
   Giữ `retention_per_branch` (3) đầu ra mới nhất cho mỗi nền tảng + nhánh; đầu ra cũ hơn bị xoá (job vẫn còn,
   đánh dấu `output_deleted`). Job Windows ghi máy đã build (`host`, `slot`).
 - Dispatcher là dịch vụ systemd `hst-build-queue` ([unit](../scripts/linux/hst-build-queue.service), `Restart=on-failure`,
-  `Nice=10`, I/O idle; `journalctl -u hst-build-queue`), chạy từ bản checkout triển khai `/data/hst-build/infra` (chỉ
-  cập nhật có chủ ý: `git -C /data/hst-build/infra checkout --detach <commit>` rồi `systemctl restart hst-build-queue`;
-  build đang chạy không bị ảnh hưởng). Job Linux chạy `local-build.sh --slot N` trên slot rảnh mà bộ
+  `Nice=10`, I/O idle; `journalctl -u hst-build-queue`), chạy từ bản triển khai `/data/hst-build/infra-current`
+  (symlink tới `infra-<sha>`, không bao giờ từ worktree đang sửa). Cập nhật bằng
+  [`build-infra-deploy.sh <commit>`](../scripts/linux/build-infra-deploy.sh): tạo `infra-<sha>` mới, đổi symlink bằng
+  một lần rename (nguyên tử), khởi động lại dispatcher; job đang chạy giữ phiên bản lúc nó bắt đầu, phiên bản cũ bị
+  xoá khi không còn tiến trình nào dùng. Công cụ Windows chỉ được chép sang máy khi máy đó không có build nào chạy.
+  Job hỏng vì hạ tầng (script đổi giữa chừng, slot bận, mount, mạng/SSH/SSL, task Windows biến mất…) được tự đưa lại
+  vào hàng đợi, tối đa 2 lần (`infra_retries` trong job); lỗi build thật (lỗi make) thì không. Job Linux chạy `local-build.sh --slot N` trên slot rảnh mà bộ
   điều phối cho vào; job Windows chạy trên các slot trong `windows_slots` (HST4, HST5): dispatcher tự chép công cụ
   (`D:\hst-build\tools\scripts`) khi chúng đổi, chạy build thành scheduled task qua
   [`hst-queue-remote.ps1`](../scripts/windows/hst-queue-remote.ps1), kéo MSI về `out/<id>/` rồi xoá bản trên máy

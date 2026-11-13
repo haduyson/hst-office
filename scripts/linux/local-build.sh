@@ -51,7 +51,7 @@
 set -Eeuo pipefail
 trap 'echo "FAILED line $LINENO: $BASH_COMMAND" >&2' ERR
 
-SELF_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SELF_REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd -P)"   # real deploy dir, not a symlink
 SLOTS_PY=(python3 -I "$SELF_REPO/scripts/linux/build-slots.py")
 BUILD_ROOT="${HST_BUILD_ROOT:-/data/hst-build}"
 BASE="$BUILD_ROOT/chroot"; CCACHE="$BUILD_ROOT/ccache"; EXT_CACHE="$BUILD_ROOT/external-tarballs"

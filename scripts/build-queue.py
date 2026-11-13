@@ -178,6 +178,30 @@ def retention_victims(jobs, keep):
     return victims
 
 
+# Failures of the build infrastructure, not of the commit: the job goes back to the queue (MAX_INFRA_RETRIES).
+INFRA_PATTERNS = [
+    re.compile(p) for p in (
+        r"syntax error near unexpected token",          # runner script changed under a running job
+        r"local-build: slot \d+ is busy",
+        r"local-build: no idle admissible slot",
+        r"could not unmount|chroot still mounted|base chroot changed under us|still has an overlay",
+        r"runner exited without a status",
+        r"^dispatcher: ",
+        r"^start: ",
+        r"task vanished|build\.lock is held|is already running",
+        r"CERTIFICATE_VERIFY_FAILED|urlopen error|Could not resolve host|remote name could not be resolved",
+        r"ssh \S+ rc=255|Connection (timed out|refused|reset)",
+    )
+]
+MAX_INFRA_RETRIES = 2
+
+
+def infra_failure(error, log_text):
+    """True when the failure text points at the build infrastructure rather than the commit being built."""
+    text = f"{error}\n{log_text}"
+    return any(p.search(line) for line in text.splitlines() for p in INFRA_PATTERNS)
+
+
 def parse_modules(text):
     if not text:
         return []

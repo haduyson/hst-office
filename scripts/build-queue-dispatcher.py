@@ -24,7 +24,9 @@ import subprocess
 import sys
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# Real directory of this deploy (infra-<sha>, not the infra-current symlink): jobs started by this dispatcher keep
+# using this version even after the next deploy switches the symlink (scripts/linux/build-infra-deploy.sh).
+HERE = os.path.dirname(os.path.realpath(__file__))
 LOCAL_BUILD = os.path.join(HERE, "linux", "local-build.sh")
 BUILD_SLOTS = os.path.join(HERE, "linux", "build-slots.py")
 WIN_HELPER = os.path.join(HERE, "windows", "hst-queue-remote.ps1")
@@ -140,6 +142,15 @@ class WindowsRunner:
                 return json.loads(line)
         raise RuntimeError(f"{host} {action} rc={done.returncode}: {(done.stdout + done.stderr)[-1500:]}")
 
+    def host_busy(self, host):
+        """A build (queued job or a manual one holding a slot's build.lock) is running on the host."""
+        if any(j["platform"] == "windows" and j["state"] == "running" and j.get("host") == host for j in self.store.all()):
+            return True
+        for slot in self.cfg["windows_slots"]:
+            if slot["host"] == host and self.remote(host, "Probe", "-Root", slot["root"], timeout=300).get("busy"):
+                return True
+        return False
+
     def deploy(self, host):
         digest = hashlib.sha256()
         for rel in WIN_TOOLS:
@@ -153,6 +164,11 @@ class WindowsRunner:
         except (FileNotFoundError, ValueError):
             state = {}
         if state.get(host) == want:
+            return
+        # Cygwin bash reads hst4-tree.sh / hst4-make-targets.sh while it runs them: never replace the tools under a
+        # running build. The job then uses the tools already on the host; the update follows when the host is idle.
+        if self.host_busy(host):
+            log(f"{host}: build running, tools {want} not deployed yet (using {state.get(host)})")
             return
         stage = os.path.join(self.store.work_dir, "deploy", "scripts")
         shutil.rmtree(os.path.dirname(stage), ignore_errors=True)
@@ -243,6 +259,22 @@ class WindowsRunner:
 
 
 # ---------------------------------------------------------------- loop
+def requeue_if_infra(store, core, job, error):
+    """Put a job that failed because of the infrastructure back in the queue (at most MAX_INFRA_RETRIES times)."""
+    retries = job.get("infra_retries", 0)
+    if job.get("cancel_requested") or retries >= core.MAX_INFRA_RETRIES:
+        return False
+    if not core.infra_failure(error, core.log_tail(job["log"], 80)):
+        return False
+    with open(job["log"], "a", encoding="utf-8") as f:
+        f.write(f"\n[{time.strftime('%F %T')}] infrastructure failure ({error}); requeued "
+                f"(retry {retries + 1}/{core.MAX_INFRA_RETRIES})\n")
+    store.update(job["id"], state="queued", infra_retries=retries + 1, last_infra_error=error,
+                 slot=None, pid=None, cancel_sent=False)
+    log(f"{job['id']}: infrastructure failure, requeued: {error}")
+    return True
+
+
 def tick(store, runners, core):
     cfg = store.config()
     jobs = store.all()
@@ -263,6 +295,8 @@ def tick(store, runners, core):
         if result:
             state, fields = result
             t = time.time()
+            if state == "failed" and requeue_if_infra(store, core, job, fields.get("error", "")):
+                continue
             store.update(job["id"], state=state, finished=t, finished_at=core.now_iso(t), **fields)
             log(f"{job['id']}: {state} {fields}")
             finished = True
@@ -284,9 +318,10 @@ def tick(store, runners, core):
         try:
             fields = runner.start(job, slot)
         except Exception as exc:  # noqa: BLE001 - a job that cannot start fails visibly instead of looping
-            t = time.time()
-            store.update(job["id"], state="failed", finished=t, finished_at=core.now_iso(t), error=f"start: {exc}")
             log(f"{job['id']}: start failed: {exc}")
+            if not requeue_if_infra(store, core, job, f"start: {exc}"):
+                t = time.time()
+                store.update(job["id"], state="failed", finished=t, finished_at=core.now_iso(t), error=f"start: {exc}")
             continue
         t = time.time()
         job = store.update(job["id"], state="running", started=t, started_at=core.now_iso(t), **fields)

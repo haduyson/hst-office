@@ -149,6 +149,42 @@ class RetentionTest(QueueTestCase):
         self.assertTrue(os.path.exists(self.store.job_out(other["id"])))
 
 
+class InfraFailureTest(QueueTestCase):
+    def test_classification(self):
+        self.assertTrue(bq.infra_failure("local-build.sh exit 2", "line 571: syntax error near unexpected token `)'"))
+        self.assertTrue(bq.infra_failure("runner exited without a status", ""))
+        self.assertTrue(bq.infra_failure("windows build failed", "urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]"))
+        self.assertTrue(bq.infra_failure("start: ssh hst5 rc=255: Connection timed out", ""))
+        self.assertFalse(bq.infra_failure("local-build.sh exit 2", "make: *** [Makefile:312: build] Error 2"))
+        self.assertFalse(bq.infra_failure("windows build failed", "notebookbar.ui ... button-no-label"))
+
+    def test_infra_failure_is_requeued_twice_then_fails(self):
+        job, _ = self.submit()
+        linux = FakeRunner(["1"])
+        runners = {"linux": linux, "windows": FakeRunner([])}
+        Path(job["log"]).write_text("local-build.sh: line 571: syntax error near unexpected token `)'\n")
+        bqd.tick(self.store, runners, bq)
+        for attempt in (1, 2):
+            linux.results[job["id"]] = ("failed", {"error": "local-build.sh exit 2"})
+            bqd.tick(self.store, runners, bq)   # requeued and, the slot being free, started again at once
+            state = self.store.load(job["id"])
+            self.assertEqual((state["state"], state["infra_retries"]), ("running", attempt))
+        self.assertEqual(linux.started, [job["id"]] * 3)
+        linux.results[job["id"]] = ("failed", {"error": "local-build.sh exit 2"})
+        bqd.tick(self.store, runners, bq)
+        self.assertEqual(self.store.load(job["id"])["state"], "failed")
+
+    def test_build_failure_is_not_requeued(self):
+        job, _ = self.submit()
+        linux = FakeRunner(["1"])
+        runners = {"linux": linux, "windows": FakeRunner([])}
+        Path(job["log"]).write_text("make: *** [Makefile:312: build] Error 2\n")
+        bqd.tick(self.store, runners, bq)
+        linux.results[job["id"]] = ("failed", {"error": "local-build.sh exit 2"})
+        bqd.tick(self.store, runners, bq)
+        self.assertEqual(self.store.load(job["id"])["state"], "failed")
+
+
 class FakeRunner:
     def __init__(self, slots):
         self.slots = list(slots)
@@ -196,8 +232,11 @@ class DispatcherTest(QueueTestCase):
 
     def test_failed_start_marks_the_job_failed(self):
         job, _ = self.submit()
-        bqd.tick(self.store, {"linux": FakeRunner(["broken"]), "windows": FakeRunner([])}, bq)
+        runners = {"linux": FakeRunner(["broken"]), "windows": FakeRunner([])}
+        for _ in range(3):   # a start failure counts as infrastructure: two retries, then failed
+            bqd.tick(self.store, runners, bq)
         state = self.store.load(job["id"])
+        self.assertEqual(state["infra_retries"], 2)
         self.assertEqual(state["state"], "failed")
         self.assertIn("cannot start", state["error"])
 

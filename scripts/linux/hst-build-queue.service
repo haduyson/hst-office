@@ -2,11 +2,9 @@
 # Dispatcher of the local build queue (scripts/build-queue.sh dispatch). Install:
 #   sudo install -m 644 scripts/linux/hst-build-queue.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now hst-build-queue
-# It runs from a deploy checkout that only changes on purpose (not a development worktree):
-#   git -C /home/office worktree add --detach /data/hst-build/infra <commit>      (once)
-#   git -C /data/hst-build/infra checkout --detach <commit> && sudo systemctl restart hst-build-queue   (update)
-# Updating is safe while builds run: git replaces files (new inodes) and local-build.sh is parsed as a whole. Builds started by the dispatcher keep running in their own
-# process groups and systemd scopes; KillMode=process leaves them alone when the dispatcher restarts.
+# It runs from the deployed version /data/hst-build/infra-current (symlink to infra-<sha>), never from a development
+# worktree. Deploy/update (atomic switch, dispatcher restart, running builds untouched):
+#   sudo scripts/linux/build-infra-deploy.sh <commit|branch>
 [Unit]
 Description=HST Office local build queue dispatcher
 After=network-online.target
@@ -14,8 +12,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/data/hst-build/infra
-ExecStart=/usr/bin/python3 -I /data/hst-build/infra/scripts/build-queue.py dispatch
+WorkingDirectory=/data/hst-build
+ExecStart=/usr/bin/python3 -I /data/hst-build/infra-current/scripts/build-queue.py dispatch
 Environment=HST_QUEUE_ROOT=/data/hst-build-queue HST_BUILD_ROOT=/data/hst-build
 Restart=on-failure
 RestartSec=30
