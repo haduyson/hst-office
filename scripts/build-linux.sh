@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build HST Office (LibreOffice 26.8.1.1 + HST patches/branding) on Linux x86_64.
-#   scripts/build-linux.sh --preflight | --configure | --build | --package
+#   scripts/build-linux.sh --preflight | --configure | --build | --package | --rpm-appimage
+# --rpm-appimage repacks dist/linux/*.deb as .rpm and .AppImage (needs rpmbuild and readelf; docs/LINUX_PACKAGES.md).
 # Runs upstream commands as the unprivileged build user $HST_BUILD_USER
 # (default hstbuild) inside upstream/libreoffice; logs go to build/logs/.
 set -euo pipefail
@@ -100,10 +101,22 @@ package() {
   ls -l "$dist"
 }
 
+rpm_appimage() {
+  local dist="$ROOT/dist/linux" deb
+  deb="$(find "$dist" -maxdepth 1 -name 'HSTOffice_*_Linux_x86-64.deb' -print -quit)"
+  [ -n "$deb" ] || { echo "rpm-appimage: no .deb in $dist (run --package first)"; exit 1; }
+  command -v rpmbuild >/dev/null || { echo "rpm-appimage: rpmbuild missing (apt-get install rpm)"; exit 2; }
+  rm -f "$dist"/*.rpm "$dist"/*.AppImage
+  TMPDIR="$ROOT/build" python3 -I "$ROOT/scripts/linux/make-rpm.py" "$deb" "$dist"
+  TMPDIR="$ROOT/build" python3 -I "$ROOT/scripts/linux/make-appimage.py" "$deb" "$dist" --tools "$ROOT/build/appimage-tools" --download
+  (cd "$dist" && sha256sum -c SHA256SUMS)
+}
+
 case "${1:-}" in
   --preflight) preflight ;;
   --configure) preflight; configure ;;
   --build) build ;;
   --package) package ;;
-  *) echo "usage: $0 --preflight|--configure|--build|--package"; exit 64 ;;
+  --rpm-appimage) rpm_appimage ;;
+  *) echo "usage: $0 --preflight|--configure|--build|--package|--rpm-appimage"; exit 64 ;;
 esac

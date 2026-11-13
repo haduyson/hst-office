@@ -11,7 +11,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # also under python -I, which leaves it out
 from workflow_build_rules import (SIGNING_JOB, SIGNING_ENVIRONMENT, SIGNING_GATE, check_signing_job,  # noqa: E402
-                                  check_macos_build, check_windows_build, check_linux_build, check_release)
+                                  check_macos_build, check_windows_build, check_linux_build, check_release,
+                                  LINUX_SIGNING_ENVIRONMENT, check_linux_signing_job)
 
 PINS = {
     "actions/checkout": "11bd71901bbe5b1630ceea73d27597364c9af683",
@@ -24,10 +25,12 @@ PINS = {
 }
 REQUIRED = {"quality.yml", "desktop-linux.yml", "desktop-windows.yml", "desktop-macos.yml", "release.yml"}
 RELEASE_PERMISSIONS = {"contents": "write", "actions": "read"}
-# The only jobs that may read secrets: macOS signing behind a reviewable environment, in the build
-# workflow and in the signing probe. Each may be skipped only by its own job condition.
+# The only jobs that may read secrets: macOS and Linux signing behind a reviewable environment, in the build
+# workflows and in the signing probe. Each may be skipped only by its own job condition.
 SIGNING_JOBS = {("desktop-macos.yml", SIGNING_JOB): "${{ inputs.mode == 'full' }}",
-                ("macos-signature-probe.yml", SIGNING_JOB): "${{ inputs.sign }}"}
+                ("macos-signature-probe.yml", SIGNING_JOB): "${{ inputs.sign }}",
+                ("desktop-linux.yml", SIGNING_JOB): "${{ inputs.mode == 'full' }}"}
+SIGNING_ENVIRONMENTS = {"desktop-linux.yml": LINUX_SIGNING_ENVIRONMENT}
 CYGWIN_SHELL = "C:/cygwin64/bin/bash.exe"
 SCRIPT = re.compile(r"\bscripts/[\w./-]+\.(?:py|sh|ps1|mjs|js)\b")
 
@@ -105,8 +108,8 @@ def check_workflow(path, root=ROOT):
         # A signing job alone may be skipped by its declared condition; every other job always runs.
         require("if" not in job or (signing and job["if"] == SIGNING_JOBS[(path.name, name)]),
                 f"{name}: required job must not be conditional")
-        require("environment" not in job or (signing and job["environment"] == SIGNING_ENVIRONMENT),
-                f"{name}: only the macOS signing job may use a deployment environment")
+        require("environment" not in job or (signing and job["environment"] == SIGNING_ENVIRONMENTS.get(path.name, SIGNING_ENVIRONMENT)),
+                f"{name}: only a signing job may use its signing deployment environment")
         steps = job.get("steps", [])
         require(isinstance(steps, list) and bool(steps), f"{name}: executable steps required")
         for step in steps:
@@ -156,7 +159,7 @@ def check_workflow(path, root=ROOT):
         check_release(events, all_steps, require)
     for (workflow_name, job_name) in SIGNING_JOBS:
         if path.name == workflow_name:
-            check_signing_job(jobs.get(job_name, {}), require)
+            (check_linux_signing_job if path.name == "desktop-linux.yml" else check_signing_job)(jobs.get(job_name, {}), require)
     return errors
 
 

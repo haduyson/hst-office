@@ -5,6 +5,7 @@ Each rule takes the workflow's jobs, its steps and `require(condition, message)`
 import re
 
 SIGNING_JOB, SIGNING_ENVIRONMENT = "sign", "macos-signing"
+LINUX_SIGNING_ENVIRONMENT = "linux-signing"
 SIGNING_GATE = "steps.gate.outputs.enabled == 'true'"
 MACOS_STAGES = ["probe", "free-disk", "tools", "extract", "patch", "configure", "fetch", "build", "collect", "verify"]
 
@@ -88,18 +89,33 @@ def check_windows_build(jobs, events, runs, all_steps, require):
             "installer upload must depend on a successful build")
 
 
+def check_linux_signing_job(job, require):
+    """desktop-linux.yml sign job: optional GPG signing of the .rpm/AppImage behind the linux-signing environment."""
+    require(job.get("environment") == LINUX_SIGNING_ENVIRONMENT, "Linux signing must run behind the linux-signing environment")
+    steps = job.get("steps", [])
+    gate = [step for step in steps if step.get("id") == "gate"]
+    require(len(gate) == 1 and "sign-linux-packages.sh --enabled" in gate[0].get("run", "") and "if" not in gate[0],
+            "Linux signing needs one unconditional gate that skips cleanly without secrets")
+    uploads = [step for step in steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
+    require(len(uploads) == 1 and SIGNING_GATE in str(uploads[0].get("if", "")) and "success()" in str(uploads[0].get("if", ""))
+            and str(uploads[0].get("with", {}).get("name", "")).startswith("hst-office-linux-deb-signed-"),
+            "signed Linux packages must be uploaded once, after the gate and success")
+
+
 def check_linux_build(jobs, events, runs, all_steps, require):
-    """desktop-linux.yml: one hosted Ubuntu job through the ci-build.sh stages to a .deb."""
-    require(len(jobs) == 1, "Linux deb build must be a single job on one runner")
-    job = next(iter(jobs.values()))
+    """desktop-linux.yml: one hosted Ubuntu job through the ci-build.sh stages to .deb/.rpm/.AppImage, then signing."""
+    require(set(jobs) == {"linux-deb", SIGNING_JOB}, "Linux needs exactly the build job linux-deb and the signing job")
+    job = jobs.get("linux-deb", {})
+    runs = [step for step in job.get("steps", []) if "run" in step]
+    all_steps = job.get("steps", [])
     require(str(job.get("runs-on", "")).startswith("ubuntu-"), "Linux deb build must run on a hosted ubuntu runner")
     require(type(job.get("timeout-minutes")) is int and job["timeout-minutes"] >= 300,
             "Linux deb build needs a long timeout to finish the build")
     text_runs = "\n".join(step["run"] for step in runs)
     require("fetch-sources.py" in text_runs, "Linux build must download and verify pinned tarballs")
-    order = re.findall(r"ci-build\.sh --(\w+)", text_runs)
-    require(order == ["deps", "extract", "patch", "configure", "fetch", "build", "package"],
-            "Linux build stages must follow deps/extract/patch/configure/fetch/build/package order")
+    order = re.findall(r"ci-build\.sh --([\w-]+)", text_runs)
+    require(order == ["deps", "extract", "patch", "configure", "fetch", "build", "package", "rpm-appimage"],
+            "Linux build stages must follow deps/extract/patch/configure/fetch/build/package/rpm-appimage order")
     modes = dispatch_inputs(events).get("mode", {})
     require(sorted(modes.get("options") or []) == ["full", "preflight"], "mode input must offer full and preflight")
     build = [step for step in runs if "ci-build.sh --build" in step["run"]]
@@ -112,7 +128,7 @@ def check_linux_build(jobs, events, runs, all_steps, require):
     debs = [step for step in uploads if step not in evidence]
     require(len(debs) == 1 and "success" in str(debs[0].get("if", ""))
             and str(debs[0].get("with", {}).get("name", "")).startswith("hst-office-linux-deb-"),
-            "the .deb artifact must be uploaded once, only after a successful build")
+            "the .deb/.rpm/.AppImage artifact must be uploaded once, only after a successful build")
 
 
 def check_release(events, all_steps, require):
