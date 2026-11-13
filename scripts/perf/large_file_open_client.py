@@ -6,9 +6,12 @@
 Connects to the office listening on the pipe, loads the file, then (visible window) processes events until idle,
 optionally stores the document again, closes it and prints one JSON line:
 {"connect": s, "load": s, "idle": s, "layout": s, "pages": n, "save": s, "kind": ..., "modified": bool, "error": ...}
-(layout/pages: Writer only, the time until the whole document is laid out).
+(probe_median/probe_max: with LFO_PROBE=<s>, the wait of a call that needs the office's main lock, every 0.5 s for <s>
+seconds after the load; layout/pages: Writer with LFO_FULL_LAYOUT=1 only, the time until the whole document is laid out; idle layout
+may still be running when the office first becomes idle).
 """
 import json
+import os
 import sys
 import time
 
@@ -61,10 +64,21 @@ def main():
             doc = desktop.loadComponentFromURL(url, "_blank", 0, (prop("Hidden", hidden),))
         res["load"] = round(time.monotonic() - t0, 2)
         print(json.dumps(dict(res, stage="loaded")), flush=True)  # kept by the controller if idle never comes
+        probe = float(os.environ.get("LFO_PROBE", "0"))
+        if probe and not hidden:  # responsiveness while the office works on: a call that needs the main lock
+            window, waits, end = doc.getCurrentController().getFrame().getContainerWindow(), [], time.monotonic() + probe
+            while time.monotonic() < end:
+                t1 = time.monotonic()
+                window.getPosSize()
+                waits.append(time.monotonic() - t1)
+                time.sleep(0.5)
+            waits.sort()
+            res["probe_median"], res["probe_max"] = round(waits[len(waits) // 2], 3), round(waits[-1], 3)
         if not hidden:
             toolkit.processEventsToIdle()
             res["idle"] = round(time.monotonic() - t0, 2)
-            if doc.supportsService("com.sun.star.text.TextDocument"):
+            print(json.dumps(dict(res, stage="idle")), flush=True)
+            if os.environ.get("LFO_FULL_LAYOUT") == "1" and doc.supportsService("com.sun.star.text.TextDocument"):
                 # the page count needs the whole document laid out: idle layout may still be running
                 res["pages"] = doc.getCurrentController().PageCount
                 res["layout"] = round(time.monotonic() - t0, 2)

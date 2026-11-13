@@ -2,7 +2,7 @@
 """Open time of large documents in one office installation (HST Office or stock LibreOffice), one office per open.
 
     python large-file-open.py --soffice <soffice> --python <office python> --files <dir> --out <dir> --label <name>
-        [--mode gui|headless|cli] [--repeat N] [--timeout S] [--seed default|spell|...] [--cpus N] [--save] [--only a,b]
+        [--mode gui|headless|cli] [--repeat N] [--timeout S] [--seed default|spell|...] [--cpus N] [--save] [--full-layout] [--probe S] [--only a,b]
 
 Per file and repeat: a new office process on the label's profile (large_file_open_profile.py), --accept on a private
 pipe; large_file_open_client.py (run by the office's Python) loads the file in a visible window (gui), hidden
@@ -119,9 +119,15 @@ def main():
     ap.add_argument("--seed", default="default", choices=profiles.SEEDS)
     ap.add_argument("--cpus", type=int, default=0)
     ap.add_argument("--save", action="store_true")
+    ap.add_argument("--full-layout", action="store_true", help="Writer: also time the layout of the whole document")
+    ap.add_argument("--probe", type=float, default=0, help="seconds of responsiveness probes after the load")
     ap.add_argument("--only", default="")
     ap.add_argument("--profile", default="")
     a = ap.parse_args()
+    if a.full_layout:
+        os.environ["LFO_FULL_LAYOUT"] = "1"  # read by the client (large_file_open_client.py)
+    if a.probe:
+        os.environ["LFO_PROBE"] = str(a.probe)
     os.makedirs(a.out, exist_ok=True)
     profile = a.profile or os.path.join(a.out, "profile-" + a.label)
     shutil.rmtree(profile, ignore_errors=True)

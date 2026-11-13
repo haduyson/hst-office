@@ -36,6 +36,8 @@ def main():
             elif ok:
                 med = lambda k: statistics.median(r[k] for r in ok if k in r) if any(k in r for r in ok) else None  # noqa: E731
                 cell = "%s / %s s, %d MB" % (med("load"), med("idle"), max(r["peak_mb"] for r in ok))
+                if med("probe_max") is not None:
+                    cell += ", UI wait max %s s" % max(r.get("probe_max", 0) for r in ok)
                 if med("layout") is not None:
                     cell += ", laid out %s s (%d pages)" % (med("layout"), max(r.get("pages", 0) for r in ok))
                 if med("save") is not None:
@@ -46,12 +48,14 @@ def main():
                     cell += ", modified"
             elif runs:
                 r = runs[-1]
-                cell = "TIMEOUT@%s s (load %s), %d MB" % (r.get("after"), r.get("load", "-"), r["peak_mb"]) \
-                    if r["error"] == "timeout" else "ERR"
+                cell = "TIMEOUT@%s s (load %s, ready %s), %d MB" % (r.get("after"), r.get("load", "-"),
+                                                                    r.get("idle", "-"), r["peak_mb"]) \
+                    if r["error"] == "timeout" else ("OFFICE ENDED at %s s, %d MB" % (r.get("after"), r["peak_mb"])
+                                                     if "DisposedException" in r["error"] else "ERR")
             else:
                 cell = ""
             for r in runs:
-                if "error" in r and r["error"] != "timeout" and "office_exit" not in r:
+                if "error" in r and r["error"] != "timeout" and "office_exit" not in r and "Disposed" not in r["error"]:
                     errors.append("%s %s: %s" % (label, fname, r["error"]))
             cells.append(cell)
         print("| %s | %s | %s |" % (fname, size, " | ".join(cells)))
