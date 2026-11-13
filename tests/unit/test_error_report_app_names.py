@@ -9,6 +9,7 @@ import re
 import unittest
 
 import _paths  # noqa: F401
+import error_report_uno_stubs  # noqa: F401 - before the hst_office imports
 from error_report_fake_server import invalid
 from hst_office import error_report_apps as apps
 from hst_office import error_report_crash as crash
@@ -74,7 +75,7 @@ class AppNameTests(unittest.TestCase):
         state = {"crashed": True, "session": False, "modules": ["com.sun.star.sheet.SpreadsheetDocument",
                                                                  "com.sun.star.text.WebDocument"]}
         text, app = crash.crash_facts(state)
-        self.assertIn("Documents open at exit: 2 (HST Sheets, HST Writer)", text)
+        self.assertIn("Documents in the recovery list (modified) at exit: 2 (HST Sheets, HST Writer)", text)
         self.assertEqual(app, "unknown")
         _text, app = crash.crash_facts(dict(state, modules=["com.sun.star.text.GlobalDocument"]))
         self.assertEqual(app, "writer")

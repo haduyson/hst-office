@@ -3,32 +3,17 @@
 201, 200 for a repeated reportId, 400, 413, 429, 5xx, redirect, timeout and no server; plus the crash prompt logic."""
 import json
 import socket
-import sys
 import time
 import types
 import unittest
 import uuid
 
 import _paths  # noqa: F401
+import error_report_uno_stubs  # noqa: F401 - before the hst_office imports
 from error_report_fake_server import FakeServer, invalid, report
-
-
-class _StubModule(types.ModuleType):
-    def __getattr__(self, name):
-        if name.startswith("__"):
-            raise AttributeError(name)
-        value = type(name, (), {})
-        setattr(self, name, value)
-        return value
-
-
-for _name in ("uno", "unohelper", "com", "com.sun", "com.sun.star", "com.sun.star.lang", "com.sun.star.task",
-              "com.sun.star.awt"):
-    sys.modules.setdefault(_name, _StubModule(_name))
-
-from hst_office import error_report_crash as crash  # noqa: E402
-from hst_office import error_report_payload as p  # noqa: E402
-from hst_office import error_report_send as s  # noqa: E402
+from hst_office import error_report_crash as crash
+from hst_office import error_report_payload as p
+from hst_office import error_report_send as s
 
 VERSION = "1.0.0-beta.5"
 

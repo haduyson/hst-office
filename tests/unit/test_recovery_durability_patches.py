@@ -42,7 +42,8 @@ def ordered(text, *parts):
 class Series(unittest.TestCase):
     def test_new_patches_are_appended_in_order(self):
         names = [n for n in (PATCHES / "series").read_text().split() if not n.startswith("#")]
-        self.assertEqual(names[-len(NEW):], [n + ".patch" for n in NEW])
+        start = names.index(NEW[0] + ".patch")  # later patches may follow them
+        self.assertEqual(names[start:start + len(NEW)], [n + ".patch" for n in NEW])
 
     def test_new_cxx_modules_stay_small(self):
         for name in NEW:
