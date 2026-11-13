@@ -1,0 +1,232 @@
+HST Office: Slides' galleries fit the ribbon: the theme gallery narrows before it folds, no gallery makes it taller.
+
+Owner decision (14/11/2026), from the after-v2 screenshots:
+- Slides ▸ Thiết kế at 1366 px folded "Chủ đề ▾" beside about 520 px of empty room: the theme gallery was 6 themes
+  wide at every width. It now shows 6, 4 or 3 themes in a row at the ribbon's large, medium and small states,
+  so the ladder narrows it before folding the group (svx ThemeColorsPaneWrapper answers the new window
+  property "hst-gallery-state", which vcl HstRibbonLadder.cxx sends to the item windows of a group's toolboxes;
+  windows that do not know it ignore it; the .ui's fixed 6 columns go, the columns follow the width).
+- On Windows the Thiết kế, Chuyển tiếp and Hoạt hình tabs were taller than the others and their group captions
+  went down: the Windows icon view asked for the height of every row. The theme gallery is at most 96 px high
+  and the transition and animation galleries 76 px (one row; on Linux they are 88 and 62 px, unchanged).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: build only (every C++ file syntax-checked against the configured tree); tests/unit/test_ribbon_layout_rules.py
+reads the patch. Runtime: Slides ▸ Thiết kế at 1366 px shows the theme gallery; Windows: Thiết kế, Chuyển tiếp and
+Hoạt hình keep the ribbon height of the other tabs.
+---
+--- a/include/svx/ThemeColorsToolBoxControl.hxx
++++ b/include/svx/ThemeColorsToolBoxControl.hxx
+@@ -17,6 +17,13 @@
+ #include <vcl/InterimItemWindow.hxx>
+ #include <svx/dialog/ThemeColorsPaneBase.hxx>
+ 
++#include <memory>
++
++namespace weld
++{
++class ScrolledWindow;
++}
++
+ // Used to put theme colors pane to the notebookbar
+ 
+ class SVX_DLLPUBLIC ThemeColorsPaneWrapper final : public InterimItemWindow,
+@@ -24,6 +31,11 @@
+ {
+ private:
+     css::uno::Reference<css::frame::XFrame> m_xFrame;
++    // HST Office: the ribbon state (0 large, 1 medium, 2 small) given through set_property("hst-gallery-state");
++    // the gallery shows fewer columns at the smaller states, so the ribbon narrows it before folding its group
++    std::unique_ptr<weld::ScrolledWindow> m_xHstScroll;
++    int m_nHstState = 0;
++    void HstApplyColumns();
+ 
+ public:
+     ThemeColorsPaneWrapper(vcl::Window* pParent,
+@@ -32,6 +44,7 @@
+     virtual void dispose() override;
+     void SetOptimalSize();
+     void refreshThemeColors();
++    virtual bool set_property(const OUString& rKey, const OUString& rValue) override;
+ 
+     DECL_LINK(SelectionChangedHdl, weld::ItemView&, void);
+ 
+--- a/sd/source/ui/controller/HstAnimationGallery.cxx
++++ b/sd/source/ui/controller/HstAnimationGallery.cxx
+@@ -49,6 +49,7 @@
+ // margins and the label; a page holds only as many as fit, so no item wraps into a hidden row
+ constexpr tools::Long ITEM_WIDTH = 130;
+ constexpr int MIN_ITEMS = 3; // the narrowest gallery still shows three animations
++constexpr tools::Long MAX_HEIGHT = 76; // one row of items (the Linux gallery is 62 px high)
+ 
+ bool GalleryEnabled()
+ {
+@@ -156,7 +157,11 @@
+         m_xMore->connect_clicked(LINK(this, HstAnimationGalleryWindow, MoreHdl));
+         m_aRefill.SetInvokeHandler(LINK(this, HstAnimationGalleryWindow, RefillHdl));
+         ShowPage();
+-        SetSizePixel(get_preferred_size());
++        // HST Office: one row of animations, never taller: the Windows icon view asked for the height of every
++        // row, which made the tab's ribbon taller than the others and pushed the group captions down
++        Size aSize = get_preferred_size();
++        aSize.setHeight(std::min<tools::Long>(aSize.Height(), MAX_HEIGHT * GetDPIScaleFactor()));
++        SetSizePixel(aSize);
+     }
+ 
+     ~HstAnimationGalleryWindow() override { disposeOnce(); }
+--- a/sd/source/ui/controller/HstTransitionGallery.cxx
++++ b/sd/source/ui/controller/HstTransitionGallery.cxx
+@@ -52,6 +52,7 @@
+ // margins and the label; a page holds only as many as fit, so no item wraps into a hidden row
+ constexpr tools::Long ITEM_WIDTH = 130;
+ constexpr int MIN_ITEMS = 3; // the narrowest gallery still shows three transitions
++constexpr tools::Long MAX_HEIGHT = 76; // one row of items (the Linux gallery is 62 px high)
+ 
+ bool GalleryEnabled()
+ {
+@@ -117,7 +118,11 @@
+         m_xMore->connect_clicked(LINK(this, HstTransitionGalleryWindow, MoreHdl));
+         m_aRefill.SetInvokeHandler(LINK(this, HstTransitionGalleryWindow, RefillHdl));
+         ShowPage();
+-        SetSizePixel(get_preferred_size());
++        // HST Office: one row of transitions, never taller: the Windows icon view asked for the height of every
++        // row, which made the tab's ribbon taller than the others and pushed the group captions down
++        Size aSize = get_preferred_size();
++        aSize.setHeight(std::min<tools::Long>(aSize.Height(), MAX_HEIGHT * GetDPIScaleFactor()));
++        SetSizePixel(aSize);
+     }
+ 
+     ~HstTransitionGalleryWindow() override { disposeOnce(); }
+--- a/svx/source/tbxctrls/ThemeColorsToolBoxControl.cxx
++++ b/svx/source/tbxctrls/ThemeColorsToolBoxControl.cxx
+@@ -8,7 +8,11 @@
+  */
+ 
+ #include <svx/ThemeColorsToolBoxControl.hxx>
++
++#include <algorithm>
++#include <iterator>
+ #include <vcl/weld/IconView.hxx>
++#include <vcl/weld/ScrolledWindow.hxx>
+ #include <cppuhelper/supportsservice.hxx>
+ #include <sfx2/viewsh.hxx>
+ #include <sfx2/objsh.hxx>
+@@ -103,6 +107,7 @@
+                         true)
+     , svx::ThemeColorsPaneBase(m_xBuilder->weld_icon_view(u"iconview_theme_colors"_ustr))
+     , m_xFrame(rxFrame)
++    , m_xHstScroll(m_xBuilder->weld_scrolled_window(u"hstthemescroll"_ustr))
+ {
+     // Override selection handler to apply theme on single click
+     if (mxIconViewThemeColors)
+@@ -110,17 +115,60 @@
+             LINK(this, ThemeColorsPaneWrapper, SelectionChangedHdl));
+ 
+     initColorSets();
++    HstApplyColumns();
+     SetOptimalSize();
+ }
+ 
+ ThemeColorsPaneWrapper::~ThemeColorsPaneWrapper() { disposeOnce(); }
+ 
+-void ThemeColorsPaneWrapper::SetOptimalSize() { SetSizePixel(GetOptimalSize()); }
++namespace
++{
++// HST Office: on the ribbon, the gallery shows 6, 4 or 3 themes in a row (large, medium, small state) of
++// HST_ITEM_WIDTH px (the .ui's item-width plus its padding) and is never taller than HST_MAX_HEIGHT: the
++// Windows icon view asked for the height of every row, which made the Design tab taller than the others
++constexpr int HST_COLUMNS[] = { 6, 4, 3 };
++constexpr int HST_ITEM_WIDTH = 108;
++constexpr int HST_FRAME_WIDTH = 32; // margins, frame and the vertical scroll bar
++constexpr int HST_HEIGHT = 88; // the .ui's height-request: one row of themes with their names
++constexpr int HST_MAX_HEIGHT = 96;
++}
++
++void ThemeColorsPaneWrapper::SetOptimalSize()
++{
++    Size aSize = GetOptimalSize();
++    const tools::Long nMax = HST_MAX_HEIGHT * GetDPIScaleFactor();
++    if (aSize.Height() > nMax)
++        aSize.setHeight(nMax);
++    SetSizePixel(aSize);
++}
++
++void ThemeColorsPaneWrapper::HstApplyColumns()
++{
++    if (!m_xHstScroll)
++        return;
++    const double fScale = GetDPIScaleFactor();
++    m_xHstScroll->set_size_request(
++        (HST_COLUMNS[m_nHstState] * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale, HST_HEIGHT * fScale);
++}
++
++bool ThemeColorsPaneWrapper::set_property(const OUString& rKey, const OUString& rValue)
++{
++    if (rKey != "hst-gallery-state")
++        return InterimItemWindow::set_property(rKey, rValue);
++    const int nState = std::clamp<int>(rValue.toInt32(), 0, std::size(HST_COLUMNS) - 1);
++    if (nState == m_nHstState)
++        return false; // nothing changed: the ladder need not lay the toolbox out again
++    m_nHstState = nState;
++    HstApplyColumns();
++    SetOptimalSize();
++    return true;
++}
+ 
+ void ThemeColorsPaneWrapper::refreshThemeColors() { initColorSets(); }
+ 
+ void ThemeColorsPaneWrapper::dispose()
+ {
++    m_xHstScroll.reset();
+     mxIconViewThemeColors.reset();
+     InterimItemWindow::dispose();
+ }
+--- a/svx/uiconfig/ui/themeselectorpanel.ui
++++ b/svx/uiconfig/ui/themeselectorpanel.ui
+@@ -18,7 +18,7 @@
+     <property name="hexpand">True</property>
+     <property name="spacing">6</property>
+     <child>
+-      <object class="GtkScrolledWindow">
++      <object class="GtkScrolledWindow" id="hstthemescroll">
+         <property name="width-request">680</property>
+         <property name="height-request">88</property>
+         <property name="visible">True</property>
+@@ -36,7 +36,6 @@
+             <property name="model">liststore1</property>
+             <property name="pixbuf-column">0</property>
+             <property name="text-column">1</property>
+-            <property name="columns">6</property>
+             <property name="item-width">100</property>
+           </object>
+         </child>
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -18,6 +18,7 @@
+ #include <vcl/toolkit/MenuButton.hxx>
+ #include <vcl/vclevent.hxx>
+ 
++#include <algorithm>
+ #include <map>
+ #include <utility>
+ #include <vector>
+@@ -105,6 +106,19 @@
+         rToolBox.SetToolBoxTextPosition(ePosition);
+         bChanged = true;
+     }
++    // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
++    // group narrows before it folds; a window that does not know the property ignores it
++    const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
++    for (ToolBox::ImplToolItems::size_type i = 0; i < rToolBox.GetItemCount(); ++i)
++    {
++        const ToolBoxItemId nId = rToolBox.GetItemId(i);
++        vcl::Window* pItemWindow = rToolBox.GetItemWindow(nId);
++        if (pItemWindow && pItemWindow->set_property(u"hst-gallery-state"_ustr, aGalleryState))
++        {
++            rToolBox.SetItemWindow(nId, pItemWindow); // the item takes the window's new size
++            bChanged = true;
++        }
++    }
+     // the preferred sizes of the toolbox and its group are cached until a queued resize: without
+     // this the group would be measured at its previous size and every ladder step would look
+     // useless, leaving only the fold

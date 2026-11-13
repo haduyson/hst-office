@@ -117,6 +117,19 @@ class GeneratorTest(unittest.TestCase):
         self.assertIn("|| (bFewCommands && rData.meHstAuthoredSize == ToolBoxButtonSize::Large);", text)
 
 
+class GalleryFitTest(unittest.TestCase):
+    def test_theme_gallery_narrows_and_galleries_are_capped(self):
+        with open(os.path.join(PATCHES, "hst-ribbon-ux-gallery-fit.patch"), encoding="utf-8") as handle:
+            text = handle.read()
+        # the ladder tells item windows its state; the theme gallery answers with fewer columns
+        self.assertIn('+        if (pItemWindow && pItemWindow->set_property(u"hst-gallery-state"_ustr, aGalleryState))', text)
+        self.assertIn("+constexpr int HST_COLUMNS[] = { 6, 4, 3 };", text)
+        self.assertIn('-            <property name="columns">6</property>', text)
+        # no gallery taller than one row, so every Slides tab keeps the ribbon height
+        self.assertIn("+constexpr int HST_MAX_HEIGHT = 96;", text)
+        self.assertEqual(text.count("+constexpr tools::Long MAX_HEIGHT = 76;"), 2)
+
+
 class BannerShotTest(unittest.TestCase):
     def setUp(self):
         try:
