@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Runner setup helpers for the Windows trial build (windows-2022). Build steps live in scripts/windows/trial-build.sh.
-#   pwsh -File scripts/build-windows.ps1 -Task Probe|FreeDisk|Cygwin|Tools [-Work D:\hst]
+#   pwsh -File scripts/build-windows.ps1 -Task Probe|FreeDisk|Cygwin|Tools [-Work D:\hst] [-CygwinRoot C:\cygwin64]
+# -CygwinRoot lets a local build PC (scripts/windows/hst4-setup.ps1) install the same package set elsewhere.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('Probe', 'FreeDisk', 'Cygwin', 'Tools')][string]$Task,
-    [string]$Work = 'D:\hst'
+    [string]$Work = 'D:\hst',
+    [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$CygwinRoot = 'C:\cygwin64'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $CygwinMirror = 'https://mirrors.kernel.org/sourceware/cygwin/'
-$CygwinRoot = 'C:\cygwin64'
 # Package set for the LibreOffice Windows build (wiki Development/BuildingOnWindows).
 $CygwinPackages = 'autoconf,automake,bison,flex,gawk,gettext,gettext-devel,git,gperf,libtool,m4,make,patch,perl,pkg-config,python3,rsync,unzip,zip,libxml2,libxslt,perl-Archive-Zip,perl-Font-TTF,perl-IO-String,curl,wget,cabextract,diffutils,findutils,grep,sed,tar,xz'
 $FlexVersion = '2.6.4-2'
@@ -64,7 +65,8 @@ function Install-PinnedFlex {
     $tarball = "$Work\cygpkgs\flex-$FlexVersion.tar.xz"
     Invoke-WebRequest -UseBasicParsing -Uri "${CygwinMirror}x86_64/release/flex/flex-$FlexVersion.tar.xz" -OutFile $tarball
     if ((Get-FileHash -Algorithm SHA512 $tarball).Hash -ne $FlexSha512) { throw "flex $FlexVersion sha512 mismatch" }
-    & "$CygwinRoot\bin\bash.exe" --login -c "tar -xJf `"`$(cygpath -u '$tarball')`" -C / && flex --version"
+    # No double quotes inside the -c argument: Windows PowerShell 5.1 mangles them (work paths have no spaces).
+    & "$CygwinRoot\bin\bash.exe" --login -c "tar -xJf `$(cygpath -u '$tarball') -C / && flex --version"
     if ($LASTEXITCODE -ne 0) { throw "flex $FlexVersion overlay failed" }
     Write-Summary "- flex pinned to $FlexVersion"
 }

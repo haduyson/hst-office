@@ -141,6 +141,118 @@ Cygwin, make native, NASM, pkgconf). Các bước build nằm trong
 xác minh được trên runner Windows; [preflight-local.sh](../scripts/windows/preflight-local.sh)
 chạy trong `ci-quality.sh` (shellcheck, actionlint, CRLF, mô phỏng giải nén/vá/tùy chọn trên Linux).
 
+### Build Windows cục bộ trên HST4/HST5 (bản thử, không phải bản phát hành)
+
+Máy thử HST4 (28 luồng, 32 GB RAM) build MSI để phát triển và thử nghiệm. Bản phát hành chính thức
+vẫn lấy từ CI. Máy này đi theo đúng các bước của workflow: dùng `trial-build.sh` của chính commit
+được build, cùng gói Cygwin, ghim flex, make native, pkgconf, NASM, Python 3.12 + Pillow 10.4.0 và
+cùng cách đổi tên MSI/`SHA256SUMS`. Toàn bộ nằm trên ổ D:, trong đường dẫn không có dấu cách vì
+ổ D: tắt tên 8.3. Bộ công cụ được cài một lần bằng
+[hst4-setup.ps1](../scripts/windows/hst4-setup.ps1) gồm: VS 2022 Build Tools tại `D:\VS2022BT`
+với đúng các thành phần mà `configure.log` của CI dùng (MSVC v143, ATL kể cả Spectre, clang-cl,
+merge module MSVC, CMake/Ninja, Windows SDK 10.0.26100, .NET Framework 4.8.1 SDK), Cygwin tại
+`D:\cygwin64` (qua `build-windows.ps1 -CygwinRoot`), cùng ngoại lệ Defender cho `D:\hst-build` và
+`D:\cygwin64`. Windows SDK và trình cài VS luôn nằm trên C:, và C: phải còn trống ít nhất 3 GB.
+
+[hst4-build.ps1](../scripts/windows/hst4-build.ps1) build một nhánh hoặc commit vào `D:\hst-build`
+(thư mục `repo`, `lo`, `dl`, `branding`, `logs`, `metrics`, `out`). MSI cùng `SHA256SUMS` và
+`build-info.json` (thời gian từng bước, sha, kích thước) được ghi vào
+`D:\hst-build\out\<nhánh>-<sha7>\`. Mặc định script dùng mọi luồng, ưu tiên Normal; có thể đổi
+bằng `-Jobs N` và `-Priority BelowNormal`. Lần sau build tăng dần nhờ
+[hst4-tree.sh](../scripts/windows/hst4-tree.sh). Bản giải nén gốc được giữ trong `pristine\<khóa>\`,
+với khóa tính từ sha256 của tarball và `trial-build.sh`. `stage\` giữ cây đã vá của lần chạy
+trước. Mỗi lần chạy, script đưa những tệp và thư mục mà lần vá trước đã đổi, tạo hay xóa về lại bản
+gốc, rồi vá lại bằng `trial-build.sh --patch` của commit đang build. Những gì vừa đổi được nhận ra
+bằng ctime và danh sách tệp, và chỉ những tệp có nội dung khác mới được chép sang `lo\`, nên make
+chỉ build lại phần mà commit thay đổi. Nếu đổi tarball, `trial-build.sh` hoặc dùng `-Clean`, cây
+được dựng lại đầy đủ. Khi đổi tarball, tệp upstream cũ có thể còn sót trong `lo\`; lúc đó nên dùng
+`-Clean`. Thêm `-VerifyTree` để so `stage\` và `lo\` với một cây vừa giải nén và vá mới (mất thêm
+khoảng 13 phút). `lo\` chỉ được phép khác ở `configure`, `aclocal.m4` và `openoffice.lst`, là
+những tệp do bước configure ghi lại. Build dài phải chạy tách khỏi phiên SSH bằng
+[hst4-detach.ps1](../scripts/windows/hst4-detach.ps1). Script này tạo task `hst-build-<tên>`
+chạy dưới tài khoản `kiemtra` (S4U, ưu tiên Normal) và tự xóa task khi xong.
+
+```powershell
+# một lần: chép script ra ngoài checkout (checkout bị đổi sang commit cần build)
+Copy-Item scripts\build-windows.ps1 D:\hst-build\tools\scripts\; Copy-Item scripts\windows\hst4-* D:\hst-build\tools\scripts\windows\
+powershell -File D:\hst-build\tools\scripts\windows\hst4-detach.ps1 -Name build -Script D:\hst-build\tools\scripts\windows\hst4-build.ps1 -ScriptArgs '-Ref rc/1.0.2-batch1'
+powershell -File D:\hst-build\tools\scripts\windows\hst4-build.ps1 -Status   # bước hiện tại, số bước [build], đuôi build.log, dung lượng trống
+```
+
+Dùng `-ExpectSha <sha>` để build dừng ngay khi nhánh không còn ở đúng commit đã được báo. Số đo
+lần đầu (13/11/2026, `rc/1.0.2-batch2` cac9177, 28 luồng): toàn bộ quy trình mất 86 phút, riêng
+make 71 phút. Trước đó cây đã được build sẵn khoảng 11 phút, xong phần lớn các thư viện ngoài. Để
+so sánh, bước build trên runner CI mất 157 phút. Phần OpenSSL do nmake build chạy một luồng nên
+kéo dài khoảng 30 phút. MSI cuối cùng nặng khoảng 224 MiB. Một lần build tăng dần mất khoảng 17
+phút. Riêng bước cây mất 5,5 phút (trước khi có bộ đệm `pristine\` là 14 phút): đưa tệp về bản gốc
+5 giây, vá lại 5 phút, quét và chép 8 giây. Sau đó configure 1 phút, make và đóng gói MSI 10 phút.
+Lần đầu dùng một khóa tarball mới phải giải nén thêm khoảng 5 phút. Ổ D: cần khoảng 45 GB cho cây
+build, `pristine\` và `stage\`.
+
+#### Nhiều máy, nhiều slot và hàng đợi (HST4, HST5)
+
+Agent không gọi `hst4-build.ps1` bằng tay nữa mà gửi job vào hàng đợi
+(`scripts/build-queue.sh submit --platform windows --ref <nhánh|sha> [--priority N] [--modules a,b]`, xem
+[BUILD_MATRIX.md](BUILD_MATRIX.md#hàng-đợi-build-cục-bộ-agent-tự-dùng)). Dispatcher trên máy dev coi các slot trong
+`windows_slots` của `/data/hst-build-queue/config.json` là một bể chung: mỗi slot là một máy + một thư mục gốc
+(`-Root`) với `repo\`, `lo\`, `stage\`, `pristine\`, `out\` và `build.lock` riêng; Cygwin, VS, Python và `bin\` dùng
+chung dưới `-ToolsRoot` (`D:\hst-build`). Với mỗi job, dispatcher:
+
+1. chép công cụ (`hst4-*.ps1`, `hst4-tree.sh`, `hst4-make-targets.sh`, `build-windows.ps1`,
+   `apply-build-overlay.ps1`) vào `D:\hst-build\tools\scripts\` của máy khi chúng đổi;
+2. chạy [hst-queue-remote.ps1](../scripts/windows/hst-queue-remote.ps1) qua `tests/realwin/remote.py <máy> ps`:
+   `Probe` (slot bận nếu `build.lock` đang bị giữ, kể cả bởi một lượt chạy tay), `Start` (task
+   `hst-build-q-<job>` qua `hst4-detach.ps1`, `hst4-build.ps1 -Ref <sha> -OutName q-<job>`), `Status` mỗi phút,
+   `Cancel` (dừng task và đúng cây tiến trình của nó);
+3. kéo `out\q-<job>\` (MSI + `SHA256SUMS` + `build-info.json`, kiểm `sha256sum -c`) về
+   `/data/hst-build-queue/out/<job>/`, ghi máy đã build vào job, rồi xoá bản trên máy Windows.
+
+`-Modules sc,sw` (chỉ để thử) chạy `make udkapi.build offapi.build oovbaapi.build` rồi `make sc.build sw.build` với
+cùng môi trường như `trial-build.sh --build` ([hst4-make-targets.sh](../scripts/windows/hst4-make-targets.sh)), và
+xuất `HSTOffice-overlay-<sha>-<module>.zip` (tệp trong `instdir` mà lượt make đó ghi lại) để chép đè lên ảnh cài
+quản trị (`msiexec /a`) của một MSI tham chiếu. Slot phải đã build đủ một lần.
+
+HST5 được dựng giống HST4 bằng `hst4-setup.ps1` (13/11/2026): bước mới `Prereqs` cài Chocolatey (script cài
+chính thức, kiểm chữ ký Authenticode) và Git for Windows nếu thiếu; VS Build Tools 17.14.37906.3 (MSVC 14.44.35207,
+clang-cl 19.1.5, SDK 10.0.26100, .NET 4.8.1), Cygwin, NASM 3.02, pkgconfiglite, Python 3.12.10 + Pillow giống hệt
+HST4; ngoại lệ Defender cho `D:\hst-build` và `D:\cygwin64`. Chủ máy đã tắt Smart App Control trên HST5 (không
+bật lại được nếu không cài lại Windows; ghi ở `C:\hst-test\hst5-sac-change.txt`). Kho chứng chỉ gốc của Windows trên HST5
+thiếu chuỗi của máy chủ tải tarball (`CERTIFICATE_VERIFY_FAILED` với Python NuGet). Không đổi kho chứng chỉ của máy:
+bước `Python` của `hst4-setup.ps1` cài `certifi` ghim phiên bản và hash (`pip --require-hashes`), và `hst4-build.ps1`
+chỉ đặt `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` tới bộ CA đó trong lúc chạy `fetch-sources.py` của task build; tarball vẫn
+được kiểm sha256 theo lock. Trên Windows 11 bản 26200 (HST5),
+`expand.exe` báo `0x80070005` khi bộ đóng gói MSI bung merge module VC vào thư mục do Cygwin tạo dưới `/tmp` (thư mục
+thuộc người build, không cấp quyền cho Administrators) bên trong task S4U nâng quyền; bước `TmpAcl` của
+`hst4-setup.ps1` cấp toàn quyền kế thừa cho Administrators và SYSTEM trên `D:\cygwin64\tmp` (đã áp trên HST5).
+
+Số slot (đo 13/11/2026, giữ ổ còn trống ≥ 15 GB và RAM không quá tải):
+
+| Máy | Slot (`-Root`) | Lý do |
+|---|---|---|
+| HST4 (28 luồng, 32 GB) | 1: `D:\hst-build` | Mỗi cây ~40 GB (`lo` 33 + `stage` 3,5 + `pristine` 3,5); D: chỉ còn ~37 GB trống, C: dao động 10–56 GB vì việc khác nên không đặt cây thứ hai ở C:; các ứng dụng sẵn có trên máy đã chiếm ~15 GB RAM. |
+| HST5 (Xeon E5-2680 v4, 28 luồng, 32 GB) | 2: `D:\hst-build`, `D:\hst-build-s2` | D: 130 GB: hai cây (~80 GB) vẫn để ~37 GB trống, cây thứ ba thì không. Một build `-j28` lên đỉnh ~21 GB commit (gồm ~8 GB nền); build thứ hai trên cùng máy chạy `-j14`. |
+
+Bản dịch tiếng Việt trong build tăng dần: `make` của LibreOffice không dựng lại `.mo`, `registry_vi.xcd` hay
+`XcuResTarget/*/vi` khi `.po` đổi ([SHARED_BUILD_SLOTS.md](SHARED_BUILD_SLOTS.md#incremental-build-gaps)), nên trước
+13/11/2026 MSI build tăng dần trên HST4/HST5 mang catalogue của lần build đủ đầu tiên của slot (nhãn ribbon, gợi ý tìm
+kiếm còn tiếng Anh). Nay `hst4-tree.sh` xoá các tệp đó cho mọi ngôn ngữ có `.po` mới hơn `.mo` cũ nhất của nó, và
+`hst4-build.ps1` chạy [check-mo-fresh.py](../scripts/l10n/check-mo-fresh.py) sau make: dịch lại từng `.po` như gbuild
+(`msguniq | msgfmt`) và so từng mục với `.mo` trong `instdir`; lệch là job hỏng, không ra MSI. Build Linux cục bộ kiểm
+cùng cách trước khi đóng gói.
+
+Khi máy có hai slot, lưu ý: `trial-build.sh --build` (script của CI, giữ nguyên) khi chạm hạn 3 ngày
+(`HST_BUILD_DEADLINE`) chạy `taskkill /IM make.exe|cl.exe|link.exe` cho **cả máy**, nên sẽ dừng luôn build của slot
+kia; chỉ xảy ra khi một build chạy quá 3 ngày. Đổi công cụ trên một máy luôn bận: `scripts/build-queue.sh drain <máy>`.
+
+`-Jobs` của job mới = luồng của slot chia cho (số build đang chạy trên máy đó + 1): một mình 28, cạnh một build khác
+14. Tarball ghim nằm chung ở `D:\hst-build\dl` (`-ToolsRoot`). Slot mới build đủ lần đầu khi được dùng lần đầu; trước đó thư mục gốc của nó phải có ngoại lệ Defender
+(`hst4-setup.ps1 -Step Defender -ExtraRoots D:\hst-build-s2`), nếu không configure của LibreOffice dừng.
+
+Số đo: HST4 build tăng dần qua hàng đợi `rc/1.0.2-batch4` (d071caa): 18 phút (cây 332 s, configure 66 s,
+make + MSI 666 s) và thêm khoảng 1 phút kéo MSI về. HST5 build đủ lần đầu: cây 20 phút (giải nén + vá),
+fetch 10,5 phút, configure 2 phút, make 80,5 phút (chậm hơn HST4 vì CPU 2,4 GHz). Ổ D: của HST5 cần ~45 GB cho một
+slot mới.
+
 [build-macos.sh](../scripts/build-macos.sh) (chỉ kiểm kê, không dùng trong CI; CI dùng `scripts/macos/`, xem mục [macOS](#macos)) nhận `--arch arm64|x86_64`, in lệnh từ
 [arm64](../build-config/macos-arm64.conf) hoặc [x86_64](../build-config/macos-x86_64.conf).
 Script kiểm tra host đúng kiến trúc, Xcode từ 14.3, SDK từ 13.3 và công cụ đóng

@@ -114,8 +114,10 @@ def check_linux_build(jobs, events, runs, all_steps, require):
     text_runs = "\n".join(step["run"] for step in runs)
     require("fetch-sources.py" in text_runs, "Linux build must download and verify pinned tarballs")
     order = re.findall(r"ci-build\.sh --([\w-]+)", text_runs)
-    require(order == ["deps", "extract", "patch", "configure", "fetch", "build", "package", "rpm-appimage"],
-            "Linux build stages must follow deps/extract/patch/configure/fetch/build/package/rpm-appimage order")
+    require(order == ["deps", "extract", "patch", "configure", "fetch", "build", "check-translations", "package",
+                      "rpm-appimage"],
+            "Linux build stages must follow deps/extract/patch/configure/fetch/build/check-translations/package/"
+            "rpm-appimage order")
     modes = dispatch_inputs(events).get("mode", {})
     require(sorted(modes.get("options") or []) == ["full", "preflight"], "mode input must offer full and preflight")
     build = [step for step in runs if "ci-build.sh --build" in step["run"]]

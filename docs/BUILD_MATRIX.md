@@ -23,6 +23,140 @@ python3 scripts/measure-job.py --json build/metrics/linux-build.json -- scripts/
 scripts/build-linux.sh --package          # .deb (EPM)
 ```
 
+## Hàng đợi build cục bộ (agent tự dùng)
+
+Agent tự build `.deb` (máy dev) hoặc `.msi` (HST4/HST5) qua hàng đợi
+[`scripts/build-queue.sh`](../scripts/build-queue.sh), không cần qua S0. Bản phát hành chính thức vẫn lấy từ CI.
+
+```bash
+scripts/build-queue.sh submit --platform linux   --ref rc/1.0.2-batch4             # in ra mã job
+scripts/build-queue.sh submit --platform windows --ref feat/x --priority 10        # Windows là nền tảng ưu tiên
+scripts/build-queue.sh submit --platform linux   --ref feat/x --modules sc,sw      # bản vá nhanh, CHỈ ĐỂ THỬ
+scripts/build-queue.sh submit --platform linux   --ref feat/x --no-package         # chỉ make, không .deb
+scripts/build-queue.sh wait   <id>          # chờ; in đường dẫn .deb/.msi/overlay (thoát 0) hoặc đuôi log (thoát 1)
+scripts/build-queue.sh status <id>          # trạng thái, slot/máy, đầu ra, log
+scripts/build-queue.sh list [--all]         # job đang chờ/chạy + 10 job xong gần nhất
+scripts/build-queue.sh cancel <id>          # job chờ bị bỏ ngay; job đang chạy được dispatcher dừng
+scripts/build-queue.sh drain hst5           # máy Windows: ngừng nhận job mới, chờ rảnh, chép công cụ mới, nhận job lại
+scripts/build-queue.sh drain hst5 --cancel  # thôi chờ (khi máy còn một build dài), nhận job lại ngay
+```
+
+**Quy tắc cho agent (bắt buộc):** chạy CppunitTest bằng `submit --test` (mục dưới), không dựng cây riêng để chạy test.
+Cần mã nguồn/header LibreOffice để đọc hay kiểm cú pháp thì đọc thẳng
+`/data/hst-office-build/src/lo` (cây của slot 1), **không chép cả cây** sang chỗ khác. Chỉ khi thật sự cần một cây đã
+build và ghi được (ví dụ cho unit test) mới được giữ **một** cây riêng dưới `/data/hst-agents/<việc>/`, và phải xoá
+khi xong việc. Cần bản build thì gửi vào hàng đợi. Khi `/data` không còn đủ chỗ, bộ điều phối từ chối build và in
+các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u hst-build-queue`).
+
+- `--ref` là nhánh, tag hoặc sha (lấy từ `origin`, `origin/<ref>` thắng nhánh local); commit được ghim ngay lúc
+  submit. Job cùng nền tảng + commit + tuỳ chọn mà đang chờ/chạy hoặc đã xong và còn đầu ra thì `submit` trả lại mã
+  job cũ (dedupe), `wait` trả kết quả ngay. Thứ tự: `--priority` (-100…100, cao trước), rồi đến trước làm trước;
+  job ưu tiên cao đang chờ thì job thấp hơn cùng nền tảng không được chen.
+- Dữ liệu dưới `/data/hst-build-queue/`: `jobs/<id>.json`, `logs/<id>.log`, `out/<id>/` (`.deb`/`.msi`/overlay +
+  `SHA256SUMS`; với nhánh có `ci-build.sh --rpm-appimage`, tức từ 1.0.2, job Linux có thêm `.rpm` và `.AppImage`
+  đóng lại từ chính `.deb`, nhánh cũ chỉ có `.deb`), `config.json` (ghi đè mặc định trong `build-queue.py`: số đầu ra giữ lại, danh sách slot Windows).
+  Giữ `retention_per_branch` (3) đầu ra mới nhất cho mỗi nền tảng + nhánh + loại job (gói, overlay, test); đầu ra cũ hơn bị xoá (job vẫn còn,
+  đánh dấu `output_deleted`). Job Windows ghi máy đã build (`host`, `slot`).
+- Dispatcher là dịch vụ systemd `hst-build-queue` ([unit](../scripts/linux/hst-build-queue.service), `Restart=on-failure`,
+  `Nice=10`, I/O idle; `journalctl -u hst-build-queue`), chạy từ bản triển khai `/data/hst-build/infra-current`
+  (symlink tới `infra-<sha>`, không bao giờ từ worktree đang sửa). Cập nhật bằng
+  [`build-infra-deploy.sh <commit>`](../scripts/linux/build-infra-deploy.sh): tạo `infra-<sha>` mới, đổi symlink bằng
+  một lần rename (nguyên tử), khởi động lại dispatcher; job đang chạy giữ phiên bản lúc nó bắt đầu, phiên bản cũ bị
+  xoá khi không còn tiến trình nào dùng. Công cụ Windows chỉ được chép sang máy khi máy đó không có build nào chạy; máy luôn bận thì dùng
+  `build-queue.sh drain <máy>` để ép (chờ máy rảnh, chép, rồi nhận job lại).
+  Job hỏng vì hạ tầng (script đổi giữa chừng, slot bận, mount, mạng/SSH/SSL, task Windows biến mất…) được tự đưa lại
+  vào hàng đợi, tối đa 2 lần (`infra_retries` trong job); lỗi build thật (lỗi make) thì không. Job Linux chạy `local-build.sh --slot N` trên slot rảnh mà bộ
+  điều phối cho vào; job Windows chạy trên các slot trong `windows_slots` (HST4, HST5): dispatcher tự chép công cụ
+  (`D:\hst-build\tools\scripts`) khi chúng đổi, chạy build thành scheduled task qua
+  [`hst-queue-remote.ps1`](../scripts/windows/hst-queue-remote.ps1), kéo MSI về `out/<id>/` rồi xoá bản trên máy
+  Windows. Slot có `build.lock` do người khác giữ (ví dụ một lượt `hst4-build.ps1` chạy tay) bị bỏ qua tới khi rảnh.
+
+### `--test`: chạy test LibreOffice trong slot (không cần cây riêng)
+
+```bash
+scripts/build-queue.sh submit --platform linux --ref feat/x --test 'CppunitTest_sc_ucalc CppunitTest_xmlsecurity_signing'
+scripts/build-queue.sh submit --platform linux --ref rc/1.0.2-batch4 --test 'CppunitTest_sc_ucalc CppunitTest_xmlsecurity_signing'
+scripts/build-queue.sh wait <id>            # PASS/FAIL từng target + đuôi log của target hỏng; thoát 3 nếu có test hỏng
+scripts/build-queue.sh compare <id-nền> <id-nhánh>   # so sánh từng target; "REGRESSION" (thoát 3) khi nền đạt mà nhánh hỏng
+```
+
+Chỉ Linux. Job build tăng dần nhánh đó trong một slot (`make` đầy đủ, không đóng gói), rồi chạy lần lượt `make <target>`
+trong chroot của slot với cùng môi trường như build (`HST_VERSION_*`, `HST_REPO_ROOT`, scope systemd, bộ điều phối,
+cùng các bảo vệ RAM/đĩa). Target hợp lệ: `CppunitTest_*`, `PythonTest_*`, `<module>.check|unitcheck|slowcheck|
+subsequentcheck` (UITest cần màn hình nên không nhận). Kết quả nằm trong job (`status --json`: `test_results`) và
+`out/<id>/test-results.json`, log từng target ở `out/<id>/test-logs/<target>.log`. Test hỏng không làm job hỏng (job
+`done`, `wait` thoát 3); build hỏng thì job `failed` như thường. Muốn so với nền thì gửi cùng danh sách `--test` cho nhánh
+nền (ví dụ `rc/1.0.2-batch4`) rồi `compare`. Job giống hệt (cùng commit + cùng danh sách test) được dùng lại.
+
+### `--modules`: bản vá nhanh để thử (không dùng cho batch)
+
+`--modules sc,sw` chỉ chạy `make udkapi.build offapi.build oovbaapi.build` rồi `make sc.build sw.build` (tên có `.`
+hoặc `_` được dùng nguyên là target make, ví dụ `Library_merged` khi sửa vcl/sfx2/svx) trên một slot đã từng build
+đủ, và cho ra **overlay**: các tệp trong `instdir` mà lượt make đó ghi lại (thư viện, `uiconfig`, registry…), cùng
+`FILES`, `SHA256SUMS`, `README.txt` và script áp:
+
+- Linux: `HSTOffice-overlay-<nhánh>-<sha>-<module>.tar.gz`;
+  `dpkg-deb -x HSTOffice_<release>_Linux_x86-64.deb ref/ && ./apply-build-overlay.sh ref/`
+  ([script](../scripts/overlay/apply-build-overlay.sh), tìm `program/soffice.bin` rồi chép đè).
+- Windows: `HSTOffice-overlay-<sha>-<module>.zip`; `msiexec /a <MSI tham chiếu> /qn TARGETDIR=C:\hst-test\ref` rồi
+  `powershell -File apply-build-overlay.ps1 -Image C:\hst-test\ref` ([script](../scripts/overlay/apply-build-overlay.ps1)).
+
+Overlay **chỉ để thử**: nó chỉ chứa module đã chọn, cây của slot có thể mang thay đổi của commit khác ở module
+không build lại, và `.mo`/registry dịch không được dựng lại (khoảng hở ở
+[SHARED_BUILD_SLOTS.md](SHARED_BUILD_SLOTS.md#incremental-build-gaps)). Bản giao cho batch, QA hay người dùng luôn
+phải là bản build đủ (`.deb`/`.msi`).
+
+## Build cục bộ giống CI (Linux `.deb`): slot song song
+
+[`scripts/linux/local-build.sh`](../scripts/linux/local-build.sh) (hàng đợi gọi script này) build `.deb` bằng đúng các
+pha của `desktop-linux.yml` (`ci-build.sh` của chính nhánh được build: `--deps`, `--extract`, `--patch`,
+`--configure`, `--fetch`, `--package`), tăng dần, trong một trong các **slot** song song dưới `/data/hst-build`:
+
+```bash
+sudo scripts/linux/local-build.sh rc/1.0.2-batch4                 # slot rảnh đầu tiên mà bộ điều phối cho vào
+sudo scripts/linux/local-build.sh --slot 2 -j 8 /home/wt-my-fix   # worktree, kể cả thay đổi chưa commit ("-dirty")
+sudo scripts/linux/local-build.sh --slot 3 --modules sc feat/x    # overlay thử (xem trên)
+sudo scripts/linux/local-build.sh --umount --slot 2               # gỡ mount sau một lượt bị giết
+python3 scripts/linux/build-slots.py status                       # slot đang chạy, -j, ngân sách, RAM/đĩa
+```
+
+- Bố trí: `chroot/` (root file system của image container CI, cùng digest, clang theo `HST_CLANG`, thêm ccache; dùng
+  chung, chỉ đọc: mỗi slot gắn overlayfs `slots/<N>/root` = `chroot/` + `chroot-upper/`), `ccache/` (dùng chung, tối
+  đa 30 GB), `external-tarballs/`, `out/<nhánh>-<sha>/` (lượt chạy tay), `locks/`, `slots/<N>/` (`checkout/`, `src/`
+  = `HST_WORK` với `lo/`, `dl/`, `pristine.git`; `logs/<giờ>-<nhãn>/`: `wrapper.log`, `build.log`, `timings.tsv`,
+  `memory.tsv`). Trong chroot của mọi slot, cây được gắn ở **cùng đường dẫn** `/data/hst-office-build/{src,checkout,
+  ccache,logs}`: cây LibreOffice không di chuyển được, nên cây sao chép sang slot khác vẫn hợp lệ (không build lại) và
+  ccache trúng giữa các slot. Đường `/data/hst-office-build` trên máy chủ chỉ còn `src` → slot 1 (cho các script
+  kiểm cú pháp đọc header) và một tệp `ccache` để `local-build.sh` cũ (một cây) dừng ngay thay vì dựng cây mới.
+- Tạo slot: [`build-slots-setup.sh`](../scripts/linux/build-slots-setup.sh) `migrate` (cây cũ thành slot 1, chỉ di
+  chuyển), `clone N` (chép cây ấm của slot 1; tarball, `pristine.git` là hard link), `plan` (còn chứa được mấy slot:
+  mỗi slot thêm ~13 GB; luôn chừa 15 GB trống + phần ccache còn lớn được + 5 GB đầu ra).
+- Đồng bộ patch: mỗi lượt đưa các tệp mà series đã sửa/thêm về trạng thái tarball gốc (`pristine.git`, nằm ngoài cây để
+  LibreOffice không coi là git build), áp lại như CI, rồi trả mtime cũ cho tệp không đổi nội dung, nên đổi nhánh luôn
+  sạch mà `make` chỉ build lại phần đổi. Configure chỉ chạy lại khi tệp mà `Makefile.in` theo dõi, `autogen.input` hoặc
+  phiên bản HST đổi (`--reconfigure` để ép). `.po` đổi (hoặc `.po` mới hơn `.mo` cũ nhất của ngôn ngữ đó) thì xoá
+  `.mo`/`registry_<lang>.xcd`/`XcuResTarget/*/<lang>` tương ứng (khoảng hở ở
+  [SHARED_BUILD_SLOTS.md](SHARED_BUILD_SLOTS.md#incremental-build-gaps)); trước khi đóng gói,
+  [check-mo-fresh.py](../scripts/l10n/check-mo-fresh.py) so từng mục của mọi `.mo` tiếng Việt với `.po` của ref, lệch thì
+  dừng. `--fresh` giải nén lại (build lại toàn bộ).
+  Khi `do_deps` của nhánh hoặc image đổi, `chroot/` được cập nhật một lần, sau khi mọi slot khác dừng (khoá
+  `locks/chroot.lock`: slot giữ khoá chia sẻ, cập nhật giữ khoá độc quyền).
+- **Bộ điều phối** ([`build-slots.py`](../scripts/linux/build-slots.py), trạng thái `locks/slots.json` dưới flock): slot
+  chỉ bắt đầu `make` khi tổng job ≤ 28 và `MemAvailable` trừ phần ngân sách đã giữ mà chưa dùng ≥ ngân sách slot + 8 GB,
+  và `/data` còn ≥ 17 GB (khi từ chối vì đĩa, kèm danh sách thư mục lớn nhất dưới `/data/hst-agents`, cập nhật
+  10 phút một lần). `-j` chia theo kiểu rót nước: một slot một mình được tối đa 20 (`-j`/`--jobs` là trần), nhiều
+  slot thì chia đều 28 (tối thiểu 4); khi slot khác vào/ra, `make` được khởi động lại với `-j` mới (giảm ngay, tăng khi
+  thêm ≥ 6). Ngân sách = `clamp(4 + 0,4 × jobs, 6, 12)` GB là `MemoryMax` của scope systemd (`MemoryHigh` 90 %,
+  `MemorySwapMax=0`, `CPUQuota` = jobs × 100 %), `nice 19`, `ionice -c3`. Hàng đợi cho job `--modules` trần 6 job
+  (ngân sách 6,4 GB) để ba job nhỏ chạy cạnh nhau. Xong `make`, slot trả ngân sách ngay (đóng gói `.deb`/overlay nhẹ).
+- Bảo vệ: chung cho cả máy, `MemAvailable` < 6 GB hoặc swap tăng > 1 GB (so với lần nhận/thả gần nhất) thì chỉ slot
+  vào **sau cùng** bị đóng băng (`cgroup.freeze`), áp lực còn thì slot kế tiếp; trong mỗi slot giữ cơ chế cũ: rã đông ở
+  8 GB, lần dừng thứ hai hoặc do swap thì chạy lại `make` với nửa số job (tối thiểu 2), quá 30 phút thì dừng; scope bị
+  giết vì chạm `MemoryMax` thì thử lại với nửa số job; mỗi slot chỉ một lần link nặng (≥ 1 GB) cùng lúc; đĩa dưới 5 GB
+  thì dừng.
+- Khác CI nhưng không đổi thứ được biên dịch: chroot thay cho docker, ccache, `-j` do bộ điều phối quyết. Không chạy
+  `check-coexistence.sh`. Cần root (chroot, mount).
+
 ## Đóng gói `.deb` (Linux x86_64)
 
 - `scripts/build-linux.sh --package` chạy `make`, từ chối kết quả `*_witherror`, rồi gộp 38 file `.deb` (bộ `HSTOffice` + `HSTOffice_languagepack` vi) thành **một** `HSTOffice_<release>_Linux_x86-64.deb` (gói `hst-office`, `scripts/linux/make-single-deb.py`) cùng `SHA256SUMS` trong `dist/linux/` (~192 MiB). Trình cài đồ họa (nhấn đúp) chỉ mở được một tệp.
