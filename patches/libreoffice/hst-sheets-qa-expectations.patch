@@ -5,7 +5,8 @@ the .xlsx functions, CEILING.ODF/FLOOR.ODF, FORMULATEXT, SKEW.P, FORECAST.ETS(.C
 cells show #VALUE!/#NUM!/... instead of Err:5xx), hst-calc-vietnamese-category.patch (category
 "Vietnamese" after "Add-in") and hst-sheets-num-errors.patch (numbers outside a function's domain are
 #NUM!: DATEDIF with the start after the end, GCD/LCM of a negative number, RRI, no convergence; type
-errors and wrong parameter counts stay #VALUE!). Only expected values change, no test is removed.
+errors and wrong parameter counts stay #VALUE!), a typed FALSE reads =FALSE and the default
+formula syntax is Excel A1 (Test!$A$3:$D$7). Only expected values change, no test is removed.
 The OpenCL suites (CppunitTest_sc_opencl-*) are not run for HST: Sheets never computes formulas with
 OpenCL (hst-sheets-error-parity.patch).
 
@@ -368,3 +369,78 @@ CppunitTest_sc_uicalc2, CppunitTest_sc_financial_functions_test.
  }
  
  CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testTdf131073)
+@@ -547,7 +547,7 @@
+     dispatchCommand(mxComponent, u".uno:Paste"_ustr, {});
+ 
+     OUString aFormula = pDoc->GetFormula(0, 77, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=FALSE()"_ustr, aFormula);
++    CPPUNIT_ASSERT_EQUAL(u"=FALSE"_ustr, aFormula);
+ 
+     dispatchCommand(mxComponent, u".uno:Cut"_ustr, {});
+ 
+@@ -558,7 +558,7 @@
+     dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
+ 
+     aFormula = pDoc->GetFormula(0, 77, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=FALSE()"_ustr, aFormula);
++    CPPUNIT_ASSERT_EQUAL(u"=FALSE"_ustr, aFormula);
+ }
+ 
+ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testTdf118207)
+@@ -578,7 +578,7 @@
+     goToCell(u"A:A"_ustr);
+ 
+     OUString aFormula = pDoc->GetFormula(0, 77, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=FALSE()"_ustr, aFormula);
++    CPPUNIT_ASSERT_EQUAL(u"=FALSE"_ustr, aFormula);
+ 
+     dispatchCommand(mxComponent, u".uno:Cut"_ustr, {});
+ 
+@@ -591,17 +591,17 @@
+     dispatchCommand(mxComponent, u".uno:Paste"_ustr, {});
+ 
+     aFormula = pDoc->GetFormula(1, 77, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=FALSE()"_ustr, aFormula);
++    CPPUNIT_ASSERT_EQUAL(u"=FALSE"_ustr, aFormula);
+ 
+     dispatchCommand(mxComponent, u".uno:Paste"_ustr, {});
+ 
+     aFormula = pDoc->GetFormula(1, 77, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=FALSE()"_ustr, aFormula);
++    CPPUNIT_ASSERT_EQUAL(u"=FALSE"_ustr, aFormula);
+ 
+     dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
+ 
+     aFormula = pDoc->GetFormula(1, 77, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=FALSE()"_ustr, aFormula);
++    CPPUNIT_ASSERT_EQUAL(u"=FALSE"_ustr, aFormula);
+ 
+     dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
+ 
+@@ -613,7 +613,7 @@
+     dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
+ 
+     aFormula = pDoc->GetFormula(0, 77, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=FALSE()"_ustr, aFormula);
++    CPPUNIT_ASSERT_EQUAL(u"=FALSE"_ustr, aFormula);
+ 
+     // Restore previous status
+     aInputOption.SetReplaceCellsWarn(bOldStatus);
+@@ -1074,7 +1074,7 @@
+ 
+     const ScRangeData* pRD = pDoc->GetRangeName()->findByUpperName(u"TEST"_ustr);
+     CPPUNIT_ASSERT(pRD);
+-    CPPUNIT_ASSERT_EQUAL(u"$Test.$A$3:$D$7"_ustr, pRD->GetSymbol());
++    CPPUNIT_ASSERT_EQUAL(u"Test!$A$3:$D$7"_ustr, pRD->GetSymbol());
+ 
+     //Select columns E to G
+     goToCell(u"E:G"_ustr);
+@@ -1084,7 +1084,7 @@
+     // Without the fix in place, this test would have failed with
+     // - Expected: $Test.$A$3:$D$7
+     // - Actual  : $Test.$A$3:$G$7
+-    CPPUNIT_ASSERT_EQUAL(u"$Test.$A$3:$D$7"_ustr, pRD->GetSymbol());
++    CPPUNIT_ASSERT_EQUAL(u"Test!$A$3:$D$7"_ustr, pRD->GetSymbol());
+ 
+     xGlobalSheetSettings->setExpandReferences(bOldValue);
+ }
