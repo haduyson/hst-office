@@ -162,6 +162,7 @@ class RemainingTexts(unittest.TestCase):
         added, removed = file_lines("readlicense_oo/CustomTarget_readme.mk")
         self.assertIn("\t-e 's,$${PRODUCTVERSION},$(readlicense_oo_HST_VERSION),g' \\", added)
         self.assertIn("readlicense_oo_HST_VERSION_H := $(SRCDIR)/include/hst_version.h", added)
+        self.assertIn("\t\t$(SRCDIR)/readlicense_oo/CustomTarget_readme.mk \\", added)  # rebuilt over old trees
         self.assertTrue(any("LIBO_VERSION_MAJOR" in line for line in removed))
         self.assertFalse(any("LIBO_VERSION" in line for line in added))
 

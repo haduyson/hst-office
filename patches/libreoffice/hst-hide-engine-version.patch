@@ -6,8 +6,9 @@ metadata, PDF/EPS/HTML and Windows file versions. Three places still showed the 
 
 - The ReadMe (readmes/README_<lang>, "HST Office 26.8 ReadMe"): ${PRODUCTVERSION} is the HST
   major.minor of include/hst_version.h (scripts/write-hst-version.py), e.g. "HST Office 1.0".
-  The header is a prerequisite, so a new /VERSION rebuilds the ReadMe; a missing header stops
-  the ReadMe rule with a message instead of falling back to the engine version.
+  The header and the makefile are prerequisites, so a new /VERSION or an incremental build
+  over an older tree rebuilds the ReadMe; a missing header stops the ReadMe rule with a message
+  instead of falling back to the engine version.
 - The UI string hooks: %ABOUTBOXPRODUCTVERSION is the HST release and %PRODUCTEXTENSION /
   %ABOUTBOXPRODUCTVERSIONSUFFIX are empty in the office (desktop/source/app/app.cxx), and the
   standalone Extension Manager (unopkg gui) expands %PRODUCTVERSION and the others like the
@@ -83,12 +84,13 @@ License: modified upstream files keep their license (MPL-2.0).
      OUString sRet = rStr.replaceAll( "%PRODUCTNAME", sProductName );
 --- a/readlicense_oo/CustomTarget_readme.mk
 +++ b/readlicense_oo/CustomTarget_readme.mk
-@@ -43,18 +43,25 @@
+@@ -43,18 +43,27 @@
  
  endif
  
 +# HST Office: the ReadMe names the HST release (major.minor of include/hst_version.h, written
-+# from /VERSION by scripts/write-hst-version.py), never the engine version.
++# from /VERSION by scripts/write-hst-version.py), never the engine version. This makefile is a
++# prerequisite too: an incremental build regenerates ReadMes made with the engine version.
 +readlicense_oo_HST_VERSION_H := $(SRCDIR)/include/hst_version.h
 +readlicense_oo_HST_VERSION := $(shell $(gb_AWK) '$$2 == "HST_VERSION_MAJOR" { a = $$3 } $$2 == "HST_VERSION_MINOR" { b = $$3 } END { if (a != "" && b != "") print a "." b }' $(readlicense_oo_HST_VERSION_H))
 +
@@ -101,6 +103,7 @@ License: modified upstream files keep their license (MPL-2.0).
  $(readlicense_oo_DIR)/$(call gb_README,%) : \
  		$(SRCDIR)/readlicense_oo/docs/readme.xsl \
 +		$(readlicense_oo_HST_VERSION_H) \
++		$(SRCDIR)/readlicense_oo/CustomTarget_readme.mk \
  		$(readlicense_oo_README_XRM) \
  		| $(readlicense_oo_DIR)/.dir \
  		  $(call gb_ExternalExecutable_get_dependencies,xsltproc)
