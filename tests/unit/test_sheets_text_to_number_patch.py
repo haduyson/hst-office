@@ -57,7 +57,8 @@ class TextToNumberPatchTest(unittest.TestCase):
         convert = added(CORE, "sc/source/ui/view/hsttextnumberconvert.cxx")
         for code in ("pUndoMgr->EnterListAction(aComment, aComment, 0", "pUndoMgr->LeaveListAction();",
                      "rFunc.SetValueCells(", "rFunc.ApplyAttributes(aFormatMark, aPattern, true);",
-                     "ScEditableTester::CreateAndTestSelection(rDoc, aMark)"):
+                     "ScEditableTester::CreateAndTestSelection(rDoc, aMark)",
+                     "aFormatMark.SelectTable(rRange.aStart.Tab(), true);"):
             self.assertIn(code, convert)
         core = added(CORE, "sc/source/core/tool/hsttextnumber.cxx")
         self.assertIn("pEntry->GetMaskedType() == SvNumFormatType::TEXT", core)  # Text-formatted cells stay text

@@ -1235,7 +1235,7 @@ Test: tests/unit/test_sheets_text_number_parse.py, tests/unit/test_sheets_text_t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/source/ui/view/hsttextnumberconvert.cxx
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,167 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -1386,7 +1386,10 @@ Test: tests/unit/test_sheets_text_number_parse.py, tests/unit/test_sheets_text_t
 +    {
 +        ScMarkData aFormatMark(rDoc.GetSheetLimits());
 +        for (const ScRange& rRange : rCells)
++        {
++            aFormatMark.SelectTable(rRange.aStart.Tab(), true); // ApplyAttributes works on the selected sheets
 +            aFormatMark.SetMultiMarkArea(rRange);
++        }
 +        ScPatternAttr aPattern(rDoc.getCellAttributeHelper());
 +        aPattern.ItemSetPut(SfxUInt32Item(ATTR_VALUE_FORMAT, nFormat));
 +        rFunc.ApplyAttributes(aFormatMark, aPattern, true);
