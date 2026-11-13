@@ -79,6 +79,26 @@ class RpmExecution(ShellHarness):
         self.assertIn("no installer tool", log)
         self.assertIn('"code":"tool"', (self.log.parent / "update-result.json").read_text())
 
+    def test_signed_package_imports_the_shipped_key_and_drops_the_unsigned_flag(self):
+        key = self.soffice.parent.parent / "RPM-GPG-KEY-hasontech"
+        key.write_text("public key", encoding="utf-8")
+        self.stub("zypper", "exit 0\n")
+        self.stub("rpm", 'case "$1" in -qp) printf "%s\\n" "${RPM_SIG:-RSA/SHA512, Fri, Key ID 579a0f1232743f35}" ;; esac\n')
+        self.execute(linux_kind="rpm")
+        args = self.args()
+        self.assertEqual(args[:2], ["sh", "-c"])
+        self.assertEqual(args[3:], ["sh", str(key), "zypper", "--non-interactive", "install", str(self.installer)])
+        self.assertIn('rpm --import "$1"', args[2])
+        self.process_vars["RPM_SIG"] = "(none) (none)"  # unsigned file: no import, zypper needs the flag
+        self.installer.write_text("installer", encoding="utf-8")
+        self.execute(linux_kind="rpm")
+        self.assertEqual(self.args(), ["zypper", "--non-interactive", "install", "--allow-unsigned-rpm", str(self.installer)])
+        key.unlink()  # signed file but no shipped key (older install): unsigned path
+        del self.process_vars["RPM_SIG"]
+        self.installer.write_text("installer", encoding="utf-8")
+        self.execute(linux_kind="rpm")
+        self.assertIn("--allow-unsigned-rpm", self.args())
+
     def test_dry_run(self):
         self.stub("dnf", "exit 0\n")
         log = self.execute(linux_kind="rpm", dry_run=True)

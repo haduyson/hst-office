@@ -27,7 +27,13 @@ if [ -n "${COEXIST:-}" ]; then
 fi
 
 step install
-if [ $PM = dnf ]; then
+if [ -f /pkg/RPM-GPG-KEY-hasontech ]; then
+  rpm --import /pkg/RPM-GPG-KEY-hasontech && pass "signing key imported" || fail "rpm --import"
+  rpm -K /pkg/hst.rpm | grep -qi 'signatures ok' && pass "rpm -K: $(rpm -K /pkg/hst.rpm | cut -d: -f2)" || fail "rpm -K: $(rpm -K /pkg/hst.rpm 2>&1)"
+  # Signed: no --allow-unsigned-rpm anywhere.
+  pm_install() { if [ $PM = dnf ]; then dnf install -y -q "$@"; else zypper -n -q install "$@"; fi; }
+  pm_install /pkg/hst.rpm >/tmp/install.log 2>&1; rc=$?
+elif [ $PM = dnf ]; then
   # Unsigned local file: dnf (4 and 5) must accept it without --nogpgcheck (localpkg_gpgcheck is off by default).
   dnf install -y /pkg/hst.rpm >/tmp/install.log 2>&1; rc=$?
 else
@@ -37,6 +43,7 @@ else
   rpm -q hst-office >/dev/null 2>&1 || { zypper -n install --allow-unsigned-rpm /pkg/hst.rpm >/tmp/install.log 2>&1; }
   rc=$?
 fi
+[ -f /pkg/RPM-GPG-KEY-hasontech ] && pm_install() { if [ $PM = dnf ]; then dnf install -y -q "$@"; else zypper -n -q install --allow-unsigned-rpm "$@"; fi; }
 grep -iE 'signature|gpg|not signed' /tmp/install.log | head -3 | sed 's/^/INFO install-log /'
 rpm -q hst-office >/dev/null && pass "installed $(rpm -q hst-office) (exit $rc)" || { tail -30 /tmp/install.log; fail install; exit 10; }
 rpm -qi hst-office | grep -E '^(Version|Release|Vendor|Signature)' | sed 's/^/INFO /'
@@ -58,6 +65,7 @@ for w in startcenter writer calc impress; do
 done
 grep -q 'vn\.hasontech\.hstoffice-writer' /usr/share/applications/mimeinfo.cache 2>/dev/null && pass "desktop database lists HST" || echo "INFO no mimeinfo.cache (desktop-file-utils absent)"
 command -v hst-office >/dev/null && pass "hst-office on PATH" || fail "hst-office on PATH"
+! grep -qiE '^Keywords.*(microsoft|lotus|corel)' /opt/hst-office1.0/share/xdg/*.desktop && pass "launcher keywords name no third-party product" || fail "third-party names in Keywords"
 BIN=/opt/hst-office1.0/program/soffice
 echo "INFO version $($BIN --version 2>/dev/null)"
 

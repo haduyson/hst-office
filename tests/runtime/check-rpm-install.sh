@@ -8,6 +8,8 @@
 # Environment: IMAGE (default fedora:42; fedora:40/41, opensuse/leap:15.6, opensuse/tumbleweed work; rockylinux:9 fails
 #              by design: glibc 2.34 < the package's GLIBC_2.35, see docs/LINUX_PACKAGES.md),
 #              COEXIST=1 also installs the distribution's LibreOffice Writer first and checks both run.
+#              RPM_KEY=<public key file>: the package is GPG-signed; the key is imported first, zypper runs WITHOUT
+#              --allow-unsigned-rpm and `rpm -K` must report the signature OK.
 # Needs network inside the container (dependencies). Exit 0 = every check passed.
 set -euo pipefail
 IMAGE="${IMAGE:-fedora:42}"
@@ -19,7 +21,9 @@ mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 NAME="hst-rpm-qa-$$"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || :' EXIT
-docker run --rm --name "$NAME" -e COEXIST="${COEXIST:-}" -v "$RPM:/pkg/hst.rpm:ro" \
+KEYMOUNT=()
+if [ -n "${RPM_KEY:-}" ]; then KEYMOUNT=(-v "$(realpath "$RPM_KEY"):/pkg/RPM-GPG-KEY-hasontech:ro"); fi
+docker run --rm --name "$NAME" -e COEXIST="${COEXIST:-}" "${KEYMOUNT[@]}" -v "$RPM:/pkg/hst.rpm:ro" \
   -v "$HERE/check-rpm-install-inside.sh:/inside.sh:ro" -v "$HERE/office-roundtrip-vi.py:/roundtrip.py:ro" "$IMAGE" \
   bash /inside.sh 2>&1 | tee "$OUT/install-lifecycle.log"
 status=${PIPESTATUS[0]}

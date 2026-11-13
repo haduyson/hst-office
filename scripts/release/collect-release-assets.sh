@@ -52,9 +52,10 @@ fetch() { # <run id> <artifact name> -> verified copy of its installer files int
   [ -f "$dir/SHA256SUMS" ] || die "$2 has no SHA256SUMS"
   (cd "$dir" && sha256sum -c SHA256SUMS)
   # Only installers are published; build evidence (e.g. notarytool logs) stays in the artifact.
-  # Linux: .deb, .rpm, .AppImage (+ .AppImage.asc and RPM-GPG-KEY-hasontech once signing is set up).
+  # Linux: .deb, .rpm, .AppImage (+ .AppImage.asc, the signed Linux checksum list and RPM-GPG-KEY-hasontech when signed).
   find "$dir" -maxdepth 1 -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.rpm' \
-    -o -name '*.AppImage' -o -name '*.AppImage.asc' -o -name RPM-GPG-KEY-hasontech \) -exec cp {} "$out/" \;
+    -o -name '*.AppImage' -o -name '*.AppImage.asc' -o -name '*_Linux_x86-64.SHA256SUMS' -o -name '*_Linux_x86-64.SHA256SUMS.asc' \
+    -o -name RPM-GPG-KEY-hasontech \) -exec cp {} "$out/" \;
 }
 
 commit="${COMMIT:-}"

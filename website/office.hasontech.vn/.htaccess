@@ -76,6 +76,7 @@
   AddType application/vnd.debian.binary-package .deb
   AddType application/x-rpm .rpm
   AddType application/vnd.appimage .AppImage
+  AddType application/pgp-signature .asc
   AddType application/x-apple-aspen-config .mobileconfig
   AddType text/plain .reg .xcd
 </IfModule>
@@ -98,6 +99,14 @@
     Header unset Content-Encoding
   </IfModule>
 </FilesMatch>
+
+# Khóa công khai ký gói Linux (từ 1.0.2): xem trong trình duyệt hoặc `rpm --import` thẳng từ URL.
+<Files "RPM-GPG-KEY-hasontech">
+  ForceType text/plain
+  <IfModule mod_headers.c>
+    Header set Cache-Control "no-cache, must-revalidate"
+  </IfModule>
+</Files>
 
 # Tải thẳng SHA256SUMS (tệp không có đuôi) như một tệp văn bản.
 <Files "SHA256SUMS">

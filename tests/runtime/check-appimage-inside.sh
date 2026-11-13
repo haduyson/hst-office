@@ -58,6 +58,7 @@ command -v desktop-file-validate >/dev/null && { desktop-file-validate $D/applic
 [ -s $D/icons/hicolor/256x256/apps/vn.hasontech.hstoffice-writer.png ] && pass "icons" || fail icons
 [ -s $D/mime/packages/vn.hasontech.hstoffice-appimage.xml ] && pass "MIME package" || fail "MIME package"
 grep -q 'vn.hasontech.hstoffice-writer.desktop' $D/applications/mimeinfo.cache 2>/dev/null && pass "user desktop database maps types to HST Writer" || fail "mimeinfo.cache"
+! grep -qiE '^Keywords.*(microsoft|lotus|corel)' $D/applications/vn.hasontech.hstoffice-*.desktop && pass "launcher keywords name no third-party product" || fail "third-party names in Keywords"
 grep -q 'RemoveIntegration' $D/applications/vn.hasontech.hstoffice-startcenter.desktop && pass "removal action in the Start Center launcher" || fail "removal action"
 as_user "mv $A /home/tester/Apps/HST.AppImage && /home/tester/Apps/HST.AppImage --version >/dev/null 2>&1"
 grep -q '^Exec="/home/tester/Apps/HST.AppImage"' $D/applications/vn.hasontech.hstoffice-writer.desktop && pass "moved AppImage: launchers follow" || fail "moved AppImage"

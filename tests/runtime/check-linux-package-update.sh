@@ -8,6 +8,8 @@
 #   tests/runtime/check-linux-package-update.sh rpm <old.rpm> <new.rpm> [image, default fedora:42]
 #   tests/runtime/check-linux-package-update.sh appimage <old.AppImage> <new.AppImage> [image, default ubuntu:24.04]
 # The new package must differ from the old one (e.g. repacked from a .deb renamed to a higher release id).
+# EXPECT_SIGNED=1 (rpm): the new package is GPG-signed and the old one ships RPM-GPG-KEY-hasontech; the helper must
+# import that key and install without --allow-unsigned-rpm.
 set -euo pipefail
 pass() { echo "PASS $*"; }
 fail() { echo "FAIL $*"; }
@@ -42,6 +44,10 @@ inside_rpm() {
   [ ! -e /tmp/upd-new.rpm ] && pass "installer deleted after success" || fail "installer left"
   grep -q 'Relaunching HST Office' /tmp/upd/update.log && pass "relaunch attempted" || fail "no relaunch"
   [ ! -e /tmp/upd/update-result.json ] && pass "no failure record" || fail "failure recorded: $(cat /tmp/upd/update-result.json)"
+  if [ -n "${EXPECT_SIGNED:-}" ]; then  # a signed update over an install that ships the key
+    grep -q 'Signed package: importing' /tmp/upd/update.log && ! grep -q 'allow-unsigned' /tmp/upd/update.log \
+      && rpm -q gpg-pubkey >/dev/null && pass "signed update: key imported, no --allow-unsigned-rpm" || fail "signed update path"
+  fi
 }
 
 inside_appimage() {
@@ -78,7 +84,7 @@ EXT="$(cd "$(dirname "$0")/../../extensions/hst-vietnamese-tools/python" && pwd)
 NAME="hst-update-e2e-$$"
 LOG="$(mktemp)"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || :; rm -f "$LOG"' EXIT
-docker run --rm --name "$NAME" -e KIND="$KIND" -e EXT_NAME="$EXT_NAME" --device /dev/fuse --cap-add SYS_ADMIN --security-opt apparmor:unconfined \
+docker run --rm --name "$NAME" -e KIND="$KIND" -e EXT_NAME="$EXT_NAME" -e EXPECT_SIGNED="${EXPECT_SIGNED:-}" --device /dev/fuse --cap-add SYS_ADMIN --security-opt apparmor:unconfined \
   -v "$OLD:/pkg/old.$EXT_NAME:ro" -v "$NEW:/pkg/new.$EXT_NAME:ro" -v "$EXT:/ext:ro" -v "$(realpath "$0"):/self.sh:ro" "$IMAGE" bash /self.sh --inside 2>&1 | tee "$LOG"
 status=${PIPESTATUS[0]}
 grep -q '^FAIL' "$LOG" && status=1

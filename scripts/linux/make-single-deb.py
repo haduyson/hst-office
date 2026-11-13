@@ -17,7 +17,8 @@ cannot resolve its siblings. This merges them into `hst-office`:
     survive `apt remove`); Installed-Size recomputed;
   * the obsolete Debian-menu file (usr/lib/menu) is dropped: .desktop entries are
     the menu, and that file named distro libreoffice-* packages;
-  * adds a DEP-5 copyright file, a changelog and an AppStream metainfo file.
+  * adds a DEP-5 copyright file, a changelog and an AppStream metainfo file;
+  * launcher Keywords lose third-party product names (desktop_keywords.py).
 
   make-single-deb.py <deb-dir> <out-dir> [--revision N] [--release ID]
 Needs only dpkg-deb. Writes <out-dir>/HSTOffice_<release>_Linux_x86-64.deb + SHA256SUMS, where
@@ -45,6 +46,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # sibling modu
 from single_deb_control import (PACKAGE, MAINTAINER, INSTALL_ROOT, clause_name, clauses,  # noqa: E402,F401 (tests)
                                 with_t64_alternative, die, run, merge_packages, build_control, collect_scripts)
 from single_deb_texts import COPYRIGHT, LINTIAN_OVERRIDES, METAINFO  # noqa: E402
+from desktop_keywords import clean_tree  # noqa: E402
 
 EPOCH = 1
 _RELEASE = re.compile(r"(\d+\.\d+\.\d+)(?:-([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?")
@@ -129,6 +131,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="hst-single-deb-") as tmp:
         work = pathlib.Path(tmp)
         infos, stage = merge_packages(debs, work)
+        clean_tree(stage)  # no third-party product names in launcher keywords (desktop_keywords.py)
         control = build_control(infos, stage, version)
         (stage / "DEBIAN").mkdir()
         (stage / "DEBIAN/control").write_text(control, encoding="utf-8")

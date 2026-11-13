@@ -5,7 +5,7 @@
   check-desktop-entries.py <package.deb> [...]
 The fields a desktop shell shows or searches (Name, GenericName, Comment, Keywords,
 X-GNOME-FullName), in every locale (Key[xx]=), must not contain OpenOffice, LibreOffice or
-The Document Foundation. Exec and MimeType are not read.
+The Document Foundation, nor a third-party product (desktop_keywords.THIRD_PARTY). Exec and MimeType are not read.
 The window class a launcher claims (StartupWMClass) must be its own launcher id: a launcher
 usr/share/applications/<id>.desktop links to it and StartupWMClass=<id> (vn.hasontech.hstoffice-writer),
 the class HST's windows carry. A class or Icon of LibreOffice's (libreoffice-*, openoffice*)
@@ -17,10 +17,14 @@ HST Base is offered nowhere: its launcher (vn.hasontech.hstoffice-base) is NoDis
 Exit 0 = clean, 1 = a hit or no launcher in a package, 2 = bad arguments. Needs dpkg-deb.
 """
 import io
+import os
 import re
 import subprocess
 import sys
 import tarfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # sibling module, also under python3 -I
+from desktop_keywords import THIRD_PARTY  # noqa: E402
 
 FIELDS = re.compile(r"^(Name|GenericName|Comment|Keywords|X-GNOME-FullName)(\[[^\]]+\])?\s*=(.*)$")
 NAMES = re.compile(r"open\s*office|libre\s*office|document\s*foundation", re.IGNORECASE)
@@ -125,7 +129,7 @@ def hits(text):
     found = []
     for line in text.splitlines():
         match = FIELDS.match(line.strip())
-        if match and NAMES.search(match.group(3)):
+        if match and (NAMES.search(match.group(3)) or THIRD_PARTY.search(match.group(3))):
             found.append(line.strip())
     return found
 

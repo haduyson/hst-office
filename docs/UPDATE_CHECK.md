@@ -72,6 +72,9 @@ xem [UPDATE_ADMIN](UPDATE_ADMIN.md).
   `update-signing-*`.
 - Nên sao lưu khóa ở nơi an toàn và về sau đưa vào GitHub secret (ví dụ `HST_UPDATE_SIGNING_KEY`) để workflow
   phát hành tự ký; khi đó ghi secret ra tệp tạm quyền 600 và trỏ `HST_UPDATE_SIGNING_KEY_FILE` tới tệp đó.
+- Khóa GPG ký gói Linux (`.rpm`, chữ ký AppImage) ở cùng chỗ: `/root/.config/hst-office/linux-signing-gnupg/` (0700),
+  tạo bằng script `setup-linux-signing-key.sh` do chủ sản phẩm chạy; sao lưu cùng khóa này
+  ([LINUX_PACKAGES.md](LINUX_PACKAGES.md#ký-số)).
 - Mất khóa: tạo cặp khóa mới, thay `PUBLIC_KEY`, phát hành bản mới. Các bản đã cài với khóa cũ sẽ không còn
   nhận thông báo, nên phải giữ khóa cẩn thận.
 

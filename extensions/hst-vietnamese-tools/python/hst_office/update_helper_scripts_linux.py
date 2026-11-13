@@ -3,9 +3,12 @@
 
 Same contract as the .deb path: return the tool's exit code, set FAIL=cancel/auth from pkexec (126/127) and FAIL=tool
 when nothing can install; the caller logs, records failures (update_outcome) and relaunches.
-  rpm:      pkexec dnf install -y <file> (dnf 4 and 5 accept an unsigned local file) | pkexec zypper
-            --non-interactive install --allow-unsigned-rpm <file> | pkexec rpm -U <file> | pkcon install-local <file>.
-            The package is unsigned for now: SHA256 from the signed manifest, checked again here, is what vouches for it.
+  rpm:      pkexec dnf install -y <file> | pkexec zypper --non-interactive install <file> | pkexec rpm -U <file> |
+            pkcon install-local <file>. A GPG-signed package (`rpm -qp` shows a key ID) is installed after
+            `rpm --import <install root>/RPM-GPG-KEY-hasontech` (shipped by the .rpm, root-owned), in the same pkexec
+            call (`sh -c '...' sh <key> <file>`: paths are arguments, never shell text), so zypper checks the signature.
+            Only an unsigned package, or an install without that key file, gets zypper's --allow-unsigned-rpm; the
+            SHA256 from the Ed25519-signed manifest, checked again just before, vouches for it in every case.
   AppImage: no root. The verified file already sits in a hidden directory beside the running AppImage (same file
             system, see update_prepare), so `mv` is one atomic rename over the old file; the path stays the same, so
             launchers written by the desktop integration keep working. The new AppImage starts with the variables
@@ -27,10 +30,24 @@ no_install_tool() {
 LINUX_RPM = NO_TOOL + r'''
 install_update() {
     TOOL=
+    RPM_KEY=${SOFFICE%/program/soffice}/RPM-GPG-KEY-hasontech
+    SIGNED=
+    if [ -r "$RPM_KEY" ] && command -v rpm >/dev/null 2>&1 \
+        && rpm -qp --qf '%{SIGPGP:pgpsig} %{RSAHEADER:pgpsig}' "$INSTALLER" 2>/dev/null | grep -q 'Key ID'; then
+        SIGNED=1
+    fi
     if command -v pkexec >/dev/null 2>&1; then
-        if command -v dnf >/dev/null 2>&1; then TOOL=dnf; set -- dnf install -y "$INSTALLER"
-        elif command -v zypper >/dev/null 2>&1; then TOOL=zypper; set -- zypper --non-interactive install --allow-unsigned-rpm "$INSTALLER"
-        elif command -v rpm >/dev/null 2>&1; then TOOL=rpm; set -- rpm -U "$INSTALLER"
+        if command -v dnf >/dev/null 2>&1; then TOOL=dnf; set -- dnf install -y
+        elif command -v zypper >/dev/null 2>&1; then
+            TOOL=zypper; set -- zypper --non-interactive install
+            [ -n "$SIGNED" ] || set -- "$@" --allow-unsigned-rpm
+        elif command -v rpm >/dev/null 2>&1; then TOOL=rpm; set -- rpm -U
+        fi
+        [ -z "$TOOL" ] || set -- "$@" "$INSTALLER"
+        if [ -n "$TOOL" ] && [ -n "$SIGNED" ]; then
+            log_step "Signed package: importing $RPM_KEY first"
+            # shellcheck disable=SC2016  # $1 and $@ belong to the root shell
+            set -- sh -c 'rpm --import "$1" && shift && exec "$@"' sh "$RPM_KEY" "$@"
         fi
     fi
     if [ -n "$TOOL" ]; then

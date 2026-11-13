@@ -27,6 +27,9 @@ import rpm_spec  # noqa: E402
 
 DEB_NAME = re.compile(r"HSTOffice_(?P<release>[0-9A-Za-z.-]+)_Linux_x86-64\.deb")
 DEBIAN_ONLY = ("usr/share/lintian", "usr/share/doc/hst-office/changelog.Debian.gz")
+# Public packaging key (committed by the owner after setup-linux-signing-key.sh): shipped in the install root so that
+# the in-app updater can `rpm --import` it before installing a signed update (update_helper_scripts_linux.py).
+SIGNING_KEY = pathlib.Path(__file__).resolve().parents[2] / "data/hst/RPM-GPG-KEY-hasontech"
 
 
 def die(msg):
@@ -96,8 +99,12 @@ def build(deb, out_dir, work):
             shutil.rmtree(target)
         elif target.exists():
             target.unlink()
-    if not (payload / rpm_spec.INSTALL_ROOT.lstrip("/") / "program/soffice").exists():
+    root = payload / rpm_spec.INSTALL_ROOT.lstrip("/")
+    if not (root / "program/soffice").exists():
         die("%s/program/soffice is not in the package" % rpm_spec.INSTALL_ROOT)
+    if SIGNING_KEY.is_file():
+        shutil.copyfile(SIGNING_KEY, root / SIGNING_KEY.name)
+        (root / SIGNING_KEY.name).chmod(0o644)
     scans, names = scan_elf(payload)
     requires = rpm_spec.external_requires(scans, names)
     if not requires:

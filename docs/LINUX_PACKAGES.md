@@ -6,8 +6,12 @@ loại tệp), build **một lần**:
 | Tệp | Cho ai | Cài |
 |---|---|---|
 | `HSTOffice_<release>_Linux_x86-64.deb` | Ubuntu 22.04+, Debian 12/13, Linux Mint 21/22 | nhấn đúp, hoặc `sudo apt install ./<tệp>` |
-| `HSTOffice_<release>_Linux_x86-64.rpm` | Fedora 40–42, openSUSE Leap 15.6 / Tumbleweed (RHEL/Rocky/Alma 9 **không**: glibc 2.34 quá cũ) | `sudo dnf install ./<tệp>` / `sudo zypper install --allow-unsigned-rpm ./<tệp>` |
+| `HSTOffice_<release>_Linux_x86-64.rpm` | Fedora 36+ (đã thử 40–42), openSUSE Leap 15.6 / Tumbleweed | `sudo rpm --import https://office.hasontech.vn/tai/RPM-GPG-KEY-hasontech`, rồi `sudo dnf install ./<tệp>` / `sudo zypper install ./<tệp>` |
 | `HSTOffice_<release>_Linux_x86-64.AppImage` | mọi bản Linux x86-64 có glibc ≥ 2.35, libstdc++ của GCC ≥ 12 và GTK 3 | `chmod +x <tệp>` rồi chạy, không cần quyền quản trị |
+
+**Tối thiểu (1.0.2): glibc 2.35 và libstdc++ của GCC 12** — Ubuntu 22.04+, Debian 12+, Fedora 36+, openSUSE Leap 15.6
+và Tumbleweed (và các bản dựa trên chúng: Linux Mint 21+, ...). **RHEL / Rocky / Alma 9 không được hỗ trợ trong 1.0.2**
+(glibc 2.34, GCC 11), xem [glibc và thư viện](#glibc-và-thư-viện).
 
 `<release>` là mã bản phát hành của [data/hst/release.json](../data/hst/release.json) (ví dụ `1.0.2`, `1.0.2-beta.1`);
 phiên bản lõi 26.8.1.1 không xuất hiện ở tên hay siêu dữ liệu gói.
@@ -38,7 +42,7 @@ sudo scripts/build-linux.sh --rpm-appimage         # máy build cục bộ: dist
   [appimage_desktop_integration.py](../scripts/linux/appimage/appimage_desktop_integration.py) + launcher/biểu tượng Start
   Center ở gốc. Đóng bằng **appimagetool 1.9.1** với **runtime type-2 `20251108`** (bản tĩnh, có sẵn FUSE 3: **không cần
   `libfuse2`**), nén zstd; cả hai được ghim SHA-256 trong script và tải vào `$HST_DL/appimage-tools` (sai hash là lỗi).
-  Không nhúng thông tin cập nhật/zsync, không ký (xem [Ký số](#ký-số-quyết-định-của-chủ-sản-phẩm)).
+  Không nhúng thông tin cập nhật/zsync; chữ ký GPG tách rời được thêm ở bước phát hành (xem [Ký số](#ký-số)).
 
 `SHA256SUMS` cạnh các gói có cả ba dòng; `collect-release-assets.sh` đưa `.rpm`, `.AppImage` (và `.AppImage.asc`,
 `RPM-GPG-KEY-hasontech` khi đã ký) vào bản phát hành. Workflow [desktop-linux.yml](../.github/workflows/desktop-linux.yml)
@@ -89,32 +93,66 @@ Xem [UPDATE_INSTALL.md](UPDATE_INSTALL.md): ứng dụng tự nhận ra mình đ
 `program/soffice`), `.rpm` (rpm sở hữu) hay chạy từ AppImage (`$APPIMAGE`, chương trình nằm trong `$APPDIR`), rồi lấy
 đúng bộ cài `linux`, `linux-rpm` hay `linux-appimage` từ `latest-3.json` đã ký.
 
-## Ký số (quyết định của chủ sản phẩm)
+## Ký số
 
-Hiện tại `.rpm` và `.AppImage` **chưa ký GPG**. Tính toàn vẹn được bảo đảm bằng `SHA256SUMS` trên trang tải và, với cập
-nhật trong ứng dụng, bằng SHA-256 + kích thước nằm trong manifest **đã ký Ed25519** (kiểm khi tải và kiểm lại ngay trước
-khi cài). Hệ quả với người dùng: `dnf` (4 và 5) cài tệp `.rpm` cục bộ chưa ký không hỏi gì (`localpkg_gpgcheck` mặc định
-tắt); `zypper` từ chối ("Package header is not signed!") nếu không có `--allow-unsigned-rpm` — hướng dẫn trên trang tải
-và bộ cập nhật đều dùng cờ này.
+Chủ sản phẩm quyết định (13/11/2026): **từ 1.0.2 gói Linux được ký GPG** bằng một khóa riêng cho việc đóng gói Linux.
+Khóa không nằm trong kho mã; chỉ khóa công khai được commit.
 
-Khi chủ sản phẩm quyết định ký (không tạo, không lưu khóa trong kho mã):
+**Khóa.** RSA 4096, chỉ để ký, không hết hạn, `HASON TECH Linux packages <lienhe@hasontech.vn>`. Đã thử cả RSA 4096 lẫn
+Ed25519: rpm 4.14 (openSUSE Leap 15.6), 4.19 (Fedora 40) và 4.20 (Fedora 42, Tumbleweed) đều báo
+`digests signatures OK`. Chọn RSA để hợp với nhiều công cụ nhất.
 
-1. Tạo khóa ký riêng cho gói Linux trên máy tin cậy (ví dụ `gpg --quick-gen-key "HASON TECH Linux packages
-   <lienhe@hasontech.vn>" rsa4096 sign 3y`), sao lưu ngoại tuyến, ghi lại dấu vân tay 40 ký tự.
-2. GitHub: tạo environment **`linux-signing`** (nên bật người duyệt), thêm secret `HST_LINUX_GPG_PRIVATE_KEY`
-   (`gpg --armor --export-secret-keys <vân tay>`), `HST_LINUX_GPG_PASSPHRASE`, và biến `HST_LINUX_GPG_FINGERPRINT`.
-3. Job `sign` của `desktop-linux.yml` tự bật: tải artifact chưa ký, chạy
-   [scripts/linux/sign-linux-packages.sh](../scripts/linux/sign-linux-packages.sh) (`rpmsign --addsign`, kiểm bằng
-   `rpmkeys --checksig`; chữ ký tách rời `<tệp>.AppImage.asc`; xuất khóa công khai `RPM-GPG-KEY-hasontech`; viết lại
-   `SHA256SUMS`), tải lên `hst-office-linux-deb-signed-<run>`; `collect-release-assets.sh` ưu tiên bộ đã ký. Không có
-   secret: bước cổng in `enabled=false`, mọi bước sau bỏ qua, job vẫn xanh.
-4. Đăng `RPM-GPG-KEY-hasontech` lên trang (ví dụ `/tai/RPM-GPG-KEY-hasontech`) và thêm vào hướng dẫn:
-   `sudo rpm --import https://office.hasontech.vn/tai/RPM-GPG-KEY-hasontech`; khi đó bỏ `--allow-unsigned-rpm` ở
-   hướng dẫn zypper và ở `update_helper_scripts_linux.py`.
-5. AppImage: chữ ký `.asc` tách rời (kiểm: `gpg --verify <tệp>.asc <tệp>`). Chữ ký nhúng (`appimagetool --sign`) và cập nhật
-   delta zsync (`appimagetool -u "zsync|https://office.hasontech.vn/tai/HSTOffice-latest-x86_64.AppImage.zsync"`, cần
-   phục vụ tệp `.zsync` ổn định trên trang) là các lựa chọn thêm, chưa bật: bộ cập nhật của HST đã tải nguyên tệp và
-   kiểm bằng manifest đã ký.
+**Tạo khóa (chủ sản phẩm chạy, một lần):** `sudo bash setup-linux-signing-key.sh` (bản đưa riêng cho chủ sản phẩm,
+không nằm trong kho mã):
+
+- `GNUPGHOME` là `/root/.config/hst-office/linux-signing-gnupg` (quyền 0700), cạnh khóa ký manifest cập nhật
+  ([UPDATE_CHECK.md](UPDATE_CHECK.md#khóa-ký)). Mật khẩu ngẫu nhiên nằm trong `passphrase` (0600). Chứng thư thu hồi
+  nằm trong `openpgp-revocs.d/`.
+- Khóa công khai được ghi ra `/root/.config/hst-office/RPM-GPG-KEY-hasontech`.
+- Tạo GitHub environment **`linux-signing`**. Đặt secret `HST_LINUX_GPG_PRIVATE_KEY` và `HST_LINUX_GPG_PASSPHRASE`
+  bằng `gh secret set` đọc từ tệp, không in ra; đặt biến `HST_LINUX_GPG_FINGERPRINT`.
+- Script chỉ in dấu vân tay và các dòng OK/FAIL. Chạy lại thì dùng lại khóa đã có.
+
+**Sau khi tạo khóa:**
+
+1. Commit khóa công khai thành [data/hst/RPM-GPG-KEY-hasontech](../data/hst/) **trước khi build 1.0.2**.
+   `make-rpm.py` chép tệp này vào `/opt/hst-office1.0/RPM-GPG-KEY-hasontech` để bộ cập nhật nhập khóa trước khi cài bản
+   mới. `sign-linux-packages.sh` từ chối ký nếu tệp đã commit mang dấu vân tay khác.
+2. Đăng tệp lên trang thành `/tai/RPM-GPG-KEY-hasontech`.
+3. Sao lưu cả thư mục `linux-signing-gnupg` ngoại tuyến, có mã hóa, cùng chỗ với khóa manifest.
+
+**CI.** Job `sign` của [desktop-linux.yml](../.github/workflows/desktop-linux.yml) chạy sau environment `linux-signing`.
+Nó tải artifact chưa ký rồi chạy [scripts/linux/sign-linux-packages.sh](../scripts/linux/sign-linux-packages.sh):
+
+- `rpmsign --addsign` cho `.rpm`, kiểm lại bằng `rpmkeys --checksig`;
+- chữ ký tách rời `<tệp>.AppImage.asc` cho AppImage;
+- danh sách `HSTOffice_<release>_Linux_x86-64.SHA256SUMS` kèm chữ ký `.SHA256SUMS.asc`. Bản phát hành giữ nguyên hai tệp
+  này, vì `SHA256SUMS` chung của bản phát hành được tạo lại nên không mang chữ ký Linux được;
+- khóa `RPM-GPG-KEY-hasontech`;
+- `SHA256SUMS` của artifact được viết lại.
+
+Job tải lên artifact `hst-office-linux-deb-signed-<run>`, và `collect-release-assets.sh` ưu tiên bộ đã ký. Khi chưa có
+secret, bước cổng in `enabled=false` và mọi bước sau bỏ qua.
+
+**Người dùng.**
+
+- Cài `.rpm`: `sudo rpm --import https://office.hasontech.vn/tai/RPM-GPG-KEY-hasontech` một lần, rồi
+  `dnf install` / `zypper install` như thường. **Không** dùng `--allow-unsigned-rpm`.
+- Kiểm AppImage: `gpg --import RPM-GPG-KEY-hasontech && gpg --verify <tệp>.AppImage.asc <tệp>.AppImage`.
+- Kiểm danh sách hash: `gpg --verify HSTOffice_<release>_Linux_x86-64.SHA256SUMS.asc` rồi
+  `sha256sum -c --ignore-missing HSTOffice_<release>_Linux_x86-64.SHA256SUMS`.
+
+**Bộ cập nhật (`.rpm`).** Khi tệp tải về đã ký (`rpm -qp` có key ID) và bản đang cài có
+`/opt/hst-office1.0/RPM-GPG-KEY-hasontech`, bộ cập nhật chạy trong **cùng một** lệnh `pkexec`:
+`rpm --import <khóa>` rồi `dnf` / `zypper` / `rpm -U`, **không** có `--allow-unsigned-rpm`. Gói chưa ký, hoặc bản cài
+không có tệp khóa, mới đi đường cũ, có `--allow-unsigned-rpm` cho zypper. SHA-256 trong manifest đã ký Ed25519 vẫn được
+kiểm trong mọi trường hợp.
+
+**Ghi chú về dnf.** `dnf` 4/5 không kiểm GPG của tệp `.rpm` cục bộ (`localpkg_gpgcheck` mặc định tắt). dnf5 in
+`skipped OpenPGP checks … @commandline`, nên `rpm -K` là cách kiểm.
+
+AppImage nén zstd, không zsync, không chữ ký nhúng (quyết định 13/11/2026). Bộ cập nhật của HST tải nguyên tệp và kiểm
+bằng manifest đã ký.
 
 ## Kiểm thử
 
