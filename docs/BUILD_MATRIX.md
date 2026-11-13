@@ -23,6 +23,37 @@ python3 scripts/measure-job.py --json build/metrics/linux-build.json -- scripts/
 scripts/build-linux.sh --package          # .deb (EPM)
 ```
 
+## Build cục bộ giống CI (Linux `.deb`)
+
+[`scripts/linux/local-build.sh`](../scripts/linux/local-build.sh) build `.deb` trên máy dev bằng đúng các pha
+của `desktop-linux.yml` (`ci-build.sh` của chính nhánh được build: `--deps`, `--extract`, `--patch`,
+`--configure`, `--fetch`, `--package`), nhưng build tăng dần để thử bản sửa trong vài phút thay vì chờ CI:
+
+```bash
+sudo scripts/linux/local-build.sh rc/1.0.2-batch1          # nhánh/tag/sha (fetch origin trước)
+sudo scripts/linux/local-build.sh -j 8 /home/wt-my-fix      # worktree, kể cả thay đổi chưa commit (nhãn "-dirty")
+sudo scripts/linux/local-build.sh --umount                 # gỡ mount chroot sau một lượt bị giết
+```
+
+- Mọi thứ nằm dưới `HST_LOCAL_ROOT` (mặc định `/data/hst-office-build`, không dùng ổ `/`): `chroot/` (root file
+  system của image container CI, cùng digest, clang theo `HST_CLANG` của workflow, thêm ccache), `checkout/` (bản
+  sao repo, chỉ ghi lại tệp đổi nội dung), `src/` (`HST_WORK`: cây `lo/`, tarball ghim `dl/`, `pristine.git`),
+  `ccache/` (20 GB), `logs/<giờ>-<nhãn>/` (`wrapper.log`, `build.log`, `timings.tsv`, `memory.tsv`), `out/<nhánh>-<sha>/`
+  (`HSTOffice_<release>_Linux_x86-64.deb` + `SHA256SUMS`). Tarball ghim lấy từ `HST_LOCAL_TARBALL_CACHE` nếu có, kiểm sha256 theo lock.
+- Đồng bộ patch: mỗi lượt đưa các tệp mà series đã sửa/thêm về trạng thái tarball gốc (`pristine.git`, nằm ngoài cây để
+  LibreOffice không coi là git build), áp lại như CI, rồi trả mtime cũ cho tệp không đổi nội dung, nên đổi nhánh luôn
+  sạch mà `make` chỉ build lại phần đổi. Configure chỉ chạy lại khi tệp mà `Makefile.in` theo dõi, `autogen.input` hoặc
+  phiên bản HST đổi (`--reconfigure` để ép). `.po` đổi thì xoá `.mo`/`registry_<lang>.xcd` tương ứng (khoảng hở ở
+  [SHARED_BUILD_SLOTS.md](SHARED_BUILD_SLOTS.md#incremental-build-gaps)). `--fresh` giải nén lại (build lại toàn bộ).
+- Khác CI nhưng không đổi thứ được biên dịch: chroot thay cho docker (toolchain không vào `/var/lib/docker` trên `/`),
+  ccache, `-j` (mặc định 12, tối đa 16) thay cho `nproc`. Giới hạn cho máy dùng chung: `make` chạy trong scope systemd
+  (`MemoryMax` = `HST_LOCAL_MEMORY_MAX` 24G, `MemorySwapMax=0`, `CPUQuota` = `HST_LOCAL_CPU_QUOTA` 1600%), `nice 19`,
+  `ionice -c3`; `MemAvailable` dưới `HST_LOCAL_MIN_MEM_GIB` (6) hoặc swap tăng quá `HST_LOCAL_SWAP_GROW_GIB` (1) thì đóng
+  băng scope tới khi còn `HST_LOCAL_RESUME_MEM_GIB` (8) GiB; lần dừng thứ hai hoặc do swap thì chạy lại `make` với nửa số
+  job (tối thiểu 2), quá `HST_LOCAL_MEM_WAIT_MIN` (30) phút thì dừng hẳn; mỗi lúc chỉ một lần link nặng (≥ 1 GiB) chạy,
+  các lần khác bị tạm dừng tới lượt; đĩa dưới `HST_LOCAL_MIN_FREE_GIB` (5) thì dừng. Không chạy `check-coexistence.sh`.
+- Mỗi lần chỉ một lượt (khoá `HST_LOCAL_ROOT/.lock`); cần root (chroot, mount).
+
 ## Đóng gói `.deb` (Linux x86_64)
 
 - `scripts/build-linux.sh --package` chạy `make`, từ chối kết quả `*_witherror`, rồi gộp 38 file `.deb` (bộ `HSTOffice` + `HSTOffice_languagepack` vi) thành **một** `HSTOffice_<release>_Linux_x86-64.deb` (gói `hst-office`, `scripts/linux/make-single-deb.py`) cùng `SHA256SUMS` trong `dist/linux/` (~192 MiB). Trình cài đồ họa (nhấn đúp) chỉ mở được một tệp.
