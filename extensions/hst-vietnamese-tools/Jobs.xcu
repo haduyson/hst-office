@@ -20,7 +20,8 @@
       <prop oor:name="Service"><value>org.hst.office.vi.VbaSaveCheckJob</value></prop>
     </node>
     <!-- Phiên bản trước: copy a document's file in the background once it is modified, keep that copy at OnSave
-         (before the office writes the file), drop it at OnUnload (hst_office/version_job.py, version_capture.py) -->
+         (before the office writes the file), record the file written at OnSaveDone/OnSaveAsDone (an unmodified re-save
+         keeps nothing), drop it at OnUnload (hst_office/version_job.py, version_capture.py) -->
     <node oor:name="org.hst.office.vi.PreviousVersionsJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.PreviousVersionsJob</value></prop>
     </node>
@@ -60,11 +61,13 @@
     <node oor:name="OnSaveDone" oor:op="fuse">
       <node oor:name="JobList">
         <node oor:name="org.hst.office.vi.VbaSaveCheckJob" oor:op="replace"/>
+        <node oor:name="org.hst.office.vi.PreviousVersionsJob" oor:op="replace"/>
       </node>
     </node>
     <node oor:name="OnSaveAsDone" oor:op="fuse">
       <node oor:name="JobList">
         <node oor:name="org.hst.office.vi.VbaSaveCheckJob" oor:op="replace"/>
+        <node oor:name="org.hst.office.vi.PreviousVersionsJob" oor:op="replace"/>
       </node>
     </node>
   </node>

@@ -19,13 +19,17 @@ def error_text(exc):
 
 
 def formula(choice, source):
-    """=DOCSO(A1) / =DOCTIEN(A1;"đồng";"xu";"ngàn linh"), leaving out trailing default arguments."""
+    """=DOCSO(A1) / =DOCTIEN(A1;"đồng";"xu";"ngàn linh"), leaving out trailing default arguments (Vietnamese: "đồng"
+    without a sub-unit, so the default choice gives =DOCTIEN(A1); English: "dollar"/"cent")."""
     options = choice["options"].text()
     if not choice["money"]:
         args = [source] + (['"%s"' % options] if options else [])
         return "=DOCSO(%s)" % ";".join(args)
     english = choice["options"].language == "en"
-    defaults = ("dollar", "cent") if english else ("đồng", "xu")
+    if english:
+        defaults = (number_words.en.DEFAULT_UNIT, number_words.en.DEFAULT_SUB_UNIT)
+    else:
+        defaults = (number_words.DEFAULT_UNIT, number_words.DEFAULT_SUB_UNIT)
     args = [source]
     if options or (choice["unit"], choice["sub_unit"]) != defaults:
         args += ['"%s"' % choice["unit"].replace('"', '""'), '"%s"' % choice["sub_unit"].replace('"', '""')]

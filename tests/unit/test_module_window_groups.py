@@ -3,7 +3,8 @@
 
 Source-level checks of the patch (the behaviour is checked under Xvfb by tests/runtime/check-module-windows.py):
 the routing reads the Referer that DispatchWatcher sets on every command line/IPC request, the tab commands act on
-the window of their frame, the new texts are Vietnamese, and the patch is the last one of the series."""
+the window of their frame, the new texts are Vietnamese, and the patch comes after the series it was made against
+(later patches are appended after it)."""
 from pathlib import Path
 import re
 import unittest
@@ -39,11 +40,11 @@ def text(path):
 
 
 class ModuleWindowGroups(unittest.TestCase):
-    def test_last_in_the_series(self):
+    def test_after_the_series_it_was_made_against(self):
         series = [n for n in (ROOT / "patches/libreoffice/series").read_text(encoding="utf-8").split()
                   if not n.startswith("#")]
         self.assertEqual(series.count(PATCH.name), 1)
-        self.assertEqual(series[-1], PATCH.name)
+        self.assertGreater(series.index(PATCH.name), series.index("hst-backstage-previous-versions.patch"))
 
     def test_touches_the_planned_files_only(self):
         self.assertEqual(set(added()), FILES)

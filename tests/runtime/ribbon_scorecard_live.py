@@ -122,7 +122,7 @@ def sweep(session):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--app", required=True, choices=("writer", "calc", "impress"))
+    parser.add_argument("--app", required=True, choices=("writer", "calc", "impress", "draw"))
     parser.add_argument("--mode", default="light", choices=("light", "dark"))
     parser.add_argument("--instdir", required=True)
     parser.add_argument("--display", required=True)

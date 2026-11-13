@@ -14,16 +14,17 @@ from _paths import ROOT
 
 PATCHES = os.path.join(ROOT, "patches", "libreoffice")
 SPEC = os.path.join(ROOT, "data", "ribbon", "office-parity.json")
-# patch: (ui, po, suppr, tab label id, context, key tip, Office tab, HST tab, vi tab label)
+# patch: (ui, po, suppr, tab label id, context, key tip, Office tab, HST tab, vi tab label of the patch; the
+# shown label is in sentence case from l10n/vi-overrides.jsonl)
 TABS = {
     "hst-ribbon-pivot-context.patch": (
         "sc/uiconfig/scalc/ui/notebookbar.ui", "translations/source/vi/sc/messages.po",
         "solenv/sanitizers/ui/modules/scalc.suppr", "PivotLabel", "Pivot", "JT", "PivotTable Analyze",
-        "Phân tích Bảng tổng hợp", "Phân tích Bảng tổng ~hợp"),
+        "Phân tích bảng tổng hợp", "Phân tích Bảng tổng ~hợp"),
     "hst-ribbon-header-footer-tab.patch": (
         "sw/uiconfig/swriter/ui/notebookbar.ui", "translations/source/vi/sw/messages.po",
         "solenv/sanitizers/ui/modules/swriter.suppr", "HeaderFooterLabel", "HeaderFooter", "JH", "Header & Footer",
-        "Đầu trang & Chân trang", "Đầu trang & C~hân trang"),
+        "Đầu trang & chân trang", "Đầu trang & C~hân trang"),
 }
 
 

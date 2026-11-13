@@ -105,15 +105,15 @@ def writer(office, args):
     cursor.goRight(9, True)
     doc.getCurrentController().select(cursor)
     thread = gui.background_dispatch(office, doc.getCurrentController().getFrame(), "org.hst.office.vi:NumberToWords")
-    wid = gui.wait_window(office, r"^Đổi số thành chữ$")
-    record("Writer: Đổi số thành chữ dialog opens", wid is not None)
+    wid = gui.wait_window(office, r"^Đọc số thành chữ$")
+    record("Writer: Đọc số thành chữ dialog opens", wid is not None)
     if wid:
         gui.dialog_shot(office, wid, args.shots, "doi-so-thanh-chu-writer")
         gui.keys(office.display, wid, "Return")
         thread.join(30)
     record("Writer: the selected number becomes words", text.getString() == "Tổng cộng: Một triệu hai trăm năm mươi nghìn đồng",
            text.getString())
-    menu(office, doc, args, "writer", ["Đổi số thành chữ"])
+    menu(office, doc, args, "writer", ["Đọc số thành chữ"])
     doc.close(True)
 
 

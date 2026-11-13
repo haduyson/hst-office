@@ -5,7 +5,7 @@ Usage: python3 tests/runtime/check-ribbon-contextual.py [--instdir DIR] [--displ
 The X display must already run. For a table, a picture, a shape and a chart selected through the controller, in
 Sheets also for the cell cursor in a pivot table and in Writer for the cursor in a page header:
   - the tabs named as in Office appear, and the ribbon stays on the tab that was current; entering a header opens
-    "Đầu trang & Chân trang" instead, as Word opens Header & Footer;
+    "Đầu trang & chân trang" instead, as Word opens Header & Footer;
   - with the cursor back in the text the tabs are gone; a contextual tab that was current falls back to Trang đầu;
   - clicking a chart tab and a chart command opens the dialog of the chart, without activating the chart by hand;
   - the ribbon height stays the same in every state.
@@ -23,11 +23,11 @@ import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 from ribbon_contextual_objects import make_objects, park  # noqa: E402
 
-TABLE = ["Thiết kế Bảng", "Bố trí Bảng"]
-PICTURE, SHAPE = ["Định dạng Ảnh"], ["Định dạng Hình dạng"]
-CHART = ["Thiết kế Biểu đồ", "Định dạng Biểu đồ"]
-PIVOT = ["Phân tích Bảng tổng hợp"]
-HEADER = ["Đầu trang & Chân trang"]
+TABLE = ["Thiết kế bảng", "Bố trí bảng"]
+PICTURE, SHAPE = ["Định dạng ảnh"], ["Định dạng hình dạng"]
+CHART = ["Thiết kế biểu đồ", "Định dạng biểu đồ"]
+PIVOT = ["Phân tích bảng tổng hợp"]
+HEADER = ["Đầu trang & chân trang"]
 OPENS = {"header"}  # contexts whose tab opens on entry (the others only appear)
 ROWS = []
 

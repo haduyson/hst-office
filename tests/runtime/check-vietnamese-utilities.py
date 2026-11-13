@@ -11,7 +11,7 @@ Checks, with screenshots of each dialog and of the HST menu in --shots:
      "Tiếng Việt" category (12); more than 15 digits is an error.
   2. Every dispatch URL of the utilities resolves (org.hst.office.vi:NumberToWords, RemoveDiacritics, ...).
   3. Bỏ dấu (undo), Tách họ tên, Sắp xếp theo tên, Xóa dòng trống on --rows rows (time, one undo), the 4 date formats.
-  4. "Đọc số thành chữ" dialog (text and formula), Writer "Đổi số thành chữ".
+  4. "Đọc số thành chữ" dialog (text and formula), the same dialog in Writer.
   5. Save as .xlsx with HST functions: the warning; Hủy saves nothing, Vẫn lưu keeps the formulas, "Đổi thành chữ rồi
      lưu" writes values and the open document keeps its formulas, the check box converts the document too; Ctrl+S.
   6. The classic HST menu: "Tiện ích tiếng Việt" with the Sheets / Writer commands. Exit status 1 on any FAIL;

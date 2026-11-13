@@ -6,7 +6,7 @@ import time
 
 import hst_gui
 
-NAMES = {"writer": "HST Writer", "calc": "HST Sheets", "impress": "HST Slides"}
+NAMES = {"writer": "HST Writer", "calc": "HST Sheets", "impress": "HST Slides", "draw": "HST Draw"}
 
 
 def xdo(display, *args):
