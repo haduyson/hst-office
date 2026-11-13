@@ -228,6 +228,7 @@ class WindowsRunner:
         files = []
         for name in sorted(os.listdir(pulled)):
             shutil.move(os.path.join(pulled, name), os.path.join(out, name))
+            os.chmod(os.path.join(out, name), 0o644)   # scp maps the Windows ACLs to odd modes
             if name.endswith((".msi", ".zip")):
                 files.append(os.path.join(out, name))
         os.rmdir(pulled)
