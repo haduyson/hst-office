@@ -3,8 +3,8 @@
 Crossref. Runs only when the user clicks "Tra cứu"; nothing here is called in the background.
 
 What is sent: only the identifier (or the pasted line for "Tìm theo dòng đã dán"), the User-Agent
-"HSTOffice/<release>" and, when the administrator configured one, the project contact address (Crossref ``mailto``,
-NCBI ``email``). No cookie, no document content. Order: DOI via doi.org (Crossref as fallback) > PMID via NCBI
+"HSTOffice/<release>" and the project contact address (``DEFAULT_CONTACT`` unless the administrator set another;
+Crossref ``mailto``, NCBI ``email`` with tool "HSTOffice"). No cookie, no document content. Order: DOI via doi.org (Crossref as fallback) > PMID via NCBI
 E-utilities > arXiv > ISBN via Open Library. Results go through the "sửa tên Việt" suggestions.
 
 Network access is injected: ``transport(request) -> (status, body bytes)``; production uses ``http_transport``
@@ -25,12 +25,16 @@ DEADLINE = 20
 CSL_JSON = "application/vnd.citationstyles.csl+json"
 
 
+DEFAULT_CONTACT = "lienhe@hasontech.vn"  # HASON TECH's address, asked for by Crossref and NCBI; never the user's
+
+
 class LookupConfig:
     """Settings read by the UNO layer: ``enabled`` (administrators can switch lookups off), ``contact`` (project
-    address for Crossref/NCBI; empty until the owner decides — never the user's address unless they typed it),
-    ``version`` (release id for the User-Agent) and ``proxy`` (same proxy settings as the update check)."""
+    address for Crossref/NCBI; ``None`` -> ``DEFAULT_CONTACT``, an administrator value overrides it, "" sends
+    none), ``version`` (release id for the User-Agent) and ``proxy`` (same proxy settings as the update check)."""
 
-    def __init__(self, enabled=True, contact="", version="0", proxy=None):
+    def __init__(self, enabled=True, contact=None, version="0", proxy=None):
+        contact = DEFAULT_CONTACT if contact is None else contact
         self.enabled, self.contact, self.version, self.proxy = enabled, (contact or "").strip(), version, proxy
 
 

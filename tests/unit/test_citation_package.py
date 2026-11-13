@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""The extension package carries exactly the citation styles of data/citation/styles, and the lookup helper is the
-only citation module allowed to open HTTPS connections."""
+"""The extension package carries exactly the citation styles of data/citation/styles (which match their source in
+scripts/citation_styles_*.py), and the lookup helper is the only citation module allowed to open HTTPS connections."""
 import io
 import os
+import subprocess
 import sys
 import unittest
 import zipfile
@@ -24,6 +25,11 @@ def package(files):
 
 
 class Styles(unittest.TestCase):
+    def test_committed_styles_match_their_source(self):
+        script = os.path.join(_paths.ROOT, "scripts", "generate-citation-styles.py")
+        done = subprocess.run([sys.executable, "-I", script, "--check"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
     def test_matching_stale_missing_extra(self):
         names = sorted(n for n in os.listdir(STYLES) if n.endswith(".json"))
         files = {"python/hst_office/citation_engine.py": b""}

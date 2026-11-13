@@ -13,6 +13,7 @@ from .citation_runs import Out
 
 __all__ = ["Context", "render", "render_element", "render_list"]
 _WRAPS = {"()": ("(", ")"), "[]": ("[", "]"), "<>": ("<", ">")}
+_DECORATIONS = frozenset(("prefix", "suffix", "case", "wrap", "quotes", "italic", "bold", "sup"))
 
 
 def _content(element, ctx, out):
@@ -45,11 +46,14 @@ def render_element(element, ctx, out):
         if alternative is None:
             return False
         return render_list(alternative if isinstance(alternative, list) else [alternative], ctx, out)
+    if _DECORATIONS.isdisjoint(element):
+        return _content(element, ctx, out)  # nothing to wrap around it: render in place
     inner = Out()
     printed = _content(element, ctx, inner)
     found = inner.runs
     if not found:
         return False
+    tidy = not (element.get("case") or element.get("wrap") or element.get("quotes"))
     if element.get("case"):
         found = _case(found, element["case"])
     if element.get("wrap"):
@@ -59,22 +63,27 @@ def render_element(element, ctx, out):
         opening, closing = fields.QUOTES[ctx.opts["quotes"]]
         found = [(opening, "")] + found + [(closing, "")]
     flags = "".join(f for f, key in (("i", "italic"), ("b", "bold"), ("s", "sup")) if element.get(key))
-    out.add(ctx.text(element.get("prefix", "")))
-    out.extend(found, flags)
-    out.add(ctx.text(element.get("suffix", "")))
+    if "prefix" in element:
+        out.add(ctx.text(element["prefix"]))
+    out.extend(found, flags, collapsed=tidy)
+    if "suffix" in element:
+        out.add(ctx.text(element["suffix"]))
     return printed
 
 
 def render_list(elements, ctx, out, delimiter="", group=False):
     printed, start = False, out.mark()
     for element in elements:
+        if not delimiter:
+            printed = render_element(element, ctx, out) or printed
+            continue
         piece = Out()
         if render_element(element, ctx, piece):
             printed = True
         if piece.runs:
             if delimiter and out.mark() > start:
                 out.add(delimiter)
-            out.extend(piece.runs)
+            out.extend(piece.runs, collapsed=True)
     if group and not printed:
         out.truncate(start)
     return printed

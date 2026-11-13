@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Online lookup, tested offline with recorded answers: identifiers, requests (no contact address unless one is
-configured), conversion of every service, fallbacks, rate limits, the switch-off and the HTTPS helper's URL rules."""
+"""Online lookup, tested offline with recorded answers: identifiers, requests (project contact address by default,
+overridable), conversion of every service, fallbacks, rate limits, the switch-off and the HTTPS helper's URL rules."""
 import os
 import unittest
 
@@ -57,11 +57,13 @@ class Identifiers(unittest.TestCase):
 
 
 class Requests(unittest.TestCase):
-    def test_contact_address_only_when_configured(self):
-        plain = lookup.requests_for("pmid", "1", lookup.LookupConfig())
-        self.assertIn("tool=HSTOffice", plain[0][1])
+    def test_contact_address_default_and_override(self):
+        default = lookup.LookupConfig()
+        self.assertIn("tool=HSTOffice", lookup.requests_for("pmid", "1", default)[0][1])
+        self.assertIn("email=lienhe%40hasontech.vn", lookup.requests_for("pmid", "1", default)[0][1])
+        self.assertIn("mailto=lienhe%40hasontech.vn", lookup.requests_for("doi", "10.1/x", default)[1][1])
+        plain = lookup.requests_for("pmid", "1", lookup.LookupConfig(contact=""))  # administrator removed it
         self.assertNotIn("email", plain[0][1])
-        self.assertNotIn("mailto", lookup.requests_for("doi", "10.1/x", lookup.LookupConfig())[1][1])
         configured = lookup.LookupConfig(contact="lookup@example.org")
         self.assertIn("email=lookup%40example.org", lookup.requests_for("pmid", "1", configured)[0][1])
         self.assertIn("mailto=lookup%40example.org", lookup.requests_for("doi", "10.1/x", configured)[1][1])

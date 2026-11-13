@@ -67,6 +67,7 @@ def join(parts, and_word, and_comma, delimiter=", ", et_al=None, et_al_term="et 
     if not and_word:
         return delimiter.join(parts)
     comma = (count >= 3 and and_comma in ("always", "3+")) or (count == 2 and and_comma == "always" and "," in parts[0])
+    comma = comma and and_word != "và"  # Vietnamese puts no comma before "và"
     head = delimiter.join(parts[:-1])
     return head + (delimiter.rstrip() if comma else "") + " " + and_word + " " + parts[-1]
 
@@ -105,9 +106,15 @@ def short_person(name, opts):
     return vt.remove_diacritics(family) if opts.get("viAscii") and names.is_vietnamese(name) else family
 
 
-def cite_names(name_list, opts, lang, et_al=None):
-    """"Nguyễn Văn An & Lê Bình", "Smith et al." for in-text citations and short notes."""
+def cite_names(name_list, opts, lang, et_al=None, initials_for=()):
+    """"Nguyễn Văn An & Lê Bình", "Smith et al." for in-text citations and short notes. A first author whose
+    family name is in ``initials_for`` gets initials ("J. Smith"), as APA 7 §8.20 asks when two first authors
+    share a family name."""
     parts = [short_person(n, opts) for n in name_list]
+    first = name_list[0] if name_list else {}
+    if parts and parts[0] in initials_for and first.get("given") and not names.is_vietnamese(first) \
+            and not names.is_east_asian(first):
+        parts[0] = names.initials(first["given"]) + " " + parts[0]
     return join(parts, localize(opts.get("citeAnd", "&"), lang), opts.get("citeAndComma", "never"), ", ",
                 et_al if et_al is not None else opts.get("citeEtAl"), localize(opts.get("etAlTerm", ""), lang), False)
 

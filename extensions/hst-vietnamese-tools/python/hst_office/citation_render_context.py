@@ -25,7 +25,11 @@ class Context:
         """Localized literal: "@option" reads a style option; {"vi": …, "other": …} follows the item's language."""
         if isinstance(value, str) and value.startswith("@"):
             value = self.opts[value[1:]]
-        return terms.localize(value, self.lang) if isinstance(value, dict) else (value or "")
+        if not isinstance(value, dict):
+            return value or ""
+        # Vietnamese thesis styles: words follow the item ("Nxb" only for Vietnamese books); international styles
+        # (termLanguage "document"): words follow the document
+        return terms.localize(value, self.term_lang if self.opts["termLanguage"] == "document" else self.lang)
 
 
 def condition(cond, ctx):

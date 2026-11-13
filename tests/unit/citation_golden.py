@@ -43,16 +43,17 @@ def clusters(items):
 
 
 def load(case):
+    """(style, document language) of a case "<style>[@<preset>][+<document language>]"."""
     name, _, lang = case.partition("+")
     style_id, _, preset = name.partition("@")
-    options = {"language": "en", "termLanguage": "document"} if lang == "en" else None
-    return citation_style.load_style(style_id, options=options, preset=preset or None)
+    return citation_style.load_style(style_id, preset=preset or None), lang or "vi"
 
 
 def render_case(case):
     """The golden text of one case."""
     items = samples()
-    result = citation_engine.process(load(case), items, clusters(items))
+    style, document_language = load(case)
+    result = citation_engine.process(style, items, clusters(items), document_language=document_language)
     lines = ["# " + case, "[citations]"]
     for entry in result["citations"]:
         lines.append("%s\t%s" % (entry["citationID"], citation_runs.to_markup(citation_runs.from_public(entry["runs"]))))

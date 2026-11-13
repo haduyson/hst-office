@@ -51,10 +51,19 @@ class VietnameseThesis(unittest.TestCase):
                 "author": [dict(family="Nguyễn", given="Thái Hoàng", **VI), dict(family="Trần", given="Huyền", **VI)]}
         self.assertTrue(entry("apa-7", item).startswith("Nguyễn Thái Hoàng & Trần Huyền. (2016)."))
         self.assertTrue(entry("apa-7", item, "dao-ten-viet").startswith("Hoàng, N. T., & Huyền, T. (2016)."))
-        self.assertTrue(entry("ieee", item).startswith("T. H. Nguyễn và H. Trần, *Sách*"))
+        for style_id in ("ieee", "vancouver", "ama-11", "apa-7", "harvard", "chicago-tac-gia-nam", "mla-9"):
+            self.assertIn("Nguyễn Thái Hoàng", entry(style_id, item), style_id)  # never abbreviated by default
+        self.assertTrue(entry("ieee", item).startswith("Nguyễn Thái Hoàng và Trần Huyền, *Sách*"))
         self.assertTrue(entry("ieee", item, "ten-viet-bo-dau").startswith("T. H. Nguyen và H. Tran,"))
+        self.assertTrue(entry("vancouver", item, viName="as-foreign").startswith("Nguyễn TH, Trần H."))
         self.assertTrue(entry("vancouver", item).startswith("Nguyễn Thái Hoàng, Trần Huyền. Sách."))
         self.assertTrue(entry("iso-690-so", item).startswith("NGUYỄN Thái Hoàng và TRẦN Huyền. *Sách*."))
+
+    def test_no_comma_before_va(self):
+        people = [dict(family=f, given="Văn A", **VI) for f in ("Lê", "Trần", "Phạm")]
+        item = {"type": "book", "language": "vi", "title": "Sách", "author": people, "issued": {"date-parts": [[2020]]}}
+        for style_id in ("chicago-tac-gia-nam", "iso-690-so", "ieee"):
+            self.assertIn("Trần Văn A và ", entry(style_id, item).replace("TRẦN", "Trần"), style_id)
 
     def test_many_authors_cut_like_hong_duc(self):
         people = [dict(family=f, given="Văn A", **VI) for f in ("Lê", "Trần", "Phạm", "Vũ", "Đỗ")]
