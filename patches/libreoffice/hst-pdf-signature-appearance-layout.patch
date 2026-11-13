@@ -1,18 +1,22 @@
-HST PDF: the visible signature box shows the signer, organisation, signing time with UTC offset and
-reason, and its font shrinks until the wrapped lines fit the box.
+HST PDF: the visible signature box in the style of administrative documents - signer, organisation,
+signing time with UTC offset and reason in black serif text on white, the font shrinking until the
+wrapped lines fit the box.
 
 The box used to size its font for two or three lines (6 to 11 pt) from the box height alone; a long
 signer name or reason wraps to more lines and then ran past the box. Its fields now follow the
-signed administrative documents and the CA signing tools:
+signed administrative documents (Nghị định 30/2020) and the CA signing tools:
 
     Ký bởi: <common name>
     Cơ quan: <organisation, when the certificate has one that differs from the common name>
     Thời gian ký: dd/mm/yyyy hh:mm:ss +07:00
     Lý do: <reason, when given>
 
-- pdfviewersigning createAppearance: the fields above; the largest font from 9.5 down to 5 pt at which
-  the wrapped text fits, fixed 6/3 pt padding. No "valid" tick is drawn: only a PDF reader's check
-  can say that.
+- pdfviewersigning createAppearance: the fields above in black on white inside a 0.5 pt dark grey
+  frame; the largest font from 10 down to 5 pt at which the wrapped text fits, fixed 6/3 pt
+  padding. No "valid" tick is drawn: only a PDF reader's check can say that.
+- serifFamily: Liberation Serif (bundled on every platform, Times New Roman metrics, full Vietnamese,
+  embeddable), else Noto Serif, Times New Roman, DejaVu Serif - the first that is installed and has
+  every glyph of the text, so the PDF writer embeds it rather than a silent substitute.
 - describeCertificate: CertificateDescription::aOrganisation from the subject's O.
 - strings.hrc / vi messages.po: "Signed by", "Organization", "Signing time" (Ký bởi, Cơ quan, Thời gian
   ký).
@@ -45,15 +49,26 @@ License: these upstream files remain under their original license (MPL-2.0).
      bool bExpired = false;
 --- a/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
 +++ b/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
-@@ -31,6 +31,7 @@
+@@ -29,14 +29,18 @@
+ #include <rtl/ustrbuf.hxx>
+ #include <sal/log.hxx>
  #include <svl/cryptosign.hxx>
++#include <tools/color.hxx>
  #include <tools/datetime.hxx>
  #include <tools/mapunit.hxx>
++#include <tools/poly.hxx>
 +#include <tools/time.hxx>
  #include <vcl/mapmod.hxx>
  #include <tools/stream.hxx>
  #include <tools/urlobj.hxx>
-@@ -58,6 +59,32 @@
+ #include <unotools/tempfile.hxx>
+ #include <vcl/filter/pdfdocument.hxx>
+ #include <vcl/gdimtf.hxx>
++#include <vcl/lineinfo.hxx>
+ #include <vcl/pdfwriter.hxx>
+ #include <vcl/virdev.hxx>
+ 
+@@ -58,6 +62,50 @@
      return aDate;
  }
  
@@ -83,10 +98,28 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    return OUString();
 +}
 +
++/// The serif family of the signature box. Liberation Serif comes with the suite on every platform,
++/// has the metrics of Times New Roman (the font of administrative documents), covers Vietnamese and
++/// allows embedding. A family is taken only when it is installed and has every glyph of the text:
++/// the PDF writer then embeds it instead of silently substituting another font.
++OUString serifFamily(const OutputDevice& rDevice, const OUString& rText)
++{
++    const OUString aText = rText.replaceAll("\n", " ");
++    for (const OUString& rFamily : { u"Liberation Serif"_ustr, u"Noto Serif"_ustr,
++                                     u"Times New Roman"_ustr, u"DejaVu Serif"_ustr })
++    {
++        if (rDevice.IsFontAvailable(rFamily)
++            && rDevice.HasGlyphs(vcl::Font(rFamily, Size(0, 200)), aText) == -1)
++            return rFamily;
++    }
++    SAL_WARN("xmlsecurity.hstpdf", "no serif font has every glyph of the signature text");
++    return u"Liberation Serif"_ustr;
++}
++
  OUString commonName(const OUString& rDistinguishedName)
  {
      OUString aName = comphelper::xmlsec::GetContentPart(rDistinguishedName,
-@@ -116,15 +143,17 @@
+@@ -116,36 +164,53 @@
              static_cast<tools::Long>(rPlacement.aRect.getMaxX() * 20),
              static_cast<tools::Long>(rPlacement.aRect.getMaxY() * 20));
  
@@ -108,13 +141,25 @@ License: these upstream files remain under their original license (MPL-2.0).
  
          ScopedVclPtrInstance<VirtualDevice> pDevice;
          pDevice->SetMapMode(aTwips);
-@@ -134,18 +163,28 @@
-         pDevice->SetLineColor(aGreen);
-         pDevice->SetFillColor(Color(0xF1, 0xF8, 0xF3));
+         GDIMetaFile aMetaFile;
+         aMetaFile.Record(pDevice.get());
+-        const Color aGreen(0x0E, 0x7A, 0x36);
+-        pDevice->SetLineColor(aGreen);
+-        pDevice->SetFillColor(Color(0xF1, 0xF8, 0xF3));
++        // the style of administrative documents: black serif text on white, a thin dark grey frame
++        // (0.5 pt: a hairline almost vanishes in print)
++        pDevice->SetLineColor();
++        pDevice->SetFillColor(COL_WHITE);
          pDevice->DrawRect(aBox);
 -        vcl::Font aFont(u"Liberation Sans"_ustr, Size(0, static_cast<tools::Long>(fFontPt * 20)));
 -        pDevice->SetFont(aFont);
-         pDevice->SetTextColor(Color(0x0B, 0x5D, 0x29));
+-        pDevice->SetTextColor(Color(0x0B, 0x5D, 0x29));
++        tools::Rectangle aFrame(aBox);
++        aFrame.shrink(5);
++        pDevice->SetLineColor(Color(0x40, 0x40, 0x40));
++        pDevice->DrawPolyLine(tools::Polygon(aFrame), LineInfo(LineStyle::Solid, 10));
++        pDevice->SetTextColor(COL_BLACK);
++        const OUString aFamily = serifFamily(*pDevice, aLines);
 +        // padding 6 pt left and right, 3 pt top and bottom (twips)
          tools::Rectangle aTextBox(aBox);
 -        const tools::Long nPadding = static_cast<tools::Long>(fFontPt * 8);
@@ -129,14 +174,13 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        aTextBox.AdjustRight(-120);
 +        aTextBox.AdjustTop(60);
 +        aTextBox.AdjustBottom(-60);
-+        // the largest font, 9.5 down to 5 points, at which the lines as wrapped fit the box: long
++        // the largest font, 10 down to 5 points, at which the lines as wrapped fit the box: long
 +        // names and a reason wrap to more lines than the fields, which overflowed a fixed size
 +        const DrawTextFlags nFlags = DrawTextFlags::Left | DrawTextFlags::VCenter
 +                                     | DrawTextFlags::MultiLine | DrawTextFlags::WordBreak;
-+        for (double fFontPt = 9.5;; fFontPt -= 0.5)
++        for (double fFontPt = 10.0;; fFontPt -= 0.5)
 +        {
-+            pDevice->SetFont(vcl::Font(u"Liberation Sans"_ustr,
-+                                       Size(0, static_cast<tools::Long>(fFontPt * 20))));
++            pDevice->SetFont(vcl::Font(aFamily, Size(0, static_cast<tools::Long>(fFontPt * 20))));
 +            const tools::Rectangle aNeeded = pDevice->GetTextRect(aTextBox, aLines, nFlags);
 +            if (fFontPt <= 5.0
 +                || (aNeeded.GetHeight() <= aTextBox.GetHeight()
@@ -147,7 +191,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          aMetaFile.Stop();
          aMetaFile.WindStart();
          aMetaFile.SetPrefMapMode(aTwips);
-@@ -169,6 +208,7 @@
+@@ -169,6 +234,7 @@
      if (!xCertificate.is())
          return aDescription;
      aDescription.aSubject = commonName(xCertificate->getSubjectName());
