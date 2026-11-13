@@ -3,8 +3,8 @@
 import copy
 
 import ribbon_ux_lib as L
-from ribbon_ux_calc_data import (CHART_TYPES, CONVERT_TO_NUMBER, EXTENSION_ORDER, FIT_WIDTH_COMMAND, LABELS,
-                                 NEW_CAPTIONS, SPLIT_BUTTONS, TOOLTIPS)
+from ribbon_ux_calc_data import (CHART_TYPES, CONVERT_TO_NUMBER, EXTENSION_ORDER, LABELS, NEW_CAPTIONS,
+                                 PRINT_SCALE_MENU, SPLIT_BUTTONS, TOOLTIPS)
 from ribbon_ux_calc_layout import CalcUxError
 from ribbon_ux_calc_menus import NUMBER_TO_WORDS
 
@@ -55,13 +55,22 @@ def insert(b):
 def page_layout(b):
     b.drop("bxLayoutPageFormatDialog", "bxHstRowBreak", "bxHstColumnBreak", "bxLayoutDefinePrintArea",
            "bxLayoutEditPrintArea", "bxLayoutPrintArea")  # the caption's launcher opens the page dialog
-    b.style("bxLayoutEditHeaderAndFooter", big=False)
-    fit = b.toolbox("bxLayoutHstFitWidth", [b.button("btnLayoutHstFitWidth", FIT_WIDTH_COMMAND,
-                                                     icon="cmd/sc_zoompagewidth.png",
-                                                     translate=LABELS["btnLayoutHstFitWidth"])], big=False)
+    b.style("bxLayoutEditHeaderAndFooter", big=True)
     b.place("gdLayoutPage", [[b.menu_button("HstLayoutMargins")], [b.menu_button("HstLayoutOrientation")],
                              [b.menu_button("HstLayoutSize")], [b.menu_button("HstLayoutPrintArea")],
-                             [b.menu_button("HstLayoutBreaks")], ["bxLayoutEditHeaderAndFooter", fit]])
+                             [b.menu_button("HstLayoutBreaks")], ["bxLayoutEditHeaderAndFooter"],
+                             [print_scale(b, "Layout")]])
+    # print preview: the page dialog and the scaling drop-down large, Margins and Header and Footer stacked
+    b.place("gdPrintPage", [["bxPrintPageFormatDialog"], ["bxPrintMargins", "bxPrintEditHeaderAndFooter"],
+                            [print_scale(b, "Print")]])
+
+
+def print_scale(b, tab):
+    """The print scaling drop-down (ids of hst-sheets-print-scaling-ribbon.patch, which this layout replaces)."""
+    bid = f"btn{tab}PrintScaleMenu"
+    return b.toolbox(f"bx{tab}PrintScaleMenu", [b.button(bid, PRINT_SCALE_MENU, klass="GtkMenuToolButton",
+                                                       icon="cmd/lc_zoompagewidth.png",
+                                                       translate=LABELS[bid])], big=True)
 
 
 def formulas(b):

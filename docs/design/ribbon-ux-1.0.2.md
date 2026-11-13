@@ -14,6 +14,8 @@ cho ghi chú phát hành. Mọi lệnh bỏ khỏi ribbon vẫn còn trong thanh
 | Banner một bề ngang cho mọi thẻ; tên nhóm cùng một hàng; thẻ ngữ cảnh có màu nhấn và tự mở sau lệnh chèn; gợi ý một lần dưới ô tìm | engine patch |
 | Phím Alt mới, Trợ giúp = Y | [`hst-ribbon-ux-keytips.patch`](../../patches/libreoffice/hst-ribbon-ux-keytips.patch) |
 | Nội dung thẻ | bộ sinh `scripts/patches/generate-ribbon-ux-{writer,calc,impress-draw}.py` |
+| Một luật bố cục cho mọi nhóm của bốn ứng dụng: nhóm 1–3 lệnh là nút lớn (biểu tượng lớn, nhãn bên dưới) cao bằng nhóm, ở mọi bề ngang; nhóm nhiều lệnh xếp hai hàng nhỏ, không còn nút nhỏ đứng một mình trong cột | luật [`ribbon_layout_rules.py`](../../scripts/patches/ribbon_layout_rules.py) → bộ sinh [`generate-ribbon-ux-uniform.py`](../../scripts/patches/generate-ribbon-ux-uniform.py) (patch cuối sửa `.ui` của ribbon); thang thu gọn giữ nút lớn: [`hst-ribbon-ux-few-command-groups.patch`](../../patches/libreoffice/hst-ribbon-ux-few-command-groups.patch) |
+| Banner luôn hiện ở mọi bề ngang (kể cả 1366), chỉ thu hẹp theo tỉ lệ, tối thiểu 260 px; không bản thu gọn, không ẩn | [`hst-ribbon-ux-banner-yield.patch`](../../patches/libreoffice/hst-ribbon-ux-banner-yield.patch) |
 
 Thẻ cuối giữ tên "Phần mở rộng": nhóm tiện ích tiếng Việt đứng đầu, rồi HASON TECH và phần mở rộng, cuối cùng
 một nhóm "Nhà phát triển" gom macro, điều khiển biểu mẫu và XML. Thuật ngữ: "Macro", "Trộn thư".
@@ -38,6 +40,7 @@ một nhóm "Nhà phát triển" gom macro, điều khiển biểu mẫu và XML
 | Sheets | Phần mở rộng ▸ Tiền VND, Định dạng ngày | còn ở đó và thêm ở Trang đầu ▸ Số (₫, Ngày dd/mm/yyyy) |
 | Sheets | Chèn ▸ Cập nhật/Xóa bảng tổng hợp | thẻ ngữ cảnh "Phân tích bảng tổng hợp" |
 | Sheets | Bố trí trang ▸ Vùng in (4 biểu tượng), Chèn Ngắt Hàng/Cột | Vùng in ▾, Ngắt trang ▾ |
+| Sheets | Bố trí trang ▸ Co vừa một trang ngang | Bố trí trang ▸ Thiết lập trang ▸ Thu phóng ▾ (cả ở thẻ Xem trước khi in), lệnh của nhánh co bản in (`.uno:PrintScaleMenu`, hoàn tác được, theo từng trang tính) |
 | Sheets | Dữ liệu ▸ Luồng, Nguồn XML, Nhà cung cấp dữ liệu…; Xáo trộn | Dữ liệu ▸ Nguồn khác ▾; bỏ (thanh trình đơn) |
 | Sheets | Công thức ▸ Chế độ điền | bỏ (thanh trình đơn) |
 | Sheets | Xem ▸ Cửa sổ ▾ (Cố định ngăn) | Xem ▸ Cửa sổ ▸ Cố định ngăn ▾ (luôn hiện) |
@@ -67,3 +70,10 @@ thể làm hỏng bản dựng (mục trình đơn không nhãn, `labelled-by` t
 đổi). Trước khi đẩy, áp toàn bộ series lên cây mới rồi chạy
 [`scripts/patches/gla11y-fresh-tree.sh`](../../scripts/patches/gla11y-fresh-tree.sh) `<cây> <tarball>`: mọi mô-đun
 giao diện mà series sửa phải báo 0 lỗi nghiêm trọng.
+
+Script đó chạy luôn
+[`scripts/patches/check-ribbon-layout.py`](../../scripts/patches/check-ribbon-layout.py) `--tree <cây>`: luật bố cục
+phải đúng ở mọi nhóm của bốn ứng dụng (0 lỗi). Series chỉ thêm ở cuối, nên một patch sau
+`hst-ribbon-ux-uniform-layout.patch` sửa `.ui` của ribbon phải tự theo luật này; khi bộ sinh của ứng dụng thay đổi,
+sinh lại patch đó bằng `generate-ribbon-ux-uniform.py --tree <cây áp series tới trước nó>`. Khi chụp lại ribbon, chạy thêm
+`check-ribbon-layout.py --shots <thư mục ảnh>`: banner phải hiện ở mọi ảnh, rộng ít nhất 200 px.

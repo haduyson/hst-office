@@ -104,6 +104,16 @@ class CalcRibbonUxPatch(unittest.TestCase):
         for bid in data.SPLIT_BUTTONS + ("btnFunctionsHstAutoSum", "btnViewFreezePanes"):
             self.assertIn(f'<object class="GtkMenuToolButton" id="{bid}">', self.ui_added)
 
+    def test_print_scaling_drop_down(self):
+        # large in Page Layout ▸ Page Setup and in the print preview's Page group, ids of the scaling patch
+        for tab in ("Layout", "Print"):
+            self.assertIn(f'<object class="sfxlo-NotebookbarToolBox" id="bx{tab}PrintScaleMenu">', self.ui_added)
+            start = self.ui_added.index(f'<object class="GtkMenuToolButton" id="btn{tab}PrintScaleMenu">')
+            button = self.ui_added[start:self.ui_added.index("</object>", start)]
+            self.assertIn(f">{data.PRINT_SCALE_MENU}<", button)
+            self.assertIn(">Scaling<", button)
+        self.assertNotIn("HstFitToPagesWide", self.ui_added)
+
     def test_convert_to_number_keeps_the_other_patch_ids(self):
         self.assertIn('<object class="sfxlo-NotebookbarToolBox" id="bxHstConvertTextToNumber">', self.ui_added)
         button = re.search(r'<object class="GtkToolButton" id="btnHstConvertTextToNumber">(.*?)</object>',
@@ -137,17 +147,10 @@ class CalcRibbonUxSuppr(unittest.TestCase):
 class CalcRibbonUxCommands(unittest.TestCase):
     patch = read("hst-ribbon-ux-calc-commands.patch")
 
-    def test_slot_is_declared_everywhere(self):
-        name = data.FIT_WIDTH_COMMAND.removeprefix(".uno:")
-        self.assertIn("+#define SID_HST_FIT_TO_PAGES_WIDE (SC_RESOURCE_START+23)", self.patch)
-        self.assertIn(f"+SfxVoidItem {name} SID_HST_FIT_TO_PAGES_WIDE", section(self.patch, "sc/sdi/scalc.sdi"))
-        self.assertIn("+    SID_HST_FIT_TO_PAGES_WIDE [ ExecMethod = Execute; StateMethod = GetState; ]",
-                      section(self.patch, "sc/sdi/docsh.sdi"))
-        cxx = section(self.patch, "sc/source/ui/docshell/docsh4.cxx")
-        self.assertEqual(cxx.count("+        case SID_HST_FIT_TO_PAGES_WIDE:"), 1)
-        self.assertIn("+            case SID_HST_FIT_TO_PAGES_WIDE:", cxx)
-        self.assertIn("ScPageScaleToItem(1, 0)", cxx)
-        self.assertIn(f'+      <node oor:name="{data.FIT_WIDTH_COMMAND}" oor:op="replace">', self.patch)
+    def test_print_scaling_belongs_to_its_own_patch(self):
+        # the drop-down's commands come from hst-sheets-print-scaling.patch (undoable, per sheet)
+        self.assertNotIn("FIT_TO_PAGES", self.patch)
+        self.assertNotIn("HstFitToPagesWide", self.patch)
 
     def test_unfreeze_split_buttons_and_chart_type(self):
         self.assertIn("+SfxVoidItem HstUnfreezePanes SID_HST_UNFREEZE_PANES", self.patch)
@@ -162,7 +165,7 @@ class CalcRibbonUxCommands(unittest.TestCase):
         self.assertIn("lcl_HstSetChartType(xChartDoc, aHstChartType);", self.patch)
         po = section(self.patch, "translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po")
         self.assertIn('+  <menu:menuitem menu:id=".uno:AutoSum?Function:string=sum"/>', self.patch)
-        for vi in ("Tổng", "Co vừa một trang ngang", "Bỏ cố định ngăn", "Trung bình", "Biểu đồ cột", "Biểu đồ tròn"):
+        for vi in ("Tổng", "Bỏ cố định ngăn", "Trung bình", "Biểu đồ cột", "Biểu đồ tròn"):
             self.assertIn(f'+msgstr "{vi}"', po)
 
 

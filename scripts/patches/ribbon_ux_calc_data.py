@@ -44,7 +44,8 @@ LABELS = {
     "btnLayoutEditHeaderAndFooter": ("Header and Footer", "Đầu trang và chân trang"),
     "btnHstToggleSheetGrid7": ("Gridlines", "Đường lưới"),
     "btnHstViewRowColumnHeaders8": ("Row and Column Headers", "Tiêu đề hàng, cột"),
-    "btnLayoutHstFitWidth": ("Fit All Columns on One Page", "Co vừa một trang ngang"),
+    "btnLayoutPrintScaleMenu": ("Scaling", "Thu phóng"),
+    "btnPrintPrintScaleMenu": ("Scaling", "Thu phóng"),
     # Công thức
     "btnHstFunctionDialog9": ("Insert Function", "Chèn hàm"),
     "btnInsertFunctionBox1": ("Function List", "Danh sách hàm"),
@@ -131,7 +132,8 @@ NEW_CAPTIONS = {
 }
 
 # --- new tool buttons ---------------------------------------------------------------------------------------
-FIT_WIDTH_COMMAND = ".uno:HstFitToPagesWide"
+# hst-sheets-print-scaling.patch: No Scaling, Fit Sheet / All Columns / All Rows on One Page, Custom Scaling Options
+PRINT_SCALE_MENU = ".uno:PrintScaleMenu"
 # split buttons and chart types of hst-ribbon-ux-calc-commands.patch
 SPLIT_BUTTONS = ("btnHstAutoSum1", "btnHomeMergeCells")  # Controller.xcu: popups hstautosum, hstmergecells
 CHART_TYPES = [("Column", "chart2/res/typecolumn_16.png"), ("Line", "chart2/res/typepointline_16.png"),

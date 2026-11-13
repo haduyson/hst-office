@@ -39,8 +39,9 @@ the Tabbed notebookbar.ui of Calc, after the audit of 13/11 and the owner decisi
 - Insert: Pivot Table and Table (refresh/delete pivot table are on the Pivot Table contextual tab); one
   Shapes ▾; Column, Line and Pie chart buttons; no Extensions group.
 - Page Layout: Margins ▾, Orientation ▾, Size ▾ (Calc's page-style commands CalcPageMargin, Orientation,
-  CalcPageSize), Print Area ▾, Breaks ▾, Header and Footer, Fit All Columns on One Page.
-  The split buttons, the chart types and Fit All Columns need hst-ribbon-ux-calc-commands.patch.
+  CalcPageSize), Print Area ▾, Breaks ▾, Header and Footer, Scaling ▾
+  (.uno:PrintScaleMenu of hst-sheets-print-scaling.patch, also on the print preview tab's Page group).
+  The split buttons and the chart types need hst-ribbon-ux-calc-commands.patch.
 - Formulas: Insert Function, AutoSum (split button), Function List, six function categories ▾ (InsertFunction, as the
   sidebar's function list), Number to Words (DOCTIEN); names and auditing labels; no Fill Mode.
 - Data: From Text/CSV and Other Sources ▾; Sort and Filter, Data Tools (with Convert to Number of

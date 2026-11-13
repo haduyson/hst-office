@@ -8,7 +8,9 @@
 #   TREE     a LibreOffice tree with the series applied (e.g. from the fresh-apply script); missing upstream files
 #            of the checked modules (other .ui files, bin/gla11y, solenv/sanitizers) are taken from TARBALL
 #   TARBALL  libreoffice-26.8.1.1.tar.xz
-# Needs python3 with lxml. Exit status 1 when any module has a new fatal.
+# Then the layout check of the four ribbons (check-ribbon-layout.py --tree: few-command groups large, no lone
+# small button, small items on the two rows).
+# Needs python3 with lxml. Exit status 1 when any module has a new fatal or a ribbon breaks a layout rule.
 set -uo pipefail
 TREE="$1"; TARBALL="$2"
 [ -d "$TREE" ] && [ -f "$TARBALL" ] || { echo "usage: $0 TREE TARBALL" >&2; exit 2; }
@@ -43,4 +45,5 @@ for dir in "${!MODULES[@]}"; do
   [ "$rc" -eq 0 ] && [ "$fatals" -eq 0 ] || status=1
   rm -f "$out"
 done
+python3 "$(dirname "$0")/check-ribbon-layout.py" --tree "$TREE" || status=1
 exit $status

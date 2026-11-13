@@ -8,8 +8,9 @@ the Tabbed notebookbar.ui of Calc, after the audit of 13/11 and the owner decisi
 - Insert: Pivot Table and Table (refresh/delete pivot table are on the Pivot Table contextual tab); one
   Shapes ▾; Column, Line and Pie chart buttons; no Extensions group.
 - Page Layout: Margins ▾, Orientation ▾, Size ▾ (Calc's page-style commands CalcPageMargin, Orientation,
-  CalcPageSize), Print Area ▾, Breaks ▾, Header and Footer, Fit All Columns on One Page.
-  The split buttons, the chart types and Fit All Columns need hst-ribbon-ux-calc-commands.patch.
+  CalcPageSize), Print Area ▾, Breaks ▾, Header and Footer, Scaling ▾
+  (.uno:PrintScaleMenu of hst-sheets-print-scaling.patch, also on the print preview tab's Page group).
+  The split buttons and the chart types need hst-ribbon-ux-calc-commands.patch.
 - Formulas: Insert Function, AutoSum (split button), Function List, six function categories ▾ (InsertFunction, as the
   sidebar's function list), Number to Words (DOCTIEN); names and auditing labels; no Fill Mode.
 - Data: From Text/CSV and Other Sources ▾; Sort and Filter, Data Tools (with Convert to Number of
@@ -3080,7 +3081,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                    </packing>
                  </child>
                </object>
-@@ -6170,52 +7195,153 @@
+@@ -6170,69 +7195,106 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -3091,7 +3092,20 @@ License: these upstream files remain under their original license (MPL-2.0).
 -                          <object class="sfxlo-NotebookbarToolBox" id="bxHstRowBreak">
 -                            <property name="visible">True</property>
 -                            <property name="can-focus">False</property>
-+                            <property name="width">6</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHstRowBreak">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:InsertRowBreak</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="width">7</property>
 +                          </packing>
 +                        </child>
 +                        <child>
@@ -3106,13 +3120,13 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                            <property name="label" translatable="yes" context="TabbedCalc|btnLayoutHstMargins">Margins</property>
 +                            <property name="image">imgLayoutHstMargins</property>
 +                            <property name="image-position">top</property>
-+                          </object>
-+                          <packing>
++                              </object>
++                              <packing>
 +                            <property name="left-attach">0</property>
 +                            <property name="top-attach">0</property>
 +                            <property name="height">2</property>
-+                          </packing>
-+                        </child>
++                              </packing>
++                            </child>
 +                        <child>
 +                          <object class="svtlo-ManagedMenuButton" id="btnLayoutHstOrientation:Menu HstLayoutOrientation">
 +                            <property name="visible">True</property>
@@ -3182,24 +3196,23 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                            <property name="label" translatable="yes" context="TabbedCalc|btnLayoutHstBreaks">Breaks</property>
 +                            <property name="image">imgLayoutHstBreaks</property>
 +                            <property name="image-position">top</property>
-+                          </object>
-+                          <packing>
-+                            <property name="left-attach">4</property>
-+                            <property name="top-attach">0</property>
-+                            <property name="height">2</property>
-+                          </packing>
-+                        </child>
-+                        <child>
-+                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutEditHeaderAndFooter">
-+                            <property name="visible">True</property>
-+                            <property name="can-focus">True</property>
-                             <property name="toolbar-style">both-horiz</property>
-                             <property name="show-arrow">False</property>
-                             <child>
--                              <object class="GtkToolButton" id="btnHstRowBreak">
+                           </object>
+                           <packing>
+                             <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstColumnBreak">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHstColumnBreak">
 -                                <property name="visible">True</property>
 -                                <property name="can-focus">False</property>
--                                <property name="action-name">.uno:InsertRowBreak</property>
+-                                <property name="action-name">.uno:InsertColumnBreak</property>
 -                              </object>
 -                              <packing>
 -                                <property name="expand">False</property>
@@ -3209,13 +3222,48 @@ License: these upstream files remain under their original license (MPL-2.0).
 -                          </object>
 -                          <packing>
 -                            <property name="left-attach">4</property>
--                            <property name="top-attach">0</property>
+-                            <property name="top-attach">1</property>
 -                          </packing>
 -                        </child>
 -                        <child>
--                          <object class="sfxlo-NotebookbarToolBox" id="bxHstColumnBreak">
+-                          <object class="GtkSeparator">
 -                            <property name="visible">True</property>
 -                            <property name="can-focus">False</property>
+-                            <property name="orientation">vertical</property>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">5</property>
+-                            <property name="top-attach">0</property>
+-                            <property name="height">3</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutPageFormatDialog">
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutEditHeaderAndFooter">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+@@ -6241,25 +7303,26 @@
+                             <property name="show-arrow">False</property>
+                             <property name="icon_size">3</property>
+                             <child>
+-                              <object class="GtkToolButton" id="btnLayoutPageFormatDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:PageFormatDialog</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">0</property>
 +                              <object class="GtkToolButton" id="btnLayoutEditHeaderAndFooter">
 +                                <property name="visible">True</property>
 +                                <property name="can-focus">False</property>
@@ -3230,97 +3278,20 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                          </object>
 +                          <packing>
 +                            <property name="left-attach">5</property>
-+                            <property name="top-attach">0</property>
-+                          </packing>
-+                        </child>
-+                        <child>
-+                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutHstFitWidth">
-+                            <property name="visible">True</property>
-+                            <property name="can-focus">True</property>
-                             <property name="toolbar-style">both-horiz</property>
-                             <property name="show-arrow">False</property>
-                             <child>
--                              <object class="GtkToolButton" id="btnHstColumnBreak">
--                                <property name="visible">True</property>
--                                <property name="can-focus">False</property>
--                                <property name="action-name">.uno:InsertColumnBreak</property>
--                              </object>
--                              <packing>
--                                <property name="expand">False</property>
--                                <property name="homogeneous">True</property>
--                              </packing>
--                            </child>
--                          </object>
--                          <packing>
--                            <property name="left-attach">4</property>
-+                              <object class="GtkToolButton" id="btnLayoutHstFitWidth">
-+                                <property name="visible">True</property>
-+                                <property name="can-focus">False</property>
-+                                <property name="use-underline">True</property>
-+                                <property name="label" translatable="yes" context="TabbedCalc|btnLayoutHstFitWidth">Fit All Columns on One Page</property>
-+                                <property name="hst-ribbon-label" translatable="yes" context="TabbedCalc|btnLayoutHstFitWidth">Fit All Columns on One Page</property>
-+                                <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|btnLayoutHstFitWidth">Shrink the printout so that all columns fit on one page width.</property>
-+                                <property name="action-name">.uno:HstFitToPagesWide</property>
-+                                <property name="icon-name">cmd/sc_zoompagewidth.png</property>
-+                              </object>
-+                              <packing>
-+                                <property name="expand">False</property>
-+                                <property name="homogeneous">True</property>
-+                              </packing>
-+                            </child>
-+                          </object>
-+                          <packing>
-+                            <property name="left-attach">5</property>
-                             <property name="top-attach">1</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">2</property>
                            </packing>
                          </child>
-@@ -6226,159 +7352,9 @@
-                             <property name="orientation">vertical</property>
-                           </object>
-                           <packing>
--                            <property name="left-attach">5</property>
-+                            <property name="left-attach">6</property>
-                             <property name="top-attach">0</property>
-                             <property name="height">3</property>
--                          </packing>
--                        </child>
--                        <child>
--                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutPageFormatDialog">
--                            <property name="visible">True</property>
--                            <property name="can-focus">True</property>
--                            <property name="valign">center</property>
--                            <property name="vexpand">True</property>
--                            <property name="toolbar-style">both</property>
--                            <property name="show-arrow">False</property>
--                            <property name="icon_size">3</property>
--                            <child>
--                              <object class="GtkToolButton" id="btnLayoutPageFormatDialog">
--                                <property name="visible">True</property>
--                                <property name="can-focus">False</property>
--                                <property name="action-name">.uno:PageFormatDialog</property>
--                              </object>
--                              <packing>
--                                <property name="expand">False</property>
--                                <property name="homogeneous">True</property>
--                              </packing>
--                            </child>
--                          </object>
--                          <packing>
--                            <property name="left-attach">0</property>
--                            <property name="top-attach">0</property>
--                            <property name="height">2</property>
--                          </packing>
--                        </child>
--                        <child>
+                         <child>
 -                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutEditHeaderAndFooter">
--                            <property name="visible">True</property>
--                            <property name="can-focus">True</property>
--                            <property name="valign">center</property>
--                            <property name="vexpand">True</property>
--                            <property name="toolbar-style">both</property>
--                            <property name="show-arrow">False</property>
--                            <property name="icon_size">3</property>
--                            <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutPrintScaleMenu">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+@@ -6268,117 +7331,37 @@
+                             <property name="show-arrow">False</property>
+                             <property name="icon_size">3</property>
+                             <child>
 -                              <object class="GtkToolButton" id="btnLayoutEditHeaderAndFooter">
 -                                <property name="visible">True</property>
 -                                <property name="can-focus">False</property>
@@ -3334,11 +3305,28 @@ License: these upstream files remain under their original license (MPL-2.0).
 -                          </object>
 -                          <packing>
 -                            <property name="left-attach">1</property>
--                            <property name="top-attach">0</property>
--                            <property name="height">2</property>
--                          </packing>
--                        </child>
--                        <child>
++                              <object class="GtkMenuToolButton" id="btnLayoutPrintScaleMenu">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label" translatable="yes" context="TabbedCalc|btnLayoutPrintScaleMenu">Scaling</property>
++                                <property name="hst-ribbon-label" translatable="yes" context="TabbedCalc|btnLayoutPrintScaleMenu">Scaling</property>
++                                <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|btnLayoutPrintScaleMenu">Fit the printout of the sheet, all its columns or all its rows on one page.</property>
++                                <property name="action-name">.uno:PrintScaleMenu</property>
++                                <property name="icon-name">cmd/lc_zoompagewidth.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">6</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">2</property>
+                           </packing>
+                         </child>
+                         <child>
 -                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutDefinePrintArea">
 -                            <property name="visible">True</property>
 -                            <property name="can-focus">True</property>
@@ -3432,10 +3420,19 @@ License: these upstream files remain under their original license (MPL-2.0).
 -                          <packing>
 -                            <property name="left-attach">3</property>
 -                            <property name="top-attach">1</property>
++                          <object class="GtkSeparator">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                              </object>
++                              <packing>
++                            <property name="left-attach">7</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
                            </packing>
                          </child>
                          <accessibility>
-@@ -6486,6 +7462,7 @@
+@@ -6486,6 +7469,7 @@
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
                                  <property name="label">ToggleSheetGrid</property>
@@ -3443,7 +3440,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:ToggleSheetGrid</property>
                                </object>
                                <packing>
-@@ -6512,6 +7489,7 @@
+@@ -6512,6 +7496,7 @@
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
                                  <property name="label">ViewRowColumnHeaders</property>
@@ -3451,7 +3448,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:ViewRowColumnHeaders</property>
                                </object>
                                <packing>
-@@ -6812,57 +7790,6 @@
+@@ -6812,57 +7797,6 @@
                      <property name="expand">True</property>
                      <property name="fill">True</property>
                      <property name="position">0</property>
@@ -3509,7 +3506,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                    </packing>
                  </child>
                </object>
-@@ -6917,7 +7844,7 @@
+@@ -6917,7 +7851,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -3518,7 +3515,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6934,6 +7861,8 @@
+@@ -6934,6 +7868,8 @@
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
                                  <property name="label">FunctionDialog</property>
@@ -3527,7 +3524,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:FunctionDialog</property>
                                </object>
                                <packing>
-@@ -6949,52 +7878,173 @@
+@@ -6949,52 +7885,173 @@
                            </packing>
                          </child>
                          <child>
@@ -3743,7 +3740,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7004,7 +8054,7 @@
+@@ -7004,7 +8061,7 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -3752,7 +3749,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">0</property>
                              <property name="height">3</property>
                            </packing>
-@@ -7046,7 +8096,60 @@
+@@ -7046,7 +8103,60 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -3814,7 +3811,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7059,30 +8162,8 @@
+@@ -7059,30 +8169,8 @@
                                <object class="GtkToolButton" id="btnHstInsertName">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -3846,7 +3843,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -7096,61 +8177,39 @@
+@@ -7096,61 +8184,39 @@
                            </packing>
                          </child>
                          <child>
@@ -3935,7 +3932,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -7175,47 +8234,12 @@
+@@ -7175,47 +8241,12 @@
                          <property name="row-spacing">3</property>
                          <property name="column-spacing">3</property>
                          <child>
@@ -3984,7 +3981,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <attributes>
                                <attribute name="style" value="normal"/>
                                <attribute name="scale" value="0.9"/>
-@@ -7227,34 +8251,7 @@
+@@ -7227,34 +8258,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -4020,7 +4017,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7267,6 +8264,8 @@
+@@ -7267,6 +8271,8 @@
                                <object class="GtkToolButton" id="btnFunctionsShowPrecedents">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -4029,7 +4026,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:ShowPrecedents</property>
                                </object>
                                <packing>
-@@ -7276,21 +8275,72 @@
+@@ -7276,21 +8282,72 @@
                              </child>
                            </object>
                            <packing>
@@ -4107,7 +4104,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -7304,16 +8354,17 @@
+@@ -7304,16 +8361,17 @@
                            </packing>
                          </child>
                          <child>
@@ -4130,7 +4127,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -7327,16 +8378,17 @@
+@@ -7327,16 +8385,17 @@
                            </packing>
                          </child>
                          <child>
@@ -4155,7 +4152,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -7350,73 +8402,15 @@
+@@ -7350,73 +8409,15 @@
                            </packing>
                          </child>
                          <child>
@@ -4234,7 +4231,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -7590,65 +8584,70 @@
+@@ -7590,65 +8591,70 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -4352,7 +4349,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:EditLinks</property>
                                </object>
                                <packing>
-@@ -7658,151 +8657,20 @@
+@@ -7658,151 +8664,20 @@
                              </child>
                            </object>
                            <packing>
@@ -4508,7 +4505,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -7827,47 +8695,12 @@
+@@ -7827,47 +8702,12 @@
                          <property name="row-spacing">3</property>
                          <property name="column-spacing">3</property>
                          <child>
@@ -4557,7 +4554,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <attributes>
                                <attribute name="style" value="normal"/>
                                <attribute name="scale" value="0.9"/>
-@@ -7879,7 +8712,7 @@
+@@ -7879,7 +8719,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -4566,7 +4563,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7895,6 +8728,8 @@
+@@ -7895,6 +8735,8 @@
                                <object class="GtkToolButton" id="btnDataDataSort">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -4575,7 +4572,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:DataSort</property>
                                </object>
                                <packing>
-@@ -7960,48 +8795,50 @@
+@@ -7960,48 +8802,50 @@
                            </packing>
                          </child>
                          <child>
@@ -4660,7 +4657,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="homogeneous">True</property>
                                </packing>
                              </child>
-@@ -8012,7 +8849,7 @@
+@@ -8012,7 +8856,7 @@
                            </packing>
                          </child>
                          <child>
@@ -4669,7 +4666,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="visible">True</property>
                              <property name="can-focus">True</property>
                              <property name="valign">center</property>
-@@ -8020,10 +8857,11 @@
+@@ -8020,10 +8864,11 @@
                              <property name="toolbar-style">both-horiz</property>
                              <property name="show-arrow">False</property>
                              <child>
@@ -4685,7 +4682,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">True</property>
-@@ -8037,7 +8875,7 @@
+@@ -8037,7 +8882,7 @@
                            </packing>
                          </child>
                          <child>
@@ -4694,7 +4691,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="visible">True</property>
                              <property name="can-focus">True</property>
                              <property name="valign">center</property>
-@@ -8045,10 +8883,11 @@
+@@ -8045,10 +8890,11 @@
                              <property name="toolbar-style">both-horiz</property>
                              <property name="show-arrow">False</property>
                              <child>
@@ -4710,7 +4707,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">True</property>
-@@ -8062,7 +8901,7 @@
+@@ -8062,7 +8908,7 @@
                            </packing>
                          </child>
                          <child>
@@ -4719,7 +4716,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="visible">True</property>
                              <property name="can-focus">True</property>
                              <property name="valign">center</property>
-@@ -8070,10 +8909,11 @@
+@@ -8070,10 +8916,11 @@
                              <property name="toolbar-style">both-horiz</property>
                              <property name="show-arrow">False</property>
                              <child>
@@ -4735,7 +4732,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">True</property>
-@@ -8084,6 +8924,18 @@
+@@ -8084,6 +8931,18 @@
                            <packing>
                              <property name="left-attach">4</property>
                              <property name="top-attach">1</property>
@@ -4754,7 +4751,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -8108,18 +8960,6 @@
+@@ -8108,18 +8967,6 @@
                          <property name="row-spacing">3</property>
                          <property name="column-spacing">3</property>
                          <child>
@@ -4773,7 +4770,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="GtkLabel" id="lbDataExamination">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
-@@ -8137,11 +8977,11 @@
+@@ -8137,11 +8984,11 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -4790,7 +4787,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="visible">True</property>
                              <property name="can-focus">True</property>
                              <property name="valign">center</property>
-@@ -8149,10 +8989,64 @@
+@@ -8149,10 +8996,64 @@
                              <property name="toolbar-style">both-horiz</property>
                              <property name="show-arrow">False</property>
                              <child>
@@ -4859,7 +4856,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -8177,6 +9071,8 @@
+@@ -8177,6 +9078,8 @@
                                <object class="GtkToolButton" id="btnDataValidation">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -4868,7 +4865,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:Validation</property>
                                </object>
                                <packing>
-@@ -8191,7 +9087,7 @@
+@@ -8191,7 +9094,7 @@
                            </packing>
                          </child>
                          <child>
@@ -4877,7 +4874,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="visible">True</property>
                              <property name="can-focus">True</property>
                              <property name="valign">center</property>
-@@ -8199,43 +9095,33 @@
+@@ -8199,43 +9102,33 @@
                              <property name="toolbar-style">both-horiz</property>
                              <property name="show-arrow">False</property>
                              <child>
@@ -4948,7 +4945,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -8277,7 +9163,7 @@
+@@ -8277,7 +9170,7 @@
                              <property name="can-focus">False</property>
                              <property name="valign">end</property>
                              <property name="vexpand">True</property>
@@ -4957,7 +4954,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <attributes>
                                <attribute name="style" value="normal"/>
                                <attribute name="scale" value="0.9"/>
-@@ -8305,6 +9191,8 @@
+@@ -8305,6 +9198,8 @@
                                <object class="GtkToolButton" id="btnFunctionsGoalSeekDialog">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -4966,7 +4963,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:GoalSeekDialog</property>
                                </object>
                                <packing>
-@@ -8332,6 +9220,7 @@
+@@ -8332,6 +9227,7 @@
                                <object class="GtkToolButton" id="btnFunctionsSolverDialog">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -4974,7 +4971,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:SolverDialog</property>
                                </object>
                                <packing>
-@@ -8385,7 +9274,7 @@
+@@ -8385,7 +9281,7 @@
                              <property name="can-focus">False</property>
                              <property name="valign">end</property>
                              <property name="vexpand">True</property>
@@ -4983,7 +4980,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <attributes>
                                <attribute name="style" value="normal"/>
                                <attribute name="scale" value="0.9"/>
-@@ -8413,6 +9302,8 @@
+@@ -8413,6 +9309,8 @@
                                <object class="GtkToolButton" id="btnDataDataSubTotals">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -4992,7 +4989,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:DataSubTotals</property>
                                </object>
                                <packing>
-@@ -8439,6 +9330,7 @@
+@@ -8439,6 +9337,7 @@
                                <object class="GtkToolButton" id="btnDataGroup">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5000,7 +4997,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:Group</property>
                                </object>
                                <packing>
-@@ -8464,6 +9356,7 @@
+@@ -8464,6 +9363,7 @@
                                <object class="GtkToolButton" id="btnDataUngroup">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5008,7 +5005,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:Ungroup</property>
                                </object>
                                <packing>
-@@ -8489,6 +9382,7 @@
+@@ -8489,6 +9389,7 @@
                                <object class="GtkToolButton" id="btnDataHideDetail">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5016,7 +5013,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:HideDetail</property>
                                </object>
                                <packing>
-@@ -8514,6 +9408,7 @@
+@@ -8514,6 +9415,7 @@
                                <object class="GtkToolButton" id="btnDataShowDetail">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5024,7 +5021,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:ShowDetail</property>
                                </object>
                                <packing>
-@@ -8757,57 +9652,6 @@
+@@ -8757,57 +9659,6 @@
                      <property name="expand">True</property>
                      <property name="fill">True</property>
                      <property name="position">0</property>
@@ -5082,7 +5079,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                    </packing>
                  </child>
                </object>
-@@ -8867,18 +9711,6 @@
+@@ -8867,18 +9718,6 @@
                            </packing>
                          </child>
                          <child>
@@ -5101,7 +5098,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxReviewSpelling">
                              <property name="visible">True</property>
                              <property name="can-focus">True</property>
-@@ -8891,6 +9723,7 @@
+@@ -8891,6 +9730,7 @@
                                <object class="GtkToolButton" id="btnReviewSpellDialog">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5109,7 +5106,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:SpellDialog</property>
                                </object>
                                <packing>
-@@ -8940,26 +9773,15 @@
+@@ -8940,26 +9780,15 @@
                            </packing>
                          </child>
                          <child>
@@ -5145,7 +5142,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -9312,6 +10134,8 @@
+@@ -9312,6 +10141,8 @@
                                <object class="GtkToolButton" id="btnReviewTraceChangeMode">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5154,7 +5151,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:TraceChangeMode</property>
                                </object>
                                <packing>
-@@ -9323,6 +10147,7 @@
+@@ -9323,6 +10154,7 @@
                                <object class="GtkToolButton" id="btnReviewAcceptChanges">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5162,7 +5159,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:AcceptChanges</property>
                                  <property name="use-underline">True</property>
                                </object>
-@@ -9371,6 +10196,7 @@
+@@ -9371,6 +10203,7 @@
                                <object class="GtkToolButton" id="btnReviewMergeDocuments">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5170,7 +5167,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:MergeDocuments</property>
                                </object>
                                <packing>
-@@ -9425,18 +10251,6 @@
+@@ -9425,18 +10258,6 @@
                            </packing>
                          </child>
                          <child>
@@ -5189,7 +5186,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxReviewProtect">
                              <property name="visible">True</property>
                              <property name="can-focus">True</property>
-@@ -9449,6 +10263,8 @@
+@@ -9449,6 +10270,8 @@
                                <object class="GtkToolButton" id="btnReviewProtect">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5198,7 +5195,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:Protect</property>
                                </object>
                                <packing>
-@@ -9467,73 +10283,88 @@
+@@ -9467,73 +10290,88 @@
                            <object class="sfxlo-NotebookbarToolBox" id="bxReviewToolProtectionDocument">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
@@ -5344,7 +5341,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -9551,57 +10382,6 @@
+@@ -9551,57 +10389,6 @@
                      <property name="expand">True</property>
                      <property name="fill">True</property>
                      <property name="position">0</property>
@@ -5402,7 +5399,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                    </packing>
                  </child>
                </object>
-@@ -9672,6 +10452,8 @@
+@@ -9672,6 +10459,8 @@
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
                                  <property name="label">NormalViewMode</property>
@@ -5411,7 +5408,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:NormalViewMode</property>
                                </object>
                                <packing>
-@@ -9698,6 +10480,8 @@
+@@ -9698,6 +10487,8 @@
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
                                  <property name="label">PagebreakMode</property>
@@ -5420,7 +5417,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:PagebreakMode</property>
                                </object>
                                <packing>
-@@ -9721,6 +10505,7 @@
+@@ -9721,6 +10512,7 @@
                                <object class="GtkToolButton" id="btnHstViewPageLayout">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5428,7 +5425,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:PrintPreview</property>
                                </object>
                                <packing>
-@@ -9860,6 +10645,7 @@
+@@ -9860,6 +10652,7 @@
                                <object class="GtkToolButton" id="btnViewViewRowColumnHeaders">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5436,7 +5433,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:ViewRowColumnHeaders</property>
                                </object>
                                <packing>
-@@ -9885,6 +10671,7 @@
+@@ -9885,6 +10678,7 @@
                                <object class="GtkToolButton" id="btnViewToggleSheetGrid">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5444,7 +5441,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:ToggleSheetGrid</property>
                                </object>
                                <packing>
-@@ -10056,19 +10843,7 @@
+@@ -10056,19 +10850,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -5465,7 +5462,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10145,6 +10920,30 @@
+@@ -10145,6 +10927,30 @@
                            </packing>
                          </child>
                          <child>
@@ -5496,7 +5493,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxViewFullScreen">
                              <property name="visible">True</property>
                              <property name="can-focus">True</property>
-@@ -10166,9 +10965,21 @@
+@@ -10166,9 +10972,21 @@
                              </child>
                            </object>
                            <packing>
@@ -5519,7 +5516,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -10212,6 +11023,86 @@
+@@ -10212,6 +11030,86 @@
                            </packing>
                          </child>
                          <child>
@@ -5606,7 +5603,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxHstHideSheet">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
-@@ -10221,6 +11112,7 @@
+@@ -10221,6 +11119,7 @@
                                <object class="GtkToolButton" id="btnHstHideSheet">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5614,7 +5611,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:Hide</property>
                                </object>
                                <packing>
-@@ -10244,6 +11136,7 @@
+@@ -10244,6 +11143,7 @@
                                <object class="GtkToolButton" id="btnHstShowSheet">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5622,7 +5619,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:Show</property>
                                </object>
                                <packing>
-@@ -10267,72 +11160,6 @@
+@@ -10267,72 +11167,6 @@
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
                              <property name="height">3</property>
@@ -5695,7 +5692,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -10345,170 +11172,11 @@
+@@ -10345,170 +11179,11 @@
                          <property name="position">3</property>
                        </packing>
                      </child>
@@ -5866,7 +5863,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                    </packing>
                  </child>
                </object>
-@@ -10794,7 +11462,7 @@
+@@ -10794,7 +11469,7 @@
                                <object class="GtkToolButton" id="btnExtensionHstNd30">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -5875,7 +5872,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="tooltip-text">Văn bản hành chính theo Nghị định 30/2020/NĐ-CP</property>
                                  <property name="action-name">org.hst.office.vi:Nd30Wizard</property>
                                  <property name="icon-name">cmd/32/nd30wizard.png</property>
-@@ -11137,6 +11805,20 @@
+@@ -11137,6 +11812,20 @@
                                  <property name="homogeneous">False</property>
                                </packing>
                              </child>
@@ -5896,7 +5893,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
-@@ -11250,212 +11932,6 @@
+@@ -11250,212 +11939,6 @@
                        </packing>
                      </child>
                      <child>
@@ -6109,7 +6106,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                        <object class="GtkGrid" id="gdExtensionHstAddins">
                          <property name="visible">True</property>
                          <property name="can-focus">False</property>
-@@ -11559,7 +12035,8 @@
+@@ -11559,7 +12042,8 @@
                        </packing>
                      </child>
                      <child>
@@ -6119,7 +6116,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                          <property name="visible">True</property>
                          <property name="can-focus">False</property>
                          <property name="margin-start">4</property>
-@@ -11567,26 +12044,180 @@
+@@ -11567,26 +12051,180 @@
                          <property name="margin-top">6</property>
                          <property name="margin-bottom">6</property>
                          <property name="row-spacing">3</property>
@@ -6306,7 +6303,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11619,7 +12250,7 @@
+@@ -11619,7 +12257,7 @@
                              </child>
                            </object>
                            <packing>
@@ -6315,7 +6312,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">0</property>
                            </packing>
                          </child>
-@@ -11633,6 +12264,7 @@
+@@ -11633,6 +12271,7 @@
                                <object class="GtkToolButton" id="btnHstDesignMode0">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
@@ -6323,7 +6320,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="action-name">.uno:SwitchControlDesignMode</property>
                                </object>
                                <packing>
-@@ -11653,110 +12285,54 @@
+@@ -11653,110 +12292,54 @@
                              </child>
                            </object>
                            <packing>
@@ -6462,7 +6459,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                        </packing>
                      </child>
                      <child>
-@@ -12773,7 +13349,57 @@
+@@ -12773,7 +13356,57 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -6521,7 +6518,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12795,69 +13421,8 @@
+@@ -12795,69 +13428,8 @@
                              </child>
                            </object>
                            <packing>
@@ -6592,7 +6589,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12903,27 +13468,23 @@
+@@ -12903,27 +13475,23 @@
                              </child>
                            </object>
                            <packing>
@@ -6631,7 +6628,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -12932,9 +13493,20 @@
+@@ -12932,9 +13500,20 @@
                              </child>
                            </object>
                            <packing>
@@ -6655,7 +6652,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -12964,7 +13536,7 @@
+@@ -12964,7 +13543,7 @@
                              <property name="can-focus">False</property>
                              <property name="valign">end</property>
                              <property name="vexpand">True</property>
@@ -6664,7 +6661,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <attributes>
                                <attribute name="style" value="normal"/>
                                <attribute name="scale" value="0.9"/>
-@@ -13264,22 +13836,7 @@
+@@ -13264,22 +13843,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -6688,7 +6685,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -13425,29 +13982,6 @@
+@@ -13425,29 +13989,6 @@
                            </packing>
                          </child>
                          <child>
@@ -6718,7 +6715,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxImageSendToBack">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
-@@ -13471,6 +14005,29 @@
+@@ -13471,6 +14012,29 @@
                            </packing>
                          </child>
                          <child>
@@ -6748,7 +6745,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxImageObjectBackOne">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
-@@ -13491,6 +14048,43 @@
+@@ -13491,6 +14055,43 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">1</property>
@@ -6792,7 +6789,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -13733,103 +14327,88 @@
+@@ -13733,103 +14334,88 @@
                          <property name="position">4</property>
                        </packing>
                      </child>
@@ -6968,7 +6965,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                    </packing>
                  </child>
                </object>
-@@ -14762,22 +15341,29 @@
+@@ -14762,22 +15348,29 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -7014,7 +7011,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -14823,60 +15409,20 @@
+@@ -14823,60 +15416,20 @@
                              </child>
                            </object>
                            <packing>
@@ -7088,7 +7085,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -14906,7 +15452,7 @@
+@@ -14906,7 +15459,7 @@
                              <property name="can-focus">False</property>
                              <property name="valign">end</property>
                              <property name="vexpand">True</property>
@@ -7097,7 +7094,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <attributes>
                                <attribute name="style" value="normal"/>
                                <attribute name="scale" value="0.9"/>
-@@ -15210,21 +15756,6 @@
+@@ -15210,21 +15763,6 @@
                            </packing>
                          </child>
                          <child>
@@ -7119,7 +7116,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxDrawAnchorMenu">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
-@@ -15367,29 +15898,6 @@
+@@ -15367,29 +15905,6 @@
                            </packing>
                          </child>
                          <child>
@@ -7149,7 +7146,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxDrawSendToBack">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
-@@ -15413,6 +15921,29 @@
+@@ -15413,6 +15928,29 @@
                            </packing>
                          </child>
                          <child>
@@ -7179,7 +7176,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxDrawObjectBackOne">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
-@@ -15433,6 +15964,42 @@
+@@ -15433,6 +15971,42 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">1</property>
@@ -7222,7 +7219,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -15714,90 +16281,88 @@
+@@ -15714,90 +16288,88 @@
                          <property name="position">5</property>
                        </packing>
                      </child>
@@ -7390,7 +7387,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                    </packing>
                  </child>
                </object>
-@@ -15862,22 +16427,31 @@
+@@ -15862,22 +16434,31 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -7438,7 +7435,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -15923,62 +16497,20 @@
+@@ -15923,62 +16504,20 @@
                              </child>
                            </object>
                            <packing>
@@ -7514,7 +7511,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -16008,7 +16540,7 @@
+@@ -16008,7 +16547,7 @@
                              <property name="can-focus">False</property>
                              <property name="valign">end</property>
                              <property name="vexpand">True</property>
@@ -7523,7 +7520,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <attributes>
                                <attribute name="style" value="normal"/>
                                <attribute name="scale" value="0.9"/>
-@@ -16228,22 +16760,7 @@
+@@ -16228,22 +16767,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -7547,7 +7544,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -16389,29 +16906,6 @@
+@@ -16389,29 +16913,6 @@
                            </packing>
                          </child>
                          <child>
@@ -7577,7 +7574,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxObjectSendToBack">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
-@@ -16435,6 +16929,29 @@
+@@ -16435,6 +16936,29 @@
                            </packing>
                          </child>
                          <child>
@@ -7607,7 +7604,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            <object class="sfxlo-NotebookbarToolBox" id="bxObjectObjectBackOne">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
-@@ -16455,6 +16972,42 @@
+@@ -16455,6 +16979,42 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">1</property>
@@ -7650,7 +7647,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -16467,90 +17020,88 @@
+@@ -16467,90 +17027,88 @@
                          <property name="position">2</property>
                        </packing>
                      </child>
@@ -7818,7 +7815,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                    </packing>
                  </child>
                </object>
-@@ -16585,91 +17136,6 @@
+@@ -16585,91 +17143,6 @@
                      <property name="valign">center</property>
                      <property name="vexpand">True</property>
                      <child>
@@ -7910,7 +7907,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                        <!-- n-columns=5 n-rows=3 -->
                        <object class="GtkGrid" id="gdMediaPositioning">
                          <property name="visible">True</property>
-@@ -16698,204 +17164,7 @@
+@@ -16698,204 +17171,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -8116,7 +8113,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -16909,13 +17178,13 @@
+@@ -16909,13 +17185,13 @@
                              <property name="icon_size">3</property>
                              <child>
                                <object class="GtkMenuToolButton" id="btnMediaAnchorMenu">
@@ -8134,7 +8131,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="expand">False</property>
                                  <property name="homogeneous">False</property>
                                </packing>
-@@ -16925,6 +17194,224 @@
+@@ -16925,6 +17201,224 @@
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
                              <property name="height">2</property>
@@ -8359,7 +8356,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -17039,88 +17526,97 @@
+@@ -17039,88 +17533,97 @@
                          <property name="position">2</property>
                        </packing>
                      </child>
@@ -8534,9 +8531,82 @@ License: these upstream files remain under their original license (MPL-2.0).
                    </packing>
                  </child>
                </object>
+@@ -17182,22 +17685,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">2</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="GtkSeparator">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="halign">end</property>
+-                            <property name="margin-top">5</property>
+-                            <property name="margin-bottom">5</property>
+-                            <property name="orientation">vertical</property>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -17271,6 +17759,48 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxPrintPrintScaleMenu">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkMenuToolButton" id="btnPrintPrintScaleMenu">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label" translatable="yes" context="TabbedCalc|btnPrintPrintScaleMenu">Scaling</property>
++                                <property name="hst-ribbon-label" translatable="yes" context="TabbedCalc|btnPrintPrintScaleMenu">Scaling</property>
++                                <property name="action-name">.uno:PrintScaleMenu</property>
++                                <property name="icon-name">cmd/lc_zoompagewidth.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
 --- a/translations/source/vi/sc/messages.po
 +++ b/translations/source/vi/sc/messages.po
-@@ -799,6 +799,1464 @@
+@@ -799,6 +799,1470 @@
  msgid "Ranges containing merged cells can only be sorted without formats."
  msgstr "Phạm vi chứa ô đã trộn có khả năng sắp xếp chỉ khi không có định dạng."
  
@@ -8890,12 +8960,6 @@ License: these upstream files remain under their original license (MPL-2.0).
 +
 +#. hstUX
 +#: sc/uiconfig/scalc/ui/notebookbar.ui
-+msgctxt "TabbedCalc|btnLayoutHstFitWidth"
-+msgid "Fit All Columns on One Page"
-+msgstr "Co vừa một trang ngang"
-+
-+#. hstUX
-+#: sc/uiconfig/scalc/ui/notebookbar.ui
 +msgctxt "TabbedCalc|MenuHstLayoutMargins-normal"
 +msgid "Normal: top and bottom 1.9 cm, left and right 1.8 cm"
 +msgstr "Thường: trên, dưới 1,9 cm; trái, phải 1,8 cm"
@@ -9055,6 +9119,18 @@ License: these upstream files remain under their original license (MPL-2.0).
 +msgctxt "TabbedCalc|btnLayoutHstBreaks"
 +msgid "Breaks"
 +msgstr "Ngắt trang"
++
++#. hstUX
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|btnLayoutPrintScaleMenu"
++msgid "Scaling"
++msgstr "Thu phóng"
++
++#. hstUX
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|btnPrintPrintScaleMenu"
++msgid "Scaling"
++msgstr "Thu phóng"
 +
 +#. hstUX
 +#: sc/uiconfig/scalc/ui/notebookbar.ui
@@ -9802,9 +9878,9 @@ License: these upstream files remain under their original license (MPL-2.0).
 +
 +#. hstUX
 +#: sc/uiconfig/scalc/ui/notebookbar.ui
-+msgctxt "TabbedCalc|btnLayoutHstFitWidth"
-+msgid "Shrink the printout so that all columns fit on one page width."
-+msgstr "Thu nhỏ bản in để mọi cột vừa bề ngang một trang."
++msgctxt "TabbedCalc|btnLayoutPrintScaleMenu"
++msgid "Fit the printout of the sheet, all its columns or all its rows on one page."
++msgstr "Co bản in của trang tính, mọi cột hoặc mọi hàng vừa một trang."
 +
 +#. hstUX
 +#: sc/uiconfig/scalc/ui/notebookbar.ui
