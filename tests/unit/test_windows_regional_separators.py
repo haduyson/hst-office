@@ -33,8 +33,9 @@ def function(text, signature):
 
 
 class Series(unittest.TestCase):
-    def test_patch_is_last_in_the_series(self):
-        self.assertEqual(series()[-1], PATCH)
+    def test_patch_is_in_the_series(self):
+        # Order only matters against patches touching the same files; fresh-apply checks that.
+        self.assertIn(PATCH, series())
 
     def test_header(self):
         head = (PATCHES / PATCH).read_text(encoding="utf-8").split("\n---\n", 1)[0]
