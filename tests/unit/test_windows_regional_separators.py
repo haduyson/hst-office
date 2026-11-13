@@ -116,7 +116,8 @@ class FormulaSeparators(unittest.TestCase):
     def test_leading_application_rule(self):
         block = self.text[self.text.index("    if (bSystemSeparators)"):]
         self.assertIn("rSepArg = OUString(cListSep == cDecSep ? u';' : cListSep);", block)
-        self.assertIn('rSepArrayCol = cDecSep == \',\' ? u"."_ustr : u","_ustr;', block)
+        # measured with Office 2021 International(xlColumnSeparator): '\\' for de, es, fr, vi; ',' for en-US
+        self.assertIn('rSepArrayCol = cDecSep == \',\' ? u"\\\\"_ustr : u","_ustr;', block)
         self.assertIn('rSepArrayRow = ";";\n        return;', block)
         # the rule returns before the LibreOffice heuristics (English ',', de-CH ';')
         self.assertLess(block.index("return;"), block.index("Excel by default uses system's list separator"))

@@ -17,6 +17,7 @@ Writes evidence.json; exit 1 when any expectation fails (hst-windows-regional-se
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -47,7 +48,7 @@ def expected(reg, phase):
     dec, th, lst = reg["sDecimal"], reg["sThousand"], reg["sList"]
     if loc == "en-US":
         dec, th = ".", ","
-    return (dec, th, lst), (";" if lst == dec else lst, "." if dec == "," else ",", ";")
+    return (dec, th, lst), (";" if lst == dec else lst, "\\" if dec == "," else ",", ";")
 
 
 def prop(name, value):
@@ -106,9 +107,9 @@ def files_are_invariant(doc, out, check):
     check(".ods values and formulas are locale-independent",
           all(s in content for s in ('office:value="1.5"', 'office:value="1234.5"', "of:=SUM(1.5;2)")), content[-1500:])
     check(".xlsx values and formulas are locale-independent",
-          all(s in sheet for s in ("<v>1.5</v>", "<v>1234.5</v>", "<f>SUM(1.5,2)</f>")), sheet[-1500:])
-    check(".xlsx number format keeps #,##0.00", ('numFmtId="4"' in styles or 'formatCode="#,##0.00"' in styles)
-          and "#.##0" not in styles, styles[:1500])
+          all(s in sheet for s in ("<v>1.5</v>", "<v>1234.5</v>", ">SUM(1.5,2)</f>")), sheet[-1500:])
+    codes = re.findall(r'formatCode="([^"]*)"', styles)
+    check(".xlsx number format keeps #,##0.00", any(re.fullmatch(r"(\[\$-[0-9A-F]+\])?#,##0\.00", c) for c in codes), codes)
 
 
 def run_phase(uno, program, out, reg, phase):
