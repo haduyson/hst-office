@@ -1,0 +1,231 @@
+HST Office: Linux (GTK) builds the native menu bar only when it is shown, so spreadsheets open and close faster.
+
+A user reported that a ~500 KB .xlsx opens slowly and that closing it lags on Linux (CaramOS = Linux Mint 22.3
+Cinnamon, WildOS = Debian 13 KDE Plasma 6 on Wayland), while the same file is fine on Windows. Profiles of HST 1.0.1
+(perf with DWARF call graphs, same file, same machine) show that the difference is the GTK menu bar:
+
+- Opening: MenuBarWindow::SetMenu() -> GtkSalMenu::SetFrame() ran UpdateFull() synchronously.
+  UpdateFull() activates every submenu of the Calc menu bar, which asks every command for its
+  state (and the system clipboard for Paste), and GTK then creates a widget for every item
+  (gtk_menu_bar_new_from_model): 1.0 s in the profile of a build with symbols, as long as the
+  import itself, and 0.5-0.7 s of CPU in the release build (2.8 GHz Xeon). Then the Tabbed UI
+  (the HST default) hid the menu bar, so its widget was destroyed again.
+- Closing: SfxObjectShell::PrepareClose() -> SfxNotebookBar::CloseMethod() shows the menu bar
+  of the closing document again (MenuBar::SetDisplayable(true)), so GTK built the whole widget
+  tree (0.27 s), only to destroy it when the window switched to the Start Center a moment later.
+- The VCL menu bar used on Windows, macOS and by the X11 plugin creates submenus only when they
+  open, so none of this happens there.
+
+GtkSalMenu now defers the full update and the widget to an idle (maBuildMenuBarIdle) outside
+Unity mode (no global menu; in Unity mode the model is the visible menu and is built as before).
+The idle builds only a menu bar that is still displayable and whose window is shown (the window
+of a document is shown after the load, when the Tabbed UI has already hidden the menu bar; the
+idle itself can run earlier, inside a nested main loop of the load); GtkSalFrame::Show() calls
+GtkSalMenu::FrameShown(), which starts the idle again; ShowMenuBar(true) of a menu bar that was
+never built starts the idle again, ShowMenuBar(false) (also from MenuBar::ImplDestroy when a
+window gets another menu bar) stops it, as does DetachFromFrame() and EnableUnity(true). F10
+before the idle ran builds it at once (TakeFocus). The hierarchy idle (menu customisation, and
+Update() after the global-menu watch reported no registrar, which arrives while a document is
+still loading) rebuilds at once only a menu bar that was already built. The menu bar of a new
+document under the Tabbed UI and the one shown again for a closing document are therefore never
+built; with the standard toolbars the menu bar is built at the first idle after its window is
+shown.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/vcl/inc/unx/gtk/gtksalmenu.hxx
++++ b/vcl/inc/unx/gtk/gtksalmenu.hxx
+@@ -34,6 +34,10 @@
+     std::vector< GtkSalMenuItem* >  maItems;
+     std::vector<std::pair<sal_uInt16, GtkWidget*>> maExtraButtons;
+     Idle                            maUpdateMenuBarIdle;
++    /// HST Office: builds the native menubar (model and widget) after the window is set up; see SetFrame()
++    Idle                            maBuildMenuBarIdle;
++    /// HST Office: the native menubar of the frame still has to be built (it was hidden, or not built yet)
++    bool                            mbMenuBarBuildPending = false;
+ 
+     bool                            mbInActivateCallback;
+     bool                            mbMenuBar;
+@@ -59,6 +63,8 @@
+     void                        ActivateAllSubmenus(Menu* pMenuBar);
+ 
+     DECL_LINK(MenuBarHierarchyChangeHandler, Timer*, void);
++    DECL_LINK(BuildMenuBarHandler, Timer*, void);
++    void                        BuildPendingMenuBar();
+ 
+     static GtkWidget* AddButton(GtkWidget *pImage);
+ 
+@@ -123,6 +129,8 @@
+     void DestroyMenuBarWidget();
+     /// The frame is going away: forget it, drop the menubar widget and the pending update.
+     void DetachFromFrame();
++    /// HST Office: the window of the frame was shown; builds a menubar deferred while it was hidden.
++    void FrameShown();
+ #if !GTK_CHECK_VERSION(4, 0, 0)
+     gboolean SignalKey(GdkEventKey const * pEvent);
+ #endif
+--- a/vcl/unx/gtk3/gtkframe.cxx
++++ b/vcl/unx/gtk3/gtkframe.cxx
+@@ -2024,6 +2024,9 @@
+ #else
+         gtk_widget_set_visible(m_pWindow, true);
+ #endif
++        // HST Office: a native menubar waits for its window to be shown (GtkSalMenu::SetFrame)
++        if (m_pSalMenu)
++            m_pSalMenu->FrameShown();
+ 
+         if( isFloatGrabWindow() )
+         {
+--- a/vcl/unx/gtk3/gtksalmenu.cxx
++++ b/vcl/unx/gtk3/gtksalmenu.cxx
+@@ -527,6 +527,7 @@
+ 
+ GtkSalMenu::GtkSalMenu( bool bMenuBar ) :
+     maUpdateMenuBarIdle("Native Gtk Menu Update Idle"),
++    maBuildMenuBarIdle("Native Gtk Menu Build Idle"),
+     mbInActivateCallback( false ),
+     mbMenuBar( bMenuBar ),
+     mbNeedsUpdate( false ),
+@@ -548,6 +549,8 @@
+     //directly long before this idle would get called.
+     maUpdateMenuBarIdle.SetPriority(TaskPriority::HIGHEST);
+     maUpdateMenuBarIdle.SetInvokeHandler(LINK(this, GtkSalMenu, MenuBarHierarchyChangeHandler));
++    maBuildMenuBarIdle.SetPriority(TaskPriority::HIGHEST);
++    maBuildMenuBarIdle.SetInvokeHandler(LINK(this, GtkSalMenu, BuildMenuBarHandler));
+ }
+ 
+ IMPL_LINK_NOARG(GtkSalMenu, MenuBarHierarchyChangeHandler, Timer *, void)
+@@ -555,7 +558,14 @@
+     SAL_WARN_IF(!mpFrame, "vcl.gtk", "MenuBar layout changed, but no frame for some reason!");
+     if (!mpFrame)
+         return;
++    // HST Office: a menubar already built (shown) is rebuilt now as before; one never built stays
++    // deferred. This idle is also invoked from Update() when the global-menu watch reports no
++    // registrar (EnableUnity(false)), while the document is still loading in a nested main loop and
++    // before the Tabbed UI hid the menubar.
++    const bool bWasBuilt = !mbMenuBarBuildPending && mpMenuBarWidget;
+     SetFrame(mpFrame);
++    if (bWasBuilt)
++        BuildPendingMenuBar();
+ }
+ 
+ void GtkSalMenu::SetNeedsUpdate()
+@@ -896,6 +906,9 @@
+ 
+ bool GtkSalMenu::TakeFocus()
+ {
++    // HST Office: F10 right after the window opened, before the idle built the menubar
++    if (!mpMenuBarWidget && mbMenuBarBuildPending)
++        BuildPendingMenuBar();
+     if (!mpMenuBarWidget)
+         return false;
+ 
+@@ -1017,6 +1030,7 @@
+     // window (e.g. a client of the UNO API still holds the layout manager when the window is
+     // closed). Its update idle would then run SetFrame() on the destroyed frame.
+     maUpdateMenuBarIdle.Stop();
++    maBuildMenuBarIdle.Stop();
+     DestroyMenuBarWidget();
+     mpFrame = nullptr;
+ }
+@@ -1056,19 +1070,66 @@
+         mpActionGroup = G_ACTION_GROUP( pActionGroup );
+     }
+ 
+-    // Generate the main menu structure.
+-    if ( PrepUpdate() )
+-        UpdateFull();
++    if (bUnityMode)
++    {
++        // Generate the main menu structure: the global menu shows the model itself.
++        if ( PrepUpdate() )
++            UpdateFull();
++
++        g_lo_menu_insert_section( pMenuModel, 0, nullptr, mpMenuModel );
++        return;
++    }
+ 
+     g_lo_menu_insert_section( pMenuModel, 0, nullptr, mpMenuModel );
+ 
+-    if (!bUnityMode && static_cast<MenuBar*>(mpVCLMenu.get())->IsDisplayable())
++    // HST Office: without a global menu only the menubar widget shows the model, and building both
++    // costs about a second for the menubar of a spreadsheet (UpdateFull() activates every submenu,
++    // which asks every command for its state, then GTK creates a widget for every item). It is
++    // built from an idle instead of here: the Tabbed UI (the HST default) hides the menubar of a new
++    // document right after this, and the menubar of a closing document is shown again just before
++    // its window switches to the Start Center, so neither ever has to be built.
++    DestroyMenuBarWidget();
++    mbMenuBarBuildPending = true;
++    if (static_cast<MenuBar*>(mpVCLMenu.get())->IsDisplayable())
++        maBuildMenuBarIdle.Start();
++}
++
++void GtkSalMenu::BuildPendingMenuBar()
++{
++    maBuildMenuBarIdle.Stop();
++    if (!mbMenuBarBuildPending || !mpFrame || bUnityMode)
++        return;
++    MenuBar* pMenuBar = static_cast<MenuBar*>(mpVCLMenu.get());
++    if (!pMenuBar || pMenuBar->isDisposed() || !pMenuBar->IsDisplayable())
++        return; // stays pending: ShowMenuBar(true) starts the idle again
++    // The window of a document is shown only after the load, when the Tabbed UI has hidden the
++    // menubar; the idle can run before, inside a nested main loop of the load (clipboard).
++    if (!gtk_widget_get_visible(mpFrame->getWindow()))
++        return; // stays pending: FrameShown() starts the idle again
++    mbMenuBarBuildPending = false;
++    if ( PrepUpdate() )
++        UpdateFull();
++    // UpdateFull() can run a nested main loop (clipboard targets of the Paste entry): the menubar
++    // may have been hidden or detached from its frame meanwhile.
++    if (mpFrame && !bUnityMode && pMenuBar->IsDisplayable())
+     {
+         DestroyMenuBarWidget();
+         CreateMenuBarWidget();
+     }
+ }
+ 
++IMPL_LINK_NOARG(GtkSalMenu, BuildMenuBarHandler, Timer *, void)
++{
++    BuildPendingMenuBar();
++}
++
++void GtkSalMenu::FrameShown()
++{
++    if (mbMenuBarBuildPending && !bUnityMode && mpVCLMenu
++        && static_cast<MenuBar*>(mpVCLMenu.get())->IsDisplayable())
++        maBuildMenuBarIdle.Start();
++}
++
+ const GtkSalFrame* GtkSalMenu::GetFrame() const
+ {
+     SolarMutexGuard aGuard;
+@@ -1419,6 +1480,8 @@
+ 
+     if (bEnable)
+     {
++        maBuildMenuBarIdle.Stop();
++        mbMenuBarBuildPending = false;
+         DestroyMenuBarWidget();
+         UpdateFull();
+         if (!bDisplayable)
+@@ -1444,9 +1507,19 @@
+             g_lo_menu_remove(G_LO_MENU(mpMenuModel), 0);
+     }
+     else if (bVisible)
+-        CreateMenuBarWidget();
++    {
++        // HST Office: a menubar that was never built is built from the idle (see SetFrame()); if
++        // its window closes first, nothing is built at all.
++        if (mbMenuBarBuildPending)
++            maBuildMenuBarIdle.Start();
++        else
++            CreateMenuBarWidget();
++    }
+     else
++    {
++        maBuildMenuBarIdle.Stop();
+         DestroyMenuBarWidget();
++    }
+ }
+ 
+ bool GtkSalMenu::IsItemVisible( unsigned nPos )
