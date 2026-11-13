@@ -89,3 +89,25 @@ def desktop_share(frame, before, after, desktop):
         total += 1
         hits += same(frame, desktop, i)
     return hits / max(total, 1)
+
+
+class _KeyInput(ctypes.Structure):
+    _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD), ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class _Input(ctypes.Structure):
+    class _U(ctypes.Union):
+        _fields_ = [("ki", _KeyInput), ("pad", ctypes.c_byte * 32)]
+    _fields_ = [("type", wintypes.DWORD), ("u", _U)]
+
+
+def chord(*vks):
+    """Press the virtual keys `vks` together (in order) and release them (in reverse), as one SendInput call."""
+    items = []
+    for vk, flags in [(v, 0) for v in vks] + [(v, 0x0002) for v in reversed(vks)]:
+        item = _Input(type=1)
+        item.u.ki = _KeyInput(vk, 0, flags, 0, 0)
+        items.append(item)
+    array = (_Input * len(items))(*items)
+    return user32.SendInput(len(items), array, ctypes.sizeof(_Input))

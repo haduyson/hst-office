@@ -107,9 +107,18 @@ def check_module(office, check, screen, desktop, module, out, switches):
     recorder.start()
     time.sleep(0.8)
     marks = []
+    shown = office.desktop.getCurrentFrame().Title
+    hwnd = next((w[0] for w in wg.office_windows() if w[2] == shown), None)
+    if hwnd:
+        wg.foreground(hwnd)
     for _ in range(switches):
         marks.append(time.perf_counter())
-        helper.executeDispatch(office.desktop.getCurrentFrame(), ".uno:NextDocumentTab", "", 0, ())
+        if hwnd:
+            # Ctrl+Alt+. (.uno:NextDocumentTab) as a user presses it: the switch runs in the office's main thread.
+            # A dispatch over UNO runs in a bridge thread, where vcl posts Show() to the main thread instead.
+            grab.chord(0x11, 0x12, 0xBE)
+        else:
+            helper.executeDispatch(office.desktop.getCurrentFrame(), ".uno:NextDocumentTab", "", 0, ())
         time.sleep(1.4)
     recorder.stop.set()
     recorder.join(10)
@@ -130,7 +139,8 @@ def check_module(office, check, screen, desktop, module, out, switches):
                 break
     titles = {office.desktop.getCurrentFrame().Title}
     fps = len(frames) / max(frames[-1][0] - frames[0][0], 0.001) if frames else 0
-    check("%s: %d tab switches show no desktop flash" % (module, len(marks)), not flashes and fps >= 10,
+    check("%s: %d tab switches (%s) show no desktop flash" % (module, len(marks), "keys" if hwnd else "dispatch"),
+          not flashes and fps >= 10,
           "; ".join(flashes) or "%.0f grabs/s, last tab %s" % (fps, sorted(titles)))
     close_all(office)
     time.sleep(2)

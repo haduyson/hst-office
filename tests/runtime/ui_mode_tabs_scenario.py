@@ -8,7 +8,8 @@ A Writer and a Sheets document are tabs of one window. A tab "shows its mode" wh
 Before hst-ui-mode-per-tab.patch, "Apply to All" from the Writer tab, after Sheets had once gone from Standard Toolbar
 back to Tabbed, left the Sheets tab with the menubar only: no ribbon, no toolbar (user report 13/11/2026).
 
-The office object needs: desktop (XDesktop), dispatch(frame, command, args) and set_config(node, prop, value).
+The office object needs: desktop (XDesktop), dispatch(frame, command, args), set_config(node, prop, value),
+config_access(node) (read-only configuration node) and window_states() (theWindowStateConfiguration).
 """
 import os
 import time
@@ -91,6 +92,30 @@ def goto(office, app, limit=6):
     raise RuntimeError("no %s tab" % app)
 
 
+MODULE_IDS = {"Writer": "com.sun.star.text.TextDocument", "Calc": "com.sun.star.sheet.SpreadsheetDocument",
+              "Impress": "com.sun.star.presentation.PresentationDocument", "Draw": "com.sun.star.drawing.DrawingDocument"}
+
+
+def store_mode_toolbars(office, app, mode):
+    """What "Apply to All" of the user interface dialog does for another application since hst-ui-mode-per-tab.patch
+    (cui UIPickerDialog lcl_storeModeToolbars): its new mode's toolbars stored visible, toolbars only other modes use
+    stored invisible. `office.dialog_stores_toolbars = False` reproduces 1.0.1 (configuration only)."""
+    import uno
+    modes = office.config_access(MODE_PATH + "/Applications/%s/Modes" % app)
+    show, hide = [], []
+    for name in modes.getElementNames():
+        node = modes.getByName(name)
+        (show if node.CommandArg == mode else hide).extend(list(node.Toolbars) + list(node.UserToolbars))
+    states = office.window_states().getByName(MODULE_IDS[app])
+    for url, visible in [(u, False) for u in hide if u not in show] + [(u, True) for u in show]:
+        props = [p for p in (states.getByName(url) if states.hasByName(url) else ()) if p.Name != "Visible"]
+        value = uno.Any("[]com.sun.star.beans.PropertyValue", tuple(props + [prop("Visible", visible)]))
+        if states.hasByName(url):
+            uno.invoke(states, "replaceByName", (url, value))
+        else:
+            uno.invoke(states, "insertByName", (url, value))
+
+
 def apply_mode(office, app, mode, to_all=False):
     """Like the user interface dialog: "Apply to <module>" from the tab of `app`, or "Apply to All" (the other
     applications by configuration only, the current one by .uno:ToolbarMode)."""
@@ -100,6 +125,8 @@ def apply_mode(office, app, mode, to_all=False):
             if other != app:
                 office.set_config(MODE_PATH, "Active" + other, mode)
                 office.set_config(MODE_PATH + "/Applications/" + other, "Active", mode)
+                if getattr(office, "dialog_stores_toolbars", True):
+                    store_mode_toolbars(office, other, mode)
     office.dispatch(frame, ".uno:ToolbarMode", (prop("Mode", mode),))
     time.sleep(3)
 

@@ -13,12 +13,16 @@ got neither the ribbon nor the toolbars either.
 - SfxNotebookBar::IsActiveFor(xFrame): the mode of xFrame's module. StateMethod and SfxWorkWindow (which destroys the
   toolbars under a ribbon) use the frame they work on; IsActive() keeps the Current() behaviour for its other callers.
 - StateMethod: when it closes the ribbon of a frame whose module is now in a toolbar mode, it creates and shows that
-  mode's "Toolbars" and "UserToolbars", like .uno:ToolbarMode does for its own module. When a new window or tab of a
-  module in a toolbar mode is set up and every toolbar of the mode is stored as invisible (left so by an earlier
-  switch to a ribbon mode; also existing 1.0.1 profiles), it shows them too. A user who hid only some of them keeps
-  that choice.
+  mode's "Toolbars" and "UserToolbars", like .uno:ToolbarMode does for its own module (open windows and tabs).
+- "Apply to All" (cui UIPickerDialog) also stores, for every other application, the toolbars of the new mode as
+  visible and the toolbars only other modes use as invisible (WindowState), so new windows and tabs of those
+  applications get the toolbars of their mode and no toolbar of another mode.
+- SfxWorkWindow: when its frame becomes visible again (a parked document tab is shown), it updates the object bars.
+  An update while the tab was hidden had destroyed its toolbars and status bar, and nothing requested them again:
+  a document opened as a new tab lost its toolbars on the first switch back to it.
 - StateMethod shows or hides the menubars of xFrame's module (ShowMenubarForModuleOf); before, setting up a tab in
-  Tabbed mode could hide the menubar of another module's tabs.
+  Tabbed mode could hide the menubar of another module's tabs. A frame still being loaded (no module yet) changes
+  nothing.
 - .uno:ToolbarMode no longer returns early when the mode is unchanged, so choosing it again ("Apply to <module>")
   repairs a module whose toolbars were lost.
 License: modified upstream files keep their license (MPL-2.0).
@@ -50,14 +54,7 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
      static void ToggleMenubar();
 --- a/sfx2/source/notebookbar/SfxNotebookBar.cxx
 +++ b/sfx2/source/notebookbar/SfxNotebookBar.cxx
-@@ -25,9 +25,14 @@
- #include <officecfg/Office/UI/ToolbarMode.hxx>
- #include <com/sun/star/frame/XModuleManager.hpp>
- #include <com/sun/star/frame/ModuleManager.hpp>
-+#include <com/sun/star/beans/PropertyValue.hpp>
-+#include <cppuhelper/weakref.hxx>
-+#include <com/sun/star/container/XNameAccess.hpp>
-+#include <com/sun/star/ui/theWindowStateConfiguration.hpp>
+@@ -28,6 +28,7 @@
  #include <com/sun/star/beans/XPropertySet.hpp>
  #include <unotools/confignode.hxx>
  #include <comphelper/types.hxx>
@@ -65,7 +62,7 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
  #include <framework/addonsoptions.hxx>
  #include <vcl/notebookbar/NotebookBarAddonsItem.hxx>
  #include <vector>
-@@ -158,6 +163,104 @@
+@@ -158,6 +159,60 @@
      return OUString();
  }
  
@@ -99,39 +96,11 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
 +    return aResult;
 +}
 +
-+/// HST Office: true when every toolbar of rToolbars is stored as invisible for xFrame's module.
-+static bool lcl_allStoredInvisible(const Reference<css::frame::XFrame>& xFrame,
-+                                   const std::vector<OUString>& rToolbars)
-+{
-+    const Reference<css::uno::XComponentContext>& xContext = comphelper::getProcessComponentContext();
-+    Reference<container::XNameAccess> xModuleStates;
-+    ui::theWindowStateConfiguration::get(xContext)->getByName(
-+        frame::ModuleManager::create(xContext)->identify(xFrame)) >>= xModuleStates;
-+    if (!xModuleStates.is() || rToolbars.empty())
-+        return false;
-+    for (const OUString& rToolbar : rToolbars)
-+    {
-+        Sequence<beans::PropertyValue> aProps;
-+        if (xModuleStates->hasByName(rToolbar))
-+            xModuleStates->getByName(rToolbar) >>= aProps;
-+        bool bVisible = true;
-+        for (const beans::PropertyValue& rProp : aProps)
-+            if (rProp.Name == "Visible")
-+                rProp.Value >>= bVisible;
-+        if (bVisible)
-+            return false;
-+    }
-+    return true;
-+}
-+
 +/** HST Office: create and show the toolbars of the active mode of xFrame's module, as
 +    .uno:ToolbarMode does for the module it runs in. A switch to a ribbon mode stores the toolbars
 +    as invisible; when the module comes back to a toolbar mode by configuration only ("Apply to All"
-+    from another module), nothing else would show them again.
-+    bOnlyIfAllStoredInvisible: only when every toolbar of the mode is stored as invisible (a frame
-+    set up for the first time: toolbars the user hid on purpose stay hidden). */
-+static void lcl_showModeToolbars(const Reference<css::frame::XFrame>& xFrame,
-+                                 bool bOnlyIfAllStoredInvisible)
++    from another module), nothing else would show them again on its open windows and tabs. */
++static void lcl_showModeToolbars(const Reference<css::frame::XFrame>& xFrame)
 +{
 +    const Reference<frame::XLayoutManager> xLayoutManager = lcl_getLayoutManager(xFrame);
 +    if (!xLayoutManager.is())
@@ -139,8 +108,6 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
 +    try
 +    {
 +        const std::vector<OUString> aToolbars = lcl_getModeToolbars(xFrame);
-+        if (bOnlyIfAllStoredInvisible && !lcl_allStoredInvisible(xFrame, aToolbars))
-+            return;
 +        for (const OUString& rToolbar : aToolbars)
 +        {
 +            xLayoutManager->createElement(rToolbar);
@@ -153,24 +120,10 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
 +    }
 +}
 +
-+/// HST Office: true the first time it is asked for xFrame.
-+static bool lcl_firstSetup(const Reference<css::frame::XFrame>& xFrame)
-+{
-+    static std::vector<css::uno::WeakReference<css::frame::XFrame>> aSeen;
-+    std::erase_if(aSeen, [](const css::uno::WeakReference<css::frame::XFrame>& rWeak) {
-+        return !Reference<css::frame::XFrame>(rWeak).is();
-+    });
-+    for (const auto& rWeak : aSeen)
-+        if (Reference<css::frame::XFrame>(rWeak) == xFrame)
-+            return false;
-+    aSeen.emplace_back(xFrame);
-+    return true;
-+}
-+
  static utl::OConfigurationTreeRoot lcl_getCurrentImplConfigRoot()
  {
      return utl::OConfigurationTreeRoot(::comphelper::getProcessComponentContext(),
-@@ -232,15 +335,19 @@
+@@ -232,15 +287,19 @@
  {
      if (m_bHide)
          return false;
@@ -196,7 +149,7 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
          const Reference<frame::XModuleManager> xModuleManager  = frame::ModuleManager::create( ::comphelper::getProcessComponentContext() );
          try
          {
-@@ -252,8 +359,6 @@
+@@ -252,8 +311,6 @@
              return false;
          }
      }
@@ -205,7 +158,7 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
  
      OUString appName(lcl_getAppName( eApp ));
  
-@@ -337,7 +442,9 @@
+@@ -337,7 +394,9 @@
              return false;
      }
  
@@ -216,7 +169,7 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
      {
          const css::uno::Reference<css::uno::XComponentContext>& xContext = comphelper::getProcessComponentContext();
          const Reference<frame::XModuleManager> xModuleManager  = frame::ModuleManager::create( xContext );
-@@ -391,7 +498,8 @@
+@@ -391,7 +450,8 @@
              utl::OConfigurationTreeRoot aRoot(lcl_getCurrentImplConfigRoot());
              const utl::OConfigurationNode aModeNode(lcl_getCurrentImplConfigNode(xFrame, aRoot));
              const bool bHasMenubar = comphelper::getBOOL( aModeNode.getNodeValue( u"HasMenubar"_ustr ) );
@@ -226,7 +179,7 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
              // HST Office: the frame set up here need not be SfxViewFrame::Current() (document
              // tabs show a parked window before it becomes current), so apply the mode to it too.
              if (const Reference<frame::XLayoutManager> xLayoutManager = lcl_getLayoutManager(xFrame);
-@@ -418,7 +526,17 @@
+@@ -418,7 +478,11 @@
          vcl::Window* pParent = pNotebookBar->GetParent();
          pSysWindow->CloseNotebookBar();
          pParent->Resize();
@@ -235,17 +188,11 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
 +        // HST Office: the module's mode was changed by configuration only (for example "Apply to
 +        // All" from another module's tab): show the toolbars of its mode.
 +        if (xFrame.is())
-+            lcl_showModeToolbars(xFrame, false);
-+    }
-+    else if (xFrame.is() && !comphelper::LibreOfficeKit::isActive() && lcl_firstSetup(xFrame))
-+    {
-+        // HST Office: a new window or tab of a module in a toolbar mode whose toolbars an earlier
-+        // switch to a ribbon mode stored as invisible (profiles of 1.0.1 included).
-+        lcl_showModeToolbars(xFrame, true);
++            lcl_showModeToolbars(xFrame);
      }
  
      return false;
-@@ -432,7 +550,9 @@
+@@ -432,7 +496,9 @@
      }
  }
  
@@ -256,23 +203,29 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
  {
      if (m_bLock)
          return;
-@@ -444,11 +564,11 @@
+@@ -444,10 +510,19 @@
      const uno::Reference< uno::XComponentContext >& xContext = comphelper::getProcessComponentContext();
      const Reference<frame::XModuleManager> xModuleManager = frame::ModuleManager::create( xContext );
  
 -    if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
--    {
++    try
+     {
 -        xFrame = pViewFrm->GetFrame().GetFrameInterface();
 -        eCurrentApp = vcl::EnumContext::GetApplicationEnum( xModuleManager->identify( xFrame ) );
--    }
-+    if (xModuleFrame.is())
-+        eCurrentApp = vcl::EnumContext::GetApplicationEnum( xModuleManager->identify( xModuleFrame ) );
-+    else if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
-+        eCurrentApp = vcl::EnumContext::GetApplicationEnum(
-+            xModuleManager->identify(pViewFrm->GetFrame().GetFrameInterface()));
++        // a frame being loaded has no component (and no module) yet
++        if (xModuleFrame.is())
++            eCurrentApp = vcl::EnumContext::GetApplicationEnum( xModuleManager->identify( xModuleFrame ) );
++        else if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
++            eCurrentApp = vcl::EnumContext::GetApplicationEnum(
++                xModuleManager->identify(pViewFrm->GetFrame().GetFrameInterface()));
++    }
++    catch (const css::uno::Exception&)
++    {
++        m_bLock = false;
++        return;
+     }
  
      SfxViewFrame* pViewFrame = SfxViewFrame::GetFirst();
-     while( pViewFrame )
 --- a/sfx2/source/appl/appserv.cxx
 +++ b/sfx2/source/appl/appserv.cxx
 @@ -1031,11 +1031,9 @@
@@ -292,7 +245,25 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
                  aAppNode.setNodeValue( u"Active"_ustr, Any( aNewName ) );
 --- a/sfx2/source/appl/workwin.cxx
 +++ b/sfx2/source/appl/workwin.cxx
-@@ -1201,7 +1201,7 @@
+@@ -271,9 +271,17 @@
+ 
+     if ( eLayoutEvent == css::frame::LayoutManagerEvents::VISIBLE )
+     {
++        const bool bWasInvisible = !m_pWrkWin->IsVisible_Impl();
+         m_pWrkWin->MakeVisible_Impl( true );
+         m_pWrkWin->ShowChildren_Impl();
+         m_pWrkWin->ArrangeChildren_Impl();
++        // HST Office: an update of the object bars while the frame was hidden (a parked document
++        // tab) destroyed its toolbars and status bar; nothing else requests them again when it is
++        // shown, so the tab stayed without toolbars. Update them now, as
++        // SfxFrame::SetPresentationMode does after showing the UI again.
++        if ( bWasInvisible )
++            if ( SfxDispatcher* pDispatcher = m_pWrkWin->GetBindings().GetDispatcher_Impl() )
++                pDispatcher->Update_Impl( true );
+     }
+     else if ( eLayoutEvent == css::frame::LayoutManagerEvents::INVISIBLE )
+     {
+@@ -1201,7 +1209,7 @@
      // Iterate over all Toolboxes
      xLayoutManager->lock();
      const bool bForceDestroyToolbars =
@@ -301,3 +272,107 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
      for ( auto const & n: aObjBarList )
      {
          ToolbarId eId = n.eId;
+--- a/cui/source/dialogs/uipickerdlg.cxx
++++ b/cui/source/dialogs/uipickerdlg.cxx
+@@ -11,7 +11,19 @@
+ #include <uitabpage.hxx>
+ #include <toolbartabpage.hxx>
+ 
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/container/XNameContainer.hpp>
++#include <com/sun/star/ui/theWindowStateConfiguration.hpp>
+ #include <comphelper/dispatchcommand.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/sequence.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <comphelper/types.hxx>
++
++#include <algorithm>
++#include <utility>
++#include <vector>
+ #include <dialmgr.hxx>
+ #include <officecfg/Office/UI/ToolbarMode.hxx>
+ #include <sal/log.hxx>
+@@ -53,6 +65,65 @@
+     m_xResetBtn->set_visible(bOn);
+ }
+ 
++namespace
++{
++/** HST Office: "Apply to All" changes the other applications' mode by configuration only, but the
++    visibility of their toolbars is stored per application (WindowState): a switch to a ribbon mode
++    stored them as invisible, so new windows and document tabs of those applications got neither a
++    ribbon nor toolbars. Store the toolbars of the new mode as visible and the toolbars that only
++    other modes use as invisible, as .uno:ToolbarMode does for the current application. */
++void lcl_storeModeToolbars(const OUString& rApp, const OUString& rModuleId, const OUString& rMode)
++{
++    try
++    {
++        const auto& xContext = comphelper::getProcessComponentContext();
++        const utl::OConfigurationTreeRoot aModesNode(
++            xContext, "org.openoffice.Office.UI.ToolbarMode/Applications/" + rApp + "/Modes", false);
++        if (!aModesNode.isValid())
++            return;
++        std::vector<OUString> aShow, aHide;
++        for (const OUString& rName : aModesNode.getNodeNames())
++        {
++            const utl::OConfigurationNode aModeNode(aModesNode.openNode(rName));
++            const bool bNew
++                = comphelper::getString(aModeNode.getNodeValue(u"CommandArg"_ustr)) == rMode;
++            for (const char* pList : { "Toolbars", "UserToolbars" })
++                for (const OUString& rToolbar :
++                     aModeNode.getNodeValue(OUString::createFromAscii(pList)).get<css::uno::Sequence<OUString>>())
++                    (bNew ? aShow : aHide).push_back(rToolbar);
++        }
++        css::uno::Reference<css::container::XNameContainer> xStates;
++        css::ui::theWindowStateConfiguration::get(xContext)->getByName(rModuleId) >>= xStates;
++        if (!xStates.is())
++            return;
++        auto lcl_store = [&xStates](const OUString& rToolbar, bool bVisible) {
++            css::uno::Sequence<css::beans::PropertyValue> aProps;
++            if (xStates->hasByName(rToolbar))
++                xStates->getByName(rToolbar) >>= aProps;
++            std::vector<css::beans::PropertyValue> aNew;
++            for (const auto& rProp : aProps)
++                if (rProp.Name != "Visible")
++                    aNew.push_back(rProp);
++            aNew.push_back(comphelper::makePropertyValue(u"Visible"_ustr, bVisible));
++            const css::uno::Any aValue(comphelper::containerToSequence(aNew));
++            if (xStates->hasByName(rToolbar))
++                xStates->replaceByName(rToolbar, aValue);
++            else
++                xStates->insertByName(rToolbar, aValue);
++        };
++        for (const OUString& rToolbar : aHide)
++            if (std::find(aShow.begin(), aShow.end(), rToolbar) == aShow.end())
++                lcl_store(rToolbar, false);
++        for (const OUString& rToolbar : aShow)
++            lcl_store(rToolbar, true);
++    }
++    catch (const css::uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("cui.dialogs", "UIPickerDialog: store the toolbars of " << rApp);
++    }
++}
++}
++
+ IMPL_LINK(UIPickerDialog, OnApplyClick, weld::Button&, rButton, void)
+ {
+     UITabPage* pUITabPage = static_cast<UITabPage*>(GetCurTabPage());
+@@ -89,6 +160,15 @@
+             if (sCurrentApp != "Draw")
+                 aAppNode.setNodeValue(u"Draw/Active"_ustr, css::uno::Any(sCmd));
+             aAppNode.commit();
++            // HST Office: the toolbars of the other applications follow their new mode
++            for (const auto& [pApp, pModule] :
++                 { std::pair{ "Writer", "com.sun.star.text.TextDocument" },
++                   std::pair{ "Calc", "com.sun.star.sheet.SpreadsheetDocument" },
++                   std::pair{ "Impress", "com.sun.star.presentation.PresentationDocument" },
++                   std::pair{ "Draw", "com.sun.star.drawing.DrawingDocument" } })
++                if (sCurrentApp != OUString::createFromAscii(pApp))
++                    lcl_storeModeToolbars(OUString::createFromAscii(pApp),
++                                          OUString::createFromAscii(pModule), sCmd);
+         };
+     }
+     //apply to current module
