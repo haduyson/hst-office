@@ -63,7 +63,6 @@ static Layout layoutFor(const std::vector<Group>& rGroups, const std::vector<std
 static void sweep(const std::vector<Group>& rGroups, const std::vector<std::size_t>& rPriority, long nFrom, long nTo)
 {
     const long nIdeal = rowWidth(rGroups, std::vector<std::size_t>(rGroups.size(), 0));
-    std::vector<bool> aShownBefore(rGroups.size(), false);
     for (long nWidth = nFrom; nWidth <= nTo; nWidth += 3)
     {
         const Layout aLayout = layoutFor(rGroups, rPriority, nWidth);
@@ -74,23 +73,12 @@ static void sweep(const std::vector<Group>& rGroups, const std::vector<std::size
         if (nWidth >= nIdeal)
             for (std::size_t s : aLayout.states)
                 CHECK(s == 0);
-        // the collapsed groups are the least used ones: a shown group less used than a collapsed one
-        // is one whose button would save nothing
-        for (std::size_t nMore = 0; nMore < rPriority.size(); ++nMore)
-            for (std::size_t nLess = nMore + 1; nLess < rPriority.size(); ++nLess)
-            {
-                const Group& rLess = rGroups[rPriority[nLess]];
-                if (aLayout.states[rPriority[nMore]] == 3 && aLayout.states[rPriority[nLess]] != 3
-                    && widthOf(rLess, 3) < widthOf(rLess, smallestShownState(rLess)))
-                    std::printf("FAIL order at %ld\n", nWidth), ++failures;
-            }
+        // no group is a button beside room enough to show it (owner decision: folded groups open again out of
+        // the usage order, so folding is no longer monotonic as the window widens)
         for (std::size_t i = 0; i < rGroups.size(); ++i)
-        {
-            const bool bShown = aLayout.states[i] != 3;
-            if (aShownBefore[i] && !bShown)
-                std::printf("FAIL monotonic: group %zu shown below %ld, a button at %ld\n", i, nWidth, nWidth), ++failures;
-            aShownBefore[i] = aShownBefore[i] || bShown;
-        }
+            if (aLayout.states[i] == 3
+                && aLayout.width - widthOf(rGroups[i], 3) + widthOf(rGroups[i], smallestShownState(rGroups[i])) <= nWidth)
+                std::printf("FAIL room: group %zu a button at %ld with room to show it\n", i, nWidth), ++failures;
     }
 }
 
@@ -125,6 +113,15 @@ int main()
         CHECK(l.fits && l.states[1] == 3);
         for (std::size_t i : { 0, 2, 3, 4 })
             CHECK(l.states[i] != 3);
+    }
+    // the room left after folding opens a smaller, less used group again (out of the usage order): with
+    // 300 px for Dạng xem (most used, 150 at its smallest), a large group (400) and a small one (60), the large
+    // one folds first by usage, then the small one, and the small one comes back into the room left
+    {
+        const std::vector<Group> row = { { { 150, 150, 150, 70 }, false }, { { 400, 400, 400, 70 }, false },
+                                         { { 60, 60, 60, 50 }, false } };
+        const Layout l = fitByPriority(row, { 0, 1, 2 }, 300);
+        CHECK(l.fits && l.states[0] == 0 && l.states[1] == 3 && l.states[2] == 0 && l.width == 280);
     }
     // too narrow for every button: no fit, select() and its overflow popup decide
     CHECK(!fitByPriority(view, viewPriority, 200).fits);

@@ -58,7 +58,8 @@ def apply(tmp, path, base, patches):
 def regrow_header(tmp):
     """HstRibbonRegrow.hxx as the series leaves it."""
     return apply(tmp, "vcl/inc/HstRibbonRegrow.hxx",
-                 added_file("hst-ribbon-ux-engine.patch", "vcl/inc/HstRibbonRegrow.hxx"), [PATCH])
+                 added_file("hst-ribbon-ux-engine.patch", "vcl/inc/HstRibbonRegrow.hxx"),
+                 [PATCH, "hst-ribbon-ux-folded-groups.patch"])
 
 
 

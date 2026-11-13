@@ -134,6 +134,12 @@ class BannerShotTest(unittest.TestCase):
             draw.text((1366 - banner, 90), "HASON TECH", fill=(30, 60, 90))
         return image
 
+    def test_free_room(self):
+        image = self.shot(260)
+        draw = self.Draw.Draw(image)
+        draw.rectangle((10, 70, 700, 140), fill=(40, 40, 40))  # the groups end at x 700
+        self.assertAlmostEqual(check.free_room(image), 1366 - 10 - 260 - 700, delta=3)
+
     def test_banner_width(self):
         self.assertGreaterEqual(check.banner_width(self.shot(260)), 255)
         self.assertEqual(check.banner_width(self.shot(0)), 0)

@@ -9,6 +9,7 @@ cho ghi chú phát hành. Mọi lệnh bỏ khỏi ribbon vẫn còn trong thanh
 | Việc | Ở đâu |
 |---|---|
 | Nhóm mở lại vào chỗ trống theo mức độ dùng; chỉ nhóm ít dùng nhất mới thành nút "Tên nhóm ▾" | [`hst-ribbon-ux-engine.patch`](../../patches/libreoffice/hst-ribbon-ux-engine.patch) (`HstRibbonRegrow.hxx`), kiểm thử [`test_ribbon_regrow.py`](../../tests/unit/test_ribbon_regrow.py) |
+| Không nhóm nào gập thành nút "Tên nhóm ▾" cạnh chỗ trống đủ để hiện nó: sau khi gập theo mức độ dùng, chỗ còn lại mở lại nhóm đã gập vừa chỗ (nhóm chiếm nhiều chỗ nhất trước), kể cả khi trái thứ tự dùng; nút nhóm luôn có biểu tượng | [`hst-ribbon-ux-folded-groups.patch`](../../patches/libreoffice/hst-ribbon-ux-folded-groups.patch), kiểm thử [`test_ribbon_regrow.py`](../../tests/unit/test_ribbon_regrow.py) |
 | Thứ tự thu gọn của mọi thẻ | [`data/ribbon/scaling-priorities.json`](../../data/ribbon/scaling-priorities.json) → [`generate-ribbon-priorities.py`](../../scripts/patches/generate-ribbon-priorities.py) |
 | Nhãn riêng của ribbon (`hst-ribbon-label`), dòng thứ hai của chú giải (`hst-ribbon-description`) | engine patch (vcl builder) |
 | Banner một bề ngang cho mọi thẻ; tên nhóm cùng một hàng; thẻ ngữ cảnh có màu nhấn và tự mở sau lệnh chèn; gợi ý một lần dưới ô tìm | engine patch |
