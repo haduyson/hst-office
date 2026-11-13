@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Open every citation dialog in a real HST Writer window, keep a screenshot, cancel it, and check the document did
-not change (Linux, X display such as Xvfb; needs xdotool and ImageMagick's import).
+not change; then type "[1, tr. 5" and press Alt+Shift+I in the document window.
 
-Usage: python3 tests/runtime/check-citations-dialogs.py --instdir DIR --display :N [--out DIR]
+Usage: python3 tests/runtime/check-citations-dialogs.py --instdir DIR --display :N [--out DIR]   (Linux: an X
+         display such as Xvfb, with xdotool and ImageMagick's import; citations_dialogs_x11.py)
+       python.exe tests/runtime/check-citations-dialogs.py --instdir DIR --windows [--out DIR]   (Windows: in the
+         tester's own session, e.g. through citations-dialogs-own-session.ps1; citations_dialogs_win32.py)
 
 Dialogs: Chèn trích dẫn, Nguồn tài liệu mới (from Quản lý tài liệu tham khảo ▸ Thêm…), Chèn lại trích dẫn,
 Kiểu trích dẫn, Quản lý tài liệu tham khảo, and the message of Cập nhật trích dẫn. Each is found by its title in the
@@ -10,7 +13,6 @@ UI language, must fit a 1366×768 screen, and Esc (Enter for the message) must l
 """
 import argparse
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -25,32 +27,11 @@ A = {"id": "a", "type": "book", "title": "Giáo trình kinh tế", "language": "
      "author": [{"family": "Nguyễn", "given": "Văn An", "hst-vi": True}], "issued": {"date-parts": [[2010]]}}
 
 
-def xdotool(display, *args):
-    return subprocess.run(["xdotool", *args], env=dict(os.environ, DISPLAY=display), capture_output=True,
-                          text=True, timeout=60)
-
-
-def wait_window(display, title, timeout=25):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        found = xdotool(display, "search", "--onlyvisible", "--name", "^%s$" % title).stdout.split()
-        if found:
-            return found[-1]
-        time.sleep(0.5)
-    return None
-
-
-def geometry(display, window):
-    values = dict(line.split("=", 1) for line in
-                  xdotool(display, "getwindowgeometry", "--shell", window).stdout.split() if "=" in line)
-    return int(values.get("WIDTH", 0)), int(values.get("HEIGHT", 0))
-
-
 def snapshot(doc, document):
     return [(f["code"], f["result"]) for f in document.scan(doc)]
 
 
-def open_dialog(rec, ctx, doc, display, out, command, title, steps=(), close="Escape"):
+def open_dialog(rec, ctx, doc, driver, out, command, title, steps=(), close="Escape"):
     """Dispatch ``command`` in a thread, find the dialog titled ``title``, screenshot it, run the extra key
     ``steps`` (each (keys, title of the next dialog)), then close every opened dialog."""
     helper = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
@@ -61,37 +42,31 @@ def open_dialog(rec, ctx, doc, display, out, command, title, steps=(), close="Es
     opened = []
     for keys, name in ((None, title),) + tuple(steps):
         if keys:
-            xdotool(display, "windowfocus", "--sync", opened[-1])
-            xdotool(display, "key", "--delay", "120", *keys)
-        window = wait_window(display, name)
+            driver.keys(opened[-1], *keys)
+        window = driver.wait_window(name)
         rec.check("opens-%s" % name, window is not None, name)
         if window is None:
             break
         time.sleep(1.0)
-        size = geometry(display, window)
+        size = driver.size(window)
         rec.check("fits-1366x768-%s" % name, 0 < size[0] <= 1366 and 0 < size[1] <= 740, size)
         shot = command + ("-%d" % (len(opened) + 1) if opened else "") + ".png"
-        subprocess.run(["import", "-window", window, os.path.join(out, shot)],
-                       env=dict(os.environ, DISPLAY=display), check=False, timeout=60)
+        driver.screenshot(window, os.path.join(out, shot))
         opened.append(window)
     for window in reversed(opened):
-        xdotool(display, "windowfocus", "--sync", window)
-        xdotool(display, "key", close)
+        driver.keys(window, close)
         time.sleep(1.0)
     worker.join(30)
     rec.check("closes-%s" % title, not worker.is_alive(), title)
 
 
-def shortcut(rec, ctx, doc, display, document):
+def shortcut(rec, ctx, doc, driver, document):
     """Type "[1, tr. 5" in the document window and press Alt+Shift+I: a citation of source 1 replaces it."""
     view = doc.getCurrentController().getViewCursor()
     view.gotoEnd(False)
     doc.getText().insertString(view, " và [1, tr. 5", False)
     view.gotoEnd(False)
-    window = xdotool(display, "search", "--onlyvisible", "--name", "HST Writer").stdout.split()
-    if window:
-        xdotool(display, "windowfocus", "--sync", window[0])
-    xdotool(display, "key", "alt+shift+i")
+    driver.keys(driver.document_window(), "alt+shift+i")
     time.sleep(3)
     results = [f["result"] for f in document.scan(doc) if f["kind"] == "citation"]
     rec.check("alt-shift-i-cites-typed-number", results == ["[1]", "[1, tr. 5]"] and "[1, tr. 5" not in
@@ -99,7 +74,7 @@ def shortcut(rec, ctx, doc, display, document):
     doc.getUndoManager().undo()
 
 
-def run_checks(ctx, out, instdir, display):
+def run_checks(ctx, out, instdir, driver):
     sys.path.insert(0, os.path.join(os.path.abspath(instdir), EXTENSION))
     from hst_office import citation_codes, citation_document as document, citation_refresh, citation_settings
     from hst_office import citation_texts
@@ -122,14 +97,14 @@ def run_checks(ctx, out, instdir, display):
         view.gotoEnd(False)
         before = snapshot(doc, document)
         rec.info("ui-language", texts["language"])
-        open_dialog(rec, ctx, doc, display, out, "CitationInsert", texts["insert"]["title"])
-        open_dialog(rec, ctx, doc, display, out, "CitationReinsert", texts["reinsert"]["title"])
-        open_dialog(rec, ctx, doc, display, out, "CitationStyle", texts["style"]["title"])
-        open_dialog(rec, ctx, doc, display, out, "CitationLibrary", texts["library"]["title"],
+        open_dialog(rec, ctx, doc, driver, out, "CitationInsert", texts["insert"]["title"])
+        open_dialog(rec, ctx, doc, driver, out, "CitationReinsert", texts["reinsert"]["title"])
+        open_dialog(rec, ctx, doc, driver, out, "CitationStyle", texts["style"]["title"])
+        open_dialog(rec, ctx, doc, driver, out, "CitationLibrary", texts["library"]["title"],
                     steps=((("Tab", "Tab", "Tab", "space"), texts["entry"]["titleNew"]),))
-        open_dialog(rec, ctx, doc, display, out, "CitationUpdate", texts["common"]["title"], close="Return")
+        open_dialog(rec, ctx, doc, driver, out, "CitationUpdate", texts["common"]["title"], close="Return")
         after = snapshot(doc, document)
-        shortcut(rec, ctx, doc, display, document)
+        shortcut(rec, ctx, doc, driver, document)
         rec.check("cancel-changes-nothing", [r for _c, r in after] == [r for _c, r in before]
                   and len(after) == len(before), {"before": before[:1], "after": after[:1]})
     finally:
@@ -142,10 +117,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--instdir", default=os.path.join(ROOT, "upstream/libreoffice/instdir"))
     parser.add_argument("--out", default=os.path.join(ROOT, "tests/output/citations-dialogs"))
-    parser.add_argument("--display", required=True, help="X display with no other windows, e.g. :99 (Xvfb)")
+    where = parser.add_mutually_exclusive_group(required=True)
+    where.add_argument("--display", help="X display with no other windows, e.g. :99 (Xvfb)")
+    where.add_argument("--windows", action="store_true", help="this Windows session (the tester's own)")
     args = parser.parse_args()
-    return run_office(args.instdir, args.out, lambda ctx, out: run_checks(ctx, out, args.instdir, args.display),
-                      display=args.display)
+    if args.windows:
+        from citations_dialogs_win32 import Win32Driver
+        driver = Win32Driver()
+    else:
+        from citations_dialogs_x11 import X11Driver
+        driver = X11Driver(args.display)
+    return run_office(args.instdir, args.out, lambda ctx, out: run_checks(ctx, out, args.instdir, driver),
+                      display=args.display, windowed=args.windows)
 
 
 if __name__ == "__main__":

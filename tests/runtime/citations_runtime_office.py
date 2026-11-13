@@ -58,15 +58,16 @@ def connect(pipe, launch, timeout=120):
             time.sleep(1)
 
 
-def run_office(instdir, out, run_checks, display=None):
-    """Start an office from ``instdir`` with a fresh profile in ``out`` (headless, or with windows on the X
-    ``display``), call run_checks(ctx, out) and write out/evidence.json; returns the exit code (1 on any FAIL)."""
+def run_office(instdir, out, run_checks, display=None, windowed=False):
+    """Start an office from ``instdir`` with a fresh profile in ``out`` (headless, or with windows: on the X
+    ``display``, or on this session's desktop when ``windowed``), call run_checks(ctx, out) and write
+    out/evidence.json; returns the exit code (1 on any FAIL)."""
     out = os.path.abspath(out)  # the profile must be an absolute file:// URL
     program = os.path.join(os.path.abspath(instdir), "program")
     child_env = {k: v for k, v in os.environ.items() if k != "URE_BOOTSTRAP"}
     if display:
         child_env.update(DISPLAY=display, SAL_USE_VCLPLUGIN="gen")
-    headless = [] if display else ["--headless"]
+    headless = [] if display or windowed else ["--headless"]
     if os.path.exists(os.path.join(program, "uno.py")):  # the build's own Python-UNO bridge
         sys.path.insert(0, program)
         rc = "fundamental.ini" if os.name == "nt" else "fundamentalrc"

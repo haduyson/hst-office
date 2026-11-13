@@ -13,8 +13,8 @@ from .citation_lists import set_label
 from .citation_refresh_plan import term_language
 from .dialogs import Dialog
 
-W, H = 420, 352
-GRID_Y, ROW = 142, 16
+W, H = 420, 336  # about 860x710 px on Windows at 100 %: fits a 1366x768 screen above the taskbar
+GRID_Y, ROW = 132, 15
 
 
 def run(ctx, peer, texts, item, library, style, save_default=True, language=None):
@@ -33,16 +33,16 @@ def run(ctx, peer, texts, item, library, style, save_default=True, language=None
     dialog.label("lLookup", t["lookup"], 8, 28, 120)
     dialog.edit("lookupText", 130, 26, 186, help_text=t["lookup"])
     dialog.button("lookup", t["lookupButton"], 320, 25, W - 328, callback=lambda: do_lookup())
-    dialog.label("lookupHint", id_hint, 130, 41, W - 138, 16, wrap=True)
-    dialog.label("lPaste", t["paste"], 8, 62, 120)
-    dialog.edit("pasteText", 130, 60, 186, help_text=t["paste"])
-    dialog.button("paste", t["pasteButton"], 320, 59, W - 328, callback=lambda: do_paste())
-    dialog.button("lookupLine", t["lineButton"], 8, 76, 118, callback=lambda: do_line())
-    dialog.label("lineHint", line_hint, 130, 77, W - 138, 16, wrap=True)
-    dialog.label("lAuthors", t["authors"], 8, 98, 200)
-    dialog.edit("authors", 8, 108, 196, h=30, multiline=True, help_text=t["authorsHelp"])
-    dialog.label("lEditors", t["editors"], 212, 98, 200)
-    dialog.edit("editors", 212, 108, W - 220, h=30, multiline=True, help_text=t["authorsHelp"])
+    dialog.label("lookupHint", id_hint, 130, 40, W - 138, 16, wrap=True)
+    dialog.label("lPaste", t["paste"], 8, 60, 120)
+    dialog.edit("pasteText", 130, 58, 186, help_text=t["paste"])
+    dialog.button("paste", t["pasteButton"], 320, 57, W - 328, callback=lambda: do_paste())
+    dialog.button("lookupLine", t["lineButton"], 8, 73, 118, callback=lambda: do_line())
+    dialog.label("lineHint", line_hint, 130, 74, W - 138, 16, wrap=True)
+    dialog.label("lAuthors", t["authors"], 8, 90, 200)
+    dialog.edit("authors", 8, 100, 196, h=28, multiline=True, help_text=t["authorsHelp"])
+    dialog.label("lEditors", t["editors"], 212, 90, 200)
+    dialog.edit("editors", 212, 100, W - 220, h=28, multiline=True, help_text=t["authorsHelp"])
     for index, field in enumerate(form.FIELDS):
         column, row = index % 2, index // 2
         x, y = 8 + column * 206, GRID_Y + row * ROW
