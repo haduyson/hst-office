@@ -98,6 +98,24 @@ class SubmitTest(QueueTestCase):
         self.assertEqual(bq.label_for("feat/x", SHA_B), "feat_x")
 
 
+class InvalidateTest(QueueTestCase):
+    def test_invalidated_output_is_not_reused(self):
+        job, _ = self.submit(platform="windows")
+        self.finish(job, files=("HSTOffice.msi",))
+        self.assertEqual(self.submit(platform="windows")[0]["id"], job["id"])
+        bq.invalidate(self.store, job["id"], "stale vi catalogues")
+        state = self.store.load(job["id"])
+        self.assertEqual(state["state"], "failed")
+        self.assertIn("stale vi catalogues", state["error"])
+        self.assertTrue(os.path.exists(state["output"][0]))   # kept for forensics
+        fresh, dup = self.submit(platform="windows")
+        self.assertFalse(dup)
+        with self.assertRaises(bq.QueueError):
+            bq.invalidate(self.store, fresh["id"], "queued jobs cannot be invalidated")
+        with self.assertRaises(bq.QueueError):
+            bq.invalidate(self.store, job["id"], " ")
+
+
 class CancelWaitTest(QueueTestCase):
     def test_cancel_queued_and_running(self):
         job, _ = self.submit()
@@ -155,6 +173,8 @@ class InfraFailureTest(QueueTestCase):
         self.assertTrue(bq.infra_failure("runner exited without a status", ""))
         self.assertTrue(bq.infra_failure("windows build failed", "urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]"))
         self.assertTrue(bq.infra_failure("start: ssh hst5 rc=255: Connection timed out", ""))
+        self.assertTrue(bq.infra_failure("windows build failed", ": ERROR: ERROR: extracting MergeModule.CABinet failed "
+                                         "using C:/WINDOWS/System32/expand.exe MergeModule.CABinet"))
         self.assertFalse(bq.infra_failure("local-build.sh exit 2", "make: *** [Makefile:312: build] Error 2"))
         self.assertFalse(bq.infra_failure("windows build failed", "notebookbar.ui ... button-no-label"))
 

@@ -8,6 +8,8 @@
   build-queue.sh status <id> [--json]             state, slot/host, output, log
   build-queue.sh wait <id> [--timeout S]          blocks; prints the output path(s) (exit 0) or the log tail (exit 1);
                                                   test jobs: PASS/FAIL per target (exit 3 when a test failed)
+  build-queue.sh invalidate <id> --reason TEXT    a done job whose output turned out bad: marked failed (files kept),
+                                                  so dedupe builds it again on the next submit
   build-queue.sh compare <base-id> <id>           test results of two jobs side by side (e.g. baseline vs branch)
   build-queue.sh list [--all] [--json]            queued/running jobs and the recent finished ones
   build-queue.sh cancel <id>                      queued: dropped at once; running: stopped by the dispatcher
@@ -232,6 +234,7 @@ INFRA_PATTERNS = [
         r"CERTIFICATE_VERIFY_FAILED|urlopen error|Could not resolve host|remote name could not be resolved",
         r"ssh \S+ rc=255|Connection (timed out|refused|reset)",
         r"Exclude the build and source directories associated with LibreOffice",   # slot root lacks AV exclusion
+        r"extracting MergeModule\.CABinet failed",      # host's Cygwin tmp ACL (hst4-setup.ps1 -Step TmpAcl)
     )
 ]
 MAX_INFRA_RETRIES = 2
@@ -312,6 +315,18 @@ def cancel(store, job_id):
             job["cancel_requested"] = True
         else:
             raise QueueError(f"job {job_id} already {job['state']}")
+        store.save(job)
+        return job
+
+
+def invalidate(store, job_id, reason):
+    if not reason.strip():
+        raise QueueError("--reason is required")
+    with store.lock():
+        job = store.load(job_id)
+        if job["state"] != "done":
+            raise QueueError(f"job {job_id} is {job['state']}, only done jobs can be invalidated")
+        job.update(state="failed", error=f"invalidated: {reason.strip()}", invalidated_at=now_iso())
         store.save(job)
         return job
 
@@ -453,6 +468,9 @@ def main(argv=None):
     li.add_argument("--json", action="store_true")
     c = sub.add_parser("cancel")
     c.add_argument("id")
+    iv = sub.add_parser("invalidate")
+    iv.add_argument("id")
+    iv.add_argument("--reason", required=True)
     cp = sub.add_parser("compare")
     cp.add_argument("base")
     cp.add_argument("id")
@@ -504,6 +522,10 @@ def main(argv=None):
         if args.cmd == "cancel":
             job = cancel(store, args.id)
             print(f"{job['id']}: {'cancel requested' if job['state'] == 'running' else job['state']}")
+            return 0
+        if args.cmd == "invalidate":
+            job = invalidate(store, args.id, args.reason)
+            print(f"{job['id']}: {job['error']}")
             return 0
         if args.cmd == "compare":
             return compare(store, args.base, args.id)
