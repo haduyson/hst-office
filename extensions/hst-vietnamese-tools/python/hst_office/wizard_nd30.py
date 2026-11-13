@@ -7,7 +7,7 @@ change of a field or of the document type (nd30_preview).
 """
 import datetime
 
-from . import nd30, nd30_layout, nd30_prefs, nd30_preview, nd30_rule_length
+from . import nd30, nd30_layout, nd30_prefs, nd30_preview, nd30_rule_length, wizard_scroll_band as scroll_band
 from .dialogs import Dialog, palette
 from .wizard_nd30_rule import NAMES as RULE_NAMES, AgencyRuleRow
 from .wizard_type_picker import TypePicker
@@ -26,7 +26,7 @@ class Nd30Wizard:
     def __init__(self, ctx, strings):
         self.ctx, self.s, self.s_nd = ctx, strings, strings["nd30"]
         self.data = nd30.rules()
-        self.compact = False
+        self.compact, self.band = False, None
         self.colours = palette(ctx)  # muted/error text readable on light and dark dialogs
         self.d = Dialog(ctx, self.s_nd["title"], WIDTH, HEIGHT)
         self.picker = TypePicker(self.d, self.data["documentTypes"], self.s_nd["groups"], self.refresh,
@@ -95,8 +95,8 @@ class Nd30Wizard:
     def _compact(self):
         """Screen too small for the side-by-side layout (about 1200 px wide at 100% on Windows): drop the preview column.
 
-        The dialog stays about 330 units high: the error line takes the place of the legal note (see refresh) and the
-        buttons sit directly under it."""
+        The error line takes the place of the legal note (see refresh), the buttons sit directly under it; a dialog
+        still taller than the work area scrolls its form (wizard_scroll_band)."""
         m, width = self.d.model, FIELD_X + FIELD_W + 8
         self.compact = True
         m.getByName("description").Width = width - 2 * LABEL_X
@@ -110,6 +110,14 @@ class Nd30Wizard:
         for name, x in (("btnOk", width - 8 - 64 - 4 - 64), ("btnCancel", width - 8 - 64)):
             button = m.getByName(name)
             button.PositionX, button.PositionY = x, row
+        # still taller than the work area (1366x768 at 125 %): the form scrolls, check boxes and buttons stay in view
+        below = ("applyPage", "pageNumbers", "duplex", "legal", "status", "btnOk", "btnCancel")
+        form = [n for n in m.ElementNames if n not in below + ("description", "l_preview", "preview")]
+        bar_x = FIELD_X + FIELD_W + 2
+        self.band = scroll_band.fit(self.d, form, TOP + 4, m.getByName("applyPage").PositionY - 2, below,
+                                    scroll_band.max_height(self.d), bar_x)
+        if self.band:
+            m.Width = bar_x + scroll_band.BAR_WIDTH + 4
 
     def read(self):
         """(type_id, fields) from the form; date is normalised later by nd30.format_issue_date."""
