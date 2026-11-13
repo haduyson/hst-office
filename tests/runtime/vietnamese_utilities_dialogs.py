@@ -52,7 +52,7 @@ def save_warning(office, doc, args):
         props = (PropertyValue(Name="URL", Value=uno.systemPathToFileUrl(path)),
                  PropertyValue(Name="FilterName", Value="Calc MS Excel 2007 XML"))
         thread = gui.background_dispatch(office, frame, ".uno:SaveAs", props)
-        wid = gui.wait_window(office, r"^Lưu tệp Excel$")
+        wid = gui.wait_window(office, r"^Lưu sang định dạng \.xlsx$")
         if wid and shot:
             gui.dialog_shot(office, wid, args.shots, shot)
         if wid:
@@ -71,28 +71,33 @@ def save_warning(office, doc, args):
            saved and saved.Sheets.getByIndex(0).getCellRangeByName("A1").getFormula())
     if saved:
         saved.close(True)
-    wid, path = save_as("doi-thanh-chu.xlsx", ["Return"])
-    saved = office.load(uno.systemPathToFileUrl(path), hidden=True) if os.path.exists(path) else None
-    a1 = saved.Sheets.getByIndex(0).getCellRangeByName("A1") if saved else None
-    record("Đổi thành chữ rồi lưu: the file has the words as text", a1 is not None and a1.getType().value == "TEXT"
-           and a1.getString() == "Một trăm lẻ năm", a1 and a1.getFormula())
-    if saved:
-        saved.close(True)
-    record("... and the open document keeps its formulas, saved state", cell("A1").getFormula() == original
-           and not doc.isModified(), (cell("A1").getFormula(), doc.isModified()))
+    def has_words(path):
+        saved = office.load(uno.systemPathToFileUrl(path), hidden=True) if os.path.exists(path) else None
+        a1 = saved.Sheets.getByIndex(0).getCellRangeByName("A1") if saved else None
+        ok = a1 is not None and a1.getType().value == "TEXT" and a1.getString() == "Một trăm lẻ năm"
+        if saved:
+            saved.close(True)
+        return ok
+
+    undo = list(doc.getUndoManager().getAllUndoActionTitles())
+    wid, path = save_as("gia-tri.xlsx", ["Return"])
+    record("Chuyển thành giá trị khi lưu: the file has the words as text", has_words(path))
+    record("... and the open document keeps its formulas, undo list, saved state", cell("A1").getFormula() == original
+           and list(doc.getUndoManager().getAllUndoActionTitles()) == undo and not doc.isModified(),
+           (cell("A1").getFormula(), doc.isModified()))
     cell("Z1").setValue(1)
     before = os.path.getmtime(path)
     thread = gui.background_dispatch(office, frame, ".uno:Save")
-    wid = gui.wait_window(office, r"^Lưu tệp Excel$")
+    wid = gui.wait_window(office, r"^Lưu sang định dạng \.xlsx$")
     if wid:
         gui.keys(office.display, wid, "Escape")
     thread.join(60)
     record("Ctrl+S on the .xlsx warns too; Hủy keeps the file", wid is not None and os.path.getmtime(path) == before)
-    wid, path = save_as("trong-tai-lieu.xlsx", ["space", "Return"])
-    record("check box: the open document gets the words too (one undo)", cell("A1").getType().value == "TEXT"
-           and cell("A1").getString() == "Một trăm lẻ năm", cell("A1").getFormula())
-    doc.getUndoManager().undo()
-    record("... and undo brings the formula back", cell("A1").getFormula() == original, cell("A1").getFormula())
+    save_as("khong-hoi-lai.xlsx", ["space", "Return"])  # "Không hỏi lại" ticked, then the default button
+    wid, path = save_as("nho-lua-chon.xlsx", [])
+    record("Không hỏi lại: the next save does not ask and converts again", wid is None and has_words(path), wid)
+    record("... the open document still has its formulas", cell("A1").getFormula() == original, cell("A1").getFormula())
+    office.set_config("/org.hasontech.hstoffice.SaveFormatCheck", "Remembered", "")  # as "Hỏi mỗi lần" on the page
 
 
 def writer(office, args):
