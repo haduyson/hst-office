@@ -25,6 +25,7 @@ Một bản phát hành chỉ được đánh dấu sẵn sàng khi **mọi mụ
 - [ ] Mọi mẫu: `tests/runtime/check-templates.py` PASS cả round-trip lưu/in.
 - [ ] Không kết nối mạng khi dùng (chạy trong network namespace) ngoài kiểm tra cập nhật tới `office.hasontech.vn` ([UPDATE_CHECK](UPDATE_CHECK.md)) báo cáo lỗi chỉ khi người dùng bấm Gửi ([PRIVACY](PRIVACY.md)), feed banner và báo cáo lượt hiển thị banner mỗi ngày một lần tới `system.hasontech.vn` ([BANNERS](BANNERS.md)); không có telemetry nào khác.
 - [ ] `data/hst/release.json` đúng mã bản phát hành; manifest cập nhật đã sửa, ký (`scripts/release/sign-update-manifest.py`) và tải lên sau khi tệp cài đặt đã công bố.
+- [ ] `.rpm` và `.AppImage` cùng bản với `.deb`: `tests/runtime/check-rpm-install.sh` (Fedora, openSUSE) và `tests/runtime/check-appimage.sh` (Ubuntu, Debian, Fedora, Arch) đều PASS ([LINUX_PACKAGES](LINUX_PACKAGES.md)).
 - [ ] Độ trễ menu chuột phải Linux trong ngưỡng ([CONTEXT_MENU_PERFORMANCE](CONTEXT_MENU_PERFORMANCE.md)).
 
 ## D. Đóng gói
@@ -44,7 +45,7 @@ Một bản phát hành chỉ được đánh dấu sẵn sàng khi **mọi mụ
 
 - [ ] Phát hành trên GitHub (tag `v<release>`, tạo release bằng tài khoản chủ dự án rồi chạy `release.yml` với `append=true` cho từng nền tảng).
 - [ ] Nền tảng nào build xong thì gửi ngay cho phiên quản lý website: tag, tên tệp, kích thước, SHA256. Website tải tệp về `tai/<release>/`, kiểm tra `sha256sum -c`, rồi chuyển `/tai/windows|linux|macos-arm|macos-intel` và `/tai/sha256`.
-- [ ] Khi đủ cả ba hệ điều hành: tạo và ký `update/latest.json` + `update/latest-2.json` (`generate-update-manifest.py`, `sign-update-manifest.py`), gửi kèm; website cập nhật nhãn phiên bản, `/diem-moi/`, dòng hỗ trợ, đồng bộ hướng dẫn (`sync-help.py --ref v<release>`) và đăng manifest — một lần.
+- [ ] Khi đủ cả ba hệ điều hành: tạo và ký `update/latest.json` + `update/latest-2.json` + `update/latest-3.json` (`generate-update-manifest.py`, `sign-update-manifest.py`), gửi kèm; website cập nhật nhãn phiên bản, `/diem-moi/`, dòng hỗ trợ, đồng bộ hướng dẫn (`sync-help.py --ref v<release>`) và đăng manifest — một lần.
 - [ ] Kiểm tra lại: 4 link `/tai/*` trả đúng tệp từ office.hasontech.vn, manifest báo đúng phiên bản.
 
 ### Chỉ phát hành tệp trên office.hasontech.vn, không đưa link GitHub cho người dùng

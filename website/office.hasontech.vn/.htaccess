@@ -20,8 +20,11 @@
   RewriteRule ^tai/macos-arm/?$ /tai/1.0.1/HSTOffice_1.0.1_macOS_arm64.dmg [R=302,L,QSD]
   RewriteRule ^tai/macos-intel/?$ /tai/1.0.1/HSTOffice_1.0.1_macOS_x86_64.dmg [R=302,L,QSD]
   RewriteRule ^tai/linux/?$ /tai/1.0.1/HSTOffice_1.0.1_Linux_x86-64.deb [R=302,L,QSD]
+  # .rpm và AppImage có từ 1.0.2 (chưa có tệp trên site cho tới khi phát hành 1.0.2; config.js đang để available: false).
+  RewriteRule ^tai/linux-rpm/?$ /tai/1.0.2/HSTOffice_1.0.2_Linux_x86-64.rpm [R=302,L,QSD]
+  RewriteRule ^tai/linux-appimage/?$ /tai/1.0.2/HSTOffice_1.0.2_Linux_x86-64.AppImage [R=302,L,QSD]
   # SHA256SUMS phục vụ ngay trên domain (tai/SHA256SUMS, bản sao từ release) để mọi trình duyệt tải thẳng, không hiện GitHub.
-  # Ra bản mới: tải bộ cài vào tai/<phiên bản>/ (kiểm sha256sum -c), đổi đường dẫn trong 4 dòng trên, thay tai/SHA256SUMS, xóa thư mục bản cũ.
+  # Ra bản mới: tải bộ cài vào tai/<phiên bản>/ (kiểm sha256sum -c), đổi đường dẫn trong 6 dòng trên, thay tai/SHA256SUMS, xóa thư mục bản cũ.
   RewriteRule ^tai/sha256/?$ /tai/SHA256SUMS [L]
   # Mở thư mục /tai/ hoặc /tai/<phiên bản>/ (không có trang) thì về mục Tải về thay vì lỗi 403.
   RewriteRule ^tai(?:/[0-9][^/]*)?/?$ /#tai-ve [R=302,L,NE]
@@ -71,6 +74,8 @@
   AddType application/x-msi .msi
   AddType application/x-apple-diskimage .dmg
   AddType application/vnd.debian.binary-package .deb
+  AddType application/x-rpm .rpm
+  AddType application/vnd.appimage .AppImage
   AddType application/x-apple-aspen-config .mobileconfig
   AddType text/plain .reg .xcd
 </IfModule>
@@ -85,7 +90,7 @@
 
 # Bộ cài HST Office phục vụ trực tiếp từ tai/<phiên bản>/: tải xuống với tên tệp gốc, tải tiếp được (Range),
 # không nén, cache dài vì mỗi thư mục phiên bản là bất biến.
-<FilesMatch "^(?<installer>[^/]+\.(?:msi|dmg|deb))$">
+<FilesMatch "^(?<installer>[^/]+\.(?:msi|dmg|deb|rpm|AppImage))$">
   SetEnv no-gzip 1
   <IfModule mod_headers.c>
     Header set Content-Disposition "attachment; filename=\"%{MATCH_INSTALLER}e\""

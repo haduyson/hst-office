@@ -7,11 +7,16 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
 
 ## Luồng
 
-1. Nút có trên thanh thông tin và hộp thoại HST ▸ Kiểm tra cập nhật khi manifest có bộ cài cho hệ điều hành này
-   (`windows`, `linux`, `macos-arm`, `macos-intel`) và quản trị viên không tắt `AllowInstall`.
+1. Nút có trên thanh thông tin và hộp thoại HST ▸ Kiểm tra cập nhật khi manifest có bộ cài cho bản cài này
+   (`windows`, `macos-arm`, `macos-intel`; Linux theo cách cài, `update_linux_install.py`: dpkg sở hữu `program/soffice` →
+   `linux` (.deb), rpm sở hữu → `linux-rpm`, chạy từ AppImage (`$APPIMAGE`, chương trình nằm trong `$APPDIR`) →
+   `linux-appimage`; không gói nào sở hữu → xử lý như `.deb`, như trước) và quản trị viên không tắt `AllowInstall`.
+   Nút "Tải về" cũng mở trang tải của đúng loại gói đó.
 2. Bấm: luồng nền tải lại manifest và **kiểm lại chữ ký Ed25519**, chọn bộ cài, tải về thư mục cache của người dùng
    (Windows `%LOCALAPPDATA%\HSTOffice\update`, macOS `~/Library/Caches/HSTOffice/update`, Linux
-   `$XDG_CACHE_HOME/hst-office/update`) kèm hộp thoại tiến độ có nút Hủy. Tệp chỉ đổi tên từ `.part` sau khi **kích thước
+   `$XDG_CACHE_HOME/hst-office/update`; AppImage: thư mục ẩn `.hst-office-update` **cạnh tệp AppImage**, cùng hệ thống tệp
+   nên bước thay thế là một lần đổi tên nguyên tử — thư mục đó không ghi được thì báo `err_appimage_dir` và đưa nút Tải về)
+   kèm hộp thoại tiến độ có nút Hủy. Tệp chỉ đổi tên từ `.part` sau khi **kích thước
    và SHA256 khớp** giá trị trong manifest đã ký. Lỗi bất kỳ (mạng, kích thước, hash, chữ ký, chuyển hướng sang máy lạ):
    báo rõ và đưa nút "Tải về".
 3. Hỏi "Đã tải xong HST Office X. Đóng HST Office để cập nhật?" [Cập nhật ngay] [Để sau]. "Để sau" giữ tệp; lần bấm
@@ -19,7 +24,7 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
 4. Đồng ý: ghi tệp trợ giúp nhỏ vào cache, chạy tách rời, rồi đóng HST Office bằng đường terminate thông thường
    (tài liệu đã sửa vẫn hiện hộp hỏi lưu; chọn Hủy thì hủy cập nhật và dừng trợ giúp). Trợ giúp đợi tiến trình soffice
    thoát, **kiểm lại SHA256 ngay trước khi cài**, chạy bộ cài, xóa tệp nếu thành công, rồi mở lại HST Office (cả khi cài
-   lỗi: mở bản cũ). Nhật ký ở `update.log` trong thư mục cache, gồm cả đầu ra của `apt-get`/`pkcon`.
+   lỗi: mở bản cũ). Nhật ký ở `update.log` trong thư mục cache, gồm cả đầu ra của `apt-get`/`dnf`/`zypper`/`rpm`/`pkcon`.
 5. Cài lỗi: trợ giúp ghi `update-result.json` cạnh `update.log`, rồi mở lại bản cũ. Lần khởi động đó, job khởi động
    (`update_outcome.py`) đọc tệp, xóa ngay, rồi hiện một lần thông báo theo ngôn ngữ giao diện kèm nút **Tải về** và đường
    dẫn nhật ký. Tệp chỉ nằm trên máy này, không gửi đi đâu.
@@ -27,9 +32,9 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
 | `code` | Khi nào | Thông báo |
 |---|---|---|
 | `auth` | `pkexec` trả 127 (không được cấp quyền, không có tác nhân xác thực) | máy không cấp quyền quản trị |
-| `install` | bộ cài trả mã khác 0 (`apt-get` 100, `msiexec`, lỗi gắn dmg, đổi bản macOS) | bộ cài báo lỗi, kèm mã |
+| `install` | bộ cài trả mã khác 0 (`apt-get` 100, `dnf`/`zypper`/`rpm`, `msiexec`, lỗi gắn dmg, đổi bản macOS, không thay được tệp AppImage) | bộ cài báo lỗi, kèm mã |
 | `verify` | SHA256 sai ngay trước khi cài; macOS: sai chữ ký, Team ID hoặc Gatekeeper | tệp không qua bước kiểm tra lần cuối |
-| `tool` | thiếu `pkexec`/`apt-get`/`pkcon` lúc cài (đã kiểm trước khi đóng, chỉ gặp khi máy đổi giữa chừng) | máy thiếu công cụ cài |
+| `tool` | thiếu `pkexec` + `apt-get` (.deb) hoặc `dnf`/`zypper`/`rpm` (.rpm), và thiếu `pkcon`, lúc cài (đã kiểm trước khi đóng, chỉ gặp khi máy đổi giữa chừng) | máy thiếu công cụ cài |
 | `wait` | HST Office không thoát trong 30 phút | HST Office không đóng hẳn |
 
    Không ghi gì (không có thông báo) khi: cài thành công; chọn **Hủy** ở hộp hỏi lưu (trợ giúp dừng, **không** mở lại, vì
@@ -41,11 +46,13 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
 | Hệ điều hành | Cách cài |
 |---|---|
 | Windows | Lúc HST Office còn là cửa sổ đang dùng, nó chạy trợ giúp `powershell` **đã nâng quyền** (`ShellExecuteExW` "runas", cửa sổ HST Office làm chủ, nên hộp UAC hiện ngay trước mặt người dùng), rồi mới đóng. Trợ giúp chạy `msiexec /i <msi> /passive /norestart /l*v msi-install.log` (MSI nâng cấp bản cũ), rồi mở lại HST Office qua `explorer.exe` để bản mới chạy với quyền thường. Hủy ở hộp hỏi lưu: HST Office ghi tệp `update-cancel`, trợ giúp thấy tệp thì dừng. Trợ giúp không được chạy với `DETACHED_PROCESS`: `powershell.exe` không có console sẽ thoát mã 0 ngay mà không chạy tập lệnh (bản 1.0.1 trở về trước bị lỗi này) |
-| Linux | `.deb` đơn: `pkexec env DEBIAN_FRONTEND=noninteractive apt-get install -y <deb>`, hoặc `pkcon install-local` (hỏi mật khẩu quản trị). Thiếu cả hai: báo rõ trước khi đóng, dùng "Tải về" |
+| Linux `.deb` | `pkexec env DEBIAN_FRONTEND=noninteractive apt-get install -y <deb>`, hoặc `pkcon install-local` (hỏi mật khẩu quản trị). Thiếu cả hai: báo rõ trước khi đóng, dùng "Tải về" |
+| Linux `.rpm` | qua `pkexec`: `dnf install -y <rpm>` (dnf 4 và dnf5 nhận tệp cục bộ chưa ký), không có dnf thì `zypper --non-interactive install --allow-unsigned-rpm <rpm>`, không có thì `rpm -U <rpm>`; không có `pkexec` thì `pkcon install-local`. Mã `pkexec` 126/127 xử lý như `.deb` |
+| Linux AppImage | không cần quyền quản trị: sau khi HST Office thoát, kiểm lại SHA256 tệp mới (đã nằm trong `.hst-office-update` cạnh AppImage cũ), `chmod 755`, `mv -f` đè lên **đúng đường dẫn** AppImage cũ (đổi tên nguyên tử; launcher của phần tích hợp menu vẫn đúng), xóa thư mục ẩn, mở tệp mới với môi trường đã bỏ `APPDIR`/`APPIMAGE`/`PYTHONHOME`/... của lần gắn cũ |
 | macOS | gắn dmg, `codesign --verify --deep --strict`, `spctl --assess`, Team ID phải là `74AT34P945`; chép bản mới cạnh bản cũ, kiểm lại, đổi tên bản cũ sang `.hst-old`, đưa bản mới vào chỗ, rồi mới xóa bản cũ (hỏng thì khôi phục); quyền quản trị qua `osascript ... with administrator privileges` khi thư mục không ghi được; mở lại bằng `open` |
 
-Linux chỉ hỗ trợ bộ cài là **một tệp `.deb`** (`HSTOffice_<release>_Linux_x86-64.deb`, ví dụ `HSTOffice_1.0.0-beta.4.1_Linux_x86-64.deb`); bản phát hành cũ dạng
-`.deb.tar.gz` chỉ có "Tải về".
+Linux: một tệp `HSTOffice_<release>_Linux_x86-64.{deb,rpm,AppImage}` mỗi loại ([LINUX_PACKAGES.md](LINUX_PACKAGES.md));
+bản phát hành cũ dạng `.deb.tar.gz` chỉ có "Tải về".
 
 ## Manifest schema 2
 
@@ -60,19 +67,35 @@ Linux chỉ hỗ trợ bộ cài là **một tệp `.deb`** (`HSTOffice_<release
   nền tảng. Chuyển hướng chỉ được tới `github.com`, `*.githubusercontent.com`, `hasontech.vn`.
 - Ứng dụng chấp nhận schema 1 và 2 (schema 1: không có `installers`, chỉ "Tải về").
 - **`latest.json` giữ schema 1** cho các bản đã cài (beta.2, beta.3 chỉ chấp nhận `schema == 1`; đổi thẳng sang 2 sẽ làm
-  họ không còn nhận thông báo). Bản mới đọc `latest-2.json`, nếu lỗi mạng thì rơi về `latest.json`.
+  họ không còn nhận thông báo).
+
+## Manifest schema 3 (từ 1.0.2)
+
+Bản 1.0.0/1.0.1 đọc `latest-2.json` và **từ chối cả tệp** nếu `downloads` hay `installers` có khóa lạ, nên khóa mới không
+được vào `latest-2.json`. Từ 1.0.2 ứng dụng đọc `https://office.hasontech.vn/update/latest-3.json` (+ `.sig`), lỗi mạng
+(kể cả 404 khi trang chưa có tệp) thì rơi về `latest-2.json`:
+
+- `"schema": 3`, cùng dạng schema 2, thêm nền tảng `linux-rpm` (`.rpm`) và `linux-appimage` (`.AppImage`) trong `downloads`
+  (`https://office.hasontech.vn/tai/linux-rpm`, `/tai/linux-appimage`) và `installers`; `linux` vẫn là `.deb`.
+- Khóa nền tảng lạ trong schema 3 bị **bỏ qua** (không lỗi), để thêm nền tảng sau này không làm hỏng bản 1.0.2; các khóa
+  đã biết vẫn kiểm đầy đủ (URL, đuôi tệp, SHA256, kích thước).
+- `sign-update-manifest.py` từ chối ký `latest.json`/`latest-2.json`/`latest-3.json` nếu `schema` không phải 1/2/3 tương
+  ứng, và (qua bộ đọc của ứng dụng) từ chối `latest-2.json` có `linux-rpm`/`linux-appimage`.
 
 ## Phát hành
 
 ```sh
 python3 scripts/release/generate-update-manifest.py --tag v1.0.0-beta.4 --sums SHA256SUMS --assets-dir <thư mục collect-release-assets>
 #  hoặc: --gh-tag v1.0.0-beta.4 (đọc kích thước từ GitHub Release)
+python3 scripts/release/sign-update-manifest.py website/office.hasontech.vn/update/latest-3.json
 python3 scripts/release/sign-update-manifest.py website/office.hasontech.vn/update/latest-2.json
 python3 scripts/release/sign-update-manifest.py website/office.hasontech.vn/update/latest.json
 ```
 
 Bộ sinh điền `sha256`/`size`/URL từ `SHA256SUMS` của bản phát hành, giữ kênh còn lại, tự kiểm bằng bộ đọc của ứng dụng
-và không bao giờ đọc khóa ký (cách ký không đổi). Tải **cả hai** cặp tệp lên `update/`.
+và không bao giờ đọc khóa ký (cách ký không đổi). `latest-3.json` có mọi nền tảng; `latest-2.json` và `latest.json` chỉ
+giữ `windows`, `macos-arm`, `macos-intel`, `linux`. `latest-3.json` được ghi khi bản phát hành có `.rpm`/`.AppImage` hoặc
+trang đã có tệp đó. Tải **cả ba** cặp tệp lên `update/`.
 
 ## Quản trị viên
 
@@ -83,6 +106,9 @@ macOS; tài liệu quản trị do phần khóa cấu hình cập nhật nắm) 
 ## Kiểm thử
 
 - Unit: `tests/unit/test_update_installer.py` (schema 2, hash/kích thước, chọn nền tảng, bộ sinh manifest),
+  `test_update_linux_install.py` (nhận loại cài dpkg/rpm/AppImage, schema 3, tải cạnh AppImage),
+  `test_update_helper_linux_packages.py` (trợ giúp thật với dnf/zypper/rpm/pkcon giả, thay AppImage, môi trường mở lại),
+  `test_update_manifest_linux_packages.py` (`latest-3.json` và các tệp cũ, kiểm schema theo tên khi ký),
   `test_update_prepare.py` (tải, kiểm, dùng lại, hủy, chính sách), `test_update_helper.py` (dòng lệnh trợ giúp mỗi hệ
   điều hành; chạy thật tập lệnh sh với công cụ giả), `test_update_outcome.py` (bản ghi cài lỗi, đọc một lần, Hủy không ghi
   và không mở lại).

@@ -26,6 +26,7 @@ python3 scripts/stage-branding.py
 sudo scripts/build-linux.sh --configure
 sudo python3 scripts/measure-job.py --json build/metrics/linux-build.json -- scripts/build-linux.sh --build
 sudo scripts/build-linux.sh --package
+sudo scripts/build-linux.sh --rpm-appimage   # .rpm + .AppImage từ chính .deb đó (docs/LINUX_PACKAGES.md)
 ```
 
 ### Phiên bản
