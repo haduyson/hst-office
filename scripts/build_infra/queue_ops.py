@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Build queue commands that change job or host state: submit, cancel, invalidate, drain, retention.
 """
+import os
 import shutil
 import sys
 import time
