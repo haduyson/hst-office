@@ -138,27 +138,42 @@ def apply_plan(ctx, doc, plan, undo_title, force=False):
 
 
 def field_at_cursor(doc, fields):
-    """The field holding the view cursor, or None."""
+    """The field holding the view cursor strictly inside it (right before or after a field is not in it), or None."""
     cursor = doc.getCurrentController().getViewCursor()
     for field in fields:
         anchor = field["mark"].getAnchor()
         try:
             text = anchor.getText()
-            if text.compareRegionStarts(anchor, cursor) >= 0 and text.compareRegionEnds(anchor, cursor) <= 0:
+            if text.compareRegionStarts(anchor, cursor) > 0 and text.compareRegionEnds(anchor, cursor) < 0:
                 return field
         except Exception:  # noqa: BLE001 - the cursor is in another text
             continue
     return None
 
 
-def text_before_cursor(doc):
-    """The paragraph text from its start up to the view cursor ("" when there is a selection)."""
+def text_before_cursor(doc, fields=()):
+    """The text typed before the view cursor: from the start of the paragraph, or from the end of the last of
+    ``fields`` in that paragraph, so a citation result such as "[1]" is never read as typed ("" with a selection)."""
     cursor = doc.getCurrentController().getViewCursor()
     if not cursor.isCollapsed():
         return ""
-    probe = cursor.getText().createTextCursorByRange(cursor.getStart())
+    text = cursor.getText()
+    probe = text.createTextCursorByRange(cursor.getStart())
     probe.gotoStartOfParagraph(True)
-    return probe.getString()
+    typed = probe.getString()
+    for field in fields:
+        anchor = field["mark"].getAnchor()
+        try:
+            if text.compareRegionEnds(anchor, cursor) < 0:  # the field ends after the cursor
+                continue
+            after = text.createTextCursorByRange(anchor.getEnd())
+            after.gotoRange(cursor.getStart(), True)
+        except Exception:  # noqa: BLE001 - a field in another text (footnote, frame)
+            continue
+        between = after.getString()
+        if "\n" not in between and len(between) < len(typed):
+            typed = between
+    return typed
 
 
 def delete_before_cursor(doc, count):

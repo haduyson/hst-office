@@ -55,6 +55,12 @@ def run_checks(doc, ext_python, ris_path):
         view.setString("")
         cite.insert_cluster(host, texts, {"citationID": "", "items": [{"id": item["id"]}]}, {item["id"]: item}, "insert")
     check("insert-three-ieee-numbers", cited() == ["[1]", "[2]", "[1]"], cited())
+    from hst_office import citation_reinsert_dialog
+    listed = []
+    citation_reinsert_dialog.run = lambda *a: listed.append(a[3]) and None
+    view.gotoRange(document.scan(doc)[0]["mark"].getAnchor().getEnd(), False)  # right after "[1]": not typed text
+    cite.reinsert(host)
+    check("reinsert-ignores-citation-before-cursor", cited() == ["[1]", "[2]", "[1]"] and len(listed) == 1, cited())
     view.gotoRange(text.getEnd(), False)
     actions.bibliography(host)
     bib = [f for f in document.scan(doc) if f["kind"] == "bibliography"]

@@ -66,7 +66,7 @@ def reinsert(host):
     _fields, plan = refresh.compute(host.ctx, host.doc, settings, texts["bibliography"]["empty"])
     if not plan["order"]:
         return ui.inform(host.ctx, host.peer, texts, texts["blockers"]["noCitations"])
-    typed = numbering.parse_typed(document.text_before_cursor(host.doc))
+    typed = numbering.parse_typed(document.text_before_cursor(host.doc, document.scan(host.doc)))
     if typed:
         ids, missing = numbering.ids_for_numbers(typed["numbers"], plan["order"])
         if missing:

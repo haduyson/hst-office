@@ -5,6 +5,7 @@ preview of the bibliography entry. Saving also stores the source in the user's l
 Returns the saved item or None. Field logic: citation_entry_form (pure)."""
 from . import citation_entry_form as form
 from . import citation_ui as ui
+from .citation_lists import set_label
 from .dialogs import Dialog
 
 W, H = 420, 316
@@ -75,16 +76,16 @@ def run(ctx, peer, texts, item, library, style, save_default=True, language=None
         from .citation_engine import preview as render
         try:
             built, _warnings = form.item_of(values(), chosen_type(), state["base"])
-            dialog.set_text("preview", render(style, built, document_language=language)["entry"].get("text", ""))
+            set_label(dialog, "preview", render(style, built, document_language=language)["entry"].get("text", ""))
         except Exception:  # noqa: BLE001 - half-typed fields: no preview yet
-            dialog.set_text("preview", "")
+            set_label(dialog, "preview", "")
 
     def do_lookup():
         from .citation_lookup_action import lookup
         text = dialog.get("lookupText").strip()
         if not text:
             return
-        dialog.set_text("preview", t["lookupRunning"])
+        set_label(dialog, "preview", t["lookupRunning"])
         found = lookup(ctx, dialog.dialog.getPeer(), texts, text)
         if found is not None:
             if state["base"] is None:

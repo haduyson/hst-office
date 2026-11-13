@@ -63,7 +63,7 @@ def run(ctx, peer, texts, settings, plan, existing=None, language=None):
         found, hidden = lists.filter_items(pool(), dialog.get("search"), ui.short_label)
         shown[:] = found
         lists.set_rows(dialog, "results", [ui.short_label(i) for i in found])
-        dialog.set_text("more", t["more"] % hidden if hidden else "")
+        lists.set_label(dialog, "more", t["more"] % hidden if hidden else "")
 
     def fill_chosen():
         lists.set_rows(dialog, "chosen", [ui.short_label(known[i]) for i in chosen_ids])
@@ -105,13 +105,13 @@ def run(ctx, peer, texts, settings, plan, existing=None, language=None):
         from .citation_engine import process
         cluster = build()
         if not cluster["items"]:
-            return dialog.set_text("preview", "")
+            return lists.set_label(dialog, "preview", "")
         try:
             text = process(style, {i: known[i] for i in chosen_ids}, [cluster],
                            document_language=language)["citations"][0]["text"]
         except Exception as exc:  # noqa: BLE001 - a preview never stops the dialog
             text = str(exc)
-        dialog.set_text("preview", text)
+        lists.set_label(dialog, "preview", text)
 
     def finish():
         if not chosen_ids:

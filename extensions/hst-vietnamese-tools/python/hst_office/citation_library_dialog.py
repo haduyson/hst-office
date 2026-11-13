@@ -54,7 +54,7 @@ def run(ctx, peer, texts, doc_items, style, language=None):
         shown[:] = found
         lists.set_rows(dialog, "list", [ui.short_label(i) for i in found])
         count = t["count"] % len(library)
-        dialog.set_text("count", count + ("  " + texts["insert"]["more"] % hidden if hidden else ""))
+        lists.set_label(dialog, "count", count + ("  " + texts["insert"]["more"] % hidden if hidden else ""))
         dialog.model.getByName("fromDoc").Enabled = bool(doc_items) and not library.read_only
         for name in ("add", "edit", "delete", "import"):
             dialog.model.getByName(name).Enabled = not library.read_only

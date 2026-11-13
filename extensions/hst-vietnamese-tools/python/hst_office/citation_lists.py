@@ -46,6 +46,11 @@ def set_rows(dialog, name, rows, selected=()):
     uno.invoke(model, "setPropertyValue", ("SelectedItems", uno.Any("[]short", tuple(selected))))
 
 
+def set_label(dialog, name, text):
+    """Text of a fixed label (dialogs.Dialog.set_text is for edits)."""
+    dialog.model.getByName(name).Label = text
+
+
 def selected_rows(dialog, name):
     return list(dialog.model.getByName(name).SelectedItems)
 

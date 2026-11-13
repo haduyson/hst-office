@@ -57,12 +57,15 @@ def connect(pipe, launch, timeout=120):
             time.sleep(1)
 
 
-def run_office(instdir, out, run_checks):
-    """Start a headless office from ``instdir`` with a fresh profile in ``out``, call run_checks(ctx, out) and write
-    out/evidence.json; returns the process exit code (1 on any FAIL)."""
+def run_office(instdir, out, run_checks, display=None):
+    """Start an office from ``instdir`` with a fresh profile in ``out`` (headless, or with windows on the X
+    ``display``), call run_checks(ctx, out) and write out/evidence.json; returns the exit code (1 on any FAIL)."""
     out = os.path.abspath(out)  # the profile must be an absolute file:// URL
     program = os.path.join(os.path.abspath(instdir), "program")
     child_env = {k: v for k, v in os.environ.items() if k != "URE_BOOTSTRAP"}
+    if display:
+        child_env.update(DISPLAY=display, SAL_USE_VCLPLUGIN="gen")
+    headless = [] if display else ["--headless"]
     if os.path.exists(os.path.join(program, "uno.py")):  # the build's own Python-UNO bridge
         sys.path.insert(0, program)
         os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, "fundamentalrc")
@@ -71,7 +74,7 @@ def run_office(instdir, out, run_checks):
     os.makedirs(profile)
     user = "-env:UserInstallation=file://" + profile
     for _ in range(3):  # exit code 81 = restart requested while the fresh profile is created
-        warm = subprocess.run([os.path.join(program, "soffice.bin"), "--headless", "--norestore",
+        warm = subprocess.run([os.path.join(program, "soffice.bin")] + headless + ["--norestore",
                                "--terminate_after_init", user], env=child_env, timeout=180, check=False)
         if warm.returncode == 0:
             break
@@ -79,7 +82,7 @@ def run_office(instdir, out, run_checks):
     procs = []
 
     def launch():
-        procs.append(subprocess.Popen([os.path.join(program, "soffice.bin"), "--headless", "--norestore",
+        procs.append(subprocess.Popen([os.path.join(program, "soffice.bin")] + headless + ["--norestore",
                                        "--nologo", user, f"--accept=pipe,name={pipe};urp;"], env=child_env))
         return procs[-1]
 

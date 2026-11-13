@@ -20,8 +20,16 @@ HEADER_PART = re.compile(r"word/(header|footer)\d*\.xml$")
 
 class DocxField:
     def __init__(self, part):
-        self.part, self.code, self.result, self.in_result = part, "", "", False
+        self.part, self.in_result, self._code, self._result = part, False, [], []
         self.paragraphs = 0  # paragraph ends inside the result: >0 for a multi-paragraph field
+
+    @property
+    def code(self):  # pieces are joined once: Word splits a long code into thousands of w:instrText runs
+        return "".join(self._code)
+
+    @property
+    def result(self):
+        return "".join(self._result)
 
     def as_dict(self):
         return {"part": self.part, "code": self.code.strip(), "result": self.result,
@@ -49,16 +57,16 @@ def fields_in_xml(data, part="word/document.xml"):
             elif kind == "end" and stack:
                 stack.pop()
         elif event == "end" and tag == W + "instrText" and stack and not stack[-1].in_result:
-            stack[-1].code += elem.text or ""
+            stack[-1]._code.append(elem.text or "")
         elif event == "end" and tag in (W + "t", W + "tab", W + "br"):
             piece = (elem.text or "") if tag == W + "t" else ("\t" if tag == W + "tab" else "\n")
             for field in stack:
                 if field.in_result:
-                    field.result += piece
+                    field._result.append(piece)
         elif event == "end" and tag == W + "p":
             for field in stack:
                 if field.in_result:
-                    field.result += "\n"
+                    field._result.append("\n")
                     field.paragraphs += 1
     return order  # an unterminated field is still listed, with what was read of it
 
