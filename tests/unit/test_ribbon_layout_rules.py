@@ -112,7 +112,9 @@ class GeneratorTest(unittest.TestCase):
         with open(os.path.join(PATCHES, "hst-ribbon-ux-few-command-groups.patch"), encoding="utf-8") as handle:
             text = handle.read()
         self.assertIn(f"+constexpr int FEW_COMMANDS = {R.FEW_COMMANDS};", text)
-        self.assertIn("+    const int nMenuState = bFewCommands ? GroupLarge : nState;", text)
+        # large at every state; only the labels go at the small state, a step before the group folds
+        self.assertIn("+    const bool bLabels = rData.mbHstKeepLarge || nState < GroupSmall;", text)
+        self.assertIn("|| (bFewCommands && rData.meHstAuthoredSize == ToolBoxButtonSize::Large);", text)
 
 
 class BannerShotTest(unittest.TestCase):

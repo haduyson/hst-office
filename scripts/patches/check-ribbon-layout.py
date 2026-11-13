@@ -3,7 +3,7 @@
 """Check the layout of the four HST ribbons (owner decision of 13/11/2026).
 
 Usage: scripts/patches/check-ribbon-layout.py --tree DIR      (a tree with the whole series applied)
-       scripts/patches/check-ribbon-layout.py --shots DIR     (ribbon screenshots <app>-w<width>-<tab>.png)
+       scripts/patches/check-ribbon-layout.py --shots DIR     (ribbon screenshots [win-]<app>-w<width>-<tab>.png)
 
 --tree checks the widget tree of the Tabbed notebookbar.ui of Writer, Sheets, Slides and Draw against the
 rules of ribbon_layout_rules.py: a group of one to three commands shows large buttons filling its height, no
@@ -21,7 +21,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ribbon_layout_rules as R  # noqa: E402
 
-SHOT = re.compile(r"^(?P<app>[a-z]+)-w(?P<width>\d+)-.+\.png$")
+SHOT = re.compile(r"^(?:win-)?(?P<app>[a-z]+)-w(?P<width>\d+)-.+\.png$")  # win-: shots taken on Windows
 BAND = (62, 146)  # rows of the ribbon's group area in a screenshot of the window's top (tab row above)
 
 

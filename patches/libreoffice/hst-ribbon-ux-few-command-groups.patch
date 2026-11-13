@@ -2,16 +2,17 @@ HST Office: a ribbon group of few commands keeps them large at every width.
 
 Owner decision (13/11/2026): groups with few commands use large buttons filling the group's height, so the
 groups look alike; small stacks only in groups with many commands. hst-ribbon-ux-uniform-layout.patch lays out
-every group of one to three commands as large buttons; here the collapse ladder keeps them large with their
-labels at the medium and small states too, as it already did for a group of one large command, and folds the
-group into its "Caption ▾" button when the row is too narrow.
+every group of one to three commands as large buttons; here the collapse ladder keeps them large, filling the
+group's height, at the medium and small states too. At the small state they only drop their labels (kept as
+tooltip and accessible name), so the ladder has a step before it folds the group into its "Caption ▾" button:
+with labels kept at every state, Sheets' Home folded "Ô" even at 1920 px beside the banner.
 - vcl/source/control/HstRibbonLadder.cxx: SetGroupState counts the commands of the group's toolboxes and
   menu buttons (a toolbox item drawn as a control, such as the font name or the find box, makes the group a
-  group of many commands); at most three keep the authored large toolboxes and the menu buttons' labels.
+  group of many commands); at most three keep the authored large toolboxes, without labels at the small state.
 
 License: this upstream file remains under its original license (MPL-2.0).
 Test: build only (syntax-checked against the configured tree). Runtime: at 1366 px, Sheets ▸ Trang đầu ▸ Ô and
-Writer ▸ Chèn ▸ Liên kết show large buttons with labels, or their "Caption ▾" button.
+Writer ▸ Chèn ▸ Liên kết show large buttons (labels dropped only at the narrowest widths) or their "Caption ▾" button.
 ---
 --- a/vcl/source/control/HstRibbonLadder.cxx
 +++ b/vcl/source/control/HstRibbonLadder.cxx
@@ -52,7 +53,7 @@ Writer ▸ Chèn ▸ Liên kết show large buttons with labels, or their "Capti
  {
      ImplToolBoxPrivateData& rData = *rToolBox.ImplGetToolBoxPrivateData();
      if (!rData.mbHstAuthored)
-@@ -59,11 +70,12 @@
+@@ -59,13 +70,15 @@
          rData.meHstAuthoredTextPosition = rData.meHstTextPosition;
          rData.mbHstKeepLarge = holdsPaste(rToolBox); // Paste stays large, as in Office
      }
@@ -60,16 +61,21 @@ Writer ▸ Chèn ▸ Liên kết show large buttons with labels, or their "Capti
 -    // its label, as Office does: as a bare icon under a longer caption it saved almost nothing and left the
 -    // group looking empty
 +    // HST Office: a group of few large commands (Insert's Comments, Review's Protect, Sheets' Cells) keeps
-+    // them large with their labels at every width, so the groups look alike: as bare icons under a longer
-+    // caption they saved almost nothing and left the group looking empty; the ladder folds such a group
-+    // into its "Caption ▾" button instead
++    // them large, filling the group's height, at every width, so the groups look alike: as small icons
++    // under a longer caption they saved almost nothing and left the group looking empty. At the small
++    // state only their labels go (kept as tooltip and accessible name, as for every toolbox), so the ladder
++    // has a step before it folds the group into its "Caption ▾" button
      const bool bKeep = rData.mbHstKeepLarge || nState == GroupLarge
 -                       || (bOnlyCommand && rData.meHstAuthoredSize == ToolBoxButtonSize::Large);
+-    const ButtonType eType
+-        = bKeep || nState < GroupSmall ? rData.meHstAuthoredType : ButtonType::SYMBOLONLY;
 +                       || (bFewCommands && rData.meHstAuthoredSize == ToolBoxButtonSize::Large);
-     const ButtonType eType
-         = bKeep || nState < GroupSmall ? rData.meHstAuthoredType : ButtonType::SYMBOLONLY;
++    const bool bLabels = rData.mbHstKeepLarge || nState < GroupSmall;
++    const ButtonType eType = bLabels ? rData.meHstAuthoredType : ButtonType::SYMBOLONLY;
      const ToolBoxButtonSize eSize
-@@ -201,10 +213,20 @@
+         = bKeep || rData.meHstAuthoredSize != ToolBoxButtonSize::Large ? rData.meHstAuthoredSize
+                                                                        : ToolBoxButtonSize::Small;
+@@ -201,9 +214,20 @@
  {
      std::vector<ToolBox*> aToolBoxes;
      forToolBoxes(rGroup, [&aToolBoxes](ToolBox& rToolBox) { aToolBoxes.push_back(&rToolBox); });
@@ -86,10 +92,9 @@ Writer ▸ Chèn ▸ Liên kết show large buttons with labels, or their "Capti
 +    const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
      for (ToolBox* pToolBox : aToolBoxes)
 -        applyToToolBox(*pToolBox, nState, bOnlyCommand);
--    forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
 +        applyToToolBox(*pToolBox, nState, bFewCommands);
-+    const int nMenuState = bFewCommands ? GroupLarge : nState;
-+    forMenuButtons(rGroup, [nMenuState](MenuButton& rButton) { applyToMenuButton(rButton, nMenuState); });
++    // the menu buttons of every group drop their labels at the small state only (their image stays where it
++    // is: above the label in a group of few commands)
+     forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
  }
  
- OUString GroupCaption(vcl::Window& rGroup)
