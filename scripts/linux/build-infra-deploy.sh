@@ -45,7 +45,12 @@ sha="$(git -C "$REPO" rev-parse -q --verify "origin/$1^{commit}" || git -C "$REP
 dir="$ROOT/infra-${sha:0:12}"
 [ -d "$dir" ] || git -C "$REPO" worktree add -q --detach "$dir" "$sha"
 bash -n "$dir/scripts/linux/local-build.sh"
-python3 -I -m py_compile "$dir/scripts/build-queue.py" "$dir/scripts/build-queue-dispatcher.py" "$dir/scripts/linux/build-slots.py"
+python3 -I -m py_compile "$dir/scripts/build-queue.py" "$dir/scripts/build-queue-dispatcher.py" "$dir/scripts/linux/build-slots.py" \
+  "$dir"/scripts/build_infra/*.py
+# The entry points import scripts/build_infra: refuse to switch to a version whose imports fail.
+python3 -I "$dir/scripts/build-queue.py" --help > /dev/null
+python3 -I "$dir/scripts/linux/build-slots.py" --help > /dev/null
+python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import build_infra.dispatch_loop' "$dir/scripts"
 ln -sfn "${dir##*/}" "$CURRENT.new"
 mv -T "$CURRENT.new" "$CURRENT"   # rename(2): atomic
 log "infra-current -> ${dir##*/}"
