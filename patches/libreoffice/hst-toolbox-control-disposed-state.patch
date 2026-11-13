@@ -18,12 +18,18 @@ Traced on Linux (gdb on the release build with its symbol table, mode switches o
    ToolBox, whose data is released;
 4. the main thread gets the SolarMutex back and addStatusListener hands the state to the disposed paste
    control, which lays out the disposed ToolBox: read of its released data.
-A pending event run by that nested main loop can destroy the toolbar the same way without a second thread.
+Not observed, but the same can happen without a second thread: the nested main loop also runs pending events.
 
-SfxToolBoxControl::statusChanged now returns when the control is disposed or its toolbox is gone or
-disposed (checked under the SolarMutex, which the dispose holds). Every SfxToolBoxControl state goes
-through statusChanged, so no control of this kind touches a disposed toolbox. Stress check:
-tests/runtime/check-ui-mode-cycle-stress.py.
+Two fixes, both needed (with the first alone the same run crashed one step later, in step 5):
+- SfxToolBoxControl::statusChanged returns when the control is disposed or its toolbox is gone or
+  disposed (checked under the SolarMutex, which the dispose holds). Every SfxToolBoxControl state goes
+  through statusChanged, so no control of this kind touches a disposed toolbox.
+- 5. ToolBarManager::UpdateControllers then went on iterating m_aControllerMap, which RemoveControllers()
+  had cleared meanwhile: read of a freed hash node (UpdateControllers+0x347, `mov 0x10(%rbx),%r15`). It
+  now walks a copy of the controllers and updates one only while it is still the toolbar's controller
+  for its item (a refilled toolbar updates its new controllers itself; hst-toolbar-no-update-while-
+  removing-controllers.patch already keeps the timer out while the controllers are being removed).
+Stress check: tests/runtime/check-ui-mode-cycle-stress.py.
 
 License: modified upstream files keep their license (MPL-2.0).
 
@@ -44,3 +50,25 @@ License: modified upstream files keep their license (MPL-2.0).
      if ( getFrameInterface().is() )
          xController = getFrameInterface()->getController();
  
+--- a/framework/source/uielement/toolbarmanager.cxx
++++ b/framework/source/uielement/toolbarmanager.cxx
+@@ -724,8 +724,17 @@
+     if ( !m_bUpdateControllers )
+     {
+         m_bUpdateControllers = true;
+-        for (auto const& controller : m_aControllerMap)
+-        {
++        // HST: a controller's update() can release the SolarMutex (the paste control's first state asks the
++        // system clipboard in a nested main loop), and the toolbar can be refilled or disposed meanwhile:
++        // RemoveControllers() clears m_aControllerMap under this loop. Walk a copy, and update a controller
++        // only while it is still the toolbar's controller for its item.
++        const std::vector< std::pair< ToolBoxItemId, Reference< XStatusListener > > > aControllers(
++            m_aControllerMap.begin(), m_aControllerMap.end() );
++        for (auto const& controller : aControllers)
++        {
++            auto pCurrent = m_aControllerMap.find( controller.first );
++            if ( m_bDisposed || pCurrent == m_aControllerMap.end() || pCurrent->second != controller.second )
++                continue;
+             try
+             {
+                 Reference< XUpdatable > xUpdatable( controller.second, UNO_QUERY );

@@ -9,7 +9,8 @@ hst-toolbox-control-disposed-state.patch the office died with SIGSEGV within a f
 controller update (ToolBarManager::AsyncUpdateControllersHdl) bound the paste control, whose first state asks the
 system clipboard and so runs a nested main loop with the SolarMutex released; the mode switch on the UNO request
 thread destroyed that toolbar meanwhile, and the paste control then laid out its disposed ToolBox
-(ToolBox::GetItemRect -> ImplFormat). Usage: python3 tests/runtime/check-ui-mode-cycle-stress.py
+(ToolBox::GetItemRect -> ImplFormat); with that fixed alone, the update loop then read the controller map the
+dispose had cleared (ToolBarManager::UpdateControllers). Usage: python3 tests/runtime/check-ui-mode-cycle-stress.py
 [--instdir upstream/libreoffice/instdir] [--out tests/output/ui-mode-cycle-stress] [--display :97] [--rounds 20] [--port 21994].
 Exit 1 when the office crashed, hung or a round failed.
 """
