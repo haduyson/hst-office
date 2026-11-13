@@ -3,7 +3,7 @@
 Chủ dự án (2026-11-04): HST Office dùng phím tắt của Microsoft Office vì phần lớn người dùng
 Việt Nam đã quen; khi trùng thì phím của Microsoft Office được ưu tiên hơn phím của LibreOffice.
 Giữ nguyên các phím riêng của HST: `Shift+Esc` / macOS `Option+Cmd+K` (Tìm tính năng,
-`hst-feature-search.patch`), `Alt+F11` (Macro VBA), `Alt+F8` (hộp thoại Macro) —
+`hst-feature-search.patch`), `Alt+F11` (Macro VBA), `Alt+F8` (hộp thoại Macro), `Alt+Shift+I` (HST Writer: Chèn lại trích dẫn) —
 `extensions/hst-vietnamese-tools/Accelerators.xcu`; `Ctrl+Alt+.` / `Ctrl+Alt+,` (thẻ tài liệu), `Ctrl+Alt+Shift+N` (tách thẻ ra cửa sổ mới, `hst-module-window-groups.patch`). `Alt+F` mở Tệp tin (`hst-file-backstage.patch`, như thẻ File của Office) không bị patch này đụng tới.
 
 - Cài đặt: `patches/libreoffice/hst-msoffice-shortcuts.patch` (officecfg `Accelerators.xcu`,
@@ -63,6 +63,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Thụt lề đoạn | Ctrl+M | Control+Shift+M | Xóa định dạng trực tiếp | Tăng thụt lề | đổi | **Xóa định dạng trực tiếp** chuyển sang Ctrl+Space (macOS: Control+M như cũ) |
 | Bỏ thụt lề | Ctrl+Shift+M | Cmd+Shift+M | Chế độ sửa (toàn cục) | Giảm thụt lề | đổi | **Chế độ sửa** còn ở menu Sửa |
 | Thụt lề treo | Ctrl+T | Cmd+T | macOS Cmd+T = Kiểu dáng | Thụt lề treo | đổi | **Kiểu dáng** (macOS) vẫn có F11 |
+| Đánh dấu trích dẫn (Mark Citation, mục lục trích dẫn pháp lý) | Alt+Shift+I | Cmd+Option+Shift+I | không có | Chèn lại trích dẫn | khác | HST: gõ `[3` hoặc `[3, tr. 15` rồi nhấn phím để trích lại nguồn số 3 (không có ô đánh dấu trích dẫn pháp lý); macOS Option+Shift+I |
 
 ## HST Sheets ↔ Excel
 
