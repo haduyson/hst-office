@@ -33,8 +33,28 @@ class Office:
         self.program, self.work, self.minutes, self.proc = program, work, minutes, None
         self.user = os.path.join(work, "profile", "user")
 
+    def seed(self):
+        """A new profile without the start-up dialogs (welcome, default apps, tip of the day): they are modal."""
+        xcu = os.path.join(self.user, "registrymodifications.xcu")
+        if os.path.exists(xcu):
+            return
+        os.makedirs(self.user, exist_ok=True)
+        items = [("/org.hasontech.hstoffice.Welcome", "Shown", "true"),
+                 ("/org.hasontech.hstoffice.DefaultApps", "Ask", "false"),
+                 ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false"),
+                 ("/org.openoffice.Office.Recovery/AutoSave", "TimeIntervall", str(self.minutes))]
+        with open(xcu, "w", encoding="utf-8") as handle:
+            handle.write('<?xml version="1.0" encoding="UTF-8"?>\n<oor:items xmlns:oor="http://openoffice.org/2001/'
+                         'registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/'
+                         'XMLSchema-instance">\n')
+            for node, prop, value in items:
+                handle.write('<item oor:path="%s"><prop oor:name="%s" oor:op="fuse"><value>%s</value></prop></item>\n'
+                             % (node, prop, value))
+            handle.write("</oor:items>\n")
+
     def start(self):
         import uno
+        self.seed()
         url = uno.systemPathToFileUrl(os.path.join(self.work, "profile"))
         self.proc = subprocess.Popen([os.path.join(self.program, "soffice.exe"), "-env:UserInstallation=" + url,
                                       "--nologo", "--nodefault", "--accept=socket,host=127.0.0.1,port=%d;urp;" % PORT])
