@@ -32,6 +32,20 @@ class Adapter:
     def set_config(self, node, name, value):
         self.office.set_config(node, name, value)
 
+    def service(self, name):
+        return self.office.service(name)
+
+    def ctx(self):
+        return self.office.ctx
+
+    def config_access(self, node):
+        provider = self.service("com.sun.star.configuration.ConfigurationProvider")
+        return provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess",
+                                                    (scenario.prop("nodepath", node),))
+
+    def window_states(self):
+        return self.ctx().getValueByName("/singletons/com.sun.star.ui.theWindowStateConfiguration")
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])

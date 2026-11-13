@@ -15,6 +15,8 @@ HXX = "include/sfx2/notebookbar/SfxNotebookBar.hxx"
 CXX = "sfx2/source/notebookbar/SfxNotebookBar.cxx"
 APPSERV = "sfx2/source/appl/appserv.cxx"
 WORKWIN = "sfx2/source/appl/workwin.cxx"
+PICKER = "cui/source/dialogs/uipickerdlg.cxx"
+LAYOUT = "framework/source/layoutmanager/layoutmanager.cxx"
 
 
 def changes():
@@ -46,7 +48,7 @@ class UiModePerTab(unittest.TestCase):
             self.assertGreater(series.index(PATCH.name), series.index(earlier))
 
     def test_files(self):
-        self.assertEqual(set(changes()), {HXX, CXX, APPSERV, WORKWIN})
+        self.assertEqual(set(changes()), {HXX, CXX, APPSERV, WORKWIN, PICKER, LAYOUT})
         self.assertIn("License: modified upstream files keep their license (MPL-2.0).",
                       PATCH.read_text(encoding="utf-8").split("\n---\n")[0])
 
@@ -63,17 +65,50 @@ class UiModePerTab(unittest.TestCase):
         self.assertIn("SfxNotebookBar::ShowMenubarForModuleOf(xFrame, bHasMenubar);", cxx)
         self.assertIn("SfxNotebookBar::ShowMenubarForModuleOf(xFrame, true);", cxx)
         self.assertIn("void SfxNotebookBar::ShowMenubar(bool bShow) { ShowMenubarForModuleOf({}, bShow); }", cxx)
+        # closing a ribbon shows the frame's own menubar too (a parked tab of the module)
+        self.assertRegex(cxx, r"ShowMenubarForModuleOf\(xFrame, true\);\s*(//[^\n]*\n\s*)+if \(const Reference<frame::"
+                              r"XLayoutManager> xLayoutManager = lcl_getLayoutManager\(xFrame\);[^}]*showElement\(MENUBAR_STR\);")
 
-    def test_toolbars_of_the_mode_come_back(self):
+    def test_toolbars_of_the_mode_come_back_when_a_ribbon_closes(self):
         cxx = added(CXX)
         body = cxx[cxx.index("static void lcl_showModeToolbars"):]
         self.assertLess(body.index("createElement(rToolbar)"), body.index("showElement(rToolbar)"))
         self.assertIn('for (const char* pList : { "Toolbars", "UserToolbars" })', cxx)
-        # after the ribbon of a frame is closed: always; a frame set up the first time: only when every toolbar of
-        # the mode is stored as invisible (a toolbar hidden on purpose stays hidden)
-        self.assertIn("lcl_showModeToolbars(xFrame, false);", cxx)
-        self.assertRegex(cxx, r"lcl_firstSetup\(xFrame\)\)\s*\{[^}]*lcl_showModeToolbars\(xFrame, true\);")
-        self.assertIn('if (rProp.Name == "Visible")', cxx)
+        closing = cxx[cxx.index("SfxNotebookBar::ShowMenubarForModuleOf(xFrame, true);"):]
+        self.assertRegex(closing[:900], r"if \(xFrame\.is\(\)\)\s*lcl_showModeToolbars\(xFrame\);")
+        self.assertNotIn("lcl_firstSetup", cxx)  # no per-frame repair at set-up: it showed toolbars of other modes
+
+    def test_menubar_of_a_loading_frame_changes_nothing(self):
+        cxx = added(CXX)
+        body = cxx[cxx.index("void SfxNotebookBar::ShowMenubarForModuleOf"):]
+        self.assertLess(body.index("try"), body.index("identify( xModuleFrame )"))
+        self.assertIn("m_bLock = false;\n        return;", body)
+
+    def test_apply_to_all_stores_the_toolbars_of_the_other_applications(self):
+        picker = added(PICKER)
+        self.assertIn("void lcl_storeModeToolbars(const OUString& rApp, const OUString& rModuleId, const OUString& rMode)",
+                      picker)
+        self.assertIn("css::ui::theWindowStateConfiguration::get(xContext)->getByName(rModuleId)", picker)
+        self.assertIn('aNew.push_back(comphelper::makePropertyValue(u"Visible"_ustr, bVisible));', picker)
+        for app, module in (("Writer", "text.TextDocument"), ("Calc", "sheet.SpreadsheetDocument"),
+                            ("Impress", "presentation.PresentationDocument"), ("Draw", "drawing.DrawingDocument")):
+            self.assertIn('std::pair{ "%s", "com.sun.star.%s" }' % (app, module), picker)
+        self.assertIn("if (sCurrentApp != OUString::createFromAscii(pApp))", picker)
+
+    def test_shown_again_frame_updates_its_object_bars(self):
+        """Asynchronously, and only for the current view frame: updating an inactive dispatcher crashed."""
+        workwin = added(WORKWIN)
+        self.assertIn("const bool bWasInvisible = !m_pWrkWin->IsVisible_Impl();", workwin)
+        self.assertIn("Application::PostUserEvent( LINK( nullptr, ObjectBarUpdater, UpdateHdl ),", workwin)
+        self.assertIn("pViewFrame->GetFrame().GetFrameInterface() == xFrame", workwin)
+        self.assertIn("pViewFrame->GetDispatcher()->Update_Impl( true );", workwin)
+        self.assertNotIn("pDispatcher->Update_Impl( true );", workwin)
+
+    def test_visible_is_sent_after_the_toolbars_are_unhidden(self):
+        removed, layout = "\n".join(changes()[LAYOUT][0]), added(LAYOUT)
+        self.assertIn("implts_notifyListeners( frame::LayoutManagerEvents::VISIBLE, a );", removed)
+        self.assertIn("    if ( !bSetVisible )", layout)  # INVISIBLE (unchanged line) still goes out first
+        self.assertIn("    if ( bSetVisible )\n        implts_notifyListeners( frame::LayoutManagerEvents::VISIBLE, a );", layout)
 
     def test_same_mode_again_applies(self):
         removed = "\n".join(changes()[APPSERV][0])
