@@ -1,0 +1,231 @@
+HST PDF: the visible signature box in the style of administrative documents - signer, organisation,
+signing time with UTC offset and reason in black serif text on white, the font shrinking until the
+wrapped lines fit the box.
+
+The box used to size its font for two or three lines (6 to 11 pt) from the box height alone; a long
+signer name or reason wraps to more lines and then ran past the box. Its fields now follow the
+signed administrative documents (Nghị định 30/2020) and the CA signing tools:
+
+    Ký bởi: <common name>
+    Cơ quan: <organisation, when the certificate has one that differs from the common name>
+    Thời gian ký: dd/mm/yyyy hh:mm:ss +07:00
+    Lý do: <reason, when given>
+
+- pdfviewersigning createAppearance: the fields above in black on white inside a 0.5 pt dark grey
+  frame; the largest font from 10 down to 5 pt at which the wrapped text fits, fixed 6/3 pt
+  padding. No "valid" tick is drawn: only a PDF reader's check can say that.
+- serifFamily: Liberation Serif (bundled on every platform, Times New Roman metrics, full Vietnamese,
+  embeddable), else Noto Serif, Times New Roman, DejaVu Serif - the first that is installed and has
+  every glyph of the text, so the PDF writer embeds it rather than a silent substitute.
+- describeCertificate: CertificateDescription::aOrganisation from the subject's O.
+- strings.hrc / vi messages.po: "Signed by", "Organization", "Signing time" (Ký bởi, Cơ quan, Thời gian
+  ký).
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/xmlsecurity/inc/strings.hrc
++++ b/xmlsecurity/inc/strings.hrc
+@@ -108,8 +108,9 @@
+ #define STR_HSTPDF_CERT_EXPIRED                     NC_("STR_HSTPDF_CERT_EXPIRED", "expired %1")
+ #define STR_HSTPDF_CHOOSE_CERT                      NC_("STR_HSTPDF_CHOOSE_CERT", "~Choose Certificate…")
+ #define STR_HSTPDF_CHOOSE_OTHER_CERT                NC_("STR_HSTPDF_CHOOSE_OTHER_CERT", "~Choose Another Certificate…")
+-#define STR_HSTPDF_SIGNED_BY                        NC_("STR_HSTPDF_SIGNED_BY", "Digitally signed by: %1")
+-#define STR_HSTPDF_SIGNED_ON                        NC_("STR_HSTPDF_SIGNED_ON", "Date: %1")
++#define STR_HSTPDF_SIGNED_BY                        NC_("STR_HSTPDF_SIGNED_BY", "Signed by: %1")
++#define STR_HSTPDF_SIGNER_ORG                       NC_("STR_HSTPDF_SIGNER_ORG", "Organization: %1")
++#define STR_HSTPDF_SIGNED_ON                        NC_("STR_HSTPDF_SIGNED_ON", "Signing time: %1")
+ #define STR_HSTPDF_REASON                           NC_("STR_HSTPDF_REASON", "Reason: %1")
+ #define STR_HSTPDF_SIGN_FAILED                      NC_("STR_HSTPDF_SIGN_FAILED", "The PDF could not be signed. Check that the USB token is plugged in and the PIN is correct, then try again.")
+ #define STR_HSTPDF_SIGN_UNSUPPORTED                 NC_("STR_HSTPDF_SIGN_UNSUPPORTED", "HST PDF cannot add a signature to this file: its internal structure or its kind of encryption cannot be updated. The file is unchanged.")
+--- a/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
+@@ -29,6 +29,7 @@
+ struct CertificateDescription
+ {
+     OUString aSubject; ///< the signer's common name
++    OUString aOrganisation; ///< the signer's organisation (O) when it differs from the common name
+     OUString aIssuer; ///< the certificate authority's common name
+     OUString aValidity; ///< "expires dd/mm/yyyy" or "expired dd/mm/yyyy"
+     bool bExpired = false;
+--- a/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
+@@ -29,14 +29,18 @@
+ #include <rtl/ustrbuf.hxx>
+ #include <sal/log.hxx>
+ #include <svl/cryptosign.hxx>
++#include <tools/color.hxx>
+ #include <tools/datetime.hxx>
+ #include <tools/mapunit.hxx>
++#include <tools/poly.hxx>
++#include <tools/time.hxx>
+ #include <vcl/mapmod.hxx>
+ #include <tools/stream.hxx>
+ #include <tools/urlobj.hxx>
+ #include <unotools/tempfile.hxx>
+ #include <vcl/filter/pdfdocument.hxx>
+ #include <vcl/gdimtf.hxx>
++#include <vcl/lineinfo.hxx>
+ #include <vcl/pdfwriter.hxx>
+ #include <vcl/virdev.hxx>
+ 
+@@ -58,6 +62,53 @@
+     return aDate;
+ }
+ 
++/// "dd/mm/yyyy hh:mm:ss +07:00": the signing time with seconds and its UTC offset, as signed
++/// administrative documents and the CA signing tools show it
++OUString formatSigningTime(const DateTime& rNow)
++{
++    const util::DateTime aNow = rNow.GetUNODateTime();
++    const tools::Time aOffset = tools::Time::GetUTCOffset();
++    // an OUString, not the concatenation of the lambda's temporaries it would deduce
++    const auto twoDigits = [](sal_Int32 n) -> OUString {
++        return (n < 10 ? u"0"_ustr : OUString()) + OUString::number(n);
++    };
++    return formatDate(aNow, true) + ":" + twoDigits(aNow.Seconds) + " "
++           + (aOffset.GetTime() < 0 ? u"-" : u"+") + twoDigits(aOffset.GetHour()) + ":"
++           + twoDigits(aOffset.GetMin());
++}
++
++/// The organisation (O) of a distinguished name when it is not already the common name.
++OUString organisation(const OUString& rDistinguishedName, const OUString& rCommonName)
++{
++    for (const auto& [rType, rValue] : comphelper::xmlsec::parseDN(rDistinguishedName))
++    {
++        if (rType == "O")
++        {
++            const OUString aValue = rValue.trim();
++            return aValue.equalsIgnoreAsciiCase(rCommonName) ? OUString() : aValue;
++        }
++    }
++    return OUString();
++}
++
++/// The serif family of the signature box. Liberation Serif comes with the suite on every platform,
++/// has the metrics of Times New Roman (the font of administrative documents), covers Vietnamese and
++/// allows embedding. A family is taken only when it is installed and has every glyph of the text:
++/// the PDF writer then embeds it instead of silently substituting another font.
++OUString serifFamily(const OutputDevice& rDevice, const OUString& rText)
++{
++    const OUString aText = rText.replaceAll("\n", " ");
++    for (const OUString& rFamily : { u"Liberation Serif"_ustr, u"Noto Serif"_ustr,
++                                     u"Times New Roman"_ustr, u"DejaVu Serif"_ustr })
++    {
++        if (rDevice.IsFontAvailable(rFamily)
++            && rDevice.HasGlyphs(vcl::Font(rFamily, Size(0, 200)), aText) == -1)
++            return rFamily;
++    }
++    SAL_WARN("xmlsecurity.hstpdf", "no serif font has every glyph of the signature text");
++    return u"Liberation Serif"_ustr;
++}
++
+ OUString commonName(const OUString& rDistinguishedName)
+ {
+     OUString aName = comphelper::xmlsec::GetContentPart(rDistinguishedName,
+@@ -116,36 +167,53 @@
+             static_cast<tools::Long>(rPlacement.aRect.getMaxX() * 20),
+             static_cast<tools::Long>(rPlacement.aRect.getMaxY() * 20));
+ 
++        // Ký bởi / Cơ quan / Thời gian ký / Lý do: the fields of signed administrative documents and
++        // the CA signing tools; no "valid" mark: only a PDF reader's check can say that
+         OUStringBuffer aText(XsResId(STR_HSTPDF_SIGNED_BY).replaceFirst("%1", rSigner.aSubject));
++        if (!rSigner.aOrganisation.isEmpty())
++            aText.append("\n" + XsResId(STR_HSTPDF_SIGNER_ORG).replaceFirst("%1", rSigner.aOrganisation));
+         aText.append("\n"
+                      + XsResId(STR_HSTPDF_SIGNED_ON)
+-                           .replaceFirst("%1", formatDate(DateTime(DateTime::SYSTEM).GetUNODateTime(), true)));
++                           .replaceFirst("%1", formatSigningTime(DateTime(DateTime::SYSTEM))));
+         if (!rReason.isEmpty())
+             aText.append("\n" + XsResId(STR_HSTPDF_REASON).replaceFirst("%1", rReason));
+-        const sal_Int32 nLines = rReason.isEmpty() ? 2 : 3;
+-        // font height: the lines fill the box, 6 to 11 points
+-        const double fFontPt = std::clamp(rPlacement.aRect.getHeight() / (nLines * 1.45 + 0.6), 6.0, 11.0);
++        const OUString aLines = aText.makeStringAndClear();
+ 
+         ScopedVclPtrInstance<VirtualDevice> pDevice;
+         pDevice->SetMapMode(aTwips);
+         GDIMetaFile aMetaFile;
+         aMetaFile.Record(pDevice.get());
+-        const Color aGreen(0x0E, 0x7A, 0x36);
+-        pDevice->SetLineColor(aGreen);
+-        pDevice->SetFillColor(Color(0xF1, 0xF8, 0xF3));
++        // the style of administrative documents: black serif text on white, a thin dark grey frame
++        // (0.5 pt: a hairline almost vanishes in print)
++        pDevice->SetLineColor();
++        pDevice->SetFillColor(COL_WHITE);
+         pDevice->DrawRect(aBox);
+-        vcl::Font aFont(u"Liberation Sans"_ustr, Size(0, static_cast<tools::Long>(fFontPt * 20)));
+-        pDevice->SetFont(aFont);
+-        pDevice->SetTextColor(Color(0x0B, 0x5D, 0x29));
++        tools::Rectangle aFrame(aBox);
++        aFrame.shrink(5);
++        pDevice->SetLineColor(Color(0x40, 0x40, 0x40));
++        pDevice->DrawPolyLine(tools::Polygon(aFrame), LineInfo(LineStyle::Solid, 10));
++        pDevice->SetTextColor(COL_BLACK);
++        const OUString aFamily = serifFamily(*pDevice, aLines);
++        // padding 6 pt left and right, 3 pt top and bottom (twips)
+         tools::Rectangle aTextBox(aBox);
+-        const tools::Long nPadding = static_cast<tools::Long>(fFontPt * 8);
+-        aTextBox.AdjustLeft(nPadding);
+-        aTextBox.AdjustRight(-nPadding);
+-        aTextBox.AdjustTop(nPadding / 2);
+-        aTextBox.AdjustBottom(-nPadding / 2);
+-        pDevice->DrawText(aTextBox, aText.makeStringAndClear(),
+-                          DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::MultiLine
+-                              | DrawTextFlags::WordBreak);
++        aTextBox.AdjustLeft(120);
++        aTextBox.AdjustRight(-120);
++        aTextBox.AdjustTop(60);
++        aTextBox.AdjustBottom(-60);
++        // the largest font, 10 down to 5 points, at which the lines as wrapped fit the box: long
++        // names and a reason wrap to more lines than the fields, which overflowed a fixed size
++        const DrawTextFlags nFlags = DrawTextFlags::Left | DrawTextFlags::VCenter
++                                     | DrawTextFlags::MultiLine | DrawTextFlags::WordBreak;
++        for (double fFontPt = 10.0;; fFontPt -= 0.5)
++        {
++            pDevice->SetFont(vcl::Font(aFamily, Size(0, static_cast<tools::Long>(fFontPt * 20))));
++            const tools::Rectangle aNeeded = pDevice->GetTextRect(aTextBox, aLines, nFlags);
++            if (fFontPt <= 5.0
++                || (aNeeded.GetHeight() <= aTextBox.GetHeight()
++                    && aNeeded.GetWidth() <= aTextBox.GetWidth()))
++                break;
++        }
++        pDevice->DrawText(aTextBox, aLines, nFlags);
+         aMetaFile.Stop();
+         aMetaFile.WindStart();
+         aMetaFile.SetPrefMapMode(aTwips);
+@@ -169,6 +237,7 @@
+     if (!xCertificate.is())
+         return aDescription;
+     aDescription.aSubject = commonName(xCertificate->getSubjectName());
++    aDescription.aOrganisation = organisation(xCertificate->getSubjectName(), aDescription.aSubject);
+     aDescription.aIssuer = commonName(xCertificate->getIssuerName());
+     const util::DateTime aNotAfter = xCertificate->getNotValidAfter();
+     aDescription.bExpired = DateTime(aNotAfter) < DateTime(DateTime::SYSTEM);
+--- a/translations/source/vi/xmlsecurity/messages.po
++++ b/translations/source/vi/xmlsecurity/messages.po
+@@ -239,14 +239,20 @@
+ #. hstPDF
+ #: xmlsecurity/inc/strings.hrc
+ msgctxt "STR_HSTPDF_SIGNED_BY"
+-msgid "Digitally signed by: %1"
+-msgstr "Ký số bởi: %1"
++msgid "Signed by: %1"
++msgstr "Ký bởi: %1"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGNER_ORG"
++msgid "Organization: %1"
++msgstr "Cơ quan: %1"
+ 
+ #. hstPDF
+ #: xmlsecurity/inc/strings.hrc
+ msgctxt "STR_HSTPDF_SIGNED_ON"
+-msgid "Date: %1"
+-msgstr "Ngày ký: %1"
++msgid "Signing time: %1"
++msgstr "Thời gian ký: %1"
+ 
+ #. hstPDF
+ #: xmlsecurity/inc/strings.hrc
