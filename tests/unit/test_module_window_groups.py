@@ -62,6 +62,8 @@ class ModuleWindowGroups(unittest.TestCase):
         self.assertEqual(loadenv.count("lcl_mayRecycleForDocumentTabs("), 3)
         # SfxFrame::Appear() can show the frame before LoadEnv: the model keeps the Referer
         self.assertIn("lcl_openedFromOutside(xFrame)", text("framework/source/services/documenttabgroup.cxx"))
+        # a frame shown for the progress bar before its document is loaded is routed by prepareShow()
+        self.assertIn("!find(xFrame) && !xFrame->getController().is()", text("framework/source/services/documenttabgroup.cxx"))
 
     def test_routing_rules(self):
         group = text("framework/source/services/documenttabgroup.cxx")
