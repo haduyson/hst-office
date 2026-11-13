@@ -11,6 +11,8 @@ platform recorded, read at that next start (crash_signature.py parses it):
   * macOS: the system crash report (~/Library/Logs/DiagnosticReports/soffice*.ips) newer than the marker.
   * Windows: the "Application Error" event (1000) for soffice.bin in the Application log newer than the marker
     (faulting module, exception code, offset). faulthandler stays off there: it would log every C++ exception.
+    A crash the office's own handler ends with exit(255) (before the main loop, at shutdown, a second fault) leaves
+    no event: the handler notes the first fault in a file start() names (windows_fault_note).
     Without one, an "Application Hang" event (1002) or a WER AppHangB1 report (1001) for soffice.bin means the office
     had stopped answering and was closed by the user or Windows ("not responding"): the session ended as a hang.
 While the session runs, session_heartbeat stores in the marker the last time the office answered and the apps of its
@@ -24,7 +26,7 @@ import stat
 import sys
 import time
 
-from . import crash_signature, diag_log, session_facts
+from . import crash_signature, diag_log, windows_fault_note, session_facts
 
 MARKER = "session.json"
 STDERR_NAME = "last-session.err"
@@ -67,7 +69,7 @@ def _beat_fields(marker):
     return {name: marker[name] for name in ("beat", "apps", "active", "modified", "loading") if name in marker}
 
 
-def previous_session(system=None, marker=None, stderr_text=None, now=None):
+def previous_session(system=None, marker=None, stderr_text=None, now=None, note_text=None):
     """{"ended": "crash"|"hang"|"not closed", "started", "signature", "hang", "version", and the last heartbeat's
     "beat", "apps", "active", "modified", "loading" when recorded} of an unclosed previous session, else None."""
     system = system or platform.system()
@@ -81,7 +83,9 @@ def previous_session(system=None, marker=None, stderr_text=None, now=None):
     elif system == "Darwin":
         signature = crash_signature.from_mac_reports(os.path.expanduser("~/Library/Logs/DiagnosticReports"), started)
     elif system == "Windows":
-        signature = crash_signature.from_windows_events(started)
+        note = windows_fault_note.read(_path(windows_fault_note.NAME), started) if note_text is None else note_text
+        signature = windows_fault_note.combined(crash_signature.from_windows_events(started),
+                                                windows_fault_note.signature(note))
     else:
         signature = ""
     hang = crash_signature.windows_hang(started) if system == "Windows" and not signature else None
@@ -143,6 +147,8 @@ def start(ctx, environment):
             locale, platform.python_version()))
         if sys.platform != "win32":
             _capture_stderr()
+        else:
+            windows_fault_note.arm(_path(windows_fault_note.NAME))
     except Exception:  # noqa: BLE001
         diag_log.exception("diag_crash", print_too=False)
     return STATE["previous"]

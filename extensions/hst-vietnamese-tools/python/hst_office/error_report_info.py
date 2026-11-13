@@ -105,11 +105,51 @@ def system_info(ctx, frame, payload):
     except Exception:  # noqa: BLE001 - macOS keeps versionrc elsewhere: the line is left out
         pass
     try:
-        skia = _config(ctx, "/org.openoffice.Office.Common/VCL", ("UseSkia", "ForceSkia", "ForceSkiaRaster"))
+        skia = _config(ctx, "/org.openoffice.Office.Common/VCL", ("UseSkia", "ForceSkia", "ForceSkiaGPU"))
         fields["Skia"] = ", ".join("%s=%s" % (k, str(v).lower()) for k, v in sorted(skia.items()))
     except Exception:  # noqa: BLE001
         pass
+    try:
+        fields["Skia"] = fields.get("Skia", "") + skia_in_use(_read_skia_log(ctx))
+    except Exception:  # noqa: BLE001 - the settings line stays without it
+        pass
     return scrub(system_info_text(fields), office_secrets(ctx))
+
+
+SKIA_KEYS = ("RenderMethod", "DeviceName", "Driver", "Denylisted")
+
+
+def skia_in_use(text):
+    """"; in use: vulkan (device, driver x, denylisted no)" from the office's skia.log (pure); "" without one.
+
+    The office rewrites that log whenever Skia starts, so it shows what really draws: after a crash in the graphics
+    driver the office falls back to raster by itself (ForceSkiaGPU=false), which the settings alone cannot show."""
+    values = {}
+    for line in (text or "").splitlines():
+        key, _sep, value = line.partition(":")
+        if key.strip() in SKIA_KEYS and value.strip():
+            values[key.strip()] = value.strip()
+    method = values.get("RenderMethod")
+    if not method:
+        return ""
+    details = [values[k] for k in ("DeviceName",) if k in values]
+    details += ["driver %s" % values["Driver"]] if "Driver" in values else []
+    details += ["denylisted %s" % values["Denylisted"]] if "Denylisted" in values else []
+    return "; in use: %s%s" % (method, " (%s)" % ", ".join(details) if details else "")
+
+
+def _read_skia_log(ctx):
+    """<UserInstallation>/cache/skia.log, written by the office's Skia start-up; "" when missing."""
+    import os
+    import uno
+    subst = ctx.ServiceManager.createInstanceWithContext("com.sun.star.util.PathSubstitution", ctx)
+    user = uno.fileUrlToSystemPath(subst.substituteVariables("$(user)", True))
+    try:
+        with open(os.path.join(os.path.dirname(user.rstrip("\\/")), "cache", "skia.log"), encoding="utf-8",
+                  errors="replace") as handle:
+            return handle.read(4096)
+    except OSError:
+        return ""
 
 
 def office_secrets(ctx):
