@@ -55,6 +55,11 @@ def collect(ext_root, test_mode=False):
     files["data/banners.json"] = open(os.path.join(ROOT, "data", "hst", "banners.json"), "rb").read()
     files["data/pkcs11-modules.json"] = open(os.path.join(ROOT, "data", "hst", "pkcs11-modules.json"), "rb").read()
     files["data/release.json"] = release_json(test_mode)  # update check: installed release id
+    styles = os.path.join(ROOT, "data", "citation", "styles")  # citation styles, read by citation_style.py
+    for name in sorted(os.listdir(styles)) if os.path.isfile(os.path.join(ext_root, "python", "hst_office",
+                                                                         "citation_engine.py")) else []:
+        if name.endswith(".json"):
+            files["data/citation-styles/" + name] = open(os.path.join(styles, name), "rb").read()
     files["description.xml"] = stamped_description(files)
     for name, src in BRAND_IMAGES.items():
         files[name] = open(os.path.join(ROOT, *src.split("/")), "rb").read()

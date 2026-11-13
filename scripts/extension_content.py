@@ -14,12 +14,20 @@ REQUIRED = ("description.xml", "META-INF/manifest.xml", "license/LICENSE.txt", "
 SHARED_DATA = ("nd30.json", "number-formats.json", "encoding-maps.json", "provenance.json")
 GUIDE_SUPPORT_GROUP = "https://www.facebook.com/share/g/1TvVaU6q4V/"  # the one link outside hasontech.vn in the guide
 HOST_ALLOW = ("openoffice.org", "libreoffice.org", "w3.org", "hasontech.vn", "sun.com")
+# Hosts allowed only in some files: the reference lookup (only after the user clicks "Tra cứu"; docs/PRIVACY.md),
+# the CSL XML namespace, and DOI links that citation styles print (https://doi.org/…), never fetched.
+CITATION_HOSTS = (("python/hst_office/citation_lookup", ("doi.org", "crossref.org", "datacite.org", "nih.gov",
+                                                         "arxiv.org", "openlibrary.org")),
+                  ("python/hst_office/citation_csl_parse.py", ("purl.org",)),
+                  ("python/hst_office/citation_", ("doi.org",)))
+CITATION_STYLES = ("data/citation/styles", "data/citation-styles/")  # source folder, packaged folder
 NETWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess|ctypes)\b", re.M)
 # HTTPS is confined to transport helpers; only the deadline supervisor may spawn its private helper.
 BANNER_FETCH = "python/hst_office/banner_http.py"  # isolated, bounded HTTPS helper
 BANNER_DEADLINE = "python/hst_office/banner_fetch.py"  # fixed Python helper; no shell or network imports
 UPDATE_FETCH = "python/hst_office/update_fetch.py"
 ERROR_REPORT_HTTP = "python/hst_office/error_report_http.py"  # one POST of an error report, after the user's click
+CITATION_LOOKUP_HTTP = "python/hst_office/citation_lookup_http.py"  # one GET of a reference lookup, after the click
 UPDATE_DOWNLOAD = "python/hst_office/update_download.py"  # installer download after the user's click
 UPDATE_LAUNCH = "python/hst_office/update_launch.py"  # starts the external update helper
 USB_TOKEN_WORKER = "python/hst_office/usb_token_worker.py"
@@ -100,7 +108,8 @@ def check_content(zf, names, errors):
         if name.endswith((".xml", ".xcu", ".py")):
             text = data.decode("utf-8", "replace")
             for host in re.findall(r"https?://([^/\s\"'<>)]+)", text):
-                if not host.endswith(HOST_ALLOW):
+                if not host.endswith(HOST_ALLOW) and not any(name.startswith(prefix) and host.endswith(hosts)
+                                                             for prefix, hosts in CITATION_HOSTS):
                     errors.append("remote resource in %s: %s" % (name, host))
         if name.endswith(".html"):  # bundled user guide: no remote resource, no upstream/GitHub naming
             text = data.decode("utf-8")
@@ -130,7 +139,7 @@ def check_content(zf, names, errors):
                 errors.append("%s: not an ASCII Windows .reg file" % name)
         if name.endswith(".py"):
             text = data.decode("utf-8")
-            if (LOCAL_TOOL_IMPORT if name in DEFAULT_APPS else USB_WORKER_IMPORT if name in (USB_TOKEN_WORKER, UPDATE_ELEVATE) else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD, BANNER_FETCH, ERROR_REPORT_HTTP) else UPDATE_LAUNCH_IMPORT
+            if (LOCAL_TOOL_IMPORT if name in DEFAULT_APPS else USB_WORKER_IMPORT if name in (USB_TOKEN_WORKER, UPDATE_ELEVATE) else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD, BANNER_FETCH, ERROR_REPORT_HTTP, CITATION_LOOKUP_HTTP) else UPDATE_LAUNCH_IMPORT
                     if name in (UPDATE_LAUNCH, USB_TOKEN_NSS, BANNER_DEADLINE, CRASH_SIGNATURE) else NETWORK_IMPORT).search(text):
                 errors.append("network/process module imported in %s" % name)
             if text.count("\n") + 1 > MAX_LINES:
@@ -154,3 +163,17 @@ def check_content(zf, names, errors):
     src = os.path.join(ROOT, "data", "hst", "pkcs11-modules.json")
     if "data/pkcs11-modules.json" in names and zf.read("data/pkcs11-modules.json") != open(src, "rb").read():
         errors.append("data/pkcs11-modules.json is stale compared with data/hst/pkcs11-modules.json")
+
+
+def check_citation_styles(zf, names, errors):
+    """The packaged citation styles equal data/citation/styles (no stale, missing or extra style)."""
+    if "python/hst_office/citation_engine.py" not in names:
+        return
+    source = os.path.join(ROOT, *CITATION_STYLES[0].split("/"))
+    wanted = sorted(n for n in os.listdir(source) if n.endswith(".json")) if os.path.isdir(source) else []
+    packaged = sorted(n[len(CITATION_STYLES[1]):] for n in names if n.startswith(CITATION_STYLES[1]))
+    if packaged != wanted:
+        errors.append("citation styles differ from %s: %s" % (CITATION_STYLES[0], sorted(set(packaged) ^ set(wanted))))
+    for name in set(packaged) & set(wanted):
+        if zf.read(CITATION_STYLES[1] + name) != open(os.path.join(source, name), "rb").read():
+            errors.append("%s%s is stale compared with %s/%s" % (CITATION_STYLES[1], name, CITATION_STYLES[0], name))
