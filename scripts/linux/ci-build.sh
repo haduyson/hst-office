@@ -217,10 +217,11 @@ do_rpm_appimage() { # HSTOffice_<release>_Linux_x86-64.rpm + .AppImage from the 
   local out="$WORK/installer" deb
   deb="$(find "$out" -maxdepth 1 -name 'HSTOffice_*_Linux_x86-64.deb' -print -quit)"
   [ -n "$deb" ] || { echo "rpm-appimage: no single .deb in $out (run --package first)"; return 1; }
-  # rpmbuild only here (not in --deps): the .deb build environment stays unchanged.
-  if ! command -v rpmbuild >/dev/null; then
+  # rpmbuild, and file for appimagetool, only here (not in --deps): the .deb build environment stays unchanged.
+  if ! command -v rpmbuild >/dev/null || ! command -v file >/dev/null; then
     $SUDO apt-get update -qq || return 1
-    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends rpm || return 1
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends rpm file > "$LOGS/rpm-appimage-tools.log" 2>&1 \
+      || { tail -20 "$LOGS/rpm-appimage-tools.log"; return 1; }
   fi
   TMPDIR="$WORK" python3 -I "$REPO/scripts/linux/make-rpm.py" "$deb" "$out" || return 1
   # appimagetool and the type-2 runtime: pinned versions, SHA-256 checked (scripts/linux/make-appimage.py).

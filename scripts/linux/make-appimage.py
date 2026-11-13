@@ -10,7 +10,8 @@ and is packed by appimagetool with the static type-2 runtime (squashfs + FUSE 3 
 FUSE at all the AppImage still runs with --appimage-extract-and-run). Both tools are pinned by SHA-256 here.
 
   make-appimage.py <HSTOffice_<release>_Linux_x86-64.deb> <out-dir> --tools <dir>
-<dir> holds (or receives, when --download is given) appimagetool-x86_64.AppImage and runtime-x86_64.
+<dir> holds (or receives, when --download is given) appimagetool-x86_64.AppImage and runtime-x86_64. Needs dpkg-deb and
+`file` (appimagetool calls it).
 Writes <out-dir>/HSTOffice_<release>_Linux_x86-64.AppImage and adds its line to <out-dir>/SHA256SUMS.
 Unsigned, no update information: signing/zsync are release steps (docs/LINUX_PACKAGES.md).
 """
@@ -41,7 +42,11 @@ TOOLS = {
 }
 MAIN_ID = "vn.hasontech.hstoffice-startcenter"
 DEBIAN_ONLY = make_rpm.DEBIAN_ONLY
-die, run = make_rpm.die, make_rpm.run
+run = make_rpm.run
+
+
+def die(msg):
+    sys.exit("make-appimage: %s" % msg)
 
 
 def fetch_tools(tools, download):
@@ -114,6 +119,8 @@ def main():
     args = ap.parse_args()
     if not args.deb.is_file():
         die("no such file: %s" % args.deb)
+    if not shutil.which("file"):
+        die("the `file` command is missing (appimagetool needs it): apt-get install file")
     tools = fetch_tools(args.tools.resolve(), args.download)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="hst-appimage-") as tmp:

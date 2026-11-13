@@ -105,7 +105,7 @@ rpm_appimage() {
   local dist="$ROOT/dist/linux" deb
   deb="$(find "$dist" -maxdepth 1 -name 'HSTOffice_*_Linux_x86-64.deb' -print -quit)"
   [ -n "$deb" ] || { echo "rpm-appimage: no .deb in $dist (run --package first)"; exit 1; }
-  command -v rpmbuild >/dev/null || { echo "rpm-appimage: rpmbuild missing (apt-get install rpm)"; exit 2; }
+  command -v rpmbuild >/dev/null && command -v file >/dev/null || { echo "rpm-appimage: rpmbuild/file missing (apt-get install rpm file)"; exit 2; }
   rm -f "$dist"/*.rpm "$dist"/*.AppImage
   TMPDIR="$ROOT/build" python3 -I "$ROOT/scripts/linux/make-rpm.py" "$deb" "$dist"
   TMPDIR="$ROOT/build" python3 -I "$ROOT/scripts/linux/make-appimage.py" "$deb" "$dist" --tools "$ROOT/build/appimage-tools" --download
