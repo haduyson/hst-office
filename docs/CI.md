@@ -232,6 +232,14 @@ Số slot (đo 13/11/2026, giữ ổ còn trống ≥ 15 GB và RAM không quá 
 | HST4 (28 luồng, 32 GB) | 1: `D:\hst-build` | Mỗi cây ~40 GB (`lo` 33 + `stage` 3,5 + `pristine` 3,5); D: chỉ còn ~37 GB trống, C: dao động 10–56 GB vì việc khác nên không đặt cây thứ hai ở C:; các ứng dụng sẵn có trên máy đã chiếm ~15 GB RAM. |
 | HST5 (Xeon E5-2680 v4, 28 luồng, 32 GB) | 2: `D:\hst-build`, `D:\hst-build-s2` | D: 130 GB: hai cây (~80 GB) vẫn để ~37 GB trống, cây thứ ba thì không. Một build `-j28` lên đỉnh ~21 GB commit (gồm ~8 GB nền); build thứ hai trên cùng máy chạy `-j14`. |
 
+Bản dịch tiếng Việt trong build tăng dần: `make` của LibreOffice không dựng lại `.mo`, `registry_vi.xcd` hay
+`XcuResTarget/*/vi` khi `.po` đổi ([SHARED_BUILD_SLOTS.md](SHARED_BUILD_SLOTS.md#incremental-build-gaps)), nên trước
+13/11/2026 MSI build tăng dần trên HST4/HST5 mang catalogue của lần build đủ đầu tiên của slot (nhãn ribbon, gợi ý tìm
+kiếm còn tiếng Anh). Nay `hst4-tree.sh` xoá các tệp đó cho mọi ngôn ngữ có `.po` mới hơn `.mo` cũ nhất của nó, và
+`hst4-build.ps1` chạy [check-mo-fresh.py](../scripts/l10n/check-mo-fresh.py) sau make: dịch lại từng `.po` như gbuild
+(`msguniq | msgfmt`) và so từng mục với `.mo` trong `instdir`; lệch là job hỏng, không ra MSI. Build Linux cục bộ kiểm
+cùng cách trước khi đóng gói.
+
 Khi máy có hai slot, lưu ý: `trial-build.sh --build` (script của CI, giữ nguyên) khi chạm hạn 3 ngày
 (`HST_BUILD_DEADLINE`) chạy `taskkill /IM make.exe|cl.exe|link.exe` cho **cả máy**, nên sẽ dừng luôn build của slot
 kia; chỉ xảy ra khi một build chạy quá 3 ngày. Đổi công cụ trên một máy luôn bận: `scripts/build-queue.sh drain <máy>`.

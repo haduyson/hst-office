@@ -32,7 +32,8 @@ BUILD_SLOTS = os.path.join(HERE, "linux", "build-slots.py")
 WIN_HELPER = os.path.join(HERE, "windows", "hst-queue-remote.ps1")
 # Deployed to <host>:D:\hst-build\tools\scripts (relative to scripts/); the checkout being built may predate them.
 WIN_TOOLS = ["build-windows.ps1", "windows/hst4-build.ps1", "windows/hst4-detach.ps1", "windows/hst4-setup.ps1",
-             "windows/hst4-tree.sh", "windows/hst4-make-targets.sh", "overlay/apply-build-overlay.ps1"]
+             "windows/hst4-tree.sh", "windows/hst4-make-targets.sh", "overlay/apply-build-overlay.ps1",
+             "l10n/check-mo-fresh.py"]
 
 
 def _core():

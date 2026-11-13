@@ -390,6 +390,24 @@ invalidate_translations() { # catalogues and the translated registry have no .po
   done
 }
 
+invalidate_stale_translations() { # also catches a .po synced by a run that never got to rebuild its catalogues
+  local dir lang oldest
+  for dir in "$SRC/translations/source"/*/; do
+    lang="$(basename "$dir")"
+    oldest="$(find "$SRC/workdir/MoTarget" -maxdepth 1 -name "*$lang.mo" -printf '%T@ %p\n' 2>/dev/null | sort -n | head -1 | cut -d' ' -f2-)"
+    [ -n "$oldest" ] || continue
+    find "$dir" -name '*.po' -newer "$oldest" -print -quit | grep -q . || continue
+    log "translations of $lang are newer than its catalogues: dropping its .mo catalogues and registry_$lang.xcd"
+    rm -f "$SRC/workdir/MoTarget/"*"$lang.mo" "$SRC/workdir/XcdTarget/"*"$lang.xcd"
+    rm -rf "$SRC/workdir/XcuResTarget/"*"/$lang"
+  done
+}
+
+check_translations() { # the built catalogues must match this ref's .po (scripts/l10n/check-mo-fresh.py)
+  python3 -I "$SELF_REPO/scripts/l10n/check-mo-fresh.py" --tree "$SRC" --lang vi \
+    || die "stale translation catalogues in instdir (see above); the package would ship old Vietnamese strings"
+}
+
 # ---------------------------------------------------------------- configure
 needs_configure() {
   [ "$RECONFIGURE" -eq 1 ] && return 0
@@ -649,6 +667,7 @@ rsync -rlpc --delete "$ROOT/branding-stage/" "$WORK/branding/"; rm -rf "$ROOT/br
 timed extract ensure_pristine
 timed patch sync_patches
 invalidate_translations
+invalidate_stale_translations
 configure_if_needed
 if [ -n "$MODULES" ] && [ ! -x "$SRC/instdir/program/soffice" ]; then
   die "slot $SLOT has no complete build yet; --modules needs one full build in the slot first"
@@ -661,7 +680,7 @@ TEST_OUT="$RUN_LOGS/test-out"
 # Packaging/overlay are light: free the memory reservation and jobs for other slots now.
 "${SLOTS_PY[@]}" release --slot "$SLOT" || true; ADMITTED=0
 if [ -n "$MODULES" ]; then timed overlay do_overlay
-elif [ "$PACKAGE" -eq 1 ]; then timed package do_package; fi
+elif [ "$PACKAGE" -eq 1 ]; then timed translations check_translations; timed package do_package; fi
 if [ "${#TEST_TARGETS[@]}" -gt 0 ]; then   # after overlay/package, which recreate $DEST
   mkdir -p "$DEST"; cp -r "$TEST_OUT/." "$DEST/"
   log "tests: results in $DEST/test-results.json"

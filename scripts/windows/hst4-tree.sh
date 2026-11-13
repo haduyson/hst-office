@@ -109,6 +109,23 @@ else
     sync_lo "$STAGE/manifest.new" /dev/null   # mirrors the patch steps' deletions
   else rm -rf "$LO"; cp -a "$STAGE/lo" "$LO"; fi
 fi
+# LibreOffice's make never rebuilds a .mo, the translated registry or the XcuResTarget files when a .po changes
+# (docs/SHARED_BUILD_SLOTS.md): drop them for every language whose .po files are newer than its oldest catalogue, so
+# make regenerates them from this ref's translations. rsync above gives only rewritten files a new mtime.
+invalidate_stale_translations() {
+  local dir lang oldest
+  for dir in "$LO/translations/source"/*/; do
+    lang="$(basename "$dir")"
+    oldest="$(find "$LO/workdir/MoTarget" -maxdepth 1 -name "*$lang.mo" -printf '%T@ %p\n' 2>/dev/null | sort -n | head -1 | cut -d' ' -f2-)"
+    [ -n "$oldest" ] || continue
+    find "$dir" -name '*.po' -newer "$oldest" -print -quit | grep -q . || continue
+    log "translations of $lang changed: dropping its .mo catalogues, registry_$lang.xcd and XcuResTarget/$lang"
+    rm -f "$LO/workdir/MoTarget/"*"$lang.mo" "$LO/workdir/XcdTarget/"*"$lang.xcd"
+    rm -rf "$LO/workdir/XcuResTarget/"*"/$lang"
+  done
+}
+[ ! -d "$LO/workdir/MoTarget" ] || invalidate_stale_translations
+
 mv "$STAGE/manifest.new" "$STAGE/.hst-manifest"
 mv "$STAGE/dirs.new" "$STAGE/.hst-dirs"
 echo "$key" > "$STAGE/.hst-key"

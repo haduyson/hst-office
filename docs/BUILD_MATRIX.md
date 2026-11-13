@@ -134,8 +134,11 @@ python3 scripts/linux/build-slots.py status                       # slot đang c
 - Đồng bộ patch: mỗi lượt đưa các tệp mà series đã sửa/thêm về trạng thái tarball gốc (`pristine.git`, nằm ngoài cây để
   LibreOffice không coi là git build), áp lại như CI, rồi trả mtime cũ cho tệp không đổi nội dung, nên đổi nhánh luôn
   sạch mà `make` chỉ build lại phần đổi. Configure chỉ chạy lại khi tệp mà `Makefile.in` theo dõi, `autogen.input` hoặc
-  phiên bản HST đổi (`--reconfigure` để ép). `.po` đổi thì xoá `.mo`/`registry_<lang>.xcd` tương ứng (khoảng hở ở
-  [SHARED_BUILD_SLOTS.md](SHARED_BUILD_SLOTS.md#incremental-build-gaps)). `--fresh` giải nén lại (build lại toàn bộ).
+  phiên bản HST đổi (`--reconfigure` để ép). `.po` đổi (hoặc `.po` mới hơn `.mo` cũ nhất của ngôn ngữ đó) thì xoá
+  `.mo`/`registry_<lang>.xcd`/`XcuResTarget/*/<lang>` tương ứng (khoảng hở ở
+  [SHARED_BUILD_SLOTS.md](SHARED_BUILD_SLOTS.md#incremental-build-gaps)); trước khi đóng gói,
+  [check-mo-fresh.py](../scripts/l10n/check-mo-fresh.py) so từng mục của mọi `.mo` tiếng Việt với `.po` của ref, lệch thì
+  dừng. `--fresh` giải nén lại (build lại toàn bộ).
   Khi `do_deps` của nhánh hoặc image đổi, `chroot/` được cập nhật một lần, sau khi mọi slot khác dừng (khoá
   `locks/chroot.lock`: slot giữ khoá chia sẻ, cập nhật giữ khoá độc quyền).
 - **Bộ điều phối** ([`build-slots.py`](../scripts/linux/build-slots.py), trạng thái `locks/slots.json` dưới flock): slot

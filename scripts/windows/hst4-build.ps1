@@ -165,6 +165,13 @@ function Invoke-Build {
     finally { Remove-Item Env:\MAKEFLAGS, Env:\HST_BUILD_DEADLINE -ErrorAction SilentlyContinue }
 }
 
+function Test-Translations {
+    # The MSI must not ship catalogues of an older ref: compare every vi .mo with this ref's .po (gbuild's
+    # msguniq | msgfmt, Cygwin gettext). make does not rebuild .mo files by itself (hst4-tree.sh drops stale ones).
+    $check = ConvertTo-CygPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'l10n\check-mo-fresh.py')
+    Invoke-Cygwin "python3 -I $check --tree $(ConvertTo-CygPath $Lo) --lang vi"
+}
+
 function Get-OutDir {
     if ($OutName) { return Join-Path $Root "out\$OutName" }
     $refName = if ($Ref -match '^[0-9a-f]{7,40}$') { 'commit' } else { $Ref -replace '[^A-Za-z0-9._-]', '-' }
@@ -281,6 +288,7 @@ try {
         Invoke-Step 'collect' { Export-Overlay $buildStart }
     } else {
         Invoke-Step 'build' { Invoke-Build }
+        Invoke-Step 'translations' { Test-Translations }
         Invoke-Step 'collect' { Export-Msi $buildStart }
     }
     $script:Info.seconds['total'] = [int]((Get-Date) - $t0).TotalSeconds
