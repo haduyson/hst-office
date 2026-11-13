@@ -10,10 +10,13 @@ exact bytes of MANIFEST (detached, one line). The private key is a 32-byte seed 
 $HST_UPDATE_SIGNING_KEY_FILE, else /root/.config/hst-office/update-signing-ed25519.key; it must be mode 600
 and must never enter the repository. The key itself is never printed, only the public-key fingerprint.
 Uses the extension's pure-Python Ed25519 (RFC 8032), so no third-party package is needed. See docs/UPDATE_CHECK.md.
+latest.json / latest-2.json / latest-3.json must carry schema 1 / 2 / 3: installed 1.0.x clients read latest-2.json
+and reject any other schema or platform key, so a newer file under an older name would silence their update check.
 """
 import argparse
 import base64
 import hashlib
+import json
 import os
 import stat
 import sys
@@ -25,6 +28,7 @@ from hst_office import update_logic as logic  # noqa: E402
 
 DEFAULT_MANIFEST = os.path.join(ROOT, "website", "office.hasontech.vn", "update", "latest.json")
 DEFAULT_KEY = "/root/.config/hst-office/update-signing-ed25519.key"
+SCHEMA_OF_NAME = {"latest.json": 1, "latest-2.json": 2, "latest-3.json": logic.EXTENDED_SCHEMA}
 
 
 def fingerprint(public):
@@ -67,8 +71,12 @@ def check(manifest_path, allow_test=False):
 
 
 def sign(manifest_path, key_path, allow_test=False):
-    data = open(manifest_path, "rb").read()
+    with open(manifest_path, "rb") as handle:
+        data = handle.read()
     logic.parse_manifest(data, allow_test=allow_test)  # refuse to sign a manifest the office would reject
+    want = SCHEMA_OF_NAME.get(os.path.basename(manifest_path))
+    if want is not None and json.loads(data)["schema"] != want:
+        sys.exit("%s must carry schema %d (the clients that read it accept no other)" % (manifest_path, want))
     seed = load_seed(key_path)
     public = ed25519.secret_to_public(seed)
     if public != logic.PUBLIC_KEY:

@@ -19,6 +19,7 @@ from . import update_config
 from . import update_helper_cmd as cmd
 from . import update_installer as installer
 from . import update_launch as launch
+from . import update_linux_install as linux_install
 from . import update_ui as ui
 from .update_download import DownloadCancelled
 from .update_prepare import PrepareError, prepare
@@ -126,14 +127,16 @@ def launch_and_quit(ctx, result, info):
     system = platform.system()
     cache = installer.cache_dir(system)
     soffice, bundle = office_paths(ctx, system)
-    target = bundle
+    target, linux_kind = bundle, linux_install.linux_kind() if system == "Linux" else "deb"
+    if linux_kind == "appimage":  # the AppImage file is replaced and started again, not the program in its mount
+        soffice = os.environ["APPIMAGE"]
     if system == "Darwin":  # a bundle on the .dmg, translocated or not writable: install into /Applications instead
         from . import mac_app_location
         target = mac_app_location.update_target(bundle)
     dry = info.get("test_mode") and bool(os.environ.get(DRY_RUN_ENV))
     helper = cmd.build_helper(system, pid=os.getpid(), installer=result["path"], sha256=result["entry"]["sha256"], soffice=soffice, log=launch.log_path(cache),
                               dry_run=bool(dry), app_dest=target, app_origin=bundle if target != bundle else None,
-                              release_from=info["release"], release_to=result["release"]["version"])
+                              release_from=info["release"], release_to=result["release"]["version"], linux_kind=linux_kind)
     if not update_config.settings(ctx)["AllowInstall"]:  # the policy may have changed since the click
         return
     # Cancel in a save prompt (or an error): nothing is updated, the file stays for later.
@@ -150,7 +153,8 @@ def start(ctx, peer):
         info = ui.release_info_for(ctx)
         if not update_config.settings(ctx)["AllowInstall"]:
             return manual_download(ctx)
-        if cmd.preflight(platform.system()):
+        system = platform.system()
+        if cmd.preflight(system, linux_kind=linux_install.linux_kind() if system == "Linux" else "deb"):
             return fail(ctx, peer, "err_tools")
         outcome = _download_dialog(ctx, peer, info, ui.proxy(ctx))
         if outcome is None or outcome.get("cancelled"):

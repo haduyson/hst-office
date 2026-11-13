@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-name: Desktop Linux deb
+name: Desktop Linux deb, rpm, AppImage
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'full = build the .deb packages within the time budget; preflight = setup through fetch only (cheap)'
+        description: 'full = build the .deb (then repack it as .rpm and AppImage) within the time budget; preflight = setup through fetch only (cheap)'
         type: choice
         options: [full, preflight]
         default: full
@@ -97,6 +97,8 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/linux/ci-build.sh --package | tee -a "$GITHUB_STEP_SUMMARY"
+          # Same payload, no second build: scripts/linux/make-rpm.py and make-appimage.py (docs/LINUX_PACKAGES.md).
+          bash scripts/linux/ci-build.sh --rpm-appimage | tail -8 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Check coexistence with the distribution LibreOffice
         if: ${{ inputs.mode == 'full' && success() }}
         shell: bash
@@ -120,12 +122,62 @@ jobs:
           path: ${{ env.HST_WORK }}/artifacts/
           if-no-files-found: error
           retention-days: 7
+      # .deb, .rpm, .AppImage and SHA256SUMS; the artifact name stays (the release collector looks for it).
       - name: Upload .deb packages
         if: ${{ steps.package.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: hst-office-linux-deb-${{ github.run_id }}
           path: ${{ env.HST_WORK }}/installer/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+  sign:
+    # Optional GPG signature of the .rpm (rpmsign) and the AppImage (detached .asc). Secrets live only here, behind
+    # the "linux-signing" environment; until the owner creates the key and the secrets, the gate reports it and every
+    # later step is skipped (the job stays green) and the release ships the unsigned, SHA-256-listed packages.
+    # Procedure: docs/LINUX_PACKAGES.md.
+    needs: linux-deb
+    if: ${{ inputs.mode == 'full' }}
+    environment: linux-signing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check signing secrets
+        id: gate
+        shell: bash
+        env:
+          HST_LINUX_GPG_PRIVATE_KEY: ${{ secrets.HST_LINUX_GPG_PRIVATE_KEY }}
+        run: |
+          set -eu
+          bash scripts/linux/sign-linux-packages.sh --enabled >> "$GITHUB_OUTPUT"
+      - name: Download unsigned packages
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: hst-office-linux-deb-${{ github.run_id }}
+          path: ${{ runner.temp }}/packages
+      - name: Sign and verify
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        env:
+          HST_LINUX_GPG_PRIVATE_KEY: ${{ secrets.HST_LINUX_GPG_PRIVATE_KEY }}
+          HST_LINUX_GPG_PASSPHRASE: ${{ secrets.HST_LINUX_GPG_PASSPHRASE }}
+          HST_LINUX_GPG_FINGERPRINT: ${{ vars.HST_LINUX_GPG_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends rpm gnupg
+          (cd "$RUNNER_TEMP/packages" && sha256sum -c SHA256SUMS)
+          bash scripts/linux/sign-linux-packages.sh "$RUNNER_TEMP/packages" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload signed packages
+        if: ${{ steps.gate.outputs.enabled == 'true' && success() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hst-office-linux-deb-signed-${{ github.run_id }}
+          path: ${{ runner.temp }}/packages/
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

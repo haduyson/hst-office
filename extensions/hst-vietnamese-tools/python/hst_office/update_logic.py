@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Pure logic of the update check (no uno, no network): versions, manifest, channels, URLs, throttle.
 
-Manifests: latest-2.json (schema 2) and latest.json (legacy schema 1), with detached Ed25519 signatures.
-  {"schema": 1|2, "channels": {"stable": <release>|null, "beta": <release>|null}}
+Manifests, each with a detached Ed25519 signature: latest-3.json (schema 3, fetched first), latest-2.json (schema 2,
+fallback; what 1.0.0/1.0.1 read), latest.json (schema 1, oldest clients).
+  {"schema": 1|2|3, "channels": {"stable": <release>|null, "beta": <release>|null}}
   <release> = {"version": "1.0.0-beta.2", "date": "YYYY-MM-DD", "notes": "https://office.hasontech.vn/...",
-               "downloads": {"windows"|"macos-arm"|"macos-intel"|"linux": "https://office.hasontech.vn/tai/..."},
-               "critical": false, "installers": {platform: {url, sha256, size}}}   # optional; installers in schema 2
-Beta installs are offered the newest of beta and stable; stable installs only stable.
+               "downloads": {platform: "https://office.hasontech.vn/tai/..."},
+               "critical": false, "installers": {platform: {url, sha256, size}}}   # optional; installers in schema 2+
+platform: PLATFORMS (windows, macos-arm, macos-intel, linux = .deb); schema 3 adds linux-rpm and linux-appimage and
+skips unknown keys; schemas 1/2 reject them (as 1.0.x clients do; the signer refuses such files). Beta installs are
+offered the newest of beta and stable; stable installs only stable.
 """
 import json
 import re
@@ -14,20 +17,20 @@ import urllib.parse
 
 from .update_installer import parse_installers
 
-MANIFEST_URL = "https://office.hasontech.vn/update/latest-2.json"
-LEGACY_MANIFEST_URL = "https://office.hasontech.vn/update/latest.json"
+MANIFEST_URL = "https://office.hasontech.vn/update/latest-3.json"
+LEGACY_MANIFEST_URL = "https://office.hasontech.vn/update/latest-2.json"  # fallback on transport errors only
 SIGNATURE_SUFFIX = ".sig"
 # Ed25519 public key of the manifest signer; the private key never enters the repository (docs/UPDATE_CHECK.md).
 PUBLIC_KEY = bytes.fromhex("d0f221c93fa61b12b57815046e3bce720006fb4b0b2ce57e67bed7c250a6c1e7")
 FETCH_HOST = "office.hasontech.vn"
 LINK_HOSTS = ("hasontech.vn",)  # links in the manifest: hasontech.vn and its subdomains, https only
-CHECK_INTERVAL = 24 * 60 * 60
-TIMEOUT = 5
+CHECK_INTERVAL, TIMEOUT = 24 * 60 * 60, 5
 MAX_BYTES = 64 * 1024
-SCHEMAS = (1, 2)
+SCHEMAS, EXTENDED_SCHEMA = (1, 2), 3
 SCHEMA = SCHEMAS[0]  # compatibility for callers generating legacy manifests
 CHANNELS = ("stable", "beta")
-PLATFORMS = ("windows", "macos-arm", "macos-intel", "linux")
+PLATFORMS = ("windows", "macos-arm", "macos-intel", "linux")  # schemas 1 and 2
+ALL_PLATFORMS = PLATFORMS + ("linux-rpm", "linux-appimage")  # schema 3
 TEST_HOST = "127.0.0.1"  # local test server, accepted only by packages built with --update-test-mode
 
 _SEMVER = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
@@ -118,13 +121,17 @@ def _release(name, entry, allow_test=False, schema=2):
         raise ManifestError("channel %s: bad notes URL" % name)
     if not isinstance(downloads, dict) or not downloads:
         raise ManifestError("channel %s: no downloads" % name)
+    platforms, raw = (ALL_PLATFORMS if schema == EXTENDED_SCHEMA else PLATFORMS), entry.get("installers", {})
+    if schema == EXTENDED_SCHEMA:  # keys of later platforms are skipped, not errors
+        downloads = {k: v for k, v in downloads.items() if k in platforms}
+        raw = {k: v for k, v in raw.items() if k in platforms} if isinstance(raw, dict) else raw
     for key, url in downloads.items():
-        if key not in PLATFORMS or not is_safe_link(url):
+        if key not in platforms or not is_safe_link(url):
             raise ManifestError("channel %s: bad download %r" % (name, key))
     if not isinstance(critical, bool):
         raise ManifestError("channel %s: critical must be boolean" % name)
     try:
-        installers = parse_installers(entry.get("installers", {}), PLATFORMS, allow_test) if schema == 2 else {}
+        installers = parse_installers(raw, platforms, allow_test) if schema >= 2 else {}
     except ValueError as exc:
         raise ManifestError("channel %s: %s" % (name, exc)) from exc
     return {"channel": name, "version": version, "date": date, "notes": notes, "downloads": dict(downloads),
@@ -137,7 +144,7 @@ def parse_manifest(data, allow_test=False):
         doc = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise ManifestError("not JSON: %s" % exc)
-    if (not isinstance(doc, dict) or type(doc.get("schema")) is not int or doc["schema"] not in SCHEMAS
+    if (not isinstance(doc, dict) or type(doc.get("schema")) is not int or doc["schema"] not in SCHEMAS + (EXTENDED_SCHEMA,)
             or not isinstance(doc.get("channels"), dict)):
         raise ManifestError("unsupported schema")
     return {name: _release(name, doc["channels"].get(name), allow_test, doc["schema"]) for name in CHANNELS}

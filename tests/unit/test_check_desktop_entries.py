@@ -20,7 +20,7 @@ Type=Application
 Name=HST Writer
 Categories=Office;WordProcessor;
 Comment=Soạn thảo văn bản
-Keywords=Text;Letter;Microsoft Word;odt;docx;
+Keywords=Text;Letter;odt;docx;
 Exec=hst-office1.0 --writer %U
 Icon=vn.hasontech.hstoffice-writer
 StartupWMClass=vn.hasontech.hstoffice-writer
@@ -48,7 +48,8 @@ class HitsTest(unittest.TestCase):
 
     def test_keywords_in_any_locale_fail(self):
         for line in ("Keywords=Text;OpenOffice Writer;odt;", "Keywords[vi]=Văn bản;LibreOffice;",
-                     "GenericName[de]=Libre Office Textverarbeitung", "Comment=by The Document Foundation"):
+                     "GenericName[de]=Libre Office Textverarbeitung", "Comment=by The Document Foundation",
+                     "Keywords=Text;Microsoft Word;odt;", "Keywords[vi]=Bảng tính;Excel;", "Keywords=Lotus WordPro;"):
             self.assertEqual(MOD.hits(CLEAN + line + "\n"), [line], line)
 
 

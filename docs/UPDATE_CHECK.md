@@ -6,6 +6,8 @@ HST Office tự biết khi có bản mới và báo cho người dùng kèm liê
 
 - **Manifest:** `https://office.hasontech.vn/update/latest.json` + chữ ký tách rời `latest.json.sig`
   (nguồn: [website/office.hasontech.vn/update/](../website/office.hasontech.vn/update/latest.json)). Không dùng URL GitHub hay LibreOffice.
+  Bản 1.0.0/1.0.1 đọc `latest-2.json` (schema 2), từ 1.0.2 đọc `latest-3.json` (schema 3, thêm gói `.rpm`/AppImage) và
+  rơi về `latest-2.json` khi lỗi mạng ([UPDATE_INSTALL.md](UPDATE_INSTALL.md#manifest-schema-3-từ-102)).
 - **Định dạng (`schema: 1`):** `channels.stable` và `channels.beta`, mỗi kênh là `null` hoặc
   `{version, date (YYYY-MM-DD), notes, downloads{windows, macos-arm, macos-intel, linux}, critical}`.
   Mọi liên kết phải là `https://` thuộc `hasontech.vn`; tải về dùng các chuyển hướng cố định `/tai/*` của trang.
@@ -31,8 +33,9 @@ HST Office tự biết khi có bản mới và báo cho người dùng kèm liê
 - **Mã máy ẩn danh (từ 1.0.1, [PRIVACY](PRIVACY.md)):** để đếm số máy đang dùng (lượt tải không đếm được vì mỗi lần
   cập nhật là một lượt tải mới), cả lần kiểm tra khi khởi động lẫn lệnh "Kiểm tra cập nhật" thêm `?i=<UUID4>` vào yêu
   cầu tải manifest, và chỉ yêu cầu đó (không vào `.sig`, không vào luồng "Cập nhật ngay"). Dòng yêu cầu máy chủ thấy:
-  `GET /update/latest-2.json?i=3f2b8c1e-9a4d-4e6f-8b7a-0c1d2e3f4a5b HTTP/1.1`, User-Agent `HSTOffice/<bản> (<Windows|macOS|Linux|Other>)`
-  (manifest dự phòng: `/update/latest.json?i=...`). Máy chủ tĩnh bỏ qua tham số, nhật ký truy cập giữ nó; đếm máy =
+  `GET /update/latest-3.json?i=3f2b8c1e-9a4d-4e6f-8b7a-0c1d2e3f4a5b HTTP/1.1` (bản 1.0.1: `/update/latest-2.json?i=...`),
+  User-Agent `HSTOffice/<bản> (<Windows|macOS|Linux|Other>)` (manifest dự phòng: `latest-2.json` từ 1.0.2, `latest.json`
+  ở 1.0.1). Đếm máy phải gộp cả `latest-2.json` và `latest-3.json`. Máy chủ tĩnh bỏ qua tham số, nhật ký truy cập giữ nó; đếm máy =
   đếm giá trị `i` khác nhau (khớp `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`), tách theo
   User-Agent nếu cần. Không có `i`: người dùng hoặc quản trị viên đã tắt, hoặc bản trước 1.0.1.
   Mã: `update_install_id.py` (tạo bằng `uuid.uuid4()` ở lần kiểm tra đầu, trên luồng chính, lưu vào
@@ -69,6 +72,9 @@ xem [UPDATE_ADMIN](UPDATE_ADMIN.md).
   `update-signing-*`.
 - Nên sao lưu khóa ở nơi an toàn và về sau đưa vào GitHub secret (ví dụ `HST_UPDATE_SIGNING_KEY`) để workflow
   phát hành tự ký; khi đó ghi secret ra tệp tạm quyền 600 và trỏ `HST_UPDATE_SIGNING_KEY_FILE` tới tệp đó.
+- Khóa GPG ký gói Linux (`.rpm`, chữ ký AppImage) ở cùng chỗ: `/root/.config/hst-office/linux-signing-gnupg/` (0700),
+  tạo bằng script `setup-linux-signing-key.sh` do chủ sản phẩm chạy; sao lưu cùng khóa này
+  ([LINUX_PACKAGES.md](LINUX_PACKAGES.md#ký-số)).
 - Mất khóa: tạo cặp khóa mới, thay `PUBLIC_KEY`, phát hành bản mới. Các bản đã cài với khóa cũ sẽ không còn
   nhận thông báo, nên phải giữ khóa cẩn thận.
 

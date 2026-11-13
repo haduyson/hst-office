@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Generate unsigned schema 2 and legacy manifests from release assets and SHA256SUMS.
+"""Generate unsigned schema 3, schema 2 and legacy manifests from release assets and SHA256SUMS.
+
+latest-3.json (new clients) lists every platform, .rpm and AppImage included; latest-2.json and latest.json keep only
+the platforms that installed 1.0.x clients accept (update_logic.PLATFORMS), or those clients would reject the file.
+latest-3.json is written once the release has an .rpm/AppImage or the site already has one.
 
 Local assets are verified against SHA256SUMS. With --gh-tag, hashes come from SHA256SUMS
 and sizes from GitHub; GitHub's asset digest is also checked when supplied by gh.
@@ -25,7 +29,9 @@ from hst_office.update_installer import InstallerError, verify_file  # noqa: E40
 # Releases up to 1.0.0-beta.4 used the bare 1.0.0 (HSTOffice_1.0.0_Linux_x86-64.deb); still recognised.
 _NAME = re.compile(r"HSTOffice_(?P<release>\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?)_"
                    r"(?:(?P<windows>Win_x86-64_[A-Za-z0-9_-]+\.msi)|(?P<macos_arm>macOS_arm64\.dmg)"
-                   r"|(?P<macos_intel>macOS_x86_64\.dmg)|(?P<linux>Linux_x86-64\.deb))")
+                   r"|(?P<macos_intel>macOS_x86_64\.dmg)|(?P<linux>Linux_x86-64\.deb)|(?P<linux_rpm>Linux_x86-64\.rpm)"
+                   r"|(?P<linux_appimage>Linux_x86-64\.AppImage))")
+KEYS = ("windows", "macos_arm", "macos_intel", "linux", "linux_rpm", "linux_appimage")
 DEFAULT_SITE = ROOT / "website" / "office.hasontech.vn" / "update"
 NOTES = "https://office.hasontech.vn/#tai-ve"
 
@@ -35,7 +41,7 @@ def parse_asset_name(name):
     match = _NAME.fullmatch(name)
     if not match:
         return None
-    platform = next(key.replace("_", "-") for key in ("windows", "macos_arm", "macos_intel", "linux") if match.group(key))
+    platform = next(key.replace("_", "-") for key in KEYS if match.group(key))
     return platform, match.group("release")
 
 
@@ -113,7 +119,7 @@ def build_installers(args):
 
 
 def existing_channels(site):
-    for name in ("latest-2.json", "latest.json"):
+    for name in ("latest-3.json", "latest-2.json", "latest.json"):
         path = site / name
         if path.exists():
             data = path.read_bytes()
@@ -121,6 +127,15 @@ def existing_channels(site):
             doc = json.loads(data)
             return {channel: doc["channels"].get(channel) for channel in logic.CHANNELS}
     return dict.fromkeys(logic.CHANNELS)
+
+
+def _only(release, platforms):
+    """The release with only these platforms' downloads and installers (None stays None)."""
+    if release is None:
+        return None
+    return dict(release, downloads={k: v for k, v in release["downloads"].items() if k in platforms},
+                **({"installers": {k: v for k, v in release["installers"].items() if k in platforms}}
+                   if "installers" in release else {}))
 
 
 def generate(args):
@@ -134,12 +149,16 @@ def generate(args):
     channel = args.channel or logic.channel_of(version)
     channels = existing_channels(args.site_dir)
     channels[channel] = {"version": version, "date": date, "notes": args.notes,
-                         "downloads": {p: "https://office.hasontech.vn/tai/" + p for p in logic.PLATFORMS},
+                         "downloads": {p: "https://office.hasontech.vn/tai/" + p for p in logic.ALL_PLATFORMS},
                          "critical": args.critical, "installers": build_installers(args)}
+    modern = {key: _only(value, logic.PLATFORMS) for key, value in channels.items()}
     legacy = {key: {k: v for k, v in value.items() if k != "installers"} if value is not None else None
-              for key, value in channels.items()}
+              for key, value in modern.items()}
+    files = [("latest-2.json", 2, modern), ("latest.json", 1, legacy)]
+    if (args.site_dir / "latest-3.json").exists() or set(channels[channel]["installers"]) - set(logic.PLATFORMS):
+        files.insert(0, ("latest-3.json", logic.EXTENDED_SCHEMA, channels))
     outputs = []
-    for name, schema, releases in (("latest-2.json", 2, channels), ("latest.json", 1, legacy)):
+    for name, schema, releases in files:
         data = (json.dumps({"schema": schema, "channels": releases}, indent=2) + "\n").encode("utf-8")
         logic.parse_manifest(data)
         if len(data) > logic.MAX_BYTES:

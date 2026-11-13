@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # HST Office Linux .deb build on a GitHub-hosted runner (see .github/workflows/desktop-linux.yml).
-#   ci-build.sh --deps | --extract | --patch | --configure | --fetch | --build | --package
+#   ci-build.sh --deps | --extract | --patch | --configure | --fetch | --build | --package | --rpm-appimage
+# --rpm-appimage repacks the .deb that --package wrote as .rpm and .AppImage (no second build; docs/LINUX_PACKAGES.md).
 # Env: HST_WORK (work dir, default /mnt/hst), HST_DL (pinned tarballs, default $HST_WORK/dl),
 # HST_BUILD_DEADLINE (epoch seconds; --build stops make there and fails with status budget-stop),
 # HST_MIN_FREE_GIB (default 3; --build stops make and fails below this much free disk),
@@ -212,6 +213,22 @@ do_package() { # HSTOffice_<release>_Linux_x86-64.deb (ONE installable package) 
   (cd "$out" && sha256sum -c SHA256SUMS) || return 1
 }
 
+do_rpm_appimage() { # HSTOffice_<release>_Linux_x86-64.rpm + .AppImage from the single .deb, added to SHA256SUMS
+  local out="$WORK/installer" deb
+  deb="$(find "$out" -maxdepth 1 -name 'HSTOffice_*_Linux_x86-64.deb' -print -quit)"
+  [ -n "$deb" ] || { echo "rpm-appimage: no single .deb in $out (run --package first)"; return 1; }
+  # rpmbuild, and file for appimagetool, only here (not in --deps): the .deb build environment stays unchanged.
+  if ! command -v rpmbuild >/dev/null || ! command -v file >/dev/null; then
+    $SUDO apt-get update -qq || return 1
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends rpm file > "$LOGS/rpm-appimage-tools.log" 2>&1 \
+      || { tail -20 "$LOGS/rpm-appimage-tools.log"; return 1; }
+  fi
+  TMPDIR="$WORK" python3 -I "$REPO/scripts/linux/make-rpm.py" "$deb" "$out" || return 1
+  # appimagetool and the type-2 runtime: pinned versions, SHA-256 checked (scripts/linux/make-appimage.py).
+  TMPDIR="$WORK" python3 -I "$REPO/scripts/linux/make-appimage.py" "$deb" "$out" --tools "$DL/appimage-tools" --download || return 1
+  (cd "$out" && sha256sum -c SHA256SUMS) || return 1
+}
+
 case "${1:-}" in
   --deps) phase deps do_deps 2>&1 | tee "$LOGS/deps.log"; exit "${PIPESTATUS[0]}" ;;
   --extract) phase extract do_extract 2>&1 | tee "$LOGS/extract.log"; exit "${PIPESTATUS[0]}" ;;
@@ -221,5 +238,6 @@ case "${1:-}" in
   --fetch) phase fetch do_fetch ;;
   --build) phase build do_build ;;
   --package) phase package do_package 2>&1 | tee "$LOGS/package.log"; exit "${PIPESTATUS[0]}" ;;
-  *) echo "usage: $0 --deps|--extract|--patch|--options|--configure|--fetch|--build|--package"; exit 64 ;;
+  --rpm-appimage) phase rpm-appimage do_rpm_appimage 2>&1 | tee "$LOGS/rpm-appimage.log"; exit "${PIPESTATUS[0]}" ;;
+  *) echo "usage: $0 --deps|--extract|--patch|--options|--configure|--fetch|--build|--package|--rpm-appimage"; exit 64 ;;
 esac

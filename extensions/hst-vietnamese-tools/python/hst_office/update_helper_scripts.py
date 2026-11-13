@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""POSIX shell templates for waiting, installing, recovering and relaunching."""
+"""POSIX shell templates for waiting, installing, recovering and relaunching.
+
+Linux script = HEADER + SETUP + variables + LINUX + one install_update (LINUX_DEB here, or LINUX_RPM / LINUX_APPIMAGE of
+update_helper_scripts_linux) + RUN."""
 
 HEADER = r'''#!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-only
@@ -54,6 +57,11 @@ relaunch() {
         nohup "$SOFFICE" >/dev/null 2>&1 &
     fi
 }
+'''
+
+# .deb installs (dpkg owns the office): apt-get through pkexec, else PackageKit. rpm and AppImage installs replace this
+# function (update_helper_scripts_linux.py).
+LINUX_DEB = r'''
 install_update() {
     if command -v pkexec >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
         if [ "$DRY_RUN" = --dry-run ]; then log_step "DRYRUN install: $APT_COMMAND"; return 0; fi

@@ -52,7 +52,10 @@ fetch() { # <run id> <artifact name> -> verified copy of its installer files int
   [ -f "$dir/SHA256SUMS" ] || die "$2 has no SHA256SUMS"
   (cd "$dir" && sha256sum -c SHA256SUMS)
   # Only installers are published; build evidence (e.g. notarytool logs) stays in the artifact.
-  find "$dir" -maxdepth 1 -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.dmg' -o -name '*.tar.gz' \) -exec cp {} "$out/" \;
+  # Linux: .deb, .rpm, .AppImage (+ .AppImage.asc, the signed Linux checksum list and RPM-GPG-KEY-hasontech when signed).
+  find "$dir" -maxdepth 1 -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.rpm' \
+    -o -name '*.AppImage' -o -name '*.AppImage.asc' -o -name '*_Linux_x86-64.SHA256SUMS' -o -name '*_Linux_x86-64.SHA256SUMS.asc' \
+    -o -name RPM-GPG-KEY-hasontech \) -exec cp {} "$out/" \;
 }
 
 commit="${COMMIT:-}"
@@ -95,7 +98,9 @@ for platform in $platforms; do
   names="$(artifact_names "$id")"
   case "$platform" in
     windows) fetch "$id" "hst-office-windows-msi-$id" ;;
-    linux)   fetch "$id" "hst-office-linux-deb-$id" ;;
+    linux)   # Prefer the GPG-signed set when the signing job produced one (docs/LINUX_PACKAGES.md).
+      if grep -qx "hst-office-linux-deb-signed-$id" <<<"$names"; then fetch "$id" "hst-office-linux-deb-signed-$id"
+      else fetch "$id" "hst-office-linux-deb-$id"; fi ;;
     macos)
       for arch in arm64 x86_64; do
         # Prefer the signed and notarized dmg when the signing stage produced one.
