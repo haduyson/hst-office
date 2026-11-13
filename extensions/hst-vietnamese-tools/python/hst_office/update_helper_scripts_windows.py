@@ -22,6 +22,14 @@ $state = Join-Path (Split-Path -Parent $Log) 'update-result.json'
 # by the (unelevated) office, so it stops itself, installs nothing and reopens nothing.
 $cancel = Join-Path (Split-Path -Parent $Log) 'update-cancel'
 $msiLog = Join-Path (Split-Path -Parent $Log) 'msi-install.log'
+# The update folder is private to the user (os.makedirs(mode=0o700) on Windows: owner-only access). This helper runs
+# elevated, so what it creates is owned by Administrators and the user's office could not read update.log nor read and
+# delete update-result.json at the next start. Grant the folder's owner explicitly; new and existing files inherit it.
+try {
+    $folder = Split-Path -Parent $Log
+    $sid = (New-Object System.Security.Principal.NTAccount((Get-Acl -LiteralPath $folder).Owner)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+    if ($sid -ne 'S-1-5-32-544') { & icacls.exe $folder /grant "*${sid}:(OI)(CI)F" /q | Out-Null }
+} catch { }
 # The start-up job shows this once (update_outcome.py); it stays on this machine.
 function Write-Failure([string]$Reason, [int]$ExitCode) {
     try {
