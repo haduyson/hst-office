@@ -8,6 +8,8 @@ language and locale (owner request 2026-11-13: users coming from it must not stu
 - sc compiler.cxx: TRUE and FALSE written without parentheses are the boolean constants whatever
   the document locale (before, a vi-VN document turned =FALSE, VLOOKUP(...;FALSE) and
   AND(TRUE;...) into #NAME?), and a boolean constant gives a boolean result like TRUE().
+- formula FormulaCompiler.cxx: the UI (native grammar) prints TRUE()/FALSE() without arguments as
+  TRUE/FALSE, so a typed =TRUE reads =TRUE in the input line; ODFF and OOXML keep TRUE()/FALSE().
 - sc global.cxx: cells show the leading application's error values only (#VALUE!, #NUM!, #NAME?,
   #REF!, #DIV/0!, #N/A, #NULL!, #SPILL!); "Err:5xx" (Vietnamese "Lỗi:5xx"), #ADDIN? and #MACRO?
   are gone. The cause stays in the status bar. Same mapping as the .xlsx export.
@@ -150,6 +152,33 @@ tests/runtime/check-sheets-excel-formula-conventions.py.
      { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.STAT.MULT") , ocForecast_ETS_STM },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.LINEAR") , ocForecast_LIN },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "CHIINV") , ocChiInv },
+--- a/formula/source/core/api/FormulaCompiler.cxx
++++ b/formula/source/core/api/FormulaCompiler.cxx
+@@ -2617,6 +2617,24 @@
+             continue;
+         }
+ 
++        // HST: a boolean constant reads TRUE/FALSE in the UI, as in the leading spreadsheet
++        // application (it is stored as TRUE()/FALSE(), which files keep writing).
++        if ((t->GetOpCode() == ocTrue || t->GetOpCode() == ocFalse)
++            && FormulaGrammar::extractFormulaLanguage(meGrammar) == css::sheet::FormulaLanguage::NATIVE)
++        {
++            FormulaTokenArrayPlainIterator aTempIter(*mpArr);
++            aTempIter.Jump(maArrIterator.GetIndex());
++            const FormulaToken* pOpen = aTempIter.Next();
++            const FormulaToken* pClose = (pOpen && pOpen->GetOpCode() == ocOpen) ? aTempIter.Next() : nullptr;
++            if (pClose && pClose->GetOpCode() == ocClose)
++            {
++                rBuffer.append(mxSymbols->getSymbol(t->GetOpCode()));
++                maArrIterator.Jump(aTempIter.GetIndex());
++                t = maArrIterator.Next();
++                continue;
++            }
++        }
++
+         t = CreateStringFromToken(rBuffer, t, true);
+     }
+ 
 --- a/sc/inc/scfuncs.hrc
 +++ b/sc/inc/scfuncs.hrc
 @@ -1431,7 +1431,7 @@
