@@ -13,7 +13,7 @@ from hst_office import error_report_info as info
 from hst_office import error_report_mail as mail
 from hst_office import error_report_payload as p
 
-PRODUCT = {"version": "1.0.0-beta.5", "build": "500", "engine": "26.8.1.1"}
+PRODUCT = {"version": "1.0.0-beta.5", "build": "500"}
 OS = {"family": "linux", "version": "Ubuntu 24.04.1 LTS, kernel 6.8.0", "arch": "x86_64"}
 SECRETS = flt.personal_strings({"HOME": "/home/nguyenvana", "USER": "nguyenvana",
                                 "USERPROFILE": "C:\\Users\\Nguyen Van A"}, extra=["/home/nguyenvana/.config/hstoffice"])
@@ -32,7 +32,7 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(p.schema_errors(payload), [])
         self.assertEqual(invalid(payload), "")  # the fake server's independent reading
         self.assertEqual(set(payload), {"schemaVersion", "reportId", "kind", "createdAt", "product", "os", "locale",
-                                        "app", "description"})
+                                        "app", "appName", "description"})
         self.assertRegex(payload["createdAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
 
     def test_diagnostics_only_when_given_and_app_always_sent(self):
@@ -142,8 +142,8 @@ class FilterTests(unittest.TestCase):
             self.assertNotIn("nguyenvana", text)
 
     def test_system_info_and_vcl_backend(self):
-        text = info.system_info_text({"Version": "1.0.0-beta.5 (x86_64)", "Engine": "26.8.1.1", "OS": "", "VCL": "gtk3"})
-        self.assertEqual(text, "Version: 1.0.0-beta.5 (x86_64)\nEngine: 26.8.1.1\nVCL: gtk3")
+        text = info.system_info_text({"Version": "1.0.0-beta.5 (x86_64)", "OS": "", "VCL": "gtk3"})
+        self.assertEqual(text, "Version: 1.0.0-beta.5 (x86_64)\nVCL: gtk3")
         with tempfile.NamedTemporaryFile("w", delete=False) as maps:
             maps.write("7f00 r-xp /opt/hst-office1.0/program/libvclplug_gtk3lo.so\n")
         try:
@@ -165,15 +165,9 @@ class MailTests(unittest.TestCase):
         self.assertIn("Không lưu được tệp.", query["body"][0])
         self.assertIn(payload["reportId"], query["body"][0])
 
-    def test_summary_shows_the_hst_version_and_the_mail_labels_the_engine(self):
-        payload = build()
-        summary = "\n".join(mail.summary_lines(payload))
+    def test_summary_shows_the_hst_version(self):
+        summary = "\n".join(mail.summary_lines(build()))
         self.assertIn("Phiên bản: HST Office 1.0.0-beta.5 (bản dựng 500)", summary)
-        self.assertNotIn("26.8", summary)
-        body = mail.plain_text(payload)
-        self.assertIn("Phiên bản lõi xử lý (thông tin kỹ thuật): 26.8.1.1", body)
-        self.assertEqual(body.count("26.8"), 1)
-        self.assertEqual(mail.engine_line(build(product=dict(PRODUCT, engine=""))), [])
 
     def test_long_report_is_shortened_with_a_note(self):
         payload = build(description="Mô tả dài " * 400, diagnostics={"log": "dòng nhật ký\n" * 500})

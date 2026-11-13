@@ -152,8 +152,8 @@ def check_version_fields(install_root, release):
     metainfo/appdata (<release version> must be the HST release). macOS: Info.plist CFBundleShortVersionString
     (MAJOR.MINOR.MICRO of the release), CFBundleVersion (numeric build) and CFBundleGetInfoString (names the
     release). None of them may carry the engine version or the upstream product name; NSHumanReadableCopyright
-    is a legal notice and is not a version field. Windows version resources are checked on the sources
-    (tests/unit/test_hst_version_everywhere.py)."""
+    is a legal notice and is not a version field. All platforms: the ReadMe (readmes/README_<lang>) carries no
+    engine version. Windows version resources are checked on the sources (tests/unit/test_hst_version_everywhere.py)."""
     core = release.split("-")[0].split("+")[0]
     problems = []
     for folder, _dirs, files in os.walk(install_root):
@@ -166,6 +166,9 @@ def check_version_fields(install_root, release):
                 for number, line in enumerate(_read(full).splitlines(), 1):
                     if _DESKTOP_VISIBLE.match(line) and (ENGINE_VERSION.search(line) or FORBIDDEN.search(line)):
                         problems.append(f"{rel}:{number}: engine version or upstream name: {line.strip()}")
+            elif name.startswith("README_") and os.path.basename(folder) == "readmes":
+                problems += [f"{rel}:{number}: engine version: {line.strip()[:120]}"
+                             for number, line in enumerate(_read(full).splitlines(), 1) if ENGINE_VERSION.search(line)]
             elif name.endswith((".metainfo.xml", ".appdata.xml")):
                 text = _read(full)
                 versions = re.findall(r'<release\b[^>]*\bversion="([^"]*)"', text)
