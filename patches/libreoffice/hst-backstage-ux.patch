@@ -39,7 +39,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
      std::unique_ptr<weld::Label> m_xGreeting;
      std::vector<TemplateTile> m_aTiles;
-@@ -228,6 +232,16 @@
+@@ -229,6 +233,16 @@
      std::unique_ptr<weld::Label> m_xSaveAsFolder;
      std::unique_ptr<weld::TreeView> m_xFormatList;
      std::unique_ptr<weld::Button> m_xSaveAsBrowse;
@@ -84,7 +84,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      , m_xGreeting(m_xBuilder->weld_label(u"greeting"_ustr))
      , m_xMoreTemplates(m_xBuilder->weld_link_button(u"moretemplates"_ustr))
      , m_xRecentTabs(m_xBuilder->weld_notebook(u"recenttabs"_ustr))
-@@ -320,14 +323,25 @@
+@@ -321,14 +324,25 @@
      , m_xSaveAsFolder(m_xBuilder->weld_label(u"saveasfolder"_ustr))
      , m_xFormatList(m_xBuilder->weld_tree_view(u"formatlist"_ustr))
      , m_xSaveAsBrowse(m_xBuilder->weld_button(u"saveasbrowse"_ustr))
@@ -111,13 +111,13 @@ License: these upstream files remain under their original license (MPL-2.0).
          m_aTitles.push_back(m_xBuilder->weld_label(rId));
  
      for (weld::TreeView* pList : { m_xRecentList.get(), m_xPinnedList.get(), m_xOpenList.get() })
-@@ -350,8 +364,15 @@
+@@ -351,8 +365,15 @@
      for (weld::Button* pButton :
           { m_xNewBlank.get(), m_xNewNd30.get(), m_xNewManage.get(), m_xOpenBrowse.get(),
             m_xInfoProperties.get(), m_xInfoSign.get(), m_xInfoUsbToken.get(), m_xInfoVersions.get(),
--           m_xSaveAsBrowse.get() })
-+           m_xSaveAsBrowse.get(), m_xPrintPrint.get(), m_xPrintPreview.get(), m_xPrintDuplex.get(),
-+           m_xExportPdf.get(), m_xExportPdfDirect.get(), m_xExportOther.get(),
+-           m_xInfoUnsaved.get(), m_xSaveAsBrowse.get() })
++           m_xInfoUnsaved.get(), m_xSaveAsBrowse.get(), m_xPrintPrint.get(), m_xPrintPreview.get(),
++           m_xPrintDuplex.get(), m_xExportPdf.get(), m_xExportPdfDirect.get(), m_xExportOther.get(),
 +           m_xExportMinimize.get() })
          pButton->connect_clicked(LINK(this, BackstageWindow, ButtonClickHdl));
 +    // "In hai mặt" sets the page layout of a Writer document; the minimizer is Slides' own
@@ -128,7 +128,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
      m_xNewBlank->set_label(SfxResId(m_eApp == BackstageApp::Calc      ? STR_HST_BS_BLANK_CALC
                                      : m_eApp == BackstageApp::Impress ? STR_HST_BS_BLANK_IMPRESS
-@@ -553,9 +574,10 @@
+@@ -554,9 +575,10 @@
      for (size_t i = 0; i < m_aTitles.size(); ++i)
      {
          vcl::Font aFont(rStyle.GetLabelFont());
@@ -142,7 +142,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          m_aTitles[i]->set_font(aFont);
      }
      for (TemplateTile& rTile : m_aTiles)
-@@ -623,11 +645,15 @@
+@@ -624,11 +646,15 @@
      m_xPageOpen->set_visible(ePage == Page::Open);
      m_xPageInfo->set_visible(ePage == Page::Info);
      m_xPageSaveAs->set_visible(ePage == Page::SaveAs);
@@ -158,7 +158,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                                      : u"navsaveas"_ustr;
      const int nOld = m_nSelectedNav;
      for (size_t i = 0; i < m_aNav.size(); ++i)
-@@ -874,6 +900,10 @@
+@@ -875,6 +901,10 @@
          m_xInfoProperties->grab_focus();
      else if (m_ePage == Page::New)
          m_xNewBlank->grab_focus();
@@ -169,7 +169,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  IMPL_LINK(BackstageWindow, KeyPressHdl, const KeyEvent&, rKEvt, bool)
-@@ -967,9 +997,9 @@
+@@ -968,9 +998,9 @@
      else if (aId == "navsave")
          CloseAndDispatch(u".uno:Save"_ustr);
      else if (aId == "navprint")
@@ -182,8 +182,8 @@ License: these upstream files remain under their original license (MPL-2.0).
      else if (aId == "navsign")
          CloseAndDispatch(u".uno:Signature"_ustr);
      else if (aId == "navclose")
-@@ -1020,6 +1050,20 @@
-         CloseAndDispatch(u"org.hst.office.vi:PreviousVersions"_ustr);
+@@ -1023,6 +1053,20 @@
+         CloseAndDispatch(u"org.hst.office.vi:UnsavedDocuments"_ustr);
      else if (&rButton == m_xSaveAsBrowse.get())
          CloseAndDispatch(u".uno:SaveAs"_ustr);
 +    else if (&rButton == m_xPrintPrint.get())
@@ -214,7 +214,7 @@ License: these upstream files remain under their original license (MPL-2.0).
              <property name="visible">True</property>
              <property name="can-focus">True</property>
              <property name="receives-default">False</property>
-@@ -1628,6 +1628,269 @@
+@@ -1641,6 +1641,269 @@
                    </packing>
                  </child>
                </object>

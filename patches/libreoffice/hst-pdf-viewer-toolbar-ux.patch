@@ -27,7 +27,7 @@ License: the modified files keep their license (MPL-2.0).
 ---
 --- a/xmlsecurity/inc/strings.hrc
 +++ b/xmlsecurity/inc/strings.hrc
-@@ -129,5 +129,9 @@
+@@ -136,5 +136,9 @@
  #define STR_HSTPDF_PRINT_ALL                        NC_("STR_HSTPDF_PRINT_ALL", "~All pages")
  #define STR_HSTPDF_PRINT_RANGE                      NC_("STR_HSTPDF_PRINT_RANGE", "Pa~ges:")
  #define STR_HSTPDF_PRINT_CURRENT                    NC_("STR_HSTPDF_PRINT_CURRENT", "~Current page")
@@ -248,15 +248,15 @@ License: the modified files keep their license (MPL-2.0).
          m_aCache.pop_back();
 --- a/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
 +++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
-@@ -25,6 +25,7 @@
- #include <vcl/weld/ComboBox.hxx>
+@@ -26,6 +26,7 @@
  #include <vcl/weld/Entry.hxx>
+ #include <vcl/weld/Image.hxx>
  #include <vcl/weld/Label.hxx>
 +#include <vcl/weld/MenuButton.hxx>
  #include <vcl/weld/ToggleButton.hxx>
  
  #include <chrono>
-@@ -41,6 +42,7 @@
+@@ -42,6 +43,7 @@
      virtual void dispose() override;
      virtual bool PreNotify(NotifyEvent& rNEvt) override;
      virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
@@ -264,7 +264,7 @@ License: the modified files keep their license (MPL-2.0).
  
      void setFrame(const css::uno::Reference<css::frame::XFrame>& xFrame) { m_xFrame = xFrame; }
  
-@@ -70,6 +72,14 @@
+@@ -71,6 +73,14 @@
      void copySelection();
      void print();
      void editInDraw();
@@ -279,15 +279,15 @@ License: the modified files keep their license (MPL-2.0).
      void dispatch(const OUString& rCommand);
      void showSignPanel(bool bShow);
      void updateSignPanel();
-@@ -80,6 +90,7 @@
+@@ -89,6 +99,7 @@
  
      DECL_LINK(ButtonHdl, weld::Button&, void);
      DECL_LINK(SignToggleHdl, weld::Toggleable&, void);
 +    DECL_LINK(MenuSelectHdl, const OUString&, void);
      DECL_LINK(VisibleToggleHdl, weld::Toggleable&, void);
-     DECL_LINK(PageActivateHdl, weld::Entry&, bool);
-     DECL_LINK(SearchActivateHdl, weld::Entry&, bool);
-@@ -130,6 +141,15 @@
+     DECL_LINK(UseImagesToggleHdl, weld::Toggleable&, void);
+     DECL_LINK(ImageLayoutHdl, weld::ComboBox&, void);
+@@ -146,6 +157,15 @@
      std::unique_ptr<weld::Button> m_xFindNext;
      std::unique_ptr<weld::Button> m_xEdit;
      std::unique_ptr<weld::ToggleButton> m_xSign;
@@ -305,7 +305,7 @@ License: the modified files keep their license (MPL-2.0).
      std::unique_ptr<weld::CustomWeld> m_xThumbsWeld;
 --- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
 +++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
-@@ -67,6 +67,16 @@
+@@ -69,6 +69,16 @@
  
  constexpr std::u16string_view CMD_PREFIX = u".uno:HSTPdf";
  
@@ -322,7 +322,7 @@ License: the modified files keep their license (MPL-2.0).
  sal_Int64 millisSince(std::chrono::steady_clock::time_point tStart)
  {
      return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()
-@@ -217,6 +227,12 @@
+@@ -219,6 +229,12 @@
      , m_xFindNext(m_xBuilder->weld_button(u"findnext"_ustr))
      , m_xEdit(m_xBuilder->weld_button(u"edit"_ustr))
      , m_xSign(m_xBuilder->weld_toggle_button(u"sign"_ustr))
@@ -335,14 +335,13 @@ License: the modified files keep their license (MPL-2.0).
      , m_xThumbs(new PdfPageView(PdfPageView::Mode::Thumbnails,
                                  m_xBuilder->weld_scrollbar(u"thumbsscroll"_ustr), nullptr))
      , m_xThumbsWeld(new weld::CustomWeld(*m_xBuilder, u"thumbs"_ustr, *m_xThumbs))
-@@ -242,8 +258,29 @@
-     m_xZoom->set_entry_width_chars(6);
-     for (weld::Button* pButton : { m_xOpen.get(), m_xPrint.get(), m_xZoomOut.get(), m_xZoomIn.get(),
+@@ -253,8 +269,28 @@
                                     m_xFitPage.get(), m_xFindPrev.get(), m_xFindNext.get(),
--                                   m_xEdit.get(), m_xChooseCert.get(), m_xSignSave.get() })
-+                                   m_xEdit.get(), m_xChooseCert.get(), m_xSignSave.get(),
-+                                   m_xSaveCopy.get(), m_xFitWidth.get(), m_xRotate.get(),
-+                                   m_xPrevPage.get(), m_xNextPage.get() })
+                                    m_xEdit.get(), m_xChooseCert.get(), m_xSignSave.get(),
+                                    m_xChooseSignatureImage.get(), m_xChooseSealImage.get(),
+-                                   m_xNoImages.get() })
++                                   m_xNoImages.get(), m_xSaveCopy.get(), m_xFitWidth.get(),
++                                   m_xRotate.get(), m_xPrevPage.get(), m_xNextPage.get() })
          pButton->connect_clicked(LINK(this, PdfViewerWindow, ButtonHdl));
 +    m_xMenu->connect_selected(LINK(this, PdfViewerWindow, MenuSelectHdl));
 +    // the buttons that drop their label in a narrow window keep it as their accessible name
@@ -363,10 +362,10 @@ License: the modified files keep their license (MPL-2.0).
 +        const sal_Int32 nShortcut = aTip.lastIndexOf(" (");
 +        pWidget->set_accessible_name(nShortcut > 0 ? aTip.copy(0, nShortcut) : aTip);
 +    }
+     m_xUseImages->connect_toggled(LINK(this, PdfViewerWindow, UseImagesToggleHdl));
+     m_xImageLayout->connect_changed(LINK(this, PdfViewerWindow, ImageLayoutHdl));
      m_xSign->connect_toggled(LINK(this, PdfViewerWindow, SignToggleHdl));
-     m_xVisible->connect_toggled(LINK(this, PdfViewerWindow, VisibleToggleHdl));
-     m_xPage->connect_activate(LINK(this, PdfViewerWindow, PageActivateHdl));
-@@ -269,6 +306,38 @@
+@@ -282,6 +318,38 @@
      applyBackground();
  }
  
@@ -405,7 +404,7 @@ License: the modified files keep their license (MPL-2.0).
  void PdfViewerWindow::applyBackground()
  {
      SetBackground(Wallpaper(GetSettings().GetStyleSettings().GetWorkspaceColor()));
-@@ -313,6 +382,13 @@
+@@ -333,6 +401,13 @@
      m_xPages.reset();
      m_xThumbsWeld.reset();
      m_xThumbs.reset();
@@ -419,7 +418,7 @@ License: the modified files keep their license (MPL-2.0).
      m_xSign.reset();
      m_xEdit.reset();
      m_xFindNext.reset();
-@@ -567,6 +643,99 @@
+@@ -590,6 +665,99 @@
                                 new CloseRequest{ xOldFrame });
  }
  
@@ -519,7 +518,7 @@ License: the modified files keep their license (MPL-2.0).
  IMPL_STATIC_LINK(PdfViewerWindow, CloseFrameHdl, void*, pRequest, void)
  {
      std::unique_ptr<CloseRequest> xRequest(static_cast<CloseRequest*>(pRequest));
-@@ -801,6 +970,16 @@
+@@ -986,6 +1154,16 @@
          m_xPages->setZoom(m_xPages->getZoom() * 1.25);
      else if (&rButton == m_xFitPage.get())
          m_xPages->setFit(PdfPageView::Fit::Page);
@@ -536,7 +535,7 @@ License: the modified files keep their license (MPL-2.0).
      else if (&rButton == m_xFindPrev.get())
          find(m_xSearch->get_text(), true);
      else if (&rButton == m_xFindNext.get())
-@@ -944,6 +1123,25 @@
+@@ -1148,6 +1326,25 @@
              case KEY_0:
                  m_xPages->setZoom(1.0);
                  return true;
@@ -562,7 +561,7 @@ License: the modified files keep their license (MPL-2.0).
              case KEY_C:
                  if (!bInEntry)
                  {
-@@ -998,6 +1196,8 @@
+@@ -1202,6 +1399,8 @@
                             uno::Any(sal_Int32(m_xDocument ? m_xDocument->getPageCount() : 0)));
          aInfo.emplace_back(u"CurrentPage"_ustr, uno::Any(sal_Int32(m_xPages->getCurrentPage() + 1)));
          aInfo.emplace_back(u"Zoom"_ustr, uno::Any(sal_Int32(std::lround(m_xPages->getZoom() * 100))));
@@ -571,7 +570,7 @@ License: the modified files keep their license (MPL-2.0).
          aInfo.emplace_back(u"OpenMillis"_ustr, uno::Any(sal_Int64(m_nOpenMillis)));
          aInfo.emplace_back(u"SignatureCount"_ustr,
                             uno::Any(sal_Int32(m_xDocument ? m_xDocument->getSignatureCount() : 0)));
-@@ -1031,7 +1231,10 @@
+@@ -1235,7 +1434,10 @@
                      { "pagelabel", m_xPageLabel.get() }, { "page", m_xPage.get() },
                      { "pagecount", m_xPageCount.get() }, { "search", m_xSearch.get() },
                      { "findprev", m_xFindPrev.get() }, { "findnext", m_xFindNext.get() },
@@ -583,7 +582,7 @@ License: the modified files keep their license (MPL-2.0).
              std::vector<OUString> aLayout;
              for (const auto& [pId, pWidget] : aControls)
              {
-@@ -1151,6 +1354,31 @@
+@@ -1355,6 +1557,31 @@
          print();
          return true;
      }
@@ -962,7 +961,7 @@ License: the modified files keep their license (MPL-2.0).
        </object>
 --- a/translations/source/vi/xmlsecurity/messages.po
 +++ b/translations/source/vi/xmlsecurity/messages.po
-@@ -357,6 +357,30 @@
+@@ -363,6 +363,30 @@
  msgstr "Trang ~hiện tại"
  
  #. hstPDF
@@ -993,7 +992,7 @@ License: the modified files keep their license (MPL-2.0).
  #: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
  msgctxt "hstpdfviewer|open"
  msgid "Open…"
-@@ -396,7 +420,7 @@
+@@ -402,7 +426,7 @@
  #: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
  msgctxt "hstpdfviewer|zoomwidth"
  msgid "Fit Width"
@@ -1002,7 +1001,7 @@ License: the modified files keep their license (MPL-2.0).
  
  #. hstPDF
  #: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
-@@ -542,6 +566,72 @@
+@@ -548,6 +572,72 @@
  msgid "Chosen certificate"
  msgstr "Chứng thư số đã chọn"
  

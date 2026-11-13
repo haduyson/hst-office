@@ -36,7 +36,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
 ---
 --- a/desktop/source/app/app.cxx
 +++ b/desktop/source/app/app.cxx
-@@ -2105,6 +2105,20 @@ void Desktop::OpenClients()
+@@ -2107,6 +2107,20 @@
                || IsUseSystemEventLoop()
                || !officecfg::Office::Recovery::RecoveryInfo::Enabled::get();
  
@@ -59,7 +59,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
          if ( !bDisableRecovery &&
 --- a/framework/Library_fwk.mk
 +++ b/framework/Library_fwk.mk
-@@ -161,6 +161,10 @@ $(eval $(call gb_Library_add_exception_objects,fwk,\
+@@ -161,6 +161,10 @@
      framework/source/services/ContextChangeEventMultiplexer \
      framework/source/services/desktop \
      framework/source/services/documenttabgroup \
@@ -72,7 +72,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      framework/source/services/modulemanager \
 --- a/framework/inc/documenttabgroup.hxx
 +++ b/framework/inc/documenttabgroup.hxx
-@@ -162,6 +162,7 @@ public:
+@@ -169,6 +169,7 @@
          window kind, tab order, shown tab and window geometry. Without that file the documents
          are routed as usual. endRestoreLayout() finishes once the recovered windows are shown. */
      void beginRestoreLayout();
@@ -80,7 +80,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      void endRestoreLayout();
  
      /// Desktop::terminate: frames are about to be closed one by one, don't re-show neighbours.
-@@ -265,6 +266,7 @@ private:
+@@ -290,6 +291,7 @@
      rtl::Reference<DocumentTabGroupListener> m_xListener;
      sal_Int32 m_nInternal = 0; ///< >0 while we show/hide windows ourselves
      bool m_bClosingAll = false;
@@ -230,7 +230,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
  
  #include <com/sun/star/ucb/NameClash.hpp>
  #include <com/sun/star/container/XNameAccess.hpp>
-@@ -1900,6 +1901,10 @@ void AutoRecovery::implts_readConfig()
+@@ -1900,6 +1901,10 @@
      aCacheLock.unlock();
      // <- REENTRANT --------------------------------
  
@@ -241,7 +241,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      css::uno::Reference<css::container::XNameAccess> xRecoveryList(
              officecfg::Office::Recovery::RecoveryList::get());
  
-@@ -1923,6 +1928,10 @@ void AutoRecovery::implts_readConfig()
+@@ -1923,6 +1928,10 @@
          sal_Int32 tmp = 0;
          xItem->getPropertyValue(CFG_ENTRY_PROP_DOCUMENTSTATE) >>= tmp;
          aInfo.DocumentState = DocState(tmp);
@@ -252,7 +252,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
          xItem->getPropertyValue(CFG_ENTRY_PROP_MODULE) >>= aInfo.AppModule;
          xItem->getPropertyValue(CFG_ENTRY_PROP_TITLE) >>= aInfo.Title;
          xItem->getPropertyValue(CFG_ENTRY_PROP_VIEWNAMES) >>= aInfo.ViewNames;
-@@ -2192,6 +2201,9 @@ void AutoRecovery::implts_flushConfigItem(AutoRecovery::TDocumentInfo& rInfo, bo
+@@ -2192,6 +2201,9 @@
          }
      }
      while(nRetry>0);
@@ -262,7 +262,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
  }
  
  void AutoRecovery::implts_startListening()
-@@ -2323,6 +2335,10 @@ void hst_refreshKnownSize(AutoRecovery::TDocumentInfo& rInfo)
+@@ -2323,6 +2335,10 @@
      rInfo.KnownSize = std::max(hst_localFileSize(rInfo.OrgURL), hst_localFileSize(rInfo.OldTempURL));
  }
  
@@ -273,7 +273,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
  // HST Office: AutoRecovery interval [ms] of one document. Documents larger than
  // AutoSave/HstLargeDocumentSize [MB] (0 = off) wait AutoSave/HstLargeDocumentTimeIntervall
  // minutes, never less than the user's own interval; all other documents keep nNormalMs.
-@@ -2330,7 +2346,8 @@ sal_Int64 hst_docAutoSaveInterval(const AutoRecovery::TDocumentInfo& rInfo, sal_
+@@ -2330,7 +2346,8 @@
  {
      const sal_Int64 nLargeMB = officecfg::Office::Recovery::AutoSave::HstLargeDocumentSize::get();
      if (nLargeMB <= 0 || rInfo.KnownSize <= nLargeMB * sal_Int64(1024 * 1024))
@@ -283,7 +283,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      const sal_Int64 nLargeMs
          = officecfg::Office::Recovery::AutoSave::HstLargeDocumentTimeIntervall::get()
            * sal_Int64(60000); // min -> ms
-@@ -2367,7 +2384,15 @@ void AutoRecovery::implts_updateTimer()
+@@ -2367,7 +2384,15 @@
              {
                  sal_Int64 nDirtyDuration = xDocRecovery2->getModifiedStateDuration();
                  if (nDirtyDuration < 0)
@@ -300,7 +300,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
                  // HST Office: large documents are due later (see hst_docAutoSaveInterval).
                  const sal_Int64 nDocInterval
                      = hst_docAutoSaveInterval(docInfo, nConfiguredAutoSaveInterval);
-@@ -2685,11 +2710,36 @@ void AutoRecovery::implts_deregisterDocument(const css::uno::Reference< css::fra
+@@ -2685,11 +2710,36 @@
      if (bStopListening)
          implts_stopModifyListeningOnDoc(aInfo);
  
@@ -337,7 +337,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      CacheLockGuard aCacheLock(this, cppu::WeakComponentImplHelperBase::rBHelper.rMutex, m_nDocCacheLock, LOCK_FOR_CACHE_USE);
  
      /* SAFE */ {
-@@ -2704,9 +2754,14 @@ void AutoRecovery::implts_markDocumentModifiedAgainstLastBackup(const css::uno::
+@@ -2704,9 +2754,14 @@
             But if the document was saved as temp. file we start listening for this event again.
          */
          implts_stopModifyListeningOnDoc(*pIt);
@@ -352,7 +352,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
  }
  
  void AutoRecovery::implts_updateModifiedState(const css::uno::Reference< css::frame::XModel >& xDocument)
-@@ -2817,6 +2872,7 @@ void AutoRecovery::implts_markDocumentAsSaved(const css::uno::Reference< css::fr
+@@ -2817,6 +2872,7 @@
  
      aCacheLock.unlock();
  
@@ -360,7 +360,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      AutoRecovery::st_impl_removeFile(sRemoveURL1);
      AutoRecovery::st_impl_removeFile(sRemoveURL2);
  }
-@@ -3332,6 +3388,9 @@ void AutoRecovery::implts_saveOneDoc(const OUString&
+@@ -3332,6 +3388,9 @@
      // We must know if the user modifies the document again ...
      implts_startModifyListeningOnDoc(rInfo);
  
@@ -370,7 +370,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      AutoRecovery::st_impl_removeFile(sRemoveFile);
  }
  
-@@ -3841,6 +3900,10 @@ void AutoRecovery::implts_prepareEmergencySave()
+@@ -3841,6 +3900,10 @@
      // Be sure to know all open documents really .-)
      implts_verifyCacheAgainstDesktopDocumentList();
  
@@ -381,7 +381,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      // hide all docs, so the user can't disturb our emergency save .-)
      implts_changeAllDocVisibility(false);
  }
-@@ -3921,6 +3984,9 @@ void AutoRecovery::implts_doSessionSave(const DispatchParams& aParams)
+@@ -3921,6 +3984,9 @@
  {
      SAL_INFO("fwk.autorecovery", "AutoRecovery::implts_doSessionSave()");
  
@@ -393,7 +393,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
  
 --- a/framework/source/services/documenttabgroup.cxx
 +++ b/framework/source/services/documenttabgroup.cxx
-@@ -50,6 +50,7 @@
+@@ -52,6 +52,7 @@
  #include <toolkit/helper/vclunohelper.hxx>
  #include <tools/debug.hxx>
  #include <comphelper/diagnose_ex.hxx>
@@ -401,7 +401,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
  #include <vcl/svapp.hxx>
  #include <vcl/syswin.hxx>
  #include <vcl/vclevent.hxx>
-@@ -1674,7 +1675,7 @@ OUString lcl_documentURL(const uno::Reference<frame::XFrame>& xFrame)
+@@ -1964,7 +1965,7 @@
  
  void DocumentTabGroup::scheduleLayoutSave()
  {
@@ -410,7 +410,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
          m_aSaveLayoutTimer.Start();
  }
  
-@@ -1687,6 +1688,8 @@ void DocumentTabGroup::saveLayout()
+@@ -1977,6 +1978,8 @@
      //   window <kind> <index of the shown tab> <vcl window state>
      //   tab <document URL, empty for a new document> <title>
      // Only tabs with a document (the ones autorecovery can bring back) are written.
@@ -419,7 +419,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      try
      {
          cleanUp();
-@@ -1725,16 +1728,12 @@ void DocumentTabGroup::saveLayout()
+@@ -2015,16 +2018,12 @@
              osl::File::remove(aURL);
              return;
          }
@@ -438,7 +438,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      }
      catch (const uno::Exception&)
      {
-@@ -1867,7 +1866,10 @@ void DocumentTabGroup::finishRestore()
+@@ -2164,7 +2163,10 @@
          if ((pGroup = groupById(nGroup)))
              update(*pGroup);
      }
@@ -450,9 +450,9 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
  }
  
  void DocumentTabGroup::shutdown()
-@@ -1876,7 +1878,8 @@ void DocumentTabGroup::shutdown()
-     m_aSaveLayoutTimer.Stop();
-     m_aFinishRestoreTimer.Stop();
+@@ -2175,7 +2177,8 @@
+     m_aApplyWindowModesTimer.Stop();
+     m_aParkIdle.Stop();
      m_aRestore.clear();
 -    osl::File::remove(lcl_layoutURL());
 +    if (!m_bLayoutFrozen)
@@ -460,8 +460,8 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
      for (const std::unique_ptr<Group>& pGroup : m_aGroups)
          for (Member& rMember : pGroup->aMembers)
              rMember.pBar.disposeAndClear();
-@@ -1998,6 +2001,13 @@ void DocumentTabs::beginRestoreLayout()
-         DocumentTabGroup::get().beginRestoreLayout();
+@@ -2324,6 +2327,13 @@
+         DocumentTabGroup::get().applyWindowModes();
  }
  
 +void DocumentTabs::freezeLayout()
@@ -1107,10 +1107,10 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/include/framework/documenttabs.hxx
 +++ b/include/framework/documenttabs.hxx
-@@ -58,6 +58,10 @@ FWK_DLLPUBLIC void markLaunchStartCenter();
-     documents (see DocumentTabGroup::beginRestoreLayout). */
- FWK_DLLPUBLIC void beginRestoreLayout();
- FWK_DLLPUBLIC void endRestoreLayout();
+@@ -66,6 +66,10 @@
+     keep their tabs. Documents only move between windows, nothing is reloaded or closed.
+     No-op when tabs are disabled. */
+ FWK_DLLPUBLIC void applyWindowModes();
 +
 +/** Emergency or session save: keep hst-document-tabs.txt exactly as it is (no rewrite, no
 +    removal) for the rest of this process, so the next start can rebuild the windows and tabs. */
@@ -1120,7 +1120,7 @@ Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recove
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/translations/source/vi/framework/messages.po
 +++ b/translations/source/vi/framework/messages.po
-@@ -508,3 +508,15 @@ msgstr "Đã sửa đổi, chưa lưu"
+@@ -508,3 +508,15 @@
  msgctxt "STR_DOCTAB_DETACH"
  msgid "Move to New Window"
  msgstr "Tách ra cửa sổ mới"
