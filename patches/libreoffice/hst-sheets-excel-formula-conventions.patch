@@ -24,6 +24,10 @@ language and locale (owner request 2026-11-13: users coming from it must not stu
   shows as FORMULA, SKEWP, FORECAST.ETS.ADD, FORECAST.ETS.PI.ADD and FORECAST.ETS.STAT.ADD (their
   .xlsx names; ODF keeps FORMULA, SKEWP, ...).
 
+- sc xetable.cxx: a formula kept with a syntax error (LibreOffice accepts "=1+*2" and shows an error)
+  is not written to .xlsx, only its error result: the leading application refused the whole file
+  (also with repair), measured with Office 2021 on 2026-11-13.
+
 License: these upstream files remain under their original license (MPL-2.0).
 Test: tests/unit/test_sheets_excel_formula_conventions.py,
 tests/runtime/check-sheets-excel-formula-conventions.py.
@@ -275,6 +279,20 @@ tests/runtime/check-sheets-excel-formula-conventions.py.
      return true;
  }
  
+--- a/sc/source/filter/excel/xetable.cxx
++++ b/sc/source/filter/excel/xetable.cxx
+@@ -1033,7 +1033,10 @@
+     if (bWriteFormula)
+     {
+         ScTokenArray aTokenArray(*mrScFmlaCell.GetCode());
+-        bool bValid = true;
++        // HST: a formula kept with a syntax error (it never compiled, e.g. "=1+*2") is not
++        // written: the leading application refuses the whole file, also when asked to repair
++        // it. The cell keeps its error result.
++        bool bValid = aTokenArray.GetCodeError() == FormulaError::NONE;
+         // Discard formulas containing macros in XLSX export.
+         if (!rStrm.IsExportVBA())
+         {
 --- a/translations/source/vi/sc/messages.po
 +++ b/translations/source/vi/sc/messages.po
 @@ -8223,9 +8223,7 @@

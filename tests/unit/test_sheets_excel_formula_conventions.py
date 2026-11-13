@@ -77,6 +77,10 @@ class SheetsExcelFormulaConventions(unittest.TestCase):
             self.assertIn(f'NC_("RID_STRLIST_FUNCTION_NAMES", "{name}") , {op} }}', hrc)
             self.assertIn(f'{{ "{name}" , {op} }}', hrc)
 
+    def test_xlsx_export_skips_uncompiled_formulas(self):
+        cxx = new_side(PATCH, "sc/source/filter/excel/xetable.cxx")
+        self.assertIn("bool bValid = aTokenArray.GetCodeError() == FormulaError::NONE;", cxx)
+
     def test_ceiling_floor_help_does_not_name_a_product(self):
         for ctx in ("ocCEIL_MS", "ocFLOOR_MS"):
             rows = [r for _, r in l10n_rows() if r["msgctxt"] == ctx and r["msgid"].startswith("Round")]

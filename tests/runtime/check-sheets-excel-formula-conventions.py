@@ -133,6 +133,9 @@ def run_phase(uno, program, out, ui, loc, env):
             sheet_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
         check(".xlsx writes CEILING, not CEILING.MATH", "CEILING(" in sheet_xml and "CEILING.MATH" not in sheet_xml,
               [part.split("</f>")[0] for part in sheet_xml.split("<f")[1:] if "CEIL" in part])
+        broken = [i for i, (typed, _) in enumerate(FORMULAS, start=1) if typed == "=1+*2"][0]
+        cell_xml = sheet_xml.split(f'<c r="Z{broken}"', 1)[1].split("</c>", 1)[0]
+        check(".xlsx omits a formula with a syntax error (the leading application refuses the file)", "<f" not in cell_xml, cell_xml)
         check(".xlsx writes boolean results as booleans", 't="b"' in sheet_xml, sheet_xml.count('t="b"'))
         # Reload both files: the visible results survive the round trip.
         for path in (ods, xlsx):
