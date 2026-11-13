@@ -60,6 +60,21 @@ class GenerateRibbonPrioritiesTest(unittest.TestCase):
         with self.assertRaises(gen.PriorityError):
             gen.ladders(broken)
 
+    def test_grow_order(self):
+        entry = next(e for e in DATA["ladders"] if (e["app"], e["box"]) == ("calc", "pmhbHome"))
+        # Sheets' Home: Font collapses last but is the last to take room back (its labels go first)
+        self.assertEqual(entry["priority"][0], "gdHomeFont")
+        self.assertEqual(entry["grow"][-1], "gdHomeFont")
+        ladder = next(l for l in gen.ladders(DATA)["ladders"] if (l["app"], l["box"]) == ("calc", "pmhbHome"))
+        self.assertEqual(ladder["grow"], entry["grow"])
+        self.assertEqual(ladder["fold"][-1], "gdHomeFont")
+        with self.assertRaises(gen.PriorityError):
+            gen.ladders({"ladders": [dict(entry, grow=entry["grow"][1:])]})
+        text = open(PATCH, encoding="utf-8").read()
+        self.assertIn("+    { calc_pmhbHome_groups, calc_pmhbHome_grow, std::size(calc_pmhbHome_grow) },", text)
+        # without any grow order the array still exists, with an empty entry
+        self.assertIn("{ nullptr, nullptr, 0 }", gen.with_growths(gen.scale.header(gen.ladders({"ladders": []})), []))
+
     @unittest.skipUnless(shutil.which("g++") and shutil.which("patch"), "no C++ compiler or patch")
     def test_header_compiles(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -73,8 +88,9 @@ class GenerateRibbonPrioritiesTest(unittest.TestCase):
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
             driver = os.path.join(tmp, "t.cxx")
             with open(driver, "w", encoding="utf-8") as handle:
-                handle.write('#include "HstRibbonLadders.hxx"\nint main() { return std::size(hst::ribbon::ladders::all) == %d ? 0 : 1; }\n'
-                             % len(DATA["ladders"]))
+                handle.write('#include "HstRibbonLadders.hxx"\nint main() { return std::size(hst::ribbon::ladders::all) == %d'
+                             ' && std::size(hst::ribbon::ladders::growths) == %d ? 0 : 1; }\n'
+                             % (len(DATA["ladders"]), sum("grow" in e for e in DATA["ladders"])))
             build = subprocess.run(["g++", "-std=c++20", "-Wall", "-Wextra", "-Werror", "-I", os.path.dirname(header), driver,
                                     "-o", os.path.join(tmp, "t")], capture_output=True, text=True)
             self.assertEqual(build.returncode, 0, build.stderr)

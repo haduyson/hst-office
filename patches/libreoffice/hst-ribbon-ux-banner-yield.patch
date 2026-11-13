@@ -1,35 +1,93 @@
-HST Office: the ribbon banner yields before a group collapses; a collapsed group shows its icon.
+HST Office: the ribbon banner always shows its wide artwork; a collapsed group shows its icon.
 
-Owner report (13/11, HST Sheets at 1485 px): Styles and Cells showed as bare "Kiểu ▾" / "Ô ▾" text buttons
-while the banner kept its 260 px slot.
-- NotebookbarTabControl: besides the full width of every (non-contextual) tab page, the tab control keeps
-  the width each page needs with its groups at their smallest state that is not the "Caption ▾" button
-  (hst::ribbon::PageKeepWidth). When the widest of them does not fit beside the narrowest wide banner, the
-  compact banner takes its place, and when it does not fit beside that either, the banner hides. So the
-  order is: groups at full size, the wide banner narrows (360 -> 260 px), groups shrink by their ladders,
-  the banner turns compact, then hides, and only then does a group collapse into its button.
+Owner decision (13/11/2026): the HASON TECH banner is shown at every window width, including 1366 px; it
+never hides and never switches to the compact artwork. It only narrows, keeping its ratio, down to
+MIN_WIDE_ART_WIDTH (260 logical px), the width at which its logo, title, text, link and "HASON TECH" stay
+legible, and that width stays reserved: when the groups do not fit beside it, they collapse by priority
+into their "Caption ▾" buttons (fitByPriority, hst-ribbon-ux-engine.patch).
+- NotebookbarTabControl: a two-row tab page always gets the wide banner (a one-row ribbon none); the
+  window-width threshold that showed the compact artwork below 1280 px no longer applies.
 - PriorityMergedHBox: a collapsed group's button shows the large icon of the group's first command
   (toolbox item or drop-down button; the caption's dialog launcher does not count) above "Caption ▾",
   as Office does, instead of bare text.
 
 License: these upstream files remain under their original license (MPL-2.0).
-Test: build only (both files syntax-checked against the configured tree). Runtime: HST Sheets Home at 1366,
-1440, 1485, 1536, 1600 and 1920 px shows no "Caption ▾" button while the banner is visible, and a collapsed
-group shows an icon above its caption.
+Test: build only (both files syntax-checked against the configured tree). Runtime: every app and tab at
+1366, 1440, 1485, 1536, 1600 and 1920 px shows the wide banner (260 to 360 px), and a collapsed group shows
+an icon above its caption.
 ---
---- a/include/vcl/HstRibbonWidth.hxx
-+++ b/include/vcl/HstRibbonWidth.hxx
-@@ -23,6 +23,10 @@
- /// merged group box at its largest state, or -1 when the page has no such box or its groups are not
- /// measured yet. The banner beside the page narrows by it.
- VCL_DLLPUBLIC tools::Long PageFullWidth(const vcl::Window& rPage);
-+/// HST Office: the width the content of such a page needs with every group at its smallest state that is not
-+/// its "Caption ▾" button, or -1 as above. The banner yields (narrows, then compact, then hidden) before the
-+/// page would have to collapse a group into its button.
-+VCL_DLLPUBLIC tools::Long PageKeepWidth(const vcl::Window& rPage);
- }
- 
- /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -518,9 +518,8 @@
+ // The banner takes the right end of the current page; the page (the 2-row groups) keeps its
+ // height and gets the remaining width, so groups fold into their overflow menu as usual. The
+ // ribbon height never depends on the banner. In wide windows the banner narrows, keeping its ratio,
+-// down to 260 logical px when the current page's groups do not fit beside it at their largest. Windows narrower than 1280 logical px show the
+-// 160x104 compact artwork, so the banner keeps a slot; only when no compact artwork exists at
+-// all do the groups get the whole width.
++// down to 260 logical px when the current page's groups do not fit beside it at their largest, at any
++// window width (no compact artwork, never hidden on a two-row ribbon).
+ void NotebookbarTabControl::HstLayoutBanner()
+ {
+     if (!m_pHstBanner || m_bHstLayout)
+@@ -534,36 +533,31 @@
+         const hst::banner::Rect aPage{ aPos.X(), aPos.Y(),
+                                        GetOutputSizePixel().Width() - 2 * aPos.X(),
+                                        pPage->GetSizePixel().Height() };
+-        const vcl::Window* pTop = GetSystemWindow();
+-        // the 1280 px threshold is the window's outer width; the system window is its client area,
+-        // which the frame keeps narrower (12 px with gtk3, the resize borders on Windows): add a
+-        // frame allowance, or a 1280 px window shows the compact banner
+-        const tools::Long nWindowWidth = (pTop ? pTop->GetSizePixel().Width() : GetSizePixel().Width())
+-                                         + std::lround(16 * fDpi);
+         tools::Long nPageWidth = aPage.w;
+-        const hst::banner::Mode eMode = hst::banner::modeFor(nWindowWidth, aPage.h, fDpi);
++        // HST Office (owner decision 13/11/2026): the banner shows the wide artwork at every window width,
++        // never the compact one and never hidden; it only narrows (ratio kept) down to MIN_WIDE_ART_WIDTH,
++        // the width at which all its text stays legible, and that width stays reserved: groups that do not
++        // fit beside it collapse by priority into their "Caption ▾" buttons. A one-row ribbon has no banner.
++        const hst::banner::Mode eMode = aPage.h >= hst::banner::scaled(hst::banner::MIN_PAGE_HEIGHT, fDpi)
++                                            ? hst::banner::Mode::Wide
++                                            : hst::banner::Mode::Hidden;
+         if (eMode != hst::banner::Mode::Hidden)
+-            m_pHstBanner->SetCompact(eMode == hst::banner::Mode::Compact);
+-        if (eMode == hst::banner::Mode::Wide
+-            || (eMode == hst::banner::Mode::Compact && !m_pHstBanner->CompactUnavailable()))
++            m_pHstBanner->SetCompact(false);
++        if (eMode == hst::banner::Mode::Wide)
+         {
+             // HST Office: the wide banner narrows (ratio kept) when the page's groups do not fit beside it
+-            long nMaxWidth = 0;
+-            if (eMode == hst::banner::Mode::Wide)
+-            {
+-                // the widest page measured so far, not just the current one (the banner does not jump
+-                // when the user switches tabs); a page measures once it has been shown
+-                const tools::Long nCurrentFull = hst::ribbon::PageFullWidth(*pPage);
+-                if (nCurrentFull >= 0)
+-                    m_aHstPageFullWidths[GetCurPageId()] = nCurrentFull;
+-                tools::Long nWidest = -1;
+-                for (const auto& [nPageId, nFull] : m_aHstPageFullWidths)
+-                    if (const TabPage* pMeasured = GetTabPage(nPageId);
+-                        pMeasured && pMeasured->HasContext(vcl::EnumContext::Context::Any)) // not the contextual tabs
+-                        nWidest = std::max(nWidest, nFull);
+-                nMaxWidth = hst::banner::wideSlotWidth(aPage, nWidest, m_pHstBanner->WideSlotWidth(), fDpi);
+-                m_pHstBanner->SetWideSlotWidth(nMaxWidth);
+-            }
++            // the widest page measured so far, not just the current one (the banner does not jump
++            // when the user switches tabs); a page measures once it has been shown
++            const tools::Long nCurrentFull = hst::ribbon::PageFullWidth(*pPage);
++            if (nCurrentFull >= 0)
++                m_aHstPageFullWidths[GetCurPageId()] = nCurrentFull;
++            tools::Long nWidest = -1;
++            for (const auto& [nPageId, nFull] : m_aHstPageFullWidths)
++                if (const TabPage* pMeasured = GetTabPage(nPageId);
++                    pMeasured && pMeasured->HasContext(vcl::EnumContext::Context::Any)) // not the contextual tabs
++                    nWidest = std::max(nWidest, nFull);
++            const long nMaxWidth = hst::banner::wideSlotWidth(aPage, nWidest, m_pHstBanner->WideSlotWidth(), fDpi);
++            m_pHstBanner->SetWideSlotWidth(nMaxWidth);
+             const hst::banner::Rect aSlot
+                 = hst::banner::slotFor(aPage, fDpi, hst::banner::artWidth(eMode), nMaxWidth);
+             nPageWidth = hst::banner::pageWidthBeside(aPage, aSlot, fDpi);
 --- a/vcl/inc/PriorityMergedHBox.hxx
 +++ b/vcl/inc/PriorityMergedHBox.hxx
 @@ -56,6 +56,8 @@
@@ -41,17 +99,6 @@ group shows an icon above its caption.
      bool HstIsGroupButton(const vcl::Window* pWindow) const;
      bool HstIsCollapsed(const vcl::Window* pGroup) const;
      // in the chevron popup's share: hidden, and neither a group button nor a group shown as its button
-@@ -91,6 +93,10 @@
-     /// groups are measured; the block beside the box gives way as soon as this does not fit
-     tools::Long HstFullWidth() const;
- 
-+    /// HST Office: width of the box with every group at its smallest state that is not its group button,
-+    /// or -1 before the groups are measured (hst::ribbon::PageKeepWidth)
-+    tools::Long HstKeepWidth() const;
-+
-     /// HST Office: whether the block beside the box (Tools, shown as its captioned button) should drop
-     /// its caption: only when the box, nRoom wide, would collapse the group its tab names
-     /// (HstRibbonBlocks.hxx) and nGain more pixels keep it
 --- a/vcl/source/control/PriorityMergedHBox.cxx
 +++ b/vcl/source/control/PriorityMergedHBox.cxx
 @@ -40,6 +40,8 @@
@@ -132,116 +179,3 @@ group shows an icon above its caption.
          rButton->SetAccessibleName(aCaption);
          rButton->SetQuickHelpText(aCaption);
          rButton->set_valign(VclAlign::Fill);
-@@ -602,7 +659,10 @@
-     return !kept(nRoom) && kept(nRoom + nGain);
- }
- 
--tools::Long hst::ribbon::PageFullWidth(const vcl::Window& rPage)
-+namespace
-+{
-+/// HST Office: the page's content width with its merged group box nBox wide instead of its requisition
-+template <class Width> tools::Long hstPageWidth(const vcl::Window& rPage, Width aBoxWidth)
- {
-     // the page's merged group box, breadth first (not a merged box nested in it)
-     std::vector<const vcl::Window*> aLevel{ &rPage };
-@@ -622,12 +682,39 @@
-         aLevel = std::move(aNext);
-     }
-     const vcl::Window* pContent = rPage.GetWindow(GetWindowType::FirstChild);
--    const tools::Long nFull = pMerged ? pMerged->HstFullWidth() : -1;
--    if (nFull < 0 || !pContent)
-+    const tools::Long nBox = pMerged ? aBoxWidth(*pMerged) : -1;
-+    if (nBox < 0 || !pContent)
-         return -1;
--    // the page's content asks for the box at its smallest (calculateRequisition): count its full width
-+    // the page's content asks for the box at its smallest (calculateRequisition): count the given width
-     return VclContainer::getLayoutRequisition(*pContent).Width()
--           - VclContainer::getLayoutRequisition(*pMerged).Width() + nFull;
-+           - VclContainer::getLayoutRequisition(*pMerged).Width() + nBox;
-+}
-+}
-+
-+tools::Long hst::ribbon::PageFullWidth(const vcl::Window& rPage)
-+{
-+    return hstPageWidth(rPage, [](const PriorityMergedHBox& rBox) { return rBox.HstFullWidth(); });
-+}
-+
-+tools::Long hst::ribbon::PageKeepWidth(const vcl::Window& rPage)
-+{
-+    return hstPageWidth(rPage, [](const PriorityMergedHBox& rBox) { return rBox.HstKeepWidth(); });
-+}
-+
-+tools::Long PriorityMergedHBox::HstKeepWidth() const
-+{
-+    if (HstMinWidth() < 0)
-+        return -1;
-+    tools::Long nKeep = 0;
-+    sal_uInt16 nGroups = 0;
-+    for (vcl::Window* pChild : HstGroups())
-+    {
-+        const auto& rWidths = m_aHstWidths.find(pChild)->second.second;
-+        const auto nStates = std::min(rWidths.size(), static_cast<size_t>(hst::ribbon::GroupStateCount));
-+        nKeep += *std::min_element(rWidths.begin(), rWidths.begin() + nStates);
-+        ++nGroups;
-+    }
-+    return nKeep + get_spacing() * (nGroups - 1);
- }
- 
- tools::Long PriorityMergedHBox::HstFullWidth() const
---- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
-+++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
-@@ -53,6 +53,10 @@
-     // HST Office: the full width of every tab page measured so far: the wide banner narrows for the
-     // widest of them, so it keeps one width while the user switches tabs
-     std::map<sal_uInt16, tools::Long> m_aHstPageFullWidths;
-+    // HST Office: the same pages at their smallest without a "Caption ▾" group button: the banner yields
-+    // (narrow, compact, hidden) before any of them would have to collapse a group
-+    std::map<sal_uInt16, tools::Long> m_aHstPageKeepWidths;
-+    tools::Long HstWidestKeepWidth(const TabPage& rCurrent);
- 
-     // time-based debounce: track when the last tab switch via scroll happened
-     std::chrono::steady_clock::time_point m_lastTabSwitch{};
---- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
-+++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
-@@ -541,7 +541,20 @@
-         const tools::Long nWindowWidth = (pTop ? pTop->GetSizePixel().Width() : GetSizePixel().Width())
-                                          + std::lround(16 * fDpi);
-         tools::Long nPageWidth = aPage.w;
--        const hst::banner::Mode eMode = hst::banner::modeFor(nWindowWidth, aPage.h, fDpi);
-+        hst::banner::Mode eMode = hst::banner::modeFor(nWindowWidth, aPage.h, fDpi);
-+        // HST Office: the banner yields before a group collapses into its "Caption ▾" button: the wide
-+        // banner (down to its narrowest) while the widest page fits beside it at its smallest without group
-+        // buttons, else the compact one, else none
-+        if (const tools::Long nKeep = HstWidestKeepWidth(*pPage); nKeep >= 0 && eMode != hst::banner::Mode::Hidden)
-+        {
-+            const tools::Long nRoom = aPage.w - nKeep - std::lround(12 * fDpi); // the 8 px gap, the 4 px margin
-+            const bool bCompact = !m_pHstBanner->CompactUnavailable()
-+                && nRoom >= hst::banner::slotFor(aPage, fDpi, hst::banner::COMPACT_ART_WIDTH).w;
-+            if (eMode == hst::banner::Mode::Wide && nRoom < hst::banner::scaled(hst::banner::MIN_WIDE_ART_WIDTH, fDpi))
-+                eMode = bCompact ? hst::banner::Mode::Compact : hst::banner::Mode::Hidden;
-+            else if (eMode == hst::banner::Mode::Compact && !bCompact)
-+                eMode = hst::banner::Mode::Hidden;
-+        }
-         if (eMode != hst::banner::Mode::Hidden)
-             m_pHstBanner->SetCompact(eMode == hst::banner::Mode::Compact);
-         if (eMode == hst::banner::Mode::Wide
-@@ -579,6 +592,19 @@
-     m_bHstLayout = false;
- }
- 
-+tools::Long NotebookbarTabControl::HstWidestKeepWidth(const TabPage& rCurrent)
-+{
-+    // a page measures once it has been shown; the contextual tabs do not count
-+    if (const tools::Long nCurrent = hst::ribbon::PageKeepWidth(rCurrent); nCurrent >= 0)
-+        m_aHstPageKeepWidths[GetCurPageId()] = nCurrent;
-+    tools::Long nWidest = -1;
-+    for (const auto& [nPageId, nKeep] : m_aHstPageKeepWidths)
-+        if (const TabPage* pMeasured = GetTabPage(nPageId);
-+            pMeasured && pMeasured->HasContext(vcl::EnumContext::Context::Any))
-+            nWidest = std::max(nWidest, nKeep);
-+    return nWidest;
-+}
-+
- IMPL_LINK(NotebookbarTabControl, HstChildEventHdl, VclWindowEvent&, rEvent, void)
- {
-     // The tab control re-allocates the current page at full width on resizes and tab switches.

@@ -17,6 +17,7 @@ import tempfile
 import unittest
 
 from _paths import ROOT
+from test_ribbon_grow_order import regrow_header
 
 PATCHES = os.path.join(ROOT, "patches", "libreoffice")
 
@@ -156,13 +157,15 @@ class RibbonRegrowTest(unittest.TestCase):
         self.assertIn("hst::ribbon::fitByPriority(aGroups, m_aHstPlanPriority, nWidth)", text)
         self.assertIn("-    if (aLayout.overflow.empty() && !bOwnLadder)", text)
 
-    @unittest.skipUnless(shutil.which("g++"), "no C++ compiler")
+    @unittest.skipUnless(shutil.which("g++") and shutil.which("patch"), "no C++ compiler or patch")
     def test_regrow(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for patch, name in (("hst-ribbon-scaling-helper.patch", "HstRibbonScaling.hxx"),
-                                ("hst-ribbon-ux-engine.patch", "HstRibbonRegrow.hxx")):
-                with open(os.path.join(tmp, name), "w", encoding="utf-8") as handle:
-                    handle.write(added_file(patch, "vcl/inc/" + name))
+            with open(os.path.join(tmp, "HstRibbonScaling.hxx"), "w", encoding="utf-8") as handle:
+                handle.write(added_file("hst-ribbon-scaling-helper.patch", "vcl/inc/HstRibbonScaling.hxx"))
+            # the header as the series leaves it (with the growth order, hst-ribbon-ux-grow-order.patch): the
+            # default growth order is the priority's, so every gate here holds unchanged
+            with open(os.path.join(tmp, "HstRibbonRegrow.hxx"), "w", encoding="utf-8") as handle:
+                handle.write(regrow_header(os.path.join(tmp, "tree")))
             with open(os.path.join(tmp, "driver.cxx"), "w", encoding="utf-8") as handle:
                 handle.write(DRIVER)
             exe = os.path.join(tmp, "driver")
