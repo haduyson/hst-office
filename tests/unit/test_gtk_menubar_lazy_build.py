@@ -65,10 +65,14 @@ class GtkMenubarLazyBuildTest(unittest.TestCase):
         self.assertIn("maBuildMenuBarIdle.Stop();\n    DestroyMenuBarWidget();\n    mpFrame = nullptr;", text)  # DetachFromFrame
         self.assertIn("if (bEnable)\n    {\n        maBuildMenuBarIdle.Stop();\n        mbMenuBarBuildPending = false;", text)
 
-    def test_f10_and_menu_customisation_still_build_at_once(self):
+    def test_f10_builds_at_once_and_customisation_rebuilds_only_a_built_menubar(self):
         text = after(CXX)
         self.assertIn("BuildPendingMenuBar();", function(text, "bool GtkSalMenu::TakeFocus()"))
-        self.assertIn("BuildPendingMenuBar();", function(text, "IMPL_LINK_NOARG(GtkSalMenu, MenuBarHierarchyChangeHandler"))
+        hierarchy = function(text, "IMPL_LINK_NOARG(GtkSalMenu, MenuBarHierarchyChangeHandler")
+        # only a menu bar already built is rebuilt at once: this idle also runs from Update() after the global-menu
+        # watch reports no registrar, while a document is still loading and before the Tabbed UI hid the menu bar
+        self.assertIn("const bool bWasBuilt = !mbMenuBarBuildPending && mpMenuBarWidget;", hierarchy)
+        self.assertRegex(hierarchy, r"SetFrame\(mpFrame\);\s*if \(bWasBuilt\)\s*BuildPendingMenuBar\(\);")
 
 
 if __name__ == "__main__":

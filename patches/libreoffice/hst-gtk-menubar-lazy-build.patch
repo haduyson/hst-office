@@ -20,10 +20,12 @@ Unity mode (no global menu; in Unity mode the model is the visible menu and is b
 The idle builds only a menu bar that is still displayable; ShowMenuBar(true) of a menu bar that
 was never built starts the idle again, ShowMenuBar(false) (also from MenuBar::ImplDestroy when a
 window gets another menu bar) stops it, as does DetachFromFrame() and EnableUnity(true). F10
-before the idle ran builds it at once (TakeFocus). A menu customisation (the hierarchy idle)
-still rebuilds a shown menu bar immediately. The menu bar of a new document under the Tabbed UI
-and the one shown again for a closing document are therefore never built; with the standard
-toolbars the menu bar is built at the first idle, before the window is painted.
+before the idle ran builds it at once (TakeFocus). The hierarchy idle (menu customisation, and
+Update() after the global-menu watch reported no registrar, which arrives while a document is
+still loading) rebuilds at once only a menu bar that was already built. The menu bar of a new
+document under the Tabbed UI and the one shown again for a closing document are therefore never
+built; with the standard toolbars the menu bar is built at the first idle, before the window is
+painted.
 
 License: modified upstream files keep their license (MPL-2.0).
 
@@ -68,16 +70,22 @@ License: modified upstream files keep their license (MPL-2.0).
  }
  
  IMPL_LINK_NOARG(GtkSalMenu, MenuBarHierarchyChangeHandler, Timer *, void)
-@@ -556,6 +559,8 @@
+@@ -555,7 +558,14 @@
+     SAL_WARN_IF(!mpFrame, "vcl.gtk", "MenuBar layout changed, but no frame for some reason!");
      if (!mpFrame)
          return;
++    // HST Office: a menubar already built (shown) is rebuilt now as before; one never built stays
++    // deferred. This idle is also invoked from Update() when the global-menu watch reports no
++    // registrar (EnableUnity(false)), while the document is still loading in a nested main loop and
++    // before the Tabbed UI hid the menubar.
++    const bool bWasBuilt = !mbMenuBarBuildPending && mpMenuBarWidget;
      SetFrame(mpFrame);
-+    // HST Office: already in an idle, rebuild a shown menubar now as before (SetFrame() defers it)
-+    BuildPendingMenuBar();
++    if (bWasBuilt)
++        BuildPendingMenuBar();
  }
  
  void GtkSalMenu::SetNeedsUpdate()
-@@ -896,6 +901,9 @@
+@@ -896,6 +906,9 @@
  
  bool GtkSalMenu::TakeFocus()
  {
@@ -87,7 +95,7 @@ License: modified upstream files keep their license (MPL-2.0).
      if (!mpMenuBarWidget)
          return false;
  
-@@ -1017,6 +1025,7 @@
+@@ -1017,6 +1030,7 @@
      // window (e.g. a client of the UNO API still holds the layout manager when the window is
      // closed). Its update idle would then run SetFrame() on the destroyed frame.
      maUpdateMenuBarIdle.Stop();
@@ -95,7 +103,7 @@ License: modified upstream files keep their license (MPL-2.0).
      DestroyMenuBarWidget();
      mpFrame = nullptr;
  }
-@@ -1056,19 +1065,55 @@
+@@ -1056,19 +1070,55 @@
          mpActionGroup = G_ACTION_GROUP( pActionGroup );
      }
  
@@ -155,7 +163,7 @@ License: modified upstream files keep their license (MPL-2.0).
  const GtkSalFrame* GtkSalMenu::GetFrame() const
  {
      SolarMutexGuard aGuard;
-@@ -1419,6 +1464,8 @@
+@@ -1419,6 +1469,8 @@
  
      if (bEnable)
      {
@@ -164,7 +172,7 @@ License: modified upstream files keep their license (MPL-2.0).
          DestroyMenuBarWidget();
          UpdateFull();
          if (!bDisplayable)
-@@ -1444,9 +1491,19 @@
+@@ -1444,9 +1496,19 @@
              g_lo_menu_remove(G_LO_MENU(mpMenuModel), 0);
      }
      else if (bVisible)
