@@ -307,7 +307,7 @@ counts of a wide sheet printed to PDF with each choice, undo, .xlsx and .ods rou
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/source/ui/docshell/printscale.cxx
-@@ -0,0 +1,294 @@
+@@ -0,0 +1,295 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -343,9 +343,10 @@ counts of a wide sheet printed to PDF with each choice, undo, .xlsx and .ods rou
 +{
 +namespace
 +{
++// invalidated one by one: SfxBindings::Invalidate(const sal_uInt16*) needs a numerically sorted array
 +constexpr sal_uInt16 aScaleSlots[] = { SID_PRINTSCALE_NONE, SID_PRINTSCALE_FIT_SHEET, SID_PRINTSCALE_FIT_COLUMNS,
 +                                       SID_PRINTSCALE_FIT_ROWS, SID_PRINTSCALE_OPTIONS, SID_PRINTSCALE_MENU,
-+                                       SID_PREVIEW_SCALINGFACTOR, FID_RESET_PRINTZOOM, 0 };
++                                       SID_PREVIEW_SCALINGFACTOR, FID_RESET_PRINTZOOM, SID_STATUS_PAGESTYLE };
 +
 +SfxStyleSheetBase* FindPageStyle(ScDocument& rDoc, const OUString& rName)
 +{
@@ -546,8 +547,8 @@ counts of a wide sheet printed to PDF with each choice, undo, .xlsx and .ods rou
 +                        PaintPartFlags::Grid | PaintPartFlags::Left);
 +    if (SfxBindings* pBindings = rDocShell.GetViewBindings())
 +    {
-+        pBindings->Invalidate(aScaleSlots);
-+        pBindings->Invalidate(SID_STATUS_PAGESTYLE);
++        for (sal_uInt16 nSlot : aScaleSlots)
++            pBindings->Invalidate(nSlot);
 +    }
 +    return true;
 +}
