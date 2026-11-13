@@ -56,7 +56,7 @@ wizard as its last item, Chọn người nhận ▾, Sửa danh sách người n
 then Định dạng trường), Khối địa chỉ, Dòng chào, Quy tắc ▾, field shadings), Xem trước kết quả (Xem trước kết quả, Bản ghi
 đầu/trước/sau/cuối, Tìm người nhận, Kiểm tra lỗi, "Bản ghi n / N") and Hoàn tất (Hoàn tất và trộn ▾) run the HST Trộn
 thư commands (org.hst.office.mailmerge:, extension hst-vietnamese-tools; the ▾ menus come from its Controller.xcu).
-"Tạo" keeps Phong bì and Nhãn as small buttons, so the tab fits next to the banner at 1500 px. Group, caption and
+Groups of up to three commands (Tạo, Bắt đầu trộn thư) are one row of large buttons. Group, caption and
 button ids are kept; the Vietnamese strings are added to sw/messages.po
 (captions: l10n/vi-overrides.jsonl, applied after the patches).
 
@@ -79,10 +79,10 @@ def small(box, name, command, icon, menu=False, tip=False):
 
 def groups():
     start = [cell(big("bxHstMMStart", "btnHstMMStart", "Start", "cmd/lc_mailmergewizard.png", menu=True), 0, 0, height=2),
-             cell(small("bxHstMMRecipients", "btnHstMMRecipients", "Recipients", "cmd/sc_dbviewtables.png", menu=True,
-                        tip=True), 1, 0),
-             cell(small("bxHstMMEditRecipients", "btnHstMMEditRecipients", "EditRecipients", "cmd/sc_dbqueryedit.png",
-                        tip=True), 1, 1)]
+             cell(big("bxHstMMRecipients", "btnHstMMRecipients", "Recipients", "cmd/lc_dbviewtables.png", menu=True,
+                      tip=True), 1, 0, height=2),
+             cell(big("bxHstMMEditRecipients", "btnHstMMEditRecipients", "EditRecipients", "cmd/lc_dbqueryedit.png",
+                      tip=True), 2, 0, height=2)]
     fields = [cell(big("bxHstMMInsertField", "btnHstMMInsertField", "InsertField", "cmd/lc_insertfieldctrl.png", menu=True),
                    0, 0, height=2),
               cell(small("bxHstMMAddressBlock", "btnHstMMAddressBlock", "AddressBlock", "cmd/sc_insertenvelope.png"), 1, 0),
@@ -101,10 +101,11 @@ def groups():
                cell(small("bxHstMMCheck", "btnHstMMCheck", "Check", "cmd/sc_spelling.png"), 2, 1)]
     finish = [cell(big("bxHstMMFinish", "btnHstMMFinish", "Finish", "cmd/lc_mailmergecreatedocuments.png", menu=True),
                    0, 0, height=2)]
-    create = [cell(_core("bxHstEnvelope", "btnHstEnvelope", ".uno:InsertEnvelope"), 0, 0),
-              cell(_core("bxHstLabels", "btnHstLabels", ".uno:InsertLabels"), 0, 1)]
-    return (group("gdMailingsHstCreate", "lbMailingsHstCreate", "labelMailingsHstCreate", "Create", create, 1, 0)
-            + group("gdMailingsStart", "lbMailingsStart", "labelMailingsStart", CAPTIONS["labelMailingsStart"][0], start, 2, 1)
+    # groups of up to three commands: one row of large buttons (owner decision of 13/11/2026, check-ribbon-layout.py)
+    create = [cell(_core("bxHstEnvelope", "btnHstEnvelope", ".uno:InsertEnvelope", big=True), 0, 0, height=2),
+              cell(_core("bxHstLabels", "btnHstLabels", ".uno:InsertLabels", big=True), 1, 0, height=2)]
+    return (group("gdMailingsHstCreate", "lbMailingsHstCreate", "labelMailingsHstCreate", "Create", create, 2, 0)
+            + group("gdMailingsStart", "lbMailingsStart", "labelMailingsStart", CAPTIONS["labelMailingsStart"][0], start, 3, 1)
             + group("gdMailingsHstFields", "lbMailingsHstFields", "labelMailingsHstFields",
                     CAPTIONS["labelMailingsHstFields"][0], fields, 3, 2)
             + group("gdMailingsHstPreview", "lbMailingsHstPreview", "labelMailingsHstPreview",
@@ -113,16 +114,20 @@ def groups():
                     finish, 1, 4))
 
 
-def _core(box_id, button_id, command, style="both-horiz"):
-    """A core command button (its label, tooltip and state come from the command)."""
-    return ('<object class="sfxlo-NotebookbarToolBox" id="%s">\n  <property name="visible">True</property>\n'
-            '  <property name="can-focus">False</property>\n  <property name="toolbar-style">%s</property>\n'
-            '  <property name="show-arrow">False</property>\n  <child>\n'
-            '    <object class="GtkToolButton" id="%s">\n      <property name="visible">True</property>\n'
-            '      <property name="can-focus">False</property>\n      <property name="action-name">%s</property>\n'
-            '    </object>\n    <packing>\n      <property name="expand">False</property>\n'
-            '      <property name="homogeneous">False</property>\n    </packing>\n  </child>\n</object>'
-            % (box_id, style, button_id, command))
+def _core(box_id, button_id, command, style="both-horiz", big=False):
+    """A core command button (its label, tooltip and state come from the command); `big`: a tall button spanning
+    both rows, like toolbox(big=True)."""
+    tall = '  <property name="valign">center</property>\n  <property name="vexpand">True</property>\n' if big else ""
+    size = '  <property name="icon_size">3</property>\n' if big else ""
+    head = ('<object class="sfxlo-NotebookbarToolBox" id="%s">\n  <property name="visible">True</property>\n'
+            '  <property name="can-focus">False</property>\n%s  <property name="toolbar-style">%s</property>\n'
+            '  <property name="show-arrow">False</property>\n%s' % (box_id, tall, "both" if big else style, size))
+    return head + ('  <child>\n'
+                   '    <object class="GtkToolButton" id="%s">\n      <property name="visible">True</property>\n'
+                   '      <property name="can-focus">False</property>\n      <property name="action-name">%s</property>\n'
+                   '    </object>\n    <packing>\n      <property name="expand">False</property>\n'
+                   '      <property name="homogeneous">False</property>\n    </packing>\n  </child>\n</object>'
+                   % (button_id, command))
 
 
 def _marks():
