@@ -19,7 +19,6 @@ Screenshots and evidence.json go to --out. Exit 1 when any check fails.
 import argparse
 import json
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -40,6 +39,7 @@ START_TABS = {"Writer": False, "Calc": True, "Impress": False, "Draw": True, "Pd
 def run(args):
     hst_gui.setup_uno(args.instdir)
     config = [(MISC, f"DocumentTabs{app}", "true" if tabs else "false") for app, tabs in START_TABS.items()]
+    config.append(("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false"))  # modal template chooser
     office = hst_gui.Office(args.instdir, args.out, PORT, display=args.display, nodefault=False, config=config)
     office.start()
     c = base.Checker(office, args.out)
@@ -105,8 +105,11 @@ def run(args):
         threading.Thread(target=office.dispatch, args=(c.frames()[0], ".uno:DocumentWindowMode"), daemon=True).start()
         time.sleep(5)
         c.shot("04-options-page.png")
-        subprocess.run(["xdotool", "key", "Escape"], env=dict(os.environ, DISPLAY=office.display), check=False)
-        time.sleep(2)
+        page = [w for w, n in hst_gui.toplevels(office.display, office.pid) if n.startswith("Tùy chọn")]
+        c.check("View > Tabs or Separate Windows... opens the Options page", bool(page), repr(page))
+        for wid in page:  # no window manager: close it as its title-bar X would (Cancel)
+            hst_gui.send_close_request(wid, office.display)
+        c.wait(lambda: not any(n.startswith("Tùy chọn") for _w, n in hst_gui.toplevels(office.display, office.pid)))
     finally:
         for doc in office.desktop().getComponents():
             try:
@@ -121,6 +124,9 @@ def run(args):
     c2 = base.Checker(office, args.out)
     try:
         c2.wait(lambda: len(c2.windows()) == 1, 60)
+        time.sleep(8)  # a crash/hang of the first session would show its error report question now
+        c2.check("restart: the first session had ended normally (no other window)", len(c2.windows()) == 1,
+                 repr(c2.windows()))
         from com.sun.star.beans import PropertyValue
         arg = PropertyValue()
         arg.Name, arg.Value = "nodepath", MISC
