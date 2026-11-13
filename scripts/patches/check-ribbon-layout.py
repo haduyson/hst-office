@@ -38,44 +38,53 @@ def check_tree(tree):
     return failures
 
 
-def banner_width(image):
-    """Width of the banner at the right end of the ribbon: the run of columns, from the right, in which the
-    group band is neither the window's background (the colour at the right edge) nor the white of the ribbon
-    page; the banner is drawn on the window's background, right of the page."""
+def page_colour(image):
+    """Background colour of the ribbon page: the commonest colour of the group band's left half (white with the
+    Linux theme, a light grey on Windows)."""
+    from collections import Counter
     width, _ = image.size
     pixels = image.load()
     top, bottom = BAND
-    background = pixels[width - 2, top]
+    return Counter(pixels[x, y][:3] for x in range(0, width // 2, 3) for y in range(top, bottom, 3)).most_common(1)[0][0]
+
+
+def plain_column(image, x, colour):
+    pixels = image.load()
+    top, bottom = BAND
+    return all(pixels[x, y][:3] == colour for y in range(top, bottom, 2))
+
+
+def page_end(image):
+    """x of the last column of the ribbon page (page colour all down the group band), left of the banner."""
+    width, _ = image.size
+    colour = page_colour(image)
+    x = width - 2
+    while x > 0 and not plain_column(image, x, colour):
+        x -= 1
+    return x
+
+
+def banner_width(image):
+    """Width of the banner right of the ribbon page: the columns there in which some pixel of the group band
+    differs from the window's background (the colour at the right edge). The banner is drawn on the window's
+    background, right of the page; its artwork may be white inside (as on Windows), its edges and text are not."""
+    width, _ = image.size
+    pixels = image.load()
+    top, bottom = BAND
+    background = pixels[width - 2, top][:3]
     rows = range(top, bottom, 2)
-    run = 0
-    for x in range(width - 2, max(0, width - 800), -1):
-        column = [pixels[x, y][:3] for y in rows]
-        plain = sum(1 for c in column if c == background) + sum(1 for c in column if c == (255, 255, 255))
-        if plain * 10 <= len(column) * 8:
-            run += 1
-        elif run >= 40:
-            break
-        elif plain == len(column) and run:
-            run = 0
-    return run
+    return sum(1 for x in range(page_end(image) + 1, width - 1)
+               if any(pixels[x, y][:3] != background for y in rows))
 
 
 def free_room(image):
     """Empty width at the right end of the ribbon page, left of the banner: the run of all-white columns of the
-    group band that ends where the page ends (the window's background starts)."""
-    width, _ = image.size
-    pixels = image.load()
-    top, bottom = BAND
-    rows = range(top, bottom, 2)
-    white = [all(pixels[x, y][:3] == (255, 255, 255) for y in rows) for x in range(width)]
-    background = pixels[width - 2, top]
-    x = width - 2
-    while x > 0 and not white[x]:  # the banner and the window's background right of the page
+    group band that ends where the page ends."""
+    colour = page_colour(image)
+    x = end = page_end(image)
+    while x > 0 and plain_column(image, x, colour):
         x -= 1
-    end = x
-    while x > 0 and white[x]:
-        x -= 1
-    return end - x if pixels[end + 1, top][:3] == background[:3] or end < width - 2 else 0
+    return end - x
 
 
 def check_shots(folder, minimum, room):

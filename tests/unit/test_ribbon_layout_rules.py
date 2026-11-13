@@ -137,7 +137,9 @@ class BannerShotTest(unittest.TestCase):
     def test_free_room(self):
         image = self.shot(260)
         draw = self.Draw.Draw(image)
-        draw.rectangle((10, 70, 700, 140), fill=(40, 40, 40))  # the groups end at x 700
+        for left in range(10, 700, 60):  # groups of icons and text, the last one ending at x 700
+            draw.rectangle((left, 80, min(left + 40, 700), 92), fill=(40, 40, 40))
+        draw.rectangle((690, 80, 700, 92), fill=(40, 40, 40))
         self.assertAlmostEqual(check.free_room(image), 1366 - 10 - 260 - 700, delta=3)
 
     def test_banner_width(self):
