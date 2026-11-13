@@ -18,9 +18,9 @@ log() { echo "[$(date '+%F %T')] $*"; }
 
 in_use() { # in_use <dir>: a process runs from <dir> (command line or working directory)
   local p
-  for p in /proc/[0-9]*; do
-    if tr '\0' ' ' < "$p/cmdline" 2>/dev/null | grep -qF "$1/"; then return 0; fi
-    case "$(readlink "$p/cwd" 2>/dev/null)" in "$1"|"$1"/*) return 0 ;; esac
+  for p in /proc/[0-9]*; do   # processes come and go during the scan: a vanished one is skipped
+    { tr '\0' ' ' < "$p/cmdline" | grep -qF "$1/"; } 2>/dev/null && return 0
+    case "$(readlink "$p/cwd" 2>/dev/null || true)" in "$1"|"$1"/*) return 0 ;; esac
   done
   return 1
 }
