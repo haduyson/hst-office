@@ -1,0 +1,35 @@
+HST Sheets: no crash when the input line's delay timer fires before Calc ever used its edit engine.
+
+ScInputHandler creates its EditEngine lazily (ImplCreateEditEngine, when a Calc view first edits
+or activates through the handler). NotifyChange starts the 500 ms delay timer whenever the
+active view is not a Calc view; DelayTimer then cleared the engine's text without checking that
+the engine exists. When the first Calc document of a session appears while another window keeps
+the focus (the start-up welcome or another modal dialog of the office, a document loaded from
+another process), the timer fires with no engine and the office crashes: access violation in
+EditEngine::SetUpdateLayout called from ScEditEngineDefaulter::SetTextCurrentDefaults, from
+ScInputHandler::DelayTimer, from the scheduler inside the dialog's modal loop.
+
+Measured on Windows 11 with the 1.0.1 release and 1.0.2 builds: a fresh profile, the Start
+Center with the welcome dialog open, then Sheets loaded as the first document over UNO -> the
+document recovery dialog of a crash every time; the office's fault note gave the frames
+(mergedlo EditEngine::SetUpdateLayout+0x1f <- sclo ScEditEngineDefaulter::SetTextCurrentDefaults
+<- sclo ScInputHandler::DelayTimer <- Scheduler::CallbackTaskScheduling <- Dialog::Execute <-
+pyuno). With a Writer document opened first, or a Calc window that takes the focus, the handler
+already has its engine and nothing happens.
+
+With no engine there is no text to clear: the rest of the handler (input line reset) still runs.
+
+--- a/sc/source/ui/app/inputhdl.cxx
++++ b/sc/source/ui/app/inputhdl.cxx
+@@ -4642,7 +4642,10 @@
+         bInOwnChange = true; // disable ModifyHdl (reset below)
+ 
+         pActiveViewSh = nullptr;
+-        mpEditEngine->SetTextCurrentDefaults( OUString() );
++        // HST Office: the edit engine is created lazily, when a Calc view first uses this handler;
++        // before that there is no text to clear (a first Calc document opened under a dialog)
++        if (mpEditEngine)
++            mpEditEngine->SetTextCurrentDefaults( OUString() );
+         if ( pInputWin )
+         {
+             pInputWin->SetPosString( OUString() );
