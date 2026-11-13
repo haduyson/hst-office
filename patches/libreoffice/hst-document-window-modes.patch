@@ -103,7 +103,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  
 +    /// A window mode option changed: show or hide the strips of single-tab module windows.
 +    void windowModeChanged();
-+    /** "Apply to the open windows" (Options): once the current event is done, split the windows
++    /** "Apply to the open windows" (Options): once no modal dialog is up, split the windows
 +        of applications set to separate windows into one window per document, and merge the
 +        windows of applications set to tabs into one window per application. HST Office windows
 +        stay as they are. Documents only move between windows: nothing is reloaded or closed. */
@@ -122,8 +122,8 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
 +    static bool takesNewTab(const Group& rGroup, const OUString& rModule);
 +    /// rGroup is a window of an application set to separate windows.
 +    static bool isSeparateWindow(const Group& rGroup);
-+    void splitSeparateWindows();
-+    void mergeTabWindows();
++    void splitSeparateWindows(const css::uno::Reference<css::frame::XFrame>& xActive);
++    void mergeTabWindows(const css::uno::Reference<css::frame::XFrame>& xActive);
  
      Group& newGroup(const OUString& rKind);
      Group* contextGroup();
@@ -131,18 +131,19 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
      DECL_LINK(CloseWindowHdl, void*, void);
      DECL_LINK(SaveLayoutHdl, Timer*, void);
      DECL_LINK(FinishRestoreHdl, Timer*, void);
-+    DECL_LINK(ApplyWindowModesHdl, void*, void);
++    DECL_LINK(ApplyWindowModesHdl, Timer*, void);
  
      /// One window of the saved layout (autorecovery).
      struct LayoutWindow
-@@ -265,6 +288,7 @@
-     rtl::Reference<DocumentTabGroupListener> m_xListener;
-     sal_Int32 m_nInternal = 0; ///< >0 while we show/hide windows ourselves
-     bool m_bClosingAll = false;
-+    bool m_bApplyPending = false; ///< applyWindowModes() posted, not run yet
-     bool m_bEnabled = true; ///< last known option value
-     sal_uInt64 m_nUseCounter = 0;
-     css::uno::WeakReference<css::frame::XFrame> m_xLaunchStartCenter;
+@@ -271,6 +294,8 @@
+     std::vector<LayoutWindow> m_aRestore;
+     Timer m_aSaveLayoutTimer{ "framework DocumentTabGroup save layout" };
+     Timer m_aFinishRestoreTimer{ "framework DocumentTabGroup finish restore" };
++    /// applyWindowModes(): runs once no modal dialog (Options, its restart question) is up
++    Timer m_aApplyWindowModesTimer{ "framework DocumentTabGroup apply window modes" };
+ };
+ }
+ 
 --- a/include/framework/documenttabs.hxx
 +++ b/include/framework/documenttabs.hxx
 @@ -58,6 +58,14 @@
@@ -151,7 +152,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  FWK_DLLPUBLIC void endRestoreLayout();
 +
 +/** Options "Apply to the open windows", after the window modes of the applications were saved
-+    (Office.Common/Misc/DocumentTabsWriter, ...): once the current event is done, the windows of
++    (Office.Common/Misc/DocumentTabsWriter, ...): once no modal dialog is up, the windows of
 +    applications set to separate windows are split into one window per document and the windows
 +    of applications set to tabs are merged into one window per application. HST Office windows
 +    keep their tabs. Documents only move between windows, nothing is reloaded or closed.
@@ -199,7 +200,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  /// UNO side of the group: document events, frame closing, termination, option changes.
  class DocumentTabGroupListener final
      : public cppu::WeakImplHelper<document::XDocumentEventListener, util::XCloseListener,
-@@ -83,12 +104,23 @@
+@@ -83,12 +104,39 @@
              u"/org.openoffice.Office.Common/Misc"_ustr);
          mxListener->addListener(this); // reports the current value at once: ignored
          m_bReady = true;
@@ -208,7 +209,23 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
 +                                       u"DocumentTabsPdf"_ustr })
 +        {
 +            auto pMode = std::make_unique<DocumentWindowModeProperty>(rName);
-+            mxListener->addListener(pMode.get());
++            try
++            {
++                mxListener->addListener(pMode.get());
++            }
++            catch (const uno::Exception&)
++            {
++                // addListener() keeps the pointer before it can fail: never leave it dangling
++                TOOLS_WARN_EXCEPTION("fwk", "DocumentTabGroup: window mode option " << rName);
++                try
++                {
++                    mxListener->removeListener(pMode.get());
++                }
++                catch (const uno::Exception&)
++                {
++                }
++                continue;
++            }
 +            pMode->setReady();
 +            m_aWindowModes.push_back(std::move(pMode));
 +        }
@@ -223,7 +240,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
              mxListener->removeListener(this);
              mxListener->dispose();
              mxListener.clear();
-@@ -141,6 +173,7 @@
+@@ -141,6 +189,7 @@
  
  private:
      bool m_bReady = false;
@@ -231,7 +248,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  };
  
  namespace
-@@ -251,7 +284,8 @@
+@@ -251,7 +300,8 @@
  }
  
  void lcl_dispatch(const uno::Reference<frame::XFrame>& xFrame, const OUString& rURL,
@@ -241,7 +258,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  {
      uno::Reference<frame::XDispatchProvider> xProvider(xFrame, uno::UNO_QUERY);
      if (!xProvider.is())
-@@ -263,7 +297,7 @@
+@@ -263,7 +313,7 @@
      xParser->parseStrict(aURL);
      uno::Reference<frame::XDispatch> xDispatch = xProvider->queryDispatch(aURL, rTarget, 0);
      if (xDispatch.is())
@@ -250,7 +267,16 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  }
  
  constexpr OUString OFFICE_KIND = u"office"_ustr;
-@@ -544,6 +578,44 @@
+@@ -424,6 +474,8 @@
+     m_aSaveLayoutTimer.SetTimeout(1500);
+     m_aSaveLayoutTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, SaveLayoutHdl));
+     m_aFinishRestoreTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, FinishRestoreHdl));
++    m_aApplyWindowModesTimer.SetTimeout(200);
++    m_aApplyWindowModesTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, ApplyWindowModesHdl));
+ }
+ 
+ bool DocumentTabGroup::isEnabled()
+@@ -544,6 +596,44 @@
             || rModule == rGroup.aKind;
  }
  
@@ -295,7 +321,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  bool DocumentTabGroup::mayRecycle(const uno::Reference<frame::XFrame>& xFrame)
  {
      if (xFrame.is() && xFrame == lcl_get(m_xLaunchStartCenter))
-@@ -656,15 +728,16 @@
+@@ -656,15 +746,20 @@
          // The first window of the process is an HST Office window (autorecovery, macros).
          if (m_aGroups.empty())
              return newGroup(OFFICE_KIND);
@@ -306,6 +332,10 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
 -        if (pContext && accepts(*pContext, rModule))
 +        if (pContext && takesNewTab(*pContext, rModule))
              return *pContext;
++        // Application not known yet, opened from a window of an application set to separate
++        // windows: a window of that application (never a new HST Office window).
++        if (pContext && rModule.isEmpty() && isSeparateWindow(*pContext))
++            return newGroup(pContext->aKind);
      }
      // Opened from outside (HST Writer/Sheets/Slides/PDF launcher, file manager), or a document of
      // another module: a tab of the window of its module used last, else a window of its own. Never
@@ -316,7 +346,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
          if (Group* pModule = recentGroupOfKind(rModule))
              return *pModule;
      return newGroup(rModule);
-@@ -1319,6 +1392,158 @@
+@@ -1319,6 +1414,166 @@
          dissolve();
  }
  
@@ -330,24 +360,27 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
 +
 +void DocumentTabGroup::applyWindowModes()
 +{
-+    if (!isEnabled() || m_bApplyPending)
-+        return;
-+    // Not from within the Options dialog: windows move once it is closed.
-+    m_bApplyPending = true;
-+    Application::PostUserEvent(LINK(this, DocumentTabGroup, ApplyWindowModesHdl));
++    if (isEnabled())
++        m_aApplyWindowModesTimer.Start();
 +}
 +
-+IMPL_LINK_NOARG(DocumentTabGroup, ApplyWindowModesHdl, void*, void)
++IMPL_LINK_NOARG(DocumentTabGroup, ApplyWindowModesHdl, Timer*, void)
 +{
-+    m_bApplyPending = false;
 +    if (!isEnabled() || m_bClosingAll)
 +        return;
++    // Windows move only once the Options dialog is closed (its Apply button keeps it open, OK may
++    // ask to restart first): a window shown or focused now would cover the modal dialog.
++    if (Application::IsInModalMode())
++    {
++        m_aApplyWindowModesTimer.Start();
++        return;
++    }
 +    try
 +    {
 +        const uno::Reference<frame::XFrame> xActive
 +            = frame::Desktop::create(comphelper::getProcessComponentContext())->getActiveFrame();
-+        splitSeparateWindows();
-+        mergeTabWindows();
++        splitSeparateWindows(xActive);
++        mergeTabWindows(xActive);
 +        // The document the user worked in stays in front (it may have become a hidden tab).
 +        if (Member* pMember = find(xActive); pMember && pMember->pWindow && !pMember->pWindow->isDisposed())
 +        {
@@ -366,23 +399,32 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
 +    }
 +}
 +
-+void DocumentTabGroup::splitSeparateWindows()
++void DocumentTabGroup::splitSeparateWindows(const uno::Reference<frame::XFrame>& xActive)
 +{
 +    // Every tab but the shown one of a window of an application set to separate windows moves into
 +    // a window of its own, cascaded from that window (a window in full screen keeps its tabs).
 +    cleanUp();
 +    std::vector<std::pair<uno::Reference<frame::XFrame>, std::optional<Point>>> aMoves;
++    std::vector<uno::Reference<frame::XFrame>> aKept;
 +    for (const std::unique_ptr<Group>& pGroup : m_aGroups)
 +    {
 +        if (pGroup->aMembers.size() < 2 || !isSeparateWindow(*pGroup) || groupIsFullScreen(*pGroup))
 +            continue;
-+        Member* pShown = activeMember(*pGroup);
-+        const std::vector<sal_Int32> aState = lcl_windowState(
-+            pShown ? pShown->pWindow : pGroup->aMembers.front().pWindow, vcl::WindowDataMask::PosSize);
++        // The tab that stays: the shown one, else a visible one, else the first (never leave the
++        // window with nothing but a hidden tab).
++        const Member* pKeep = activeMember(*pGroup);
++        for (const Member& rMember : pGroup->aMembers)
++            if (!pKeep && !rMember.bParked && rMember.pWindow && !rMember.pWindow->isDisposed()
++                && rMember.pWindow->IsVisible())
++                pKeep = &rMember;
++        if (!pKeep)
++            pKeep = &pGroup->aMembers.front();
++        aKept.push_back(lcl_get(pKeep->xFrame));
++        const std::vector<sal_Int32> aState = lcl_windowState(pKeep->pWindow, vcl::WindowDataMask::PosSize);
 +        sal_Int32 nStep = 0;
 +        for (const Member& rMember : pGroup->aMembers)
 +        {
-+            if (&rMember == pShown)
++            if (&rMember == pKeep)
 +                continue;
 +            ++nStep;
 +            std::optional<Point> aTopLeft;
@@ -393,24 +435,20 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
 +    }
 +    for (const auto& [xFrame, aTopLeft] : aMoves)
 +        if (xFrame.is())
-+            detach(xFrame, aTopLeft); // the last tab of a window stays (canDetach)
++            detach(xFrame, aTopLeft);
++    // a kept tab that was hidden is shown now (the window lost its shown tab)
++    for (const uno::Reference<frame::XFrame>& xFrame : aKept)
++        if (const Member* pMember = find(xFrame); pMember && pMember->bParked && xFrame != xActive)
++            activate(xFrame);
 +}
 +
-+void DocumentTabGroup::mergeTabWindows()
++void DocumentTabGroup::mergeTabWindows(const uno::Reference<frame::XFrame>& xActive)
 +{
 +    // The windows of an application set to tabs become one window: the one the user works in when
 +    // it is such a window, else the one used last. The other windows' documents become hidden tabs
 +    // there. HST Office windows, windows in full screen and a Start Center standing alone in a
 +    // window of the module stay as they are.
 +    cleanUp();
-+    uno::Reference<frame::XFrame> xActive;
-+    try
-+    {
-+        xActive = frame::Desktop::create(comphelper::getProcessComponentContext())->getActiveFrame();
-+    }
-+    catch (const uno::Exception&)
-+    {
-+    }
 +    const auto lcl_mergeable = [](const Group& rGroup) {
 +        if (rGroup.aKind == OFFICE_KIND || groupIsFullScreen(rGroup) || !moduleUsesTabs(rGroup.aKind))
 +            return false;
@@ -475,7 +513,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  void DocumentTabGroup::dissolve()
  {
      // Option switched off: every tab becomes a window again (cascaded from the shown one).
-@@ -1368,6 +1593,10 @@
+@@ -1368,6 +1623,10 @@
          return false;
      if (static_cast<WorkWindow*>(rMember.pWindow.get())->IsFullScreenMode())
          return false;
@@ -486,7 +524,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
      // A lone Start Center needs no strip; a lone document shows its tab and "+".
      return rGroup.aMembers.size() > 1 || lcl_model(lcl_get(rMember.xFrame)).is();
  }
-@@ -1573,7 +1802,7 @@
+@@ -1573,7 +1832,7 @@
                                            pTarget->pBar->GetOutputSizePixel());
              if (!aStrip.Contains(rScreenPos))
                  continue;
@@ -495,7 +533,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
                  return false;
              // Leave the source window (its neighbour is shown), become the shown tab here.
              const sal_uInt32 nSource = pSource->nId;
-@@ -1829,16 +2058,23 @@
+@@ -1829,16 +2088,23 @@
              }
              rWindow.aUsed[i] = true;
              rOrder = i;
@@ -525,7 +563,15 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
              }
          }
      }
-@@ -1938,10 +2174,30 @@
+@@ -1899,6 +2165,7 @@
+     // A normal quit: no crash to recover from, no layout to keep.
+     m_aSaveLayoutTimer.Stop();
+     m_aFinishRestoreTimer.Stop();
++    m_aApplyWindowModesTimer.Stop();
+     m_aRestore.clear();
+     osl::File::remove(lcl_layoutURL());
+     for (const std::unique_ptr<Group>& pGroup : m_aGroups)
+@@ -1938,10 +2205,30 @@
      }
  
      virtual void SAL_CALL dispatch(const util::URL& rURL,
@@ -557,7 +603,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
          if (!DocumentTabGroup::isEnabled() || !xFrame.is())
              return;
          if (rURL.Complete == ".uno:DetachDocumentTab")
-@@ -1980,7 +2236,7 @@
+@@ -1980,7 +2267,7 @@
  bool DocumentTabGroup::isTabCommand(std::u16string_view rCommand)
  {
      return rCommand == u".uno:NextDocumentTab" || rCommand == u".uno:PrevDocumentTab"
@@ -566,7 +612,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  }
  
  uno::Reference<frame::XDispatch>
-@@ -2022,6 +2278,13 @@
+@@ -2022,6 +2309,13 @@
          DocumentTabGroup::get().beginRestoreLayout();
  }
  
@@ -725,14 +771,18 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
      if ( m_xPdfViewerCB->get_state_changed_from_saved() )
      {
          officecfg::Office::HSTPdfViewer::Viewer::OpenPdfInViewer::set(m_xPdfViewerCB->get_active(), batch);
-@@ -335,9 +395,32 @@
+@@ -335,9 +395,36 @@
  
      batch->commit();
  
 +    // HST Office: move the documents of the open windows to the window modes just saved (once the
-+    // dialog is closed); a one-time action, the box is cleared again by Reset()
++    // dialog is closed); a one-time action, so the box is cleared again
 +    if (m_xApplyOpenWindowsCB->get_sensitive() && m_xApplyOpenWindowsCB->get_active())
++    {
 +        framework::DocumentTabs::applyWindowModes();
++        m_xApplyOpenWindowsCB->set_active(false);
++        m_xApplyOpenWindowsCB->save_state();
++    }
 +
      return bModified;
  }
@@ -758,7 +808,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  void OfaMiscTabPage::Reset( const SfxItemSet* rSet )
  {
      bool bEnable = !officecfg::Office::Common::Help::ExtendedTip::isReadOnly();
-@@ -365,6 +448,22 @@
+@@ -365,6 +452,22 @@
      m_xDocumentTabsImg->set_visible(!bEnable);
      m_xDocumentTabsCB->save_state();
  

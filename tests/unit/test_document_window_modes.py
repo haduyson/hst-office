@@ -90,9 +90,11 @@ class WindowModeOptionsTest(unittest.TestCase):
 
     def test_apply_splits_and_merges_after_the_dialog(self):
         source = added(TABGROUP)
-        self.assertIn("Application::PostUserEvent(LINK(this, DocumentTabGroup, ApplyWindowModesHdl));", source)
+        # never while the Options dialog (its Apply button, the restart question) is still up
+        self.assertIn("if (Application::IsInModalMode())\n    {\n        m_aApplyWindowModesTimer.Start();", source)
         split = function("void DocumentTabGroup::splitSeparateWindows")
         self.assertIn("detach(xFrame, aTopLeft);", split)
+        self.assertIn("pKeep = &pGroup->aMembers.front();", split)  # one tab always stays shown
         merge = function("void DocumentTabGroup::mergeTabWindows")
         # joins the target first, then hides: a parked frame is never reported hidden (XFrameImpl)
         self.assertLess(merge.index("pGroup->aMembers.push_back(rMember);"), merge.index("park(*pMoved);"))
