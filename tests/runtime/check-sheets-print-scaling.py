@@ -65,6 +65,8 @@ def page_counts(office, out, name, columns, rows):
         office.dispatch(doc, ".uno:PrintScale" + choice)
         check(settings(style_of(doc)) == SETTINGS[choice], f"{name}: {choice} sets {SETTINGS[choice]}")
         counts[choice] = pdf_pages(office, doc, os.path.join(out, f"{name}-{choice}.pdf"))
+    office.dispatch(doc, ".uno:PrintScaleNone")  # back from a fit choice: zoom 0 -> 100
+    check(settings(style_of(doc)) == SETTINGS["None"], f"{name}: back to None")
     print(f"      {name} {columns}x{rows}: PDF pages {counts}", flush=True)
     doc.close(True)
     return counts
@@ -92,6 +94,9 @@ def print_dialog_path(office):
     check(settings(style_of(doc)) == SETTINGS["FitColumns"] and count == 1, f"dialog Fit All Columns: {count} page")
     office.dispatch(doc, ".uno:Undo")
     check(settings(style_of(doc)) == SETTINGS["None"], "undo restores actual size")
+    office.dispatch(doc, ".uno:Redo")
+    check(settings(style_of(doc)) == SETTINGS["FitColumns"], "redo applies Fit All Columns again")
+    office.dispatch(doc, ".uno:Undo")
     style_of(doc).PageScale = 75
     choices, initial = ui_control(doc, controller)
     check(choices is not None and len(choices) == 5 and initial == 4 and "75" in choices[4], f"custom entry {choices}")
