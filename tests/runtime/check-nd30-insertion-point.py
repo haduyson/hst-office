@@ -105,8 +105,7 @@ def main():
             for label, command in (("convert encoding", actions.convert_encoding), ("number to words", actions.COMMANDS["NumberToWords"])):
                 said, exc = run_command(office.ctx, actions, command, doc)
                 check("%s: %s does not raise" % (name, label), exc is None, exc)
-            doc.setModified(False)
-            doc.close(True)
+            scenarios.close(doc)
     finally:
         office.stop()
     print("PASS" if all(ROWS) else "FAIL", flush=True)
