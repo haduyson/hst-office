@@ -107,8 +107,14 @@ class FakeDialog(dialogs.Dialog):
         self.controls[name] = control
         return control
 
+    def listbox(self, name, x, y, w, items, selected=0, h=12, help_text="", dropdown=True):
+        control = self._add("ListBox", name, x, y, w, h)
+        control.SelectedItems = (selected,)
+        return control
+
     def get(self, name):
-        return self.controls[name].Text
+        control = self.controls[name]
+        return control.SelectedItems[0] if hasattr(control, "SelectedItems") else control.Text
 
     def select(self, name, index):
         pass
