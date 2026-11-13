@@ -125,6 +125,11 @@ def run_checks(doc, ext_python, ris_path):
         kept = citation_settings.read(reopened)
         count = len([f for f in document.scan(reopened) if f["kind"] == "citation"])
         check("docx-keeps-settings-and-citations", kept and kept["style"] == "apa-7" and count == 4, {"settings": kept, "count": count})
+        from hst_office.citation_codes import decode_citation  # each citation carries its sources' full records
+        stored = [decode_citation(f["code"]) for f in document.scan(reopened) if f["kind"] == "citation"]
+        titles = sorted({item.get("title", "") for _cluster, items in stored for item in items.values()})
+        complete = all(set(items) == {c["id"] for c in cluster["items"]} for cluster, items in stored)
+        check("docx-stores-cited-sources-in-document", complete and len(titles) == 2 and all(titles), titles)
     finally:
         reopened.close(True)
 

@@ -75,7 +75,31 @@ def run_checks(doc, ext_python):
     said.clear()
     actions.COMMANDS["CitationUpdate"](readonly)
     check("read-only-is-refused", said == [texts["blockers"]["readOnly"]] and cited() == ["[1]", "[2]"], said)
+    check_lookup_switch(ctx, check)
     return json.dumps(results, ensure_ascii=False)
+
+
+def check_lookup_switch(ctx, check):
+    """The administrator key exists in the installed schema and turns both online buttons off."""
+    import uno
+    from hst_office import citation_lookup_action as lookup_action
+    path = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    path.Name, path.Value = "nodepath", lookup_action.CONFIG
+    node = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx) \
+        .createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess", (path,))
+    default, said = lookup_action.config(ctx).enabled, []
+    lookup_action.ui.inform = lambda _c, _p, _t, text: said.append(text)
+    node.setPropertyValue("OnlineLookup", False)
+    node.commitChanges()
+    try:
+        texts = {"entry": {"lookupOff": "off"}, "common": {"error": "%s"}}
+        found = (lookup_action.lookup(ctx, None, texts, "10.1038/nature14539"),
+                 lookup_action.lookup_line(ctx, None, texts, "LeCun Y. Deep learning. Nature. 2015;521:436-444."))
+        check("online-lookup-key-turns-both-buttons-off", default is True and found == (None, None)
+              and said == ["off", "off"] and lookup_action.config(ctx).enabled is False, {"said": said})
+    finally:
+        node.setPropertyValue("OnlineLookup", True)
+        node.commitChanges()
 
 
 g_exportedScripts = (run_checks,)

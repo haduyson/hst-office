@@ -1,16 +1,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""The source form ("Nguồn tài liệu mới" / "Sửa nguồn tài liệu"): type, authors, the fields of that type, online
-lookup by DOI/ISBN/PMID/arXiv (on click only), splitting a pasted formatted reference into fields (offline), and a
-preview of the bibliography entry. Saving also stores the source in the user's library unless unticked.
-Returns the saved item or None. Field logic: citation_entry_form (pure)."""
+"""The source form ("Nguồn tài liệu mới" / "Sửa nguồn tài liệu"): type, authors, the fields of that type, a
+preview of the bibliography entry, splitting a pasted reference into fields (offline), and the only two online
+actions of the citation manager, each run by its own button with a line beside it saying what is sent where:
+"Tra cứu" (DOI/ISBN/PMID/arXiv) and "Tìm theo dòng đã dán" (Crossref). Typing, pasting, focus changes and opening
+the form never call them (citation_lookup_action). A result only fills the form; saving the form is what stores
+the source in the user's library (unless unticked). Returns the saved item or None. Field logic:
+citation_entry_form (pure)."""
 from . import citation_entry_form as form
+from . import citation_lookup_action as lookup_action
 from . import citation_ui as ui
 from .citation_lists import set_label
 from .citation_refresh_plan import term_language
 from .dialogs import Dialog
 
-W, H = 420, 316
-GRID_Y, ROW = 106, 16
+W, H = 420, 352
+GRID_Y, ROW = 142, 16
 
 
 def run(ctx, peer, texts, item, library, style, save_default=True, language=None):
@@ -25,16 +29,20 @@ def run(ctx, peer, texts, item, library, style, save_default=True, language=None
     dialog.label("lType", t["type"], 8, 10, 90)
     dialog.listbox("type", 102, 8, 150, [texts["types"].get(k, k) for k in types], types.index(current_type),
                    help_text=t["type"])
+    id_hint, line_hint = lookup_action.hints(texts, lookup_action.config(ctx).enabled)  # settings only, no network
     dialog.label("lLookup", t["lookup"], 8, 28, 120)
     dialog.edit("lookupText", 130, 26, 186, help_text=t["lookup"])
     dialog.button("lookup", t["lookupButton"], 320, 25, W - 328, callback=lambda: do_lookup())
-    dialog.label("lPaste", t["paste"], 8, 46, 120)
-    dialog.edit("pasteText", 130, 44, 186, help_text=t["paste"])
-    dialog.button("paste", t["pasteButton"], 320, 43, W - 328, callback=lambda: do_paste())
-    dialog.label("lAuthors", t["authors"], 8, 62, 200)
-    dialog.edit("authors", 8, 72, 196, h=30, multiline=True, help_text=t["authorsHelp"])
-    dialog.label("lEditors", t["editors"], 212, 62, 200)
-    dialog.edit("editors", 212, 72, W - 220, h=30, multiline=True, help_text=t["authorsHelp"])
+    dialog.label("lookupHint", id_hint, 130, 41, W - 138, 16, wrap=True)
+    dialog.label("lPaste", t["paste"], 8, 62, 120)
+    dialog.edit("pasteText", 130, 60, 186, help_text=t["paste"])
+    dialog.button("paste", t["pasteButton"], 320, 59, W - 328, callback=lambda: do_paste())
+    dialog.button("lookupLine", t["lineButton"], 8, 76, 118, callback=lambda: do_line())
+    dialog.label("lineHint", line_hint, 130, 77, W - 138, 16, wrap=True)
+    dialog.label("lAuthors", t["authors"], 8, 98, 200)
+    dialog.edit("authors", 8, 108, 196, h=30, multiline=True, help_text=t["authorsHelp"])
+    dialog.label("lEditors", t["editors"], 212, 98, 200)
+    dialog.edit("editors", 212, 108, W - 220, h=30, multiline=True, help_text=t["authorsHelp"])
     for index, field in enumerate(form.FIELDS):
         column, row = index % 2, index // 2
         x, y = 8 + column * 206, GRID_Y + row * ROW
@@ -82,20 +90,26 @@ def run(ctx, peer, texts, item, library, style, save_default=True, language=None
         except Exception:  # noqa: BLE001 - half-typed fields: no preview yet
             set_label(dialog, "preview", "")
 
-    def do_lookup():
-        from .citation_lookup_action import lookup
-        text = dialog.get("lookupText").strip()
+    def online(field, run, source):
+        """One button press: the typed text goes to ``run``; a result fills the form (nothing is stored yet)."""
+        text = dialog.get(field).strip()
         if not text:
             return
         set_label(dialog, "preview", t["lookupRunning"])
-        found = lookup(ctx, dialog.dialog.getPeer(), texts, text)
+        found = run(ctx, dialog.dialog.getPeer(), texts, text)
         if found is not None:
             if state["base"] is None:
                 state["base"] = found
             fill(found)
-            ui.inform(ctx, dialog.dialog.getPeer(), texts, t["lookupFound"] % text)
+            ui.inform(ctx, dialog.dialog.getPeer(), texts, t["lookupFound"] % source(text))
         else:
             preview()
+
+    def do_lookup():
+        online("lookupText", lookup_action.lookup, lambda text: text)
+
+    def do_line():
+        online("pasteText", lookup_action.lookup_line, lambda _text: "Crossref")
 
     def do_paste():
         from .citation_paste_parse import parse_reference
