@@ -253,6 +253,15 @@ class DispatcherTest(QueueTestCase):
         bqd.tick(self.store, runners, bq)
         self.assertEqual(self.store.load(job["id"])["state"], "cancelled")
 
+    def test_windows_jobs_are_shared_per_host(self):
+        runner = bqd.WindowsRunner(self.store, bq.DEFAULT_CONFIG)
+        slot = {"host": "hst5", "root": "D:\\hst-build-s2", "jobs": 28}
+        self.assertEqual(runner.jobs_for(slot), 28)
+        job, _ = self.submit(platform="windows")
+        self.store.update(job["id"], state="running", host="hst5")
+        self.assertEqual(runner.jobs_for(slot), 14)
+        self.assertEqual(runner.jobs_for({"host": "hst4", "root": "D:\\hst-build", "jobs": 28}), 28)
+
     def test_windows_task_names_fit_hst4_detach(self):
         job, _ = self.submit(platform="windows")
         self.assertRegex(bqd.win_task_name(job["id"]), r"^q-[0-9a-f-]{6,40}$")

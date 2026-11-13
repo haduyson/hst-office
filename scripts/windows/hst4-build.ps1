@@ -12,7 +12,7 @@ apply-build-overlay.ps1 for an admin-install image) instead of an MSI; the slot 
 Long builds: start it with hst4-detach.ps1 (scheduled task) so it survives the SSH session.
 Layout under -Root (the same as the runner's D:\hst; all paths are free of spaces):
   repo\  checkout of -Ref       lo\  LibreOffice tree + workdir (kept between runs = incremental build)
-  dl\  pinned tarballs  branding\  staged branding  bin\  native make, pkgconf  logs\ metrics\  trial-build.sh output
+  dl\  pinned tarballs (under -ToolsRoot, shared by all slots)  branding\  staged branding  bin\  native make, pkgconf  logs\ metrics\  trial-build.sh output
   pristine\<key>\ cached extract   stage\ last patched tree (see hst4-tree.sh)
   out\<ref>-<sha7>\  renamed MSI + SHA256SUMS + build-info.json   status.json  current state for -Status
 Incremental: hst4-tree.sh re-applies the checkout's patch steps (its own trial-build.sh) on a cached extract and
@@ -135,7 +135,7 @@ function Sync-Repo {
 
 function Sync-Tarballs {
     # Same lock and checksums as "Fetch and verify pinned source tarballs"; download only when one is missing or wrong.
-    $dl = Join-Path $Root 'dl'
+    $dl = Join-Path $ToolsRoot 'dl'
     $lock = Get-Content -LiteralPath (Join-Path $Repo 'upstream\libreoffice-lock.json') -Raw | ConvertFrom-Json
     $stale = @($lock.tarballs | Where-Object {
             $f = Join-Path $dl $_.name
@@ -254,7 +254,8 @@ try {
     (Get-Process -Id $PID).PriorityClass = $Priority
     $env:TEMP = $env:TMP = Join-Path $Root 'tmp'
     $env:CHERE_INVOKING = '1'
-    $env:HST_DL = ConvertTo-CygPath (Join-Path $Root 'dl')
+    # Pinned tarballs are shared by all slots (verified against the lock before use, never modified in place).
+    $env:HST_DL = ConvertTo-CygPath (Join-Path $ToolsRoot 'dl')
     $env:HST_REPO = ConvertTo-CygPath $Repo
     Assert-Space
     $t0 = Get-Date

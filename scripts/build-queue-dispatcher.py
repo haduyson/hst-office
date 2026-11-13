@@ -205,10 +205,17 @@ class WindowsRunner:
             return slot
         return None
 
+    def jobs_for(self, slot):
+        """-Jobs for a new build: the slot's threads shared with the builds already running on the same host
+        (HST5: 28 alone, 14 beside a running build), so two builds stay within the host's RAM."""
+        running = sum(1 for j in self.store.all()
+                      if j["platform"] == "windows" and j["state"] == "running" and j.get("host") == slot["host"])
+        return max(4, slot.get("jobs", 28) // (running + 1))
+
     def start(self, job, slot):
         self.deploy(slot["host"])
         args = ["-Root", slot["root"], "-Job", win_task_name(job["id"]), "-Ref", job["sha"],
-                "-Jobs", str(slot.get("jobs", 28))]
+                "-Jobs", str(self.jobs_for(slot))]
         if job["modules"]:
             args += ["-Modules", ",".join(job["modules"])]
         self.probes.pop(f"{slot['host']}:{slot['root']}", None)
