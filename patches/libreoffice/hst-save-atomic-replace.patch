@@ -1,0 +1,416 @@
+HST Office: saving over an existing file never leaves it empty or cut short.
+
+- sfx2 docfile.cxx TransactedTransferForFS_Impl: the temporary file is fsync'd before the rename that
+  replaces the user's file and the folder is fsync'd after it (before, the file was synced only after the
+  rename, the folder never). Where upstream truncates the file to 0 bytes and rewrites it in place -- a
+  symbolic link on Linux, every file on macOS (Finder's "hide extension" flag) -- the real file is now
+  replaced through a temporary file in its own folder that gets its permissions, owner (when allowed) and
+  extended attributes (macOS: resource fork, Finder info, ACLs), fsync and rename; the link stays a link.
+  Hard links, read-only files and failures keep the upstream in-place write.
+- The temporary file next to the user's file is named .~hst-save-<pid>-<n>.tmp; a later save in that folder
+  removes ones whose process is gone and that are older than 10 minutes (any after 7 days: shared folders).
+- hstsavefile.{hxx,cxx}, hstsavetemps.cxx: the helpers.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-save-replace.py (Linux symlink;
+macOS on the macOS build).
+---
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -220,6 +220,8 @@ $(eval $(call gb_Library_add_exception_objects,sfx,\
+     sfx2/source/doc/autoredactdialog \
+     sfx2/source/doc/docfac \
+     sfx2/source/doc/docfile \
++    sfx2/source/doc/hstsavefile \
++    sfx2/source/doc/hstsavetemps \
+     sfx2/source/doc/docfilt \
+     sfx2/source/doc/docinf \
+     sfx2/source/doc/docinsert \
+--- a/sfx2/source/doc/docfile.cxx
++++ b/sfx2/source/doc/docfile.cxx
+@@ -24,6 +24,8 @@
+ #endif
+ 
+ #include <sfx2/docfile.hxx>
++#include <comphelper/hstdurablefile.hxx>
++#include "hstsavefile.hxx"
+ #include <sfx2/signaturestate.hxx>
+ 
+ #include <com/sun/star/task/InteractionHandler.hpp>
+@@ -368,6 +370,13 @@ public:
+     {
+     }
+ 
++    /// HST Office: next to the user's file, with a name a later save recognises (hstsavefile.hxx)
++    MediumTempFile(const OUString& rLeadingChars, const OUString *pParent )
++        : ::utl::TempFileNamed(rLeadingChars, true, u".tmp", pParent)
++        , m_bWasChild(comphelper::LibreOfficeKit::isForkedChild())
++    {
++    }
++
+     MediumTempFile(const MediumTempFile &rFrom ) = delete;
+ 
+     ~MediumTempFile()
+@@ -2307,6 +2316,9 @@ void SfxMedium::TransactedTransferForFS_Impl( const INetURLObject& aSource,
+                 OUString aDestMainURL = aDest.GetMainURL(INetURLObject::DecodeMechanism::NONE);
+ 
+                 sal_uInt64 nAttributes = GetDefaultFileAttributes(aDestMainURL);
++                // HST Office: the new content must be on disk before the rename publishes it
++                if (!pImpl->m_bDisableFileSync)
++                    comphelper::hst::syncFile(aSourceMainURL);
+                 if (IsFileMovable(aDest)
+                     && osl::File::replace(aSourceMainURL, aDestMainURL) == osl::FileBase::E_None)
+                 {
+@@ -2314,6 +2326,16 @@ void SfxMedium::TransactedTransferForFS_Impl( const INetURLObject& aSource,
+                         // Adjust attributes, source might be created with
+                         // the osl_File_OpenFlag_Private flag.
+                         osl::File::setAttributes(aDestMainURL, nAttributes);
++                    if (!pImpl->m_bDisableFileSync)
++                        comphelper::hst::syncParentDirectory(aDestMainURL); // the rename itself
++                    bResult = true;
++                }
++                // HST Office: a symbolic link (Linux) or any file (macOS) is replaced through a
++                // temporary file next to the real file instead of being cut to 0 bytes and rewritten
++                else if (aDest.GetProtocol() == INetProtocol::File
++                         && sfx2::hst::replaceThroughTarget(aSourceMainURL, aDestMainURL,
++                                                            !pImpl->m_bDisableFileSync))
++                {
+                     bResult = true;
+                 }
+                 else
+@@ -4129,7 +4151,14 @@ void SfxMedium::CreateTempFile( bool bReplace )
+     }
+ 
+     OUString aLogicBase = GetLogicBase(GetURLObject(), pImpl);
+-    pImpl->pTempFile.reset(new MediumTempFile(&aLogicBase));
++    if (!aLogicBase.isEmpty())
++    {
++        // HST Office: recognisable name; leftovers of crashed saves in this folder go away
++        sfx2::hst::sweepStaleSaveTemps(aLogicBase);
++        pImpl->pTempFile.reset(new MediumTempFile(sfx2::hst::saveTempPrefix(), &aLogicBase));
++    }
++    else
++        pImpl->pTempFile.reset(new MediumTempFile(&aLogicBase));
+     if (!aLogicBase.isEmpty() && pImpl->pTempFile->GetFileName().isEmpty())
+         pImpl->pTempFile.reset(new MediumTempFile(nullptr));
+     pImpl->pTempFile->EnableKillingFile();
+@@ -4227,7 +4256,14 @@ void SfxMedium::CreateTempFileNoCopy()
+     pImpl->pTempFile.reset();
+ 
+     OUString aLogicBase = GetLogicBase(GetURLObject(), pImpl);
+-    pImpl->pTempFile.reset(new MediumTempFile(&aLogicBase));
++    if (!aLogicBase.isEmpty())
++    {
++        // HST Office: recognisable name; leftovers of crashed saves in this folder go away
++        sfx2::hst::sweepStaleSaveTemps(aLogicBase);
++        pImpl->pTempFile.reset(new MediumTempFile(sfx2::hst::saveTempPrefix(), &aLogicBase));
++    }
++    else
++        pImpl->pTempFile.reset(new MediumTempFile(&aLogicBase));
+     if (!aLogicBase.isEmpty() && pImpl->pTempFile->GetFileName().isEmpty())
+         pImpl->pTempFile.reset(new MediumTempFile(nullptr));
+     pImpl->pTempFile->EnableKillingFile();
+--- /dev/null
++++ b/sfx2/source/doc/hstsavefile.cxx
+@@ -0,0 +1,162 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: crash-safe replacement of an existing file (see hstsavefile.hxx).
++
++#include "hstsavefile.hxx"
++
++#include <comphelper/hstdurablefile.hxx>
++#include <osl/file.hxx>
++#include <osl/thread.h>
++#include <sal/log.hxx>
++
++#include <string>
++#include <vector>
++
++#ifdef UNX
++#include <cerrno>
++#include <climits>
++#include <cstring>
++#include <cstdlib>
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#ifdef MACOSX
++#include <copyfile.h>
++#else
++#include <sys/xattr.h>
++#endif
++#endif
++
++namespace sfx2::hst
++{
++namespace
++{
++#ifdef UNX
++/// Extended attributes (macOS: also ACL, resource fork and Finder info) of nFrom onto nTo.
++void copyAttributes(int nFrom, int nTo)
++{
++#ifdef MACOSX
++    if (fcopyfile(nFrom, nTo, nullptr, COPYFILE_XATTR | COPYFILE_ACL) != 0)
++        SAL_INFO("sfx.doc", "hst: fcopyfile failed: " << errno);
++#else
++    const ssize_t nSize = flistxattr(nFrom, nullptr, 0);
++    if (nSize <= 0)
++        return;
++    std::vector<char> aNames(nSize);
++    if (flistxattr(nFrom, aNames.data(), aNames.size()) != nSize)
++        return;
++    for (const char* pName = aNames.data(); pName < aNames.data() + nSize; pName += strlen(pName) + 1)
++    {
++        const ssize_t nValue = fgetxattr(nFrom, pName, nullptr, 0);
++        std::vector<char> aValue(nValue > 0 ? nValue : 0);
++        if (nValue < 0 || fgetxattr(nFrom, pName, aValue.data(), aValue.size()) != nValue
++            || fsetxattr(nTo, pName, aValue.data(), aValue.size(), 0) != 0)
++            SAL_INFO("sfx.doc", "hst: extended attribute not copied: " << pName);
++    }
++#endif
++}
++
++bool copyContent(int nIn, int nOut)
++{
++    std::vector<char> aBuffer(1 << 16);
++    for (;;)
++    {
++        const ssize_t nRead = read(nIn, aBuffer.data(), aBuffer.size());
++        if (nRead == 0)
++            return true;
++        if (nRead < 0 && errno == EINTR)
++            continue;
++        if (nRead < 0)
++            return false;
++        for (ssize_t nDone = 0; nDone < nRead;)
++        {
++            const ssize_t nWritten = write(nOut, aBuffer.data() + nDone, nRead - nDone);
++            if (nWritten < 0 && errno == EINTR)
++                continue;
++            if (nWritten <= 0)
++                return false;
++            nDone += nWritten;
++        }
++    }
++}
++
++std::string sysPath(const OUString& rURL)
++{
++    OUString aPath;
++    if (osl::FileBase::getSystemPathFromFileURL(rURL, aPath) != osl::FileBase::E_None)
++        return {};
++    return std::string(OUStringToOString(aPath, osl_getThreadTextEncoding()));
++}
++#endif
++}
++
++bool replaceThroughTarget(const OUString& rSourceURL, const OUString& rDestURL, bool bSync)
++{
++#ifdef UNX
++    const std::string aSource = sysPath(rSourceURL), aDest = sysPath(rDestURL);
++    struct stat aLink;
++    if (aSource.empty() || aDest.empty() || lstat(aDest.c_str(), &aLink) != 0)
++        return false;
++#ifndef MACOSX
++    if (!S_ISLNK(aLink.st_mode))
++        return false; // plain files already take the rename path (IsFileMovable)
++#endif
++    char aReal[PATH_MAX];
++    struct stat aStat;
++    if (!realpath(aDest.c_str(), aReal) || stat(aReal, &aStat) != 0 || !S_ISREG(aStat.st_mode)
++        || aStat.st_nlink > 1 || access(aReal, W_OK) != 0)
++        return false;
++    const std::string aDir(aReal, std::string_view(aReal).rfind('/') + 1);
++    std::string aTemp = aDir + std::string(OUStringToOString(saveTempPrefix(), RTL_TEXTENCODING_ASCII_US)) + "XXXXXX.tmp";
++    const int nOut = mkstemps(aTemp.data(), 4);
++    if (nOut < 0)
++        return false;
++    const int nIn = open(aSource.c_str(), O_RDONLY | O_CLOEXEC);
++    const int nOld = open(aReal, O_RDONLY | O_CLOEXEC);
++    bool bOk = nIn >= 0 && nOld >= 0 && copyContent(nIn, nOut);
++    if (bOk)
++    {
++        if (fchmod(nOut, aStat.st_mode & 07777) != 0)
++            SAL_INFO("sfx.doc", "hst: fchmod failed: " << errno);
++        if (fchown(nOut, aStat.st_uid, aStat.st_gid) != 0)
++            SAL_INFO("sfx.doc", "hst: fchown not allowed: " << errno); // other owner: keep ours
++        copyAttributes(nOld, nOut);
++        bOk = !bSync || fsync(nOut) == 0;
++    }
++    if (nIn >= 0)
++        close(nIn);
++    if (nOld >= 0)
++        close(nOld);
++    bOk = close(nOut) == 0 && bOk;
++    if (!bOk || rename(aTemp.c_str(), aReal) != 0)
++    {
++        unlink(aTemp.c_str());
++        SAL_WARN("sfx.doc", "hst: replacing " << aReal << " failed, falling back to an in-place write");
++        return false;
++    }
++    if (bSync)
++    {
++        OUString aRealURL;
++        if (osl::FileBase::getFileURLFromSystemPath(
++                OStringToOUString(aReal, osl_getThreadTextEncoding()), aRealURL)
++            == osl::FileBase::E_None)
++            comphelper::hst::syncParentDirectory(aRealURL);
++    }
++    return true;
++#else
++    (void)rSourceURL;
++    (void)rDestURL;
++    (void)bSync;
++    return false;
++#endif
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/doc/hstsavefile.hxx
+@@ -0,0 +1,38 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++
++/** HST Office: saving over an existing file without a window where it is empty or cut short.
++
++    The temporary file a save writes next to the user's file is named ".~hst-save-<pid>-<n>.tmp", so
++    one a crashed office left behind can be recognised and removed by a later save in that folder.
++*/
++namespace sfx2::hst
++{
++/// Leading characters of the temporary file next to the user's file for this process.
++OUString saveTempPrefix();
++
++/// Remove ".~hst-save-<pid>-*.tmp" of other processes in the folder once they are older than
++/// 10 minutes and their process is gone (any of them after 7 days: a folder shared by computers).
++void sweepStaleSaveTemps(const OUString& rDirURL);
++
++/** Replace the file rDestURL refers to with the content of rSourceURL without truncating it first:
++    a symbolic link is resolved and the file it points to is replaced (the link stays); on macOS
++    every save goes this way. The new content is written to a temporary file in that file's folder,
++    gets its permissions, owner (when allowed) and extended attributes (macOS: also the resource
++    fork, Finder info such as "hide extension" and ACLs), is fsync'd and renamed over it; the folder
++    is fsync'd. False (nothing changed) for hard links, read-only files, file systems that refuse it,
++    or non-Unix systems: the caller then keeps the upstream in-place write. */
++bool replaceThroughTarget(const OUString& rSourceURL, const OUString& rDestURL, bool bSync);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/doc/hstsavetemps.cxx
+@@ -0,0 +1,95 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the temporary files of a save next to the user's file (see hstsavefile.hxx).
++
++#include "hstsavefile.hxx"
++
++#include <o3tl/string_view.hxx>
++#include <osl/file.hxx>
++#include <osl/process.h>
++#include <osl/time.h>
++#include <sal/log.hxx>
++
++#ifdef UNX
++#include <cerrno>
++#include <signal.h>
++#elif defined _WIN32
++#include <prewin.h>
++#include <postwin.h>
++#endif
++
++namespace sfx2::hst
++{
++namespace
++{
++constexpr std::u16string_view PREFIX = u".~hst-save-";
++
++sal_uInt32 currentPid()
++{
++    oslProcessInfo aInfo;
++    aInfo.Size = sizeof(aInfo);
++    return osl_getProcessInfo(nullptr, osl_Process_IDENTIFIER, &aInfo) == osl_Process_E_None
++               ? aInfo.Ident
++               : 0;
++}
++
++bool processAlive(sal_uInt32 nPid)
++{
++#ifdef UNX
++    return kill(static_cast<pid_t>(nPid), 0) == 0 || errno != ESRCH;
++#elif defined _WIN32
++    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, nPid);
++    if (!hProcess)
++        return GetLastError() != ERROR_INVALID_PARAMETER; // no such process
++    DWORD nCode = 0;
++    const bool bAlive = GetExitCodeProcess(hProcess, &nCode) && nCode == STILL_ACTIVE;
++    CloseHandle(hProcess);
++    return bAlive;
++#else
++    (void)nPid;
++    return true;
++#endif
++}
++
++}
++
++OUString saveTempPrefix() { return OUString::Concat(PREFIX) + OUString::number(currentPid()) + "-"; }
++
++void sweepStaleSaveTemps(const OUString& rDirURL)
++{
++    osl::Directory aDir(rDirURL);
++    if (aDir.open() != osl::FileBase::E_None)
++        return;
++    TimeValue aNow;
++    osl_getSystemTime(&aNow);
++    const sal_uInt32 nSelf = currentPid();
++    osl::DirectoryItem aItem;
++    while (aDir.getNextItem(aItem) == osl::FileBase::E_None)
++    {
++        osl::FileStatus aStatus(osl_FileStatus_Mask_FileName | osl_FileStatus_Mask_FileURL
++                                | osl_FileStatus_Mask_ModifyTime | osl_FileStatus_Mask_Type);
++        if (aItem.getFileStatus(aStatus) != osl::FileBase::E_None
++            || aStatus.getFileType() != osl::FileStatus::Regular)
++            continue;
++        const OUString aName = aStatus.getFileName();
++        std::u16string_view aRest;
++        if (!aName.startsWith(PREFIX, &aRest) || !aName.endsWith(".tmp"))
++            continue;
++        const sal_uInt32 nPid = o3tl::toUInt32(aRest.substr(0, aRest.find(u'-')));
++        const sal_Int64 nAge = sal_Int64(aNow.Seconds) - aStatus.getModifyTime().Seconds;
++        const bool bStale = nAge > 7 * 24 * 3600 || (nAge > 600 && nPid != nSelf && !processAlive(nPid));
++        if (nPid && bStale && osl::File::remove(aStatus.getFileURL()) == osl::FileBase::E_None)
++            SAL_INFO("sfx.doc", "hst: removed a crashed save's temporary file " << aName);
++    }
++}
++
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

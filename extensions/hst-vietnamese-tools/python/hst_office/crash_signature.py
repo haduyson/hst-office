@@ -38,11 +38,12 @@ def crash_frames(frames):
 
 
 def from_linux_stderr(text):
-    """Signature from the stderr of a crashed session (pure): the first fatal signal (faulthandler's verdict), the
-    office handler's last "Fatal exception: Signal N" and the crashing frames of its stack."""
+    """Signature from the stderr of a crashed session (pure): Python's fatal error line when an older build wrote one,
+    the office handler's first "Fatal exception: Signal N" (the fault itself, printed before the emergency save; a
+    later one is the abort that follows) and the crashing frames of its stack."""
     text = text or ""
     lines = text.splitlines()
-    start = max((i for i, line in enumerate(lines) if _SIGNAL.search(line)), default=None)
+    start = min((i for i, line in enumerate(lines) if _SIGNAL.search(line)), default=None)
     python = _PY_FATAL.findall(text)
     if start is None and not python:
         return ""

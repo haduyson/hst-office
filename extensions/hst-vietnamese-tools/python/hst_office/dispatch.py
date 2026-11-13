@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """ProtocolHandler (Vietnamese in every UI language: product policy) for the org.hst.office.vi: command URLs used by the HST menu and toolbar."""
+import importlib
 import os
 
 import unohelper
@@ -18,6 +19,8 @@ SHOW_SOLUTIONS = "ShowSolutions"  # needs no document, so it also works in the S
 USB_TOKEN = "SetupUsbToken"
 REPORT_ERROR = "ReportError"  # Trợ giúp ▸ Báo lỗi cho HASON TECH; needs no document either
 DEFAULT_APPS = "DefaultApps"  # HST ▸ Dùng HST Office để mở tài liệu văn phòng; needs no document
+UNSAVED = "UnsavedDocuments"  # Tệp tin ▸ Tài liệu chưa lưu, Start Center button; needs no document
+ON_USE = {USB_TOKEN: ("usb_token", "run"), REPORT_ERROR: ("error_report_dialog", "run"), UNSAVED: ("unsaved_dialog", "run")}
 TEST_RAISE_ENV = "HST_DIAG_TEST_RAISE"
 DUPLEX = "ToggleDuplex"  # HST ▸ In hai mặt: a check item showing the document's choice
 # The commands of actions.COMMANDS, by name. The Start Center creates this handler and asks it about every HST menu
@@ -90,21 +93,18 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
 
     def queryDispatch(self, url, target_frame_name, search_flags):
         return self if url.Protocol == PROTOCOL and (url.Path in ACTION_COMMANDS or url.Path in ui_language.COMMANDS
-                                                    or url.Path in (SHOW_SOLUTIONS, USB_TOKEN, REPORT_ERROR, DEFAULT_APPS)) else None
+                                                    or url.Path in ON_USE or url.Path in (SHOW_SOLUTIONS, DEFAULT_APPS)) else None
 
     def queryDispatches(self, requests):
         return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in requests)
 
     def dispatch(self, url, arguments):
-        if url.Path == USB_TOKEN:
-            from . import usb_token
-            return usb_token.run(self.ctx, self.frame)
         if url.Path == SHOW_SOLUTIONS:
             return self._show_solutions()
-        if url.Path == REPORT_ERROR:
-            try:
-                from .error_report_dialog import run  # imported on use: start-up never loads the report code
-                run(self.ctx, self.frame)
+        if url.Path in ON_USE:
+            try:  # no document needed; module, function(ctx, frame) imported on use: start-up never loads them
+                module, name = ON_USE[url.Path]
+                getattr(importlib.import_module("." + module, __package__), name)(self.ctx, self.frame)
             except Exception:  # noqa: BLE001 - never raise into the office UI thread
                 log_error(url.Path)
             return

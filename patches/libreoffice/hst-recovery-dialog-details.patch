@@ -1,0 +1,187 @@
+HST Office: the recovery dialog shows when each copy was made and where the document came from.
+
+- svx docrecoveryrecoverdialog.ui + docrecovery.cxx: a column "Autosaved at" (time and date of the
+  recovery copy, UI locale) and, as the tooltip of a row, the original file path or "Never saved".
+- svx strings.hrc + vi messages.po: the new strings. The wording of the dialogs (one term "khôi phục",
+  a true text when something could not be recovered, the emergency save text) is in
+  l10n/vi-overrides.jsonl.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_recovery_durability_patches.py.
+---
+--- a/include/svx/strings.hrc
++++ b/include/svx/strings.hrc
+@@ -1030,6 +1030,8 @@
+ #define RID_SVXSTR_RECOVINPROGR                             NC_("RID_SVXSTR_RECOVINPROGR", "Recovery in progress")
+ #define RID_SVXSTR_NOTRECOVYET                              NC_("RID_SVXSTR_NOTRECOVYET", "Not recovered yet")
+ #define RID_SVXSTR_WILLDISCARD                              NC_("RID_SVXSTR_WILLDISCARD", "Will be discarded")
++// HST Office: tooltip of a recovery entry whose document was never saved to a file
++#define RID_SVXSTR_HST_RECOV_NEVERSAVED                     NC_("RID_SVXSTR_HST_RECOV_NEVERSAVED", "Never saved")
+ #define RID_SVXSTR_RECOVERY_INPROGRESS                      NC_("RID_SVXSTR_RECOVERY_INPROGRESS", "%PRODUCTNAME %PRODUCTVERSION has begun recovering your documents. Depending on the size of the documents this process can take some time.")
+ #define RID_SVXSTR_RECOVERYONLY_FINISH_DESCR                NC_("RID_SVXSTR_RECOVERYONLY_FINISH_DESCR", "Recovery of your documents was finished. Click 'Finish' to see your documents.")
+ #define RID_SVXSTR_RECOVERYONLY_FINISH                      NC_("RID_SVXSTR_RECOVERYONLY_FINISH", "~Finish")
+--- a/svx/source/dialog/docrecovery.cxx
++++ b/svx/source/dialog/docrecovery.cxx
+@@ -42,7 +42,11 @@
+ #include <com/sun/star/util/URLTransformer.hpp>
+ #include <osl/diagnose.h>
+ #include <osl/file.hxx>
++#include <unotools/localedatawrapper.hxx>
+ #include <unotools/pathoptions.hxx>
++#include <osl/time.h>
++#include <tools/datetime.hxx>
++#include <vcl/settings.hxx>
+ 
+ namespace svx::DocRecovery
+ {
+@@ -53,6 +57,7 @@ using namespace ::osl;
+ #define COLUMN_DISPLAYNAME 0
+ #define COLUMN_STATUSIMAGE 1
+ #define COLUMN_STATUSTEXT 2
++#define COLUMN_SAVEDTIME 3 // HST Office: when the recovery copy was written
+ 
+ RecoveryCore::RecoveryCore(css::uno::Reference< css::uno::XComponentContext > xContext,
+                                  bool                                            bUsedForSaving)
+@@ -672,6 +677,27 @@ static short impl_askUserForWizardCancel(weld::Widget* pParent, TranslateId pRes
+         return DLG_RET_CANCEL;
+ }
+ 
++namespace
++{
++/// HST Office: local time and date the recovery copy was written, empty when there is none.
++OUString hst_copyTime(const OUString& rTempURL)
++{
++    osl::DirectoryItem aItem;
++    osl::FileStatus aStatus(osl_FileStatus_Mask_ModifyTime);
++    TimeValue aLocal;
++    oslDateTime aDT;
++    if (rTempURL.isEmpty() || osl::DirectoryItem::get(rTempURL, aItem) != osl::FileBase::E_None
++        || aItem.getFileStatus(aStatus) != osl::FileBase::E_None)
++        return OUString();
++    const TimeValue aUTC = aStatus.getModifyTime();
++    if (!osl_getLocalTimeFromSystemTime(&aUTC, &aLocal) || !osl_getDateTimeFromTimeValue(&aLocal, &aDT))
++        return OUString();
++    const LocaleDataWrapper& rLocale = Application::GetSettings().GetUILocaleDataWrapper();
++    return rLocale.getTime(tools::Time(aDT.Hours, aDT.Minutes, aDT.Seconds), false) + " "
++           + rLocale.getDate(Date(aDT.Day, aDT.Month, aDT.Year));
++}
++}
++
+ RecoveryDialog::RecoveryDialog(weld::Window* pParent, RecoveryCore* pCore)
+     : GenericDialogController(pParent, u"svx/ui/docrecoveryrecoverdialog.ui"_ustr, u"DocRecoveryRecoverDialog"_ustr)
+     , m_aTitleRecoveryInProgress(SvxResId(RID_SVXSTR_RECOVERY_INPROGRESS))
+@@ -701,8 +727,9 @@ RecoveryDialog::RecoveryDialog(weld::Window* pParent, RecoveryCore* pCore)
+     m_xProgress = new PluginProgress(m_xProgressBar.get());
+ 
+     std::vector<int> aWidths;
+-    aWidths.push_back(60 * nWidth / 100);
++    aWidths.push_back(45 * nWidth / 100);
+     aWidths.push_back(5 * nWidth / 100);
++    aWidths.push_back(25 * nWidth / 100);
+     m_xFileListLB->set_column_fixed_widths(aWidths);
+     m_xFileListLB->enable_toggle_buttons(weld::ColumnToggleType::Check);
+ 
+@@ -722,6 +749,7 @@ RecoveryDialog::RecoveryDialog(weld::Window* pParent, RecoveryCore* pCore)
+         m_xFileListLB->set_text(i, rInfo.DisplayName, COLUMN_DISPLAYNAME);
+         m_xFileListLB->set_image(i, impl_getStatusImage(rInfo), COLUMN_STATUSIMAGE);
+         m_xFileListLB->set_text(i, impl_getStatusString(rInfo), COLUMN_STATUSTEXT);
++        m_xFileListLB->set_text(i, hst_copyTime(rInfo.TempURL), COLUMN_SAVEDTIME);
+         m_aToggleCount++;
+     }
+ 
+@@ -730,6 +758,20 @@ RecoveryDialog::RecoveryDialog(weld::Window* pParent, RecoveryCore* pCore)
+         m_xFileListLB->set_cursor(0);
+ 
+     m_xFileListLB->connect_toggled(LINK(this, RecoveryDialog, ToggleRowHdl));
++    m_xFileListLB->connect_query_tooltip(LINK(this, RecoveryDialog, HstTooltipHdl));
++}
++
++IMPL_LINK(RecoveryDialog, HstTooltipHdl, const weld::TreeIter&, rIter, OUString)
++{
++    const TURLInfo* pInfo = weld::fromId<TURLInfo*>(m_xFileListLB->get_id(rIter));
++    if (!pInfo)
++        return OUString();
++    OUString aPath;
++    if (pInfo->OrgURL.isEmpty())
++        return SvxResId(RID_SVXSTR_HST_RECOV_NEVERSAVED);
++    if (osl::FileBase::getSystemPathFromFileURL(pInfo->OrgURL, aPath) != osl::FileBase::E_None)
++        aPath = INetURLObject(pInfo->OrgURL).GetMainURL(INetURLObject::DecodeMechanism::WithCharset);
++    return aPath;
+ }
+ 
+ RecoveryDialog::~RecoveryDialog()
+--- a/svx/source/inc/docrecovery.hxx
++++ b/svx/source/inc/docrecovery.hxx
+@@ -453,6 +453,7 @@ class RecoveryDialog final : public weld::GenericDialogController
+         DECL_LINK(NextButtonHdl, weld::Button&, void);
+         DECL_LINK(CancelButtonHdl, weld::Button&, void);
+         DECL_LINK(ToggleRowHdl, const weld::TreeView::iter_col&, void);
++        DECL_LINK(HstTooltipHdl, const weld::TreeIter&, OUString); // HST Office: the original file
+ 
+         OUString impl_getStatusString( const TURLInfo& rInfo ) const;
+         static OUString impl_getStatusImage( const TURLInfo& rInfo );
+--- a/svx/uiconfig/ui/docrecoveryrecoverdialog.ui
++++ b/svx/uiconfig/ui/docrecoveryrecoverdialog.ui
+@@ -14,6 +14,8 @@
+       <column type="GdkPixbuf"/>
+       <!-- column-name statustext -->
+       <column type="gchararray"/>
++      <!-- column-name savedtime -->
++      <column type="gchararray"/>
+       <!-- column-name id -->
+       <column type="gchararray"/>
+       <!-- column-name chkVis -->
+@@ -127,6 +129,7 @@
+                   <object class="GtkTreeView" id="filelist">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
++                    <property name="has-tooltip">True</property>
+                     <property name="hexpand">True</property>
+                     <property name="vexpand">True</property>
+                     <property name="model">liststore1</property>
+@@ -181,6 +184,17 @@
+                         </child>
+                       </object>
+                     </child>
++                    <child>
++                      <object class="GtkTreeViewColumn" id="colSavedTime">
++                        <property name="title" translatable="yes" context="docrecoveryrecoverdialog|savedft">Autosaved at</property>
++                        <child>
++                          <object class="GtkCellRendererText" id="cellrenderertext4"/>
++                          <attributes>
++                            <attribute name="text">5</attribute>
++                          </attributes>
++                        </child>
++                      </object>
++                    </child>
+                   </object>
+                 </child>
+               </object>
+--- a/translations/source/vi/svx/messages.po
++++ b/translations/source/vi/svx/messages.po
+@@ -5770,6 +5770,12 @@ msgctxt "RID_SVXSTR_WILLDISCARD"
+ msgid "Will be discarded"
+ msgstr ""
+ 
++#. hstNS
++#: include/svx/strings.hrc
++msgctxt "RID_SVXSTR_HST_RECOV_NEVERSAVED"
++msgid "Never saved"
++msgstr "Chưa lưu lần nào"
++
+ #. EaAMF
+ #: include/svx/strings.hrc:1033
+ #, fuzzy
+@@ -16967,6 +16973,12 @@ msgctxt "docrecoveryrecoverdialog|statusft"
+ msgid "Status"
+ msgstr "Trạng thái"
+ 
++#. hstRS
++#: svx/uiconfig/ui/docrecoveryrecoverdialog.ui
++msgctxt "docrecoveryrecoverdialog|savedft"
++msgid "Autosaved at"
++msgstr "Tự lưu lúc"
++
+ #. 7z7PH
+ #: svx/uiconfig/ui/docrecoverysavedialog.ui:18
+ msgctxt "docrecoverysavedialog|DocRecoverySaveDialog"

@@ -303,9 +303,31 @@
         </node>
       </node>
     </node>
+    <!-- Tệp tin ▸ Tài liệu chưa lưu, after Tài liệu gần đây (.uno:RecentFileList) in every module and the Start Center:
+         the documents closed without saving, kept 7 days (unsaved_dialog.py); also a Start Center button and a button
+         on the Info page of the File panel (hst-unsaved-documents-entry.patch) -->
     <!-- Tệp tin ▸ Phiên bản trước, after Phiên bản (.uno:VersionDialog) in the classic File menu of Writer, Sheets and
          Slides; the File panel of the Tabbed UI has it on its Info page (hst-backstage-previous-versions.patch) -->
     <node oor:name="OfficeMenuBarMerging">
+      <node oor:name="org.hst.office.vi.unsaved" oor:op="replace">
+        <node oor:name="m1" oor:op="replace">
+          <prop oor:name="MergePoint"><value>.uno:PickList\.uno:RecentFileList</value></prop>
+          <prop oor:name="MergeCommand"><value>AddAfter</value></prop>
+          <prop oor:name="MergeFallback"><value>Ignore</value></prop>
+          <prop oor:name="MergeContext"><value>com.sun.star.text.TextDocument,com.sun.star.sheet.SpreadsheetDocument,com.sun.star.presentation.PresentationDocument,com.sun.star.drawing.DrawingDocument,com.sun.star.frame.StartModule</value></prop>
+          <node oor:name="MenuItems">
+            <node oor:name="m1" oor:op="replace">
+              <prop oor:name="URL" oor:type="xs:string"><value>org.hst.office.vi:UnsavedDocuments</value></prop>
+              <prop oor:name="Title" oor:type="xs:string">
+                <value>Tài liệu chưa lưu</value>
+                <value xml:lang="en-US">Tài liệu chưa lưu</value>
+                <value xml:lang="vi">Tài liệu chưa lưu</value>
+              </prop>
+              <prop oor:name="Target" oor:type="xs:string"><value>_self</value></prop>
+            </node>
+          </node>
+        </node>
+      </node>
       <node oor:name="org.hst.office.vi.versions" oor:op="replace">
         <node oor:name="m1" oor:op="replace">
           <prop oor:name="MergePoint"><value>.uno:PickList\.uno:VersionDialog</value></prop>
