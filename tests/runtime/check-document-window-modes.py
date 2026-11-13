@@ -75,8 +75,8 @@ def run(args):
         touch_all(office)
         c.dispatch(start, "private:factory/swriter", "_blank")
         c.check("HST Office window: a new text document is its tab although HST Writer is set to separate",
-                c.wait(lambda: sum(base.module_of(office, f) == "TextDocument" for f in c.frames()) == 5)
-                and len(c.windows()) == windows, repr(c.windows()))
+                c.wait(lambda: sum(base.module_of(office, f) == "TextDocument" for f in c.frames()) == 5
+                       and len(c.windows()) == windows), repr(c.windows()))  # the previous tab hides from an idle
         touch_all(office)
         for doc in office.desktop().getComponents():
             if hasattr(doc, "getText"):
