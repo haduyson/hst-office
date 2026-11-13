@@ -1,0 +1,399 @@
+HST Office: a Vietnamese .docx saved by Word opened up to 8 times slower than the same document
+saved by HST Writer. Word stores runs with the same properties side by side, most visibly one run
+per precomposed Vietnamese letter (U+1E00-U+1EFF) when the East Asian font differs from the Latin
+one: a 300-citation thesis has 204,224 runs instead of 4,146. The import inserted each run with
+its own SwXText::appendTextPortion() call, which builds a text cursor, a text range with a UNO
+bookmark and an undo group per run: about 25 µs per run.
+
+DomainMapper now keeps the text of a plain run (no open field, no redline, no comment, no special
+character) and appends to it the text of the following runs that go to the same text with the same
+properties; one appendTextPortion() call inserts it. Every other stream event (properties,
+bookmarks, fields, shapes, paragraph and section ends, substreams ...) and every other kind of
+portion first inserts the kept text, so the document is complete whenever anything else reads or
+changes it.
+Runs with their own run properties are still inserted one by one.
+
+Measured on the batch4 build (fastest of 7 loads): the Word-saved 300-citation thesis 4.97 s -> 1.45 s,
+a Word-saved 400-paragraph Vietnamese text 1.15 s -> 0.52 s. 2,117 .docx and .rtf files of the
+upstream test corpus (sw/qa) convert to the same ODF (only time stamps and generated IDs differ).
+
+Test: tests/runtime/check-docx-word-interop.py (split runs: text, bold run, bookmark position).
+---
+--- a/sw/source/writerfilter/dmapper/DomainMapper.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper.cxx
+@@ -216,6 +216,7 @@
+ 
+ void DomainMapper::setDocumentReference(writerfilter::ooxml::OOXMLDocument* pDocument)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     m_pImpl->setDocumentReference(pDocument);
+ }
+ 
+@@ -223,6 +224,7 @@
+ {
+     try
+     {
++        m_pImpl->FlushPendingTextPortion();
+         // Remove temporary footnotes and endnotes
+         m_pImpl->RemoveTemporaryFootOrEndnotes();
+     }
+@@ -299,6 +301,7 @@
+ 
+ void DomainMapper::lcl_attribute(Id nName, const Value & val)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     if (m_pImpl->hasTableManager() && m_pImpl->getTableManager().attribute(nName, val))
+         return;
+ 
+@@ -1614,6 +1617,7 @@
+ 
+ void DomainMapper::lcl_sprm(Sprm & rSprm)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     if (!m_pImpl->hasTableManager() || !m_pImpl->getTableManager().sprm(rSprm))
+         sprmWithProps(rSprm, m_pImpl->GetTopContext());
+ }
+@@ -4022,6 +4026,7 @@
+ 
+ void DomainMapper::lcl_entry(const writerfilter::Reference<Properties>::Pointer_t& ref)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     ref->resolve(*this);
+ }
+ 
+@@ -4031,6 +4036,7 @@
+ 
+ void DomainMapper::lcl_startSectionGroup()
+ {
++    m_pImpl->FlushPendingTextPortion();
+     if (!m_pImpl->isInIndexContext() && !m_pImpl->isInBibliographyContext())
+     {
+         m_pImpl->PushProperties(CONTEXT_SECTION);
+@@ -4041,6 +4047,7 @@
+ 
+ void DomainMapper::lcl_endSectionGroup()
+ {
++    m_pImpl->FlushPendingTextPortion();
+     if (m_pImpl->isInIndexContext() || m_pImpl->isInBibliographyContext())
+         return;
+ 
+@@ -4077,6 +4084,7 @@
+ 
+ void DomainMapper::lcl_startParagraphGroup()
+ {
++    m_pImpl->FlushPendingTextPortion();
+     if (m_pImpl->hasTableManager())
+         m_pImpl->getTableManager().startParagraphGroup();
+ 
+@@ -4131,6 +4139,7 @@
+ 
+ void DomainMapper::lcl_endParagraphGroup()
+ {
++    m_pImpl->FlushPendingTextPortion();
+     if (m_pImpl->isBreakDeferred(LINE_BREAK))
+     {
+         if (m_pImpl->GetIsLastParagraphInSection())
+@@ -4153,16 +4162,19 @@
+ 
+ void DomainMapper::markLastParagraphInSection( )
+ {
++    m_pImpl->FlushPendingTextPortion();
+     m_pImpl->SetIsLastParagraphInSection( true );
+ }
+ 
+ void DomainMapper::markLastSectionGroup( )
+ {
++    m_pImpl->FlushPendingTextPortion();
+     m_pImpl->SetIsLastSectionGroup( true );
+ }
+ 
+ void DomainMapper::lcl_startShape(uno::Reference<drawing::XShape> const& xShape)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     assert(xShape.is());
+ 
+     m_pImpl->AttachTextBoxContentToShape(xShape);
+@@ -4197,6 +4209,7 @@
+ 
+ void DomainMapper::lcl_endShape( )
+ {
++    m_pImpl->FlushPendingTextPortion();
+     if (!m_pImpl->GetTopContext())
+         return;
+ 
+@@ -4215,11 +4228,13 @@
+ 
+ void DomainMapper::lcl_startTextBoxContent()
+ {
++    m_pImpl->FlushPendingTextPortion();
+     m_pImpl->PushTextBoxContent();
+ }
+ 
+ void DomainMapper::lcl_endTextBoxContent()
+ {
++    m_pImpl->FlushPendingTextPortion();
+     m_pImpl->PopTextBoxContent();
+ }
+ 
+@@ -4263,6 +4278,8 @@
+ 
+ void DomainMapper::lcl_endCharacterGroup()
+ {
++    if (m_pImpl->IsInCustomFootnote() || m_pImpl->CheckFootnoteStyle())
++        m_pImpl->FlushPendingTextPortion();
+     if (m_pImpl->CheckFootnoteStyle())
+     {
+         m_pImpl->SetCheckFootnoteStyle(m_pImpl->IsInCustomFootnote());
+@@ -4302,6 +4319,7 @@
+ 
+ void DomainMapper::lcl_text(const sal_uInt8 * data_, size_t len)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     //TODO: Determine the right text encoding (FIB?)
+     OUString sText( reinterpret_cast<const char*>(data_), len, RTL_TEXTENCODING_MS_1252 );
+ #ifdef DBG_UTIL
+@@ -4430,6 +4448,7 @@
+ 
+ void DomainMapper::lcl_positionOffset(const OUString& rText, bool bVertical)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     if (bVertical)
+         m_pImpl->m_aPositionOffsets.second = rText;
+     else
+@@ -4438,6 +4457,7 @@
+ 
+ awt::Point DomainMapper::getPositionOffset()
+ {
++    m_pImpl->FlushPendingTextPortion();
+     awt::Point aRet;
+     aRet.X = oox::drawingml::convertEmuToHmm(m_pImpl->m_aPositionOffsets.first.toInt32());
+     aRet.Y = oox::drawingml::convertEmuToHmm(m_pImpl->m_aPositionOffsets.second.toInt32());
+@@ -4446,6 +4466,7 @@
+ 
+ void DomainMapper::lcl_align(const OUString& rText, bool bVertical)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     if (bVertical)
+         m_pImpl->m_aAligns.second = rText;
+     else
+@@ -4454,11 +4475,13 @@
+ 
+ void DomainMapper::lcl_positivePercentage(const OUString& rText)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     m_pImpl->m_aPositivePercentages.push(rText);
+ }
+ 
+ void DomainMapper::lcl_checkId(const sal_Int32 nId)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     // tdf#171002
+     if (!m_pImpl->IsInFootOrEndnote())
+         return;
+@@ -4565,6 +4588,16 @@
+     // like uFtnEdnRef = 0x2, uFtnEdnSep = 0x3, ... and have a len of 1, if they aren't valid unicode.
+ 
+     OUString const sText(data_, len);
++    // HST Office: plain run text may be kept and inserted together with the following runs (see
++    // DomainMapper_Impl::appendTextPortion()); anything else first inserts the kept text.
++    bool bMayDeferText = len > 0 && !m_pImpl->isBreakDeferred(PAGE_BREAK)
++                         && !m_pImpl->isBreakDeferred(COLUMN_BREAK)
++                         && m_pImpl->m_pSdtHelper->getControlType() == SdtControlType::unknown
++                         && m_pImpl->m_pSdtHelper->isInteropGrabBagEmpty();
++    for (size_t i = 0; bMayDeferText && i < len; ++i)
++        bMayDeferText = data_[i] >= 0x20;
++    if (!bMayDeferText)
++        m_pImpl->FlushPendingTextPortion();
+     const RubyInfo & aInfo = m_pImpl->GetRubyInfo();
+     if (aInfo.nSprmId == NS_ooxml::LN_CT_Ruby_rt)
+     {
+@@ -4966,7 +4999,7 @@
+                 if (bInSdtBlockText && !m_pImpl->m_pSdtHelper->hasUnusedText())
+                     m_pImpl->m_pSdtHelper->setFieldStartRange(GetCurrentTextRange()->getEnd());
+ 
+-                m_pImpl->appendTextPortion( sText, pContext );
++                m_pImpl->appendTextPortion( sText, pContext, bMayDeferText && !bInSdtBlockText );
+ 
+                 if (bInSdtBlockText && !sText.isEmpty())
+                     m_pImpl->m_pSdtHelper->setHasUnusedText(true);
+@@ -4982,11 +5015,13 @@
+ 
+ void DomainMapper::lcl_props(const writerfilter::Reference<Properties>::Pointer_t& ref)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     ref->resolve(*this);
+ }
+ 
+ void DomainMapper::lcl_table(Id name, const writerfilter::Reference<Table>::Pointer_t& ref)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     m_pImpl->SetAnyTableImport(true);
+     switch(name)
+     {
+@@ -5024,17 +5059,20 @@
+ 
+ void DomainMapper::lcl_substream(Id rName, const writerfilter::Reference<Stream>::Pointer_t& ref)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     m_pImpl->substream(rName, ref);
+ }
+ 
+ void DomainMapper::lcl_startGlossaryEntry()
+ {
++    m_pImpl->FlushPendingTextPortion();
+     uno::Reference< text::XTextRange > xTextRange =  GetCurrentTextRange();
+     m_pImpl->setGlossaryEntryStart(xTextRange);
+ }
+ 
+ void DomainMapper::lcl_endGlossaryEntry()
+ {
++    m_pImpl->FlushPendingTextPortion();
+     m_pImpl->appendGlossaryEntry();
+ }
+ 
+@@ -5466,6 +5504,7 @@
+ 
+ void DomainMapper::commentProps(const OUString& sId, const CommentProperties& rProps)
+ {
++    m_pImpl->FlushPendingTextPortion();
+     m_pImpl->commentProps(sId, rProps);
+ }
+ 
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
+@@ -3508,8 +3508,30 @@
+     }
+ }
+ 
+-void DomainMapper_Impl::appendTextPortion( const OUString& rString, const PropertyMapPtr& pPropertyMap )
++void DomainMapper_Impl::FlushPendingTextPortion()
+ {
++    if (m_aPendingText.isEmpty())
++        return;
++    const OUString aText(m_aPendingText.makeStringAndClear());
++    const uno::Reference<text::XTextAppend> xTextAppend(std::move(m_xPendingTextAppend));
++    const uno::Sequence<beans::PropertyValue> aValues(std::move(m_aPendingTextProperties));
++    m_xPendingTextAppend.clear();
++    m_aPendingTextProperties = {};
++    try
++    {
++        xTextAppend->appendTextPortion(aText, aValues);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("writerfilter", "DomainMapper_Impl::FlushPendingTextPortion");
++    }
++}
++
++void DomainMapper_Impl::appendTextPortion( const OUString& rString, const PropertyMapPtr& pPropertyMap, bool bMayDefer )
++{
++    if (!bMayDefer || m_bRedlineImageInPreviousRun || m_bDiscardHeaderFooter || m_aTextAppendStack.empty())
++        FlushPendingTextPortion();
++
+     if (m_bDiscardHeaderFooter)
+         return;
+ 
+@@ -3525,7 +3547,10 @@
+     }
+     uno::Reference< text::XTextAppend >  xTextAppend = m_aTextAppendStack.top().xTextAppend;
+     if (!xTextAppend.is() || !hasTableManager() || getTableManager().isIgnore())
++    {
++        FlushPendingTextPortion();
+         return;
++    }
+ 
+     try
+     {
+@@ -3545,6 +3570,7 @@
+         uno::Reference< text::XTextRange > xTextRange;
+         if (m_aTextAppendStack.top().xCursor.is())
+         {
++            FlushPendingTextPortion();
+             xTextRange = xTextAppend->insertTextPortion(rString, aValues, static_cast<text::XSentenceCursor*>(m_aTextAppendStack.top().xCursor.get()));
+             m_aTextAppendStack.top().xCursor->gotoRange(xTextRange->getEnd(), true);
+         }
+@@ -3552,6 +3578,7 @@
+         {
+             if (IsInTOC() || m_bStartIndex || m_bStartBibliography || m_nStartGenericField != 0)
+             {
++                FlushPendingTextPortion();
+                 if (IsInHeaderFooter() && !m_bStartTOCHeaderFooter)
+                 {
+                     xTextRange = xTextAppend->appendTextPortion(rString, aValues);
+@@ -3606,6 +3633,7 @@
+                 {
+                     // an RTF space character is longer by an extra six-em-space in an old-style RTF space sequence,
+                     // insert them to keep RTF document layout formatted by consecutive spaces
++                    FlushPendingTextPortion();
+                     const sal_Unicode aExtraSpace[5] = { 0x2006, 0x20, 0x2006, 0x20, 0 };
+                     const sal_Unicode aExtraSpace2[4] = { 0x20, 0x2006, 0x20, 0 };
+                     xTextRange = xTextAppend->appendTextPortion(rString.replaceAll(sDoubleSpace, aExtraSpace, nPos)
+@@ -3613,7 +3641,32 @@
+                 }
+                 else
+ #endif
++                {
++                    // HST Office: keep plain run text when nothing needs its text range (no open
++                    // field, no redline) and add the text of the following runs with the same
++                    // properties to it, one insertion instead of one per run.
++                    PropertyMapPtr pCharContext = GetTopContextOfType(CONTEXT_CHARACTER);
++                    PropertyMapPtr pParaContext = GetTopContextOfType(CONTEXT_PARAGRAPH);
++                    if (bMayDefer && !IsOpenField() && !IsInComments() && !m_pParaMarkerRedlineMove
++                        && m_aRedlines.top().empty()
++                        && (!pCharContext || pCharContext->Redlines().empty())
++                        && (!pParaContext || pParaContext->Redlines().empty()))
++                    {
++                        if (!m_aPendingText.isEmpty()
++                            && (m_xPendingTextAppend != xTextAppend || m_aPendingTextProperties != aValues))
++                            FlushPendingTextPortion();
++                        if (m_aPendingText.isEmpty())
++                        {
++                            m_xPendingTextAppend = xTextAppend;
++                            m_aPendingTextProperties = aValues;
++                        }
++                        m_aPendingText.append(rString);
++                        m_StreamStateStack.top().bParaChanged = true;
++                        return;
++                    }
++                    FlushPendingTextPortion();
+                     xTextRange = xTextAppend->appendTextPortion(rString, aValues);
++                }
+             }
+         }
+ 
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
+@@ -18,6 +18,7 @@
+  */
+ #pragma once
+ 
++#include <rtl/ustrbuf.hxx>
+ #include <com/sun/star/text/XParagraphCursor.hpp>
+ #include <com/sun/star/text/XTextDocument.hpp>
+ #include <com/sun/star/text/XTextCursor.hpp>
+@@ -678,6 +679,11 @@
+     // (In that case, the image is part of a tracked text range, no need for the dummy
+     // text ZWSPs to keep the change tracking of the image in Writer.)
+     bool                            m_bRedlineImageInPreviousRun;
++    /// HST Office: Word stores many runs with the same properties side by side (for instance one run
++    /// per precomposed Vietnamese letter); their text is inserted with one appendTextPortion() call.
++    OUStringBuffer                  m_aPendingText;
++    css::uno::Sequence<css::beans::PropertyValue> m_aPendingTextProperties;
++    css::uno::Reference<css::text::XTextAppend> m_xPendingTextAppend;
+ 
+     bool                            m_bIsLastSectionGroup;
+     bool                            m_bUsingEnhancedFields;
+@@ -836,7 +842,12 @@
+     void finishParagraph( const ParagraphPropertyMapPtr& pPropertyMap, const bool bRemove = false, const bool bNoNumbering = false);
+     void applyToggleAttributes( const PropertyMapPtr& pPropertyMap );
+     void MergeAtContentImageRedlineWithNext(const css::uno::Reference<css::text::XTextAppend>& xTextAppend);
+-    void appendTextPortion( const OUString& rString, const PropertyMapPtr& pPropertyMap );
++    /// bMayDefer: plain text of a run; it may be kept and inserted together with the text of the
++    /// following runs that have the same properties (see FlushPendingTextPortion()).
++    void appendTextPortion( const OUString& rString, const PropertyMapPtr& pPropertyMap, bool bMayDefer = false );
++    /// Inserts the text kept by appendTextPortion(). Every stream event other than plain run text
++    /// calls this first, so the document is complete whenever anything else looks at it.
++    void FlushPendingTextPortion();
+     void appendTextContent(const css::uno::Reference<css::text::XTextContent>&, const css::uno::Sequence<css::beans::PropertyValue>&);
+     void appendOLE( const OUString& rStreamName, const std::shared_ptr<OLEHandler>& pOleHandler );
+     void appendStarMath( const Value& v);

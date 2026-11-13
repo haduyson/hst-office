@@ -109,6 +109,15 @@ class TemplatesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             fixture_copy(original, changed, inputs={"E5": 1})
 
+    def test_writer_east_asian_font_is_the_text_font(self):
+        # Word splits each Vietnamese letter U+1E00-U+1EFF into its own run when the East Asian
+        # font differs, which makes a Word-saved .docx several times slower to open.
+        for path in sorted((self.directory / "first/writer").glob("*.ott")):
+            with ZipFile(path) as archive:
+                styles = ET.fromstring(archive.read("styles.xml"))
+            props = styles.find(".//style:default-style[@style:family='paragraph']/style:text-properties", NS)
+            self.assertEqual(props.get(q("style:font-name-asian")), props.get(q("style:font-name")), path.name)
+
     def test_sheet_fit_width_layout_keeps_header_footer_geometry(self):
         # Regression: fit-to-width plus the empty header/footer styles LibreOffice writes on
         # save printed a blank page after template -> ods -> pdf.

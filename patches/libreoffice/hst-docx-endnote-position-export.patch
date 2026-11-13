@@ -1,0 +1,71 @@
+HST Office: a .docx with an endnote, once reopened and saved again, made Word save a .doc that Word
+itself could not open ("Office has detected a problem with this file").
+
+DocxAttributeOutput::WriteFootnoteEndnotePr() wrote <w:pos w:val="sectEnd"/> into <w:footnotePr>
+and <w:endnotePr>, both in settings.xml and in every section's <w:sectPr>, whenever the first
+section format collected endnotes at its end. After a .docx import that first format is the
+node-less section the layout creates for continuous endnotes (SwEndNoteInfo::GetSwSection), so
+every reopened document with an endnote got it. Word writes the endnote placement in settings.xml
+only; with the placement in <w:sectPr> its .doc output cannot be reopened (reproduced with a .docx
+made by Word itself), and "end of section" is not a footnote placement.
+
+Now only settings.xml <w:endnotePr> gets the placement, taken from the first section that has
+nodes. The .doc export (DOP epc) skips node-less sections the same way.
+
+Test: tests/runtime/check-docx-word-interop.py (endnote and footnote placement after a round trip).
+---
+--- a/sw/source/filter/ww8/docxattributeoutput.cxx
++++ b/sw/source/filter/ww8/docxattributeoutput.cxx
+@@ -9346,14 +9346,20 @@
+ {
+     fs->startElementNS(XML_w, tag);
+ 
+-    SwSectionFormats& rSections = m_rExport.m_rDoc.GetSections();
+-    if (!rSections.empty())
++    // HST Office: "end of section" is an endnote placement, and Word writes it in settings.xml
++    // only. With <w:pos w:val="sectEnd"/> in a section's <w:endnotePr>, Word saves a .doc that it
++    // then refuses to open; <w:footnotePr> got the endnote placement as well.
++    // Sections without nodes are skipped: the layout creates one ("Endnote", collect at end) for
++    // continuous endnotes, which is not a request to collect endnotes at the section end.
++    if (tag == XML_endnotePr && listtag != 0)
+     {
+-        SwSectionFormat* pFormat = rSections[0];
+-        bool bEndnAtEnd = pFormat->GetEndAtTextEnd().IsAtEnd();
+-        if (bEndnAtEnd)
++        for (const SwSectionFormat* pFormat : m_rExport.m_rDoc.GetSections())
+         {
+-            fs->singleElementNS(XML_w, XML_pos, FSNS(XML_w, XML_val), "sectEnd");
++            if (!pFormat->GetSectionNode())
++                continue;
++            if (pFormat->GetEndAtTextEnd().IsAtEnd())
++                fs->singleElementNS(XML_w, XML_pos, FSNS(XML_w, XML_val), "sectEnd");
++            break;
+         }
+     }
+ 
+--- a/sw/source/filter/ww8/wrtww8.cxx
++++ b/sw/source/filter/ww8/wrtww8.cxx
+@@ -503,16 +503,18 @@
+     rDop.cParas = rDStat.nPara;
+     rDop.cLines = rDStat.nPara;
+ 
+-    SwSectionFormats& rSections = rWrt.m_rDoc.GetSections();
+-    if (!rSections.empty())
++    // HST Office: skip sections without nodes, like the one the layout creates for continuous
++    // endnotes; it does not ask for endnotes at the end of the section (see the DOCX export).
++    for (const SwSectionFormat* pFormat : rWrt.m_rDoc.GetSections())
+     {
+-        SwSectionFormat* pFormat = rSections[0];
+-        bool bEndnAtEnd = pFormat->GetEndAtTextEnd().IsAtEnd();
+-        if (bEndnAtEnd)
++        if (!pFormat->GetSectionNode())
++            continue;
++        if (pFormat->GetEndAtTextEnd().IsAtEnd())
+         {
+             // DopBase.epc: this is normally 3 (end of document), change this to end of section.
+             rDop.epc = 0;
+         }
++        break;
+     }
+ 
+     SwDocShell *pDocShell(rWrt.m_rDoc.GetDocShell());

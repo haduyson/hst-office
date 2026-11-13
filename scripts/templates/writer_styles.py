@@ -151,8 +151,10 @@ def build(rules, styles, page=None, footer=(), footer_styles=()):
     office = node(root, "office:styles")
     t = rules["typography"]
     default = node(office, "style:default-style", {"style:family": "paragraph"})
-    node(default, "style:text-properties", {"style:font-name": t["fontFamily"], "fo:font-size": f'{t["body"]}pt',
-         "fo:language": "vi", "fo:country": "VN", "fo:color": "#000000"})
+    # The East Asian font is the text font as well: otherwise Word stores every Vietnamese letter of
+    # U+1E00-U+1EFF in a run of its own when it saves the .docx (hst-writer-cjk-default-font.patch).
+    node(default, "style:text-properties", {"style:font-name": t["fontFamily"], "style:font-name-asian": t["fontFamily"],
+         "fo:font-size": f'{t["body"]}pt', "fo:language": "vi", "fo:country": "VN", "fo:color": "#000000"})
     style(office, "Standard", "paragraph", {"paragraph": {"fo:margin-bottom": "0pt"}})
     for name, (props, text) in sorted(styles.named.items()):
         style(office, name, "paragraph", {"paragraph": props, "text": text})
