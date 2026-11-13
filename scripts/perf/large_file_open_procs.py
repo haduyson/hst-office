@@ -44,11 +44,29 @@ def office_pids():
 
 def _parents():
     """{pid: parent pid} of all processes, or None when it cannot be read."""
-    if WINDOWS:
-        out = subprocess.run(["wmic", "process", "get", "ParentProcessId,ProcessId", "/format:csv"],
-                             capture_output=True, text=True, errors="replace").stdout
-        rows = [r for r in csv.reader(io.StringIO(out)) if len(r) == 3 and r[1].isdigit() and r[2].isdigit()]
-        return {int(r[2]): int(r[1]) for r in rows} or None
+    if WINDOWS:  # Toolhelp snapshot (wmic is gone from current Windows)
+        import ctypes
+        from ctypes import wintypes
+
+        class Entry(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                        ("th32DefaultHeapID", ctypes.c_void_p), ("th32ModuleID", wintypes.DWORD),
+                        ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                        ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                        ("szExeFile", ctypes.c_wchar * 260)]
+        k32 = ctypes.windll.kernel32
+        k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        snap = k32.CreateToolhelp32Snapshot(2, 0)  # TH32CS_SNAPPROCESS
+        if not snap or snap == wintypes.HANDLE(-1).value:
+            return None
+        entry, parents = Entry(), {}
+        entry.dwSize = ctypes.sizeof(Entry)
+        ok = k32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            parents[entry.th32ProcessID] = entry.th32ParentProcessID
+            ok = k32.Process32NextW(snap, ctypes.byref(entry))
+        k32.CloseHandle(snap)
+        return parents or None
     parents = {}
     for d in os.listdir("/proc"):
         if d.isdigit():

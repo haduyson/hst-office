@@ -8,7 +8,8 @@ Starts one office with all files on its command line, then every second looks at
 windows: IsHungAppWindow (what Windows shows as "Not responding": no message processed for 5 s) and their titles.
 Ends when every file has a window and no window was hung for 15 s, when the office ends, or at --timeout. Writes one
 JSON line: hung seconds in total, the longest hung stretch, windows seen, office exit code, elapsed time.
-Run with the office's own Python (no extra modules); the profile is seeded like large-file-open.py.
+Run with the office's own Python (no extra modules); the profile is seeded like large-file-open.py and created by this
+start (the first-start registration is part of every measurement alike).
 """
 import argparse
 import ctypes
@@ -51,8 +52,6 @@ def main():
     a = ap.parse_args()
     profiles.create(a.profile, "default")
     url = "file:///" + os.path.abspath(a.profile).replace("\\", "/")
-    # a first start registers the extension, outside the measurement
-    subprocess.run([a.soffice, "-env:UserInstallation=" + url, "--headless", "--terminate_after_init"], timeout=300)
     for f in a.files:
         profiles.clear_leftovers(a.profile, f)
     profiles.reseed(a.profile, "default")
