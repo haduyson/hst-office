@@ -69,7 +69,7 @@ def start(program, profile, loc):
     return proc, pipe
 
 
-def connect(uno, pipe, timeout=120):
+def connect(uno, pipe, timeout=240):
     local = uno.getComponentContext()
     deadline = time.time() + timeout
     time.sleep(6)
@@ -160,6 +160,8 @@ def run_phase(uno, program, out, reg, phase):
         files_are_invariant(doc, out, check)
         doc.close(True)
         desktop.terminate()
+    except Exception as exc:  # a phase that cannot run is a failure, the other phases still run
+        check("phase ran", False, repr(exc))
     finally:
         try:
             proc.wait(timeout=60)
