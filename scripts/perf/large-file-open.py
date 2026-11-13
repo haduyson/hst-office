@@ -73,7 +73,7 @@ def one_open(a, path, profile, pipe):
 
     def sample():
         while not stop.is_set():
-            own.update(set(procs.office_pids()) - before)
+            own.update(procs.descendants(office.pid, set(procs.office_pids()) - before))
             peak[0] = max(peak[0], procs.rss_mb(own))
             time.sleep(1.0 if sys.platform == "win32" else 0.25)
     sampler = threading.Thread(target=sample, daemon=True)
@@ -139,7 +139,12 @@ def main():
     with open(os.path.join(a.out, a.label + ".jsonl"), "a", encoding="utf-8") as log:
         for name in files:
             for i in range(a.repeat):
-                res = one_open(a, os.path.join(a.files, name), profile, pipe)
+                for _ in range(3):
+                    res = one_open(a, os.path.join(a.files, name), profile, pipe)
+                    # SIGKILL from outside (another tool's cleanup on a shared machine), not a crash: again
+                    if res.get("office_exit") not in (137, -9) or res.get("error") == "timeout":
+                        break
+                    print("killed from outside, again: %s" % json.dumps(res), flush=True)
                 res.update({"label": a.label, "file": name, "run": i + 1, "mode": a.mode, "seed": a.seed,
                             "cpus": a.cpus, "size_mb": round(os.path.getsize(os.path.join(a.files, name)) / 1e6, 1)})
                 log.write(json.dumps(res, ensure_ascii=False) + "\n")

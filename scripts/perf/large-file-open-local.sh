@@ -51,8 +51,13 @@ else
   root='D:\hst-test\large-open'
   python3 "$remote" "$target" push "$here"/large*file*.py "$here/large-file-open-windows.ps1" "$root\\scripts"
   python3 "$remote" "$target" push "$pkg" "$root\\pkg\\$label"
-  # only fixtures not on the host yet (they are synthetic and only change with the generator)
-  python3 "$remote" "$target" push "$fixtures" "$root"
+  # the fixtures this run opens (all of them without --only)
+  if [ -n "$only" ]; then
+    files=(); IFS=, read -ra names <<< "$only"; for n in "${names[@]}"; do files+=("$fixtures/$n"); done
+    python3 "$remote" "$target" push "${files[@]}" "$root\\fixtures"
+  else
+    python3 "$remote" "$target" push "$fixtures" "$root"
+  fi
   python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import remote
 done = remote.run_ps(sys.argv[2], sys.argv[3], *sys.argv[4:], timeout=6 * 3600, check=False)
 print(done.stdout[-4000:]); print(done.stderr[-2000:], file=sys.stderr)' "$(dirname "$remote")" "$target" \

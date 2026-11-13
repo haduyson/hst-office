@@ -5,7 +5,8 @@
 
 Connects to the office listening on the pipe, loads the file, then (visible window) processes events until idle,
 optionally stores the document again, closes it and prints one JSON line:
-{"connect": s, "load": s, "idle": s, "save": s, "kind": ..., "modified": bool, "error": ...}.
+{"connect": s, "load": s, "idle": s, "layout": s, "pages": n, "save": s, "kind": ..., "modified": bool, "error": ...}
+(layout/pages: Writer only, the time until the whole document is laid out).
 """
 import json
 import sys
@@ -63,6 +64,10 @@ def main():
         if not hidden:
             toolkit.processEventsToIdle()
             res["idle"] = round(time.monotonic() - t0, 2)
+            if doc.supportsService("com.sun.star.text.TextDocument"):
+                # the page count needs the whole document laid out: idle layout may still be running
+                res["pages"] = doc.getCurrentController().PageCount
+                res["layout"] = round(time.monotonic() - t0, 2)
         res["kind"] = doc.getIdentifier() if hasattr(doc, "getIdentifier") else ""
         res["modified"] = bool(doc.isModified()) if hasattr(doc, "isModified") else None
         if save_to != "-" and hasattr(doc, "storeToURL"):

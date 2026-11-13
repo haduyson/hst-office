@@ -36,6 +36,8 @@ def main():
             elif ok:
                 med = lambda k: statistics.median(r[k] for r in ok if k in r) if any(k in r for r in ok) else None  # noqa: E731
                 cell = "%s / %s s, %d MB" % (med("load"), med("idle"), max(r["peak_mb"] for r in ok))
+                if med("layout") is not None:
+                    cell += ", laid out %s s (%d pages)" % (med("layout"), max(r.get("pages", 0) for r in ok))
                 if med("save") is not None:
                     cell += ", save %s s" % med("save")
                 if med("save_odf") is not None:
@@ -53,7 +55,8 @@ def main():
                     errors.append("%s %s: %s" % (label, fname, r["error"]))
             cells.append(cell)
         print("| %s | %s | %s |" % (fname, size, " | ".join(cells)))
-    print("\nload = loadComponentFromURL returned; ready = office idle after it (visible window); median of runs.")
+    print("\nload / ready s = loadComponentFromURL returned / office idle after it (visible window); laid out = whole"
+          " text document laid out (page count known); median of runs.")
     for e in errors:
         print("- " + e)
     return 0

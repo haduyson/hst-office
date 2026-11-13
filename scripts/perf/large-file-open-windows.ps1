@@ -2,9 +2,11 @@
 # Windows side of scripts/perf/large-file-open-local.sh: unpack the MSI as an administrative image (nothing is
 # installed) and run large-file-open.py with the image's own Python. Everything stays under the test root.
 #   large-file-open-windows.ps1 <root> <label> <msi file name> [harness options...]
-param([Parameter(Mandatory = $true)][string]$Root, [Parameter(Mandatory = $true)][string]$Label,
-      [Parameter(Mandatory = $true)][string]$Msi, [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest)
+# No param() block: harness options such as --label would otherwise bind to a script parameter.
 $ErrorActionPreference = 'Stop'
+if ($args.Count -lt 3) { throw 'usage: large-file-open-windows.ps1 <root> <label> <msi file name> [options]' }
+$Root = $args[0]; $Label = $args[1]; $Msi = $args[2]
+$Rest = @($args | Select-Object -Skip 3)
 $img = Join-Path $Root "img\$Label"; $out = Join-Path $Root "out\$Label"
 $pkg = Join-Path $Root "pkg\$Label\$Msi"
 $hash = (Get-FileHash $pkg -Algorithm SHA256).Hash

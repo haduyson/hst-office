@@ -42,6 +42,39 @@ def office_pids():
     return pids
 
 
+def _parents():
+    """{pid: parent pid} of all processes, or None when it cannot be read."""
+    if WINDOWS:
+        out = subprocess.run(["wmic", "process", "get", "ParentProcessId,ProcessId", "/format:csv"],
+                             capture_output=True, text=True, errors="replace").stdout
+        rows = [r for r in csv.reader(io.StringIO(out)) if len(r) == 3 and r[1].isdigit() and r[2].isdigit()]
+        return {int(r[2]): int(r[1]) for r in rows} or None
+    parents = {}
+    for d in os.listdir("/proc"):
+        if d.isdigit():
+            try:
+                with open("/proc/%s/stat" % d) as f:
+                    parents[int(d)] = int(f.read().rsplit(")", 1)[1].split()[1])
+            except (OSError, IndexError, ValueError):
+                pass
+    return parents
+
+
+def descendants(root, pids):
+    """The given pids that descend from <root>: another harness's office on the same machine is not ours."""
+    parents = _parents()
+    if parents is None:
+        return set(pids)
+    mine = set()
+    for pid in pids:
+        p, seen = pid, 0
+        while p and p != root and seen < 64:
+            p, seen = parents.get(p, 0), seen + 1
+        if p == root:
+            mine.add(pid)
+    return mine
+
+
 def rss_mb(pids):
     """Resident (Windows: working set) memory of the given office processes, MB."""
     try:
