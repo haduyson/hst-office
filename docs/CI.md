@@ -218,7 +218,10 @@ clang-cl 19.1.5, SDK 10.0.26100, .NET 4.8.1), Cygwin, NASM 3.02, pkgconfiglite, 
 HST4; ngoại lệ Defender cho `D:\hst-build` và `D:\cygwin64`. Chủ máy đã tắt Smart App Control trên HST5 (không
 bật lại được nếu không cài lại Windows; ghi ở `C:\hst-test\hst5-sac-change.txt`). Python NuGet trên HST5 chưa tin
 chứng chỉ của máy chủ tải tarball (`CERTIFICATE_VERIFY_FAILED`), nên tarball ghim được chép sẵn vào
-`D:\hst-build\dl` (sha256 theo lock); không đổi kho chứng chỉ của máy.
+`D:\hst-build\dl` (sha256 theo lock); không đổi kho chứng chỉ của máy. Trên Windows 11 bản 26200 (HST5),
+`expand.exe` báo `0x80070005` khi bộ đóng gói MSI bung merge module VC vào thư mục do Cygwin tạo dưới `/tmp` (thư mục
+thuộc người build, không cấp quyền cho Administrators) bên trong task S4U nâng quyền; bước `TmpAcl` của
+`hst4-setup.ps1` cấp toàn quyền kế thừa cho Administrators và SYSTEM trên `D:\cygwin64\tmp` (đã áp trên HST5).
 
 Số slot (đo 13/11/2026, giữ ổ còn trống ≥ 15 GB và RAM không quá tải):
 

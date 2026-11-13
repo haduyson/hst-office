@@ -2,7 +2,7 @@
 <#
 One-time toolchain for a local Windows build PC (HST4) that builds the same MSI as
 .github/workflows/desktop-windows.yml. Run elevated (kiemtra over SSH, or detached with hst4-detach.ps1):
-  powershell -File scripts\windows\hst4-setup.ps1 [-Step All | -Step Cygwin,Tools,...]  (Defender Prereqs VisualStudio Cygwin Tools Python Report)
+  powershell -File scripts\windows\hst4-setup.ps1 [-Step All | -Step Cygwin,Tools,...]  (Defender Prereqs VisualStudio Cygwin TmpAcl Tools Python Report)
 Used for every local Windows build PC (HST4, HST5). Prereqs installs Chocolatey (CI's source for NASM and pkgconfiglite)
 and Git for Windows when they are missing.
 Steps are idempotent. Everything big goes to D: (8.3 names are off there, so no path may contain a space);
@@ -10,8 +10,8 @@ the Windows SDK and the VS installer itself always land on C:, which must keep -
 #>
 [CmdletBinding()]
 param(
-    # Comma-separated so it survives `powershell -File`: All or any of Defender,Prereqs,VisualStudio,Cygwin,Tools,Python,Report.
-    [ValidatePattern('^(All|Defender|Prereqs|VisualStudio|Cygwin|Tools|Python|Report)(,(Defender|Prereqs|VisualStudio|Cygwin|Tools|Python|Report))*$')][string]$Step = 'All',
+    # Comma-separated so it survives `powershell -File`: All or any of Defender,Prereqs,VisualStudio,Cygwin,TmpAcl,Tools,Python,Report.
+    [ValidatePattern('^(All|Defender|Prereqs|VisualStudio|Cygwin|TmpAcl|Tools|Python|Report)(,(Defender|Prereqs|VisualStudio|Cygwin|TmpAcl|Tools|Python|Report))*$')][string]$Step = 'All',
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$Root = 'D:\hst-build',
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$CygwinRoot = 'D:\cygwin64',
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$VsPath = 'D:\VS2022BT',
@@ -58,6 +58,18 @@ function Get-SignedDownload([string]$Uri, [string]$OutFile) {
     if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
         throw "bad signature on $OutFile`: $($sig.Status) $($sig.SignerCertificate.Subject)"
     }
+}
+
+function Invoke-TmpAcl {
+    # The MSI packager unpacks the VC merge modules with expand.exe into directories Cygwin perl creates under /tmp.
+    # Those are owned by the build user and grant Administrators nothing; on Windows 11 build 26200 (HST5) expand.exe
+    # then fails with 0x80070005 inside the elevated S4U build task (build 22631, HST4, does not). Inheritable full
+    # control for Administrators and SYSTEM on the build's own Cygwin tmp fixes it.
+    $tmp = Join-Path $CygwinRoot 'tmp'
+    New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+    & icacls.exe $tmp /grant '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "icacls $tmp failed: $LASTEXITCODE" }
+    Write-Log "Administrators/SYSTEM full control (inherited) on $tmp"
 }
 
 function Invoke-Defender {
@@ -179,7 +191,7 @@ function Invoke-Report {
 $steps = $Step -split ','
 $all = $steps -contains 'All'
 New-Item -ItemType Directory -Force -Path $Root, $Logs | Out-Null
-foreach ($s in 'Defender', 'Prereqs', 'VisualStudio', 'Cygwin', 'Tools', 'Python', 'Report') {
+foreach ($s in 'Defender', 'Prereqs', 'VisualStudio', 'Cygwin', 'TmpAcl', 'Tools', 'Python', 'Report') {
     if (-not ($all -or $steps -contains $s)) { continue }
     Write-Log "== $s"
     switch ($s) {
@@ -187,6 +199,7 @@ foreach ($s in 'Defender', 'Prereqs', 'VisualStudio', 'Cygwin', 'Tools', 'Python
         'Prereqs' { Invoke-Prereqs }
         'VisualStudio' { Invoke-VisualStudio }
         'Cygwin' { Assert-FreeC 0; Invoke-BuildWindows 'Cygwin' }
+        'TmpAcl' { Invoke-TmpAcl }
         'Tools' { Assert-FreeC 0.5; Invoke-BuildWindows 'Tools' }
         'Python' { Invoke-Python }
         'Report' { Invoke-Report }
