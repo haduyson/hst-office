@@ -11,6 +11,7 @@ HST Office window exception, "Apply to the open windows" with unsaved documents,
 Exit 1 on any FAIL. Never touches an office it did not start (refuses to run while another soffice.bin runs).
 """
 import argparse
+import ctypes
 import json
 import os
 import subprocess
@@ -100,7 +101,8 @@ def run(args):
             windows += 1 if START_TABS[app] else 2
             c.check("%s (%s): two documents from outside" % (app, "tabs" if START_TABS[app] else "separate"),
                     c.wait(lambda: len(c.frames()) == before + 2 and len(c.windows()) == windows), c.windows())
-        ids = {t: aumid(h) for h, t in c.windows()}
+        # HST PDF windows carry no id of their own yet (the viewer is no sfx module): recorded, not asserted
+        ids = {t: aumid(h) for h, t in c.windows() if " — HST PDF" not in t}
         c.check("taskbar: every module window has its application's id, the Start Center HST Office's",
                 all(i.startswith("HASONTECH.HSTOffice.") for i in ids.values())
                 and any(i.endswith(".Startcenter") for i in ids.values())
@@ -136,6 +138,13 @@ def run(args):
                  for d in office.desktop.getComponents() if hasattr(d, "RuntimeUID")}
         c.check("apply: every document kept, still modified, text intact", after == before, len(before))
         wg.screenshot(os.path.join(args.out, "02-after-apply.png"))
+        office.dispatch_async(c.frames()[0], ".uno:DocumentWindowMode")  # View > Tabs or Separate Windows...
+        page = wg.find_window(lambda t: t.startswith("Tùy chọn"), 30)
+        c.check("View > Tabs or Separate Windows... opens the Options page", page is not None, page and page[2])
+        wg.screenshot(os.path.join(args.out, "04-options-page.png"))
+        if page:
+            ctypes.windll.user32.PostMessageW(page[0], 0x0010, 0, 0)  # WM_CLOSE: Cancel
+            c.wait(lambda: wg.find_window(lambda t: t.startswith("Tùy chọn"), 1) is None, 30)
     finally:
         for doc in office.desktop.getComponents():
             try:
