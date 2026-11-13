@@ -18,6 +18,8 @@ From the ribbon UX audit of 13/11/2026 (plans/reports/fable52-261113-1224-ribbon
   colour under a thin accent band; a selection made right after an insert command (picture, table,
   chart, shape...; reported by the sfx dispatcher) opens its contextual tab, while clicking an existing
   object still leaves the ribbon on the current tab.
+- hst::ribbon::OpenContextualTab opens the contextual tab of the current selection; the applications call it
+  when an object is double-clicked, as Office opens its Format tab.
 - The feature search box shows a one-time hint the first time it appears in a profile ("Không thấy lệnh? Gõ
   tên lệnh ở đây, không cần dấu."); it closes at the first search or after 12 s (BubbleShown in the
   extension's FeatureSearch configuration, search.xcs).
@@ -45,7 +47,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <vcl/dllapi.h>
  #include <vcl/EnumContext.hxx>
  
-@@ -24,6 +26,11 @@
+@@ -24,6 +26,16 @@
  /// Context::Unknown ends it. It is not sent to the sidebar, whose decks follow the shell's context.
  /// Does nothing on a frame without the Tabbed notebookbar.
  VCL_DLLPUBLIC void SetRibbonSubContext(const vcl::Window& rWindow, vcl::EnumContext::Context eSub);
@@ -54,6 +56,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/// command that inserts an object (Insert*, the shape tools) makes the next selection context open its
 +/// contextual tab (Picture Format, Table Design...) instead of leaving the ribbon on the current tab.
 +VCL_DLLPUBLIC void NoteObjectCommand(std::u16string_view aCommandPath);
++
++/// HST Office: opens the first contextual tab the current selection shows (Picture Format, Shape Format,
++/// Table Design...) on the Tabbed notebookbar of rWindow's frame, as a double-click on an object does in
++/// Office. Does nothing when no contextual tab is shown or the frame has no Tabbed notebookbar.
++VCL_DLLPUBLIC void OpenContextualTab(const vcl::Window& rWindow);
  }
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -624,7 +631,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
      TabPage* pPage = GetTabPage(mnCurPageId);
      // Try to stay on the current tab (unless the new context has a special tab)
-@@ -2391,6 +2429,30 @@
+@@ -2391,6 +2429,53 @@
      return nullptr;
  }
  
@@ -650,6 +657,29 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        return;
 +    g_bHstInsertPending = true;
 +    g_aHstInsertTime = std::chrono::steady_clock::now();
++}
++
++void OpenContextualTab(const vcl::Window& rWindow)
++{
++    SystemWindow* pSystemWindow = rWindow.GetSystemWindow();
++    if (!pSystemWindow || !pSystemWindow->GetNotebookBar())
++        return;
++    NotebookbarTabControlBase* pTabs = lcl_findTabControl(pSystemWindow->GetNotebookBar().get());
++    if (!pTabs)
++        return;
++    for (sal_uInt16 nPos = 0; nPos < pTabs->GetPageCount(); ++nPos)
++    {
++        const sal_uInt16 nPageId = pTabs->GetPageId(nPos);
++        const TabPage* pPage = pTabs->GetTabPage(nPageId);
++        // a contextual page (not shown in every context) whose tab the current context shows
++        if (pPage && !pPage->HasContext(vcl::EnumContext::Context::Any)
++            && pTabs->GetTabBounds(nPageId).GetWidth() > 1)
++        {
++            if (pTabs->GetCurPageId() != nPageId)
++                pTabs->SelectTabPage(nPageId);
++            return;
++        }
++    }
 +}
 +
  void SetRibbonSubContext(const vcl::Window& rWindow, vcl::EnumContext::Context eSub)
