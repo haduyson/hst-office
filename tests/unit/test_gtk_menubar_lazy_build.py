@@ -14,6 +14,7 @@ from _paths import ROOT
 PATCHES = os.path.join(ROOT, "patches", "libreoffice")
 PATCH = os.path.join(PATCHES, "hst-gtk-menubar-lazy-build.patch")
 CXX = "vcl/unx/gtk3/gtksalmenu.cxx"
+FRAME = "vcl/unx/gtk3/gtkframe.cxx"
 
 
 def after(path):
@@ -57,6 +58,14 @@ class GtkMenubarLazyBuildTest(unittest.TestCase):
         # UpdateFull() can spin a nested main loop: visibility and frame are checked again before the widget
         self.assertRegex(body, re.compile(r"UpdateFull\(\);.*if \(mpFrame && !bUnityMode && pMenuBar->IsDisplayable\(\)\)"
                                           r".*CreateMenuBarWidget\(\);", re.S))
+
+    def test_the_build_waits_for_the_window_to_be_shown(self):
+        # the idle can run inside a nested main loop of the load, before the Tabbed UI hid the menu bar
+        body = function(after(CXX), "void GtkSalMenu::BuildPendingMenuBar()")
+        self.assertLess(body.index("gtk_widget_get_visible(mpFrame->getWindow())"), body.index("UpdateFull();"))
+        self.assertIn("maBuildMenuBarIdle.Start();", function(after(CXX), "void GtkSalMenu::FrameShown()"))
+        self.assertRegex(after(FRAME), r"gtk_widget_set_visible\(m_pWindow, true\);\n#endif\n.*\n"
+                                       r"\s*if \(m_pSalMenu\)\n\s*m_pSalMenu->FrameShown\(\);")
 
     def test_hiding_detaching_and_unity_cancel_a_pending_build(self):
         text = after(CXX)
