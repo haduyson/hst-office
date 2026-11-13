@@ -1,0 +1,1734 @@
+HST Office: Slides and Draw ribbon commands (Apply to All, Preview, timing, Rotate Page), first-start layout, themes.
+
+- New sd slots, the commands the Slide Transition and Animation decks run as buttons, for the ribbon
+  (hst-ribbon-ux-impress-draw.patch places them):
+  .uno:HstApplyTransitionToAll (SID_HST_TRANSITION_APPLY_ALL): the current slide's transition, duration,
+  advance and sound go to every slide as one undo action (SlideTransitionPane's "Apply Transition to All
+  Slides"); .uno:HstPreviewTransition (SID_HST_TRANSITION_PREVIEW) plays the current slide's transition and
+  .uno:HstPreviewAnimation (SID_HST_ANIMATION_PREVIEW) its animations (the decks' "Play", SlideShow::
+  StartPreview). Disabled without a slide, for a read-only document (apply), with nothing to play or in
+  LibreOfficeKit (preview). Normal view handles all three, the slide sorter the transition ones.
+- Transition timing on the ribbon (tab Chuyển tiếp ▸ Thời gian), the deck's Duration and Advance Slide:
+  .uno:HstSetTransitionDuration?Duration:long=<ms> (SID_HST_TRANSITION_DURATION) and
+  .uno:HstSetTransitionAdvance?Advance:long=<ms> (SID_HST_TRANSITION_ADVANCE, -1: on mouse click) set the
+  selected slides (the current slide in normal view) as one undo action each; their state is the current
+  slide's value. Their toolbox items get HstTransitionDurationControl ("Thời lượng" spin field) and
+  HstTransitionAdvanceControl ("Tự chuyển sau" check box and spin field), InterimItemWindow controls built
+  as the transitions gallery is (sd/source/ui/controller/HstTransitionTimingControls.cxx,
+  hsttransitionduration.ui, hsttransitionadvance.ui; Controller.xcu, sd.component, UIConfig_simpress.mk;
+  Vietnamese in sd/messages.po).
+  sd app.hrc, sdraw.sdi, drviewsh.sdi, SlideSorterController.sdi, drviews2.cxx, drviews7.cxx,
+  SlideSorterViewShell.cxx, Library_sd.mk; new HstSlideEffectCommands.{hxx,cxx}; DrawImpressCommands.xcu
+  labels and their Vietnamese in UI.po.
+- HST Draw "Xoay trang" (ribbon Trang ▸ Xoay trang): .uno:HstRotatePageLeft / .uno:HstRotatePageRight
+  (SID_HST_ROTATE_PAGE_LEFT/RIGHT) turn the selected pages of the page pane (the current page without one)
+  by 90°: width and height and the margins swap, every object turns about the page (SdrObject::Rotate and
+  Move) so the content keeps its place, as one undo action (SdrUndoGeoObj per object and
+  SdPageFormatUndoAction per page); the view follows the new size as SwitchPage does for pages of different
+  sizes. Disabled in HST Slides (slides share one size), in master and notes views and read-only documents.
+  sd/source/ui/func/HstRotatePage.cxx, HstRotatePage.hxx; labels in DrawImpressCommands.xcu and UI.po.
+- sfx2 SidebarController: the first time HST Slides shows its sidebar it is folded to the tab bar, so the
+  slide gets the room; org.openoffice.Office.HSTRibbon/SlidesSidebarFirstStartDone makes it once only.
+- officecfg ImpressWindowState.xcu: the Drawing toolbar (private:resource/toolbar/toolbar) is hidden by
+  default in HST Slides; the ribbon's Trang đầu ▸ Bản vẽ and Chèn ▸ Minh họa hold the same tools. Choosing
+  View ▸ User Interface ▸ Standard Toolbar still shows it (ToolbarMode.xcu lists it for that mode), and
+  View ▸ Toolbars ▸ Drawing shows it again. HST Draw keeps its vertical drawing bar (PDF editing).
+- svx themeselectorpanel.ui (Slides Design ▸ Chủ đề): the gallery was 65 px high and clipped its items; it
+  is one row of previews (88 px, the ribbon body) with six columns of the preview's width.
+- svx ThemeColorsPaneBase.cxx: with a Vietnamese interface the bundled themes are listed as Bãi biển,
+  Gió nhẹ, Rừng xanh, Đại dương, Cầu vồng, Hoàng hôn; the theme files and the names saved in documents
+  stay English, other themes keep their names.
+
+Risk: nothing here is compiled or run yet (each C++ file passes a syntax-only compile against the build
+tree); the .ui sizes need a check at 1485 and 1366 px; the first-start fold depends on the sidebar's first
+context update coming after its window exists.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sd/inc/app.hrc
++++ b/sd/inc/app.hrc
+@@ -438,5 +438,15 @@
+ // HST Office: the ribbon's transitions gallery applies a transition set (SfxStringItem, HstTransitionApply.hxx)
+ #define SID_HST_APPLY_TRANSITION            (SID_SD_START+458)
+ #define SID_HST_APPLY_ANIMATION             (SID_SD_START+459)
++// HST Office: the ribbon's Apply to All Slides and Preview of the Transitions and Animations tabs
++// (HstSlideEffectCommands.hxx)
++#define SID_HST_TRANSITION_APPLY_ALL        (SID_SD_START+460)
++#define SID_HST_TRANSITION_PREVIEW          (SID_SD_START+461)
++#define SID_HST_ANIMATION_PREVIEW           (SID_SD_START+462)
++#define SID_HST_TRANSITION_DURATION         (SID_SD_START+463)
++#define SID_HST_TRANSITION_ADVANCE          (SID_SD_START+464)
++// HST Office: HST Draw's "Xoay trang" (HstRotatePage.hxx)
++#define SID_HST_ROTATE_PAGE_LEFT            (SID_SD_START+465)
++#define SID_HST_ROTATE_PAGE_RIGHT           (SID_SD_START+466)
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sd/sdi/sdraw.sdi
++++ b/sd/sdi/sdraw.sdi
+@@ -2773,6 +2773,125 @@
+     GroupId = SfxGroupId::Modify;
+ ]
+ 
++SfxVoidItem HstApplyTransitionToAll SID_HST_TRANSITION_APPLY_ALL
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = FALSE,
++    MenuConfig = FALSE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Modify;
++]
++
++SfxVoidItem HstPreviewTransition SID_HST_TRANSITION_PREVIEW
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = TRUE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = FALSE,
++    MenuConfig = FALSE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Drawing;
++]
++
++SfxVoidItem HstPreviewAnimation SID_HST_ANIMATION_PREVIEW
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = TRUE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = FALSE,
++    MenuConfig = FALSE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Drawing;
++]
++
++SfxInt32Item HstSetTransitionDuration SID_HST_TRANSITION_DURATION
++(SfxInt32Item Duration SID_HST_TRANSITION_DURATION)
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = FALSE,
++    MenuConfig = FALSE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Modify;
++]
++
++SfxInt32Item HstSetTransitionAdvance SID_HST_TRANSITION_ADVANCE
++(SfxInt32Item Advance SID_HST_TRANSITION_ADVANCE)
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = FALSE,
++    MenuConfig = FALSE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Modify;
++]
++
++SfxVoidItem HstRotatePageLeft SID_HST_ROTATE_PAGE_LEFT
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Modify;
++]
++
++SfxVoidItem HstRotatePageRight SID_HST_ROTATE_PAGE_RIGHT
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Modify;
++]
++
+ SfxVoidItem Remote SID_REMOTE_DLG
+ ()
+ [
+--- a/sd/sdi/drviewsh.sdi
++++ b/sd/sdi/drviewsh.sdi
+@@ -126,6 +126,41 @@
+         ExecMethod = FuTemporary ;
+         StateMethod = GetMenuState ;
+     ]
++    SID_HST_TRANSITION_APPLY_ALL
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_TRANSITION_PREVIEW
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_ANIMATION_PREVIEW
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_TRANSITION_DURATION
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_TRANSITION_ADVANCE
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_ROTATE_PAGE_LEFT
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_ROTATE_PAGE_RIGHT
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
+     SID_REMOTE_DLG
+     [
+         ExecMethod = FuTemporary ;
+--- a/sd/sdi/SlideSorterController.sdi
++++ b/sd/sdi/SlideSorterController.sdi
+@@ -248,6 +248,26 @@
+         ExecMethod = FuTemporary ;
+         StateMethod = GetMenuState ;
+     ]
++    SID_HST_TRANSITION_APPLY_ALL
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_TRANSITION_PREVIEW
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_TRANSITION_DURATION
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_TRANSITION_ADVANCE
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
+     SID_REMOTE_DLG
+     [
+         ExecMethod = FuTemporary ;
+--- a/sd/source/ui/view/drviews2.cxx
++++ b/sd/source/ui/view/drviews2.cxx
+@@ -132,6 +132,8 @@
+ #include <app.hrc>
+ #include <HstTransitionApply.hxx>
+ #include <HstAnimationApply.hxx>
++#include <HstSlideEffectCommands.hxx>
++#include <HstRotatePage.hxx>
+ #include <strings.hrc>
+ 
+ #include <AnimationChildWindow.hxx>
+@@ -4294,6 +4296,21 @@
+             Cancel();
+         break;
+ 
++        case SID_HST_TRANSITION_APPLY_ALL:
++        case SID_HST_TRANSITION_PREVIEW:
++        case SID_HST_ANIMATION_PREVIEW:
++        case SID_HST_TRANSITION_DURATION:
++        case SID_HST_TRANSITION_ADVANCE:
++            sd::hst::ExecuteSlideEffectCommand(GetViewShellBase(), rReq);
++            Cancel();
++        break;
++
++        case SID_HST_ROTATE_PAGE_LEFT:
++        case SID_HST_ROTATE_PAGE_RIGHT:
++            sd::hst::ExecuteRotatePage(*this, rReq);
++            Cancel();
++        break;
++
+         case SID_REMOTE_DLG:
+         {
+ #ifdef ENABLE_SDREMOTE
+--- a/sd/source/ui/view/drviews7.cxx
++++ b/sd/source/ui/view/drviews7.cxx
+@@ -68,6 +68,8 @@
+ #include <app.hrc>
+ #include <HstTransitionApply.hxx>
+ #include <HstAnimationApply.hxx>
++#include <HstSlideEffectCommands.hxx>
++#include <HstRotatePage.hxx>
+ 
+ #include <PresentationViewShell.hxx>
+ 
+@@ -1049,6 +1051,12 @@
+     if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_ANIMATION))
+         sd::hst::GetApplyAnimationState(GetViewShellBase(), rSet);
+ 
++    sd::hst::GetSlideEffectCommandState(GetViewShellBase(), rSet);
++
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_ROTATE_PAGE_LEFT)
++        || SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_ROTATE_PAGE_RIGHT))
++        sd::hst::GetRotatePageState(*this, rSet);
++
+     if( SfxItemState::DEFAULT == rSet.GetItemState( SID_REMOTE_DLG ) )
+     {
+ 
+--- a/sd/source/ui/slidesorter/shell/SlideSorterViewShell.cxx
++++ b/sd/source/ui/slidesorter/shell/SlideSorterViewShell.cxx
+@@ -63,6 +63,7 @@
+ #define ShellClass_SlideSorterViewShell
+ #include <sdslots.hxx>
+ #include <HstTransitionApply.hxx>
++#include <HstSlideEffectCommands.hxx>
+ 
+ using namespace ::com::sun::star;
+ using namespace ::com::sun::star::uno;
+@@ -357,6 +358,7 @@
+     mpSlideSorter->GetController().GetSlotManager().GetMenuState(rSet);
+     if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_TRANSITION))
+         sd::hst::GetApplyTransitionState(GetViewShellBase(), rSet);
++    sd::hst::GetSlideEffectCommandState(GetViewShellBase(), rSet);
+ }
+ 
+ void SlideSorterViewShell::GetClipboardState ( SfxItemSet& rSet)
+@@ -396,6 +398,13 @@
+             sd::hst::ExecuteApplyTransition(GetViewShellBase(), rRequest);
+             break;
+ 
++        case SID_HST_TRANSITION_APPLY_ALL:
++        case SID_HST_TRANSITION_PREVIEW:
++        case SID_HST_TRANSITION_DURATION:
++        case SID_HST_TRANSITION_ADVANCE:
++            sd::hst::ExecuteSlideEffectCommand(GetViewShellBase(), rRequest);
++            break;
++
+         case SID_MODIFYPAGE:
+         {
+             SdPage* pCurrentPage = GetActualPage();
+--- a/sd/Library_sd.mk
++++ b/sd/Library_sd.mk
+@@ -219,6 +219,7 @@
+ 	sd/source/ui/animations/SlideTransitionPane \
+ 	sd/source/ui/animations/HstTransitionApply \
+ 	sd/source/ui/animations/HstAnimationApply \
++	sd/source/ui/animations/HstSlideEffectCommands \
+ 	sd/source/ui/animations/motionpathtag \
+ 	sd/source/ui/annotations/annotationmanager \
+ 	sd/source/ui/annotations/AnnotationPopup \
+@@ -235,6 +236,7 @@
+ 	sd/source/ui/controller/slidelayoutcontroller \
+ 	sd/source/ui/controller/HstTransitionGallery \
+ 	sd/source/ui/controller/HstAnimationGallery \
++	sd/source/ui/controller/HstTransitionTimingControls \
+ 	sd/source/ui/controller/displaymodecontroller \
+ 	sd/source/ui/dlg/AnimationChildWindow \
+ 	sd/source/ui/dlg/LayerTabBar \
+@@ -334,6 +336,7 @@
+ 	sd/source/ui/func/fuprobjs \
+ 	sd/source/ui/func/fuscale \
+ 	sd/source/ui/func/fusearch \
++	sd/source/ui/func/HstRotatePage \
+ 	sd/source/ui/func/fusel \
+ 	sd/source/ui/func/fusldlg \
+ 	sd/source/ui/func/fusnapln \
+--- a/sd/UIConfig_simpress.mk
++++ b/sd/UIConfig_simpress.mk
+@@ -173,6 +173,8 @@
+ 	sd/uiconfig/simpress/ui/slidetransitionspanel \
+ 	sd/uiconfig/simpress/ui/hsttransitiongallery \
+ 	sd/uiconfig/simpress/ui/hstanimationgallery \
++	sd/uiconfig/simpress/ui/hsttransitionadvance \
++	sd/uiconfig/simpress/ui/hsttransitionduration \
+ 	sd/uiconfig/simpress/ui/snapmenu \
+ 	sd/uiconfig/simpress/ui/tabviewbar \
+ 	sd/uiconfig/simpress/ui/tabledesignpanel \
+--- a/sd/util/sd.component
++++ b/sd/util/sd.component
+@@ -53,6 +53,14 @@
+       constructor="com_sun_star_comp_sd_HstAnimationGalleryControl_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
+   </implementation>
++  <implementation name="com.sun.star.comp.sd.HstTransitionDurationControl"
++      constructor="com_sun_star_comp_sd_HstTransitionDurationControl_get_implementation">
++    <service name="com.sun.star.frame.ToolbarController"/>
++  </implementation>
++  <implementation name="com.sun.star.comp.sd.HstTransitionAdvanceControl"
++      constructor="com_sun_star_comp_sd_HstTransitionAdvanceControl_get_implementation">
++    <service name="com.sun.star.frame.ToolbarController"/>
++  </implementation>
+   <implementation name="com.sun.star.comp.sd.SlideLayoutController"
+       constructor="com_sun_star_comp_sd_SlideLayoutController_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
+@@ -1932,6 +1932,28 @@
+           <value>com.sun.star.comp.sd.HstAnimationGalleryControl</value>
+         </prop>
+       </node>
++      <node oor:name="HstTransitionDuration" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:HstSetTransitionDuration</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.presentation.PresentationDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.sd.HstTransitionDurationControl</value>
++        </prop>
++      </node>
++      <node oor:name="HstTransitionAdvance" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:HstSetTransitionAdvance</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.presentation.PresentationDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.sd.HstTransitionAdvanceControl</value>
++        </prop>
++      </node>
+       <node oor:name="StylesPreviewToolBox" oor:op="replace">
+         <prop oor:name="Command">
+           <value>.uno:StylesPreview</value>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/DrawImpressCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/DrawImpressCommands.xcu
+@@ -472,6 +472,62 @@
+           <value xml:lang="en-US">Applies an animation to the selected objects</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstApplyTransitionToAll" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Apply to All Slides</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Applies the transition of this slide to all slides</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstPreviewTransition" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Preview</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Plays the transition of this slide</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstPreviewAnimation" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Preview</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Plays the animations of this slide</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstSetTransitionDuration" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Duration</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Sets how long the transition of the selected slides lasts</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstSetTransitionAdvance" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Advance Slide</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Goes to the next slide by itself after the given time, or on a mouse click</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstRotatePageLeft" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Rotate Page Left</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Turns the selected pages and their content 90° to the left</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstRotatePageRight" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Rotate Page Right</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Turns the selected pages and their content 90° to the right</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:MasterSlidesPanel" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Master Slides</value>
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -9256,6 +9256,146 @@
+ msgid "Applies an animation to the selected objects"
+ msgstr "Áp dụng hiệu ứng hoạt hình cho các đối tượng đã chọn"
+ 
++#. hstHstApplyTransitionToAllLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstApplyTransitionToAll\n"
++"Label\n"
++"value.text"
++msgid "Apply to All Slides"
++msgstr "Áp dụng cho tất cả"
++
++#. hstHstApplyTransitionToAllTooltipLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstApplyTransitionToAll\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Applies the transition of this slide to all slides"
++msgstr "Áp dụng hiệu ứng chuyển tiếp của trang chiếu này cho mọi trang chiếu"
++
++#. hstHstPreviewTransitionLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstPreviewTransition\n"
++"Label\n"
++"value.text"
++msgid "Preview"
++msgstr "Xem trước"
++
++#. hstHstPreviewTransitionTooltipLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstPreviewTransition\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Plays the transition of this slide"
++msgstr "Phát hiệu ứng chuyển tiếp của trang chiếu này"
++
++#. hstHstPreviewAnimationLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstPreviewAnimation\n"
++"Label\n"
++"value.text"
++msgid "Preview"
++msgstr "Xem trước"
++
++#. hstHstPreviewAnimationTooltipLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstPreviewAnimation\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Plays the animations of this slide"
++msgstr "Phát các hoạt hình của trang chiếu này"
++
++#. hstHstSetTransitionDurationLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstSetTransitionDuration\n"
++"Label\n"
++"value.text"
++msgid "Duration"
++msgstr "Thời lượng"
++
++#. hstHstSetTransitionDurationTooltipLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstSetTransitionDuration\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Sets how long the transition of the selected slides lasts"
++msgstr "Đặt thời lượng hiệu ứng chuyển tiếp của các trang chiếu đã chọn"
++
++#. hstHstSetTransitionAdvanceLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstSetTransitionAdvance\n"
++"Label\n"
++"value.text"
++msgid "Advance Slide"
++msgstr "Tự chuyển sau"
++
++#. hstHstSetTransitionAdvanceTooltipLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstSetTransitionAdvance\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Goes to the next slide by itself after the given time, or on a mouse click"
++msgstr "Tự chuyển sang trang chiếu kế tiếp sau thời gian đã đặt, hoặc khi bấm chuột"
++
++#. hstHstRotatePageLeftLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstRotatePageLeft\n"
++"Label\n"
++"value.text"
++msgid "Rotate Page Left"
++msgstr "Xoay trang trái 90°"
++
++#. hstHstRotatePageLeftTooltipLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstRotatePageLeft\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Turns the selected pages and their content 90° to the left"
++msgstr "Xoay các trang đã chọn cùng nội dung sang trái 90°"
++
++#. hstHstRotatePageRightLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstRotatePageRight\n"
++"Label\n"
++"value.text"
++msgid "Rotate Page Right"
++msgstr "Xoay trang phải 90°"
++
++#. hstHstRotatePageRightTooltipLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstRotatePageRight\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Turns the selected pages and their content 90° to the right"
++msgstr "Xoay các trang đã chọn cùng nội dung sang phải 90°"
++
+ #. LoYyf
+ #: DrawImpressCommands.xcu
+ msgctxt ""
+--- a/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
+@@ -43,5 +43,12 @@
+       </info>
+       <value>true</value>
+     </prop>
++    <prop oor:name="SlidesSidebarFirstStartDone" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Set once HST Slides has started: on its first start the sidebar is folded to its tab bar
++          (sfx2 SidebarController), afterwards the sidebar keeps the user's choice.</desc>
++      </info>
++      <value>false</value>
++    </prop>
+   </component>
+ </oor:component-schema>
+--- a/translations/source/vi/sd/messages.po
++++ b/translations/source/vi/sd/messages.po
+@@ -3016,6 +3016,36 @@
+ msgid "None"
+ msgstr "Không có"
+ 
++#. hsttransitiondurationlabel
++#: sd/uiconfig/simpress/ui/hsttransitionduration.ui
++msgctxt "hsttransitionduration|label"
++msgid "Duration:"
++msgstr "Thời _lượng:"
++
++#. hsttransitiondurationduration
++#: sd/uiconfig/simpress/ui/hsttransitionduration.ui
++msgctxt "hsttransitionduration|duration"
++msgid "How long the transition of the selected slides lasts, in seconds"
++msgstr "Thời lượng hiệu ứng chuyển tiếp của các trang chiếu đã chọn, tính bằng giây"
++
++#. hsttransitionadvanceauto
++#: sd/uiconfig/simpress/ui/hsttransitionadvance.ui
++msgctxt "hsttransitionadvance|auto"
++msgid "_After:"
++msgstr "Tự chuyển _sau:"
++
++#. hsttransitionadvanceauto
++#: sd/uiconfig/simpress/ui/hsttransitionadvance.ui
++msgctxt "hsttransitionadvance|auto"
++msgid "Go to the next slide by itself after the given seconds; otherwise on a click"
++msgstr "Tự chuyển sang trang chiếu kế tiếp sau số giây đã đặt; nếu không thì chuyển khi bấm chuột"
++
++#. hsttransitionadvanceseconds
++#: sd/uiconfig/simpress/ui/hsttransitionadvance.ui
++msgctxt "hsttransitionadvance|seconds"
++msgid "Seconds before the next slide"
++msgstr "Số giây trước khi chuyển sang trang chiếu kế tiếp"
++
+ #. hsttransitionsatkobject
+ #: sd/uiconfig/simpress/ui/hsttransitiongallery.ui
+ msgctxt "hsttransitiongallery|transitions-atkobject"
+--- /dev/null
++++ b/sd/source/ui/inc/HstSlideEffectCommands.hxx
+@@ -0,0 +1,43 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++class SfxItemSet;
++class SfxRequest;
++
++namespace sd
++{
++class ViewShellBase;
++}
++
++/** HST Office: the ribbon commands of the Slides Transitions and Animations tabs that the
++    sidebar decks offer as buttons:
++    - .uno:HstApplyTransitionToAll (SID_HST_TRANSITION_APPLY_ALL): the current slide's transition,
++      duration, advance and sound go to every slide, as the Slide Transition deck's "Apply
++      Transition to All Slides" does, as one undo action;
++    - .uno:HstPreviewTransition (SID_HST_TRANSITION_PREVIEW): plays the current slide's transition,
++      as the deck's "Play" button;
++    - .uno:HstPreviewAnimation (SID_HST_ANIMATION_PREVIEW): plays the current slide's animations,
++      as the Animation deck's "Play" button with nothing selected;
++    - .uno:HstSetTransitionDuration?Duration:long=<ms> (SID_HST_TRANSITION_DURATION) and
++      .uno:HstSetTransitionAdvance?Advance:long=<ms> (SID_HST_TRANSITION_ADVANCE, -1: on mouse click)
++      set the transition duration and the automatic advance of the selected slides (the current
++      slide in normal view), as one undo action each, as the deck's "Duration" and "Advance Slide"
++      controls do. Their state is the current slide's value (HstTransitionTimingControls.cxx). */
++namespace sd::hst
++{
++/// FuTemporary handler of the three slots.
++void ExecuteSlideEffectCommand(ViewShellBase& rBase, SfxRequest& rRequest);
++
++/// GetMenuState handler of the three slots: disabled without a slide, a read-only document
++/// (apply), without a transition or animation to play, or in LibreOfficeKit (preview).
++void GetSlideEffectCommandState(ViewShellBase& rBase, SfxItemSet& rSet);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/source/ui/animations/HstSlideEffectCommands.cxx
+@@ -0,0 +1,253 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <HstSlideEffectCommands.hxx>
++
++#include <DrawDocShell.hxx>
++#include <SlideSorterViewShell.hxx>
++#include <ViewShell.hxx>
++#include <ViewShellBase.hxx>
++#include <app.hrc>
++#include <drawdoc.hxx>
++#include <sdpage.hxx>
++#include <sdresid.hxx>
++#include <sdundogr.hxx>
++#include <slideshow.hxx>
++#include <strings.hrc>
++#include <undoanim.hxx>
++
++#include <com/sun/star/animations/ParallelTimeContainer.hpp>
++#include <com/sun/star/animations/XAnimationNode.hpp>
++#include <com/sun/star/drawing/XDrawPage.hpp>
++#include <com/sun/star/presentation/EffectNodeType.hpp>
++#include <comphelper/lok.hxx>
++#include <comphelper/processfactory.hxx>
++#include <sfx2/bindings.hxx>
++#include <sfx2/request.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <svl/intitem.hxx>
++#include <svl/itemset.hxx>
++#include <svl/undo.hxx>
++
++#include <algorithm>
++#include <memory>
++#include <vector>
++
++using namespace css;
++
++namespace sd::hst
++{
++namespace
++{
++/// The slide shown in the main view (normal, notes or slide sorter); null for masters and other pages.
++SdPage* CurrentSlide(ViewShellBase& rBase)
++{
++    const std::shared_ptr<ViewShell> pMain = rBase.GetMainViewShell();
++    SdPage* pPage = pMain ? pMain->GetActualPage() : nullptr;
++    if (!pPage || pPage->GetPageKind() != PageKind::Standard || pPage->IsMasterPage())
++        return nullptr;
++    return pPage;
++}
++
++uno::Reference<drawing::XDrawPage> UnoPage(SdPage& rPage)
++{
++    return uno::Reference<drawing::XDrawPage>(rPage.getUnoPage(), uno::UNO_QUERY);
++}
++
++/// SlideTransitionPane's TransitionEffect::applyTo with nothing ambiguous: every setting of rFrom.
++void CopyTransition(const SdPage& rFrom, SdPage& rTo)
++{
++    rTo.setTransitionType(rFrom.getTransitionType());
++    rTo.setTransitionSubtype(rFrom.getTransitionSubtype());
++    rTo.setTransitionDirection(rFrom.getTransitionDirection());
++    rTo.setTransitionFadeColor(rFrom.getTransitionFadeColor());
++    rTo.setTransitionDuration(rFrom.getTransitionDuration());
++    rTo.SetTime(rFrom.GetTime());
++    rTo.SetPresChange(rFrom.GetPresChange());
++    rTo.SetStopSound(rFrom.IsStopSound());
++    rTo.SetSound(!rFrom.IsStopSound() && rFrom.IsSoundOn());
++    if (!rFrom.IsStopSound() && rFrom.GetSoundFile() != rTo.GetSoundFile())
++    {
++        rTo.SetSoundFile(rFrom.GetSoundFile());
++        rTo.SetSoundAllowed(true);
++    }
++    rTo.SetLoopSound(rFrom.IsLoopSound());
++}
++
++bool ApplyTransitionToAll(ViewShellBase& rBase)
++{
++    DrawDocShell* pDocSh = rBase.GetDocShell();
++    SdDrawDocument* pDoc = pDocSh ? pDocSh->GetDoc() : nullptr;
++    const SdPage* pFrom = CurrentSlide(rBase);
++    if (!pDoc || !pFrom || pDocSh->IsReadOnly())
++        return false;
++    const sal_uInt16 nCount = pDoc->GetSdPageCount(PageKind::Standard);
++    // one undo action for all the slides, as the Slide Transition deck records it
++    if (SfxUndoManager* pManager = pDocSh->GetUndoManager())
++    {
++        const OUString aComment(SdResId(STR_UNDO_SLIDE_PARAMS));
++        pManager->EnterListAction(aComment, aComment, 0, rBase.GetViewShellId());
++        auto pGroup = std::make_unique<SdUndoGroup>(*pDoc);
++        pGroup->SetComment(aComment);
++        for (sal_uInt16 i = 0; i < nCount; ++i)
++            if (SdPage* pPage = pDoc->GetSdPage(i, PageKind::Standard))
++                pGroup->AddAction(new UndoTransition(*pDoc, pPage));
++        pManager->AddUndoAction(std::move(pGroup));
++        pManager->LeaveListAction();
++    }
++    for (sal_uInt16 i = 0; i < nCount; ++i)
++        if (SdPage* pPage = pDoc->GetSdPage(i, PageKind::Standard); pPage && pPage != pFrom)
++            CopyTransition(*pFrom, *pPage);
++    pDocSh->SetModified();
++    return true;
++}
++
++/// The selected slides of the slide pane or sorter, else the current slide (as HstTransitionApply.cxx).
++std::vector<SdPage*> SelectedSlides(ViewShellBase& rBase)
++{
++    std::vector<SdPage*> aPages;
++    if (slidesorter::SlideSorterViewShell* pSorter = slidesorter::SlideSorterViewShell::GetSlideSorter(rBase))
++    {
++        if (const std::shared_ptr<slidesorter::SlideSorterViewShell::PageSelection> pSelection
++            = pSorter->GetPageSelection())
++            aPages.assign(pSelection->begin(), pSelection->end());
++    }
++    if (aPages.empty())
++        if (SdPage* pPage = CurrentSlide(rBase))
++            aPages.push_back(pPage);
++    std::erase_if(aPages, [](const SdPage* pPage) {
++        return !pPage || pPage->GetPageKind() != PageKind::Standard || pPage->IsMasterPage();
++    });
++    return aPages;
++}
++
++/// Duration (bAdvance false, nMs > 0) or automatic advance (bAdvance true, nMs < 0: on mouse click)
++/// of the selected slides, as one undo action.
++bool SetTiming(ViewShellBase& rBase, bool bAdvance, sal_Int32 nMs)
++{
++    DrawDocShell* pDocSh = rBase.GetDocShell();
++    SdDrawDocument* pDoc = pDocSh ? pDocSh->GetDoc() : nullptr;
++    const std::vector<SdPage*> aPages = SelectedSlides(rBase);
++    if (!pDoc || pDocSh->IsReadOnly() || aPages.empty() || (!bAdvance && nMs <= 0))
++        return false;
++    if (SfxUndoManager* pManager = pDocSh->GetUndoManager())
++    {
++        const OUString aComment(SdResId(STR_UNDO_SLIDE_PARAMS));
++        pManager->EnterListAction(aComment, aComment, 0, rBase.GetViewShellId());
++        auto pGroup = std::make_unique<SdUndoGroup>(*pDoc);
++        pGroup->SetComment(aComment);
++        for (SdPage* pPage : aPages)
++            pGroup->AddAction(new UndoTransition(*pDoc, pPage));
++        pManager->AddUndoAction(std::move(pGroup));
++        pManager->LeaveListAction();
++    }
++    for (SdPage* pPage : aPages)
++    {
++        if (!bAdvance)
++            pPage->setTransitionDuration(nMs / 1000.0);
++        else if (nMs < 0)
++            pPage->SetPresChange(PresChange::Manual);
++        else
++        {
++            pPage->SetPresChange(PresChange::Auto);
++            pPage->SetTime(nMs / 1000.0);
++        }
++    }
++    pDocSh->SetModified();
++    rBase.GetViewFrame().GetBindings().Invalidate(bAdvance ? SID_HST_TRANSITION_ADVANCE : SID_HST_TRANSITION_DURATION);
++    return true;
++}
++
++bool PreviewTransition(ViewShellBase& rBase)
++{
++    SdPage* pPage = CurrentSlide(rBase);
++    if (!pPage || pPage->getTransitionType() == 0)
++        return false;
++    return SlideShow::StartPreview(rBase, UnoPage(*pPage), uno::Reference<animations::XAnimationNode>());
++}
++
++/// CustomAnimationPane::onPreview with no effect selected: the slide's whole animation node.
++bool PreviewAnimation(ViewShellBase& rBase)
++{
++    SdPage* pPage = CurrentSlide(rBase);
++    if (!pPage || !pPage->hasAnimationNode())
++        return false;
++    uno::Reference<animations::XTimeContainer> xRoot
++        = animations::ParallelTimeContainer::create(comphelper::getProcessComponentContext());
++    uno::Reference<animations::XAnimationNode> xRootNode(xRoot, uno::UNO_QUERY_THROW);
++    xRootNode->setUserData({ { u"node-type"_ustr,
++                               uno::Any(presentation::EffectNodeType::TIMING_ROOT) } });
++    xRoot->appendChild(pPage->getAnimationNode());
++    return SlideShow::StartPreview(rBase, UnoPage(*pPage), xRootNode);
++}
++}
++
++void ExecuteSlideEffectCommand(ViewShellBase& rBase, SfxRequest& rRequest)
++{
++    bool bDone = false;
++    switch (rRequest.GetSlot())
++    {
++        case SID_HST_TRANSITION_APPLY_ALL:
++            bDone = ApplyTransitionToAll(rBase);
++            break;
++        case SID_HST_TRANSITION_PREVIEW:
++            bDone = !comphelper::LibreOfficeKit::isActive() && PreviewTransition(rBase);
++            break;
++        case SID_HST_ANIMATION_PREVIEW:
++            bDone = !comphelper::LibreOfficeKit::isActive() && PreviewAnimation(rBase);
++            break;
++        case SID_HST_TRANSITION_DURATION:
++        case SID_HST_TRANSITION_ADVANCE:
++        {
++            const SfxItemSet* pArgs = rRequest.GetArgs();
++            const SfxInt32Item* pMs = pArgs ? pArgs->GetItem<SfxInt32Item>(rRequest.GetSlot()) : nullptr;
++            bDone = pMs && SetTiming(rBase, rRequest.GetSlot() == SID_HST_TRANSITION_ADVANCE, pMs->GetValue());
++            break;
++        }
++        default:
++            break;
++    }
++    if (bDone)
++        rRequest.Done();
++    else
++        rRequest.Ignore();
++}
++
++void GetSlideEffectCommandState(ViewShellBase& rBase, SfxItemSet& rSet)
++{
++    const SdPage* pPage = CurrentSlide(rBase);
++    const DrawDocShell* pDocSh = rBase.GetDocShell();
++    const bool bLok = comphelper::LibreOfficeKit::isActive();
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_TRANSITION_APPLY_ALL)
++        && (!pPage || !pDocSh || pDocSh->IsReadOnly()))
++        rSet.DisableItem(SID_HST_TRANSITION_APPLY_ALL);
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_TRANSITION_PREVIEW)
++        && (bLok || !pPage || pPage->getTransitionType() == 0))
++        rSet.DisableItem(SID_HST_TRANSITION_PREVIEW);
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_ANIMATION_PREVIEW)
++        && (bLok || !pPage || !pPage->hasAnimationNode()))
++        rSet.DisableItem(SID_HST_ANIMATION_PREVIEW);
++    // the current slide's timing in milliseconds; the advance is -1 when the slide waits for a click
++    for (const sal_uInt16 nSlot : { SID_HST_TRANSITION_DURATION, SID_HST_TRANSITION_ADVANCE })
++    {
++        if (SfxItemState::DEFAULT != rSet.GetItemState(nSlot))
++            continue;
++        if (!pPage || !pDocSh || pDocSh->IsReadOnly())
++            rSet.DisableItem(nSlot);
++        else if (nSlot == SID_HST_TRANSITION_DURATION)
++            rSet.Put(SfxInt32Item(nSlot, static_cast<sal_Int32>(pPage->getTransitionDuration() * 1000.0 + 0.5)));
++        else
++            rSet.Put(SfxInt32Item(nSlot, pPage->GetPresChange() == PresChange::Auto
++                                             ? static_cast<sal_Int32>(pPage->GetTime() * 1000.0 + 0.5)
++                                             : -1));
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/source/ui/controller/HstTransitionTimingControls.cxx
+@@ -0,0 +1,269 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the transition timing of the Slides ribbon (tab "Chuyển tiếp"), as Office's Timing group:
++// - "Thời lượng" (.uno:HstSetTransitionDuration?Duration:long=<ms>): a spin field in seconds;
++// - "Tự chuyển sau" (.uno:HstSetTransitionAdvance?Advance:long=<ms>, -1: on mouse click): a check box
++//   and a spin field in seconds.
++// Each change is one undoable command on the selected slides (HstSlideEffectCommands.cxx); the fields
++// show the current slide's values. The toolbox items of the two commands get these controls
++// (Controller.xcu), built as HstTransitionGallery.cxx builds the transitions gallery.
++
++#include <com/sun/star/frame/XFrame.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <comphelper/dispatchcommand.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <comphelper/unique_unlock.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <cppuhelper/supportsservice.hxx>
++#include <svtools/toolboxcontroller.hxx>
++#include <toolkit/helper/vclunohelper.hxx>
++#include <vcl/InterimItemWindow.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/CheckButton.hxx>
++#include <vcl/weld/SpinButton.hxx>
++
++#include <cmath>
++
++using namespace css;
++
++namespace
++{
++// the spin fields show seconds with two decimals: their integer value is in hundredths of a second
++sal_Int32 Milliseconds(const weld::SpinButton& rSeconds) { return static_cast<sal_Int32>(rSeconds.get_value() * 10); }
++
++void SetMilliseconds(weld::SpinButton& rSeconds, sal_Int32 nMilliseconds)
++{
++    rSeconds.set_value(std::lround(nMilliseconds / 10.0));
++}
++
++void SetUpSeconds(weld::SpinButton& rSeconds, sal_Int64 nMin, sal_Int64 nMax, sal_Int64 nStep)
++{
++    rSeconds.set_digits(2);
++    rSeconds.set_range(nMin, nMax);
++    rSeconds.set_increments(nStep, nStep * 4);
++}
++
++/// The item window of one timing command: dispatches the command with its milliseconds argument.
++class HstTimingWindow : public InterimItemWindow
++{
++public:
++    HstTimingWindow(vcl::Window* pParent, const OUString& rUIXMLDescription, const OUString& rID,
++                    uno::Reference<frame::XFrame> xFrame, OUString aCommand, OUString aArgument)
++        : InterimItemWindow(pParent, rUIXMLDescription, rID, true)
++        , m_xFrame(std::move(xFrame))
++        , m_aCommand(std::move(aCommand))
++        , m_aArgument(std::move(aArgument))
++    {
++    }
++
++    /// The current slide's value from the command state (milliseconds; -1 for "on mouse click").
++    virtual void SetState(sal_Int32 nMilliseconds) = 0;
++
++protected:
++    void Dispatch(sal_Int32 nMilliseconds)
++    {
++        if (!m_bUpdating && m_xFrame.is())
++            comphelper::dispatchCommand(m_aCommand, m_xFrame,
++                                        { comphelper::makePropertyValue(m_aArgument, nMilliseconds) });
++    }
++
++    uno::Reference<frame::XFrame> m_xFrame;
++    OUString m_aCommand;
++    OUString m_aArgument;
++    bool m_bUpdating = false;
++};
++
++class HstTransitionDurationWindow final : public HstTimingWindow
++{
++public:
++    static constexpr OUString ImplementationName = u"com.sun.star.comp.sd.HstTransitionDurationControl"_ustr;
++
++    HstTransitionDurationWindow(vcl::Window* pParent, const uno::Reference<frame::XFrame>& rFrame)
++        : HstTimingWindow(pParent, u"modules/simpress/ui/hsttransitionduration.ui"_ustr,
++                          u"TransitionDurationBox"_ustr, rFrame, u".uno:HstSetTransitionDuration"_ustr,
++                          u"Duration"_ustr)
++        , m_xDuration(m_xBuilder->weld_spin_button(u"duration"_ustr))
++    {
++        InitControlBase(m_xDuration.get());
++        SetUpSeconds(*m_xDuration, 1, 6000, 25); // 0.01 to 60 seconds, steps of 0.25
++        SetMilliseconds(*m_xDuration, 2000);
++        m_xDuration->connect_value_changed(LINK(this, HstTransitionDurationWindow, ValueChangedHdl));
++        SetSizePixel(get_preferred_size());
++    }
++
++    ~HstTransitionDurationWindow() override { disposeOnce(); }
++
++    void dispose() override
++    {
++        m_xDuration.reset();
++        InterimItemWindow::dispose();
++    }
++
++    void SetState(sal_Int32 nMilliseconds) override
++    {
++        if (!m_xDuration || nMilliseconds <= 0 || nMilliseconds == Milliseconds(*m_xDuration))
++            return;
++        m_bUpdating = true;
++        SetMilliseconds(*m_xDuration, nMilliseconds);
++        m_bUpdating = false;
++    }
++
++private:
++    DECL_LINK(ValueChangedHdl, weld::SpinButton&, void);
++
++    std::unique_ptr<weld::SpinButton> m_xDuration;
++};
++
++IMPL_LINK(HstTransitionDurationWindow, ValueChangedHdl, weld::SpinButton&, rSpin, void)
++{
++    if (Milliseconds(rSpin) > 0)
++        Dispatch(Milliseconds(rSpin));
++}
++
++class HstTransitionAdvanceWindow final : public HstTimingWindow
++{
++public:
++    static constexpr OUString ImplementationName = u"com.sun.star.comp.sd.HstTransitionAdvanceControl"_ustr;
++
++    HstTransitionAdvanceWindow(vcl::Window* pParent, const uno::Reference<frame::XFrame>& rFrame)
++        : HstTimingWindow(pParent, u"modules/simpress/ui/hsttransitionadvance.ui"_ustr,
++                          u"TransitionAdvanceBox"_ustr, rFrame, u".uno:HstSetTransitionAdvance"_ustr,
++                          u"Advance"_ustr)
++        , m_xAuto(m_xBuilder->weld_check_button(u"auto"_ustr))
++        , m_xSeconds(m_xBuilder->weld_spin_button(u"seconds"_ustr))
++    {
++        InitControlBase(m_xAuto.get());
++        SetUpSeconds(*m_xSeconds, 0, 360000, 100); // up to an hour, steps of one second
++        SetMilliseconds(*m_xSeconds, 5000);
++        m_xAuto->connect_toggled(LINK(this, HstTransitionAdvanceWindow, ToggledHdl));
++        m_xSeconds->connect_value_changed(LINK(this, HstTransitionAdvanceWindow, ValueChangedHdl));
++        m_xSeconds->set_sensitive(false);
++        SetSizePixel(get_preferred_size());
++    }
++
++    ~HstTransitionAdvanceWindow() override { disposeOnce(); }
++
++    void dispose() override
++    {
++        m_xAuto.reset();
++        m_xSeconds.reset();
++        InterimItemWindow::dispose();
++    }
++
++    void SetState(sal_Int32 nMilliseconds) override
++    {
++        if (!m_xAuto || !m_xSeconds)
++            return;
++        m_bUpdating = true;
++        m_xAuto->set_active(nMilliseconds >= 0);
++        m_xSeconds->set_sensitive(nMilliseconds >= 0);
++        if (nMilliseconds >= 0 && nMilliseconds != Milliseconds(*m_xSeconds))
++            SetMilliseconds(*m_xSeconds, nMilliseconds);
++        m_bUpdating = false;
++    }
++
++private:
++    void Send()
++    {
++        m_xSeconds->set_sensitive(m_xAuto->get_active());
++        Dispatch(m_xAuto->get_active() ? Milliseconds(*m_xSeconds) : -1);
++    }
++
++    DECL_LINK(ToggledHdl, weld::Toggleable&, void);
++    DECL_LINK(ValueChangedHdl, weld::SpinButton&, void);
++
++    std::unique_ptr<weld::CheckButton> m_xAuto;
++    std::unique_ptr<weld::SpinButton> m_xSeconds;
++};
++
++IMPL_LINK_NOARG(HstTransitionAdvanceWindow, ToggledHdl, weld::Toggleable&, void) { Send(); }
++
++IMPL_LINK_NOARG(HstTransitionAdvanceWindow, ValueChangedHdl, weld::SpinButton&, void)
++{
++    if (m_xAuto->get_active())
++        Send();
++}
++
++using HstTimingControl_Base = cppu::ImplInheritanceHelper<svt::ToolboxController, lang::XServiceInfo>;
++
++template <class Window> class HstTimingControl final : public HstTimingControl_Base
++{
++public:
++    HstTimingControl() = default;
++
++    // XUpdatable
++    void SAL_CALL update() override {}
++
++    // XStatusListener
++    void SAL_CALL statusChanged(const frame::FeatureStateEvent& rEvent) override
++    {
++        SolarMutexGuard aGuard;
++        // the toolbox can dispose its item window before this controller
++        if (!m_xWindow || m_xWindow->isDisposed())
++            return;
++        m_xWindow->Enable(rEvent.IsEnabled);
++        sal_Int32 nMilliseconds = 0;
++        if (rEvent.IsEnabled && (rEvent.State >>= nMilliseconds))
++            m_xWindow->SetState(nMilliseconds);
++    }
++
++    // XToolbarController
++    uno::Reference<awt::XWindow> SAL_CALL createItemWindow(const uno::Reference<awt::XWindow>& rParent) override
++    {
++        SolarMutexGuard aGuard;
++        VclPtr<vcl::Window> pParent = VCLUnoHelper::GetWindow(rParent);
++        if (!pParent)
++            return {};
++        m_xWindow = VclPtr<Window>::Create(pParent, m_xFrame);
++        return VCLUnoHelper::GetInterface(m_xWindow);
++    }
++
++    // XServiceInfo
++    OUString SAL_CALL getImplementationName() override { return Window::ImplementationName; }
++    sal_Bool SAL_CALL supportsService(const OUString& rServiceName) override
++    {
++        return cppu::supportsService(this, rServiceName);
++    }
++    uno::Sequence<OUString> SAL_CALL getSupportedServiceNames() override
++    {
++        return { u"com.sun.star.frame.ToolbarController"_ustr };
++    }
++
++    // WeakComponentImplHelperBase
++    using HstTimingControl_Base::disposing;
++    void disposing(std::unique_lock<std::mutex>& rGuard) override
++    {
++        svt::ToolboxController::disposing(rGuard);
++        comphelper::unique_unlock aUnlock(rGuard);
++        SolarMutexGuard aSolarGuard;
++        m_xWindow.disposeAndClear();
++    }
++
++private:
++    VclPtr<Window> m_xWindow;
++};
++}
++
++extern "C" SAL_DLLPUBLIC_EXPORT uno::XInterface*
++com_sun_star_comp_sd_HstTransitionDurationControl_get_implementation(uno::XComponentContext*,
++                                                                     uno::Sequence<uno::Any> const&)
++{
++    return cppu::acquire(new HstTimingControl<HstTransitionDurationWindow>);
++}
++
++extern "C" SAL_DLLPUBLIC_EXPORT uno::XInterface*
++com_sun_star_comp_sd_HstTransitionAdvanceControl_get_implementation(uno::XComponentContext*,
++                                                                    uno::Sequence<uno::Any> const&)
++{
++    return cppu::acquire(new HstTimingControl<HstTransitionAdvanceWindow>);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/uiconfig/simpress/ui/hsttransitionadvance.ui
+@@ -0,0 +1,54 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- HST Office: the automatic advance of the Slides ribbon (HstTransitionTimingControls.cxx) -->
++<interface domain="sd">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkAdjustment" id="adjustment">
++    <property name="upper">3600</property>
++    <property name="value">5</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
++  <object class="GtkBox" id="TransitionAdvanceBox">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="spacing">6</property>
++    <child>
++      <object class="GtkCheckButton" id="auto">
++        <property name="label" translatable="yes" context="hsttransitionadvance|auto">_After:</property>
++        <property name="visible">True</property>
++        <property name="can-focus">True</property>
++        <property name="receives-default">False</property>
++        <property name="tooltip-text" translatable="yes" context="hsttransitionadvance|auto">Go to the next slide by itself after the given seconds; otherwise on a click</property>
++        <property name="use-underline">True</property>
++        <property name="draw-indicator">True</property>
++        <accessibility>
++          <relation type="label-for" target="seconds"/>
++        </accessibility>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkSpinButton" id="seconds">
++        <property name="visible">True</property>
++        <property name="can-focus">True</property>
++        <property name="tooltip-text" translatable="yes" context="hsttransitionadvance|seconds">Seconds before the next slide</property>
++        <property name="width-chars">5</property>
++        <property name="adjustment">adjustment</property>
++        <property name="digits">2</property>
++        <property name="truncate-multiline">True</property>
++        <accessibility>
++          <relation type="labelled-by" target="auto"/>
++        </accessibility>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">1</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- /dev/null
++++ b/sd/uiconfig/simpress/ui/hsttransitionduration.ui
+@@ -0,0 +1,48 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- HST Office: the transition duration of the Slides ribbon (HstTransitionTimingControls.cxx) -->
++<interface domain="sd">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkAdjustment" id="adjustment">
++    <property name="lower">0.01</property>
++    <property name="upper">60</property>
++    <property name="value">2</property>
++    <property name="step-increment">0.25</property>
++    <property name="page-increment">1</property>
++  </object>
++  <object class="GtkBox" id="TransitionDurationBox">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="spacing">6</property>
++    <child>
++      <object class="GtkLabel" id="label">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hsttransitionduration|label">Duration:</property>
++        <property name="use-underline">True</property>
++        <property name="mnemonic-widget">duration</property>
++        <property name="xalign">0</property>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkSpinButton" id="duration">
++        <property name="visible">True</property>
++        <property name="can-focus">True</property>
++        <property name="tooltip-text" translatable="yes" context="hsttransitionduration|duration">How long the transition of the selected slides lasts, in seconds</property>
++        <property name="width-chars">5</property>
++        <property name="adjustment">adjustment</property>
++        <property name="digits">2</property>
++        <property name="truncate-multiline">True</property>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">1</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- /dev/null
++++ b/sd/source/ui/inc/HstRotatePage.hxx
+@@ -0,0 +1,31 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++class SfxItemSet;
++class SfxRequest;
++
++namespace sd
++{
++class DrawViewShell;
++}
++
++/** HST Office: "Xoay trang" of HST Draw (ribbon tab Trang), .uno:HstRotatePageLeft and
++    .uno:HstRotatePageRight (SID_HST_ROTATE_PAGE_LEFT/RIGHT): the selected pages of the page pane (the
++    current page without one) turn by 90°: width and height swap, the margins turn with the page and every
++    object turns about the page, so the content keeps its place on the page; one undo action. HST Draw
++    allows pages of different sizes (a PDF's pages), so only the selected pages change. Slides are all one
++    size, so HST Slides disables the commands. */
++namespace sd::hst
++{
++void ExecuteRotatePage(DrawViewShell& rShell, SfxRequest& rRequest);
++void GetRotatePageState(DrawViewShell& rShell, SfxItemSet& rSet);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/source/ui/func/HstRotatePage.cxx
+@@ -0,0 +1,163 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <HstRotatePage.hxx>
++
++#include <DrawDocShell.hxx>
++#include <DrawViewShell.hxx>
++#include <SlideSorterViewShell.hxx>
++#include <ViewShellBase.hxx>
++#include <View.hxx>
++#include <app.hrc>
++#include <drawdoc.hxx>
++#include <sdpage.hxx>
++#include <sdresid.hxx>
++#include <strings.hrc>
++#include <undopage.hxx>
++
++#include <sfx2/bindings.hxx>
++#include <sfx2/dispatch.hxx>
++#include <sfx2/request.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <svl/itemset.hxx>
++#include <svl/undo.hxx>
++#include <svx/svdpagv.hxx>
++#include <svx/svdundo.hxx>
++#include <svx/svxids.hrc>
++
++#include <algorithm>
++#include <memory>
++#include <vector>
++
++namespace sd::hst
++{
++namespace
++{
++bool Enabled(DrawViewShell& rShell)
++{
++    DrawDocShell* pDocSh = rShell.GetDocSh();
++    return pDocSh && !pDocSh->IsReadOnly() && rShell.GetDoc()->GetDocumentType() == DocumentType::Draw
++           && rShell.GetPageKind() == PageKind::Standard && rShell.GetEditMode() == EditMode::Page;
++}
++
++/// The selected pages of the page pane, else the current page.
++std::vector<SdPage*> SelectedPages(DrawViewShell& rShell)
++{
++    std::vector<SdPage*> aPages;
++    if (slidesorter::SlideSorterViewShell* pSorter
++        = slidesorter::SlideSorterViewShell::GetSlideSorter(rShell.GetViewShellBase()))
++    {
++        if (const std::shared_ptr<slidesorter::SlideSorterViewShell::PageSelection> pSelection
++            = pSorter->GetPageSelection())
++            aPages.assign(pSelection->begin(), pSelection->end());
++    }
++    if (aPages.empty() && rShell.GetActualPage())
++        aPages.push_back(rShell.GetActualPage());
++    std::erase_if(aPages, [](const SdPage* pPage) {
++        return !pPage || pPage->GetPageKind() != PageKind::Standard || pPage->IsMasterPage();
++    });
++    return aPages;
++}
++
++/// Turns one page and its objects by 90° (bLeft: counter-clockwise), with undo actions in rUndo.
++void RotatePage(SdDrawDocument& rDoc, SdPage& rPage, bool bLeft, SfxUndoManager* pUndo)
++{
++    const Size aOld(rPage.GetSize());
++    const sal_Int32 nL = rPage.GetLeftBorder(), nR = rPage.GetRightBorder();
++    const sal_Int32 nT = rPage.GetUpperBorder(), nB = rPage.GetLowerBorder();
++    // SdrObject::Rotate about the page's top left corner (RotatePoint: 90° maps (x, y) to (y, -x),
++    // 270° to (-y, x)), then the move that brings the page back to the origin
++    const Degree100 nAngle(bLeft ? 9000 : 27000);
++    const double fSin = bLeft ? 1.0 : -1.0;
++    const Size aMove = bLeft ? Size(0, aOld.Width()) : Size(aOld.Height(), 0);
++    for (const rtl::Reference<SdrObject>& pObj : rPage)
++    {
++        if (!pObj)
++            continue;
++        if (pUndo)
++            pUndo->AddUndoAction(rDoc.GetSdrUndoFactory().CreateUndoGeoObject(*pObj));
++        pObj->Rotate(Point(0, 0), nAngle, fSin, 0.0);
++        pObj->Move(aMove);
++    }
++    const Size aNew(aOld.Height(), aOld.Width());
++    // the margins turn with the page
++    const sal_Int32 nNewL = bLeft ? nT : nB, nNewT = bLeft ? nR : nL;
++    const sal_Int32 nNewR = bLeft ? nB : nT, nNewB = bLeft ? nL : nR;
++    const Orientation eNew = aNew.Width() > aNew.Height() ? Orientation::Landscape : Orientation::Portrait;
++    if (pUndo)
++        pUndo->AddUndoAction(std::make_unique<SdPageFormatUndoAction>(
++            rDoc, &rPage, aOld, nL, nR, nT, nB, rPage.GetOrientation(), rPage.GetPaperBin(),
++            rPage.IsBackgroundFullSize(), aNew, nNewL, nNewR, nNewT, nNewB, false, eNew,
++            rPage.GetPaperBin(), rPage.IsBackgroundFullSize()));
++    rPage.SetSize(aNew);
++    rPage.SetBorder(nNewL, nNewT, nNewR, nNewB);
++    rPage.SetOrientation(eNew);
++}
++
++/// The view follows the current page's new size, as DrawViewShell::SwitchPage does for pages of
++/// different sizes.
++void UpdateView(DrawViewShell& rShell)
++{
++    SdPage* pPage = rShell.GetActualPage();
++    ::sd::View* pView = rShell.GetView();
++    if (!pPage || !pView)
++        return;
++    const Size aSize(pPage->GetSize());
++    const Point aPageOrg(aSize.Width(), aSize.Height() / 2);
++    const Size aViewSize(aSize.Width() * 3, aSize.Height() * 2);
++    rShell.GetDoc()->SetMaxObjSize(aViewSize);
++    rShell.InitWindows(aPageOrg, aViewSize, Point(-1, -1), true);
++    pView->SetWorkArea(::tools::Rectangle(Point() - aPageOrg, aViewSize));
++    rShell.UpdateScrollBars();
++    if (SdrPageView* pPageView = pView->GetSdrPageView())
++        pPageView->SetPageOrigin(Point(pPage->GetLeftBorder(), pPage->GetUpperBorder()));
++    SfxViewFrame* pFrame = rShell.GetViewFrame();
++    if (pFrame)
++    {
++        pFrame->GetBindings().Invalidate(SID_RULER_NULL_OFFSET);
++        pFrame->GetDispatcher()->Execute(SID_SIZE_PAGE, SfxCallMode::ASYNCHRON);
++    }
++}
++}
++
++void ExecuteRotatePage(DrawViewShell& rShell, SfxRequest& rRequest)
++{
++    const std::vector<SdPage*> aPages = Enabled(rShell) ? SelectedPages(rShell) : std::vector<SdPage*>();
++    if (aPages.empty())
++    {
++        rRequest.Ignore();
++        return;
++    }
++    if (rShell.GetView())
++        rShell.GetView()->SdrEndTextEdit();
++    const bool bLeft = rRequest.GetSlot() == SID_HST_ROTATE_PAGE_LEFT;
++    SdDrawDocument& rDoc = *rShell.GetDoc();
++    SfxUndoManager* pUndo = rShell.GetDocSh()->GetUndoManager();
++    const OUString aComment(SdResId(STR_UNDO_CHANGE_PAGEFORMAT));
++    if (pUndo)
++        pUndo->EnterListAction(aComment, aComment, 0, rShell.GetViewShellBase().GetViewShellId());
++    for (SdPage* pPage : aPages)
++        RotatePage(rDoc, *pPage, bLeft, pUndo);
++    if (pUndo)
++        pUndo->LeaveListAction();
++    rShell.GetDocSh()->SetModified();
++    UpdateView(rShell);
++    rRequest.Done();
++}
++
++void GetRotatePageState(DrawViewShell& rShell, SfxItemSet& rSet)
++{
++    if (Enabled(rShell))
++        return;
++    rSet.DisableItem(SID_HST_ROTATE_PAGE_LEFT);
++    rSet.DisableItem(SID_HST_ROTATE_PAGE_RIGHT);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/sidebar/SidebarController.cxx
++++ b/sfx2/source/sidebar/SidebarController.cxx
+@@ -55,7 +55,9 @@
+ #include <comphelper/namedvaluecollection.hxx>
+ #include <comphelper/lok.hxx>
+ #include <sal/log.hxx>
++#include <officecfg/Office/HSTRibbon.hxx>
+ #include <officecfg/Office/UI/Sidebar.hxx>
++#include <comphelper/configuration.hxx>
+ #include <LibreOfficeKit/LibreOfficeKitEnums.h>
+ #include <o3tl/string_view.hxx>
+ 
+@@ -552,6 +554,28 @@
+     maContextChangeUpdate.Sync();
+ }
+ 
++namespace {
++
++// HST Office: true once, the first time HST Slides shows its sidebar (HSTRibbon/SlidesSidebarFirstStartDone)
++bool HstTakeSlidesFirstStart()
++{
++    try
++    {
++        if (officecfg::Office::HSTRibbon::SlidesSidebarFirstStartDone::get())
++            return false;
++        std::shared_ptr<comphelper::ConfigurationChanges> xBatch(comphelper::ConfigurationChanges::create());
++        officecfg::Office::HSTRibbon::SlidesSidebarFirstStartDone::set(true, xBatch);
++        xBatch->commit();
++        return true;
++    }
++    catch (const css::uno::Exception&)
++    {
++        return false; // no configuration: leave the sidebar as it is
++    }
++}
++
++}
++
+ void SidebarController::UpdateConfigurations()
+ {
+     if (maCurrentContext == maRequestedContext
+@@ -587,6 +611,13 @@
+         }
+     }
+ 
++    // HST Office: HST Slides starts with the sidebar folded to its tab bar, so the slide gets the room;
++    // a click on a tab opens the deck, and the user's later choice is kept as before
++    const bool bHstFoldOnFirstStart = !bIsLOK
++        && maRequestedContext.msApplication == "com.sun.star.presentation.PresentationDocument"
++        && maCurrentContext.msApplication != maRequestedContext.msApplication
++        && HstTakeSlidesFirstStart();
++
+     maCurrentContext = maRequestedContext;
+ 
+     mpResourceManager->InitDeckContext(GetCurrentContext());
+@@ -638,6 +669,8 @@
+     {
+         SwitchToDeck(*xDescriptor, maCurrentContext);
+     }
++    if (bHstFoldOnFirstStart)
++        RequestCloseDeck();
+ }
+ 
+ namespace {
+--- a/officecfg/registry/data/org/openoffice/Office/UI/ImpressWindowState.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/ImpressWindowState.xcu
+@@ -785,7 +785,7 @@
+           <value>0</value>
+         </prop>
+         <prop oor:name="Visible" oor:type="xs:boolean">
+-          <value>true</value>
++          <value>false</value>
+         </prop>
+         <prop oor:name="UIName" oor:type="xs:string">
+           <value xml:lang="en-US">Drawing</value>
+--- a/svx/source/dialog/ThemeColorsPaneBase.cxx
++++ b/svx/source/dialog/ThemeColorsPaneBase.cxx
+@@ -13,10 +13,33 @@
+ #include <docmodel/theme/Theme.hxx>
+ #include <svx/ColorSets.hxx>
+ #include <vcl/virdev.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/settings.hxx>
++#include <i18nlangtag/languagetag.hxx>
+ #include <tools/color.hxx>
+ 
+ namespace svx
+ {
++namespace
++{
++// HST: the bundled colour themes (svx/uiconfig/themes/*.theme) are named in English in the theme files,
++// and that name is what documents store. Only the name shown in the theme gallery is Vietnamese when the
++// interface is Vietnamese; a document's own theme and user themes keep their names.
++OUString hstThemeDisplayName(const OUString& rName)
++{
++    if (Application::GetSettings().GetUILanguageTag().getLanguage() != "vi")
++        return rName;
++    static constexpr std::pair<std::u16string_view, std::u16string_view> aNames[]
++        = { { u"Beach", u"B\u00e3i bi\u1ec3n" },  { u"Breeze", u"Gi\u00f3 nh\u1eb9" },
++            { u"Forest", u"R\u1eebng xanh" },     { u"Ocean", u"\u0110\u1ea1i d\u01b0\u01a1ng" },
++            { u"Rainbow", u"C\u1ea7u v\u1ed3ng" }, { u"Sunset", u"Ho\u00e0ng h\u00f4n" } };
++    for (const auto& [rEnglish, rVietnamese] : aNames)
++        if (rName == rEnglish)
++            return OUString(rVietnamese);
++    return rName;
++}
++}
++
+ ThemeColorsPaneBase::ThemeColorsPaneBase(std::unique_ptr<weld::IconView> xIconView)
+     : mxIconViewThemeColors(std::move(xIconView))
+ {
+@@ -52,7 +75,7 @@
+             Bitmap aBitmap(pVirDev->GetBitmap(Point(0, 0), pVirDev->GetOutputSizePixel()));
+ 
+             OUString sId = OUString::number(i);
+-            OUString sName = rColorSet.getName();
++            OUString sName = hstThemeDisplayName(rColorSet.getName());
+             mxIconViewThemeColors->insert(-1, &sName, &sId, &aBitmap, nullptr);
+         }
+ 
+--- a/svx/uiconfig/ui/themeselectorpanel.ui
++++ b/svx/uiconfig/ui/themeselectorpanel.ui
+@@ -19,8 +19,8 @@
+     <property name="spacing">6</property>
+     <child>
+       <object class="GtkScrolledWindow">
+-        <property name="width-request">360</property>
+-        <property name="height-request">65</property>
++        <property name="width-request">680</property>
++        <property name="height-request">88</property>
+         <property name="visible">True</property>
+         <property name="can-focus">True</property>
+         <property name="valign">center</property>
+@@ -36,8 +36,8 @@
+             <property name="model">liststore1</property>
+             <property name="pixbuf-column">0</property>
+             <property name="text-column">1</property>
+-            <property name="columns">3</property>
+-            <property name="item-width">70</property>
++            <property name="columns">6</property>
++            <property name="item-width">100</property>
+           </object>
+         </child>
+       </object>

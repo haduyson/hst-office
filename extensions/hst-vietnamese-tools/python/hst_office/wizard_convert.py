@@ -8,8 +8,8 @@ PREVIEW_CHARS = 4000
 
 class ConvertWizard:
     def __init__(self, ctx, strings, items, calc=None):
-        """`calc` (Calc only): {'single': bool, 'sample': callable(whole_sheet) -> items}; adds the whole-sheet and
-        names/notes check boxes."""
+        """`calc` (Calc only): {'single': bool, 'sample': callable(whole_sheet) -> items}; adds the whole-sheet box
+        (one selected cell: checked, `items` then sample the whole sheet) and the names/notes box."""
         self.s, self.s_cv, self.items, self.calc = strings, strings["convert"], items, calc
         self.whole = self.names_notes = False
         dy = 26 if calc else 0
@@ -31,7 +31,7 @@ class ConvertWizard:
         d.edit("result", 212, 52, 202, 150, multiline=True, readonly=True, help_text=self.s_cv["result"])
         if calc:
             if calc["single"]:
-                d.check("whole", self.s_cv["wholeSheet"], 6, 206, 408, state=False)
+                d.check("whole", self.s_cv["wholeSheet"], 6, 206, 408, state=True)
             d.check("namesNotes", self.s_cv["namesNotes"], 6, 218, 408, state=False)
         d.label("status", "", 6, 206 + dy, 408, 22, wrap=True)
         d.button("btnPreview", self.s["common"]["preview"], 6, 232 + dy, 60, callback=self.refresh)

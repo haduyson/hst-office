@@ -1,0 +1,100 @@
+HST Office: a ribbon group of few commands keeps them large at every width.
+
+Owner decision (13/11/2026): groups with few commands use large buttons filling the group's height, so the
+groups look alike; small stacks only in groups with many commands. hst-ribbon-ux-uniform-layout.patch lays out
+every group of one to three commands as large buttons; here the collapse ladder keeps them large, filling the
+group's height, at the medium and small states too. At the small state they only drop their labels (kept as
+tooltip and accessible name), so the ladder has a step before it folds the group into its "Caption ▾" button:
+with labels kept at every state, Sheets' Home folded "Ô" even at 1920 px beside the banner.
+- vcl/source/control/HstRibbonLadder.cxx: SetGroupState counts the commands of the group's toolboxes and
+  menu buttons (a toolbox item drawn as a control, such as the font name or the find box, makes the group a
+  group of many commands); at most three keep the authored large toolboxes, without labels at the small state.
+
+License: this upstream file remains under its original license (MPL-2.0).
+Test: build only (syntax-checked against the configured tree). Runtime: at 1366 px, Sheets ▸ Trang đầu ▸ Ô and
+Writer ▸ Chèn ▸ Liên kết show large buttons (labels dropped only at the narrowest widths) or their "Caption ▾" button.
+---
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -37,18 +37,29 @@
+     return false;
+ }
+ 
+-/// HST Office: a toolbox that holds one command (separators aside)
+-bool holdsOneCommand(const ToolBox& rToolBox)
++/// HST Office: the number of commands (separators aside) of a toolbox; -1 when one of them is drawn as a
++/// control (font name, find box, gallery), whose group never counts as a group of few commands
++int commandCount(const ToolBox& rToolBox)
+ {
+     int nCommands = 0;
+     for (ToolBox::ImplToolItems::size_type i = 0; i < rToolBox.GetItemCount(); ++i)
+-        if (rToolBox.GetItemType(i) == ToolBoxItemType::BUTTON)
+-            ++nCommands;
+-    return nCommands == 1;
++    {
++        if (rToolBox.GetItemType(i) != ToolBoxItemType::BUTTON)
++            continue;
++        if (rToolBox.GetItemWindow(rToolBox.GetItemId(i)))
++            return -1;
++        ++nCommands;
++    }
++    return nCommands;
+ }
+ 
+-/// bOnlyCommand: the toolbox is the only one of its group and holds one command
+-void applyToToolBox(ToolBox& rToolBox, int nState, bool bOnlyCommand)
++/// HST Office: at most this many commands make a group of few commands (owner decision of 13/11/2026; the
++/// same number as FEW_COMMANDS of scripts/patches/ribbon_layout_rules.py, which lays such groups out as large
++/// buttons filling the group's height)
++constexpr int FEW_COMMANDS = 3;
++
++/// bFewCommands: the group holds at most FEW_COMMANDS commands and no control
++void applyToToolBox(ToolBox& rToolBox, int nState, bool bFewCommands)
+ {
+     ImplToolBoxPrivateData& rData = *rToolBox.ImplGetToolBoxPrivateData();
+     if (!rData.mbHstAuthored)
+@@ -59,13 +70,15 @@
+         rData.meHstAuthoredTextPosition = rData.meHstTextPosition;
+         rData.mbHstKeepLarge = holdsPaste(rToolBox); // Paste stays large, as in Office
+     }
+-    // HST Office: a group of one large command (Insert's Comments, Review's Protect) keeps it large with
+-    // its label, as Office does: as a bare icon under a longer caption it saved almost nothing and left the
+-    // group looking empty
++    // HST Office: a group of few large commands (Insert's Comments, Review's Protect, Sheets' Cells) keeps
++    // them large, filling the group's height, at every width, so the groups look alike: as small icons
++    // under a longer caption they saved almost nothing and left the group looking empty. At the small
++    // state only their labels go (kept as tooltip and accessible name, as for every toolbox), so the ladder
++    // has a step before it folds the group into its "Caption ▾" button
+     const bool bKeep = rData.mbHstKeepLarge || nState == GroupLarge
+-                       || (bOnlyCommand && rData.meHstAuthoredSize == ToolBoxButtonSize::Large);
+-    const ButtonType eType
+-        = bKeep || nState < GroupSmall ? rData.meHstAuthoredType : ButtonType::SYMBOLONLY;
++                       || (bFewCommands && rData.meHstAuthoredSize == ToolBoxButtonSize::Large);
++    const bool bLabels = rData.mbHstKeepLarge || nState < GroupSmall;
++    const ButtonType eType = bLabels ? rData.meHstAuthoredType : ButtonType::SYMBOLONLY;
+     const ToolBoxButtonSize eSize
+         = bKeep || rData.meHstAuthoredSize != ToolBoxButtonSize::Large ? rData.meHstAuthoredSize
+                                                                        : ToolBoxButtonSize::Small;
+@@ -201,9 +214,20 @@
+ {
+     std::vector<ToolBox*> aToolBoxes;
+     forToolBoxes(rGroup, [&aToolBoxes](ToolBox& rToolBox) { aToolBoxes.push_back(&rToolBox); });
+-    const bool bOnlyCommand = aToolBoxes.size() == 1 && holdsOneCommand(*aToolBoxes.front());
++    int nCommands = 0;
++    forMenuButtons(rGroup, [&nCommands](MenuButton&) { ++nCommands; });
++    for (const ToolBox* pToolBox : aToolBoxes)
++    {
++        const int nToolBoxCommands = commandCount(*pToolBox);
++        nCommands = nToolBoxCommands < 0 ? FEW_COMMANDS + 1 : nCommands + nToolBoxCommands;
++        if (nCommands > FEW_COMMANDS)
++            break;
++    }
++    const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
+     for (ToolBox* pToolBox : aToolBoxes)
+-        applyToToolBox(*pToolBox, nState, bOnlyCommand);
++        applyToToolBox(*pToolBox, nState, bFewCommands);
++    // the menu buttons of every group drop their labels at the small state only (their image stays where it
++    // is: above the label in a group of few commands)
+     forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
+ }
+ 

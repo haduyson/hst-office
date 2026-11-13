@@ -1,0 +1,139 @@
+HST Office: ribbon key tips for the reworked tabs; Help is Y; menu buttons and input fields.
+
+From the ribbon UX audit of 13/11/2026 (section 8.3):
+- the commands the reworked tabs put on the ribbon get the letters people know from the familiar office
+  suite: Sheets Home Merge M, Wrap Text W, Percent P, Currency AN, alignment AL/AC/AR, Conditional
+  Formatting L; Find FD and Replace R in the Editing groups; the citation, page, table and slide commands;
+- a ribbon menu button ("Chèn ▾", "Sắp xếp và lọc ▾", "Lề ▾") can have a letter of its own, looked up by
+  its widget id (the part before ":Menu ..."); before, such buttons always got a generated letter;
+- the Help tab is Y instead of Y2;
+- the tip of an input field (font name, size) hangs below the field instead of over its lower half,
+  where the field covered it.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sfx2/source/notebookbar/HstKeyTipTable.hxx
++++ b/sfx2/source/notebookbar/HstKeyTipTable.hxx
+@@ -40,7 +40,8 @@
+     { "ChartDesignLabel", "JC" }, { "ChartFormatLabel", "JO" }, { "ObjectLabel", "JB" },
+     { "MediaLabel", "JM" },     { "PrintLabel", "JI" },      { "FormLabel", "JF" },
+     { "MasterLabel", "JS" },    { "OutlineLabel", "JU" },    { "3DObjectLabel", "J3" },
+-    { "HelpLabel", "Y2" },
++    // Help: Y as in Office (the tab row never runs out of letters, so no Y1, Y2... tip is generated there)
++    { "HelpLabel", "Y" },
+     // Sheets' pivot table tab: JT as Office's PivotTable Analyze; never shown with Table Design (JT)
+     { "PivotLabel", "JT" },
+     // Writer's header and footer tab: JH as Office's Header & Footer tab
+@@ -57,7 +58,7 @@
+     { "CharBackColor", "I" },  { "ResetAttributes", "E" }, { "DefaultBullet", "U" },
+     { "DefaultNumbering", "N" }, { "StartPara", "AL" },   { "CenterPara", "AC" },
+     { "EndPara", "AR" },       { "JustifyPara", "AJ" },   { "DecrementIndent", "AO" },
+-    { "IncrementIndent", "AI" }, { "LineSpacing", "K" },  { "SearchDialog", "FD" },
++    { "IncrementIndent", "AI" }, { "LineSpacing", "K" },  { "SearchDialog", "R" },
+     { "InsertTable", "T" },    { "InsertGraphic", "P" },  { "HyperlinkDialog", "I" },
+     { "InsertPagebreak", "B" }, { "InsertObjectChart", "C" }, { "CharmapControl", "U" },
+     { "DrawText", "X" },       { "InsertAnnotation", "L" }, { "AutoSum", "U" },
+@@ -79,6 +80,54 @@
+     // letters), Page Setup and Sheet Options open the page dialog. UNVERIFIED.
+     { "FormatCellDialog", "FN" }, { "PageFormatDialog", "SP" }, { "NumberFormatThousands", "K" },
+     { "InsertCalcTable", "T" },
++    // Ribbon UX rework (1.0.2): the Editing groups (Find FD, Replace R as in Office), Sheets Home
++    // (Merge M, Wrap W, Percent P, Currency AN, alignment AL/AC/AR, Conditional Formatting L), and the
++    // commands the reworked tabs put on the ribbon. Menu buttons are keyed by their widget id (the part
++    // before ":Menu ..."), see HstRibbonKeyTips.cxx.
++    { "vnd.sun.star.findbar:FocusToFindbar", "FD" },
++    { "MergeCells", "M" },     { "ToggleMergeCells", "M" }, { "WrapText", "W" },
++    { "NumberFormatPercent", "P" }, { "NumberFormatCurrency", "AN" }, { "AlignLeft", "AL" },
++    { "AlignHorizontalCenter", "AC" }, { "AlignRight", "AR" }, { "ConditionalFormatMenu", "L" },
++    { "TitlePageDialog", "V" }, { "InsertBookmark", "K" },  { "InsertReferenceField", "RF" },
++    { "InsertObjectStarMath", "E" }, { "FontworkGalleryFloater", "W" }, { "InsertFieldCtrl", "Q" },
++    { "InsertObject", "J" },   { "InsertAVMedia", "AV" },   { "Watermark", "PW" },
++    { "FillPageColor", "PC" }, { "Hyphenate", "H" },        { "LineNumberingDialog", "LN" },
++    { "InsertMultiIndex", "T" }, { "UpdateCurIndex", "U" }, { "UpdateAll", "UA" },
++    { "InsertIndexesEntry", "Q" }, { "InsertCaptionDialog", "P" },
++    { "org.hst.office.vi:CitationInsert", "C" }, { "org.hst.office.vi:CitationReinsert", "CR" },
++    { "org.hst.office.vi:CitationBibliography", "B" }, { "org.hst.office.vi:CitationStyle", "L" },
++    { "org.hst.office.vi:CitationUpdate", "CU" }, { "org.hst.office.vi:CitationLibrary", "M" },
++    { "Signature", "SG" },     { "AcceptTrackedChanges", "MC" }, { "GridUse", "SN" },
++    { "org.hst.office.vi:WhereIsCommand", "W" }, { "org.hst.office.vi:KeyboardShortcuts", "K" },
++    { "org.hst.office.vi:ReportError", "R" }, { "org.hst.office.vi:Nd", "VB" },
++    { "org.hst.office.vi:ConvertEncoding", "UC" }, { "org.hst.office.vi:NumberToWords", "DS" },
++    { "InsertRowsBefore", "A" }, { "InsertRowsAfter", "BE" }, { "InsertColumnsBefore", "L" },
++    { "InsertColumnsAfter", "R" }, { "SplitCell", "P" },    { "SplitTable", "Q" },
++    { "TableDialog", "O" },    { "AutoFormat", "S" },       { "TableCellBackgroundColor", "H" },
++    { "Crop", "C" },           { "InsertPage", "I" },       { "AssignLayout", "L" },
++    { "FillColor", "SF" },     { "XLineColor", "SO" },      { "ImportSlideFromFile", "SF" },
++    { "InsertSlideField", "SN" }, { "InsertDateAndTime", "D" }, { "RunMacro", "PM" },
++    { "BringToFront", "F" },   { "SendToBack", "B" },
++    // Mailings, with the letters of the familiar suite (Start S, Recipients R, Highlight Fields H,
++    // Finish F)
++    { "MailMergeWizard", "S" }, { "AddressBookSource", "R" }, { "Marks", "H" },
++    { "MailMergeCreateDocuments", "F" },
++    // Slides Transitions and Animations: Preview P, Apply To All L
++    { "HstPreviewTransition", "P" }, { "HstPreviewAnimation", "P" }, { "HstApplyTransitionToAll", "L" },
++    // Sheets Page Layout: Scaling ▾ (hst-sheets-print-scaling.patch), beside M, O, SZ, R, B
++    { "PrintScaleMenu", "SC" },
++    // menu buttons (widget ids)
++    { "btnHomeHstSelect", "SL" }, { "btnHstHomeSelect", "SL" }, { "btnHomeHstCellsInsert", "I" },
++    { "btnHomeHstCellsDelete", "D" }, { "btnHomeHstCellsFormat", "O" }, { "btnHomeHstEditingSortFilter", "S" },
++    { "btnHomeHstCellStyles", "J" }, { "btnHomeHstEditingFill", "FI" }, { "btnHomeHstEditingClear", "E" },
++    { "btnHomeHstEditingFindSelect", "FD" }, { "btnInsertHstShapes", "SH" }, { "btnHstInsertShapes", "SH" },
++    { "btnHstHomeShapes", "SH" }, { "btnLayoutHstMargins", "M" }, { "btnLayoutHstOrientation", "O" },
++    { "btnLayoutHstSize", "SZ" }, { "btnLayoutHstPrintArea", "R" }, { "btnLayoutHstBreaks", "B" },
++    { "btnFunctionsHstFinancial", "I" }, { "btnFunctionsHstLogical", "L" }, { "btnFunctionsHstText", "T" },
++    { "btnFunctionsHstDateTime", "E" }, { "btnFunctionsHstLookup", "O" }, { "btnFunctionsHstMath", "G" },
++    { "btnTableHstDelete", "D" }, { "btnTableHstSelect", "K" }, { "btnImageHstWrap", "TW" },
++    { "btnDrawHstWrap", "TW" },   { "btnHstArrangeAlign", "AA" }, { "btnHstArrangeTransform", "T" },
++    { "btnHstViewSnap", "SN" },
+ };
+ 
+ /// Tip of a tab or command, or an empty view when it has none in the table.
+--- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -84,6 +84,8 @@
+     vcl::Window* pAnchor = nullptr; // coordinates of aRect
+     tools::Rectangle aRect;
+     bool bEnabled = true;
++    // an input field (font name, size): its tip goes under the field, not over its lower half
++    bool bInput = false;
+     std::function<void()> aRun;
+     VclPtr<TipWindow> xTip;
+ };
+@@ -178,6 +180,9 @@
+             const Point aBottom(rTarget.aRect.Center().X(), rTarget.aRect.Bottom());
+             const Point aOnBar = rHost.ScreenToOutputPixel(rTarget.pAnchor->OutputToScreenPixel(aBottom));
+             Point aPos(aOnBar.X() - aSize.Width() / 2, aOnBar.Y() - aSize.Height() / 2);
++            // HST Office: an input field's tip hangs below its bottom edge, where the field cannot cover it
++            if (rTarget.bInput)
++                aPos.setY(aOnBar.Y() + 1);
+             if (aPos.X() + aSize.Width() > nPageRight)
+             {
+                 nEndTips += aSize.Width() + 2;
+@@ -256,6 +261,7 @@
+         aTarget.pAnchor = &rBox;
+         aTarget.aRect = aRect;
+         aTarget.bEnabled = rBox.IsItemEnabled(nId);
++        aTarget.bInput = rBox.GetItemWindow(nId) != nullptr;
+         VclPtr<ToolBox> xBox(&rBox);
+         aTarget.aRun = [xBox, nId] {
+             if (vcl::Window* pItem = xBox->GetItemWindow(nId))
+@@ -298,6 +304,10 @@
+                 const Size aSize = pChild->GetOutputSizePixel();
+                 aTarget.aRect = tools::Rectangle(Point(), Size(std::min<tools::Long>(aSize.Width(), aSize.Height()), aSize.Height()));
+                 aTarget.bEnabled = pChild->IsEnabled();
++                // HST Office: a ribbon menu button ("Chèn ▾") may have a letter of its own, by widget id
++                const OString aId = pChild->get_id().getToken(0, ':').toUtf8();
++                const std::string_view aIdTip
++                    = lookup(std::begin(COMMAND_KEYS), std::end(COMMAND_KEYS), std::string_view(aId));
+                 VclPtr<vcl::Window> xButton(pChild);
+                 aTarget.aRun = [this, xButton] {
+                     const Point aCentre(xButton->GetOutputSizePixel().Width() / 2, xButton->GetOutputSizePixel().Height() / 2);
+@@ -311,7 +321,7 @@
+                     m_bAwaitPopup = true;
+                     m_aPopupTimer.Start();
+                 };
+-                rPreferred.emplace_back();
++                rPreferred.emplace_back(aIdTip);
+                 rTargets.push_back(std::move(aTarget));
+             }
+             else

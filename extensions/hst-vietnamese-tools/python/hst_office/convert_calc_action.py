@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """ConvertEncoding command in Calc: selection (or active cell / whole sheet) -> wizard -> one undo step -> summary."""
 from . import encoding_calc
+from .encoding_calc_ranges import is_single_cell
 from .wizard_convert import ConvertWizard
 
 
@@ -32,13 +33,12 @@ def run(host):
     if rects is None:
         return host.refuse(["no-selection-cells"])
     sheet_index = host.controller.getActiveSheet().RangeAddress.Sheet
-    single = len(rects) == 1 and rects[0][1:3] == rects[0][3:5]  # nothing selected beyond the active cell
+    single = is_single_cell(rects)  # one cell selected: the used area of its sheet, unless the user unticks it
     reasons = encoding_calc.check(host.doc, {r[0] for r in rects})
     if reasons:
         return host.refuse(reasons)
-    targets = encoding_calc.target_rects(host.doc, rects)
-    items = encoding_calc.sample(host.doc, targets)
-    if not items and not single:
+    items = encoding_calc.sample(host.doc, encoding_calc.target_rects(host.doc, rects, sheet_index if single else None))
+    if not items:
         return host.say(host.s["convert"]["nothing"])
     calc = {"single": single, "sample": lambda whole: encoding_calc.sample(
         host.doc, encoding_calc.target_rects(host.doc, rects, sheet_index if whole else None))}
@@ -46,8 +46,7 @@ def run(host):
     key = wizard.run(host.peer)
     if key is None:
         return
-    if wizard.whole:
-        targets = encoding_calc.target_rects(host.doc, rects, sheet_index)
+    targets = encoding_calc.target_rects(host.doc, rects, sheet_index if wizard.whole else None)
     result = encoding_calc.apply(host.doc, targets, key, wizard.names_notes,
                                  Progress(host.frame, host.s["convert"]["title"]), host.s["undo"]["convertCalc"])
     cv = host.s["convert"]

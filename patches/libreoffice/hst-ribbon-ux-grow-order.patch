@@ -1,0 +1,237 @@
+HST Office: ribbon groups take room back in their ladder's growth order; menu buttons shrink.
+
+- vcl/inc/HstRibbonRegrow.hxx: fitByPriority() takes an optional growth order (growthOrder()): the least
+  used groups still collapse first, the shown ones grow back in that order. HstRibbonLadders.hxx lists
+  it per ladder (ladders::growths, generate-ribbon-priorities.py): Sheets' Home gives the room to Editing,
+  Cells and Styles before Font, so Font gives up its labels first and still collapses last.
+- vcl/source/control/PriorityMergedHBox.cxx: reads the growth order of the tab's ladder and passes it to
+  every fitByPriority() call (the row, the groups left beside the chevron, the block-beside check).
+- vcl/source/control/HstRibbonLadder.cxx: the menu buttons of a group with an image drop their label at the
+  small state, as the toolboxes do (label kept as accessible name and tooltip). Groups made of menu
+  buttons (Sheets' Cells and Editing) kept their full width down to the small state, so the ladder
+  collapsed them while groups of toolboxes beside them kept their labels.
+
+--- a/vcl/inc/HstRibbonRegrow.hxx
++++ b/vcl/inc/HstRibbonRegrow.hxx
+@@ -20,7 +20,9 @@
+ //      (k as small as possible) collapse when the row does not fit with every other group at its
+ //      smallest shown state. The collapsed groups at a width are therefore always the least used ones,
+ //      and a wider window never collapses a group that a narrower one shows (monotonic);
+-//   2. the shown groups then grow, most used first, into the largest state that still fits.
++//   2. the shown groups then grow, most used first, into the largest state that still fits. A ladder may
++//      give another order for this (its growth order, HstRibbonLadders.hxx): Sheets' Font group is the
++//      last to collapse, yet the first to give up its labels, so Styles, Cells and Editing keep theirs.
+ // A row that does not fit even with every collapsible group collapsed is left to select() and its
+ // overflow popup.
+ 
+@@ -63,10 +65,29 @@
+     return nBest;
+ }
+ 
++/// The order in which the shown groups grow back: rGrowth (group indexes, first grown first), then the
++/// groups it leaves out in rPriority's order; rPriority alone when rGrowth is empty.
++inline std::vector<std::size_t> growthOrder(std::size_t nGroups, const std::vector<std::size_t>& rPriority,
++                                            const std::vector<std::size_t>& rGrowth)
++{
++    std::vector<std::size_t> aOrder;
++    std::vector<bool> aSeen(nGroups, false);
++    for (const std::vector<std::size_t>* pList : { &rGrowth, &rPriority })
++        for (std::size_t nGroup : *pList)
++            if (nGroup < nGroups && !aSeen[nGroup])
++            {
++                aSeen[nGroup] = true;
++                aOrder.push_back(nGroup);
++            }
++    return aOrder;
++}
++
+ /// The layout for nAvailable from the groups' priority (rPriority: group indexes, most used first);
+-/// fits is false when the row does not fit even with every collapsible group collapsed.
++/// fits is false when the row does not fit even with every collapsible group collapsed. The least used
++/// groups collapse first; the shown ones grow back in rGrowth's order (growthOrder), by default the
++/// priority's.
+ inline Layout fitByPriority(const std::vector<Group>& rGroups, const std::vector<std::size_t>& rPriority,
+-                            long nAvailable)
++                            long nAvailable, const std::vector<std::size_t>& rGrowth = {})
+ {
+     Layout aLayout;
+     aLayout.states.assign(rGroups.size(), 0);
+@@ -90,8 +111,8 @@
+         aLayout.fits = false;
+         return aLayout;
+     }
+-    // 2. the shown groups grow back, most used first
+-    for (std::size_t nGroup : rPriority)
++    // 2. the shown groups grow back, most used first (or in the ladder's growth order)
++    for (std::size_t nGroup : growthOrder(rGroups.size(), rPriority, rGrowth))
+     {
+         if (nGroup >= rGroups.size() || aLayout.states[nGroup] == RegrowCollapsedState)
+             continue;
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -70,6 +70,9 @@
+     std::vector<hst::ribbon::Step> m_aHstPlanSteps;
+     // group indexes, most used first, for the regrow pass (hst::ribbon::regrow)
+     std::vector<size_t> m_aHstPlanPriority;
++    // group indexes in the order the shown groups grow back, when the tab's ladder has a growth order
++    // of its own (HstRibbonLadders.hxx); empty: the priority's
++    std::vector<size_t> m_aHstPlanGrowth;
+     size_t m_nHstBareBefore = SIZE_MAX;
+ 
+     DECL_LINK(PBClickHdl, Button*, void);
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -15,7 +15,11 @@
+ #include <vcl/image.hxx>
+ #include <vcl/toolbox.hxx>
+ #include <vcl/toolkit/fixed.hxx>
++#include <vcl/toolkit/MenuButton.hxx>
++#include <vcl/vclevent.hxx>
+ 
++#include <map>
++#include <utility>
+ #include <vector>
+ 
+ #include <PriorityMergedHBox.hxx>
+@@ -95,6 +99,70 @@
+         rToolBox.queue_resize();
+ }
+ 
++/// HST Office: the menu buttons of a group (Sheets' Cells and Editing: Insert, Delete, Format, Fill, Clear,
++/// Sort and Filter, Find and Select) drop their labels at the small state, as the toolboxes do; the label
++/// stays their accessible name and becomes their tooltip. Before, a group of menu buttons kept its full
++/// width at the small state, so the ladder collapsed it while a group of toolboxes beside it kept its
++/// labels. A button without an image keeps its label.
++struct MenuButtonLabels
++{
++    /// label (and whether the tooltip was set from it) of each button shown without its label
++    static std::map<const vcl::Window*, std::pair<OUString, bool>>& hidden()
++    {
++        static std::map<const vcl::Window*, std::pair<OUString, bool>> aHidden;
++        return aHidden;
++    }
++    DECL_STATIC_LINK(MenuButtonLabels, ButtonEventHdl, VclWindowEvent&, void);
++};
++
++IMPL_STATIC_LINK(MenuButtonLabels, ButtonEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        MenuButtonLabels::hidden().erase(rEvent.GetWindow());
++}
++
++void applyToMenuButton(MenuButton& rButton, int nState)
++{
++    auto& rHidden = MenuButtonLabels::hidden();
++    const auto it = rHidden.find(&rButton);
++    const bool bHide = nState == GroupSmall && !!rButton.GetModeImage();
++    if (bHide && it == rHidden.end() && !rButton.GetText().isEmpty())
++    {
++        const OUString aLabel = rButton.GetText();
++        rButton.SetAccessibleName(rButton.GetAccessibleName()); // the name of the label, kept
++        const bool bTip = rButton.GetQuickHelpText().isEmpty();
++        if (bTip)
++            rButton.SetQuickHelpText(aLabel.replaceAll("~", "").replace('\n', ' '));
++        rHidden.emplace(&rButton, std::make_pair(aLabel, bTip));
++        rButton.AddEventListener(LINK(nullptr, MenuButtonLabels, ButtonEventHdl));
++        rButton.SetText(OUString());
++        rButton.queue_resize();
++    }
++    else if (!bHide && it != rHidden.end())
++    {
++        rButton.RemoveEventListener(LINK(nullptr, MenuButtonLabels, ButtonEventHdl));
++        rButton.SetText(it->second.first);
++        if (it->second.second)
++            rButton.SetQuickHelpText(OUString());
++        rHidden.erase(it);
++        rButton.queue_resize();
++    }
++}
++
++template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
++{
++    for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (dynamic_cast<PriorityMergedHBox*>(pChild))
++            continue; // a nested merged box runs its own ladder
++        if (MenuButton* pButton = dynamic_cast<MenuButton*>(pChild))
++            rFunction(*pButton);
++        else
++            forMenuButtons(*pChild, rFunction);
++    }
++}
++
+ /// bNested: also the toolboxes of merged group boxes inside (the Extension tab's add-on box), which
+ /// otherwise run their own ladder and must not be driven by the enclosing one
+ template <typename F> void forToolBoxes(vcl::Window& rWindow, const F& rFunction, bool bNested = false)
+@@ -136,6 +204,7 @@
+     const bool bOnlyCommand = aToolBoxes.size() == 1 && holdsOneCommand(*aToolBoxes.front());
+     for (ToolBox* pToolBox : aToolBoxes)
+         applyToToolBox(*pToolBox, nState, bOnlyCommand);
++    forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
+ }
+ 
+ OUString GroupCaption(vcl::Window& rGroup)
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -381,6 +381,7 @@
+     std::vector<hst::ribbon::Step> aSteps;
+     std::vector<bool> aCollapsible(aWindows.size(), false);
+     m_aHstFoldOrder.assign(aWindows.rbegin(), aWindows.rend());
++    m_aHstPlanGrowth.clear();
+     bool bOwnLadder = false; // the tab has a ladder of its own (HstRibbonLadders.hxx)
+ #ifdef HST_HAVE_RIBBON_LADDERS
+     for (const auto& rLadder : hst::ribbon::ladders::all)
+@@ -407,6 +408,15 @@
+         m_aHstFoldOrder.clear();
+         for (size_t i = 0; i < rLadder.groupCount; ++i)
+             m_aHstFoldOrder.push_back(aWindows[indexOf(rLadder.fold[i])]);
++        // HST Office: a growth order of the same groups (Sheets' Home: Font gives up its labels first)
++        for (const auto& rGrowth : hst::ribbon::ladders::growths)
++        {
++            if (rGrowth.groups != rLadder.groups)
++                continue;
++            for (size_t i = 0; i < rGrowth.growCount; ++i)
++                if (const size_t nGroup = indexOf(rGrowth.grow[i]); nGroup < aWindows.size())
++                    m_aHstPlanGrowth.push_back(nGroup);
++        }
+         bOwnLadder = true;
+         break;
+     }
+@@ -515,7 +525,8 @@
+     m_aHstPlanPriority = hst::ribbon::priorityFromFold(aWindows.size(), aFoldIndexes);
+     if (aLayout.overflow.empty())
+     {
+-        const hst::ribbon::Layout aFit = hst::ribbon::fitByPriority(aGroups, m_aHstPlanPriority, nWidth);
++        const hst::ribbon::Layout aFit
++            = hst::ribbon::fitByPriority(aGroups, m_aHstPlanPriority, nWidth, m_aHstPlanGrowth);
+         if (aFit.fits)
+             aLayout = aFit;
+     }
+@@ -590,7 +601,15 @@
+                 if (it != aShown.end())
+                     aShownPriority.push_back(static_cast<size_t>(it - aShown.begin()));
+             }
+-            const hst::ribbon::Layout aShownFit = hst::ribbon::fitByPriority(aShownGroups, aShownPriority, nRoom);
++            std::vector<size_t> aShownGrowth;
++            for (size_t nGroup : m_aHstPlanGrowth)
++            {
++                const auto it = std::find(aShown.begin(), aShown.end(), nGroup);
++                if (it != aShown.end())
++                    aShownGrowth.push_back(static_cast<size_t>(it - aShown.begin()));
++            }
++            const hst::ribbon::Layout aShownFit
++                = hst::ribbon::fitByPriority(aShownGroups, aShownPriority, nRoom, aShownGrowth);
+             if (aRefill.overflow.empty() && aShownFit.fits)
+                 aRefill = aShownFit;
+             for (size_t j = 0; j < aShown.size(); ++j)
+@@ -651,7 +670,8 @@
+         hst::ribbon::Layout aLayout = hst::ribbon::select(m_aHstPlanGroups, m_aHstPlanSteps, nAvailable, 0);
+         if (!aLayout.overflow.empty())
+             return false;
+-        const hst::ribbon::Layout aFit = hst::ribbon::fitByPriority(m_aHstPlanGroups, m_aHstPlanPriority, nAvailable);
++        const hst::ribbon::Layout aFit = hst::ribbon::fitByPriority(m_aHstPlanGroups, m_aHstPlanPriority, nAvailable,
++                                                                    m_aHstPlanGrowth);
+         if (aFit.fits)
+             aLayout = aFit;
+         return aLayout.states[m_nHstBareBefore] != static_cast<size_t>(hst::ribbon::GroupCollapsed);

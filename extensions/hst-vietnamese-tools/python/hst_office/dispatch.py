@@ -7,7 +7,7 @@ import unohelper
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from . import diag_log, ui_language
+from . import diag_log, help_pages, ui_language
 from .data_files import load_locale
 
 IMPLEMENTATION_NAME = "org.hst.office.vi.DispatchProvider"
@@ -21,6 +21,8 @@ REPORT_ERROR = "ReportError"  # Trợ giúp ▸ Báo lỗi cho HASON TECH; needs
 DEFAULT_APPS = "DefaultApps"  # HST ▸ Dùng HST Office để mở tài liệu văn phòng; needs no document
 UNSAVED = "UnsavedDocuments"  # Tệp tin ▸ Tài liệu chưa lưu, Start Center button; needs no document
 ON_USE = {USB_TOKEN: ("usb_token", "run"), REPORT_ERROR: ("error_report_dialog", "run"), UNSAVED: ("unsaved_dialog", "run")}
+HELP_PAGES = help_pages.COMMANDS  # Trợ giúp ▸ Lệnh quen thuộc ở đâu?, Phím tắt: pages of the offline guide
+NO_DOCUMENT = frozenset((SHOW_SOLUTIONS, DEFAULT_APPS)) | frozenset(ON_USE) | HELP_PAGES
 TEST_RAISE_ENV = "HST_DIAG_TEST_RAISE"
 DUPLEX = "ToggleDuplex"  # HST ▸ In hai mặt: a check item showing the document's choice
 # The commands of actions.COMMANDS, by name. The Start Center creates this handler and asks it about every HST menu
@@ -93,7 +95,7 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
 
     def queryDispatch(self, url, target_frame_name, search_flags):
         return self if url.Protocol == PROTOCOL and (url.Path in ACTION_COMMANDS or url.Path in ui_language.COMMANDS
-                                                    or url.Path in ON_USE or url.Path in (SHOW_SOLUTIONS, DEFAULT_APPS)) else None
+                                                    or url.Path in NO_DOCUMENT) else None
 
     def queryDispatches(self, requests):
         return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in requests)
@@ -101,26 +103,8 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
     def dispatch(self, url, arguments):
         if url.Path == SHOW_SOLUTIONS:
             return self._show_solutions()
-        if url.Path in ON_USE:
-            try:  # no document needed; module, function(ctx, frame) imported on use: start-up never loads them
-                module, name = ON_USE[url.Path]
-                getattr(importlib.import_module("." + module, __package__), name)(self.ctx, self.frame)
-            except Exception:  # noqa: BLE001 - never raise into the office UI thread
-                log_error(url.Path)
-            return
-        if url.Path == DEFAULT_APPS:
-            try:
-                from .default_apps import run_from_menu
-                run_from_menu(self.ctx, self.frame.getContainerWindow() if self.frame else None)
-            except Exception:  # noqa: BLE001 - never raise into the office UI thread
-                log_error(url.Path)
-            return
-        if url.Path in ui_language.COMMANDS:
-            try:
-                ui_language.run(self.ctx, self.frame, url.Path)
-            except Exception:  # noqa: BLE001 - never raise into the office UI thread
-                log_error(url.Path)
-            return
+        if url.Path in ON_USE or url.Path == DEFAULT_APPS or url.Path in HELP_PAGES or url.Path in ui_language.COMMANDS:
+            return self._run_safely(url.Path)
         frame = self.frame
         try:
             commands, host = _actions()
@@ -137,6 +121,22 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
                 _actions()[1](self.ctx, frame, load_locale("vi")).say(load_locale("vi")["common"]["unexpected"], error=True)
             except Exception:  # noqa: BLE001
                 pass
+
+    def _run_safely(self, command):
+        """A command that needs no document (its code is imported on use); a failure goes to the local log."""
+        try:
+            if command in ON_USE:  # module, function(ctx, frame) imported on use: start-up never loads them
+                module, name = ON_USE[command]
+                getattr(importlib.import_module("." + module, __package__), name)(self.ctx, self.frame)
+            elif command == DEFAULT_APPS:
+                from .default_apps import run_from_menu
+                run_from_menu(self.ctx, self.frame.getContainerWindow() if self.frame else None)
+            elif command in HELP_PAGES:
+                help_pages.open_page(self.ctx, command)
+            else:
+                ui_language.run(self.ctx, self.frame, command)
+        except Exception:  # noqa: BLE001 - never raise into the office UI thread
+            log_error(command)
 
     def _say(self, frame, text):
         from .dialogs import message_box

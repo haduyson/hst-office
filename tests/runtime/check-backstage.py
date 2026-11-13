@@ -37,15 +37,14 @@ TARGET_MS = 150
 # item name -> command, swallowed by the interceptor; the panel closes first
 COMMAND_ITEMS = {
     "Lưu": ".uno:Save",
-    "In": ".uno:Print",
-    "Xuất PDF": ".uno:ExportToPDF",
     "Ký số": ".uno:Signature",
     "Đóng": ".uno:CloseDoc",
     "Giới thiệu HST Office": ".uno:About",
     "Tùy chọn": ".uno:OptionsTreeDialog",
 }
 # item name -> a label that only its page shows
-PAGE_ITEMS = {"Mới": "Quản lý mẫu", "Mở": "Duyệt", "Thông tin": "Thuộc tính", "Lưu thành": "Duyệt", "Trang chủ": "Tạo mới"}
+PAGE_ITEMS = {"Mới": "Quản lý mẫu", "Mở": "Duyệt", "Thông tin": "Thuộc tính", "Lưu thành": "Duyệt", "Trang chủ": "Tạo mới",
+              "In": "Xem trước khi in", "Xuất": "Xuất PDF ngay"}
 APPS = (("swriter", "Writer", ".docx", "MS Word 2007 XML"),
         ("scalc", "Sheets", ".xlsx", "Calc MS Excel 2007 XML"),
         ("simpress", "Slides", ".pptx", "Impress MS PowerPoint 2007 XML"))

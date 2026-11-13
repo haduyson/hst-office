@@ -1,0 +1,98 @@
+HST Office: folded ribbon groups: never a "Caption ▾" button beside room to show it; always an icon.
+
+Owner decision (13/11/2026): with the banner always shown, Writer's Home tab at 1366 px folded Đoạn văn, Kiểu,
+Chỉnh sửa and Tiện ích Việt into their buttons and left about 200 px empty, because fitByPriority() folds the
+groups strictly in usage order: a small group could not use the room a larger, more used one left. Now, after
+folding, the room left opens again every folded group that fits in it at its smallest shown state, the one
+taking the most room first, before the shown groups grow. Folding is no longer monotonic as the window widens
+(accepted by the owner for this).
+- vcl/inc/HstRibbonRegrow.hxx: fitByPriority() step 1b.
+- vcl/source/control/PriorityMergedHBox.cxx: a group whose only command is a gallery without an image (Writer's
+  Kiểu: the style gallery) shows its caption's dialog launcher icon (Styles) on its button, not bare text.
+
+License: these upstream files remain under its original license (MPL-2.0).
+Test: tests/unit/test_ribbon_regrow.py (no folded group fits in the room left; widths and fit as before);
+PriorityMergedHBox.cxx syntax-checked against the configured tree. Runtime: Writer ▸ Trang đầu at 1366 px.
+---
+--- a/vcl/inc/HstRibbonRegrow.hxx
++++ b/vcl/inc/HstRibbonRegrow.hxx
+@@ -20,6 +20,11 @@
+ //      (k as small as possible) collapse when the row does not fit with every other group at its
+ //      smallest shown state. The collapsed groups at a width are therefore always the least used ones,
+ //      and a wider window never collapses a group that a narrower one shows (monotonic);
++//   1b. owner decision (13/11/2026): the room left after step 1 is not left empty. A collapsed group that fits
++//      in it at its smallest shown state opens again, out of the usage order, the one that takes the most
++//      room first, as long as any fits. A smaller, less used group may then be open beside the button of a
++//      larger, more used one, and a wider window may close a group a narrower one showed (no longer
++//      monotonic), but no group is a button beside room enough to show it;
+ //   2. the shown groups then grow, most used first, into the largest state that still fits. A ladder may
+ //      give another order for this (its growth order, HstRibbonLadders.hxx): Sheets' Font group is the
+ //      last to collapse, yet the first to give up its labels, so Styles, Cells and Editing keep theirs.
+@@ -111,6 +116,28 @@
+         aLayout.fits = false;
+         return aLayout;
+     }
++    // 1b. the room left opens the collapsed groups that fit in it, the one taking the most room first
++    for (;;)
++    {
++        std::size_t nBest = rGroups.size();
++        long nBestGain = 0;
++        for (std::size_t i = 0; i < rGroups.size(); ++i)
++        {
++            if (aLayout.states[i] != RegrowCollapsedState)
++                continue;
++            const std::size_t nShown = smallestShownState(rGroups[i]);
++            const long nGain = widthOf(rGroups[i], nShown) - widthOf(rGroups[i], RegrowCollapsedState);
++            if (nRow + nGain <= nAvailable && (nBest == rGroups.size() || nGain > nBestGain))
++            {
++                nBest = i;
++                nBestGain = nGain;
++            }
++        }
++        if (nBest == rGroups.size())
++            break;
++        aLayout.states[nBest] = smallestShownState(rGroups[nBest]);
++        nRow += nBestGain;
++    }
+     // 2. the shown groups grow back, most used first (or in the ladder's growth order)
+     for (std::size_t nGroup : growthOrder(rGroups.size(), rPriority, rGrowth))
+     {
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -283,10 +283,11 @@
+ }
+ 
+ /// HST Office: the icon of a group's first command (toolbox item or drop-down button), at large size; the
+-/// dialog launcher in the caption row does not count
+-Image hstFirstImage(const vcl::Window& rWindow)
++/// dialog launcher in the caption row counts only with bLaunchers
++Image hstFirstImage(const vcl::Window& rWindow, bool bLaunchers = false)
+ {
+-    if (rWindow.get_id().startsWith("bxHstCaption") || rWindow.get_id().startsWith("bxHstLaunch"))
++    if (!bLaunchers
++        && (rWindow.get_id().startsWith("bxHstCaption") || rWindow.get_id().startsWith("bxHstLaunch")))
+         return Image();
+     if (const ToolBox* pBox = dynamic_cast<const ToolBox*>(&rWindow))
+     {
+@@ -312,13 +313,19 @@
+     for (const vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
+          pChild = pChild->GetWindow(GetWindowType::Next))
+         if (pChild->IsVisible())
+-            if (Image aImage = hstFirstImage(*pChild); aImage.GetSizePixel().Width() > 0)
++            if (Image aImage = hstFirstImage(*pChild, bLaunchers); aImage.GetSizePixel().Width() > 0)
+                 return aImage;
+     return Image();
+ }
+ }
+ 
+-Image PriorityMergedHBox::HstGroupImage(const vcl::Window& rGroup) { return hstFirstImage(rGroup); }
++// HST Office: a group whose only command is a gallery without an image (Writer's Kiểu: the style
++// gallery) shows the icon of its caption's dialog launcher (Styles) on its "Caption ▾" button
++Image PriorityMergedHBox::HstGroupImage(const vcl::Window& rGroup)
++{
++    const Image aImage = hstFirstImage(rGroup);
++    return aImage.GetSizePixel().Width() > 0 ? aImage : hstFirstImage(rGroup, true);
++}
+ 
+ PushButton& PriorityMergedHBox::HstGroupButton(vcl::Window& rGroup)
+ {

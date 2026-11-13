@@ -1,0 +1,58 @@
+HST Office: a double-click on an object opens its contextual ribbon tab (Slides, Draw, Sheets).
+
+As in the familiar office suite, double-clicking a picture, shape, chart or table opens its Format tab
+(Định dạng ảnh, Định dạng hình dạng, Thiết kế bảng...) on the Tabbed ribbon, before the double-click
+starts text editing, activates a chart or OLE object, or opens a dialog. It calls
+hst::ribbon::OpenContextualTab (include/vcl/HstRibbonContext.hxx, hst-ribbon-ux-engine.patch), which does
+nothing without the Tabbed ribbon or when the selection shows no contextual tab.
+
+- sd FuDraw::DoubleClick (Slides and Draw): one selected object.
+- sc FuSelection::MouseButtonUp (Sheets): a double-click on the selected drawing object; cell editing is
+  not involved.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sd/source/ui/func/fudraw.cxx
++++ b/sd/source/ui/func/fudraw.cxx
+@@ -54,6 +54,7 @@
+ #include <vcl/weld/MessageDialog.hxx>
+ #include <vcl/weld/WaitObject.hxx>
+ #include <svx/sdrhittesthelper.hxx>
++#include <vcl/HstRibbonContext.hxx>
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -638,6 +639,11 @@
+             SdrMark* pMark = rMarkList.GetMark(0);
+             SdrObject* pObj = pMark->GetMarkedSdrObj();
+ 
++            // HST Office: a double-click on a picture, shape, chart or table opens its contextual tab on the
++            // ribbon (Picture Format, Shape Format...), as Office does, before any edit mode starts
++            if (mpWindow)
++                hst::ribbon::OpenContextualTab(*mpWindow);
++
+             SdrInventor nInv = pObj->GetObjInventor();
+             SdrObjKind  nSdrObjKind = pObj->GetObjIdentifier();
+ 
+--- a/sc/source/ui/drawfunc/fusel.cxx
++++ b/sc/source/ui/drawfunc/fusel.cxx
+@@ -47,6 +47,7 @@
+ #include <docuno.hxx>
+ #include <docsh.hxx>
+ #include <stlpool.hxx>
++#include <vcl/HstRibbonContext.hxx>
+ 
+ //  maximal permitted mouse movement to start Drag&Drop
+ //! fusel,fuconstr,futext - combine them!
+@@ -489,6 +490,11 @@
+                 {
+                     assert(pObj);
+ 
++                    // HST Office: a double-click on a picture, shape, chart or text box opens its contextual
++                    // tab on the ribbon, as Office does, before an object or text edit starts (cells: not here)
++                    if (pWindow)
++                        hst::ribbon::OpenContextualTab(*pWindow);
++
+                     SdrObjKind nSdrObjKind = pObj->GetObjIdentifier();
+ 
+                     //  OLE: activate

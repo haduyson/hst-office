@@ -1,0 +1,590 @@
+HST Office: File panel "In" and "Xuất" pages (two-sided printing, print preview, PDF, images and other formats, compress presentation).
+
+Audit 13/11 (File panel): "In hai mặt" was only in the hidden HST menu and Alt+Q, and the panel had
+no export to other formats. "Phiên bản trước" and "Thiết lập USB Token" are already on the Info
+page (hst-backstage-previous-versions.patch).
+
+- "In" (navprint) opens a page instead of running Print at once: In (.uno:Print, Ctrl+P still
+  prints at once), Xem trước khi in (.uno:PrintPreview) and, in Writer, In hai mặt
+  (org.hst.office.vi:ToggleDuplex of the bundled extension: the two-sided page layout of
+  administrative documents; label and note Vietnamese in every UI language, as in the HST menu).
+- "Xuất PDF" (navpdf) becomes "Xuất" with the export icon and opens a page: Xuất PDF
+  (.uno:ExportToPDF), Xuất PDF ngay (.uno:ExportDirectToPDF), Ảnh và định dạng khác (.uno:ExportTo,
+  the export dialog with PNG, JPEG, SVG, HTML...) and, in Slides, Nén bản trình chiếu
+  (.uno:PresentationMinimizer).
+- Each button has a one-line note; the page titles get the title font of the other pages
+  (PAGE_TITLES); Tab into the page focuses its first button.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -77,7 +77,9 @@
+         New,
+         Open,
+         Info,
+-        SaveAs
++        SaveAs,
++        Print,
++        Export
+     };
+ 
+     /// Tells the view which left-column item the pointer entered or left.
+@@ -193,6 +195,8 @@
+     std::unique_ptr<weld::Container> m_xPageOpen;
+     std::unique_ptr<weld::Container> m_xPageInfo;
+     std::unique_ptr<weld::Container> m_xPageSaveAs;
++    std::unique_ptr<weld::Container> m_xPagePrint;
++    std::unique_ptr<weld::Container> m_xPageExport;
+ 
+     std::unique_ptr<weld::Label> m_xGreeting;
+     std::vector<TemplateTile> m_aTiles;
+@@ -228,6 +232,16 @@
+     std::unique_ptr<weld::Label> m_xSaveAsFolder;
+     std::unique_ptr<weld::TreeView> m_xFormatList;
+     std::unique_ptr<weld::Button> m_xSaveAsBrowse;
++
++    std::unique_ptr<weld::Button> m_xPrintPrint;
++    std::unique_ptr<weld::Button> m_xPrintPreview;
++    std::unique_ptr<weld::Button> m_xPrintDuplex; // Writer
++    std::unique_ptr<weld::Label> m_xPrintDuplexNote;
++    std::unique_ptr<weld::Button> m_xExportPdf;
++    std::unique_ptr<weld::Button> m_xExportPdfDirect;
++    std::unique_ptr<weld::Button> m_xExportOther;
++    std::unique_ptr<weld::Button> m_xExportMinimize; // Slides
++    std::unique_ptr<weld::Label> m_xExportMinimizeNote;
+     OUString m_aPendingFilter;
+     ImplSVEvent* m_pPendingSaveAs;
+     ImplSVEvent* m_pPendingMenu;
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -66,6 +66,7 @@
+ // sizes at 100 %, scaled with the UI scale (BackstageWindow::Scaled)
+ constexpr tools::Long PANEL_WIDTH = 780;
+ constexpr tools::Long PANEL_HEIGHT = 580;
++constexpr size_t PAGE_TITLES = 6; // New, Open, Info, Save As, Print, Export: the rest of m_aTitles are headings
+ constexpr tools::Long PANEL_INSET = 8; // from the left edge of the ribbon, and kept free below the panel
+ constexpr tools::Long NAV_ITEM_HEIGHT = 36;
+ constexpr tools::Long NAV_ICON_INDENT = 14;
+@@ -251,7 +252,7 @@
+     if (rId == u"navprint")
+         return u".uno:Print"_ustr;
+     if (rId == u"navpdf")
+-        return u".uno:ExportDirectToPDF"_ustr;
++        return u".uno:ExportTo"_ustr;
+     if (rId == u"navsign")
+         return u".uno:Signature"_ustr;
+     if (rId == u"navclose")
+@@ -291,6 +292,8 @@
+     , m_xPageOpen(m_xBuilder->weld_container(u"pageopen"_ustr))
+     , m_xPageInfo(m_xBuilder->weld_container(u"pageinfo"_ustr))
+     , m_xPageSaveAs(m_xBuilder->weld_container(u"pagesaveas"_ustr))
++    , m_xPagePrint(m_xBuilder->weld_container(u"pageprint"_ustr))
++    , m_xPageExport(m_xBuilder->weld_container(u"pageexport"_ustr))
+     , m_xGreeting(m_xBuilder->weld_label(u"greeting"_ustr))
+     , m_xMoreTemplates(m_xBuilder->weld_link_button(u"moretemplates"_ustr))
+     , m_xRecentTabs(m_xBuilder->weld_notebook(u"recenttabs"_ustr))
+@@ -320,14 +323,25 @@
+     , m_xSaveAsFolder(m_xBuilder->weld_label(u"saveasfolder"_ustr))
+     , m_xFormatList(m_xBuilder->weld_tree_view(u"formatlist"_ustr))
+     , m_xSaveAsBrowse(m_xBuilder->weld_button(u"saveasbrowse"_ustr))
++    , m_xPrintPrint(m_xBuilder->weld_button(u"printprint"_ustr))
++    , m_xPrintPreview(m_xBuilder->weld_button(u"printpreview"_ustr))
++    , m_xPrintDuplex(m_xBuilder->weld_button(u"printduplex"_ustr))
++    , m_xPrintDuplexNote(m_xBuilder->weld_label(u"printduplexnote"_ustr))
++    , m_xExportPdf(m_xBuilder->weld_button(u"exportpdf"_ustr))
++    , m_xExportPdfDirect(m_xBuilder->weld_button(u"exportpdfdirect"_ustr))
++    , m_xExportOther(m_xBuilder->weld_button(u"exportother"_ustr))
++    , m_xExportMinimize(m_xBuilder->weld_button(u"exportminimize"_ustr))
++    , m_xExportMinimizeNote(m_xBuilder->weld_label(u"exportminimizenote"_ustr))
+     , m_pPendingSaveAs(nullptr)
+     , m_pPendingMenu(nullptr)
+ {
+     InitNavigation();
+     InitHomePage();
+ 
++    // the page titles first (PAGE_TITLES), then the section headings
+     for (const auto& rId : { u"newtitle"_ustr, u"opentitle"_ustr, u"infotitle"_ustr,
+-                             u"saveastitle"_ustr, u"createlabel"_ustr, u"openrecent"_ustr })
++                             u"saveastitle"_ustr, u"printtitle"_ustr, u"exporttitle"_ustr,
++                             u"createlabel"_ustr, u"openrecent"_ustr })
+         m_aTitles.push_back(m_xBuilder->weld_label(rId));
+ 
+     for (weld::TreeView* pList : { m_xRecentList.get(), m_xPinnedList.get(), m_xOpenList.get() })
+@@ -350,8 +364,15 @@
+     for (weld::Button* pButton :
+          { m_xNewBlank.get(), m_xNewNd30.get(), m_xNewManage.get(), m_xOpenBrowse.get(),
+            m_xInfoProperties.get(), m_xInfoSign.get(), m_xInfoUsbToken.get(), m_xInfoVersions.get(),
+-           m_xSaveAsBrowse.get() })
++           m_xSaveAsBrowse.get(), m_xPrintPrint.get(), m_xPrintPreview.get(), m_xPrintDuplex.get(),
++           m_xExportPdf.get(), m_xExportPdfDirect.get(), m_xExportOther.get(),
++           m_xExportMinimize.get() })
+         pButton->connect_clicked(LINK(this, BackstageWindow, ButtonClickHdl));
++    // "In hai mặt" sets the page layout of a Writer document; the minimizer is Slides' own
++    m_xPrintDuplex->set_visible(m_eApp == BackstageApp::Writer);
++    m_xPrintDuplexNote->set_visible(m_eApp == BackstageApp::Writer);
++    m_xExportMinimize->set_visible(m_eApp == BackstageApp::Impress);
++    m_xExportMinimizeNote->set_visible(m_eApp == BackstageApp::Impress);
+ 
+     m_xNewBlank->set_label(SfxResId(m_eApp == BackstageApp::Calc      ? STR_HST_BS_BLANK_CALC
+                                     : m_eApp == BackstageApp::Impress ? STR_HST_BS_BLANK_IMPRESS
+@@ -553,9 +574,10 @@
+     for (size_t i = 0; i < m_aTitles.size(); ++i)
+     {
+         vcl::Font aFont(rStyle.GetLabelFont());
+-        // the first four are page titles, the others section headings
+-        aFont.SetFontHeight(aFont.GetFontHeight() * (i < 4 ? 1.6 : 1.05));
+-        aFont.SetWeight(i < 4 ? WEIGHT_SEMIBOLD : WEIGHT_BOLD);
++        // the first PAGE_TITLES are page titles, the others section headings
++        const bool bPageTitle = i < PAGE_TITLES;
++        aFont.SetFontHeight(aFont.GetFontHeight() * (bPageTitle ? 1.6 : 1.05));
++        aFont.SetWeight(bPageTitle ? WEIGHT_SEMIBOLD : WEIGHT_BOLD);
+         m_aTitles[i]->set_font(aFont);
+     }
+     for (TemplateTile& rTile : m_aTiles)
+@@ -623,11 +645,15 @@
+     m_xPageOpen->set_visible(ePage == Page::Open);
+     m_xPageInfo->set_visible(ePage == Page::Info);
+     m_xPageSaveAs->set_visible(ePage == Page::SaveAs);
++    m_xPagePrint->set_visible(ePage == Page::Print);
++    m_xPageExport->set_visible(ePage == Page::Export);
+ 
+     const OUString aNavId = ePage == Page::Home     ? u"navhome"_ustr
+                             : ePage == Page::New    ? u"navnew"_ustr
+                             : ePage == Page::Open   ? u"navopen"_ustr
+                             : ePage == Page::Info   ? u"navinfo"_ustr
++                            : ePage == Page::Print  ? u"navprint"_ustr
++                            : ePage == Page::Export ? u"navpdf"_ustr
+                                                     : u"navsaveas"_ustr;
+     const int nOld = m_nSelectedNav;
+     for (size_t i = 0; i < m_aNav.size(); ++i)
+@@ -874,6 +900,10 @@
+         m_xInfoProperties->grab_focus();
+     else if (m_ePage == Page::New)
+         m_xNewBlank->grab_focus();
++    else if (m_ePage == Page::Print)
++        m_xPrintPrint->grab_focus();
++    else if (m_ePage == Page::Export)
++        m_xExportPdf->grab_focus();
+ }
+ 
+ IMPL_LINK(BackstageWindow, KeyPressHdl, const KeyEvent&, rKEvt, bool)
+@@ -967,9 +997,9 @@
+     else if (aId == "navsave")
+         CloseAndDispatch(u".uno:Save"_ustr);
+     else if (aId == "navprint")
+-        CloseAndDispatch(u".uno:Print"_ustr);
+-    else if (aId == "navpdf")
+-        CloseAndDispatch(u".uno:ExportToPDF"_ustr);
++        ShowPage(Page::Print);
++    else if (aId == "navpdf") // "Xuất": PDF, images and other formats
++        ShowPage(Page::Export);
+     else if (aId == "navsign")
+         CloseAndDispatch(u".uno:Signature"_ustr);
+     else if (aId == "navclose")
+@@ -1020,6 +1050,20 @@
+         CloseAndDispatch(u"org.hst.office.vi:PreviousVersions"_ustr);
+     else if (&rButton == m_xSaveAsBrowse.get())
+         CloseAndDispatch(u".uno:SaveAs"_ustr);
++    else if (&rButton == m_xPrintPrint.get())
++        CloseAndDispatch(u".uno:Print"_ustr);
++    else if (&rButton == m_xPrintPreview.get())
++        CloseAndDispatch(u".uno:PrintPreview"_ustr);
++    else if (&rButton == m_xPrintDuplex.get()) // "In hai mặt" of the bundled HST extension
++        CloseAndDispatch(u"org.hst.office.vi:ToggleDuplex"_ustr);
++    else if (&rButton == m_xExportPdf.get())
++        CloseAndDispatch(u".uno:ExportToPDF"_ustr);
++    else if (&rButton == m_xExportPdfDirect.get())
++        CloseAndDispatch(u".uno:ExportDirectToPDF"_ustr);
++    else if (&rButton == m_xExportOther.get()) // the export dialog: PNG, JPEG, SVG, HTML...
++        CloseAndDispatch(u".uno:ExportTo"_ustr);
++    else if (&rButton == m_xExportMinimize.get())
++        CloseAndDispatch(u".uno:PresentationMinimizer"_ustr);
+ }
+ 
+ IMPL_LINK(BackstageWindow, RecentActivatedHdl, const weld::TreeIter&, rIter, bool)
+--- a/sfx2/uiconfig/ui/hstbackstage.ui
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -251,7 +251,7 @@
+         </child>
+         <child>
+           <object class="GtkButton" id="navpdf">
+-            <property name="label" translatable="yes" context="hstbackstage|navpdf">Export as PDF</property>
++            <property name="label" translatable="yes" context="hstbackstage|navpdf">Export</property>
+             <property name="visible">True</property>
+             <property name="can-focus">True</property>
+             <property name="receives-default">False</property>
+@@ -1628,6 +1628,269 @@
+                   </packing>
+                 </child>
+               </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <!-- HST Office: the Print page; its buttons run the commands of the menus -->
++          <object class="GtkBox" id="pageprint">
++            <property name="visible">False</property>
++            <property name="no-show-all">True</property>
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <property name="orientation">vertical</property>
++            <property name="spacing">12</property>
++            <child>
++              <object class="GtkLabel" id="printtitle">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|printtitle">Print</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkGrid" id="pageprintgrid">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="row-spacing">10</property>
++                <property name="column-spacing">16</property>
++                <child>
++                  <object class="GtkButton" id="printprint">
++                    <property name="label" translatable="yes" context="hstbackstage|printprint">Print…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="printprintnote">
++                    <property name="label" translatable="yes" context="hstbackstage|printprintnote">Choose the printer, the pages and the number of copies (Ctrl+P).</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="max-width-chars">52</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="printpreview">
++                    <property name="label" translatable="yes" context="hstbackstage|printpreview">Print Preview</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="printpreviewnote">
++                    <property name="label" translatable="yes" context="hstbackstage|printpreviewnote">See the pages as they will be printed.</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="max-width-chars">52</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                <!-- "In hai mặt" of the bundled HST extension (Writer): Vietnamese in every UI language, as in the HST menu -->
++                  <object class="GtkButton" id="printduplex">
++                    <property name="label">In hai mặt</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="printduplexnote">
++                    <property name="label">Bật hoặc tắt in hai mặt cho văn bản hành chính: lề trang theo đúng thể thức.</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="max-width-chars">52</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <!-- HST Office: the Export page; its buttons run the commands of the menus -->
++          <object class="GtkBox" id="pageexport">
++            <property name="visible">False</property>
++            <property name="no-show-all">True</property>
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <property name="orientation">vertical</property>
++            <property name="spacing">12</property>
++            <child>
++              <object class="GtkLabel" id="exporttitle">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|exporttitle">Export</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkGrid" id="pageexportgrid">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="row-spacing">10</property>
++                <property name="column-spacing">16</property>
++                <child>
++                  <object class="GtkButton" id="exportpdf">
++                    <property name="label" translatable="yes" context="hstbackstage|exportpdf">Export as PDF…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="exportpdfnote">
++                    <property name="label" translatable="yes" context="hstbackstage|exportpdfnote">Choose the pages, image quality, password and more, then save the PDF.</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="max-width-chars">52</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="exportpdfdirect">
++                    <property name="label" translatable="yes" context="hstbackstage|exportpdfdirect">Export Directly as PDF</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="exportpdfdirectnote">
++                    <property name="label" translatable="yes" context="hstbackstage|exportpdfdirectnote">Save the PDF at once with the last options.</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="max-width-chars">52</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="exportother">
++                    <property name="label" translatable="yes" context="hstbackstage|exportother">Images and Other Formats…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="exportothernote">
++                    <property name="label" translatable="yes" context="hstbackstage|exportothernote">PNG, JPEG, SVG, HTML and other formats.</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="max-width-chars">52</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="exportminimize">
++                    <property name="label" translatable="yes" context="hstbackstage|exportminimize">Compress Presentation…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="exportminimizenote">
++                    <property name="label" translatable="yes" context="hstbackstage|exportminimizenote">Make the file smaller: compress images, remove unused slides and data.</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="max-width-chars">52</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">3</property>
++                  </packing>
++                </child>
++              </object>
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -5893,8 +5893,8 @@
+ #. hstBS
+ #: sfx2/uiconfig/ui/hstbackstage.ui
+ msgctxt "hstbackstage|navpdf"
+-msgid "Export as PDF"
+-msgstr "Xuất PDF"
++msgid "Export"
++msgstr "Xuất"
+ 
+ #. hstBS
+ #: sfx2/uiconfig/ui/hstbackstage.ui
+@@ -6179,6 +6179,90 @@
+ msgstr "Duyệt"
+ 
+ #. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|printtitle"
++msgid "Print"
++msgstr "In"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|printprint"
++msgid "Print…"
++msgstr "In"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|printprintnote"
++msgid "Choose the printer, the pages and the number of copies (Ctrl+P)."
++msgstr "Chọn máy in, các trang cần in và số bản (Ctrl+P)."
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|printpreview"
++msgid "Print Preview"
++msgstr "Xem trước khi in"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|printpreviewnote"
++msgid "See the pages as they will be printed."
++msgstr "Xem các trang như khi in ra giấy."
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exporttitle"
++msgid "Export"
++msgstr "Xuất"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exportpdf"
++msgid "Export as PDF…"
++msgstr "Xuất PDF"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exportpdfnote"
++msgid "Choose the pages, image quality, password and more, then save the PDF."
++msgstr "Chọn trang, chất lượng ảnh, mật khẩu và các tùy chọn khác rồi lưu tệp PDF."
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exportpdfdirect"
++msgid "Export Directly as PDF"
++msgstr "Xuất PDF ngay"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exportpdfdirectnote"
++msgid "Save the PDF at once with the last options."
++msgstr "Lưu ngay tệp PDF với các tùy chọn đã dùng lần trước."
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exportother"
++msgid "Images and Other Formats…"
++msgstr "Ảnh và định dạng khác"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exportothernote"
++msgid "PNG, JPEG, SVG, HTML and other formats."
++msgstr "PNG, JPEG, SVG, HTML và các định dạng khác."
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exportminimize"
++msgid "Compress Presentation…"
++msgstr "Nén bản trình chiếu"
++
++#. hstBS
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exportminimizenote"
++msgid "Make the file smaller: compress images, remove unused slides and data."
++msgstr "Giảm dung lượng tệp: nén ảnh, bỏ các trang chiếu và dữ liệu không dùng."
++
++#. hstBS
+ #: sfx2/inc/backstage/hstbackstage.hrc
+ msgctxt "STR_HST_BS_MORNING"
+ msgid "Good morning"

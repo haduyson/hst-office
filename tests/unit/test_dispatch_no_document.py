@@ -103,6 +103,29 @@ class CommandNamesTests(unittest.TestCase):
         self.assertIsNone(dispatch.Handler(None).queryDispatch(url, "", 0))
 
 
+class HelpPageTests(unittest.TestCase):
+    """Trợ giúp ▸ Lệnh quen thuộc ở đâu? / Phím tắt open a page of the offline guide; no document needed."""
+
+    def test_both_commands_are_answered_and_open_their_page(self):
+        for command, page in (("WhereIsCommand", "lenh-quen-thuoc.html"), ("KeyboardShortcuts", "phim-tat.html")):
+            url = type("URL", (), {"Protocol": dispatch.PROTOCOL, "Path": command})
+            self.assertIsNotNone(dispatch.Handler(None).queryDispatch(url, "", 0))
+            self.assertTrue(dispatch.help_pages.page_path(command).endswith(page))
+            h = handler(Frame(None))
+            with mock.patch.object(dispatch.help_pages, "open_page") as open_page, \
+                    mock.patch.object(dispatch, "log_error") as log:
+                h.dispatch(url, ())
+            open_page.assert_called_once_with(None, command)
+            log.assert_not_called()
+
+    def test_a_failure_is_logged_not_raised(self):
+        url = type("URL", (), {"Protocol": dispatch.PROTOCOL, "Path": "WhereIsCommand"})
+        with mock.patch.object(dispatch.help_pages, "open_page", side_effect=OSError("no browser")), \
+                mock.patch.object(dispatch, "log_error") as log:
+            handler(Frame(None)).dispatch(url, ())
+        log.assert_called_once_with("WhereIsCommand")
+
+
 class TestHookTests(unittest.TestCase):
     def test_inert_without_the_variable_or_in_a_release_package(self):
         with mock.patch("hst_office.update_fetch.release_info", return_value={"test_mode": True}):
