@@ -718,7 +718,7 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/source/services/hstrecoverystore.cxx
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,190 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -742,6 +742,7 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
 +#include <sal/log.hxx>
 +
 +#include <algorithm>
++#include <mutex>
 +
 +namespace framework::hstrecovery
 +{
@@ -813,17 +814,24 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
 +                     + "\t" + field(r.aFilter) + "\t" + field(r.aModule) + "\t" + field(r.aTitle)
 +                     + "\t" + field(r.aViewNames) + "\n");
 +    const OUString aURL = rBackupDirURL + "/" + INDEX_NAME;
-+    if (rEntries.empty())
++    // the list is mirrored after every configuration commit; most commits leave it unchanged
++    static std::mutex aMutex;
++    static OString aLastWritten;
++    std::scoped_lock aGuard(aMutex);
++    const OString aNew = aText.makeStringAndClear();
++    if (aNew == aLastWritten && (rEntries.empty() || modifiedTime(aURL) > 0))
++        return;
++    aLastWritten = aNew;
++    if (rEntries.empty()) // nothing to recover: no index (a missing index means the same)
 +    {
-+        // nothing to recover: no index (a missing index means the same)
 +        if (osl::File::remove(aURL) == osl::FileBase::E_None)
 +            comphelper::hst::syncParentDirectory(aURL);
 +        return;
 +    }
 +    const osl::FileBase::RC eDir = osl::Directory::createPath(rBackupDirURL);
-+    if (eDir != osl::FileBase::E_None && eDir != osl::FileBase::E_EXIST)
-+        return;
-+    comphelper::hst::writeFileAtomically(aURL, aText.makeStringAndClear());
++    if ((eDir != osl::FileBase::E_None && eDir != osl::FileBase::E_EXIST)
++        || !comphelper::hst::writeFileAtomically(aURL, aNew))
++        aLastWritten.clear();
 +}
 +
 +std::vector<Entry> readIndex(const OUString& rBackupDirURL)
@@ -898,22 +906,12 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
 +            SAL_INFO("fwk.autorecovery", "hst: removed old leftover " << rURL);
 +    });
 +}
-+
-+sal_Int64 modifiedTime(const OUString& rURL)
-+{
-+    osl::DirectoryItem aItem;
-+    osl::FileStatus aStatus(osl_FileStatus_Mask_ModifyTime);
-+    if (osl::DirectoryItem::get(rURL, aItem) != osl::FileBase::E_None
-+        || aItem.getFileStatus(aStatus) != osl::FileBase::E_None)
-+        return 0;
-+    return aStatus.getModifyTime().Seconds;
-+}
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/source/services/hstunsavedstore.cxx
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,157 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -977,6 +975,16 @@ tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
 +    sal_uInt64 nSize = 0;
 +    sal_Int64 nTime = 0; ///< when it was closed (description written), else the copy's time
 +};
++}
++
++sal_Int64 modifiedTime(const OUString& rURL)
++{
++    osl::DirectoryItem aItem;
++    osl::FileStatus aStatus(osl_FileStatus_Mask_ModifyTime);
++    if (osl::DirectoryItem::get(rURL, aItem) != osl::FileBase::E_None
++        || aItem.getFileStatus(aStatus) != osl::FileBase::E_None)
++        return 0;
++    return aStatus.getModifyTime().Seconds;
 +}
 +
 +OUString unsavedDir() { return SvtPathOptions().SubstituteVariable(u"$(user)/hst-unsaved"_ustr); }
