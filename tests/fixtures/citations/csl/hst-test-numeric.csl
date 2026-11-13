@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Written for HST unit tests (not taken from the CSL style repository). -->
+<style xmlns="http://purl.org/net/xbiblio/csl" class="in-text" version="1.0" default-locale="en-US"
+       page-range-format="expanded" initialize-with=". ">
+  <info><title>HST test numeric</title><id>hst-test-numeric</id><updated>2026-11-13T00:00:00+00:00</updated></info>
+  <locale><terms><term name="et-al">and others</term></terms></locale>
+  <macro name="author">
+    <names variable="author">
+      <name and="text" delimiter=", " name-as-sort-order="first" et-al-min="4" et-al-use-first="1"/>
+      <substitute><names variable="editor"/><text variable="title" font-style="italic"/></substitute>
+    </names>
+  </macro>
+  <macro name="year"><date variable="issued"><date-part name="year"/></date></macro>
+  <citation collapse="citation-number">
+    <sort><key variable="citation-number"/></sort>
+    <layout prefix="[" suffix="]" delimiter=", ">
+      <group delimiter=", ">
+        <text variable="citation-number"/>
+        <group delimiter=" "><label variable="locator" form="short"/><text variable="locator"/></group>
+      </group>
+    </layout>
+  </citation>
+  <bibliography hanging-indent="true">
+    <sort><key macro="author"/><key variable="issued"/></sort>
+    <layout suffix=".">
+      <text variable="citation-number" prefix="[" suffix="] "/>
+      <text macro="author" suffix=" "/>
+      <text macro="year" prefix="(" suffix="). "/>
+      <choose>
+        <if type="article-journal">
+          <text variable="title" quotes="true" suffix=". "/>
+          <group delimiter=", ">
+            <text variable="container-title" font-style="italic"/>
+            <group delimiter=" "><text term="volume" form="short"/><text variable="volume"/></group>
+            <group delimiter=" "><label variable="page" form="short"/><text variable="page"/></group>
+          </group>
+        </if>
+        <else-if type="chapter paper-conference" match="any">
+          <text variable="title" quotes="true" suffix=". "/>
+          <group delimiter=" "><text term="in" text-case="capitalize-first"/><text variable="container-title" font-style="italic"/></group>
+        </else-if>
+        <else>
+          <text variable="title" font-style="italic" suffix=". "/>
+          <group delimiter=": "><text variable="publisher-place"/><text variable="publisher"/></group>
+        </else>
+      </choose>
+      <text variable="DOI" prefix=". https://doi.org/"/>
+    </layout>
+  </bibliography>
+</style>
