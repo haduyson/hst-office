@@ -4,8 +4,9 @@
 A crash on the office's main thread before its main loop runs (start-up), at shutdown or under --norestore ends in the
 office's handler with exit(255): Windows records no Application Error event and no WER report, the recovery flag stays
 false, so the next start could only say "not closed". At start-up arm() names a fresh note file in the environment
-(HST_FAULT_NOTE); the handler writes the first unhandled exception there ("code=0x.. module=.. offset=0x.. thread=..")
-and appends "end=exit255" when it ends the process itself. The next start reads it (read) and turns it into the crash
+(HST_FAULT_NOTE); the handler writes the first unhandled exception there ("code=0x.. module=.. offset=0x.. thread=..",
+then "frame module=.. offset=0x.." per frame of the faulting thread) and appends "end=exit255" when it ends the
+process itself. The next start reads it (read) and turns it into the crash
 signature (signature). Module base names and offsets only.
 """
 import os
@@ -13,6 +14,8 @@ import re
 
 NAME = "last-fault.txt"
 ENV = "HST_FAULT_NOTE"
+_FRAME = re.compile(r"^frame module=(\S+) offset=0x([0-9A-Fa-f]+)", re.M)
+MAX_FRAMES = 20
 _FAULT = re.compile(r"code=0x([0-9A-Fa-f]{8}) module=(\S+) offset=0x([0-9A-Fa-f]+)")
 NOTE_CODES = {"C0000005": "access violation", "E06D7363": "C++ exception", "C0000094": "integer divide by zero",
               "C00000FD": "stack overflow", "80000003": "breakpoint", "00000000": "abort"}
@@ -30,7 +33,9 @@ def signature(text):
                                                       found.group(3).lower())
     if "end=exit255" in text:
         text_out += "; the office's crash handler ended the process (exit code 255), so Windows recorded nothing"
-    return text_out
+    frames = ["%s +0x%s" % (os.path.basename(name.replace("\\", "/")), offset.lower())
+              for name, offset in _FRAME.findall(text)[:MAX_FRAMES]]
+    return "\n".join([text_out] + frames)
 
 
 def combined(event, note):

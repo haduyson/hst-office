@@ -24,6 +24,14 @@ class FaultNoteTests(unittest.TestCase):
         self.assertEqual(windows_fault_note.signature(""), "")
         self.assertEqual(windows_fault_note.signature("end=exit255\n"), "")
 
+    def test_frames_of_the_faulting_thread_follow_the_fault(self):
+        note = ("code=0xC0000005 module=mergedlo.dll offset=0x7E8F7F thread=16800\n"
+                "frame module=mergedlo.dll offset=0x7E8F7F\nframe module=sclo.dll offset=0x1A2B3C\n"
+                "frame module=mergedlo.dll offset=0x10\nframes=cut\n")
+        self.assertEqual(windows_fault_note.signature(note).splitlines(),
+                         ["Exception c0000005 (access violation) in mergedlo.dll at offset 0x7e8f7f",
+                          "mergedlo.dll +0x7e8f7f", "sclo.dll +0x1a2b3c", "mergedlo.dll +0x10"])
+
     def test_the_note_adds_the_real_fault_to_the_office_raised_event(self):
         event = "Exception 00000000 in KERNELBASE.dll 10.0.26100.9974 at offset 00000000000c569a (soffice 1.0.2)"
         note = windows_fault_note.signature("code=0xC0000005 module=python313.dll offset=0x1D2F4A thread=1\n")

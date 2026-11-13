@@ -11,8 +11,10 @@ which is what error reports #9 and #10 showed.
 
 The first unhandled exception is now written to the file named by HST_FAULT_NOTE (the HST
 extension sets it at start-up to <profile>/user/hst-office/last-fault.txt): exception code,
-faulting module, offset and thread; "end=exit255" is appended when the handler ends the process
-there. Only Win32 calls and stack buffers. Without the variable nothing changes.
+faulting module, offset and thread, then up to 24 frames of the faulting thread as module and
+offset, unwound from the exception context with the unwind tables (x64; a fault while walking
+stops the walk). "end=exit255" is appended when the handler ends the process there. Only Win32
+calls, stack and static buffers. Without the variable nothing changes.
 
 --- a/sal/osl/w32/signal.cxx
 +++ b/sal/osl/w32/signal.cxx
@@ -26,7 +28,7 @@ there. Only Win32 calls and stack buffers. Without the variable nothing changes.
  
  #include <config_features.h>
  
-@@ -65,6 +67,59 @@
+@@ -65,6 +67,110 @@
  }
  
  LPTOP_LEVEL_EXCEPTION_FILTER pPreviousHandler = nullptr;
@@ -35,8 +37,8 @@ there. Only Win32 calls and stack buffers. Without the variable nothing changes.
 +   loop runs, during shutdown, or with --norestore; a second fault inside the handler) leaves no
 +   Windows error report and no event, so the next start could only say "not closed". When the
 +   environment names a note file (HST_FAULT_NOTE, set by the HST extension at start-up), the first
-+   unhandled exception is written there: exception code, faulting module and offset; the end of
-+   the process is appended. Only Win32 calls and stack buffers: the heap may be broken here. */
++   unhandled exception is written there: exception code, faulting module and offset, then the
++   faulting thread's frames; the end of the process is appended. Only Win32 calls and stack buffers: the heap may be broken here. */
 +void appendFaultNote(const char* pText)
 +{
 +    wchar_t aPath[MAX_PATH];
@@ -52,17 +54,18 @@ there. Only Win32 calls and stack buffers. Without the variable nothing changes.
 +    CloseHandle(hFile);
 +}
 +
-+void noteFault(const EXCEPTION_RECORD* pRecord)
++// "module=<base name> offset=0x<rva>" of a code address
++void describeAddress(DWORD64 nAddress, char* pOut, size_t nOut)
 +{
 +    char aModule[MAX_PATH] = "?";
-+    ULONG_PTR nOffset = reinterpret_cast<ULONG_PTR>(pRecord->ExceptionAddress);
++    DWORD64 nOffset = nAddress;
 +    HMODULE hModule = nullptr;
 +    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
 +                               | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-+                           static_cast<LPCWSTR>(pRecord->ExceptionAddress), &hModule)
++                           reinterpret_cast<LPCWSTR>(nAddress), &hModule)
 +        && hModule)
 +    {
-+        nOffset -= reinterpret_cast<ULONG_PTR>(hModule);
++        nOffset -= reinterpret_cast<DWORD64>(hModule);
 +        wchar_t aFile[MAX_PATH];
 +        DWORD nLen = GetModuleFileNameW(hModule, aFile, MAX_PATH);
 +        if (nLen > 0 && nLen < MAX_PATH)
@@ -75,18 +78,68 @@ there. Only Win32 calls and stack buffers. Without the variable nothing changes.
 +                strcpy(aModule, "?");
 +        }
 +    }
++    _snprintf_s(pOut, nOut, _TRUNCATE, "module=%s offset=0x%llX", aModule,
++                static_cast<unsigned long long>(nOffset));
++}
++
++#if defined(_M_AMD64)
++// The faulting thread's frames, unwound from the exception context with the unwind tables
++// (no symbols, no heap): one "frame=module+0x<rva>" line each.
++void noteFrames(const CONTEXT* pContext)
++{
++    static CONTEXT aContext; // the filter runs once per process here; keeps the stack small
++    aContext = *pContext;
++    __try
++    {
++        for (int i = 0; i < 24 && aContext.Rip; ++i)
++        {
++            char aWhere[MAX_PATH + 40];
++            describeAddress(aContext.Rip, aWhere, sizeof(aWhere));
++            char aText[MAX_PATH + 60];
++            _snprintf_s(aText, sizeof(aText), _TRUNCATE, "frame %s\n", aWhere);
++            appendFaultNote(aText);
++            DWORD64 nImageBase = 0;
++            PRUNTIME_FUNCTION pFunction = RtlLookupFunctionEntry(aContext.Rip, &nImageBase, nullptr);
++            if (!pFunction)
++            {
++                if (i > 0)
++                    break; // only the faulting frame may be a leaf function
++                aContext.Rip = *reinterpret_cast<const DWORD64*>(aContext.Rsp);
++                aContext.Rsp += 8;
++                continue;
++            }
++            PVOID pHandlerData = nullptr;
++            DWORD64 nEstablisher = 0;
++            RtlVirtualUnwind(UNW_FLAG_NHANDLER, nImageBase, aContext.Rip, pFunction, &aContext,
++                             &pHandlerData, &nEstablisher, nullptr);
++        }
++    }
++    __except (EXCEPTION_EXECUTE_HANDLER)
++    {
++        appendFaultNote("frames=cut\n");
++    }
++}
++#endif
++
++void noteFault(const EXCEPTION_POINTERS* pPointers)
++{
++    const EXCEPTION_RECORD* pRecord = pPointers->ExceptionRecord;
++    char aWhere[MAX_PATH + 40];
++    describeAddress(reinterpret_cast<DWORD64>(pRecord->ExceptionAddress), aWhere, sizeof(aWhere));
 +    char aText[MAX_PATH + 160];
-+    _snprintf_s(aText, sizeof(aText), _TRUNCATE,
-+                "code=0x%08lX module=%s offset=0x%llX thread=%lu\n",
-+                static_cast<unsigned long>(pRecord->ExceptionCode), aModule,
-+                static_cast<unsigned long long>(nOffset),
++    _snprintf_s(aText, sizeof(aText), _TRUNCATE, "code=0x%08lX %s thread=%lu\n",
++                static_cast<unsigned long>(pRecord->ExceptionCode), aWhere,
 +                static_cast<unsigned long>(GetCurrentThreadId()));
 +    appendFaultNote(aText);
++#if defined(_M_AMD64)
++    if (pPointers->ContextRecord)
++        noteFrames(pPointers->ContextRecord);
++#endif
 +}
  }
  
  bool onInitSignal()
-@@ -101,6 +156,14 @@
+@@ -101,6 +207,14 @@
  
      static bool bNested = false;
  
@@ -95,13 +148,13 @@ there. Only Win32 calls and stack buffers. Without the variable nothing changes.
 +    if (!bNoted)
 +    {
 +        bNoted = true;
-+        noteFault(lpEP->ExceptionRecord);
++        noteFault(lpEP);
 +    }
 +
      oslSignalInfo info;
  
      info.UserSignal = lpEP->ExceptionRecord->ExceptionCode;
-@@ -152,6 +215,7 @@
+@@ -152,6 +266,7 @@
              return EXCEPTION_EXECUTE_HANDLER;
  
          case osl_Signal_ActKillApp:
