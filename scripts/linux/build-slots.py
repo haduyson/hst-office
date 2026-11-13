@@ -33,6 +33,7 @@ import fcntl
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 
@@ -157,6 +158,44 @@ def slot_locked(root, slot):
     finally:
         os.close(fd)
     return False
+
+
+def agents_top(root, agents_dir="/data/hst-agents", count=5, max_age=600, du=None):
+    """The largest agent directories ("name size" strings), cached in locks/agents-usage.json for max_age seconds:
+    a disk refusal names who is filling /data (agents read /data/hst-office-build/src/lo instead of copying trees)."""
+    cache = os.path.join(root, "locks", "agents-usage.json")
+    try:
+        with open(cache, encoding="utf-8") as f:
+            data = json.load(f)
+        if time.time() - data["time"] < max_age:
+            return data["top"]
+    except (OSError, ValueError, KeyError):
+        pass
+    if du is None:
+        try:
+            done = subprocess.run(["du", "-sk", "--max-depth=1", agents_dir], capture_output=True, text=True,
+                                  timeout=300, check=False)
+            du = done.stdout
+        except subprocess.TimeoutExpired:
+            return []
+    sizes = []
+    for line in du.splitlines():
+        kib, _, path = line.partition("\t")
+        if kib.isdigit() and path.rstrip("/") != agents_dir.rstrip("/"):
+            sizes.append((int(kib), os.path.basename(path)))
+    top = [f"{name} {kib / 1048576:.1f}G" for kib, name in sorted(sizes, reverse=True)[:count]]
+    os.makedirs(os.path.dirname(cache), exist_ok=True)
+    with open(cache, "w", encoding="utf-8") as f:
+        json.dump({"time": time.time(), "top": top}, f)
+    return top
+
+
+def explain(root, reason):
+    """Add the largest /data/hst-agents consumers to a disk refusal."""
+    if not reason.startswith("disk"):
+        return reason
+    top = agents_top(root)
+    return reason + ("; largest in /data/hst-agents: " + ", ".join(top) if top else "")
 
 
 # ---------------------------------------------------------------- state
@@ -361,7 +400,8 @@ def main(argv=None):
                 print(f"{granted[0]} {granted[1]}")
                 return 0
             if reason != last:
-                print(f"[{time.strftime('%F %T')}] admission: slot {args.slot} waiting: {reason}", file=sys.stderr)
+                print(f"[{time.strftime('%F %T')}] admission: slot {args.slot} waiting: {explain(ctl.root, reason)}",
+                      file=sys.stderr)
                 last = reason
             time.sleep(args.interval)
     if args.cmd == "poll":
@@ -378,7 +418,7 @@ def main(argv=None):
         exclude = [int(x) for x in args.exclude.split(",") if x.strip().isdigit()]
         slot, reason = ctl.free_slot(want, exclude)
         if slot is None:
-            print(reason, file=sys.stderr)
+            print(explain(ctl.root, reason), file=sys.stderr)
             return 1
         print(slot)
         return 0

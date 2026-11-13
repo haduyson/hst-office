@@ -262,6 +262,29 @@ class DispatcherTest(QueueTestCase):
         self.assertEqual(runner.jobs_for(slot), 14)
         self.assertEqual(runner.jobs_for({"host": "hst4", "root": "D:\\hst-build", "jobs": 28}), 28)
 
+    def test_drain_holds_new_jobs_until_idle_then_deploys_and_resumes(self):
+        cfg = dict(bq.DEFAULT_CONFIG, windows_slots=[{"host": "hst5", "root": "D:\\hst-build", "jobs": 28}])
+        runner = bqd.WindowsRunner(self.store, cfg)
+        deployed, busy = [], {"hst5": True}
+        runner.host_busy = lambda host: busy[host]
+        runner.deploy = lambda host, force=False: deployed.append((host, force)) or "abc123"
+        runner.remote = lambda host, action, *a, **k: {"busy": False}
+        with open(os.path.join(self.store.root, "config.json"), "w") as f:
+            import json
+            json.dump({"windows_slots": cfg["windows_slots"]}, f)
+        out = io.StringIO()
+        self.assertEqual(bq.drain(self.store, "hst5", wait_done=False, out=out), 0)
+        self.assertIsNone(runner.free_slot([]))            # draining: no new job goes to hst5
+        runner.process_drains([], bq)
+        self.assertEqual(deployed, [])                      # a build still runs there
+        busy["hst5"] = False
+        runner.process_drains([], bq)
+        self.assertEqual(deployed, [("hst5", True)])
+        self.assertEqual(self.store.drains()["hst5"]["state"], "done")
+        self.assertEqual(runner.free_slot([])["host"], "hst5")
+        with self.assertRaises(bq.QueueError):
+            bq.drain(self.store, "hst9", wait_done=False, out=out)
+
     def test_windows_task_names_fit_hst4_detach(self):
         job, _ = self.submit(platform="windows")
         self.assertRegex(bqd.win_task_name(job["id"]), r"^q-[0-9a-f-]{6,40}$")

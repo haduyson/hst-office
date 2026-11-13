@@ -8,6 +8,8 @@
   build-queue.sh wait <id> [--timeout S]          blocks; prints the output path(s) (exit 0) or the log tail (exit 1)
   build-queue.sh list [--all] [--json]            queued/running jobs and the recent finished ones
   build-queue.sh cancel <id>                      queued: dropped at once; running: stopped by the dispatcher
+  build-queue.sh drain <host> [--no-wait]         Windows host: no new jobs there, wait until it is idle, deploy the
+                                                  current tools to it, resume (prints when done)
   build-queue.sh dispatch [--once]                the dispatcher (systemd unit hst-build-queue.service)
 
 State lives under HST_QUEUE_ROOT (default /data/hst-build-queue): jobs/<id>.json, logs/<id>.log, out/<id>/,
@@ -128,6 +130,23 @@ class Store:
             job.update(fields)
             self.save(job)
             return job
+
+    def drains(self):
+        try:
+            with open(os.path.join(self.root, "drain.json"), encoding="utf-8") as f:
+                return json.load(f)
+        except (FileNotFoundError, ValueError):
+            return {}
+
+    def set_drain(self, host, **fields):
+        with self.lock():
+            drains = self.drains()
+            drains.setdefault(host, {}).update(fields)
+            tmp = os.path.join(self.root, "drain.json.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(drains, f, indent=1, sort_keys=True)
+            os.replace(tmp, os.path.join(self.root, "drain.json"))
+            return drains[host]
 
     def log_path(self, job_id):
         return os.path.join(self.logs_dir, job_id + ".log")
@@ -309,6 +328,25 @@ def wait(store, job_id, timeout=None, interval=15, out=sys.stdout):
     return 1
 
 
+def drain(store, host, wait_done=True, interval=15, timeout=None, out=sys.stdout):
+    hosts = {s["host"] for s in store.config()["windows_slots"]}
+    if host not in hosts:
+        raise QueueError(f"unknown Windows host {host!r}; known: {', '.join(sorted(hosts))}")
+    t = time.time()
+    store.set_drain(host, state="draining", requested=t, requested_at=now_iso(t), finished_at=None, tools=None)
+    print(f"{host}: draining (no new jobs; tools are deployed when its builds end)", file=out)
+    if not wait_done:
+        return 0
+    while store.drains().get(host, {}).get("state") == "draining":
+        if timeout is not None and time.time() - t > timeout:
+            print(f"timeout: {host} still draining", file=out)
+            return 2
+        time.sleep(interval)
+    info = store.drains()[host]
+    print(f"{host}: tools {info.get('tools')} deployed at {info.get('finished_at')}; scheduling resumed", file=out)
+    return 0
+
+
 def apply_retention(store, keep):
     with store.lock():
         jobs = store.all()
@@ -338,6 +376,10 @@ def main(argv=None):
     li.add_argument("--json", action="store_true")
     c = sub.add_parser("cancel")
     c.add_argument("id")
+    dr = sub.add_parser("drain")
+    dr.add_argument("host")
+    dr.add_argument("--no-wait", action="store_true")
+    dr.add_argument("--timeout", type=int)
     d = sub.add_parser("dispatch")
     d.add_argument("--once", action="store_true")
     args = parser.parse_args(argv)
@@ -380,6 +422,8 @@ def main(argv=None):
             job = cancel(store, args.id)
             print(f"{job['id']}: {'cancel requested' if job['state'] == 'running' else job['state']}")
             return 0
+        if args.cmd == "drain":
+            return drain(store, args.host, not args.no_wait, timeout=args.timeout)
         if args.cmd == "dispatch":
             import importlib.util
             path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build-queue-dispatcher.py")

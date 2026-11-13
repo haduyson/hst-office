@@ -216,9 +216,11 @@ HST5 được dựng giống HST4 bằng `hst4-setup.ps1` (13/11/2026): bước 
 chính thức, kiểm chữ ký Authenticode) và Git for Windows nếu thiếu; VS Build Tools 17.14.37906.3 (MSVC 14.44.35207,
 clang-cl 19.1.5, SDK 10.0.26100, .NET 4.8.1), Cygwin, NASM 3.02, pkgconfiglite, Python 3.12.10 + Pillow giống hệt
 HST4; ngoại lệ Defender cho `D:\hst-build` và `D:\cygwin64`. Chủ máy đã tắt Smart App Control trên HST5 (không
-bật lại được nếu không cài lại Windows; ghi ở `C:\hst-test\hst5-sac-change.txt`). Python NuGet trên HST5 chưa tin
-chứng chỉ của máy chủ tải tarball (`CERTIFICATE_VERIFY_FAILED`), nên tarball ghim được chép sẵn vào
-`D:\hst-build\dl` (sha256 theo lock); không đổi kho chứng chỉ của máy. Trên Windows 11 bản 26200 (HST5),
+bật lại được nếu không cài lại Windows; ghi ở `C:\hst-test\hst5-sac-change.txt`). Kho chứng chỉ gốc của Windows trên HST5
+thiếu chuỗi của máy chủ tải tarball (`CERTIFICATE_VERIFY_FAILED` với Python NuGet). Không đổi kho chứng chỉ của máy:
+bước `Python` của `hst4-setup.ps1` cài `certifi` ghim phiên bản và hash (`pip --require-hashes`), và `hst4-build.ps1`
+chỉ đặt `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` tới bộ CA đó trong lúc chạy `fetch-sources.py` của task build; tarball vẫn
+được kiểm sha256 theo lock. Trên Windows 11 bản 26200 (HST5),
 `expand.exe` báo `0x80070005` khi bộ đóng gói MSI bung merge module VC vào thư mục do Cygwin tạo dưới `/tmp` (thư mục
 thuộc người build, không cấp quyền cho Administrators) bên trong task S4U nâng quyền; bước `TmpAcl` của
 `hst4-setup.ps1` cấp toàn quyền kế thừa cho Administrators và SYSTEM trên `D:\cygwin64\tmp` (đã áp trên HST5).
@@ -229,6 +231,10 @@ Số slot (đo 13/11/2026, giữ ổ còn trống ≥ 15 GB và RAM không quá 
 |---|---|---|
 | HST4 (28 luồng, 32 GB) | 1: `D:\hst-build` | Mỗi cây ~40 GB (`lo` 33 + `stage` 3,5 + `pristine` 3,5); D: chỉ còn ~37 GB trống, C: dao động 10–56 GB vì việc khác nên không đặt cây thứ hai ở C:; các ứng dụng sẵn có trên máy đã chiếm ~15 GB RAM. |
 | HST5 (Xeon E5-2680 v4, 28 luồng, 32 GB) | 2: `D:\hst-build`, `D:\hst-build-s2` | D: 130 GB: hai cây (~80 GB) vẫn để ~37 GB trống, cây thứ ba thì không. Một build `-j28` lên đỉnh ~21 GB commit (gồm ~8 GB nền); build thứ hai trên cùng máy chạy `-j14`. |
+
+Khi máy có hai slot, lưu ý: `trial-build.sh --build` (script của CI, giữ nguyên) khi chạm hạn 3 ngày
+(`HST_BUILD_DEADLINE`) chạy `taskkill /IM make.exe|cl.exe|link.exe` cho **cả máy**, nên sẽ dừng luôn build của slot
+kia; chỉ xảy ra khi một build chạy quá 3 ngày. Đổi công cụ trên một máy luôn bận: `scripts/build-queue.sh drain <máy>`.
 
 `-Jobs` của job mới = luồng của slot chia cho (số build đang chạy trên máy đó + 1): một mình 28, cạnh một build khác
 14. Tarball ghim nằm chung ở `D:\hst-build\dl` (`-ToolsRoot`). Slot mới build đủ lần đầu khi được dùng lần đầu.

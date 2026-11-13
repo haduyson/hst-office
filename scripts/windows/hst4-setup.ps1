@@ -39,6 +39,8 @@ $VsComponents = @(
 )
 $PythonVersion = '3.12.10'   # actions/setup-python '3.12' in the workflow
 $PillowVersion = '10.4.0'    # pinned in the workflow's "Stage branding" step
+$CertifiVersion = '2026.10.23'   # CA bundle for the build task's Python (wheel and sdist hashes from PyPI)
+$CertifiSha256 = @('e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1', 'a9895e6e2758b371e0545e321a3a8fd1fcfd9829ada8824a936dfb16aaaf36cd')
 $BuildWindows = Join-Path (Split-Path -Parent $PSScriptRoot) 'build-windows.ps1'
 $Logs = Join-Path $Root 'logs\setup'
 $Vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -155,6 +157,13 @@ function Invoke-Python {
     }
     & $exe -m pip install --disable-pip-version-check --no-warn-script-location "pillow==$PillowVersion"
     if ($LASTEXITCODE -ne 0) { throw 'pip install pillow failed' }
+    # Pinned Mozilla CA bundle for the build's own Python: on a PC whose Windows root store lacks the tarball host's
+    # chain (HST5), hst4-build.ps1 points SSL_CERT_FILE at it for the build task only; the machine store is untouched
+    # and the tarballs are still checked against the sha256 in the lock.
+    $req = Join-Path $Root 'setup\certifi-requirements.txt'
+    Set-Content -LiteralPath $req -Encoding ascii -Value ("certifi==$CertifiVersion " + (($CertifiSha256 | ForEach-Object { "--hash=sha256:$_" }) -join ' '))
+    & $exe -m pip install --disable-pip-version-check --no-warn-script-location --require-hashes -r $req
+    if ($LASTEXITCODE -ne 0) { throw 'pip install certifi failed' }
 }
 
 function Invoke-Report {

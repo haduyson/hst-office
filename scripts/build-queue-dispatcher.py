@@ -69,7 +69,13 @@ class LinuxRunner:
         cmd = [sys.executable, "-I", BUILD_SLOTS, "free-slot", "--want", str(want),
                "--exclude", ",".join(self.busy_slots(jobs))]
         done = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        return int(done.stdout.strip()) if done.returncode == 0 and done.stdout.strip().isdigit() else None
+        if done.returncode == 0 and done.stdout.strip().isdigit():
+            return int(done.stdout.strip())
+        why = done.stderr.strip()
+        if why.startswith("disk") and why != getattr(self, "last_refusal", ""):
+            log(f"linux jobs held: {why}")   # names the largest /data/hst-agents consumers
+        self.last_refusal = why
+        return None
 
     def start(self, job, slot):
         out = self.store.job_out(job["id"])
@@ -152,7 +158,28 @@ class WindowsRunner:
                 return True
         return False
 
-    def deploy(self, host):
+    def draining(self, host):
+        return self.store.drains().get(host, {}).get("state") == "draining"
+
+    def process_drains(self, jobs, core):
+        """Finish a drain once its host is idle: deploy the tools unconditionally, then resume scheduling."""
+        for host, info in self.store.drains().items():
+            if info.get("state") != "draining":
+                continue
+            if any(j["platform"] == "windows" and j["state"] == "running" and j.get("host") == host for j in jobs):
+                continue
+            try:
+                if self.host_busy(host):
+                    continue
+                tools = self.deploy(host, force=True)
+            except (RuntimeError, subprocess.SubprocessError, OSError, ValueError) as exc:
+                log(f"{host}: drain deploy failed ({exc}); retrying")
+                continue
+            t = time.time()
+            self.store.set_drain(host, state="done", finished=t, finished_at=core.now_iso(t), tools=tools)
+            log(f"{host}: drained, tools {tools} deployed, scheduling resumed")
+
+    def deploy(self, host, force=False):
         digest = hashlib.sha256()
         for rel in WIN_TOOLS:
             with open(os.path.join(HERE, rel), "rb") as f:
@@ -164,13 +191,14 @@ class WindowsRunner:
                 state = json.load(f)
         except (FileNotFoundError, ValueError):
             state = {}
-        if state.get(host) == want:
-            return
+        if state.get(host) == want and not force:
+            return want
         # Cygwin bash reads hst4-tree.sh / hst4-make-targets.sh while it runs them: never replace the tools under a
         # running build. The job then uses the tools already on the host; the update follows when the host is idle.
-        if self.host_busy(host):
-            log(f"{host}: build running, tools {want} not deployed yet (using {state.get(host)})")
-            return
+        if not force and self.host_busy(host):
+            log(f"{host}: build running, tools {want} not deployed yet (using {state.get(host)}; "
+                f"`build-queue.sh drain {host}` forces it)")
+            return state.get(host)
         stage = os.path.join(self.store.work_dir, "deploy", "scripts")
         shutil.rmtree(os.path.dirname(stage), ignore_errors=True)
         for rel in WIN_TOOLS:
@@ -183,12 +211,13 @@ class WindowsRunner:
         with open(state_path, "w", encoding="utf-8") as f:
             json.dump(state, f)
         log(f"deployed build tools {want} to {host}")
+        return want
 
     def free_slot(self, jobs):
         used = {j.get("slot") for j in jobs if j["platform"] == "windows" and j["state"] == "running"}
         for slot in self.cfg["windows_slots"]:
             sid = f"{slot['host']}:{slot['root']}"
-            if sid in used:
+            if sid in used or self.draining(slot["host"]):
                 continue
             cached = self.probes.get(sid)
             if cached and time.time() - cached[0] < self.cfg["windows_poll_seconds"]:
@@ -309,6 +338,8 @@ def tick(store, runners, core):
             log(f"{job['id']}: {state} {fields}")
             finished = True
     jobs = store.all()
+    if hasattr(runners["windows"], "process_drains"):
+        runners["windows"].process_drains(jobs, core)
     blocked = set()
     for job in sorted([j for j in jobs if j["state"] == "queued"], key=core.order_key):
         platform = job["platform"]

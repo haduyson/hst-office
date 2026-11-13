@@ -37,7 +37,14 @@ scripts/build-queue.sh wait   <id>          # chờ; in đường dẫn .deb/.ms
 scripts/build-queue.sh status <id>          # trạng thái, slot/máy, đầu ra, log
 scripts/build-queue.sh list [--all]         # job đang chờ/chạy + 10 job xong gần nhất
 scripts/build-queue.sh cancel <id>          # job chờ bị bỏ ngay; job đang chạy được dispatcher dừng
+scripts/build-queue.sh drain hst5           # máy Windows: ngừng nhận job mới, chờ rảnh, chép công cụ mới, nhận job lại
 ```
+
+**Quy tắc cho agent (bắt buộc):** cần mã nguồn/header LibreOffice để đọc hay kiểm cú pháp thì đọc thẳng
+`/data/hst-office-build/src/lo` (cây của slot 1), **không chép cả cây** sang chỗ khác. Chỉ khi thật sự cần một cây đã
+build và ghi được (ví dụ cho unit test) mới được giữ **một** cây riêng dưới `/data/hst-agents/<việc>/`, và phải xoá
+khi xong việc. Cần bản build thì gửi vào hàng đợi. Khi `/data` không còn đủ chỗ, bộ điều phối từ chối build và in
+các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u hst-build-queue`).
 
 - `--ref` là nhánh, tag hoặc sha (lấy từ `origin`, `origin/<ref>` thắng nhánh local); commit được ghim ngay lúc
   submit. Job cùng nền tảng + commit + tuỳ chọn mà đang chờ/chạy hoặc đã xong và còn đầu ra thì `submit` trả lại mã
@@ -52,7 +59,8 @@ scripts/build-queue.sh cancel <id>          # job chờ bị bỏ ngay; job đan
   (symlink tới `infra-<sha>`, không bao giờ từ worktree đang sửa). Cập nhật bằng
   [`build-infra-deploy.sh <commit>`](../scripts/linux/build-infra-deploy.sh): tạo `infra-<sha>` mới, đổi symlink bằng
   một lần rename (nguyên tử), khởi động lại dispatcher; job đang chạy giữ phiên bản lúc nó bắt đầu, phiên bản cũ bị
-  xoá khi không còn tiến trình nào dùng. Công cụ Windows chỉ được chép sang máy khi máy đó không có build nào chạy.
+  xoá khi không còn tiến trình nào dùng. Công cụ Windows chỉ được chép sang máy khi máy đó không có build nào chạy; máy luôn bận thì dùng
+  `build-queue.sh drain <máy>` để ép (chờ máy rảnh, chép, rồi nhận job lại).
   Job hỏng vì hạ tầng (script đổi giữa chừng, slot bận, mount, mạng/SSH/SSL, task Windows biến mất…) được tự đưa lại
   vào hàng đợi, tối đa 2 lần (`infra_retries` trong job); lỗi build thật (lỗi make) thì không. Job Linux chạy `local-build.sh --slot N` trên slot rảnh mà bộ
   điều phối cho vào; job Windows chạy trên các slot trong `windows_slots` (HST4, HST5): dispatcher tự chép công cụ
@@ -112,7 +120,8 @@ python3 scripts/linux/build-slots.py status                       # slot đang c
   `locks/chroot.lock`: slot giữ khoá chia sẻ, cập nhật giữ khoá độc quyền).
 - **Bộ điều phối** ([`build-slots.py`](../scripts/linux/build-slots.py), trạng thái `locks/slots.json` dưới flock): slot
   chỉ bắt đầu `make` khi tổng job ≤ 28 và `MemAvailable` trừ phần ngân sách đã giữ mà chưa dùng ≥ ngân sách slot + 8 GB,
-  và `/data` còn ≥ 17 GB. `-j` chia theo kiểu rót nước: một slot một mình được tối đa 20 (`-j`/`--jobs` là trần), nhiều
+  và `/data` còn ≥ 17 GB (khi từ chối vì đĩa, kèm danh sách thư mục lớn nhất dưới `/data/hst-agents`, cập nhật
+  10 phút một lần). `-j` chia theo kiểu rót nước: một slot một mình được tối đa 20 (`-j`/`--jobs` là trần), nhiều
   slot thì chia đều 28 (tối thiểu 4); khi slot khác vào/ra, `make` được khởi động lại với `-j` mới (giảm ngay, tăng khi
   thêm ≥ 6). Ngân sách = `clamp(4 + 0,4 × jobs, 6, 12)` GB là `MemoryMax` của scope systemd (`MemoryHigh` 90 %,
   `MemorySwapMax=0`, `CPUQuota` = jobs × 100 %), `nice 19`, `ionice -c3`. Hàng đợi cho job `--modules` trần 6 job

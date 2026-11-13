@@ -162,5 +162,17 @@ class ControllerTest(unittest.TestCase):
         self.assertIn("already", self.acquire(1, 102)[1])
 
 
+class AgentsTopTest(unittest.TestCase):
+    def test_disk_refusal_names_the_largest_agent_directories(self):
+        with tempfile.TemporaryDirectory() as root:
+            du = "20971520\t/data/hst-agents/large-open-ship\n1048576\t/data/hst-agents/citations\n" \
+                 "3145728\t/data/hst-agents/engine-version\n25165824\t/data/hst-agents\n"
+            self.assertEqual(bs.agents_top(root, du=du, count=2), ["large-open-ship 20.0G", "engine-version 3.0G"])
+            # Cached: a second call does not need du output.
+            self.assertEqual(bs.agents_top(root, du="")[:1], ["large-open-ship 20.0G"])
+            self.assertIn("large-open-ship 20.0G", bs.explain(root, "disk: 12.0 GiB free, need 17"))
+            self.assertEqual(bs.explain(root, "memory: x"), "memory: x")
+
+
 if __name__ == "__main__":
     unittest.main()

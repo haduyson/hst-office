@@ -142,7 +142,12 @@ function Sync-Tarballs {
             -not (Test-Path -LiteralPath $f) -or (Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash -ne $_.sha256.ToUpper()
         })
     if ($stale.Count -eq 0) { Write-Log 'tarballs verified'; return }
-    Invoke-Native $Python @('-I', (Join-Path $Repo 'scripts\windows\fetch-sources.py'), '--dest', ($dl -replace '\\', '/'))
+    # Pinned certifi CA bundle (hst4-setup.ps1 -Step Python), for this download only: the Windows root store of some
+    # PCs (HST5) lacks the tarball host's chain. The machine store is untouched; fetch-sources.py checks the sha256.
+    $caBundle = Join-Path $ToolsRoot 'tools\python\tools\Lib\site-packages\certifi\cacert.pem'
+    if (Test-Path -LiteralPath $caBundle) { $env:SSL_CERT_FILE = $env:REQUESTS_CA_BUNDLE = $caBundle }
+    try { Invoke-Native $Python @('-I', (Join-Path $Repo 'scripts\windows\fetch-sources.py'), '--dest', ($dl -replace '\\', '/')) }
+    finally { Remove-Item Env:\SSL_CERT_FILE, Env:\REQUESTS_CA_BUNDLE -ErrorAction SilentlyContinue }
 }
 
 function Sync-Tree {
