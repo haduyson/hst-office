@@ -7,8 +7,9 @@ Cinnamon, WildOS = Debian 13 KDE Plasma 6 on Wayland), while the same file is fi
 - Opening: MenuBarWindow::SetMenu() -> GtkSalMenu::SetFrame() ran UpdateFull() synchronously.
   UpdateFull() activates every submenu of the Calc menu bar, which asks every command for its
   state (and the system clipboard for Paste), and GTK then creates a widget for every item
-  (gtk_menu_bar_new_from_model). That took about 1.0 s, as long as the import itself. Then the
-  Tabbed UI (the HST default) hid the menu bar, so its widget was destroyed again.
+  (gtk_menu_bar_new_from_model): 1.0 s in the profile of a build with symbols, as long as the
+  import itself, and 0.5-0.7 s of CPU in the release build (2.8 GHz Xeon). Then the Tabbed UI
+  (the HST default) hid the menu bar, so its widget was destroyed again.
 - Closing: SfxObjectShell::PrepareClose() -> SfxNotebookBar::CloseMethod() shows the menu bar
   of the closing document again (MenuBar::SetDisplayable(true)), so GTK built the whole widget
   tree (0.27 s), only to destroy it when the window switched to the Start Center a moment later.
