@@ -1,0 +1,159 @@
+HST Office: switching document tabs no longer flashes the desktop (all modules, mostly visible on Windows).
+
+A tab switch shows the window of the new tab and hides the window of the old one. vcl paints a newly shown
+window later (the frame's paint idle) and Skia copies the picture to the screen later still, so for about one
+screen refresh after the old window was hidden there was no picture at all and the desktop behind showed
+through: the screen flashed on every switch (error report HSTO-000006, HST Sheets on Windows; measured on
+Windows 11 for HST Writer, Sheets, Slides, Draw and PDF alike).
+The tab group now paints the shown window and flushes it to the screen (Window::PaintImmediately, then
+OutputDevice::Flush) at once, and hides the previous tab only from an idle of the lowest priority, after
+vcl has done its layout, painting and flush to the screen, painting and flushing the shown tab once more
+first: on a switch (tab click, Ctrl+Alt+. / Ctrl+Alt+,) and when a document was opened. When a tab dropped on
+another window's strip replaces its shown tab, and when the shown tab is closed and its neighbour takes
+over, the shown window is painted and flushed before the previous one goes. Until it is hidden, the previous
+tab stays under the shown one with the same position and size, so nothing changes on the screen.
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/unit/test_document_tab_switch_no_flash.py; on Windows tests/runtime/check-windows-tab-switch-flash.py
+(measured: before 9 of 10 module runs flashed, 56-73% of the screen desktop; first version of this fix 1 of 10).
+---
+--- a/framework/inc/documenttabgroup.hxx
++++ b/framework/inc/documenttabgroup.hxx
+@@ -17,6 +17,7 @@
+ #include <tools/color.hxx>
+ #include <tools/gen.hxx>
+ #include <tools/link.hxx>
++#include <vcl/idle.hxx>
+ #include <vcl/timer.hxx>
+ #include <vcl/vclptr.hxx>
+ 
+@@ -226,6 +227,7 @@
+ 
+     DECL_LINK(WindowEventHdl, VclSimpleEvent&, void);
+     DECL_LINK(ParkPreviousHdl, void*, void);
++    DECL_LINK(ParkIdleHdl, Timer*, void);
+     DECL_LINK(DispatchHdl, void*, void);
+     DECL_LINK(CloseWindowHdl, void*, void);
+     DECL_LINK(SaveLayoutHdl, Timer*, void);
+@@ -270,6 +272,8 @@
+     css::uno::WeakReference<css::frame::XFrame> m_xLaunchStartCenter;
+     std::vector<LayoutWindow> m_aRestore;
+     Timer m_aSaveLayoutTimer{ "framework DocumentTabGroup save layout" };
++    /// Hides the previous tab once everything else is done (painting and the flush to the screen included).
++    Idle m_aParkIdle{ "framework DocumentTabGroup park previous tab" };
+     Timer m_aFinishRestoreTimer{ "framework DocumentTabGroup finish restore" };
+ };
+ }
+--- a/framework/source/services/documenttabgroup.cxx
++++ b/framework/source/services/documenttabgroup.cxx
+@@ -145,6 +145,19 @@
+ 
+ namespace
+ {
++/** A tab window that was just shown has no picture yet: vcl paints it later (paint idle) and Skia
++    copies it to the screen later still. Hiding the previous tab in that gap shows the desktop
++    behind both windows for a frame (Windows: the whole screen flashes on every switch). Paint the
++    shown window and copy it to the screen now, before the previous tab is hidden. */
++void lcl_paintNow(vcl::Window* pWindow)
++{
++    if (!pWindow || pWindow->isDisposed() || !pWindow->IsVisible())
++        return;
++    pWindow->PaintImmediately();
++    if (!pWindow->isDisposed())
++        pWindow->GetOutDev()->Flush();
++}
++
+ uno::Reference<frame::XFrame> lcl_get(const uno::WeakReference<frame::XFrame>& rWeak)
+ {
+     return uno::Reference<frame::XFrame>(rWeak);
+@@ -409,6 +422,8 @@
+     }
+     Application::AddEventListener(LINK(this, DocumentTabGroup, WindowEventHdl));
+     m_aSaveLayoutTimer.SetTimeout(1500);
++    m_aParkIdle.SetPriority(TaskPriority::LOWEST);
++    m_aParkIdle.SetInvokeHandler(LINK(this, DocumentTabGroup, ParkIdleHdl));
+     m_aSaveLayoutTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, SaveLayoutHdl));
+     m_aFinishRestoreTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, FinishRestoreHdl));
+ }
+@@ -813,7 +828,7 @@
+                 rMember.bParked = false;
+                 m_aToPark.push_back(pPrevious->xFrame);
+                 pGroup->xActive = xFrame;
+-                Application::PostUserEvent(LINK(this, DocumentTabGroup, ParkPreviousHdl));
++                m_aParkIdle.Start();
+                 update(*pGroup);
+             }
+             return;
+@@ -953,7 +968,7 @@
+                 copyGeometry(pPreviousWindow, pWindow);
+             // Park the previous tab once the new window is up (never leave zero windows).
+             m_aToPark.push_back(xPrevious);
+-            Application::PostUserEvent(LINK(this, DocumentTabGroup, ParkPreviousHdl));
++            m_aParkIdle.Start();
+         }
+         update(*pGroup);
+     }
+@@ -963,6 +978,8 @@
+     }
+ }
+ 
++IMPL_LINK_NOARG(DocumentTabGroup, ParkIdleHdl, Timer*, void) { ParkPreviousHdl(nullptr); }
++
+ IMPL_LINK_NOARG(DocumentTabGroup, ParkPreviousHdl, void*, void)
+ {
+     try
+@@ -976,6 +993,12 @@
+             Member* pMember = find(xToPark, &pGroup);
+             if (pMember && xToPark != lcl_get(pGroup->xActive) && !pMember->bParked)
+             {
++                if (Member* pActive = activeMember(*pGroup))
++                    lcl_paintNow(pActive->pWindow);
++                pGroup = nullptr;
++                pMember = find(xToPark, &pGroup); // painting can run events
++                if (!pMember || pMember->bParked || xToPark == lcl_get(pGroup->xActive))
++                    continue;
+                 park(*pMember);
+                 focus(lcl_get(pGroup->xActive));
+                 update(*pGroup);
+@@ -1018,9 +1041,14 @@
+         if (!pGroup || !find(xFrame))
+             return;
+         pGroup->xActive = xFrame;
+-        // find() again: Show() can run events that change the member list
+-        if (Member* pOld = find(xPrevious); pOld && xPrevious != xFrame)
+-            park(*pOld);
++        // The previous tab stays under the shown one until it has been painted and copied to the
++        // screen (ParkIdleHdl), so the desktop never shows through.
++        if (xPrevious.is() && xPrevious != xFrame)
++        {
++            lcl_paintNow(pTargetWindow);
++            m_aToPark.push_back(xPrevious);
++            m_aParkIdle.Start();
++        }
+         focus(xFrame);
+         if (find(xFrame, &pGroup))
+             update(*pGroup);
+@@ -1231,6 +1259,8 @@
+                 InternalShow aInternal(m_nInternal);
+                 pNextWindow->Show(true, ShowFlags::ForegroundTask);
+             }
++            // the closed tab's window is hidden or about to go: give the neighbour its picture now
++            lcl_paintNow(pNextWindow);
+             focus(xNext);
+         }
+         else if (bWasActive && !pGroup->aMembers.empty() && !m_bClosingAll)
+@@ -1570,6 +1600,7 @@
+                 InternalShow aInternal(m_nInternal);
+                 aMoved.pWindow->Show(true, ShowFlags::ForegroundTask);
+             }
++            lcl_paintNow(aMoved.pWindow);
+             if (Member* pOld = find(xPrevious))
+                 park(*pOld);
+             focus(xFrame);
+@@ -1875,6 +1906,7 @@
+     // A normal quit: no crash to recover from, no layout to keep.
+     m_aSaveLayoutTimer.Stop();
+     m_aFinishRestoreTimer.Stop();
++    m_aParkIdle.Stop();
+     m_aRestore.clear();
+     osl::File::remove(lcl_layoutURL());
+     for (const std::unique_ptr<Group>& pGroup : m_aGroups)
