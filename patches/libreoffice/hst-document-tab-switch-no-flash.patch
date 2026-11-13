@@ -1,0 +1,77 @@
+HST Office: switching document tabs no longer flashes the desktop (all modules, mostly visible on Windows).
+
+A tab switch shows the window of the new tab and hides the window of the old one. vcl paints a newly shown
+window later (the frame's paint idle) and Skia copies the picture to the screen later still, so for about one
+screen refresh after the old window was hidden there was no picture at all and the desktop behind showed
+through: the screen flashed on every switch (error report HSTO-000006, HST Sheets on Windows; measured on
+Windows 11 for HST Writer, Sheets, Slides, Draw and PDF alike).
+The tab group now paints the shown window and flushes it to the screen (Window::PaintImmediately, then
+OutputDevice::Flush) before it hides the previous tab: on a switch (tab click, Ctrl+Alt+. / Ctrl+Alt+,),
+when a tab dropped on another window's strip replaces its shown tab, when the previous tab is parked after
+a document was opened, and when the shown tab is closed and its neighbour takes over.
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/unit/test_document_tab_switch_no_flash.py; on Windows tests/runtime/check-windows-tab-switch-flash.py.
+---
+--- a/framework/source/services/documenttabgroup.cxx
++++ b/framework/source/services/documenttabgroup.cxx
+@@ -145,6 +145,19 @@
+ 
+ namespace
+ {
++/** A tab window that was just shown has no picture yet: vcl paints it later (paint idle) and Skia
++    copies it to the screen later still. Hiding the previous tab in that gap shows the desktop
++    behind both windows for a frame (Windows: the whole screen flashes on every switch). Paint the
++    shown window and copy it to the screen now, before the previous tab is hidden. */
++void lcl_paintNow(vcl::Window* pWindow)
++{
++    if (!pWindow || pWindow->isDisposed() || !pWindow->IsVisible())
++        return;
++    pWindow->PaintImmediately();
++    if (!pWindow->isDisposed())
++        pWindow->GetOutDev()->Flush();
++}
++
+ uno::Reference<frame::XFrame> lcl_get(const uno::WeakReference<frame::XFrame>& rWeak)
+ {
+     return uno::Reference<frame::XFrame>(rWeak);
+@@ -976,6 +989,12 @@
+             Member* pMember = find(xToPark, &pGroup);
+             if (pMember && xToPark != lcl_get(pGroup->xActive) && !pMember->bParked)
+             {
++                if (Member* pActive = activeMember(*pGroup))
++                    lcl_paintNow(pActive->pWindow);
++                pGroup = nullptr;
++                pMember = find(xToPark, &pGroup); // painting can run events
++                if (!pMember || pMember->bParked || xToPark == lcl_get(pGroup->xActive))
++                    continue;
+                 park(*pMember);
+                 focus(lcl_get(pGroup->xActive));
+                 update(*pGroup);
+@@ -1018,7 +1037,9 @@
+         if (!pGroup || !find(xFrame))
+             return;
+         pGroup->xActive = xFrame;
+-        // find() again: Show() can run events that change the member list
++        if (xPrevious.is() && xPrevious != xFrame)
++            lcl_paintNow(pTargetWindow);
++        // find() again: Show() and painting can run events that change the member list
+         if (Member* pOld = find(xPrevious); pOld && xPrevious != xFrame)
+             park(*pOld);
+         focus(xFrame);
+@@ -1231,6 +1252,8 @@
+                 InternalShow aInternal(m_nInternal);
+                 pNextWindow->Show(true, ShowFlags::ForegroundTask);
+             }
++            // the closed tab's window is hidden or about to go: give the neighbour its picture now
++            lcl_paintNow(pNextWindow);
+             focus(xNext);
+         }
+         else if (bWasActive && !pGroup->aMembers.empty() && !m_bClosingAll)
+@@ -1570,6 +1593,7 @@
+                 InternalShow aInternal(m_nInternal);
+                 aMoved.pWindow->Show(true, ShowFlags::ForegroundTask);
+             }
++            lcl_paintNow(aMoved.pWindow);
+             if (Member* pOld = find(xPrevious))
+                 park(*pOld);
+             focus(xFrame);
