@@ -5,9 +5,12 @@ A session marker (session.json in the diag_log directory) is written at OnStartA
 marker found at the next start means the session never closed (crash, kill, power loss). The signature is what the
 platform recorded, read at that next start (crash_signature.py parses it):
   * Linux: the office's own fatal-signal handler prints "Fatal exception: Signal N" and a backtrace
-    (module(+offset) frames) to stderr; Python's faulthandler adds the first fatal signal. Both go to
-    last-session.err (truncated at every start, one session only); the office's stderr itself is moved there only
-    when nobody reads it (desktop start: no terminal, no pipe, not headless).
+    (module(+offset) frames) to stderr, before the emergency save (hst-emergency-save-crash-log.patch) and again
+    when it aborts. It goes to last-session.err (truncated at every start, one session only); the office's stderr
+    itself is moved there only when nobody reads it (desktop start: no terminal, no pipe, not headless).
+    Python's faulthandler is NOT enabled: its handler runs on a small alternate signal stack, and the office's
+    emergency save (a dialog with its own event loop) then ran on that stack, overflowed it into the heap and
+    crashed a second time before saving anything.
   * macOS: the system crash report (~/Library/Logs/DiagnosticReports/soffice*.ips) newer than the marker.
   * Windows: the "Application Error" event (1000) for soffice.bin in the Application log newer than the marker
     (faulting module, exception code, offset). faulthandler stays off there: it would log every C++ exception.
@@ -86,14 +89,13 @@ def keep_stderr(fd=2, cmdline_path="/proc/self/cmdline"):
 
 
 def _capture_stderr():
-    """Linux/macOS: faulthandler always; stderr into last-session.err when nobody else reads it (desktop start)."""
+    """Linux/macOS: stderr into last-session.err when nobody else reads it (desktop start). No faulthandler (see the
+    module docstring: it broke the emergency save)."""
     try:
-        import faulthandler
         handle = open(_path(STDERR_NAME), "w", encoding="utf-8")  # truncates the previous session's
         STATE["stderr"] = handle
         if not keep_stderr():
             os.dup2(handle.fileno(), 2)
-        faulthandler.enable(file=handle, all_threads=True)
     except Exception:  # noqa: BLE001 - diagnostics must never stop the start
         diag_log.exception("diag_crash", print_too=False)
 

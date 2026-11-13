@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The one start-up dispatcher (Jobs.xcu, onFirstVisibleTask): at most ONE modal question per start.
 
-Order: macOS "move to Applications" (mac_app_location.offer_move_once), crash report question, welcome dialog,
+Order: macOS "move to Applications" (mac_app_location.offer_move_once), the notice that the settings file was repaired
+after a power cut (profile_notice: rare, and the user must know their settings changed), crash report question, welcome dialog,
 default-apps question, then the update notice. The move comes first (coordinator 2026-11-07): an app run from the
 .dmg or a translocated path would register the wrong copy as the default app and every other question is wasted until
 it moves; it returns False off macOS and once the app is in /Applications. The first step that shows a modal dialog
@@ -21,7 +22,7 @@ from com.sun.star.task import XJob
 from . import diag_log
 
 JOB_NAME = "org.hst.office.vi.StartupPromptsJob"
-ORDER = ("mac_move", "crash", "welcome", "default_apps", "update_outcome")
+ORDER = ("mac_move", "profile_repaired", "crash", "welcome", "default_apps", "update_outcome")
 
 
 def run_chain(steps):
@@ -45,6 +46,11 @@ def _parent(ctx):
 def _crash(ctx):
     from . import error_report_crash
     return error_report_crash.ask(ctx) is not None
+
+
+def _profile_repaired(ctx):
+    from . import profile_notice
+    return profile_notice.show_once(ctx, _parent(ctx))
 
 
 def offer_move_stub(ctx):
@@ -87,7 +93,7 @@ def _update_check(ctx):
 
 
 def steps_for(ctx):
-    table = {"crash": _crash, "mac_move": _mac_move, "welcome": _welcome, "default_apps": _default_apps,
+    table = {"crash": _crash, "mac_move": _mac_move, "profile_repaired": _profile_repaired, "welcome": _welcome, "default_apps": _default_apps,
              "update_outcome": _update_outcome}
     return [(name, (lambda fn=table[name]: fn(ctx))) for name in ORDER]
 

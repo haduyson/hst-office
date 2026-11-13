@@ -1,0 +1,252 @@
+HST Office: entry points of "Tài liệu chưa lưu" (documents closed without saving, kept 7 days).
+
+- sfx2 startcenter.ui + backingwindow: a "Tài liệu chưa lưu" button under Tài liệu gần đây / Mẫu.
+- sfx2 hstbackstage.ui + hstbackstagewindow: the same on the Info page of the File panel, after "Phiên bản
+  trước". Both run org.hst.office.vi:UnsavedDocuments of the bundled extension (the classic File menu gets
+  the command from the extension's Addons.xcu, after Tài liệu gần đây). Labels of HST commands are
+  Vietnamese in every UI language.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-unsaved-documents.py.
+---
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -317,6 +317,7 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+     , m_xInfoSign(m_xBuilder->weld_button(u"infosign"_ustr))
+     , m_xInfoUsbToken(m_xBuilder->weld_button(u"infousbtoken"_ustr))
+     , m_xInfoVersions(m_xBuilder->weld_button(u"infoversions"_ustr))
++    , m_xInfoUnsaved(m_xBuilder->weld_button(u"infounsaved"_ustr))
+     , m_xSaveAsFolder(m_xBuilder->weld_label(u"saveasfolder"_ustr))
+     , m_xFormatList(m_xBuilder->weld_tree_view(u"formatlist"_ustr))
+     , m_xSaveAsBrowse(m_xBuilder->weld_button(u"saveasbrowse"_ustr))
+@@ -350,7 +351,7 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+     for (weld::Button* pButton :
+          { m_xNewBlank.get(), m_xNewNd30.get(), m_xNewManage.get(), m_xOpenBrowse.get(),
+            m_xInfoProperties.get(), m_xInfoSign.get(), m_xInfoUsbToken.get(), m_xInfoVersions.get(),
+-           m_xSaveAsBrowse.get() })
++           m_xInfoUnsaved.get(), m_xSaveAsBrowse.get() })
+         pButton->connect_clicked(LINK(this, BackstageWindow, ButtonClickHdl));
+ 
+     m_xNewBlank->set_label(SfxResId(m_eApp == BackstageApp::Calc      ? STR_HST_BS_BLANK_CALC
+@@ -1018,6 +1019,8 @@ IMPL_LINK(BackstageWindow, ButtonClickHdl, weld::Button&, rButton, void)
+         CloseAndDispatch(u"org.hst.office.vi:SetupUsbToken"_ustr);
+     else if (&rButton == m_xInfoVersions.get()) // "Phiên bản trước" of the bundled HST extension
+         CloseAndDispatch(u"org.hst.office.vi:PreviousVersions"_ustr);
++    else if (&rButton == m_xInfoUnsaved.get()) // documents closed without saving, kept 7 days
++        CloseAndDispatch(u"org.hst.office.vi:UnsavedDocuments"_ustr);
+     else if (&rButton == m_xSaveAsBrowse.get())
+         CloseAndDispatch(u".uno:SaveAs"_ustr);
+ }
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -224,6 +224,7 @@ private:
+     std::unique_ptr<weld::Button> m_xInfoSign;
+     std::unique_ptr<weld::Button> m_xInfoUsbToken;
+     std::unique_ptr<weld::Button> m_xInfoVersions;
++    std::unique_ptr<weld::Button> m_xInfoUnsaved; ///< "Tài liệu chưa lưu" of the bundled extension
+ 
+     std::unique_ptr<weld::Label> m_xSaveAsFolder;
+     std::unique_ptr<weld::TreeView> m_xFormatList;
+--- a/sfx2/source/dialog/backingwindow.cxx
++++ b/sfx2/source/dialog/backingwindow.cxx
+@@ -172,6 +172,7 @@ BackingWindow::BackingWindow(vcl::Window* i_pParent)
+     , mxRecentButton(m_xBuilder->weld_toggle_button(u"open_recent"_ustr))
+     , mxRemoteButton(m_xBuilder->weld_button(u"open_remote"_ustr))
+     , mxTemplateButton(m_xBuilder->weld_toggle_button(u"templates_all"_ustr))
++    , mxHstUnsavedButton(m_xBuilder->weld_button(u"hst_unsaved"_ustr))
+     , mxCreateLabel(m_xBuilder->weld_label(u"create_label"_ustr))
+     , mxAltHelpLabel(m_xBuilder->weld_label(u"althelplabel"_ustr))
+     , mxFilter(m_xBuilder->weld_combo_box(u"cbFilter"_ustr))
+@@ -389,6 +390,7 @@ void BackingWindow::dispose()
+     mxRemoteButton.reset();
+     mxRecentButton.reset();
+     mxTemplateButton.reset();
++    mxHstUnsavedButton.reset();
+     mxCreateLabel.reset();
+     mxAltHelpLabel.reset();
+     mxFilter.reset();
+@@ -462,6 +464,7 @@ void BackingWindow::initControls()
+     mxExtensionsButton->connect_clicked(LINK(this, BackingWindow, ClickHdl));
+ 
+     mxOpenButton->connect_clicked(LINK(this, BackingWindow, ClickHdl));
++    mxHstUnsavedButton->connect_clicked(LINK(this, BackingWindow, ClickHdl));
+ 
+     // Hide OpenRemote button on startpage if the OpenRemote uno command is not available
+     SvtCommandOptions aCmdOptions;
+@@ -519,6 +522,7 @@ void BackingWindow::ApplyStyleSettings()
+     setLargerFont(mxRemoteButton, aButtonFont);
+     setLargerFont(mxRecentButton, aButtonFont);
+     setLargerFont(mxTemplateButton, aButtonFont);
++    setLargerFont(mxHstUnsavedButton, aButtonFont);
+     setLargerFont(mxWriterAllButton, aButtonFont);
+     setLargerFont(mxDrawAllButton, aButtonFont);
+     setLargerFont(mxCalcAllButton, aButtonFont);
+@@ -782,6 +786,13 @@ IMPL_LINK( BackingWindow, ClickHdl, weld::Button&, rButton, void )
+ 
+         dispatchURL( u".uno:ExtensionManager"_ustr, OUString(), xFrame, {} );
+     }
++    else if( &rButton == mxHstUnsavedButton.get() )
++    {
++        // HST Office: the dialog of the bundled extension (hst_office/unsaved_dialog.py)
++        Reference< XDispatchProvider > xFrame( mxFrame, UNO_QUERY );
++
++        dispatchURL( u"org.hst.office.vi:UnsavedDocuments"_ustr, OUString(), xFrame, {} );
++    }
+ }
+ 
+ IMPL_LINK (BackingWindow, MenuSelectHdl, const OUString&, rId, void)
+--- a/sfx2/source/dialog/backingwindow.hxx
++++ b/sfx2/source/dialog/backingwindow.hxx
+@@ -64,6 +64,7 @@ private:
+     std::unique_ptr<weld::ToggleButton> mxRecentButton;
+     std::unique_ptr<weld::Button> mxRemoteButton;
+     std::unique_ptr<weld::ToggleButton> mxTemplateButton;
++    std::unique_ptr<weld::Button> mxHstUnsavedButton; ///< HST Office: "Tài liệu chưa lưu"
+ 
+     std::unique_ptr<weld::Label> mxCreateLabel;
+     std::unique_ptr<weld::Label> mxAltHelpLabel;
+--- a/sfx2/uiconfig/ui/hstbackstage.ui
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -1505,6 +1505,19 @@
+                     <property name="fill">True</property>
+                   </packing>
+                 </child>
++                <child>
++                  <!-- "Tài liệu chưa lưu" of the bundled extension: documents closed without saving, kept 7 days -->
++                  <object class="GtkButton" id="infounsaved">
++                    <property name="label">Tài liệu chưa lưu</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+--- a/sfx2/uiconfig/ui/startcenter.ui
++++ b/sfx2/uiconfig/ui/startcenter.ui
+@@ -70,6 +70,11 @@
+     <property name="can-focus">False</property>
+     <property name="icon-name">framework/res/remote-documents.png</property>
+   </object>
++  <object class="GtkImage" id="hst_unsaved_image">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">framework/res/recent-documents.png</property>
++  </object>
+   <object class="GtkImage" id="templates_all_image">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -204,6 +209,27 @@
+                         <property name="position">4</property>
+                       </packing>
+                     </child>
++                    <child>
++                      <!-- HST Office: the documents closed without saving, kept 7 days (bundled extension, Vietnamese in every UI language) -->
++                      <object class="GtkButton" id="hst_unsaved">
++                        <property name="label">Tài liệu chưa lưu</property>
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">True</property>
++                        <property name="tooltip-text">Mở lại tài liệu đã đóng mà không lưu trong 7 ngày qua</property>
++                        <property name="margin-start">6</property>
++                        <property name="margin-end">6</property>
++                        <property name="image">hst_unsaved_image</property>
++                        <property name="relief">none</property>
++                        <property name="xalign">0</property>
++                        <property name="always-show-image">True</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                        <property name="position">5</property>
++                      </packing>
++                    </child>
+                     <child>
+                       <object class="GtkSeparator" id="separator1">
+                         <property name="visible">True</property>
+@@ -214,7 +240,7 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">5</property>
++                        <property name="position">6</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -229,7 +255,7 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">6</property>
++                        <property name="position">7</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -249,7 +275,7 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">7</property>
++                        <property name="position">8</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -269,7 +295,7 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">8</property>
++                        <property name="position">9</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -289,7 +315,7 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">9</property>
++                        <property name="position">10</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -309,7 +335,7 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">10</property>
++                        <property name="position">11</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -329,7 +355,7 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">11</property>
++                        <property name="position">12</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -349,7 +375,7 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">12</property>
++                        <property name="position">13</property>
+                       </packing>
+                     </child>
+                     <child>
+@@ -362,7 +388,7 @@
+                       <packing>
+                         <property name="expand">False</property>
+                         <property name="fill">True</property>
+-                        <property name="position">15</property>
++                        <property name="position">16</property>
+                       </packing>
+                     </child>
+                   </object>

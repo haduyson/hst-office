@@ -30,8 +30,9 @@ NOW = 2_000_000_000
 
 
 class Order(unittest.TestCase):
-    def test_order_is_mac_move_crash_welcome_default_apps_update(self):
-        self.assertEqual(sp.ORDER, ("mac_move", "crash", "welcome", "default_apps", "update_outcome"))
+    def test_order_is_mac_move_profile_crash_welcome_default_apps_update(self):
+        self.assertEqual(sp.ORDER, ("mac_move", "profile_repaired", "crash", "welcome", "default_apps",
+                                    "update_outcome"))
 
     def chain(self, due):
         calls = []

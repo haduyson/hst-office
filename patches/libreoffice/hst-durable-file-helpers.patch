@@ -1,0 +1,150 @@
+HST Office: helpers for file writes that survive a power cut.
+
+- comphelper hstdurablefile.{hxx,cxx}: syncFile (fsync / FlushFileBuffers), syncParentDirectory (fsync of
+  the folder after a rename or unlink; no-op on Windows) and writeFileAtomically (temporary file in the same
+  folder, write, fsync, rename over the file, fsync of the folder). Used by configmgr, framework (recovery
+  index, tab layout, unsaved documents) and sfx2 (saving over an existing file).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_recovery_durability_patches.py.
+---
+--- a/comphelper/Library_comphelper.mk
++++ b/comphelper/Library_comphelper.mk
+@@ -94,6 +94,7 @@ $(eval $(call gb_Library_add_exception_objects,comphelper,\
+     comphelper/source/misc/asyncquithandler \
+     comphelper/source/misc/automationinvokedzone \
+     comphelper/source/misc/backupfilehelper \
++    comphelper/source/misc/hstdurablefile \
+     comphelper/source/misc/base64 \
+     comphelper/source/misc/compbase \
+     comphelper/source/misc/componentbase \
+--- /dev/null
++++ b/comphelper/source/misc/hstdurablefile.cxx
+@@ -0,0 +1,89 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: durable small-file writes (see include/comphelper/hstdurablefile.hxx).
++
++#include <comphelper/hstdurablefile.hxx>
++
++#include <osl/file.hxx>
++#include <osl/thread.h>
++#include <sal/log.hxx>
++
++#ifdef UNX
++#include <fcntl.h>
++#include <unistd.h>
++#endif
++
++namespace comphelper::hst
++{
++bool syncFile(const OUString& rFileURL)
++{
++    osl::File aFile(rFileURL);
++    // a read-only descriptor is enough for fsync on Unix; Windows needs write access
++    if (aFile.open(osl_File_OpenFlag_Write | osl_File_OpenFlag_NoLock) != osl::FileBase::E_None
++        && aFile.open(osl_File_OpenFlag_Read | osl_File_OpenFlag_NoLock) != osl::FileBase::E_None)
++        return false;
++    const bool bOk = aFile.sync() == osl::FileBase::E_None;
++    aFile.close();
++    SAL_WARN_IF(!bOk, "comphelper", "hst: fsync failed for " << rFileURL);
++    return bOk;
++}
++
++void syncParentDirectory(const OUString& rFileURL)
++{
++#ifdef UNX
++    const sal_Int32 nSlash = rFileURL.lastIndexOf('/');
++    if (nSlash <= 0)
++        return;
++    OUString aDirPath;
++    if (osl::FileBase::getSystemPathFromFileURL(rFileURL.copy(0, nSlash), aDirPath)
++        != osl::FileBase::E_None)
++        return;
++    const OString aSys = OUStringToOString(aDirPath, osl_getThreadTextEncoding());
++    const int nFd = open(aSys.getStr(), O_RDONLY | O_CLOEXEC);
++    if (nFd < 0)
++        return;
++    if (fsync(nFd) != 0)
++        SAL_INFO("comphelper", "hst: directory fsync failed for " << aDirPath);
++    close(nFd);
++#else
++    (void)rFileURL;
++#endif
++}
++
++bool writeFileAtomically(const OUString& rFileURL, const OString& rData)
++{
++    const sal_Int32 nSlash = rFileURL.lastIndexOf('/');
++    if (nSlash <= 0)
++        return false;
++    OUString aDirURL = rFileURL.copy(0, nSlash);
++    oslFileHandle hFile = nullptr;
++    OUString aTempURL;
++    if (osl::FileBase::createTempFile(&aDirURL, &hFile, &aTempURL) != osl::FileBase::E_None)
++        return false;
++    sal_uInt64 nWritten = 0;
++    bool bOk = osl_writeFile(hFile, rData.getStr(), rData.getLength(), &nWritten)
++                   == osl_File_E_None
++               && nWritten == sal_uInt64(rData.getLength());
++    bOk = bOk && osl_syncFile(hFile) == osl_File_E_None;
++    bOk = osl_closeFile(hFile) == osl_File_E_None && bOk;
++    if (bOk)
++        bOk = osl::File::replace(aTempURL, rFileURL) == osl::FileBase::E_None;
++    if (!bOk)
++    {
++        osl::File::remove(aTempURL);
++        SAL_WARN("comphelper", "hst: atomic write failed for " << rFileURL);
++        return false;
++    }
++    syncParentDirectory(rFileURL);
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/include/comphelper/hstdurablefile.hxx
+@@ -0,0 +1,35 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <comphelper/comphelperdllapi.h>
++#include <rtl/string.hxx>
++#include <rtl/ustring.hxx>
++
++/** HST Office: small helpers that make a file write survive a power cut.
++
++    A file is durable when its data reached the disk before the rename that publishes it, and the
++    rename itself reached the disk (the directory entry). The helpers take file URLs.
++*/
++namespace comphelper::hst
++{
++/// fsync of an existing file (FlushFileBuffers on Windows). False when it cannot be opened or synced.
++COMPHELPER_DLLPUBLIC bool syncFile(const OUString& rFileURL);
++
++/// fsync of the directory that contains rFileURL, so a rename or unlink in it is durable.
++/// No-op on Windows (ReplaceFile/MoveFileEx with write-through cover it there).
++COMPHELPER_DLLPUBLIC void syncParentDirectory(const OUString& rFileURL);
++
++/** Replace rFileURL with rData: temporary file next to it, write, fsync, rename over the target,
++    fsync of the directory. Readers see the old or the new content, never a mix. */
++COMPHELPER_DLLPUBLIC bool writeFileAtomically(const OUString& rFileURL, const OString& rData);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

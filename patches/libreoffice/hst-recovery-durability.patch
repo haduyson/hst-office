@@ -1,0 +1,1094 @@
+HST Office: a recovery list that survives crashes and power cuts, the first copy after 30 seconds, and
+documents closed without saving kept for 7 days.
+
+- framework autorecovery.cxx: after every recovery copy and every save the configuration is written to
+  disk synchronously (XFlushable, fsync'd by hst-profile-durability.patch) before the superseded copy is
+  deleted; before, the entry still named the deleted copy for about a second ("Không thể phục hồi" after a
+  crash in that window) and a power cut in the next seconds lost the entry. After every change of the
+  RecoveryList, backup/hst-recovery-index.txt mirrors it (temporary file, fsync, rename).
+- At start (AutoRecovery service, created before desktop's recovery check): index entries the
+  configuration lost and orphaned recovery copies (<prefix>_<n>.od?, non-empty, younger than 7 days) come
+  back into the RecoveryList, so the recovery dialog offers them; a copy replaces the missing or older copy
+  of the only entry with the same name prefix, otherwise it becomes a new entry "<name> (recovery copy of
+  <time>)". Unreferenced leftovers in backup/ older than 7 days (recovery copies, empty placeholders,
+  lu*.tmp, .~lock.*#) are removed; *.bak and HST files are never touched.
+- First recovery copy: a document without any copy (new, or just saved) is due 30 seconds after its first
+  change, then the normal interval; documents above the large-document size keep their own interval.
+- "Tài liệu chưa lưu": a document closed while modified keeps its last recovery copy in user/hst-unsaved
+  (<time>-<id>.<ext> + .txt description: title, original URL, module, times) instead of deleting it;
+  the store is pruned to 7 days and 500 MB (oldest first) at every close and start. The bundled extension
+  lists, opens and deletes them (org.hst.office.vi:UnsavedDocuments).
+- Document tabs: emergency and session saves freeze hst-document-tabs.txt (no rewrite, no removal while
+  the windows are hidden, none at the following quit); the file is written through a temporary file, fsync
+  and rename, and right after a recovery has rebuilt the tabs.
+- desktop app.cxx: AutoRecovery starts before impl_checkRecoveryState so the restored entries count.
+- framework strings + vi messages.po: titles of orphaned copies.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-recovery-kill.py,
+tests/runtime/check-emergency-save.py, tests/runtime/check-unsaved-documents.py.
+---
+--- a/desktop/source/app/app.cxx
++++ b/desktop/source/app/app.cxx
+@@ -2105,6 +2105,20 @@ void Desktop::OpenClients()
+               || IsUseSystemEventLoop()
+               || !officecfg::Office::Recovery::RecoveryInfo::Enabled::get();
+ 
++        // HST Office: AutoRecovery starts now, before the check below: at its start it brings back
++        // recovery entries a power cut took from the configuration (recovery index, orphaned copies).
++        if (!bDisableRecovery && !rArgs.IsNoRestore() && !rArgs.IsHeadless())
++        {
++            try
++            {
++                css::frame::theAutoRecovery::get(::comphelper::getProcessComponentContext());
++            }
++            catch (const css::uno::Exception&)
++            {
++                TOOLS_WARN_EXCEPTION("desktop.app", "HST: starting AutoRecovery");
++            }
++        }
++
+         impl_checkRecoveryState(bCrashed, bExistsRecoveryData, bExistsSessionData);
+ 
+         if ( !bDisableRecovery &&
+--- a/framework/Library_fwk.mk
++++ b/framework/Library_fwk.mk
+@@ -161,6 +161,10 @@ $(eval $(call gb_Library_add_exception_objects,fwk,\
+     framework/source/services/ContextChangeEventMultiplexer \
+     framework/source/services/desktop \
+     framework/source/services/documenttabgroup \
++    framework/source/services/hstrecoverylist \
++    framework/source/services/hstrecoverymerge \
++    framework/source/services/hstrecoverystore \
++    framework/source/services/hstunsavedstore \
+     framework/source/services/dispatchhelper \
+     framework/source/services/frame \
+     framework/source/services/modulemanager \
+--- a/framework/inc/documenttabgroup.hxx
++++ b/framework/inc/documenttabgroup.hxx
+@@ -162,6 +162,7 @@ public:
+         window kind, tab order, shown tab and window geometry. Without that file the documents
+         are routed as usual. endRestoreLayout() finishes once the recovered windows are shown. */
+     void beginRestoreLayout();
++    void freezeLayout() { m_bLayoutFrozen = true; }
+     void endRestoreLayout();
+ 
+     /// Desktop::terminate: frames are about to be closed one by one, don't re-show neighbours.
+@@ -265,6 +266,7 @@ private:
+     rtl::Reference<DocumentTabGroupListener> m_xListener;
+     sal_Int32 m_nInternal = 0; ///< >0 while we show/hide windows ourselves
+     bool m_bClosingAll = false;
++    bool m_bLayoutFrozen = false; ///< emergency/session save: hst-document-tabs.txt stays as it is
+     bool m_bEnabled = true; ///< last known option value
+     sal_uInt64 m_nUseCounter = 0;
+     css::uno::WeakReference<css::frame::XFrame> m_xLaunchStartCenter;
+--- /dev/null
++++ b/framework/inc/hstrecoverystore.hxx
+@@ -0,0 +1,118 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <com/sun/star/uno/Reference.hxx>
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++
++#include <functional>
++#include <set>
++#include <vector>
++
++/** HST Office: recovery data that does not depend on registrymodifications.xcu.
++
++    backup/hst-recovery-index.txt mirrors the RecoveryList entries after every change, written
++    through a temporary file, fsync and rename, so a power cut that empties or rolls back the
++    configuration file still leaves the recovery list. At start the index entries missing from
++    the configuration and the recovery copies nobody refers to ("orphans") are offered again;
++    unreferenced leftovers older than 7 days are removed. The AutoRecovery service
++    (autorecovery.cxx) owns the entries; this module only reads and writes files.
++*/
++namespace com::sun::star::uno
++{
++class XComponentContext;
++}
++
++namespace framework::hstrecovery
++{
++/// One RecoveryList entry (same meaning as the configuration properties).
++struct Entry
++{
++    sal_Int32 nID = 0;
++    OUString aOrgURL;
++    OUString aTempURL;
++    OUString aTemplateURL;
++    OUString aFilter;
++    sal_Int32 nState = 0;
++    OUString aModule;
++    OUString aTitle;
++    OUString aViewNames; ///< view names joined by '|'
++};
++
++/// A recovery copy in the backup folder that no entry refers to.
++struct Orphan
++{
++    OUString aURL;
++    OUString aPrefix; ///< the part before the last '_': "untitled" or the original file name
++    OUString aExtension; ///< without the dot, e.g. "odt"
++    sal_Int64 nModified = 0; ///< seconds since the epoch
++};
++
++/// Replace the index with rEntries (temporary file, fsync, rename).
++void writeIndex(const OUString& rBackupDirURL, const std::vector<Entry>& rEntries);
++
++/// The entries of the index; empty when it is missing or unreadable.
++std::vector<Entry> readIndex(const OUString& rBackupDirURL);
++
++/// Non-empty recovery copies (<prefix>_<n>.od?) younger than 7 days that are not in rReferenced,
++/// newest first.
++std::vector<Orphan> findOrphans(const OUString& rBackupDirURL, const std::set<OUString>& rReferenced);
++
++/** Remove what a crash left behind and nobody refers to, once older than 7 days: recovery copies
++    (also empty placeholders), temporary files (lu*.tmp) and lock files (.~lock.*#). Files kept by
++    "Always create backup copy" (*.bak) and HST's own files are never touched. */
++void sweepBackupDir(const OUString& rBackupDirURL, const std::set<OUString>& rReferenced);
++
++/** "Tài liệu chưa lưu": the last recovery copy of a document closed without saving is moved to
++    rStoreDirURL (user/hst-unsaved) as <time>-<id>.<ext> with a description <time>-<id>.<ext>.txt
++    (title, original URL, module, time of the copy), then the store is pruned. The bundled extension
++    lists, opens and deletes them (unsaved_store.py). False when the copy could not be kept. */
++bool keepUnsaved(const OUString& rStoreDirURL, const Entry& rEntry);
++
++/// user/hst-unsaved (file URL).
++OUString unsavedDir();
++
++/// Remove kept documents older than 7 days, then the oldest ones until the store holds 500 MB.
++void pruneUnsaved(const OUString& rStoreDirURL);
++
++/// Calls rFn(URL, name, size, modified seconds) for every regular file of the folder.
++void forEachFile(const OUString& rDirURL,
++                 const std::function<void(const OUString&, const OUString&, sal_uInt64, sal_Int64)>& rFn);
++
++// Glue between the configuration RecoveryList and the files (hstrecoverylist.cxx).
++
++/// Write the in-memory configuration to disk now (registrymodifications.xcu, fsync'd) instead of
++/// the background write about a second later; called before a superseded recovery copy is deleted.
++void flushConfiguration(const css::uno::Reference<css::uno::XComponentContext>& xContext);
++
++/// The profile's backup folder (file URL).
++OUString backupDir();
++
++/// The RecoveryList entries as the configuration holds them now.
++std::vector<Entry> readConfiguration();
++
++/// Add or update these RecoveryList entries (one configuration commit).
++void setEntries(const std::vector<Entry>& rEntries);
++
++/// Mirror the current RecoveryList into the index file.
++void writeIndexFromConfiguration();
++
++/** At start, before the RecoveryList is read: add the index entries the configuration lost and the
++    orphaned recovery copies (a copy replaces the missing or older copy of the only entry with the
++    same name prefix, otherwise it becomes a new entry titled with its time), then sweep the backup
++    folder and prune the unsaved-documents store. */
++void mergeIntoConfiguration(const css::uno::Reference<css::uno::XComponentContext>& xContext);
++
++/// Seconds since the epoch of the last change of a file; 0 when unknown.
++sal_Int64 modifiedTime(const OUString& rURL);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/framework/inc/strings.hrc
++++ b/framework/inc/strings.hrc
+@@ -92,5 +92,8 @@
+ #define STR_DOCTAB_START                            NC_("STR_DOCTAB_START", "Start Center")
+ #define STR_DOCTAB_MODIFIED                         NC_("STR_DOCTAB_MODIFIED", "Modified, not saved")
+ #define STR_DOCTAB_DETACH                           NC_("STR_DOCTAB_DETACH", "Move to New Window")
++// HST Office: a recovery copy found without its entry; %1 = name, %2 = time of the copy
++#define STR_HST_RECOVERY_ORPHAN                     NC_("STR_HST_RECOVERY_ORPHAN", "%1 (recovery copy of %2)")
++#define STR_HST_RECOVERY_UNTITLED                   NC_("STR_HST_RECOVERY_UNTITLED", "Unnamed document")
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/framework/source/services/autorecovery.cxx
++++ b/framework/source/services/autorecovery.cxx
+@@ -27,6 +27,7 @@
+ #include <targets.h>
+ 
+ #include <helper/mischelper.hxx>
++#include <hstrecoverystore.hxx>
+ 
+ #include <com/sun/star/ucb/NameClash.hpp>
+ #include <com/sun/star/container/XNameAccess.hpp>
+@@ -1900,6 +1901,10 @@ void AutoRecovery::implts_readConfig()
+     aCacheLock.unlock();
+     // <- REENTRANT --------------------------------
+ 
++    // HST Office: entries a power cut took from registrymodifications.xcu come back from the
++    // recovery index and from the copies in the backup folder (hstrecoverystore.hxx).
++    framework::hstrecovery::mergeIntoConfiguration(m_xContext);
++
+     css::uno::Reference<css::container::XNameAccess> xRecoveryList(
+             officecfg::Office::Recovery::RecoveryList::get());
+ 
+@@ -2192,6 +2197,9 @@ void AutoRecovery::implts_flushConfigItem(AutoRecovery::TDocumentInfo& rInfo, bo
+         }
+     }
+     while(nRetry>0);
++
++    // HST Office: the recovery list also lives in backup/hst-recovery-index.txt (fsync'd)
++    framework::hstrecovery::writeIndexFromConfiguration();
+ }
+ 
+ void AutoRecovery::implts_startListening()
+@@ -2323,6 +2331,8 @@ void hst_refreshKnownSize(AutoRecovery::TDocumentInfo& rInfo)
+     rInfo.KnownSize = std::max(hst_localFileSize(rInfo.OrgURL), hst_localFileSize(rInfo.OldTempURL));
+ }
+ 
++constexpr sal_Int64 HST_FIRST_COPY_MS = 30000;
++
+ // HST Office: AutoRecovery interval [ms] of one document. Documents larger than
+ // AutoSave/HstLargeDocumentSize [MB] (0 = off) wait AutoSave/HstLargeDocumentTimeIntervall
+ // minutes, never less than the user's own interval; all other documents keep nNormalMs.
+@@ -2330,7 +2340,8 @@ sal_Int64 hst_docAutoSaveInterval(const AutoRecovery::TDocumentInfo& rInfo, sal_
+ {
+     const sal_Int64 nLargeMB = officecfg::Office::Recovery::AutoSave::HstLargeDocumentSize::get();
+     if (nLargeMB <= 0 || rInfo.KnownSize <= nLargeMB * sal_Int64(1024 * 1024))
+-        return nNormalMs;
++        // the first copy of a document that has none comes 30 s after its first change
++        return rInfo.OldTempURL.isEmpty() ? std::min(nNormalMs, HST_FIRST_COPY_MS) : nNormalMs;
+     const sal_Int64 nLargeMs
+         = officecfg::Office::Recovery::AutoSave::HstLargeDocumentTimeIntervall::get()
+           * sal_Int64(60000); // min -> ms
+@@ -2685,11 +2696,36 @@ void AutoRecovery::implts_deregisterDocument(const css::uno::Reference< css::fra
+     if (bStopListening)
+         implts_stopModifyListeningOnDoc(aInfo);
+ 
++    // HST Office: closed without saving ("Tài liệu chưa lưu"): keep the last recovery copy for
++    // 7 days instead of deleting it. A document saved before closing has no copy any more.
++    if (!aInfo.OldTempURL.isEmpty())
++    {
++        bool bModified = bool(aInfo.DocumentState & DocState::Modified);
++        try
++        {
++            css::uno::Reference<css::util::XModifiable> xModify(xDocument, css::uno::UNO_QUERY);
++            if (xModify.is())
++                bModified = xModify->isModified();
++        }
++        catch (const css::uno::Exception&)
++        {
++        }
++        framework::hstrecovery::Entry aKept;
++        aKept.nID = aInfo.ID;
++        aKept.aOrgURL = aInfo.OrgURL;
++        aKept.aTempURL = aInfo.OldTempURL;
++        aKept.aModule = aInfo.AppModule;
++        aKept.aTitle = aInfo.Title;
++        if (bModified && framework::hstrecovery::keepUnsaved(framework::hstrecovery::unsavedDir(), aKept))
++            aInfo.OldTempURL.clear();
++    }
++
+     implts_flushConfigItem(aInfo, true); // sal_True => remove it from config
+ }
+ 
+ void AutoRecovery::implts_markDocumentModifiedAgainstLastBackup(const css::uno::Reference< css::frame::XModel >& xDocument)
+ {
++    bool bFirstChange = false;
+     CacheLockGuard aCacheLock(this, cppu::WeakComponentImplHelperBase::rBHelper.rMutex, m_nDocCacheLock, LOCK_FOR_CACHE_USE);
+ 
+     /* SAFE */ {
+@@ -2704,9 +2740,14 @@ void AutoRecovery::implts_markDocumentModifiedAgainstLastBackup(const css::uno::
+            But if the document was saved as temp. file we start listening for this event again.
+         */
+         implts_stopModifyListeningOnDoc(*pIt);
++        // HST Office: a document without any copy yet gets its first one 30 s from now
++        bFirstChange = pIt->OldTempURL.isEmpty();
+     }
+ 
+     } /* SAFE */
++    aCacheLock.unlock();
++    if (bFirstChange)
++        implts_updateTimer();
+ }
+ 
+ void AutoRecovery::implts_updateModifiedState(const css::uno::Reference< css::frame::XModel >& xDocument)
+@@ -2817,6 +2858,7 @@ void AutoRecovery::implts_markDocumentAsSaved(const css::uno::Reference< css::fr
+ 
+     aCacheLock.unlock();
+ 
++    framework::hstrecovery::flushConfiguration(m_xContext); // HST Office: as in implts_saveOneDoc
+     AutoRecovery::st_impl_removeFile(sRemoveURL1);
+     AutoRecovery::st_impl_removeFile(sRemoveURL2);
+ }
+@@ -3332,6 +3374,9 @@ void AutoRecovery::implts_saveOneDoc(const OUString&
+     // We must know if the user modifies the document again ...
+     implts_startModifyListeningOnDoc(rInfo);
+ 
++    // HST Office: the entry that names the new copy must be on disk before the old copy goes;
++    // otherwise a crash in the next second leaves an entry pointing at a deleted file.
++    framework::hstrecovery::flushConfiguration(m_xContext);
+     AutoRecovery::st_impl_removeFile(sRemoveFile);
+ }
+ 
+@@ -3841,6 +3886,10 @@ void AutoRecovery::implts_prepareEmergencySave()
+     // Be sure to know all open documents really .-)
+     implts_verifyCacheAgainstDesktopDocumentList();
+ 
++    // HST Office: keep the saved window/tab layout for the recovery (hiding the windows below
++    // must not rewrite or delete hst-document-tabs.txt)
++    framework::DocumentTabs::freezeLayout();
++
+     // hide all docs, so the user can't disturb our emergency save .-)
+     implts_changeAllDocVisibility(false);
+ }
+@@ -3921,6 +3970,9 @@ void AutoRecovery::implts_doSessionSave(const DispatchParams& aParams)
+ {
+     SAL_INFO("fwk.autorecovery", "AutoRecovery::implts_doSessionSave()");
+ 
++    // HST Office: the session restore needs the window/tab layout as it is now
++    framework::DocumentTabs::freezeLayout();
++
+     // Be sure to know all open documents really .-)
+     implts_verifyCacheAgainstDesktopDocumentList();
+ 
+--- a/framework/source/services/documenttabgroup.cxx
++++ b/framework/source/services/documenttabgroup.cxx
+@@ -50,6 +50,7 @@
+ #include <toolkit/helper/vclunohelper.hxx>
+ #include <tools/debug.hxx>
+ #include <comphelper/diagnose_ex.hxx>
++#include <comphelper/hstdurablefile.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/syswin.hxx>
+ #include <vcl/vclevent.hxx>
+@@ -1674,7 +1675,7 @@ OUString lcl_documentURL(const uno::Reference<frame::XFrame>& xFrame)
+ 
+ void DocumentTabGroup::scheduleLayoutSave()
+ {
+-    if (m_bEnabled && m_aRestore.empty())
++    if (m_bEnabled && m_aRestore.empty() && !m_bLayoutFrozen)
+         m_aSaveLayoutTimer.Start();
+ }
+ 
+@@ -1687,6 +1688,8 @@ void DocumentTabGroup::saveLayout()
+     //   window <kind> <index of the shown tab> <vcl window state>
+     //   tab <document URL, empty for a new document> <title>
+     // Only tabs with a document (the ones autorecovery can bring back) are written.
++    if (m_bLayoutFrozen)
++        return;
+     try
+     {
+         cleanUp();
+@@ -1725,16 +1728,12 @@ void DocumentTabGroup::saveLayout()
+             osl::File::remove(aURL);
+             return;
+         }
+-        const OUString aPath = lcl_layoutPath();
+-        if (aPath.isEmpty())
+-            return;
+         // the backup folder exists only once autorecovery has saved something
+         const osl::FileBase::RC eDir = osl::Directory::createPath(SvtPathOptions().GetBackupPath());
+         if (eDir != osl::FileBase::E_None && eDir != osl::FileBase::E_EXIST)
+             return;
+-        SvFileStream aStream(aPath, StreamMode::WRITE | StreamMode::TRUNC);
+-        aStream.WriteBytes(aText.getStr(), aText.getLength());
+-        aStream.Close();
++        // temporary file, fsync, rename: a crash while writing keeps the previous layout
++        comphelper::hst::writeFileAtomically(aURL, aText.makeStringAndClear());
+     }
+     catch (const uno::Exception&)
+     {
+@@ -1867,7 +1866,10 @@ void DocumentTabGroup::finishRestore()
+         if ((pGroup = groupById(nGroup)))
+             update(*pGroup);
+     }
+-    scheduleLayoutSave();
++    // HST Office: write the restored layout now (recovered untitled documents may carry new
++    // titles), so a second crash before the next change still finds the current tabs
++    m_aSaveLayoutTimer.Stop();
++    saveLayout();
+ }
+ 
+ void DocumentTabGroup::shutdown()
+@@ -1876,7 +1878,8 @@ void DocumentTabGroup::shutdown()
+     m_aSaveLayoutTimer.Stop();
+     m_aFinishRestoreTimer.Stop();
+     m_aRestore.clear();
+-    osl::File::remove(lcl_layoutURL());
++    if (!m_bLayoutFrozen)
++        osl::File::remove(lcl_layoutURL());
+     for (const std::unique_ptr<Group>& pGroup : m_aGroups)
+         for (Member& rMember : pGroup->aMembers)
+             rMember.pBar.disposeAndClear();
+@@ -1998,6 +2001,13 @@ void DocumentTabs::beginRestoreLayout()
+         DocumentTabGroup::get().beginRestoreLayout();
+ }
+ 
++void DocumentTabs::freezeLayout()
++{
++    SolarMutexGuard aGuard;
++    if (DocumentTabGroup::isEnabled())
++        DocumentTabGroup::get().freezeLayout();
++}
++
+ void DocumentTabs::endRestoreLayout()
+ {
+     SolarMutexGuard aGuard;
+--- /dev/null
++++ b/framework/source/services/hstrecoverylist.cxx
+@@ -0,0 +1,129 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: RecoveryList <-> backup/hst-recovery-index.txt (see hstrecoverystore.hxx).
++
++#include <hstrecoverystore.hxx>
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/configuration/theDefaultProvider.hpp>
++#include <com/sun/star/container/XNameContainer.hpp>
++#include <com/sun/star/lang/XSingleServiceFactory.hpp>
++#include <com/sun/star/util/XFlushable.hpp>
++#include <comphelper/configuration.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/sequence.hxx>
++#include <o3tl/string_view.hxx>
++#include <officecfg/Office/Recovery.hxx>
++#include <unotools/pathoptions.hxx>
++
++using namespace css;
++
++namespace framework::hstrecovery
++{
++namespace
++{
++constexpr OUString ITEM_PREFIX = u"recovery_item_"_ustr; // RECOVERY_ITEM_BASE_IDENTIFIER
++
++void setEntry(const uno::Reference<container::XNameAccess>& xList, const Entry& r)
++{
++    const OUString aName = ITEM_PREFIX + OUString::number(r.nID);
++    uno::Reference<beans::XPropertySet> xSet;
++    const bool bNew = !xList->hasByName(aName);
++    if (bNew)
++        xSet.set(uno::Reference<lang::XSingleServiceFactory>(xList, uno::UNO_QUERY_THROW)
++                     ->createInstance(), uno::UNO_QUERY_THROW);
++    else
++        xList->getByName(aName) >>= xSet;
++    xSet->setPropertyValue(u"OriginalURL"_ustr, uno::Any(r.aOrgURL));
++    xSet->setPropertyValue(u"TempURL"_ustr, uno::Any(r.aTempURL));
++    xSet->setPropertyValue(u"TemplateURL"_ustr, uno::Any(r.aTemplateURL));
++    xSet->setPropertyValue(u"Filter"_ustr, uno::Any(r.aFilter));
++    xSet->setPropertyValue(u"DocumentState"_ustr, uno::Any(r.nState));
++    xSet->setPropertyValue(u"Module"_ustr, uno::Any(r.aModule));
++    xSet->setPropertyValue(u"Title"_ustr, uno::Any(r.aTitle));
++    std::vector<OUString> aViews;
++    for (sal_Int32 nIndex = 0; nIndex >= 0 && !r.aViewNames.isEmpty();)
++        aViews.emplace_back(o3tl::getToken(r.aViewNames, 0, '|', nIndex));
++    xSet->setPropertyValue(u"ViewNames"_ustr, uno::Any(comphelper::containerToSequence(aViews)));
++    if (bNew)
++        uno::Reference<container::XNameContainer>(xList, uno::UNO_QUERY_THROW)
++            ->insertByName(aName, uno::Any(xSet));
++}
++
++}
++
++OUString backupDir() { return SvtPathOptions().GetBackupPath(); }
++
++std::vector<Entry> readConfiguration()
++{
++    std::vector<Entry> aEntries;
++    uno::Reference<container::XNameAccess> xList(officecfg::Office::Recovery::RecoveryList::get());
++    for (const OUString& rName : xList->getElementNames())
++    {
++        uno::Reference<beans::XPropertySet> xItem;
++        xList->getByName(rName) >>= xItem;
++        std::u16string_view aID;
++        if (!xItem.is() || !rName.startsWith(ITEM_PREFIX, &aID))
++            continue;
++        Entry r;
++        r.nID = o3tl::toInt32(aID);
++        xItem->getPropertyValue(u"OriginalURL"_ustr) >>= r.aOrgURL;
++        xItem->getPropertyValue(u"TempURL"_ustr) >>= r.aTempURL;
++        xItem->getPropertyValue(u"TemplateURL"_ustr) >>= r.aTemplateURL;
++        xItem->getPropertyValue(u"Filter"_ustr) >>= r.aFilter;
++        xItem->getPropertyValue(u"DocumentState"_ustr) >>= r.nState;
++        xItem->getPropertyValue(u"Module"_ustr) >>= r.aModule;
++        xItem->getPropertyValue(u"Title"_ustr) >>= r.aTitle;
++        uno::Sequence<OUString> aViews;
++        xItem->getPropertyValue(u"ViewNames"_ustr) >>= aViews;
++        for (const OUString& rView : aViews)
++            r.aViewNames += (r.aViewNames.isEmpty() ? u""_ustr : u"|"_ustr) + rView;
++        aEntries.push_back(r);
++    }
++    return aEntries;
++}
++
++void setEntries(const std::vector<Entry>& rEntries)
++{
++    std::shared_ptr<comphelper::ConfigurationChanges> batch(comphelper::ConfigurationChanges::create());
++    uno::Reference<container::XNameAccess> xList(officecfg::Office::Recovery::RecoveryList::get(batch));
++    for (const Entry& r : rEntries)
++        setEntry(xList, r);
++    batch->commit();
++}
++
++void flushConfiguration(const uno::Reference<uno::XComponentContext>& xContext)
++{
++    try
++    {
++        uno::Reference<util::XFlushable>(configuration::theDefaultProvider::get(xContext),
++                                         uno::UNO_QUERY_THROW)->flush();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk.autorecovery", "hst: flushing the configuration");
++    }
++}
++
++void writeIndexFromConfiguration()
++{
++    try
++    {
++        writeIndex(backupDir(), readConfiguration());
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk.autorecovery", "hst: writing the recovery index");
++    }
++}
++
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/framework/source/services/hstrecoverymerge.cxx
+@@ -0,0 +1,143 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: at start, bring back recovery entries the configuration lost (see hstrecoverystore.hxx).
++
++#include <hstrecoverystore.hxx>
++
++#include <classes/fwkresid.hxx>
++#include <strings.hrc>
++
++#include <comphelper/diagnose_ex.hxx>
++#include <osl/time.h>
++
++#include <algorithm>
++#include <map>
++
++using namespace css;
++
++namespace framework::hstrecovery
++{
++namespace
++{
++constexpr sal_Int32 STATE_MODIFIED_SUCCEEDED = 1 | 512; // DocState::Modified | Succeeded
++
++/// "untitled" or the original file name: the part of a recovery copy name before its last '_'.
++OUString prefixOf(const OUString& rTempURL)
++{
++    const OUString aName = rTempURL.copy(rTempURL.lastIndexOf('/') + 1);
++    const sal_Int32 nUnderscore = aName.lastIndexOf('_');
++    return nUnderscore > 0 ? aName.copy(0, nUnderscore) : OUString();
++}
++
++/// A new entry for an orphaned copy: module and filter from its ODF extension.
++Entry orphanEntry(const Orphan& rOrphan, sal_Int32 nID)
++{
++    static const std::map<OUString, std::pair<OUString, OUString>> aKinds{
++        { u"odt"_ustr, { u"com.sun.star.text.TextDocument"_ustr, u"writer8"_ustr } },
++        { u"ods"_ustr, { u"com.sun.star.sheet.SpreadsheetDocument"_ustr, u"calc8"_ustr } },
++        { u"odp"_ustr, { u"com.sun.star.presentation.PresentationDocument"_ustr, u"impress8"_ustr } },
++        { u"odg"_ustr, { u"com.sun.star.drawing.DrawingDocument"_ustr, u"draw8"_ustr } },
++        { u"odf"_ustr, { u"com.sun.star.formula.FormulaProperties"_ustr, u"math8"_ustr } },
++    };
++    Entry r;
++    r.nID = nID;
++    r.aTempURL = rOrphan.aURL;
++    r.nState = STATE_MODIFIED_SUCCEEDED;
++    if (auto it = aKinds.find(rOrphan.aExtension); it != aKinds.end())
++        std::tie(r.aModule, r.aFilter) = it->second;
++    TimeValue aUTC{ static_cast<sal_uInt32>(rOrphan.nModified), 0 }, aLocal;
++    oslDateTime aDT{};
++    if (osl_getLocalTimeFromSystemTime(&aUTC, &aLocal))
++        osl_getDateTimeFromTimeValue(&aLocal, &aDT);
++    auto two = [](sal_Int32 n) { return OUString(OUString::number(100 + n)).copy(1); };
++    const OUString aTime = two(aDT.Hours) + ":" + two(aDT.Minutes) + ", " + two(aDT.Day) + "/"
++                           + two(aDT.Month) + "/" + OUString::number(aDT.Year);
++    const OUString aName = rOrphan.aPrefix == "untitled" ? FwkResId(STR_HST_RECOVERY_UNTITLED)
++                                                         : rOrphan.aPrefix;
++    r.aTitle = FwkResId(STR_HST_RECOVERY_ORPHAN).replaceFirst("%1", aName).replaceFirst("%2", aTime);
++    return r;
++}
++}
++
++void mergeIntoConfiguration(const uno::Reference<uno::XComponentContext>& xContext)
++{
++    try
++    {
++        const OUString aDir = backupDir();
++        std::vector<Entry> aEntries = readConfiguration();
++        std::set<OUString> aReferenced;
++        sal_Int32 nMaxID = 0;
++        for (const Entry& r : aEntries)
++        {
++            aReferenced.insert(r.aTempURL);
++            nMaxID = std::max(nMaxID, r.nID);
++        }
++        std::vector<Entry> aChanged;
++        for (const Entry& r : readIndex(aDir))
++        {
++            const bool bKnown = std::any_of(aEntries.begin(), aEntries.end(), [&](const Entry& e) {
++                return e.nID == r.nID || (!r.aTempURL.isEmpty() && e.aTempURL == r.aTempURL);
++            });
++            const bool bUsable = r.aTempURL.isEmpty() ? !r.aOrgURL.isEmpty() : modifiedTime(r.aTempURL) > 0;
++            if (bKnown || !bUsable)
++                continue;
++            aEntries.push_back(r);
++            aChanged.push_back(r);
++            aReferenced.insert(r.aTempURL);
++            nMaxID = std::max(nMaxID, r.nID);
++        }
++        std::set<sal_Int32> aReplaced;
++        for (const Orphan& rOrphan : findOrphans(aDir, aReferenced))
++        {
++            std::vector<Entry*> aSame, aMissing;
++            for (Entry& r : aEntries)
++                if (!r.aTempURL.isEmpty() && prefixOf(r.aTempURL) == rOrphan.aPrefix && !aReplaced.count(r.nID))
++                {
++                    aSame.push_back(&r);
++                    if (modifiedTime(r.aTempURL) == 0)
++                        aMissing.push_back(&r);
++                }
++            Entry* pTarget = aMissing.size() == 1 ? aMissing[0] : nullptr;
++            if (!pTarget && aMissing.empty() && aSame.size() == 1
++                && modifiedTime(aSame[0]->aTempURL) < rOrphan.nModified)
++                pTarget = aSame[0]; // a newer copy than the one the entry still names
++            if (!pTarget && !aSame.empty() && aMissing.empty())
++                continue; // an older copy of a document whose entry has a newer one
++            if (pTarget)
++            {
++                pTarget->aTempURL = rOrphan.aURL;
++                aReplaced.insert(pTarget->nID);
++                aChanged.push_back(*pTarget);
++            }
++            else
++            {
++                aEntries.push_back(orphanEntry(rOrphan, ++nMaxID));
++                aChanged.push_back(aEntries.back());
++            }
++            aReferenced.insert(rOrphan.aURL);
++        }
++        if (!aChanged.empty())
++        {
++            setEntries(aChanged);
++            flushConfiguration(xContext);
++            SAL_WARN("fwk.autorecovery", "hst: recovered " << aChanged.size() << " recovery entries");
++        }
++        writeIndex(aDir, aEntries);
++        sweepBackupDir(aDir, aReferenced);
++        pruneUnsaved(unsavedDir());
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("fwk.autorecovery", "hst: merging the recovery index");
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/framework/source/services/hstrecoverystore.cxx
+@@ -0,0 +1,192 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: recovery index, orphan scan and backup folder sweep (see hstrecoverystore.hxx).
++
++#include <hstrecoverystore.hxx>
++
++#include <comphelper/hstdurablefile.hxx>
++#include <o3tl/string_view.hxx>
++#include <osl/file.hxx>
++#include <osl/time.h>
++#include <rtl/byteseq.hxx>
++#include <rtl/character.hxx>
++#include <rtl/strbuf.hxx>
++#include <sal/log.hxx>
++
++#include <algorithm>
++
++namespace framework::hstrecovery
++{
++namespace
++{
++constexpr OUString INDEX_NAME = u"hst-recovery-index.txt"_ustr;
++constexpr std::string_view INDEX_HEADER = "HST-RECOVERY-INDEX 1";
++constexpr sal_Int64 KEEP_SECONDS = 7 * 24 * 3600;
++
++OString field(const OUString& rText)
++{
++    return OUStringToOString(rText.replace('\t', ' ').replace('\n', ' ').replace('\r', ' '),
++                             RTL_TEXTENCODING_UTF8);
++}
++
++sal_Int64 now()
++{
++    TimeValue aNow;
++    osl_getSystemTime(&aNow);
++    return aNow.Seconds;
++}
++
++/// "<prefix>_<token>.<od?>": the names implts_generateNewTempURL gives recovery copies.
++bool splitCopyName(const OUString& rName, OUString& rPrefix, OUString& rExtension)
++{
++    const sal_Int32 nDot = rName.lastIndexOf('.');
++    const sal_Int32 nUnderscore = nDot > 0 ? rName.lastIndexOf('_', nDot) : -1;
++    if (nUnderscore <= 0 || nUnderscore + 1 >= nDot || rName.startsWith("."))
++        return false;
++    const OUString aExtension = rName.copy(nDot + 1).toAsciiLowerCase();
++    static constexpr std::u16string_view aKnown[] = { u"odt", u"ods", u"odp", u"odg", u"odf", u"odb" };
++    if (std::find(std::begin(aKnown), std::end(aKnown), aExtension) == std::end(aKnown))
++        return false;
++    for (sal_Int32 i = nUnderscore + 1; i < nDot; ++i)
++        if (!rtl::isAsciiAlphanumeric(rName[i]))
++            return false;
++    rPrefix = rName.copy(0, nUnderscore);
++    rExtension = aExtension;
++    return true;
++}
++}
++
++void forEachFile(const OUString& rDirURL,
++                 const std::function<void(const OUString&, const OUString&, sal_uInt64, sal_Int64)>& rFn)
++{
++    osl::Directory aDir(rDirURL);
++    if (aDir.open() != osl::FileBase::E_None)
++        return;
++    osl::DirectoryItem aItem;
++    while (aDir.getNextItem(aItem) == osl::FileBase::E_None)
++    {
++        osl::FileStatus aStatus(osl_FileStatus_Mask_Type | osl_FileStatus_Mask_FileName
++                                | osl_FileStatus_Mask_FileURL | osl_FileStatus_Mask_FileSize
++                                | osl_FileStatus_Mask_ModifyTime);
++        if (aItem.getFileStatus(aStatus) != osl::FileBase::E_None
++            || aStatus.getFileType() != osl::FileStatus::Regular)
++            continue;
++        rFn(aStatus.getFileURL(), aStatus.getFileName(), aStatus.getFileSize(),
++            aStatus.getModifyTime().Seconds);
++    }
++}
++
++void writeIndex(const OUString& rBackupDirURL, const std::vector<Entry>& rEntries)
++{
++    OStringBuffer aText(OString::Concat(INDEX_HEADER) + "\n");
++    for (const Entry& r : rEntries)
++        aText.append("entry\t" + OString::number(r.nID) + "\t" + OString::number(r.nState) + "\t"
++                     + field(r.aOrgURL) + "\t" + field(r.aTempURL) + "\t" + field(r.aTemplateURL)
++                     + "\t" + field(r.aFilter) + "\t" + field(r.aModule) + "\t" + field(r.aTitle)
++                     + "\t" + field(r.aViewNames) + "\n");
++    const OUString aURL = rBackupDirURL + "/" + INDEX_NAME;
++    if (rEntries.empty())
++    {
++        // nothing to recover: no index (a missing index means the same)
++        if (osl::File::remove(aURL) == osl::FileBase::E_None)
++            comphelper::hst::syncParentDirectory(aURL);
++        return;
++    }
++    const osl::FileBase::RC eDir = osl::Directory::createPath(rBackupDirURL);
++    if (eDir != osl::FileBase::E_None && eDir != osl::FileBase::E_EXIST)
++        return;
++    comphelper::hst::writeFileAtomically(aURL, aText.makeStringAndClear());
++}
++
++std::vector<Entry> readIndex(const OUString& rBackupDirURL)
++{
++    std::vector<Entry> aEntries;
++    osl::File aFile(rBackupDirURL + "/" + INDEX_NAME);
++    if (aFile.open(osl_File_OpenFlag_Read) != osl::FileBase::E_None)
++        return aEntries;
++    rtl::ByteSequence aLine;
++    bool bHeader = false;
++    sal_Bool bEOF = false;
++    while (aFile.isEndOfFile(&bEOF) == osl::FileBase::E_None && !bEOF
++           && aFile.readLine(aLine) == osl::FileBase::E_None)
++    {
++        const OUString aText(reinterpret_cast<const char*>(aLine.getConstArray()),
++                             aLine.getLength(), RTL_TEXTENCODING_UTF8);
++        if (!bHeader)
++        {
++            bHeader = aText == OUString::fromUtf8(INDEX_HEADER);
++            if (!bHeader)
++                break; // unknown format: ignore the file
++            continue;
++        }
++        sal_Int32 nIndex = 0;
++        if (o3tl::getToken(aText, 0, '\t', nIndex) != u"entry" || nIndex < 0)
++            continue;
++        Entry r;
++        r.nID = o3tl::toInt32(o3tl::getToken(aText, 0, '\t', nIndex));
++        r.nState = o3tl::toInt32(o3tl::getToken(aText, 0, '\t', nIndex));
++        OUString* aFields[] = { &r.aOrgURL, &r.aTempURL, &r.aTemplateURL, &r.aFilter,
++                                &r.aModule, &r.aTitle, &r.aViewNames };
++        for (OUString* pField : aFields)
++            *pField = nIndex >= 0 ? OUString(o3tl::getToken(aText, 0, '\t', nIndex)) : OUString();
++        if (r.nID > 0)
++            aEntries.push_back(r);
++    }
++    aFile.close();
++    return aEntries;
++}
++
++std::vector<Orphan> findOrphans(const OUString& rBackupDirURL, const std::set<OUString>& rReferenced)
++{
++    std::vector<Orphan> aOrphans;
++    const sal_Int64 nOldest = now() - KEEP_SECONDS;
++    forEachFile(rBackupDirURL, [&](const OUString& rURL, const OUString& rName, sal_uInt64 nSize,
++                                   sal_Int64 nModified) {
++        Orphan aOrphan;
++        if (nSize == 0 || nModified < nOldest || rReferenced.count(rURL)
++            || !splitCopyName(rName, aOrphan.aPrefix, aOrphan.aExtension))
++            return;
++        aOrphan.aURL = rURL;
++        aOrphan.nModified = nModified;
++        aOrphans.push_back(aOrphan);
++    });
++    std::sort(aOrphans.begin(), aOrphans.end(),
++              [](const Orphan& rA, const Orphan& rB) { return rA.nModified > rB.nModified; });
++    return aOrphans;
++}
++
++void sweepBackupDir(const OUString& rBackupDirURL, const std::set<OUString>& rReferenced)
++{
++    const sal_Int64 nOldest = now() - KEEP_SECONDS;
++    forEachFile(rBackupDirURL, [&](const OUString& rURL, const OUString& rName, sal_uInt64,
++                                   sal_Int64 nModified) {
++        if (nModified >= nOldest || rReferenced.count(rURL))
++            return;
++        OUString aPrefix, aExtension;
++        const bool bLeftover = (rName.startsWith("lu") && rName.endsWith(".tmp"))
++                               || (rName.startsWith(".~lock.") && rName.endsWith("#"))
++                               || splitCopyName(rName, aPrefix, aExtension);
++        if (bLeftover && osl::File::remove(rURL) == osl::FileBase::E_None)
++            SAL_INFO("fwk.autorecovery", "hst: removed old leftover " << rURL);
++    });
++}
++
++sal_Int64 modifiedTime(const OUString& rURL)
++{
++    osl::DirectoryItem aItem;
++    osl::FileStatus aStatus(osl_FileStatus_Mask_ModifyTime);
++    if (osl::DirectoryItem::get(rURL, aItem) != osl::FileBase::E_None
++        || aItem.getFileStatus(aStatus) != osl::FileBase::E_None)
++        return 0;
++    return aStatus.getModifyTime().Seconds;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/framework/source/services/hstunsavedstore.cxx
+@@ -0,0 +1,147 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: "Tài liệu chưa lưu", the recovery copies of documents closed without saving
++// (see hstrecoverystore.hxx). Layout of user/hst-unsaved, read by the bundled extension
++// (hst_office/unsaved_store.py):
++//   <yyyymmdd-hhmmss>-<id>.<ext>       the document as of its last recovery copy (ODF)
++//   <yyyymmdd-hhmmss>-<id>.<ext>.txt   HST-UNSAVED 1, then "key<TAB>value" lines:
++//                                      title, url (original file, empty if never saved),
++//                                      module, saved (seconds of the copy), closed (seconds)
++
++#include <hstrecoverystore.hxx>
++
++#include <comphelper/hstdurablefile.hxx>
++#include <osl/file.hxx>
++#include <osl/time.h>
++#include <rtl/strbuf.hxx>
++#include <sal/log.hxx>
++#include <unotools/pathoptions.hxx>
++
++#include <algorithm>
++#include <map>
++
++namespace framework::hstrecovery
++{
++namespace
++{
++constexpr sal_Int64 KEEP_SECONDS = 7 * 24 * 3600;
++constexpr sal_uInt64 KEEP_BYTES = sal_uInt64(500) * 1024 * 1024;
++
++OString line(std::string_view aKey, const OUString& rValue)
++{
++    return OString::Concat(aKey) + "\t"
++           + OUStringToOString(rValue.replace('\t', ' ').replace('\n', ' ').replace('\r', ' '),
++                               RTL_TEXTENCODING_UTF8)
++           + "\n";
++}
++
++OUString stamp(sal_Int64 nSeconds)
++{
++    TimeValue aUTC{ static_cast<sal_uInt32>(nSeconds), 0 };
++    TimeValue aLocal;
++    oslDateTime aDT{};
++    if (osl_getLocalTimeFromSystemTime(&aUTC, &aLocal))
++        osl_getDateTimeFromTimeValue(&aLocal, &aDT);
++    return OUString::number(aDT.Year * 10000 + aDT.Month * 100 + aDT.Day) + "-"
++           + OUString(OUString::number(1000000 + aDT.Hours * 10000 + aDT.Minutes * 100 + aDT.Seconds)).copy(1);
++}
++
++/// One kept document: its copy and description file.
++struct Kept
++{
++    OUString aCopyURL;
++    OUString aInfoURL;
++    sal_uInt64 nSize = 0;
++    sal_Int64 nTime = 0; ///< when it was closed (description written), else the copy's time
++};
++}
++
++OUString unsavedDir() { return SvtPathOptions().SubstituteVariable(u"$(user)/hst-unsaved"_ustr); }
++
++bool keepUnsaved(const OUString& rStoreDirURL, const Entry& rEntry)
++{
++    const sal_Int64 nCopyTime = modifiedTime(rEntry.aTempURL);
++    if (rEntry.aTempURL.isEmpty() || nCopyTime == 0)
++        return false;
++    const osl::FileBase::RC eDir = osl::Directory::createPath(rStoreDirURL);
++    if (eDir != osl::FileBase::E_None && eDir != osl::FileBase::E_EXIST)
++        return false;
++    TimeValue aNow;
++    osl_getSystemTime(&aNow);
++    const sal_Int32 nDot = rEntry.aTempURL.lastIndexOf('.');
++    const OUString aExtension = nDot > 0 ? rEntry.aTempURL.copy(nDot) : u".odt"_ustr;
++    const OUString aCopyURL = rStoreDirURL + "/" + stamp(aNow.Seconds) + "-"
++                              + OUString::number(rEntry.nID) + aExtension;
++    if (osl::File::move(rEntry.aTempURL, aCopyURL) != osl::FileBase::E_None
++        && (osl::File::copy(rEntry.aTempURL, aCopyURL) != osl::FileBase::E_None
++            || osl::File::remove(rEntry.aTempURL) != osl::FileBase::E_None))
++    {
++        SAL_WARN("fwk.autorecovery", "hst: cannot keep the unsaved document " << rEntry.aTempURL);
++        return false;
++    }
++    comphelper::hst::syncFile(aCopyURL);
++    const OString aInfo = "HST-UNSAVED 1\n" + line("title", rEntry.aTitle)
++                          + line("url", rEntry.aOrgURL) + line("module", rEntry.aModule)
++                          + line("saved", OUString::number(nCopyTime))
++                          + line("closed", OUString::number(sal_Int64(aNow.Seconds)));
++    comphelper::hst::writeFileAtomically(aCopyURL + ".txt", aInfo);
++    pruneUnsaved(rStoreDirURL);
++    return true;
++}
++
++void pruneUnsaved(const OUString& rStoreDirURL)
++{
++    std::map<OUString, Kept> aKept; // by copy URL
++    std::vector<OUString> aStrayInfos;
++    forEachFile(rStoreDirURL, [&](const OUString& rURL, const OUString& rName, sal_uInt64 nSize,
++                                  sal_Int64 nModified) {
++        if (rName.endsWith(".txt"))
++        {
++            Kept& r = aKept[rURL.copy(0, rURL.getLength() - 4)];
++            r.aInfoURL = rURL;
++            r.nTime = std::max(r.nTime, nModified);
++        }
++        else if (!rName.startsWith("."))
++        {
++            Kept& r = aKept[rURL];
++            r.aCopyURL = rURL;
++            r.nSize = nSize;
++            r.nTime = std::max(r.nTime, nModified);
++        }
++    });
++    TimeValue aNow;
++    osl_getSystemTime(&aNow);
++    std::vector<Kept> aList;
++    for (auto& [aURL, rKept] : aKept)
++    {
++        if (rKept.aCopyURL.isEmpty())
++            aStrayInfos.push_back(rKept.aInfoURL); // the copy is gone
++        else
++            aList.push_back(rKept);
++    }
++    std::sort(aList.begin(), aList.end(),
++              [](const Kept& rA, const Kept& rB) { return rA.nTime > rB.nTime; }); // newest first
++    sal_uInt64 nTotal = 0;
++    for (const Kept& r : aList)
++    {
++        nTotal += r.nSize;
++        if (r.nTime >= sal_Int64(aNow.Seconds) - KEEP_SECONDS && nTotal <= KEEP_BYTES)
++            continue;
++        osl::File::remove(r.aCopyURL);
++        if (!r.aInfoURL.isEmpty())
++            osl::File::remove(r.aInfoURL);
++        SAL_INFO("fwk.autorecovery", "hst: unsaved document expired " << r.aCopyURL);
++    }
++    for (const OUString& rURL : aStrayInfos)
++        osl::File::remove(rURL);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/framework/documenttabs.hxx
++++ b/include/framework/documenttabs.hxx
+@@ -58,6 +58,10 @@ FWK_DLLPUBLIC void markLaunchStartCenter();
+     documents (see DocumentTabGroup::beginRestoreLayout). */
+ FWK_DLLPUBLIC void beginRestoreLayout();
+ FWK_DLLPUBLIC void endRestoreLayout();
++
++/** Emergency or session save: keep hst-document-tabs.txt exactly as it is (no rewrite, no
++    removal) for the rest of this process, so the next start can rebuild the windows and tabs. */
++FWK_DLLPUBLIC void freezeLayout();
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/translations/source/vi/framework/messages.po
++++ b/translations/source/vi/framework/messages.po
+@@ -508,3 +508,15 @@ msgstr "Đã sửa đổi, chưa lưu"
+ msgctxt "STR_DOCTAB_DETACH"
+ msgid "Move to New Window"
+ msgstr "Tách ra cửa sổ mới"
++
++#. hstRO
++#: framework/inc/strings.hrc
++msgctxt "STR_HST_RECOVERY_ORPHAN"
++msgid "%1 (recovery copy of %2)"
++msgstr "%1 (bản khôi phục lúc %2)"
++
++#. hstRU
++#: framework/inc/strings.hrc
++msgctxt "STR_HST_RECOVERY_UNTITLED"
++msgid "Unnamed document"
++msgstr "Tài liệu chưa đặt tên"
