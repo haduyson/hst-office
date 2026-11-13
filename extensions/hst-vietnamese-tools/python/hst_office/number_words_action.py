@@ -1,45 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Command org.hst.office.vi:NumberToWords. Sheets: dialog "Đọc số thành chữ" writes the words (plain text, which
-Excel keeps) or a DOCSO/DOCTIEN formula into the target cell. Writer: the selected number is replaced by its words."""
-import re
-
+"""Command org.hst.office.vi:NumberToWords. Sheets: dialog "Đọc số thành chữ" reads the selected cell or column and
+writes the words (plain text, which every spreadsheet keeps) or a DOCSO/DOCTIEN formula into the column to its
+right, one undo step for the whole column. Writer: the selected number is replaced by its words. The dialog opens
+with the file's default unit, else the user's last choice, else "đồng" (number_words_defaults.py)."""
 from . import number_words
+from . import number_words_calc as calc
+from . import number_words_defaults as defaults
+from . import number_words_file_default as file_default
+from . import number_words_prefs as prefs
 from . import utilities_texts as T
-from .number_words_choice import error_text, formula, words
+from .number_words_choice import error_text, words
 from .number_words_dialog import NumberWordsDialog
+from .number_words_range import plan
 from .undo import undo_step
-
-TEXT_RESULT = 2  # com.sun.star.sheet.FormulaResult.STRING (FormulaResultType2)
-_ADDRESS = re.compile(r"^(?:\$?'?([^.']+)'?\.)?(\$?[A-Za-z]{1,3}\$?[0-9]{1,7})$")
-
-
-def _address(cell):
-    a = cell.getCellAddress()
-    column = cell.getSpreadsheet().getColumns().getByIndex(a.Column).getName()
-    return "%s%d" % (column, a.Row + 1)
-
-
-def find_cell(doc, sheet, address):
-    """The single cell at `address` ("B2", "$B$2", "Sheet2.B2"); ValueError with the user message otherwise."""
-    match = _ADDRESS.match((address or "").strip())
-    if not match:
-        raise ValueError(T.MESSAGES["bad-cell"] % address)
-    try:
-        if match.group(1):
-            sheet = doc.getSheets().getByName(match.group(1))
-        return sheet.getCellRangeByName(match.group(2).replace("$", ""))
-    except Exception:  # noqa: BLE001 - unknown sheet or address outside the sheet
-        raise ValueError(T.MESSAGES["bad-cell"] % address) from None
-
-
-def cell_value(cell):
-    """None (empty), the text of a text cell or text result, else the number."""
-    kind = cell.getType().value  # com.sun.star.table.CellContentType
-    if kind == "EMPTY":
-        return None
-    if kind == "TEXT" or (kind == "FORMULA" and cell.getPropertyValue("FormulaResultType2") == TEXT_RESULT):
-        return cell.getString()
-    return cell.getValue()
 
 
 def run(host):
@@ -49,6 +22,33 @@ def run(host):
         return _writer(host)
 
 
+def _occupied(host, sheet, choice):
+    """Target cells that already hold data among the rows the dialog would write (0 when the fields are wrong:
+    the error is reported once the dialog closes)."""
+    try:
+        job = calc.resolve(host.doc, sheet, choice)
+        return plan(job.values(), job.existing(), choice).occupied
+    except Exception:  # noqa: BLE001 - bad address or unreadable cells: let the write path report it
+        return 0
+
+
+def _preview_value(host, sheet, text):
+    try:
+        return calc.first_value(host.doc, sheet, text)
+    except ValueError:  # a wrong address: the preview says so
+        raise
+    except Exception:  # noqa: BLE001 - unreadable cell: the preview shows "Không đọc được số"
+        return None
+
+
+def _keep_file_default(doc, choice, stored):
+    """The ticked box makes the unit pair the file's default; clearing it removes the file's default."""
+    if choice["file_default"]:
+        wanted = file_default.parse(choice["unit"], choice["sub_unit"])
+        return file_default.store(doc, wanted) if wanted else True
+    return file_default.store(doc, None) if stored else True
+
+
 def _calc(host):
     selection = host.controller.getSelection()
     sheet = host.controller.getActiveSheet()
@@ -56,30 +56,45 @@ def _calc(host):
         return host.say(T.MESSAGES["no-cells"], error=True)
     if sheet.isProtected():
         return host.say(T.MESSAGES["protected"], error=True)
-    a = selection.getRangeAddress()
-    source = sheet.getCellByPosition(a.StartColumn, a.StartRow)
-    right = sheet.getCellByPosition(min(a.StartColumn + 1, sheet.getColumns().getCount() - 1), a.StartRow)
-    dialog = NumberWordsDialog(host.ctx, True, _address(source), _address(right))
-    dialog.read_cell = lambda address: cell_value(find_cell(host.doc, sheet, address))
+    try:
+        source, target = calc.selection_fields(sheet, selection.getRangeAddress())
+    except ValueError as exc:
+        return host.say(str(exc), error=True)
+    stored = file_default.read(host.doc)
+    values = defaults.resolve(defaults.unit_layer(stored), prefs.load(host.ctx))
+    dialog = NumberWordsDialog(host.ctx, True, source, target, initial=values, file_default=stored)
+    dialog.read_cell = lambda text: _preview_value(host, sheet, text)
+    dialog.occupied = lambda choice: _occupied(host, sheet, choice)
     choice = dialog.run(host.peer)
     if choice is None:
         return
     try:
-        source_cell = find_cell(host.doc, sheet, choice["source"])
-        target = find_cell(host.doc, sheet, choice["target"])
-        value = cell_value(source_cell)
-        if value is None:
-            raise ValueError(T.MESSAGES["empty-cell"] % choice["source"])
-        text = words(value, choice)  # also checks the value when a formula is written
-    except number_words.NumberWordsError as exc:
-        return host.say(error_text(exc), error=True)
+        job = calc.resolve(host.doc, sheet, choice)
+        result = plan(job.values(), job.existing(), choice)
     except ValueError as exc:
         return host.say(str(exc), error=True)
-    with undo_step(host.doc, T.UNDO["words"]):
-        if choice["formula"]:
-            target.setFormula(formula(choice, choice["source"].upper()))
-        else:
-            target.setString(text)
+    single = job.source.getRows().getCount() == 1
+    if not result.writes:
+        if not single:
+            return host.say(T.MESSAGES["range-none"] % (choice["source"], result.skipped), error=True)
+        if result.error is None:
+            return host.say(T.MESSAGES["empty-cell"] % choice["source"], error=True)
+        return host.say(error_text(result.error), error=True)
+    host.doc.lockControllers()  # no repaint per block
+    try:
+        with undo_step(host.doc, T.UNDO["words"]):
+            calc.write(job, result, choice)
+    except Exception:  # noqa: BLE001 - protected target sheet or read-only document: nothing is left half written
+        return host.say(T.MESSAGES["write-failed"], error=True)
+    finally:
+        host.doc.unlockControllers()
+    prefs.save(host.ctx, prefs.from_choice(choice), True)
+    saved = _keep_file_default(host.doc, choice, stored)
+    if not single:
+        done = len(result.writes)
+        host.say(T.MESSAGES["range-skipped"] % (done, result.skipped) if result.skipped else T.MESSAGES["range-done"] % done)
+    if not saved:
+        host.say(T.MESSAGES["file-default-failed"], error=True)
 
 
 def _writer(host):
@@ -94,7 +109,8 @@ def _writer(host):
         value = number_words.parse_number_text(selected)
     except number_words.NumberWordsError as exc:
         return host.say(error_text(exc), error=True)
-    choice = NumberWordsDialog(host.ctx, False, selected.strip(), sample=value).run(host.peer)
+    values = defaults.resolve(prefs.load(host.ctx))
+    choice = NumberWordsDialog(host.ctx, False, selected.strip(), sample=value, initial=values).run(host.peer)
     if choice is None:
         return
     try:
@@ -108,4 +124,5 @@ def _writer(host):
             trail = selected[len(selected.rstrip()):]
             rng.setString(lead + text + trail)
     except Exception:  # noqa: BLE001 - protected section, read-only document
-        host.say(T.MESSAGES["writer-protected"], error=True)
+        return host.say(T.MESSAGES["writer-protected"], error=True)
+    prefs.save(host.ctx, prefs.from_choice(choice), False)

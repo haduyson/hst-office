@@ -11,7 +11,8 @@ Checks, with screenshots of each dialog and of the HST menu in --shots:
      "Tiếng Việt" category (12); more than 15 digits is an error.
   2. Every dispatch URL of the utilities resolves (org.hst.office.vi:NumberToWords, RemoveDiacritics, ...).
   3. Bỏ dấu (undo), Tách họ tên, Sắp xếp theo tên, Xóa dòng trống on --rows rows (time, one undo), the 4 date formats.
-  4. "Đọc số thành chữ" dialog (text and formula), the same dialog in Writer.
+  4. "Đọc số thành chữ" dialog (text and formula; the last choice reopens; a column in one undo with the overwrite
+     notice; the file's default unit kept through .xlsx and .ods), the same dialog in Writer.
   5. Save as .xlsx with HST functions: the warning; Hủy saves nothing, Vẫn lưu keeps the formulas, "Đổi thành chữ rồi
      lưu" writes values and the open document keeps its formulas, the check box converts the document too; Ctrl+S.
   6. The classic HST menu: "Tiện ích tiếng Việt" with the Sheets / Writer commands. Exit status 1 on any FAIL;
@@ -29,6 +30,7 @@ import hst_gui  # noqa: E402
 import vietnamese_utilities_gui as gui  # noqa: E402
 from vietnamese_utilities_dialogs import blank_rows, dialogs, menu, save_warning, writer  # noqa: E402
 from vietnamese_utilities_gui import ROWS, record  # noqa: E402
+from vietnamese_utilities_number_words import number_words  # noqa: E402
 
 ROOT = hst_gui.ROOT
 URLS = ("NumberToWords", "RemoveDiacritics", "SplitName", "SortByGivenName", "DeleteBlankRows", "FormatDate",
@@ -149,7 +151,7 @@ def main():
     office = hst_gui.Office(args.instdir, os.path.join(args.out, "work"), args.port, display=args.display).start()
     try:
         doc = office.load("private:factory/scalc")
-        for step in (functions, commands, dialogs, save_warning):
+        for step in (functions, commands, dialogs, number_words, save_warning):
             try:
                 step(office, doc, args)
             except Exception as error:  # noqa: BLE001 - report and go on with the next step
