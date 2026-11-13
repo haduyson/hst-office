@@ -63,6 +63,14 @@ def edit_draw(b):
         b.ribbon_label(bid, key)
     b.caption("lbExportSign", "lbExportSign")
 
+    # Trang: Xoay trang (HstRotatePage.cxx turns the selected pages with their content)
+    left = b.button("btnHstPageRotateLeft", ".uno:HstRotatePageLeft")
+    right = b.button("btnHstPageRotateRight", ".uno:HstRotatePageRight")
+    L.set_prop(left.find("object"), "icon-name", "cmd/lc_rotateleft.png")
+    L.set_prop(right.find("object"), "icon-name", "cmd/lc_rotateright.png")
+    b.insert_group("pmhbPage", b.new_group("gdPageHstRotate", "lbPageHstRotate", "lbPageHstRotate",
+                                           [("S", [left], [right], "both-horiz")]), after="gdPageSetup")
+
     # Xem lại, Xem, Phần mở rộng
     review_view_extension_common(b)
     b.caption("lbViewMode", "lbViewModeDraw")

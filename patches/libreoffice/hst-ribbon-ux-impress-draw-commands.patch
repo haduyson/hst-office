@@ -1,4 +1,4 @@
-HST Office: Slides ribbon commands (Apply to All Slides, Preview, transition timing), first-start layout, theme gallery.
+HST Office: Slides and Draw ribbon commands (Apply to All, Preview, timing, Rotate Page), first-start layout, themes.
 
 - New sd slots, the commands the Slide Transition and Animation decks run as buttons, for the ribbon
   (hst-ribbon-ux-impress-draw.patch places them):
@@ -20,6 +20,13 @@ HST Office: Slides ribbon commands (Apply to All Slides, Preview, transition tim
   sd app.hrc, sdraw.sdi, drviewsh.sdi, SlideSorterController.sdi, drviews2.cxx, drviews7.cxx,
   SlideSorterViewShell.cxx, Library_sd.mk; new HstSlideEffectCommands.{hxx,cxx}; DrawImpressCommands.xcu
   labels and their Vietnamese in UI.po.
+- HST Draw "Xoay trang" (ribbon Trang ▸ Xoay trang): .uno:HstRotatePageLeft / .uno:HstRotatePageRight
+  (SID_HST_ROTATE_PAGE_LEFT/RIGHT) turn the selected pages of the page pane (the current page without one)
+  by 90°: width and height and the margins swap, every object turns about the page (SdrObject::Rotate and
+  Move) so the content keeps its place, as one undo action (SdrUndoGeoObj per object and
+  SdPageFormatUndoAction per page); the view follows the new size as SwitchPage does for pages of different
+  sizes. Disabled in HST Slides (slides share one size), in master and notes views and read-only documents.
+  sd/source/ui/func/HstRotatePage.cxx, HstRotatePage.hxx; labels in DrawImpressCommands.xcu and UI.po.
 - sfx2 SidebarController: the first time HST Slides shows its sidebar it is folded to the tab bar, so the
   slide gets the room; org.openoffice.Office.HSTRibbon/SlidesSidebarFirstStartDone makes it once only.
 - officecfg ImpressWindowState.xcu: the Drawing toolbar (private:resource/toolbar/toolbar) is hidden by
@@ -40,7 +47,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 ---
 --- a/sd/inc/app.hrc
 +++ b/sd/inc/app.hrc
-@@ -438,5 +438,12 @@
+@@ -438,5 +438,15 @@
  // HST Office: the ribbon's transitions gallery applies a transition set (SfxStringItem, HstTransitionApply.hxx)
  #define SID_HST_APPLY_TRANSITION            (SID_SD_START+458)
  #define SID_HST_APPLY_ANIMATION             (SID_SD_START+459)
@@ -51,11 +58,14 @@ License: these upstream files remain under their original license (MPL-2.0).
 +#define SID_HST_ANIMATION_PREVIEW           (SID_SD_START+462)
 +#define SID_HST_TRANSITION_DURATION         (SID_SD_START+463)
 +#define SID_HST_TRANSITION_ADVANCE          (SID_SD_START+464)
++// HST Office: HST Draw's "Xoay trang" (HstRotatePage.hxx)
++#define SID_HST_ROTATE_PAGE_LEFT            (SID_SD_START+465)
++#define SID_HST_ROTATE_PAGE_RIGHT           (SID_SD_START+466)
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sd/sdi/sdraw.sdi
 +++ b/sd/sdi/sdraw.sdi
-@@ -2773,6 +2773,91 @@
+@@ -2773,6 +2773,125 @@
      GroupId = SfxGroupId::Modify;
  ]
  
@@ -144,12 +154,46 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    GroupId = SfxGroupId::Modify;
 +]
 +
++SfxVoidItem HstRotatePageLeft SID_HST_ROTATE_PAGE_LEFT
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Modify;
++]
++
++SfxVoidItem HstRotatePageRight SID_HST_ROTATE_PAGE_RIGHT
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Modify;
++]
++
  SfxVoidItem Remote SID_REMOTE_DLG
  ()
  [
 --- a/sd/sdi/drviewsh.sdi
 +++ b/sd/sdi/drviewsh.sdi
-@@ -126,6 +126,31 @@
+@@ -126,6 +126,41 @@
          ExecMethod = FuTemporary ;
          StateMethod = GetMenuState ;
      ]
@@ -174,6 +218,16 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        StateMethod = GetMenuState ;
 +    ]
 +    SID_HST_TRANSITION_ADVANCE
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_ROTATE_PAGE_LEFT
++    [
++        ExecMethod = FuTemporary ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_ROTATE_PAGE_RIGHT
 +    [
 +        ExecMethod = FuTemporary ;
 +        StateMethod = GetMenuState ;
@@ -212,15 +266,16 @@ License: these upstream files remain under their original license (MPL-2.0).
          ExecMethod = FuTemporary ;
 --- a/sd/source/ui/view/drviews2.cxx
 +++ b/sd/source/ui/view/drviews2.cxx
-@@ -132,6 +132,7 @@
+@@ -132,6 +132,8 @@
  #include <app.hrc>
  #include <HstTransitionApply.hxx>
  #include <HstAnimationApply.hxx>
 +#include <HstSlideEffectCommands.hxx>
++#include <HstRotatePage.hxx>
  #include <strings.hrc>
  
  #include <AnimationChildWindow.hxx>
-@@ -4294,6 +4295,15 @@
+@@ -4294,6 +4296,21 @@
              Cancel();
          break;
  
@@ -233,24 +288,35 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            Cancel();
 +        break;
 +
++        case SID_HST_ROTATE_PAGE_LEFT:
++        case SID_HST_ROTATE_PAGE_RIGHT:
++            sd::hst::ExecuteRotatePage(*this, rReq);
++            Cancel();
++        break;
++
          case SID_REMOTE_DLG:
          {
  #ifdef ENABLE_SDREMOTE
 --- a/sd/source/ui/view/drviews7.cxx
 +++ b/sd/source/ui/view/drviews7.cxx
-@@ -68,6 +68,7 @@
+@@ -68,6 +68,8 @@
  #include <app.hrc>
  #include <HstTransitionApply.hxx>
  #include <HstAnimationApply.hxx>
 +#include <HstSlideEffectCommands.hxx>
++#include <HstRotatePage.hxx>
  
  #include <PresentationViewShell.hxx>
  
-@@ -1049,6 +1050,8 @@
+@@ -1049,6 +1051,12 @@
      if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_APPLY_ANIMATION))
          sd::hst::GetApplyAnimationState(GetViewShellBase(), rSet);
  
 +    sd::hst::GetSlideEffectCommandState(GetViewShellBase(), rSet);
++
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_ROTATE_PAGE_LEFT)
++        || SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_ROTATE_PAGE_RIGHT))
++        sd::hst::GetRotatePageState(*this, rSet);
 +
      if( SfxItemState::DEFAULT == rSet.GetItemState( SID_REMOTE_DLG ) )
      {
@@ -305,6 +371,14 @@ License: these upstream files remain under their original license (MPL-2.0).
  	sd/source/ui/controller/displaymodecontroller \
  	sd/source/ui/dlg/AnimationChildWindow \
  	sd/source/ui/dlg/LayerTabBar \
+@@ -334,6 +336,7 @@
+ 	sd/source/ui/func/fuprobjs \
+ 	sd/source/ui/func/fuscale \
+ 	sd/source/ui/func/fusearch \
++	sd/source/ui/func/HstRotatePage \
+ 	sd/source/ui/func/fusel \
+ 	sd/source/ui/func/fusldlg \
+ 	sd/source/ui/func/fusnapln \
 --- a/sd/UIConfig_simpress.mk
 +++ b/sd/UIConfig_simpress.mk
 @@ -173,6 +173,8 @@
@@ -366,7 +440,7 @@ License: these upstream files remain under their original license (MPL-2.0).
            <value>.uno:StylesPreview</value>
 --- a/officecfg/registry/data/org/openoffice/Office/UI/DrawImpressCommands.xcu
 +++ b/officecfg/registry/data/org/openoffice/Office/UI/DrawImpressCommands.xcu
-@@ -472,6 +472,46 @@
+@@ -472,6 +472,62 @@
            <value xml:lang="en-US">Applies an animation to the selected objects</value>
          </prop>
        </node>
@@ -410,12 +484,28 @@ License: these upstream files remain under their original license (MPL-2.0).
 +          <value xml:lang="en-US">Goes to the next slide by itself after the given time, or on a mouse click</value>
 +        </prop>
 +      </node>
++      <node oor:name=".uno:HstRotatePageLeft" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Rotate Page Left</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Turns the selected pages and their content 90° to the left</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstRotatePageRight" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Rotate Page Right</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Turns the selected pages and their content 90° to the right</value>
++        </prop>
++      </node>
        <node oor:name=".uno:MasterSlidesPanel" oor:op="replace">
          <prop oor:name="Label" oor:type="xs:string">
            <value xml:lang="en-US">Master Slides</value>
 --- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
 +++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
-@@ -9256,6 +9256,106 @@
+@@ -9256,6 +9256,146 @@
  msgid "Applies an animation to the selected objects"
  msgstr "Áp dụng hiệu ứng hoạt hình cho các đối tượng đã chọn"
  
@@ -518,6 +608,46 @@ License: these upstream files remain under their original license (MPL-2.0).
 +"value.text"
 +msgid "Goes to the next slide by itself after the given time, or on a mouse click"
 +msgstr "Tự chuyển sang trang chiếu kế tiếp sau thời gian đã đặt, hoặc khi bấm chuột"
++
++#. hstHstRotatePageLeftLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstRotatePageLeft\n"
++"Label\n"
++"value.text"
++msgid "Rotate Page Left"
++msgstr "Xoay trang trái 90°"
++
++#. hstHstRotatePageLeftTooltipLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstRotatePageLeft\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Turns the selected pages and their content 90° to the left"
++msgstr "Xoay các trang đã chọn cùng nội dung sang trái 90°"
++
++#. hstHstRotatePageRightLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstRotatePageRight\n"
++"Label\n"
++"value.text"
++msgid "Rotate Page Right"
++msgstr "Xoay trang phải 90°"
++
++#. hstHstRotatePageRightTooltipLabel
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstRotatePageRight\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Turns the selected pages and their content 90° to the right"
++msgstr "Xoay các trang đã chọn cùng nội dung sang phải 90°"
 +
  #. LoYyf
  #: DrawImpressCommands.xcu
@@ -1255,6 +1385,206 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    </child>
 +  </object>
 +</interface>
+--- /dev/null
++++ b/sd/source/ui/inc/HstRotatePage.hxx
+@@ -0,0 +1,31 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++class SfxItemSet;
++class SfxRequest;
++
++namespace sd
++{
++class DrawViewShell;
++}
++
++/** HST Office: "Xoay trang" of HST Draw (ribbon tab Trang), .uno:HstRotatePageLeft and
++    .uno:HstRotatePageRight (SID_HST_ROTATE_PAGE_LEFT/RIGHT): the selected pages of the page pane (the
++    current page without one) turn by 90°: width and height swap, the margins turn with the page and every
++    object turns about the page, so the content keeps its place on the page; one undo action. HST Draw
++    allows pages of different sizes (a PDF's pages), so only the selected pages change. Slides are all one
++    size, so HST Slides disables the commands. */
++namespace sd::hst
++{
++void ExecuteRotatePage(DrawViewShell& rShell, SfxRequest& rRequest);
++void GetRotatePageState(DrawViewShell& rShell, SfxItemSet& rSet);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/source/ui/func/HstRotatePage.cxx
+@@ -0,0 +1,163 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <HstRotatePage.hxx>
++
++#include <DrawDocShell.hxx>
++#include <DrawViewShell.hxx>
++#include <SlideSorterViewShell.hxx>
++#include <ViewShellBase.hxx>
++#include <View.hxx>
++#include <app.hrc>
++#include <drawdoc.hxx>
++#include <sdpage.hxx>
++#include <sdresid.hxx>
++#include <strings.hrc>
++#include <undopage.hxx>
++
++#include <sfx2/bindings.hxx>
++#include <sfx2/dispatch.hxx>
++#include <sfx2/request.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <svl/itemset.hxx>
++#include <svl/undo.hxx>
++#include <svx/svdpagv.hxx>
++#include <svx/svdundo.hxx>
++#include <svx/svxids.hrc>
++
++#include <algorithm>
++#include <memory>
++#include <vector>
++
++namespace sd::hst
++{
++namespace
++{
++bool Enabled(DrawViewShell& rShell)
++{
++    DrawDocShell* pDocSh = rShell.GetDocSh();
++    return pDocSh && !pDocSh->IsReadOnly() && rShell.GetDoc()->GetDocumentType() == DocumentType::Draw
++           && rShell.GetPageKind() == PageKind::Standard && rShell.GetEditMode() == EditMode::Page;
++}
++
++/// The selected pages of the page pane, else the current page.
++std::vector<SdPage*> SelectedPages(DrawViewShell& rShell)
++{
++    std::vector<SdPage*> aPages;
++    if (slidesorter::SlideSorterViewShell* pSorter
++        = slidesorter::SlideSorterViewShell::GetSlideSorter(rShell.GetViewShellBase()))
++    {
++        if (const std::shared_ptr<slidesorter::SlideSorterViewShell::PageSelection> pSelection
++            = pSorter->GetPageSelection())
++            aPages.assign(pSelection->begin(), pSelection->end());
++    }
++    if (aPages.empty() && rShell.GetActualPage())
++        aPages.push_back(rShell.GetActualPage());
++    std::erase_if(aPages, [](const SdPage* pPage) {
++        return !pPage || pPage->GetPageKind() != PageKind::Standard || pPage->IsMasterPage();
++    });
++    return aPages;
++}
++
++/// Turns one page and its objects by 90° (bLeft: counter-clockwise), with undo actions in rUndo.
++void RotatePage(SdDrawDocument& rDoc, SdPage& rPage, bool bLeft, SfxUndoManager* pUndo)
++{
++    const Size aOld(rPage.GetSize());
++    const sal_Int32 nL = rPage.GetLeftBorder(), nR = rPage.GetRightBorder();
++    const sal_Int32 nT = rPage.GetUpperBorder(), nB = rPage.GetLowerBorder();
++    // SdrObject::Rotate about the page's top left corner (RotatePoint: 90° maps (x, y) to (y, -x),
++    // 270° to (-y, x)), then the move that brings the page back to the origin
++    const Degree100 nAngle(bLeft ? 9000 : 27000);
++    const double fSin = bLeft ? 1.0 : -1.0;
++    const Size aMove = bLeft ? Size(0, aOld.Width()) : Size(aOld.Height(), 0);
++    for (const rtl::Reference<SdrObject>& pObj : rPage)
++    {
++        if (!pObj)
++            continue;
++        if (pUndo)
++            pUndo->AddUndoAction(rDoc.GetSdrUndoFactory().CreateUndoGeoObject(*pObj));
++        pObj->Rotate(Point(0, 0), nAngle, fSin, 0.0);
++        pObj->Move(aMove);
++    }
++    const Size aNew(aOld.Height(), aOld.Width());
++    // the margins turn with the page
++    const sal_Int32 nNewL = bLeft ? nT : nB, nNewT = bLeft ? nR : nL;
++    const sal_Int32 nNewR = bLeft ? nB : nT, nNewB = bLeft ? nL : nR;
++    const Orientation eNew = aNew.Width() > aNew.Height() ? Orientation::Landscape : Orientation::Portrait;
++    if (pUndo)
++        pUndo->AddUndoAction(std::make_unique<SdPageFormatUndoAction>(
++            rDoc, &rPage, aOld, nL, nR, nT, nB, rPage.GetOrientation(), rPage.GetPaperBin(),
++            rPage.IsBackgroundFullSize(), aNew, nNewL, nNewR, nNewT, nNewB, false, eNew,
++            rPage.GetPaperBin(), rPage.IsBackgroundFullSize()));
++    rPage.SetSize(aNew);
++    rPage.SetBorder(nNewL, nNewT, nNewR, nNewB);
++    rPage.SetOrientation(eNew);
++}
++
++/// The view follows the current page's new size, as DrawViewShell::SwitchPage does for pages of
++/// different sizes.
++void UpdateView(DrawViewShell& rShell)
++{
++    SdPage* pPage = rShell.GetActualPage();
++    ::sd::View* pView = rShell.GetView();
++    if (!pPage || !pView)
++        return;
++    const Size aSize(pPage->GetSize());
++    const Point aPageOrg(aSize.Width(), aSize.Height() / 2);
++    const Size aViewSize(aSize.Width() * 3, aSize.Height() * 2);
++    rShell.GetDoc()->SetMaxObjSize(aViewSize);
++    rShell.InitWindows(aPageOrg, aViewSize, Point(-1, -1), true);
++    pView->SetWorkArea(::tools::Rectangle(Point() - aPageOrg, aViewSize));
++    rShell.UpdateScrollBars();
++    if (SdrPageView* pPageView = pView->GetSdrPageView())
++        pPageView->SetPageOrigin(Point(pPage->GetLeftBorder(), pPage->GetUpperBorder()));
++    SfxViewFrame* pFrame = rShell.GetViewFrame();
++    if (pFrame)
++    {
++        pFrame->GetBindings().Invalidate(SID_RULER_NULL_OFFSET);
++        pFrame->GetDispatcher()->Execute(SID_SIZE_PAGE, SfxCallMode::ASYNCHRON);
++    }
++}
++}
++
++void ExecuteRotatePage(DrawViewShell& rShell, SfxRequest& rRequest)
++{
++    const std::vector<SdPage*> aPages = Enabled(rShell) ? SelectedPages(rShell) : std::vector<SdPage*>();
++    if (aPages.empty())
++    {
++        rRequest.Ignore();
++        return;
++    }
++    if (rShell.GetView())
++        rShell.GetView()->SdrEndTextEdit();
++    const bool bLeft = rRequest.GetSlot() == SID_HST_ROTATE_PAGE_LEFT;
++    SdDrawDocument& rDoc = *rShell.GetDoc();
++    SfxUndoManager* pUndo = rShell.GetDocSh()->GetUndoManager();
++    const OUString aComment(SdResId(STR_UNDO_CHANGE_PAGEFORMAT));
++    if (pUndo)
++        pUndo->EnterListAction(aComment, aComment, 0, rShell.GetViewShellBase().GetViewShellId());
++    for (SdPage* pPage : aPages)
++        RotatePage(rDoc, *pPage, bLeft, pUndo);
++    if (pUndo)
++        pUndo->LeaveListAction();
++    rShell.GetDocSh()->SetModified();
++    UpdateView(rShell);
++    rRequest.Done();
++}
++
++void GetRotatePageState(DrawViewShell& rShell, SfxItemSet& rSet)
++{
++    if (Enabled(rShell))
++        return;
++    rSet.DisableItem(SID_HST_ROTATE_PAGE_LEFT);
++    rSet.DisableItem(SID_HST_ROTATE_PAGE_RIGHT);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/source/sidebar/SidebarController.cxx
 +++ b/sfx2/source/sidebar/SidebarController.cxx
 @@ -55,7 +55,9 @@

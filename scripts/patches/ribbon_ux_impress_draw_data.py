@@ -162,6 +162,7 @@ STRINGS = {
     "lbInsertText": (CONTEXT_PREFIX + "labelInsertText", "Text", "Văn bản"),
     "lbInsertLinks": (CONTEXT_PREFIX + "labelInsertLinks", "Links", "Liên kết"),
     "lbDesignCustomize": (CONTEXT_PREFIX + "labelDesignCustomize", "Customize", "Tùy chỉnh"),
+    "lbPageHstRotate": (CONTEXT_PREFIX + "labelPageRotate", "Rotate", "Xoay trang"),
     "lbTransitionsHstTiming": (CONTEXT_PREFIX + "labelTransitionsTiming", "Timing", "Thời gian"),
     "lbReviewRedact": (CONTEXT_PREFIX + "labelReviewRedact", "Redact", "Che thông tin"),
     "lbViewModeImpress": (CONTEXT_PREFIX + "labelViewMode", "Presentation Views", "Dạng xem"),
@@ -182,8 +183,7 @@ STRINGS = {
     "snap": (CONTEXT_PREFIX + "snapMenuButton", "Snap", "Bám dính"),
 }
 
-# the ND 30 wizard opens a new Writer document from Slides and Draw (org.hst.office.vi commands have no
-# command label: the .ui label is shown; it is Vietnamese like the extension's other labels)
+# the ND 30 wizard opens a new Writer document; org.hst.office.vi commands show this (Vietnamese) .ui label
 ND30_LABEL = "Văn bản\nhành chính mới"
 ND30_TOOLTIP = "Tạo văn bản hành chính mới (HST Writer) theo Nghị định 30/2020/NĐ-CP"
 
