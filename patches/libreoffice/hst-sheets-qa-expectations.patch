@@ -143,6 +143,28 @@ CppunitTest_sc_uicalc2, CppunitTest_sc_financial_functions_test.
            "=DATEDIF(A15;B15;C15)" } // fail date1 > date2
      };
  
+@@ -2151,9 +2151,9 @@
+ 
+     // Data in B1:D3
+     std::vector<std::vector<const char*>> aData = {
+-        { "=A1", "=FORMULA(B1)", "=FORMULA(B1:B3)" },
+-        { nullptr, "=FORMULA(B2)", "=FORMULA(B1:B3)" },
+-        { "=A3", "=FORMULA(B3)", "=FORMULA(B1:B3)" },
++        { "=A1", "=FORMULATEXT(B1)", "=FORMULATEXT(B1:B3)" },
++        { nullptr, "=FORMULATEXT(B2)", "=FORMULATEXT(B1:B3)" },
++        { "=A3", "=FORMULATEXT(B3)", "=FORMULATEXT(B1:B3)" },
+     };
+ 
+     ScAddress aPos(1, 0, 0);
+@@ -2175,7 +2175,7 @@
+     // Matrix in D4:D6, no intersection with B1:B3
+     ScMarkData aMark(m_pDoc->GetSheetLimits());
+     aMark.SelectOneTable(0);
+-    m_pDoc->InsertMatrixFormula(3, 3, 3, 5, aMark, u"=FORMULA(B1:B3)"_ustr);
++    m_pDoc->InsertMatrixFormula(3, 3, 3, 5, aMark, u"=FORMULATEXT(B1:B3)"_ustr);
+     for (size_t i = 0; i < SAL_N_ELEMENTS(aChecks); ++i)
+     {
+         CPPUNIT_ASSERT_EQUAL(OUString::createFromAscii(aChecks[i]), m_pDoc->GetString(3, i + 3, 0));
 @@ -2757,16 +2757,16 @@
      // 2x2 matrices test
      m_pDoc->SetString(aPos, u"=CHITEST(A1:B2;D1:E2)"_ustr);

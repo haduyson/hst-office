@@ -164,6 +164,20 @@ Test: tests/unit/test_sheets_error_parity.py, tests/runtime/check-sheets-excel-f
              else
                  PushDouble(fRes.get());
          }
+--- a/sc/source/core/tool/scmatrix.cxx
++++ b/sc/source/core/tool/scmatrix.cxx
+@@ -1674,8 +1674,10 @@
+ 
+                     for ( ; it != itEnd; ++it)
+                     {
++                        // HST: a negative number in GCD/LCM is #NUM!, as for single values
++                        // (hst-sheets-num-errors.patch) and in the leading spreadsheet application.
+                         if (*it < 0.0)
+-                            mfval = CreateDoubleError(FormulaError::IllegalArgument);
++                            mfval = CreateDoubleError(FormulaError::IllegalFPOperation);
+                         else
+                             mfval = ::rtl::math::approxFloor( Op::calculate(*it,mfval));
+                     }
 --- a/sc/source/ui/optdlg/tpcalc.cxx
 +++ b/sc/source/ui/optdlg/tpcalc.cxx
 @@ -105,8 +105,8 @@
