@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PATCHES = ROOT / "patches/libreoffice"
 PATCH = PATCHES / "hst-citation-fieldmarks.patch"
 FILES = {
-    "sw/source/core/inc/rolbck.hxx", "sw/source/core/undo/rolbck.cxx",
+    "sw/source/core/crsr/pam.cxx", "sw/source/core/inc/rolbck.hxx", "sw/source/core/undo/rolbck.cxx",
     "sw/source/core/inc/UndoBookmark.hxx", "sw/source/core/undo/unbkmk.cxx",
     "sw/source/uibase/shells/textfld.cxx", "sw/source/uibase/wrtsh/delete.cxx",
     "xmloff/source/text/XMLTextMarkImportContext.cxx",
@@ -69,6 +69,10 @@ class CitationFieldmarksPatch(unittest.TestCase):
         self.assertEqual(delete.count("pFm->GetFieldname() == ODF_UNHANDLED"), 2)
         self.assertIn("lcl_SelectWholeFieldmark(*this, *pFm, false);", delete)  # Backspace
         self.assertIn("lcl_SelectWholeFieldmark(*this, *pFm, true);", delete)  # Delete
+
+    def test_cursor_at_field_start_is_editable(self):
+        self.assertIn("if ( ( pA == pB ) && bUnhandledMark && !( bAtStartA && bAtStartB ) )",
+                      self.text("sw/source/core/crsr/pam.cxx"))
 
     def test_odt_import_checks_text_by_position(self):
         xmloff = self.text("xmloff/source/text/XMLTextMarkImportContext.cxx")

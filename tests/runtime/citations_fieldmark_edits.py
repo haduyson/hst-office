@@ -112,6 +112,12 @@ def run(rec, session):
     session.dispatch("Paste")
     rec.check("edit-cut-paste-keeps-code", state(session) == whole, state(session))
 
+    fresh(session)  # typing right before the field goes in front of it (was refused: read-only)
+    cursor_before_field(session)
+    session.dispatch("InsertText", prop("Text", "Z"))
+    rec.check("edit-type-before-outside", state(session) == ("Trước Z[1] sau.", [CODE])
+              and scan(session.doc)[0].result == RESULT, state(session))
+
     fresh(session)  # typing right after the field goes outside it
     cursor_after_field(session)
     session.dispatch("InsertText", prop("Text", "Z"))
