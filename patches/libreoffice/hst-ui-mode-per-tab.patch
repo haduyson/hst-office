@@ -17,7 +17,8 @@ got neither the ribbon nor the toolbars either.
 - "Apply to All" (cui UIPickerDialog) also stores, for every other application, the toolbars of the new mode as
   visible and the toolbars only other modes use as invisible (WindowState), so new windows and tabs of those
   applications get the toolbars of their mode and no toolbar of another mode.
-- SfxWorkWindow: when its frame becomes visible again (a parked document tab is shown), it updates the object bars.
+- SfxWorkWindow: when its frame becomes visible again (a parked document tab is shown), it updates the object bars,
+  asynchronously and only once that frame is the current view frame (updating an inactive dispatcher crashed).
   An update while the tab was hidden had destroyed its toolbars and status bar, and nothing requested them again:
   a document opened as a new tab lost its toolbars on the first switch back to it. LayoutManager sends VISIBLE
   after its toolbars may be shown again (before, a request at VISIBLE found them still master-hidden and was
@@ -253,7 +254,42 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
                  aAppNode.setNodeValue( u"Active"_ustr, Any( aNewName ) );
 --- a/sfx2/source/appl/workwin.cxx
 +++ b/sfx2/source/appl/workwin.cxx
-@@ -271,9 +271,17 @@
+@@ -53,6 +53,7 @@
+ #include <com/sun/star/frame/XLayoutManagerEventBroadcaster.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/lang/DisposedException.hpp>
++#include <memory>
+ #include <type_traits>
+ #include <unordered_map>
+ #include <sfx2/notebookbar/SfxNotebookBar.hxx>
+@@ -260,6 +261,26 @@
+ 
+ // XLayoutManagerEventListener
+ 
++namespace
++{
++/// HST Office: updates the object bars of a frame shown again once it is the current one.
++struct ObjectBarUpdater
++{
++    DECL_STATIC_LINK( ObjectBarUpdater, UpdateHdl, void*, void );
++};
++}
++
++IMPL_STATIC_LINK( ObjectBarUpdater, UpdateHdl, void*, p, void )
++{
++    std::unique_ptr< css::uno::WeakReference< css::frame::XFrame > > xWeak(
++        static_cast< css::uno::WeakReference< css::frame::XFrame >* >( p ) );
++    const css::uno::Reference< css::frame::XFrame > xFrame( *xWeak );
++    SfxViewFrame* pViewFrame = SfxViewFrame::Current();
++    if ( xFrame.is() && pViewFrame && pViewFrame->GetFrame().GetFrameInterface() == xFrame
++         && !pViewFrame->GetFrame().IsClosing_Impl() )
++        pViewFrame->GetDispatcher()->Update_Impl( true );
++}
++
+ void SAL_CALL LayoutManagerListener::layoutEvent(
+     const css::lang::EventObject&,
+     ::sal_Int16                   eLayoutEvent,
+@@ -271,9 +292,18 @@
  
      if ( eLayoutEvent == css::frame::LayoutManagerEvents::VISIBLE )
      {
@@ -263,15 +299,16 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
          m_pWrkWin->ArrangeChildren_Impl();
 +        // HST Office: an update of the object bars while the frame was hidden (a parked document
 +        // tab) destroyed its toolbars and status bar; nothing else requests them again when it is
-+        // shown, so the tab stayed without toolbars. Update them now, as
++        // shown, so the tab stayed without toolbars. Update them once the frame is the current
++        // one (asynchronously: never the dispatcher of a frame that is not active), as
 +        // SfxFrame::SetPresentationMode does after showing the UI again.
-+        if ( bWasInvisible )
-+            if ( SfxDispatcher* pDispatcher = m_pWrkWin->GetBindings().GetDispatcher_Impl() )
-+                pDispatcher->Update_Impl( true );
++        if ( const css::uno::Reference< css::frame::XFrame > xFrame( m_xFrame ); bWasInvisible && xFrame.is() )
++            Application::PostUserEvent( LINK( nullptr, ObjectBarUpdater, UpdateHdl ),
++                                        new css::uno::WeakReference< css::frame::XFrame >( xFrame ) );
      }
      else if ( eLayoutEvent == css::frame::LayoutManagerEvents::INVISIBLE )
      {
-@@ -1201,7 +1209,7 @@
+@@ -1201,7 +1231,7 @@
      // Iterate over all Toolboxes
      xLayoutManager->lock();
      const bool bForceDestroyToolbars =

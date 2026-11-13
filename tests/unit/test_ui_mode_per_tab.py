@@ -96,10 +96,13 @@ class UiModePerTab(unittest.TestCase):
         self.assertIn("if (sCurrentApp != OUString::createFromAscii(pApp))", picker)
 
     def test_shown_again_frame_updates_its_object_bars(self):
+        """Asynchronously, and only for the current view frame: updating an inactive dispatcher crashed."""
         workwin = added(WORKWIN)
         self.assertIn("const bool bWasInvisible = !m_pWrkWin->IsVisible_Impl();", workwin)
-        self.assertRegex(workwin, r"if \( bWasInvisible \)\s*if \( SfxDispatcher\* pDispatcher = "
-                                  r"m_pWrkWin->GetBindings\(\)\.GetDispatcher_Impl\(\) \)\s*pDispatcher->Update_Impl\( true \);")
+        self.assertIn("Application::PostUserEvent( LINK( nullptr, ObjectBarUpdater, UpdateHdl ),", workwin)
+        self.assertIn("pViewFrame->GetFrame().GetFrameInterface() == xFrame", workwin)
+        self.assertIn("pViewFrame->GetDispatcher()->Update_Impl( true );", workwin)
+        self.assertNotIn("pDispatcher->Update_Impl( true );", workwin)
 
     def test_visible_is_sent_after_the_toolbars_are_unhidden(self):
         removed, layout = "\n".join(changes()[LAYOUT][0]), added(LAYOUT)
