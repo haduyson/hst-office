@@ -52,7 +52,8 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
   job cũ (dedupe), `wait` trả kết quả ngay. Thứ tự: `--priority` (-100…100, cao trước), rồi đến trước làm trước;
   job ưu tiên cao đang chờ thì job thấp hơn cùng nền tảng không được chen.
 - Dữ liệu dưới `/data/hst-build-queue/`: `jobs/<id>.json`, `logs/<id>.log`, `out/<id>/` (`.deb`/`.msi`/overlay +
-  `SHA256SUMS`), `config.json` (ghi đè mặc định trong `build-queue.py`: số đầu ra giữ lại, danh sách slot Windows).
+  `SHA256SUMS`; với nhánh có `ci-build.sh --rpm-appimage`, tức từ 1.0.2, job Linux có thêm `.rpm` và `.AppImage`
+  đóng lại từ chính `.deb`, nhánh cũ chỉ có `.deb`), `config.json` (ghi đè mặc định trong `build-queue.py`: số đầu ra giữ lại, danh sách slot Windows).
   Giữ `retention_per_branch` (3) đầu ra mới nhất cho mỗi nền tảng + nhánh; đầu ra cũ hơn bị xoá (job vẫn còn,
   đánh dấu `output_deleted`). Job Windows ghi máy đã build (`host`, `slot`).
 - Dispatcher là dịch vụ systemd `hst-build-queue` ([unit](../scripts/linux/hst-build-queue.service), `Restart=on-failure`,

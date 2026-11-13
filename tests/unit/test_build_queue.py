@@ -185,6 +185,20 @@ class InfraFailureTest(QueueTestCase):
         self.assertEqual(self.store.load(job["id"])["state"], "failed")
 
 
+class LinuxOutputsTest(QueueTestCase):
+    def test_linux_runner_collects_deb_rpm_appimage_and_overlays(self):
+        job, _ = self.submit()
+        runner = bqd.LinuxRunner(self.store, bq.DEFAULT_CONFIG)
+        out = self.store.job_out(job["id"])
+        os.makedirs(out)
+        for name in ("a.deb", "a.rpm", "a.AppImage", "SHA256SUMS", "build.log"):
+            Path(out, name).write_text("x")
+        Path(runner.rc_path(job)).write_text("0\n")
+        state, fields = runner.check(job)
+        self.assertEqual(state, "done")
+        self.assertEqual([os.path.basename(p) for p in fields["output"]], ["a.AppImage", "a.deb", "a.rpm"])
+
+
 class FakeRunner:
     def __init__(self, slots):
         self.slots = list(slots)

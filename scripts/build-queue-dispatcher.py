@@ -105,7 +105,7 @@ class LinuxRunner:
             os.remove(rc_file)
             out = self.store.job_out(job["id"])
             files = sorted(os.path.join(out, n) for n in os.listdir(out)
-                           if n.endswith((".deb", ".tar.gz"))) if os.path.isdir(out) else []
+                           if n.endswith((".deb", ".rpm", ".AppImage", ".tar.gz"))) if os.path.isdir(out) else []
             if rc == 0:
                 return "done", {"output": files}
             return ("cancelled" if job.get("cancel_requested") else "failed"), {"error": f"local-build.sh exit {rc}"}

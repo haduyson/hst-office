@@ -24,9 +24,10 @@
 #
 # Layout under HST_BUILD_ROOT:
 #   chroot/    base root file system of the CI container image (same digest), build deps from
-#              `ci-build.sh --deps` + ccache; read-only for builds (overlayfs lower layer of every slot)
+#              `ci-build.sh --deps` + ccache, rpm, file; read-only for builds (overlayfs lower layer of every slot)
 #   ccache/    shared CCACHE_DIR (max HST_CCACHE_MAX, default 30G)   external-tarballs/  hard-link cache
-#   out/       <label>-<sha>/ outputs of direct runs     locks/  admission state (build-slots.py), chroot lock
+#   out/       <label>-<sha>/ outputs of direct runs: .deb, plus .rpm and .AppImage for refs whose ci-build.sh
+#              has --rpm-appimage                                  locks/  admission state (build-slots.py), chroot lock
 #   slots/<N>/ one build tree each: root/ (overlay of chroot/ + chroot-upper/), checkout/, src/ (HST_WORK:
 #              lo/, dl/, pristine.git, installer/), logs/<time>-<label>/ (wrapper.log, build.log, timings.tsv,
 #              memory.tsv), .lock
@@ -266,7 +267,9 @@ update_base() { # recreate/extend the base chroot; runs with the chroot lock hel
   if [ "$(cat "$BASE/.hst-deps" 2>/dev/null)" != "$(deps_want)" ]; then
     BASE_MOUNTED=1; mount_system "$BASE"
     IN_ROOT="$BASE" ci --deps
-    IN_ROOT="$BASE" in_chroot / env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ccache
+    # rpm and file: what `ci-build.sh --rpm-appimage` needs (it installs them itself into a slot's overlay when the
+    # base predates them; the base gets them the next time it is rebuilt).
+    IN_ROOT="$BASE" in_chroot / env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ccache rpm file
     deps_want > "$BASE/.hst-deps"
     umount_tree "$BASE"; BASE_MOUNTED=0
   fi
@@ -538,12 +541,31 @@ admit() { # wait for the admission controller; it decides -j
   log "admission: slot $SLOT admitted with -j$JOBS, memory budget ${granted#* } GiB"
 }
 
+supports_rpm_appimage() { # supports_rpm_appimage <ci-build.sh>: the built ref can repack its .deb as .rpm + .AppImage
+  grep -q -- '--rpm-appimage)' "$1"
+}
+
+copy_packages() { # copy_packages <installer dir> <dest>: SHA256SUMS and exactly the packages it lists (.deb, .rpm, .AppImage)
+  local name
+  cp -p "$1/SHA256SUMS" "$2/" || return 1
+  while read -r _ name; do
+    name="${name#\*}"
+    case "$name" in *.deb|*.rpm|*.AppImage) cp -p "$1/$name" "$2/" || return 1 ;; *) echo "unexpected package $name" >&2; return 1 ;; esac
+  done < "$1/SHA256SUMS"
+  (cd "$2" && sha256sum -c --quiet SHA256SUMS)
+}
+
 do_package() {
   ci --package
+  # Refs from 1.0.2 on also ship .rpm and .AppImage repacked from the .deb (no rebuild); older refs keep the .deb only.
+  if supports_rpm_appimage "$CHECKOUT/scripts/linux/ci-build.sh"; then
+    ci --rpm-appimage
+  else
+    log "package: this ref's ci-build.sh has no --rpm-appimage, .deb only"
+  fi
   rm -rf "$DEST"; mkdir -p "$DEST"
-  cp -p "$WORK/installer/"*.deb "$WORK/installer/SHA256SUMS" "$DEST/"
-  (cd "$DEST" && sha256sum -c --quiet SHA256SUMS)
-  log "package: $(ls "$DEST"/*.deb) ($(du -h "$DEST"/*.deb | cut -f1))"
+  copy_packages "$WORK/installer" "$DEST"
+  log "package: $(cd "$DEST" && du -h -- *.deb *.rpm *.AppImage 2>/dev/null | tr '\t\n' ' ')"
 }
 
 do_overlay() { # test-only patch overlay: the instdir files the module build rewrote (docs/BUILD_MATRIX.md)
