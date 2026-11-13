@@ -5,14 +5,15 @@ own when it saves the .docx, and the file opens several times slower afterwards
 (hst-writer-cjk-default-font.patch has the measurements).
 
 When the document has no Han, Kana or Hangul character in any text node (body, headers and
-footers, footnotes and endnotes, frames), the DOCX export now writes the East Asian font
+footers, footnotes and endnotes, frames), in comments or in the text of drawing shapes and text
+boxes (also in groups), the DOCX export now writes the East Asian font
 (w:rFonts/@w:eastAsia in document defaults, styles and runs) equal to the Latin font of the same
 style or run, and does not write the stored East Asian font. Documents with East Asian text keep
 their East Asian fonts unchanged. The document model is not changed; only the exported file.
 The .doc export has its own attribute output and is unchanged.
 
-Test: tests/runtime/check-docx-word-interop.py (Vietnamese document with a CJK East Asian font,
-and the same document with Chinese text).
+Test: tests/runtime/check-docx-word-interop.py (Vietnamese document with a CJK East Asian font;
+the same document with Chinese text in the body, only in a comment, only in a drawing shape).
 ---
 --- a/sw/source/filter/ww8/docxattributeoutput.cxx
 +++ b/sw/source/filter/ww8/docxattributeoutput.cxx
@@ -41,7 +42,18 @@ and the same document with Chinese text).
          // tdf#38778: do to fields output into DOC the font could be added before and after field declaration
 --- a/sw/source/filter/ww8/docxexport.cxx
 +++ b/sw/source/filter/ww8/docxexport.cxx
-@@ -2430,6 +2430,48 @@
+@@ -83,6 +83,10 @@
+ #include <IDocumentDrawModelAccess.hxx>
+ #include <docsh.hxx>
+ #include <ndtxt.hxx>
++#include <IDocumentFieldsAccess.hxx>
++#include <svx/svdotext.hxx>
++#include <fmtfld.hxx>
++#include <docufld.hxx>
+ #include "wrtww8.hxx"
+ #include <fmtline.hxx>
+ #include <fmtpdsc.hxx>
+@@ -2430,6 +2434,103 @@
  
  //Keep this function in-sync with the one in writerfilter/.../SettingsTable.cxx
  //Since this is not import code, "-1" needs to be handled as the mode that LO will save as.
@@ -60,31 +72,86 @@ and the same document with Chinese text).
 +           || (c >= 0xFF65 && c <= 0xFFDC) // half-width Kana and Hangul
 +           || (c >= 0x20000 && c <= 0x3134F); // CJK extensions B-G
 +}
++
++
++bool lcl_HasEastAsianText(const OUString& rText)
++{
++    for (sal_Int32 i = 0; i < rText.getLength();)
++    {
++        if (lcl_IsEastAsianCodePoint(rText.iterateCodePoints(&i)))
++            return true;
++    }
++    return false;
++}
++
++bool lcl_HasEastAsianText(const OutlinerParaObject* pText)
++{
++    if (!pText)
++        return false;
++    const EditTextObject& rText = pText->GetTextObject();
++    for (sal_Int32 i = 0; i < rText.GetParagraphCount(); ++i)
++    {
++        if (lcl_HasEastAsianText(rText.GetText(i)))
++            return true;
++    }
++    return false;
++}
++
++/// Text of drawing shapes and text boxes that are not Writer frames, also inside groups.
++bool lcl_HasEastAsianText(const SdrObjList* pList)
++{
++    if (!pList)
++        return false;
++    for (const rtl::Reference<SdrObject>& pObject : *pList)
++    {
++        if (lcl_HasEastAsianText(pObject->getChildrenOfSdrObject()))
++            return true;
++        if (const SdrTextObj* pTextObject = DynCastSdrTextObj(pObject.get()))
++        {
++            if (lcl_HasEastAsianText(pTextObject->GetOutlinerParaObject()))
++                return true;
++        }
++    }
++    return false;
++}
 +}
 +
 +bool DocxExport::HasEastAsianText()
 +{
 +    if (!m_oHasEastAsianText)
++        m_oHasEastAsianText = ScanEastAsianText();
++    return *m_oHasEastAsianText;
++}
++
++bool DocxExport::ScanEastAsianText() const
++{
++    // Text nodes: body, headers and footers, footnotes and endnotes, frames.
++    const SwNodes& rNodes = m_rDoc.GetNodes();
++    for (SwNodeOffset n(0); n < rNodes.Count(); ++n)
 +    {
-+        m_oHasEastAsianText = false;
-+        const SwNodes& rNodes = m_rDoc.GetNodes();
-+        for (SwNodeOffset n(0); n < rNodes.Count() && !*m_oHasEastAsianText; ++n)
++        const SwTextNode* pTextNode = rNodes[n]->GetTextNode();
++        if (pTextNode && lcl_HasEastAsianText(pTextNode->GetText()))
++            return true;
++    }
++    // Comments.
++    std::vector<SwFormatField*> aComments;
++    m_rDoc.getIDocumentFieldsAccess().GetSysFieldType(SwFieldIds::Postit)->GatherFields(aComments);
++    for (const SwFormatField* pFormatField : aComments)
++    {
++        const auto* pComment = static_cast<const SwPostItField*>(pFormatField->GetField());
++        if (lcl_HasEastAsianText(pComment->GetText()) || lcl_HasEastAsianText(pComment->GetTextObject()))
++            return true;
++    }
++    // Drawing shapes and their text.
++    if (const SwDrawModel* pModel = m_rDoc.getIDocumentDrawModelAccess().GetDrawModel())
++    {
++        for (sal_uInt16 i = 0; i < pModel->GetPageCount(); ++i)
 +        {
-+            const SwTextNode* pTextNode = rNodes[n]->GetTextNode();
-+            if (!pTextNode)
-+                continue;
-+            const OUString& rText = pTextNode->GetText();
-+            for (sal_Int32 i = 0; i < rText.getLength();)
-+            {
-+                if (lcl_IsEastAsianCodePoint(rText.iterateCodePoints(&i)))
-+                {
-+                    m_oHasEastAsianText = true;
-+                    break;
-+                }
-+            }
++            if (lcl_HasEastAsianText(pModel->GetPage(i)))
++                return true;
 +        }
 +    }
-+    return *m_oHasEastAsianText;
++    return false;
 +}
 +
  sal_Int32 DocxExport::getWordCompatibilityMode()
@@ -110,15 +177,19 @@ and the same document with Chinese text).
      /// Pointer to the Frame of a floating table it is nested in
      const ww8::Frame *m_pFloatingTableFrame = nullptr;
  
-@@ -344,6 +348,12 @@
+@@ -344,6 +348,16 @@
  
      sal_Int32 getWordCompatibilityMode();
  
-+    /// HST Office: true when any text node (body, headers and footers, footnotes, frames) has a
-+    /// Han, Kana or Hangul character. Without such text the East Asian font is written equal to
-+    /// the Latin one: with another East Asian font Word stores every precomposed Vietnamese letter
-+    /// (U+1E00-U+1EFF) in a run of its own when it saves the document.
++    /// HST Office: true when any text (body, headers and footers, footnotes, frames, comments,
++    /// drawing shapes) has a Han, Kana or Hangul character. Without such text the East Asian font
++    /// is written equal to the Latin one: with another East Asian font Word stores every
++    /// precomposed Vietnamese letter (U+1E00-U+1EFF) in a run of its own when it saves the document.
 +    bool HasEastAsianText();
++private:
++    /// Han, Kana or Hangul in text nodes, comments or drawing shape text.
++    bool ScanEastAsianText() const;
++public:
 +
      /// return true if Page Layout is set as Mirrored
      bool isMirroredMargin();

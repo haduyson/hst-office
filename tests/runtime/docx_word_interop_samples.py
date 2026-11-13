@@ -60,25 +60,41 @@ def east_asian_fonts(path):
     return pairs
 
 
+def add_cjk(doc, where):
+    """Chinese text only in the body, only in a comment, or only in a drawing shape."""
+    zh = "\u7814\u7a76\u7ed3\u679c"
+    text = doc.getText()
+    if where == "body":
+        text.insertString(text.getEnd(), " " + zh, False)
+    elif where == "comment":
+        comment = doc.createInstance("com.sun.star.text.textfield.Annotation")
+        comment.Author, comment.Content = "HST", zh
+        text.insertTextContent(text.getEnd(), comment, False)
+    elif where == "shape":
+        shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
+        doc.getDrawPage().add(shape)
+        shape.setString(zh)
+
+
 def check_east_asian_export(desktop, out, expect, prop):
-    """A stored CJK East Asian font is exported as the Latin font unless the text has CJK."""
+    """A stored CJK East Asian font is exported as the Latin font unless the document has CJK text."""
     import uno
-    for name, sample, keeps in (("vietnamese-cjk-font", "Nguy\u1ec5n V\u0103n An, k\u1ebft qu\u1ea3.", False),
-                              ("chinese-cjk-font", "Nguy\u1ec5n V\u0103n An \u7814\u7a76\u7ed3\u679c.", True)):
+    for where in (None, "body", "comment", "shape"):
+        name = f"cjk-font-{where or 'vietnamese-only'}"
         doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (prop("Hidden", True),))
         doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Standard").CharFontNameAsian = "Noto Serif CJK SC"
         text = doc.getText()
-        text.setString(sample)
+        text.setString("Nguy\u1ec5n V\u0103n An, k\u1ebft qu\u1ea3.")
         cursor = text.createTextCursor()
-        cursor.gotoEnd(False)
-        text.insertString(cursor, " B\u00e0i vi\u1ebft.", False)
-        cursor.gotoStartOfParagraph(True)
+        cursor.gotoEnd(True)
         cursor.CharFontNameAsian = "SimSun"  # direct formatting on the run as well
+        if where:
+            add_cjk(doc, where)
         path = os.path.join(out, name + ".docx")
         doc.storeToURL(uno.systemPathToFileUrl(path), (prop("FilterName", "MS Word 2007 XML"),))
         doc.close(True)
         pairs = east_asian_fonts(path)
         cjk = sorted({east for _, east in pairs if east in ("Noto Serif CJK SC", "SimSun")})
-        expect(f"{name}: East Asian fonts kept", cjk, ["Noto Serif CJK SC", "SimSun"] if keeps else [])
-        if not keeps:
+        expect(f"{name}: East Asian fonts kept", cjk, ["Noto Serif CJK SC", "SimSun"] if where else [])
+        if not where:
             expect(f"{name}: East Asian font equals the Latin font", [p for p in pairs if p[0] and p[0] != p[1]], [])
