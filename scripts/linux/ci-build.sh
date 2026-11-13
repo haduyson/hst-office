@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # HST Office Linux .deb build on a GitHub-hosted runner (see .github/workflows/desktop-linux.yml).
-#   ci-build.sh --deps | --extract | --patch | --configure | --fetch | --build | --package
+#   ci-build.sh --deps | --extract | --patch | --configure | --fetch | --build | --check-translations | --package
+# --check-translations: every vi .mo in instdir must match the tree's .po (scripts/l10n/check-mo-fresh.py).
 # Env: HST_WORK (work dir, default /mnt/hst), HST_DL (pinned tarballs, default $HST_WORK/dl),
 # HST_BUILD_DEADLINE (epoch seconds; --build stops make there and fails with status budget-stop),
 # HST_MIN_FREE_GIB (default 3; --build stops make and fails below this much free disk),
@@ -192,6 +193,10 @@ do_build() {
   test -x "$SRC/instdir/program/soffice" || { echo "build did not produce instdir/program/soffice"; return 1; }
 }
 
+do_check_translations() { # make never rebuilds a stale .mo by itself: never package one
+  python3 -I "$REPO/scripts/l10n/check-mo-fresh.py" --tree "$SRC" --lang vi
+}
+
 do_package() { # HSTOffice_<release>_Linux_x86-64.deb (ONE installable package) + SHA256SUMS
   local inst="$SRC/workdir/installation" out="$WORK/installer" split="$WORK/pkg-split" d n
   # An installer run that logged errors leaves "<name>_deb_witherror": never ship that.
@@ -220,6 +225,7 @@ case "${1:-}" in
   --configure) phase configure do_configure ;;
   --fetch) phase fetch do_fetch ;;
   --build) phase build do_build ;;
+  --check-translations) phase check-translations do_check_translations ;;
   --package) phase package do_package 2>&1 | tee "$LOGS/package.log"; exit "${PIPESTATUS[0]}" ;;
-  *) echo "usage: $0 --deps|--extract|--patch|--options|--configure|--fetch|--build|--package"; exit 64 ;;
+  *) echo "usage: $0 --deps|--extract|--patch|--options|--configure|--fetch|--build|--check-translations|--package"; exit 64 ;;
 esac

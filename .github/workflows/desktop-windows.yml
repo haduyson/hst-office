@@ -119,6 +119,14 @@ jobs:
           path: D:\hst\artifacts\
           if-no-files-found: error
           retention-days: 7
+      - name: Check Vietnamese catalogues
+        if: ${{ inputs.mode == 'full' && success() }}
+        shell: bash
+        run: |
+          set -eu
+          # Every vi .mo in instdir must match the patched .po (make never rebuilds a stale catalogue by itself).
+          # shellcheck disable=SC2016  # single quotes: expansion must happen inside Cygwin bash
+          C:/cygwin64/bin/bash.exe --login -o igncr -c 'cd "$(cygpath -u "$GITHUB_WORKSPACE")" && python3 -I scripts/l10n/check-mo-fresh.py --tree /cygdrive/d/hst/lo --lang vi' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Collect installer
         id: installer
         if: ${{ inputs.mode == 'full' && success() }}

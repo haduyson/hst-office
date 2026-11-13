@@ -90,6 +90,12 @@ jobs:
           set -eu
           export HST_BUILD_DEADLINE=$(( HST_JOB_START + 330 * 60 ))
           bash scripts/linux/ci-build.sh --build
+      - name: Check Vietnamese catalogues
+        if: ${{ inputs.mode == 'full' && success() }}
+        shell: bash
+        run: |
+          set -eu
+          bash scripts/linux/ci-build.sh --check-translations | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Collect .deb packages
         id: package
         if: ${{ inputs.mode == 'full' && success() }}
