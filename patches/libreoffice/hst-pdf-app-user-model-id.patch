@@ -1,0 +1,89 @@
+HST Office: HST PDF windows group under their own taskbar entry (HASONTECH.HSTOffice.Pdf, vn.hasontech.hstoffice-pdf).
+Owner decision 14/11/2026. HST PDF is not a module the module manager can identify, so its windows had no
+AppUserModelID on Windows (the taskbar grouped them under the executable, apart from every HST icon) and
+the default class on Linux.
+- framework titlebarupdate: a frame whose controller is the HST PDF viewer (service
+  org.hasontech.hstoffice.PdfViewer) gets the application "Pdf": HASONTECH.HSTOffice.Pdf on Windows,
+  vn.hasontech.hstoffice-pdf (WM_CLASS / Wayland app id) elsewhere. A PDF tab of an HST Office window
+  keeps HST Office's identity.
+- scp2: the .pdf ProgID (HSTOffice.Pdf) carries AppUserModelID HASONTECH.HSTOffice.Pdf, so a PDF opened
+  from the shell and its jump-list entries match the window; "Open with" and the registered
+  capabilities stay HST Draw's (new macro CONDITIONAL_REGISTER_DOC_EXTENSION_APPID).
+- sysui pdf.desktop: StartupWMClass=vn.hasontech.hstoffice-pdf, so docks group PDF windows under the
+  HST PDF launcher.
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/unit/test_pdf_app_user_model_id.py; Windows: tests/runtime/check-windows-document-window-modes.py.
+---
+--- a/framework/source/helper/titlebarupdate.cxx
++++ b/framework/source/helper/titlebarupdate.cxx
+@@ -25,6 +25,7 @@
+ #include <com/sun/star/awt/XWindow.hpp>
+ #include <com/sun/star/lang/IllegalArgumentException.hpp>
+ #include <com/sun/star/frame/ModuleManager.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/frame/XTitle.hpp>
+ #include <com/sun/star/frame/XTitleChangeBroadcaster.hpp>
+@@ -145,9 +146,16 @@
+             SolarMutexGuard aGuard;
+             bOfficeWindow = DocumentTabGroup::isEnabled() && DocumentTabGroup::get().isOfficeWindow(xFrame);
+         }
+-        OUString aModuleId = bOfficeWindow ? OUString() : xModuleManager->identify(xFrame);
++        // HST PDF is no module of its own (the module manager cannot identify its viewer): its
++        // windows group under HST PDF (HASONTECH.HSTOffice.Pdf, vn.hasontech.hstoffice-pdf)
++        css::uno::Reference< css::lang::XServiceInfo > xViewer( xFrame->getController(), css::uno::UNO_QUERY );
++        const bool bPdfViewer = !bOfficeWindow && xViewer.is()
++                                && xViewer->supportsService( u"org.hasontech.hstoffice.PdfViewer"_ustr );
++        OUString aModuleId = bOfficeWindow || bPdfViewer ? OUString() : xModuleManager->identify(xFrame);
+         if ( bOfficeWindow )
+             sDesktopName = "Startcenter";
++        else if ( bPdfViewer )
++            sDesktopName = "Pdf";
+         else if ( aModuleId.startsWith("com.sun.star.text.") || aModuleId.startsWith("com.sun.star.xforms.") )
+             sDesktopName = "Writer";
+         else if ( aModuleId.startsWith("com.sun.star.sheet.") )
+--- a/scp2/inc/macros.inc
++++ b/scp2/inc/macros.inc
+@@ -393,6 +393,23 @@
+     REGISTRY_ENTRY_PRINT_CMD(name,modid,app) \
+     REGISTRY_ENTRY_PRINTTO_CMD(name,modid,app) \
+ 
++// HST Office: as CONDITIONAL_REGISTER_DOC_EXTENSION, but the ProgID's AppUserModelID is
++// HASONTECH.HSTOffice.<app_id> instead of the application's (.pdf opens in HST PDF, whose windows
++// carry HASONTECH.HSTOffice.Pdf, while "Open with" and the capabilities stay HST Draw's).
++#define CONDITIONAL_REGISTER_DOC_EXTENSION_APPID(name,modid,key,cond,disp_name,icon_id,app,default,doc_type,app_id) \
++    CONDITIONAL_MODULE_ENTRY(name,modid) \
++    REGISTRY_ENTRY_OPEN_WITH(name,cond,doc_type,modid,key) \
++    CONDITIONAL_REGISTRY_ENTRY_EXT(name,cond,key) \
++    REGISTRY_ENTRY_DOC(name,modid,disp_name) \
++    REGISTRY_ENTRY_APPUSERMODELID(name,modid,app_id) \
++    REGISTRY_ENTRY_ICON(name,modid,icon_id) \
++    REGISTRY_ENTRY_SHELL(name,default,modid) \
++    REGISTRY_ENTRY_OPEN_CMD(name,modid,app) \
++    REGISTRY_ENTRY_CAPABILITIES(name,modid,key,doc_type) \
++    REGISTRY_ENTRY_NEW_CMD(name,modid,app) \
++    REGISTRY_ENTRY_PRINT_CMD(name,modid,app) \
++    REGISTRY_ENTRY_PRINTTO_CMD(name,modid,app) \
++
+ #define CONDITIONAL_REGISTER_DOCTEMPLATE_EXTENSION(name,modid,key,cond,disp_name,icon_id,app,default,doc_type) \
+     CONDITIONAL_MODULE_ENTRY(name,modid) \
+     REGISTRY_ENTRY_OPEN_WITH_TMPL(name,cond,doc_type,modid,key) \
+--- a/scp2/source/draw/registryitem_draw.scp
++++ b/scp2/source/draw/registryitem_draw.scp
+@@ -1079,7 +1079,7 @@
+ CONDITIONAL_REGISTER_DOC_EXTENSION( Xpm,  gid_Module_Prg_Draw_Other_Reg, xpm,  XPM,  X_PIXMAP, 5, sdraw.exe, open, Draw )
+ CONDITIONAL_REGISTER_DOC_EXTENSION( PCD,  gid_Module_Prg_Draw_Other_Reg, pcd,  PCD,  KODAK_PHOTO_CD_IMAGE, 5, sdraw.exe, open, Draw )
+ CONDITIONAL_REGISTER_DOC_EXTENSION( Webp, gid_Module_Prg_Draw_Other_Reg, webp, WEBP, WEBP, 5, sdraw.exe, open, Draw )
+-CONDITIONAL_REGISTER_DOC_EXTENSION( Pdf,  gid_Module_Prg_Draw_Other_Reg, pdf, PDF, PDF, 5, sdraw.exe, open, Draw )
++CONDITIONAL_REGISTER_DOC_EXTENSION_APPID( Pdf,  gid_Module_Prg_Draw_Other_Reg, pdf, PDF, PDF, 5, sdraw.exe, open, Draw, Pdf )
+ 
+ // registering ms-visio URI scheme handler
+ CONDITIONAL_REGISTER_URI_HANDLER( ms-visio, ms_visio, gid_Module_Prg_Draw_MSO_Reg, SELECT_VISIO )
+--- a/sysui/desktop/menus/pdf.desktop
++++ b/sysui/desktop/menus/pdf.desktop
+@@ -21,4 +21,5 @@
+ X-GIO-NoFuse=true
+ Keywords=PDF;Viewer;Digital signature;
+ InitialPreference=6
++StartupWMClass=vn.hasontech.hstoffice-pdf
+ X-KDE-Protocols=file,http,webdav,webdavs
