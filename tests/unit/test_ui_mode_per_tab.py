@@ -16,6 +16,7 @@ CXX = "sfx2/source/notebookbar/SfxNotebookBar.cxx"
 APPSERV = "sfx2/source/appl/appserv.cxx"
 WORKWIN = "sfx2/source/appl/workwin.cxx"
 PICKER = "cui/source/dialogs/uipickerdlg.cxx"
+LAYOUT = "framework/source/layoutmanager/layoutmanager.cxx"
 
 
 def changes():
@@ -47,7 +48,7 @@ class UiModePerTab(unittest.TestCase):
             self.assertGreater(series.index(PATCH.name), series.index(earlier))
 
     def test_files(self):
-        self.assertEqual(set(changes()), {HXX, CXX, APPSERV, WORKWIN, PICKER})
+        self.assertEqual(set(changes()), {HXX, CXX, APPSERV, WORKWIN, PICKER, LAYOUT})
         self.assertIn("License: modified upstream files keep their license (MPL-2.0).",
                       PATCH.read_text(encoding="utf-8").split("\n---\n")[0])
 
@@ -96,6 +97,12 @@ class UiModePerTab(unittest.TestCase):
         self.assertIn("const bool bWasInvisible = !m_pWrkWin->IsVisible_Impl();", workwin)
         self.assertRegex(workwin, r"if \( bWasInvisible \)\s*if \( SfxDispatcher\* pDispatcher = "
                                   r"m_pWrkWin->GetBindings\(\)\.GetDispatcher_Impl\(\) \)\s*pDispatcher->Update_Impl\( true \);")
+
+    def test_visible_is_sent_after_the_toolbars_are_unhidden(self):
+        removed, layout = "\n".join(changes()[LAYOUT][0]), added(LAYOUT)
+        self.assertIn("implts_notifyListeners( frame::LayoutManagerEvents::VISIBLE, a );", removed)
+        self.assertIn("    if ( !bSetVisible )", layout)  # INVISIBLE (unchanged line) still goes out first
+        self.assertIn("    if ( bSetVisible )\n        implts_notifyListeners( frame::LayoutManagerEvents::VISIBLE, a );", layout)
 
     def test_same_mode_again_applies(self):
         removed = "\n".join(changes()[APPSERV][0])

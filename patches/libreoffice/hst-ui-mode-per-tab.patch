@@ -19,7 +19,9 @@ got neither the ribbon nor the toolbars either.
   applications get the toolbars of their mode and no toolbar of another mode.
 - SfxWorkWindow: when its frame becomes visible again (a parked document tab is shown), it updates the object bars.
   An update while the tab was hidden had destroyed its toolbars and status bar, and nothing requested them again:
-  a document opened as a new tab lost its toolbars on the first switch back to it.
+  a document opened as a new tab lost its toolbars on the first switch back to it. LayoutManager sends VISIBLE
+  after its toolbars may be shown again (before, a request at VISIBLE found them still master-hidden and was
+  refused).
 - StateMethod shows or hides the menubars of xFrame's module (ShowMenubarForModuleOf); before, setting up a tab in
   Tabbed mode could hide the menubar of another module's tabs. A frame still being loaded (no module yet) changes
   nothing.
@@ -376,3 +378,30 @@ tests/runtime/check-ui-mode-tabs.py (Linux).
          };
      }
      //apply to current module
+--- a/framework/source/layoutmanager/layoutmanager.cxx
++++ b/framework/source/layoutmanager/layoutmanager.cxx
+@@ -755,10 +755,11 @@
+ void LayoutManager::implts_updateUIElementsVisibleState( bool bSetVisible )
+ {
+     // notify listeners
++    // HST Office: VISIBLE goes out at the end, once the toolbars may be shown again: a listener
++    // (SfxWorkWindow) requests its toolbars then, and requests made while the toolbars were still
++    // master-hidden were refused (a document tab shown again stayed without toolbars).
+     uno::Any a;
+-    if ( bSetVisible )
+-        implts_notifyListeners( frame::LayoutManagerEvents::VISIBLE, a );
+-    else
++    if ( !bSetVisible )
+         implts_notifyListeners( frame::LayoutManagerEvents::INVISIBLE, a );
+ 
+     SolarMutexResettableGuard aWriteLock;
+@@ -844,6 +845,9 @@
+ 
+     if ( bMustDoLayout )
+         implts_doLayout_notify( false );
++
++    if ( bSetVisible )
++        implts_notifyListeners( frame::LayoutManagerEvents::VISIBLE, a );
+ }
+ 
+ void LayoutManager::implts_setCurrentUIVisibility( bool bShow )
