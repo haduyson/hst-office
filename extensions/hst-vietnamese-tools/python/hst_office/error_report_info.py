@@ -107,8 +107,11 @@ def system_info(ctx, frame, payload):
     try:
         skia = _config(ctx, "/org.openoffice.Office.Common/VCL", ("UseSkia", "ForceSkia", "ForceSkiaGPU"))
         fields["Skia"] = ", ".join("%s=%s" % (k, str(v).lower()) for k, v in sorted(skia.items()))
-        fields["Skia"] += skia_in_use(_read_skia_log(ctx))
     except Exception:  # noqa: BLE001
+        pass
+    try:
+        fields["Skia"] = fields.get("Skia", "") + skia_in_use(_read_skia_log(ctx))
+    except Exception:  # noqa: BLE001 - the settings line stays without it
         pass
     return scrub(system_info_text(fields), office_secrets(ctx))
 
