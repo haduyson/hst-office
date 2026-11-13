@@ -98,7 +98,7 @@ Xem [UPDATE_INSTALL.md](UPDATE_INSTALL.md): ứng dụng tự nhận ra mình đ
 Chủ sản phẩm quyết định (13/11/2026): **từ 1.0.2 gói Linux được ký GPG** bằng một khóa riêng cho việc đóng gói Linux.
 Khóa không nằm trong kho mã; chỉ khóa công khai được commit.
 
-**Khóa.** RSA 4096, chỉ để ký, không hết hạn, `HASON TECH Linux packages <lienhe@hasontech.vn>`. Đã thử cả RSA 4096 lẫn
+**Khóa.** RSA 4096, chỉ để ký, không hết hạn, `HASON TECH Linux packages` (không kèm e-mail). Đã thử cả RSA 4096 lẫn
 Ed25519: rpm 4.14 (openSUSE Leap 15.6), 4.19 (Fedora 40) và 4.20 (Fedora 42, Tumbleweed) đều báo
 `digests signatures OK`. Chọn RSA để hợp với nhiều công cụ nhất.
 
