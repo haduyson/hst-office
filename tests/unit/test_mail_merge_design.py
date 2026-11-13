@@ -58,7 +58,11 @@ class Address(unittest.TestCase):
         conf = address.settings({}, t.headers, address.GREETING_DEFAULT)
         self.assertEqual(address.greeting(t, t.rows[0], conf), "Kính gửi ông An,")
         self.assertEqual(address.greeting(t, t.rows[1], conf), "Kính gửi chị Ngọc,")  # the title column wins
-        self.assertEqual(address.greeting(t, t.rows[2], conf), "Kính gửi ông/bà Ánh,")
+        self.assertEqual(address.greeting(t, t.rows[2], conf), "Kính gửi ông/bà Ánh,")  # ông before bà (owner)
+        nameless = mt.Table(["Họ và tên"], ["text"], [("",)])
+        self.assertEqual(address.greeting(nameless, nameless.rows[0], address.settings({}, ["Họ và tên"],
+                                                                                         address.GREETING_DEFAULT)),
+                         "Kính gửi ông/bà,")
         conf.update(given=False, capital=True, style="friendly", opening="Thân gửi", ending="")
         self.assertEqual(address.greeting(t, t.rows[0], conf), "Thân gửi Anh Nguyễn Văn An")
 
@@ -153,7 +157,9 @@ class MenusAndTexts(unittest.TestCase):
             self.assertEqual(texts.VI[key].count("%("), texts.EN[key].count("%("), key)
         for op in rules.OPS:
             self.assertIn("op." + op, texts.VI)
-        self.assertNotIn("phối thư", " ".join(texts.VI.values()).lower())
+        joined = " ".join(texts.VI.values()).lower()
+        self.assertNotIn("phối thư", joined)
+        self.assertNotIn("bà/ông", joined.replace(" ", ""))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ The columns are found by their headers (roles: title "Danh xưng", gender "Giớ
                  Trưởng phòng
                  Phòng Kế toán
                  12 Lê Lợi, Huế
-  Dòng chào:     Kính gửi ông An,  /  Thân gửi chị Ngọc,  /  Kính gửi Ông/Bà Nguyễn Văn An,
+  Dòng chào:     Kính gửi ông An,  /  Thân gửi chị Ngọc,  /  Kính gửi ông/bà Ánh,  (always "ông/bà", ông first)
 The honorific comes from the title column, else from the gender column (Ông/Bà or Anh/Chị), else the neutral pair.
 Settings live in the document (mail_merge_store meta "block" and "greeting")."""
 from .vietnamese_text import given_name, remove_diacritics
@@ -91,12 +91,15 @@ def address_block(table, row, conf):
 
 
 def greeting(table, row, conf):
-    """"Kính gửi ông An," style greeting; with no name: "Kính gửi Quý ông/bà,"-like neutral text."""
+    """"Kính gửi ông An," style greeting; unknown gender: "Kính gửi ông/bà Ánh,"; no name: "Kính gửi ông/bà,"."""
     name = _value(table, row, conf.get("name"))
     if name and conf.get("given", True):
         name = given_name(name) or name
     title = honorific(table, row, conf)
     if not conf.get("capital") and _plain(title) in _LOWER:
         title = title.lower()  # "ông An", "ông/bà"; a title such as "PGS.TS." stays as typed
-    parts = [conf.get("opening", "Kính gửi"), title if name else "Quý " + title.lower(), name]
+    if not name:  # nobody to name: the neutral pair of the style, "ông/bà" (owner: ông before bà)
+        neutral = STYLES.get(conf.get("style"), STYLES["formal"])[2]
+        title = neutral if conf.get("capital") else neutral.lower()
+    parts = [conf.get("opening", "Kính gửi"), title, name]
     return " ".join(p for p in parts if p) + conf.get("ending", ",")
