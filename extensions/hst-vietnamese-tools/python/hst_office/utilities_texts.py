@@ -3,7 +3,7 @@
 
 TITLE = "Tiện ích tiếng Việt"
 UNDO = {"diacritics": "Bỏ dấu", "split": "Tách họ tên", "sort": "Sắp xếp theo tên", "blank": "Xóa dòng trống",
-        "words": "Đọc số thành chữ", "toText": "Đổi hàm HST thành chữ"}
+        "words": "Đọc số thành chữ"}
 NUMBER_ERRORS = {
     "too-many-digits": "Số có hơn 15 chữ số phần nguyên: bảng tính không lưu chính xác số lớn như vậy, nên không đọc.",
     "not-a-number": "Không đọc được số: %s",
@@ -57,10 +57,13 @@ OPTIONS_PAGE = {"thousand": ("nghìn", "ngàn"), "odd": ("lẻ", "linh"), "four"
                 "language": DIALOG["languages"]}
 # unit, sub-unit of each preset; "đồng" reads whole đồng (to read "xu", choose "Tùy chỉnh" and type it)
 PRESETS = (("đồng", ""), ("dollar", "cent"))
-# Saving an Excel file with cells that use the HST functions (save_format_check.py)
-SAVE_TITLE = "Lưu tệp Excel"
-SAVE_TEXT = ("Microsoft Excel sẽ không hiểu các hàm riêng của HST Office (%s): trong Excel, %d ô dùng các hàm này sẽ "
-             "báo lỗi #NAME?.\n\nChọn “Đổi thành chữ rồi lưu” để tệp Excel chứa kết quả bằng chữ; các công thức vẫn giữ "
-             "trong bảng tính đang mở, trừ khi bạn đánh dấu ô bên dưới.")
-SAVE_IN_DOCUMENT = "Đổi luôn thành chữ trong bảng tính đang mở"
-SAVE_BUTTONS = ("Đổi thành chữ rồi lưu", "Vẫn lưu", "Hủy")
+# the warning before a Sheets document with HST functions is saved as .xlsx/.xls (save_format_check.py); %s of the
+# title and the text's second %s are the file extension, e.g. ".xlsx". No product of another vendor is named.
+SAVE_TITLE = "Lưu sang định dạng %s"
+SAVE_TEXT = ("Các hàm %s chỉ có trong HST Office: nếu tệp định dạng %s được mở bằng phần mềm bảng tính khác, %d ô "
+             "dùng các hàm này sẽ báo lỗi #NAME?.\n\nChọn “Chuyển thành giá trị khi lưu” để tệp được lưu chứa kết quả "
+             "hiện tại của các ô đó; công thức trong bảng tính đang mở vẫn giữ nguyên.")
+SAVE_DONT_ASK = "Không hỏi lại"
+SAVE_BUTTONS = ("Chuyển thành giá trị khi lưu", "Vẫn lưu", "Hủy")
+# Tùy chọn ▸ HST Office ▸ Đọc số và tiền: the remembered answer (save_format_prefs.PAGE_ORDER order)
+SAVE_OPTIONS = ("Hỏi mỗi lần", "Chuyển thành giá trị khi lưu", "Vẫn lưu công thức")

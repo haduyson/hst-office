@@ -1,0 +1,1462 @@
+HST Office: HST Sheets reports a number outside a function's domain as #NUM! like the leading
+spreadsheet application (owner decision 2026-11-13), while text and wrong-type arguments stay #VALUE!.
+
+Upstream raises "invalid argument" (Err:502, shown as #VALUE! since
+hst-sheets-excel-formula-conventions.patch) both for domain errors and for type errors. The domain
+errors now raise the #NUM! error (FormulaError::IllegalFPOperation, ERROR.TYPE 6, written to .xlsx
+as #NUM!) through the new ScInterpreter::PushNumError():
+- sc interpr1.cxx: SQRT, ACOSH, ATANH, ACOTH, BITAND/BITOR/BITXOR/BITLSHIFT/BITRSHIFT, RANDBETWEEN.
+- sc interpr2.cxx: LOG, LN, LOG10, CEILING/FLOOR with opposite signs (FLOOR(x;0) is #DIV/0!), DAY of
+  an out-of-range serial, WEEKDAY/WEEKNUM return type, DATE before year 0, negative TIME, DATEDIF
+  (start after end, unknown unit), NETWORKDAYS/WORKDAY.INTL date overflow, EASTERSUNDAY, ROUNDSIG,
+  DDB, DB, VDB, PDURATION, RRI, RATE, IPMT, PPMT, CUMIPMT, CUMPRINC, EFFECT, NOMINAL, BASE, DECIMAL;
+  MIRR without both a gain and a loss is #DIV/0!.
+- sc interpr3.cxx: GAMMA, GAMMALN, FACT, COMBIN(A), PERMUT(ATIONA), FISHER, every distribution and
+  inverse (NORM, LOGNORM, EXPON, T, F, CHISQ, WEIBULL, POISSON, HYPGEOM, BINOM, NEGBINOM, GAMMA, BETA,
+  CRITBINOM, B), CONFIDENCE(.T), ZTEST sigma, TTEST tails/type, STANDARDIZE, HARMEAN, GEOMEAN,
+  PERCENTILE, QUARTILE, PERCENTRANK, TRIMMEAN, SMALL/LARGE k out of range. Arrays of different size
+  give #N/A (paired TTEST, CHITEST, PEARSON/CORREL/COVAR/RSQ, SLOPE/INTERCEPT/STEYX, FORECAST) and
+  SKEW without spread #DIV/0!, as there.
+- sc interpr4/5/7/8.cxx: DGET with several matches, GCD/LCM of a negative number, MINVERSE of a
+  singular matrix, LOGEST with y <= 0, COLOR, FORECAST.ETS* aggregation, data completion, confidence
+  level, statistic type and target before the timeline.
+- sc addincol.cxx, scaddins analysis: an add-in that rejects an argument value (IllegalArgumentException:
+  BESSEL negative order, HEX2DEC invalid digit, YEARFRAC/coupon basis or frequency, IM* invalid
+  complex number, ...) gives #NUM!. The Analysis add-in reports text or a wrong type where a number is
+  expected (holidays, MULTINOMIAL/SERIESSUM lists, COMPLEX suffix, CONVERT units) with a
+  RuntimeException, which stays #VALUE!.
+CHAR(0) is #VALUE! as there (upstream returned a NUL character).
+Unchanged (#VALUE! there too): VALUE, NUMBERVALUE, CHAR, UNICHAR, LEFT/MID/RIGHT/REPT/REPLACE/
+SUBSTITUTE positions and counts, DATEVALUE, TIMEVALUE, ROMAN, ARABIC, FIXED, DOLLAR, CHOOSE,
+SUBTOTAL/AGGREGATE function numbers, lookup/array shape errors, MDETERM/MINVERSE/MMULT shapes, MUNIT.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_sheets_num_errors.py, tests/runtime/check-sheets-excel-formula-conventions.py.
+---
+--- a/sc/source/core/inc/interpre.hxx
++++ b/sc/source/core/inc/interpre.hxx
+@@ -282,6 +282,10 @@ private:
+     void PushParameterExpected();
+     void PushIllegalParameter();
+     void PushIllegalArgument();
++    /** #NUM!: a numeric argument outside the function's domain (SQRT(-1), LN(0), NORM.DIST with
++        sd <= 0, a probability outside [0,1], ...), like the leading spreadsheet application.
++        Text or a value of the wrong type stays #VALUE! (PushIllegalArgument(), PushNoValue()). */
++    void PushNumError();
+     void PushNoValue();
+     void PushNA();
+ 
+--- a/sc/source/core/tool/addincol.cxx
++++ b/sc/source/core/tool/addincol.cxx
+@@ -1536,9 +1536,15 @@ void ScUnoAddInCall::ExecuteCallWithArgs(uno::Sequence<uno::Any>& rCallArgs)
+     }
+     catch(const reflection::InvocationTargetException& rWrapped)
+     {
++        // The add-in itself rejected an argument value (the Analysis, DateFunc and Pricing add-ins
++        // throw IllegalArgumentException for a number outside the function's domain: BESSELJ with a
++        // negative order, HEX2DEC of an invalid digit, a basis or a frequency out of range, ...):
++        // #NUM! like the leading spreadsheet application. Text where a number is expected is
++        // reported by the Analysis add-in with a RuntimeException and stays #VALUE! below; a call the
++        // reflection layer refuses (argument types) is caught above and stays #VALUE! too.
+         if ( rWrapped.TargetException.getValueType().equals(
+                 cppu::UnoType<lang::IllegalArgumentException>::get()) )
+-            nErrCode = FormulaError::IllegalArgument;
++            nErrCode = FormulaError::IllegalFPOperation;
+         else if ( rWrapped.TargetException.getValueType().equals(
+                 cppu::UnoType<sheet::NoConvergenceException>::get()) )
+             nErrCode = FormulaError::NoConvergence;
+--- a/sc/source/core/tool/interpr1.cxx
++++ b/sc/source/core/tool/interpr1.cxx
+@@ -1620,7 +1620,7 @@ void ScInterpreter::ScBitAnd()
+     double num2 = ::rtl::math::approxFloor( GetDouble());
+     if (    (num1 >= n2power48) || (num1 < 0) ||
+             (num2 >= n2power48) || (num2 < 0))
+-        PushIllegalArgument();
++        PushNumError();
+     else
+         PushDouble (static_cast<sal_uInt64>(num1) & static_cast<sal_uInt64>(num2));
+ }
+@@ -1635,7 +1635,7 @@ void ScInterpreter::ScBitOr()
+     double num2 = ::rtl::math::approxFloor( GetDouble());
+     if (    (num1 >= n2power48) || (num1 < 0) ||
+             (num2 >= n2power48) || (num2 < 0))
+-        PushIllegalArgument();
++        PushNumError();
+     else
+         PushDouble (static_cast<sal_uInt64>(num1) | static_cast<sal_uInt64>(num2));
+ }
+@@ -1650,7 +1650,7 @@ void ScInterpreter::ScBitXor()
+     double num2 = ::rtl::math::approxFloor( GetDouble());
+     if (    (num1 >= n2power48) || (num1 < 0) ||
+             (num2 >= n2power48) || (num2 < 0))
+-        PushIllegalArgument();
++        PushNumError();
+     else
+         PushDouble (static_cast<sal_uInt64>(num1) ^ static_cast<sal_uInt64>(num2));
+ }
+@@ -1664,7 +1664,7 @@ void ScInterpreter::ScBitLshift()
+     double fShift = ::rtl::math::approxFloor( GetDouble());
+     double num = ::rtl::math::approxFloor( GetDouble());
+     if ((num >= n2power48) || (num < 0))
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         double fRes;
+@@ -1687,7 +1687,7 @@ void ScInterpreter::ScBitRshift()
+     double fShift = ::rtl::math::approxFloor( GetDouble());
+     double num = ::rtl::math::approxFloor( GetDouble());
+     if ((num >= n2power48) || (num < 0))
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         double fRes;
+@@ -1867,7 +1867,7 @@ void ScInterpreter::ScRandbetween()
+     double fMin = rtl::math::round( GetDouble(), 0, rtl_math_RoundingMode_Up);
+     if (nGlobalError != FormulaError::NONE || fMin > fMax)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     fMax = std::nextafter( fMax+1, -DBL_MAX);
+@@ -1970,7 +1970,7 @@ void ScInterpreter::ScArcCosHyp()
+ {
+     double fVal = GetDouble();
+     if (fVal < 1.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+         PushDouble( ::rtl::math::acosh( fVal));
+ }
+@@ -1979,7 +1979,7 @@ void ScInterpreter::ScArcTanHyp()
+ {
+     double fVal = GetDouble();
+     if (fabs(fVal) >= 1.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+         PushDouble(::atanh(fVal));
+ }
+@@ -1988,7 +1988,7 @@ void ScInterpreter::ScArcCotHyp()
+ {
+     double nVal = GetDouble();
+     if (fabs(nVal) <= 1.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+         PushDouble(0.5 * log((nVal + 1.0) / (nVal - 1.0)));
+ }
+@@ -2024,7 +2024,7 @@ void ScInterpreter::ScSqrt()
+     if (fVal >= 0.0)
+         PushDouble(sqrt(fVal));
+     else
+-        PushIllegalArgument();
++        PushNumError();
+ }
+ 
+ void ScInterpreter::ScIsEmpty()
+@@ -3608,7 +3608,9 @@ void ScInterpreter::ScChar()
+ {
+ //2do: make it full range unicode?
+     double fVal = GetDouble();
+-    if (fVal < 0.0 || fVal >= 256.0)
++    // Character codes are 1..255 (a fraction is truncated); CHAR(0) is #VALUE! like the leading
++    // spreadsheet application instead of a NUL character.
++    if (fVal < 1.0 || fVal >= 256.0)
+         PushIllegalArgument();
+     else
+     {
+--- a/sc/source/core/tool/interpr2.cxx
++++ b/sc/source/core/tool/interpr2.cxx
+@@ -140,7 +140,7 @@ void ScInterpreter::ScGetDay()
+         PushDouble(static_cast<double>(aDate.GetDay()));
+     else
+     {
+-        SetError(FormulaError::IllegalArgument);
++        SetError(FormulaError::IllegalFPOperation);
+         PushDouble(HUGE_VAL);
+     }
+ }
+@@ -234,7 +234,7 @@ void ScInterpreter::ScGetDayOfWeek()
+                 nVal -= nFlag - 12;     // nVal -= ((nFlag - 11) - 1 = x - 1 = -1,0,1,2,3,4,5)
+         break;
+         default:
+-            SetError( FormulaError::IllegalArgument);
++            SetError( FormulaError::IllegalFPOperation);
+     }
+     PushInt( nVal );
+ }
+@@ -291,7 +291,7 @@ void ScInterpreter::ScGetWeekOfYear()
+             nMinimumNumberOfDaysInWeek = 4;
+             break;
+         default :
+-            PushIllegalArgument();
++            PushNumError();
+             return;
+     }
+     PushInt( static_cast<int>(aDate.GetWeekOfYear( eFirstDayOfWeek, nMinimumNumberOfDaysInWeek )) );
+@@ -324,7 +324,7 @@ void ScInterpreter::ScEasterSunday()
+     if (nYear < 1583 || nYear > 9956)
+     {
+         // Valid Gregorian and maximum year constraints not met.
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     // don't worry, be happy :)
+@@ -533,7 +533,7 @@ void ScInterpreter::ScNetWorkdays( bool bOOXML_Version )
+         sal_Int32 nDate1 = GetFloor32();
+         if (nGlobalError != FormulaError::NONE || (nDate1 > SAL_MAX_INT32 - nNullDate) || nDate2 > (SAL_MAX_INT32 - nNullDate))
+         {
+-            PushIllegalArgument();
++            PushNumError();
+             return;
+         }
+         nDate2 += nNullDate;
+@@ -581,7 +581,7 @@ void ScInterpreter::ScWorkday_MS()
+         sal_Int32 nDate = GetFloor32();
+         if (nGlobalError != FormulaError::NONE || (nDate > SAL_MAX_INT32 - nNullDate))
+         {
+-            PushIllegalArgument();
++            PushNumError();
+             return;
+         }
+         nDate += nNullDate;
+@@ -644,7 +644,7 @@ void ScInterpreter::ScGetDate()
+         SetError( FormulaError::ParameterExpected);    // Year must be given.
+     sal_Int16 nYear  = GetInt16();
+     if (nGlobalError != FormulaError::NONE || nYear < 0)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+         PushDouble(GetDateSerial(nYear, nMonth, nDay, false));
+ }
+@@ -659,7 +659,7 @@ void ScInterpreter::ScGetTime()
+         double fHour = GetDouble();
+         double fTime = fmod( (fHour * ::tools::Time::secondPerHour) + (fMin * ::tools::Time::secondPerMinute) + fSec, DATE_TIME_FACTOR) / DATE_TIME_FACTOR;
+         if (fTime < 0)
+-            PushIllegalArgument();
++            PushNumError();
+         else
+             PushDouble( fTime);
+     }
+@@ -784,7 +784,7 @@ void ScInterpreter::ScGetDateDif()
+     // Excel doesn't swap dates or return negative numbers, so don't we.
+     if (nDate1 > nDate2)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -912,7 +912,7 @@ void ScInterpreter::ScGetDateDif()
+         PushDouble( fd );
+     }
+     else
+-        PushIllegalArgument();               // unsupported format
++        PushNumError();               // unsupported format
+ }
+ 
+ void ScInterpreter::ScGetTimeValue()
+@@ -1083,7 +1083,7 @@ void ScInterpreter::ScRoundSignificant()
+     double fX = GetDouble();
+     if ( nGlobalError != FormulaError::NONE || fDigits < 1.0 )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -1130,7 +1130,7 @@ void ScInterpreter::ScCeil( bool bODFF )
+     else
+     {
+         if ( bODFF && fVal * fDec < 0 )
+-            PushIllegalArgument();
++            PushNumError();
+         else
+         {
+             if ( fVal * fDec < 0.0 )
+@@ -1159,7 +1159,7 @@ void ScInterpreter::ScCeil_MS()
+     else if ( fVal < 0.0 )
+         PushDouble(::rtl::math::approxFloor( fVal / -fDec ) * -fDec );
+     else
+-        PushIllegalArgument();
++        PushNumError();
+ }
+ 
+ void ScInterpreter::ScCeil_Precise()
+@@ -1218,7 +1218,7 @@ void ScInterpreter::ScFloor( bool bODFF )
+     else
+     {
+         if ( bODFF && ( fVal * fDec < 0.0 ) )
+-            PushIllegalArgument();
++            PushNumError();
+         else
+         {
+             if ( fVal * fDec < 0.0 )
+@@ -1246,11 +1246,11 @@ void ScInterpreter::ScFloor_MS()
+     else if ( fVal * fDec > 0 )
+         PushDouble(::rtl::math::approxFloor( fVal / fDec ) * fDec );
+     else if ( fDec == 0 )
+-        PushIllegalArgument();
++        PushError( FormulaError::DivisionByZero);   // FLOOR(x;0) gives #DIV/0! in the leading application
+     else if ( fVal < 0.0 )
+         PushDouble(::rtl::math::approxCeil( fVal / -fDec ) * -fDec );
+     else
+-        PushIllegalArgument();
++        PushNumError();
+ }
+ 
+ void ScInterpreter::ScFloor_Precise()
+@@ -1315,7 +1315,7 @@ void ScInterpreter::ScLog()
+     if (fVal > 0.0 && fBase > 0.0 && fBase != 1.0)
+         PushDouble(log(fVal) / log(fBase));
+     else
+-        PushIllegalArgument();
++        PushNumError();
+ }
+ 
+ void ScInterpreter::ScLn()
+@@ -1324,7 +1324,7 @@ void ScInterpreter::ScLn()
+     if (fVal > 0.0)
+         PushDouble(log(fVal));
+     else
+-        PushIllegalArgument();
++        PushNumError();
+ }
+ 
+ void ScInterpreter::ScLog10()
+@@ -1333,7 +1333,7 @@ void ScInterpreter::ScLog10()
+     if (fVal > 0.0)
+         PushDouble(log10(fVal));
+     else
+-        PushIllegalArgument();
++        PushNumError();
+ }
+ 
+ void ScInterpreter::ScNPV()
+@@ -1646,7 +1646,7 @@ void ScInterpreter::ScMIRR()
+                 SetError( nIterError );
+         }
+         if ( !( bHasPosValue && bHasNegValue ) )
+-            SetError( FormulaError::IllegalArgument );
++            SetError( FormulaError::DivisionByZero );   // as the leading application: no gain or no loss
+ 
+         if ( nGlobalError != FormulaError::NONE )
+             PushError( nGlobalError );
+@@ -1758,7 +1758,7 @@ void ScInterpreter::ScDDB()
+     double fCost    = GetDouble();
+     if (fCost < 0.0 || fSalvage < 0.0 || fFactor <= 0.0 || fSalvage > fCost
+                     || fPeriod < 1.0 || fPeriod > fLife)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+         PushDouble(ScGetDDB(fCost, fSalvage, fLife, fPeriod, fFactor));
+ }
+@@ -1778,7 +1778,7 @@ void ScInterpreter::ScDB()
+         fPeriod > (fLife + 1.0) || fSalvage > fCost || fCost <= 0.0 ||
+         fLife <= 0 || fPeriod <= 0 )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     double fOffRate = 1.0 - pow(fSalvage / fCost, 1.0 / fLife);
+@@ -1865,7 +1865,7 @@ void ScInterpreter::ScVDB()
+     double fCost   = GetDouble();
+     if (fStart < 0.0 || fEnd < fStart || fEnd > fLife || fCost < 0.0
+                       || fSalvage > fCost || fFactor <= 0.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         double fIntStart = ::rtl::math::approxFloor(fStart);
+@@ -1934,7 +1934,7 @@ void ScInterpreter::ScPDuration()
+         double fPresent = GetDouble();
+         double fRate = GetDouble();
+         if ( fFuture <= 0.0 || fPresent <= 0.0 || fRate <= 0.0 )
+-            PushIllegalArgument();
++            PushNumError();
+         else
+             PushDouble( std::log( fFuture / fPresent ) / std::log1p( fRate ) );
+     }
+@@ -1993,7 +1993,7 @@ void ScInterpreter::ScRRI()
+         double fPresentValue = GetDouble();
+         double fNrOfPeriods = GetDouble();
+         if ( fNrOfPeriods <= 0.0  || fPresentValue == 0.0 )
+-            PushIllegalArgument();
++            PushNumError();
+         else
+             PushDouble(pow(fFutureValue / fPresentValue, 1.0 / fNrOfPeriods) - 1.0);
+     }
+@@ -2172,7 +2172,7 @@ void ScInterpreter::ScRate()
+ 
+     if (fNper <= 0.0) // constraint from ODFF spec
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     bool bValid = RateIteration(fNper, fPayment, fPv, fFv, bPayType, fGuess);
+@@ -2239,7 +2239,7 @@ void ScInterpreter::ScIpmt()
+     double fPer  = GetDouble();
+     double fRate = GetDouble();
+     if (fPer < 1.0 || fPer > fNper)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         double fPmt;
+@@ -2260,7 +2260,7 @@ void ScInterpreter::ScPpmt()
+     double fPer  = GetDouble();
+     double fRate = GetDouble();
+     if (fPer < 1.0 || fPer > fNper)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         double fPmt;
+@@ -2284,7 +2284,7 @@ void ScInterpreter::ScCumIpmt()
+     if (fStart < 1.0 || fEnd < fStart || fRate <= 0.0 ||
+         fEnd > fNper  || fNper <= 0.0 || fPv <= 0.0 ||
+         ( fFlag != 0.0 && fFlag != 1.0 ))
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         bool bPayInAdvance = static_cast<bool>(fFlag);
+@@ -2325,7 +2325,7 @@ void ScInterpreter::ScCumPrinc()
+     if (fStart < 1.0 || fEnd < fStart || fRate <= 0.0 ||
+         fEnd > fNper  || fNper <= 0.0 || fPv <= 0.0 ||
+         ( fFlag != 0.0 && fFlag != 1.0 ))
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         bool bPayInAdvance = static_cast<bool>(fFlag);
+@@ -2358,7 +2358,7 @@ void ScInterpreter::ScEffect()
+     double fPeriods = GetDouble();
+     double fNominal = GetDouble();
+     if (fPeriods < 1.0 || fNominal < 0.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else if ( fNominal == 0.0 )
+         PushDouble( 0.0 );
+     else
+@@ -2376,7 +2376,7 @@ void ScInterpreter::ScNominal()
+         double fPeriods = GetDouble();
+         double fEffective = GetDouble();
+         if (fPeriods < 1.0 || fEffective <= 0.0)
+-            PushIllegalArgument();
++            PushNumError();
+         else
+         {
+             fPeriods = ::rtl::math::approxFloor(fPeriods);
+@@ -2971,7 +2971,7 @@ void ScInterpreter::ScBase()
+             delete [] pBuf;
+     }
+     else
+-        PushIllegalArgument();
++        PushNumError();
+ }
+ 
+ void ScInterpreter::ScDecimal()
+@@ -3015,7 +3015,7 @@ void ScInterpreter::ScDecimal()
+                     ;       // 101b and F00Dh are ok
+                 else
+                 {
+-                    PushIllegalArgument();
++                    PushNumError();
+                     return ;
+                 }
+             }
+@@ -3027,7 +3027,7 @@ void ScInterpreter::ScDecimal()
+         PushDouble( fVal );
+     }
+     else
+-        PushIllegalArgument();
++        PushNumError();
+ }
+ 
+ void ScInterpreter::ScConvertOOo()
+--- a/sc/source/core/tool/interpr3.cxx
++++ b/sc/source/core/tool/interpr3.cxx
+@@ -737,7 +737,7 @@ void ScInterpreter::ScChiSqDist()
+         bCumulative = true;
+     double fDF = ::rtl::math::approxFloor(GetDouble());
+     if (fDF < 1.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         double fX = GetDouble();
+@@ -756,12 +756,12 @@ void ScInterpreter::ScChiSqDist_MS()
+     bool bCumulative = GetBool();
+     double fDF = ::rtl::math::approxFloor( GetDouble() );
+     if ( fDF < 1.0 || fDF > 1E10 )
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         double fX = GetDouble();
+         if ( fX < 0 )
+-            PushIllegalArgument();
++            PushNumError();
+         else
+         {
+             if ( bCumulative )
+@@ -776,7 +776,7 @@ void ScInterpreter::ScGamma()
+ {
+     double x = GetDouble();
+     if (x <= 0.0 && x == ::rtl::math::approxFloor(x))
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         double fResult = GetGamma(x);
+@@ -795,7 +795,7 @@ void ScInterpreter::ScLogGamma()
+     if (x > 0.0)    // constraint from ODFF
+         PushDouble( GetLogGamma(x));
+     else
+-        PushIllegalArgument();
++        PushNumError();
+ }
+ 
+ double ScInterpreter::GetBeta(double fAlpha, double fBeta)
+@@ -871,7 +871,7 @@ double ScInterpreter::GetBetaDistPDF(double fX, double fA, double fB)
+             return -2.0*fX + 2.0;
+         if (fX == 1.0 && fB < 1.0)
+         {
+-            SetError(FormulaError::IllegalArgument);
++            SetError(FormulaError::IllegalFPOperation);
+             return HUGE_VAL;
+         }
+         if (fX <= 0.01)
+@@ -885,7 +885,7 @@ double ScInterpreter::GetBetaDistPDF(double fX, double fA, double fB)
+             return fA * fX;
+         if (fX == 0.0 && fA < 1.0)
+         {
+-            SetError(FormulaError::IllegalArgument);
++            SetError(FormulaError::IllegalFPOperation);
+             return HUGE_VAL;
+         }
+         return fA * pow(fX,fA-1);
+@@ -894,7 +894,7 @@ double ScInterpreter::GetBetaDistPDF(double fX, double fA, double fB)
+     {
+         if (fA < 1.0 && fX == 0.0)
+         {
+-            SetError(FormulaError::IllegalArgument);
++            SetError(FormulaError::IllegalFPOperation);
+             return HUGE_VAL;
+         }
+         else
+@@ -904,7 +904,7 @@ double ScInterpreter::GetBetaDistPDF(double fX, double fA, double fB)
+     {
+         if (fB < 1.0 && fX == 1.0)
+         {
+-            SetError(FormulaError::IllegalArgument);
++            SetError(FormulaError::IllegalFPOperation);
+             return HUGE_VAL;
+         }
+         else
+@@ -1060,7 +1060,7 @@ void ScInterpreter::ScBetaDist()
+     double fScale = fUpperBound - fLowerBound;
+     if (fScale <= 0.0 || alpha <= 0.0 || beta <= 0.0)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     if (bIsCumulative) // cumulative distribution function
+@@ -1120,7 +1120,7 @@ void ScInterpreter::ScBetaDist_MS()
+     x = GetDouble();
+     if (alpha <= 0.0 || beta <= 0.0 || x < fLowerBound || x > fUpperBound)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     double fScale = fUpperBound - fLowerBound;
+@@ -1152,7 +1152,7 @@ void ScInterpreter::ScFisher()
+ {
+     double fVal = GetDouble();
+     if (std::abs(fVal) >= 1.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+         PushDouble(::atanh(fVal));
+ }
+@@ -1166,7 +1166,7 @@ void ScInterpreter::ScFact()
+ {
+     double nVal = GetDouble();
+     if (nVal < 0.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+         PushDouble(Fakultaet(nVal));
+ }
+@@ -1178,7 +1178,7 @@ void ScInterpreter::ScCombin()
+         double k = ::rtl::math::approxFloor(GetDouble());
+         double n = ::rtl::math::approxFloor(GetDouble());
+         if (k < 0.0 || n < 0.0 || k > n)
+-            PushIllegalArgument();
++            PushNumError();
+         else
+             PushDouble(BinomCoeff(n, k));
+     }
+@@ -1191,7 +1191,7 @@ void ScInterpreter::ScCombinA()
+         double k = ::rtl::math::approxFloor(GetDouble());
+         double n = ::rtl::math::approxFloor(GetDouble());
+         if (k < 0.0 || n < 0.0 || k > n)
+-            PushIllegalArgument();
++            PushNumError();
+         else
+             PushDouble(BinomCoeff(n + k - 1, k));
+     }
+@@ -1205,7 +1205,7 @@ void ScInterpreter::ScPermut()
+     double k = ::rtl::math::approxFloor(GetDouble());
+     double n = ::rtl::math::approxFloor(GetDouble());
+     if (n < 0.0 || k < 0.0 || k > n)
+-        PushIllegalArgument();
++        PushNumError();
+     else if (k == 0.0)
+         PushInt(1);     // (n! / (n - 0)!) == 1
+     else
+@@ -1224,7 +1224,7 @@ void ScInterpreter::ScPermutationA()
+         double k = ::rtl::math::approxFloor(GetDouble());
+         double n = ::rtl::math::approxFloor(GetDouble());
+         if (n < 0.0 || k < 0.0)
+-            PushIllegalArgument();
++            PushNumError();
+         else
+             PushDouble(pow(n,k));
+     }
+@@ -1288,7 +1288,7 @@ void ScInterpreter::ScB()
+         double p = GetDouble();
+         double n = ::rtl::math::approxFloor(GetDouble());
+         if (n < 0.0 || x < 0.0 || x > n || p < 0.0 || p > 1.0)
+-            PushIllegalArgument();
++            PushNumError();
+         else if (p == 0.0)
+             PushDouble( (x == 0.0) ? 1.0 : 0.0 );
+         else if ( p == 1.0)
+@@ -1336,10 +1336,10 @@ void ScInterpreter::ScB()
+                 else if ( p == 1.0 )
+                     PushDouble( (xe == n) ? 1.0 : 0.0 );
+                 else
+-                    PushIllegalArgument();
++                    PushNumError();
+             }
+             else
+-                PushIllegalArgument();
++                PushNumError();
+         }
+     }
+ }
+@@ -1356,7 +1356,7 @@ void ScInterpreter::ScBinomDist()
+     double q = (0.5 - p) + 0.5;           // get one bit more for p near 1.0
+     if (n < 0.0 || x < 0.0 || x > n || p < 0.0 || p > 1.0)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     if ( p == 0.0)
+@@ -1417,7 +1417,7 @@ void ScInterpreter::ScCritBinom()
+     double p      = GetDouble();
+     double n      = ::rtl::math::approxFloor(GetDouble());
+     if (n < 0.0 || alpha < 0.0 || alpha > 1.0 || p < 0.0 || p > 1.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else if ( alpha == 0.0 )
+         PushDouble( 0.0 );
+     else if ( alpha == 1.0 )
+@@ -1508,7 +1508,7 @@ void ScInterpreter::ScNegBinomDist()
+     double s = ::rtl::math::approxFloor(GetDouble());  // No of successes
+     double f = ::rtl::math::approxFloor(GetDouble());  // No of failures
+     if ((f + s) <= 1.0 || p < 0.0 || p > 1.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         double q = 1.0 - p;
+@@ -1529,7 +1529,7 @@ void ScInterpreter::ScNegBinomDist_MS()
+     double s = ::rtl::math::approxFloor(GetDouble());  // No of successes
+     double f = ::rtl::math::approxFloor(GetDouble());  // No of failures
+     if ( s < 1.0 || f < 0.0 || p < 0.0 || p > 1.0 )
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         double q = 1.0 - p;
+@@ -1556,7 +1556,7 @@ void ScInterpreter::ScNormDist( int nMinParamCount )
+     double x = GetDouble();                     // x
+     if (sigma <= 0.0)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     if (bCumulative)
+@@ -1576,7 +1576,7 @@ void ScInterpreter::ScLogNormDist( int nMinParamCount ) //expanded, see #i100119
+     double x = GetDouble();                              // x
+     if (sigma <= 0.0)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     if (bCumulative)
+@@ -1589,7 +1589,7 @@ void ScInterpreter::ScLogNormDist( int nMinParamCount ) //expanded, see #i100119
+     else
+     { // density
+         if (x <= 0.0)
+-            PushIllegalArgument();
++            PushNumError();
+         else
+             PushDouble(phi((log(x)-mue)/sigma)/sigma/x);
+     }
+@@ -1623,7 +1623,7 @@ void ScInterpreter::ScExpDist()
+     double lambda = GetDouble();                    // lambda
+     double x      = GetDouble();                    // x
+     if (lambda <= 0.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else if (kum == 0.0)                        // density
+     {
+         if (x >= 0.0)
+@@ -1649,7 +1649,7 @@ void ScInterpreter::ScTDist()
+     double T     = GetDouble();
+     if (fDF < 1.0 || T < 0.0 || (fFlag != 1.0 && fFlag != 2.0) )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     PushDouble( GetTDist( T, fDF, static_cast<int>(fFlag) ) );
+@@ -1663,7 +1663,7 @@ void ScInterpreter::ScTDist_T( int nTails )
+     double fT  = GetDouble();
+     if ( fDF < 1.0 || ( nTails == 2 && fT < 0.0 ) )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     double fRes = GetTDist( fT, fDF, nTails );
+@@ -1682,7 +1682,7 @@ void ScInterpreter::ScTDist_MS()
+     double T   = GetDouble();
+     if ( fDF < 1.0 )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     PushDouble( GetTDist( T, fDF, ( bCumulative ? 4 : 3 ) ) );
+@@ -1697,7 +1697,7 @@ void ScInterpreter::ScFDist()
+     double fF  = GetDouble();
+     if (fF < 0.0 || fF1 < 1.0 || fF2 < 1.0 || fF1 >= 1.0E10 || fF2 >= 1.0E10)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     PushDouble(GetFDist(fF, fF1, fF2));
+@@ -1723,7 +1723,7 @@ void ScInterpreter::ScFDist_LT()
+     double fF  = GetDouble();
+     if ( fF < 0.0 || fF1 < 1.0 || fF2 < 1.0 || fF1 >= 1.0E10 || fF2 >= 1.0E10 )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     if ( bCum )
+@@ -1750,7 +1750,7 @@ void ScInterpreter::ScChiDist( bool bODFF )
+     if ( fDF < 1.0 // x<=0 returns 1, see ODFF1.2 6.18.11
+        || ( !bODFF && fChi < 0 ) ) // Excel does not accept negative fChi
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     fResult = GetChiDist( fChi, fDF);
+@@ -1772,7 +1772,7 @@ void ScInterpreter::ScWeibull()
+     double alpha = GetDouble();                 // alpha
+     double x     = GetDouble();                 // x
+     if (alpha <= 0.0 || beta <= 0.0 || x < 0.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else if (kum == 0.0)                        // Density
+         PushDouble(alpha/pow(beta,alpha)*pow(x,alpha-1.0)*
+                    exp(-pow(x/beta,alpha)));
+@@ -1790,7 +1790,7 @@ void ScInterpreter::ScPoissonDist( bool bODFF )
+     double lambda    = GetDouble();                           // Mean
+     double x         = ::rtl::math::approxFloor(GetDouble()); // discrete distribution
+     if (lambda <= 0.0 || x < 0.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else if (!bCumulative)                            // Probability mass function
+     {
+         if (lambda >712.0)    // underflow in exp(-lambda)
+@@ -1869,7 +1869,7 @@ void ScInterpreter::ScHypGeomDist( int nMinParamCount )
+ 
+     if ( (x < 0.0) || (n < x) || (N < n) || (N < M) || (M < 0.0) )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -2105,7 +2105,7 @@ void ScInterpreter::ScGammaDist( bool bODFF )
+     double fAlpha = GetDouble();                // shape
+     double fX = GetDouble();                    // x
+     if ((!bODFF && fX < 0) || fAlpha <= 0.0 || fBeta <= 0.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else
+     {
+         if (bCumulative)                        // distribution
+@@ -2123,7 +2123,7 @@ void ScInterpreter::ScNormInv()
+         double mue   = GetDouble();
+         double x     = GetDouble();
+         if (sigma <= 0.0 || x < 0.0 || x > 1.0)
+-            PushIllegalArgument();
++            PushNumError();
+         else if (x == 0.0 || x == 1.0)
+             PushNoValue();
+         else
+@@ -2135,7 +2135,7 @@ void ScInterpreter::ScSNormInv()
+ {
+     double x = GetDouble();
+     if (x < 0.0 || x > 1.0)
+-        PushIllegalArgument();
++        PushNumError();
+     else if (x == 0.0 || x == 1.0)
+         PushNoValue();
+     else
+@@ -2151,7 +2151,7 @@ void ScInterpreter::ScLogNormInv()
+         double fMue = ( nParamCount >= 2 ? GetDouble() : 0.0 );    // Mean
+         double fP = GetDouble();                                   // p
+         if ( fSigma <= 0.0 || fP <= 0.0 || fP >= 1.0 )
+-            PushIllegalArgument();
++            PushNumError();
+         else
+             PushDouble( exp( fMue + fSigma * gaussinv( fP ) ) );
+     }
+@@ -2180,7 +2180,7 @@ void ScInterpreter::ScGammaInv()
+     double fP = GetDouble();
+     if (fAlpha <= 0.0 || fBeta <= 0.0 || fP < 0.0 || fP >= 1.0 )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     if (fP == 0.0)
+@@ -2230,7 +2230,7 @@ void ScInterpreter::ScBetaInv()
+     fP     = GetDouble();
+     if (fP < 0.0 || fP > 1.0 || fA >= fB || fAlpha <= 0.0 || fBeta <= 0.0)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -2271,13 +2271,13 @@ void ScInterpreter::ScTInv( int nType )
+     double fP = GetDouble();
+     if (fDF < 1.0 || fP <= 0.0 || fP > 1.0 )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     if ( nType == 4 ) // left-tailed cumulative t-distribution
+     {
+         if ( fP == 1.0 )
+-            PushIllegalArgument();
++            PushNumError();
+         else if ( fP < 0.5 )
+             PushDouble( -GetTInv( 1 - fP, fDF, nType ) );
+         else
+@@ -2320,7 +2320,7 @@ void ScInterpreter::ScFInv()
+     double fP  = GetDouble();
+     if (fP <= 0.0 || fF1 < 1.0 || fF2 < 1.0 || fF1 >= 1.0E10 || fF2 >= 1.0E10 || fP > 1.0)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -2341,7 +2341,7 @@ void ScInterpreter::ScFInv_LT()
+     double fP  = GetDouble();
+     if (fP <= 0.0 || fF1 < 1.0 || fF2 < 1.0 || fF1 >= 1.0E10 || fF2 >= 1.0E10 || fP > 1.0)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -2375,7 +2375,7 @@ void ScInterpreter::ScChiInv()
+     double fP = GetDouble();
+     if (fDF < 1.0 || fP <= 0.0 || fP > 1.0 )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -2410,7 +2410,7 @@ void ScInterpreter::ScChiSqInv()
+     double fP = GetDouble();
+     if (fDF < 1.0 || fP < 0.0 || fP >= 1.0 )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -2430,7 +2430,7 @@ void ScInterpreter::ScConfidence()
+         double sigma = GetDouble();
+         double alpha = GetDouble();
+         if (sigma <= 0.0 || alpha <= 0.0 || alpha >= 1.0 || n < 1.0)
+-            PushIllegalArgument();
++            PushNumError();
+         else
+             PushDouble( gaussinv(1.0-alpha/2.0) * sigma/sqrt(n) );
+     }
+@@ -2444,7 +2444,7 @@ void ScInterpreter::ScConfidenceT()
+         double sigma = GetDouble();
+         double alpha = GetDouble();
+         if (sigma <= 0.0 || alpha <= 0.0 || alpha >= 1.0 || n < 1.0)
+-            PushIllegalArgument();
++            PushNumError();
+         else if (n == 1.0) // for interoperability with Excel
+             PushError(FormulaError::DivisionByZero);
+         else
+@@ -2463,7 +2463,7 @@ void ScInterpreter::ScZTest()
+         sigma = GetDouble();
+         if (sigma <= 0.0)
+         {
+-            PushIllegalArgument();
++            PushNumError();
+             return;
+         }
+     }
+@@ -2654,7 +2654,7 @@ void ScInterpreter::ScTTest()
+     double fTails = ::rtl::math::approxFloor(GetDouble());
+     if (fTails != 1.0 && fTails != 2.0)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -2675,7 +2675,7 @@ void ScInterpreter::ScTTest()
+     {
+         if (nC1 != nC2 || nR1 != nR2)
+         {
+-            PushIllegalArgument();
++            PushNA();   // arrays of different size: #N/A as in the leading application
+             return;
+         }
+         double fCount   = 0.0;
+@@ -2723,7 +2723,7 @@ void ScInterpreter::ScTTest()
+     }
+     else
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     PushDouble( GetTDist( fT, fF, static_cast<int>(fTails) ) );
+@@ -2796,7 +2796,7 @@ void ScInterpreter::ScChiTest()
+     pMat2->GetDimensions(nC2, nR2);
+     if (nR1 != nR2 || nC1 != nC2)
+     {
+-        PushIllegalArgument();
++        PushNA();   // arrays of different size: #N/A as in the leading application
+         return;
+     }
+     KahanSum fChi = 0.0;
+@@ -2923,7 +2923,7 @@ void ScInterpreter::ScHarMean()
+                     nValCount++;
+                 }
+                 else
+-                    SetError( FormulaError::IllegalArgument);
++                    SetError( FormulaError::IllegalFPOperation);
+                 break;
+             }
+             case svSingleRef :
+@@ -2939,7 +2939,7 @@ void ScInterpreter::ScHarMean()
+                         nValCount++;
+                     }
+                     else
+-                        SetError( FormulaError::IllegalArgument);
++                        SetError( FormulaError::IllegalFPOperation);
+                 }
+                 break;
+             }
+@@ -2958,7 +2958,7 @@ void ScInterpreter::ScHarMean()
+                         nValCount++;
+                     }
+                     else
+-                        SetError( FormulaError::IllegalArgument);
++                        SetError( FormulaError::IllegalFPOperation);
+                     SetError(nErr);
+                     while ((nErr == FormulaError::NONE) && aValIter.GetNext(nCellVal, nErr))
+                     {
+@@ -2968,7 +2968,7 @@ void ScInterpreter::ScHarMean()
+                             nValCount++;
+                         }
+                         else
+-                            SetError( FormulaError::IllegalArgument);
++                            SetError( FormulaError::IllegalFPOperation);
+                     }
+                     SetError(nErr);
+                 }
+@@ -2993,7 +2993,7 @@ void ScInterpreter::ScHarMean()
+                                 nValCount++;
+                             }
+                             else
+-                                SetError( FormulaError::IllegalArgument);
++                                SetError( FormulaError::IllegalFPOperation);
+                         }
+                     }
+                     else
+@@ -3008,7 +3008,7 @@ void ScInterpreter::ScHarMean()
+                                     nValCount++;
+                                 }
+                                 else
+-                                    SetError( FormulaError::IllegalArgument);
++                                    SetError( FormulaError::IllegalFPOperation);
+                             }
+                     }
+                 }
+@@ -3053,7 +3053,7 @@ void ScInterpreter::ScGeoMean()
+                     return;
+                 }
+                 else
+-                    SetError( FormulaError::IllegalArgument);
++                    SetError( FormulaError::IllegalFPOperation);
+                 break;
+             }
+             case svSingleRef :
+@@ -3077,7 +3077,7 @@ void ScInterpreter::ScGeoMean()
+                         return;
+                     }
+                     else
+-                        SetError( FormulaError::IllegalArgument);
++                        SetError( FormulaError::IllegalFPOperation);
+                 }
+                 break;
+             }
+@@ -3104,7 +3104,7 @@ void ScInterpreter::ScGeoMean()
+                         return;
+                     }
+                     else
+-                        SetError( FormulaError::IllegalArgument);
++                        SetError( FormulaError::IllegalFPOperation);
+                     SetError(nErr);
+                     while ((nErr == FormulaError::NONE) && aValIter.GetNext(nCellVal, nErr))
+                     {
+@@ -3122,7 +3122,7 @@ void ScInterpreter::ScGeoMean()
+                             return;
+                         }
+                         else
+-                            SetError( FormulaError::IllegalArgument);
++                            SetError( FormulaError::IllegalFPOperation);
+                     }
+                     SetError(nErr);
+                 }
+@@ -3155,7 +3155,7 @@ void ScInterpreter::ScGeoMean()
+                                 return;
+                             }
+                             else
+-                                SetError( FormulaError::IllegalArgument);
++                                SetError( FormulaError::IllegalFPOperation);
+                         }
+                     }
+                     else
+@@ -3179,7 +3179,7 @@ void ScInterpreter::ScGeoMean()
+                                     return;
+                                 }
+                                 else
+-                                    SetError( FormulaError::IllegalArgument);
++                                    SetError( FormulaError::IllegalFPOperation);
+                             }
+                         }
+                     }
+@@ -3203,7 +3203,7 @@ void ScInterpreter::ScStandard()
+         double mue   = GetDouble();
+         double x     = GetDouble();
+         if (sigma < 0.0)
+-            PushError( FormulaError::IllegalArgument);
++            PushNumError();
+         else if (sigma == 0.0)
+             PushError( FormulaError::DivisionByZero);
+         else
+@@ -3338,7 +3338,7 @@ void ScInterpreter::CalculateSkewOrSkewp( bool bSkewp )
+     double fStdDev = sqrt( vSum.get() / (bSkewp ? fCount : (fCount - 1.0)));
+     if (fStdDev == 0)
+     {
+-        PushIllegalArgument();
++        PushError( FormulaError::DivisionByZero);   // no spread: #DIV/0! as in the leading application
+         return;
+     }
+ 
+@@ -3465,7 +3465,7 @@ void ScInterpreter::ScPercentile( bool bInclusive )
+     double alpha = GetDouble();
+     if ( bInclusive ? ( alpha < 0.0 || alpha > 1.0 ) : ( alpha <= 0.0 || alpha >= 1.0 ) )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     std::vector<double> aArray;
+@@ -3488,7 +3488,7 @@ void ScInterpreter::ScQuartile( bool bInclusive )
+     double fFlag = ::rtl::math::approxFloor(GetDouble());
+     if ( bInclusive ? ( fFlag < 0.0 || fFlag > 4.0 ) : ( fFlag <= 0.0 || fFlag >= 4.0 ) )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     std::vector<double> aArray;
+@@ -3716,7 +3716,7 @@ void ScInterpreter::CalculateSmallLarge(bool bSmall)
+             else if (!std::isfinite( aArray[i]))
+                 aResultArray.push_back( aArray[i]);  // propagate error
+             else
+-                aResultArray.push_back( CreateDoubleError( FormulaError::IllegalArgument));
++                aResultArray.push_back( CreateDoubleError( FormulaError::IllegalFPOperation));
+         }
+         ScMatrixRef pResult = GetNewMat(nCol, nRow, aResultArray);
+         PushMatrix(pResult);
+@@ -3741,7 +3741,7 @@ void ScInterpreter::ScPercentrank( bool bInclusive )
+     double fSignificance = ( nParamCount == 3 ? ::rtl::math::approxFloor( GetDouble() ) : 3.0 );
+     if ( fSignificance < 1.0 )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     double fNum = GetDouble();
+@@ -3835,7 +3835,7 @@ void ScInterpreter::ScTrimMean()
+     double alpha = GetDouble();
+     if (alpha < 0.0 || alpha >= 1.0)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+     std::vector<double> aSortArray;
+@@ -5012,7 +5012,7 @@ void ScInterpreter::CalculatePearsonCovar( bool _bPearson, bool _bStexy, bool _b
+     pMat2->GetDimensions(nC2, nR2);
+     if (nR1 != nR2 || nC1 != nC2)
+     {
+-        PushIllegalArgument();
++        PushNA();   // arrays of different size: #N/A as in the leading application
+         return;
+     }
+     /* #i78250#
+@@ -5126,7 +5126,7 @@ void ScInterpreter::CalculateSlopeIntercept(bool bSlope)
+     pMat2->GetDimensions(nC2, nR2);
+     if (nR1 != nR2 || nC1 != nC2)
+     {
+-        PushIllegalArgument();
++        PushNA();   // arrays of different size: #N/A as in the leading application
+         return;
+     }
+     // #i78250# numerical stability improved
+@@ -5206,7 +5206,7 @@ void ScInterpreter::ScForecast()
+     pMat2->GetDimensions(nC2, nR2);
+     if (nR1 != nR2 || nC1 != nC2)
+     {
+-        PushIllegalArgument();
++        PushNA();   // arrays of different size: #N/A as in the leading application
+         return;
+     }
+     double fVal = GetDouble();
+--- a/sc/source/core/tool/interpr4.cxx
++++ b/sc/source/core/tool/interpr4.cxx
+@@ -2004,6 +2004,11 @@ void ScInterpreter::PushIllegalArgument()
+     PushError( FormulaError::IllegalArgument);
+ }
+ 
++void ScInterpreter::PushNumError()
++{
++    PushError( FormulaError::IllegalFPOperation);
++}
++
+ void ScInterpreter::PushNA()
+ {
+     PushError( FormulaError::NotAvailable);
+@@ -2585,7 +2590,7 @@ void ScInterpreter::ScDBGet()
+     if (aValIter.GetNext(aValNext) && aValNext.mnError == FormulaError::NONE)
+     {
+         // There should be only one unique match.
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+--- a/sc/source/core/tool/interpr5.cxx
++++ b/sc/source/core/tool/interpr5.cxx
+@@ -131,7 +131,7 @@ void ScInterpreter::ScGCD()
+                 fx = ::rtl::math::approxFloor( GetDouble());
+                 if (fx < 0.0)
+                 {
+-                    PushIllegalArgument();
++                    PushNumError();
+                     return;
+                 }
+                 fy = ScGetGCD(fx, fy);
+@@ -151,7 +151,7 @@ void ScInterpreter::ScGCD()
+                         fx = ::rtl::math::approxFloor( nCellVal);
+                         if (fx < 0.0)
+                         {
+-                            PushIllegalArgument();
++                            PushNumError();
+                             return;
+                         }
+                         fy = ScGetGCD(fx, fy);
+@@ -205,7 +205,7 @@ void ScInterpreter:: ScLCM()
+                 fx = ::rtl::math::approxFloor( GetDouble());
+                 if (fx < 0.0)
+                 {
+-                    PushIllegalArgument();
++                    PushNumError();
+                     return;
+                 }
+                 if (fx == 0.0 || fy == 0.0)
+@@ -228,7 +228,7 @@ void ScInterpreter:: ScLCM()
+                         fx = ::rtl::math::approxFloor( nCellVal);
+                         if (fx < 0.0)
+                         {
+-                            PushIllegalArgument();
++                            PushNumError();
+                             return;
+                         }
+                         if (fx == 0.0 || fy == 0.0)
+@@ -1002,7 +1002,7 @@ void ScInterpreter::ScMatInv()
+             std::vector< SCSIZE> P(nR);
+             int nDetSign = lcl_LUP_decompose( xLU.get(), nR, P);
+             if (!nDetSign)
+-                PushIllegalArgument();
++                PushNumError();
+             else
+             {
+                 // Solve equation for each column.
+@@ -2321,7 +2321,7 @@ bool ScInterpreter::CheckMatrix(bool _bLOG, sal_uInt8& nCase, SCSIZE& nCX,
+             const double fVal = pNewY->GetDouble(nElem);
+             if (fVal <= 0.0)
+             {
+-                PushIllegalArgument();
++                PushNumError();
+                 return false;
+             }
+             else
+--- a/sc/source/core/tool/interpr7.cxx
++++ b/sc/source/core/tool/interpr7.cxx
+@@ -522,7 +522,7 @@ void ScInterpreter::ScColor()
+ 
+     if(nAlpha < 0 || nAlpha > 255)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -530,7 +530,7 @@ void ScInterpreter::ScColor()
+ 
+     if(nBlue < 0 || nBlue > 255)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -538,7 +538,7 @@ void ScInterpreter::ScColor()
+ 
+     if(nGreen < 0 || nGreen > 255)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -546,7 +546,7 @@ void ScInterpreter::ScColor()
+ 
+     if(nRed < 0 || nRed > 255)
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+--- a/sc/source/core/tool/interpr8.cxx
++++ b/sc/source/core/tool/interpr8.cxx
+@@ -996,7 +996,7 @@ void ScETSForecastCalculation::GetETSPredictionIntervals( const ScMatrixRef& rTM
+ 
+     if (nSize == 0)
+     {
+-        mnErrorValue = FormulaError::IllegalArgument;
++        mnErrorValue = FormulaError::IllegalFPOperation;
+         return;
+     }
+ 
+@@ -1132,7 +1132,7 @@ void ScETSForecastCalculation::GetEDSPredictionIntervals( const ScMatrixRef& rTM
+ 
+     if (nSize == 0)
+     {
+-        mnErrorValue = FormulaError::IllegalArgument;
++        mnErrorValue = FormulaError::IllegalFPOperation;
+         return;
+     }
+ 
+@@ -1206,7 +1206,7 @@ void ScInterpreter::ScForecast_Ets( ScETSType eETSType )
+         nAggregation = 1;
+     if ( nAggregation < 1 || nAggregation > 7 )
+     {
+-        PushIllegalArgument();
++        PushNumError();
+         return;
+     }
+ 
+@@ -1220,7 +1220,7 @@ void ScInterpreter::ScForecast_Ets( ScETSType eETSType )
+             bDataCompletion = nTemp;
+         else
+         {
+-            PushIllegalArgument();
++            PushNumError();
+             return;
+         }
+     }
+@@ -1256,7 +1256,7 @@ void ScInterpreter::ScForecast_Ets( ScETSType eETSType )
+         fPILevel = (nParamCount < 4 ? 0.95 : GetDoubleWithDefault( 0.95 ));
+         if ( fPILevel < 0 || fPILevel > 1 )
+         {
+-            PushIllegalArgument();
++            PushNumError();
+             return;
+         }
+     }
+@@ -1274,7 +1274,7 @@ void ScInterpreter::ScForecast_Ets( ScETSType eETSType )
+                 if ( static_cast< int >( pTypeMat->GetDouble( j, i ) ) < 1 ||
+                      static_cast< int >( pTypeMat->GetDouble( j, i ) ) > 9 )
+                 {
+-                    PushIllegalArgument();
++                    PushNumError();
+                     return;
+                 }
+             }
+--- a/scaddins/source/analysis/analysis.cxx
++++ b/scaddins/source/analysis/analysis.cxx
+@@ -1025,11 +1025,11 @@ OUString SAL_CALL AnalysisAddIn::getComplex( double fR, double fI, const uno::An
+             auto   pSuff = o3tl::forceAccess<OUString>(rSuff);
+             bi = *pSuff == "i" || pSuff->isEmpty();
+             if( !bi && *pSuff != "j" )
+-                throw lang::IllegalArgumentException();
++                ThrowNoValue();
+             }
+             break;
+         default:
+-            throw lang::IllegalArgumentException();
++            ThrowNoValue();
+     }
+ 
+     return Complex( fR, fI, bi ? 'i' : 'j' ).GetString();
+--- a/scaddins/source/analysis/analysishelper.cxx
++++ b/scaddins/source/analysis/analysishelper.cxx
+@@ -164,6 +164,11 @@ const FuncDataBase pFuncDatas[] =
+ 
+ namespace sca::analysis {
+ 
++void ThrowNoValue()
++{
++    throw uno::RuntimeException();
++}
++
+ sal_uInt16 DaysInMonth( sal_uInt16 nMonth, sal_uInt16 nYear )
+ {
+     if( (nMonth == 2) && IsLeapYear( nYear ) )
+@@ -1467,7 +1472,7 @@ void SortedIndividualInt32List::InsertHolidayList(
+     {
+         uno::Sequence< uno::Sequence< uno::Any > > aAnySeq;
+         if( !(rHolAny >>= aAnySeq) )
+-            throw lang::IllegalArgumentException();
++            ThrowNoValue();
+ 
+         for (const uno::Sequence<uno::Any>& rSubSeq : aAnySeq)
+         {
+@@ -1849,14 +1854,14 @@ void ComplexList::Append( const uno::Sequence< uno::Any >& aMultPars )
+                 {
+                 uno::Sequence< uno::Sequence< uno::Any > >           aValArr;
+                 if( !(r >>= aValArr) )
+-                    throw lang::IllegalArgumentException();
++                    ThrowNoValue();
+ 
+                 for (const uno::Sequence<uno::Any>& rArr : aValArr)
+                     Append( rArr );
+                 }
+                 break;
+             default:
+-                throw lang::IllegalArgumentException();
++                ThrowNoValue();
+         }
+     }
+ }
+@@ -2256,10 +2261,10 @@ double ConvertDataList::Convert( double fVal, const OUString& rFrom, const OUStr
+     }
+ 
+     if( !pFrom || !pTo )
+-        throw lang::IllegalArgumentException();
++        ThrowNoValue();
+ 
+     if (pFrom->Class() != pTo->Class())
+-        throw lang::IllegalArgumentException();
++        ThrowNoValue();
+ 
+     return pFrom->Convert( fVal, *pTo, nLevelFrom, nLevelTo );
+ }
+@@ -2507,7 +2512,7 @@ double ScaAnyConverter::convertToDouble( const OUString& rString ) const
+         }
+         catch( uno::Exception& )
+         {
+-            throw lang::IllegalArgumentException();
++            ThrowNoValue();
+         }
+     }
+     else
+@@ -2516,7 +2521,7 @@ double ScaAnyConverter::convertToDouble( const OUString& rString ) const
+         sal_Int32 nEnd;
+         fValue = ::rtl::math::stringToDouble( rString, '.', ',', &eStatus, &nEnd );
+         if( (eStatus != rtl_math_ConversionStatus_Ok) || (nEnd < rString.getLength()) )
+-            throw lang::IllegalArgumentException();
++            ThrowNoValue();
+     }
+     return fValue;
+ }
+@@ -2549,7 +2554,7 @@ bool ScaAnyConverter::getDouble(
+         break;
+         default:
+             if( !( rAny >>= rfResult ) )
+-                throw lang::IllegalArgumentException();
++                ThrowNoValue();
+     }
+ 
+     return bContainsVal;
+--- a/scaddins/source/analysis/analysishelper.hxx
++++ b/scaddins/source/analysis/analysishelper.hxx
+@@ -804,6 +804,13 @@ inline void ScaDate::addYears( sal_Int32 nYearCount )
+ }
+ 
+ 
++/** Text or a value of the wrong type where a number (or a known unit, a complex suffix) is expected:
++    the spreadsheet shows #VALUE!. IllegalArgumentException is kept for a number outside the function's
++    domain, which the spreadsheet shows as #NUM! like the leading spreadsheet application.
++
++    @throws css::uno::RuntimeException always */
++[[noreturn]] void ThrowNoValue();
++
+ /// Helper class for Any->double conversion, using the current locale
+ class ScaAnyConverter
+ {

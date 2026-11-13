@@ -4,7 +4,8 @@ number reading (DOCSO column) and money reading (DOCTIEN column: unit, sub-unit,
 
 It is the "user" layer of number_words_defaults, kept by number_words_prefs: the dialog "Đọc số thành chữ" opens
 with it (below a file's own default) and writes back what it used. DOCSO()/DOCTIEN() in a cell never read it.
-Saved on OK; Cancel keeps the old values. An empty unit is not a unit: the saved one stays."""
+Also the remembered answer of the warning before saving as .xlsx/.xls (save_format_prefs): "Hỏi mỗi lần" turns the
+question back on. Saved on OK; Cancel keeps the old values. An empty unit is not a unit: the saved one stays."""
 import unohelper
 from com.sun.star.awt import XContainerWindowEventHandler
 from com.sun.star.lang import XServiceInfo
@@ -64,6 +65,10 @@ class NumberWordsOptionsHandler(unohelper.Base, XServiceInfo, XContainerWindowEv
                 control.selectItemPos(indexes[choice], True)
         window.getControl("m_unit").setText(values["unit"])
         window.getControl("m_sub").setText(values["sub_unit"])
+        from . import save_format_prefs as save_prefs
+        control = window.getControl("save_choice")
+        control.getModel().StringItemList = T.SAVE_OPTIONS
+        control.selectItemPos(save_prefs.page_index(save_prefs.load(self.ctx)), True)
 
     def _save(self, window):
         from . import number_words_prefs as prefs
@@ -71,3 +76,5 @@ class NumberWordsOptionsHandler(unohelper.Base, XServiceInfo, XContainerWindowEv
                              for choice in CHOICES} for prefix in COLUMNS}
         prefs.save(self.ctx, page_layer(selected, window.getControl("m_unit").getText(),
                                         window.getControl("m_sub").getText()))
+        from . import save_format_prefs as save_prefs
+        save_prefs.save(self.ctx, save_prefs.from_page_index(window.getControl("save_choice").getSelectedItemPos()))

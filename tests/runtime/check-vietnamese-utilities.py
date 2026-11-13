@@ -14,8 +14,8 @@ Checks, with screenshots of each dialog and of the HST menu in --shots:
   4. "Đọc số thành chữ" dialog (text and formula; the last choice reopens; a column in one undo with the overwrite
      notice; the file's default kept through .xlsx and .ods), the same dialog in Writer. DOCSO/DOCTIEN with an
      argument left out follow the file's default (not the user's); Tùy chọn ▸ HST Office ▸ Đọc số và tiền.
-  5. Save as .xlsx with HST functions: the warning; Hủy saves nothing, Vẫn lưu keeps the formulas, "Đổi thành chữ rồi
-     lưu" writes values and the open document keeps its formulas, the check box converts the document too; Ctrl+S.
+  5. Save as .xlsx with HST functions: the warning; Hủy saves nothing, Vẫn lưu keeps the formulas, "Chuyển thành giá
+     trị khi lưu" writes values and the open document keeps its formulas and state; "Không hỏi lại"; Ctrl+S.
   6. The classic HST menu: "Tiện ích tiếng Việt" with the Sheets / Writer commands. Exit status 1 on any FAIL;
      started as root, the script re-executes itself as the build user under dbus-run-session.
 """
