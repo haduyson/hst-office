@@ -414,6 +414,12 @@ class DispatcherTest(QueueTestCase):
         self.assertEqual(runner.free_slot([])["host"], "hst5")
         with self.assertRaises(bq.QueueError):
             bq.drain(self.store, "hst9", wait_done=False, out=out)
+        bq.drain(self.store, "hst5", wait_done=False, out=out, hold=True)
+        runner.process_drains([], bq)
+        self.assertEqual(self.store.drains()["hst5"]["state"], "held")
+        self.assertIsNone(runner.free_slot([]))            # held: stays idle after the deploy
+        bq.drain(self.store, "hst5", cancel=True, out=out)
+        self.assertEqual(runner.free_slot([])["host"], "hst5")
         bq.drain(self.store, "hst5", wait_done=False, out=out)
         bq.drain(self.store, "hst5", cancel=True, out=out)
         self.assertEqual(self.store.drains()["hst5"]["state"], "cancelled")

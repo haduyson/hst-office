@@ -170,7 +170,7 @@ class WindowsRunner:
         return False
 
     def draining(self, host):
-        return self.store.drains().get(host, {}).get("state") == "draining"
+        return self.store.drains().get(host, {}).get("state") in ("draining", "held")
 
     def process_drains(self, jobs, core):
         """Finish a drain once its host is idle: deploy the tools unconditionally, then resume scheduling."""
@@ -187,8 +187,9 @@ class WindowsRunner:
                 log(f"{host}: drain deploy failed ({exc}); retrying")
                 continue
             t = time.time()
-            self.store.set_drain(host, state="done", finished=t, finished_at=core.now_iso(t), tools=tools)
-            log(f"{host}: drained, tools {tools} deployed, scheduling resumed")
+            state = "held" if info.get("hold") else "done"
+            self.store.set_drain(host, state=state, finished=t, finished_at=core.now_iso(t), tools=tools)
+            log(f"{host}: drained, tools {tools} deployed, " + ("held (maintenance)" if state == "held" else "scheduling resumed"))
 
     def deploy(self, host, force=False):
         digest = hashlib.sha256()
