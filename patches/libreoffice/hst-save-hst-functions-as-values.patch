@@ -1,0 +1,286 @@
+HST Office: Sheets cells that use HST functions can be saved as their results in .xlsx/.xls, the open document unchanged.
+
+When a Sheets document whose cells use DOCSO, DOCTIEN, BODAU, TACHHO or TACHTEN is saved as .xlsx or
+.xls, the bundled extension (org.hst.office.vi.SaveFormatCheck, hst-save-format-check.patch) may now
+answer with named values instead of a boolean: Proceed, and ValueFunctions, the add-in functions whose
+cells this one save writes as their current results. The save code registers that list for the
+document only while the store runs (sfx2/hstsavevalues.hxx; cleared when the save ends, fails or is
+cancelled), and the Excel cell table (shared by .xls and .xlsx) writes those cells as number, text or
+boolean cells instead of formulas; an error result keeps its formula. Nothing in the open document
+changes: no conversion, no undo step, no modified flag; URL, title and modified state after Save, Save
+As and Save a Copy are those of a normal save. No copy of the document is made, so memory stays as for
+a normal save. API saves, hidden documents and headless runs never ask and never convert.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-sheets-save-hst-values.py, tests/unit/test_save_format_check.py.
+---
+--- a/sfx2/source/doc/guisaveas.cxx
++++ b/sfx2/source/doc/guisaveas.cxx
+@@ -77,6 +77,10 @@
+ #include <tools/json_writer.hxx>
+ #include <comphelper/processfactory.hxx>
+ #include <com/sun/star/task/XJob.hpp>
++#include <comphelper/scopeguard.hxx>
++#include <sfx2/hstsavevalues.hxx>
++#include <map>
++#include <vector>
+ #include <comphelper/propertysequence.hxx>
+ #include <comphelper/propertyvalue.hxx>
+ #include <comphelper/sequenceashashmap.hxx>
+@@ -151,6 +155,43 @@
+ 
+ namespace {
+ 
++/// HST: the add-in functions written as results, per document being saved by the GUI now (see ConfirmHstFormat)
++std::map< const SfxObjectShell*, std::vector< OUString > >& HstValueFunctions()
++{
++    static std::map< const SfxObjectShell*, std::vector< OUString > > aFunctions;
++    return aFunctions;
++}
++
++/// HST: a list of strings from the save format check (a typed sequence, or a sequence of Any from Python)
++std::vector< OUString > HstStringList( const uno::Any& rValue )
++{
++    std::vector< OUString > aList;
++    uno::Sequence< OUString > aStrings;
++    uno::Sequence< uno::Any > aAnys;
++    if ( rValue >>= aStrings )
++        aList.assign( aStrings.begin(), aStrings.end() );
++    else if ( rValue >>= aAnys )
++    {
++        for ( const uno::Any& rItem : aAnys )
++        {
++            OUString aName;
++            if ( ( rItem >>= aName ) && !aName.isEmpty() )
++                aList.push_back( aName );
++        }
++    }
++    return aList;
++}
++
++}
++
++std::vector< OUString > sfx2::GetHstValueFunctions( const SfxObjectShell& rShell )
++{
++    auto aFound = HstValueFunctions().find( &rShell );
++    return aFound == HstValueFunctions().end() ? std::vector< OUString >() : aFound->second;
++}
++
++namespace {
++
+ sal_uInt16 getSlotIDFromMode( sal_Int16 nStoreMode )
+ {
+     // This is a temporary hardcoded solution must be removed when
+@@ -412,6 +453,8 @@
+ 
+     bool m_bRecommendReadOnly;
+     bool m_bSignWithDefaultSignature;
++    /// HST: the document whose cells this save writes as results (registered by ConfirmHstFormat), or null
++    const SfxObjectShell* m_pHstValuesShell = nullptr;
+ 
+     DECL_LINK(OptionsDialogClosedHdl, css::ui::dialogs::DialogClosedEvent*, void);
+ 
+@@ -457,6 +500,8 @@
+     uno::Sequence< beans::PropertyValue > GetMacroFilterInsteadOf( const OUString& rFilter );
+     /// HST: false when the bundled extension's check of the target format (org.hst.office.vi.SaveFormatCheck) cancels
+     bool ConfirmHstFormat( const OUString& rFilter );
++    /// HST: ends what ConfirmHstFormat asked of the save (cells written as results), once the save has ended
++    void ClearHstValueFunctions();
+     sal_Int8 CheckStateForSave();
+ 
+     sal_Int8 CheckFilter( const OUString& );
+@@ -497,6 +542,7 @@
+ 
+ ModelData_Impl::~ModelData_Impl()
+ {
++    ClearHstValueFunctions();
+     FreeDocumentProps();
+     m_pDocumentPropsHM.reset();
+     m_pModulePropsHM.reset();
+@@ -505,6 +551,14 @@
+ }
+ 
+ 
++void ModelData_Impl::ClearHstValueFunctions()
++{
++    if ( m_pHstValuesShell )
++        HstValueFunctions().erase( m_pHstValuesShell );
++    m_pHstValuesShell = nullptr;
++}
++
++
+ void ModelData_Impl::FreeDocumentProps()
+ {
+     m_pDocumentPropsHM.reset();
+@@ -915,6 +969,9 @@
+     // HST: the bundled extension may ask the user before a format that loses part of the document (Sheets cells that
+     // use HST functions, in an Excel file); it may convert those cells for the saved copy. Optional service: when it
+     // is missing or fails, the document is stored as before. API saves, hidden documents and headless runs are skipped.
++    // The answer is a boolean (false cancels), or named values: Proceed (boolean) and ValueFunctions (the add-in
++    // functions whose cells this save alone writes as their current results; the open document keeps its formulas).
++    ClearHstValueFunctions();
+     if ( rFilter.isEmpty() || Application::IsHeadlessModeEnabled() || comphelper::LibreOfficeKit::isActive()
+          || GetDocProps().getUnpackedValueOrDefault( u"Hidden"_ustr, false ) )
+         return true;
+@@ -924,8 +981,25 @@
+             comphelper::getProcessServiceFactory()->createInstance( u"org.hst.office.vi.SaveFormatCheck"_ustr ), uno::UNO_QUERY );
+         if ( !xCheck.is() )
+             return true;
++        const uno::Any aAnswer = xCheck->execute( { { u"Model"_ustr, uno::Any( m_xModel ) },
++                                                    { u"FilterName"_ustr, uno::Any( rFilter ) } } );
+         bool bProceed = true;
+-        xCheck->execute( { { u"Model"_ustr, uno::Any( m_xModel ) }, { u"FilterName"_ustr, uno::Any( rFilter ) } } ) >>= bProceed;
++        if ( !aAnswer.hasValue() || ( aAnswer >>= bProceed ) )
++            return bProceed;
++        ::comphelper::SequenceAsHashMap aNamed;
++        uno::Sequence< uno::Any > aAnys;
++        if ( aAnswer >>= aAnys )
++            aNamed << aAnys;
++        else
++            aNamed << aAnswer;
++        bProceed = aNamed.getUnpackedValueOrDefault( u"Proceed"_ustr, true );
++        std::vector< OUString > aFunctions = HstStringList( aNamed.getValue( u"ValueFunctions"_ustr ) );
++        SfxObjectShell* pShell = SfxObjectShell::GetShellFromComponent( m_xModel );
++        if ( bProceed && pShell && !aFunctions.empty() )
++        {
++            HstValueFunctions()[ pShell ] = std::move( aFunctions );
++            m_pHstValuesShell = pShell;
++        }
+         return bProceed;
+     }
+     catch ( const uno::Exception& )
+@@ -1796,6 +1870,7 @@
+             throw task::ErrorCodeIOException(
+                 u"SfxStoringHelper::GUIStoreModel: ERRCODE_IO_ABORT"_ustr,
+                 uno::Reference< uno::XInterface >(), sal_uInt32(ERRCODE_IO_ABORT));
++        comphelper::ScopeGuard aHstValuesGuard( [&aModelData] { aModelData.ClearHstValueFunctions(); } );
+ 
+         // Document properties can contain streams that should be freed before storing
+         aModelData.FreeDocumentProps();
+@@ -2042,6 +2117,7 @@
+         throw task::ErrorCodeIOException(
+             u"SfxStoringHelper::GUIStoreModel: ERRCODE_IO_ABORT"_ustr,
+             uno::Reference< uno::XInterface >(), sal_uInt32(ERRCODE_IO_ABORT));
++    comphelper::ScopeGuard aHstValuesGuard( [&aModelData] { aModelData.ClearHstValueFunctions(); } );
+ 
+     // so the arguments will not change any more and can be stored to the main location
+     aArgsSequence = aModelData.GetMediaDescr().getAsConstPropertyValueList();
+--- a/sc/source/filter/excel/xetable.cxx
++++ b/sc/source/filter/excel/xetable.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include <xetable.hxx>
+ 
++#include <algorithm>
+ #include <map>
+ #include <numeric>
+ #include <com/sun/star/i18n/ScriptType.hpp>
+@@ -43,6 +44,8 @@
+ #include <xltools.hxx>
+ #include <tokenarray.hxx>
+ #include <table.hxx>
++#include <docsh.hxx>
++#include <sfx2/hstsavevalues.hxx>
+ #include <formula/errorcodes.hxx>
+ #include <comphelper/threadpool.hxx>
+ #include <oox/token/tokens.hxx>
+@@ -2580,6 +2583,41 @@
+ 
+ // Cell Table
+ 
++namespace {
++
++/** HST: the cell that holds the current result of rCell when its formula calls one of rFunctions (add-in names,
++    sfx2/hstsavevalues.hxx) and the result is no error; null otherwise. Only the saved file changes: the document
++    keeps its formula. An error result keeps the formula, the other application shows an error either way. */
++XclExpCellRef lclCreateHstValueCell( const XclExpRoot& rRoot, const XclAddress& rXclPos,
++        const ScPatternAttr* pPattern, sal_uInt32 nForcedXFId, ScFormulaCell& rCell,
++        const std::vector< OUString >& rFunctions )
++{
++    bool bCalls = false;
++    formula::FormulaTokenArrayPlainIterator aIter( *rCell.GetCode() );
++    for( const formula::FormulaToken* pToken = aIter.First(); pToken && !bCalls; pToken = aIter.Next() )
++        if( pToken->GetOpCode() == ocExternal && pToken->GetType() == formula::svExternal )
++        {
++            const OUString& rCalled = static_cast< const formula::FormulaExternalToken* >( pToken )->GetExternal();
++            bCalls = std::any_of( rFunctions.begin(), rFunctions.end(),
++                                  [&rCalled]( const OUString& rName ) { return rName.equalsIgnoreAsciiCase( rCalled ); } );
++        }
++    if( !bCalls || rCell.GetErrCode() != FormulaError::NONE )
++        return XclExpCellRef();
++    if( rCell.IsValue() )
++    {
++        double fValue = rCell.GetValue();
++        if( rCell.GetFormatType() == SvNumFormatType::LOGICAL && ( fValue == 0.0 || fValue == 1.0 ) )
++            return new XclExpBooleanCell( rRoot, rXclPos, pPattern, nForcedXFId, fValue != 0.0 );
++        return new XclExpNumberCell( rRoot, rXclPos, pPattern, nForcedXFId, fValue );
++    }
++    OUString aText = rCell.GetString().getString();
++    if( aText.isEmpty() )
++        return new XclExpBlankCell( rRoot, rXclPos, rXclPos.mnCol, pPattern, nForcedXFId );
++    return new XclExpLabelCell( rRoot, rXclPos, pPattern, nForcedXFId, aText );
++}
++
++}
++
+ XclExpCellTable::XclExpCellTable( const XclExpRoot& rRoot ) :
+     XclExpRoot( rRoot ),
+     maColInfoBfr( rRoot ),
+@@ -2658,6 +2696,10 @@
+     // activate the correct segment and sub segment at the progress bar
+     GetProgressBar().ActivateCreateRowsSegment();
+ 
++    // HST: cells that call these add-in functions are written as their results by this save only
++    const std::vector< OUString > aHstValueFunctions = GetDocShell()
++        ? sfx2::GetHstValueFunctions( *GetDocShell() ) : std::vector< OUString >();
++
+     for( bool bIt = aIt.GetNext(); bIt; bIt = aIt.GetNext() )
+     {
+         SCCOL nScCol = aIt.GetStartCol();
+@@ -2765,9 +2807,13 @@
+                     }
+                 }
+ 
+-                xCell = new XclExpFormulaCell(
+-                    GetRoot(), aXclPos, pPattern, nMergeBaseXFId,
+-                    *rScCell.getFormula(), maArrayBfr, maShrfmlaBfr, maTableopBfr);
++                if( !aHstValueFunctions.empty() )
++                    xCell = lclCreateHstValueCell( GetRoot(), aXclPos, pPattern, nMergeBaseXFId,
++                        *rScCell.getFormula(), aHstValueFunctions );
++                if( !xCell )
++                    xCell = new XclExpFormulaCell(
++                        GetRoot(), aXclPos, pPattern, nMergeBaseXFId,
++                        *rScCell.getFormula(), maArrayBfr, maShrfmlaBfr, maTableopBfr);
+             }
+             break;
+ 
+--- /dev/null
++++ b/include/sfx2/hstsavevalues.hxx
+@@ -0,0 +1,27 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++// HST Office: cells written as their results by one GUI save (sfx2/source/doc/guisaveas.cxx).
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <sfx2/dllapi.h>
++
++#include <vector>
++
++class SfxObjectShell;
++
++namespace sfx2
++{
++/** The add-in functions (programmatic names, e.g. "org.hst.office.vi.CalcFunctions.docso"; compare ignoring
++    ASCII case) whose cells the save of rShell that is running now writes as their current results instead of
++    formulas. Set by the save format check of the bundled extension for that one save only; the document itself
++    keeps its formulas. Empty for every other save, including API saves. */
++SFX2_DLLPUBLIC std::vector<OUString> GetHstValueFunctions(const SfxObjectShell& rShell);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
