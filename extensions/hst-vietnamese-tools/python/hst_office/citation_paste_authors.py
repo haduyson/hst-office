@@ -7,7 +7,7 @@ import re
 
 from . import citation_names as names
 
-_ET_AL = re.compile(r"[,\s]*(?:(?:và|&)\s+(?:cộng sự|cs\.?|c\.s\.|ctv\.?)|et\s+al\.?)\s*$", re.I)
+_ET_AL = re.compile(r"[,\s]*(?:(?:và|&)\s+(?:cộng sự|cộng tác viên|cs\.?|c\.s\.|ctv\.?)|et\s+al\.?)\s*$", re.I)
 _AND = re.compile(r"\s*(?:,\s*)?(?:\s&\s|\sand\s|\svà\s)\s*", re.I)
 _CAP = "[A-ZÀ-ÖØ-ÞĐŁŒА-ЯЁ]"
 _INITIALS = r"(?:" + _CAP + r"\.\s*-?\s*)+"                         # "J. A.", "J.-P."
@@ -89,7 +89,7 @@ def looks_like_name(token, first=False):
     token = token.strip(" ;")
     if re.search(r"\w{2,}\.\s+\S", token):
         return False  # "Tổng cục Thống kê. Niên giám…": a sentence ends inside
-    if re.fullmatch(r"et al\.?|(?:và|&) (?:cộng sự|cs\.?|ctv\.?)", token, re.I):
+    if re.fullmatch(r"et al\.?|(?:và|&) (?:cộng sự|cộng tác viên|cs\.?|ctv\.?)", token, re.I):
         return True
     token = _JOINERS.sub("", token)
     if not token or re.search(r"\d", token):
@@ -108,7 +108,7 @@ def leading_names(text):
     """Length of the names list at the start of ``text`` ("Trần Văn Bình, Kinh tế…" -> len("Trần Văn Bình, "))."""
     taken, position = 0, 0
     for match in re.finditer(r"[^,]+(?:,\s*|$)", text):
-        piece = re.sub(r"\s+(?:và|&)\s+(?:cộng sự|cs\.?|ctv\.?)[,.]?\s*$|,?\s+et al\.?\s*$", "",
+        piece = re.sub(r"\s+(?:và|&)\s+(?:cộng sự|cộng tác viên|cs\.?|ctv\.?)[,.]?\s*$|,?\s+et al\.?\s*$", "",
                        match.group(0).strip(" ,"))
         parts = re.split(r"\s+(?:và|and|&)\s+", piece.strip(" ,"))
         whole = names.is_organization(piece) and not re.search(r"\w{2,}\.\s+\S", piece)  # "Bộ … và Đào tạo"

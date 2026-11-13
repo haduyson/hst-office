@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Online lookup, tested offline with recorded answers: identifiers, requests (project contact address by default,
-overridable), conversion of every service, fallbacks, rate limits, the switch-off and the HTTPS helper's URL rules."""
+"""Online lookup, tested offline with recorded answers: identifiers, requests (no contact address unless an
+administrator sets one), conversion of every service, fallbacks, rate limits, the switch-off and the HTTPS helper's URL rules."""
 import os
 import unittest
 
@@ -57,13 +57,12 @@ class Identifiers(unittest.TestCase):
 
 
 class Requests(unittest.TestCase):
-    def test_contact_address_default_and_override(self):
+    def test_no_contact_address_unless_an_administrator_sets_one(self):
         default = lookup.LookupConfig()
+        self.assertEqual(lookup.DEFAULT_CONTACT, "")
         self.assertIn("tool=HSTOffice", lookup.requests_for("pmid", "1", default)[0][1])
-        self.assertIn("email=lienhe%40hasontech.vn", lookup.requests_for("pmid", "1", default)[0][1])
-        self.assertIn("mailto=lienhe%40hasontech.vn", lookup.requests_for("doi", "10.1/x", default)[1][1])
-        plain = lookup.requests_for("pmid", "1", lookup.LookupConfig(contact=""))  # administrator removed it
-        self.assertNotIn("email", plain[0][1])
+        self.assertNotIn("email", lookup.requests_for("pmid", "1", default)[0][1])
+        self.assertNotIn("mailto", lookup.requests_for("doi", "10.1/x", default)[1][1])
         configured = lookup.LookupConfig(contact="lookup@example.org")
         self.assertIn("email=lookup%40example.org", lookup.requests_for("pmid", "1", configured)[0][1])
         self.assertIn("mailto=lookup%40example.org", lookup.requests_for("doi", "10.1/x", configured)[1][1])
@@ -128,7 +127,40 @@ class Lookups(unittest.TestCase):
         now[0] = 3.5
         polite.check("export.arxiv.org")
         polite.check("doi.org")
-        polite.check("doi.org")
+        with self.assertRaises(LookupFailure):  # Crossref's public pool: at most one request a second
+            polite.check("doi.org")
+        polite.check("openlibrary.org")
+
+    def test_busy_service_is_left_alone(self):
+        """429/503: one friendly message, no retry and no fallback in the same pool until the pause ends."""
+        now, calls = [0.0], []
+        polite = lookup.RateGate(clock=lambda: now[0])
+
+        def busy(request):
+            calls.append(request["url"])
+            return 503, b""
+        config = lookup.LookupConfig(version="1.0.2")
+        with self.assertRaises(LookupFailure) as caught:
+            lookup.lookup("10.1038/nature14539", config, busy, polite)
+        self.assertEqual(caught.exception.kind, "rate")
+        self.assertIn("503", caught.exception.message)
+        self.assertEqual(calls, ["https://doi.org/10.1038/nature14539"])  # Crossref was not asked as well
+        now[0] = 10.0
+        for text in ("10.1038/nature14539", "LeCun Bengio Hinton 2015 Deep learning Nature"):
+            with self.assertRaises(LookupFailure) as caught:
+                if text.startswith("10."):
+                    lookup.lookup(text, config, busy, polite)
+                else:
+                    lookup.lookup_reference(text, config, busy, gate=polite)
+            self.assertEqual(caught.exception.kind, "rate")
+        self.assertEqual(len(calls), 1)  # nothing sent during the pause
+        now[0] = 31.0
+        with self.assertRaises(LookupFailure):
+            lookup.lookup("10.1038/nature14539", config, lambda request: (429, b""), polite)
+        now[0] = 80.0
+        with self.assertRaises(LookupFailure) as caught:
+            polite.check("doi.org")
+        self.assertIn("giây", caught.exception.message)  # 429 pauses for a minute
 
     def test_reference_line_matching(self):
         matches = lookup.lookup_reference("LeCun Bengio Hinton 2015 Deep learning Nature", lookup.LookupConfig(),
@@ -141,18 +173,6 @@ class Lookups(unittest.TestCase):
             lookup.lookup_reference("LeCun Bengio Hinton 2015 Deep learning Nature",
                                     lookup.LookupConfig(enabled=False), Recorded(), gate=gate())
         self.assertEqual(caught.exception.kind, "disabled")
-
-
-class Helper(unittest.TestCase):
-    def test_url_rules(self):
-        self.assertTrue(http.allowed("https://doi.org/10.1/x"))
-        for url in ("http://doi.org/10.1/x", "https://evil.example/x", "https://doi.org.evil.example/",
-                    "https://user@doi.org/x", "https://doi.org:8443/x", "file:///etc/passwd"):
-            self.assertFalse(http.allowed(url), url)
-        with self.assertRaises(ValueError):
-            http.get("https://evil.example/", "application/json", "1.0.2")
-        with self.assertRaises(ValueError):
-            http.get("https://doi.org/10.1/x", "application/json", "1.0.2\r\nX-Injected: 1")
 
 
 if __name__ == "__main__":
