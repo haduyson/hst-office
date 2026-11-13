@@ -1,0 +1,58 @@
+HST PDF: after signing, the placement box no longer covers the visible signature just made.
+
+Signing with a visible signature reloaded the signed copy while the "Ký số" panel was open, and
+loadDocument() put the default placement box back on the page before the "show the signature on the
+page" option was switched off (weld set_active() does not run the toggle handler). The default box is
+exactly where the signature was drawn, so the page showed the dashed "Vị trí chữ ký số" box and its
+centred label over the signature's text - the text looked drawn on top of itself. The signed file
+itself was correct.
+
+- PdfViewerWindow::sign: switch the option and placement mode off before loading the signed copy.
+- PdfViewerWindow::loadDocument: place the default box only while the option is on.
+- PdfViewerWindow::defaultPlacement: a further signer's default box is stacked above the earlier
+  signatures instead of over them.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -375,7 +375,10 @@
+     updateStatus();
+     if (m_xSignPanel->get_visible())
+     {
+-        defaultPlacement();
++        // the placement box only while "show the signature on the page" is on: a box left over
++        // (e.g. after signing) is drawn over the page and its text over the signature's text
++        if (m_xVisible->get_active())
++            defaultPlacement();
+         updateSignPanel();
+     }
+     startSignatureCheck();
+@@ -613,7 +616,10 @@
+     const double fWidth = std::min(200.0, aSize.getWidth() / 2);
+     const double fHeight = 70.0;
+     const double fX = std::max(0.0, aSize.getWidth() - 56.0 - fWidth);
+-    const double fY = std::max(0.0, aSize.getHeight() - 90.0 - fHeight);
++    // a further signer's box goes above the earlier ones instead of over them (their widgets
++    // cover the whole page, so the earlier boxes are not known: each one is stacked one box up)
++    const int nEarlier = m_xDocument->getSignatureCount();
++    const double fY = std::max(0.0, aSize.getHeight() - 90.0 - fHeight - nEarlier * (fHeight + 10.0));
+     m_xPages->setPlacement(std::make_pair(nPage, PointRect(fX, fY, fX + fWidth, fY + fHeight)));
+ }
+ 
+@@ -781,10 +787,13 @@
+     const OUString aName = INetURLObject(aTarget).GetLastName(INetURLObject::DecodeMechanism::WithCharset);
+     const int nPage = m_xPages->getCurrentPage();
+     m_xPages->setPlacement(std::nullopt);
+-    loadDocument(aTarget, std::move(aSigned), std::chrono::steady_clock::now(), m_aPassword);
+-    m_xPages->goToPage(nPage);
++    // before loading: set_active() does not run VisibleToggleHdl, and loadDocument() places a new
++    // box while the option is on - the signed page would show "Digital signature here" over the
++    // signature just made
+     m_xVisible->set_active(false);
+     m_xPages->setPlacementMode(false);
++    loadDocument(aTarget, std::move(aSigned), std::chrono::steady_clock::now(), m_aPassword);
++    m_xPages->goToPage(nPage);
+     m_xStatusFind->set_label(XsResId(STR_HSTPDF_SIGNED_SAVED).replaceFirst("%1", aName));
+     return true;
+ }
