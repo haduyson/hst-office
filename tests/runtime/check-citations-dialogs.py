@@ -82,6 +82,23 @@ def open_dialog(rec, ctx, doc, display, out, command, title, steps=(), close="Es
     rec.check("closes-%s" % title, not worker.is_alive(), title)
 
 
+def shortcut(rec, ctx, doc, display, document):
+    """Type "[1, tr. 5" in the document window and press Alt+Shift+I: a citation of source 1 replaces it."""
+    view = doc.getCurrentController().getViewCursor()
+    view.gotoEnd(False)
+    doc.getText().insertString(view, " và [1, tr. 5", False)
+    view.gotoEnd(False)
+    window = xdotool(display, "search", "--onlyvisible", "--name", "HST Writer").stdout.split()
+    if window:
+        xdotool(display, "windowfocus", "--sync", window[0])
+    xdotool(display, "key", "alt+shift+i")
+    time.sleep(3)
+    results = [f["result"] for f in document.scan(doc) if f["kind"] == "citation"]
+    rec.check("alt-shift-i-cites-typed-number", results == ["[1]", "[1, tr. 5]"] and "[1, tr. 5" not in
+              doc.getText().getString().replace("[1, tr. 5]", ""), results)
+    doc.getUndoManager().undo()
+
+
 def run_checks(ctx, out, instdir, display):
     sys.path.insert(0, os.path.join(os.path.abspath(instdir), EXTENSION))
     from hst_office import citation_codes, citation_document as document, citation_refresh, citation_settings
@@ -92,6 +109,10 @@ def run_checks(ctx, out, instdir, display):
     texts = citation_texts.load(ctx)
     try:
         citation_settings.write(doc, {"style": "vn-so", "preset": None, "opts": {}})
+        import uno
+        locale = uno.createUnoStruct("com.sun.star.lang.Locale")
+        locale.Language, locale.Country = "vi", "VN"  # a Vietnamese thesis
+        doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Standard").CharLocale = locale
         doc.getText().setString("Theo nghiên cứu ")
         view = doc.getCurrentController().getViewCursor()
         view.gotoEnd(False)
@@ -108,6 +129,7 @@ def run_checks(ctx, out, instdir, display):
                     steps=((("Tab", "Tab", "Tab", "space"), texts["entry"]["titleNew"]),))
         open_dialog(rec, ctx, doc, display, out, "CitationUpdate", texts["common"]["title"], close="Return")
         after = snapshot(doc, document)
+        shortcut(rec, ctx, doc, display, document)
         rec.check("cancel-changes-nothing", [r for _c, r in after] == [r for _c, r in before]
                   and len(after) == len(before), {"before": before[:1], "after": after[:1]})
     finally:
