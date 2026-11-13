@@ -84,7 +84,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
            <desc>Determines the maximum count of documents, which are allowed to
 --- a/framework/inc/documenttabgroup.hxx
 +++ b/framework/inc/documenttabgroup.hxx
-@@ -72,6 +72,12 @@
+@@ -73,6 +73,12 @@
          (an HST Office window accepts all), else it gets a new window of its module;
        - the very first window of the process is an HST Office window (Start Center,
          autorecovery, documents opened by macros at startup).
@@ -97,7 +97,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
      A tab can be detached into a new window of the same kind, moved within its strip, and
      dropped on the strip of another window that accepts it.
  
-@@ -173,6 +179,16 @@
+@@ -174,6 +180,16 @@
      void optionChanged(bool bEnabled);
      void shutdown();
  
@@ -114,7 +114,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  private:
      struct Member
      {
-@@ -204,6 +220,12 @@
+@@ -205,6 +221,12 @@
      Group* groupById(sal_uInt32 nId);
      static Member* activeMember(Group& rGroup);
      static bool accepts(const Group& rGroup, const OUString& rModule);
@@ -127,7 +127,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  
      Group& newGroup(const OUString& rKind);
      Group* contextGroup();
-@@ -230,6 +252,7 @@
+@@ -232,6 +254,7 @@
      DECL_LINK(CloseWindowHdl, void*, void);
      DECL_LINK(SaveLayoutHdl, Timer*, void);
      DECL_LINK(FinishRestoreHdl, Timer*, void);
@@ -135,9 +135,9 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  
      /// One window of the saved layout (autorecovery).
      struct LayoutWindow
-@@ -271,6 +294,8 @@
-     std::vector<LayoutWindow> m_aRestore;
-     Timer m_aSaveLayoutTimer{ "framework DocumentTabGroup save layout" };
+@@ -275,6 +298,8 @@
+     /// Hides the previous tab once everything else is done (painting and the flush to the screen included).
+     Idle m_aParkIdle{ "framework DocumentTabGroup park previous tab" };
      Timer m_aFinishRestoreTimer{ "framework DocumentTabGroup finish restore" };
 +    /// applyWindowModes(): runs once no modal dialog (Options, its restart question) is up
 +    Timer m_aApplyWindowModesTimer{ "framework DocumentTabGroup apply window modes" };
@@ -267,8 +267,8 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  }
  
  constexpr OUString OFFICE_KIND = u"office"_ustr;
-@@ -424,6 +474,8 @@
-     m_aSaveLayoutTimer.SetTimeout(1500);
+@@ -426,6 +476,8 @@
+     m_aParkIdle.SetInvokeHandler(LINK(this, DocumentTabGroup, ParkIdleHdl));
      m_aSaveLayoutTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, SaveLayoutHdl));
      m_aFinishRestoreTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, FinishRestoreHdl));
 +    m_aApplyWindowModesTimer.SetTimeout(200);
@@ -276,7 +276,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  }
  
  bool DocumentTabGroup::isEnabled()
-@@ -544,6 +596,44 @@
+@@ -546,6 +598,44 @@
             || rModule == rGroup.aKind;
  }
  
@@ -321,7 +321,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  bool DocumentTabGroup::mayRecycle(const uno::Reference<frame::XFrame>& xFrame)
  {
      if (xFrame.is() && xFrame == lcl_get(m_xLaunchStartCenter))
-@@ -656,15 +746,20 @@
+@@ -658,15 +748,20 @@
          // The first window of the process is an HST Office window (autorecovery, macros).
          if (m_aGroups.empty())
              return newGroup(OFFICE_KIND);
@@ -346,7 +346,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
          if (Group* pModule = recentGroupOfKind(rModule))
              return *pModule;
      return newGroup(rModule);
-@@ -1319,6 +1414,166 @@
+@@ -1326,6 +1421,166 @@
          dissolve();
  }
  
@@ -513,7 +513,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  void DocumentTabGroup::dissolve()
  {
      // Option switched off: every tab becomes a window again (cascaded from the shown one).
-@@ -1368,6 +1623,10 @@
+@@ -1375,6 +1630,10 @@
          return false;
      if (static_cast<WorkWindow*>(rMember.pWindow.get())->IsFullScreenMode())
          return false;
@@ -524,7 +524,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
      // A lone Start Center needs no strip; a lone document shows its tab and "+".
      return rGroup.aMembers.size() > 1 || lcl_model(lcl_get(rMember.xFrame)).is();
  }
-@@ -1573,7 +1832,7 @@
+@@ -1580,7 +1839,7 @@
                                            pTarget->pBar->GetOutputSizePixel());
              if (!aStrip.Contains(rScreenPos))
                  continue;
@@ -533,7 +533,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
                  return false;
              // Leave the source window (its neighbour is shown), become the shown tab here.
              const sal_uInt32 nSource = pSource->nId;
-@@ -1829,16 +2088,23 @@
+@@ -1836,16 +2095,23 @@
              }
              rWindow.aUsed[i] = true;
              rOrder = i;
@@ -563,15 +563,15 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
              }
          }
      }
-@@ -1899,6 +2165,7 @@
+@@ -1906,6 +2172,7 @@
      // A normal quit: no crash to recover from, no layout to keep.
      m_aSaveLayoutTimer.Stop();
      m_aFinishRestoreTimer.Stop();
 +    m_aApplyWindowModesTimer.Stop();
+     m_aParkIdle.Stop();
      m_aRestore.clear();
      osl::File::remove(lcl_layoutURL());
-     for (const std::unique_ptr<Group>& pGroup : m_aGroups)
-@@ -1938,10 +2205,30 @@
+@@ -1946,10 +2213,30 @@
      }
  
      virtual void SAL_CALL dispatch(const util::URL& rURL,
@@ -603,7 +603,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
          if (!DocumentTabGroup::isEnabled() || !xFrame.is())
              return;
          if (rURL.Complete == ".uno:DetachDocumentTab")
-@@ -1980,7 +2267,7 @@
+@@ -1988,7 +2275,7 @@
  bool DocumentTabGroup::isTabCommand(std::u16string_view rCommand)
  {
      return rCommand == u".uno:NextDocumentTab" || rCommand == u".uno:PrevDocumentTab"
@@ -612,7 +612,7 @@ Test: tests/unit/test_document_window_modes.py; tests/runtime/check-document-win
  }
  
  uno::Reference<frame::XDispatch>
-@@ -2022,6 +2309,13 @@
+@@ -2030,6 +2317,13 @@
          DocumentTabGroup::get().beginRestoreLayout();
  }
  

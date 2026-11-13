@@ -101,10 +101,10 @@ def run(args):
             windows += 1 if START_TABS[app] else 2
             c.check("%s (%s): two documents from outside" % (app, "tabs" if START_TABS[app] else "separate"),
                     c.wait(lambda: len(c.frames()) == before + 2 and len(c.windows()) == windows), c.windows())
-        # HST PDF windows carry no id of their own yet (the viewer is no sfx module): recorded, not asserted
-        ids = {t: aumid(h) for h, t in c.windows() if " — HST PDF" not in t}
-        c.check("taskbar: every module window has its application's id, the Start Center HST Office's",
-                all(i.startswith("HASONTECH.HSTOffice.") for i in ids.values())
+        ids = {t: aumid(h) for h, t in c.windows()}
+        c.check("taskbar: every module window has its application's id (HST PDF its own), the Start Center HST "
+                "Office's", all(i.startswith("HASONTECH.HSTOffice.") for i in ids.values())
+                and sum(i.endswith(".Pdf") for i in ids.values()) == 2
                 and any(i.endswith(".Startcenter") for i in ids.values())
                 and sum(i.endswith(".Writer") for i in ids.values()) == 2, ids)
         wg.screenshot(os.path.join(args.out, "01-windows-per-application.png"))

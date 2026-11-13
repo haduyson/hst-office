@@ -44,11 +44,13 @@ def function(name):
 
 
 class WindowModeOptionsTest(unittest.TestCase):
-    def test_series_appends_the_patch_last(self):
+    def test_series_order(self):
         with open(os.path.join(PATCHES, "series"), encoding="utf-8") as handle:
             series = [line.strip() for line in handle if line.strip() and not line.startswith("#")]
-        self.assertEqual(series[-1], "hst-document-window-modes.patch")
-        self.assertLess(series.index("hst-module-window-groups.patch"), len(series) - 1)
+        # after the patches it builds on (module windows, tab switch, UI mode per tab)
+        for earlier in ("hst-module-window-groups.patch", "hst-document-tab-switch-no-flash.patch",
+                        "hst-ui-mode-per-tab.patch"):
+            self.assertLess(series.index(earlier), series.index("hst-document-window-modes.patch"))
 
     def test_one_boolean_per_application_defaults_to_tabs(self):
         schema = added("officecfg/registry/schema/org/openoffice/Office/Common.xcs")
