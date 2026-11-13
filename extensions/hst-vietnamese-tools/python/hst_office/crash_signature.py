@@ -176,27 +176,3 @@ def windows_hang(since, run=subprocess.run):
             if text:
                 return {"time": when, "text": text}
     return None
-
-
-_NOTE_FAULT = re.compile(r"code=0x([0-9A-Fa-f]{8}) module=(\S+) offset=0x([0-9A-Fa-f]+)")
-NOTE_CODES = {"C0000005": "access violation", "E06D7363": "C++ exception", "C0000094": "integer divide by zero",
-              "C00000FD": "stack overflow", "80000003": "breakpoint", "00000000": "abort"}
-
-
-def from_fault_note(text):
-    """Windows: the note the office's crash handler wrote (patch hst-windows-silent-crash-note) -> signature (pure).
-
-    "code=0x.. module=.. offset=0x.. thread=.." for the first fault, "end=exit255" when the handler then ended the
-    process itself (no Windows report exists for that crash); "" when there is no fault line."""
-    found = _NOTE_FAULT.search(text or "")
-    if not found:
-        return ""
-    code = found.group(1).upper()
-    module = os.path.basename(found.group(2).replace("\\", "/"))
-    kind = NOTE_CODES.get(code)
-    text_out = "Exception %s%s in %s at offset 0x%s" % (code.lower(), " (%s)" % kind if kind else "", module,
-                                                      found.group(3).lower())
-    if "end=exit255" in text:
-        text_out += "; the office's crash handler ended the process (exit code 255), so Windows recorded nothing"
-    return text_out
-

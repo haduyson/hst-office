@@ -7,20 +7,22 @@ import unittest
 
 import _paths  # noqa: F401
 from hst_office import crash_signature as sig
+from hst_office import windows_fault_note
 from hst_office import diag_crash, diag_log
+from hst_office.error_report_info import skia_in_use
 
 NOTE = "code=0xC0000005 module=vclplug_winlo.dll offset=0x4A10 thread=7\nend=exit255\n"
 
 
 class FaultNoteTests(unittest.TestCase):
     def test_note_of_a_crash_the_office_ended_silently(self):
-        self.assertEqual(sig.from_fault_note(NOTE),
+        self.assertEqual(windows_fault_note.signature(NOTE),
                          "Exception c0000005 (access violation) in vclplug_winlo.dll at offset 0x4a10; the office's "
                          "crash handler ended the process (exit code 255), so Windows recorded nothing")
-        handled = sig.from_fault_note("code=0xE06D7363 module=C:\\Users\\x\\mergedlo.dll offset=0x10 thread=1\n")
+        handled = windows_fault_note.signature("code=0xE06D7363 module=C:\\Users\\x\\mergedlo.dll offset=0x10 thread=1\n")
         self.assertEqual(handled, "Exception e06d7363 (C++ exception) in mergedlo.dll at offset 0x10")
-        self.assertEqual(sig.from_fault_note(""), "")
-        self.assertEqual(sig.from_fault_note("end=exit255\n"), "")
+        self.assertEqual(windows_fault_note.signature(""), "")
+        self.assertEqual(windows_fault_note.signature("end=exit255\n"), "")
 
 
 class PreviousSessionTests(unittest.TestCase):
@@ -43,12 +45,23 @@ class PreviousSessionTests(unittest.TestCase):
         self.assertEqual(killed["ended"], "not closed")
 
     def test_only_a_note_written_after_the_session_started_counts(self):
-        path = os.path.join(self.folder.name, diag_crash.FAULT_NOTE)
+        path = os.path.join(self.folder.name, windows_fault_note.NAME)
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(NOTE)
         os.utime(path, (1000, 1000))
         self.assertEqual(diag_crash.previous_session("Windows", marker={"started": 5000})["ended"], "not closed")
         self.assertEqual(diag_crash.previous_session("Windows", marker={"started": 1000})["ended"], "crash")
+
+
+class SkiaInUseTests(unittest.TestCase):
+    """A Skia crash at start-up makes the office fall back to raster by itself: the report shows what really draws."""
+
+    def test_vulkan_and_raster_logs(self):
+        vulkan = ("RenderMethod: vulkan\nVendor: 0x10de\nDevice: 0x1f99\nAPI: 1.3.280\nDriver: 566.36\n"
+                  "DeviceType: discrete\nDeviceName: NVIDIA GeForce GTX 1650\nDenylisted: no\n")
+        self.assertEqual(skia_in_use(vulkan), "; in use: vulkan (NVIDIA GeForce GTX 1650, driver 566.36, denylisted no)")
+        self.assertEqual(skia_in_use("RenderMethod: raster\nCompiler: clang\n"), "; in use: raster")
+        self.assertEqual(skia_in_use(""), "")
 
 
 if __name__ == "__main__":
