@@ -1815,7 +1815,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          aFrames.push_back(lcl_get(rMember.xFrame));
      for (const uno::Reference<frame::XFrame>& xFrame : aFrames)
      {
-@@ -927,12 +1426,458 @@
+@@ -927,12 +1426,462 @@
      documentEvent();
  }
  
@@ -2121,6 +2121,10 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +        const OUString aPath = lcl_layoutPath();
 +        if (aPath.isEmpty())
 +            return;
++        // the backup folder exists only once autorecovery has saved something
++        const osl::FileBase::RC eDir = osl::Directory::createPath(SvtPathOptions().GetBackupPath());
++        if (eDir != osl::FileBase::E_None && eDir != osl::FileBase::E_EXIST)
++            return;
 +        SvFileStream aStream(aPath, StreamMode::WRITE | StreamMode::TRUNC);
 +        aStream.WriteBytes(aText.getStr(), aText.getLength());
 +        aStream.Close();
@@ -2278,7 +2282,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      m_bEnabled = false;
      Application::RemoveEventListener(LINK(this, DocumentTabGroup, WindowEventHdl));
      if (m_xListener.is())
-@@ -955,17 +1900,27 @@
+@@ -955,17 +1904,27 @@
  
  namespace
  {
@@ -2309,7 +2313,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      }
      virtual void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>& xListener,
                                              const util::URL& rURL) override
-@@ -975,6 +1930,12 @@
+@@ -975,6 +1934,12 @@
          frame::FeatureStateEvent aEvent;
          aEvent.FeatureURL = rURL;
          aEvent.IsEnabled = true;
@@ -2322,7 +2326,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          aEvent.Source = getXWeak();
          xListener->statusChanged(aEvent);
      }
-@@ -982,17 +1943,22 @@
+@@ -982,17 +1947,22 @@
                                                 const util::URL&) override
      {
      }
@@ -2348,7 +2352,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  }
  
  void DocumentTabs::prepareShow(const uno::Reference<frame::XFrame>& xFrame)
-@@ -1001,6 +1967,51 @@
+@@ -1001,6 +1971,51 @@
      if (DocumentTabGroup::isEnabled())
          DocumentTabGroup::get().prepareShow(xFrame);
  }
@@ -2402,7 +2406,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/framework/source/uielement/documenttabbar.cxx
 +++ b/framework/source/uielement/documenttabbar.cxx
-@@ -15,8 +15,10 @@
+@@ -15,12 +15,15 @@
  #include <strings.hrc>
  
  #include <algorithm>
@@ -2413,7 +2417,12 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  #include <vcl/commandevent.hxx>
  #include <vcl/help.hxx>
  #include <vcl/menu.hxx>
-@@ -39,6 +41,9 @@
+ #include <vcl/settings.hxx>
++#include <vcl/syswin.hxx>
+ #include <vcl/svapp.hxx>
+ 
+ namespace framework
+@@ -39,6 +42,9 @@
  constexpr sal_uInt16 MENU_CALC = 2;
  constexpr sal_uInt16 MENU_IMPRESS = 3;
  constexpr sal_uInt16 MENU_OPEN = 4;
@@ -2423,7 +2432,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
  
  /// Scale a 100% pixel size by the window's DPI factor.
  tools::Long Px(const vcl::Window& rWindow, double fPixels)
-@@ -78,7 +83,7 @@
+@@ -78,7 +84,7 @@
      const tools::Long nPad = Px(*this, TAB_PAD);
      const tools::Long nMin = Px(*this, TAB_MIN_WIDTH);
  
@@ -2432,7 +2441,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      m_aTabs.clear();
  
      // Natural widths, then shrink evenly when they don't fit next to the "+" button.
-@@ -305,36 +310,167 @@
+@@ -305,36 +311,169 @@
          if (rMEvt.IsMiddle() || (rMEvt.IsLeft() && bClose))
              DocumentTabGroup::get().closeTab(xTarget);
          else if (rMEvt.IsLeft())
@@ -2526,9 +2535,11 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
 +    if (rGroup.mergeAt(xFrame, aScreen))
 +        return;
 +    // where the tab was grabbed, relative to the top-left corner of the window
++    // (the strip sits in a child of the top-level window: measure from the top-level window)
++    const vcl::Window* pTop = GetSystemWindow();
 +    const Point aGrab = Point(OutputToAbsoluteScreenPixel(m_aDragStart))
-+                        - (GetParent() ? Point(GetParent()->OutputToAbsoluteScreenPixel(Point()))
-+                                       : Point(OutputToAbsoluteScreenPixel(Point())));
++                        - (pTop ? Point(pTop->OutputToAbsoluteScreenPixel(Point()))
++                                : Point(OutputToAbsoluteScreenPixel(Point())));
 +    rGroup.detach(xFrame, Point(aScreen.X() - aGrab.X(), aScreen.Y() - aGrab.Y()));
 +}
 +
