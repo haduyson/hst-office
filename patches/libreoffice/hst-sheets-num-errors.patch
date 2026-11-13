@@ -25,6 +25,7 @@ as #NUM!) through the new ScInterpreter::PushNumError():
   complex number, ...) gives #NUM!. The Analysis add-in reports text or a wrong type where a number is
   expected (holidays, MULTINOMIAL/SERIESSUM lists, COMPLEX suffix, CONVERT units) with a
   RuntimeException, which stays #VALUE!.
+CHAR(0) is #VALUE! as there (upstream returned a NUL character).
 Unchanged (#VALUE! there too): VALUE, NUMBERVALUE, CHAR, UNICHAR, LEFT/MID/RIGHT/REPT/REPLACE/
 SUBSTITUTE positions and counts, DATEVALUE, TIMEVALUE, ROMAN, ARABIC, FIXED, DOLLAR, CHOOSE,
 SUBTOTAL/AGGREGATE function numbers, lookup/array shape errors, MDETERM/MINVERSE/MMULT shapes, MUNIT.
@@ -156,6 +157,17 @@ Test: tests/unit/test_sheets_num_errors.py, tests/runtime/check-sheets-excel-for
  }
  
  void ScInterpreter::ScIsEmpty()
+@@ -3608,7 +3608,9 @@ void ScInterpreter::ScChar()
+ {
+ //2do: make it full range unicode?
+     double fVal = GetDouble();
+-    if (fVal < 0.0 || fVal >= 256.0)
++    // Character codes are 1..255 (a fraction is truncated); CHAR(0) is #VALUE! like the leading
++    // spreadsheet application instead of a NUL character.
++    if (fVal < 1.0 || fVal >= 256.0)
+         PushIllegalArgument();
+     else
+     {
 --- a/sc/source/core/tool/interpr2.cxx
 +++ b/sc/source/core/tool/interpr2.cxx
 @@ -140,7 +140,7 @@ void ScInterpreter::ScGetDay()

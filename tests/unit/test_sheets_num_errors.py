@@ -81,7 +81,9 @@ class SheetsNumErrors(unittest.TestCase):
         for name, functions in VALUE_FUNCTIONS.items():
             changed = changes(TOOL + name)
             for function in functions:
-                self.assertNotIn(function, changed)
+                self.assertFalse([t for sign, t in changed.get(function, []) if sign == "+" and "PushNumError" in t], function)
+        # CHAR(0) is #VALUE! there, not a NUL character.
+        self.assertIn(("+", "if (fVal < 1.0 || fVal >= 256.0)"), changes(TOOL + "interpr1.cxx")["ScChar"])
 
     def test_mismatched_arrays_are_na_and_no_spread_is_div0(self):
         changed = changes(TOOL + "interpr3.cxx")
