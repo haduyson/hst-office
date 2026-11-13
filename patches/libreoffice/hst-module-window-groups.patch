@@ -310,15 +310,16 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      virtual void RequestHelp(const HelpEvent& rHEvt) override;
      virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
      virtual void Resize() override;
-@@ -49,6 +55,7 @@
+@@ -49,6 +55,8 @@
      void ImplInitSettings();
      sal_Int32 ImplHitTab(const Point& rPos, bool* pOnClose) const;
      void ImplShowNewMenu();
 +    void ImplEndDrag(const Point& rPos, bool bCancelled);
++    Point ImplDragPos(const Point& rEventPos);
  
      css::uno::WeakReference<css::frame::XFrame> m_xFrame;
      std::vector<TabLayout> m_aTabs;
-@@ -56,6 +63,11 @@
+@@ -56,6 +64,11 @@
      sal_Int32 m_nHoverTab = -1;
      bool m_bHoverClose = false;
      bool m_bHoverPlus = false;
@@ -1934,7 +1935,7 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
      m_aTabs.clear();
  
      // Natural widths, then shrink evenly when they don't fit next to the "+" button.
-@@ -305,36 +310,157 @@
+@@ -305,36 +310,167 @@
          if (rMEvt.IsMiddle() || (rMEvt.IsLeft() && bClose))
              DocumentTabGroup::get().closeTab(xTarget);
          else if (rMEvt.IsLeft())
@@ -1954,9 +1955,19 @@ Test: tests/runtime/check-module-windows.py under Xvfb; tests/unit/test_module_w
          ImplShowNewMenu();
  }
  
++Point DocumentTabBar::ImplDragPos(const Point& rEventPos)
++{
++    // Motion outside the window is not delivered everywhere while dragging (GTK without a
++    // window manager): ask the system where the pointer is. Wayland knows the pointer only over
++    // our own surfaces: there the event position is all there is.
++    if (Application::GetPlatform() == Platform::Wayland)
++        return rEventPos;
++    return GetPointerState().maPos;
++}
++
 +void DocumentTabBar::Tracking(const TrackingEvent& rTEvt)
 +{
-+    const Point aPos = rTEvt.GetMouseEvent().GetPosPixel();
++    const Point aPos = ImplDragPos(rTEvt.GetMouseEvent().GetPosPixel());
 +    if (rTEvt.IsTrackingEnded())
 +    {
 +        ImplEndDrag(aPos, rTEvt.IsTrackingCanceled());
