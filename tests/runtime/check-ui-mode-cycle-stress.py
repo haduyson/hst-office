@@ -18,7 +18,9 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -122,6 +124,11 @@ def main():
                 hst_gui.screenshot(os.path.join(args.out, "hang.png"), args.display)
                 print("FAIL  office hung at %s" % state["step"], flush=True)
                 pid = office.pid
+                if pid and shutil.which("gdb"):  # where it hangs, for the report
+                    with open(os.path.join(args.out, "hang-stacks.txt"), "w", encoding="utf-8") as stacks:
+                        subprocess.run(["gdb", "-p", str(pid), "-batch", "-ex", "set pagination off",
+                                        "-ex", "info sharedlibrary", "-ex", "thread apply all bt 50"],
+                                       stdout=stacks, stderr=subprocess.STDOUT, timeout=180, check=False)
                 if pid:  # never leave the hung office behind
                     os.kill(pid, signal.SIGKILL)
                 os._exit(1)
