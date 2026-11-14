@@ -1,0 +1,813 @@
+HST Office: customizable quick access toolbar for Writer, Sheets, Slides and Draw.
+
+1.0.2 ribbon (owner decision 14/11/2026, gap list G15): the notebookbar's shortcuts toolbox is the quick
+access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
+- Defaults: Lưu, Hoàn tác, Làm lại. New, Open, Print, Print Preview, Send by Email (and Slideshow in Slides)
+  wait, hidden, in the toolbar's list (each app's toolbar/notebookbarshortcuts.xml).
+- Its ▾ menu (ToolBox menu: overflow » buttons first) has the common-command checklist, "Tùy chỉnh…" (the
+  Customize dialog on this toolbar) and "Hiện bên dưới ribbon" / "Hiện bên trên ribbon".
+- A right-click on any ribbon button (also in the compact ribbon's popup) offers "Thêm vào thanh truy cập
+  nhanh"; on a quick access button "Xóa khỏi thanh truy cập nhanh".
+- The commands are the app's notebookbarshortcuts UI configuration, saved in the user profile per app and
+  independent of the placement (a later title-bar placement reads the same list); the placement is
+  HSTRibbon/QatBelowApps.
+- In the tab row the toolbar gets only the room the tabs and the search box's magnifier leave
+  (NotebookbarTabControlBase::ImplPlaceTabs); the rest goes into its » menu, so the tabs, the ribbon and the
+  banner never move. Below the ribbon it has its own row (HstSetShortcutsRow, ImplHstPageBottomReserve).
+- KeyTips: Alt then 1–9 already reach the shortcuts toolbox's buttons (HstRibbonKeyTips).
+
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -200,6 +200,12 @@
+ // HST Office: chevron buttons of the ribbon (compact ribbon: tab row and quick command row)
+ #define STR_HST_RIBBON_COLLAPSE                 NC_("STR_HST_RIBBON_COLLAPSE", "Collapse the Ribbon (Ctrl+F1)")
+ #define STR_HST_RIBBON_EXPAND                   NC_("STR_HST_RIBBON_EXPAND", "Show the Full Ribbon (Ctrl+F1)")
++// HST Office: the quick access toolbar's menus
++#define STR_HST_QAT_ADD                         NC_("STR_HST_QAT_ADD", "Add to Quick Access Toolbar")
++#define STR_HST_QAT_REMOVE                      NC_("STR_HST_QAT_REMOVE", "Remove from Quick Access Toolbar")
++#define STR_HST_QAT_CUSTOMIZE                   NC_("STR_HST_QAT_CUSTOMIZE", "Customize…")
++#define STR_HST_QAT_BELOW                       NC_("STR_HST_QAT_BELOW", "Show Below the Ribbon")
++#define STR_HST_QAT_ABOVE                       NC_("STR_HST_QAT_ABOVE", "Show Above the Ribbon")
+ 
+ #define STR_FILTER_NOT_INSTALLED                NC_("STR_FILTER_NOT_INSTALLED", "The selected filter $(FILTER) has not been installed.\nWould you like to do this now?")
+ #define STR_FILTER_CONSULT_SERVICE              NC_("STR_FILTER_CONSULT_SERVICE", "The selected filter $(FILTER) is not included in your edition.\nYou can find information about orders on our homepage.")
+--- a/include/vcl/tabctrl.hxx
++++ b/include/vcl/tabctrl.hxx
+@@ -82,6 +82,8 @@
+     virtual bool                ImplPlaceTabs( tools::Long nWidth );
+     /// HST Office: px kept free at the right end of the page rectangle (the ribbon's banner beside the page)
+     virtual tools::Long         ImplHstPageReserve() const { return 0; }
++    /// HST Office: px kept free below the page rectangle (the quick access toolbar's row under the ribbon)
++    virtual tools::Long         ImplHstPageBottomReserve() const { return 0; }
+     SAL_DLLPRIVATE Size ImplCalculateRequisition(sal_uInt16& nHeaderHeight) const;
+ 
+ public:
+@@ -205,6 +207,10 @@
+     /// every allocation of a page (tab switch, resize, show) already has its final width: the groups never
+     /// lay out at the full width first
+     void HstSetPageReserve( tools::Long nWidth );
++    /// HST Office: nHeight > 0 puts the quick access toolbar (the shortcuts toolbox) on its own row of that
++    /// height below the page, placed by the owner; 0 keeps it at the start of the tab row
++    void HstSetShortcutsRow( tools::Long nHeight );
++    bool HstShortcutsBelow() const { return m_nHstQatRow > 0; }
+     void HstCloseDrop();
+     bool HstIsDropped() const;
+ 
+@@ -224,7 +230,9 @@
+     VclPtr<PushButton> m_pOpenMenu;
+     tools::Long m_nHstRowReserve = 0;
+     tools::Long m_nHstPageReserve = 0;
++    tools::Long m_nHstQatRow = 0;
+     virtual tools::Long ImplHstPageReserve() const override { return m_nHstPageReserve; }
++    virtual tools::Long ImplHstPageBottomReserve() const override { return m_nHstQatRow; }
+     VclPtr<vcl::Window> m_xHstDrop; // the popup of HstDropPage (vcl/source/control/HstRibbonDrop.cxx)
+     DECL_DLLPRIVATE_LINK(OpenMenu, Button*, void);
+ };
+--- a/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
+@@ -51,6 +51,14 @@
+       </info>
+       <value/>
+     </prop>
++    <prop oor:name="QatBelowApps" oor:type="oor:string-list" oor:nillable="false">
++      <info>
++        <desc>Apps (writer, calc, impress, draw) whose quick access toolbar stands on its own row below the
++          ribbon instead of at the start of the tab row. Its commands are the app's notebookbarshortcuts
++          toolbar settings, kept apart from this placement.</desc>
++      </info>
++      <value/>
++    </prop>
+     <prop oor:name="SlidesSidebarFirstStartDone" oor:type="xs:boolean" oor:nillable="false">
+       <info>
+         <desc>Set once HST Slides has started: on its first start the sidebar is folded to its tab bar
+--- a/sc/uiconfig/scalc/toolbar/notebookbarshortcuts.xml
++++ b/sc/uiconfig/scalc/toolbar/notebookbarshortcuts.xml
+@@ -8,10 +8,15 @@
+  *
+ -->
+ <toolbar:toolbar xmlns:toolbar="http://openoffice.org/2001/toolbar" xmlns:xlink="http://www.w3.org/1999/xlink">
+-  <toolbar:toolbaritem xlink:href=".uno:Menubar"/>
+-  <toolbar:toolbaritem xlink:href=".uno:OpenFromCalc"/>
++  <!-- HST Office: the quick access toolbar shows Save, Undo and Redo; the other common commands wait,
++       hidden, in its ▾ checklist -->
+   <toolbar:toolbaritem xlink:href=".uno:Save"/>
+   <toolbar:toolbaritem xlink:href=".uno:Undo"/>
+   <toolbar:toolbaritem xlink:href=".uno:Redo"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Print"/>
++  <toolbar:toolbaritem xlink:href=".uno:AddDirect" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:OpenFromCalc" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Print" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:PrintPreview" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:SendMail" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Menubar" toolbar:visible="false"/>
+ </toolbar:toolbar>
+--- a/sd/uiconfig/sdraw/toolbar/notebookbarshortcuts.xml
++++ b/sd/uiconfig/sdraw/toolbar/notebookbarshortcuts.xml
+@@ -8,9 +8,15 @@
+  *
+ -->
+ <toolbar:toolbar xmlns:toolbar="http://openoffice.org/2001/toolbar" xmlns:xlink="http://www.w3.org/1999/xlink">
+-  <toolbar:toolbaritem xlink:href=".uno:Menubar"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Open"/>
++  <!-- HST Office: the quick access toolbar shows Save, Undo and Redo; the other common commands wait,
++       hidden, in its ▾ checklist -->
+   <toolbar:toolbaritem xlink:href=".uno:Save"/>
+   <toolbar:toolbaritem xlink:href=".uno:Undo"/>
+   <toolbar:toolbaritem xlink:href=".uno:Redo"/>
++  <toolbar:toolbaritem xlink:href=".uno:AddDirect" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Open" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Print" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:PrintPreview" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:SendMail" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Menubar" toolbar:visible="false"/>
+ </toolbar:toolbar>
+--- a/sd/uiconfig/simpress/toolbar/notebookbarshortcuts.xml
++++ b/sd/uiconfig/simpress/toolbar/notebookbarshortcuts.xml
+@@ -8,10 +8,16 @@
+  *
+ -->
+ <toolbar:toolbar xmlns:toolbar="http://openoffice.org/2001/toolbar" xmlns:xlink="http://www.w3.org/1999/xlink">
+-  <toolbar:toolbaritem xlink:href=".uno:Menubar"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Open"/>
++  <!-- HST Office: the quick access toolbar shows Save, Undo and Redo; the other common commands wait,
++       hidden, in its ▾ checklist -->
+   <toolbar:toolbaritem xlink:href=".uno:Save"/>
+   <toolbar:toolbaritem xlink:href=".uno:Undo"/>
+   <toolbar:toolbaritem xlink:href=".uno:Redo"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Presentation"/>
++  <toolbar:toolbaritem xlink:href=".uno:AddDirect" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Open" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Print" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:PrintPreview" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:SendMail" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Presentation" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Menubar" toolbar:visible="false"/>
+ </toolbar:toolbar>
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -261,6 +261,8 @@
+     sfx2/source/notebookbar/SfxNotebookBar \
+     sfx2/source/notebookbar/HstRibbonCompact \
+     sfx2/source/notebookbar/HstRibbonCompactWidgets \
++    sfx2/source/notebookbar/HstQuickAccess \
++    sfx2/source/notebookbar/HstQuickAccessStore \
+     sfx2/source/notebookbar/NotebookbarTabControl \
+     sfx2/source/notebookbar/HstRibbonKeyTips \
+     sfx2/source/notebookbar/HstChartCommands \
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -20,6 +20,7 @@
+ class ChangedUIEventListener;
+ class HstRibbonBanner;
+ class HstRibbonCompact;
++class HstQuickAccess;
+ class HstTabSearchBox;
+ class VclWindowEvent;
+ struct ImplSVEvent;
+@@ -40,6 +41,7 @@
+     virtual void Resize() override;
+     virtual void dispose() override;
+     virtual void MouseButtonDown( const MouseEvent& rMEvt ) override;
++    virtual bool PreNotify( NotifyEvent& rNEvt ) override;
+ 
+ private:
+     // HST Office: HASON TECH solution banner beside the groups (Writer, Calc, Impress, Draw Tabbed UI)
+@@ -61,6 +63,11 @@
+     DECL_LINK(HstTabEventHdl, VclWindowEvent&, void);
+     DECL_LINK(HstStoredStateHdl, void*, void);
+     std::unique_ptr<HstRibbonCompact> m_pHstCompact;
++    // HST Office (1.0.2 ribbon): the quick access toolbar (the shortcuts toolbox); see HstQuickAccess.hxx
++    std::unique_ptr<HstQuickAccess> m_pHstQat;
++    DECL_LINK(HstQatPlacementHdl, LinkParamNone*, void);
++    tools::Long HstQatRow() const;
++    void HstResizeBar();
+     ImplSVEvent* m_pHstStateEvent = nullptr;
+ 
+     // time-based debounce: track when the last tab switch via scroll happened
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstQuickAccess.cxx
+@@ -0,0 +1,137 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "HstQuickAccess.hxx"
++
++#include <comphelper/dispatchcommand.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/strings.hrc>
++#include <vcl/commandinfoprovider.hxx>
++#include <vcl/menu.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/toolbox.hxx>
++
++#include <algorithm>
++
++using namespace css;
++
++namespace
++{
++constexpr OUString QAT_URL = u"private:resource/toolbar/notebookbarshortcuts"_ustr;
++// menu ids below the toolbox's own (TOOLBOX_MENUITEM_START): the checklist, then the two actions
++constexpr sal_uInt16 ID_CHECK = 0x0e00, ID_CUSTOMIZE = 0x0e40, ID_PLACEMENT = 0x0e41;
++
++}
++
++HstQuickAccess::HstQuickAccess(ToolBox& rQat, OUString aApp, const Link<LinkParamNone*, void>& rPlacement)
++    : m_rQat(rQat)
++    , m_aApp(std::move(aApp))
++    , m_aPlacement(rPlacement)
++    , m_bBelow(hst::qat::StoredBelow(m_aApp))
++{
++    m_rQat.SetMenuType(ToolBoxMenuType::Customize | ToolBoxMenuType::ClippedItems);
++    m_rQat.SetMenuButtonHdl(LINK(this, HstQuickAccess, MenuButtonHdl));
++    if (PopupMenu* pMenu = m_rQat.GetMenu())
++        pMenu->SetSelectHdl(LINK(this, HstQuickAccess, MenuSelectHdl));
++}
++
++HstQuickAccess::~HstQuickAccess()
++{
++    if (m_pCustomizeEvent)
++        Application::RemoveUserEvent(m_pCustomizeEvent);
++}
++
++std::vector<OUString> HstQuickAccess::Checklist(std::u16string_view rApp)
++{
++    const OUString aOpen = rApp == u"writer" ? u".uno:OpenFromWriter"_ustr
++                           : rApp == u"calc" ? u".uno:OpenFromCalc"_ustr : u".uno:Open"_ustr;
++    return { u".uno:AddDirect"_ustr, aOpen, u".uno:Save"_ustr, u".uno:Print"_ustr, u".uno:PrintPreview"_ustr,
++             u".uno:SendMail"_ustr, u".uno:Undo"_ustr, u".uno:Redo"_ustr };
++}
++
++bool HstQuickAccess::IsShown(const OUString& rCommand) const
++{
++    for (ToolBox::ImplToolItems::size_type i = 0; i < m_rQat.GetItemCount(); ++i)
++        if (m_rQat.GetItemCommand(m_rQat.GetItemId(i)) == rCommand)
++            return true;
++    return false;
++}
++
++IMPL_LINK(HstQuickAccess, MenuButtonHdl, ToolBox*, pBox, void)
++{
++    PopupMenu* pMenu = pBox ? pBox->GetMenu() : nullptr;
++    if (!pMenu || !m_xFrame.is())
++        return;
++    // the toolbox has put its overflow (») buttons first; the checklist and the actions follow
++    if (pMenu->GetItemCount())
++        pMenu->InsertSeparator();
++    const OUString aModule = vcl::CommandInfoProvider::GetModuleIdentifier(m_xFrame);
++    const std::vector<OUString> aList = Checklist(m_aApp);
++    for (size_t i = 0; i < aList.size(); ++i)
++    {
++        const auto aProps = vcl::CommandInfoProvider::GetCommandProperties(aList[i], aModule);
++        pMenu->InsertItem(ID_CHECK + i, vcl::CommandInfoProvider::GetMenuLabelForCommand(aProps),
++                          MenuItemBits::CHECKABLE);
++        pMenu->SetItemCommand(ID_CHECK + i, aList[i]);
++        pMenu->CheckItem(ID_CHECK + i, IsShown(aList[i]));
++    }
++    pMenu->InsertSeparator();
++    pMenu->InsertItem(ID_CUSTOMIZE, SfxResId(STR_HST_QAT_CUSTOMIZE));
++    pMenu->InsertItem(ID_PLACEMENT, SfxResId(m_bBelow ? STR_HST_QAT_ABOVE : STR_HST_QAT_BELOW));
++}
++
++IMPL_LINK(HstQuickAccess, MenuSelectHdl, Menu*, pMenu, bool)
++{
++    const sal_uInt16 nId = pMenu ? pMenu->GetCurItemId() : 0;
++    const std::vector<OUString> aList = Checklist(m_aApp);
++    if (nId >= ID_CHECK && nId < ID_CHECK + aList.size())
++        hst::qat::SetCommand(m_xFrame, aList[nId - ID_CHECK], !IsShown(aList[nId - ID_CHECK]), false);
++    else if (nId == ID_CUSTOMIZE && !m_pCustomizeEvent)
++        m_pCustomizeEvent = Application::PostUserEvent(LINK(this, HstQuickAccess, CustomizeHdl));
++    else if (nId == ID_PLACEMENT)
++    {
++        m_bBelow = !m_bBelow;
++        hst::qat::StoreBelow(m_aApp, m_bBelow);
++        m_aPlacement.Call(nullptr);
++    }
++    else
++        return false; // an overflow button: the toolbox runs it
++    return true;
++}
++
++IMPL_LINK_NOARG(HstQuickAccess, CustomizeHdl, void*, void)
++{
++    m_pCustomizeEvent = nullptr;
++    // the Customize dialog on its Toolbars page with this toolbar selected
++    comphelper::dispatchCommand(u".uno:ConfigureDialog"_ustr, m_xFrame,
++                                { comphelper::makePropertyValue(u"ResourceURL"_ustr, QAT_URL) });
++}
++
++bool HstQuickAccess::ContextMenu(ToolBox& rBox, const Point& rPos, bool bMouse)
++{
++    const ToolBoxItemId nItem = bMouse ? rBox.GetItemId(rPos) : rBox.GetHighlightItemId();
++    const OUString aCommand = nItem ? rBox.GetItemCommand(nItem) : OUString();
++    if (aCommand.isEmpty() || !m_xFrame.is())
++        return false;
++    const bool bInQat = &rBox == &m_rQat;
++    if (!bInQat && IsShown(aCommand))
++        return false; // already there: nothing to offer
++    ScopedVclPtrInstance<PopupMenu> pMenu;
++    pMenu->InsertItem(1, SfxResId(bInQat ? STR_HST_QAT_REMOVE : STR_HST_QAT_ADD));
++    const tools::Rectangle aAt = bMouse ? tools::Rectangle(rPos, Size(1, 1)) : rBox.GetItemRect(nItem);
++    if (pMenu->Execute(&rBox, aAt, PopupMenuFlags::ExecuteDown) != 1)
++        return true;
++    const std::vector<OUString> aList = Checklist(m_aApp);
++    const bool bListed = std::find(aList.begin(), aList.end(), aCommand) != aList.end();
++    hst::qat::SetCommand(m_xFrame, aCommand, !bInQat, bInQat && !bListed); // a checklist command stays in the list, hidden
++    return true;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstQuickAccess.hxx
+@@ -0,0 +1,75 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <com/sun/star/frame/XFrame.hpp>
++#include <rtl/ustring.hxx>
++#include <tools/gen.hxx>
++#include <tools/link.hxx>
++#include <vcl/vclptr.hxx>
++
++#include <vector>
++
++class Menu;
++class ToolBox;
++struct ImplSVEvent;
++
++namespace hst::qat
++{
++/// whether rApp's quick access toolbar stands below the ribbon (HSTRibbon/QatBelowApps), and storing it
++bool StoredBelow(std::u16string_view rApp);
++void StoreBelow(const OUString& rApp, bool bBelow);
++/// shows (adding it at the end when missing) or hides rCommand in the app's quick access toolbar list, saved
++/// in the user profile; bRemove drops it from the list
++void SetCommand(const css::uno::Reference<css::frame::XFrame>& xFrame, const OUString& rCommand, bool bShown,
++                bool bRemove);
++}
++
++/** HST Office (1.0.2 ribbon, owner decision 14/11/2026): the quick access toolbar of Writer, Sheets, Slides and
++    Draw is the notebookbar's shortcuts toolbox at the start of the tab row (or on its own row below the ribbon).
++
++    Its commands are the app's "private:resource/toolbar/notebookbarshortcuts" UI configuration, saved in the
++    user profile per app and independent of where the toolbar stands, so a later title-bar placement reads the
++    same list. The toolbox's ▾ menu (its overflow » items first) offers the common-command checklist,
++    "Tùy chỉnh…" (the Customize dialog on this toolbar) and "Hiện bên dưới/trên ribbon" (HSTRibbon/QatBelowApps);
++    a right-click on a ribbon button adds its command, on a quick access button removes it. */
++class HstQuickAccess
++{
++public:
++    /// rApp: writer, calc, impress or draw; rPlacement runs when the user moves the toolbar above/below
++    HstQuickAccess(ToolBox& rQat, OUString aApp, const Link<LinkParamNone*, void>& rPlacement);
++    ~HstQuickAccess();
++
++    void SetFrame(const css::uno::Reference<css::frame::XFrame>& xFrame) { m_xFrame = xFrame; }
++    bool IsBelow() const { return m_bBelow; }
++
++    /// a context menu requested on rBox at rPos (pixels of rBox; a key request uses the highlighted item):
++    /// "Thêm vào…" for a ribbon command, "Xóa khỏi…" on the quick access toolbar. True when handled.
++    bool ContextMenu(ToolBox& rBox, const Point& rPos, bool bMouse);
++
++    /// the commands of the ▾ checklist for rApp (Mới, Mở, Lưu, In, Xem trước khi in, Gửi thư, Hoàn tác, Làm lại)
++    static std::vector<OUString> Checklist(std::u16string_view rApp);
++
++private:
++    DECL_LINK(MenuButtonHdl, ToolBox*, void);
++    DECL_LINK(MenuSelectHdl, Menu*, bool);
++    DECL_LINK(CustomizeHdl, void*, void);
++
++    bool IsShown(const OUString& rCommand) const;
++
++    ToolBox& m_rQat;
++    OUString m_aApp;
++    Link<LinkParamNone*, void> m_aPlacement;
++    css::uno::Reference<css::frame::XFrame> m_xFrame;
++    bool m_bBelow;
++    ImplSVEvent* m_pCustomizeEvent = nullptr;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstQuickAccessStore.cxx
+@@ -0,0 +1,124 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: where the quick access toolbar's settings live (HstQuickAccess.hxx): its commands in the app's
++// notebookbarshortcuts UI configuration, its placement in HSTRibbon/QatBelowApps.
++
++#include "HstQuickAccess.hxx"
++
++#include <com/sun/star/container/XIndexContainer.hpp>
++#include <com/sun/star/ui/ItemType.hpp>
++#include <com/sun/star/ui/XUIConfigurationPersistence.hpp>
++#include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
++#include <comphelper/configuration.hxx>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <comphelper/sequence.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <officecfg/Office/HSTRibbon.hxx>
++#include <vcl/commandinfoprovider.hxx>
++
++#include <algorithm>
++
++using namespace css;
++
++namespace
++{
++constexpr OUString QAT_URL = u"private:resource/toolbar/notebookbarshortcuts"_ustr;
++
++uno::Reference<ui::XUIConfigurationManager> config(const uno::Reference<frame::XFrame>& xFrame)
++{
++    const OUString aModule = vcl::CommandInfoProvider::GetModuleIdentifier(xFrame);
++    return ui::theModuleUIConfigurationManagerSupplier::get(comphelper::getProcessComponentContext())
++        ->getUIConfigurationManager(aModule);
++}
++
++OUString commandOf(const uno::Any& rItem, bool* pVisible = nullptr)
++{
++    uno::Sequence<beans::PropertyValue> aProps;
++    rItem >>= aProps;
++    OUString aCommand;
++    for (const auto& rProp : aProps)
++        if (rProp.Name == "CommandURL")
++            rProp.Value >>= aCommand;
++        else if (rProp.Name == "IsVisible" && pVisible)
++            rProp.Value >>= *pVisible;
++    return aCommand;
++}
++}
++
++namespace hst::qat
++{
++bool StoredBelow(std::u16string_view rApp)
++{
++    try
++    {
++        const auto aApps = officecfg::Office::HSTRibbon::QatBelowApps::get();
++        return std::find(aApps.begin(), aApps.end(), rApp) != aApps.end();
++    }
++    catch (const uno::Exception&)
++    {
++        return false;
++    }
++}
++
++void StoreBelow(const OUString& rApp, bool bBelow)
++{
++    try
++    {
++        auto aApps = comphelper::sequenceToContainer<std::vector<OUString>>(
++            officecfg::Office::HSTRibbon::QatBelowApps::get());
++        std::erase(aApps, rApp);
++        if (bBelow)
++            aApps.push_back(rApp);
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        officecfg::Office::HSTRibbon::QatBelowApps::set(comphelper::containerToSequence(aApps), xChanges);
++        xChanges->commit();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.notebookbar", "quick access toolbar placement not saved");
++    }
++}
++
++void SetCommand(const uno::Reference<frame::XFrame>& xFrame, const OUString& rCommand, bool bShown, bool bRemove)
++{
++    if (!xFrame.is() || rCommand.isEmpty())
++        return;
++    try
++    {
++        const uno::Reference<ui::XUIConfigurationManager> xConfig = config(xFrame);
++        uno::Reference<container::XIndexContainer> xItems(xConfig->getSettings(QAT_URL, true), uno::UNO_QUERY_THROW);
++        sal_Int32 nFound = -1;
++        for (sal_Int32 i = 0; i < xItems->getCount() && nFound < 0; ++i)
++            if (commandOf(xItems->getByIndex(i)) == rCommand)
++                nFound = i;
++        const uno::Sequence<beans::PropertyValue> aItem{
++            comphelper::makePropertyValue(u"CommandURL"_ustr, rCommand),
++            comphelper::makePropertyValue(u"Label"_ustr, OUString()),
++            comphelper::makePropertyValue(u"Type"_ustr, ui::ItemType::DEFAULT),
++            comphelper::makePropertyValue(u"Style"_ustr, sal_Int16(0)),
++            comphelper::makePropertyValue(u"IsVisible"_ustr, bShown) };
++        if (nFound >= 0 && bRemove)
++            xItems->removeByIndex(nFound);
++        else if (nFound >= 0)
++            xItems->replaceByIndex(nFound, uno::Any(aItem));
++        else if (bShown)
++            xItems->insertByIndex(xItems->getCount(), uno::Any(aItem));
++        xConfig->replaceSettings(QAT_URL, xItems); // the tab control refills the toolbar (its listener)
++        uno::Reference<ui::XUIConfigurationPersistence>(xConfig, uno::UNO_QUERY_THROW)->store();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.notebookbar", "quick access toolbar not changed");
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -27,6 +27,7 @@
+ #include <notebookbar/NotebookbarTabControl.hxx>
+ #include "HstRibbonKeyTips.hxx"
+ #include "HstRibbonCompact.hxx"
++#include "HstQuickAccess.hxx"
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <com/sun/star/accessibility/XAccessibleAction.hpp>
+ #include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
+@@ -492,6 +493,7 @@
+         m_pHstCompact->dispose();
+         m_pHstCompact.reset();
+     }
++    m_pHstQat.reset();
+     if (m_pHstBanner)
+     {
+         RemoveChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+@@ -527,6 +529,11 @@
+                                   : rFile.indexOf("/simpress/") >= 0 ? u"impress"_ustr
+                                                                      : u"draw"_ustr;
+             m_pHstCompact.reset(new HstRibbonCompact(*this, aApp, LINK(this, NotebookbarTabControl, HstToggleHdl)));
++            if (ToolBox* pQat = GetToolBox())
++            {
++                m_pHstQat.reset(new HstQuickAccess(*pQat, aApp, LINK(this, NotebookbarTabControl, HstQatPlacementHdl)));
++                HstSetShortcutsRow(HstQatRow());
++            }
+             Application::AddKeyListener(LINK(this, NotebookbarTabControl, HstKeyHdl));
+             AddEventListener(LINK(this, NotebookbarTabControl, HstTabEventHdl));
+             if (HstRibbonCompact::Stored(aApp)) // the app opens as it was left, once the bar is laid out
+@@ -607,6 +614,16 @@
+     }
+     else
+         m_pHstBanner->Place(tools::Rectangle());
++    // the quick access toolbar on its own row below the ribbon (its » menu takes what does not fit)
++    if (const tools::Long nRow = HstQatRow(); nRow > 0 && GetToolBox())
++    {
++        ToolBox* pQat = GetToolBox();
++        const Size aWant = pQat->GetOptimalSize();
++        const tools::Long nInset = hst::banner::scaled(4, GetDPIScaleFactor());
++        const Size aOut = GetOutputSizePixel();
++        pQat->SetPosSizePixel(Point(nInset, aOut.Height() - nRow + (nRow - aWant.Height()) / 2),
++                              Size(std::min<tools::Long>(aWant.Width(), aOut.Width() - 2 * nInset), aWant.Height()));
++    }
+     m_bHstLayout = false;
+ }
+ 
+@@ -670,8 +687,14 @@
+         if (pPage)
+             pPage->Show();
+     }
+-    // the notebookbar takes its new height (its height never drops below its content's request) and the
+-    // window gives the document the difference
++    HstResizeBar();
++    HstLayoutBanner();
++}
++
++// the notebookbar takes its new height (its height never drops below its content's request) and the window
++// gives the document the difference
++void NotebookbarTabControl::HstResizeBar()
++{
+     queue_resize();
+     for (vcl::Window* pParent = GetParent(); pParent; pParent = pParent->GetParent())
+     {
+@@ -683,9 +706,40 @@
+             break;
+         }
+     }
++}
++
++tools::Long NotebookbarTabControl::HstQatRow() const
++{
++    if (!m_pHstQat || !m_pHstQat->IsBelow())
++        return 0;
++    const ToolBox* pQat = const_cast<NotebookbarTabControl*>(this)->GetToolBox();
++    return std::max<tools::Long>(pQat ? pQat->GetOptimalSize().Height() + hst::banner::scaled(4, GetDPIScaleFactor()) : 0,
++                                 hst::banner::scaled(30, GetDPIScaleFactor()));
++}
++
++IMPL_LINK_NOARG(NotebookbarTabControl, HstQatPlacementHdl, LinkParamNone*, void)
++{
++    HstSetShortcutsRow(HstQatRow());
++    ImplPlaceTabs(GetSizePixel().getWidth());
++    HstResizeBar();
+     HstLayoutBanner();
+ }
+ 
++// a right-click (or the context menu key) on a ribbon button offers to add its command to the quick access
++// toolbar; on a quick access button, to remove it
++bool NotebookbarTabControl::PreNotify( NotifyEvent& rNEvt )
++{
++    if (m_pHstQat && rNEvt.GetType() == NotifyEventType::COMMAND)
++    {
++        const CommandEvent* pCommand = rNEvt.GetCommandEvent();
++        ToolBox* pBox = dynamic_cast<ToolBox*>(rNEvt.GetWindow());
++        if (pCommand && pBox && pCommand->GetCommand() == CommandEventId::ContextMenu
++            && m_pHstQat->ContextMenu(*pBox, pCommand->GetMousePosPixel(), pCommand->IsMouseEvent()))
++            return true;
++    }
++    return NotebookbarTabControlBase::PreNotify(rNEvt);
++}
++
+ void NotebookbarTabControl::HstDrop()
+ {
+     if (m_pHstCompact && m_pHstCompact->IsCompact())
+@@ -881,11 +935,14 @@
+         OUString aModuleName = xModuleManager->identify( m_xFrame );
+ 
+         FillShortcutsToolBox( xContext, m_xFrame, aModuleName, pToolBox );
++        if (m_pHstQat)
++            m_pHstQat->SetFrame(m_xFrame);
+ 
+         Size aSize( pToolBox->GetOptimalSize() );
+         Point aPos( ICON_SIZE + 10, 0 );
+         pToolBox->SetPosSizePixel( aPos, aSize );
+         ImplPlaceTabs( GetSizePixel().getWidth() );
++        HstLayoutBanner(); // the quick access toolbar below the ribbon, when it stands there
+ 
+         m_bInvalidate = false;
+     }
+@@ -1006,6 +1063,7 @@
+         aSize.setWidth( 400 );
+     if (m_pHstCompact && m_pHstCompact->IsCompact()) // the tab row and the quick row
+         aSize.setHeight(HstHeaderHeight() + HstRibbonCompact::QuickHeight(HstHeaderHeight(), GetDPIScaleFactor()));
++    aSize.AdjustHeight(HstQatRow()); // the quick access toolbar's own row below the ribbon
+ 
+     return aSize;
+ }
+--- a/sw/uiconfig/swriter/toolbar/notebookbarshortcuts.xml
++++ b/sw/uiconfig/swriter/toolbar/notebookbarshortcuts.xml
+@@ -8,10 +8,15 @@
+  *
+ -->
+ <toolbar:toolbar xmlns:toolbar="http://openoffice.org/2001/toolbar" xmlns:xlink="http://www.w3.org/1999/xlink">
+-  <toolbar:toolbaritem xlink:href=".uno:Menubar"/>
+-  <toolbar:toolbaritem xlink:href=".uno:OpenFromWriter"/>
++  <!-- HST Office: the quick access toolbar shows Save, Undo and Redo; the other common commands wait,
++       hidden, in its ▾ checklist -->
+   <toolbar:toolbaritem xlink:href=".uno:Save"/>
+   <toolbar:toolbaritem xlink:href=".uno:Undo"/>
+   <toolbar:toolbaritem xlink:href=".uno:Redo"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Print"/>
++  <toolbar:toolbaritem xlink:href=".uno:AddDirect" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:OpenFromWriter" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Print" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:PrintPreview" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:SendMail" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Menubar" toolbar:visible="false"/>
+ </toolbar:toolbar>
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -3022,6 +3022,36 @@
+ msgid "Whole words"
+ msgstr ""
+ 
++#. hstQat0
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_QAT_ADD"
++msgid "Add to Quick Access Toolbar"
++msgstr "Thêm vào thanh truy cập nhanh"
++
++#. hstQat1
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_QAT_REMOVE"
++msgid "Remove from Quick Access Toolbar"
++msgstr "Xóa khỏi thanh truy cập nhanh"
++
++#. hstQat2
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_QAT_CUSTOMIZE"
++msgid "Customize…"
++msgstr "Tùy chỉnh…"
++
++#. hstQat3
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_QAT_BELOW"
++msgid "Show Below the Ribbon"
++msgstr "Hiện bên dưới ribbon"
++
++#. hstQat4
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_QAT_ABOVE"
++msgid "Show Above the Ribbon"
++msgstr "Hiện bên trên ribbon"
++
+ #. 4MVdG
+ #: sfx2/uiconfig/ui/autoredactdialog.ui:202
+ msgctxt "menuassignpage|contentslabel"
+--- a/vcl/source/control/HstRibbonDrop.cxx
++++ b/vcl/source/control/HstRibbonDrop.cxx
+@@ -65,6 +65,15 @@
+ 
+     bool HasPage() const { return m_xPage && m_xPage->GetParent() == this; }
+ 
++    // a right-click on a dropped button reaches the tab control as it does in place (its owner offers
++    // "add to the quick access toolbar"): the popup is an overlap window, where the parent chain stops
++    bool PreNotify(NotifyEvent& rNEvt) override
++    {
++        if (rNEvt.GetType() == NotifyEventType::COMMAND && m_xTabs && m_xTabs->PreNotify(rNEvt))
++            return true;
++        return FloatingWindow::PreNotify(rNEvt);
++    }
++
+ private:
+     void GiveBack()
+     {
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -588,7 +588,7 @@
+         tools::Long nTabBottom = mbShowTabs ? aRect.Bottom() : 0;
+ 
+         tools::Long nW = nWidth-TAB_OFFSET*2 - ImplHstPageReserve();
+-        tools::Long nH = nHeight - nTabBottom - TAB_OFFSET*2;
++        tools::Long nH = nHeight - nTabBottom - TAB_OFFSET*2 - ImplHstPageBottomReserve();
+         return (nW > 0 && nH > 0)
+             ? tools::Rectangle( Point( TAB_OFFSET, nTabBottom + TAB_OFFSET ), Size( nW, nH ) )
+             : tools::Rectangle();
+@@ -2547,6 +2547,17 @@
+     Invalidate();
+ }
+ 
++void NotebookbarTabControlBase::HstSetShortcutsRow( tools::Long nHeight )
++{
++    nHeight = std::max<tools::Long>(0, nHeight);
++    if (nHeight == m_nHstQatRow)
++        return;
++    m_nHstQatRow = nHeight;
++    mbFormat = true;
++    ImplPosCurTabPage();
++    Invalidate();
++}
++
+ void NotebookbarTabControlBase::HstSetPageReserve( tools::Long nWidth )
+ {
+     nWidth = std::max<tools::Long>(0, nWidth);
+@@ -2568,8 +2579,6 @@
+ 
+     const tools::Long nHamburgerWidth = m_pOpenMenu->GetSizePixel().Width();
+     tools::Long nMaxWidth = nWidth - nHamburgerWidth;
+-    tools::Long nShortcutsWidth = m_pShortcuts != nullptr ? m_pShortcuts->GetSizePixel().getWidth() + 1 : 0;
+-    tools::Long nFullWidth = nShortcutsWidth;
+ 
+     // HST Office: the feature search box (child "hst-tab-search") follows the last tab and takes
+     // the rest of the row up to the menu button; when the row is short the box shrinks, then it
+@@ -2582,6 +2591,26 @@
+     const double fHstDpi = GetDPIScaleFactor();
+     const tools::Long nHstGap = pHstSearch ? std::lround(8 * fHstDpi) : 0;
+ 
++    // HST Office: the quick access toolbar (the shortcuts toolbox) at the start of the row never pushes the
++    // tabs or the search box's magnifier out of the row: it gets the room they leave, its other buttons go
++    // into its » menu. Below the ribbon (HstSetShortcutsRow) it takes no room in the row.
++    tools::Long nShortcutsWidth = 0;
++    if (m_pShortcuts && m_nHstQatRow <= 0)
++    {
++        tools::Long nTabs = 0;
++        for (auto & item : mpTabCtrlData->maItemList)
++            if (item.m_bVisible)
++                nTabs += ImplGetItemSize(&item, nMaxWidth).getWidth();
++        const tools::Long nSearch = pHstSearch ? nHstGap + std::lround(32 * fHstDpi) : 0;
++        const Size aWant = m_pShortcuts->GetOptimalSize();
++        const tools::Long nRoom = nMaxWidth - nTabs - nSearch - 4;
++        const tools::Long nQat = std::max<tools::Long>(std::min(aWant.Width(), nRoom), std::lround(24 * fHstDpi));
++        if (m_pShortcuts->GetSizePixel().Width() != nQat)
++            m_pShortcuts->SetSizePixel(Size(nQat, aWant.Height()));
++        nShortcutsWidth = nQat + 1;
++    }
++    tools::Long nFullWidth = nShortcutsWidth;
++
+     const tools::Long nOffsetX = 2 + nShortcutsWidth;
+     const tools::Long nOffsetY = 2;
+ 
+@@ -2643,8 +2672,8 @@
+     if (!pHstSearch) // with the search box the tabs stay left-aligned, the box fills the row
+         lcl_AdjustSingleLineTabs(nMaxWidth - nShortcutsWidth, mpTabCtrlData.get());
+ 
+-    // position the shortcutbox
+-    if (m_pShortcuts)
++    // position the shortcutbox (below the ribbon, its owner places it)
++    if (m_pShortcuts && m_nHstQatRow <= 0)
+     {
+         tools::Long nPosY = (m_nHeaderHeight - m_pShortcuts->GetSizePixel().getHeight()) / 2;
+         m_pShortcuts->SetPosPixel(Point(0, nPosY));
