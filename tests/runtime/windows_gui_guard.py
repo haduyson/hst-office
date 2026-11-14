@@ -5,7 +5,7 @@ window, never to the desktop, the taskbar or a system dialog.
 Real input (SendInput) lands in whatever window has the focus. A key meant for an office dialog that had already
 closed reached the empty desktop instead (Alt+F4 there opens "Shut Down Windows", Enter confirms it: a test PC was
 powered off that way). So before each key the foreground window is re-read and must be a VCL window (class SAL*) of
-an office process (soffice.bin); otherwise BlockedInput is raised and nothing is sent. Alt+F4 and the Windows keys
+an office process (soffice.bin) the harness started itself (register_owner); otherwise BlockedInput is raised and nothing is sent. Alt+F4 and the Windows keys
 are refused outright; windows are closed with WM_CLOSE to their own HWND instead.
 
 Pure logic over a small `api` object, so the rules run under unit tests with a fake on any platform; the real api
@@ -40,10 +40,28 @@ def refusal(hwnd, api):
         return "a shell or system window (class %r, %r)" % (name, api.title(hwnd))
     if not name.startswith("SAL"):
         return "not an HST Office window (class %r, %r)" % (name, api.title(hwnd))
-    image = ntpath.basename(api.image(api.pid(hwnd)) or "").lower()
+    pid = api.pid(hwnd)
+    image = ntpath.basename(api.image(pid) or "").lower()
     if image not in OUR_IMAGES:
         return "a SAL window of another program (%r)" % image
+    if _OWNERS and not any(owner.owns(pid) for owner in _OWNERS):
+        return "a window of an office this harness did not start (pid %s, %r)" % (pid, api.title(hwnd))
     return None
+
+
+_OWNERS = []
+
+
+def register_owner(owner):
+    """Allow input only into windows of processes `owner.owns(pid)` accepts (WinOffice registers its profile's
+    soffice.bin on start). With owners registered, any other soffice window is refused like a foreign one."""
+    if owner not in _OWNERS:
+        _OWNERS.append(owner)
+
+
+def unregister_owner(owner):
+    if owner in _OWNERS:
+        _OWNERS.remove(owner)
 
 
 def is_ours(hwnd, api=None):
