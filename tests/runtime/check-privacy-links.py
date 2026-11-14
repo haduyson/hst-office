@@ -6,7 +6,7 @@ TECH and the citation source form (Nguồn tài liệu mới). Each is clicked w
 browser before the clicks.
 
 Usage: python3 tests/runtime/check-privacy-links.py --instdir DIR --display :N [--out DIR] [--shots DIR]
-                                                    [--lang vi_VN.UTF-8|en_US.UTF-8] [--port 2231]
+                                                    [--ui vi|en-US] [--port 2231]
 The browser is a recording stand-in (privacy_links_gui.install_browser): xdg-open on PATH (the office's
 SystemShellExecute) and the https handler of GIO in test XDG directories (GTK link buttons). The X display must
 already run (Xvfb); it is never started or stopped here. Screenshots: <place>.png. Exit 1 when a check fails.
@@ -104,20 +104,20 @@ def main():
     parser.add_argument("--display", required=True)
     parser.add_argument("--out", default="tests/output/privacy-links")
     parser.add_argument("--shots", default=None)
-    parser.add_argument("--lang", default="vi_VN.UTF-8")
+    parser.add_argument("--ui", default="vi", help="UI language of the test profile (UILocale)")
     parser.add_argument("--port", type=int, default=2231)
     args = parser.parse_args()
     shots = os.path.abspath(args.shots or os.path.join(args.out, "shots"))
     hst_gui.setup_uno(args.instdir)
     workdir = os.path.abspath(os.path.join(args.out, "office"))
     browser = gui.install_browser(workdir)
-    office = hst_gui.Office(args.instdir, workdir, args.port, display=args.display, lang=args.lang,
-                            env=browser.env, config=gui.QUIET_CONFIG)
+    office = hst_gui.Office(args.instdir, workdir, args.port, display=args.display, env=browser.env,
+                            config=gui.QUIET_CONFIG + [("/org.openoffice.Office.Linguistic/General", "UILocale", args.ui)])
     try:
         office.start()
         frame = office.load("private:factory/swriter").getCurrentController().getFrame()
         time.sleep(3)
-        titles = gui.citation_titles(args.lang, args.instdir)
+        titles = gui.citation_titles(args.ui, args.instdir)
         record("nothing reached the browser before the first click", browser.urls() == [], browser.urls())
         about(office, frame, browser, shots)
         options(office, frame, browser, shots)
