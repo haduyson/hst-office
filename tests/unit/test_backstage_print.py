@@ -31,7 +31,7 @@ custom""".split()
 # ids the applications' print options look for in the dialog's own .ui (setupOptionalUI), incl. Calc's scaling list
 OPTION_IDS = "rbAllPages rbRangeSelection evenoddbox includeevenodd printextrabox fromwhich scalingbox scalingboxlabel " \
              "scriptdirection".split()
-PANEL_IDS = "HstPrintPanel moreoptions pagesetup previewscroll zoomscale zoomin zoomout zoomfit zoomtext".split()
+PANEL_IDS = "HstPrintPanel moreoptions pagesetup previewscroll zoomscale zoomin zoomout zoomfit zoomtext appoptions".split()
 
 
 def panel_ui():
@@ -89,6 +89,8 @@ class PanelForm(unittest.TestCase):
         self.assertIn("if (m_xDialog) // the panel always previews", code)
         self.assertIn("if (!m_xDialog) // the panel expands both sections", code)
         self.assertIn("maPanelPrintHdl.Call(*this);", code)
+        # one settings column: the application's options leave their tab for "appoptions"
+        self.assertIn("xCustomPage->move(xAppOptions.get(), xTarget.get());", code)
 
 
 class HandOver(unittest.TestCase):
