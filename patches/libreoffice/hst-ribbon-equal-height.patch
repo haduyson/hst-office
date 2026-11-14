@@ -7,8 +7,8 @@ toolbar's own row are unchanged. A fixed 106 px body is left for 1.0.3.
 
 --- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
 +++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
-@@ -1050,6 +1050,10 @@
-         HstSetCompact(!m_pHstCompact->IsCompact());
+@@ -1067,9 +1067,16 @@
+     }
  }
  
 +// HST Office: the tab row and the tallest tab page of the full ribbon, in logical px (gap list G06: one height and
@@ -18,12 +18,9 @@ toolbar's own row are unchanged. A fixed 106 px body is left for 1.0.3.
  Size NotebookbarTabControl::calculateRequisition() const
  {
      Size aSize = NotebookbarTabControlBase::calculateRequisition();
-@@ -1071,6 +1075,8 @@
-         aSize.setWidth( 400 );
-     if (m_pHstCompact && m_pHstCompact->IsCompact()) // the tab row and the quick row
-         aSize.setHeight(HstHeaderHeight() + HstRibbonCompact::QuickHeight(HstHeaderHeight(), GetDPIScaleFactor()));
-+    else // HST Office: one ribbon height in every app (the tallest pages of Writer, Slides and Draw; Sheets' were 3 px lower)
-+        aSize.setHeight(std::max<tools::Long>(aSize.Height(), std::lround(HST_RIBBON_HEIGHT * GetDPIScaleFactor())));
-     aSize.AdjustHeight(HstQatRow()); // the quick access toolbar's own row below the ribbon
++    // HST Office: one ribbon height in every app (Sheets' tallest page was 3 px lower); the compact ribbon below sets
++    // its own height
++    aSize.setHeight(std::max<tools::Long>(aSize.Height(), std::lround(HST_RIBBON_HEIGHT * GetDPIScaleFactor())));
  
-     return aSize;
+     for (int i = 0; i < GetPageCount(); i++)
+     {

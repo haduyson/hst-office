@@ -12,7 +12,7 @@ class EqualHeight(unittest.TestCase):
         code = added(PATCH, "sfx2/source/notebookbar/NotebookbarTabControl.cxx")
         self.assertIn("constexpr double HST_RIBBON_HEIGHT = 165;", code)
         # only the full ribbon: the compact one keeps its tab row and quick row
-        self.assertIn("    else // HST Office: one ribbon height in every app", code)
+        self.assertIn("its own height", code)
         self.assertIn("std::lround(HST_RIBBON_HEIGHT * GetDPIScaleFactor())", code)
 
 
