@@ -101,6 +101,8 @@ class ApprovedOrder(unittest.TestCase):
             rest = groups[1:][::-1]
             want = [[g, s] for s in "MSC" for g in rest] + [[groups[0], s] for s in "MSC"]
             self.assertEqual(ladder["steps"], want, (ladder["app"], ladder["box"]))
+            # the regrow priority (reverse of the fold) follows the same rule: HstRibbonRegrow lays the row out by it
+            self.assertEqual(ladder.get("fold"), rest + [groups[0]], (ladder["app"], ladder["box"]))
             checked += 1
         self.assertGreater(checked, 40)
 
