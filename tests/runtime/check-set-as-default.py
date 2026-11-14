@@ -17,11 +17,11 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hst_dialog_uitest import Checks, DialogHarness, click, has_child, select_entry, state, type_value  # noqa: E402
+from hst_dialog_uitest import Checks, DialogHarness, click, select_entry, state  # noqa: E402
 from hst_gui import free_port  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-BLOCK, CENTER_CELL = 2, 2  # style.ParagraphAdjust.BLOCK, table.CellHoriJustify.CENTER
+BLOCK = 2  # style.ParagraphAdjust.BLOCK
 SHOTS = {}  # "script" (PowerShell PrintWindow capture of the office windows, Windows) and "dir", from --shots
 
 
@@ -83,7 +83,7 @@ def before_restart(h, c):
     doc.getText().setString("Chỉ tài liệu này.")
     h.wait_idle()
     dlg = h.open_dialog(".uno:FontDialog", "CharacterPropertiesDialog")
-    type_value(dlg, "cbWestSize", "14")
+    dlg.getChild("cbWestSize").executeAction("SELECT", (prop("TEXT", "14"),))
     set_as_default(h, c, dlg, "thisdoc", "font")
     c.equal("font: this document 14 pt", first_paragraph(doc).CharHeight, 14.0)
     h.close_document(doc)
@@ -92,11 +92,8 @@ def before_restart(h, c):
     sheet.getSheets().getByIndex(0).getCellByPosition(0, 0).setString("A1")
     h.wait_idle()
     dlg = h.open_dialog(".uno:FormatCellDialog", "FormatCellsDialog")
-    pages = dlg.getChild("tabcontrol")
-    for pos in range(int(state(pages)["PageCount"])):
-        dlg.getChild("tabcontrol").executeAction("SELECT", (prop("POS", str(pos)),))
-        if has_child(dlg, "comboboxHorzAlign"):
-            break
+    dlg.getChild("tabcontrol").executeAction("SELECT", (prop("POS", "1"),))  # Number, Alignment, Font, ...
+    h.wait_idle()
     select_entry(dlg, "comboboxHorzAlign", 2)  # Center
     set_as_default(h, c, dlg, "newdocs", "format cells")
     c.equal("format cells: default template written", template_on_disk(h, "scalc", "ots"), True)
@@ -112,7 +109,7 @@ def after_restart(h, c):
     h.close_document(doc)
     sheet = h.new_document("scalc")
     cell = sheet.getSheets().getByIndex(0).getCellByPosition(0, 0)
-    c.equal("restart: new spreadsheet centered", int(cell.HoriJustify), CENTER_CELL)
+    c.equal("restart: new spreadsheet centered", cell.HoriJustify.value, "CENTER")
     h.close_document(sheet)
 
 
