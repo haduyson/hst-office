@@ -1,0 +1,3615 @@
+HST Office: the Print page of the File panel ("Tệp tin" ▸ "In") shows the print settings and a live preview.
+
+As in the reference suite, File ▸ Print (and Ctrl+P, the ribbon and menu Print) opens the Print page of the File
+panel instead of the print dialog: settings on the left (big Print button with the copies, printer with
+"Properties...", pages/range, the application's options such as Calc's "Thu phóng" scaling, print area and
+Impress' slides/handouts/notes, paper sides, collate, orientation, paper size, pages per sheet), the preview of the
+document on the right with page navigation and zoom (10–400 % of the real size, "Cả trang"), plus "Thiết lập trang"
+(the application's page style dialog) and "Thêm tùy chọn" (the classic print dialog for the same job).
+
+- vcl: PrintDialog has a second form, a panel (vcl/uiconfig/ui/hstprintpanel.ui, generated from printdialog.ui with
+  the same widget ids plus the panel's own: moreoptions, pagesetup, previewscroll, zoomscale, zoomin, zoomout,
+  zoomfit, zoomtext). Both forms share all code, so the options, preview and printout are the dialog's. The panel
+  always previews, expands both sections and leaves the dialog's stored window state/preview/expander choices alone.
+  takeSettings() carries the choices the job does not keep itself (printer/print to file, paper, orientation, sides,
+  copies, collate, pages per sheet) between the forms.
+- vcl::PrintJobPanel (include/vcl/hstprintjobpanel.hxx): Printer::PreparePrintJob offers a job with dialogs to a
+  host (SetHost) where it would run the dialog; a host that takes it shows it in a PrintJobPanel. The job waits until
+  Print() (Printer::ResumePrintJob: what PreparePrintJob does after the dialog's OK, then ExecutePrintJob and
+  FinishPrintJob), RunClassicDialog() (OK prints; Cancel returns to the panel made again from the job) or
+  Cancel()/destruction (Printer::CancelPrintJob: abortJob + FinishPrintJob, as the dialog's Cancel). Jobs without
+  dialogs (API, direct), printers with their own dialog (macOS) and mail merge (PreparePrintJob without the
+  hand-over flag) are unchanged.
+- sfx2: the File panel is the host (InstallFileTabHandler registers it). The job's frame is the one whose view
+  shell owns the job (SfxViewShell::GetPrinterController; with document tabs several frames share a window). A job
+  of a Writer, Calc, Impress or Draw frame opens the panel on its Print page (BackstagePrintPage, hstbackstageprint.cxx); showing the page from its
+  left-column item runs .uno:Print so the job comes back the same way. Leaving the page or closing the panel cancels
+  the job; Ctrl+P inside the panel shows the page. The earlier "Print…" and "Print Preview" buttons of the page are
+  hidden; "In hai mặt" (Writer) stays. The panel's size and place are BackstageWindow::GetPlacement's.
+- solenv/sanitizers/ui/vcl.suppr: the print dialog's accessibility suppressions repeated for its panel copy, plus
+  the zoom percentage label.
+- Strings: vcl hstprintpanel.ui and sfx2 hstbackstage.ui "printwait"; Vietnamese in vcl/sfx2 messages.po (labels
+  without an ellipsis, as the HST dialogs).
+
+License: these upstream files remain under their original license (MPL-2.0); the new files are MPL-2.0.
+Test: CppunitTest_vcl_hst_print_panel (panel lifecycle, hand-over); tests/unit/test_backstage_print.py.
+---
+diff --git a/include/vcl/hstprintjobpanel.hxx b/include/vcl/hstprintjobpanel.hxx
+new file mode 100644
+index 0000000..518d01b
+--- /dev/null
++++ b/include/vcl/hstprintjobpanel.hxx
+@@ -0,0 +1,87 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <vcl/dllapi.h>
++#include <tools/link.hxx>
++
++#include <functional>
++#include <memory>
++
++namespace weld
++{
++class Container;
++class Window;
++}
++
++namespace vcl
++{
++class PrintDialog;
++class PrinterController;
++
++/* HST Office: a print job that waits in a page of the application (the Print page of the File
++   panel) instead of in the print dialog.
++
++   When a print job with dialogs starts (File ▸ Print, Ctrl+P), vcl asks the host set with
++   SetHost() first; a host that takes the job wraps it in a PrintJobPanel. The panel shows the
++   settings and the preview of the print dialog (the same code, controls and options, see
++   vcl::PrintDialog) in a container of the host, and the job waits until the panel prints it, the
++   classic dialog prints it, or the panel goes away (which cancels it). The printout is the one of
++   the dialog: Print() ends the job as the dialog's Print button would. */
++class VCL_DLLPUBLIC PrintJobPanel final
++{
++public:
++    /// Takes a job: called with the job and the window of its document; true when taken (the host
++    /// then owns a PrintJobPanel made for the job), false to show the classic dialog.
++    using Host = std::function<bool(const std::shared_ptr<PrinterController>&, weld::Window*)>;
++    static void SetHost(Host aHost);
++    /// Offer a job to the host (Printer::PreparePrintJob does, in place of the dialog); true when
++    /// it took it. A host that throws takes nothing.
++    static bool HandOver(const std::shared_ptr<PrinterController>& rxController);
++
++    explicit PrintJobPanel(std::shared_ptr<PrinterController> xController);
++    ~PrintJobPanel(); ///< cancels the job unless it ended
++    PrintJobPanel(const PrintJobPanel&) = delete;
++    PrintJobPanel& operator=(const PrintJobPanel&) = delete;
++
++    /// Show the settings and the preview in pParent, which must outlive this panel.
++    void Show(weld::Container* pParent);
++
++    /// Print with the shown settings; ends the job.
++    void Print();
++    /// The classic print dialog for this job, with the panel's choices. True when it printed (the
++    /// job ended); false when it was cancelled: the job waits and the panel shows the dialog's
++    /// choices (the options of the application went to the job already).
++    bool RunClassicDialog();
++    /// End the job without printing.
++    void Cancel();
++    bool IsPending() const { return m_bPending; }
++
++    /// The print button of the panel, its "More Options..." and "Page Setup..." links.
++    void SetHdls(const Link<PrintJobPanel&, void>& rPrint,
++                 const Link<PrintJobPanel&, void>& rMoreOptions,
++                 const Link<PrintJobPanel&, void>& rPageSetup);
++
++private:
++    DECL_LINK(PrintHdl, PrintDialog&, void);
++    DECL_LINK(MoreOptionsHdl, PrintDialog&, void);
++    DECL_LINK(PageSetupHdl, PrintDialog&, void);
++
++    std::shared_ptr<PrinterController> m_xController;
++    weld::Container* m_pParent;
++    std::unique_ptr<PrintDialog> m_xSettings; ///< the panel form of the print dialog, when shown
++    bool m_bPending;
++    Link<PrintJobPanel&, void> m_aPrintHdl;
++    Link<PrintJobPanel&, void> m_aMoreOptionsHdl;
++    Link<PrintJobPanel&, void> m_aPageSetupHdl;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/include/vcl/print.hxx b/include/vcl/print.hxx
+index f8dcaaa..1faa7c1 100644
+--- a/include/vcl/print.hxx
++++ b/include/vcl/print.hxx
+@@ -302,8 +302,15 @@ public:
+ 
+     // These 3 together are more modular PrintJob(), allowing printing more documents as one print job
+     // by repeated calls to ExecutePrintJob(). Used by mailmerge.
++    /// HST Office: with o_pHandedOver, a job whose dialog a vcl::PrintJobPanel host shows instead is
++    /// handed over (*o_pHandedOver true, returns false): ResumePrintJob or CancelPrintJob end it.
+     SAL_DLLPRIVATE static bool                 PreparePrintJob( std::shared_ptr<vcl::PrinterController> i_pController,
+-                                    const JobSetup& i_rInitSetup );
++                                    const JobSetup& i_rInitSetup, bool* o_pHandedOver = nullptr );
++    /// HST Office: print a handed-over job with the settings its dialog (or panel) gave it.
++    SAL_DLLPRIVATE static void ResumePrintJob(const std::shared_ptr<vcl::PrinterController>& i_pController,
++                                              bool bPrintToFile, bool bSingleJobs);
++    /// HST Office: end a handed-over job without printing.
++    SAL_DLLPRIVATE static void CancelPrintJob(const std::shared_ptr<vcl::PrinterController>& i_pController);
+     SAL_DLLPRIVATE static bool ExecutePrintJob(const std::shared_ptr<vcl::PrinterController>& i_pController);
+     static void                 FinishPrintJob( const std::shared_ptr<vcl::PrinterController>& i_pController );
+ 
+diff --git a/sfx2/Library_sfx.mk b/sfx2/Library_sfx.mk
+index 494b35e..44e6430 100644
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -87,6 +87,7 @@ $(eval $(call gb_Library_add_exception_objects,sfx,\
+     sfx2/source/dialog/backingwindow \
+     sfx2/source/backstage/hstbackstage \
+     sfx2/source/backstage/hstbackstagedata \
++    sfx2/source/backstage/hstbackstageprint \
+     sfx2/source/backstage/hstbackstagewindow \
+     sfx2/source/control/recentdocsview \
+     sfx2/source/control/recentdocsviewitem \
+diff --git a/sfx2/inc/backstage/hstbackstage.hxx b/sfx2/inc/backstage/hstbackstage.hxx
+index b32ae95..510b5af 100644
+--- a/sfx2/inc/backstage/hstbackstage.hxx
++++ b/sfx2/inc/backstage/hstbackstage.hxx
+@@ -31,7 +31,8 @@ void ToggleBackstage(const css::uno::Reference<css::frame::XFrame>& rxFrame);
+ bool CloseBackstage(const css::uno::Reference<css::frame::XFrame>& rxFrame);
+ 
+ /** Make the ribbon's File tab open the panel (once per process; cheap: one application event
+-    listener that reacts to tab page activations of notebookbar tab controls only). */
++    listener that reacts to tab page activations of notebookbar tab controls only), and make print
++    jobs with dialogs of a document open the panel's Print page (vcl::PrintJobPanel host). */
+ void InstallFileTabHandler();
+ 
+ /// Dispatch object for .uno:HSTBackstage on this frame (see SfxBaseController::queryDispatch).
+diff --git a/sfx2/source/backstage/hstbackstage.cxx b/sfx2/source/backstage/hstbackstage.cxx
+index 2b22a00..f90d826 100644
+--- a/sfx2/source/backstage/hstbackstage.cxx
++++ b/sfx2/source/backstage/hstbackstage.cxx
+@@ -11,6 +11,7 @@
+ #include "hstbackstagewindow.hxx"
+ 
+ #include <sfx2/viewfrm.hxx>
++#include <sfx2/viewsh.hxx>
+ 
+ #include <algorithm>
+ #include <memory>
+@@ -19,11 +20,13 @@
+ #include <com/sun/star/frame/FeatureStateEvent.hpp>
+ #include <com/sun/star/frame/XStatusListener.hpp>
+ #include <com/sun/star/lang/XEventListener.hpp>
++#include <comphelper/lok.hxx>
+ #include <cppuhelper/implbase.hxx>
+ #include <cppuhelper/weakref.hxx>
+ #include <sal/log.hxx>
+ #include <toolkit/helper/vclunohelper.hxx>
+ #include <vcl/event.hxx>
++#include <vcl/hstprintjobpanel.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/syswin.hxx>
+ #include <vcl/tabctrl.hxx>
+@@ -188,30 +191,64 @@ public:
+ };
+ }
+ 
+-void ToggleBackstage(const uno::Reference<frame::XFrame>& rxFrame)
++namespace
++{
++/// The panel of the frame, made on first use (no startup cost) and again when the frame now holds
++/// another kind of document or sits in another window.
++BackstageWindow* lcl_ensureBackstage(const uno::Reference<frame::XFrame>& rxFrame)
+ {
+     vcl::Window* pContainer = lcl_containerWindow(rxFrame);
+     if (!pContainer || !pContainer->GetFrameWeld())
+-        return;
++        return nullptr;
+     BackstageWindow* pBackstage = lcl_findBackstage(rxFrame);
+-    if (pBackstage && pBackstage->IsOpen())
+-    {
+-        pBackstage->Close();
+-        return;
+-    }
+-    if (pBackstage && pBackstage->ShowsCurrentDocument()
+-        && pBackstage->GetFrameWeld() == pContainer->GetFrameWeld())
+-    {
+-        pBackstage->Open();
+-        return;
+-    }
++    if (pBackstage
++        && (pBackstage->IsOpen()
++            || (pBackstage->ShowsCurrentDocument()
++                && pBackstage->GetFrameWeld() == pContainer->GetFrameWeld())))
++        return pBackstage;
+     if (pBackstage)
+-        lcl_removeBackstage(rxFrame); // the frame now holds another kind of document
++        lcl_removeBackstage(rxFrame);
+     else
+         rxFrame->addEventListener(new FrameDisposeListener);
+-    // created on first use (no startup cost) and reused afterwards
+     lcl_panels().push_back(std::make_unique<BackstageWindow>(pContainer, rxFrame));
+-    lcl_panels().back()->Open();
++    return lcl_panels().back().get();
++}
++
++/* Print jobs with dialogs (File ▸ Print, Ctrl+P, the ribbon) of a document frame open the File
++   panel on its Print page instead of the print dialog (vcl::PrintJobPanel). Other jobs (no frame of
++   the four applications, LibreOfficeKit) keep the dialog. */
++bool lcl_takePrintJob(const std::shared_ptr<vcl::PrinterController>& rxController,
++                      weld::Window* pDocumentWindow)
++{
++    if (comphelper::LibreOfficeKit::isActive() || !rxController)
++        return false;
++    // the frame whose view started the job (with document tabs several frames share one window)
++    for (SfxViewFrame* pFrame = SfxViewFrame::GetFirst(); pFrame;
++         pFrame = SfxViewFrame::GetNext(*pFrame))
++    {
++        SfxViewShell* pShell = pFrame->GetViewShell();
++        if (!pShell || pShell->GetPrinterController() != rxController)
++            continue;
++        uno::Reference<frame::XFrame> xFrame = pFrame->GetFrame().GetFrameInterface();
++        vcl::Window* pContainer = lcl_containerWindow(xFrame);
++        if (!pContainer || pContainer->GetFrameWeld() != pDocumentWindow)
++            return false; // not shown in its own window (an embedded or hidden view)
++        BackstageWindow* pBackstage = lcl_ensureBackstage(xFrame);
++        return pBackstage && pBackstage->ShowPrintJob(rxController);
++    }
++    return false;
++}
++}
++
++void ToggleBackstage(const uno::Reference<frame::XFrame>& rxFrame)
++{
++    BackstageWindow* pBackstage = lcl_ensureBackstage(rxFrame);
++    if (!pBackstage)
++        return;
++    if (pBackstage->IsOpen())
++        pBackstage->Close();
++    else
++        pBackstage->Open();
+ }
+ 
+ void InstallFileTabHandler()
+@@ -221,6 +258,7 @@ void InstallFileTabHandler()
+         return;
+     bInstalled = true;
+     Application::AddEventListener(LINK_NONMEMBER(nullptr, lcl_tabEvent));
++    vcl::PrintJobPanel::SetHost(lcl_takePrintJob);
+ }
+ 
+ bool CloseBackstage(const uno::Reference<frame::XFrame>& rxFrame)
+diff --git a/sfx2/source/backstage/hstbackstageprint.cxx b/sfx2/source/backstage/hstbackstageprint.cxx
+new file mode 100644
+index 0000000..d458793
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstageprint.cxx
+@@ -0,0 +1,178 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "hstbackstageprint.hxx"
++
++#include <utility>
++
++#include <comphelper/dispatchcommand.hxx>
++#include <sal/log.hxx>
++#include <vcl/hstprintjobpanel.hxx>
++#include <vcl/svapp.hxx>
++
++using namespace css;
++
++namespace sfx2::hst
++{
++namespace
++{
++/// The page style dialog of the application: margins, paper size and orientation.
++OUString lcl_pageSetupCommand(BackstageApp eApp)
++{
++    switch (eApp)
++    {
++        case BackstageApp::Writer:
++            return u".uno:PageDialog"_ustr;
++        case BackstageApp::Calc:
++            return u".uno:PageFormatDialog"_ustr;
++        case BackstageApp::Impress:
++        case BackstageApp::Draw:
++            return u".uno:PageSetup"_ustr;
++        case BackstageApp::Other:
++            break;
++    }
++    return OUString();
++}
++}
++
++BackstagePrintPage::BackstagePrintPage(weld::Builder& rBuilder, uno::Reference<frame::XFrame> xFrame,
++                                       BackstageApp eApp, std::function<void()> aClosePanel,
++                                       std::function<void()> aShowPage)
++    : m_xFrame(std::move(xFrame))
++    , m_eApp(eApp)
++    , m_aClosePanel(std::move(aClosePanel))
++    , m_aShowPage(std::move(aShowPage))
++    , m_xHost(rBuilder.weld_container(u"printhost"_ustr))
++    , m_xWaiting(rBuilder.weld_label(u"printwait"_ustr))
++    , m_bRequested(false)
++    , m_pEvent(nullptr)
++    , m_ePosted(Action::RequestJob)
++{
++}
++
++BackstagePrintPage::~BackstagePrintPage()
++{
++    if (m_pEvent)
++        Application::RemoveUserEvent(m_pEvent);
++    m_xJob.reset(); // cancels a waiting job
++}
++
++void BackstagePrintPage::Activate()
++{
++    if (m_xJob || m_bRequested)
++        return;
++    m_bRequested = true;
++    ShowWaiting(true);
++    Post(Action::RequestJob);
++}
++
++void BackstagePrintPage::Deactivate()
++{
++    if (m_pEvent)
++    {
++        Application::RemoveUserEvent(m_pEvent);
++        m_pEvent = nullptr;
++    }
++    m_bRequested = false;
++    m_xJob.reset(); // cancels the job, like the Cancel button of the print dialog
++    ShowWaiting(false);
++}
++
++void BackstagePrintPage::TakeJob(const std::shared_ptr<vcl::PrinterController>& rxController)
++{
++    m_bRequested = false;
++    m_xJob.reset(); // an older job (should not happen: the print command waits for it)
++    m_xJob = std::make_unique<vcl::PrintJobPanel>(rxController);
++    m_xJob->SetHdls(LINK(this, BackstagePrintPage, PrintHdl),
++                    LINK(this, BackstagePrintPage, MoreOptionsHdl),
++                    LINK(this, BackstagePrintPage, PageSetupHdl));
++    ShowWaiting(false);
++    m_xJob->Show(m_xHost.get());
++}
++
++void BackstagePrintPage::GrabFocus()
++{
++    if (m_xJob)
++        m_xHost->child_grab_focus();
++}
++
++void BackstagePrintPage::ShowWaiting(bool bWaiting)
++{
++    m_xWaiting->set_visible(bWaiting);
++    m_xHost->set_visible(!bWaiting);
++}
++
++void BackstagePrintPage::Post(Action eAction)
++{
++    if (m_pEvent)
++        Application::RemoveUserEvent(m_pEvent);
++    m_ePosted = eAction;
++    m_pEvent = Application::PostUserEvent(LINK(this, BackstagePrintPage, ActionHdl));
++}
++
++IMPL_LINK_NOARG(BackstagePrintPage, ActionHdl, void*, void)
++{
++    m_pEvent = nullptr;
++    Run(m_ePosted);
++}
++
++void BackstagePrintPage::Run(Action eAction)
++{
++    if (eAction == Action::RequestJob)
++    {
++        // the print command of the frame, as from the menu: vcl hands its job back (TakeJob)
++        if (!comphelper::dispatchCommand(u".uno:Print"_ustr, m_xFrame, {}))
++        {
++            SAL_WARN("sfx.backstage", "the document does not print");
++            Deactivate();
++        }
++        return;
++    }
++    // the job leaves the page before the panel closes (closing it cancels a job on the page)
++    std::unique_ptr<vcl::PrintJobPanel> xJob(std::move(m_xJob));
++    if (!xJob)
++        return;
++    if (eAction == Action::PageSetup)
++    {
++        // the page style changes the pages: this job ends, Ctrl+P makes a new one
++        xJob.reset();
++        m_aClosePanel();
++        const OUString aCommand = lcl_pageSetupCommand(m_eApp);
++        if (!aCommand.isEmpty())
++            comphelper::dispatchCommand(aCommand, m_xFrame, {});
++        return;
++    }
++    m_aClosePanel();
++    if (eAction == Action::Print)
++    {
++        xJob->Print();
++        return;
++    }
++    // "More Options...": the classic dialog for the same job; cancelled, it comes back here
++    if (!xJob->RunClassicDialog() && xJob->IsPending())
++    {
++        m_xJob = std::move(xJob);
++        m_aShowPage();
++    }
++}
++
++IMPL_LINK_NOARG(BackstagePrintPage, PrintHdl, vcl::PrintJobPanel&, void) { Post(Action::Print); }
++
++IMPL_LINK_NOARG(BackstagePrintPage, MoreOptionsHdl, vcl::PrintJobPanel&, void)
++{
++    Post(Action::MoreOptions);
++}
++
++IMPL_LINK_NOARG(BackstagePrintPage, PageSetupHdl, vcl::PrintJobPanel&, void)
++{
++    Post(Action::PageSetup);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/backstage/hstbackstageprint.hxx b/sfx2/source/backstage/hstbackstageprint.hxx
+new file mode 100644
+index 0000000..2c729df
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstageprint.hxx
+@@ -0,0 +1,96 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include "hstbackstagedata.hxx"
++
++#include <functional>
++#include <memory>
++
++#include <com/sun/star/frame/XFrame.hpp>
++#include <tools/link.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/Button.hxx>
++#include <vcl/weld/Container.hxx>
++#include <vcl/weld/Label.hxx>
++
++struct ImplSVEvent;
++namespace vcl
++{
++class PrintJobPanel;
++class PrinterController;
++}
++
++namespace sfx2::hst
++{
++/* HST Office: the Print page ("In") of the File panel.
++
++   The page shows a real print job of the document: the print dialog's settings and preview in
++   their panel form (vcl::PrintJobPanel), so the options, the preview and the printout are the
++   ones of File ▸ Print. A job reaches the page in two ways, both through the print command:
++   - the page is shown (its item in the left column): it runs .uno:Print for the frame;
++   - .uno:Print runs elsewhere (Ctrl+P, the ribbon, the menu): vcl hands the job to the File panel
++     (see TakePrintJob in hstbackstage.cxx), which opens on this page.
++   The job waits until the big Print button prints it, "More Options..." gives it to the classic
++   dialog, or the page goes away (another page, the panel closes): then it is cancelled, as the
++   dialog's Cancel would. "Page Setup..." cancels it and opens the page style dialog. */
++class BackstagePrintPage final
++{
++public:
++    /// rClosePanel closes the File panel; rShowPage opens it on this page.
++    BackstagePrintPage(weld::Builder& rBuilder, css::uno::Reference<css::frame::XFrame> xFrame,
++                       BackstageApp eApp, std::function<void()> aClosePanel,
++                       std::function<void()> aShowPage);
++    ~BackstagePrintPage();
++    BackstagePrintPage(const BackstagePrintPage&) = delete;
++    BackstagePrintPage& operator=(const BackstagePrintPage&) = delete;
++
++    /// The page is shown: without a job, ask the frame for one.
++    void Activate();
++    /// The page is left or the panel closed: cancel the waiting job.
++    void Deactivate();
++    /// A job of this frame that vcl hands over; the caller shows the page next.
++    void TakeJob(const std::shared_ptr<vcl::PrinterController>& rxController);
++    bool HasJob() const { return bool(m_xJob); }
++    /// Focus the print button (or the page while it waits for the job).
++    void GrabFocus();
++
++private:
++    enum class Action
++    {
++        RequestJob,
++        Print,
++        MoreOptions,
++        PageSetup
++    };
++    /// Run eAction after the current event (a click must not destroy the widget it came from).
++    void Post(Action eAction);
++    void Run(Action eAction);
++    void ShowWaiting(bool bWaiting);
++
++    DECL_LINK(PrintHdl, vcl::PrintJobPanel&, void);
++    DECL_LINK(MoreOptionsHdl, vcl::PrintJobPanel&, void);
++    DECL_LINK(PageSetupHdl, vcl::PrintJobPanel&, void);
++    DECL_LINK(ActionHdl, void*, void);
++
++    css::uno::Reference<css::frame::XFrame> m_xFrame;
++    BackstageApp m_eApp;
++    std::function<void()> m_aClosePanel;
++    std::function<void()> m_aShowPage;
++    std::unique_ptr<weld::Container> m_xHost; ///< the panel of the job goes in here
++    std::unique_ptr<weld::Label> m_xWaiting; ///< shown until the job arrives
++    std::unique_ptr<vcl::PrintJobPanel> m_xJob;
++    bool m_bRequested; ///< .uno:Print was run for the page, its job has not arrived yet
++    ImplSVEvent* m_pEvent;
++    Action m_ePosted;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/backstage/hstbackstagewindow.cxx b/sfx2/source/backstage/hstbackstagewindow.cxx
+index 08ec92a..92fb013 100644
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -387,6 +387,15 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+     m_xShortcut->hide(); // Alt+F is not bound on macOS, where Option+F types a character
+ #endif
+     m_xPanel->connect_key_press(LINK(this, BackstageWindow, KeyPressHdl));
++    m_xPrintPage = std::make_unique<BackstagePrintPage>(
++        *m_xBuilder, m_xFrame, m_eApp, [this]() { Close(); },
++        [this]()
++        {
++            if (m_bOpen)
++                ShowPage(Page::Print);
++            else
++                OpenOn(Page::Print);
++        });
+     m_xPopover->connect_closed(LINK(this, BackstageWindow, PopoverClosedHdl));
+ 
+     ApplyColors();
+@@ -642,6 +651,8 @@ void BackstageWindow::InitNewPage()
+ void BackstageWindow::ShowPage(Page ePage)
+ {
+     m_ePage = ePage;
++    if (m_xPrintPage && ePage != Page::Print)
++        m_xPrintPage->Deactivate(); // leaving the Print page cancels its print job
+     m_xPageHome->set_visible(ePage == Page::Home);
+     m_xPageNew->set_visible(ePage == Page::New);
+     m_xPageOpen->set_visible(ePage == Page::Open);
+@@ -674,6 +685,8 @@ void BackstageWindow::ShowPage(Page ePage)
+         FillInfoPage();
+     else if (ePage == Page::SaveAs)
+         FillSaveAsPage();
++    else if (ePage == Page::Print && m_xPrintPage)
++        m_xPrintPage->Activate();
+ 
+     // The floating popup of the other plugins (SalInstancePopover: Windows, macOS, gen) lays its
+     // content out only when it pops up, so a page shown afterwards kept no size and stayed blank
+@@ -809,14 +822,33 @@ bool BackstageWindow::GetPlacement(tools::Rectangle& rAnchor, Size& rSize) const
+     return true;
+ }
+ 
+-void BackstageWindow::Open()
++void BackstageWindow::Open() { OpenOn(Page::Home); }
++
++bool BackstageWindow::ShowPrintJob(const std::shared_ptr<vcl::PrinterController>& rxController)
+ {
++    if (m_eApp == BackstageApp::Other || !m_xPrintPage)
++        return false;
++    tools::Rectangle aAnchor;
++    Size aSize;
++    if (!m_bOpen && (!m_pFrameWeld || !GetPlacement(aAnchor, aSize)))
++        return false;
++    m_xPrintPage->TakeJob(rxController); // first: showing the page without a job asks for one
+     if (m_bOpen)
+-        return;
++        ShowPage(Page::Print);
++    else
++        OpenOn(Page::Print);
++    m_xPrintPage->GrabFocus();
++    return true;
++}
++
++bool BackstageWindow::OpenOn(Page ePage)
++{
++    if (m_bOpen)
++        return true;
+     tools::Rectangle aAnchor;
+     Size aSize;
+     if (!m_pFrameWeld || !GetPlacement(aAnchor, aSize))
+-        return;
++        return false;
+     m_bOpen = true;
+     SetNavHover(-1); // the pointer left the item when the panel closed
+ 
+@@ -826,12 +858,13 @@ void BackstageWindow::Open()
+                                                  : STR_HST_BS_EVENING));
+     ApplyColors();
+     FillRecentLists();
+-    ShowPage(Page::Home);
++    ShowPage(ePage);
+     m_xRecentTabs->set_current_page(0);
+ 
+     m_xPanel->set_size_request(aSize.Width(), aSize.Height());
+     m_xPopover->popup_at_rect(m_pFrameWeld, aAnchor, weld::Placement::Under);
+     m_aNav[m_nSelectedNav].xButton->grab_focus();
++    return true;
+ }
+ 
+ void BackstageWindow::Close()
+@@ -839,6 +872,7 @@ void BackstageWindow::Close()
+     if (!m_bOpen)
+         return;
+     m_bOpen = false;
++    m_xPrintPage->Deactivate(); // a print job waiting on the Print page is cancelled
+     m_xPopover->popdown();
+     FocusDocument();
+ }
+@@ -863,6 +897,7 @@ IMPL_LINK_NOARG(BackstageWindow, PopoverClosedHdl, weld::Popover&, void)
+     if (!m_bOpen)
+         return; // closed by Close()
+     m_bOpen = false;
++    m_xPrintPage->Deactivate();
+     FocusDocument();
+ }
+ 
+@@ -929,7 +964,7 @@ void BackstageWindow::FocusPage()
+     else if (m_ePage == Page::New)
+         m_xNewBlank->grab_focus();
+     else if (m_ePage == Page::Print)
+-        m_xPrintPrint->grab_focus();
++        m_xPrintPage->GrabFocus();
+     else if (m_ePage == Page::Export)
+         m_xExportPdf->grab_focus();
+ }
+@@ -997,6 +1032,8 @@ IMPL_LINK(BackstageWindow, KeyPressHdl, const KeyEvent&, rKEvt, bool)
+         {
+             if (aCommand == BACKSTAGE_COMMAND)
+                 Close();
++            else if (aCommand == ".uno:Print") // Ctrl+P: the Print page, as from the document
++                ShowPage(Page::Print);
+             else
+                 CloseAndDispatch(aCommand);
+             return true;
+diff --git a/sfx2/source/backstage/hstbackstagewindow.hxx b/sfx2/source/backstage/hstbackstagewindow.hxx
+index d048a25..b854656 100644
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -10,6 +10,7 @@
+ #pragma once
+ 
+ #include "hstbackstagedata.hxx"
++#include "hstbackstageprint.hxx"
+ 
+ #include <memory>
+ #include <vector>
+@@ -38,6 +39,7 @@ class OutputDevice;
+ struct ImplSVEvent;
+ namespace vcl
+ {
++class PrinterController;
+ class Window;
+ }
+ 
+@@ -63,6 +65,9 @@ public:
+     void Open();
+     /// Close the panel and give the focus back to the document.
+     void Close();
++    /// Show a print job of this frame on the Print page, opening the panel; false when the panel
++    /// cannot show it (no document of the four applications, no room): the print dialog shows it.
++    bool ShowPrintJob(const std::shared_ptr<vcl::PrinterController>& rxController);
+     bool IsOpen() const { return m_bOpen; }
+     /// False when the frame now holds a document of another application (a reused frame).
+     bool ShowsCurrentDocument() const;
+@@ -117,6 +122,8 @@ private:
+         bool bNd30 = false;
+     };
+ 
++    /// Open() on the given page; false without a frame window or room under the ribbon.
++    bool OpenOn(Page ePage);
+     void InitNavigation();
+     void InitHomePage();
+     void PaintTile(TemplateTile& rTile);
+@@ -249,6 +256,9 @@ private:
+     Point m_aPendingMenuPos;
+ 
+     std::vector<std::unique_ptr<weld::Label>> m_aTitles;
++
++    /// The Print page; last: it goes first, while the widgets of m_xBuilder it uses still exist.
++    std::unique_ptr<BackstagePrintPage> m_xPrintPage;
+ };
+ }
+ 
+diff --git a/sfx2/uiconfig/ui/hstbackstage.ui b/sfx2/uiconfig/ui/hstbackstage.ui
+index ce00fcf..6aa1e6e 100644
+--- a/sfx2/uiconfig/ui/hstbackstage.ui
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -1673,6 +1673,36 @@
+                 <property name="fill">True</property>
+               </packing>
+             </child>
++            <child>
++              <!-- HST Office: the print job of the page (vcl::PrintJobPanel, vcl/ui/hstprintpanel.ui) -->
++              <object class="GtkBox" id="printhost">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="hexpand">True</property>
++                <property name="vexpand">True</property>
++                <property name="orientation">vertical</property>
++                <child>
++                  <placeholder/>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">True</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkLabel" id="printwait">
++                <property name="visible">False</property>
++                <property name="no-show-all">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="hstbackstage|printwait">Preparing the print preview…</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
+             <child>
+               <object class="GtkGrid" id="pageprintgrid">
+                 <property name="visible">True</property>
+@@ -1682,7 +1712,8 @@
+                 <child>
+                   <object class="GtkButton" id="printprint">
+                     <property name="label" translatable="yes" context="hstbackstage|printprint">Print…</property>
+-                    <property name="visible">True</property>
++                    <property name="visible">False</property>
++                    <property name="no-show-all">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">False</property>
+                   </object>
+@@ -1694,7 +1725,8 @@
+                 <child>
+                   <object class="GtkLabel" id="printprintnote">
+                     <property name="label" translatable="yes" context="hstbackstage|printprintnote">Choose the printer, the pages and the number of copies (Ctrl+P).</property>
+-                    <property name="visible">True</property>
++                    <property name="visible">False</property>
++                    <property name="no-show-all">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="xalign">0</property>
+                     <property name="wrap">True</property>
+@@ -1708,7 +1740,8 @@
+                 <child>
+                   <object class="GtkButton" id="printpreview">
+                     <property name="label" translatable="yes" context="hstbackstage|printpreview">Print Preview</property>
+-                    <property name="visible">True</property>
++                    <property name="visible">False</property>
++                    <property name="no-show-all">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">False</property>
+                   </object>
+@@ -1720,7 +1753,8 @@
+                 <child>
+                   <object class="GtkLabel" id="printpreviewnote">
+                     <property name="label" translatable="yes" context="hstbackstage|printpreviewnote">See the pages as they will be printed.</property>
+-                    <property name="visible">True</property>
++                    <property name="visible">False</property>
++                    <property name="no-show-all">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="xalign">0</property>
+                     <property name="wrap">True</property>
+diff --git a/translations/source/vi/sfx2/messages.po b/translations/source/vi/sfx2/messages.po
+index 96fa0c7..8c569f9 100644
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -6699,3 +6699,9 @@ msgstr "Mọi tài liệu mới (_A)"
+ msgctxt "versionsofdialog|extended_tip|VersionsOfDialog"
+ msgid "Saves and organizes multiple versions of the current document in the same file. You can also open, delete and compare previous versions."
+ msgstr ""
++
++#. hstBP
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|printwait"
++msgid "Preparing the print preview…"
++msgstr "Đang chuẩn bị bản xem trước khi in"
+diff --git a/translations/source/vi/vcl/messages.po b/translations/source/vi/vcl/messages.po
+index fa932c0..772d6c2 100644
+--- a/translations/source/vi/vcl/messages.po
++++ b/translations/source/vi/vcl/messages.po
+@@ -3529,3 +3529,75 @@ msgstr ""
+ msgctxt "querydialog|QueryDialog"
+ msgid "New Data Type"
+ msgstr ""
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|pagesetup"
++msgid "Page Set_up…"
++msgstr "Thiết _lập trang"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|pagesetuptip"
++msgid "Margins, paper size and orientation of the document"
++msgstr "Lề, khổ giấy và hướng trang của tài liệu"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|moreoptions"
++msgid "_More Options…"
++msgstr "Thêm _tùy chọn"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|moreoptionstip"
++msgid "All settings in the print dialog"
++msgstr "Mọi thiết lập trong hộp thoại In"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|zoomout"
++msgid "Zoom Out"
++msgstr "Thu nhỏ"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|zoomoutname"
++msgid "Zoom Out"
++msgstr "Thu nhỏ"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|zoomscale"
++msgid "Zoom"
++msgstr "Mức phóng to"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|zoomscalename"
++msgid "Zoom"
++msgstr "Mức phóng to"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|zoomin"
++msgid "Zoom In"
++msgstr "Phóng to"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|zoominname"
++msgid "Zoom In"
++msgstr "Phóng to"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|zoomfit"
++msgid "_Whole Page"
++msgstr "_Cả trang"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|zoomfittip"
++msgid "Show the whole page"
++msgstr "Hiện cả trang"
+diff --git a/vcl/CppunitTest_vcl_hst_print_panel.mk b/vcl/CppunitTest_vcl_hst_print_panel.mk
+new file mode 100644
+index 0000000..6dae7d2
+--- /dev/null
++++ b/vcl/CppunitTest_vcl_hst_print_panel.mk
+@@ -0,0 +1,62 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t; fill-column: 100 -*-
++#
++# This file is part of HST Office, based on LibreOffice.
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,vcl_hst_print_panel))
++
++$(eval $(call gb_CppunitTest_set_include,vcl_hst_print_panel,\
++	$$(INCLUDE) \
++	-I$(SRCDIR)/vcl/inc \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_print_panel, \
++	vcl/qa/cppunit/hstprintjobpanel \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,vcl_hst_print_panel, \
++	boost_headers \
++	harfbuzz \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,vcl_hst_print_panel, \
++	comphelper \
++	cppu \
++	cppuhelper \
++	sal \
++	svt \
++	test \
++	tk \
++	tl \
++	unotest \
++	vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,vcl_hst_print_panel))
++
++$(eval $(call gb_CppunitTest_use_ure,vcl_hst_print_panel))
++$(eval $(call gb_CppunitTest_use_vcl,vcl_hst_print_panel))
++
++$(eval $(call gb_CppunitTest_use_components,vcl_hst_print_panel,\
++	configmgr/source/configmgr \
++	framework/util/fwk \
++	i18npool/util/i18npool \
++	sax/source/expatwrap/expwrap \
++	sfx2/util/sfx \
++	ucb/source/core/ucb1 \
++	ucb/source/ucp/file/ucpfile1 \
++	unotools/util/utl \
++	unoxml/source/service/unoxml \
++))
++
++$(eval $(call gb_CppunitTest_use_configuration,vcl_hst_print_panel))
++
++$(eval $(call gb_CppunitTest_use_uiconfigs,vcl_hst_print_panel, \
++    vcl \
++))
++
++# vim: set noet sw=4 ts=4:
+diff --git a/vcl/Library_vcl.mk b/vcl/Library_vcl.mk
+index 7064488..6fef222 100644
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -215,6 +215,7 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
+     vcl/source/window/NotebookBarAddonsMerger \
+     vcl/source/window/OptionalBox \
+     vcl/source/window/printdlg \
++    vcl/source/window/hstprintjobpanel \
+     vcl/source/window/scrwnd \
+     vcl/source/window/seleng \
+     vcl/source/window/split \
+diff --git a/vcl/Module_vcl.mk b/vcl/Module_vcl.mk
+index fdc5ec5..115dba5 100644
+--- a/vcl/Module_vcl.mk
++++ b/vcl/Module_vcl.mk
+@@ -240,6 +240,7 @@ $(eval $(call gb_Module_add_check_targets,vcl,\
+     CppunitTest_vcl_text \
+     CppunitTest_vcl_textlayout \
+     CppunitTest_vcl_treeview \
++    CppunitTest_vcl_hst_print_panel \
+     CppunitTest_vcl_font_ttf_structure_test \
+     CppunitTest_vcl_filters_test \
+     CppunitTest_vcl_mnemonic \
+diff --git a/vcl/UIConfig_vcl.mk b/vcl/UIConfig_vcl.mk
+index d849754..5cc2348 100644
+--- a/vcl/UIConfig_vcl.mk
++++ b/vcl/UIConfig_vcl.mk
+@@ -20,6 +20,7 @@ $(eval $(call gb_UIConfig_add_uifiles,vcl,\
+ 	vcl/uiconfig/ui/interimdockparent \
+ 	vcl/uiconfig/ui/interimtearableparent \
+ 	vcl/uiconfig/ui/printdialog \
++	vcl/uiconfig/ui/hstprintpanel \
+ 	vcl/uiconfig/ui/printerdevicepage \
+ 	vcl/uiconfig/ui/printerpaperpage \
+ 	vcl/uiconfig/ui/printerpropertiesdialog \
+diff --git a/vcl/inc/printdlg.hxx b/vcl/inc/printdlg.hxx
+index 121a773..426e841 100644
+--- a/vcl/inc/printdlg.hxx
++++ b/vcl/inc/printdlg.hxx
+@@ -26,6 +26,8 @@
+ #include <vcl/weld/Button.hxx>
+ #include <vcl/weld/CheckButton.hxx>
+ #include <vcl/weld/ComboBox.hxx>
++#include <vcl/weld/Container.hxx>
++#include <vcl/weld/Dialog.hxx>
+ #include <vcl/weld/DialogController.hxx>
+ #include <vcl/weld/Entry.hxx>
+ #include <vcl/weld/Expander.hxx>
+@@ -36,6 +38,7 @@
+ #include <vcl/weld/Notebook.hxx>
+ #include <vcl/weld/ProgressBar.hxx>
+ #include <vcl/weld/RadioButton.hxx>
++#include <vcl/weld/Scale.hxx>
+ #include <vcl/weld/ScrolledWindow.hxx>
+ #include <vcl/weld/SpinButton.hxx>
+ #include <vcl/weld/customweld.hxx>
+@@ -44,7 +47,11 @@
+ 
+ namespace vcl
+ {
+-    class PrintDialog final : public weld::GenericDialogController
++    /* HST Office: the print dialog has a second form, a panel: the same settings and preview of
++       the same print job laid out in a container of the application (the Print page of the File
++       panel, vcl/ui/hstprintpanel.ui: settings on the left, preview with zoom on the right). The
++       panel has the widgets of the dialog under the same ids, so both share all of this code. */
++    class PrintDialog final : public weld::DialogController
+     {
+         friend class MoreOptionsDialog;
+     public:
+@@ -64,6 +71,8 @@ namespace vcl
+             OUString            maHorzText;
+             OUString            maVertText;
+ 
++            sal_uInt32          mnMaxSquarePixels; // bigger when the panel zooms in
++            bool                mbZoomed; // panel: the wheel scrolls instead of turning pages
+             void preparePreviewBitmap();
+ 
+         public:
+@@ -74,6 +83,11 @@ namespace vcl
+             virtual bool Command( const CommandEvent& ) override;
+             virtual void Resize() override;
+ 
++            /// Panel: the size of the drawing area that shows the page at nPercent of its real size.
++            Size getZoomedSize(int nPercent) const;
++            /// Panel: the zoom (in %) at which the page fits the drawing area.
++            int getFitPercent() const;
++            void setZoomed(bool bZoomed);
+             void setPreview( const GDIMetaFile&, const Size& i_rPaperSize,
+                              std::u16string_view i_rPaperName,
+                              const OUString& i_rNoPageString,
+@@ -104,8 +118,23 @@ namespace vcl
+         };
+ 
+         PrintDialog(weld::Window*, std::shared_ptr<PrinterController> );
++        /// The panel form in pParent; dialogs it opens (printer properties) get pDialogParent.
++        PrintDialog(weld::Container* pParent, weld::Window* pDialogParent,
++                    std::shared_ptr<PrinterController>);
+         virtual ~PrintDialog() override;
+ 
++        virtual weld::Dialog* getDialog() override { return m_xDialog.get(); }
++        bool isPanel() const { return !m_xDialog; }
++        /// Panel: the print button, "More Options..." and "Page Setup..." call these.
++        void setPanelHdls(const Link<PrintDialog&, void>& rPrint,
++                          const Link<PrintDialog&, void>& rMoreOptions,
++                          const Link<PrintDialog&, void>& rPageSetup);
++        /// Show the choices of rOther that the controller does not keep itself (copies,
++        /// collate, paper sides, orientation, paper size, pages per sheet) and apply them.
++        void takeSettings(const PrintDialog& rOther);
++        /// Panel: show the zoom of the preview (also when the fitted page changed size).
++        void updateZoomText();
++
+         bool isPrintToFile() const;
+         bool isCollate() const;
+         bool isSingleJobs() const;
+@@ -119,6 +148,13 @@ namespace vcl
+ 
+     private:
+ 
++        PrintDialog(std::unique_ptr<weld::Builder> xBuilder, weld::Window* pDialogParent,
++                    bool bPanel, std::shared_ptr<PrinterController> xController);
++
++        std::unique_ptr<weld::Builder>          m_xBuilder;
++        std::shared_ptr<weld::Dialog>           m_xDialog; // the dialog form only
++        std::unique_ptr<weld::Container>        m_xPanel; // the panel form only
++        weld::Window*                           mpDialogParent;
+         std::unique_ptr<weld::Builder>          mxCustomOptionsUIBuilder;
+ 
+         std::shared_ptr<PrinterController>      maPController;
+@@ -182,6 +218,19 @@ namespace vcl
+         std::unique_ptr<weld::Expander>         mxRangeExpander;
+         std::unique_ptr<weld::Expander>         mxLayoutExpander;
+         std::unique_ptr<weld::Widget>           mxCustom;
++        // the panel form only (null in the dialog)
++        std::unique_ptr<weld::Button>           mxMoreOptionsBtn;
++        std::unique_ptr<weld::Button>           mxPageSetupBtn;
++        std::unique_ptr<weld::ScrolledWindow>   mxPreviewScroll;
++        std::unique_ptr<weld::Scale>            mxZoomScale;
++        std::unique_ptr<weld::Button>           mxZoomOutBtn;
++        std::unique_ptr<weld::Button>           mxZoomInBtn;
++        std::unique_ptr<weld::Button>           mxZoomFitBtn;
++        std::unique_ptr<weld::Label>            mxZoomText;
++        int                                     mnZoom = 0; // 0: the page fits the preview
++        Link<PrintDialog&, void>                maPanelPrintHdl;
++        Link<PrintDialog&, void>                maPanelMoreOptionsHdl;
++        Link<PrintDialog&, void>                maPanelPageSetupHdl;
+ 
+         OUString                                maPrintToFileText;
+         OUString                                maPrintText;
+@@ -222,6 +271,9 @@ namespace vcl
+ 
+         Idle maUpdatePreviewIdle;
+         DECL_LINK(updatePreviewIdle, Timer*, void);
++        DECL_LINK(ClickPanelHdl, weld::Button&, void);
++        DECL_LINK(ZoomScaleHdl, weld::Scale&, void);
++        void setZoom(int nPercent);
+ 
+         DECL_LINK(ClickOKCancelHdl, weld::Button&, void);
+         DECL_LINK(ClickForwardHdl, weld::Button&, void);
+diff --git a/vcl/qa/cppunit/data/hstprintpanelhost.ui b/vcl/qa/cppunit/data/hstprintpanelhost.ui
+new file mode 100644
+index 0000000..d08b6a1
+--- /dev/null
++++ b/vcl/qa/cppunit/data/hstprintpanelhost.ui
+@@ -0,0 +1,42 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- HST Office: a window with an empty box, the container of the print panel in hstprintjobpanel.cxx -->
++<interface domain="vcl">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkDialog" id="HostDialog">
++    <property name="can-focus">False</property>
++    <property name="type-hint">dialog</property>
++    <child internal-child="vbox">
++      <object class="GtkBox">
++        <property name="can-focus">False</property>
++        <property name="orientation">vertical</property>
++        <child internal-child="action_area">
++          <object class="GtkButtonBox">
++            <property name="can-focus">False</property>
++            <child>
++              <placeholder/>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="pack-type">end</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="host">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="orientation">vertical</property>
++            <child>
++              <placeholder/>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++      </object>
++    </child>
++  </object>
++</interface>
+diff --git a/vcl/qa/cppunit/hstprintjobpanel.cxx b/vcl/qa/cppunit/hstprintjobpanel.cxx
+new file mode 100644
+index 0000000..96e7545
+--- /dev/null
++++ b/vcl/qa/cppunit/hstprintjobpanel.cxx
+@@ -0,0 +1,168 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: a print job that waits in the panel form of the print dialog (vcl::PrintJobPanel).
++
++#include <salinst.hxx>
++#include <svdata.hxx>
++
++#include <stdexcept>
++
++#include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/view/PrintableState.hpp>
++#include <comphelper/propertyvalue.hxx>
++#include <test/bootstrapfixture.hxx>
++#include <vcl/hstprintjobpanel.hxx>
++#include <vcl/print.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/Container.hxx>
++
++namespace
++{
++/// Three A4 pages; counts how often the job ended and how.
++class TestController final : public vcl::PrinterController
++{
++public:
++    explicit TestController(const VclPtr<Printer>& rPrinter)
++        : PrinterController(rPrinter, nullptr)
++    {
++    }
++    int getPageCount() const override { return 3; }
++    css::uno::Sequence<css::beans::PropertyValue> getPageParameters(int) const override
++    {
++        return { comphelper::makePropertyValue(u"PageSize"_ustr, css::awt::Size(21000, 29700)) };
++    }
++    void printPage(int) const override {}
++    // both: the base's are not exported, the vtable of this class must not need them
++    void jobStarted() override {}
++    void jobFinished(css::view::PrintableState eState) override
++    {
++        ++mnFinished;
++        meState = eState;
++    }
++
++    int mnFinished = 0;
++    css::view::PrintableState meState = css::view::PrintableState_JOB_STARTED;
++};
++
++class HstPrintJobPanelTest : public test::BootstrapFixture
++{
++public:
++    HstPrintJobPanelTest()
++        : BootstrapFixture(true, false)
++    {
++    }
++
++    void setUp() override
++    {
++        test::BootstrapFixture::setUp();
++        m_xBuilder = GetSalInstance()->CreateBuilder(
++            nullptr, m_directories.getURLFromSrc(u"vcl/qa/cppunit/data/"),
++            u"hstprintpanelhost.ui"_ustr);
++        m_xHost = m_xBuilder->weld_container(u"host"_ustr);
++    }
++
++    void tearDown() override
++    {
++        vcl::PrintJobPanel::SetHost({});
++        m_xHost.reset();
++        m_xBuilder.reset();
++        test::BootstrapFixture::tearDown();
++    }
++
++    static std::shared_ptr<TestController> makeJob()
++    {
++        return std::make_shared<TestController>(VclPtr<Printer>::Create());
++    }
++
++    void testDestructionCancels()
++    {
++        auto xJob = makeJob();
++        {
++            vcl::PrintJobPanel aPanel(xJob);
++            // every widget of the print dialog code is in the panel form (a missing id crashes)
++            aPanel.Show(m_xHost.get());
++            CPPUNIT_ASSERT(aPanel.IsPending());
++            CPPUNIT_ASSERT_EQUAL(0, xJob->mnFinished);
++            CPPUNIT_ASSERT_EQUAL(sal_Int32(3), sal_Int32(xJob->getFilteredPageCount()));
++        }
++        CPPUNIT_ASSERT_EQUAL(1, xJob->mnFinished);
++        CPPUNIT_ASSERT_EQUAL(css::view::PrintableState_JOB_ABORTED, xJob->meState);
++    }
++
++    void testCancelEndsOnce()
++    {
++        auto xJob = makeJob();
++        {
++            vcl::PrintJobPanel aPanel(xJob);
++            aPanel.Show(m_xHost.get());
++            aPanel.Show(m_xHost.get()); // made again in the same container (after the dialog)
++            aPanel.Cancel();
++            CPPUNIT_ASSERT(!aPanel.IsPending());
++            CPPUNIT_ASSERT_EQUAL(1, xJob->mnFinished);
++            aPanel.Print(); // an ended job does not print
++            aPanel.Cancel();
++        }
++        CPPUNIT_ASSERT_EQUAL(1, xJob->mnFinished);
++        CPPUNIT_ASSERT_EQUAL(css::view::PrintableState_JOB_ABORTED, xJob->meState);
++    }
++
++    void testHandOver()
++    {
++        auto xJob = makeJob();
++        // no host: the dialog shows the job
++        CPPUNIT_ASSERT(!vcl::PrintJobPanel::HandOver(xJob));
++
++        std::shared_ptr<vcl::PrinterController> xTaken;
++        vcl::PrintJobPanel::SetHost(
++            [&xTaken](const std::shared_ptr<vcl::PrinterController>& rxJob, weld::Window*)
++            {
++                xTaken = rxJob;
++                return true;
++            });
++        CPPUNIT_ASSERT(vcl::PrintJobPanel::HandOver(xJob));
++        CPPUNIT_ASSERT_EQUAL(static_cast<vcl::PrinterController*>(xJob.get()), xTaken.get());
++        CPPUNIT_ASSERT(!vcl::PrintJobPanel::HandOver(nullptr));
++        // handed over, the job waits for its panel; the panel ends it
++        CPPUNIT_ASSERT_EQUAL(0, xJob->mnFinished);
++        vcl::PrintJobPanel(xTaken).Cancel();
++        CPPUNIT_ASSERT_EQUAL(1, xJob->mnFinished);
++    }
++
++    void testHostDeclinesOrFails()
++    {
++        auto xJob = makeJob();
++        vcl::PrintJobPanel::SetHost(
++            [](const std::shared_ptr<vcl::PrinterController>&, weld::Window*) { return false; });
++        CPPUNIT_ASSERT(!vcl::PrintJobPanel::HandOver(xJob));
++        vcl::PrintJobPanel::SetHost(
++            [](const std::shared_ptr<vcl::PrinterController>&, weld::Window*) -> bool
++            { throw std::runtime_error("host failed"); });
++        CPPUNIT_ASSERT(!vcl::PrintJobPanel::HandOver(xJob));
++        CPPUNIT_ASSERT_EQUAL(0, xJob->mnFinished);
++    }
++
++    CPPUNIT_TEST_SUITE(HstPrintJobPanelTest);
++    CPPUNIT_TEST(testDestructionCancels);
++    CPPUNIT_TEST(testCancelEndsOnce);
++    CPPUNIT_TEST(testHandOver);
++    CPPUNIT_TEST(testHostDeclinesOrFails);
++    CPPUNIT_TEST_SUITE_END();
++
++private:
++    std::unique_ptr<weld::Builder> m_xBuilder;
++    std::unique_ptr<weld::Container> m_xHost;
++};
++}
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstPrintJobPanelTest);
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/vcl/source/gdi/print3.cxx b/vcl/source/gdi/print3.cxx
+index 7751bd4..5f7f141 100644
+--- a/vcl/source/gdi/print3.cxx
++++ b/vcl/source/gdi/print3.cxx
+@@ -39,6 +39,7 @@
+ #include <vcl/weld/MessageDialog.hxx>
+ 
+ #include <printdlg.hxx>
++#include <vcl/hstprintjobpanel.hxx>
+ #include <salinst.hxx>
+ #include <salprn.hxx>
+ #include <strings.hrc>
+@@ -340,6 +341,33 @@ static OUString queryFile( Printer const * pPrinter, const OUString & rJobName )
+ 
+ namespace {
+ 
++/// What the print dialog (or panel) adds to the job when it is confirmed: the output file (which
++/// the user picks now) or one job per copy. False when no file was picked: the job is aborted.
++bool lcl_applyDialogResult(const std::shared_ptr<PrinterController>& xController, bool bPrintToFile,
++                           bool bSingleJobs)
++{
++    if (bPrintToFile)
++    {
++        OUString aJobName;
++        css::beans::PropertyValue* pJobNameVal = xController->getValue( u"JobName"_ustr );
++        if( pJobNameVal )
++            pJobNameVal->Value >>= aJobName;
++        OUString aFile = queryFile( xController->getPrinter().get(), aJobName );
++        if( aFile.isEmpty() )
++        {
++            xController->abortJob();
++            return false;
++        }
++        xController->setValue( u"LocalFileName"_ustr,
++                               css::uno::Any( aFile ) );
++    }
++    else if (bSingleJobs)
++    {
++        xController->getPrinter()->SetSinglePrintJobs(true);
++    }
++    return true;
++}
++
+ struct PrintJobAsync
+ {
+     std::shared_ptr<PrinterController>  mxController;
+@@ -381,7 +409,7 @@ void Printer::PrintJob(const std::shared_ptr<PrinterController>& i_xController,
+ }
+ 
+ bool Printer::PreparePrintJob(std::shared_ptr<PrinterController> xController,
+-                           const JobSetup& i_rInitSetup)
++                           const JobSetup& i_rInitSetup, bool* o_pHandedOver)
+ {
+     Printer::updatePrinters();
+ 
+@@ -553,6 +581,12 @@ bool Printer::PreparePrintJob(std::shared_ptr<PrinterController> xController,
+         xController->isShowDialogs()
+         )
+     {
++        // HST Office: the File panel shows the settings of the job on its Print page instead
++        if (o_pHandedOver && vcl::PrintJobPanel::HandOver(xController))
++        {
++            *o_pHandedOver = true;
++            return false;
++        }
+         try
+         {
+             PrintDialog aDlg(xController->getWindow(), xController);
+@@ -561,25 +595,8 @@ bool Printer::PreparePrintJob(std::shared_ptr<PrinterController> xController,
+                 xController->abortJob();
+                 return false;
+             }
+-            if (aDlg.isPrintToFile())
+-            {
+-                OUString aJobName;
+-                css::beans::PropertyValue* pJobNameVal = xController->getValue( u"JobName"_ustr );
+-                if( pJobNameVal )
+-                    pJobNameVal->Value >>= aJobName;
+-                OUString aFile = queryFile( xController->getPrinter().get(), aJobName );
+-                if( aFile.isEmpty() )
+-                {
+-                    xController->abortJob();
+-                    return false;
+-                }
+-                xController->setValue( u"LocalFileName"_ustr,
+-                                       css::uno::Any( aFile ) );
+-            }
+-            else if (aDlg.isSingleJobs())
+-            {
+-                xController->getPrinter()->SetSinglePrintJobs(true);
+-            }
++            if (!lcl_applyDialogResult(xController, aDlg.isPrintToFile(), aDlg.isSingleJobs()))
++                return false;
+         }
+         catch (const std::bad_alloc&)
+         {
+@@ -609,13 +626,33 @@ void Printer::FinishPrintJob(const std::shared_ptr<PrinterController>& xControll
+ void Printer::ImplPrintJob(const std::shared_ptr<PrinterController>& xController,
+                            const JobSetup& i_rInitSetup)
+ {
+-    if (PreparePrintJob(xController, i_rInitSetup))
++    bool bHandedOver = false;
++    if (PreparePrintJob(xController, i_rInitSetup, &bHandedOver))
++    {
++        ExecutePrintJob(xController);
++    }
++    if (!bHandedOver) // else the panel showing the job ends it
++        FinishPrintJob(xController);
++}
++
++void Printer::ResumePrintJob(const std::shared_ptr<PrinterController>& xController,
++                             bool bPrintToFile, bool bSingleJobs)
++{
++    // the rest of PreparePrintJob after its dialog, then ImplPrintJob
++    if (lcl_applyDialogResult(xController, bPrintToFile, bSingleJobs))
+     {
++        xController->pushPropertiesToPrinter();
+         ExecutePrintJob(xController);
+     }
+     FinishPrintJob(xController);
+ }
+ 
++void Printer::CancelPrintJob(const std::shared_ptr<PrinterController>& xController)
++{
++    xController->abortJob();
++    FinishPrintJob(xController);
++}
++
+ bool Printer::StartJob( const OUString& i_rJobName, std::shared_ptr<vcl::PrinterController> const & i_xController)
+ {
+     mnError = ERRCODE_NONE;
+diff --git a/vcl/source/window/hstprintjobpanel.cxx b/vcl/source/window/hstprintjobpanel.cxx
+new file mode 100644
+index 0000000..e28f3f4
+--- /dev/null
++++ b/vcl/source/window/hstprintjobpanel.cxx
+@@ -0,0 +1,149 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <vcl/hstprintjobpanel.hxx>
++
++#include <printdlg.hxx>
++
++#include <sal/log.hxx>
++#include <tools/debug.hxx>
++#include <vcl/print.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/vclenum.hxx>
++
++#include <utility>
++
++namespace vcl
++{
++namespace
++{
++PrintJobPanel::Host& lcl_host()
++{
++    static PrintJobPanel::Host aHost;
++    return aHost;
++}
++}
++
++void PrintJobPanel::SetHost(Host aHost) { lcl_host() = std::move(aHost); }
++
++bool PrintJobPanel::HandOver(const std::shared_ptr<PrinterController>& rxController)
++{
++    const Host& rHost = lcl_host();
++    if (!rHost || !rxController)
++        return false;
++    try
++    {
++        return rHost(rxController, rxController->getWindow());
++    }
++    catch (const std::exception& rException)
++    {
++        // the classic dialog then shows the job
++        SAL_WARN("vcl.print", "the print panel host failed: " << rException.what());
++        return false;
++    }
++}
++
++PrintJobPanel::PrintJobPanel(std::shared_ptr<PrinterController> xController)
++    : m_xController(std::move(xController))
++    , m_pParent(nullptr)
++    , m_bPending(true)
++{
++}
++
++PrintJobPanel::~PrintJobPanel()
++{
++    // the settings first: their preview must not ask the job for pages any more
++    m_xSettings.reset();
++    if (m_bPending)
++        Printer::CancelPrintJob(m_xController);
++}
++
++void PrintJobPanel::Show(weld::Container* pParent)
++{
++    DBG_ASSERT(pParent, "PrintJobPanel::Show: no container");
++    if (!pParent || !m_bPending)
++        return;
++    m_xSettings.reset(); // before the new one: both would sit in pParent
++    m_pParent = pParent;
++    m_xSettings = std::make_unique<PrintDialog>(pParent, m_xController->getWindow(), m_xController);
++    m_xSettings->setPanelHdls(LINK(this, PrintJobPanel, PrintHdl),
++                              LINK(this, PrintJobPanel, MoreOptionsHdl),
++                              LINK(this, PrintJobPanel, PageSetupHdl));
++}
++
++void PrintJobPanel::Print()
++{
++    if (!m_bPending)
++        return;
++    const bool bPrintToFile = m_xSettings && m_xSettings->isPrintToFile();
++    const bool bSingleJobs = m_xSettings && m_xSettings->isSingleJobs();
++    // the settings go first, as the dialog does before the job prints: no preview while printing
++    m_xSettings.reset();
++    m_bPending = false;
++    Printer::ResumePrintJob(m_xController, bPrintToFile, bSingleJobs);
++}
++
++bool PrintJobPanel::RunClassicDialog()
++{
++    if (!m_bPending)
++        return false;
++    auto xDialog = std::make_unique<PrintDialog>(m_xController->getWindow(), m_xController);
++    if (m_xSettings)
++        xDialog->takeSettings(*m_xSettings);
++    if (xDialog->run() == RET_OK)
++    {
++        const bool bPrintToFile = xDialog->isPrintToFile();
++        const bool bSingleJobs = xDialog->isSingleJobs();
++        xDialog.reset();
++        m_xSettings.reset();
++        m_bPending = false;
++        Printer::ResumePrintJob(m_xController, bPrintToFile, bSingleJobs);
++        return true;
++    }
++    // cancelled: the job keeps what the dialog set (the options of the application are values of
++    // the job), so the panel is made again from the job and gets the dialog's other choices
++    if (m_pParent)
++    {
++        Show(m_pParent);
++        if (m_xSettings)
++            m_xSettings->takeSettings(*xDialog);
++    }
++    return false;
++}
++
++void PrintJobPanel::Cancel()
++{
++    m_xSettings.reset();
++    if (!m_bPending)
++        return;
++    m_bPending = false;
++    Printer::CancelPrintJob(m_xController);
++}
++
++void PrintJobPanel::SetHdls(const Link<PrintJobPanel&, void>& rPrint,
++                            const Link<PrintJobPanel&, void>& rMoreOptions,
++                            const Link<PrintJobPanel&, void>& rPageSetup)
++{
++    m_aPrintHdl = rPrint;
++    m_aMoreOptionsHdl = rMoreOptions;
++    m_aPageSetupHdl = rPageSetup;
++}
++
++// The host acts on these after the click (it must not destroy the settings inside their handler).
++IMPL_LINK_NOARG(PrintJobPanel, PrintHdl, PrintDialog&, void) { m_aPrintHdl.Call(*this); }
++
++IMPL_LINK_NOARG(PrintJobPanel, MoreOptionsHdl, PrintDialog&, void)
++{
++    m_aMoreOptionsHdl.Call(*this);
++}
++
++IMPL_LINK_NOARG(PrintJobPanel, PageSetupHdl, PrintDialog&, void) { m_aPageSetupHdl.Call(*this); }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/vcl/source/window/printdlg.cxx b/vcl/source/window/printdlg.cxx
+index a1062e8..97473fb 100644
+--- a/vcl/source/window/printdlg.cxx
++++ b/vcl/source/window/printdlg.cxx
+@@ -26,6 +26,7 @@
+ #include <officecfg/Office/Common.hxx>
+ #include <officecfg/VCL.hxx>
+ 
++#include <algorithm>
+ #include <utility>
+ #include <vcl/QueueInfo.hxx>
+ #include <vcl/commandevent.hxx>
+@@ -65,6 +66,11 @@ enum
+     ORIENTATION_LANDSCAPE
+ };
+ 
++// the zoom of the panel's preview, in % of the real size of the page
++constexpr int PANEL_ZOOM_MIN = 10;
++constexpr int PANEL_ZOOM_MAX = 400;
++constexpr int PANEL_ZOOM_STEP = 10;
++
+ namespace {
+    bool lcl_ListBoxCompare( const OUString& rStr1, const OUString& rStr2 )
+    {
+@@ -78,6 +84,8 @@ PrintDialog::PrintPreviewWindow::PrintPreviewWindow(PrintDialog* pDialog)
+     , mnDPIX(Application::GetDefaultDevice()->GetDPIX())
+     , mnDPIY(Application::GetDefaultDevice()->GetDPIY())
+     , mbGreyscale( false )
++    , mnMaxSquarePixels( 500000 )
++    , mbZoomed( false )
+ {
+ }
+ 
+@@ -120,6 +128,9 @@ void PrintDialog::PrintPreviewWindow::Resize()
+ 
+     // check and evtl. recreate preview bitmap
+     preparePreviewBitmap();
++
++    if (mpDialog->isPanel()) // the zoom shown for the fitted page follows the area
++        mpDialog->updateZoomText();
+ }
+ 
+ void PrintDialog::PrintPreviewWindow::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle&)
+@@ -193,8 +204,34 @@ void PrintDialog::PrintPreviewWindow::Paint(vcl::RenderContext& rRenderContext,
+     aDecorationView.DrawFrame(aFrameRect, DrawFrameStyle::Group);
+ }
+ 
++Size PrintDialog::PrintPreviewWindow::getZoomedSize(int nPercent) const
++{
++    // the page at nPercent of its real size on the screen, plus the decoration Resize() leaves
++    const OutputDevice& rDev = GetDrawingArea()->get_ref_device();
++    const double fFactor = nPercent / 100.0 / 2540.0; // maOrigSize is in 1/100 mm
++    const tools::Long nDeco = GetDrawingArea()->get_text_height() * 2 + 12;
++    return Size(tools::Long(maOrigSize.Width() * rDev.GetDPIX() * fFactor) + nDeco,
++                tools::Long(maOrigSize.Height() * rDev.GetDPIY() * fFactor) + nDeco);
++}
++
++int PrintDialog::PrintPreviewWindow::getFitPercent() const
++{
++    const OutputDevice& rDev = GetDrawingArea()->get_ref_device();
++    const double fReal = maOrigSize.Width() * rDev.GetDPIX() / 2540.0;
++    return fReal > 0 ? std::max(1, int(maPreviewSize.Width() * 100.0 / fReal + 0.5)) : 100;
++}
++
++void PrintDialog::PrintPreviewWindow::setZoomed(bool bZoomed)
++{
++    mbZoomed = bZoomed;
++    // a zoomed page needs a sharper bitmap than the 500 000 pixels of a fitted one
++    mnMaxSquarePixels = bZoomed ? 6000000 : 500000;
++}
++
+ bool PrintDialog::PrintPreviewWindow::Command( const CommandEvent& rEvt )
+ {
++    if (rEvt.GetCommand() == CommandEventId::Wheel && mbZoomed)
++        return false; // the scrolled window around the zoomed page scrolls it
+     if( rEvt.GetCommand() == CommandEventId::Wheel )
+     {
+         const CommandWheelData* pWheelData = rEvt.GetWheelData();
+@@ -269,7 +306,7 @@ void PrintDialog::PrintPreviewWindow::preparePreviewBitmap()
+     // define an allowed number of pixels, also see
+     // defaults for primitive renderers and similar. This
+     // might be centralized and made dependent of 32/64bit
+-    const sal_uInt32 nMaxSquarePixels(500000);
++    const sal_uInt32 nMaxSquarePixels(mnMaxSquarePixels);
+ 
+     // check how big (squarePixels) the preview is currently (with
+     // max value of MaxSquarePixels)
+@@ -525,7 +562,24 @@ Size const & PrintDialog::getJobPageSize()
+ }
+ 
+ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterController> i_xController)
+-    : GenericDialogController(i_pWindow, u"vcl/ui/printdialog.ui"_ustr, u"PrintDialog"_ustr)
++    : PrintDialog(Application::CreateBuilder(i_pWindow, u"vcl/ui/printdialog.ui"_ustr), i_pWindow,
++                  false, std::move(i_xController))
++{
++}
++
++PrintDialog::PrintDialog(weld::Container* pParent, weld::Window* pDialogParent,
++                         std::shared_ptr<PrinterController> xController)
++    : PrintDialog(Application::CreateBuilder(pParent, u"vcl/ui/hstprintpanel.ui"_ustr),
++                  pDialogParent, true, std::move(xController))
++{
++}
++
++PrintDialog::PrintDialog(std::unique_ptr<weld::Builder> xBuilder, weld::Window* pDialogParent,
++                         bool bPanel, std::shared_ptr<PrinterController> i_xController)
++    : m_xBuilder(std::move(xBuilder))
++    , m_xDialog(bPanel ? nullptr : m_xBuilder->weld_dialog(u"PrintDialog"_ustr))
++    , m_xPanel(bPanel ? m_xBuilder->weld_container(u"HstPrintPanel"_ustr) : nullptr)
++    , mpDialogParent(pDialogParent)
+     , maPController(std::move( i_xController ))
+     , mxTabCtrl(m_xBuilder->weld_notebook(u"tabcontrol"_ustr))
+     , mxScrolledWindow(m_xBuilder->weld_scrolled_window(u"scrolledwindow"_ustr))
+@@ -576,6 +630,15 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
+     , mxRangeExpander(m_xBuilder->weld_expander(u"exRangeExpander"_ustr))
+     , mxLayoutExpander(m_xBuilder->weld_expander(u"exLayoutExpander"_ustr))
+     , mxCustom(m_xBuilder->weld_widget(u"customcontents"_ustr))
++    // the panel form only: not in printdialog.ui, so null in the dialog
++    , mxMoreOptionsBtn(m_xBuilder->weld_button(u"moreoptions"_ustr))
++    , mxPageSetupBtn(m_xBuilder->weld_button(u"pagesetup"_ustr))
++    , mxPreviewScroll(m_xBuilder->weld_scrolled_window(u"previewscroll"_ustr))
++    , mxZoomScale(m_xBuilder->weld_scale(u"zoomscale"_ustr))
++    , mxZoomOutBtn(m_xBuilder->weld_button(u"zoomout"_ustr))
++    , mxZoomInBtn(m_xBuilder->weld_button(u"zoomin"_ustr))
++    , mxZoomFitBtn(m_xBuilder->weld_button(u"zoomfit"_ustr))
++    , mxZoomText(m_xBuilder->weld_label(u"zoomtext"_ustr))
+     , maPrintToFileText( VclResId( SV_PRINT_TOFILE_TXT ) )
+     , maDefPrtText( VclResId( SV_PRINT_DEFPRT_TXT ) )
+     , maNoPageStr( VclResId( SV_PRINT_NOPAGES ) )
+@@ -712,6 +775,22 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
+     mxLayoutExpander->set_expanded(
+         officecfg::Office::Common::Print::Dialog::LayoutSectionExpanded::get());
+ 
++    if (m_xPanel)
++    {
++        // the panel always previews and shows every setting; the dialog's choices stay its own
++        mxPreviewBox->set_active(true);
++        mxPreviewBox->hide();
++        mxRangeExpander->set_expanded(true);
++        mxLayoutExpander->set_expanded(true);
++        for (weld::Button* pButton : { mxMoreOptionsBtn.get(), mxPageSetupBtn.get(), mxZoomOutBtn.get(),
++                                       mxZoomInBtn.get(), mxZoomFitBtn.get() })
++            pButton->connect_clicked(LINK(this, PrintDialog, ClickPanelHdl));
++        mxZoomScale->set_range(PANEL_ZOOM_MIN, PANEL_ZOOM_MAX);
++        mxZoomScale->connect_value_changed(LINK(this, PrintDialog, ZoomScaleHdl));
++        setZoom(0);
++        return;
++    }
++
+     // lock the dialog height, regardless of later expander state
+     mxScrolledWindow->set_size_request(
+         mxScrolledWindow->get_preferred_size().Width() + mxScrolledWindow->get_scroll_thickness(),
+@@ -720,8 +799,104 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
+     m_xDialog->set_centered_on_parent(true);
+ }
+ 
++void PrintDialog::setPanelHdls(const Link<PrintDialog&, void>& rPrint,
++                               const Link<PrintDialog&, void>& rMoreOptions,
++                               const Link<PrintDialog&, void>& rPageSetup)
++{
++    maPanelPrintHdl = rPrint;
++    maPanelMoreOptionsHdl = rMoreOptions;
++    maPanelPageSetupHdl = rPageSetup;
++}
++
++void PrintDialog::takeSettings(const PrintDialog& rOther)
++{
++    // the printer (the controller has it, but not whether it prints to a file)
++    if (rOther.isPrintToFile() != isPrintToFile()
++        || rOther.mxPrinters->get_active_text() != mxPrinters->get_active_text())
++    {
++        mxPrinters->set_active(rOther.mxPrinters->get_active());
++        SelectPrinterHdl(*mxPrinters);
++    }
++    if (mxPaperSizeBox->get_sensitive()
++        && mxPaperSizeBox->find_text(rOther.mxPaperSizeBox->get_active_text()) != -1)
++    {
++        mxPaperSizeBox->set_active_text(rOther.mxPaperSizeBox->get_active_text());
++        SelectPaperSizeHdl(*mxPaperSizeBox);
++    }
++    if (mxOrientationBox->get_sensitive())
++    {
++        mxOrientationBox->set_active(rOther.mxOrientationBox->get_active());
++        SelectOrientationHdl(*mxOrientationBox);
++    }
++    if (mxPaperSidesBox->get_sensitive())
++    {
++        mxPaperSidesBox->set_active(rOther.mxPaperSidesBox->get_active());
++        SelectPaperSidesHdl(*mxPaperSidesBox);
++    }
++    mxCopyCountField->set_value(rOther.mxCopyCountField->get_value());
++    SpinModifyHdl(*mxCopyCountField);
++    mxCollateBox->set_active(rOther.mxCollateBox->get_active());
++    ToggleCollateHdl(*mxCollateBox);
++    if (mxNupPagesBox->get_sensitive())
++    {
++        mxNupRowsEdt->set_value(rOther.mxNupRowsEdt->get_value());
++        mxNupColEdt->set_value(rOther.mxNupColEdt->get_value());
++        mxNupPagesBox->set_active(rOther.mxNupPagesBox->get_active());
++        SelectNupPagesHdl(*mxNupPagesBox);
++    }
++    schedulePreviewUpdate(false);
++}
++
++IMPL_LINK(PrintDialog, ClickPanelHdl, weld::Button&, rButton, void)
++{
++    if (&rButton == mxMoreOptionsBtn.get())
++        maPanelMoreOptionsHdl.Call(*this);
++    else if (&rButton == mxPageSetupBtn.get())
++        maPanelPageSetupHdl.Call(*this);
++    else if (&rButton == mxZoomFitBtn.get())
++        setZoom(0);
++    else
++    {
++        // from the fitted page, the steps start at the zoom it shows
++        const int nCurrent = mnZoom > 0 ? mnZoom : mxPreview->getFitPercent();
++        const int nStep = &rButton == mxZoomInBtn.get() ? PANEL_ZOOM_STEP : -PANEL_ZOOM_STEP;
++        setZoom(std::clamp((nCurrent + nStep) / PANEL_ZOOM_STEP * PANEL_ZOOM_STEP, PANEL_ZOOM_MIN,
++                           PANEL_ZOOM_MAX));
++    }
++}
++
++IMPL_LINK_NOARG(PrintDialog, ZoomScaleHdl, weld::Scale&, void)
++{
++    setZoom(mxZoomScale->get_value());
++}
++
++void PrintDialog::setZoom(int nPercent)
++{
++    // 0: the whole page fits the preview area (no scroll bars, the drawing area fills it);
++    // otherwise the page at nPercent of its real size, scrolled in the area
++    mnZoom = nPercent;
++    mxPreview->setZoomed(nPercent > 0);
++    const VclPolicyType ePolicy = nPercent > 0 ? VclPolicyType::AUTOMATIC : VclPolicyType::NEVER;
++    mxPreviewScroll->set_hpolicy(ePolicy);
++    mxPreviewScroll->set_vpolicy(ePolicy);
++    const Size aSize(nPercent > 0 ? mxPreview->getZoomedSize(nPercent) : Size(-1, -1));
++    mxPreviewWindow->set_size_request(aSize.Width(), aSize.Height());
++    updateZoomText();
++}
++
++void PrintDialog::updateZoomText()
++{
++    if (!mxZoomText || !mxZoomScale)
++        return;
++    const int nShown = mnZoom > 0 ? mnZoom : mxPreview->getFitPercent();
++    mxZoomScale->set_value(nShown);
++    mxZoomText->set_label(OUString::number(nShown) + "%");
++}
++
+ void PrintDialog::ImplDestroy()
+ {
++    if (!m_xDialog) // the panel expands both sections; the dialog keeps its own choice
++        return;
+     std::shared_ptr<comphelper::ConfigurationChanges> batch(comphelper::ConfigurationChanges::create());
+     officecfg::Office::Common::Print::Dialog::RangeSectionExpanded::set(mxRangeExpander->get_expanded(), batch);
+     officecfg::Office::Common::Print::Dialog::LayoutSectionExpanded::set(mxLayoutExpander->get_expanded(), batch);
+@@ -760,7 +935,8 @@ void PrintDialog::storeToSettings()
+     officecfg::VCL::VCLSettings::PrintDialog::LastPage::set(
+                      mxTabCtrl->get_tab_label_text(mxTabCtrl->get_current_page_ident()), batch);
+ 
+-    officecfg::VCL::VCLSettings::PrintDialog::WindowState::set(
++    if (m_xDialog)
++        officecfg::VCL::VCLSettings::PrintDialog::WindowState::set(
+                      m_xDialog->get_window_state(vcl::WindowDataMask::All), batch );
+ 
+     officecfg::VCL::VCLSettings::PrintDialog::Collate::set( mxCollateBox->get_active(), batch );
+@@ -768,7 +944,8 @@ void PrintDialog::storeToSettings()
+     officecfg::VCL::VCLSettings::PrintDialog::CollateSingleJobs::set(
+                      mxSingleJobsBox->get_active(), batch );
+ 
+-    officecfg::VCL::VCLSettings::PrintDialog::HasPreview::set( hasPreview(), batch);
++    if (m_xDialog) // the panel always previews
++        officecfg::VCL::VCLSettings::PrintDialog::HasPreview::set( hasPreview(), batch);
+ 
+     batch->commit();
+ }
+@@ -790,7 +967,7 @@ void PrintDialog::readFromSettings()
+ 
+     // persistent window state
+     aValue = officecfg::VCL::VCLSettings::PrintDialog::WindowState::get();
+-    if (!aValue.isEmpty())
++    if (!aValue.isEmpty() && m_xDialog)
+         m_xDialog->set_window_state(aValue);
+ 
+     // collate
+@@ -2072,6 +2249,12 @@ IMPL_LINK_NOARG(PrintDialog, ToggleBrochureHdl, weld::Toggleable&, void)
+ IMPL_LINK(PrintDialog, ClickOKCancelHdl, weld::Button&, rButton, void)
+ {
+     storeToSettings();
++    if (!m_xDialog)
++    {
++        if (&rButton == mxOKButton.get())
++            maPanelPrintHdl.Call(*this);
++        return;
++    }
+     m_xDialog->response(&rButton == mxOKButton.get() ? RET_OK : RET_CANCEL);
+ }
+ 
+@@ -2102,7 +2285,7 @@ IMPL_LINK_NOARG(PrintDialog, ClickSetupHdl, weld::Button&, void)
+     // Save orientation dropdown — Properties dialog can clobber it.
+     const int nSavedOrient = mxOrientationBox->get_active();
+ 
+-    maPController->setupPrinter(m_xDialog.get());
++    maPController->setupPrinter(m_xDialog ? m_xDialog.get() : mpDialogParent);
+ 
+     VclPtr<Printer> aPrt(maPController->getPrinter());
+     if (!isPrintToFile())
+diff --git a/vcl/uiconfig/ui/hstprintpanel.ui b/vcl/uiconfig/ui/hstprintpanel.ui
+new file mode 100644
+index 0000000..ed57878
+--- /dev/null
++++ b/vcl/uiconfig/ui/hstprintpanel.ui
+@@ -0,0 +1,1627 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- HST Office: the print dialog as a panel (the Print page of the File panel); generated
++     from printdialog.ui, same widget ids (vcl::PrintDialog serves both). -->
++<interface domain="vcl">
++  <requires lib="gtk+" version="3.24" />
++  <object class="GtkAdjustment" id="adjustment1">
++    <property name="lower">10</property>
++    <property name="upper">200</property>
++    <property name="value">100</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
++  <object class="GtkAdjustment" id="adjustment2">
++    <property name="lower">1</property>
++    <property name="upper">16384</property>
++    <property name="value">1</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
++  <object class="GtkAdjustment" id="adjustment3">
++    <property name="lower">1</property>
++    <property name="upper">1000</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
++  <object class="GtkAdjustment" id="adjustment4">
++    <property name="lower">1</property>
++    <property name="upper">1000</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
++  <object class="GtkAdjustment" id="adjustment5">
++    <property name="upper">1000</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
++  <object class="GtkAdjustment" id="adjustment6">
++    <property name="upper">1000</property>
++    <property name="step-increment">1</property>
++    <property name="page-increment">10</property>
++  </object>
++  <object class="GtkImage" id="imgBack">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">go-previous</property>
++  </object>
++  <object class="GtkImage" id="imgFirst">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">go-first</property>
++  </object>
++  <object class="GtkImage" id="imgForward">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">go-next</property>
++  </object>
++  <object class="GtkImage" id="imgLast">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">go-last</property>
++  </object>
++  <object class="GtkAdjustment" id="zoomadj">
++    <property name="lower">10</property>
++    <property name="upper">400</property>
++    <property name="value">100</property>
++    <property name="step-increment">10</property>
++    <property name="page-increment">50</property>
++  </object>
++  <object class="GtkBox" id="HstPrintPanel">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="vexpand">True</property>
++    <property name="spacing">24</property>
++    <child>
++      <object class="GtkBox" id="leftcolumn">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="orientation">vertical</property>
++        <property name="spacing">12</property>
++        <child>
++          <object class="GtkBox" id="printrow">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="spacing">18</property>
++            <child>
++              <object class="GtkButton" id="ok">
++                <property name="label" translatable="yes" context="printdialog|print">_Print</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++                <property name="width-request">96</property>
++                <property name="height-request">72</property>
++                <style>
++                  <class name="suggested-action" />
++                </style>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="copiesbox">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="orientation">vertical</property>
++                <property name="spacing">6</property>
++                <property name="valign">center</property>
++                <child>
++                  <object class="GtkLabel" id="labelcopies">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="halign">start</property>
++                    <property name="label" translatable="yes" context="printdialog|labelcopies">_Number of copies:</property>
++                    <property name="use-underline">True</property>
++                    <property name="mnemonic-widget">copycount</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSpinButton" id="copycount">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="halign">start</property>
++                    <property name="valign">center</property>
++                    <property name="activates-default">True</property>
++                    <property name="text">1</property>
++                    <property name="truncate-multiline">True</property>
++                    <property name="adjustment">adjustment2</property>
++                    <property name="value">1</property>
++                    <property name="hexpand">False</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="copycount-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|copycount">Enter the number of copies that you want to print.</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkNotebook" id="tabcontrol">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="vexpand">True</property>
++            <property name="margin-start">0</property>
++            <child>
++              <object class="GtkScrolledWindow" id="scrolledwindow">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="hscrollbar-policy">never</property>
++                <property name="shadow-type">in</property>
++                <property name="height-request">200</property>
++                <child>
++                  <object class="GtkViewport">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <child>
++                      <object class="GtkBox" id="box11">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="margin-end">12</property>
++                        <property name="border-width">6</property>
++                        <property name="orientation">vertical</property>
++                        <property name="spacing">12</property>
++                        <child>
++                          <object class="GtkFrame" id="frPrinterName">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="label-xalign">0</property>
++                            <property name="shadow-type">none</property>
++                            <child>
++                              <object class="GtkBox" id="box5">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="margin-start">12</property>
++                                <property name="margin-top">6</property>
++                                <property name="orientation">vertical</property>
++                                <property name="spacing">6</property>
++                                <child>
++                                  <object class="GtkComboBoxText" id="printersbox">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">False</property>
++                                    <child internal-child="accessible">
++                                      <object class="AtkObject" id="printersbox-atkobject">
++                                        <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|printersbox">The list box shows the installed printers. Click the printer to use for the current print job. Click the Properties button to change some of the printer properties.</property>
++                                      </object>
++                                    </child>
++                                  </object>
++                                  <packing>
++                                    <property name="expand">False</property>
++                                    <property name="fill">True</property>
++                                    <property name="position">0</property>
++                                  </packing>
++                                </child>
++                                <child>
++                                  <object class="GtkBox" id="box6">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">False</property>
++                                    <property name="spacing">6</property>
++                                    <child>
++                                      <object class="GtkLabel" id="labelstatus">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">False</property>
++                                        <property name="label" translatable="yes" context="printdialog|labelstatus">Status:</property>
++                                        <accessibility>
++                                          <relation type="label-for" target="status" />
++                                        </accessibility>
++                                      </object>
++                                      <packing>
++                                        <property name="expand">False</property>
++                                        <property name="fill">True</property>
++                                        <property name="position">0</property>
++                                      </packing>
++                                    </child>
++                                    <child>
++                                      <object class="GtkLabel" id="status">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">False</property>
++                                        <property name="label" translatable="yes" context="printdialog|status">Default Printer</property>
++                                        <accessibility>
++                                          <relation type="labelled-by" target="labelstatus" />
++                                        </accessibility>
++                                        <child internal-child="accessible">
++                                          <object class="AtkObject" id="status-atkobject">
++                                            <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|status">Shows the availability of the selected printer.</property>
++                                          </object>
++                                        </child>
++                                      </object>
++                                      <packing>
++                                        <property name="expand">False</property>
++                                        <property name="fill">True</property>
++                                        <property name="position">1</property>
++                                      </packing>
++                                    </child>
++                                    <child>
++                                      <object class="GtkButton" id="setup">
++                                        <property name="label" translatable="yes" context="printdialog|setup">Properties...</property>
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">True</property>
++                                        <property name="receives-default">True</property>
++                                        <property name="halign">end</property>
++                                        <child internal-child="accessible">
++                                          <object class="AtkObject" id="setup-atkobject">
++                                            <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|setup">Opens the Printer Properties dialog. The printer properties vary according to the printer that you select.</property>
++                                          </object>
++                                        </child>
++                                      </object>
++                                      <packing>
++                                        <property name="expand">False</property>
++                                        <property name="fill">True</property>
++                                        <property name="pack-type">end</property>
++                                        <property name="position">2</property>
++                                      </packing>
++                                    </child>
++                                  </object>
++                                  <packing>
++                                    <property name="expand">False</property>
++                                    <property name="fill">True</property>
++                                    <property name="position">1</property>
++                                  </packing>
++                                </child>
++                              </object>
++                            </child>
++                            <child type="label">
++                              <object class="GtkLabel" id="labelprinter">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label" translatable="yes" context="printdialog|labelprinter">Printer</property>
++                                <property name="use-underline">True</property>
++                                <property name="mnemonic-widget">printersbox</property>
++                                <attributes>
++                                  <attribute name="weight" value="bold" />
++                                </attributes>
++                              </object>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">True</property>
++                            <property name="position">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkFrame" id="frPrintRange">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="label-xalign">0</property>
++                            <property name="shadow-type">none</property>
++                            <child>
++                              <object class="GtkGrid">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="margin-start">12</property>
++                                <property name="margin-top">6</property>
++                                <property name="row-spacing">6</property>
++                                <child>
++                                  <object class="GtkGrid" id="rangegrid">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">False</property>
++                                    <property name="row-spacing">3</property>
++                                    <property name="column-spacing">6</property>
++                                    <child>
++                                      <object class="GtkRadioButton" id="rbAllPages">
++                                        <property name="label" translatable="yes" context="printdialog|rbAllPages">_All pages</property>
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">True</property>
++                                        <property name="receives-default">False</property>
++                                        <property name="halign">start</property>
++                                        <property name="margin-bottom">2</property>
++                                        <property name="use-underline">True</property>
++                                        <property name="active">True</property>
++                                        <property name="draw-indicator">True</property>
++                                        <child internal-child="accessible">
++                                          <object class="AtkObject" id="rbAllPages-atkobject">
++                                            <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|rbAllPages">Prints the entire document.</property>
++                                          </object>
++                                        </child>
++                                      </object>
++                                      <packing>
++                                        <property name="left-attach">0</property>
++                                        <property name="top-attach">0</property>
++                                      </packing>
++                                    </child>
++                                    <child>
++                                      <object class="GtkRadioButton" id="rbRangePages">
++                                        <property name="label" translatable="yes" context="printdialog|rbPageRange">_Pages:</property>
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">True</property>
++                                        <property name="receives-default">False</property>
++                                        <property name="halign">start</property>
++                                        <property name="margin-top">2</property>
++                                        <property name="margin-bottom">2</property>
++                                        <property name="use-underline">True</property>
++                                        <property name="draw-indicator">True</property>
++                                        <property name="group">rbAllPages</property>
++                                        <child internal-child="accessible">
++                                          <object class="AtkObject" id="rbRangePages-atkobject">
++                                            <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|rbRangePages">Prints only the pages or slides that you specify in the Pages box.</property>
++                                          </object>
++                                        </child>
++                                      </object>
++                                      <packing>
++                                        <property name="left-attach">0</property>
++                                        <property name="top-attach">1</property>
++                                      </packing>
++                                    </child>
++                                    <child>
++                                      <object class="GtkEntry" id="pagerange">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">True</property>
++                                        <property name="hexpand">True</property>
++                                        <property name="activates-default">True</property>
++                                        <property name="truncate-multiline">True</property>
++                                        <property name="placeholder-text" translatable="yes" context="printdialog|pagerange">e.g.: 1, 3-5, 7, 9</property>
++                                        <child internal-child="accessible">
++                                          <object class="AtkObject" id="pagerange-atkobject">
++                                            <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|pagerange">To print a range of pages, use a format like 3-6. To print single pages, use a format like 7;9;11. You can print a combination of page ranges and single pages, by using a format like 3-6;8;10;12.</property>
++                                          </object>
++                                        </child>
++                                      </object>
++                                      <packing>
++                                        <property name="left-attach">1</property>
++                                        <property name="top-attach">1</property>
++                                      </packing>
++                                    </child>
++                                    <child>
++                                      <object class="GtkRadioButton" id="rbRangeSelection">
++                                        <property name="label" translatable="yes" context="printdialog|rbRangeSelection">_Selection</property>
++                                        <property name="can-focus">True</property>
++                                        <property name="receives-default">False</property>
++                                        <property name="halign">start</property>
++                                        <property name="margin-bottom">2</property>
++                                        <property name="use-underline">True</property>
++                                        <property name="draw-indicator">True</property>
++                                        <property name="group">rbAllPages</property>
++                                        <child internal-child="accessible">
++                                          <object class="AtkObject" id="rbRangeSelection-atkobject">
++                                            <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|rbRangeSelection">Prints only the selected area(s) or object(s) in the current document.</property>
++                                          </object>
++                                        </child>
++                                      </object>
++                                      <packing>
++                                        <property name="left-attach">1</property>
++                                        <property name="top-attach">0</property>
++                                      </packing>
++                                    </child>
++                                    <child>
++                                      <object class="GtkLabel" id="scalingboxlabel">
++                                        <property name="can-focus">False</property>
++                                        <property name="halign">start</property>
++                                        <property name="label" translatable="yes" context="printdialog|scalingboxlabel">Scal_ing:</property>
++                                        <property name="use-underline">True</property>
++                                        <property name="mnemonic-widget">scalingbox</property>
++                                        <property name="xalign">1</property>
++                                      </object>
++                                      <packing>
++                                        <property name="left-attach">0</property>
++                                        <property name="top-attach">3</property>
++                                      </packing>
++                                    </child>
++                                    <child>
++                                      <object class="GtkComboBoxText" id="scalingbox">
++                                        <property name="can-focus">False</property>
++                                        <property name="hexpand">True</property>
++                                        <child internal-child="accessible">
++                                          <object class="AtkObject" id="scalingbox-atkobject">
++                                            <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|scalingbox">Choose how the printed sheets are scaled: actual size, the whole sheet on one page, all columns on one page or all rows on one page.</property>
++                                          </object>
++                                        </child>
++                                      </object>
++                                      <packing>
++                                        <property name="left-attach">1</property>
++                                        <property name="top-attach">3</property>
++                                      </packing>
++                                    </child>
++                                  </object>
++                                  <packing>
++                                    <property name="left-attach">0</property>
++                                    <property name="top-attach">0</property>
++                                  </packing>
++                                </child>
++                                <child>
++                                  <object class="GtkExpander" id="exRangeExpander">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">True</property>
++                                    <property name="hexpand">True</property>
++                                    <child>
++                                      <object class="GtkGrid" id="gdCopiesExtra">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">False</property>
++                                        <property name="margin-top">6</property>
++                                        <property name="row-spacing">3</property>
++                                        <property name="column-spacing">6</property>
++                                        <child>
++                                          <object class="GtkLabel" id="includeevenodd">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="halign">start</property>
++                                            <property name="label" translatable="yes" context="printdialog|includeevenodd">Include:</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="mnemonic-widget">evenoddbox</property>
++                                            <property name="xalign">0</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">0</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkComboBoxText" id="evenoddbox">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="hexpand">True</property>
++                                            <property name="active">0</property>
++                                            <items>
++                                              <item translatable="yes" context="printdialog|liststore3">Odd and Even Pages</item>
++                                              <item translatable="yes" context="printdialog|liststore3">Odd Pages</item>
++                                              <item translatable="yes" context="printdialog|liststore3">Even Pages</item>
++                                            </items>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="evenoddbox-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|evenoddbox">Select the subset of pages to print.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">0</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkLabel" id="fromwhich">
++                                            <property name="can-focus">False</property>
++                                            <property name="halign">start</property>
++                                            <property name="label" translatable="yes" context="printdialog|fromwhich">_From which print:</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="mnemonic-widget">printextrabox</property>
++                                            <property name="xalign">1</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">1</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkComboBoxText" id="printextrabox">
++                                            <property name="can-focus">False</property>
++                                            <property name="hexpand">True</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">1</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkLabel" id="labelpapersides">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="halign">start</property>
++                                            <property name="label" translatable="yes" context="printdialog|labelpapersides">Paper _sides:</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="mnemonic-widget">sidesbox</property>
++                                            <property name="xalign">1</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">2</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkComboBoxText" id="sidesbox">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="hexpand">True</property>
++                                            <items>
++                                              <item translatable="yes" context="printdialog|liststore4">Print on one side (simplex)</item>
++                                              <item translatable="yes" context="printdialog|liststore4">Print on both sides (duplex long edge)</item>
++                                              <item translatable="yes" context="printdialog|liststore4">Print on both sides (duplex short edge)</item>
++                                            </items>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="sidesbox-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|sidesbox">If the printer is capable of duplex printing it's possible to choose between using only one side of the paper or both.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">2</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkLabel" id="cbPrintOrder">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="halign">start</property>
++                                            <property name="label" translatable="yes" context="printdialog|cbPrintOrder">Order:</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="mnemonic-widget">collate</property>
++                                            <property name="xalign">1</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">3</property>
++                                            <property name="width">2</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkBox" id="box9">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="halign">start</property>
++                                            <property name="spacing">4</property>
++                                            <child>
++                                              <object class="GtkCheckButton" id="collate">
++                                                <property name="label" translatable="yes" context="printdialog|collate">_Collate</property>
++                                                <property name="visible">True</property>
++                                                <property name="can-focus">True</property>
++                                                <property name="receives-default">False</property>
++                                                <property name="use-underline">True</property>
++                                                <property name="draw-indicator">True</property>
++                                                <child internal-child="accessible">
++                                                  <object class="AtkObject" id="collate-atkobject">
++                                                    <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|collate">Preserves the page order of the original document.</property>
++                                                  </object>
++                                                </child>
++                                              </object>
++                                              <packing>
++                                                <property name="expand">False</property>
++                                                <property name="fill">True</property>
++                                                <property name="position">0</property>
++                                              </packing>
++                                            </child>
++                                            <child>
++                                              <object class="GtkImage" id="collateimage">
++                                                <property name="visible">True</property>
++                                                <property name="can-focus">False</property>
++                                                <property name="icon-name">missing-image</property>
++                                              </object>
++                                              <packing>
++                                                <property name="expand">False</property>
++                                                <property name="fill">True</property>
++                                                <property name="position">1</property>
++                                              </packing>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">3</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkCheckButton" id="singlejobs">
++                                            <property name="label" translatable="yes" context="printdialog|singlejobs">Create separate print jobs for collated output</property>
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">True</property>
++                                            <property name="receives-default">False</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="draw-indicator">True</property>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="singlejobs-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|collate">Check to not rely on the printer to create collated copies but create a print job for each copy instead.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">4</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkCheckButton" id="reverseorder">
++                                            <property name="label" translatable="yes" context="printdialog|reverseorder">Print in _reverse order</property>
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">True</property>
++                                            <property name="receives-default">False</property>
++                                            <property name="halign">start</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="draw-indicator">True</property>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="reverseorder-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|reverseorder">Check to print pages in reverse order.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">5</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <placeholder />
++                                        </child>
++                                        <child>
++                                          <placeholder />
++                                        </child>
++                                      </object>
++                                    </child>
++                                    <child type="label">
++                                      <object class="GtkLabel" id="lbRangeExpander">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">False</property>
++                                        <property name="label" translatable="yes" context="printdialog|rangeexpander">Collation and Paper Sides</property>
++                                        <property name="use-underline">True</property>
++                                      </object>
++                                    </child>
++                                  </object>
++                                  <packing>
++                                    <property name="left-attach">0</property>
++                                    <property name="top-attach">1</property>
++                                  </packing>
++                                </child>
++                              </object>
++                            </child>
++                            <child type="label">
++                              <object class="GtkLabel" id="label2">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label" translatable="yes" context="printdialog|label2">Range and Copies</property>
++                                <attributes>
++                                  <attribute name="weight" value="bold" />
++                                </attributes>
++                              </object>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">True</property>
++                            <property name="position">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkFrame" id="layoutframe">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="label-xalign">0</property>
++                            <property name="shadow-type">none</property>
++                            <child>
++                              <object class="GtkGrid">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="margin-start">12</property>
++                                <property name="margin-top">6</property>
++                                <property name="row-spacing">6</property>
++                                <child>
++                                  <object class="GtkGrid" id="pagegrid">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">False</property>
++                                    <property name="row-spacing">6</property>
++                                    <property name="column-spacing">6</property>
++                                    <child>
++                                      <object class="GtkLabel" id="labelsize">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">False</property>
++                                        <property name="halign">start</property>
++                                        <property name="label" translatable="yes" context="printdialog|labelsize">Paper size:</property>
++                                        <property name="use-underline">True</property>
++                                        <property name="mnemonic-widget">papersizebox</property>
++                                        <property name="xalign">0</property>
++                                      </object>
++                                      <packing>
++                                        <property name="left-attach">0</property>
++                                        <property name="top-attach">0</property>
++                                      </packing>
++                                    </child>
++                                    <child>
++                                      <object class="GtkComboBoxText" id="papersizebox">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">False</property>
++                                        <property name="hexpand">True</property>
++                                        <child internal-child="accessible">
++                                          <object class="AtkObject" id="papersizebox-atkobject">
++                                            <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|papersizebox">Set the paper size you would like to use. The preview will show how the document would look on a paper of the given size.</property>
++                                          </object>
++                                        </child>
++                                      </object>
++                                      <packing>
++                                        <property name="left-attach">1</property>
++                                        <property name="top-attach">0</property>
++                                      </packing>
++                                    </child>
++                                    <child>
++                                      <object class="GtkLabel" id="labelorientation">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">False</property>
++                                        <property name="halign">start</property>
++                                        <property name="label" translatable="yes" context="printdialog|labelorientation">Orientation:</property>
++                                        <property name="use-underline">True</property>
++                                        <property name="mnemonic-widget">pageorientationbox</property>
++                                        <property name="xalign">0</property>
++                                      </object>
++                                      <packing>
++                                        <property name="left-attach">0</property>
++                                        <property name="top-attach">1</property>
++                                      </packing>
++                                    </child>
++                                    <child>
++                                      <object class="GtkComboBoxText" id="pageorientationbox">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">False</property>
++                                        <property name="hexpand">True</property>
++                                        <property name="active">0</property>
++                                        <items>
++                                          <item translatable="yes" context="printdialog|liststore3">Automatic</item>
++                                          <item translatable="yes" context="printdialog|liststore3">Portrait</item>
++                                          <item translatable="yes" context="printdialog|liststore3">Landscape</item>
++                                        </items>
++                                        <child internal-child="accessible">
++                                          <object class="AtkObject" id="pageorientationbox-atkobject">
++                                            <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|pageorientationbox">Select the orientation of the paper.</property>
++                                          </object>
++                                        </child>
++                                      </object>
++                                      <packing>
++                                        <property name="left-attach">1</property>
++                                        <property name="top-attach">1</property>
++                                      </packing>
++                                    </child>
++                                  </object>
++                                  <packing>
++                                    <property name="left-attach">0</property>
++                                    <property name="top-attach">0</property>
++                                  </packing>
++                                </child>
++                                <child>
++                                  <object class="GtkExpander" id="exLayoutExpander">
++                                    <property name="visible">True</property>
++                                    <property name="can-focus">True</property>
++                                    <property name="hexpand">True</property>
++                                    <child>
++                                      <object class="GtkGrid" id="expandpagegrid">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">False</property>
++                                        <property name="margin-top">6</property>
++                                        <property name="row-spacing">6</property>
++                                        <property name="column-spacing">6</property>
++                                        <child>
++                                          <object class="GtkBox" id="box12">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="valign">center</property>
++                                            <property name="spacing">3</property>
++                                            <child>
++                                              <object class="GtkRadioButton" id="pagespersheetbtn">
++                                                <property name="label" translatable="yes" context="printdialog|pagespersheetbtn">Pages per sheet:</property>
++                                                <property name="visible">True</property>
++                                                <property name="can-focus">True</property>
++                                                <property name="receives-default">False</property>
++                                                <property name="halign">start</property>
++                                                <property name="valign">center</property>
++                                                <property name="use-underline">True</property>
++                                                <property name="active">True</property>
++                                                <property name="draw-indicator">True</property>
++                                                <accessibility>
++                                                  <relation type="label-for" target="pagespersheetbox" />
++                                                </accessibility>
++                                                <child internal-child="accessible">
++                                                  <object class="AtkObject" id="pagespersheetbtn-atkobject">
++                                                    <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|pagespersheetbtn">Print multiple pages per sheet of paper.</property>
++                                                  </object>
++                                                </child>
++                                              </object>
++                                              <packing>
++                                                <property name="expand">False</property>
++                                                <property name="fill">True</property>
++                                                <property name="position">0</property>
++                                              </packing>
++                                            </child>
++                                            <child>
++                                              <object class="GtkLabel" id="pagespersheettxt">
++                                                <property name="visible">True</property>
++                                                <property name="can-focus">False</property>
++                                                <property name="use-underline">True</property>
++                                              </object>
++                                              <packing>
++                                                <property name="expand">False</property>
++                                                <property name="fill">True</property>
++                                                <property name="position">1</property>
++                                              </packing>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">0</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkComboBoxText" id="pagespersheetbox">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="valign">center</property>
++                                            <property name="hexpand">True</property>
++                                            <property name="active">0</property>
++                                            <items>
++                                              <item id="1" context="printdialog|liststore1">1</item>
++                                              <item id="2" context="printdialog|liststore1">2</item>
++                                              <item id="4" context="printdialog|liststore1">4</item>
++                                              <item id="6" context="printdialog|liststore1">6</item>
++                                              <item id="9" context="printdialog|liststore1">9</item>
++                                              <item id="16" context="printdialog|liststore1">16</item>
++                                              <item id="65535" translatable="yes" context="printdialog|liststore1">Custom</item>
++                                            </items>
++                                            <accessibility>
++                                              <relation type="labelled-by" target="pagespersheetbtn" />
++                                            </accessibility>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="pagespersheetbox-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|pagespersheetbox">Select how many pages to print per sheet of paper.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">0</property>
++                                            <property name="width">3</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkLabel" id="pagestxt">
++                                            <property name="can-focus">False</property>
++                                            <property name="label" translatable="yes" context="printdialog|pagespersheettxt">Pages:</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="mnemonic-widget">pagerows</property>
++                                            <property name="xalign">1</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">1</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkSpinButton" id="pagerows">
++                                            <property name="can-focus">True</property>
++                                            <property name="activates-default">True</property>
++                                            <property name="text">1</property>
++                                            <property name="truncate-multiline">True</property>
++                                            <property name="adjustment">adjustment3</property>
++                                            <property name="value">1</property>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="pagerows-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|pagerows">Select number of rows.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">1</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkLabel" id="by">
++                                            <property name="can-focus">False</property>
++                                            <property name="label" translatable="yes" context="printdialog|by">by</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="mnemonic-widget">pagecols</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">2</property>
++                                            <property name="top-attach">1</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkSpinButton" id="pagecols">
++                                            <property name="can-focus">True</property>
++                                            <property name="activates-default">True</property>
++                                            <property name="text">1</property>
++                                            <property name="truncate-multiline">True</property>
++                                            <property name="adjustment">adjustment4</property>
++                                            <property name="value">1</property>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="pagecols-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|pagecols">Select number of columns.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">3</property>
++                                            <property name="top-attach">1</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkLabel" id="pagemargintxt1">
++                                            <property name="can-focus">False</property>
++                                            <property name="label" translatable="yes" context="printdialog|pagemargintxt1">Margin:</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="mnemonic-widget">pagemarginsb</property>
++                                            <property name="xalign">1</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">2</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkSpinButton" id="pagemarginsb">
++                                            <property name="can-focus">True</property>
++                                            <property name="activates-default">True</property>
++                                            <property name="text">0</property>
++                                            <property name="truncate-multiline">True</property>
++                                            <property name="adjustment">adjustment5</property>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="pagemarginsb-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|pagemarginsb">Select margin between individual pages on each sheet of paper.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">2</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkLabel" id="pagemargintxt2">
++                                            <property name="can-focus">False</property>
++                                            <property name="halign">start</property>
++                                            <property name="label" translatable="yes" context="printdialog|pagemargintxt2">between pages</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">2</property>
++                                            <property name="top-attach">2</property>
++                                            <property name="width">2</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkLabel" id="sheetmargintxt1">
++                                            <property name="can-focus">False</property>
++                                            <property name="label" translatable="yes" context="printdialog|sheetmargintxt1">Distance:</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="mnemonic-widget">sheetmarginsb</property>
++                                            <property name="xalign">1</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">3</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkSpinButton" id="sheetmarginsb">
++                                            <property name="can-focus">True</property>
++                                            <property name="activates-default">True</property>
++                                            <property name="text">0</property>
++                                            <property name="truncate-multiline">True</property>
++                                            <property name="adjustment">adjustment6</property>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="sheetmarginsb-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|sheetmarginsb">Select margin between the printed pages and paper edge.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">3</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkLabel" id="sheetmargintxt2">
++                                            <property name="can-focus">False</property>
++                                            <property name="halign">start</property>
++                                            <property name="label" translatable="yes" context="printdialog|sheetmargintxt2">to sheet border</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">2</property>
++                                            <property name="top-attach">3</property>
++                                            <property name="width">2</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkLabel" id="labelorder">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="valign">center</property>
++                                            <property name="label" translatable="yes" context="printdialog|labelorder">Order:</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="mnemonic-widget">orderbox</property>
++                                            <property name="xalign">1</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">4</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkComboBoxText" id="orderbox">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="valign">center</property>
++                                            <property name="hexpand">True</property>
++                                            <items>
++                                              <item translatable="yes" context="printdialog|liststore2">Left to right, then down</item>
++                                              <item translatable="yes" context="printdialog|liststore2">Top to bottom, then right</item>
++                                              <item translatable="yes" context="printdialog|liststore2">Top to bottom, then left</item>
++                                              <item translatable="yes" context="printdialog|liststore2">Right to left, then down</item>
++                                            </items>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="orderbox-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|orderbox">Select order in which pages are to be printed.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">4</property>
++                                            <property name="width">3</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkCheckButton" id="bordercb">
++                                            <property name="label" translatable="yes" context="printdialog|bordercb">Draw a border around each page</property>
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">True</property>
++                                            <property name="receives-default">False</property>
++                                            <property name="halign">end</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="draw-indicator">True</property>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="bordercb-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|bordercb">Check to draw a border around each page.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">5</property>
++                                            <property name="width">4</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkRadioButton" id="brochure">
++                                            <property name="label" translatable="yes" context="printdialog|brochure">Brochure</property>
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">True</property>
++                                            <property name="receives-default">False</property>
++                                            <property name="halign">start</property>
++                                            <property name="use-underline">True</property>
++                                            <property name="draw-indicator">True</property>
++                                            <property name="group">pagespersheetbtn</property>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="brochure-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|brochure">Select to print the document in brochure format.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">0</property>
++                                            <property name="top-attach">6</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkComboBoxText" id="scriptdirection">
++                                            <property name="can-focus">False</property>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">1</property>
++                                            <property name="top-attach">6</property>
++                                            <property name="width">3</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <object class="GtkDrawingArea" id="orderpreview">
++                                            <property name="visible">True</property>
++                                            <property name="can-focus">False</property>
++                                            <property name="tooltip-text" translatable="yes" context="printdialog|collationpreview">Collation preview</property>
++                                            <property name="halign">center</property>
++                                            <property name="valign">start</property>
++                                            <child internal-child="accessible">
++                                              <object class="AtkObject" id="orderpreview-atkobject">
++                                                <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|orderpreview">Change the arrangement of pages to be printed on every sheet of paper. The preview shows how every final sheet of paper will look.</property>
++                                              </object>
++                                            </child>
++                                          </object>
++                                          <packing>
++                                            <property name="left-attach">4</property>
++                                            <property name="top-attach">0</property>
++                                            <property name="height">5</property>
++                                          </packing>
++                                        </child>
++                                        <child>
++                                          <placeholder />
++                                        </child>
++                                        <child>
++                                          <placeholder />
++                                        </child>
++                                      </object>
++                                    </child>
++                                    <child type="label">
++                                      <object class="GtkLabel" id="lbLayoutExpander">
++                                        <property name="visible">True</property>
++                                        <property name="can-focus">False</property>
++                                        <property name="label" translatable="yes" context="printdialog|layoutexpander">Pages per Sheet</property>
++                                        <property name="use-underline">True</property>
++                                      </object>
++                                    </child>
++                                  </object>
++                                  <packing>
++                                    <property name="left-attach">0</property>
++                                    <property name="top-attach">1</property>
++                                  </packing>
++                                </child>
++                              </object>
++                            </child>
++                            <child type="label">
++                              <object class="GtkLabel" id="label3">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label" translatable="yes" context="printdialog|label3">Page Layout</property>
++                                <attributes>
++                                  <attribute name="weight" value="bold" />
++                                </attributes>
++                              </object>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">True</property>
++                            <property name="position">2</property>
++                          </packing>
++                        </child>
++                      </object>
++                    </child>
++                  </object>
++                </child>
++              </object>
++            </child>
++            <child type="tab">
++              <object class="GtkLabel" id="generallabel">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="printdialog|generallabel">General</property>
++              </object>
++              <packing>
++                <property name="tab-fill">False</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="customcontents">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="border-width">6</property>
++                <property name="orientation">vertical</property>
++                <child>
++                  <placeholder />
++                </child>
++              </object>
++              <packing>
++                <property name="position">1</property>
++              </packing>
++            </child>
++            <child type="tab">
++              <object class="GtkLabel" id="custom">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label">custom</property>
++              </object>
++              <packing>
++                <property name="position">1</property>
++                <property name="tab-fill">False</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="linkrow">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="spacing">12</property>
++            <child>
++              <object class="GtkButton" id="pagesetup">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="label" translatable="yes" context="hstprintpanel|pagesetup">Page Set_up…</property>
++                <property name="tooltip-text" translatable="yes" context="hstprintpanel|pagesetuptip">Margins, paper size and orientation of the document</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="moreoptions">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="label" translatable="yes" context="hstprintpanel|moreoptions">_More Options…</property>
++                <property name="tooltip-text" translatable="yes" context="hstprintpanel|moreoptionstip">All settings in the print dialog</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="hiddenbox">
++            <property name="visible">False</property>
++            <property name="no-show-all">True</property>
++            <property name="can-focus">False</property>
++            <child>
++              <object class="GtkButton" id="help">
++                <property name="label" translatable="yes" context="stock">_Help</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="cancel">
++                <property name="label" translatable="yes" context="stock">_Cancel</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkCheckButton" id="previewbox">
++                <property name="label" translatable="yes" context="printdialog|previewbox">Pre_view</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="active">True</property>
++                <property name="draw-indicator">True</property>
++                <child internal-child="accessible">
++                  <object class="AtkObject" id="previewbox-atkobject">
++                    <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|previewbox">Turn on or off display of the print preview.</property>
++                  </object>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkBox" id="rightcolumn">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="vexpand">True</property>
++        <property name="orientation">vertical</property>
++        <property name="spacing">6</property>
++        <child>
++          <object class="GtkScrolledWindow" id="previewscroll">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <property name="shadow-type">in</property>
++            <child>
++              <object class="GtkViewport" id="previewport">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <child>
++                  <object class="GtkDrawingArea" id="preview">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="events">GDK_STRUCTURE_MASK | GDK_SCROLL_MASK</property>
++                    <property name="tooltip-text" translatable="yes" context="printdialog|printpreview">Print preview</property>
++                    <property name="margin-end">6</property>
++                    <property name="hexpand">True</property>
++                    <property name="vexpand">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="preview-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|preview">The preview shows how each sheet of paper will look. You can browse through all sheets of paper with the buttons below the preview.</property>
++                      </object>
++                    </child>
++                  </object>
++                </child>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="previewbar">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="spacing">6</property>
++            <child>
++              <object class="GtkBox" id="box14">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="halign">end</property>
++                <property name="hexpand">True</property>
++                <property name="spacing">6</property>
++                <child>
++                  <object class="GtkButton" id="btnFirst">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">True</property>
++                    <property name="tooltip-text" translatable="yes" context="printdialog|firstpage">First page</property>
++                    <property name="image">imgFirst</property>
++                    <property name="always-show-image">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="btnFirst-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|btnFirst">Shows preview of the first page.</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">False</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="backward">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">True</property>
++                    <property name="tooltip-text" translatable="yes" context="printdialog|backward">Previous page</property>
++                    <property name="image">imgBack</property>
++                    <property name="always-show-image">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="backward-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|backward">Shows preview of the previous page.</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">False</property>
++                    <property name="position">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkEntry" id="pageedit">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="width-chars">3</property>
++                    <property name="text">1</property>
++                    <property name="truncate-multiline">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="pageedit-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|pageedit">Enter the number of page to be shown in the preview.</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">False</property>
++                    <property name="position">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="totalnumpages">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="label" translatable="yes" context="printdialog|totalnumpages">/ %n</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">False</property>
++                    <property name="position">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="forward">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">True</property>
++                    <property name="tooltip-text" translatable="yes" context="printdialog|forward">Next page</property>
++                    <property name="image">imgForward</property>
++                    <property name="always-show-image">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="forward-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|forward">Shows preview of the next page.</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">False</property>
++                    <property name="position">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="btnLast">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">True</property>
++                    <property name="tooltip-text" translatable="yes" context="printdialog|lastpage">Last page</property>
++                    <property name="image">imgLast</property>
++                    <property name="always-show-image">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="btnLast-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|btnLast">Shows preview of the last page.</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">False</property>
++                    <property name="position">5</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="zoombox">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">6</property>
++                <child>
++                  <object class="GtkButton" id="zoomout">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="label">−</property>
++                    <property name="tooltip-text" translatable="yes" context="hstprintpanel|zoomout">Zoom Out</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="zoomout-atkobject">
++                        <property name="AtkObject::accessible-name" translatable="yes" context="hstprintpanel|zoomoutname">Zoom Out</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkScale" id="zoomscale">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="width-request">140</property>
++                    <property name="adjustment">zoomadj</property>
++                    <property name="round-digits">0</property>
++                    <property name="draw-value">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstprintpanel|zoomscale">Zoom</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="zoomscale-atkobject">
++                        <property name="AtkObject::accessible-name" translatable="yes" context="hstprintpanel|zoomscalename">Zoom</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="zoomin">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="label">+</property>
++                    <property name="tooltip-text" translatable="yes" context="hstprintpanel|zoomin">Zoom In</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="zoomin-atkobject">
++                        <property name="AtkObject::accessible-name" translatable="yes" context="hstprintpanel|zoominname">Zoom In</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="zoomtext">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="width-chars">5</property>
++                    <property name="xalign">1</property>
++                    <property name="label">100%</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="zoomfit">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="label" translatable="yes" context="hstprintpanel|zoomfit">_Whole Page</property>
++                    <property name="tooltip-text" translatable="yes" context="hstprintpanel|zoomfittip">Show the whole page</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="pack-type">end</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">True</property>
++        <property name="fill">True</property>
++      </packing>
++    </child>
++  </object>
++  <object class="GtkSizeGroup" id="sizegroup1">
++    <widgets>
++      <widget name="rangegrid" />
++      <widget name="gdCopiesExtra" />
++    </widgets>
++  </object>
++  <object class="GtkSizeGroup" id="sizegroup2">
++    <widgets>
++      <widget name="pagegrid" />
++      <widget name="expandpagegrid" />
++    </widgets>
++  </object>
++  <object class="GtkTreeStore" id="liststore1">
++    <columns>
++      <column type="gchararray" />
++      <column type="gchararray" />
++    </columns>
++  </object>
++  <object class="GtkSizeGroup" id="sizegroupLabel" />
++  <object class="GtkSizeGroup" id="sizegroupLabel2" />
++</interface>
+diff --git a/solenv/sanitizers/ui/vcl.suppr b/solenv/sanitizers/ui/vcl.suppr
+index cc133ea..57d3e7b 100644
+--- a/solenv/sanitizers/ui/vcl.suppr
++++ b/solenv/sanitizers/ui/vcl.suppr
+@@ -32,3 +32,9 @@ vcl/qa/cppunit/builder/demo.ui://GtkLabel[@id='label36'] orphan-label
+ vcl/qa/cppunit/builder/demo.ui://GtkLabel[@id='label37'] orphan-label
+ vcl/qa/cppunit/builder/demo.ui://GtkLabel[@id='label38'] orphan-label
+ vcl/qa/cppunit/builder/demo.ui://GtkLabel[@id='label39'] orphan-label
++vcl/uiconfig/ui/hstprintpanel.ui://GtkLabel[@id='totalnumpages'] orphan-label
++vcl/uiconfig/ui/hstprintpanel.ui://GtkImage[@id='collateimage'] no-labelled-by
++vcl/uiconfig/ui/hstprintpanel.ui://GtkLabel[@id='pagemargintxt2'] orphan-label
++vcl/uiconfig/ui/hstprintpanel.ui://GtkLabel[@id='sheetmargintxt2'] orphan-label
++vcl/uiconfig/ui/hstprintpanel.ui://GtkComboBoxText[@id='scriptdirection'] no-labelled-by
++vcl/uiconfig/ui/hstprintpanel.ui://GtkLabel[@id='zoomtext'] orphan-label
