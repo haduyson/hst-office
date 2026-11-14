@@ -109,6 +109,13 @@ class Dialog:
             self._listeners.append((name, _Action(callback)))
         return model
 
+    def link(self, name, text, x, y, w, callback, help_text="", h=10):
+        """A text link (no URL of its own: only `callback` acts on a click), in the readable link colour."""
+        model = self._add("FixedHyperlink", name, x, y, w, h, Label=text, HelpText=help_text or text,
+                          TextColor=palette(self.ctx)["link"], Tabstop=True)
+        self._listeners.append((name, _Action(callback)))
+        return model
+
     def on_change(self, names, callback):
         """Run `callback` after any text/selection/state change of the named edits, list and check boxes (added at execute)."""
         listener = _Changed(callback)

@@ -3,13 +3,16 @@
 
 Reads and writes SendInstallId through update_config, so an administrator lock (docs/UPDATE_ADMIN.md) shows the box
 greyed out with the value the administrator set, and nothing is written. Saved on OK; Cancel keeps the old value.
+The page also carries the privacy policy link (privacy_link), opened in the browser only when clicked.
 """
 import unohelper
 from com.sun.star.awt import XContainerWindowEventHandler
 from com.sun.star.lang import XServiceInfo
 
 from . import diag_log
+from . import privacy_link
 from . import update_config
+from .dialogs import _Action, palette
 from .update_install_id import SEND_KEY, set_sending
 
 HANDLER_NAME = "org.hst.office.vi.OptionsUpdate"
@@ -31,6 +34,7 @@ def value_to_save(ticked, values, locked):
 class UpdateOptionsHandler(unohelper.Base, XServiceInfo, XContainerWindowEventHandler):
     def __init__(self, ctx):
         self.ctx = ctx
+        self._wired = None  # the page window whose privacy link already has its click listener
 
     def getImplementationName(self):
         return HANDLER_NAME
@@ -62,6 +66,19 @@ class UpdateOptionsHandler(unohelper.Base, XServiceInfo, XContainerWindowEventHa
         box.setState(1 if ticked else 0)
         box.setEnable(editable)
         window.getControl("locked").setVisible(not editable)
+        self._wire_privacy(window)
+
+    def _wire_privacy(self, window):
+        """Label in the UI language and the click action, once per page window ("back" reloads the same window)."""
+        if self._wired is window:
+            return
+        link = window.getControl("privacy")
+        text = privacy_link.ui_label(self.ctx)
+        model = link.getModel()
+        model.Label, model.HelpText, model.TextColor = text, text, palette(self.ctx)["link"]
+        self._listener = _Action(lambda: privacy_link.open_policy(self.ctx, "options"))
+        link.addActionListener(self._listener)
+        self._wired = window
 
     def _save(self, window):
         value = value_to_save(window.getControl("sendInstallId").getState() == 1, *update_config.load(self.ctx))

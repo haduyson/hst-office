@@ -36,9 +36,11 @@ def config(ctx):
 
 
 def hints(texts, enabled):
-    """(text beside "Tra cứu", text beside "Tìm theo dòng đã dán"): what each sends where, or that both are off."""
+    """(line under "Tra cứu", text beside "Tìm theo dòng đã dán"): what each sends where, or that both are off.
+
+    The line under "Tra cứu" is one short sentence; the services it names are its tooltip (entry "lookupHint")."""
     t = texts["entry"]
-    return (t["lookupHint"], t["lineHint"]) if enabled else (t["lookupOff"], t["lookupOff"])
+    return (t["lookupAbroad"], t["lineHint"]) if enabled else (t["lookupOff"], t["lookupOff"])
 
 
 def confirm_suggestions(ctx, peer, texts, items, suggestions):

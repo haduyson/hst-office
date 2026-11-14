@@ -8,6 +8,7 @@ the source in the user's library (unless unticked). Returns the saved item or No
 citation_entry_form (pure)."""
 from . import citation_entry_form as form
 from . import citation_lookup_action as lookup_action
+from . import privacy_link
 from . import citation_ui as ui
 from .citation_lists import set_label
 from .citation_refresh_plan import term_language
@@ -29,11 +30,14 @@ def run(ctx, peer, texts, item, library, style, save_default=True, language=None
     dialog.label("lType", t["type"], 8, 10, 90)
     dialog.listbox("type", 102, 8, 150, [texts["types"].get(k, k) for k in types], types.index(current_type),
                    help_text=t["type"])
-    id_hint, line_hint = lookup_action.hints(texts, lookup_action.config(ctx).enabled)  # settings only, no network
+    online_on = lookup_action.config(ctx).enabled  # settings only, no network
+    id_hint, line_hint = lookup_action.hints(texts, online_on)
     dialog.label("lLookup", t["lookup"], 8, 28, 120)
     dialog.edit("lookupText", 130, 26, 186, help_text=t["lookup"])
     dialog.button("lookup", t["lookupButton"], 320, 25, W - 328, callback=lambda: do_lookup())
-    dialog.label("lookupHint", id_hint, 130, 40, W - 138, 16, wrap=True)
+    dialog.label("lookupHint", id_hint, 130, 40, W - 138, 9).HelpText = t["lookupHint"] if online_on else id_hint
+    dialog.link("privacy", privacy_link.label(texts.get("language")), 130, 49, 100,
+                lambda: privacy_link.open_policy(ctx, "citations"))
     dialog.label("lPaste", t["paste"], 8, 60, 120)
     dialog.edit("pasteText", 130, 58, 186, help_text=t["paste"])
     dialog.button("paste", t["pasteButton"], 320, 57, W - 328, callback=lambda: do_paste())
