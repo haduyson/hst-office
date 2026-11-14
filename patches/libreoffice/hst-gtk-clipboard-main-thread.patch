@@ -18,6 +18,10 @@ the main thread was in SwBaseShell::StateClpbrd, which then crashed (1 of 20 run
 waits: on the main thread as before, and a paste over UNO goes to the main thread with
 vcl::solarthread::syncExecute, which releases the SolarMutex while it waits.
 
+An owner change tells the clipboard listeners at once (setContents), and they compute the Paste states then:
+OwnerPossiblyChanged stores the new owner's targets, which it already reads on the main thread, before that, so
+the states never lag one owner change behind (tests/runtime/check-gtk-clipboard-paste-state.py, 12 of 30 failed).
+
 License: modified upstream files keep their license (MPL-2.0).
 
 --- a/vcl/unx/gtk3/gtkinst.cxx
@@ -182,7 +186,21 @@ License: modified upstream files keep their license (MPL-2.0).
      if (!m_aContents.is())
          return;
  
-@@ -1407,6 +1498,12 @@
+@@ -1159,8 +1250,13 @@
+             g_free(pName);
+         }
+ 
++        // HST: setContents below tells the listeners at once and they compute the Paste states from the cached
++        // targets: store the new owner's targets first (the idle request would answer only after that)
++        hstTargetsReceived(clipboard, targets, n_targets, GINT_TO_POINTER(static_cast<int>(GetSelectionType())));
+         g_free(targets);
+     }
++    else
++        hstTargetsReceived(clipboard, nullptr, 0, GINT_TO_POINTER(static_cast<int>(GetSelectionType())));
+ 
+     m_nOwnerChangedSignalId = g_signal_connect(clipboard, "owner-change",
+                                                G_CALLBACK(handle_owner_change), this);
+@@ -1407,6 +1503,12 @@
  #else
      m_nOwnerChangedSignalId = g_signal_connect(clipboard, "owner-change",
                                                 G_CALLBACK(handle_owner_change), this);
