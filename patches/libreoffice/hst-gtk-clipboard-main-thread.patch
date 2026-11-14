@@ -1,0 +1,57 @@
+HST Office: gtk3 clipboard queries off the main thread are made on the main thread.
+
+An office driven over UNO hung for good (Linux, gtk3) while a mode switch or a document load ran on the UNO
+request thread and built a Paste control (menubar, toolbar or ribbon): its first state asks the system
+clipboard (SwBaseShell::StateClpbrd -> TransferableDataHelper::CreateFromSystemClipboard ->
+GtkClipboardTransferable::getTransferDataFlavorsAsVector -> gtk_clipboard_wait_for_targets ->
+g_main_loop_run). That nested loop runs the default glib main context on the request thread; the main thread
+then waits for the context in g_main_context_iteration (g_cond_wait), the selection reply is never
+dispatched and neither thread moves again. gdb stacks of 4 hangs of tests/runtime/check-ui-mode-cycle-stress.py
+(after 0 to 19 rounds) all show this. A user's clicks run on the main thread and never met it.
+
+GtkClipboardTransferable::getTransferData and getTransferDataFlavorsAsVector now run on the main thread when
+called from another one (vcl::solarthread::syncExecute, which releases the SolarMutex while it waits), so
+gtk_clipboard_wait_* only ever runs on the main thread.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/vcl/unx/gtk3/gtkinst.cxx
++++ b/vcl/unx/gtk3/gtkinst.cxx
+@@ -81,6 +81,8 @@
+ 
+ #include <basegfx/numeric/ftools.hxx>
+ #include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/threadex.hxx>
+ 
+ #include <dlfcn.h>
+ #include <fcntl.h>
+@@ -891,6 +893,15 @@
+ 
+     virtual css::uno::Any SAL_CALL getTransferData(const css::datatransfer::DataFlavor& rFlavor) override
+     {
++        // HST: gtk_clipboard_wait_* runs a nested loop of the default main context. Called off the main thread
++        // (a UNO client's request: a Paste state while a toolbar, menubar or ribbon is built) that thread takes the
++        // context while the main thread waits for it, and both wait for good. Ask from the main thread instead.
++        if (!Application::IsMainThread())
++        {
++            SolarMutexGuard aGuard; // syncExecute releases it (all levels) while the main thread runs the query
++            return vcl::solarthread::syncExecute([this, &rFlavor]() { return getTransferData(rFlavor); });
++        }
++
+         css::uno::Any aRet;
+ 
+         css::datatransfer::DataFlavor aFlavor(rFlavor);
+@@ -953,6 +964,12 @@
+     std::vector<css::datatransfer::DataFlavor> getTransferDataFlavorsAsVector()
+         override
+     {
++        if (!Application::IsMainThread()) // HST: see getTransferData
++        {
++            SolarMutexGuard aGuard;
++            return vcl::solarthread::syncExecute([this]() { return getTransferDataFlavorsAsVector(); });
++        }
++
+         std::vector<css::datatransfer::DataFlavor> aVector;
+ 
+         GdkClipboard* clipboard = clipboard_get(m_eSelection);
