@@ -107,6 +107,20 @@ class OfflineCheck(unittest.TestCase):
         self.assertTrue(all(r["reason"] for r in deviations))
 
 
+class Accelerators(unittest.TestCase):
+    def test_a_key_defined_twice_in_a_module_fails(self):
+        xcu = ('<oor:component-data xmlns:oor="http://openoffice.org/2001/registry"><node oor:name="PrimaryKeys">'
+               '<node oor:name="Modules"><node oor:name="m">' + '<node oor:name="9_MOD1" oor:op="replace"/>' * 2
+               + "</node></node></node></oor:component-data>")
+        with tempfile.NamedTemporaryFile("w", suffix=".xcu", delete=False) as handle:
+            handle.write(xcu)
+        try:
+            with self.assertRaisesRegex(ValueError, "9_MOD1 twice"):
+                CHECK.accel.load([handle.name])
+        finally:
+            os.unlink(handle.name)
+
+
 class Simulation(unittest.TestCase):
     def test_python_twin(self):
         self.assertEqual(model.prioritise(["!C", "C", "L", "!AL", "A", ""]), ["C", "", "L", "AL", "", ""])

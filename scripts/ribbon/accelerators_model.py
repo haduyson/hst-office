@@ -49,6 +49,10 @@ def load(paths, platform="unxwnt"):
                 if node is None:
                     continue
                 bound = found.setdefault(scope, {})
+                names = [key.get(OOR + "name") for key in node.findall("node")]
+                twice = sorted({n for n in names if names.count(n) > 1})
+                if twice:  # officecfg refuses to build such a file ("Duplicate node/prop")
+                    raise ValueError(f"{path}: {kind}/{scope} defines {', '.join(twice)} twice")
                 for key in node.findall("node"):
                     value = command_value(key, platform)
                     if value is None:
