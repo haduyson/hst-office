@@ -84,6 +84,9 @@ class CompactWiring(unittest.TestCase):
     def test_ctrl_f1_double_click_and_chevrons_toggle(self):
         tabs = added(PATCH, "sfx2/source/notebookbar/NotebookbarTabControl.cxx")
         self.assertIn("pKey->GetKeyCode().GetFullCode() != (KEY_F1 | KEY_MOD1)", tabs)
+        # key listeners get the frame window (the border window above the SystemWindow): frames are compared
+        self.assertIn("pWindow->GetFrameWindow() != GetFrameWindow()", tabs)
+        self.assertNotIn("pOwn->IsWindowOrChild(pWindow, true)", tabs)
         self.assertIn("if (rMEvt.GetClicks() == 2)", tabs)
         self.assertIn("LINK(this, NotebookbarTabControl, HstToggleHdl)", tabs)
         self.assertIn("if (nChosen == HST_COMPACT_ITEM && m_pHstCompact)", tabs)  # the ≡ menu entry

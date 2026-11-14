@@ -226,13 +226,14 @@ tests/runtime/check-set-as-default.py.
  	CppunitTest_sc_filter_html \
 --- /dev/null
 +++ b/sc/qa/unit/uicalc/hstsetasdefault.cxx
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,105 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +
 +// HST Office: "Set As Default" in Format Cells and Page Setup of Sheets (sc/source/ui/docshell/hstsetasdefault.cxx)
 +
 +#include "../helper/qahelper.hxx"
 +
++#include <comphelper/propertyvalue.hxx>
 +#include <comphelper/scopeguard.hxx>
 +#include <editeng/brushitem.hxx>
 +#include <editeng/fhgtitem.hxx>
@@ -262,34 +263,51 @@ tests/runtime/check-set-as-default.py.
 +};
 +}
 +
-+// HST Office "Set As Default" in Format Cells: the Default cell style takes the font and alignment
-+// (undoably), not the fill; all new spreadsheets start with it through the per-user default template
-+CPPUNIT_TEST_FIXTURE(ScHstSetAsDefaultTest, testHstSetAsDefaultCells)
++namespace
 +{
-+    const OUString aService = u"com.sun.star.sheet.SpreadsheetDocument"_ustr;
-+    comphelper::ScopeGuard aReset([&aService] { SfxObjectFactory::SetStandardTemplate(aService, OUString()); });
-+    SfxObjectFactory::SetStandardTemplate(aService, OUString());
-+
-+    createScDoc();
-+    ScDocShell* pDocSh = getScDocShell();
-+    ScDocument& rDoc = pDocSh->GetDocument();
++SfxItemSet CellValues(ScDocument& rDoc)
++{
 +    SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<ATTR_PATTERN_START, ATTR_PATTERN_END>(*rDoc.GetPool()));
 +    aValues.Put(SvxHorJustifyItem(SvxCellHorJustify::Center, ATTR_HOR_JUSTIFY));
 +    aValues.Put(SvxFontHeightItem(280, 100, ATTR_FONT_HEIGHT));
 +    aValues.Put(SvxBrushItem(COL_YELLOW, ATTR_BACKGROUND));
++    return aValues;
++}
++}
 +
-+    sc::hst::ApplyDefaults(*pDocSh, sc::hst::DefaultKind::Cells, aValues, true);
++// HST Office "Set As Default" in Format Cells: the Default cell style takes the font and alignment
++// (undoably), not the fill
++CPPUNIT_TEST_FIXTURE(ScHstSetAsDefaultTest, testHstSetAsDefaultCells)
++{
++    createScDoc();
++    ScDocShell* pDocSh = getScDocShell();
++    ScDocument& rDoc = pDocSh->GetDocument();
++    sc::hst::ApplyDefaults(*pDocSh, sc::hst::DefaultKind::Cells, CellValues(rDoc), true);
 +    CPPUNIT_ASSERT(SvxCellHorJustify::Center == rDoc.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
 +    CPPUNIT_ASSERT_EQUAL(sal_uInt32(280), rDoc.GetAttr(0, 0, 0, ATTR_FONT_HEIGHT).GetHeight());
 +    CPPUNIT_ASSERT(COL_YELLOW != rDoc.GetAttr(0, 0, 0, ATTR_BACKGROUND).GetColor());
 +    pDocSh->GetUndoManager()->Undo();
 +    CPPUNIT_ASSERT(SvxCellHorJustify::Center != rDoc.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
++    // again after the undo (the redo action is dropped)
++    sc::hst::ApplyDefaults(*pDocSh, sc::hst::DefaultKind::Cells, CellValues(rDoc), true);
++    CPPUNIT_ASSERT(SvxCellHorJustify::Center == rDoc.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
++}
 +
-+    sc::hst::SetAsDefault(nullptr, *pDocSh, sc::hst::DefaultKind::Cells, aValues, true);
++// ... and for all new spreadsheets through the per-user default template (the file is checked here,
++// opened for editing; new spreadsheets made from it: tests/runtime/check-set-as-default.py)
++CPPUNIT_TEST_FIXTURE(ScHstSetAsDefaultTest, testHstSetAsDefaultCellsNewDocuments)
++{
++    const OUString aService = u"com.sun.star.sheet.SpreadsheetDocument"_ustr;
++    comphelper::ScopeGuard aReset([&aService] { SfxObjectFactory::SetStandardTemplate(aService, OUString()); });
++    SfxObjectFactory::SetStandardTemplate(aService, OUString());
++    createScDoc();
++    ScDocShell* pDocSh = getScDocShell();
++    sc::hst::SetAsDefault(nullptr, *pDocSh, sc::hst::DefaultKind::Cells, CellValues(pDocSh->GetDocument()), true);
 +    CPPUNIT_ASSERT_EQUAL(sfx2::hst::DefaultTemplateURL(ScDocShell::Factory()),
 +                         SfxObjectFactory::GetStandardTemplate(aService));
 +    dispose();
-+    createScDoc();
++    loadFromURL(sfx2::hst::DefaultTemplateURL(ScDocShell::Factory()),
++                { comphelper::makePropertyValue(u"AsTemplate"_ustr, false) });
 +    ScDocument& rNew = *getScDoc();
 +    CPPUNIT_ASSERT(SvxCellHorJustify::Center == rNew.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
 +    CPPUNIT_ASSERT_EQUAL(sal_uInt32(280), rNew.GetAttr(0, 0, 0, ATTR_FONT_HEIGHT).GetHeight());
@@ -658,7 +676,7 @@ tests/runtime/check-set-as-default.py.
  	sfx2/uiconfig/ui/licensedialog \
 --- /dev/null
 +++ b/sfx2/source/dialog/hstdefaults.cxx
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,177 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -798,6 +816,7 @@ tests/runtime/check-set-as-default.py.
 +
 +    const OUString aTemp = aTarget + ".tmp";
 +    {
++        // like the frameless loads in sw (docsh2.cxx): the lock keeps the document and closes it at the end
 +        SfxObjectShellLock xDoc = SfxObjectShell::CreateObject(aService, SfxObjectCreateMode::INTERNAL);
 +        if (!xDoc.Is())
 +            return false;
@@ -805,7 +824,6 @@ tests/runtime/check-set-as-default.py.
 +        if (!bReady || !rApply(*xDoc))
 +        {
 +            SAL_WARN("sfx.doc", "HST default template: cannot prepare " << aTarget);
-+            xDoc->DoClose();
 +            return false;
 +        }
 +        try
@@ -817,13 +835,11 @@ tests/runtime/check-set-as-default.py.
 +        catch (const uno::Exception&)
 +        {
 +            TOOLS_WARN_EXCEPTION("sfx.doc", "HST default template: cannot save " << aTemp);
-+            xDoc->DoClose();
 +            osl::File::remove(aTemp);
 +            return false;
 +        }
-+        // close before replacing: the source may be the target itself
-+        xDoc->DoClose();
-+    }
++    } // releasing the last lock closes the document (no DoClose here: the model's close frees the shell),
++      // before the replace: the source may be the target itself
 +
 +    if (osl::File::replace(aTemp, aTarget) != osl::FileBase::E_None)
 +    {
@@ -1083,7 +1099,7 @@ tests/runtime/check-set-as-default.py.
  #include <wrtsh.hxx>
  #include <unotxdoc.hxx>
  #include <itabenum.hxx>
-@@ -1978,6 +1992,83 @@
+@@ -1978,6 +1992,90 @@
      CPPUNIT_ASSERT_EQUAL(u"foo"_ustr, (*(rIDMA.getAllMarksBegin()))->GetName().toString());
  }
  
@@ -1127,41 +1143,48 @@ tests/runtime/check-set-as-default.py.
 +// HST Office "Set As Default" for all new documents: a per-user default template, updated by later changes
 +CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultNewDocuments)
 +{
++    // New documents from the registered template are covered by tests/runtime/check-set-as-default.py; this
++    // checks the template file itself, opened for editing, and that a later default updates it.
 +    const OUString aService = u"com.sun.star.text.TextDocument"_ustr;
 +    comphelper::ScopeGuard aReset([&aService] { SfxObjectFactory::SetStandardTemplate(aService, OUString()); });
 +    SfxObjectFactory::SetStandardTemplate(aService, OUString());
++    const OUString aTemplate = sfx2::hst::DefaultTemplateURL(SwDocShell::Factory());
++    auto aStandard = [this, &aTemplate, &aService](sal_Int16 nAdjust, float fHeight) {
++        dispose();
++        loadFromURL(aTemplate, { comphelper::makePropertyValue(u"AsTemplate"_ustr, false) });
++        uno::Reference<beans::XPropertySet> xStyle(
++            getStyles(u"ParagraphStyles"_ustr)->getByName(u"Standard"_ustr), uno::UNO_QUERY_THROW);
++        CPPUNIT_ASSERT_EQUAL(nAdjust, getProperty<sal_Int16>(xStyle, u"ParaAdjust"_ustr));
++        CPPUNIT_ASSERT_EQUAL(fHeight, getProperty<float>(xStyle, u"CharHeight"_ustr));
++        // a plain new document to change next
++        dispose();
++        SfxObjectFactory::SetStandardTemplate(aService, OUString());
++        createSwDoc();
++        SfxObjectFactory::SetStandardTemplate(aService, aTemplate);
++    };
++
++    // each item set is made on the pool of the document it changes and ends before that document
++    auto aSetAsDefault = [this](const SfxPoolItem& rItem, sw::hst::DefaultKind eKind, bool bNewDocuments) {
++        SwDoc* pDoc = getSwDoc();
++        SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BEGIN, RES_CHRATR_END - 1, RES_PARATR_BEGIN,
++                                                           RES_PARATR_END - 1>(pDoc->GetAttrPool()));
++        aValues.Put(rItem);
++        sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), eKind, aValues, bNewDocuments);
++    };
 +
 +    createSwDoc();
-+    SwDoc* pDoc = getSwDoc();
-+    SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BEGIN, RES_CHRATR_END - 1, RES_PARATR_BEGIN, RES_PARATR_END - 1>(pDoc->GetAttrPool()));
-+    aValues.Put(SvxAdjustItem(SvxAdjust::Block, RES_PARATR_ADJUST));
-+    sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Paragraph, aValues, true);
-+    CPPUNIT_ASSERT_EQUAL(sfx2::hst::DefaultTemplateURL(SwDocShell::Factory()),
-+                         SfxObjectFactory::GetStandardTemplate(aService));
++    const float fDefaultHeight = getProperty<float>(getParagraph(1), u"CharHeight"_ustr);
++    aSetAsDefault(SvxAdjustItem(SvxAdjust::Block, RES_PARATR_ADJUST), sw::hst::DefaultKind::Paragraph, true);
++    CPPUNIT_ASSERT_EQUAL(aTemplate, SfxObjectFactory::GetStandardTemplate(aService));
++    aStandard(sal_Int16(css::style::ParagraphAdjust_BLOCK), fDefaultHeight);
 +
-+    // a new document starts with it; a second default keeps the first one
-+    dispose();
-+    createSwDoc();
-+    CPPUNIT_ASSERT_EQUAL(sal_Int16(css::style::ParagraphAdjust_BLOCK),
-+                         getProperty<sal_Int16>(getParagraph(1), u"ParaAdjust"_ustr));
-+    pDoc = getSwDoc();
-+    SfxItemSet aFont(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BEGIN, RES_CHRATR_END - 1>(pDoc->GetAttrPool()));
-+    aFont.Put(SvxFontHeightItem(260, 100, RES_CHRATR_FONTSIZE));
-+    sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Character, aFont, true);
++    // a second default updates the same template and keeps the first one
++    aSetAsDefault(SvxFontHeightItem(260, 100, RES_CHRATR_FONTSIZE), sw::hst::DefaultKind::Character, true);
++    aStandard(sal_Int16(css::style::ParagraphAdjust_BLOCK), 13.f);
 +
-+    dispose();
-+    createSwDoc();
-+    CPPUNIT_ASSERT_EQUAL(sal_Int16(css::style::ParagraphAdjust_BLOCK),
-+                         getProperty<sal_Int16>(getParagraph(1), u"ParaAdjust"_ustr));
-+    CPPUNIT_ASSERT_EQUAL(13.f, getProperty<float>(getParagraph(1), u"CharHeight"_ustr));
-+
-+    // "this document only" leaves new documents alone
-+    aFont.Put(SvxFontHeightItem(320, 100, RES_CHRATR_FONTSIZE));
-+    sw::hst::SetAsDefault(nullptr, *getSwDoc()->GetDocShell(), sw::hst::DefaultKind::Character, aFont,
-+                          false);
-+    dispose();
-+    createSwDoc();
-+    CPPUNIT_ASSERT_EQUAL(13.f, getProperty<float>(getParagraph(1), u"CharHeight"_ustr));
++    // "this document only" leaves the template alone
++    aSetAsDefault(SvxFontHeightItem(320, 100, RES_CHRATR_FONTSIZE), sw::hst::DefaultKind::Character, false);
++    aStandard(sal_Int16(css::style::ParagraphAdjust_BLOCK), 13.f);
 +}
 +
  } // end of anonymous namespace

@@ -894,7 +894,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
      if ((nId == VclEventId::WindowResize || nId == VclEventId::WindowShow) && pWindow
          && pWindow->GetParent() == this && dynamic_cast<TabPage*>(pWindow) && !m_pHstLayoutEvent)
          m_pHstLayoutEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstDeferredLayoutHdl));
-@@ -583,10 +639,116 @@
+@@ -583,10 +639,117 @@
  
  void NotebookbarTabControl::Resize()
  {
@@ -968,10 +968,11 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +    if (rEvent.GetId() != VclEventId::WindowKeyInput || !m_pHstCompact || !IsReallyVisible())
 +        return false;
 +    const KeyEvent* pKey = static_cast<const KeyEvent*>(rEvent.GetData());
++    // vcl hands the key listeners the frame window of the key (a document window's border window, above
++    // this window's SystemWindow), so frames are compared; a popup of this control (the dropped page) counts
 +    const vcl::Window* pWindow = rEvent.GetWindow();
-+    SystemWindow* pOwn = GetSystemWindow();
-+    if (!pKey || pKey->GetKeyCode().GetFullCode() != (KEY_F1 | KEY_MOD1) || !pWindow || !pOwn
-+        || !pOwn->IsWindowOrChild(pWindow, true))
++    if (!pKey || pKey->GetKeyCode().GetFullCode() != (KEY_F1 | KEY_MOD1) || !pWindow
++        || (pWindow->GetFrameWindow() != GetFrameWindow() && !IsWindowOrChild(pWindow, true)))
 +        return false;
 +    HstSetCompact(!m_pHstCompact->IsCompact());
 +    return true;
@@ -1011,7 +1012,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
  void NotebookbarTabControl::ArrowStops( sal_uInt16 nCode )
  {
      ToolBox* pToolBox( GetToolBox() );
-@@ -802,16 +964,25 @@
+@@ -802,16 +965,25 @@
          return;
  
      xPopupController->setPopupMenu(xPopupMenu);
@@ -1040,7 +1041,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
  }
  
  Size NotebookbarTabControl::calculateRequisition() const
-@@ -833,6 +1004,8 @@
+@@ -833,6 +1005,8 @@
  
      if (aSize.Width() < 400)
          aSize.setWidth( 400 );

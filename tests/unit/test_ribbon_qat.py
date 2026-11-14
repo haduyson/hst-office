@@ -79,5 +79,13 @@ class Behaviour(unittest.TestCase):
         self.assertIn("sfx2/source/notebookbar/HstQuickAccessStore \\", sfx)
 
 
+class ListenerThread(unittest.TestCase):
+    def test_ui_configuration_listener_holds_the_solar_mutex(self):
+        # a UNO client changing the toolbar from its own thread must not lay out the tab row unlocked
+        code = added("hst-ribbon-shortcuts-listener-solarmutex.patch", "sfx2/source/notebookbar/NotebookbarTabControl.cxx")
+        self.assertIn("SolarMutexGuard aGuard;", code)
+        self.assertIn("if (!m_pParent || m_pParent->isDisposed())", code)
+
+
 if __name__ == "__main__":
     unittest.main()
