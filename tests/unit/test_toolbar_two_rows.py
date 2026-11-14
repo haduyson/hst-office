@@ -33,6 +33,9 @@ static long row(const std::vector<RowItem>& v, std::size_t from, std::size_t to)
 { long n = 0; for (std::size_t i = from; i < to; ++i) if (v[i].bVisible) n += v[i].nWidth; return n; }
 static long diff(const std::vector<RowItem>& v, std::size_t b)
 { return std::labs(row(v, 0, b) - row(v, b, v.size())); }
+// the rows as drawn: a separator that ends the first row is not drawn
+static long shown(const std::vector<RowItem>& v, std::size_t b)
+{ return std::labs(row(v, 0, b) - (v[b - 1].bSeparator ? v[b - 1].nWidth : 0) - row(v, b, v.size())); }
 int main()
 {
     // nothing to split
@@ -96,6 +99,18 @@ int main()
             if (!v[i].bSeparator && (best < 0 || diff(v, i) < best))
                 best = diff(v, i);
         CHECK(diff(v, balancedBreak(v)) <= best + 26);
+    }
+    // Writer's Sidebar interface (standardbar, gtk3 at 100 %, 33 and 44 px buttons): the evenest break is the
+    // group break, 601 and 637 px as drawn: within one button
+    {
+        const long G = 8;
+        std::vector<RowItem> v{ B(44), B(44), B(44), RowItem{ G, true, true, false }, B(33), B(33), B(33),
+            RowItem{ G, true, true, false }, B(33), B(33), B(44), RowItem{ G, true, true, false }, B(33),
+            RowItem{ G, true, true, false }, B(44), B(44), RowItem{ G, true, true, false }, B(33), B(33), B(33),
+            RowItem{ G, true, true, false }, B(44), B(33), B(33), B(33), RowItem{ G, true, true, false }, B(33),
+            B(44), B(44), RowItem{ G, true, true, false }, B(33), B(33), B(33), B(33), B(33),
+            RowItem{ G, true, true, false }, B(33), B(33), RowItem{ G, true, true, false }, B(33), B(44), B(33) };
+        CHECK(balancedBreak(v) == 21 && shown(v, 21) == 36);
     }
     CHECK(typicalButtonWidth({ B(26), B(26), B(38), W(150) }) == 26);
     std::printf("checks done, %d failure(s)\n", failures);

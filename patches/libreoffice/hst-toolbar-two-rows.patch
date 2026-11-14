@@ -145,7 +145,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
      return ImplCalcSize( nCalcLines );
 --- /dev/null
 +++ b/vcl/inc/HstToolbarRows.hxx
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,121 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -199,7 +199,8 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
 +    separator it is the item right after the separator (visible or not), so that VCL, which draws no
 +    separator before a break, leaves it out.
 +
-+    The rows are as even as possible. A break right after a separator (the separator is then not
++    The rows are as even as possible, measured as drawn (the separator that ends the first row is
++    not drawn). A break right after a separator (the separator is then not
 +    drawn, the groups stay whole) wins whenever its rows differ by no more than one button, or by no
 +    more than the evenest break at all. Of two equally even breaks the one with the longer first row
 +    wins, so the top row never ends before the bottom one. A row never starts with a separator. */
@@ -231,6 +232,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
 +    long nFirst = 0; // width of the visible items before i
 +    bool bAfterSeparator = false; // the last visible item before i is a separator
 +    std::size_t nSeparator = 0; // its index
++    long nSeparatorWidth = 0; // and its width: it ends the first row but is not drawn there
 +    bool bSeenButton = false; // the first row would hold something else than separators
 +    for (std::size_t i = 0; i < rItems.size(); ++i)
 +    {
@@ -240,14 +242,18 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
 +        if (!r.bSeparator && bSeenButton)
 +        {
 +            const std::size_t nBreak = bAfterSeparator ? nSeparator + 1 : i;
-+            aAny.offer(nBreak, nFirst, nTotal - nFirst);
++            const long nShown = bAfterSeparator ? nFirst - nSeparatorWidth : nFirst; // the first row as drawn
++            aAny.offer(nBreak, nShown, nTotal - nFirst);
 +            if (bAfterSeparator)
-+                aGroup.offer(nBreak, nFirst, nTotal - nFirst);
++                aGroup.offer(nBreak, nShown, nTotal - nFirst);
 +        }
 +        nFirst += r.nWidth;
 +        bAfterSeparator = r.bSeparator;
 +        if (r.bSeparator)
++        {
 +            nSeparator = i;
++            nSeparatorWidth = r.nWidth;
++        }
 +        bSeenButton = bSeenButton || !r.bSeparator;
 +    }
 +

@@ -98,6 +98,11 @@ def strip(snapshot):
     return banners[0], bars
 
 
+def typical(values):
+    """The most common value (the size of a plain button), 0 without values."""
+    return max(sorted(set(values)), key=values.count) if values else 0
+
+
 def rows(items):
     """The items grouped into rows (top to bottom), each [left, right, top, bottom, widest item]."""
     out = []
@@ -127,8 +132,12 @@ def judge(app, mode, snapshot):
     found = rows(bar["items"])
     if len(found) != 2:
         return False, f"{len(found)} rows of buttons, two expected"
-    (l1, r1, t1, b1, w1), (l2, r2, t2, b2, w2) = found
-    button = max(w1, w2)
+    (l1, r1, t1, b1, _w1), (l2, r2, t2, b2, _w2) = found
+    common = typical([i[2] for i in bar["items"]])
+    button = max(i[2] for i in bar["items"] if i[2] <= common * 3 // 2)  # one button: the widest plain one
+    line = typical([i[3] for i in bar["items"]])  # item windows taller than a button stick out, as in one row
+    plain = [i for i in bar["items"] if i[3] <= line]
+    t1, b2 = min(i[1] for i in plain), max(i[1] + i[3] for i in plain)
     if abs(l1 - l2) > EDGE_TOLERANCE:
         return False, f"rows start {abs(l1 - l2)} px apart"
     if abs((r1 - l1) - (r2 - l2)) > button + 1:
