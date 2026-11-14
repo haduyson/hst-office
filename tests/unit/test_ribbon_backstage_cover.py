@@ -21,5 +21,13 @@ class BackstageCover(unittest.TestCase):
         self.assertIn("pBanner->OutputToAbsoluteScreenPixel(Point())", code)
 
 
+    def test_document_tab_strip_stays_visible(self):
+        tabs = "hst-ribbon-adaptive-backstage-tabs.patch"
+        self.assertIn('set_id(u"hst-document-tabs"_ustr);', added(tabs, "framework/source/uielement/documenttabbar.cxx"))
+        code = added(tabs, WINDOW)
+        self.assertIn("if (const vcl::Window* pDocTabs = lcl_findDocumentTabs(*pFrameWindow))", code)
+        self.assertIn("const Point aTop = pOrigin->AbsoluteScreenToOutputPixel(aEdgeTop);", code)
+
+
 if __name__ == "__main__":
     unittest.main()
