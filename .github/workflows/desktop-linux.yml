@@ -140,8 +140,9 @@ jobs:
           compression-level: 0
   sign:
     # Optional GPG signature of the .rpm (rpmsign) and the AppImage (detached .asc). Secrets live only here, behind
-    # the "linux-signing" environment; until the owner creates the key and the secrets, the gate reports it and every
-    # later step is skipped (the job stays green) and the release ships the unsigned, SHA-256-listed packages.
+    # the "linux-signing" environment. Without the key the gate reports it and every later step is skipped (the job
+    # stays green); once HST_LINUX_GPG_FINGERPRINT is set, a missing secret fails the gate, and a release refuses
+    # unsigned Linux packages while data/hst/RPM-GPG-KEY-hasontech is committed.
     # Procedure: docs/LINUX_PACKAGES.md.
     needs: linux-deb
     if: ${{ inputs.mode == 'full' }}
@@ -157,6 +158,7 @@ jobs:
         shell: bash
         env:
           HST_LINUX_GPG_PRIVATE_KEY: ${{ secrets.HST_LINUX_GPG_PRIVATE_KEY }}
+          HST_LINUX_GPG_FINGERPRINT: ${{ vars.HST_LINUX_GPG_FINGERPRINT }}
         run: |
           set -eu
           bash scripts/linux/sign-linux-packages.sh --enabled >> "$GITHUB_OUTPUT"

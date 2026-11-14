@@ -9,7 +9,8 @@
 # Without a key it does nothing and exits 0 (unsigned packages; the in-app updater relies on the SHA-256 in the
 # Ed25519-signed manifest either way).
 #   sign-linux-packages.sh <installer-dir>
-#   sign-linux-packages.sh --enabled     prints enabled=true|false (the CI gate: is the key secret set?)
+#   sign-linux-packages.sh --enabled     prints enabled=true|false (the CI gate: is the key secret set?); fails when
+#                                        HST_LINUX_GPG_FINGERPRINT is set without the secret (a configured key must sign)
 # Environment (GitHub environment "linux-signing", set by the owner's setup-linux-signing-key.sh; never in the repo):
 #   HST_LINUX_GPG_PRIVATE_KEY   ASCII-armoured secret key (empty: skip)
 #   HST_LINUX_GPG_PASSPHRASE    its passphrase
@@ -21,8 +22,12 @@ set -Eeuo pipefail
 DIR="${1:?usage: $0 <installer-dir> | --enabled}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [ "$DIR" = --enabled ]; then
-  if [ -n "${HST_LINUX_GPG_PRIVATE_KEY:-}" ]; then echo enabled=true; else echo enabled=false
-    echo "linux signing: no HST_LINUX_GPG_PRIVATE_KEY secret; the packages stay unsigned" >&2; fi
+  if [ -n "${HST_LINUX_GPG_PRIVATE_KEY:-}" ]; then echo enabled=true; exit 0; fi
+  if [ -n "${HST_LINUX_GPG_FINGERPRINT:-}" ]; then # the key is configured, but its secret did not reach the job
+    echo "linux signing: HST_LINUX_GPG_FINGERPRINT is set but the HST_LINUX_GPG_PRIVATE_KEY secret is empty" >&2; exit 1
+  fi
+  echo enabled=false
+  echo "linux signing: no HST_LINUX_GPG_PRIVATE_KEY secret; the packages stay unsigned" >&2
   exit 0
 fi
 if [ -z "${HST_LINUX_GPG_PRIVATE_KEY:-}" ]; then

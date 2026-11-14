@@ -98,8 +98,13 @@ for platform in $platforms; do
   names="$(artifact_names "$id")"
   case "$platform" in
     windows) fetch "$id" "hst-office-windows-msi-$id" ;;
-    linux)   # Prefer the GPG-signed set when the signing job produced one (docs/LINUX_PACKAGES.md).
-      if grep -qx "hst-office-linux-deb-signed-$id" <<<"$names"; then fetch "$id" "hst-office-linux-deb-signed-$id"
+    linux)   # The GPG-signed set; unsigned only while no packaging key is configured (docs/LINUX_PACKAGES.md).
+      signed="hst-office-linux-deb-signed-$id"
+      if grep -qx "$signed" <<<"$names"; then
+        fetch "$id" "$signed"
+        bash "$(dirname "${BASH_SOURCE[0]}")/check-linux-signed-set.sh" "$work/$signed" || die "Linux run $id: incomplete signed set"
+      elif [ -f "$(dirname "${BASH_SOURCE[0]}")/../../data/hst/RPM-GPG-KEY-hasontech" ]; then
+        die "Linux run $id has no $signed although the packaging key is configured; rerun its sign job (linux-signing)"
       else fetch "$id" "hst-office-linux-deb-$id"; fi ;;
     macos)
       for arch in arm64 x86_64; do

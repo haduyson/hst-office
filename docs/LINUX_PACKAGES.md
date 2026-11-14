@@ -131,8 +131,11 @@ Nó tải artifact chưa ký rồi chạy [scripts/linux/sign-linux-packages.sh]
 - khóa `RPM-GPG-KEY-hasontech`;
 - `SHA256SUMS` của artifact được viết lại.
 
-Job tải lên artifact `hst-office-linux-deb-signed-<run>`, và `collect-release-assets.sh` ưu tiên bộ đã ký. Khi chưa có
-secret, bước cổng in `enabled=false` và mọi bước sau bỏ qua.
+Job tải lên artifact `hst-office-linux-deb-signed-<run>`. Khi chưa có khóa (không có secret, không có biến
+`HST_LINUX_GPG_FINGERPRINT`), bước cổng in `enabled=false` và mọi bước sau bỏ qua. Khi đã có biến
+`HST_LINUX_GPG_FINGERPRINT` mà secret không tới được job, bước cổng **báo lỗi** thay vì bỏ qua. Khi
+`data/hst/RPM-GPG-KEY-hasontech` đã được commit, `collect-release-assets.sh` chỉ nhận bộ đã ký và kiểm đủ các tệp bằng
+[check-linux-signed-set.sh](../scripts/release/check-linux-signed-set.sh); thiếu bộ đã ký thì bản phát hành dừng.
 
 **Người dùng.**
 

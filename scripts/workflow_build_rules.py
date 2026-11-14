@@ -96,6 +96,8 @@ def check_linux_signing_job(job, require):
     gate = [step for step in steps if step.get("id") == "gate"]
     require(len(gate) == 1 and "sign-linux-packages.sh --enabled" in gate[0].get("run", "") and "if" not in gate[0],
             "Linux signing needs one unconditional gate that skips cleanly without secrets")
+    require(len(gate) == 1 and "vars.HST_LINUX_GPG_FINGERPRINT" in str(gate[0].get("env", {}).get("HST_LINUX_GPG_FINGERPRINT", "")),
+            "the Linux signing gate must see HST_LINUX_GPG_FINGERPRINT, so a configured key without its secret fails")
     uploads = [step for step in steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
     require(len(uploads) == 1 and SIGNING_GATE in str(uploads[0].get("if", "")) and "success()" in str(uploads[0].get("if", ""))
             and str(uploads[0].get("with", {}).get("name", "")).startswith("hst-office-linux-deb-signed-"),
