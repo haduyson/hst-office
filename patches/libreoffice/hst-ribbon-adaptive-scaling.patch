@@ -1,0 +1,116 @@
+HST Office: one banner width per window for every ribbon tab; scaling steps keep 12 px of hysteresis.
+
+1.0.2 ribbon (owner decisions 14/11/2026, gap list G04, G08): the banner beside the groups is 260 logical px
+wide up to 1440 px of window width, then grows linearly to 360 px at 1920 and above
+(hst::banner::windowSlotWidth); it no longer depends on the widest tab measured, so it never moves when the
+user switches tabs, and the groups scale beside it. The ladder of a tab keeps its last plan while the width
+stays within 12 logical px of the width it was made for and the plan still fits, so a window resized across
+a threshold does not make a group change back and forth.
+
+--- a/include/vcl/HstBannerGeometry.hxx
++++ b/include/vcl/HstBannerGeometry.hxx
+@@ -150,6 +150,22 @@
+     return nWant;
+ }
+ 
++/** HST Office (1.0.2 ribbon, owner decision 14/11/2026): the width in px of the banner beside the ribbon's
++    groups for a window nWindowWidth px wide: MIN_WIDE_ART_WIDTH up to 1440 logical px, then growing linearly to
++    the artwork's 360 at 1920 and above. One width for every tab, so the banner never moves between tabs. */
++constexpr long WINDOW_NARROW = 1440;
++constexpr long WINDOW_WIDE = 1920;
++inline long windowSlotWidth(long nWindowWidth, double fDpi)
++{
++    const long nLogical = fDpi > 0 ? std::lround(nWindowWidth / fDpi) : nWindowWidth;
++    const long nWidth = nLogical <= WINDOW_NARROW ? MIN_WIDE_ART_WIDTH
++                        : nLogical >= WINDOW_WIDE
++                            ? ART_WIDTH
++                            : MIN_WIDE_ART_WIDTH
++                                  + (nLogical - WINDOW_NARROW) * (ART_WIDTH - MIN_WIDE_ART_WIDTH) / (WINDOW_WIDE - WINDOW_NARROW);
++    return scaled(nWidth, fDpi);
++}
++
+ /** Aspect-fit an image of nImageW x nImageH into rBox, centred; never larger than rBox. */
+ inline Rect fit(const Rect& rBox, long nImageW, long nImageH)
+ {
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -49,9 +49,6 @@
+     // HST Office: feature search box in the tab row, after the last tab (placed by the vcl base)
+     VclPtr<HstTabSearchBox> m_pHstSearch;
+     bool m_bHstLayout = false;
+-    // HST Office: the full width of every tab page measured so far: the wide banner narrows for the
+-    // widest of them, so it keeps one width while the user switches tabs
+-    std::map<sal_uInt16, tools::Long> m_aHstPageFullWidths;
+ 
+     // time-based debounce: track when the last tab switch via scroll happened
+     std::chrono::steady_clock::time_point m_lastTabSwitch{};
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -35,7 +35,6 @@
+ #include <vcl/HstBanner.hxx>
+ #include <vcl/HstBannerGeometry.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+-#include <vcl/HstRibbonWidth.hxx>
+ #include <vcl/lineinfo.hxx>
+ #include <sfx2/sfxresid.hxx>
+ #include <sfx2/strings.hrc>
+@@ -543,19 +542,12 @@
+                                             : hst::banner::Mode::Hidden;
+         if (eMode == hst::banner::Mode::Wide)
+         {
+-            // HST Office: the wide banner narrows (ratio kept) when the page's groups do not fit beside it
+-            // the widest page measured so far, not just the current one (the banner does not jump
+-            // when the user switches tabs); a page measures once it has been shown
+-            const tools::Long nCurrentFull = hst::ribbon::PageFullWidth(*pPage);
+-            if (nCurrentFull >= 0)
+-                m_aHstPageFullWidths[GetCurPageId()] = nCurrentFull;
+-            tools::Long nWidest = -1;
+-            for (const auto& [nPageId, nFull] : m_aHstPageFullWidths)
+-                if (const TabPage* pMeasured = GetTabPage(nPageId);
+-                    pMeasured && pMeasured->HasContext(vcl::EnumContext::Context::Any)) // not the contextual tabs
+-                    nWidest = std::max(nWidest, nFull);
+-            const long nMaxWidth = hst::banner::wideSlotWidth(aPage, nWidest, m_pHstBanner->WideSlotWidth(), fDpi);
+-            m_pHstBanner->SetWideSlotWidth(nMaxWidth);
++            // HST Office (1.0.2 ribbon, owner decision 14/11/2026): the banner's width follows the window, not
++            // the tab: 260 logical px up to 1440 px, then linearly up to 360 px at 1920 (windowSlotWidth); the
++            // groups scale beside it (Office-style ladder) and the banner never moves between tabs
++            const SystemWindow* pWindow = GetSystemWindow();
++            const long nMaxWidth = hst::banner::windowSlotWidth(
++                pWindow ? pWindow->GetSizePixel().Width() : GetOutputSizePixel().Width(), fDpi);
+             const hst::banner::Rect aSlot
+                 = hst::banner::slotFor(aPage, fDpi, hst::banner::artWidth(eMode), nMaxWidth);
+             nPageWidth = hst::banner::pageWidthBeside(aPage, aSlot, fDpi);
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -49,6 +49,9 @@
+     // the groups the ladder folded for the width m_nHstFoldedFor (Resize hides exactly these)
+     std::vector<vcl::Window*> m_aHstFolded;
+     tools::Long m_nHstFoldedFor = -1;
++    // the states of the last plan and the width it was made for (12 px hysteresis, gap list G08)
++    std::vector<size_t> m_aHstLastStates;
++    tools::Long m_nHstLastWidth = -1;
+     void HstApplyLadder(tools::Long nWidth);
+     // width of the box with every group at its smallest state, or -1 before all are measured
+     tools::Long HstMinWidth() const;
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -537,6 +537,19 @@
+         if (aFit.fits)
+             aLayout = aFit;
+     }
++    // HST Office (1.0.2 ribbon, gap list G08): within 12 logical px of the width of the last plan, the
++    // groups keep their states while those still fit, so a window resized across a threshold does not make
++    // a group change back and forth
++    const tools::Long nHysteresis = std::lround(12 * GetDPIScaleFactor());
++    if (aLayout.overflow.empty() && m_aHstLastStates.size() == aGroups.size() && m_nHstLastWidth > 0
++        && std::abs(nWidth - m_nHstLastWidth) < nHysteresis
++        && hst::ribbon::rowWidth(aGroups, m_aHstLastStates) <= nWidth)
++        aLayout.states = m_aHstLastStates;
++    else
++    {
++        m_aHstLastStates = aLayout.states;
++        m_nHstLastWidth = nWidth;
++    }
+     m_aHstFolded.clear();
+     m_nHstFoldedFor = nWidth;
+     if (!aLayout.overflow.empty())
