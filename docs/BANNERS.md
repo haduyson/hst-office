@@ -33,12 +33,16 @@ achieves at least 5.88:1. Its warm green hue is 80.60° away from eChatbot's blu
 blue-grey `#f3f6f9` tint (13.32:1 ink contrast); the logo sources document records
 its similarity to HST SEO blue and the visual-review recommendation. The eChatbot
 source update requires regeneration of the banner PNGs, manifests and preview.
-Its wide card also uses the optional `illustration` filename in `brands.json`, resolved
-under `banners/logos/`: the official chibi mascot occupies a 104px square at the right,
-with a 10px gap from the 230px text column. The complete tagline remains two lines;
-CTA and HASON TECH stay beside one another below it. The renderer checks text/mascot
-separation. The 160×104 compact card omits the illustration to preserve readable text.
-Other brands omit this field and retain their existing layout.
+Wide cards opt into artwork through the `illustration` filename in `brands.json`, resolved
+under `banners/logos/`. eChatbot keeps its official chibi mascot unchanged. The other six
+cards use original glossy 3D `<id>-illustration.png` assets: 312×312 RGBA PNGs with transparent
+backgrounds, each under 110 KB. Each illustration occupies a 104px square at the right,
+with a 10px gap from the 230px text column. The new illustrated cards balance tagline lines;
+the company CTA uses slightly tighter letter spacing to retain its footer gap.
+The renderer checks text/illustration separation. The 160×104 compact cards omit illustrations
+to preserve readable text. Regenerate the PNGs, manifests and previews after changing these inputs.
+AI Dễ Lắm's logo is the official “Ai + sparkle” mark extracted from its website's `og:image`; the logo
+sources document records the extraction.
 HST Post's full logo derives
 from the owner-supplied official 476×393 file, with extracted all-caps dark lettering.
 [Logo comparison](design/hst-post-logo-preview.png) shows the logo, square icon and original together.
@@ -56,7 +60,7 @@ python3 -m venv .venv
 
 The [renderer](../scripts/brand/render-banners.py) uses the committed
 [HTML template](../extensions/hst-vietnamese-tools/banners/template.html), logos,
-fonts and palette. Rendering itself is offline. It writes 21 PNGs, both previews,
+fonts and palette. Rendering itself is offline. It writes 42 PNGs (wide and compact), both previews,
 the bundled manifest and the complete online example. `--check` compares regeneration
 byte-for-byte (use the pinned Playwright Chromium on Linux for the reference output).
 `generatedAt` for bundled artwork is intentionally fixed in the renderer; update it when
