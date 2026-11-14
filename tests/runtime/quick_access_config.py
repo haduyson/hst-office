@@ -21,6 +21,7 @@ def shown(office, module):
         props = {p.Name: p.Value for p in items.getByIndex(index)}
         if props.get("IsVisible", True):
             result.append(props.get("CommandURL"))
+    return result
 
 
 def set_commands(office, module, commands):
