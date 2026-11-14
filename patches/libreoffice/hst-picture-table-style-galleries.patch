@@ -305,7 +305,7 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/svx/source/tbxctrls/HstPictureStyleApply.cxx
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,136 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -331,6 +331,8 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +#include <com/sun/star/table/BorderLineStyle.hpp>
 +#include <com/sun/star/table/ShadowFormat.hpp>
 +#include <com/sun/star/view/XSelectionSupplier.hpp>
++#include <docmodel/color/ComplexColor.hxx>
++#include <docmodel/uno/UnoComplexColor.hxx>
 +
 +#include <vector>
 +
@@ -381,6 +383,10 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +    if (bLine)
 +    {
 +        rxShape->setPropertyValue(u"LineColor"_ustr, uno::Any(sal_Int32(rStyle.aLineColor)));
++        // a plain colour: the default line of Slides is a theme colour, which .pptx would write instead
++        rxShape->setPropertyValue(
++            u"LineComplexColor"_ustr,
++            uno::Any(model::color::createXComplexColor(model::ComplexColor::createRGB(rStyle.aLineColor))));
 +        rxShape->setPropertyValue(u"LineWidth"_ustr, uno::Any(rStyle.nLineWidth));
 +    }
 +    const bool bShadow = rStyle.nShadowDistance > 0;

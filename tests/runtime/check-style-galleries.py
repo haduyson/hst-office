@@ -63,13 +63,25 @@ def check_writer(office, work, png):
     sg.record("docx: the picture has an outline and an outer shadow", "<a:ln" in xml and "outerShdw" in xml)
     sg.record("docx: the header cells are filled HST blue", 'w:fill="0072BB"' in xml)
     doc = office.load(office.url(path))
-    pic = doc.GraphicObjects.getByIndex(0)
-    cell = doc.TextTables.getByIndex(0).getCellByName("A1")
-    sg.record("docx reload: border, shadow and header fill survive",
-              pic.TopBorder.LineWidth > 0 and pic.TopBorder.Color == 0x0072BB
-              and pic.ShadowFormat.Location.value != "NONE" and cell.BackColor == 0x0072BB,
-              (pic.TopBorder.LineWidth, hex(pic.TopBorder.Color), pic.ShadowFormat.Location.value, hex(cell.BackColor)))
-    doc.close(True)
+    try:
+        cell = doc.TextTables.getByIndex(0).getCellByName("A1")
+        # a picture with an outline and a shadow comes back as a picture shape (writerfilter), still styled
+        if doc.GraphicObjects.Count:
+            pic = doc.GraphicObjects.getByIndex(0)
+            look = (pic.TopBorder.Color, pic.ShadowFormat.Location.value != "NONE")
+        else:
+            pic = doc.DrawPage.getByIndex(0)
+            look = (pic.LineColor, pic.Shadow)
+        sg.record("docx reload: outline, shadow and header fill survive",
+                  look == (0x0072BB, True) and cell.BackColor == 0x0072BB, (hex(look[0]), look[1], hex(cell.BackColor)))
+        doc.getCurrentController().select(pic)
+        before = sg.undo_count(doc)
+        sg.dispatch(office, doc, "Picture", "thin")
+        colour = pic.TopBorder.Color if doc.GraphicObjects.Count else pic.LineColor
+        sg.record("docx reload: the reopened picture takes a style, one undo action",
+                  colour == 0x7F8C99 and sg.undo_count(doc) == before + 1, hex(colour))
+    finally:
+        doc.close(True)
 
 
 def check_sheets(office, work, png):
@@ -131,15 +143,18 @@ def check_slides(office, work, png):
     sg.store(office, doc, path, "Impress Office Open XML")
     doc.close(True)
     xml = sg.part(path, "ppt/slides/slide1.xml")
-    sg.record("pptx: picture outline and shadow, header cells HST blue",
-              "<a:ln" in xml and "outerShdw" in xml and 'srgbClr val="0072BB"' in xml)
+    pic = xml[xml.find("<p:pic>"):xml.find("</p:pic>")]
+    sg.record("pptx: picture outline in plain HST blue and shadow, header cells HST blue",
+              re.search(r'<a:ln [^>]*><a:solidFill><a:srgbClr val="0072BB"', pic) and "outerShdw" in pic
+              and xml.count('srgbClr val="0072BB"') >= 2, pic[:400])
     doc = office.load(office.url(path))
     shapes = [doc.DrawPages.getByIndex(0).getByIndex(i) for i in range(doc.DrawPages.getByIndex(0).Count)]
     pics = [s for s in shapes if s.supportsService("com.sun.star.drawing.GraphicObjectShape")]
     tabs = [s for s in shapes if s.supportsService("com.sun.star.drawing.TableShape")]
     ok = pics and pics[0].LineColor == 0x0072BB and pics[0].Shadow and tabs and \
         tabs[0].Model.getCellByPosition(0, 0).FillColor == 0x0072BB
-    sg.record("pptx reload: outline, shadow and header fill survive", ok)
+    sg.record("pptx reload: outline, shadow and header fill survive", ok,
+              [(hex(p.LineColor), p.Shadow) for p in pics])
     doc.close(True)
 
 
