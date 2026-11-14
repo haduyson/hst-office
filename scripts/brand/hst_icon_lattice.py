@@ -12,11 +12,15 @@ TARGET_PEN = {16: 1, 24: 1, 32: 1}
 HEAVY_RATIO = 1.4  # pens this much heavier than the base are drawn bold on purpose
 
 
-def target_pen(width_units, size):
-    """Whole-pixel pen for a pen of `width_units` on the 24-unit grid."""
-    ratio = width_units / BASE_PEN
-    pen = max(1, round_half_up(ratio * TARGET_PEN[size]))
-    return max(pen, TARGET_PEN[size] + 1) if ratio >= HEAVY_RATIO else pen
+def target_pen(width_units, size, factor=1.0):
+    """Whole-pixel pen for a pen of `width_units` on the 24-unit grid, at display scale `factor`.
+
+    At a fractional scale the pen rounds down a quarter pixel sooner, so 150 % keeps the 1 px line
+    (soft, like Colibre) and 250 % takes 2 px; bold pens stay a pixel heavier."""
+    ratio, bias = width_units / BASE_PEN, (0.25 if factor != 1.0 else 0.0)
+    base = max(1, round_half_up(TARGET_PEN[size] * factor - bias))
+    pen = max(1, round_half_up(ratio * TARGET_PEN[size] * factor - bias))
+    return max(pen, base + 1) if ratio >= HEAVY_RATIO else pen
 
 
 def lattice(pen):

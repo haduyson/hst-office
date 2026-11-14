@@ -20,7 +20,10 @@ Cổ điển) dựng từ mẫu gốc nhiều màu trong `../hst-modern/` theo m
 trạng thái là màu nhấn của Colibre, nền giấy để trống ở theme tối như Colibre
 (`../hst-modern/metadata/colibre-harmony.json`). Mẫu đơn sắc trong thư mục này chỉ còn dùng khi chưa
 có mẫu nhiều màu và cho các bản 16 px vẽ tay. Nhờ vậy biểu tượng HST đứng cạnh biểu tượng Colibre
-không bị lạc.
+không bị lạc. Mỗi biểu tượng còn có bản bắt điểm ảnh riêng cho tỉ lệ 150 % và 250 % (`<tên>@150.svg`,
+`<tên>@250.svg`, `scripts/brand/hst_icon_glyph.py`): VCL chỉ vẽ biểu tượng ở 100, 150, 200 hoặc 250 %,
+và ở 150 / 250 % nét 1 px của bản 100 % rơi giữa hai điểm ảnh nên bị nhòe;
+`patches/libreoffice/hst-icon-theme-fractional-scale.patch` cho VCL nạp bản riêng đó.
 
 **Bắt điểm ảnh (1.0.0):** gói sản phẩm không còn xuất nguyên hình học lưới 24 cho mọi cỡ.
 `scripts/brand/hst_icon_snap.py` bắt từng glyph theo cỡ raster: nét 1,65 đơn vị thành

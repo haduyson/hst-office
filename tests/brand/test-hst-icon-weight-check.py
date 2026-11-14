@@ -55,6 +55,14 @@ class WeightCheckTest(unittest.TestCase):
         icons = {name: dict(item, ink=item["ink"] * 1.6) for name, item in theme().items()}
         self.assertTrue(any("median ink" in line for line in check.judge("t", icons)[0]))
 
+    def test_blurred_or_heavy_scale_variants_fail(self):
+        variants = {f"cmd/24/v{n}@150.svg": dict(icon(24, f"v{n}", 1.0), scale=150) for n in range(5)}
+        self.assertEqual(check.judge("t", theme(extra=variants))[0], [])
+        heavy = {name: dict(item, stroke=2.0) for name, item in variants.items()}
+        self.assertTrue(any("at 150 %" in line for line in check.judge("t", theme(extra=heavy))[0]))
+        blurred = dict(variants, **{"cmd/24/b@150.svg": dict(icon(24, "b", 1.0, fringe=0.95), scale=150)})
+        self.assertTrue(any("b@150.svg" in line for line in check.judge("t", theme(extra=blurred))[0]))
+
     def test_single_outliers_fail_and_heavy_on_purpose_icons_do_not(self):
         heavy = {"cmd/24/x.svg": icon(24, "x", 2.0), "cmd/24/bold.svg": icon(24, "bold", 3.0),
                  "cmd/32/dense.svg": icon(32, "dense", 1.0, ink=0.9), "cmd/16/blur.svg": icon(16, "blur", 1.0, fringe=0.9),

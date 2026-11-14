@@ -18,7 +18,8 @@ ribbon requests, dark outline ink only, rsvg-convert, 1.0.2 tree): 1 px lines at
     2 px / 3 px pens of 1.0.1);
   * an icon's stroke exceeds 1.5 x, or its ink 2 x, its size's median (outliers);
   * a size's median fringe exceeds 0.35, or an icon's fringe exceeds MAX_FRINGE (blurred icon);
-  * geometry reaches outside the canvas (clipped shapes).
+  * geometry reaches outside the canvas (clipped shapes);
+  * a display-scale variant (name@150.svg, name@250.svg) is blurred, clipped, or heavier than its scale's pen.
 Icons drawn heavy on purpose (HEAVY_ON_PURPOSE) are measured, not judged; icons without ink (the
 HASON TECH mark in its brand colour) are judged only on fringe and clipping.
 Standard library plus NumPy. --json writes every measurement.
@@ -37,6 +38,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from hst_icon_outline import flatten  # noqa: E402
 from hst_svg_path import parse_path  # noqa: E402
+from hst_icon_lattice import BASE_PEN, target_pen  # noqa: E402
+from hst_svg_math import round_half_up  # noqa: E402
 
 NS = "{http://www.w3.org/2000/svg}"
 SS = 4
@@ -100,17 +103,38 @@ def measure(svg, size, ink):
 
 
 def measure_theme(files, ink):
+    """{name: measurements} of every cmd icon; display-scale variants (name@150.svg) carry their scale."""
     result = {}
     for name in sorted(files):
         prefix = next((p for p in SIZES if name.startswith(p)), None)
         if prefix and name.endswith(".svg") and "/" not in name[len(prefix):]:
-            result[name] = dict(measure(files[name].decode("utf-8"), SIZES[prefix], ink), size=SIZES[prefix],
-                                stem=name[len(prefix):-4])
+            stem, _, percent = name[len(prefix):-4].partition("@")
+            scale = int(percent or 100)
+            pixels = round_half_up(SIZES[prefix] * scale / 100)
+            result[name] = dict(measure(files[name].decode("utf-8"), pixels, ink), size=SIZES[prefix],
+                                stem=stem, scale=scale)
     return result
 
 
+def judge_variants(theme, icons):
+    """Display-scale variants: crisp (fringe), unclipped, and as heavy as the pen of their scale."""
+    failures = []
+    for size, scale in sorted({(i["size"], i.get("scale", 100)) for i in icons.values() if i.get("scale", 100) != 100}):
+        group = [i for i in icons.values() if (i["size"], i.get("scale", 100)) == (size, scale) and i["ink"]
+                 and i["stem"] not in HEAVY_ON_PURPOSE]
+        pen = target_pen(BASE_PEN, size, scale / 100)
+        stroke, fringe = (statistics.median(i[k] for i in group) for k in ("stroke", "fringe"))
+        if stroke > 1.25 * pen or fringe > 0.35:
+            failures.append(f"{theme} {size} px at {scale} %: median stroke {stroke:.2f} (pen {pen}), fringe {fringe:.2f}")
+    for name, icon in icons.items():
+        if icon.get("scale", 100) != 100 and (icon["overflow"] > 0.01 or icon["fringe"] > MAX_FRINGE):
+            failures.append(f"{theme} {name}: fringe {icon['fringe']:.2f}, {icon['overflow']:.2f} px outside")
+    return failures
+
+
 def judge(theme, icons):
-    failures, medians = [], {}
+    failures, medians = judge_variants(theme, icons), {}
+    icons = {name: icon for name, icon in icons.items() if icon.get("scale", 100) == 100}
     for size in sorted(set(SIZES.values())):
         group = [i for i in icons.values() if i["size"] == size and i["stem"] not in HEAVY_ON_PURPOSE and i["ink"]]
         medians[size] = {k: statistics.median(i[k] for i in group) for k in ("stroke", "ink", "fringe")}
@@ -154,7 +178,8 @@ def main():
         failures += problems
         report[theme] = {"medians": medians, "icons": icons}
         for size, median in medians.items():
-            print(f"{theme} {size:>2} px: {sum(i['size'] == size for i in icons.values())} icons, median stroke "
+            count = sum(i["size"] == size and i["scale"] == 100 for i in icons.values())
+            print(f"{theme} {size:>2} px: {count} icons (+ scale variants), median stroke "
                   f"{median['stroke']:.2f} px, ink {median['ink']:.3f}, fringe {median['fringe']:.2f}")
     if args.json:
         args.json.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8")

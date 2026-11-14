@@ -37,7 +37,7 @@ def float_attr(element, name, default=0.0):
     return default if value is None else float(value)
 
 
-def snap_element(tag, element, style, m, size, native=False):
+def snap_element(tag, element, style, m, size, native=False, factor=1.0):
     """Return (shape, pen) for one element, flattened and snapped in target pixels.
 
     shape is ('rect', x0, y0, x1, y1, radius), ('ellipse', cx, cy, rx, ry) or ('path', subpaths);
@@ -52,7 +52,7 @@ def snap_element(tag, element, style, m, size, native=False):
         if abs(width - pen) > 1e-6 or pen < 1:
             raise SnapError(f"hand-tuned pens are whole pixels, not {width:g}")
     elif stroked:
-        pen = target_pen(float(style.get("stroke-width", "1")) * linear_scale(m) / (size / GRID), size)
+        pen = target_pen(float(style.get("stroke-width", "1")) * linear_scale(m) / (size * factor / GRID), size, factor)
     offset = lattice(pen)
     straight = axis_aligned(m)
     snap = (lambda value, _offset: value) if native else snap_value
@@ -108,21 +108,23 @@ def snap_element(tag, element, style, m, size, native=False):
     return ("path", subpaths), pen
 
 
-def snap_svg(source, size, outline=True, native=False, heavy=False):
+def snap_svg(source, size, outline=True, native=False, heavy=False, factor=1.0):
     """SVG text of `source` for a `size` px raster.
 
     A 24-unit master is snapped; a native (hand-tuned) master, drawn on a viewBox of the raster
     size with whole-pixel pens, is kept as drawn. outline=True paints strokes as filled outlines (what the theme ships);
     False keeps them as editable strokes (the starting point of a hand-tuned master).
     heavy=True widens 1 px pens to 2 px at 16 px where the glyph has room (hst_icon_weight).
+    factor: display scale (1.25, 1.5...); the glyph is snapped natively at round(size x factor) px.
     """
-    if size not in TARGET_PEN:
-        raise SnapError(f"unsupported size: {size}")
+    if size not in TARGET_PEN or (native and factor != 1.0):
+        raise SnapError(f"unsupported size: {size} at {factor:g}x")
+    pixels = round_half_up(size * factor)
     root = ET.fromstring(source)
     expected = f"0 0 {size} {size}" if native else "0 0 24 24"
     if root.get("viewBox") != expected:
         raise SnapError(f"unexpected viewBox {root.get('viewBox')!r}, expected {expected!r}")
-    scale = 1.0 if native else size / GRID
+    scale = 1.0 if native else pixels / GRID
     title = root.findtext(f"{{{SVG_NS}}}title") or ""
     desc = root.findtext(f"{{{SVG_NS}}}desc") or ""
     items = []
@@ -140,12 +142,12 @@ def snap_svg(source, size, outline=True, native=False, heavy=False):
             if tag == "g":
                 walk(child, own, matrix)
                 continue
-            shape, pen = snap_element(tag, child, own, matrix, size, native)
+            shape, pen = snap_element(tag, child, own, matrix, size, native, factor)
             items.append((shape, pen, own, child.get("data-state")))
 
     style = {"fill": "black", "stroke": "none", "stroke-width": "1"}
     walk(root, style, (scale, 0.0, 0.0, scale, 0.0, 0.0))
-    if heavy and size == 16:
+    if heavy and size == 16 and factor == 1.0:
         items = embolden(items, size)
     if outline:
         shapes = [svg for item in items for svg in emit(*item)]
@@ -158,9 +160,9 @@ def snap_svg(source, size, outline=True, native=False, heavy=False):
     if match:
         comment = match.group() + "\n"
     if not native:
-        desc = f"{desc} Pixel-snapped for {size} px."
+        desc = f"{desc} Pixel-snapped for {pixels} px."
     head = (f'<?xml version="1.0" encoding="UTF-8"?>\n{comment}'
-            f'<svg xmlns="{SVG_NS}" width="{size}" height="{size}" viewBox="0 0 {size} {size}">\n'
+            f'<svg xmlns="{SVG_NS}" width="{pixels}" height="{pixels}" viewBox="0 0 {pixels} {pixels}">\n'
             f"  <title>{escape(title)}</title>\n  <desc>{escape(desc)}</desc>\n")
     if outline:
         return head + "  " + "\n  ".join(shapes) + "\n</svg>\n"
