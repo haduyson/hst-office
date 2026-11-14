@@ -16,10 +16,11 @@ suite, instead of the tab used last.
   argument as "apply without a dialog", a Page argument that is the only one is taken out of the request first
   (sfx2/hstdialogpage.hxx), so every other call keeps its meaning. A launcher with a Page argument has no
   command label, so its .ui label is the group caption (same msgctxt, same translation).
-- The bindings keep one dispatch per slot, made for the first URL; its state now also reaches listeners of the
-  same command with other URL arguments (unoctitm.cxx). Without it, a launcher whose command also sits elsewhere
-  on the tab with other arguments (or none) stayed disabled on the ribbon: Writer's table Căn chỉnh, picture and
-  shape Tô và viền, shape Sắp xếp (seen on Windows; a dispatch from a test does not show it).
+- The bindings keep one dispatch per slot, made for the first URL. Its enabled state now also reaches the Page
+  variants of the command (?Page:string=…), and only the enabled state: a checked or value state can depend on
+  other arguments (StyleApply?Style:string=…), which keep their old updates (unoctitm.cxx). Without it, a launcher
+  whose command also sits elsewhere on the tab with other arguments or none stayed disabled on the ribbon: Writer's
+  table Căn chỉnh, picture and shape Tô và viền, shape Sắp xếp (seen on Windows; a test's dispatch hides it).
 
 License: these upstream files remain under their original license (MPL-2.0); include/sfx2/hstdialogpage.hxx is
 new HST code under MPL-2.0 like the files around it.
@@ -489,19 +490,21 @@ Test: tests/unit/test_ribbon_launcher_targets.py, tests/runtime/check-ribbon-lau
                                    </packing>
 --- a/sfx2/source/control/unoctitm.cxx
 +++ b/sfx2/source/control/unoctitm.cxx
-@@ -930,10 +930,21 @@
+@@ -930,10 +930,23 @@
      const std::vector<OUString> aContainedTypes = pDispatch->getContainedTypes();
      for (const OUString& rName: aContainedTypes)
      {
          if (rName == aDispatchURL.Main || rName == aDispatchURL.Complete)
              sendStatusChanged(rName, aEvent);
-+        // HST: the bindings keep one dispatch per slot, made for the first URL asked for. Listeners of the
-+        // same command with other URL arguments (the ribbon's ".uno:GraphicDialog?Page:string=hstsize" and
-+        // "...=borders" launchers, or one beside a plain ".uno:GraphicDialog") get the slot's state too;
-+        // otherwise they keep their first state and a launcher stays disabled.
-+        else if (rName.startsWith(Concat2View(aDispatchURL.Main + "?")))
++        // HST: the bindings keep one dispatch per slot, made for the first URL asked for. A dialog command
++        // with a Page argument (the ribbon's ".uno:GraphicDialog?Page:string=hstsize" and "...=borders"
++        // launchers, or one beside a plain ".uno:GraphicDialog") gets the slot's enabled state too; otherwise
++        // it keeps its first state and the launcher stays disabled. Only Page variants, and only the enabled
++        // state: a checked or value state can depend on other arguments (StyleApply?Style:string=…).
++        else if (rName.startsWith(Concat2View(aDispatchURL.Main + "?Page:string=")))
 +        {
 +            css::frame::FeatureStateEvent aOther(aEvent);
++            aOther.State.clear();
 +            aOther.FeatureURL.Complete = rName;
 +            URLTransformer::create(::comphelper::getProcessComponentContext())->parseStrict(aOther.FeatureURL);
 +            sendStatusChanged(rName, aOther);

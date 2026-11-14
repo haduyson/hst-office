@@ -9,9 +9,10 @@
 #   -Action selected   -Hwnd <dialog>       print the name of the dialog's selected tab (HST's dialogs list their tabs
 #                                           vertically: the dialog's first list; other dialogs have page tabs)
 #   -Action other-tab  -Hwnd <dialog> -Name <tab>   select the first tab of the dialog not named <tab>
+#   -Action state      -Name <button name>  print the MSAA states of the shown buttons of that name (0x8 pressed)
 #   -Action dump                            print the shown tab and button names
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('select-tab', 'press', 'selected', 'other-tab', 'dump', 'tabs')][string]$Action,
+    [Parameter(Mandatory = $true)][ValidateSet('select-tab', 'press', 'selected', 'other-tab', 'dump', 'tabs', 'state')][string]$Action,
     [int]$OfficePid = 0,
     [long]$Hwnd = 0,
     [string]$Name = ''
@@ -114,6 +115,9 @@ switch ($Action) {
         $tab = DialogTabs | Where-Object { $_.Name -ne $Name } | Select-Object -First 1
         if (-not $tab) { 'NOTFOUND'; exit 2 }
         'OK ' + $tab.Name + ' ' + (Press $tab)
+    }
+    'state' {
+        'STATE ' + ((Shown $BUTTON $Name | ForEach-Object { '0x{0:x}' -f $_.State }) -join ' ')
     }
     'tabs' {
         $roots = if ($Hwnd) { @([IntPtr]$Hwnd) } else { [HstMsaa]::Windows([uint32]$OfficePid) }

@@ -107,6 +107,41 @@ def check_row(office, report, row, out):
         doc.close(True)
 
 
+def check_toggles(office, report, apps):
+    """The launchers' state fix touches only Page variants of a command: plain toggles keep their checked state
+    (the ribbons have no toggle with other arguments; StyleApply?Style:… of Sheets are menu items)."""
+    for app in (a for a in ("writer", "calc", "impress") if a in apps):
+        doc = office.load("private:factory/" + MODULES[app])
+        try:
+            if app == "writer":
+                cursor = doc.getText().createTextCursor()
+                cursor.setString("Đậm")
+                cursor.CharWeight = 150.0
+                doc.getCurrentController().select(cursor)
+            elif app == "calc":
+                cell = doc.Sheets.getByIndex(0).getCellRangeByName("A1")
+                cell.setString("Đậm")
+                cell.CharWeight = 150.0
+                doc.getCurrentController().select(cell)
+            else:
+                from ribbon_launcher_contexts import add_shape
+                add_shape(doc, "Đậm").CharWeight = 150.0
+            time.sleep(2.0)
+            close_dialogs(office)
+            pid = office.bin_pids_of_profile()[0]
+            msaa("select-tab", OfficePid=pid, Name="Trang đầu")
+            time.sleep(1.5)
+            states = {name: msaa("state", OfficePid=pid, Name=name).split()[1:] for name in ("Đậm", "Nghiêng")}
+            pressed = {name: [bool(int(s, 16) & 0x18) for s in found] for name, found in states.items()}
+            report(f"{app}: Đậm stays pressed, Nghiêng not", pressed["Đậm"][:1] == [True] and pressed["Nghiêng"][:1] == [False],
+                   str(states))
+        except Exception as error:  # noqa: BLE001
+            report(f"{app}: toggles", False, repr(error))
+        finally:
+            doc.setModified(False)
+            doc.close(True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--install", required=True)
@@ -124,6 +159,7 @@ def main():
         wg.dismiss_startup(office, os.path.join(args.out, "startup.png"))
         for row in rows:
             check_row(office, report, row, args.out)
+        check_toggles(office, report, args.apps)
     finally:
         office.stop()
     return report.exit_code()
