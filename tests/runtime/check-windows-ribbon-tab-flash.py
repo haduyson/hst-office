@@ -24,7 +24,6 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import windows_gui as wg  # noqa: E402
-from windows_gui_a11y import _role, walk  # noqa: E402
 
 BAND, LIMIT_MS = 200, 60
 TABS = ["Chèn", "Thiết kế", "Bố cục", "Tham khảo", "Trang đầu", "Xem lại", "Trang đầu"]
@@ -61,23 +60,24 @@ class Band(threading.Thread):
             handle.write(b"BM" + struct.pack("<IHHI", 54 + len(data), 0, 0, 54) + header + data)
 
 
+MSAA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "windows-msaa-ribbon.ps1")
+
+
 def ribbon_boxes(office):
-    """{tab name: (x, y, w, h)} of the ribbon's tabs and the banner's box (or None), on the screen."""
-    tabs, banner = {}, None
-    page_tab, link = _role("PAGE_TAB"), _role("HYPER_LINK")
-    for window in office.top_windows():
-        for context, _depth in walk(window, limit=20):
-            try:
-                role, name = context.getAccessibleRole(), context.getAccessibleName()
-                where, size = context.getLocationOnScreen(), context.getSize()
-            except Exception:  # noqa: BLE001 - widgets come and go
-                continue
-            box = (where.X, where.Y, size.Width, size.Height)
-            if role == page_tab and name in TABS and box[1] < 80:
-                tabs[name] = box
-            elif role == link and box[1] < BAND and size.Width > 100 and banner is None:  # the banner
-                banner = box
-    return tabs, banner
+    """{tab name: (x, y, w, h)} of the ribbon's shown tabs on the screen, read through MSAA (windows-msaa-ribbon.ps1:
+    the tree VCL's IAccessible2 bridge serves; the UNO walk of the toolkit's top windows does not reach the tabs)."""
+    import subprocess
+    pid = office.bin_pids_of_profile()[0]
+    out = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", MSAA, "-Action", "rects",
+                          "-OfficePid", str(pid)], capture_output=True, timeout=180, check=False)
+    tabs = {}
+    for line in out.stdout.decode("utf-8", "replace").splitlines():
+        parts = line.strip().split(" ", 5)
+        if len(parts) == 6 and parts[0] == "RECT" and parts[5] in TABS:
+            x, y, w, h = (int(v) for v in parts[1:5])
+            if w > 0 and h > 0:
+                tabs[parts[5]] = (x, y, w, h)
+    return tabs, None
 
 
 def main():
