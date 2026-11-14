@@ -80,6 +80,7 @@ def previous_session(system=None, marker=None, stderr_text=None, now=None, note_
     if not marker:
         return None
     started = float(marker.get("started", 0))
+    pid = marker.get("pid")  # the session's own soffice.bin: events of other offices on the PC never count
     if system == "Linux":
         text = _read_stderr() if stderr_text is None else stderr_text
         signature = crash_signature.from_linux_stderr(text)
@@ -87,11 +88,11 @@ def previous_session(system=None, marker=None, stderr_text=None, now=None, note_
         signature = crash_signature.from_mac_reports(os.path.expanduser("~/Library/Logs/DiagnosticReports"), started)
     elif system == "Windows":
         note = windows_fault_note.read(_path(windows_fault_note.NAME), started) if note_text is None else note_text
-        signature = windows_fault_note.combined(crash_signature.from_windows_events(started),
+        signature = windows_fault_note.combined(crash_signature.from_windows_events(started, pid=pid),
                                                 windows_fault_note.signature(note))
     else:
         signature = ""
-    hang = crash_signature.windows_hang(started) if system == "Windows" and not signature else None
+    hang = crash_signature.windows_hang(started, pid=pid) if system == "Windows" and not signature else None
     ended = "crash" if signature else "hang" if hang else "not closed"
     return dict(_beat_fields(marker), ended=ended, started=started, signature=signature, hang=hang,
                 version=marker.get("version", ""))

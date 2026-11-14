@@ -12,7 +12,9 @@ skipped behind the move question is not carried over: the recovery state is read
 itself is not modal (an infobar) and always runs last.
 
 Runs on the main thread after the Start Center has painted and after a document opened at start has loaded
-(welcome_job.run_later), never inside the job and never inside a document import.
+(welcome_job.run_later), never inside the job and never inside a document import. When the user has started working
+by then (startup_activity: documents opened or closed, a document modified), only the crash question still runs; the
+others wait for a later start, so no question lands on the user's work and holds closing a tab or quitting.
 """
 import platform
 
@@ -98,14 +100,44 @@ def steps_for(ctx):
     return [(name, (lambda fn=table[name]: fn(ctx))) for name in ORDER]
 
 
-def run(ctx, steps=None, after=None):
-    """The whole start: the modal chain, then the non-modal update check. Returns the name of the modal shown."""
-    shown = run_chain(steps if steps is not None else steps_for(ctx))
+def only_after_work(steps):
+    """The steps that still run once the user has started working: the crash question (read once per start). The
+    others keep their state until shown and wait for a calmer start (startup_activity)."""
+    return [(name, step) for name, step in steps if name == "crash"]
+
+
+def run(ctx, steps=None, after=None, before=None):
+    """The whole start: the modal chain, then the non-modal update check. Returns the name of the modal shown.
+
+    before: startup_activity.snapshot() taken when the questions were scheduled; when the user has started working
+    since, only the crash question may still open a modal."""
+    steps = steps if steps is not None else steps_for(ctx)
+    if before is not None and _started_working(ctx, before):
+        steps = only_after_work(steps)
+    shown = run_chain(steps)
     try:
         (after or _update_check)(ctx)
     except Exception:  # noqa: BLE001 - never break start-up
         diag_log.exception("startup_prompts")
     return shown
+
+
+def _safe_snapshot(ctx):
+    try:
+        from .startup_activity import snapshot
+        return snapshot(ctx)
+    except Exception:  # noqa: BLE001 - without a snapshot the questions run as before
+        diag_log.exception("startup_prompts")
+        return None
+
+
+def _started_working(ctx, before):
+    try:
+        from .startup_activity import started_working
+        return started_working(ctx, before)
+    except Exception:  # noqa: BLE001 - a broken check must not hide the questions for good
+        diag_log.exception("startup_prompts")
+        return False
 
 
 class StartupPromptsJob(unohelper.Base, XServiceInfo, XJob):
@@ -124,7 +156,8 @@ class StartupPromptsJob(unohelper.Base, XServiceInfo, XJob):
     def execute(self, arguments):
         try:
             from .welcome_job import run_later
-            run_later(self.ctx, lambda: run(self.ctx))
+            before = _safe_snapshot(self.ctx)
+            run_later(self.ctx, lambda: run(self.ctx, before=before))
         except Exception:  # noqa: BLE001 - never block start-up
             diag_log.exception("startup_prompts")
         return None

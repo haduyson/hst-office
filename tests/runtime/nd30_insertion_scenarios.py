@@ -80,8 +80,7 @@ def table_last_in_document(office):
 
 def _graphic(doc):
     g = doc.createInstance("com.sun.star.text.TextGraphicObject")
-    g.Graphic = None
-    g.setSize(Size(2000, 2000))
+    g.Graphic = None; g.setSize(Size(2000, 2000))
     t = doc.getText(); t.insertTextContent(t.getEnd(), g, False)
     return g
 
@@ -94,16 +93,14 @@ def image_selected(office):
 
 def shape_selected(office):
     doc = _doc(office)
-    shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
-    shape.setSize(Size(3000, 1500))
+    shape = doc.createInstance("com.sun.star.drawing.RectangleShape"); shape.setSize(Size(3000, 1500))
     t = doc.getText(); t.insertTextContent(t.getEnd(), shape, False)
     doc.getCurrentController().select(shape)
     return doc
 
 
 def _frame(doc):
-    f = doc.createInstance("com.sun.star.text.TextFrame")
-    f.setSize(Size(5000, 2000))
+    f = doc.createInstance("com.sun.star.text.TextFrame"); f.setSize(Size(5000, 2000))
     t = doc.getText(); t.insertTextContent(t.getEnd(), f, False)
     f.getText().setString("Khung")
     return f
@@ -179,8 +176,11 @@ def plain_body(office):
 
 def comment_editing(office):
     doc = _doc(office)
-    frame = doc.getCurrentController().getFrame()
-    office.dispatch(frame, ".uno:InsertAnnotation")
+    office.dispatch(doc.getCurrentController().getFrame(), ".uno:InsertAnnotation")
+    for _ in range(150):  # the comment takes the focus from a posted event, under load after dispatch returns
+        if doc.getCurrentController().getSelection() is None:  # comment being edited (writer_selection docstring)
+            break
+        time.sleep(0.2)
     return doc
 
 
