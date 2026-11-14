@@ -3,7 +3,7 @@
 **Hai kiểu biểu tượng (1.0.0):** Tùy chọn ▸ HST Office ▸ Giao diện cho chọn giữa
 - **Hiện đại (nhiều màu)**, tùy chọn: `hst_modern` / `hst_modern_dark`, vẽ từ mẫu gốc trong
   `../hst-modern/`. Mực nét lấy từ `../hst-modern/metadata/ink.json` lúc dựng (sáng `#1D2F42`, tối
-  `#EEF4F9`), và ở 16 px nét 1 px được làm dày thành 2 px khi glyph còn chỗ
+  `#EEF4F9`). Từ 1.0.2 tắt `heavy16` (nét 16 px giữ 1 px như mọi cỡ, đồng bộ với Colibre); khi bật, ở 16 px nét 1 px được làm dày thành 2 px khi glyph còn chỗ
   (`scripts/brand/hst_icon_weight.py`: không lấp khe 1 px, không bít lỗ chữ, không chạm nét khác,
   vùng màu còn thấy). Mẫu gốc không đổi nên các đợt vẽ mới cũng được xử lý giống vậy.
 - **Cổ điển**, mặc định (từ 08/11/2026): `hst_classic` / `hst_classic_dark` là bộ Colibre SVG của LibreOffice, chồng thêm
@@ -16,11 +16,15 @@
 
 **Bắt điểm ảnh (1.0.0):** gói sản phẩm không còn xuất nguyên hình học lưới 24 cho mọi cỡ.
 `scripts/brand/hst_icon_snap.py` bắt từng glyph theo cỡ raster: nét 1,65 đơn vị thành
-**1 px ở 16, 2 px ở 24, 3 px ở 32** (nét đậm hơn giữ tỉ lệ), tâm nét lẻ nằm giữa điểm ảnh, nét chẵn
+**1 px ở cả 16, 24 và 32** như bộ Colibre đứng cạnh (từ 1.0.2; trước đó 2 px ở 24 và 3 px ở 32 làm
+nút lớn trên ribbon đậm hơn hẳn nút nhỏ); nét gấp 1,4 lần nét cơ sở trở lên (chữ B đậm, vạch màu)
+giữ tối thiểu 2 px. Tâm nét lẻ nằm giữa điểm ảnh, nét chẵn
 nằm trên mép điểm ảnh; transform của nhóm được trải phẳng. `hst_icon_outline.py` vẽ nét thành vùng tô
 vì VCL dịch nét (không dịch vùng tô) nửa điểm ảnh thiết bị, nên chỉ vùng tô sắc nét được ở cả 1x và 2x.
 78 họ Home/truy cập nhanh có bản 16 px vẽ tay trong `glyphs/stage-1-16/` (viewBox 16, nét nguyên
-điểm ảnh); các cỡ và họ khác được bắt tự động. Kiểm tra bằng chính bộ dựng hình của VCL:
+điểm ảnh); các cỡ và họ khác được bắt tự động. Độ đậm và độ nét của từng biểu tượng
+so với trung vị cùng cỡ được kiểm bằng `scripts/brand/check-hst-icon-weight.py` (lỗi khi nút lớn đậm hơn
+nút nhỏ, khi một biểu tượng đậm lệch hẳn, bị nhòe hoặc tràn khung). Kiểm tra bằng chính bộ dựng hình của VCL:
 `tests/runtime/check-hst-icon-sharpness.py` (`rasterise` cho cả gói, `cache` đọc bộ đệm biểu tượng
 khi chạy giao diện ở GDK_SCALE 1 và 2). Mẫu gốc lưới 24 vẫn là nguồn chỉnh sửa.
 

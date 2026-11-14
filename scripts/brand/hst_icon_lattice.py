@@ -1,17 +1,22 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Whole-pixel pens and the pixel lattice of the HST glyph snapper.
 
-Pens: 1.65 units on the 24-unit grid become 1 px at 16, 2 px (bold) at 24 and 3 px at 32; heavier
-pens keep their ratio. Line centres of odd pens sit on pixel centres, of even pens on pixel edges
+Pens: 1.65 units on the 24-unit grid become 1 px at every size (16, 24 and 32), the weight of the
+Colibre icons the HST glyphs sit beside; a pen 1.4 times the base or heavier (bold B, colour bars)
+stays at least 2 px. Line centres of odd pens sit on pixel centres, of even pens on pixel edges
 (SVG convention: pixel k covers [k, k+1]); round shapes get their outer edges on pixel edges."""
 from hst_svg_math import round_half_up
 
 BASE_PEN = 1.65
-TARGET_PEN = {16: 1, 24: 2, 32: 3}
+TARGET_PEN = {16: 1, 24: 1, 32: 1}
+HEAVY_RATIO = 1.4  # pens this much heavier than the base are drawn bold on purpose
+
 
 def target_pen(width_units, size):
     """Whole-pixel pen for a pen of `width_units` on the 24-unit grid."""
-    return max(1, round_half_up(width_units / BASE_PEN * TARGET_PEN[size]))
+    ratio = width_units / BASE_PEN
+    pen = max(1, round_half_up(ratio * TARGET_PEN[size]))
+    return max(pen, TARGET_PEN[size] + 1) if ratio >= HEAVY_RATIO else pen
 
 
 def lattice(pen):

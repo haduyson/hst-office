@@ -5,9 +5,9 @@ The masters (icon-themes-src/hst/glyphs/) are drawn on a 24-unit grid with a 1.6
 Scaled as they are, the pen becomes 1.10/1.65/2.20 px and most edges fall on fractions of a
 pixel, which VCL renders as grey fringes. snap_svg() instead emits geometry in target pixels:
 
-* every pen becomes a whole number of pixels, proportional to the base pen: 1 px at 16, 2 px
-  (bold) at 24 and 3 px at 32 for the 1.65-unit pen; heavier pens (bold B, colour bars) keep
-  their ratio, rounded, never below 1 px;
+* every pen becomes a whole number of pixels: 1 px at 16, 24 and 32 for the 1.65-unit pen, the
+  weight of Colibre at every size; pens 1.4 times heavier or more (bold B, colour bars) stay at
+  least 2 px, never below 1 px;
 * group transforms are flattened, so badge pens scaled by 0.75 and the like are snapped too;
 * axis-aligned geometry lands on the pixel lattice of its pen: line centres of an odd pen on
   pixel centres, of an even pen on pixel edges; rectangle and circle edges on pixel edges.

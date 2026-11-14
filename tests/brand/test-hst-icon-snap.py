@@ -29,14 +29,16 @@ def numbers(data):
 
 
 class SnapTest(unittest.TestCase):
-    def test_pens_are_whole_pixels_proportional_to_the_bold_24_px_pen(self):
-        self.assertEqual([snap.target_pen(1.65, size) for size in (16, 24, 32)], [1, 2, 3])
-        self.assertEqual(snap.target_pen(2.5, 24), 3)  # colour bars keep their extra weight
+    def test_pens_are_one_pixel_at_every_size_like_colibre(self):
+        self.assertEqual([snap.target_pen(1.65, size) for size in (16, 24, 32)], [1, 1, 1])
+        self.assertEqual(snap.target_pen(2.2, 32), 1)  # a slightly heavier pen still reads as the base
+        self.assertEqual([snap.target_pen(2.5, size) for size in (16, 24, 32)], [2, 2, 2])  # colour bars stay bold
+        self.assertEqual(snap.target_pen(2.4, 32), 2)  # the bold B stays bold
         self.assertEqual(snap.target_pen(0.4, 16), 1)  # never below one pixel
 
     def test_lines_land_on_the_pixel_lattice_of_their_pen(self):
         source = master('<path d="M3 4.4h18M6.2 3v17"/>')
-        for size, offset in ((16, 0.5), (24, 0.0), (32, 0.5)):
+        for size, offset in ((16, 0.5), (24, 0.5), (32, 0.5)):
             draft = ET.fromstring(snap.snap_svg(source, size, outline=False))
             path = draft.find(f"{NS}g/{NS}path")
             self.assertEqual(path.get("stroke-width"), str(snap.TARGET_PEN[size]))
@@ -59,7 +61,7 @@ class SnapTest(unittest.TestCase):
         source = master('<g transform="translate(0 0) scale(.75)" stroke-width="2.2"><path d="M4 4h12"/></g>')
         draft = snap.snap_svg(source, 24, outline=False)
         self.assertNotIn("transform", draft)
-        self.assertIn('stroke-width="2"', draft)
+        self.assertIn('stroke-width="1"', draft)  # the compensated badge pen is the 1 px base pen
 
     def test_shipped_output_is_fill_only_and_deterministic(self):
         source = (SOURCE / "glyphs/stage-1/paste.svg").read_text()
