@@ -82,7 +82,9 @@ def main():
              if role == "label" and name.startswith("/ ") and node.getState().contains(pyatspi.STATE_SHOWING)]
     # the name follows the user's picks; the entry the office set when the page opened is not announced
     print(json.dumps({"margins": combo.name if combo else None,
-                      "showing": bool(combo) and combo.getState().contains(pyatspi.STATE_VISIBLE),
+                      # the row's label: vcl hides and shows it with the box (its gtk3 box keeps inner parts visible)
+                      "showing": any(role == "label" and name.rstrip(":").strip() == "Lề trang"
+                                     and node.getState().contains(pyatspi.STATE_VISIBLE) for role, name, node in found),
                       "pages": pages[0] if pages else None}, ensure_ascii=False))
     return 0
 
