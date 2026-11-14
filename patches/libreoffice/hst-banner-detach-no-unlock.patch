@@ -1,0 +1,159 @@
+HST Office: closing a document window never releases the SolarMutex in the middle of its dispose.
+
+HstRibbonBanner::dispose detaches its core (vcl/source/control/HstBannerCore.cxx). Core::Detach used to join
+the banner's worker threads inside a SolarMutexReleaser, so the main thread could run a posted Resize of the
+border window that was being disposed (SIGSEGV in ImplBorderWindow::Resize, null mpBorderView; seen when an
+nd30 document was closed over UNO). The workers keep the core alive and check Detached() under the
+SolarMutex before they post, so Detach no longer waits: it hands the threads to a list that a posted event
+joins from the main loop, outside any dispose, and DeInitVCL joins what is left
+(hst::banner::JoinDetachedWorkers, with the SolarMutex released as for the async event notifiers).
+
+--- /dev/null
++++ b/vcl/inc/HstBannerWorkers.hxx
+@@ -0,0 +1,19 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++namespace hst::banner
++{
++/** HST Office: waits for the banner workers whose banner went away (they fetch and post off the UI thread).
++    Called by DeInitVCL with the SolarMutex released, before VCL goes. */
++void JoinDetachedWorkers();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/app/svmain.cxx
++++ b/vcl/source/app/svmain.cxx
+@@ -60,6 +60,7 @@
+ #include <scrwnd.hxx>
+ #include <windowdev.hxx>
+ #include <svdata.hxx>
++#include <HstBannerWorkers.hxx>
+ 
+ #ifdef _WIN32
+ #include <win/svsys.h>
+@@ -430,6 +431,7 @@
+     {
+         SolarMutexReleaser r; // unblock threads blocked on that so we can join
+         ::comphelper::JoinAsyncEventNotifiers();
++        hst::banner::JoinDetachedWorkers(); // HST Office: banner workers of closed windows
+     }
+     ImplSVData* pSVData = ImplGetSVData();
+ 
+--- a/vcl/source/control/HstBannerCore.cxx
++++ b/vcl/source/control/HstBannerCore.cxx
+@@ -11,6 +11,7 @@
+ // (docs/BANNERS.md), shared by every view of it.
+ 
+ #include "HstBannerCore.hxx"
++#include <HstBannerWorkers.hxx>
+ #include <vcl/HstBannerGeometry.hxx>
+ 
+ #include <basegfx/matrix/b2dhommatrixtools.hxx>
+@@ -39,6 +40,8 @@
+ #include <cassert>
+ #include <cmath>
+ #include <sstream>
++#include <mutex>
++#include <utility>
+ #include <vector>
+ 
+ #if USE_HEADLESS_CODE && !defined(MACOSX) && !defined(_WIN32)
+@@ -344,24 +347,58 @@
+ 
+ Core::~Core() { assert(!mpView); }
+ 
++namespace
++{
++// workers of detached cores, joined later from the main loop or at exit (JoinDetachedWorkers)
++std::mutex g_aDetachedMutex;
++std::vector<rtl::Reference<salhelper::Thread>> g_aDetached;
++ImplSVEvent* g_pJoinEvent = nullptr; // guarded by the SolarMutex
++
++std::vector<rtl::Reference<salhelper::Thread>> takeDetached()
++{
++    std::scoped_lock aGuard(g_aDetachedMutex);
++    return std::exchange(g_aDetached, {});
++}
++}
++
+ void Core::Detach()
+ {
+     maRotateTimer.Stop();
+     maFadeTimer.Stop();
+     maShownTimer.Stop();
+     mpView = nullptr;
+-    // the workers take the SolarMutex to post their results: let them finish
+-    for (salhelper::Thread* pThread : { static_cast<salhelper::Thread*>(mxThread.get()),
+-                                        static_cast<salhelper::Thread*>(mxClickThread.get()),
+-                                        static_cast<salhelper::Thread*>(mxShownThread.get()) })
+-        if (pThread)
+-        {
+-            SolarMutexReleaser aReleaser;
+-            pThread->join();
+-        }
++    {
++        std::scoped_lock aGuard(g_aDetachedMutex);
++        for (salhelper::Thread* pThread : { static_cast<salhelper::Thread*>(mxThread.get()),
++                                            static_cast<salhelper::Thread*>(mxClickThread.get()),
++                                            static_cast<salhelper::Thread*>(mxShownThread.get()) })
++            if (pThread)
++                g_aDetached.emplace_back(pThread);
++    }
++    const bool bWorkers = mxThread.is() || mxClickThread.is() || mxShownThread.is();
+     mxThread.clear();
+     mxClickThread.clear();
+     mxShownThread.clear();
++    if (bWorkers && !g_pJoinEvent)
++        g_pJoinEvent = Application::PostUserEvent(LINK(nullptr, Core, JoinHdl));
++}
++
++// from the main loop, outside any dispose: waiting may release the SolarMutex here
++IMPL_STATIC_LINK_NOARG(Core, JoinHdl, void*, void)
++{
++    g_pJoinEvent = nullptr;
++    std::vector<rtl::Reference<salhelper::Thread>> aThreads = takeDetached();
++    if (aThreads.empty())
++        return;
++    SolarMutexReleaser aReleaser; // the workers take it to post (and then see the core detached)
++    for (const auto& xThread : aThreads)
++        xThread->join();
++}
++
++void JoinDetachedWorkers()
++{
++    for (const auto& xThread : takeDetached())
++        xThread->join();
+ }
+ 
+ int Core::ScaleForSize() const
+--- a/vcl/source/control/HstBannerCore.hxx
++++ b/vcl/source/control/HstBannerCore.hxx
+@@ -66,7 +66,10 @@
+     explicit Core(View& rView);
+     virtual ~Core() override;
+ 
+-    /** The view goes away: stop the timers and wait for the workers (they need the SolarMutex). */
++    /** The view goes away: stop the timers and let go of the workers. They keep the core alive and see
++        Detached() under the SolarMutex, so nothing waits for them here: a wait would have to release the
++        SolarMutex in the middle of the caller's dispose (a document window half torn down, whose posted
++        Resize then ran on the main thread). They are joined from the main loop (JoinHdl) or at exit. */
+     void Detach();
+     bool Detached() const { return mpView == nullptr; }
+ 
+@@ -101,6 +104,7 @@
+     DECL_LINK(DeliverHdl, void*, void);
+     DECL_LINK(OpenHdl, void*, void);
+     DECL_LINK(ShownHdl, Timer*, void);
++    DECL_STATIC_LINK(Core, JoinHdl, void*, void);
+ 
+     View* mpView;
+     rtl::Reference<FetchThread> mxThread;
