@@ -10,8 +10,8 @@ again. That is O(paragraphs x pages): a 50 MB file of short lines took about 20 
 For documents opened by the plain text filters (TEXT, TEXT_DLG) with at least 3000 paragraphs, no
 header, footer or columns, SwLayHelper now inserts a page when the paragraphs on the current page are
 estimated to fill the body. Each paragraph is measured with its font on the reference device (line
-height, character advances, lines of 85 % of the body width, line and paragraph spacing) and the result
-is increased by a fifth, so the pages start slightly underfilled and the normal layout pulls the
+height, character advances, lines of 90 % of the body width, line and paragraph spacing) and the result
+is increased by a tenth, so the pages start slightly underfilled and the normal layout pulls the
 following paragraphs back; every move is bounded by one page. (An estimate below half of the real page
 would leave empty pages behind the layout, one above it would push a growing rest from page to page.)
 The final pagination is the same as before; the new test compares every page start with the
@@ -23,8 +23,11 @@ pre-estimated pages) recomputed the position of every page and moved all their f
 with CheckViewLayout. For such documents only (SwRootFrame::IsLargeTextPagination), CheckPageDescs,
 RemoveSuperfluous and the frame creation now compute the page positions once at the end of their run
 (SwViewLayoutDeferGuard), and SwLayAction's outer loop limit, one run per page, grows with the page
-count instead of interrupting every layout pass of a text over 10000 pages. Other documents are
-unchanged.
+count instead of interrupting every layout pass of a text over 10000 pages. The pages that pulling
+back leaves empty between the layout and the rest of the text are removed every 128 pages
+(SwLayAction::InternalAction runs the pending CheckPageDescs) instead of at the end of the pass, so
+later moves no longer walk across a growing run of empty pages. Other documents are unchanged: the
+test also saves the large text as .odt and .docx and checks that reloading them stays on the old path.
 
 --- a/sw/source/core/inc/rootfrm.hxx
 +++ b/sw/source/core/inc/rootfrm.hxx
@@ -216,7 +219,7 @@ unchanged.
 +}
 +
 +/** Height estimate of the paragraph mrpFrame, which is about to be inserted (0: estimate off).
-+ *  Measured with the paragraph font on the reference device and then increased by a fifth, so that
++ *  Measured with the paragraph font on the reference device and then increased by a tenth, so that
 + *  the estimated pages hold a bit less than the real ones (the layout pulls the rest back, bounded
 + *  by one page); a page holding less than half would leave empty pages behind, a page holding more
 + *  would push a growing rest from page to page.
@@ -286,8 +289,8 @@ unchanged.
 +    }
 +    if (bPushed)
 +        pOut->Pop();
-+    // A line breaks at a word, so it is shorter than the body width: count lines of 85 %.
-+    const tools::Long nLineWidth = std::max<tools::Long>(1, mnTextBodyWidth * 85 / 100);
++    // A line breaks at a word, so it is shorter than the body width: count lines of 90 %.
++    const tools::Long nLineWidth = std::max<tools::Long>(1, mnTextBodyWidth * 9 / 10);
 +    const sal_Int64 nLines = std::max<sal_Int64>(1, (sal_Int64(nWidth) + nLineWidth - 1) / nLineWidth);
 +    const SvxLineSpacingItem& rSpacing = rSet.GetLineSpacing();
 +    tools::Long nLine = std::max<tools::Long>(rM.mnLine, nHeight);
@@ -299,7 +302,7 @@ unchanged.
 +        nLine = std::max<tools::Long>(nLine, rSpacing.GetLineHeight());
 +    const SvxULSpaceItem& rUL = rSet.GetULSpace();
 +    const tools::Long nPara = nLines * nLine + rUL.GetUpper() + rUL.GetLower();
-+    return nPara + nPara / 5;
++    return nPara + nPara / 10;
  }
  
  SwLayHelper::~SwLayHelper()
@@ -366,6 +369,22 @@ unchanged.
      while ( (pPage && !IsInterrupt()) || m_nCheckPageNum != USHRT_MAX )
      {
          // Fix infinite loop in sw_ooxmlexport17 unit test
+@@ -541,8 +544,14 @@
+             m_bInterrupt = true;
+         }
+ 
++        // A large plain text pulls paragraphs back from its estimated pages, which leaves empty
++        // pages between the layout and the rest of the text; every later move walks across them
++        // until CheckPageDescs removes them, so do that every 128 pages, not only at the end.
++        const bool bLargeTextCheck = m_pRoot->IsLargeTextPagination() && pPage
++                                     && m_nCheckPageNum != USHRT_MAX
++                                     && pPage->GetPhyPageNum() > m_nCheckPageNum + 128;
+         // note: this is the only place that consumes and resets m_nCheckPageNum
+-        if ((IsInterrupt() || !pPage) && m_nCheckPageNum != USHRT_MAX)
++        if ((IsInterrupt() || !pPage || bLargeTextCheck) && m_nCheckPageNum != USHRT_MAX)
+         {
+             if (!pPage || m_nCheckPageNum < pPage->GetPhyPageNum())
+             {
 --- a/sw/source/core/layout/pagechg.cxx
 +++ b/sw/source/core/layout/pagechg.cxx
 @@ -22,6 +22,7 @@
@@ -432,7 +451,7 @@ unchanged.
      sw/qa/core/layout/sortedobjs \
 --- /dev/null
 +++ b/sw/qa/core/layout/laycache.cxx
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,179 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -575,6 +594,26 @@ unchanged.
 +        const OString aPage("page " + OString::number(i + 1));
 +        CPPUNIT_ASSERT_EQUAL_MESSAGE(aPage.getStr(), aOff[i].first, aOn[i].first);
 +        CPPUNIT_ASSERT_EQUAL_MESSAGE(aPage.getStr(), aOff[i].second, aOn[i].second);
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(Test, testOtherFormatsNotPaginated)
++{
++    // The same large content saved as .odt and .docx loads through the old path: the estimate and the
++    // deferred page positions stay off for every format but plain text.
++    utl::TempFileNamed aFile(u"large-text", true, u".txt");
++    const OUString aURL = createText(aFile, 8000);
++    size_t nLoadPages = 0;
++    sal_Int64 nMs = 0;
++    layoutText(aURL, true, nLoadPages, nMs);
++    CPPUNIT_ASSERT(getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout()->IsLargeTextPagination());
++    for (TestFilter eFilter : { TestFilter::ODT, TestFilter::DOCX })
++    {
++        saveAndReload(eFilter);
++        calcLayout();
++        const SwRootFrame* pLayout = getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout();
++        CPPUNIT_ASSERT(!pLayout->IsLargeTextPagination());
++        CPPUNIT_ASSERT_GREATER(sal_uInt16(100), pLayout->GetPageNum());
 +    }
 +}
 +
