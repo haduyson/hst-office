@@ -8,7 +8,7 @@ browser before the clicks.
 Usage: python3 tests/runtime/check-privacy-links.py --instdir DIR --display :N [--out DIR] [--shots DIR]
                                                     [--lang vi_VN.UTF-8|en_US.UTF-8] [--port 2231]
 The browser is a recording stand-in (privacy_links_gui.install_browser): xdg-open on PATH (the office's
-SystemShellExecute) and the x-scheme-handler/https default of the test HOME (GTK link buttons). The X display must
+SystemShellExecute) and the https handler of GIO in test XDG directories (GTK link buttons). The X display must
 already run (Xvfb); it is never started or stopped here. Screenshots: <place>.png. Exit 1 when a check fails.
 """
 import argparse
@@ -54,8 +54,8 @@ def about(office, frame, browser, shots):
     thread.join(15)
 
 
-def options(office, frame, browser, shots, instdir):
-    url = gui.update_page_url(instdir)
+def options(office, frame, browser, shots):
+    url = gui.update_page_url(office.ctx)
     thread = gui.dispatch_async(office, frame, ".uno:OptionsTreeDialog", (("OptionsPageURL", url),))
     wid = gui.wait_window(office, gui.OPTIONS_TITLE)
     record("Options: dialog opens on HST Office ▸ Cập nhật", wid)
@@ -120,7 +120,7 @@ def main():
         titles = gui.citation_titles(args.lang, args.instdir)
         record("nothing reached the browser before the first click", browser.urls() == [], browser.urls())
         about(office, frame, browser, shots)
-        options(office, frame, browser, shots, args.instdir)
+        options(office, frame, browser, shots)
         error_report(office, frame, browser, shots)
         citations(office, frame, browser, shots, titles)
         record("nothing reached the browser except the four clicks", len(browser.urls()) == 4, browser.urls())

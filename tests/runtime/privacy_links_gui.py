@@ -12,7 +12,7 @@ import time
 
 import hst_gui
 
-ABOUT_TITLE = "^(Về|About) HST Office$"
+ABOUT_TITLE = "^(Giới thiệu|About) HST Office$"
 OPTIONS_TITLE = "^(Tùy chọn|Options)"
 # No update check dialog may pop up in the middle of the clicks.
 QUIET_CONFIG = [("/org.openoffice.Office.HSTUpdate", "AutoCheck", "false"),
@@ -27,10 +27,13 @@ for url in "$@"; do printf '%%s\\n' "$url" >> '%s'; done
 
 
 class Browser:
-    def __init__(self, folder):
+    def __init__(self, folder, home):
         self.log = os.path.join(folder, "urls.txt")
         self.shim = os.path.join(folder, "xdg-open")
-        self.env = {"PATH": folder + ":/usr/local/bin:/usr/bin:/bin", "BROWSER": self.shim}
+        # runuser gives soffice the build user's own HOME: point GIO at the test handler explicitly
+        self.env = {"PATH": folder + ":/usr/local/bin:/usr/bin:/bin", "BROWSER": self.shim,
+                    "XDG_CONFIG_HOME": os.path.join(home, ".config"),
+                    "XDG_DATA_HOME": os.path.join(home, ".local", "share")}
 
     def urls(self):
         try:
@@ -41,16 +44,15 @@ class Browser:
 
 
 def install_browser(workdir):
-    """xdg-open on PATH and the https/http handler of the test HOME (workdir/home, hst_gui.Office) both record."""
-    folder = os.path.join(workdir, "browser")
+    """xdg-open on PATH and the https/http handler of GIO (XDG directories under workdir/home) both record."""
+    folder, home = os.path.join(workdir, "browser"), os.path.join(workdir, "home")
     os.makedirs(folder, exist_ok=True)
-    browser = Browser(folder)
+    browser = Browser(folder, home)
     if os.path.exists(browser.log):
         os.remove(browser.log)
     with open(browser.shim, "w", encoding="utf-8") as handle:
         handle.write(SHIM % browser.log)
     os.chmod(browser.shim, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-    home = os.path.join(workdir, "home")
     for sub in (".local/share/applications", ".config"):
         os.makedirs(os.path.join(home, sub), exist_ok=True)
     with open(os.path.join(home, ".local/share/applications/hst-test-browser.desktop"), "w", encoding="utf-8") as f:
@@ -163,10 +165,10 @@ def rightmost_link(office, wid, left_fraction=0.0, top_fraction=0.0, bottom_frac
     return wid, (x0 + x1) // 2, (y0 + y1) // 2
 
 
-def update_page_url(instdir):
-    path = os.path.realpath(os.path.join(instdir, "share", "extensions", "hst-vietnamese-tools", "dialogs",
-                                         "Update.xdl"))
-    return "file://" + path
+def update_page_url(ctx):
+    """The page URL as the Options dialog compares it: the extension's %origin% URL with its macros expanded."""
+    expander = ctx.getValueByName("/singletons/com.sun.star.util.theMacroExpander")
+    return expander.expandMacros("$BUNDLED_EXTENSIONS") + "/hst-vietnamese-tools/dialogs/Update.xdl"
 
 
 def citation_titles(lang, instdir):
