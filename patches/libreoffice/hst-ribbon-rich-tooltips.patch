@@ -2,8 +2,8 @@ HST Office: rich ribbon tooltips. Hovering a ribbon button shows its name and sh
 plain sentence saying what the command does (owner decision for 1.0.2).
 
 - QuickHelpFlags::RichTitle marks such a tip: its first line ("Name (Shortcut)") is drawn bold, the rest is the
-  description, wrapped to about two lines (at least the title's width, at most the sentence's own width, otherwise
-  3/5 of it). HelpTextWindow draws it on Windows, macOS and the gen back end with the theme's tooltip colours;
+  description: one line when it fits in about 60 average characters, else two lines of about the same length
+  (never narrower than the title; a little wider if a long word would push a third line). HelpTextWindow draws it on Windows, macOS and the gen back end with the theme's tooltip colours;
   GTK shows it natively as markup (SalFrame::ShowRichTooltip, which falls back to the plain ShowTooltip on back
   ends without rich tips). The tip delay, position and hide timer are unchanged.
 - NotebookbarToolBox (every ribbon toolbox built from a notebookbar .ui) answers quick help requests itself
@@ -74,7 +74,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      {
          Size aSize;
          aSize.setHeight( GetTextHeight() );
-@@ -364,6 +369,71 @@
+@@ -364,6 +369,75 @@
          PaintImmediately();
  }
  
@@ -102,9 +102,9 @@ License: these upstream files remain under their original license (MPL-2.0).
 +
 +void HelpTextWindow::ImplLayoutRich()
 +{
-+    // HST Office: the bold title on its own line, then the description wrapped to about two lines: at least
-+    // the title's width, at most the description's own width, otherwise 3/5 of it (36 average characters
-+    // at least), so a sentence of up to 90 characters takes two lines
++    // HST Office: the bold title on its own line, then the description: on one line when it fits in about 60
++    // average characters, else on two lines of about the same length (a 90-character sentence), never narrower
++    // than the title; the width grows a little if a long word would push a third line
 +    const auto [aTitle, aBody] = SplitRichText(maHelpText);
 +    OutputDevice& rDev = *GetOutDev();
 +    rDev.Push(vcl::PushFlags::FONT);
@@ -117,11 +117,15 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    if (!aBody.isEmpty())
 +    {
 +        const tools::Long nBodyWidth = rDev.GetTextWidth(aBody);
-+        const tools::Long nMinWrap = rDev.GetTextWidth(OUString::Concat(RepeatedUChar('x', 36)));
-+        const tools::Long nWrap
-+            = std::max(nTitleWidth, std::min(nBodyWidth, std::max(nMinWrap, nBodyWidth * 3 / 5)));
-+        const tools::Rectangle aBodyRect = rDev.GetTextRect(
-+            tools::Rectangle(Point(), Size(nWrap, 0x7FFFFFFF)), aBody, RICH_BODY_FLAGS);
++        const tools::Long nOneLine = rDev.GetTextWidth(OUString::Concat(RepeatedUChar('x', 60)));
++        tools::Long nWrap = std::max(nTitleWidth, nBodyWidth <= nOneLine ? nBodyWidth : nBodyWidth * 11 / 20);
++        tools::Rectangle aBodyRect;
++        for (int nTry = 0; nTry < 4; ++nTry, nWrap += nWrap / 10)
++        {
++            aBodyRect = rDev.GetTextRect(tools::Rectangle(Point(), Size(nWrap, 0x7FFFFFFF)), aBody, RICH_BODY_FLAGS);
++            if (aBodyRect.GetHeight() <= 2 * rDev.GetTextHeight())
++                break;
++        }
 +        mnRichTitleHeight = nTitleHeight + nTitleHeight / 3;
 +        aSize = Size(std::max(nTitleWidth, aBodyRect.GetWidth()), mnRichTitleHeight + aBodyRect.GetHeight());
 +    }
@@ -146,7 +150,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  void HelpTextWindow::ImplShow()
  {
      VclPtr<HelpTextWindow> xWindow( this );
-@@ -385,7 +455,9 @@
+@@ -385,7 +459,9 @@
      }
  
      // paint text
@@ -157,7 +161,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      {
          if ( mnStyle & QuickHelpFlags::CtrlText )
              rRenderContext.DrawCtrlText(maTextRect.TopLeft(), maHelpText);
-@@ -486,7 +558,11 @@
+@@ -486,7 +562,11 @@
                                 QuickHelpFlags nStyle, const OUString& rHelpText,
                                 const Point& rScreenPos, const tools::Rectangle& rHelpArea)
  {
@@ -170,7 +174,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      {
          //tooltips are handled natively, return early
          return;
-@@ -502,7 +578,8 @@
+@@ -502,7 +582,8 @@
      {
          SAL_WARN_IF( pHelpWin == pParent, "vcl", "HelpInHelp ?!" );
  
