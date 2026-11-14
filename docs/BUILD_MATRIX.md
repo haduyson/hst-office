@@ -85,6 +85,49 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
   [`hst-queue-remote.ps1`](../scripts/windows/hst-queue-remote.ps1), kéo MSI về `out/<id>/` rồi xoá bản trên máy
   Windows. Slot có `build.lock` do người khác giữ (ví dụ một lượt `hst4-build.ps1` chạy tay) bị bỏ qua tới khi rảnh.
 
+### Build train: gộp nhánh sẵn sàng vào một build
+
+```bash
+scripts/build-queue.sh train add fix/x [--platform linux|windows|both]   # nhánh đã push, sẵn sàng (mặc định both)
+scripts/build-queue.sh train status [fix/x | train/1.0.2-007] [--json]   # tổng quan / một nhánh / một train
+scripts/build-queue.sh train wait fix/x [--timeout S]   # thoát 0: đạt, in đường dẫn .deb/.msi; 1: bị loại; 2: hết giờ
+scripts/build-queue.sh train remove fix/x                # rút nhánh (train đang build vẫn chạy xong)
+scripts/build-queue.sh train start --integrator          # integrator: dựng train ở tick sau, không chờ ngưỡng
+```
+
+- **Khi nào:** dispatcher dựng một train khi đủ `train_min_branches` (4) nhánh sẵn sàng, khi nhánh sẵn sàng lâu nhất
+  đã chờ `train_interval_minutes` (90 phút), hoặc ngay khi có nhánh được chuyển tiếp từ train hỏng. Mỗi lúc chỉ một
+  train (kể cả các nửa bisect) đang chạy.
+- **Dựng:** `train/1.0.2-NNN` = `origin/rc/1.0.2-batch5` + đầu nhánh của từng nhánh sẵn sàng, merge lần lượt (theo
+  thứ tự: nhánh chuyển tiếp trước, rồi nhánh chờ lâu nhất), tối đa `train_max_branches` (8). `patches/libreoffice/series`
+  và `l10n/vi-overrides.jsonl` merge kiểu union như integrator làm: series nối theo thứ tự merge, dòng trùng bị bỏ;
+  vi-overrides giữ dòng của nhánh merge sau cho mỗi khoá (file, msgctxt, msgid). Nhánh có patch đụng cùng tệp
+  LibreOffice với một nhánh đã chọn thì chờ train sau. Merge xung đột với batch5 → nhánh bị loại (rebase rồi
+  `train add` lại), không tốn build; xung đột với nhánh khác trong train → sang train sau. Merge có định danh, ngày
+  giờ và thông điệp cố định, nên dựng lại sau khi khởi động lại cho đúng commit cũ.
+- **Push và build:** hàng đợi push nhánh `train/*` lên origin (chỉ tạo mới, không bao giờ force, không đụng nhánh
+  khác; workflow GitHub không chạy khi push nhánh này) rồi gửi 1 job Linux + 1 job Windows (priority 70, nền tảng
+  theo yêu cầu của các nhánh). Nhánh `train/*` cũ hơn `train_keep_days` (2 ngày) mà không còn build nào chạy bị xoá
+  khỏi origin. Chỉ xoá nhánh do hàng đợi tạo.
+- **Khi train hỏng**, quy lỗi theo thứ tự:
+  1. log có `does not apply: <patch>` → nhánh có commit thêm/sửa patch đó;
+  2. lỗi biên dịch, gla11y `FATAL` hoặc `make ***` nêu tệp LibreOffice → nhánh có patch đụng tệp đó;
+  3. train một nhánh → nhánh đó;
+  4. còn lại: chia đôi, build lại từng nửa (chỉ nền tảng hỏng), tối đa `train_bisect_rounds` (2) vòng; sau vòng cuối
+     còn nhiều nhánh thì loại cả nhóm.
+  Nhánh bị loại có một **build riêng để xác nhận** (priority 40, cùng commit; job id trong `train status`). Các nhánh
+  còn lại sang train kế tiếp ngay. Nửa bisect đạt thì nhánh trong nửa đó đạt (bản Windows lấy từ train gốc nếu bản
+  đó đạt). Hai nửa cùng đạt mà train gốc hỏng: nhánh đạt kèm cảnh báo "tương tác giữa các nhánh". Job bị huỷ hoặc
+  lỗi hạ tầng: nhánh được thử lại, không bị quy lỗi; batch5 tự build hỏng ở cùng commit: không quy lỗi ai. Sau
+  `train_max_attempts` (3) train mà vẫn chưa có kết quả thì nhánh chuyển `failed`.
+- **Kết quả:** `train status <nhánh>` cho biết train chứa nhánh, job và đầu ra từng nền tảng, đạt/bị loại kèm lý
+  do; `train status <train>` cho thành viên, sha, job, xung đột, nhánh chờ, quy lỗi và nhật ký sự kiện. Trạng thái nằm
+  ở `/data/hst-build-queue/train/` (`branches.json`, `trains/NNN.json`, clone riêng `repo/`); log dispatcher có dòng
+  `train train/1.0.2-NNN: …`. Integrator có thể fast-forward batch tiếp theo tới đúng commit của một train xanh: cùng
+  sha nên hàng đợi dùng lại build đó.
+- **Tắt train:** `"train_enabled": false` trong `config.json` (agent quay lại submit theo nhánh). Base là
+  `integration_branch` trong `config.json`; đổi khi integrator chuyển sang batch mới.
+
 ### `--test`: chạy test LibreOffice trong slot (không cần cây riêng)
 
 ```bash

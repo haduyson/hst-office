@@ -2,7 +2,8 @@
 """Dispatcher of the local build queue (scripts/build-queue.py): `build-queue.sh dispatch` (systemd unit
 hst-build-queue.service, scripts/linux/hst-build-queue.service).
 
-Every poll_seconds it reaps finished jobs, stops jobs whose cancel was requested, starts queued jobs by
+Every poll_seconds it reaps finished jobs, stops jobs whose cancel was requested, runs the build train step
+(queue_train_tick.py: merge/push/submit trains, judge finished ones, start the next), starts queued jobs by
 priority/FIFO on free slots, and applies output retention (after a job finished, else every RETENTION_SECONDS):
   - linux:   scripts/linux/local-build.sh --slot N on a slot that build-slots.py free-slot reports idle and
              admissible (the admission controller still decides -j and may hold the job until memory allows);
@@ -80,6 +81,11 @@ def tick(store, runners, core):
             store.update(job["id"], state=state, finished=t, finished_at=core.now_iso(t), **fields)
             log(f"{job['id']}: {state} {fields}")
             finished = True
+    try:
+        from .queue_train_tick import tick as train_tick
+        train_tick(store, core, cfg, log=log)
+    except Exception as exc:  # noqa: BLE001 - the train must never stop the dispatching of other jobs
+        log(f"train step failed: {exc!r}")
     jobs = store.all()
     if hasattr(runners["windows"], "process_drains"):
         runners["windows"].process_drains(jobs, core)

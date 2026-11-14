@@ -10,6 +10,7 @@
                                                   (--force: integrator); a newer commit cancels the branch's queued job
   build-queue.sh pin <id> --reason TEXT | unpin <id>   keep a done job's output out of retention (or release it)
   build-queue.sh retention [--dry-run]            apply output retention now; prints what is deleted and the space freed
+  build-queue.sh train add|remove|status|wait|start ...   build train (scripts/build_infra/queue_train_cli.py)
   build-queue.sh status <id> [--json]             state, slot/host, output, log
   build-queue.sh wait <id> [--timeout S]          blocks; prints the output path(s) (exit 0) or the log tail (exit 1);
                                                   test jobs: PASS/FAIL per target (exit 3 when a test failed)
@@ -37,6 +38,7 @@ import sys
 from .queue_ops import cancel, drain, invalidate, submit
 from .queue_report import compare, describe, print_tests, wait
 from .queue_retention import apply_retention, pin
+from . import queue_train_cli
 from .queue_rules import order_key, parse_modules, parse_tests
 from .queue_store import ACTIVE, PLATFORMS, TERMINAL, QueueError, Store
 
@@ -59,6 +61,7 @@ def main(argv=None):
     up.add_argument("id")
     rt = sub.add_parser("retention")
     rt.add_argument("--dry-run", action="store_true")
+    queue_train_cli.add_parser(sub)
     st = sub.add_parser("status")
     st.add_argument("id")
     st.add_argument("--json", action="store_true")
@@ -143,6 +146,8 @@ def main(argv=None):
             verb = "would free" if args.dry_run else "freed"
             print(f"{len(freed)} outputs, {verb} {sum(f[2] for f in freed) / 2**30:.2f} GiB")
             return 0
+        if args.cmd == "train":
+            return queue_train_cli.run(store, args)
         if args.cmd == "compare":
             return compare(store, args.base, args.id)
         if args.cmd == "drain":
