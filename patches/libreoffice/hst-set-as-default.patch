@@ -1,0 +1,1685 @@
+HST Office: "Set As Default" in Writer's Font, Paragraph and Page Setup dialogs and in Sheets' Format Cells
+and Page Setup, like the reference word processor (owner request for 1.0.2).
+
+- SfxTabDialogController offers a "hstsetdefault" button (hidden in the .ui; a dialog shows it with
+  HstShowSetDefault and answers HstDefaultQuestion/HstApplyDefault). It asks "This document only / All new
+  documents" (sfx/ui/hstdefaultscopedialog.ui, all new documents preselected), then ends like OK, so the
+  selection also gets the values. The values are what the dialog shows (input set plus the pages' changes),
+  read without Ok(): Sheets' Ok() applies print titles.
+- This document: the Default Paragraph Style (Font: font and effects; Paragraph: alignment, indents,
+  spacing, line spacing, breaks without page breaks, tabs) or the Default Page Style (paper, orientation,
+  margins); Sheets: the Default cell style (font, alignment; not number formats, borders, fill) or the
+  Default page style (paper, margins, centering, scaling, print order). Undoable.
+- All new documents: the same change is written into <profile>/user/hst/default-templates/<module>.<ext>,
+  made from the module's current default template (a template the user chose stays untouched) or from a new
+  empty document, saved through a temporary file and registered with SfxObjectFactory::SetStandardTemplate.
+  It is outside the template folders, so new documents carry no template link and never ask to update
+  styles. Templates ▸ Reset Default goes back to the built-in defaults.
+- Access keys: D as in the reference (Paragraph, Page Setup); the Font tab gives D to Hidden and H to Help,
+  so Font uses A; every letter of the label is taken on the Number, Alignment and Font tabs of Format Cells
+  (they keep the spreadsheet's keys), so that button has none.
+- New files are under MPL-2.0 like the files that use them.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: CppunitTest_sw_uiwriter9 (testHstSetAsDefault*), CppunitTest_sc_hst_set_as_default,
+tests/runtime/check-set-as-default.py.
+---
+--- /dev/null
++++ b/include/sfx2/hstdefaults.hxx
+@@ -0,0 +1,54 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: shared parts of "Set As Default" (font, paragraph, page setup, format cells dialogs).
++
++#pragma once
++
++#include <sfx2/dllapi.h>
++#include <rtl/ustring.hxx>
++#include <functional>
++#include <span>
++
++class SfxItemSet;
++class SfxObjectFactory;
++class SfxObjectShell;
++namespace weld { class Widget; }
++
++namespace sfx2::hst
++{
++enum class DefaultScope
++{
++    Cancel,
++    ThisDocument,
++    NewDocuments
++};
++
++/// Asks whether the dialog's settings become the default of this document or of all new documents.
++SFX2_DLLPUBLIC DefaultScope AskDefaultScope(weld::Widget* pParent, const OUString& rQuestion);
++
++/// Copies the values of the given which ids from a dialog's settings into rDest: set items and, for real
++/// which ids, the pool default shown in the dialog; mixed (invalid) and unknown ids are left out.
++SFX2_DLLPUBLIC void CopyDefaultValues(const SfxItemSet& rValues, std::span<const sal_uInt16> aWhichIds,
++                                      SfxItemSet& rDest);
++
++/// The per-user default template HST Office manages for a module:
++/// <user profile>/hst/default-templates/<factory>.<template extension>. Never inside the installation.
++SFX2_DLLPUBLIC OUString DefaultTemplateURL(const SfxObjectFactory& rFactory);
++
++/** Makes every new document of the module start with a change.
++
++    The current default template of the module (one the user chose, or the one written earlier) is loaded, or
++    a new empty document when there is none; rApply changes it; it is saved as DefaultTemplateURL() through a
++    temporary file and registered as the module's default template. A template the user chose stays untouched.
++    @return false when the document could not be loaded, changed or saved; nothing is registered then.
++*/
++SFX2_DLLPUBLIC bool UpdateDefaultTemplate(const SfxObjectFactory& rFactory,
++                                          const std::function<bool(SfxObjectShell&)>& rApply);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -418,6 +418,19 @@
+ #define STR_HST_TAB_SEARCH                      NC_("STR_HST_TAB_SEARCH", "Search features… (Alt+Q)")
+ #define STR_HST_TAB_SEARCH_BUBBLE               NC_("STR_HST_TAB_SEARCH_BUBBLE", "Can't find a command? Type its name here; accents are optional.")
+ 
++// HST Office: "Set As Default" in the font, paragraph, page setup and format cells dialogs
++#define STR_HST_SET_DEFAULT                     NC_("STR_HST_SET_DEFAULT", "Set As ~Default")
++// Font dialogs: their Font tab gives D to Hidden
++#define STR_HST_SET_DEFAULT_FONT                NC_("STR_HST_SET_DEFAULT_FONT", "Set ~As Default")
++// Format Cells: its Number, Alignment and Font tabs keep the spreadsheet keys of every letter of the label
++#define STR_HST_SET_DEFAULT_CELLS               NC_("STR_HST_SET_DEFAULT_CELLS", "Set As Default")
++#define STR_HST_SET_DEFAULT_TIP                 NC_("STR_HST_SET_DEFAULT_TIP", "Use these settings as the default for this document or for all new documents.")
++#define STR_HST_DEFAULT_FONT                    NC_("STR_HST_DEFAULT_FONT", "Do you want to set the default font to %FONT for:")
++#define STR_HST_DEFAULT_PARAGRAPH               NC_("STR_HST_DEFAULT_PARAGRAPH", "Do you want to set the default alignment, indentation and spacing of paragraphs for:")
++#define STR_HST_DEFAULT_PAGE                    NC_("STR_HST_DEFAULT_PAGE", "Do you want to set the default paper size, orientation and margins for:")
++#define STR_HST_DEFAULT_CELL                    NC_("STR_HST_DEFAULT_CELL", "Do you want to set the default font and alignment of cells for:")
++#define STR_HST_DEFAULT_FAILED                  NC_("STR_HST_DEFAULT_FAILED", "The default for new documents could not be saved. This document was changed.")
++
+ #endif
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/sfx2/tabdlg.hxx
++++ b/include/sfx2/tabdlg.hxx
+@@ -76,6 +76,7 @@
+     std::unique_ptr<weld::Button> m_xCancelBtn;
+     std::unique_ptr<weld::Button> m_xResetBtn;
+     std::unique_ptr<weld::Button> m_xBaseFmtBtn;
++    std::unique_ptr<weld::Button> m_xHstDefaultBtn; // HST Office: "Set As Default"
+     std::unique_ptr<weld::SizeGroup> m_xSizeGroup;
+ 
+     std::unique_ptr<SfxItemSet>           m_pSet;
+@@ -89,6 +90,7 @@
+     std::map<sal_uInt16, int> m_aWhichOrderMap;
+ 
+     DECL_DLLPRIVATE_LINK(ActivatePageHdl, const OUString&, void);
++    DECL_DLLPRIVATE_LINK(HstSetDefaultHdl, weld::Button&, void);
+     DECL_DLLPRIVATE_LINK(DeactivatePageHdl, const OUString&, bool);
+     SAL_DLLPRIVATE void Start_Impl();
+     SAL_DLLPRIVATE void CreatePages();
+@@ -122,6 +124,14 @@
+     /** save the position of the TabDialog and which tab page is the currently active one
+      */
+     void SavePosAndId();
++
++    /** HST Office "Set As Default" (button "hstsetdefault" of the .ui, hidden there): a dialog that offers it
++        shows the button and answers these two. rValues holds what the dialog shows: its input set with the
++        user's changes. HstApplyDefault returns false (and has told the user) to keep the dialog open.
++     */
++    void HstShowSetDefault(bool bShow, const OUString& rLabel = OUString());
++    virtual OUString HstDefaultQuestion(const SfxItemSet& rValues) const;
++    virtual bool HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments);
+ public:
+     SfxTabDialogController(weld::Widget* pParent, const OUString& rUIXMLDescription, const OUString& rID,
+                            const SfxItemSet * = nullptr, bool bEditFmt = false);
+--- /dev/null
++++ b/sc/CppunitTest_sc_hst_set_as_default.mk
+@@ -0,0 +1,65 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# This file is part of the LibreOffice project.
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sc_hst_set_as_default))
++
++$(eval $(call gb_CppunitTest_use_externals,sc_hst_set_as_default, \
++	boost_headers \
++	mdds_headers \
++	libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sc_hst_set_as_default, \
++    sc/qa/unit/uicalc/hstsetasdefault \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sc_hst_set_as_default, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    editeng \
++    i18nlangtag \
++    sal \
++    sc \
++    scqahelper \
++    sfx \
++    sot \
++    subsequenttest \
++    svl \
++    svl \
++    svx \
++    svxcore \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++    $(if $(filter -fsanitize=vptr,$(gb_CXX)),salhelper) \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sc_hst_set_as_default,\
++    -I$(SRCDIR)/sc/source/ui/inc \
++    -I$(SRCDIR)/sc/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sc_hst_set_as_default))
++
++$(eval $(call gb_CppunitTest_use_ure,sc_hst_set_as_default))
++$(eval $(call gb_CppunitTest_use_vcl,sc_hst_set_as_default))
++
++$(eval $(call gb_CppunitTest_use_rdb,sc_hst_set_as_default,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sc_hst_set_as_default))
++
++$(eval $(call gb_CppunitTest_add_arguments,sc_hst_set_as_default, \
++    -env:arg-env=$(gb_Helper_LIBRARY_PATH_VAR)"$$$${$(gb_Helper_LIBRARY_PATH_VAR)+=$$$$$(gb_Helper_LIBRARY_PATH_VAR)}" \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -467,6 +467,7 @@
+     sc/source/ui/docshell/DocumentModelAccessor \
+     sc/source/ui/docshell/editable \
+     sc/source/ui/docshell/externalrefmgr \
++    sc/source/ui/docshell/hstsetasdefault \
+     sc/source/ui/docshell/impex \
+     sc/source/ui/docshell/macromgr \
+     sc/source/ui/docshell/olinefun \
+--- a/sc/Module_sc.mk
++++ b/sc/Module_sc.mk
+@@ -108,6 +108,7 @@
+ 	CppunitTest_sc_subsequent_export_test6 \
+ 	CppunitTest_sc_uicalc \
+ 	CppunitTest_sc_uicalc2 \
++	CppunitTest_sc_hst_set_as_default \
+ 	CppunitTest_sc_vba_macro_test \
+ 	CppunitTest_sc_a11y \
+ 	CppunitTest_sc_filter_html \
+--- /dev/null
++++ b/sc/qa/unit/uicalc/hstsetasdefault.cxx
+@@ -0,0 +1,87 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++
++// HST Office: "Set As Default" in Format Cells and Page Setup of Sheets (sc/source/ui/docshell/hstsetasdefault.cxx)
++
++#include "../helper/qahelper.hxx"
++
++#include <comphelper/scopeguard.hxx>
++#include <editeng/brushitem.hxx>
++#include <editeng/fhgtitem.hxx>
++#include <editeng/justifyitem.hxx>
++#include <sfx2/docfac.hxx>
++#include <sfx2/hstdefaults.hxx>
++#include <svl/eitem.hxx>
++#include <docpool.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <globstr.hrc>
++#include <hstsetasdefault.hxx>
++#include <scitems.hxx>
++#include <scresid.hxx>
++#include <stlpool.hxx>
++#include <undomanager.hxx>
++
++namespace
++{
++class ScHstSetAsDefaultTest : public ScModelTestBase
++{
++public:
++    ScHstSetAsDefaultTest()
++        : ScModelTestBase(u"sc/qa/unit/uicalc/data"_ustr)
++    {
++    }
++};
++}
++
++// HST Office "Set As Default" in Format Cells: the Default cell style takes the font and alignment
++// (undoably), not the fill; all new spreadsheets start with it through the per-user default template
++CPPUNIT_TEST_FIXTURE(ScHstSetAsDefaultTest, testHstSetAsDefaultCells)
++{
++    const OUString aService = u"com.sun.star.sheet.SpreadsheetDocument"_ustr;
++    comphelper::ScopeGuard aReset([&aService] { SfxObjectFactory::SetStandardTemplate(aService, OUString()); });
++    SfxObjectFactory::SetStandardTemplate(aService, OUString());
++
++    createScDoc();
++    ScDocShell* pDocSh = getScDocShell();
++    ScDocument& rDoc = pDocSh->GetDocument();
++    SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<ATTR_PATTERN_START, ATTR_PATTERN_END>(*rDoc.GetPool()));
++    aValues.Put(SvxHorJustifyItem(SvxCellHorJustify::Center, ATTR_HOR_JUSTIFY));
++    aValues.Put(SvxFontHeightItem(280, 100, ATTR_FONT_HEIGHT));
++    aValues.Put(SvxBrushItem(COL_YELLOW, ATTR_BACKGROUND));
++
++    sc::hst::ApplyDefaults(*pDocSh, sc::hst::DefaultKind::Cells, aValues, true);
++    CPPUNIT_ASSERT(SvxCellHorJustify::Center == rDoc.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt32(280), rDoc.GetAttr(0, 0, 0, ATTR_FONT_HEIGHT).GetHeight());
++    CPPUNIT_ASSERT(COL_YELLOW != rDoc.GetAttr(0, 0, 0, ATTR_BACKGROUND).GetColor());
++    pDocSh->GetUndoManager()->Undo();
++    CPPUNIT_ASSERT(SvxCellHorJustify::Center != rDoc.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
++
++    sc::hst::SetAsDefault(nullptr, *pDocSh, sc::hst::DefaultKind::Cells, aValues, true);
++    CPPUNIT_ASSERT_EQUAL(sfx2::hst::DefaultTemplateURL(ScDocShell::Factory()),
++                         SfxObjectFactory::GetStandardTemplate(aService));
++    dispose();
++    createScDoc();
++    ScDocument& rNew = *getScDoc();
++    CPPUNIT_ASSERT(SvxCellHorJustify::Center == rNew.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt32(280), rNew.GetAttr(0, 0, 0, ATTR_FONT_HEIGHT).GetHeight());
++    CPPUNIT_ASSERT(COL_YELLOW != rNew.GetAttr(0, 0, 0, ATTR_BACKGROUND).GetColor());
++}
++
++// HST Office "Set As Default" in Page Setup of Sheets: the Default page style
++CPPUNIT_TEST_FIXTURE(ScHstSetAsDefaultTest, testHstSetAsDefaultPage)
++{
++    createScDoc();
++    ScDocShell* pDocSh = getScDocShell();
++    ScDocument& rDoc = pDocSh->GetDocument();
++    SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<ATTR_LRSPACE, ATTR_PAGE_SCALETO>(*rDoc.GetPool()));
++    aValues.Put(SfxBoolItem(ATTR_PAGE_HORCENTER, true));
++    sc::hst::ApplyDefaults(*pDocSh, sc::hst::DefaultKind::Page, aValues, true);
++    SfxStyleSheetBase* pStyle
++        = rDoc.GetStyleSheetPool()->Find(ScResId(STR_STYLENAME_STANDARD), SfxStyleFamily::Page);
++    CPPUNIT_ASSERT(pStyle);
++    CPPUNIT_ASSERT(pStyle->GetItemSet().Get(ATTR_PAGE_HORCENTER).GetValue());
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/attrdlg/attrdlg.cxx
++++ b/sc/source/ui/attrdlg/attrdlg.cxx
+@@ -26,6 +26,11 @@
+ 
+ #include <tabpages.hxx>
+ #include <attrdlg.hxx>
++#include <docsh.hxx>
++#include <hstsetasdefault.hxx>
++#include <vcl/weld/Dialog.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/strings.hrc>
+ #include <sal/log.hxx>
+ #include <svx/dialogs.hrc>
+ #include <svx/flagsdef.hxx>
+@@ -77,12 +82,31 @@
+                pFact->GetTabPageCreatorFunc(RID_SVXPAGE_BKG), RID_M + RID_TAB_BACKGROUND.sIconName);
+     AddTabPage(u"cellprotection"_ustr, TabResId(RID_TAB_PROTECTION.aLabel),
+                ScTabPageProtection::Create, RID_M + RID_TAB_PROTECTION.sIconName);
++
++    // HST: Set As Default changes the Default cell style
++    HstShowSetDefault(pCellAttrs != nullptr, SfxResId(STR_HST_SET_DEFAULT_CELLS));
+ }
+ 
+ ScAttrDlg::~ScAttrDlg()
+ {
+ }
+ 
++OUString ScAttrDlg::HstDefaultQuestion(const SfxItemSet&) const
++{
++    return sc::hst::DefaultQuestion(sc::hst::DefaultKind::Cells);
++}
++
++bool ScAttrDlg::HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments)
++{
++    // the dialog edits the current document
++    auto* pDocShell = dynamic_cast<ScDocShell*>(SfxObjectShell::Current());
++    if (!pDocShell)
++        return false;
++    sc::hst::SetAsDefault(m_xDialog.get(), *pDocShell, sc::hst::DefaultKind::Cells, rValues,
++                          bNewDocuments);
++    return true;
++}
++
+ void ScAttrDlg::PageCreated(const OUString& rPageId, SfxTabPage& rTabPage)
+ {
+     SfxObjectShell* pDocSh = SfxObjectShell::Current();
+--- /dev/null
++++ b/sc/source/ui/docshell/hstsetasdefault.cxx
+@@ -0,0 +1,114 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: "Set As Default" in Sheets. The Default cell style (Excel's Normal) and the Default page
++// style take the dialog's values; for all new spreadsheets the same change goes into the default template.
++
++#include <hstsetasdefault.hxx>
++
++#include <docsh.hxx>
++#include <globstr.hrc>
++#include <scitems.hxx>
++#include <scresid.hxx>
++#include <stlpool.hxx>
++#include <undostyl.hxx>
++
++#include <sfx2/hstdefaults.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/strings.hrc>
++#include <svl/itemset.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/vclenum.hxx>
++#include <vcl/weld/MessageDialog.hxx>
++
++namespace sc::hst
++{
++namespace
++{
++// Font (with the effects HST shows on it) and Alignment of Format Cells; not number formats (keys of
++// one document's formatter), borders, fill or protection.
++constexpr sal_uInt16 aCellIds[] = {
++    ATTR_FONT,           ATTR_FONT_HEIGHT,     ATTR_FONT_WEIGHT,       ATTR_FONT_POSTURE,
++    ATTR_FONT_UNDERLINE, ATTR_FONT_OVERLINE,   ATTR_FONT_CROSSEDOUT,   ATTR_FONT_CONTOUR,
++    ATTR_FONT_SHADOWED,  ATTR_FONT_COLOR,      ATTR_FONT_LANGUAGE,     ATTR_CJK_FONT,
++    ATTR_CJK_FONT_HEIGHT, ATTR_CJK_FONT_WEIGHT, ATTR_CJK_FONT_POSTURE, ATTR_CJK_FONT_LANGUAGE,
++    ATTR_CTL_FONT,       ATTR_CTL_FONT_HEIGHT, ATTR_CTL_FONT_WEIGHT,   ATTR_CTL_FONT_POSTURE,
++    ATTR_CTL_FONT_LANGUAGE, ATTR_FONT_EMPHASISMARK, ATTR_FONT_WORDLINE, ATTR_FONT_RELIEF,
++    ATTR_HOR_JUSTIFY,    ATTR_HOR_JUSTIFY_METHOD, ATTR_INDENT,         ATTR_VER_JUSTIFY,
++    ATTR_VER_JUSTIFY_METHOD, ATTR_STACKED,     ATTR_ROTATE_VALUE,      ATTR_ROTATE_MODE,
++    ATTR_VERTICAL_ASIAN, ATTR_WRITINGDIR,      ATTR_LINEBREAK,         ATTR_SHRINKTOFIT,
++    ATTR_HYPHENATE
++};
++
++// Page and Sheet tabs of Page Setup without headers, footers, print ranges or page numbers.
++constexpr sal_uInt16 aPageIds[]
++    = { ATTR_PAGE,         ATTR_PAGE_SIZE,         ATTR_LRSPACE,       ATTR_ULSPACE,
++        ATTR_PAGE_HORCENTER, ATTR_PAGE_VERCENTER,  ATTR_PAGE_SCALE,    ATTR_PAGE_SCALETOPAGES,
++        ATTR_PAGE_SCALETO, ATTR_PAGE_TOPDOWN,      ATTR_PAGE_GRID,     ATTR_PAGE_HEADERS };
++}
++
++OUString DefaultQuestion(DefaultKind eKind)
++{
++    return SfxResId(eKind == DefaultKind::Cells ? STR_HST_DEFAULT_CELL : STR_HST_DEFAULT_PAGE);
++}
++
++void ApplyDefaults(ScDocShell& rDocShell, DefaultKind eKind, const SfxItemSet& rValues, bool bUndo)
++{
++    const SfxStyleFamily eFamily = eKind == DefaultKind::Cells ? SfxStyleFamily::Para : SfxStyleFamily::Page;
++    ScStyleSheetPool* pPool = rDocShell.GetDocument().GetStyleSheetPool();
++    SfxStyleSheetBase* pStyle = pPool ? pPool->Find(ScResId(STR_STYLENAME_STANDARD), eFamily) : nullptr;
++    if (!pStyle)
++        return;
++    const std::span<const sal_uInt16> aIds = eKind == DefaultKind::Cells
++                                                 ? std::span<const sal_uInt16>(aCellIds)
++                                                 : std::span<const sal_uInt16>(aPageIds);
++    SfxItemSet& rStyleSet = pStyle->GetItemSet();
++    if (!bUndo)
++    {
++        // a document without views (the default template): the saved style is all that counts
++        sfx2::hst::CopyDefaultValues(rValues, aIds, rStyleSet);
++        return;
++    }
++
++    // the change runs through the undo action, which also updates row heights, page styles in use and
++    // the display
++    ScStyleSaveData aOld;
++    aOld.InitFromStyle(pStyle);
++    sfx2::hst::CopyDefaultValues(rValues, aIds, rStyleSet);
++    ScStyleSaveData aNew;
++    aNew.InitFromStyle(pStyle);
++    if (aOld.GetItems())
++        rStyleSet.Set(*aOld.GetItems(), false);
++    auto pUndo = std::make_unique<ScUndoModifyStyle>(rDocShell, eFamily, aOld, aNew);
++    pUndo->Redo();
++    rDocShell.GetUndoManager()->AddUndoAction(std::move(pUndo));
++}
++
++void SetAsDefault(weld::Widget* pParent, ScDocShell& rDocShell, DefaultKind eKind,
++                  const SfxItemSet& rValues, bool bNewDocuments)
++{
++    ApplyDefaults(rDocShell, eKind, rValues, true);
++    if (!bNewDocuments)
++        return;
++
++    const bool bSaved = sfx2::hst::UpdateDefaultTemplate(
++        ScDocShell::Factory(), [eKind, &rValues](SfxObjectShell& rTemplate) {
++            auto* pTemplate = dynamic_cast<ScDocShell*>(&rTemplate);
++            if (!pTemplate)
++                return false;
++            ApplyDefaults(*pTemplate, eKind, rValues, false);
++            return true;
++        });
++    if (bSaved)
++        return;
++    std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
++        pParent, VclMessageType::Warning, VclButtonsType::Ok, SfxResId(STR_HST_DEFAULT_FAILED)));
++    xBox->run();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/inc/attrdlg.hxx
++++ b/sc/source/ui/inc/attrdlg.hxx
+@@ -36,6 +36,10 @@
+ 
+ protected:
+     virtual void PageCreated(const OUString& rPageId, SfxTabPage& rTabPage) override;
++
++    // HST Office "Set As Default" (sfx2/hstdefaults.hxx)
++    virtual OUString HstDefaultQuestion(const SfxItemSet& rValues) const override;
++    virtual bool HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments) override;
+ };
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/inc/hstsetasdefault.hxx
+@@ -0,0 +1,40 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: "Set As Default" in the Format Cells and Page Setup dialogs of Sheets.
++
++#pragma once
++
++#include <scdllapi.h>
++#include <rtl/ustring.hxx>
++
++class ScDocShell;
++class SfxItemSet;
++namespace weld { class Widget; }
++
++namespace sc::hst
++{
++enum class DefaultKind
++{
++    Cells, ///< font, font effects and alignment: the Default cell style
++    Page ///< paper, orientation, margins, centering, scaling, print order: the Default page style
++};
++
++SC_DLLPUBLIC OUString DefaultQuestion(DefaultKind eKind);
++
++/// Puts the values of eKind from a dialog's settings into the Default style of rDocShell's document;
++/// bUndo records an undo action (and repaints) as a change of that style.
++SC_DLLPUBLIC void ApplyDefaults(ScDocShell& rDocShell, DefaultKind eKind, const SfxItemSet& rValues,
++                                bool bUndo);
++
++/** "Set As Default": changes this document and, with bNewDocuments, the default template of new
++    spreadsheets too. A failure to save the template is reported (pParent); this document stays changed. */
++SC_DLLPUBLIC void SetAsDefault(weld::Widget* pParent, ScDocShell& rDocShell, DefaultKind eKind,
++                               const SfxItemSet& rValues, bool bNewDocuments);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/inc/styledlg.hxx
++++ b/sc/source/ui/inc/styledlg.hxx
+@@ -36,6 +36,10 @@
+     virtual void RefreshInputSet() override;
+     virtual short Ok() override;
+ 
++    // HST Office "Set As Default" (sfx2/hstdefaults.hxx)
++    virtual OUString HstDefaultQuestion(const SfxItemSet& rValues) const override;
++    virtual bool HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments) override;
++
+ private:
+     bool m_bPage;
+ };
+--- a/sc/source/ui/styleui/styledlg.cxx
++++ b/sc/source/ui/styleui/styledlg.cxx
+@@ -31,6 +31,9 @@
+ #include <osl/diagnose.h>
+ 
+ #include <styledlg.hxx>
++#include <docsh.hxx>
++#include <hstsetasdefault.hxx>
++#include <vcl/weld/Dialog.hxx>
+ #include <tabpages.hxx>
+ #include <tphf.hxx>
+ #include <tppagescale.hxx>
+@@ -57,6 +60,8 @@
+ {
+     if (m_bPage) // page styles
+     {
++        // HST: Set As Default changes the Default page style (not offered while naming a new style)
++        HstShowSetDefault(!rStyleBase.GetName().isEmpty());
+         // HST: the order of Excel's Page Setup (Page, Header/Footer, Sheet), then the rest. The
+         // page ids are unchanged.
+         AddTabPage(u"page"_ustr, TabResId(RID_TAB_PAGE.aLabel), &ScPageScalePage::Create,
+@@ -163,6 +168,22 @@
+     return nResult;
+ }
+ 
++OUString ScStyleDlg::HstDefaultQuestion(const SfxItemSet&) const
++{
++    return sc::hst::DefaultQuestion(sc::hst::DefaultKind::Page);
++}
++
++bool ScStyleDlg::HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments)
++{
++    // the dialog edits the current document
++    auto* pDocShell = dynamic_cast<ScDocShell*>(SfxObjectShell::Current());
++    if (!pDocShell)
++        return false;
++    sc::hst::SetAsDefault(m_xDialog.get(), *pDocShell, sc::hst::DefaultKind::Page, rValues,
++                          bNewDocuments);
++    return true;
++}
++
+ void ScStyleDlg::RefreshInputSet()
+ {
+     SfxItemSet* pItemSet = GetInputSetImpl();
+--- a/sc/uiconfig/scalc/ui/formatcellsdialog.ui
++++ b/sc/uiconfig/scalc/ui/formatcellsdialog.ui
+@@ -78,6 +78,20 @@
+                 <property name="secondary">True</property>
+               </packing>
+             </child>
++            <child>
++              <object class="GtkButton" id="hstsetdefault">
++                <property name="label">Set As Default</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">4</property>
++                <property name="secondary">True</property>
++              </packing>
++            </child>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+--- a/sc/uiconfig/scalc/ui/pagetemplatedialog.ui
++++ b/sc/uiconfig/scalc/ui/pagetemplatedialog.ui
+@@ -93,6 +93,20 @@
+                 <property name="secondary">True</property>
+               </packing>
+             </child>
++            <child>
++              <object class="GtkButton" id="hstsetdefault">
++                <property name="label">Set As Default</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">5</property>
++                <property name="secondary">True</property>
++              </packing>
++            </child>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -189,6 +189,7 @@
+     sfx2/source/dialog/filedlghelper \
+     sfx2/source/dialog/filtergrouping \
+     sfx2/source/dialog/infobar \
++    sfx2/source/dialog/hstdefaults \
+     sfx2/source/dialog/inputdlg \
+     sfx2/source/dialog/mailmodel \
+     sfx2/source/dialog/bluthsnd \
+--- a/sfx2/UIConfig_sfx.mk
++++ b/sfx2/UIConfig_sfx.mk
+@@ -42,6 +42,7 @@
+ 	sfx2/uiconfig/ui/helpsearchpage \
+ 	sfx2/uiconfig/ui/helpwindow \
+ 	sfx2/uiconfig/ui/hstbackstage \
++	sfx2/uiconfig/ui/hstdefaultscopedialog \
+ 	sfx2/uiconfig/ui/infobar \
+ 	sfx2/uiconfig/ui/inputdialog \
+ 	sfx2/uiconfig/ui/licensedialog \
+--- /dev/null
++++ b/sfx2/source/dialog/hstdefaults.cxx
+@@ -0,0 +1,179 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: shared parts of "Set As Default": the scope question and the per-user default template.
++
++#include <sfx2/hstdefaults.hxx>
++
++#include <com/sun/star/frame/XModel3.hpp>
++#include <com/sun/star/frame/XStorable.hpp>
++#include <comphelper/getexpandeduri.hxx>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <osl/file.hxx>
++#include <sfx2/docfac.hxx>
++#include <sfx2/docfile.hxx>
++#include <sfx2/docfilt.hxx>
++#include <sfx2/fcontnr.hxx>
++#include <sfx2/objsh.hxx>
++#include <svl/itemset.hxx>
++#include <svl/itempool.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <tools/stream.hxx>
++#include <unotools/pathoptions.hxx>
++#include <vcl/vclenum.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/DialogController.hxx>
++#include <vcl/weld/Label.hxx>
++#include <vcl/weld/RadioButton.hxx>
++
++using namespace css;
++
++namespace sfx2::hst
++{
++namespace
++{
++class DefaultScopeDialog : public weld::GenericDialogController
++{
++    std::unique_ptr<weld::Label> m_xQuestion;
++    std::unique_ptr<weld::RadioButton> m_xNewDocs;
++
++public:
++    DefaultScopeDialog(weld::Widget* pParent, const OUString& rQuestion)
++        : GenericDialogController(pParent, u"sfx/ui/hstdefaultscopedialog.ui"_ustr,
++                                  u"HstDefaultScopeDialog"_ustr)
++        , m_xQuestion(m_xBuilder->weld_label(u"question"_ustr))
++        , m_xNewDocs(m_xBuilder->weld_radio_button(u"newdocs"_ustr))
++    {
++        m_xQuestion->set_label(rQuestion);
++    }
++
++    bool NewDocuments() const { return m_xNewDocs->get_active(); }
++};
++
++bool Exists(const OUString& rURL)
++{
++    osl::DirectoryItem aItem;
++    return !rURL.isEmpty() && osl::DirectoryItem::get(rURL, aItem) == osl::FileBase::E_None;
++}
++
++// Loads rURL into rDoc without a frame; the module's filter matcher picks the import filter.
++bool LoadInto(SfxObjectShell& rDoc, const SfxObjectFactory& rFactory, const OUString& rURL)
++{
++    auto pMedium = std::make_unique<SfxMedium>(rURL, StreamMode::READ);
++    std::shared_ptr<const SfxFilter> pFilter;
++    SfxFilterMatcher(rFactory.GetFactoryName()).DetectFilter(*pMedium, pFilter);
++    if (!pFilter)
++    {
++        SAL_WARN("sfx.doc", "HST default template: no filter for " << rURL);
++        return false;
++    }
++    pMedium->SetFilter(pFilter);
++    return rDoc.DoLoad(pMedium.release());
++}
++}
++
++DefaultScope AskDefaultScope(weld::Widget* pParent, const OUString& rQuestion)
++{
++    DefaultScopeDialog aDialog(pParent, rQuestion);
++    if (aDialog.run() != RET_OK)
++        return DefaultScope::Cancel;
++    return aDialog.NewDocuments() ? DefaultScope::NewDocuments : DefaultScope::ThisDocument;
++}
++
++void CopyDefaultValues(const SfxItemSet& rValues, std::span<const sal_uInt16> aWhichIds,
++                       SfxItemSet& rDest)
++{
++    for (const sal_uInt16 nWhich : aWhichIds)
++    {
++        const SfxPoolItem* pItem = nullptr;
++        const SfxItemState eState = rValues.GetItemState(nWhich, true, &pItem);
++        if (eState == SfxItemState::DEFAULT && SfxItemPool::IsWhich(nWhich))
++            pItem = &rValues.Get(nWhich);
++        else if (eState != SfxItemState::SET)
++            pItem = nullptr;
++        // a copy: rDest may outlive the pool of rValues (the default template is another document)
++        if (pItem)
++            rDest.Put(std::unique_ptr<SfxPoolItem>(pItem->Clone()));
++    }
++}
++
++OUString DefaultTemplateURL(const SfxObjectFactory& rFactory)
++{
++    std::shared_ptr<const SfxFilter> pFilter = rFactory.GetTemplateFilter();
++    OUString aExtension = pFilter ? pFilter->GetDefaultExtension() : OUString();
++    aExtension = aExtension.copy(aExtension.lastIndexOf('.') + 1); // "*.ott" -> "ott"
++    if (aExtension.isEmpty() || aExtension.indexOf(';') >= 0)
++        return OUString();
++    return SvtPathOptions().SubstituteVariable(u"$(user)"_ustr) + "/hst/default-templates/"
++           + rFactory.GetFactoryName() + "." + aExtension;
++}
++
++bool UpdateDefaultTemplate(const SfxObjectFactory& rFactory,
++                           const std::function<bool(SfxObjectShell&)>& rApply)
++{
++    const OUString aService = rFactory.GetDocumentServiceName();
++    std::shared_ptr<const SfxFilter> pTemplateFilter = rFactory.GetTemplateFilter();
++    const OUString aTarget = DefaultTemplateURL(rFactory);
++    if (!pTemplateFilter || aTarget.isEmpty())
++        return false;
++
++    const osl::FileBase::RC eDir = osl::Directory::createPath(aTarget.copy(0, aTarget.lastIndexOf('/')));
++    if (eDir != osl::FileBase::E_None && eDir != osl::FileBase::E_EXIST)
++    {
++        SAL_WARN("sfx.doc", "HST default template: cannot create the folder of " << aTarget);
++        return false;
++    }
++
++    // the template new documents start from today: the user's choice, our earlier one, or none
++    OUString aSource = comphelper::getExpandedUri(comphelper::getProcessComponentContext(),
++                                                  SfxObjectFactory::GetStandardTemplate(aService));
++    if (!Exists(aSource))
++        aSource.clear();
++
++    const OUString aTemp = aTarget + ".tmp";
++    {
++        SfxObjectShellLock xDoc = SfxObjectShell::CreateObject(aService, SfxObjectCreateMode::INTERNAL);
++        if (!xDoc.Is())
++            return false;
++        const bool bReady = aSource.isEmpty() ? xDoc->DoInitNew() : LoadInto(*xDoc, rFactory, aSource);
++        if (!bReady || !rApply(*xDoc))
++        {
++            SAL_WARN("sfx.doc", "HST default template: cannot prepare " << aTarget);
++            xDoc->DoClose();
++            return false;
++        }
++        try
++        {
++            uno::Reference<frame::XStorable> xStorable(xDoc->GetModel(), uno::UNO_QUERY_THROW);
++            xStorable->storeToURL(aTemp, { comphelper::makePropertyValue(
++                                             u"FilterName"_ustr, pTemplateFilter->GetFilterName()) });
++        }
++        catch (const uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("sfx.doc", "HST default template: cannot save " << aTemp);
++            xDoc->DoClose();
++            osl::File::remove(aTemp);
++            return false;
++        }
++        // close before replacing: the source may be the target itself
++        xDoc->DoClose();
++    }
++
++    if (osl::File::replace(aTemp, aTarget) != osl::FileBase::E_None)
++    {
++        SAL_WARN("sfx.doc", "HST default template: cannot replace " << aTarget);
++        osl::File::remove(aTemp);
++        return false;
++    }
++    if (aSource != aTarget)
++        SfxObjectFactory::SetStandardTemplate(aService, aTarget);
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/dialog/tabdlg.cxx
++++ b/sfx2/source/dialog/tabdlg.cxx
+@@ -23,6 +23,7 @@
+ #include <string_view>
+ 
+ #include <sfx2/tabdlg.hxx>
++#include <sfx2/hstdefaults.hxx>
+ #include <sfx2/app.hxx>
+ #include <sfx2/sfxresid.hxx>
+ #include <sfx2/sfxdlg.hxx>
+@@ -130,6 +131,7 @@
+     , m_xCancelBtn(m_xBuilder->weld_button(u"cancel"_ustr))
+     , m_xResetBtn(m_xBuilder->weld_button(u"reset"_ustr))
+     , m_xBaseFmtBtn(m_xBuilder->weld_button(u"standard"_ustr))
++    , m_xHstDefaultBtn(m_xBuilder->weld_button(u"hstsetdefault"_ustr))
+     , m_pSet(pItemSet ? new SfxItemSet(*pItemSet) : nullptr)
+     , m_bStandardPushed(false)
+ {
+@@ -154,6 +156,13 @@
+     if (m_xUserBtn)
+         m_xUserBtn->connect_clicked(LINK(this, SfxTabDialogController, UserHdl));
+ 
++    if (m_xHstDefaultBtn)
++    {
++        m_xHstDefaultBtn->set_label(SfxResId(STR_HST_SET_DEFAULT));
++        m_xHstDefaultBtn->set_tooltip_text(SfxResId(STR_HST_SET_DEFAULT_TIP));
++        m_xHstDefaultBtn->connect_clicked(LINK(this, SfxTabDialogController, HstSetDefaultHdl));
++    }
++
+     if (m_pSet)
+     {
+         m_xExampleSet.reset(new SfxItemSet(*m_pSet));
+@@ -180,6 +189,48 @@
+         m_xDialog->response(Ok());
+ }
+ 
++void SfxTabDialogController::HstShowSetDefault(bool bShow, const OUString& rLabel)
++{
++    if (!m_xHstDefaultBtn)
++        return;
++    // a dialog whose pages already use the label's access key passes its own label
++    if (!rLabel.isEmpty())
++        m_xHstDefaultBtn->set_label(rLabel);
++    m_xHstDefaultBtn->set_visible(bShow);
++}
++
++OUString SfxTabDialogController::HstDefaultQuestion(const SfxItemSet&) const { return OUString(); }
++
++bool SfxTabDialogController::HstApplyDefault(const SfxItemSet&, bool) { return false; }
++
++// HST Office "Set As Default": the dialog's settings become the default, then the dialog ends like OK
++IMPL_LINK_NOARG(SfxTabDialogController, HstSetDefaultHdl, weld::Button&, void)
++{
++    if (!m_pSet || !PrepareLeaveCurrentPage())
++        return;
++    // what the dialog shows, without Ok(): some dialogs apply things there (Sheets' print titles)
++    SfxItemSet aValues(m_xExampleSet ? *m_xExampleSet : *m_pSet);
++    if (m_pOutSet)
++        aValues.Put(*m_pOutSet);
++    for (auto const& elem : m_pImpl->aData)
++    {
++        SfxTabPage* pTabPage = elem->xTabPage.get();
++        if (!pTabPage || pTabPage->HasExchangeSupport())
++            continue;
++        SfxItemSet aPage(*m_pSet->GetPool(), m_pSet->GetRanges());
++        if (pTabPage->FillItemSet(&aPage))
++            aValues.Put(aPage);
++    }
++    const OUString aQuestion = HstDefaultQuestion(aValues);
++    if (aQuestion.isEmpty())
++        return;
++    const sfx2::hst::DefaultScope eScope = sfx2::hst::AskDefaultScope(m_xDialog.get(), aQuestion);
++    if (eScope == sfx2::hst::DefaultScope::Cancel)
++        return;
++    if (HstApplyDefault(aValues, eScope == sfx2::hst::DefaultScope::NewDocuments))
++        m_xDialog->response(Ok());
++}
++
+ IMPL_LINK_NOARG(SfxTabDialogController, UserHdl, weld::Button&, void)
+ 
+ /*  [Description]
+--- /dev/null
++++ b/sfx2/uiconfig/ui/hstdefaultscopedialog.ui
+@@ -0,0 +1,128 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- HST Office: "Set As Default" asks whether the settings become the default of this document or of all new documents -->
++<interface domain="sfx">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkDialog" id="HstDefaultScopeDialog">
++    <property name="can-focus">False</property>
++    <property name="border-width">6</property>
++    <property name="title" translatable="yes" context="hstdefaultscopedialog|HstDefaultScopeDialog">Set As Default</property>
++    <property name="resizable">False</property>
++    <property name="modal">True</property>
++    <property name="default-width">0</property>
++    <property name="default-height">0</property>
++    <property name="type-hint">dialog</property>
++    <child internal-child="vbox">
++      <object class="GtkBox" id="dialog-vbox1">
++        <property name="can-focus">False</property>
++        <property name="orientation">vertical</property>
++        <property name="spacing">12</property>
++        <child internal-child="action_area">
++          <object class="GtkButtonBox" id="dialog-action_area1">
++            <property name="can-focus">False</property>
++            <property name="layout-style">end</property>
++            <child>
++              <object class="GtkButton" id="ok">
++                <property name="label" translatable="yes" context="stock">_OK</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="can-default">True</property>
++                <property name="has-default">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="cancel">
++                <property name="label" translatable="yes" context="stock">_Cancel</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="pack-type">end</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++        <child>
++          <!-- n-columns=1 n-rows=3 -->
++          <object class="GtkGrid" id="grid">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="row-spacing">6</property>
++            <child>
++              <object class="GtkLabel" id="question">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label">%QUESTION</property>
++                <property name="wrap">True</property>
++                <property name="max-width-chars">60</property>
++                <property name="xalign">0</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkRadioButton" id="thisdoc">
++                <property name="label" translatable="yes" context="hstdefaultscopedialog|thisdoc">_This document only</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="draw-indicator">True</property>
++                <property name="margin-start">12</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkRadioButton" id="newdocs">
++                <property name="label" translatable="yes" context="hstdefaultscopedialog|newdocs">_All new documents</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="active">True</property>
++                <property name="draw-indicator">True</property>
++                <property name="group">thisdoc</property>
++                <property name="margin-start">12</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">2</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++      </object>
++    </child>
++    <action-widgets>
++      <action-widget response="-5">ok</action-widget>
++      <action-widget response="-6">cancel</action-widget>
++    </action-widgets>
++  </object>
++</interface>
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -621,6 +621,7 @@
+     sw/source/uibase/app/docshini \
+     sw/source/uibase/app/docst \
+     sw/source/uibase/app/docstyle \
++    sw/source/uibase/app/hstsetasdefault \
+     sw/source/uibase/app/mainwn \
+     sw/source/uibase/app/swdll \
+     sw/source/uibase/app/swmodul1 \
+--- a/sw/qa/extras/uiwriter/uiwriter9.cxx
++++ b/sw/qa/extras/uiwriter/uiwriter9.cxx
+@@ -55,6 +55,20 @@
+ #include <txtfrm.hxx>
+ #include <edtwin.hxx>
+ #include <view.hxx>
++#include <hstsetasdefault.hxx>
++#include <svl/itemset.hxx>
++#include <fmtcol.hxx>
++#include <poolfmt.hxx>
++#include <IDocumentStylePoolAccess.hxx>
++#include <sfx2/docfac.hxx>
++#include <sfx2/hstdefaults.hxx>
++#include <editeng/adjustitem.hxx>
++#include <editeng/brushitem.hxx>
++#include <docsh.hxx>
++#include <editeng/fhgtitem.hxx>
++#include <editeng/lspcitem.hxx>
++#include <com/sun/star/style/LineSpacing.hpp>
++#include <com/sun/star/style/ParagraphAdjust.hpp>
+ #include <wrtsh.hxx>
+ #include <unotxdoc.hxx>
+ #include <itabenum.hxx>
+@@ -1978,6 +1992,83 @@
+     CPPUNIT_ASSERT_EQUAL(u"foo"_ustr, (*(rIDMA.getAllMarksBegin()))->GetName().toString());
+ }
+ 
++// HST Office "Set As Default": the Default Paragraph Style takes the dialog's values, undoably, and
++// only the values of the dialog's kind
++CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultThisDocument)
++{
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BEGIN, RES_CHRATR_END - 1, RES_PARATR_BEGIN, RES_PARATR_END - 1>(pDoc->GetAttrPool()));
++    aValues.Put(SvxAdjustItem(SvxAdjust::Block, RES_PARATR_ADJUST));
++    SvxLineSpacingItem aSpacing(LINE_SPACE_DEFAULT_HEIGHT, RES_PARATR_LINESPACING);
++    aSpacing.SetInterLineSpaceRule(SvxInterLineSpaceRule::Prop);
++    aSpacing.SetPropLineSpace(150);
++    aValues.Put(aSpacing);
++    aValues.Put(SvxFontHeightItem(280, 100, RES_CHRATR_FONTSIZE));
++    aValues.Put(SvxBrushItem(COL_YELLOW, RES_CHRATR_HIGHLIGHT));
++
++    sw::hst::ApplyDefaults(*pDoc, sw::hst::DefaultKind::Paragraph, aValues);
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(css::style::ParagraphAdjust_BLOCK),
++                         getProperty<sal_Int16>(getParagraph(1), u"ParaAdjust"_ustr));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(150),
++                         getProperty<css::style::LineSpacing>(getParagraph(1), u"ParaLineSpacing"_ustr).Height);
++    SwTextFormatColl* pStandard
++        = pDoc->getIDocumentStylePoolAccess().GetTextCollFromPool(SwPoolFormatId::COLL_STANDARD);
++    // the font size belongs to the Font dialog, the highlighting to none
++    CPPUNIT_ASSERT(SfxItemState::SET != pStandard->GetAttrSet().GetItemState(RES_CHRATR_FONTSIZE, false));
++    CPPUNIT_ASSERT(SfxItemState::SET != pStandard->GetAttrSet().GetItemState(RES_CHRATR_HIGHLIGHT, false));
++
++    sw::hst::ApplyDefaults(*pDoc, sw::hst::DefaultKind::Character, aValues);
++    CPPUNIT_ASSERT_EQUAL(14.f, getProperty<float>(getParagraph(1), u"CharHeight"_ustr));
++    CPPUNIT_ASSERT(SfxItemState::SET != pStandard->GetAttrSet().GetItemState(RES_CHRATR_HIGHLIGHT, false));
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT(sal_Int16(css::style::ParagraphAdjust_BLOCK)
++                   != getProperty<sal_Int16>(getParagraph(1), u"ParaAdjust"_ustr));
++    CPPUNIT_ASSERT(14.f != getProperty<float>(getParagraph(1), u"CharHeight"_ustr));
++}
++
++// HST Office "Set As Default" for all new documents: a per-user default template, updated by later changes
++CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultNewDocuments)
++{
++    const OUString aService = u"com.sun.star.text.TextDocument"_ustr;
++    comphelper::ScopeGuard aReset([&aService] { SfxObjectFactory::SetStandardTemplate(aService, OUString()); });
++    SfxObjectFactory::SetStandardTemplate(aService, OUString());
++
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BEGIN, RES_CHRATR_END - 1, RES_PARATR_BEGIN, RES_PARATR_END - 1>(pDoc->GetAttrPool()));
++    aValues.Put(SvxAdjustItem(SvxAdjust::Block, RES_PARATR_ADJUST));
++    sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Paragraph, aValues, true);
++    CPPUNIT_ASSERT_EQUAL(sfx2::hst::DefaultTemplateURL(SwDocShell::Factory()),
++                         SfxObjectFactory::GetStandardTemplate(aService));
++
++    // a new document starts with it; a second default keeps the first one
++    dispose();
++    createSwDoc();
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(css::style::ParagraphAdjust_BLOCK),
++                         getProperty<sal_Int16>(getParagraph(1), u"ParaAdjust"_ustr));
++    pDoc = getSwDoc();
++    SfxItemSet aFont(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BEGIN, RES_CHRATR_END - 1>(pDoc->GetAttrPool()));
++    aFont.Put(SvxFontHeightItem(260, 100, RES_CHRATR_FONTSIZE));
++    sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Character, aFont, true);
++
++    dispose();
++    createSwDoc();
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(css::style::ParagraphAdjust_BLOCK),
++                         getProperty<sal_Int16>(getParagraph(1), u"ParaAdjust"_ustr));
++    CPPUNIT_ASSERT_EQUAL(13.f, getProperty<float>(getParagraph(1), u"CharHeight"_ustr));
++
++    // "this document only" leaves new documents alone
++    aFont.Put(SvxFontHeightItem(320, 100, RES_CHRATR_FONTSIZE));
++    sw::hst::SetAsDefault(nullptr, *getSwDoc()->GetDocShell(), sw::hst::DefaultKind::Character, aFont,
++                          false);
++    dispose();
++    createSwDoc();
++    CPPUNIT_ASSERT_EQUAL(13.f, getProperty<float>(getParagraph(1), u"CharHeight"_ustr));
++}
++
+ } // end of anonymous namespace
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+--- a/sw/source/ui/chrdlg/chardlg.cxx
++++ b/sw/source/ui/chrdlg/chardlg.cxx
+@@ -28,6 +28,11 @@
+ 
+ #include <strings.hrc>
+ #include <chrdlgmodes.hxx>
++#include <hstsetasdefault.hxx>
++#include <sfx2/htmlmode.hxx>
++#include <viewopt.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/strings.hrc>
+ #include <sfx2/filedlghelper.hxx>
+ 
+ #include <svx/svxdlg.hxx>
+@@ -84,12 +89,29 @@
+ 
+     if (m_nDialogMode != SwCharDlgMode::Std)
+         RemoveTabPage(u"borders"_ustr);
++
++    // HST: Set As Default for text in a Writer document, not for styles, drawings, comments or HTML
++    HstShowSetDefault(m_nDialogMode == SwCharDlgMode::Std && !pStr
++                      && !(::GetHtmlMode(rView.GetDocShell()) & HTMLMODE_ON),
++                      SfxResId(STR_HST_SET_DEFAULT_FONT));
+ }
+ 
+ SwCharDlg::~SwCharDlg()
+ {
+ }
+ 
++OUString SwCharDlg::HstDefaultQuestion(const SfxItemSet& rValues) const
++{
++    return sw::hst::DefaultQuestion(sw::hst::DefaultKind::Character, rValues);
++}
++
++bool SwCharDlg::HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments)
++{
++    sw::hst::SetAsDefault(m_xDialog.get(), *m_rView.GetDocShell(), sw::hst::DefaultKind::Character,
++                          rValues, bNewDocuments);
++    return true;
++}
++
+ // set FontList
+ void SwCharDlg::PageCreated(const OUString& rId, SfxTabPage &rPage)
+ {
+--- a/sw/source/ui/chrdlg/pardlg.cxx
++++ b/sw/source/ui/chrdlg/pardlg.cxx
+@@ -25,6 +25,7 @@
+ #include <wrtsh.hxx>
+ #include <view.hxx>
+ #include <swuipardlg.hxx>
++#include <hstsetasdefault.hxx>
+ #include <pardlg.hxx>
+ #include <drpcps.hxx>
+ #include <viewopt.hxx>
+@@ -162,12 +163,27 @@
+ 
+     if (!sDefPage.isEmpty())
+         SetCurPageId(sDefPage);
++
++    // HST: Set As Default for paragraphs of a Writer document, not for styles, text boxes or HTML
++    HstShowSetDefault(!pTitle && !bDraw && !bHtmlMode);
+ }
+ 
+ SwParaDlg::~SwParaDlg()
+ {
+ }
+ 
++OUString SwParaDlg::HstDefaultQuestion(const SfxItemSet& rValues) const
++{
++    return sw::hst::DefaultQuestion(sw::hst::DefaultKind::Paragraph, rValues);
++}
++
++bool SwParaDlg::HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments)
++{
++    sw::hst::SetAsDefault(m_xDialog.get(), *m_rView.GetDocShell(), sw::hst::DefaultKind::Paragraph,
++                          rValues, bNewDocuments);
++    return true;
++}
++
+ void SwParaDlg::PageCreated(const OUString& rId, SfxTabPage& rPage)
+ {
+     SwWrtShell& rSh = m_rView.GetWrtShell();
+--- a/sw/source/ui/fmtui/tmpdlg.cxx
++++ b/sw/source/ui/fmtui/tmpdlg.cxx
+@@ -37,6 +37,9 @@
+ #include <pgfnote.hxx>
+ #include <pggrid.hxx>
+ #include <tmpdlg.hxx>
++#include <docsh.hxx>
++#include <hstsetasdefault.hxx>
++#include <vcl/weld/Dialog.hxx>
+ #include <column.hxx>
+ #include <drpcps.hxx>
+ #include <frmpage.hxx>
+@@ -92,6 +95,9 @@
+     GetResetButton()->set_tooltip_text(SwResId(STR_RESET_TOOLTIP));
+     GetResetButton()->set_accessible_description(SwResId(STR_RESET_EXTENDEDTIP));
+ 
++    // HST: Page Setup offers Set As Default (existing page styles, not in HTML documents)
++    HstShowSetDefault(nRegion == SfxStyleFamily::Page && !bNew && !(m_nHtmlMode & HTMLMODE_ON));
++
+     // stitch TabPages together
+     switch( nRegion )
+     {
+@@ -574,4 +580,18 @@
+     }
+ }
+ 
++OUString SwTemplateDlgController::HstDefaultQuestion(const SfxItemSet& rValues) const
++{
++    return sw::hst::DefaultQuestion(sw::hst::DefaultKind::Page, rValues);
++}
++
++bool SwTemplateDlgController::HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments)
++{
++    if (!m_pWrtShell || !m_pWrtShell->GetView().GetDocShell())
++        return false;
++    sw::hst::SetAsDefault(m_xDialog.get(), *m_pWrtShell->GetView().GetDocShell(),
++                          sw::hst::DefaultKind::Page, rValues, bNewDocuments);
++    return true;
++}
++
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/uibase/app/hstsetasdefault.cxx
+@@ -0,0 +1,156 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: "Set As Default" in Writer. The Default Paragraph Style (Word's Normal) and the Default Page
++// Style take the dialog's values; for all new documents the same change goes into the default template.
++
++#include <hstsetasdefault.hxx>
++
++#include <IDocumentStylePoolAccess.hxx>
++#include <doc.hxx>
++#include <docsh.hxx>
++#include <fmtcol.hxx>
++#include <hintids.hxx>
++#include <pagedesc.hxx>
++#include <poolfmt.hxx>
++#include <uitool.hxx>
++
++#include <editeng/fhgtitem.hxx>
++#include <editeng/fontitem.hxx>
++#include <sfx2/hstdefaults.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/strings.hrc>
++#include <svl/itemset.hxx>
++#include <svx/svxids.hrc>
++#include <unotools/localedatawrapper.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/vclenum.hxx>
++#include <vcl/weld/MessageDialog.hxx>
++
++namespace sw::hst
++{
++namespace
++{
++// What the Font dialog shows, without highlighting, shading, borders, hidden text and bookkeeping items.
++constexpr sal_uInt16 aCharacterIds[] = {
++    RES_CHRATR_FONT,         RES_CHRATR_FONTSIZE,     RES_CHRATR_WEIGHT,      RES_CHRATR_POSTURE,
++    RES_CHRATR_LANGUAGE,     RES_CHRATR_CJK_FONT,     RES_CHRATR_CJK_FONTSIZE, RES_CHRATR_CJK_WEIGHT,
++    RES_CHRATR_CJK_POSTURE,  RES_CHRATR_CJK_LANGUAGE, RES_CHRATR_CTL_FONT,    RES_CHRATR_CTL_FONTSIZE,
++    RES_CHRATR_CTL_WEIGHT,   RES_CHRATR_CTL_POSTURE,  RES_CHRATR_CTL_LANGUAGE, RES_CHRATR_COLOR,
++    RES_CHRATR_UNDERLINE,    RES_CHRATR_OVERLINE,     RES_CHRATR_CROSSEDOUT,  RES_CHRATR_WORDLINEMODE,
++    RES_CHRATR_CASEMAP,      RES_CHRATR_RELIEF,       RES_CHRATR_CONTOUR,     RES_CHRATR_SHADOWED,
++    RES_CHRATR_EMPHASIS_MARK, RES_CHRATR_ESCAPEMENT,  RES_CHRATR_KERNING,     RES_CHRATR_AUTOKERN,
++    RES_CHRATR_SCALEW,       RES_CHRATR_ROTATE
++};
++
++// Indents and Spacing, Line and Page Breaks (without the breaks themselves) and Tabs.
++constexpr sal_uInt16 aParagraphIds[]
++    = { RES_PARATR_ADJUST,  RES_PARATR_LINESPACING, RES_MARGIN_FIRSTLINE, RES_MARGIN_TEXTLEFT,
++        RES_MARGIN_RIGHT,   RES_UL_SPACE,           RES_PARATR_SPLIT,     RES_PARATR_WIDOWS,
++        RES_PARATR_ORPHANS, RES_KEEP,               RES_PARATR_HYPHENZONE, RES_PARATR_TABSTOP };
++
++// Margins (with the gutter), Paper and orientation (the page item also carries layout and numbering).
++constexpr sal_uInt16 aPageIds[] = { SID_ATTR_PAGE, SID_ATTR_PAGE_SIZE, RES_LR_SPACE, RES_UL_SPACE };
++
++std::span<const sal_uInt16> WhichIds(DefaultKind eKind)
++{
++    switch (eKind)
++    {
++        case DefaultKind::Character:
++            return aCharacterIds;
++        case DefaultKind::Paragraph:
++            return aParagraphIds;
++        case DefaultKind::Page:
++            break;
++    }
++    return aPageIds;
++}
++
++// "Times New Roman, 13 pt"; parts the selection mixes are left out
++OUString FontDescription(const SfxItemSet& rValues)
++{
++    OUString aText;
++    if (const SvxFontItem* pFont = rValues.GetItemIfSet(RES_CHRATR_FONT))
++        aText = pFont->GetFamilyName();
++    if (rValues.GetItemState(RES_CHRATR_FONTSIZE) >= SfxItemState::DEFAULT)
++    {
++        const sal_uInt32 nTwips = rValues.Get(RES_CHRATR_FONTSIZE).GetHeight();
++        const OUString aSize = Application::GetSettings().GetUILocaleDataWrapper().getNum(
++                                   nTwips / 2, 1, false, false) // tenths of a point
++                               + " pt";
++        aText = aText.isEmpty() ? aSize : aText + ", " + aSize;
++    }
++    return aText.isEmpty() ? u"…"_ustr : aText;
++}
++}
++
++OUString DefaultQuestion(DefaultKind eKind, const SfxItemSet& rValues)
++{
++    switch (eKind)
++    {
++        case DefaultKind::Character:
++            return SfxResId(STR_HST_DEFAULT_FONT).replaceFirst("%FONT", FontDescription(rValues));
++        case DefaultKind::Paragraph:
++            return SfxResId(STR_HST_DEFAULT_PARAGRAPH);
++        case DefaultKind::Page:
++            break;
++    }
++    return SfxResId(STR_HST_DEFAULT_PAGE);
++}
++
++void ApplyDefaults(SwDoc& rDoc, DefaultKind eKind, const SfxItemSet& rValues)
++{
++    // the items are copied into this document's pool: rValues may come from another document
++    SfxAllItemSet aDefaults(rDoc.GetAttrPool());
++    sfx2::hst::CopyDefaultValues(rValues, WhichIds(eKind), aDefaults);
++    if (!aDefaults.Count())
++        return;
++
++    IDocumentStylePoolAccess& rPool = rDoc.getIDocumentStylePoolAccess();
++    if (eKind != DefaultKind::Page)
++    {
++        // Word's Normal: every other paragraph style inherits from it unless it sets the value itself
++        if (SwTextFormatColl* pStandard = rPool.GetTextCollFromPool(SwPoolFormatId::COLL_STANDARD))
++            rDoc.ChgFormat(*pStandard, aDefaults);
++        return;
++    }
++
++    const SwPageDesc* pStandard = rPool.GetPageDescFromPool(SwPoolFormatId::PAGE_STANDARD);
++    size_t nPos = 0;
++    if (!pStandard || !rDoc.FindPageDesc(pStandard->GetName(), &nPos))
++        return;
++    SwPageDesc aDesc(*pStandard);
++    ItemSetToPageDesc(aDefaults, aDesc);
++    rDoc.ChgPageDesc(nPos, aDesc);
++}
++
++void SetAsDefault(weld::Widget* pParent, SwDocShell& rDocShell, DefaultKind eKind,
++                  const SfxItemSet& rValues, bool bNewDocuments)
++{
++    if (SwDoc* pDoc = rDocShell.GetDoc())
++        ApplyDefaults(*pDoc, eKind, rValues);
++    if (!bNewDocuments)
++        return;
++
++    const bool bSaved = sfx2::hst::UpdateDefaultTemplate(
++        SwDocShell::Factory(), [eKind, &rValues](SfxObjectShell& rTemplate) {
++            auto* pTemplate = dynamic_cast<SwDocShell*>(&rTemplate);
++            if (!pTemplate || !pTemplate->GetDoc())
++                return false;
++            ApplyDefaults(*pTemplate->GetDoc(), eKind, rValues);
++            return true;
++        });
++    if (bSaved)
++        return;
++    std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
++        pParent, VclMessageType::Warning, VclButtonsType::Ok, SfxResId(STR_HST_DEFAULT_FAILED)));
++    xBox->run();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/inc/chrdlg.hxx
++++ b/sw/source/uibase/inc/chrdlg.hxx
+@@ -37,6 +37,10 @@
+     virtual ~SwCharDlg() override;
+ 
+     virtual void PageCreated(const OUString& rId, SfxTabPage &rPage) override;
++
++    // HST Office "Set As Default" (sfx2/hstdefaults.hxx)
++    virtual OUString HstDefaultQuestion(const SfxItemSet& rValues) const override;
++    virtual bool HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments) override;
+ };
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/uibase/inc/hstsetasdefault.hxx
+@@ -0,0 +1,42 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: "Set As Default" in Writer's Font, Paragraph and Page Setup dialogs.
++
++#pragma once
++
++#include <swdllapi.h>
++#include <rtl/ustring.hxx>
++
++class SfxItemSet;
++class SwDoc;
++class SwDocShell;
++namespace weld { class Widget; }
++
++namespace sw::hst
++{
++enum class DefaultKind
++{
++    Character, ///< font and font effects: the Default Paragraph Style
++    Paragraph, ///< alignment, indents, spacing, line spacing, breaks, tabs: the Default Paragraph Style
++    Page ///< paper size, orientation, margins: the Default Page Style
++};
++
++/// The question "Set As Default" asks for these dialog values (the font is named for Character).
++SW_DLLPUBLIC OUString DefaultQuestion(DefaultKind eKind, const SfxItemSet& rValues);
++
++/// Puts the values of eKind from a dialog's settings into the base style of rDoc (undoable).
++SW_DLLPUBLIC void ApplyDefaults(SwDoc& rDoc, DefaultKind eKind, const SfxItemSet& rValues);
++
++/** "Set As Default": changes this document and, with bNewDocuments, the default template of new Writer
++    documents too. A failure to save the template is reported to the user (pParent); this document stays
++    changed then. */
++SW_DLLPUBLIC void SetAsDefault(weld::Widget* pParent, SwDocShell& rDocShell, DefaultKind eKind,
++                               const SfxItemSet& rValues, bool bNewDocuments);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/inc/swuipardlg.hxx
++++ b/sw/source/uibase/inc/swuipardlg.hxx
+@@ -30,6 +30,10 @@
+ 
+     void PageCreated(const OUString& rId, SfxTabPage& rPage) override;
+ 
++    // HST Office "Set As Default" (sfx2/hstdefaults.hxx)
++    virtual OUString HstDefaultQuestion(const SfxItemSet& rValues) const override;
++    virtual bool HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments) override;
++
+ public:
+     SwParaDlg(weld::Window *pParent,
+               SwView& rVw,
+--- a/sw/source/uibase/inc/tmpdlg.hxx
++++ b/sw/source/uibase/inc/tmpdlg.hxx
+@@ -47,6 +47,10 @@
+ 
+     virtual void PageCreated(const OUString& rId, SfxTabPage &rPage) override;
+     virtual short Ok() override;
++
++    // HST Office "Set As Default" (sfx2/hstdefaults.hxx)
++    virtual OUString HstDefaultQuestion(const SfxItemSet& rValues) const override;
++    virtual bool HstApplyDefault(const SfxItemSet& rValues, bool bNewDocuments) override;
+ };
+ 
+ #endif
+--- a/sw/uiconfig/swriter/ui/characterproperties.ui
++++ b/sw/uiconfig/swriter/ui/characterproperties.ui
+@@ -99,6 +99,20 @@
+                 <property name="secondary">True</property>
+               </packing>
+             </child>
++            <child>
++              <object class="GtkButton" id="hstsetdefault">
++                <property name="label">Set As Default</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">5</property>
++                <property name="secondary">True</property>
++              </packing>
++            </child>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+--- a/sw/uiconfig/swriter/ui/paradialog.ui
++++ b/sw/uiconfig/swriter/ui/paradialog.ui
+@@ -99,6 +99,20 @@
+                 <property name="secondary">True</property>
+               </packing>
+             </child>
++            <child>
++              <object class="GtkButton" id="hstsetdefault">
++                <property name="label">Set As Default</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">5</property>
++                <property name="secondary">True</property>
++              </packing>
++            </child>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+--- a/sw/uiconfig/swriter/ui/templatedialog8.ui
++++ b/sw/uiconfig/swriter/ui/templatedialog8.ui
+@@ -108,6 +108,20 @@
+                 <property name="position">5</property>
+               </packing>
+             </child>
++            <child>
++              <object class="GtkButton" id="hstsetdefault">
++                <property name="label">Set As Default</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="use-underline">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">6</property>
++                <property name="secondary">True</property>
++              </packing>
++            </child>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -6580,6 +6580,78 @@
+ msgid "Can't find a command? Type its name here; accents are optional."
+ msgstr "Không thấy lệnh? Gõ tên lệnh ở đây, không cần dấu."
+ 
++#. hstSD01
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_SET_DEFAULT"
++msgid "Set As ~Default"
++msgstr "Đặt làm mặc định (~D)"
++
++#. hstSD02
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_SET_DEFAULT_FONT"
++msgid "Set ~As Default"
++msgstr "Đặt làm mặc định (~A)"
++
++#. hstSD03
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_SET_DEFAULT_CELLS"
++msgid "Set As Default"
++msgstr "Đặt làm mặc định"
++
++#. hstSD04
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_SET_DEFAULT_TIP"
++msgid "Use these settings as the default for this document or for all new documents."
++msgstr "Dùng các thiết lập này làm mặc định cho tài liệu này hoặc cho mọi tài liệu mới."
++
++#. hstSD05
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_DEFAULT_FONT"
++msgid "Do you want to set the default font to %FONT for:"
++msgstr "Bạn có muốn đặt phông chữ mặc định là %FONT cho:"
++
++#. hstSD06
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_DEFAULT_PARAGRAPH"
++msgid "Do you want to set the default alignment, indentation and spacing of paragraphs for:"
++msgstr "Bạn có muốn đặt căn lề, thụt lề và giãn cách mặc định của đoạn văn cho:"
++
++#. hstSD07
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_DEFAULT_PAGE"
++msgid "Do you want to set the default paper size, orientation and margins for:"
++msgstr "Bạn có muốn đặt khổ giấy, hướng giấy và lề mặc định cho:"
++
++#. hstSD08
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_DEFAULT_CELL"
++msgid "Do you want to set the default font and alignment of cells for:"
++msgstr "Bạn có muốn đặt phông chữ và căn lề mặc định của ô cho:"
++
++#. hstSD09
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_DEFAULT_FAILED"
++msgid "The default for new documents could not be saved. This document was changed."
++msgstr "Không lưu được thiết lập mặc định cho tài liệu mới. Tài liệu này đã được thay đổi."
++
++#. hstSD10
++#: sfx2/uiconfig/ui/hstdefaultscopedialog.ui
++msgctxt "hstdefaultscopedialog|HstDefaultScopeDialog"
++msgid "Set As Default"
++msgstr "Đặt làm mặc định"
++
++#. hstSD11
++#: sfx2/uiconfig/ui/hstdefaultscopedialog.ui
++msgctxt "hstdefaultscopedialog|thisdoc"
++msgid "_This document only"
++msgstr "Chỉ _tài liệu này"
++
++#. hstSD12
++#: sfx2/uiconfig/ui/hstdefaultscopedialog.ui
++msgctxt "hstdefaultscopedialog|newdocs"
++msgid "_All new documents"
++msgstr "Mọi tài liệu mới (_A)"
++
+ #. 5BdCA
+ #: sfx2/uiconfig/ui/versionsofdialog.ui:364
+ msgctxt "versionsofdialog|extended_tip|VersionsOfDialog"
