@@ -25,6 +25,8 @@ document on the right with page navigation and zoom (10–400 % of the real size
   left-column item runs .uno:Print so the job comes back the same way. Leaving the page or closing the panel cancels
   the job; Ctrl+P inside the panel shows the page. The earlier "Print…" and "Print Preview" buttons of the page are
   hidden; "In hai mặt" (Writer) stays. The panel's size and place are BackstageWindow::GetPlacement's.
+- solenv/sanitizers/ui/vcl.suppr: the print dialog's accessibility suppressions repeated for its panel copy, plus
+  the zoom percentage label.
 - Strings: vcl hstprintpanel.ui and sfx2 hstbackstage.ui "printwait"; Vietnamese in vcl/sfx2 messages.po (labels
   without an ellipsis, as the HST dialogs).
 
@@ -3581,3 +3583,17 @@ index 0000000..def3a5b
 +  <object class="GtkSizeGroup" id="sizegroupLabel" />
 +  <object class="GtkSizeGroup" id="sizegroupLabel2" />
 +</interface>
+diff --git a/solenv/sanitizers/ui/vcl.suppr b/solenv/sanitizers/ui/vcl.suppr
+index cc133ea..57d3e7b 100644
+--- a/solenv/sanitizers/ui/vcl.suppr
++++ b/solenv/sanitizers/ui/vcl.suppr
+@@ -32,3 +32,9 @@ vcl/qa/cppunit/builder/demo.ui://GtkLabel[@id='label36'] orphan-label
+ vcl/qa/cppunit/builder/demo.ui://GtkLabel[@id='label37'] orphan-label
+ vcl/qa/cppunit/builder/demo.ui://GtkLabel[@id='label38'] orphan-label
+ vcl/qa/cppunit/builder/demo.ui://GtkLabel[@id='label39'] orphan-label
++vcl/uiconfig/ui/hstprintpanel.ui://GtkLabel[@id='totalnumpages'] orphan-label
++vcl/uiconfig/ui/hstprintpanel.ui://GtkImage[@id='collateimage'] no-labelled-by
++vcl/uiconfig/ui/hstprintpanel.ui://GtkLabel[@id='pagemargintxt2'] orphan-label
++vcl/uiconfig/ui/hstprintpanel.ui://GtkLabel[@id='sheetmargintxt2'] orphan-label
++vcl/uiconfig/ui/hstprintpanel.ui://GtkComboBoxText[@id='scriptdirection'] no-labelled-by
++vcl/uiconfig/ui/hstprintpanel.ui://GtkLabel[@id='zoomtext'] orphan-label
