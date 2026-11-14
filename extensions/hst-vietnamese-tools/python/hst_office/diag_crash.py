@@ -29,7 +29,7 @@ import stat
 import sys
 import time
 
-from . import crash_signature, diag_log, windows_fault_note, session_facts
+from . import crash_signature, diag_log, windows_fault_note, session_facts, system_boot
 
 MARKER = "session.json"
 STDERR_NAME = "last-session.err"
@@ -72,9 +72,10 @@ def _beat_fields(marker):
     return {name: marker[name] for name in ("beat", "apps", "active", "modified", "loading") if name in marker}
 
 
-def previous_session(system=None, marker=None, stderr_text=None, now=None, note_text=None):
-    """{"ended": "crash"|"hang"|"not closed", "started", "signature", "hang", "version", and the last heartbeat's
-    "beat", "apps", "active", "modified", "loading" when recorded} of an unclosed previous session, else None."""
+def previous_session(system=None, marker=None, stderr_text=None, now=None, note_text=None, boot=None):
+    """{"ended": "crash"|"hang"|"not closed", "started", "signature", "hang", "version", "boot", "system"
+    (system_boot.since), and the last heartbeat's "beat", "apps", "active", "modified", "loading" when recorded} of
+    an unclosed previous session, else None."""
     system = system or platform.system()
     marker = read_marker(_path(MARKER)) if marker is None else marker
     if not marker:
@@ -94,8 +95,10 @@ def previous_session(system=None, marker=None, stderr_text=None, now=None, note_
         signature = ""
     hang = crash_signature.windows_hang(started, pid=pid) if system == "Windows" and not signature else None
     ended = "crash" if signature else "hang" if hang else "not closed"
-    return dict(_beat_fields(marker), ended=ended, started=started, signature=signature, hang=hang,
-                version=marker.get("version", ""))
+    boot = system_boot.boot_time(system) if boot is None else boot
+    found = dict(_beat_fields(marker), ended=ended, started=started, signature=signature, hang=hang,
+                 version=marker.get("version", ""), boot=boot)
+    return dict(found, system=system_boot.since(found, boot))
 
 
 def _read_stderr():
@@ -179,4 +182,4 @@ def facts(previous):
         lines.append("Hang: %s" % previous["hang"]["text"])
     else:
         lines.append("Crash signature: none recorded by the office or the system")
-    return lines + session_facts.beat_facts(previous)
+    return lines + session_facts.beat_facts(previous) + system_boot.facts(previous)
