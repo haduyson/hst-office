@@ -36,6 +36,16 @@ def rows(controls):
     return [sorted(row, key=lambda c: c["x"]) for _, _, row in result]
 
 
+def row_spread(layout):
+    """Difference in px between the right ends of the toolbar rows (0 for one row), the menu button aside (it
+    stands across both rows at the right end): the rows are balanced when it is at most ROW_SPREAD."""
+    ends = [max(c["x"] + c["w"] for c in row) for row in rows([c for c in parse(layout) if c["id"] != "menu"])]
+    return max(ends) - min(ends) if ends else 0
+
+
+ROW_SPREAD = 8
+
+
 def _gap_ghost_columns(luma, left, right, top, bottom):
     """Columns in [left, right) x [top, bottom) whose pixels differ from the gap's median luma in 30% of the rows."""
     if right - left < 1 or bottom - top < 1:

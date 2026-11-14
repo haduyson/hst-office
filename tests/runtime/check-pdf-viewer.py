@@ -10,7 +10,7 @@ opens them as a user would (loadComponentFromURL, visible), and asserts:
   - signing through the real certificate chooser and PIN prompt with the SoftHSM2 token of
     signature_pki (private key only on the token), a visible signature box, "save a copy"
     (the original stays byte-identical), the viewer validating the signature and pdfsig;
-  - Options "Open PDF files in HST PDF" off, hidden loads and "Edit in HST Draw" use Draw;
+  - Options "Open PDF files in HST PDF" off, hidden loads and "Edit PDF File" (Sửa tệp PDF) use Draw;
   - red stays red (PDFium page bitmaps are BGRx): pure red text, a scanned JPG stamp and a PNG
     stamp with alpha in a .docx exported to PDF, and a fully scanned page. The page bitmap that
     the screen, the thumbnails and printing use (HSTPdfInfo RenderRedPixels/RenderBluePixels) and
