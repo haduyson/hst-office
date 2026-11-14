@@ -12,6 +12,10 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
   command run from it closes it. Ctrl+F1, the quick row's ˅ chevron or a double-click on a tab restore
   the full ribbon, as does the ≡ menu's "Collapse the Ribbon / Show the Full Ribbon (Ctrl+F1)" entry. Each
   app remembers its state (HSTRibbon/CompactApps).
+- The tab control's page rectangle stops before the banner (TabControl::ImplHstPageReserve,
+  NotebookbarTabControlBase::HstSetPageReserve), set before each allocation: a page is never laid out at
+  the full width first and then narrowed after a posted event, which showed the groups in a wider state for
+  a moment on tab and document switches. A page shown in the popup is left to the popup.
 - framework DocumentTabBar: 32 px high (G13), at least the text height and its padding.
 - Strings: STR_HST_RIBBON_COLLAPSE / STR_HST_RIBBON_EXPAND with their Vietnamese translation.
 
@@ -50,7 +54,16 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
  #define STR_FILTER_CONSULT_SERVICE              NC_("STR_FILTER_CONSULT_SERVICE", "The selected filter $(FILTER) is not included in your edition.\nYou can find information about orders on our homepage.")
 --- a/include/vcl/tabctrl.hxx
 +++ b/include/vcl/tabctrl.hxx
-@@ -189,6 +189,18 @@
+@@ -80,6 +80,8 @@
+     virtual const vcl::Font&    GetCanonicalFont( const StyleSettings& _rStyle ) const override;
+     virtual const Color&        GetCanonicalTextColor( const StyleSettings& _rStyle ) const override;
+     virtual bool                ImplPlaceTabs( tools::Long nWidth );
++    /// HST Office: px kept free at the right end of the page rectangle (the ribbon's banner beside the page)
++    virtual tools::Long         ImplHstPageReserve() const { return 0; }
+     SAL_DLLPRIVATE Size ImplCalculateRequisition(sal_uInt16& nHeaderHeight) const;
+ 
+ public:
+@@ -189,6 +191,22 @@
      void SetToolBox( ToolBox* pToolBox );
      ToolBox* GetToolBox() { return m_pShortcuts; }
      Control* GetOpenMenu();
@@ -64,16 +77,22 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +    /// high as the full ribbon's pages, over the document; Esc, a click outside or a command closes it and the
 +    /// page returns, hidden, to the tab control. False when there is no page to show.
 +    bool HstDropPage( tools::Long nWidth );
++    /// HST Office: the page rectangle stops nWidth px before the right end (the banner beside the groups), so
++    /// every allocation of a page (tab switch, resize, show) already has its final width: the groups never
++    /// lay out at the full width first
++    void HstSetPageReserve( tools::Long nWidth );
 +    void HstCloseDrop();
 +    bool HstIsDropped() const;
  
      virtual Size        calculateRequisition() const override;
  
-@@ -204,6 +216,8 @@
+@@ -204,6 +222,10 @@
      static sal_uInt16 m_nHeaderHeight;
      VclPtr<ToolBox> m_pShortcuts;
      VclPtr<PushButton> m_pOpenMenu;
 +    tools::Long m_nHstRowReserve = 0;
++    tools::Long m_nHstPageReserve = 0;
++    virtual tools::Long ImplHstPageReserve() const override { return m_nHstPageReserve; }
 +    VclPtr<vcl::Window> m_xHstDrop; // the popup of HstDropPage (vcl/source/control/HstRibbonDrop.cxx)
      DECL_DLLPRIVATE_LINK(OpenMenu, Button*, void);
  };
@@ -811,21 +830,27 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +                                                   HstRibbonCompact::QuickHeight(nHeader, fDpi))),
 +                             tools::Rectangle());
 +    }
-+    else if (pPage && pPage->IsVisible())
++    else if (pPage && pPage->GetSizePixel().Height() > 0)
      {
          const double fDpi = GetDPIScaleFactor();
          const Point aPos = pPage->GetPosPixel();
-@@ -557,6 +599,9 @@
+@@ -555,8 +597,13 @@
+         }
+         else
              m_pHstBanner->Place(tools::Rectangle());
-         if (nPageWidth > 0 && pPage->GetSizePixel().Width() != nPageWidth)
-             pPage->SetPosSizePixel(aPos, Size(nPageWidth, aPage.h));
+-        if (nPageWidth > 0 && pPage->GetSizePixel().Width() != nPageWidth)
+-            pPage->SetPosSizePixel(aPos, Size(nPageWidth, aPage.h));
++        // the page rectangle itself stops before the banner, so the tab control never allocates a page at
++        // the full width first (that showed the groups at a wrong, wider state for a moment on every tab and
++        // document switch)
++        HstSetPageReserve(nPageWidth > 0 ? aPage.w - nPageWidth : 0);
 +        HstSetRowReserve(0);
 +        if (m_pHstCompact)
 +            m_pHstCompact->Place(tools::Rectangle(), tools::Rectangle(aPos, Size(nPageWidth, aPage.h)));
      }
      else
          m_pHstBanner->Place(tools::Rectangle());
-@@ -570,6 +615,15 @@
+@@ -570,6 +617,15 @@
      // the page only after it has finished.
      const VclEventId nId = rEvent.GetId();
      vcl::Window* pWindow = rEvent.GetWindow();
@@ -841,7 +866,12 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
      if ((nId == VclEventId::WindowResize || nId == VclEventId::WindowShow) && pWindow
          && pWindow->GetParent() == this && dynamic_cast<TabPage*>(pWindow) && !m_pHstLayoutEvent)
          m_pHstLayoutEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstDeferredLayoutHdl));
-@@ -587,6 +641,111 @@
+@@ -583,10 +639,116 @@
+ 
+ void NotebookbarTabControl::Resize()
+ {
++    HstLayoutBanner(); // the page reserve for the new width first: the base then allocates the final width
+     NotebookbarTabControlBase::Resize();
      HstLayoutBanner();
  }
  
@@ -953,7 +983,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
  void NotebookbarTabControl::ArrowStops( sal_uInt16 nCode )
  {
      ToolBox* pToolBox( GetToolBox() );
-@@ -802,16 +961,25 @@
+@@ -802,16 +964,25 @@
          return;
  
      xPopupController->setPopupMenu(xPopupMenu);
@@ -982,7 +1012,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
  }
  
  Size NotebookbarTabControl::calculateRequisition() const
-@@ -833,6 +1001,8 @@
+@@ -833,6 +1004,8 @@
  
      if (aSize.Width() < 400)
          aSize.setWidth( 400 );
@@ -1174,7 +1204,26 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/control/tabctrl.cxx
 +++ b/vcl/source/control/tabctrl.cxx
-@@ -2488,6 +2488,7 @@
+@@ -587,7 +587,7 @@
+         // from the top of the TabControl
+         tools::Long nTabBottom = mbShowTabs ? aRect.Bottom() : 0;
+ 
+-        tools::Long nW = nWidth-TAB_OFFSET*2;
++        tools::Long nW = nWidth-TAB_OFFSET*2 - ImplHstPageReserve();
+         tools::Long nH = nHeight - nTabBottom - TAB_OFFSET*2;
+         return (nW > 0 && nH > 0)
+             ? tools::Rectangle( Point( TAB_OFFSET, nTabBottom + TAB_OFFSET ), Size( nW, nH ) )
+@@ -720,6 +720,9 @@
+ {
+     // resize/position current TabPage
+     ImplTabItem* pItem = ImplGetItem( GetCurPageId() );
++    // HST Office: a page shown in the compact ribbon's popup (HstDropPage) is placed by the popup
++    if ( pItem && pItem->mpTabPage && pItem->mpTabPage->GetParent() != this )
++        return true;
+     if ( pItem && pItem->mpTabPage )
+     {
+         if (  GetStyle() & WB_NOBORDER )
+@@ -2488,6 +2491,7 @@
  
  void NotebookbarTabControlBase::dispose()
  {
@@ -1182,7 +1231,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
      m_pShortcuts.disposeAndClear();
      m_pOpenMenu.disposeAndClear();
      TabControl::dispose();
-@@ -2534,8 +2535,18 @@
+@@ -2534,8 +2538,27 @@
      SelectTabPage( TabControl::GetPageId( nCurPos ) );
  }
  
@@ -1193,6 +1242,15 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +    m_nHstRowReserve = nWidth;
 +    mbFormat = true;
 +    Invalidate();
++}
++
++void NotebookbarTabControlBase::HstSetPageReserve( tools::Long nWidth )
++{
++    nWidth = std::max<tools::Long>(0, nWidth);
++    if (nWidth == m_nHstPageReserve)
++        return;
++    m_nHstPageReserve = nWidth;
++    ImplPosCurTabPage();
 +}
 +
  bool NotebookbarTabControlBase::ImplPlaceTabs( tools::Long nWidth )
