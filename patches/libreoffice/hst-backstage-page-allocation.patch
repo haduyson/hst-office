@@ -1,0 +1,92 @@
+HST Office: every page of the File panel shows its content on Windows, macOS and gen (not only Home).
+
+On the VCL plugins (Windows, macOS, gen; GTK builds its own tree) the File panel showed Home only: Mới, Mở, Thông tin,
+Lưu thành, In and Xuất opened blank. The cause is in hstbackstage.ui, not in the layout code: seven self-closing
+properties (<property name="label"/> on greeting, recentempty, pinnedempty, newblank, newnd30, saveasfolder and
+<property name="uri"/> on moretemplates). VclBuilder reads a property's text with one more xmlreader step; for an
+empty element that step consumes the element's end, so its nesting level stays one too high and the siblings after
+the object are built inside it. At run time (UITest dump on gen) pagenew was a child of pagehome and the other five
+pages children of pagenew: shown, they stayed under a hidden page with no size, whatever ShowPage re-laid out.
+
+- sfx2 hstbackstage.ui: the seven empty properties are removed (the code sets those labels and the link itself, so
+  GTK is unchanged); newblank and newnd30 get their Vietnamese label in the file (the code still sets it per
+  application) so the accessibility check finds a label; the header comment says why no property may be empty.
+
+License: these upstream-derived files remain under their original license (MPL-2.0).
+Test: tests/unit/test_ui_empty_properties.py (no empty property in a .ui file the series adds or changes); gen on
+Xvfb, every File page has content (tests/runtime/check-backstage-print.py on feat/backstage-print shows the In page).
+---
+--- a/sfx2/uiconfig/ui/hstbackstage.ui
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -1,7 +1,9 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <!-- HST Office: the File panel, a drop-down popover under the ribbon, see sfx2/source/backstage/hstbackstagewindow.cxx.
+-     The children are in their visual order and carry no packing position: VclBuilder (the VCL plugins of Windows,
+-     macOS and gen) put some of them out of order inside the popover. -->
++     The children are in their visual order and carry no packing position. No property may be empty
++     (a self-closing property element): VclBuilder (the VCL plugins of Windows, macOS and gen) then nests the following
++     siblings into the object before them, which put widgets out of order and every page but Home inside a hidden
++     page, blank. Labels set by the code simply have no label property. -->
+ <interface domain="sfx">
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkImage" id="tileimg0">
+@@ -359,7 +361,6 @@
+               <object class="GtkLabel" id="greeting">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="label"/>
+                 <property name="xalign">0</property>
+               </object>
+               <packing>
+@@ -607,7 +608,6 @@
+                     <property name="receives-default">False</property>
+                     <property name="relief">none</property>
+                     <property name="valign">center</property>
+-                    <property name="uri"/>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -639,7 +639,6 @@
+                         <property name="visible">True</property>
+                         <property name="no-show-all">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="label"/>
+                         <property name="xalign">0</property>
+                       </object>
+                       <packing>
+@@ -771,7 +770,6 @@
+                         <property name="visible">True</property>
+                         <property name="no-show-all">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="label"/>
+                         <property name="xalign">0</property>
+                       </object>
+                       <packing>
+@@ -933,7 +931,8 @@
+                 <property name="spacing">12</property>
+                 <child>
+                   <object class="GtkButton" id="newblank">
+-                    <property name="label"/>
++                    <!-- set by the code for each application; a label of its own for accessibility -->
++                    <property name="label">Tài liệu trống</property>
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">False</property>
+@@ -945,7 +944,8 @@
+                 </child>
+                 <child>
+                   <object class="GtkButton" id="newnd30">
+-                    <property name="label"/>
++                    <!-- set by the code for each application; a label of its own for accessibility -->
++                    <property name="label">Văn bản hành chính (NĐ 30)</property>
+                     <property name="visible">True</property>
+                     <property name="no-show-all">True</property>
+                     <property name="can-focus">True</property>
+@@ -1555,7 +1555,6 @@
+               <object class="GtkLabel" id="saveasfolder">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="label"/>
+                 <property name="xalign">0</property>
+               </object>
+               <packing>
