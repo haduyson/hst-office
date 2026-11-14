@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from brand.banner_preview import ART, FONT, ROOT, png_bytes, preview  # noqa: E402
 
 DESIGN = ROOT / "docs/design"
-GENERATED_AT = "2026-11-07T12:45:00Z"
+GENERATED_AT = "2026-11-14T04:37:58Z"
 
 
 def luminance(color):

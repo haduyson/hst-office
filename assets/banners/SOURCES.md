@@ -18,7 +18,7 @@ and advertised web manifest. The committed copies live under
 | Zalo Mini App / `espace.png` | [eSpace product icon, 360×360](https://espace.vn/zaloapp/espace-logo.png) | The product's own current icon, advertised as favicon and touch icon. Blue sampled from logo; accent `#0068ff`. |
 | HST SEO / `hst-seo.png` | [Official touch icon, 180×180](https://seo.hasontech.vn/apple-touch-icon.png) | Actual product touch icon, sufficient for the 32px slot even at 3×; the page header uses the company logo. Site CSS `--blue: #0874c9`, `--blue-dark: #005a9f`. |
 | HST Post / `hst-post.svg`, `hst-post-512.png`, `hst-post-1024.png`, `hst-post-icon.svg`, `hst-post-icon-512.png` | Owner-supplied official `hasontech-official-logo.png` (476×393, RGBA), retained as `logos/hasontech.png` | Official blue HS triangle; H/S/T/O extracted from the all-caps official wordmark, P constructed from O/H strokes. All lettering is dark `#322e2e`. Surrounding product artwork uses forest green `#245c2a`. |
-| AI Dễ Lắm / `ai-de-lam-mark.png` | Official “Ai + sparkle” mark from the product's [og:image](https://aidelam.com/og-aidelam.png), 1200×630, retrieved 2026-11-14 | See “AI Dễ Lắm logo (2026-11-14)”. Replaces `ai-de-lam.svg` (the “AI” letters in a blue square, kept in `logos/` for reference) at the owner's request. |
+| AI Dễ Lắm / `ai-de-lam-mark.png` | Official “Ai + sparkle” mark from the product's [og:image](https://aidelam.com/og-aidelam.png), 1200×630, retrieved 2026-11-14 | See “AI Dễ Lắm logo (2026-11-14)”. Replaces the former `ai-de-lam.svg` favicon (the “AI” letters in a blue square, now removed) at the owner's request. |
 | Company / `hasontech.png` | **Official file supplied by the owner:** `/work/banner-inbox/local/hasontech-official-logo.png` | Unmodified 476×393 RGBA reference: blue HS triangle above italic, all-caps, one-colour “HASON TECH”. Supersedes the previously selected website logo. |
 
 Additional live assets inspected: AIOS `icon.svg` (embeds a 256px raster, not a true vector),
@@ -230,7 +230,7 @@ Strict constraints: no text, letters, digits, words, pseudo-text, watermarks, lo
 
 Round 3 (owner feedback of 2026-11-14: HASON TECH needed a nicer, multi-colour ecosystem image without the
 arrow; HST SEO and Zalo Mini App needed more colour) replaced those three illustrations. Two candidates were made
-for each; the branch ships candidate A, and the owner chooses between A and B in the review page. The same
+for each; the owner chose candidate A for HASON TECH and HST SEO and candidate B for Zalo Mini App. The same
 processing was applied with ImageMagick 6.9.12 instead of Pillow (premultiplied Lanczos, alpha cut-off 32).
 
 Preamble 3 (HST SEO, Zalo Mini App, HASON TECH):
@@ -258,11 +258,11 @@ generated source SHA-256 `a40c6c9a38b8fe8e31c1a1dcdc3e325e1f2b182bc336a1e5b3d7e1
 Subject: a personal AI companion taking care of daily tasks. A glossy luminous blue orb sits in a very low white-and-blue saucer dock at the LOWER LEFT foreground. ONE large upright rounded white to-do card with thick blue depth is BEHIND and to the RIGHT, tilted subtly clockwise in three-quarter perspective. The card is the tallest element and takes 65 percent of the total width: two large blue checkmarks inside separate rounded square recesses, stacked vertically, with one large empty square below. No lines, words or writing. The orb overlaps the lower left corner of the card and is roughly half the card height. ONE tiny calendar chip tucked off the card's upper LEFT edge, well above the orb: simple blue top binding and four large blue square day cells, no numbers. Hierarchy is an asymmetric diagonal from the low orb toward the tall task list; never two similarly sized tiles flanking a central orb, never mouse ears. Large easily read checks make work completion obvious at 75 px. Palette: white, #0072bb blue, #005a94 deep blue, #eef7fc light blue. No face, no robot, no external glow. Exactly the orb/dock, one checklist card, one small calendar.
 ```
 
-**`logos/zalo-mini-app-illustration.png`**: phone with blue, green, orange and violet mini-app tiles, an amber-roofed civic building and a coral-awning shop. Preamble 3, round 3 (owner feedback: more colour);
-generated source SHA-256 `8b9691a8970585cb558ca9316cc3004bb41d53b8b4bda92b2de5db21be806f13`.
+**`logos/zalo-mini-app-illustration.png`**: tilted phone with violet, blue, green and orange mini-app tiles, an orange-awning shop and a blue-and-gold civic building. Preamble 3, round 3, candidate B (chosen by the owner on 2026-11-14; candidate A was the default before);
+generated source SHA-256 `9289f01684c4e36e29d6ae3ac2758be77341a92c70853935be8347c75864dfb7`.
 
 ```text
-Subject: one large upright blue-and-white smartphone, almost frontal with a subtle three-quarter view, displaying exactly FOUR big glossy rounded app tiles in a clearly visible two-by-two grid. The upper-left tile is BLUE with one large solid white document pictogram with a folded corner and no lines; upper-right is GREEN with one white calendar pictogram containing one single square day cell and no text; lower-left is ORANGE with one white shopping-bag pictogram; lower-right is VIOLET with one white map-pin pictogram. The tiles occupy the upper three quarters of the phone and stay unobstructed. At the foot of the phone, two small chunky friendly structures pop forward: a pearl-white civic building on the LEFT, with three thick columns and a warm amber triangular roof; and a simple white shop on the RIGHT with a CORAL-RED-and-WHITE striped awning and one plain blue doorway. Both are clearly secondary to the phone and both must be visible. Phone frame stays glossy vivid blue #0068ff with a pearl-white screen and minimal physical details; no brand-specific notch, logo or marks. The four tiles must be distinct blue, green, orange and violet, never all blue. Cohesive compact silhouette, tiny roof and awning provide warm accents, plenty of clean space around the four white app pictograms. No text or signs on either building.
+Subject: one glossy white-and-blue smartphone leaning gently counterclockwise, seen in a stronger three-quarter view with a visible thick blue right edge. The screen holds exactly FOUR large rounded app tiles in a two-by-two grid, each with a single bold solid white pictogram: top-left VIOLET with a four-point sparkle, top-right BLUE with a blank chat bubble containing no dots, bottom-left TEAL-GREEN with a map pin, bottom-right AMBER-ORANGE with a shopping bag. Keep all four pictograms clear and unobstructed on a pearl-white screen. Two small structures form an asymmetric foreground along the foot of the phone: a chunky white SHOP on the LEFT with an ORANGE-and-WHITE striped awning, a simple blue doorway and no signs; and a slightly taller pearl-white CIVIC BUILDING on the RIGHT with three thick columns and a saturated blue triangular roof with a restrained warm-gold ridge. The phone rises behind both buildings and remains the dominant object, the buildings never cover the app tiles. Blue #0068ff frame, white screen and civic columns balance the vivid but soft tile colours. Different silhouette, tile order, pictograms and warm awning from the frontal version. No platform under the whole scene, no floating extra tiles, no branded notch, no logos, letters, words or text-like decoration.
 ```
 
 **`logos/hst-post-illustration.png`**: green megaphone sending a heart card and a share card. Preamble 1, round 1;
@@ -317,7 +317,7 @@ square, downscaled with premultiplied LANCZOS to 90×90 (30 px at 3×) and lossl
 Result `logos/ai-de-lam-mark.png`: 90×90 RGBA, 9,969 bytes; checked on white and dark grey without halo.
 
 An alternative letter-free mark (rounded blue tile with a white circuit sparkle, hand-authored SVG by Codex CLI
-`gpt-6-astra`, original, no external sources) is offered as option B in the review page only and is not committed.
+`gpt-6-astra`, original, no external sources) was offered as option B; the owner chose the official mark.
 
 ## Font
 
@@ -341,7 +341,6 @@ contrast measurement; all added text, including CTA and company endorsement, pas
 | `fonts/BeVietnamPro-SemiBold.ttf` | `bd8e27eb02720b9d91e59e4f10a90878643219f25ce6a8d9a4f06a8a88d3bb71` |
 | `fonts/OFL.txt` | `6b7f8f73609a25ea78c891e34cf37b06f8a676b7ea986e941e43b009110f2a85` |
 | `logos/ai-de-lam-mark.png` | `2efd38d3b6bc13c500c176f8ab42a30f26bb8b0b5e2a82284622b1568b40ceeb` |
-| `logos/ai-de-lam.svg` | `a8d37601aeb6b6948e4c7c4d79aa2688ca2d2358f18261cfa44c12e83b7b5291` |
 | `logos/aios.png` | `b759611d6d6f8ed42709fb8a9c9a75548f1b4c3aa8d64d87cb3df529af912fd1` |
 | `logos/echatbot.png` | `4ffc1c87a8f463e219cfb9c6a9c824830ec031606cdf63ccb9c97db1a2dc4fa9` |
 | `logos/echatbot-chibi.png` | `faa6273a437123903e27853604abe601f10fd9acb5ae0512d4a20983f1b4c05f` |
@@ -350,7 +349,7 @@ contrast measurement; all added text, including CTA and company endorsement, pas
 | `logos/hasontech-illustration.png` | `2b692d765e07966bcf5f49e03adf226f37c111675036e342082aa6f7c782fd9c` |
 | `logos/hst-post-illustration.png` | `7243bd5ce81fc9e65ddbaec31a9686e75ac1b8dc00eadf73b327933237812850` |
 | `logos/hst-seo-illustration.png` | `7a1fa6cb3f2ba034d95c04aadb38d1e9a75d7a356dfccf48007d330a468d97da` |
-| `logos/zalo-mini-app-illustration.png` | `a53592b400025bd74d6e44c28bb6788c0fb7744616536ffb8d54be6e0aad7e04` |
+| `logos/zalo-mini-app-illustration.png` | `f48ced6fc5373f90d1d4c9399fa87876e5e588c8f9046174ccca6b8e7b561aef` |
 | `logos/espace.png` | `bc390a069546d13784ddc6a8ae36c9cf877d7fc4ea3ce5472e036b4b529ba0ae` |
 | `logos/hasontech.png` | `2f77a5fce52a515d52333cca3879a0aec18e582628a7111c00a05714b1c4d2ef` |
 | `logos/hst-seo.png` | `8099441e2e8fedf9f0f2b97fb58c4ed7db866d1b2512b22a5f8aada990ee8822` |
